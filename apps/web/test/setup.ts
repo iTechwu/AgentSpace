@@ -20,7 +20,8 @@ if (typeof window !== "undefined" && typeof window.localStorage?.getItem !== "fu
 
 const explicitTestDatabaseUrl =
   process.env.AGENT_SPACE_TEST_DATABASE_URL?.trim()
-  || process.env.AGENT_SPACE_PG_TEST_URL?.trim();
+  || process.env.AGENT_SPACE_PG_TEST_URL?.trim()
+  || resolveConfiguredTestDatabaseUrl();
 
 if (explicitTestDatabaseUrl) {
   if (!looksLikeTestDatabaseUrl(explicitTestDatabaseUrl)) {
@@ -59,6 +60,18 @@ function resolveConfiguredDatabaseUrl(): string | undefined {
   return parsed.SELF_HOSTED_DATABASE_URL?.trim()
     || parsed.AGENT_SPACE_PG_URL?.trim()
     || parsed.DATABASE_URL?.trim()
+    || undefined;
+}
+
+function resolveConfiguredTestDatabaseUrl(): string | undefined {
+  const envFilePath = resolve(process.cwd(), "..", "..", ".env");
+  if (!existsSync(envFilePath)) {
+    return undefined;
+  }
+
+  const parsed = parseDotEnv(readFileSync(envFilePath, "utf8"));
+  return parsed.AGENT_SPACE_TEST_DATABASE_URL?.trim()
+    || parsed.AGENT_SPACE_PG_TEST_URL?.trim()
     || undefined;
 }
 

@@ -18,7 +18,7 @@ import {
 import { normalizeAdapterError, runNativeHarness } from "./shared.ts";
 import { runVersionCommand } from "./versions.ts";
 
-const HERMES_COMMANDS = ["hermes", "hermes-agent"] as const;
+const HERMES_COMMANDS = ["hermes-agent", "hermes"] as const;
 
 export const hermesAdapter: HarnessAdapter = {
   id: "hermes",

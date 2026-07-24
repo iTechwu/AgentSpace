@@ -930,6 +930,7 @@ describe("daemon API routes", () => {
       createdBy: "Tianyu",
     });
     const snapshot = registerDaemonRuntimesSync({
+      daemonTokenId: daemonToken.id,
       daemonKey: "build-box-app-failure",
       deviceName: "Build Box Failure",
       runtimes: [{ provider: "codex", name: "Remote Codex", version: "test" }],

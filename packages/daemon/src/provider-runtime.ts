@@ -153,7 +153,7 @@ const PROVIDER_CATALOG: Array<{
   {
     provider: "hermes",
     label: formatDaemonProviderLabel("hermes"),
-    commands: ["hermes", "hermes-agent"],
+    commands: ["hermes-agent", "hermes"],
     versionArgs: [["--version"], ["version"]],
   },
 ];
