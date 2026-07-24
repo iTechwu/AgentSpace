@@ -360,7 +360,7 @@ describe("SettingsPageClient", () => {
     });
   });
 
-  it("renders role-aware settings navigation for owners", () => {
+  it("omits SSO-managed sections from owner settings navigation", () => {
     const { container } = renderSettingsPage({
       currentMembershipRole: "owner",
       currentWorkspaceName: "Mars Labs",
@@ -368,203 +368,48 @@ describe("SettingsPageClient", () => {
     });
 
     expect(screen.queryByRole("link", { name: /设置总览/i })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: /账号资料/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: /偏好设置/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: /权限中心/i }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: /成员与角色/i }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: /邀请与访问/i }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: /账号资料/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /成员与角色/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /邀请与访问/i })).not.toBeInTheDocument();
     expect(container.querySelectorAll(".settings-nav__divider")).toHaveLength(1);
   });
 
-  it("shows admin navigation without owner-only workspace basics", () => {
+  it("omits SSO-managed sections from admin settings navigation", () => {
     renderSettingsPage({
       currentMembershipRole: "admin",
       currentWorkspaceName: "Mars Labs",
       initialSection: "account",
     });
 
-    expect(screen.getAllByRole("link", { name: /账号资料/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: /偏好设置/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: /安全与会话/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: /权限中心/i }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: /成员与角色/i }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: /邀请与访问/i }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: /账号资料/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /成员与角色/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /邀请与访问/i })).not.toBeInTheDocument();
     expect(screen.queryAllByRole("link", { name: /工作区基础/i })).toHaveLength(0);
   });
 
-  it("updates the current user profile from the account section", async () => {
-    const user = userEvent.setup();
-
-    renderSettingsPage({
-      currentMembershipRole: "owner",
-      currentUserDisplayName: "Mina",
-      currentUserId: "user-1",
-      initialSection: "account",
-      members: [
-        {
-          userId: "user-1",
-          displayName: "Mina",
-          primaryEmail: "mina@example.com",
-          role: "owner",
-        },
-      ],
-    });
-
-    await user.clear(screen.getByRole("textbox", { name: "用户名" }));
-    await user.type(screen.getByRole("textbox", { name: "用户名" }), "Mina Chen");
-    await user.click(screen.getByRole("button", { name: "保存用户名" }));
-
-    expect(mockUpdateCurrentUserProfileAction).toHaveBeenCalledWith({
-      displayName: "Mina Chen",
-    });
-    expect(await screen.findByText("用户名已更新。")).toBeInTheDocument();
-  });
-
-  it("lets owners manage workspace, members, and access from focused sections", async () => {
-    const user = userEvent.setup();
-    const sharedProps: ComponentProps<typeof SettingsPageClient> = {
-      currentMembershipRole: "owner",
-      currentUserDisplayName: "Mina",
-      currentUserId: "user-1",
-      currentWorkspaceName: "Mars Labs",
-      currentWorkspaceSlug: "mars-labs",
-      invitations: [
-        {
-          id: "invite-1",
-          email: "invitee@example.com",
-          role: "member",
-          status: "active",
-          createdAt: "2026-04-22T00:00:00.000Z",
-          expiresAt: "2026-04-29T00:00:00.000Z",
-          acceptedAt: undefined,
-        },
-      ],
-      members: [
-        {
-          userId: "user-1",
-          displayName: "Mina",
-          primaryEmail: "mina@example.com",
-          role: "owner",
-        },
-        {
-          userId: "user-2",
-          displayName: "Alex",
-          primaryEmail: "alex@example.com",
-          role: "admin",
-        },
-      ],
-    };
-
-    const { rerender } = renderSettingsPage({
-      ...sharedProps,
-      initialSection: "workspace",
-    });
-
-    await user.clear(screen.getByLabelText("工作区名称"));
-    await user.type(screen.getByLabelText("工作区名称"), "Mars Foundry");
-    await user.click(screen.getByRole("button", { name: "保存工作区设置" }));
-
-    expect(mockUpdateWorkspaceProfileAction).toHaveBeenCalledWith({
-      name: "Mars Foundry",
-    });
-
-    rerender(
-      <LanguageProvider>
-        <SidebarVisibilityProvider>
-          <SettingsPageClient {...sharedProps} initialSection="access" />
-        </SidebarVisibilityProvider>
-      </LanguageProvider>,
-    );
-
-    mockCreateWorkspaceInvitationAction.mockResolvedValue({
-      id: "invite-2",
-      email: "invitee@example.com",
-      role: "member",
-      expiresAt: "2026-04-29T00:00:00.000Z",
-      invitePath: "/invite/wsi_test",
-    });
-    await user.type(screen.getByRole("textbox", { name: "邀请邮箱" }), "invitee@example.com");
-    await user.click(screen.getByRole("button", { name: "创建邀请" }));
-
-    expect(mockCreateWorkspaceInvitationAction).toHaveBeenCalledWith({
-      email: "invitee@example.com",
-      role: "member",
-    });
-
-    rerender(
-      <LanguageProvider>
-        <SidebarVisibilityProvider>
-          <SettingsPageClient {...sharedProps} initialSection="members" />
-        </SidebarVisibilityProvider>
-      </LanguageProvider>,
-    );
-
-    await user.type(screen.getByRole("textbox", { name: "用户邮箱" }), "alex@example.com");
-    await user.selectOptions(screen.getAllByRole("combobox", { name: "角色" })[0]!, "admin");
-    await user.click(screen.getByRole("button", { name: "添加成员" }));
-
-    expect(mockAddWorkspaceMemberAction).toHaveBeenCalledWith({
-      email: "alex@example.com",
-      role: "admin",
-    });
-
-    await user.click(screen.getByRole("button", { name: "转移所有权" }));
-    expect(mockTransferWorkspaceOwnershipAction).toHaveBeenCalledWith("user-2");
-  });
-
-  it("lets admins manage members without owner-only ownership transfer", () => {
-    renderSettingsPage({
-      currentMembershipRole: "admin",
-      currentUserDisplayName: "Mina",
-      currentUserId: "user-1",
-      initialSection: "members",
-      members: [
-        {
-          userId: "user-1",
-          displayName: "Mina",
-          primaryEmail: "mina@example.com",
-          role: "admin",
-        },
-        {
-          userId: "user-2",
-          displayName: "Alex",
-          primaryEmail: "alex@example.com",
-          role: "member",
-        },
-      ],
-    });
-
-    expect(screen.getByRole("button", { name: "添加成员" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "移除成员" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "转移所有权" })).toBeNull();
-  });
-
-  it("hides workspace management navigation for plain members", () => {
+  it("omits SSO-managed navigation for plain members", () => {
     renderSettingsPage({
       currentMembershipRole: "member",
       currentUserDisplayName: "Mina",
       currentUserId: "user-1",
       currentWorkspaceName: "Mars Labs",
       currentWorkspaceSlug: "mars-labs",
-      initialSection: "account",
-      members: [
-        {
-          userId: "user-1",
-          displayName: "Mina",
-          primaryEmail: "mina@example.com",
-          role: "member",
-        },
-      ],
+      initialSection: "preferences",
     });
 
-    expect(screen.getAllByRole("link", { name: /账号资料/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: /偏好设置/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("安全与会话").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: /权限中心/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: /外部集成/i }).length).toBeGreaterThan(0);
-    expect(screen.queryAllByRole("link", { name: /工作区基础/i })).toHaveLength(0);
-    expect(screen.queryAllByRole("link", { name: /成员与角色/i })).toHaveLength(0);
-    expect(screen.queryAllByRole("link", { name: /邀请与访问/i })).toHaveLength(0);
+    expect(screen.queryByRole("link", { name: /账号资料/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /工作区基础/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /成员与角色/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /邀请与访问/i })).not.toBeInTheDocument();
   });
 
   it("renders the unified permissions center without exposing token fields", async () => {

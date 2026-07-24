@@ -81,6 +81,32 @@ test("detectProviders allows Claude Code when the daemon is running as root", as
   }
 });
 
+test("detectProviders registers only the configured container provider", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "agent-space-provider-bin-"));
+  const originalPath = process.env.PATH;
+  const originalRuntimeProvider = process.env.AGENT_SPACE_RUNTIME_PROVIDER;
+
+  try {
+    for (const command of ["codex", "claude"]) {
+      const filePath = join(binDir, command);
+      writeFileSync(filePath, "#!/bin/sh\necho 1.0.0\n", "utf8");
+      chmodSync(filePath, 0o755);
+    }
+    process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
+    process.env.AGENT_SPACE_RUNTIME_PROVIDER = "codex";
+
+    assert.deepEqual(detectProviders().map((provider) => provider.provider), ["codex"]);
+  } finally {
+    process.env.PATH = originalPath;
+    if (originalRuntimeProvider === undefined) {
+      delete process.env.AGENT_SPACE_RUNTIME_PROVIDER;
+    } else {
+      process.env.AGENT_SPACE_RUNTIME_PROVIDER = originalRuntimeProvider;
+    }
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
 test("resolveModelId returns provider-specific defaults and overrides for expanded providers", () => {
   const baseRuntime: Omit<ProviderRuntimeRecord, "provider"> = {
     id: "runtime-1",
@@ -240,10 +266,9 @@ test("runProviderTask resumes Codex sessions when sessionId is provided", async 
     assert.equal(args.includes("session-prev"), true);
     assert.equal(args.includes("--cd"), false);
     assert.equal(args.includes("--model"), false);
-    assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), true);
-    assert.equal(args.includes("sandbox_mode=\"danger-full-access\""), true);
-    assert.equal(args.includes("approval_policy=\"never\""), true);
-    assert.equal(args.includes("shell_environment_policy.inherit=\"all\""), true);
+    assert.equal(args.includes("--sandbox"), true);
+    assert.equal(args.includes("workspace-write"), true);
+    assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
@@ -460,8 +485,9 @@ test("runProviderTask sends Claude prompts through stream-json stdin", async () 
       assert.deepEqual(args.slice(0, 4), ["-p", "--output-format", "stream-json", "--input-format"]);
       assert.equal(args[4], "stream-json");
       assert.equal(args.includes("--permission-mode"), true);
-      assert.equal(args.includes("bypassPermissions"), true);
-      assert.equal(args.includes("--dangerously-skip-permissions"), true);
+      assert.equal(args.includes("auto"), true);
+      assert.equal(args.includes("bypassPermissions"), false);
+      assert.equal(args.includes("--dangerously-skip-permissions"), false);
       assert.deepEqual(args.slice(-2), ["--tools", "default"]);
       assert.equal(input.type, "user");
       assert.equal(input.message.role, "user");
@@ -915,7 +941,7 @@ test("runProviderTask routes Hermes through AgentRouter with model, PATH capabil
 
     assert.equal(result.output, "hermes provider output");
     assert.equal(result.sessionId, undefined);
-    assert.deepEqual(args, ["-z", "write a short reply", "--yolo", "--model", "nous-hermes"]);
+    assert.deepEqual(args, ["-z", "write a short reply", "--model", "nous-hermes"]);
     assert.equal(seenPath.includes(daemonBinDir), true);
     assert.equal(seenPath.includes(toolBinDir), true);
 

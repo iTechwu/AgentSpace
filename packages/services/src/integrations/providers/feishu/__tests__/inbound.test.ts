@@ -60,7 +60,6 @@ before(() => {
     symlinkSync(join(repositoryRoot, "packages"), packagesLink, "dir");
   }
   process.chdir(tempRoot);
-  process.env.AGENT_SPACE_DEPLOYMENT_MODE = "self_hosted";
   process.env.AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY = Buffer
     .from("0123456789abcdef0123456789abcdef", "utf8")
     .toString("base64");

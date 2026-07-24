@@ -17,6 +17,7 @@ const {
   mockRevalidatePath,
   mockReadUserByEmailSync,
   mockReadDaemonApiTokenSync,
+  mockReadAuthIdentityForUserSync,
   mockRevokeOtherSessionsForUserSync,
   mockRevokeDaemonApiTokenSync,
   mockRevokeWorkspaceInvitationSync,
@@ -38,6 +39,7 @@ const {
   mockRevalidatePath: vi.fn(),
   mockReadUserByEmailSync: vi.fn(),
   mockReadDaemonApiTokenSync: vi.fn(),
+  mockReadAuthIdentityForUserSync: vi.fn(),
   mockRevokeOtherSessionsForUserSync: vi.fn(),
   mockRevokeDaemonApiTokenSync: vi.fn(),
   mockRevokeWorkspaceInvitationSync: vi.fn(),
@@ -70,6 +72,7 @@ vi.mock("@agent-space/db", () => ({
   listWorkspaceMemberUsersSync: mockListWorkspaceMemberUsersSync,
   listWorkspaceInvitationsSync: mockListWorkspaceInvitationsSync,
   readUserByEmailSync: mockReadUserByEmailSync,
+  readAuthIdentityForUserSync: mockReadAuthIdentityForUserSync,
   readDaemonApiTokenSync: mockReadDaemonApiTokenSync,
   revokeOtherSessionsForUserSync: mockRevokeOtherSessionsForUserSync,
   revokeDaemonApiTokenSync: mockRevokeDaemonApiTokenSync,
@@ -116,6 +119,7 @@ describe("settings actions", () => {
     mockListWorkspaceInvitationsSync.mockReset();
     mockReadUserByEmailSync.mockReset();
     mockReadDaemonApiTokenSync.mockReset();
+    mockReadAuthIdentityForUserSync.mockReset();
     mockRevokeOtherSessionsForUserSync.mockReset();
     mockRevokeDaemonApiTokenSync.mockReset();
     mockRevokeWorkspaceInvitationSync.mockReset();
@@ -128,6 +132,7 @@ describe("settings actions", () => {
     mockUpdateWorkspaceMembershipRoleSync.mockReset();
     mockUpdateWorkspaceSync.mockReset();
     mockUpsertWorkspaceMembershipSync.mockReset();
+    mockReadAuthIdentityForUserSync.mockReturnValue(null);
     mockRevalidatePath.mockReset();
 
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext());
@@ -252,6 +257,21 @@ describe("settings actions", () => {
       recipientId: "user-3",
       type: "workspace.member_added",
     }));
+  });
+
+  it("rejects local workspace membership writes for SSO-managed workspaces", async () => {
+    const ssoWorkspaceContext = buildWorkspaceContext();
+    ssoWorkspaceContext.currentWorkspace.id = "sso-team-mars";
+    ssoWorkspaceContext.currentMembership.workspaceId = "sso-team-mars";
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(ssoWorkspaceContext);
+
+    await expect(addWorkspaceMemberAction({
+      email: "taylor@example.com",
+      role: "member",
+    })).rejects.toThrow("auth.sso_workspace_managed");
+
+    expect(mockReadUserByEmailSync).not.toHaveBeenCalled();
+    expect(mockUpsertWorkspaceMembershipSync).not.toHaveBeenCalled();
   });
 
   it("creates a workspace invitation", async () => {

@@ -155,7 +155,7 @@ export async function GET(
 }
 
 async function readAttachmentContent(attachment: MessageAttachment): Promise<Uint8Array> {
-  if ((attachment.storageProvider === "r2" || attachment.storageProvider === "s3") && attachment.storageKey) {
+  if ((attachment.storageProvider === "tos" || attachment.storageProvider === "s3") && attachment.storageKey) {
     return createAttachmentStorageClient().getObject({
       storageProvider: attachment.storageProvider,
       storageBucket: attachment.storageBucket,
@@ -353,5 +353,5 @@ function isStorageMissingError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
-  return /R2 read failed with status 404|NoSuchKey|NoSuchBucket/i.test(error.message);
+  return /TOS read failed with status 404|NoSuchKey|NoSuchBucket/i.test(error.message);
 }

@@ -235,7 +235,7 @@ async function loadWorkspaceModuleDataUncached(
     case "settings":
       return {
         moduleId,
-        data: loadSettingsWorkspaceModuleData(workspaceId, viewer, options),
+        data: await loadSettingsWorkspaceModuleData(workspaceId, viewer, options),
       };
     case "skills":
       return {
@@ -347,19 +347,19 @@ function buildWorkspaceModuleLoadCacheKey(
   ]);
 }
 
-function loadSettingsWorkspaceModuleData(
+async function loadSettingsWorkspaceModuleData(
   workspaceId: string,
   viewer?: WorkspaceModuleViewer,
   options: {
     settingsPath?: string[];
   } = {},
-): SettingsPageData {
+): Promise<SettingsPageData> {
   const workspace = readWorkspaceSync(workspaceId);
   if (!workspace || !viewer) {
     throw new Error("Settings module requires a workspace and viewer.");
   }
 
-  return loadSettingsPageData({
+  return await loadSettingsPageData({
     currentSessionId: viewer.sessionId,
     currentUser: {
       displayName: viewer.displayName,

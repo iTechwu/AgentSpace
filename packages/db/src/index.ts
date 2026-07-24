@@ -165,14 +165,13 @@ export {
   countActiveSessionsForUserSync,
   countWorkspaceMembersSync,
   countUsersSync,
-  createPasswordAuthIdentitySync,
   createSessionSync,
   createUserSync,
   deleteSessionByTokenHashSync,
   listSessionsForUserSync,
   listWorkspaceMemberUsersSync,
+  readAuthIdentityForUserSync,
   readAuthIdentityByProviderSubjectSync,
-  readPasswordAuthIdentityByEmailSync,
   readSessionByTokenHashSync,
   readUserByEmailSync,
   readUserSync,
@@ -180,7 +179,6 @@ export {
   revokeSessionByIdSync,
   touchSessionLastSeenSync,
   updateUserSync,
-  type PasswordAuthIdentityRecord,
   type WorkspaceMemberUserRecord,
 } from "./user-auth.ts";
 

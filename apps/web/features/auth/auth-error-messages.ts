@@ -2,50 +2,29 @@ export function translateAuthError(
   message: string,
   tx: (zh: string, en: string) => string,
 ): string {
-  if (message === "auth.email_exists") {
-    return tx("该邮箱已经注册。", "This email is already registered.");
+  if (message === "auth.sso_access_denied") {
+    return tx("你取消了 Dofe SSO 登录。", "You cancelled Dofe SSO sign-in.");
   }
-  if (message === "auth.account_not_found") {
-    return tx("账号不存在。", "Account not found.");
+  if (message === "auth.sso_state_invalid" || message === "auth.sso_id_token_invalid") {
+    return tx("Dofe SSO 登录状态校验失败，请重试。", "Dofe SSO sign-in verification failed. Please try again.");
   }
-  if (message === "auth.invalid_password") {
-    return tx("密码错误。", "Incorrect password.");
+  if (message === "auth.sso_email_not_verified") {
+    return tx("Dofe SSO 账户的邮箱尚未验证。", "Your Dofe SSO account email is not verified.");
   }
-  if (message === "auth.google_state_invalid") {
-    return tx("Google 登录状态校验失败，请重试。", "Google sign-in state validation failed. Please try again.");
+  if (message === "auth.sso_profile_missing_email") {
+    return tx("Dofe SSO 未返回可用邮箱。", "Dofe SSO did not return a usable email address.");
   }
-  if (message === "auth.google_exchange_failed" || message === "auth.google_userinfo_failed") {
-    return tx("Google 登录失败，请稍后重试。", "Google sign-in failed. Please try again.");
+  if (message === "auth.sso_profile_managed") {
+    return tx("账号资料由 Dofe SSO 管理。", "Account details are managed by Dofe SSO.");
   }
-  if (message === "auth.google_email_not_verified") {
-    return tx("Google 邮箱尚未验证。", "Your Google email is not verified.");
+  if (message === "auth.sso_user_inactive") {
+    return tx("该 Dofe SSO 账户已停用。", "This Dofe SSO account is inactive.");
   }
-  if (message === "auth.google_profile_missing_email") {
-    return tx("Google 账户未返回可用邮箱。", "Google did not return a usable email address.");
+  if (message === "auth.sso_no_workspace" || message === "auth.sso_workspace_managed") {
+    return tx("工作区与成员资格由 Dofe SSO 管理，请在 SSO 中加入租户或团队后重新登录。", "Workspaces and memberships are managed by Dofe SSO. Join a tenant or team in SSO, then sign in again.");
   }
-  if (message === "auth.google_nonce_invalid") {
-    return tx("Google 登录校验失败，请重试。", "Google sign-in verification failed. Please try again.");
-  }
-  if (message === "auth.google_account_link_required") {
-    return tx("请先确认并绑定现有账号，再继续使用 Google 登录。", "Please confirm and link your existing account before continuing with Google sign-in.");
-  }
-  if (message === "auth.google_profile_setup_required") {
-    return tx("请先确认用户名和工作区名字，再继续使用 Google 登录。", "Please confirm your username and workspace name before continuing with Google sign-in.");
-  }
-  if (message === "auth.google_link_expired") {
-    return tx("Google 绑定流程已过期，请重新发起登录。", "The Google account-link flow expired. Please start Google sign-in again.");
-  }
-  if (message === "auth.google_profile_setup_expired") {
-    return tx("Google 首次登录补全流程已过期，请重新发起登录。", "The first-time Google setup flow expired. Please start Google sign-in again.");
-  }
-  if (message === "auth.google_link_requires_password") {
-    return tx("该账号需要先通过密码确认后才能绑定 Google。", "This account must be confirmed with its password before Google can be linked.");
-  }
-  if (message === "auth.google_account_conflict") {
-    return tx("这个 Google 账号已经绑定到其他用户。", "This Google account is already linked to another user.");
-  }
-  if (message === "access_denied") {
-    return tx("你取消了 Google 登录。", "You cancelled Google sign-in.");
+  if (message.startsWith("auth.sso_")) {
+    return tx("Dofe SSO 登录失败，请稍后重试。", "Dofe SSO sign-in failed. Please try again.");
   }
   if (message === "workspace.invitation.invalid" || message === "workspace.invitation.inactive") {
     return tx("邀请链接无效。", "Invitation link is invalid.");

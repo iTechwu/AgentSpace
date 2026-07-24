@@ -94,8 +94,12 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
   const detected = detectProviders();
   if (detected.length === 0) {
     rmSync(pidPath, { force: true });
+    const configuredProvider = process.env.AGENT_SPACE_RUNTIME_PROVIDER?.trim();
+    const providerScope = configuredProvider
+      ? ` for AGENT_SPACE_RUNTIME_PROVIDER=${configuredProvider}`
+      : "";
     console.error(
-      "No supported provider CLI found. Install `codex`, `claude`, `agy`, `gemini`, `opencode`, `openclaw`, `nanobot`, or `hermes` and ensure it is on PATH.",
+      `No supported provider CLI found${providerScope}. Install the configured provider and ensure it is on PATH.`,
     );
     return 1;
   }

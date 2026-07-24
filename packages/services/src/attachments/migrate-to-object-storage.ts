@@ -92,7 +92,7 @@ function migrateMessageAttachments(input: {
   let changed = false;
   for (const attachment of input.message.attachments ?? []) {
     input.result.scannedAttachments += 1;
-    if ((attachment.storageProvider === "r2" || attachment.storageProvider === "s3") && attachment.storageKey) {
+    if ((attachment.storageProvider === "tos" || attachment.storageProvider === "s3") && attachment.storageKey) {
       input.result.alreadyCloudAttachments += 1;
       continue;
     }

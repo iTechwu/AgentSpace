@@ -8,11 +8,6 @@ export interface WorkspaceMemberUserRecord {
   role: WorkspaceRole;
 }
 
-export interface PasswordAuthIdentityRecord {
-  identity: StoredAuthIdentityRecord;
-  passwordHash: string;
-}
-
 export function countUsersSync(): number {
   const db = getDatabase();
   const row = db.prepare("SELECT COUNT(*) AS count FROM users").get() as { count: number };
@@ -76,21 +71,6 @@ export function readUserByEmailSync(email: string): StoredUserRecord | null {
   return row ? mapStoredUserRecord(row) : null;
 }
 
-export function createPasswordAuthIdentitySync(input: {
-  userId: string;
-  email: string;
-  passwordHash: string;
-}): StoredAuthIdentityRecord {
-  return createAuthIdentitySync({
-    userId: input.userId,
-    provider: "password",
-    providerSubject: input.email,
-    email: input.email,
-    emailVerified: true,
-    profileJson: JSON.stringify({ passwordHash: input.passwordHash }),
-  });
-}
-
 export function createAuthIdentitySync(input: {
   userId: string;
   provider: AuthProvider;
@@ -135,58 +115,12 @@ export function createAuthIdentitySync(input: {
   return readAuthIdentitySync(id)!;
 }
 
-export function readPasswordAuthIdentityByEmailSync(email: string): PasswordAuthIdentityRecord | null {
-  const db = getDatabase();
-  const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail) {
-    return null;
-  }
-
-  const row = db.prepare(
-    `SELECT
-      id,
-      user_id AS userId,
-      provider,
-      provider_subject AS providerSubject,
-      email,
-      email_verified AS emailVerified,
-      profile_json AS profileJson,
-      created_at AS createdAt,
-      updated_at AS updatedAt
-     FROM auth_identity
-     WHERE provider = 'password' AND provider_subject = ?`,
-  ).get(normalizedEmail) as Record<string, unknown> | undefined;
-
-  const identity = row ? mapStoredAuthIdentityRecord(row) : null;
-  if (!identity) {
-    return null;
-  }
-
-  let passwordHash = "";
-  try {
-    const parsed = JSON.parse(identity.profileJson) as Record<string, unknown>;
-    passwordHash = typeof parsed.passwordHash === "string" ? parsed.passwordHash : "";
-  } catch {
-    passwordHash = "";
-  }
-  if (!passwordHash) {
-    return null;
-  }
-
-  return {
-    identity,
-    passwordHash,
-  };
-}
-
 export function readAuthIdentityByProviderSubjectSync(
   provider: AuthProvider,
   providerSubject: string,
 ): StoredAuthIdentityRecord | null {
   const db = getDatabase();
-  const normalizedProviderSubject = provider === "password"
-    ? normalizeEmail(providerSubject)
-    : providerSubject.trim();
+  const normalizedProviderSubject = providerSubject.trim();
   if (!normalizedProviderSubject) {
     return null;
   }
@@ -205,6 +139,36 @@ export function readAuthIdentityByProviderSubjectSync(
      FROM auth_identity
      WHERE provider = ? AND provider_subject = ?`,
   ).get(provider, normalizedProviderSubject) as Record<string, unknown> | undefined;
+
+  return row ? mapStoredAuthIdentityRecord(row) : null;
+}
+
+export function readAuthIdentityForUserSync(
+  userId: string,
+  provider: AuthProvider,
+): StoredAuthIdentityRecord | null {
+  const normalizedUserId = userId.trim();
+  if (!normalizedUserId) {
+    return null;
+  }
+
+  const db = getDatabase();
+  const row = db.prepare(
+    `SELECT
+      id,
+      user_id AS userId,
+      provider,
+      provider_subject AS providerSubject,
+      email,
+      email_verified AS emailVerified,
+      profile_json AS profileJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+     FROM auth_identity
+     WHERE user_id = ? AND provider = ?
+     ORDER BY created_at ASC
+     LIMIT 1`,
+  ).get(normalizedUserId, provider) as Record<string, unknown> | undefined;
 
   return row ? mapStoredAuthIdentityRecord(row) : null;
 }
@@ -449,7 +413,7 @@ function mapStoredAuthIdentityRecord(value: Record<string, unknown>): StoredAuth
   if (
     typeof value.id !== "string" ||
     typeof value.userId !== "string" ||
-    (value.provider !== "google" && value.provider !== "password" && value.provider !== "email") ||
+    value.provider !== "sso" ||
     typeof value.providerSubject !== "string" ||
     typeof value.emailVerified !== "number" ||
     typeof value.profileJson !== "string" ||

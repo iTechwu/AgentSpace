@@ -1,0 +1,78 @@
+services:
+  runtime-codex:
+    build:
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile
+      args:
+        PROVIDER_INSTALL_COMMAND: ${CODEX_PROVIDER_INSTALL_COMMAND}
+    image: agent-space-runtime-codex:local
+    env_file: ./runtimes/codex.env
+    volumes:
+      - codex-auth:/home/agent-space
+      - codex-state:/var/lib/agent-space-daemon
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  runtime-claude:
+    build:
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile
+      args:
+        PROVIDER_INSTALL_COMMAND: ${CLAUDE_PROVIDER_INSTALL_COMMAND}
+    image: agent-space-runtime-claude:local
+    env_file: ./runtimes/claude.env
+    volumes:
+      - claude-auth:/home/agent-space
+      - claude-state:/var/lib/agent-space-daemon
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  runtime-openclaw:
+    build:
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile
+      args:
+        PROVIDER_INSTALL_COMMAND: ${OPENCLAW_PROVIDER_INSTALL_COMMAND}
+    image: agent-space-runtime-openclaw:local
+    env_file: ./runtimes/openclaw.env
+    volumes:
+      - openclaw-auth:/home/agent-space
+      - openclaw-state:/var/lib/agent-space-daemon
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  runtime-hermes:
+    build:
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile
+      args:
+        PROVIDER_INSTALL_COMMAND: ${HERMES_PROVIDER_INSTALL_COMMAND}
+    image: agent-space-runtime-hermes:local
+    env_file: ./runtimes/hermes.env
+    volumes:
+      - hermes-auth:/home/agent-space
+      - hermes-state:/var/lib/agent-space-daemon
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+volumes:
+  codex-auth:
+  codex-state:
+  claude-auth:
+  claude-state:
+  openclaw-auth:
+  openclaw-state:
+  hermes-auth:
+  hermes-state:

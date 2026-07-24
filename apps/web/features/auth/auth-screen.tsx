@@ -1,8 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition, type ReactNode } from "react";
-import { loginAction, registerAction } from "@/features/auth/actions";
+import { useState, type ReactNode } from "react";
 import { useLanguage, type LanguageCode } from "@/features/i18n/language-provider";
 import type { WorkspaceRole } from "@agent-space/db";
 import { translateAuthError } from "./auth-error-messages";
@@ -54,70 +52,27 @@ interface AuthStory {
   invitationTitle?: string;
   invitationBody?: string;
   invitationDetails?: AuthStoryDetail[];
-  submitLabel: string;
-  googleLabel: string;
+  ssoLabel: string;
 }
 
-type FeedbackState =
-  | { tone: "idle" }
-  | { tone: "error"; message: string };
-
 export function AuthScreen({
-  hasUsers,
-  googleStartUrl: externalGoogleStartUrl,
+  ssoStartUrl: externalSsoStartUrl,
   initialError,
-  initialWorkspaceJoinCode,
   invitation,
 }: {
-  hasUsers: boolean;
-  googleStartUrl?: string;
+  ssoStartUrl?: string;
   initialError?: string;
-  initialWorkspaceJoinCode?: string;
   invitation?: InvitationContext;
 }) {
   const { language, setLanguage, tx } = useLanguage();
-  const router = useRouter();
-  const [mode, setMode] = useState<AuthMode>(hasUsers ? "login" : "register");
-  const [feedback, setFeedback] = useState<FeedbackState>(
-    initialError
-      ? { tone: "error", message: translateAuthError(initialError, tx) }
-      : { tone: "idle" },
-  );
-  const [workspaceJoinCode, setWorkspaceJoinCode] = useState(initialWorkspaceJoinCode ?? "");
   const [heroShowcaseIndex, setHeroShowcaseIndex] = useState(0);
-  const [isPending, startTransition] = useTransition();
-  const story = buildAuthStory({ mode, invitation, tx, language });
+  const story = buildAuthStory({ mode: "login", invitation, tx, language });
   const landingShowcases = buildLandingShowcases(tx);
   const heroShowcase = landingShowcases[heroShowcaseIndex] ?? landingShowcases[0];
-  const googleStartUrlBase = externalGoogleStartUrl ?? (invitation
-    ? `/api/auth/google/start?invitationToken=${encodeURIComponent(invitation.token)}`
-    : "/api/auth/google/start");
-  const googleStartUrl = buildGoogleStartUrlWithJoinCode(googleStartUrlBase, invitation ? undefined : workspaceJoinCode);
-
-  function handleSubmit(formData: FormData): void {
-    setFeedback({ tone: "idle" });
-
-    startTransition(async () => {
-      try {
-        const result = mode === "register"
-          ? await registerAction(formData)
-          : await loginAction(formData);
-
-        if (!result.ok) {
-          setFeedback({ tone: "error", message: translateAuthError(result.error, tx) });
-          return;
-        }
-
-        router.push(result.redirectPath ?? "/");
-        router.refresh();
-      } catch (error) {
-        const message = error instanceof Error
-          ? translateAuthError(error.message, tx)
-          : tx("请求失败，请稍后重试。", "Request failed. Please try again.");
-        setFeedback({ tone: "error", message });
-      }
-    });
-  }
+  const ssoStartUrlBase = externalSsoStartUrl ?? (invitation
+    ? `/api/auth/sso/start?invitationToken=${encodeURIComponent(invitation.token)}`
+    : "/api/auth/sso/start");
+  const ssoStartUrl = ssoStartUrlBase;
 
   function showPreviousShowcase(): void {
     setHeroShowcaseIndex((current) => (current - 1 + landingShowcases.length) % landingShowcases.length);
@@ -371,136 +326,21 @@ export function AuthScreen({
             </div>
           ) : null}
 
-          <div className="auth-tabs">
-            <button
-              className={`auth-tabs__item${mode === "register" ? " auth-tabs__item--active" : ""}`}
-              type="button"
-              onClick={() => setMode("register")}
-            >
-              {tx("注册", "Register")}
-            </button>
-            <button
-              className={`auth-tabs__item${mode === "login" ? " auth-tabs__item--active" : ""}`}
-              type="button"
-              onClick={() => setMode("login")}
-            >
-              {tx("登录", "Sign In")}
-            </button>
-          </div>
-
-          <form
-            className="auth-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              handleSubmit(new FormData(event.currentTarget));
-            }}
-          >
-            {invitation ? <input name="invitationToken" type="hidden" value={invitation.token} /> : null}
-            {!invitation ? (
-              <label className="auth-field">
-                <span>{tx("工作区邀请码（可选）", "Workspace invite code (optional)")}</span>
-                <input
-                  autoComplete="off"
-                  inputMode="text"
-                  name="workspaceJoinCode"
-                  onChange={(event) => setWorkspaceJoinCode(event.target.value)}
-                  placeholder={tx("例如 A7K2M9Q4", "e.g. A7K2M9Q4")}
-                  type="text"
-                  value={workspaceJoinCode}
-                />
-                <small className="auth-field__hint">
-                  {tx(
-                    "如果你拿到了 8 位工作区邀请码，登录或注册后会自动加入对应工作区。",
-                    "If you have an 8-character workspace invite code, sign-in or registration will join that workspace automatically.",
-                  )}
-                </small>
-              </label>
-            ) : null}
-            {mode === "register" ? (
-              <>
-                <label className="auth-field">
-                  <span>{tx("你的名字", "Your name")}</span>
-                  <input autoComplete="name" name="displayName" placeholder="Mina" required type="text" />
-                </label>
-              </>
-            ) : null}
-
-            <label className="auth-field">
-              <span>{tx("邮箱", "Email")}</span>
-              {invitation ? (
-                <>
-                  <input name="email" type="hidden" value={invitation.email} />
-                  <input
-                    aria-readonly="true"
-                    autoComplete="email"
-                    className="auth-field__locked-input"
-                    defaultValue={invitation.email}
-                    disabled
-                    placeholder={tx("founder@example.com", "founder@example.com")}
-                    type="email"
-                  />
-                  <small className="auth-field__hint">
-                    {tx(
-                      "这条邀请已锁定到受邀邮箱。如需改用其他邮箱，请让工作区管理员重新发送邀请。",
-                      "This invite is locked to the invited email. If you need another email, ask a workspace admin to send a new invite.",
-                    )}
-                  </small>
-                </>
-              ) : (
-                <>
-                  <input
-                    autoComplete="email"
-                    name="email"
-                    placeholder={tx("founder@example.com", "founder@example.com")}
-                    required
-                    type="email"
-                  />
-                  {mode === "register" ? (
-                    <small className="auth-field__hint">
-                      {tx(
-                        "首次进入会创建默认工作区，之后可以继续邀请同事或 Agent。",
-                        "Your first sign-in creates a default workspace, then you can invite teammates or agents.",
-                      )}
-                    </small>
-                  ) : null}
-                </>
-              )}
-            </label>
-
-            <label className="auth-field">
-              <span>{tx("密码", "Password")}</span>
-              <input
-                autoComplete={mode === "register" ? "new-password" : "current-password"}
-                name="password"
-                placeholder={tx("输入密码", "Enter password")}
-                required
-                type="password"
-              />
-            </label>
-
+          <div className="auth-form">
             <div className="auth-actions auth-actions--stack">
-              <button className="auth-button" disabled={isPending} type="submit">
-                {isPending ? tx("处理中...", "Working...") : story.submitLabel}
-              </button>
               <a
-                aria-disabled={isPending ? "true" : undefined}
-                className="workspace-ghost-button auth-google-button"
-                href={googleStartUrl}
-                onClick={(event) => {
-                  if (isPending) {
-                    event.preventDefault();
-                  }
-                }}
+                className="auth-button"
+                href={ssoStartUrl}
               >
-                {story.googleLabel}
+                {story.ssoLabel}
               </a>
-              {feedback.tone === "error" ? (
+              {initialError ? (
                 <p className="auth-feedback" role="alert">
-                  {feedback.message}
+                  {translateAuthError(initialError, tx)}
                 </p>
               ) : null}
             </div>
-          </form>
+          </div>
         </section>
       </section>
     </main>
@@ -550,16 +390,6 @@ function buildLandingShowcases(tx: TranslationFunction): LandingShowcase[] {
       proof: tx("每一次访问、执行和外发都有边界、有记录、有控制。", "Every access, execution, and outbound action has boundaries, records, and control."),
     },
   ];
-}
-
-function buildGoogleStartUrlWithJoinCode(baseUrl: string, joinCode?: string): string {
-  const normalizedJoinCode = joinCode?.trim();
-  if (!normalizedJoinCode) {
-    return baseUrl;
-  }
-
-  const separator = baseUrl.includes("?") ? "&" : "?";
-  return `${baseUrl}${separator}joinCode=${encodeURIComponent(normalizedJoinCode)}`;
 }
 
 function translateInvitationRole(
@@ -731,10 +561,7 @@ function buildAuthStory({
         { label: tx("登录后", "After sign-in"), value: tx("直接进入共享收件箱", "Open the shared inbox directly") },
         { label: tx("受邀邮箱", "Invited email"), value: invitation.email },
       ],
-      submitLabel: mode === "register"
-        ? tx("创建账号并加入工作区", "Create account and join workspace")
-        : tx("登录并进入工作区", "Sign in and enter workspace"),
-      googleLabel: tx("使用 Google 进入工作区", "Continue with Google to join workspace"),
+      ssoLabel: tx("使用 Dofe SSO 进入工作区", "Continue with Dofe SSO to join workspace"),
     };
   }
 
@@ -767,8 +594,7 @@ function buildAuthStory({
         "适合第一次使用；注册完成后会先创建默认工作区，再开始配置 Agent、runtime、harness 和权限规则。",
         "Best for first-time users. Registration creates a default workspace before you configure agents, runtimes, harnesses, and permission rules.",
       ),
-      submitLabel: tx("创建账号并打开工作台", "Create account and open workspace"),
-      googleLabel: tx("使用 Google 创建账号", "Continue with Google to create an account"),
+      ssoLabel: tx("使用 Dofe SSO 创建账号", "Continue with Dofe SSO to create an account"),
     };
   }
 
@@ -801,7 +627,6 @@ function buildAuthStory({
       "适合已有账号的回访用户；登录后会回到你最近使用的 Agent 工作区和安全控制面板。",
       "Best for returning users with an existing account. Sign in to reopen your recent agent workspace and security controls.",
     ),
-    submitLabel: tx("登录进入工作台", "Sign in to workspace"),
-    googleLabel: tx("使用 Google 登录", "Continue with Google"),
+    ssoLabel: tx("使用 Dofe SSO 登录", "Continue with Dofe SSO"),
   };
 }

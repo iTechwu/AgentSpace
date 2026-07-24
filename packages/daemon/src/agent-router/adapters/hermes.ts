@@ -50,7 +50,7 @@ async function buildHermesLaunch(input: AgentRouterRunRequest): Promise<HarnessL
     throw new Error("Hermes Agent CLI was not found on PATH.");
   }
 
-  const args = ["-z", input.prompt, "--yolo"];
+  const args = ["-z", input.prompt];
   if (input.model) {
     args.push("--model", input.model);
   }

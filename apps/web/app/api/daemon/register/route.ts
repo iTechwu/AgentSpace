@@ -40,19 +40,32 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "workspaceId does not match the daemon token." }, { status: 403 });
   }
 
-  const snapshot = registerDaemonRuntimesSync({
-    daemonKey: body.daemonKey.trim(),
-    deviceName: body.deviceName.trim(),
-    workspaceId: auth.workspaceId,
-    metadata: body.metadata,
-    runtimes: body.runtimes.map((runtime) => ({
-      provider: runtime.provider,
-      name: runtime.name.trim(),
-      version: runtime.version?.trim(),
-      deviceInfo: runtime.deviceInfo?.trim(),
-      metadata: runtime.metadata,
-    })),
-  });
+  let snapshot;
+  try {
+    snapshot = registerDaemonRuntimesSync({
+      daemonKey: body.daemonKey.trim(),
+      deviceName: body.deviceName.trim(),
+      workspaceId: auth.workspaceId,
+      daemonTokenId: auth.token.id,
+      metadata: body.metadata,
+      runtimes: body.runtimes.map((runtime) => ({
+        provider: runtime.provider,
+        name: runtime.name.trim(),
+        version: runtime.version?.trim(),
+        deviceInfo: runtime.deviceInfo?.trim(),
+        metadata: runtime.metadata,
+      })),
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "daemon.registration_failed";
+    if (code === "daemon.key_workspace_mismatch") {
+      return Response.json({ error: "daemonKey is already registered to another workspace." }, { status: 403 });
+    }
+    if (code === "daemon.token_binding_mismatch" || code === "daemon.connection_token_bound") {
+      return Response.json({ error: "Daemon token is already bound to a different daemon." }, { status: 403 });
+    }
+    throw error;
+  }
   grantRegisteredRuntimesToTokenCreator({
     workspaceId: auth.workspaceId,
     createdBy: auth.token.createdBy,

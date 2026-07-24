@@ -1,5 +1,5 @@
 import { claimNextQueuedTaskForRuntimeSync } from "@agent-space/db";
-import { readRuntimeForWorkspace, requireDaemonAuth } from "../../../../_lib/auth";
+import { readRuntimeForDaemon, requireDaemonAuth } from "../../../../_lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export async function POST(
   }
 
   const { runtimeId } = await context.params;
-  const runtime = readRuntimeForWorkspace(runtimeId, auth.workspaceId);
+  const runtime = readRuntimeForDaemon(runtimeId, auth);
   if (runtime instanceof Response) {
     return runtime;
   }

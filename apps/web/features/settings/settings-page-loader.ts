@@ -1,13 +1,10 @@
 import {
-  listChannelAccessRequestsSync,
-  listChannelInvitationsSync,
   listSessionsForUserSync,
-  listWorkspaceInvitationsSync,
-  listWorkspaceMemberUsersSync,
-  readUserSync,
+  readAuthIdentityForUserSync,
   type WorkspaceRole,
 } from "@agent-space/db";
 import { getWorkspacePermissionCenterSync } from "@agent-space/services";
+import { loadSsoWorkspaceDirectory } from "@/features/auth/sso-directory";
 import { readPublicAppUrl } from "@/features/auth/public-app-url";
 import {
   buildFeishuIntegrationCreationGuide,
@@ -39,10 +36,12 @@ import type {
 } from "@/features/settings/settings-types";
 
 export interface SettingsPageData {
+  isSsoManagedWorkspace: boolean;
   currentMembershipRole: WorkspaceRole;
   currentSessionId?: string;
   currentUserDisplayName: string;
   currentUserEmail: string;
+  currentSsoUserId: string;
   currentUserId: string;
   currentWorkspaceName: string;
   currentWorkspaceSlug: string;
@@ -65,10 +64,7 @@ export interface SettingsPageData {
 export function resolveSettingsLoaderSection(
   settingsPath?: readonly string[],
 ): SettingsDetailSectionId | undefined {
-  if (!settingsPath || settingsPath.length === 0) {
-    return undefined;
-  }
-  if (settingsPath.length > 1) {
+  if (!settingsPath || settingsPath.length === 0 || settingsPath.length > 1) {
     return undefined;
   }
 
@@ -76,7 +72,7 @@ export function resolveSettingsLoaderSection(
   return section && isSettingsDetailSectionId(section) ? section : undefined;
 }
 
-export function loadSettingsPageData(input: {
+export async function loadSettingsPageData(input: {
   currentSessionId?: string;
   currentUser: {
     displayName: string;
@@ -92,104 +88,72 @@ export function loadSettingsPageData(input: {
   };
   role: WorkspaceRole;
   section?: SettingsSectionId;
-}): SettingsPageData {
+}): Promise<SettingsPageData> {
   const requestedSection = input.section ?? DEFAULT_SETTINGS_SECTION;
-  if (!canAccessSettingsSection(input.role, requestedSection)) {
+  const workspaceId = input.currentWorkspace.id;
+
+  const identity = readAuthIdentityForUserSync(input.currentUser.id, "sso");
+  if (!identity) {
+    throw new Error("auth.sso_user_lookup_failed");
+  }
+  const ssoDirectory = await loadSsoWorkspaceDirectory({
+    subject: identity.providerSubject,
+    workspaceId,
+  });
+  if (!canAccessSettingsSection(ssoDirectory.role, requestedSection)) {
     throw new SettingsSectionForbiddenError(requestedSection);
   }
 
-  const workspaceId = input.currentWorkspace.id;
-  const shouldLoadMembers = requestedSection === "members";
-  const shouldLoadInvitations = requestedSection === "access";
   const shouldLoadIntegrations = requestedSection === "integrations";
   const shouldLoadPermissions = requestedSection === "permissions";
   const shouldLoadSessions = requestedSection === "security";
-  const canManageIntegrations = canManageFeishuIntegrations(input.role);
+  const canManageIntegrations = canManageFeishuIntegrations(ssoDirectory.role);
   const feishuAvailableUsers = shouldLoadIntegrations
     ? listFeishuAvailableUsers({ workspaceId })
       .filter((user) => canManageIntegrations || user.userId === input.currentUser.id)
     : [];
 
   return {
-    currentMembershipRole: input.role,
+    isSsoManagedWorkspace: true,
+    currentMembershipRole: ssoDirectory.role,
     currentSessionId: input.currentSessionId,
     currentUserDisplayName: input.currentUser.displayName,
-    currentUserEmail: input.currentUser.email ?? "",
+    currentUserEmail: "",
+    currentSsoUserId: "",
     currentUserId: input.currentUser.id,
-    currentWorkspaceName: input.currentWorkspace.name,
+    currentWorkspaceName: ssoDirectory.workspaceName,
     currentWorkspaceSlug: input.currentWorkspace.slug,
-    currentWorkspaceJoinCode: input.role === "owner" ? input.currentWorkspace.joinCode : undefined,
-    currentWorkspaceJoinCodeUpdatedAt: input.role === "owner" ? input.currentWorkspace.joinCodeUpdatedAt : undefined,
+    currentWorkspaceJoinCode: undefined,
+    currentWorkspaceJoinCodeUpdatedAt: undefined,
     initialSection: requestedSection,
-    invitations: shouldLoadInvitations
-      ? listWorkspaceInvitationsSync(workspaceId, {
-        statuses: ["active", "accepted", "revoked", "expired"],
-      })
+    invitations: [],
+    channelAccessRequests: [],
+    channelInvitations: [],
+    feishuAvailableChannels: shouldLoadIntegrations && canManageIntegrations
+      ? listFeishuAvailableChannels({ workspaceId })
       : [],
-    channelAccessRequests: shouldLoadInvitations
-      ? listChannelAccessRequestsSync(workspaceId, { statuses: ["pending"] }).map((request) => {
-        const requester = readUserSync(request.userId);
-        return {
-          id: request.id,
-          channelName: request.channelName,
-          requesterUserId: request.userId,
-          requesterName: requester?.displayName ?? request.userId,
-          requesterEmail: requester?.primaryEmail,
-          status: request.status,
-          requestedAt: request.requestedAt,
-        };
-      })
-      : [],
-    channelInvitations: shouldLoadInvitations
-      ? listChannelInvitationsSync(workspaceId, { statuses: ["pending"] }).map((invitation) => {
-        const inviter = readUserSync(invitation.invitedBy);
-        return {
-          id: invitation.id,
-          channelName: invitation.channelName,
-          inviteeUserId: invitation.inviteeUserId,
-          inviteeEmail: invitation.inviteeEmail,
-          invitedByName: inviter?.displayName ?? invitation.invitedBy,
-          status: invitation.status,
-          createdAt: invitation.createdAt,
-          expiresAt: invitation.expiresAt,
-        };
-      })
-      : [],
-    feishuAvailableChannels: shouldLoadIntegrations
-      ? canManageIntegrations
-        ? listFeishuAvailableChannels({ workspaceId })
-        : []
-      : [],
-    feishuAvailableAgents: shouldLoadIntegrations
-      ? canManageIntegrations
-        ? listFeishuAvailableAgents({ workspaceId })
-        : []
+    feishuAvailableAgents: shouldLoadIntegrations && canManageIntegrations
+      ? listFeishuAvailableAgents({ workspaceId })
       : [],
     feishuAvailableUsers,
     feishuIntegrationCreationGuide: shouldLoadIntegrations && canManageIntegrations
-      ? buildFeishuIntegrationCreationGuide({
-        workspaceId,
-        appUrl: readPublicAppUrl(),
-      })
+      ? buildFeishuIntegrationCreationGuide({ workspaceId, appUrl: readPublicAppUrl() })
       : undefined,
     feishuIntegrations: shouldLoadIntegrations
       ? listFeishuIntegrationSettingsItems({
         workspaceId,
         appUrl: readPublicAppUrl(),
-        viewer: {
-          role: input.role,
-          userId: input.currentUser.id,
-        },
+        viewer: { role: ssoDirectory.role, userId: input.currentUser.id },
       })
       : [],
-    members: shouldLoadMembers ? listWorkspaceMemberUsersSync(workspaceId) : [],
+    members: [],
     permissions: shouldLoadPermissions
       ? getWorkspacePermissionCenterSync({
         workspaceId,
         actor: {
           userId: input.currentUser.id,
           displayName: input.currentUser.displayName,
-          role: input.role,
+          role: ssoDirectory.role,
         },
       })
       : undefined,

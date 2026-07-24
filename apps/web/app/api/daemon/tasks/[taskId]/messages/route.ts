@@ -5,7 +5,7 @@ import {
   type QueuedTaskRecord,
 } from "@agent-space/db";
 import type { DaemonProvider, DaemonTaskMessageInput, ReportTaskMessagesRequest } from "@agent-space/domain";
-import { readTaskForWorkspace, requireDaemonAuth } from "../../../_lib/auth";
+import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export async function POST(
   }
 
   const { taskId } = await context.params;
-  const task = readTaskForWorkspace(taskId, auth.workspaceId);
+  const task = readTaskForDaemon(taskId, auth);
   if (task instanceof Response) {
     return task;
   }

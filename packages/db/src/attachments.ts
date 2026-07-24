@@ -156,7 +156,7 @@ function mapStoredAttachment(row: Record<string, unknown>): StoredAttachmentReco
     kind: row.kind === "image" ? "image" : "file",
     sizeBytes: row.sizeBytes,
     storedPath: row.storedPath,
-    storageProvider: row.storageProvider === "r2" || row.storageProvider === "s3" || row.storageProvider === "local" ? row.storageProvider : undefined,
+    storageProvider: row.storageProvider === "tos" || row.storageProvider === "s3" || row.storageProvider === "local" ? row.storageProvider : undefined,
     storageBucket: typeof row.storageBucket === "string" ? row.storageBucket : undefined,
     storageRegion: typeof row.storageRegion === "string" ? row.storageRegion : undefined,
     storageEndpoint: typeof row.storageEndpoint === "string" ? row.storageEndpoint : undefined,

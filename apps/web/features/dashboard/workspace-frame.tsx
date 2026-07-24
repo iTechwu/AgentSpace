@@ -3,7 +3,7 @@
 import { type FocusEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { joinWorkspaceByCodeAction, logoutAndRedirectAction, switchWorkspaceAction } from "@/features/auth/actions";
+import { logoutAndRedirectAction, switchWorkspaceAction } from "@/features/auth/actions";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { createChannelAction } from "@/features/channels/actions";
 import { CreateChannelModal } from "@/features/channels/create-channel-modal";
@@ -149,8 +149,6 @@ function WorkspaceFrameContent({
     workspaceSlug: currentWorkspace.slug,
   });
   const [showCreateChannel, setShowCreateChannel] = useState(false);
-  const [showJoinWorkspace, setShowJoinWorkspace] = useState(false);
-  const [joinWorkspaceFeedback, setJoinWorkspaceFeedback] = useState<string | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [showApprovals, setShowApprovals] = useState(false);
   const [showTaskBoard, setShowTaskBoard] = useState(false);
@@ -486,28 +484,6 @@ function WorkspaceFrameContent({
         />
       ) : null}
 
-      {showJoinWorkspace ? (
-        <JoinWorkspaceModal
-          feedback={joinWorkspaceFeedback}
-          pending={isPending}
-          tx={tx}
-          onCancel={() => setShowJoinWorkspace(false)}
-          onJoin={(joinCode) => {
-            startTransition(async () => {
-              try {
-                const result = await joinWorkspaceByCodeAction(joinCode);
-                setShowJoinWorkspace(false);
-                setJoinWorkspaceFeedback(null);
-                router.push(buildWorkspacePath(result.workspaceSlug, "/im"));
-                router.refresh();
-              } catch (error) {
-                setJoinWorkspaceFeedback(error instanceof Error ? error.message : tx("邀请码无效或已失效。", "The join code is invalid or expired."));
-              }
-            });
-          }}
-        />
-      ) : null}
-
       <WorkspaceOnboardingGuide
         disabled={isChannelScopedGuest}
         onActiveChange={handleOnboardingActiveChange}
@@ -533,24 +509,9 @@ function WorkspaceFrameContent({
             variant="human"
           />
           <div className="workspace-sidebar__workspace-picker" data-onboarding-target="workspace-switcher">
-            <div className="workspace-sidebar__workspace-heading">
-              <label className="workspace-sidebar__workspace-label" htmlFor="workspace-switcher">
-                {tx("当前工作区", "Current workspace")}
-              </label>
-              <button
-                aria-label={tx("加入工作区", "Join workspace")}
-                className="workspace-square-button workspace-sidebar__workspace-join-button"
-                disabled={isPending}
-                onClick={() => {
-                  setJoinWorkspaceFeedback(null);
-                  setShowJoinWorkspace(true);
-                }}
-                title={tx("加入工作区", "Join workspace")}
-                type="button"
-              >
-                <AppIcon name="plus" />
-              </button>
-            </div>
+            <label className="workspace-sidebar__workspace-label" htmlFor="workspace-switcher">
+              {tx("SSO 工作区", "SSO workspace")}
+            </label>
             <select
               className="workspace-sidebar__workspace-select"
               disabled={isPending || workspaces.length <= 1}
@@ -1235,65 +1196,6 @@ function SidebarShortcut({
   );
 }
 
-function JoinWorkspaceModal({
-  feedback,
-  pending,
-  tx,
-  onCancel,
-  onJoin,
-}: {
-  feedback: string | null;
-  pending: boolean;
-  tx: (zh: string, en: string) => string;
-  onCancel: () => void;
-  onJoin: (joinCode: string) => void;
-}) {
-  return (
-    <div className="modal-backdrop" role="presentation">
-      <form
-        aria-label={tx("加入工作区", "Join workspace")}
-        aria-modal="true"
-        className="modal-card modal-card--compact"
-        role="dialog"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const formData = new FormData(event.currentTarget);
-          onJoin((formData.get("joinCode") as string | null)?.trim() ?? "");
-        }}
-      >
-        <div className="modal-card__header">
-          <div>
-            <h3>{tx("加入工作区", "Join workspace")}</h3>
-            <p>{tx("输入 owner 分享的 8 位邀请码。加入后默认只获得 member 权限。", "Enter the 8-character code shared by the owner. You join as a member.")}</p>
-          </div>
-          <button className="modal-close" onClick={onCancel} type="button">
-            <AppIcon name="close" />
-          </button>
-        </div>
-        <div className="modal-card__body">
-          <label className="form-field">
-            <span>{tx("工作区邀请码", "Workspace join code")}</span>
-            <input
-              autoFocus
-              name="joinCode"
-              placeholder="A7K2M9Q4"
-              type="text"
-            />
-          </label>
-          {feedback ? <p className="settings-feedback" role="alert">{feedback}</p> : null}
-        </div>
-        <div className="modal-card__footer">
-          <button className="modal-secondary-button" onClick={onCancel} type="button">
-            {tx("取消", "Cancel")}
-          </button>
-          <button className="primary-button" disabled={pending} type="submit">
-            {pending ? tx("加入中...", "Joining...") : tx("加入", "Join")}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
 
 function SidebarGroupDivider() {
   return <div className="workspace-sidebar__group-divider" role="separator" aria-orientation="horizontal" />;

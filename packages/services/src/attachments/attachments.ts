@@ -73,7 +73,7 @@ export function deleteWorkspaceAttachmentsSync(
 ): void {
   const storage = createAttachmentStorageClient();
   for (const attachment of attachments) {
-    if ((attachment.storageProvider === "r2" || attachment.storageProvider === "s3") && attachment.storageKey) {
+    if ((attachment.storageProvider === "tos" || attachment.storageProvider === "s3") && attachment.storageKey) {
       storage.deleteObjectSync({
         storageProvider: attachment.storageProvider,
         storageBucket: attachment.storageBucket,

@@ -108,7 +108,7 @@ test("runAgentRouter launches Hermes in headless text mode with model and runtim
 
     assert.equal(result.status, "completed");
     assert.equal(result.outputText, "hermes text output");
-    assert.deepEqual(args, ["-z", "hello hermes", "--yolo", "--model", "nous-hermes"]);
+    assert.deepEqual(args, ["-z", "hello hermes", "--model", "nous-hermes"]);
     assert.equal(seenPath.includes(toolBinDir), true);
   } finally {
     process.env.PATH = originalPath;

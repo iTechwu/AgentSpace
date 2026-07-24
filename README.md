@@ -238,7 +238,7 @@ The goal isn't a smarter chatbot. It's a governed operating surface where humans
 - npm 11.x.
 - PostgreSQL 16 recommended. A local Docker Compose setup is included.
 - Optional provider CLIs: `codex`, `claude`, `agy` (Antigravity), `gemini` (legacy), `opencode`, `openclaw`, `nanobot`, `hermes`.
-- Optional Google OAuth / Google Workspace configuration.
+- Optional Google Workspace configuration.
 
 ### Path A: Run the Workspace
 
@@ -464,7 +464,7 @@ AgentSpace/
 
 Implemented:
 
-- multi-tenant workspaces, Google login, workspace membership, and access control
+- multi-tenant workspaces, Dofe SSO login, workspace membership, and access control
 - PostgreSQL primary storage, attachments, and reliable notifications
 - channel documents, knowledge base, global search, approvals, task boards, budgets, costs, and performance dashboards
 - remote daemon, runtime sharing, AgentRouter harness switching, OpenClaw provider health, and Hermes Agent support

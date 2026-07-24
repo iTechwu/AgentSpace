@@ -9,7 +9,6 @@ import {
   countWorkspaceMembersSync,
   countUsersSync,
   createAuthIdentitySync,
-  createPasswordAuthIdentitySync,
   createSessionSync,
   createUserSync,
   createWorkspaceMembershipSync,
@@ -19,7 +18,6 @@ import {
   listSessionsForUserSync,
   listWorkspaceMemberUsersSync,
   readAuthIdentityByProviderSubjectSync,
-  readPasswordAuthIdentityByEmailSync,
   readSessionByTokenHashSync,
   readUserByEmailSync,
   readUserSync,
@@ -49,7 +47,7 @@ beforeEach(() => {
   `);
 });
 
-test("user auth persists users, password identities, and sessions", () => {
+test("user auth persists users, SSO identities, and sessions", () => {
   const user = createUserSync({
     displayName: "Mina",
     primaryEmail: "mina@example.com",
@@ -58,13 +56,15 @@ test("user auth persists users, password identities, and sessions", () => {
   assert.equal(readUserSync(user.id)?.displayName, "Mina");
   assert.equal(readUserByEmailSync("MINA@example.com")?.id, user.id);
 
-  const identity = createPasswordAuthIdentitySync({
+  const identity = createAuthIdentitySync({
     userId: user.id,
+    provider: "sso",
+    providerSubject: "sso-mina-1",
     email: "mina@example.com",
-    passwordHash: "hash-123",
+    emailVerified: true,
   });
   assert.equal(identity.userId, user.id);
-  assert.equal(readPasswordAuthIdentityByEmailSync("mina@example.com")?.passwordHash, "hash-123");
+  assert.equal(readAuthIdentityByProviderSubjectSync("sso", "sso-mina-1")?.id, identity.id);
 
   const session = createSessionSync({
     userId: user.id,
@@ -273,15 +273,15 @@ test("generic auth identities can be created and existing users updated", () => 
 
   const identity = createAuthIdentitySync({
     userId: user.id,
-    provider: "google",
-    providerSubject: "google-sub-1",
+    provider: "sso",
+    providerSubject: "sso-sub-1",
     email: "mina@example.com",
     emailVerified: true,
     profileJson: JSON.stringify({ locale: "en" }),
   });
 
-  assert.equal(identity.provider, "google");
-  assert.equal(readAuthIdentityByProviderSubjectSync("google", "google-sub-1")?.id, identity.id);
+  assert.equal(identity.provider, "sso");
+  assert.equal(readAuthIdentityByProviderSubjectSync("sso", "sso-sub-1")?.id, identity.id);
 
   const updated = updateUserSync({
     userId: user.id,

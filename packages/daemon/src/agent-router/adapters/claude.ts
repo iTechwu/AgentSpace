@@ -85,9 +85,6 @@ async function buildClaudeLaunch(input: AgentRouterRunRequest): Promise<HarnessL
   if (permissionMode) {
     args.push("--permission-mode", permissionMode);
   }
-  if (input.dangerouslyBypassPermissions) {
-    args.push("--dangerously-skip-permissions");
-  }
   if (input.sessionId) {
     args.push("--resume", input.sessionId);
   }

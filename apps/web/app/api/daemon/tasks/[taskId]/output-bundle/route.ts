@@ -2,7 +2,7 @@ import { buildTaskExecutionEventContext, recordTaskExecutionEventSync } from "@a
 import type { DaemonTaskOutputBundle } from "@agent-space/domain";
 import { parseTaskPayload } from "agent-space-daemon";
 import { postMessageSync } from "@agent-space/services";
-import { readTaskForWorkspace, requireDaemonAuth } from "../../../_lib/auth";
+import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 import { materializeOutputBundleToStaging } from "../../../_lib/output-bundle";
 
 export const runtime = "nodejs";
@@ -18,7 +18,7 @@ export async function POST(
   }
 
   const { taskId } = await routeContext.params;
-  const task = readTaskForWorkspace(taskId, auth.workspaceId);
+  const task = readTaskForDaemon(taskId, auth);
   if (task instanceof Response) {
     return task;
   }

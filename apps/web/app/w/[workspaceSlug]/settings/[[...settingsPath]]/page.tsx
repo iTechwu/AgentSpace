@@ -17,6 +17,9 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const SSO_PROFILE_URL = "https://sso.ixicai.cn/zh/settings/profile";
+const SSO_TEAM_SETTINGS_URL = "https://sso.ixicai.cn/zh/settings/team";
+
 export default async function WorkspaceSettingsPage({
   params,
   searchParams,
@@ -34,10 +37,24 @@ export default async function WorkspaceSettingsPage({
     redirect(buildWorkspacePath(workspaceContext.currentWorkspace.slug, "/im"));
   }
 
+  const requestedLegacySection = settingsPath?.length === 1 ? settingsPath[0] : undefined;
+  if (requestedLegacySection === "account") {
+    redirect(SSO_PROFILE_URL);
+  }
+  if (requestedLegacySection === "workspace" || requestedLegacySection === "members" || requestedLegacySection === "access") {
+    redirect(SSO_TEAM_SETTINGS_URL);
+  }
+
   const currentSection = resolveSettingsPath(settingsPath);
   const legacySection = resolveLegacySettingsSection(resolvedSearchParams.section);
 
   if (!currentSection && legacySection) {
+    if (legacySection === "account") {
+      redirect(SSO_PROFILE_URL);
+    }
+    if (legacySection === "workspace" || legacySection === "members" || legacySection === "access") {
+      redirect(SSO_TEAM_SETTINGS_URL);
+    }
     redirect(buildWorkspacePath(
       workspaceContext.currentWorkspace.slug,
       appendSearchParams(

@@ -21,7 +21,6 @@ export interface AgentRouterRunRequest {
   outputFormat?: AgentRouterOutputFormat;
   maxTurns?: number;
   permissionMode?: string;
-  dangerouslyBypassPermissions?: boolean;
   allowedTools?: string[];
   temporaryAllowedTools?: string[];
   claudeTools?: string;

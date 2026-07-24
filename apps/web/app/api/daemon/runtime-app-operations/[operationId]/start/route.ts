@@ -1,5 +1,5 @@
-import { readRuntimeAppOperationSync, startRuntimeAppOperationSync } from "@agent-space/db";
-import { requireDaemonAuth } from "../../../_lib/auth";
+import { startRuntimeAppOperationSync } from "@agent-space/db";
+import { readRuntimeAppOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,9 +14,9 @@ export async function POST(
   }
 
   const { operationId } = await context.params;
-  const operation = readRuntimeAppOperationSync(operationId, auth.workspaceId);
-  if (!operation) {
-    return Response.json({ error: `Runtime app operation "${operationId}" does not exist.` }, { status: 404 });
+  const operation = readRuntimeAppOperationForDaemon(operationId, auth);
+  if (operation instanceof Response) {
+    return operation;
   }
 
   const started = startRuntimeAppOperationSync(operationId, auth.workspaceId);

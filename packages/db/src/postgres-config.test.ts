@@ -57,27 +57,14 @@ test("resolvePostgresDatabaseUrl prefers explicit env over repository .env", () 
   }
 });
 
-test("resolvePostgresDatabaseUrl uses self-hosted deployment mode database URL", () => {
+test("resolvePostgresDatabaseUrl uses the configured PostgreSQL database URL", () => {
   const url = resolvePostgresDatabaseUrl({
     env: {
-      AGENT_SPACE_DEPLOYMENT_MODE: "self_hosted",
       SELF_HOSTED_DATABASE_URL: "postgres://self-hosted:secret@127.0.0.1:5432/agent_space_test",
     },
   });
 
   assert.equal(url, "postgres://self-hosted:secret@127.0.0.1:5432/agent_space_test");
-});
-
-test("resolvePostgresDatabaseUrl uses Neon database URL in cloud deployment mode", () => {
-  const url = resolvePostgresDatabaseUrl({
-    env: {
-      AGENT_SPACE_DEPLOYMENT_MODE: "cloud",
-      NEON_DATABASE_URL: "postgres://neon:secret@example.neon.tech/agent_space_test",
-      SELF_HOSTED_DATABASE_URL: "postgres://self-hosted:secret@127.0.0.1:5432/agent_space_test",
-    },
-  });
-
-  assert.equal(url, "postgres://neon:secret@example.neon.tech/agent_space_test");
 });
 
 test("resolvePostgresDatabaseUrl prefers the explicit test database URL", () => {

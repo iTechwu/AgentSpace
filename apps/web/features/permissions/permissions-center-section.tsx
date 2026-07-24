@@ -13,7 +13,7 @@ import type { WorkspaceRole } from "@agent-space/db";
 import { SettingsSectionShell } from "@/features/settings/components/settings-chrome";
 import type { SettingsSectionMeta } from "@/features/settings/settings-meta";
 import type { SettingsTx } from "@/features/settings/settings-types";
-import { translateSettingsActionError, translateWorkspaceRole } from "@/features/settings/settings-utils";
+import { translateSettingsActionError } from "@/features/settings/settings-utils";
 import {
   permissionsAddChannelDocumentCollaboratorAction,
   permissionsAddWorkspaceMemberToChannelAction,
@@ -21,7 +21,6 @@ import {
   permissionsApproveChannelAccessRequestAction,
   permissionsBindAgentRuntimeAction,
   permissionsCreateDaemonApiTokenAction,
-  permissionsCreateWorkspaceInvitationAction,
   permissionsDisconnectGoogleWorkspaceAction,
   permissionsApproveDocumentPermissionRequestAction,
   permissionsGrantRuntimeUseAction,
@@ -29,23 +28,19 @@ import {
   permissionsRejectChannelAccessRequestAction,
   permissionsRejectAgentAccessRequestAction,
   permissionsRejectDocumentPermissionRequestAction,
-  permissionsReissueWorkspaceInvitationAction,
   permissionsRemoveChannelDocumentCollaboratorAction,
   permissionsRevokeDocumentAgentAccessAction,
-  permissionsRemoveWorkspaceMemberAction,
   permissionsRemoveWorkspaceMemberFromChannelAction,
   permissionsRevokeAgentGoogleWorkspaceDelegationAction,
   permissionsRevokeChannelInvitationAction,
   permissionsRevokeDaemonApiTokenAction,
   permissionsRevokeRuntimeUseAction,
-  permissionsRevokeWorkspaceInvitationAction,
   permissionsSetAgentChannelMemberAccessAction,
   permissionsSetAgentKnowledgeAssignmentsAction,
   permissionsSetAgentSkillAssignmentsAction,
   permissionsSyncExternalGoogleSheetPermissionsAction,
   permissionsUnbindAgentRuntimeAction,
   permissionsUpdateChannelDocumentAccessRoleAction,
-  permissionsUpdateWorkspaceMemberRoleAction,
 } from "@/features/permissions/actions";
 import { EmptyState } from "@/shared/ui/empty-state";
 
@@ -209,7 +204,6 @@ export function PermissionsCenterSection({
             {viewMode === "resources" && selectedNode ? (
               <ResourceInspector
                 canManageWorkspace={canManageWorkspace}
-                currentMembershipRole={currentMembershipRole}
                 currentUserDisplayName={currentUserDisplayName}
                 isPending={isPending}
                 node={selectedNode}
@@ -235,7 +229,6 @@ export function PermissionsCenterSection({
 
 function ResourceInspector({
   canManageWorkspace,
-  currentMembershipRole,
   currentUserDisplayName,
   isPending,
   node,
@@ -246,7 +239,6 @@ function ResourceInspector({
   tx,
 }: {
   canManageWorkspace: boolean;
-  currentMembershipRole: WorkspaceRole;
   currentUserDisplayName: string;
   isPending: boolean;
   node: PermissionTreeNode;
@@ -270,7 +262,6 @@ function ResourceInspector({
 
       <NodeOperationPanel
         canManageWorkspace={canManageWorkspace}
-        currentMembershipRole={currentMembershipRole}
         currentUserDisplayName={currentUserDisplayName}
         isPending={isPending}
         node={node}
@@ -298,7 +289,6 @@ function ResourceInspector({
           node.bindings.map((binding, index) => (
             <BindingCard
               binding={binding}
-              currentMembershipRole={currentMembershipRole}
               isPending={isPending}
               key={`${binding.subjectType}:${binding.subjectId}:${binding.permission}:${index}`}
               setFeedback={setFeedback}
@@ -316,7 +306,6 @@ function ResourceInspector({
 
 function NodeOperationPanel({
   canManageWorkspace,
-  currentMembershipRole,
   currentUserDisplayName,
   isPending,
   node,
@@ -327,7 +316,6 @@ function NodeOperationPanel({
   tx,
 }: {
   canManageWorkspace: boolean;
-  currentMembershipRole: WorkspaceRole;
   currentUserDisplayName: string;
   isPending: boolean;
   node: PermissionTreeNode;
@@ -337,8 +325,6 @@ function NodeOperationPanel({
   startTransition: TransitionStartFunction;
   tx: SettingsTx;
 }) {
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<WorkspaceRole>("member");
   const [daemonLabel, setDaemonLabel] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState(permissions.catalog.members[0]?.userId ?? "");
   const [documentActorId, setDocumentActorId] = useState("");
@@ -360,44 +346,7 @@ function NodeOperationPanel({
   return (
     <div className="permissions-operation-panel">
       {node.resourceType === "workspace" && canManageWorkspace ? (
-        <>
-          <div className="permissions-operation-row">
-            <label className="form-field">
-              <span>{tx("邀请邮箱", "Invite email")}</span>
-              <input
-                onChange={(event) => setInviteEmail(event.currentTarget.value)}
-                placeholder="name@example.com"
-                type="email"
-                value={inviteEmail}
-              />
-            </label>
-            <label className="form-field">
-              <span>{tx("角色", "Role")}</span>
-              <select onChange={(event) => setInviteRole(event.currentTarget.value as WorkspaceRole)} value={inviteRole}>
-                {assignableRoles(currentMembershipRole).map((role) => (
-                  <option key={role} value={role}>{translateWorkspaceRole(role, tx)}</option>
-                ))}
-              </select>
-            </label>
-            <button
-              className="primary-button"
-              disabled={isPending || inviteEmail.trim().length === 0}
-              onClick={() => runPermissionAction({
-                startTransition,
-                setFeedback,
-                tx,
-                success: tx("邀请已创建。", "Invitation created."),
-                action: async () => {
-                  await permissionsCreateWorkspaceInvitationAction({ email: inviteEmail, role: inviteRole });
-                  setInviteEmail("");
-                },
-              })}
-              type="button"
-            >
-              {tx("创建邀请", "Create invite")}
-            </button>
-          </div>
-          <div className="permissions-operation-row">
+        <div className="permissions-operation-row">
             <label className="form-field">
               <span>{tx("daemon token 标签", "Daemon token label")}</span>
               <input
@@ -427,8 +376,7 @@ function NodeOperationPanel({
             >
               {tx("创建 daemon token", "Create daemon token")}
             </button>
-          </div>
-        </>
+        </div>
       ) : null}
 
       {node.resourceType === "channel" && canManageWorkspace && channelName ? (
@@ -726,14 +674,12 @@ function AssignmentCheckboxGroup({
 
 function BindingCard({
   binding,
-  currentMembershipRole,
   isPending,
   setFeedback,
   startTransition,
   tx,
 }: {
   binding: PermissionBinding;
-  currentMembershipRole: WorkspaceRole;
   isPending: boolean;
   setFeedback: (value: string | null) => void;
   startTransition: TransitionStartFunction;
@@ -753,7 +699,6 @@ function BindingCard({
       </div>
       <BindingActions
         binding={binding}
-        currentMembershipRole={currentMembershipRole}
         isPending={isPending}
         setFeedback={setFeedback}
         startTransition={startTransition}
@@ -765,14 +710,12 @@ function BindingCard({
 
 function BindingActions({
   binding,
-  currentMembershipRole,
   isPending,
   setFeedback,
   startTransition,
   tx,
 }: {
   binding: PermissionBinding;
-  currentMembershipRole: WorkspaceRole;
   isPending: boolean;
   setFeedback: (value: string | null) => void;
   startTransition: TransitionStartFunction;
@@ -793,44 +736,6 @@ function BindingActions({
 
   return (
     <div className="permissions-binding-card__actions">
-      {binding.updateAction === "workspace_member_role" && userId ? (
-        <select
-          defaultValue={valueAsString(metadata.role)}
-          disabled={isPending}
-          onChange={(event) => runPermissionAction({
-            startTransition,
-            setFeedback,
-            tx,
-            success: tx("成员角色已更新。", "Member role updated."),
-            action: () => permissionsUpdateWorkspaceMemberRoleAction({
-              userId,
-              role: event.currentTarget.value as WorkspaceRole,
-            }),
-          })}
-        >
-          {assignableRoles(currentMembershipRole).map((role) => (
-            <option key={role} value={role}>{translateWorkspaceRole(role, tx)}</option>
-          ))}
-        </select>
-      ) : null}
-
-      {binding.updateAction === "workspace_invitation_reissue" && invitationId ? (
-        <button
-          className="action-button"
-          disabled={isPending}
-          onClick={() => runPermissionAction({
-            startTransition,
-            setFeedback,
-            tx,
-            success: tx("邀请已重新签发。", "Invitation reissued."),
-            action: () => permissionsReissueWorkspaceInvitationAction(invitationId),
-          })}
-          type="button"
-        >
-          {tx("重新签发", "Reissue")}
-        </button>
-      ) : null}
-
       {binding.updateAction === "channel_access_request_approve" && requestId ? (
         <button
           className="action-button"
@@ -928,7 +833,7 @@ function BindingActions({
         </select>
       ) : null}
 
-      {binding.revokeAction ? (
+      {binding.revokeAction && binding.revokeAction !== "workspace_member_remove" && binding.revokeAction !== "workspace_invitation_revoke" ? (
         <button
           className="action-button action-button--danger"
           disabled={isPending}
@@ -976,10 +881,6 @@ async function runRevokeAction(input: {
   googleCredentialId: string;
 }): Promise<void> {
   switch (input.action) {
-    case "workspace_member_remove":
-      return permissionsRemoveWorkspaceMemberAction(input.userId);
-    case "workspace_invitation_revoke":
-      return permissionsRevokeWorkspaceInvitationAction(input.invitationId);
     case "channel_access_request_reject":
       return permissionsRejectChannelAccessRequestAction(input.requestId);
     case "channel_invitation_revoke":
@@ -1158,10 +1059,6 @@ function valueAsString(value: unknown): string {
 
 function actorKey(actor: PermissionActorSummary | undefined): string {
   return actor ? `${actor.subjectType}:${actor.subjectId}` : "";
-}
-
-function assignableRoles(currentMembershipRole: WorkspaceRole): WorkspaceRole[] {
-  return currentMembershipRole === "owner" ? ["member", "admin", "owner"] : ["member", "admin"];
 }
 
 function revokeLabel(action: string, tx: SettingsTx): string {

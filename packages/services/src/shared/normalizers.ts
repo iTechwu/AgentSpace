@@ -1273,7 +1273,7 @@ function normalizeMessageAttachment(attachment: unknown): MessageAttachment | nu
     kind: candidate.kind === "image" ? "image" : "file",
     storedPath: candidate.storedPath,
     storageProvider:
-      candidate.storageProvider === "r2" || candidate.storageProvider === "s3" || candidate.storageProvider === "local"
+      candidate.storageProvider === "tos" || candidate.storageProvider === "s3" || candidate.storageProvider === "local"
         ? candidate.storageProvider
         : undefined,
     storageBucket: normalizeOptionalString(candidate.storageBucket),

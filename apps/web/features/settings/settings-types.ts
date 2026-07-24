@@ -24,13 +24,14 @@ export interface SettingsSessionItem {
 export interface SettingsWorkspaceMemberItem {
   userId: string;
   displayName: string;
+  isCurrentUser?: boolean;
   primaryEmail?: string;
   role: WorkspaceRole;
 }
 
 export interface SettingsWorkspaceInvitationItem {
   id: string;
-  email: string;
+  email?: string;
   role: WorkspaceRole;
   status: "active" | "accepted" | "revoked" | "expired";
   createdAt: string;

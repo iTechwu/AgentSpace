@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { arch, platform, version as nodeVersion } from "node:process";
 import type { DaemonProvider, ProviderErrorCategory, ProviderErrorCode, RuntimeAppContextEntry, RuntimeToolCapability } from "@agent-space/domain";
-import { formatDaemonProviderLabel } from "@agent-space/domain";
+import { formatDaemonProviderLabel, isDaemonProvider } from "@agent-space/domain";
 import { connectSandbox, resolveSandboxTaskTimeoutMs, type ExecController } from "@agent-space/sandbox";
 import { buildFeishuLarkCliDiagnosticRuntimeToolCapability } from "@agent-space/services";
 import {
@@ -163,7 +163,9 @@ const CODEX_MISSING_RESUME_SESSION_PATTERN = /no rollout found for thread id\s+(
 const OPENCLAW_MISSING_RESUME_SESSION_PATTERN = /session .*not found|session.*missing|conversation .*not found|conversation.*missing|agent .*not found|agent.*missing|unknown session/i;
 
 export function detectProviders(): DetectedProvider[] {
+  const allowedProviders = readProviderAllowlist();
   return PROVIDER_CATALOG
+    .filter((candidate) => !allowedProviders || allowedProviders.has(candidate.provider))
     .map((candidate) => {
       const executablePath = findFirstExecutableOnPath(resolveProviderCommands(candidate));
       if (!executablePath) {
@@ -181,6 +183,19 @@ export function detectProviders(): DetectedProvider[] {
       } satisfies DetectedProvider;
     })
     .filter((value): value is DetectedProvider => value !== null);
+}
+
+function readProviderAllowlist(): Set<DaemonProvider> | undefined {
+  const configured = process.env.AGENT_SPACE_RUNTIME_PROVIDER?.trim();
+  if (!configured) {
+    return undefined;
+  }
+
+  const providers = configured
+    .split(",")
+    .map((provider) => provider.trim())
+    .filter(isDaemonProvider);
+  return new Set(providers);
 }
 
 export async function runProviderTask(
@@ -246,12 +261,11 @@ async function runAgentRouterProviderTask(
     timeoutMs: taskTimeoutMs,
     maxTurns: runtime.provider === "claude" ? 30 : undefined,
     permissionMode: runtime.provider === "claude" ? resolveClaudePermissionMode() : undefined,
-    dangerouslyBypassPermissions: runtime.provider === "codex" || (runtime.provider === "claude" && !isRootUser()),
-    allowedTools: runtime.provider === "claude" && isRootUser() ? buildDefaultClaudeAllowedTools() : undefined,
+    allowedTools: runtime.provider === "claude" ? buildDefaultClaudeAllowedTools() : undefined,
     temporaryAllowedTools: options.temporaryAllowedTools,
     runtimeToolCapabilities,
     claudeTools: runtime.provider === "claude" ? "default" : undefined,
-    handleControlRequests: runtime.provider === "claude" && isRootUser(),
+    handleControlRequests: runtime.provider === "claude" && Boolean(options.onApprovalRequest),
     openClawEphemeralAgent: runtime.provider === "openclaw" && !sessionId,
     onApprovalRequest: options.onApprovalRequest
       ? async (request) => options.onApprovalRequest?.({
@@ -345,6 +359,9 @@ async function runAgentRouterProviderTask(
 }
 
 function resolveAgentRouterMode(runtime: ProviderRuntimeRecord): string | undefined {
+  if (runtime.provider === "codex") {
+    return process.env.AGENT_SPACE_CODEX_SANDBOX?.trim() || "workspace-write";
+  }
   if (runtime.provider === "openclaw") {
     return process.env.OPENCLAW_THINKING?.trim() || undefined;
   }
@@ -359,7 +376,7 @@ function resolveAgentRouterSessionId(runtime: ProviderRuntimeRecord, sessionId: 
 }
 
 function resolveClaudePermissionMode(): string {
-  return isRootUser() ? "auto" : "bypassPermissions";
+  return "auto";
 }
 
 function buildRuntimeToolCapabilities(options: ProviderTaskOptions): RuntimeToolCapability[] {
@@ -755,15 +772,10 @@ async function runCodexProviderTaskAttempt(
   const outputFile = join(workDir, "last-message.txt");
   let discoveredSessionId: string | undefined = sessionId;
   const baseArgs = ["--json", "--skip-git-repo-check", "-o", outputFile];
-  const fullAccessArgs = [
-    "--dangerously-bypass-approvals-and-sandbox",
-    "-c", "sandbox_mode=\"danger-full-access\"",
-    "-c", "approval_policy=\"never\"",
-    "-c", "shell_environment_policy.inherit=\"all\"",
-  ];
+  const sandboxArgs = ["--sandbox", process.env.AGENT_SPACE_CODEX_SANDBOX?.trim() || "workspace-write"];
   const providerArgs = sessionId
-    ? ["exec", "resume", ...baseArgs, ...fullAccessArgs, sessionId, prompt]
-    : ["exec", ...baseArgs, ...fullAccessArgs, "--cd", workDir, prompt];
+    ? ["exec", "resume", ...baseArgs, ...sandboxArgs, sessionId, prompt]
+    : ["exec", ...baseArgs, ...sandboxArgs, "--cd", workDir, prompt];
   const sandbox = await connectSandbox({
     runtimeId: runtime.id,
     workDir,
@@ -1572,14 +1584,7 @@ async function buildClaudeControlResponse(
   });
 }
 
-function buildClaudePermissionArgs(isRoot = isRootUser(), temporaryAllowedTools: string[] = []): string[] {
-  if (!isRoot) {
-    return [
-      "--permission-mode", "bypassPermissions",
-      "--dangerously-skip-permissions",
-    ];
-  }
-
+function buildClaudePermissionArgs(_isRoot = isRootUser(), temporaryAllowedTools: string[] = []): string[] {
   return [
     "--permission-mode", "auto",
     "--allowedTools", ...dedupeStrings([...buildDefaultClaudeAllowedTools(), ...temporaryAllowedTools]),

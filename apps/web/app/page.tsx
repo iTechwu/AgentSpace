@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
 import { AuthScreen } from "@/features/auth/auth-screen";
-import { buildGoogleStartUrl, readPublicAppUrl } from "@/features/auth/public-app-url";
+import { buildSsoStartUrl, readPublicAppUrl } from "@/features/auth/public-app-url";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
-import { hasRegisteredUsersSync } from "@/features/auth/server-auth";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 
 export const dynamic = "force-dynamic";
@@ -19,13 +18,10 @@ export default async function HomePage({
   }
 
   const authError = typeof resolvedSearchParams.authError === "string" ? resolvedSearchParams.authError : undefined;
-  const workspaceJoinCode = typeof resolvedSearchParams.joinCode === "string" ? resolvedSearchParams.joinCode : undefined;
   return (
     <AuthScreen
-      googleStartUrl={buildGoogleStartUrl(readPublicAppUrl())}
-      hasUsers={hasRegisteredUsersSync()}
+      ssoStartUrl={buildSsoStartUrl(readPublicAppUrl())}
       initialError={authError}
-      initialWorkspaceJoinCode={workspaceJoinCode}
     />
   );
 }

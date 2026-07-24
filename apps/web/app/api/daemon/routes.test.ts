@@ -354,6 +354,74 @@ describe("daemon API routes", () => {
     expect(repeatedHeartbeatPayload.daemon.status).toBe("online");
   });
 
+  it("does not let one daemon token claim or read another daemon runtime task", async () => {
+    const codexToken = createDaemonApiTokenSync({
+      label: "codex-container",
+      createdBy: "Tianyu",
+    });
+    const claudeToken = createDaemonApiTokenSync({
+      label: "claude-container",
+      createdBy: "Tianyu",
+    });
+    const codexRegistration = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(codexToken.token),
+        body: JSON.stringify({
+          daemonKey: "runtime-codex-isolated",
+          deviceName: "Codex Container",
+          runtimes: [{ provider: "codex", name: "Codex" }],
+        }),
+      }),
+    );
+    const claudeRegistration = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(claudeToken.token),
+        body: JSON.stringify({
+          daemonKey: "runtime-claude-isolated",
+          deviceName: "Claude Container",
+          runtimes: [{ provider: "claude", name: "Claude" }],
+        }),
+      }),
+    );
+    const codexPayload = await codexRegistration.json();
+    const claudePayload = await claudeRegistration.json();
+    const codexRuntimeId = codexPayload.runtimes[0].id as string;
+
+    expect(codexRegistration.status).toBe(200);
+    expect(claudeRegistration.status).toBe(200);
+    expect(codexRuntimeId).not.toBe(claudePayload.runtimes[0].id);
+
+    createEmployeeSync({ name: "Atlas", role: "Planner" });
+    addChannelEmployeesSync({ channelName: "tour visit", employeeNames: ["Atlas"] });
+    bindEmployeeRuntimeSync("Atlas", codexRuntimeId);
+    const queued = enqueueNativeTaskSync({
+      assignee: "Atlas",
+      title: "Isolated runtime task",
+      priority: "medium",
+      triggerType: "manual",
+      metadata: { title: "Isolated runtime task" },
+    });
+
+    const claimResponse = await claimPOST(
+      new Request(`http://localhost/api/daemon/runtimes/${codexRuntimeId}/tasks/claim`, {
+        method: "POST",
+        headers: daemonHeaders(claudeToken.token),
+      }),
+      { params: Promise.resolve({ runtimeId: codexRuntimeId }) },
+    );
+    const inputResponse = await inputBundleGET(
+      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/input-bundle`, {
+        headers: daemonHeaders(claudeToken.token),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+
+    expect(claimResponse.status).toBe(403);
+    expect(inputResponse.status).toBe(403);
+  });
+
   it("grants runtimes to the workspace member who created the daemon token", async () => {
     const member = createUserSync({
       primaryEmail: "member-runtime@example.com",

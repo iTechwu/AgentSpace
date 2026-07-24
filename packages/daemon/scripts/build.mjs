@@ -21,6 +21,11 @@ await build({
   outdir: outDir,
   bundle: true,
   external: ["agent-space-daemon"],
+  // Provider SDKs still issue CommonJS dynamic requires. Keep ESM so daemon
+  // entrypoints retain import.meta.url, and provide Node CommonJS globals.
+  banner: {
+    js: 'import { createRequire as __agentSpaceCreateRequire } from "node:module"; import { fileURLToPath as __agentSpaceFileURLToPath } from "node:url"; import { dirname as __agentSpaceDirname } from "node:path"; const require = __agentSpaceCreateRequire(import.meta.url); const __filename = __agentSpaceFileURLToPath(import.meta.url); const __dirname = __agentSpaceDirname(__filename);',
+  },
   format: "esm",
   platform: "node",
   target: "node20",

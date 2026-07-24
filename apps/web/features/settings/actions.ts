@@ -20,6 +20,7 @@ import {
   upsertWorkspaceMembershipSync,
   updateWorkspaceMembershipRoleSync,
   removeWorkspaceMembershipSync,
+  readAuthIdentityForUserSync,
 } from "@agent-space/db";
 import { addHumanMemberSync, createNotificationSync, tryRecordWorkspaceAuditEventSync } from "@agent-space/services";
 import { getCurrentSession } from "@/features/auth/server-auth";
@@ -35,6 +36,12 @@ import {
 
 function revalidateSettingsPaths(workspaceSlug: string): void {
   revalidateWorkspacePaths(workspaceSlug, SETTINGS_REVALIDATE_PATHS);
+}
+
+function assertLocalWorkspaceManagementAllowed(workspaceId: string): void {
+  if (workspaceId.startsWith("sso-")) {
+    throw new Error("auth.sso_workspace_managed");
+  }
 }
 
 export async function createDaemonApiTokenAction(input: {
@@ -178,6 +185,7 @@ export async function updateWorkspaceProfileAction(input: {
   name: string;
 }): Promise<void> {
   const workspaceContext = await requireCurrentWorkspaceContext();
+  assertLocalWorkspaceManagementAllowed(workspaceContext.currentWorkspace.id);
   assertWorkspaceRoleForContext(workspaceContext, "owner");
 
   const name = input.name.trim();
@@ -209,6 +217,7 @@ export async function rotateWorkspaceJoinCodeAction(): Promise<ActionToastResult
   updatedAt: string;
 }>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
+  assertLocalWorkspaceManagementAllowed(workspaceContext.currentWorkspace.id);
   assertWorkspaceRoleForContext(workspaceContext, "owner");
 
   const workspace = rotateWorkspaceJoinCodeSync({
@@ -239,6 +248,7 @@ export async function readCurrentWorkspaceJoinCodeAction(): Promise<{
   updatedAt?: string;
 }> {
   const workspaceContext = await requireCurrentWorkspaceContext();
+  assertLocalWorkspaceManagementAllowed(workspaceContext.currentWorkspace.id);
   assertWorkspaceRoleForContext(workspaceContext, "owner");
 
   return {
@@ -251,6 +261,9 @@ export async function updateCurrentUserProfileAction(input: {
   displayName: string;
 }): Promise<void> {
   const workspaceContext = await requireCurrentWorkspaceContext();
+  if (readAuthIdentityForUserSync(workspaceContext.currentUser.id, "sso")) {
+    throw new Error("auth.sso_profile_managed");
+  }
 
   const displayName = input.displayName.trim();
   if (!displayName) {
@@ -291,6 +304,7 @@ export async function createWorkspaceInvitationAction(input: {
   invitePath: string;
 }> {
   const workspaceContext = await requireCurrentWorkspaceContext();
+  assertLocalWorkspaceManagementAllowed(workspaceContext.currentWorkspace.id);
   assertWorkspaceRoleForContext(workspaceContext, "admin");
 
   const email = input.email.trim().toLowerCase();
@@ -366,6 +380,7 @@ export async function reissueWorkspaceInvitationAction(invitationId: string): Pr
   invitePath: string;
 }> {
   const workspaceContext = await requireCurrentWorkspaceContext();
+  assertLocalWorkspaceManagementAllowed(workspaceContext.currentWorkspace.id);
   assertWorkspaceRoleForContext(workspaceContext, "admin");
 
   const normalizedInvitationId = invitationId.trim();
@@ -444,6 +459,7 @@ export async function reissueWorkspaceInvitationAction(invitationId: string): Pr
 
 export async function revokeWorkspaceInvitationAction(invitationId: string): Promise<void> {
   const workspaceContext = await requireCurrentWorkspaceContext();
+  assertLocalWorkspaceManagementAllowed(workspaceContext.currentWorkspace.id);
   assertWorkspaceRoleForContext(workspaceContext, "admin");
 
   const normalizedInvitationId = invitationId.trim();
@@ -503,6 +519,7 @@ export async function addWorkspaceMemberAction(input: {
   role: WorkspaceRole;
 }): Promise<void> {
   const workspaceContext = await requireCurrentWorkspaceContext();
+  assertLocalWorkspaceManagementAllowed(workspaceContext.currentWorkspace.id);
   assertWorkspaceRoleForContext(workspaceContext, "admin");
 
   const normalizedEmail = input.email.trim().toLowerCase();
@@ -575,6 +592,7 @@ export async function updateWorkspaceMemberRoleAction(input: {
   role: WorkspaceRole;
 }): Promise<void> {
   const workspaceContext = await requireCurrentWorkspaceContext();
+  assertLocalWorkspaceManagementAllowed(workspaceContext.currentWorkspace.id);
   const members = listWorkspaceMemberUsersSync(workspaceContext.currentWorkspace.id);
   const target = findWorkspaceMemberOrThrow(members, input.userId);
 
@@ -622,6 +640,7 @@ export async function updateWorkspaceMemberRoleAction(input: {
 
 export async function removeWorkspaceMemberAction(userId: string): Promise<void> {
   const workspaceContext = await requireCurrentWorkspaceContext();
+  assertLocalWorkspaceManagementAllowed(workspaceContext.currentWorkspace.id);
   const members = listWorkspaceMemberUsersSync(workspaceContext.currentWorkspace.id);
   const target = findWorkspaceMemberOrThrow(members, userId);
 
@@ -644,6 +663,7 @@ export async function removeWorkspaceMemberAction(userId: string): Promise<void>
 
 export async function transferWorkspaceOwnershipAction(userId: string): Promise<void> {
   const workspaceContext = await requireCurrentWorkspaceContext();
+  assertLocalWorkspaceManagementAllowed(workspaceContext.currentWorkspace.id);
   assertWorkspaceRoleForContext(workspaceContext, "owner");
 
   const members = listWorkspaceMemberUsersSync(workspaceContext.currentWorkspace.id);

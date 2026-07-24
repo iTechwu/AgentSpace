@@ -576,6 +576,7 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE TABLE IF NOT EXISTS daemon_api_token (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        daemon_connection_id TEXT REFERENCES daemon_connection(id) ON DELETE SET NULL,
         label TEXT NOT NULL DEFAULT '',
         token_hash TEXT NOT NULL UNIQUE,
         status TEXT NOT NULL DEFAULT 'active',
@@ -584,6 +585,15 @@ export function getPostgresSchemaStatements(): string[] {
         created_at TIMESTAMPTZ NOT NULL,
         revoked_at TIMESTAMPTZ
       )
+    `,
+    `
+      ALTER TABLE daemon_api_token
+        ADD COLUMN IF NOT EXISTS daemon_connection_id TEXT REFERENCES daemon_connection(id) ON DELETE SET NULL
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_daemon_api_token_active_connection
+        ON daemon_api_token(daemon_connection_id)
+        WHERE status = 'active' AND daemon_connection_id IS NOT NULL
     `,
     `
       CREATE TABLE IF NOT EXISTS agent_runtime (

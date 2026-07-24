@@ -6,6 +6,7 @@ export function registerDaemonRuntimesSync(input: {
   daemonKey: string;
   deviceName: string;
   workspaceId?: string;
+  daemonTokenId?: string;
   metadata?: Record<string, unknown>;
   runtimes: RuntimeRegistrationInput[];
 }): RegisteredDaemonSnapshot {
@@ -44,9 +45,12 @@ export function registerDaemonRuntimesSync(input: {
       .get(daemonKey) as Record<string, unknown> | undefined;
     const daemonId =
       existingDaemon && typeof existingDaemon.id === "string" ? existingDaemon.id : `daemon-${randomLikeId()}`;
+    if (existingDaemon && existingDaemon.workspaceId !== workspaceId) {
+      throw new Error("daemon.key_workspace_mismatch");
+    }
     const daemonMetadataJson = JSON.stringify(input.metadata ?? {});
 
-    db.prepare(
+    const registrationResult = db.prepare(
       `INSERT INTO daemon_connection (
         id,
         workspace_id,
@@ -59,12 +63,12 @@ export function registerDaemonRuntimesSync(input: {
         updated_at
       ) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?)
       ON CONFLICT(daemon_key) DO UPDATE SET
-        workspace_id = excluded.workspace_id,
         device_name = excluded.device_name,
         status = 'online',
         metadata_json = excluded.metadata_json,
         last_heartbeat_at = excluded.last_heartbeat_at,
-        updated_at = excluded.updated_at`,
+        updated_at = excluded.updated_at
+      WHERE daemon_connection.workspace_id = excluded.workspace_id`,
     ).run(
       daemonId,
       workspaceId,
@@ -75,6 +79,17 @@ export function registerDaemonRuntimesSync(input: {
       existingDaemon && typeof existingDaemon.createdAt === "string" ? existingDaemon.createdAt : now,
       now,
     );
+    if (registrationResult.changes !== 1) {
+      throw new Error("daemon.key_workspace_mismatch");
+    }
+
+    if (input.daemonTokenId) {
+      bindDaemonTokenToConnectionSync({
+        daemonTokenId: input.daemonTokenId,
+        daemonId,
+        workspaceId,
+      });
+    }
 
     const seenProviders = new Set<string>();
     for (const runtime of input.runtimes) {
@@ -171,6 +186,47 @@ export function registerDaemonRuntimesSync(input: {
   });
 
   return readDaemonSnapshotSync(daemonKey);
+}
+
+function bindDaemonTokenToConnectionSync(input: {
+  daemonTokenId: string;
+  daemonId: string;
+  workspaceId: string;
+}): void {
+  const db = getDatabase();
+  const token = db.prepare(
+    `SELECT id, daemon_connection_id AS daemonConnectionId
+     FROM daemon_api_token
+     WHERE id = ? AND workspace_id = ? AND status = 'active'`,
+  ).get(input.daemonTokenId, input.workspaceId) as { id: string; daemonConnectionId: string | null } | undefined;
+  if (!token) {
+    throw new Error("daemon.token_not_active");
+  }
+  if (token.daemonConnectionId && token.daemonConnectionId !== input.daemonId) {
+    throw new Error("daemon.token_binding_mismatch");
+  }
+
+  const activeToken = db.prepare(
+    `SELECT id
+     FROM daemon_api_token
+     WHERE daemon_connection_id = ? AND status = 'active' AND id <> ?
+     LIMIT 1`,
+  ).get(input.daemonId, input.daemonTokenId) as { id: string } | undefined;
+  if (activeToken) {
+    throw new Error("daemon.connection_token_bound");
+  }
+
+  const result = db.prepare(
+    `UPDATE daemon_api_token
+     SET daemon_connection_id = ?
+     WHERE id = ?
+       AND workspace_id = ?
+       AND status = 'active'
+       AND (daemon_connection_id IS NULL OR daemon_connection_id = ?)`,
+  ).run(input.daemonId, input.daemonTokenId, input.workspaceId, input.daemonId);
+  if (result.changes !== 1) {
+    throw new Error("daemon.token_binding_mismatch");
+  }
 }
 
 export function heartbeatDaemonSync(daemonKey: string, options?: {

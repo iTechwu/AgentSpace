@@ -14,6 +14,7 @@ const {
   mockListWorkspaceMemberUsersSync,
   mockReadWorkspaceSync,
   mockReadUserSync,
+  mockReadAuthIdentityForUserSync,
 } = vi.hoisted(() => ({
   mockListChannelAccessRequestsSync: vi.fn(),
   mockListChannelInvitationsSync: vi.fn(),
@@ -22,6 +23,11 @@ const {
   mockListWorkspaceMemberUsersSync: vi.fn(),
   mockReadWorkspaceSync: vi.fn(),
   mockReadUserSync: vi.fn(),
+  mockReadAuthIdentityForUserSync: vi.fn(),
+}));
+
+const { mockLoadSsoWorkspaceDirectory } = vi.hoisted(() => ({
+  mockLoadSsoWorkspaceDirectory: vi.fn(),
 }));
 
 const {
@@ -68,6 +74,11 @@ vi.mock("@agent-space/db", () => ({
   listWorkspaceMemberUsersSync: mockListWorkspaceMemberUsersSync,
   readWorkspaceSync: mockReadWorkspaceSync,
   readUserSync: mockReadUserSync,
+  readAuthIdentityForUserSync: mockReadAuthIdentityForUserSync,
+}));
+
+vi.mock("@/features/auth/sso-directory", () => ({
+  loadSsoWorkspaceDirectory: mockLoadSsoWorkspaceDirectory,
 }));
 
 vi.mock("@agent-space/services", () => ({
@@ -123,6 +134,8 @@ describe("workspace settings route", () => {
     mockBuildFeishuIntegrationCreationGuide.mockReset();
     mockReadWorkspaceSync.mockReset();
     mockReadUserSync.mockReset();
+    mockReadAuthIdentityForUserSync.mockReset();
+    mockLoadSsoWorkspaceDirectory.mockReset();
 
     mockGetCurrentSession.mockResolvedValue({ id: "session-1" });
     mockGetWorkspaceContextForIdentifier.mockResolvedValue({
@@ -167,6 +180,8 @@ describe("workspace settings route", () => {
       ],
     });
     mockReadUserSync.mockReturnValue({ displayName: "Mina" });
+    mockReadAuthIdentityForUserSync.mockReturnValue({ providerSubject: "sso-user-1" });
+    mockLoadSsoWorkspaceDirectory.mockResolvedValue(buildSsoDirectory("owner"));
     mockGetWorkspacePermissionCenterSync.mockReturnValue({
       tree: [],
       actors: [],
@@ -180,11 +195,11 @@ describe("workspace settings route", () => {
     });
   });
 
-  it("redirects the settings home to the account section", async () => {
+  it("redirects the settings home to preferences", async () => {
     await expect(WorkspaceSettingsPage({
       params: Promise.resolve({ workspaceSlug: "mars-labs" }),
       searchParams: Promise.resolve({}),
-    })).rejects.toThrow("redirect:/w/mars-labs/settings/account");
+    })).rejects.toThrow("redirect:/w/mars-labs/settings/preferences");
     expect(mockListWorkspaceMemberUsersSync).not.toHaveBeenCalled();
     expect(mockListWorkspaceInvitationsSync).not.toHaveBeenCalled();
     expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
@@ -194,7 +209,7 @@ describe("workspace settings route", () => {
     await expect(WorkspaceSettingsPage({
       params: Promise.resolve({ workspaceSlug: "mars-labs" }),
       searchParams: Promise.resolve({ section: "bogus", source: "legacy" }),
-    })).rejects.toThrow("redirect:/w/mars-labs/settings/account?source=legacy");
+    })).rejects.toThrow("redirect:/w/mars-labs/settings/preferences?source=legacy");
   });
 
   it("loads only security data for the security section", async () => {
@@ -218,58 +233,14 @@ describe("workspace settings route", () => {
 
   it("seeds the workspace module cache with settings initial data", async () => {
     const page = await WorkspaceSettingsPage({
-      params: Promise.resolve({ workspaceSlug: "mars-labs", settingsPath: ["members"] }),
+      params: Promise.resolve({ workspaceSlug: "mars-labs", settingsPath: ["preferences"] }),
       searchParams: Promise.resolve({}),
     });
 
     expect(page.type).toBe(WorkspaceInitialModuleData);
     expect(page.props.moduleData.moduleId).toBe("settings");
-    expect(page.props.moduleData.data.initialSection).toBe("members");
+    expect(page.props.moduleData.data.initialSection).toBe("preferences");
     expect(page.props.workspaceId).toBe("workspace-mars");
-  });
-
-  it("loads only members data for the members section", async () => {
-    const page = await WorkspaceSettingsPage({
-      params: Promise.resolve({ workspaceSlug: "mars-labs", settingsPath: ["members"] }),
-      searchParams: Promise.resolve({}),
-    });
-
-    const data = getSettingsPageData(page);
-    expect(data.initialSection).toBe("members");
-    expect(data.members).toEqual([{ userId: "user-1" }]);
-    expect(data.invitations).toEqual([]);
-    expect(data.sessions).toEqual([]);
-    expect(data.feishuAvailableChannels).toEqual([]);
-    expect(data.feishuAvailableUsers).toEqual([]);
-    expect(data.feishuIntegrations).toEqual([]);
-    expect(mockListWorkspaceMemberUsersSync).toHaveBeenCalledWith("workspace-mars");
-    expect(mockListWorkspaceInvitationsSync).not.toHaveBeenCalled();
-    expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
-  });
-
-  it("loads only invitation data for the access section", async () => {
-    const page = await WorkspaceSettingsPage({
-      params: Promise.resolve({ workspaceSlug: "mars-labs", settingsPath: ["access"] }),
-      searchParams: Promise.resolve({}),
-    });
-
-    const data = getSettingsPageData(page);
-    expect(data.initialSection).toBe("access");
-    expect(data.members).toEqual([]);
-    expect(data.invitations).toEqual([{ id: "invite-1" }]);
-    expect(data.channelAccessRequests).toEqual([]);
-    expect(data.channelInvitations).toEqual([]);
-    expect(data.sessions).toEqual([]);
-    expect(data.feishuAvailableChannels).toEqual([]);
-    expect(data.feishuAvailableUsers).toEqual([]);
-    expect(data.feishuIntegrations).toEqual([]);
-    expect(mockListWorkspaceInvitationsSync).toHaveBeenCalledWith("workspace-mars", {
-      statuses: ["active", "accepted", "revoked", "expired"],
-    });
-    expect(mockListChannelAccessRequestsSync).toHaveBeenCalledWith("workspace-mars", { statuses: ["pending"] });
-    expect(mockListChannelInvitationsSync).toHaveBeenCalledWith("workspace-mars", { statuses: ["pending"] });
-    expect(mockListWorkspaceMemberUsersSync).not.toHaveBeenCalled();
-    expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
   });
 
   it("loads only Feishu integration data for the integrations section", async () => {
@@ -326,6 +297,7 @@ describe("workspace settings route", () => {
 
   it("loads only self-service Feishu identity data for members", async () => {
     mockGetWorkspaceContextForIdentifier.mockResolvedValue(buildWorkspaceContext("member"));
+    mockLoadSsoWorkspaceDirectory.mockResolvedValue(buildSsoDirectory("member"));
     mockListFeishuAvailableUsers.mockReturnValue([
       { userId: "user-1", displayName: "Mina", role: "member" },
       { userId: "user-2", displayName: "Alex", role: "member" },
@@ -383,41 +355,22 @@ describe("workspace settings route", () => {
     expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
   });
 
-  it("does not load detail datasets for the workspace section", async () => {
-    const page = await WorkspaceSettingsPage({
-      params: Promise.resolve({ workspaceSlug: "mars-labs", settingsPath: ["workspace"] }),
-      searchParams: Promise.resolve({}),
-    });
-
-    const data = getSettingsPageData(page);
-    expect(data.initialSection).toBe("workspace");
-    expect(data.members).toEqual([]);
-    expect(data.invitations).toEqual([]);
-    expect(data.sessions).toEqual([]);
-    expect(mockListWorkspaceMemberUsersSync).not.toHaveBeenCalled();
-    expect(mockListWorkspaceInvitationsSync).not.toHaveBeenCalled();
-    expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
-  });
-
-  it("redirects legacy query sections to the new nested settings path", async () => {
-    await expect(WorkspaceSettingsPage({
-      params: Promise.resolve({ workspaceSlug: "mars-labs" }),
-      searchParams: Promise.resolve({ section: "members", source: "legacy" }),
-    })).rejects.toThrow("redirect:/w/mars-labs/settings/members?source=legacy");
-  });
-
-  it.each([
-    { role: "member", section: "members" },
-    { role: "member", section: "access" },
-    { role: "member", section: "workspace" },
-    { role: "admin", section: "workspace" },
-  ] as const)("blocks sections the current role cannot access: $role -> $section", async ({ role, section }) => {
-    mockGetWorkspaceContextForIdentifier.mockResolvedValue(buildWorkspaceContext(role));
-
+  it.each(["workspace", "members", "access"] as const)("redirects %s to SSO team settings", async (section) => {
     await expect(WorkspaceSettingsPage({
       params: Promise.resolve({ workspaceSlug: "mars-labs", settingsPath: [section] }),
       searchParams: Promise.resolve({}),
-    })).rejects.toThrow("notFound");
+    })).rejects.toThrow("redirect:https://sso.ixicai.cn/zh/settings/team");
+  });
+
+  it("redirects legacy account and team settings queries to SSO", async () => {
+    await expect(WorkspaceSettingsPage({
+      params: Promise.resolve({ workspaceSlug: "mars-labs" }),
+      searchParams: Promise.resolve({ section: "account" }),
+    })).rejects.toThrow("redirect:https://sso.ixicai.cn/zh/settings/profile");
+    await expect(WorkspaceSettingsPage({
+      params: Promise.resolve({ workspaceSlug: "mars-labs" }),
+      searchParams: Promise.resolve({ section: "members" }),
+    })).rejects.toThrow("redirect:https://sso.ixicai.cn/zh/settings/team");
   });
 
   it.each([
@@ -425,11 +378,9 @@ describe("workspace settings route", () => {
     { role: "member", section: "permissions" },
     { role: "member", section: "integrations" },
     { role: "admin", section: "integrations" },
-    { role: "admin", section: "members" },
-    { role: "admin", section: "access" },
-    { role: "owner", section: "workspace" },
   ] as const)("allows accessible sections for the current role: $role -> $section", async ({ role, section }) => {
     mockGetWorkspaceContextForIdentifier.mockResolvedValue(buildWorkspaceContext(role));
+    mockLoadSsoWorkspaceDirectory.mockResolvedValue(buildSsoDirectory(role));
 
     const page = await WorkspaceSettingsPage({
       params: Promise.resolve({ workspaceSlug: "mars-labs", settingsPath: [section] }),
@@ -453,5 +404,26 @@ function buildWorkspaceContext(role: "owner" | "admin" | "member") {
       name: "Mars Labs",
       slug: "mars-labs",
     },
+  };
+}
+
+function buildSsoDirectory(role: "owner" | "admin" | "member") {
+  return {
+    account: { displayName: "Mina", userId: "sso-user-1" },
+    invitations: [{
+      id: "invite-1",
+      role: "member",
+      status: "active",
+      createdAt: "2026-04-22T00:00:00.000Z",
+      expiresAt: "2026-04-29T00:00:00.000Z",
+    }],
+    members: [{
+      userId: "sso-user-1",
+      displayName: "Mina",
+      isCurrentUser: true,
+      role,
+    }],
+    role,
+    workspaceName: "Mars Labs",
   };
 }

@@ -18,6 +18,7 @@ const nextConfig = {
     "@agent-space/domain",
     "@agent-space/sandbox",
     "@agent-space/services",
+    "@dofe/sso-node",
     "agent-space-daemon",
   ],
   outputFileTracingRoot: repositoryRoot,

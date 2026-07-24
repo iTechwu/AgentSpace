@@ -10,13 +10,7 @@ npm run smoke:feishu
 
 Dry-run mode does not call Feishu. It validates SDK import/construction, local event dispatch, challenge response, and AgentSpace request builders for IM, Docs, Sheets, and Base/Bitable. Its JSON summary marks live checks as skipped and `strictLiveSatisfied=false`; only `--live --strict-live` can produce live smoke evidence.
 
-Run the AgentSpace-side Feishu Postgres integration tests against an isolated database:
-
-```bash
-npm run test:feishu:db
-```
-
-This command creates a temporary Neon `e2e-*` branch with the same safety checks used by Playwright, runs the Feishu agent-bot, inbound routing, data-plane, outbound, and WebSocket worker DB tests serially, and deletes the branch before exiting. It also handles `SIGINT` / `SIGTERM` by stopping the current test process and attempting branch cleanup before exit. Because `npm run` can still terminate abruptly, the command records the active branch under `runtime-output/feishu-db-tests/`; run `npm run test:feishu:db -- --cleanup-stale` to delete a recorded branch left by an interrupted run. It prints the temporary branch name and test output, but not the database URL or credentials.
+Run AgentSpace-side Feishu integration tests with `AGENT_SPACE_TEST_DATABASE_URL` set to an isolated PostgreSQL database. The test runner refuses application databases unless an explicit override is supplied.
 
 Generate the AgentSpace-side live smoke plan before filling credentials:
 

@@ -69,15 +69,6 @@ async function buildCodexLaunch(input: AgentRouterRunRequest): Promise<HarnessLa
   if (input.mode) {
     baseArgs.push("--sandbox", input.mode);
   }
-  if (input.dangerouslyBypassPermissions) {
-    baseArgs.push(
-      "--dangerously-bypass-approvals-and-sandbox",
-      "-c", "sandbox_mode=\"danger-full-access\"",
-      "-c", "approval_policy=\"never\"",
-      "-c", "shell_environment_policy.inherit=\"all\"",
-    );
-  }
-
   const args = input.sessionId
     ? ["exec", "resume", ...baseArgs, input.sessionId, input.prompt]
     : ["exec", ...baseArgs, "--cd", input.cwd, input.prompt];

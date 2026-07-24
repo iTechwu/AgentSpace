@@ -1,7 +1,7 @@
 import { startQueuedTaskSync } from "@agent-space/db";
 import { parseTaskPayload } from "agent-space-daemon";
 import { postMessageSync } from "@agent-space/services";
-import { readTaskForWorkspace, requireDaemonAuth } from "../../../_lib/auth";
+import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export async function POST(
   }
 
   const { taskId } = await context.params;
-  const task = readTaskForWorkspace(taskId, auth.workspaceId);
+  const task = readTaskForDaemon(taskId, auth);
   if (task instanceof Response) {
     return task;
   }

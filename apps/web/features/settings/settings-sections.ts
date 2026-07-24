@@ -15,7 +15,7 @@ const SETTINGS_DETAIL_SECTION_ORDER_INTERNAL = [
 export type SettingsDetailSectionId = typeof SETTINGS_DETAIL_SECTION_ORDER_INTERNAL[number];
 export type SettingsSectionId = SettingsDetailSectionId;
 
-export const DEFAULT_SETTINGS_SECTION: SettingsSectionId = "account";
+export const DEFAULT_SETTINGS_SECTION: SettingsSectionId = "preferences";
 export const SETTINGS_HOME_PATH = "/settings";
 
 export const SETTINGS_SECTION_ORDER = [
@@ -59,7 +59,13 @@ export function canAccessSettingsSection(role: WorkspaceRole, section: SettingsS
 }
 
 export function getAccessibleSettingsSections(role: WorkspaceRole): SettingsSectionId[] {
-  return SETTINGS_SECTION_ORDER.filter((section) => canAccessSettingsSection(role, section));
+  return SETTINGS_SECTION_ORDER.filter((section) => (
+    section !== "account"
+    && section !== "workspace"
+    && section !== "members"
+    && section !== "access"
+    && canAccessSettingsSection(role, section)
+  ));
 }
 
 export function getSettingsSectionPath(section: SettingsSectionId): string {

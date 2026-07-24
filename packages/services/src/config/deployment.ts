@@ -1,27 +1,23 @@
 import { readEffectiveRuntimeEnv } from "@agent-space/db";
 
-export type AgentSpaceDeploymentMode = "self_hosted" | "cloud";
-
 export interface AttachmentRuntimeConfig {
-  provider: "local" | "r2";
+  provider: "local" | "tos";
   localRoot?: string;
-  publicBaseUrl?: string;
   maxUploadBytes: number;
   signedUrlTtlSeconds: number;
   enableLocalFallback: boolean;
-  r2?: {
-    accountId: string;
+  tos?: {
     bucket: string;
-    region: string;
     endpoint: string;
+    publicEndpoint: string;
+    bucketDomain?: string;
+    region: string;
     accessKeyId: string;
     secretAccessKey: string;
-    forcePathStyle: boolean;
   };
 }
 
 export interface AgentSpaceRuntimeConfig {
-  deploymentMode: AgentSpaceDeploymentMode;
   databaseUrl: string;
   directDatabaseUrl?: string;
   attachments: AttachmentRuntimeConfig;
@@ -29,102 +25,86 @@ export interface AgentSpaceRuntimeConfig {
 
 export function resolveAgentSpaceRuntimeConfig(env: NodeJS.ProcessEnv = process.env): AgentSpaceRuntimeConfig {
   const effectiveEnv = readEffectiveRuntimeEnv({ env, repositoryOverridesEnv: env === process.env });
-  const deploymentMode = resolveDeploymentMode(effectiveEnv);
   return {
-    deploymentMode,
-    databaseUrl: resolveDatabaseUrl(deploymentMode, effectiveEnv),
-    directDatabaseUrl: resolveDirectDatabaseUrl(deploymentMode, effectiveEnv),
-    attachments: resolveAttachmentRuntimeConfigForMode(deploymentMode, effectiveEnv),
+    databaseUrl: requireFirstEnvValue(effectiveEnv, ["SELF_HOSTED_DATABASE_URL", "AGENT_SPACE_PG_URL", "DATABASE_URL"]),
+    directDatabaseUrl: firstEnvValue(effectiveEnv, ["SELF_HOSTED_DATABASE_DIRECT_URL", "DATABASE_DIRECT_URL"]),
+    attachments: resolveAttachmentRuntimeConfig(effectiveEnv),
   };
 }
 
-export function resolveAttachmentRuntimeConfig(envOrMode?: NodeJS.ProcessEnv | AgentSpaceDeploymentMode): AttachmentRuntimeConfig {
-  const rawEnv = typeof envOrMode === "string" ? process.env : envOrMode ?? process.env;
-  const env = typeof envOrMode === "string"
-    ? readEffectiveRuntimeEnv()
-    : readEffectiveRuntimeEnv({ env: rawEnv, repositoryOverridesEnv: rawEnv === process.env });
-  const deploymentMode = typeof envOrMode === "string" ? envOrMode : resolveDeploymentMode(env);
-  return resolveAttachmentRuntimeConfigForMode(deploymentMode, env);
-}
+export function resolveAttachmentRuntimeConfig(env: NodeJS.ProcessEnv = process.env): AttachmentRuntimeConfig {
+  const effectiveEnv = readEffectiveRuntimeEnv({ env, repositoryOverridesEnv: env === process.env });
+  const maxUploadBytes = readPositiveInteger(effectiveEnv.ATTACHMENT_MAX_UPLOAD_BYTES, 50 * 1024 * 1024);
+  const signedUrlTtlSeconds = readPositiveInteger(effectiveEnv.ATTACHMENT_SIGNED_URL_TTL_SECONDS, 300);
+  const enableLocalFallback = effectiveEnv.ATTACHMENT_ENABLE_LOCAL_FALLBACK !== "false";
+  const requestedProvider = effectiveEnv.ATTACHMENT_STORAGE_PROVIDER?.trim().toLowerCase();
+  if (requestedProvider && requestedProvider !== "local" && requestedProvider !== "tos") {
+    throw new Error("ATTACHMENT_STORAGE_PROVIDER must be either local or tos.");
+  }
+  const hasTosConfig = ["TOS_BUCKET", "TOS_REGION", "TOS_ACCESS_KEY", "TOS_SECRET_KEY"].some((name) => Boolean(firstEnvValue(effectiveEnv, [name])));
 
-function resolveAttachmentRuntimeConfigForMode(
-  deploymentMode: AgentSpaceDeploymentMode,
-  env: NodeJS.ProcessEnv,
-): AttachmentRuntimeConfig {
-  const maxUploadBytes = readPositiveInteger(env.ATTACHMENT_MAX_UPLOAD_BYTES, 50 * 1024 * 1024);
-  const signedUrlTtlSeconds = readPositiveInteger(env.ATTACHMENT_SIGNED_URL_TTL_SECONDS, 300);
-  const publicBaseUrl = trimOptional(env.ATTACHMENT_PUBLIC_BASE_URL);
-  const enableLocalFallback = env.ATTACHMENT_ENABLE_LOCAL_FALLBACK !== "false";
-
-  if (deploymentMode === "cloud") {
+  if (requestedProvider === "local" || !hasTosConfig) {
     return {
-      provider: "r2",
-      publicBaseUrl,
+      provider: "local",
+      localRoot: firstEnvValue(effectiveEnv, ["ATTACHMENT_LOCAL_ROOT", "SELF_HOSTED_ATTACHMENT_LOCAL_ROOT"]),
       maxUploadBytes,
       signedUrlTtlSeconds,
       enableLocalFallback,
-      localRoot: trimOptional(env.ATTACHMENT_LOCAL_ROOT) || trimOptional(env.SELF_HOSTED_ATTACHMENT_LOCAL_ROOT),
-      r2: {
-        accountId: requireEnvValue(env, "CLOUDFLARE_ACCOUNT_ID"),
-        bucket: requireEnvValue(env, "CLOUDFLARE_R2_BUCKET"),
-        region: trimOptional(env.CLOUDFLARE_R2_REGION) || "auto",
-        endpoint: trimOptional(env.CLOUDFLARE_R2_ENDPOINT) || `https://${requireEnvValue(env, "CLOUDFLARE_ACCOUNT_ID")}.r2.cloudflarestorage.com`,
-        accessKeyId: requireEnvValue(env, "CLOUDFLARE_R2_ACCESS_KEY_ID"),
-        secretAccessKey: requireEnvValue(env, "CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
-        forcePathStyle: env.CLOUDFLARE_R2_FORCE_PATH_STYLE !== "false",
+    };
+  }
+
+  if (requestedProvider === "tos" || hasTosConfig) {
+    const publicEndpoint = normalizeTosEndpoint(requireFirstEnvValue(effectiveEnv, ["TOS_ENDPOINT", "TOS_S3_ENDPOINT"]));
+    const useInternalEndpoint = effectiveEnv.TOS_USE_INTERNAL_ENDPOINT === "true";
+    const internalEndpoint = firstEnvValue(effectiveEnv, ["TOS_INTERNAL_ENDPOINT", "TOS_INTERNAL_S3_ENDPOINT"]);
+    return {
+      provider: "tos",
+      localRoot: firstEnvValue(effectiveEnv, ["ATTACHMENT_LOCAL_ROOT", "SELF_HOSTED_ATTACHMENT_LOCAL_ROOT"]),
+      maxUploadBytes,
+      signedUrlTtlSeconds,
+      enableLocalFallback,
+      tos: {
+        bucket: requireFirstEnvValue(effectiveEnv, ["TOS_BUCKET"]),
+        endpoint: useInternalEndpoint && internalEndpoint ? internalEndpoint : publicEndpoint,
+        publicEndpoint,
+        bucketDomain: firstEnvValue(effectiveEnv, ["TOS_BUCKET_DOMAIN"]),
+        region: requireFirstEnvValue(effectiveEnv, ["TOS_REGION"]),
+        accessKeyId: requireFirstEnvValue(effectiveEnv, ["TOS_ACCESS_KEY"]),
+        secretAccessKey: requireFirstEnvValue(effectiveEnv, ["TOS_SECRET_KEY"]),
       },
     };
   }
 
   return {
     provider: "local",
-    localRoot: trimOptional(env.SELF_HOSTED_ATTACHMENT_LOCAL_ROOT) || trimOptional(env.ATTACHMENT_LOCAL_ROOT),
-    publicBaseUrl,
+    localRoot: firstEnvValue(effectiveEnv, ["ATTACHMENT_LOCAL_ROOT", "SELF_HOSTED_ATTACHMENT_LOCAL_ROOT"]),
     maxUploadBytes,
     signedUrlTtlSeconds,
     enableLocalFallback,
   };
 }
 
-function resolveDeploymentMode(env: NodeJS.ProcessEnv): AgentSpaceDeploymentMode {
-  const rawMode = env.AGENT_SPACE_DEPLOYMENT_MODE?.trim();
-  if (!rawMode || rawMode === "self_hosted") {
-    return "self_hosted";
-  }
-  if (rawMode === "cloud") {
-    return "cloud";
-  }
-  throw new Error(`Unsupported AGENT_SPACE_DEPLOYMENT_MODE "${rawMode}". Expected "self_hosted" or "cloud".`);
-}
-
-function resolveDatabaseUrl(mode: AgentSpaceDeploymentMode, env: NodeJS.ProcessEnv): string {
-  if (mode === "cloud") {
-    return requireEnvValue(env, "NEON_DATABASE_URL");
-  }
-  return requireEnvValue(env, "SELF_HOSTED_DATABASE_URL");
-}
-
-function resolveDirectDatabaseUrl(mode: AgentSpaceDeploymentMode, env: NodeJS.ProcessEnv): string | undefined {
-  if (mode === "cloud") {
-    return trimOptional(env.NEON_DATABASE_DIRECT_URL);
-  }
-  return trimOptional(env.SELF_HOSTED_DATABASE_DIRECT_URL);
-}
-
-function requireEnvValue(env: NodeJS.ProcessEnv, name: string): string {
-  const value = trimOptional(env[name]);
-  if (!value) {
-    throw new Error(`Missing required environment variable ${name}.`);
-  }
+function requireFirstEnvValue(env: NodeJS.ProcessEnv, names: string[]): string {
+  const value = firstEnvValue(env, names);
+  if (!value) throw new Error(`Missing required environment variable: ${names.join(" or ")}.`);
   return value;
 }
 
-function trimOptional(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
+function firstEnvValue(env: NodeJS.ProcessEnv, names: string[]): string | undefined {
+  for (const name of names) {
+    const value = env[name]?.trim();
+    if (value) return value;
+  }
+  return undefined;
 }
 
 function readPositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function normalizeTosEndpoint(value: string): string {
+  const endpoint = new URL(value.includes("://") ? value : `https://${value}`);
+  endpoint.hostname = endpoint.hostname.replace(/^tos-s3-/, "tos-");
+  return endpoint.toString().replace(/\/$/, "");
 }

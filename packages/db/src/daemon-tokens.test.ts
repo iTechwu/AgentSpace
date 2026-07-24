@@ -6,6 +6,7 @@ import test, { before, beforeEach } from "node:test";
 import {
   createDaemonApiTokenSync,
   listDaemonApiTokensSync,
+  registerDaemonRuntimesSync,
   revokeDaemonApiTokenSync,
   validateDaemonApiTokenSync,
 } from "./index.ts";
@@ -22,6 +23,8 @@ before(() => {
 
 beforeEach(() => {
   const db = getDatabase();
+  db.exec("DELETE FROM agent_runtime");
+  db.exec("DELETE FROM daemon_connection");
   db.exec("DELETE FROM daemon_api_token");
 });
 
@@ -43,6 +46,48 @@ test("daemon api tokens can be created, validated, and revoked", () => {
   const revoked = revokeDaemonApiTokenSync(created.id);
   assert.equal(revoked.status, "revoked");
   assert.equal(validateDaemonApiTokenSync(created.token), null);
+});
+
+test("a daemon token binds exactly one daemon and rejects cross-workspace daemon key reuse", () => {
+  const firstToken = createDaemonApiTokenSync({
+    workspaceId: "default",
+    label: "codex-container",
+    createdBy: "Tianyu",
+  });
+  const first = registerDaemonRuntimesSync({
+    workspaceId: "default",
+    daemonTokenId: firstToken.id,
+    daemonKey: "runtime-codex-1",
+    deviceName: "Runtime Codex 1",
+    runtimes: [{ provider: "codex", name: "Codex" }],
+  });
+
+  assert.equal(validateDaemonApiTokenSync(firstToken.token)?.daemonConnectionId, first.daemon.id);
+
+  const secondToken = createDaemonApiTokenSync({
+    workspaceId: "default",
+    label: "claude-container",
+    createdBy: "Tianyu",
+  });
+  assert.throws(
+    () => registerDaemonRuntimesSync({
+      workspaceId: "default",
+      daemonTokenId: secondToken.id,
+      daemonKey: "runtime-codex-1",
+      deviceName: "Runtime Codex 1",
+      runtimes: [{ provider: "codex", name: "Codex" }],
+    }),
+    /daemon\.connection_token_bound/,
+  );
+  assert.throws(
+    () => registerDaemonRuntimesSync({
+      workspaceId: "workspace-mars",
+      daemonKey: "runtime-codex-1",
+      deviceName: "Runtime Codex 1",
+      runtimes: [{ provider: "codex", name: "Codex" }],
+    }),
+    /daemon\.key_workspace_mismatch/,
+  );
 });
 
 test.after(() => {

@@ -3,15 +3,30 @@ import "@testing-library/jest-dom/vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+if (typeof window !== "undefined" && typeof window.localStorage?.getItem !== "function") {
+  const values = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      clear: () => values.clear(),
+      getItem: (key: string) => values.get(key) ?? null,
+      key: (index: number) => Array.from(values.keys())[index] ?? null,
+      get length() { return values.size; },
+      removeItem: (key: string) => values.delete(key),
+      setItem: (key: string, value: string) => values.set(key, String(value)),
+    } satisfies Storage,
+  });
+}
+
 const explicitTestDatabaseUrl =
   process.env.AGENT_SPACE_TEST_DATABASE_URL?.trim()
   || process.env.AGENT_SPACE_PG_TEST_URL?.trim();
 
 if (explicitTestDatabaseUrl) {
-  if (!looksLikeTestDatabaseUrl(explicitTestDatabaseUrl) && !looksLikeE2eNeonBranchUrl(explicitTestDatabaseUrl)) {
+  if (!looksLikeTestDatabaseUrl(explicitTestDatabaseUrl)) {
     throw new Error(
       "Refusing to run web tests against an explicit database URL that is not marked as test/e2e. "
-      + "Use a database name containing test/e2e, or use the Playwright Neon branch setup.",
+      + "Use a database name containing test/e2e.",
     );
   }
   process.env.AGENT_SPACE_PG_URL = explicitTestDatabaseUrl;
@@ -28,7 +43,7 @@ if (explicitTestDatabaseUrl) {
 }
 
 function resolveConfiguredDatabaseUrl(): string | undefined {
-  const fromEnv = resolveDeploymentModeDatabaseUrl(process.env)
+  const fromEnv = process.env.SELF_HOSTED_DATABASE_URL?.trim()
     || process.env.AGENT_SPACE_PG_URL?.trim()
     || process.env.DATABASE_URL?.trim();
   if (fromEnv) {
@@ -41,7 +56,7 @@ function resolveConfiguredDatabaseUrl(): string | undefined {
   }
 
   const parsed = parseDotEnv(readFileSync(envFilePath, "utf8"));
-  return resolveDeploymentModeDatabaseUrl(parsed)
+  return parsed.SELF_HOSTED_DATABASE_URL?.trim()
     || parsed.AGENT_SPACE_PG_URL?.trim()
     || parsed.DATABASE_URL?.trim()
     || undefined;
@@ -56,38 +71,6 @@ function looksLikeTestDatabaseUrl(databaseUrl: string): boolean {
   }
 }
 
-function looksLikeE2eNeonBranchUrl(databaseUrl: string): boolean {
-  const branchId = process.env.AGENT_SPACE_E2E_NEON_BRANCH_ID?.trim();
-  const branchName = process.env.AGENT_SPACE_E2E_NEON_BRANCH_NAME?.trim();
-  if (!branchId || !branchName?.startsWith("e2e-")) {
-    return false;
-  }
-  const expectedUrls = [
-    process.env.AGENT_SPACE_E2E_DATABASE_URL,
-    process.env.AGENT_SPACE_TEST_DATABASE_URL,
-    process.env.AGENT_SPACE_PG_TEST_URL,
-  ].map((value) => value?.trim()).filter((value): value is string => Boolean(value));
-  return expectedUrls.some((expectedUrl) => sameDatabaseUrl(databaseUrl, expectedUrl));
-}
-
-function resolveDeploymentModeDatabaseUrl(env: Record<string, string | undefined>): string | undefined {
-  const mode = env.AGENT_SPACE_DEPLOYMENT_MODE?.trim();
-  if (mode === "cloud") {
-    return env.NEON_DATABASE_URL?.trim() || undefined;
-  }
-  if (mode === "self_hosted") {
-    return env.SELF_HOSTED_DATABASE_URL?.trim() || undefined;
-  }
-  return undefined;
-}
-
-function sameDatabaseUrl(left: string, right: string): boolean {
-  try {
-    return new URL(left).toString() === new URL(right).toString();
-  } catch {
-    return left === right;
-  }
-}
 
 function parseDotEnv(raw: string): Record<string, string> {
   const result: Record<string, string> = {};

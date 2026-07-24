@@ -2,12 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import {
-  createWorkspaceMembershipSync,
-  createWorkspaceSync,
-  getDatabase,
-  listUserWorkspacesSync,
-} from "@agent-space/db";
+import { createWorkspaceMembershipSync, createWorkspaceSync, getDatabase, listUserWorkspacesSync } from "@agent-space/db";
 import type { AuthUser } from "./server-auth";
 import {
   resolveCurrentWorkspaceContextForUserSync,
@@ -35,7 +30,7 @@ afterAll(() => {
 });
 
 describe("server workspace context", () => {
-  it("bootstraps an owned workspace for users without memberships", () => {
+  it("rejects users without an SSO workspace membership", () => {
     const user: AuthUser = {
       id: "user-1",
       organizationName: "Northstar Labs",
@@ -45,14 +40,7 @@ describe("server workspace context", () => {
     };
     seedUser(user);
 
-    const context = resolveCurrentWorkspaceContextForUserSync(user);
-
-    expect(context.currentWorkspace.id).not.toBe("default");
-    expect(context.currentWorkspace.slug).not.toBe("default");
-    expect(context.currentWorkspace.name).toBe("Tianyu's personal workspace");
-    expect(context.currentMembership.workspaceId).toBe(context.currentWorkspace.id);
-    expect(context.currentMembership.role).toBe("owner");
-    expect(listUserWorkspacesSync(user.id)).toHaveLength(1);
+    expect(() => resolveCurrentWorkspaceContextForUserSync(user)).toThrow("auth.sso_no_workspace");
   });
 
   it("prefers existing user memberships instead of forcing default workspace", () => {
@@ -66,8 +54,8 @@ describe("server workspace context", () => {
     seedUser(user);
 
     const workspace = createWorkspaceSync({
-      id: "workspace-alex",
-      slug: "workspace-alex",
+      id: "sso-team-alex",
+      slug: "sso-team-alex",
       name: "Alex Workspace",
       createdBy: user.id,
     });
@@ -79,10 +67,10 @@ describe("server workspace context", () => {
 
     const context = resolveCurrentWorkspaceContextForUserSync(user);
 
-    expect(context.currentWorkspace.id).toBe("workspace-alex");
-    expect(context.currentMembership.workspaceId).toBe("workspace-alex");
+    expect(context.currentWorkspace.id).toBe("sso-team-alex");
+    expect(context.currentMembership.workspaceId).toBe("sso-team-alex");
     expect(listUserWorkspacesSync(user.id)).toHaveLength(1);
-    expect(listUserWorkspacesSync(user.id)[0]?.workspaceId).toBe("workspace-alex");
+    expect(listUserWorkspacesSync(user.id)[0]?.workspaceId).toBe("sso-team-alex");
   });
 
   it("uses the selected workspace when it belongs to the user", () => {
@@ -96,34 +84,34 @@ describe("server workspace context", () => {
     seedUser(user);
 
     createWorkspaceSync({
-      id: "workspace-alpha",
-      slug: "workspace-alpha",
+      id: "sso-team-alpha",
+      slug: "sso-team-alpha",
       name: "Alpha Workspace",
       createdBy: user.id,
     });
     createWorkspaceSync({
-      id: "workspace-2",
-      slug: "beta-team",
+      id: "sso-team-beta",
+      slug: "sso-team-beta",
       name: "Beta Workspace",
       createdBy: user.id,
     });
     createWorkspaceMembershipSync({
-      workspaceId: "workspace-alpha",
+      workspaceId: "sso-team-alpha",
       userId: user.id,
       role: "owner",
     });
     createWorkspaceMembershipSync({
-      workspaceId: "workspace-2",
+      workspaceId: "sso-team-beta",
       userId: user.id,
       role: "admin",
     });
 
-    const context = resolveCurrentWorkspaceContextForUserSync(user, "beta-team");
+    const context = resolveCurrentWorkspaceContextForUserSync(user, "sso-team-beta");
 
-    expect(context.currentWorkspace.id).toBe("workspace-2");
-    expect(context.currentWorkspace.slug).toBe("beta-team");
-    expect(context.currentMembership.workspaceId).toBe("workspace-2");
-    expect(context.workspaces.map((workspace) => workspace.id)).toEqual(["workspace-2", "workspace-alpha"]);
+    expect(context.currentWorkspace.id).toBe("sso-team-beta");
+    expect(context.currentWorkspace.slug).toBe("sso-team-beta");
+    expect(context.currentMembership.workspaceId).toBe("sso-team-beta");
+    expect(context.workspaces.map((workspace) => workspace.id)).toEqual(["sso-team-beta", "sso-team-alpha"]);
   });
 
   it("falls back to the next recent workspace when the latest selection is unavailable", () => {
@@ -137,40 +125,40 @@ describe("server workspace context", () => {
     seedUser(user);
 
     createWorkspaceSync({
-      id: "workspace-alpha-2",
-      slug: "workspace-alpha-2",
+      id: "sso-team-alpha-2",
+      slug: "sso-team-alpha-2",
       name: "Alpha Workspace",
       createdBy: user.id,
     });
     createWorkspaceSync({
-      id: "workspace-beta-2",
-      slug: "beta-team-2",
+      id: "sso-team-beta-2",
+      slug: "sso-team-beta-2",
       name: "Beta Workspace",
       createdBy: user.id,
     });
     createWorkspaceMembershipSync({
-      workspaceId: "workspace-alpha-2",
+      workspaceId: "sso-team-alpha-2",
       userId: user.id,
       role: "owner",
     });
     createWorkspaceMembershipSync({
-      workspaceId: "workspace-beta-2",
+      workspaceId: "sso-team-beta-2",
       userId: user.id,
       role: "admin",
     });
 
     const context = resolveCurrentWorkspaceContextForUserSync(user, [
       "missing-workspace",
-      "beta-team-2",
-      "workspace-alpha-2",
+      "sso-team-beta-2",
+      "sso-team-alpha-2",
     ]);
 
-    expect(context.currentWorkspace.id).toBe("workspace-beta-2");
-    expect(context.currentWorkspace.slug).toBe("beta-team-2");
-    expect(context.currentMembership.workspaceId).toBe("workspace-beta-2");
+    expect(context.currentWorkspace.id).toBe("sso-team-beta-2");
+    expect(context.currentWorkspace.slug).toBe("sso-team-beta-2");
+    expect(context.currentMembership.workspaceId).toBe("sso-team-beta-2");
     expect(context.workspaces.map((workspace) => workspace.id)).toEqual([
-      "workspace-beta-2",
-      "workspace-alpha-2",
+      "sso-team-beta-2",
+      "sso-team-alpha-2",
     ]);
   });
 
@@ -183,6 +171,7 @@ describe("server workspace context", () => {
       email: "mina@example.com",
     };
     seedUser(user);
+    createSsoWorkspace(user.id, "sso-team-existing");
 
     const resolution = resolveWorkspaceAccessForIdentifierSync(user, "missing-workspace");
 
@@ -200,28 +189,28 @@ describe("server workspace context", () => {
     seedUser(user);
 
     createWorkspaceSync({
-      id: "workspace-allowed",
-      slug: "workspace-allowed",
+      id: "sso-team-allowed",
+      slug: "sso-team-allowed",
       name: "Allowed Workspace",
       createdBy: user.id,
     });
     createWorkspaceSync({
-      id: "workspace-locked",
-      slug: "workspace-locked",
+      id: "sso-team-locked",
+      slug: "sso-team-locked",
       name: "Locked Workspace",
       createdBy: "other-user",
     });
     createWorkspaceMembershipSync({
-      workspaceId: "workspace-allowed",
+      workspaceId: "sso-team-allowed",
       userId: user.id,
       role: "owner",
     });
 
-    const resolution = resolveWorkspaceAccessForIdentifierSync(user, "workspace-locked");
+    const resolution = resolveWorkspaceAccessForIdentifierSync(user, "sso-team-locked");
 
     expect(resolution.status).toBe("forbidden");
     if (resolution.status === "forbidden") {
-      expect(resolution.workspaces.map((workspace) => workspace.id)).toEqual(["workspace-allowed"]);
+      expect(resolution.workspaces.map((workspace) => workspace.id)).toEqual(["sso-team-allowed"]);
     }
   });
 });
@@ -232,4 +221,9 @@ function seedUser(user: AuthUser): void {
     `INSERT INTO users (id, display_name, avatar_url, primary_email, created_at, updated_at, last_login_at)
      VALUES (?, ?, NULL, ?, ?, ?, NULL)`,
   ).run(user.id, user.displayName, user.email, now, now);
+}
+
+function createSsoWorkspace(userId: string, id: string): void {
+  createWorkspaceSync({ id, slug: id, name: id, createdBy: userId });
+  createWorkspaceMembershipSync({ workspaceId: id, userId, role: "member" });
 }

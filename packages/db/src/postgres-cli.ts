@@ -94,9 +94,9 @@ function printHelp(): void {
   node --experimental-strip-types packages/db/src/postgres-cli.ts cutover-plan [--database-url <postgres-url>] [--sqlite-path <sqlite-file>] [--json]
 
 Environment:
-  AGENT_SPACE_DEPLOYMENT_MODE
   SELF_HOSTED_DATABASE_URL
-  NEON_DATABASE_URL
+  AGENT_SPACE_PG_URL
+  DATABASE_URL
 
 The CLI also auto-loads these values from the repository root .env when present.`);
 }

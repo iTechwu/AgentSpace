@@ -18,12 +18,13 @@ export function createDaemonApiTokenSync(input: {
     `INSERT INTO daemon_api_token (
       id,
       workspace_id,
+      daemon_connection_id,
       label,
       token_hash,
       status,
       created_by,
       created_at
-    ) VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+    ) VALUES (?, ?, NULL, ?, ?, 'active', ?, ?)`,
   ).run(id, workspaceId, input.label.trim(), tokenHash, input.createdBy.trim(), now);
 
   const record = readDaemonApiTokenSync(id);
@@ -44,6 +45,7 @@ export function listDaemonApiTokensSync(workspaceId = DEFAULT_WORKSPACE_ID): Dae
       `SELECT
         id,
         workspace_id AS workspaceId,
+        daemon_connection_id AS daemonConnectionId,
         label,
         token_hash AS tokenHash,
         status,
@@ -69,6 +71,7 @@ export function readDaemonApiTokenSync(id: string): DaemonApiTokenRecord | null 
       `SELECT
         id,
         workspace_id AS workspaceId,
+        daemon_connection_id AS daemonConnectionId,
         label,
         token_hash AS tokenHash,
         status,
@@ -95,6 +98,7 @@ export function validateDaemonApiTokenSync(token: string): DaemonApiTokenRecord 
       `SELECT
         id,
         workspace_id AS workspaceId,
+        daemon_connection_id AS daemonConnectionId,
         label,
         token_hash AS tokenHash,
         status,
@@ -163,6 +167,7 @@ function mapDaemonApiTokenRecord(value: Record<string, unknown>): DaemonApiToken
   return {
     id: value.id,
     workspaceId: value.workspaceId,
+    daemonConnectionId: typeof value.daemonConnectionId === "string" ? value.daemonConnectionId : undefined,
     label: value.label,
     tokenHash: value.tokenHash,
     status: value.status,

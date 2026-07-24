@@ -1,6 +1,6 @@
 import { heartbeatDaemonSync } from "@agent-space/db";
 import type { HeartbeatDaemonRequest, HeartbeatDaemonResponse } from "@agent-space/domain";
-import { readDaemonConnectionForWorkspace, requireDaemonAuth } from "../_lib/auth";
+import { readDaemonConnectionForDaemon, requireDaemonAuth } from "../_lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "daemonKey is required." }, { status: 400 });
   }
 
-  const daemon = readDaemonConnectionForWorkspace(body.daemonKey.trim(), auth.workspaceId);
+  const daemon = readDaemonConnectionForDaemon(body.daemonKey.trim(), auth);
   if (daemon instanceof Response) {
     return daemon;
   }

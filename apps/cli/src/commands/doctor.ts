@@ -27,7 +27,7 @@ export function runDoctorCommand(format: OutputFormat): number {
       workspaceSnapshotNote = formatErrorNote(error, "workspace snapshot 访问失败");
     }
   } else {
-    workspaceSnapshotNote = "先配置 AGENT_SPACE_DEPLOYMENT_MODE，并设置 SELF_HOSTED_DATABASE_URL 或 NEON_DATABASE_URL";
+    workspaceSnapshotNote = "先配置 SELF_HOSTED_DATABASE_URL、AGENT_SPACE_PG_URL 或 DATABASE_URL";
   }
 
   const checks = [

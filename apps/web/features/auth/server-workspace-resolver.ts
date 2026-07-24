@@ -1,16 +1,11 @@
 import {
-  createWorkspaceMembershipSync,
   listChannelParticipantsForUserSync,
   listUserWorkspacesSync,
-  listWorkspaceMembershipsSync,
-  readWorkspaceMembershipSync,
   readWorkspaceSync,
   type StoredWorkspaceMembershipRecord,
   type StoredWorkspaceRecord,
-  type WorkspaceRole,
 } from "@agent-space/db";
 import type { AuthUser } from "./server-auth";
-import { createOwnedWorkspaceForUserSync } from "./user-workspaces";
 
 export interface CurrentWorkspaceContext {
   currentUser: AuthUser;
@@ -60,7 +55,7 @@ export function resolveCurrentWorkspaceContextForUserSync(
     ?? memberships[0]!;
   const currentWorkspace =
     readWorkspaceSync(currentMembership.workspaceId)
-    ?? ensureOwnedWorkspaceForUserSync(currentUser);
+    ?? (() => { throw new Error("auth.sso_no_workspace"); })();
   const workspaces = sortWorkspacesByPreferredIdentifiers(
     memberships
     .map((membership) => readWorkspaceSync(membership.workspaceId))
@@ -221,47 +216,10 @@ function sortWorkspacesByPreferredIdentifiers(
 }
 
 function ensureWorkspaceMembershipsSync(currentUser: AuthUser): StoredWorkspaceMembershipRecord[] {
-  const memberships = listUserWorkspacesSync(currentUser.id);
+  const memberships = listUserWorkspacesSync(currentUser.id)
+    .filter((membership) => membership.workspaceId.startsWith("sso-"));
   if (memberships.length > 0) {
     return memberships;
   }
-
-  const workspace = ensureOwnedWorkspaceForUserSync(currentUser);
-  const role = inferLegacyWorkspaceRole(currentUser.role, listWorkspaceMembershipsSync(workspace.id).length === 0);
-  const membership =
-    readWorkspaceMembershipSync(workspace.id, currentUser.id)
-    ?? createWorkspaceMembershipSync({
-      workspaceId: workspace.id,
-      userId: currentUser.id,
-      role,
-    });
-  return [membership];
-}
-
-function ensureOwnedWorkspaceForUserSync(currentUser: AuthUser): StoredWorkspaceRecord {
-  const memberships = listUserWorkspacesSync(currentUser.id);
-  const existingWorkspace = memberships
-    .map((membership) => readWorkspaceSync(membership.workspaceId))
-    .find((workspace): workspace is StoredWorkspaceRecord => workspace !== null);
-  if (existingWorkspace) {
-    return existingWorkspace;
-  }
-
-  return createOwnedWorkspaceForUserSync({
-    userId: currentUser.id,
-    displayName: currentUser.displayName,
-  }).workspace;
-}
-
-function inferLegacyWorkspaceRole(role: string, isFirstWorkspaceMember: boolean): WorkspaceRole {
-  if (isFirstWorkspaceMember) {
-    return "owner";
-  }
-
-  const normalized = role.trim().toLowerCase();
-  if (normalized.includes("owner") || normalized.includes("founder") || normalized.includes("admin")) {
-    return "admin";
-  }
-
-  return "member";
+  throw new Error("auth.sso_no_workspace");
 }

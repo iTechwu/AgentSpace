@@ -53,8 +53,8 @@ export interface StoredUserRecord {
   lastLoginAt?: string;
 }
 
-/** An identity from an external auth provider (e.g. Google) */
-export type AuthProvider = "google" | "password" | "email";
+/** A Dofe SSO identity linked to a local workspace user. */
+export type AuthProvider = "sso";
 
 export interface StoredAuthIdentityRecord {
   id: string;
@@ -367,6 +367,7 @@ export interface RegisteredDaemonSnapshot {
 export interface DaemonApiTokenRecord {
   id: string;
   workspaceId: string;
+  daemonConnectionId?: string;
   label: string;
   tokenHash: string;
   status: "active" | "revoked";
