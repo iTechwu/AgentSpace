@@ -265,9 +265,11 @@ export {
 
 // Daemons
 export {
+  DEFAULT_DAEMON_HEARTBEAT_STALE_MS,
   registerDaemonRuntimesSync,
   heartbeatDaemonSync,
   markDaemonOfflineSync,
+  markStaleDaemonsOfflineSync,
   readDaemonConnectionSync,
   readAgentRuntimeSync,
   deleteAgentRuntimeSync,

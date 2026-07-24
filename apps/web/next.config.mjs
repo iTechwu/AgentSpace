@@ -6,7 +6,13 @@ const repositoryRoot = join(projectDir, "..", "..");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  allowedDevOrigins: ["hire-an-agent.online", "feishu-e2e.hire-an-agent.online", "127.0.0.1", "localhost"],
+  allowedDevOrigins: [
+    "agentspace.local.dofe.ai",
+    "hire-an-agent.online",
+    "feishu-e2e.hire-an-agent.online",
+    "127.0.0.1",
+    "localhost",
+  ],
   devIndicators: false,
   reactStrictMode: true,
   typescript: {

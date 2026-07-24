@@ -9,11 +9,14 @@ interface InlineHelpTooltipProps {
 export function InlineHelpTooltip({ label, tooltip }: InlineHelpTooltipProps) {
   return (
     <HoverTooltip content={tooltip}>
-      {({ describedBy }) => (
+      {({ describedBy, expanded, onToggle }) => (
         <button
+          aria-controls={describedBy}
           aria-describedby={describedBy}
+          aria-expanded={expanded}
           aria-label={label}
           className="inline-help-tooltip__button"
+          onClick={onToggle}
           type="button"
         >
           <AppIcon name="info" />

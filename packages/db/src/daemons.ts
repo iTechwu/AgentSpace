@@ -2,6 +2,10 @@ import { isDaemonProvider } from "@agent-space/domain";
 import { getDatabase, withTransaction, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import type { DaemonConnectionRecord, AgentRuntimeRecord, RegisteredDaemonSnapshot, RuntimeRegistrationInput } from "./types.ts";
 
+// Remote daemons report every 15 seconds by default. Keep a generous grace
+// period so a missed heartbeat does not leave an unreachable server selectable.
+export const DEFAULT_DAEMON_HEARTBEAT_STALE_MS = 60_000;
+
 export function registerDaemonRuntimesSync(input: {
   daemonKey: string;
   deviceName: string;
@@ -265,18 +269,7 @@ export function heartbeatDaemonSync(daemonKey: string, options?: {
       ).run(now, now, daemonKey);
     }
 
-    db.prepare(
-      `UPDATE agent_runtime
-       SET status = 'online',
-           last_heartbeat_at = ?,
-           updated_at = ?
-       WHERE daemon_connection_id = ?`,
-    ).run(now, now, daemon.id);
-
     for (const runtime of options?.runtimes ?? []) {
-      if (!runtime.metadata || !isRecord(runtime.metadata)) {
-        continue;
-      }
       const selectors: string[] = ["daemon_connection_id = ?"];
       const params: unknown[] = [daemon.id];
       if (runtime.id?.trim()) {
@@ -286,6 +279,19 @@ export function heartbeatDaemonSync(daemonKey: string, options?: {
         selectors.push("provider = ?");
         params.push(runtime.provider.trim());
       } else {
+        continue;
+      }
+
+      db.prepare(
+        `UPDATE agent_runtime
+         SET status = 'online',
+             last_heartbeat_at = ?,
+             last_error = NULL,
+             updated_at = ?
+         WHERE ${selectors.join(" AND ")}`,
+      ).run(now, now, ...params);
+
+      if (!runtime.metadata || !isRecord(runtime.metadata)) {
         continue;
       }
 
@@ -426,6 +432,7 @@ export function deleteAgentRuntimeSync(input: {
 export function listDaemonSnapshotsSync(workspaceId?: string): RegisteredDaemonSnapshot[] {
   const db = getDatabase();
   const hasWorkspaceId = typeof workspaceId === "string";
+  markStaleDaemonsOfflineSync({ workspaceId });
   const daemons = db
     .prepare(
       `SELECT
@@ -485,6 +492,63 @@ export function listDaemonSnapshotsSync(workspaceId?: string): RegisteredDaemonS
       daemon,
       runtimes: runtimesByDaemonId.get(daemon.id) ?? [],
     }));
+}
+
+export function markStaleDaemonsOfflineSync(options?: {
+  workspaceId?: string;
+  maxHeartbeatAgeMs?: number;
+  now?: Date;
+}): number {
+  const db = getDatabase();
+  const workspaceId = options?.workspaceId;
+  const maxHeartbeatAgeMs = options?.maxHeartbeatAgeMs ?? DEFAULT_DAEMON_HEARTBEAT_STALE_MS;
+  const now = options?.now ?? new Date();
+  const cutoff = now.getTime() - maxHeartbeatAgeMs;
+  const candidates = db
+    .prepare(
+      `SELECT daemon_key AS daemonKey, last_heartbeat_at AS lastHeartbeatAt
+       FROM daemon_connection
+       WHERE status = 'online'
+         ${typeof workspaceId === "string" ? "AND workspace_id = ?" : ""}`,
+    )
+    .all(...(typeof workspaceId === "string" ? [workspaceId] : [])) as Array<Record<string, unknown>>;
+  const staleDaemonKeys = candidates
+    .filter((daemon) => {
+      const heartbeatAt = typeof daemon.lastHeartbeatAt === "string"
+        ? new Date(daemon.lastHeartbeatAt).getTime()
+        : Number.NaN;
+      return !Number.isFinite(heartbeatAt) || heartbeatAt < cutoff;
+    })
+    .map((daemon) => daemon.daemonKey)
+    .filter((daemonKey): daemonKey is string => typeof daemonKey === "string");
+
+  if (staleDaemonKeys.length === 0) {
+    return 0;
+  }
+
+  const updatedAt = now.toISOString();
+  withTransaction(db, () => {
+    for (const daemonKey of staleDaemonKeys) {
+      const daemon = readDaemonConnectionRow(db, daemonKey);
+      if (!daemon || daemon.status !== "online") {
+        continue;
+      }
+      db.prepare(
+        `UPDATE daemon_connection
+         SET status = 'offline', updated_at = ?
+         WHERE id = ?`,
+      ).run(updatedAt, daemon.id);
+      db.prepare(
+        `UPDATE agent_runtime
+         SET status = 'offline',
+             last_error = COALESCE(last_error, 'Daemon heartbeat timed out.'),
+             updated_at = ?
+         WHERE daemon_connection_id = ?`,
+      ).run(updatedAt, daemon.id);
+    }
+  });
+
+  return staleDaemonKeys.length;
 }
 
 export function pruneOfflineDaemonsSync(maxOfflineAgeMs: number, options?: { workspaceId?: string }): number {

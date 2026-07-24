@@ -3,7 +3,7 @@ import type { FeedbackState } from "@/shared/types/feedback";
 
 interface FeedbackBannerProps {
   readonly feedback?: FeedbackState;
-  readonly tone?: "success" | "error";
+  readonly tone?: "success" | "error" | "info";
   readonly title?: ReactNode;
   readonly message?: ReactNode;
   readonly children?: ReactNode;

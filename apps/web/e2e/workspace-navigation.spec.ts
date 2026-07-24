@@ -43,6 +43,22 @@ test("keeps agents mode query and active content through navigation and refresh"
   await expect(page.getByRole("heading", { name: /在线执行引擎|Online execution engines/i })).toBeVisible();
 });
 
+test("opens the server connection guide from execution engine management", async ({ page }) => {
+  const clientErrors: string[] = [];
+  page.on("pageerror", (error) => clientErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") clientErrors.push(message.text());
+  });
+
+  await openSeededWorkspacePage(page, "/agents?mode=container");
+
+  await page.locator("button.agents-pane__container-button").click();
+  await expect(
+    page.getByRole("dialog").getByRole("heading", { name: /接入服务器|Connect server/i }),
+    `Client errors: ${clientErrors.join("\n") || "none"}`,
+  ).toBeVisible();
+});
+
 test("keeps the final active module after rapid desktop switching", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/inbox");
 

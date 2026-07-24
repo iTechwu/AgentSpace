@@ -7,7 +7,11 @@ import { createPortal } from "react-dom";
 interface HoverTooltipProps {
   readonly align?: "center" | "end";
   readonly content: string;
-  readonly children: (props: { describedBy: string }) => ReactNode;
+  readonly children: (props: {
+    describedBy: string;
+    expanded: boolean;
+    onToggle: () => void;
+  }) => ReactNode;
 }
 
 interface TooltipPosition {
@@ -26,6 +30,7 @@ export function HoverTooltip({ align = "end", content, children }: HoverTooltipP
   const anchorRef = useRef<HTMLSpanElement>(null);
   const tooltipRef = useRef<HTMLSpanElement>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [position, setPosition] = useState<TooltipPosition | null>(null);
 
@@ -107,7 +112,16 @@ export function HoverTooltip({ align = "end", content, children }: HoverTooltipP
   function handleBlur(event: FocusEvent<HTMLSpanElement>): void {
     if (!event.currentTarget.contains(event.relatedTarget)) {
       setIsOpen(false);
+      setIsPinned(false);
     }
+  }
+
+  function handleToggle(): void {
+    setIsPinned((current) => {
+      const next = !current;
+      setIsOpen(next);
+      return next;
+    });
   }
 
   const tooltipStyle: CSSProperties | undefined = position
@@ -124,10 +138,14 @@ export function HoverTooltip({ align = "end", content, children }: HoverTooltipP
       onBlur={handleBlur}
       onFocus={() => setIsOpen(true)}
       onMouseEnter={() => setIsOpen(true)}
-      onMouseLeave={() => setIsOpen(false)}
+      onMouseLeave={() => {
+        if (!isPinned) {
+          setIsOpen(false);
+        }
+      }}
       ref={anchorRef}
     >
-      {children({ describedBy: tooltipId })}
+      {children({ describedBy: tooltipId, expanded: isOpen, onToggle: handleToggle })}
       {isMounted && isOpen
         ? createPortal(
             <span

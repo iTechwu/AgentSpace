@@ -19,6 +19,7 @@ import { translateSystemSpeaker } from "@/features/i18n/presentation";
 import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/workspace-paths";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { EmptyState } from "@/shared/ui/empty-state";
+import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 
 type KnowledgeView = "knowledge" | "documents";
@@ -434,6 +435,50 @@ export function KnowledgePageClient({
       : tx("文档页面", "Document page");
   return (
     <section className="page-shell knowledge-page">
+      <WorkbenchPageHeader
+        actions={(
+          <div aria-label={tx("知识库视图", "Knowledge views")} className="container-view-switch" role="tablist">
+            <button
+              aria-selected={activeView === "knowledge"}
+              className={`container-view-switch__item${activeView === "knowledge" ? " container-view-switch__item--active" : ""}`}
+              disabled={activeView === "knowledge"}
+              onClick={() => {
+                setActiveView("knowledge");
+                setMobilePane("list");
+                updateLocation("knowledge");
+              }}
+              role="tab"
+              type="button"
+            >
+              {tx("知识页面", "Knowledge")}
+            </button>
+            <button
+              aria-selected={activeView === "documents"}
+              className={`container-view-switch__item${activeView === "documents" ? " container-view-switch__item--active" : ""}`}
+              disabled={activeView === "documents"}
+              onClick={() => {
+                setActiveView("documents");
+                setMobilePane("list");
+                updateLocation("documents");
+              }}
+              role="tab"
+              type="button"
+            >
+              {tx("文档页面", "Documents")}
+            </button>
+          </div>
+        )}
+        description={tx("沉淀团队可复用的信息，并明确每一页的共享范围与负责 Agent。", "Capture reusable team knowledge and make each page's sharing scope and assigned agents explicit.")}
+        eyebrow={tx("资源", "Resources")}
+        meta={(
+          <>
+            <span>{tx(`${data.totalCount} 个知识页`, `${data.totalCount} knowledge pages`)}</span>
+            <span>{tx(`${assignmentStats.allAgentsPageCount} 个全员共享`, `${assignmentStats.allAgentsPageCount} shared`)}</span>
+            <span>{tx(`${data.documentPages.length} 个文档`, `${data.documentPages.length} documents`)}</span>
+          </>
+        )}
+        title={tx("知识库", "Knowledge base")}
+      />
       <div className={`knowledge-layout${isCompactLayout ? " knowledge-layout--compact" : ""}`}>
       {showListPane ? (
         <div className="knowledge-sidebar">
@@ -443,6 +488,7 @@ export function KnowledgePageClient({
                 <h2>{tx("知识页面", "Knowledge pages")}</h2>
                 <div className="knowledge-sidebar__actions">
                   <button
+                    aria-label={tx("新建顶层知识页面", "Create top-level knowledge page")}
                     className="knowledge-btn knowledge-btn--primary"
                     onClick={() => openCreateModal(null)}
                     type="button"
@@ -1240,6 +1286,7 @@ function KnowledgeTreeNode({
   onSelect: (page: KnowledgePage) => void;
   onAddChild: (parentId: string) => void;
 }) {
+  const { tx } = useLanguage();
   const [expanded, setExpanded] = useState(true);
   const children = allPages
     .filter((candidate) => candidate.parentId === page.id)
@@ -1253,6 +1300,7 @@ function KnowledgeTreeNode({
       >
         {children.length > 0 ? (
           <button
+            aria-label={expanded ? tx(`收起 ${page.title}`, `Collapse ${page.title}`) : tx(`展开 ${page.title}`, `Expand ${page.title}`)}
             className="knowledge-tree__toggle"
             onClick={() => setExpanded((value) => !value)}
             type="button"
@@ -1270,12 +1318,12 @@ function KnowledgeTreeNode({
           {page.title}
         </button>
         <button
+          aria-label={tx(`在 ${page.title} 下创建子页面`, `Create a child page under ${page.title}`)}
           className="knowledge-tree__add-child"
           onClick={(event) => {
             event.stopPropagation();
             onAddChild(page.id);
           }}
-          title="Add child page"
           type="button"
         >
           <AppIcon name="plus" />

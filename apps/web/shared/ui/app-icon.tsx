@@ -12,6 +12,7 @@ export type AppIconName =
   | "close"
   | "contacts"
   | "containers"
+  | "copy"
   | "costs"
   | "download"
   | "edit"
@@ -120,6 +121,13 @@ function renderIcon(name: AppIconName) {
           strokeLinecap="round"
           strokeWidth="1.6"
         />
+      );
+    case "copy":
+      return (
+        <>
+          <rect x="6.25" y="6.25" width="7.25" height="7.25" rx="1.25" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M11.25 6.25V5.5A1.5 1.5 0 0 0 9.75 4h-5.5A1.25 1.25 0 0 0 3 5.25v5.5A1.5 1.5 0 0 0 4.5 12h.75" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+        </>
       );
     case "refresh":
       return (

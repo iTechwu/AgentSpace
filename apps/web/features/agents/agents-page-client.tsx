@@ -1,7 +1,6 @@
 "use client";
 
 import { formatDaemonProviderLabel } from "@agent-space/domain";
-import type { KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -98,8 +97,6 @@ export function AgentsPageClient({
     daemonTokenId: string;
     mode: GeneratedInstallCommandMode;
   } | null>(null);
-  const [editingRuntimeId, setEditingRuntimeId] = useState<string | null>(null);
-  const [editingRuntimeDisplayName, setEditingRuntimeDisplayName] = useState("");
   const [forkAcceptDrafts, setForkAcceptDrafts] = useState<Record<string, { agentName: string; runtimeId: string }>>({});
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [mobilePane, setMobilePane] = useState<"list" | "detail">("list");
@@ -277,47 +274,6 @@ export function AgentsPageClient({
     if (isCompactLayout) {
       setMobilePane("detail");
     }
-  }
-
-  function handleContainerRowKeyDown(event: KeyboardEvent<HTMLElement>, runtimeId: string): void {
-    if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) {
-      return;
-    }
-    event.preventDefault();
-    handleSelectContainer(runtimeId);
-  }
-
-  function stopRuntimeRowAction(event: MouseEvent<HTMLElement>): void {
-    event.stopPropagation();
-  }
-
-  function handleStartEditingRuntimeDisplayName(
-    event: MouseEvent<HTMLButtonElement>,
-    container: AgentsPageData["containers"][number],
-  ): void {
-    event.stopPropagation();
-    setEditingRuntimeId(container.runtimeId);
-    setEditingRuntimeDisplayName(container.displayName ?? "");
-  }
-
-  function handleCancelEditingRuntimeDisplayName(event: MouseEvent<HTMLButtonElement>): void {
-    event.stopPropagation();
-    setEditingRuntimeId(null);
-    setEditingRuntimeDisplayName("");
-  }
-
-  function handleSaveRuntimeDisplayName(runtimeId: string): void {
-    runAction(
-      () =>
-        updateWorkspaceRuntimeDisplayNameAction({
-          runtimeId,
-          displayName: editingRuntimeDisplayName,
-        }),
-      () => {
-        setEditingRuntimeId(null);
-        setEditingRuntimeDisplayName("");
-      },
-    );
   }
 
   function handleDeleteRuntime(runtimeId: string, runtimeName: string): void {
@@ -833,6 +789,7 @@ export function AgentsPageClient({
                     <>
                       <button
                         aria-label={tx("接入服务器", "Connect server")}
+                        aria-busy={isGeneratingContainerCommand}
                         className="action-button agents-pane__container-button"
                         disabled={isGeneratingContainerCommand}
                         onClick={handleCreateContainerCommand}
@@ -857,17 +814,19 @@ export function AgentsPageClient({
               <div className="agents-container-list">
                 {data.canManageRuntimes ? (
                   <button
-                    className={`agents-container-row${isDaemonManagementSelected ? " agents-container-row--active" : ""}`}
+                    aria-pressed={isDaemonManagementSelected}
+                    className={`agents-container-row agents-container-row--management${isDaemonManagementSelected ? " agents-container-row--active" : ""}`}
                     onClick={handleSelectDaemonManagement}
                     type="button"
                   >
                     <div className="agents-container-row__title">
                       <strong>{tx("服务器管理", "Server Management")}</strong>
-                      <span className="status-chip status-chip--neutral">{tx("服务器", "Server")}</span>
+                      <span className="agents-container-row__count">
+                        {tx(`${data.daemonSnapshots.length} 台`, `${data.daemonSnapshots.length} servers`)}
+                      </span>
                     </div>
-                    <p>{tx("查看远程服务器状态，并统一管理服务器接入令牌。", "Inspect remote server status and manage server access tokens in one place.")}</p>
+                    <p>{tx("远程服务器与接入令牌", "Remote servers and access tokens")}</p>
                     <div className="agents-container-row__meta">
-                      <span>{tx(`${data.daemonSnapshots.length} 台服务器`, `${data.daemonSnapshots.length} servers`)}</span>
                       <span>{tx(`${data.daemonTokens.length} 个令牌`, `${data.daemonTokens.length} tokens`)}</span>
                     </div>
                   </button>
@@ -875,108 +834,26 @@ export function AgentsPageClient({
 
                 {data.containers.length > 0 ? (
                   data.containers.map((container) => (
-                    <article
+                    <button
+                      aria-pressed={selectedContainerId === container.runtimeId}
                       className={`agents-container-row${selectedContainerId === container.runtimeId ? " agents-container-row--active" : ""}`}
                       key={container.id}
                       onClick={() => handleSelectContainer(container.runtimeId)}
-                      onKeyDown={(event) => handleContainerRowKeyDown(event, container.runtimeId)}
-                      role="button"
-                      tabIndex={0}
+                      type="button"
                     >
                       <div className="agents-container-row__title">
                         <div className="agents-container-row__copy">
                           <strong>{container.name}</strong>
-                          {editingRuntimeId === container.runtimeId ? (
-                            <form
-                              className="agents-container-row__remark-form"
-                              onClick={stopRuntimeRowAction}
-                              onSubmit={(event) => {
-                                event.preventDefault();
-                                handleSaveRuntimeDisplayName(container.runtimeId);
-                              }}
-                            >
-                              <label className="sr-only" htmlFor={`runtime-remark-${container.runtimeId}`}>
-                                {tx("备注名", "Remark name")}
-                              </label>
-                              <input
-                                disabled={isPending}
-                                id={`runtime-remark-${container.runtimeId}`}
-                                maxLength={80}
-                                onChange={(event) => setEditingRuntimeDisplayName(event.currentTarget.value)}
-                                placeholder={tx("添加备注名", "Add remark name")}
-                                value={editingRuntimeDisplayName}
-                              />
-                              <button
-                                className="action-button agents-container-row__remark-save"
-                                disabled={isPending || editingRuntimeDisplayName.trim() === (container.displayName ?? "")}
-                                type="submit"
-                              >
-                                {tx("保存", "Save")}
-                              </button>
-                              <button
-                                aria-label={tx("取消编辑备注名", "Cancel remark edit")}
-                                className="agents-container-row__icon-button"
-                                disabled={isPending}
-                                onClick={handleCancelEditingRuntimeDisplayName}
-                                type="button"
-                              >
-                                <AppIcon name="close" />
-                              </button>
-                            </form>
-                          ) : (
-                            <div className="agents-container-row__remark">
-                              <span>
-                                {container.displayName
-                                  ? tx(`备注名：${container.displayName}`, `Remark: ${container.displayName}`)
-                                  : tx("未设置备注名", "No remark name")}
-                              </span>
-                              {data.canManageRuntimes && container.canManageGrants ? (
-                                <button
-                                  aria-label={tx("编辑备注名", "Edit remark name")}
-                                  className="agents-container-row__icon-button"
-                                  onClick={(event) => handleStartEditingRuntimeDisplayName(event, container)}
-                                  type="button"
-                                >
-                                  <AppIcon name="edit" />
-                                </button>
-                              ) : null}
-                            </div>
-                          )}
+                          <div className="agents-container-row__remark">
+                            <span>
+                              {container.displayName
+                                ? tx(`备注名：${container.displayName}`, `Remark: ${container.displayName}`)
+                                : tx("未设置备注名", "No remark name")}
+                            </span>
+                          </div>
                         </div>
                         <div className="agents-container-row__state-actions">
                           <span className={`status-chip status-chip--${toneForStatus(container.status)}`}>{translateManagementStatus(container.statusLabel, tx)}</span>
-                          {data.canManageRuntimes ? (
-                            <>
-                              <button
-                                className="action-button agents-container-row__update"
-                                disabled={isGeneratingContainerCommand}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleUpdateRuntimeCommand({
-                                    daemonKey: container.daemonKey,
-                                    runtimeId: container.runtimeId,
-                                    deviceName: container.deviceName,
-                                  });
-                                }}
-                                type="button"
-                              >
-                                {tx("更新 Runtime", "Update runtime")}
-                              </button>
-                              <button
-                                aria-label={tx(`删除执行引擎 ${container.name}`, `Delete execution engine ${container.name}`)}
-                                className="agents-container-row__icon-button agents-container-row__delete"
-                                disabled={isPending}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleDeleteRuntime(container.runtimeId, container.name);
-                                }}
-                                title={tx("删除执行引擎", "Delete execution engine")}
-                                type="button"
-                              >
-                                <AppIcon name="trash" />
-                              </button>
-                            </>
-                          ) : null}
                         </div>
                       </div>
                       <p>{container.subtitle}</p>
@@ -984,7 +861,7 @@ export function AgentsPageClient({
                         <span>{formatDaemonProviderLabel(container.provider)}</span>
                         <span>{tx(`${container.queueCounts.running} 运行中`, `${container.queueCounts.running} running`)}</span>
                       </div>
-                    </article>
+                    </button>
                   ))
                 ) : (
                   <EmptyState body={tx("当前没有在线执行引擎。先接入一台服务器。", "There are no online execution engines. Connect a server first.")} title={tx("执行引擎为空", "No execution engines")} />
@@ -1038,6 +915,7 @@ export function AgentsPageClient({
                   container={selectedContainer}
                   containerCount={data.containerCount}
                   pending={isPending}
+                  updating={isGeneratingContainerCommand}
                   selection={selectedContainerId}
                   workspaceMembers={data.workspaceMembers}
                   onGrantRuntime={(runtimeId, userId) =>
@@ -1065,8 +943,15 @@ export function AgentsPageClient({
                           runtimeId,
                           displayName,
                         }),
-                    )
+                      )
                   }
+                  onUpdateRuntime={data.canManageRuntimes
+                    ? (container) => handleUpdateRuntimeCommand({
+                        daemonKey: container.daemonKey,
+                        runtimeId: container.runtimeId,
+                        deviceName: container.deviceName,
+                      })
+                    : undefined}
                   onDeleteRuntime={data.canManageRuntimes ? handleDeleteRuntime : undefined}
                 />
               )}

@@ -6,7 +6,7 @@ import { LanguageProvider } from "@/features/i18n/language-provider";
 
 function renderCreateChannelModal(candidates: ChannelMemberCandidate[], onSubmit = vi.fn()) {
   render(
-    <LanguageProvider>
+    <LanguageProvider initialLanguage="zh">
       <CreateChannelModal
         candidates={candidates}
         pending={false}

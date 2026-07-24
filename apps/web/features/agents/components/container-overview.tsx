@@ -16,10 +16,12 @@ interface ContainerOverviewProps {
   readonly selection: string | null;
   readonly containerCount: number;
   readonly pending?: boolean;
+  readonly updating?: boolean;
   readonly workspaceMembers?: AgentsPageData["workspaceMembers"];
   readonly onGrantRuntime?: (runtimeId: string, userId: string) => void;
   readonly onRevokeRuntime?: (runtimeId: string, userId: string) => void;
   readonly onUpdateRuntimeDisplayName?: (runtimeId: string, displayName: string) => void;
+  readonly onUpdateRuntime?: (container: ContainerRecord) => void;
   readonly onDeleteRuntime?: (runtimeId: string, runtimeName: string) => void;
 }
 
@@ -28,10 +30,12 @@ export function ContainerOverview({
   selection,
   containerCount,
   pending = false,
+  updating = false,
   workspaceMembers = [],
   onGrantRuntime,
   onRevokeRuntime,
   onUpdateRuntimeDisplayName,
+  onUpdateRuntime,
   onDeleteRuntime,
 }: ContainerOverviewProps) {
   const { tx } = useLanguage();
@@ -81,7 +85,7 @@ export function ContainerOverview({
               <button
                 aria-label={tx("编辑备注名", "Edit remark name")}
                 className="runtime-display-name-edit-button"
-                disabled={pending}
+                disabled={pending || updating}
                 onClick={() => setIsEditingDisplayName(true)}
                 type="button"
               >
@@ -92,10 +96,23 @@ export function ContainerOverview({
         </div>
         <div className="runtime-overview-actions">
           <span className={`status-chip status-chip--${toneForStatus(container.status)}`}>{translateManagementStatus(container.statusLabel, tx)}</span>
+          {onUpdateRuntime ? (
+            <button
+              aria-busy={updating}
+              className="primary-button runtime-overview-update"
+              disabled={pending || updating}
+              onClick={() => onUpdateRuntime(container)}
+              type="button"
+            >
+              <AppIcon name="refresh" />
+              <span>{updating ? tx("生成中...", "Generating...") : tx("更新 Runtime", "Update runtime")}</span>
+            </button>
+          ) : null}
           {onDeleteRuntime ? (
             <button
+              aria-label={tx(`删除执行引擎 ${container.name}`, `Delete execution engine ${container.name}`)}
               className="action-button action-button--danger runtime-overview-delete"
-              disabled={pending}
+              disabled={pending || updating}
               onClick={() => onDeleteRuntime(container.runtimeId, container.name)}
               type="button"
             >

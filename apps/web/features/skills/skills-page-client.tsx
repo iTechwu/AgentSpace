@@ -272,7 +272,8 @@ export function SkillsPageClient({
               <div className="panel-header__actions skills-page__header-actions">
                 <button
                   aria-label={tx("导入 Skill", "Import skill")}
-                  className="workspace-square-button skills-page__header-icon-button"
+                  className="action-button action-button--compact action-button--icon skills-page__import-button"
+                  disabled={isPending}
                   onClick={() => setShowImportSkill(true)}
                   title={tx("导入 Skill", "Import skill")}
                   type="button"
@@ -280,13 +281,13 @@ export function SkillsPageClient({
                   <AppIcon name="open" />
                 </button>
                 <button
-                  aria-label={tx("新建 Skill", "New skill")}
-                  className="workspace-square-button skills-page__header-icon-button skills-page__header-icon-button--primary"
+                  className="skills-page__add-button"
+                  disabled={isPending}
                   onClick={() => setShowCreateSkill(true)}
-                  title={tx("新建 Skill", "New skill")}
                   type="button"
                 >
                   <AppIcon name="plus" />
+                  <span>{tx("添加技能", "Add skill")}</span>
                 </button>
               </div>
             </div>

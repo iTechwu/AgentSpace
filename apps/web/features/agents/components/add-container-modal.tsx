@@ -5,7 +5,6 @@ import { useLanguage } from "@/features/i18n/language-provider";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { FeedbackBanner } from "@/shared/ui/feedback-banner";
-import { HoverTooltip } from "@/shared/ui/hover-tooltip";
 
 interface AddContainerModalProps {
   readonly command: string;
@@ -28,33 +27,39 @@ export function AddContainerModal({
   const isUpdate = mode === "update";
   const { surfaceRef, handleBackdropMouseDown, labelId } = useDialogSurface<HTMLDivElement>(onClose);
   const [copied, setCopied] = useState(false);
+  const [hasCopied, setHasCopied] = useState(false);
+  const [copyError, setCopyError] = useState("");
   const [status, setStatus] = useState<"idle" | "waiting" | "success" | "error">("idle");
   const [statusMessage, setStatusMessage] = useState("");
   const pollTimerRef = useRef<number | null>(null);
-  const setupSteps = isUpdate
-    ? [
-        tx(
-          "复制命令，并在这台服务器原来的登录用户下运行。",
-          "Copy the command and run it as the same OS user on this server.",
-        ),
-        tx("命令会读取现有 daemon.env 的安装路径，并写入新的接入令牌。", "The command reads the install paths from the existing daemon.env and writes a fresh access token."),
-        tx("确认运行完毕后点击“我已运行”。", "Once it finishes, click \"I ran it\"."),
-      ]
-    : [
-        tx(
-          "复制命令，并发送给你的 Agent 让它运行，或直接在已安装执行引擎的服务器运行。",
-          "Copy the command and send it to your agent to run, or run it directly on a server with an execution engine installed.",
-        ),
-        tx("确认运行完毕后点击“我已运行”。", "Once it finishes, click \"I ran it\"."),
-      ];
+  const currentStep = status === "waiting" || status === "success" || status === "error" ? 3 : hasCopied ? 2 : 1;
+  const setupSteps = [
+    {
+      title: tx("复制命令", "Copy command"),
+      body: tx("命令包含本次接入所需的专用令牌。", "The command contains the dedicated token for this connection."),
+    },
+    {
+      title: tx("在服务器执行", "Run on server"),
+      body: isUpdate
+        ? tx("使用该服务器原来的登录用户执行，等待命令结束。", "Run it as the server's original OS user and wait for it to finish.")
+        : tx("在目标 Linux 或 macOS 服务器的终端中执行。", "Run it in the terminal of the target Linux or macOS server."),
+    },
+    {
+      title: tx("检测上线", "Verify connection"),
+      body: tx("返回此处开始检测，在线后会自动进入执行引擎列表。", "Return here to verify; the engine appears automatically when online."),
+    },
+  ];
 
   async function handleCopy(): Promise<void> {
     try {
       await navigator.clipboard.writeText(command);
+      setCopyError("");
       setCopied(true);
+      setHasCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       setCopied(false);
+      setCopyError(tx("复制失败，请检查浏览器剪贴板权限后重试。", "Copy failed. Check the browser clipboard permission and try again."));
     }
   }
 
@@ -145,72 +150,96 @@ export function AddContainerModal({
           <div>
             <div className="agents-pane__title-row">
               <h3 id={labelId}>{isUpdate ? tx("更新 Runtime", "Update runtime") : tx("接入服务器", "Connect server")}</h3>
-              <HoverTooltip
-                align="center"
-                content={tx(
-                  "目前支持：Codex / Claude Code / OpenCode / OpenClaw / NanoBot",
-                  "Currently supported: Codex / Claude Code / OpenCode / OpenClaw / NanoBot",
-                )}
-              >
-                {({ describedBy }) => (
-                  <button
-                    aria-describedby={describedBy}
-                    aria-label={tx("查看当前支持的执行引擎", "View supported execution engines")}
-                    className="inline-help-tooltip__button"
-                    type="button"
-                  >
-                    ?
-                  </button>
-                )}
-              </HoverTooltip>
             </div>
+            <p className="agent-command-modal__subtitle">
+              {isUpdate
+                ? tx("使用一条命令安全更新现有执行引擎。", "Safely update the existing execution engine with one command.")
+                : tx("约 2 分钟完成接入，当前页面会检测服务器上线状态。", "Connect in about 2 minutes; this page verifies when the server comes online.")}
+            </p>
           </div>
           <button aria-label={tx("关闭弹窗", "Close modal")} className="modal-close" onClick={onClose} type="button">
             <AppIcon name="close" />
           </button>
         </div>
 
-        <div className="modal-card__body">
-          <div className="agent-command-modal__summary" role="list">
-            <article className="agent-command-modal__summary-card" role="listitem">
-              <span>{tx("服务器 ID", "Server ID")}</span>
-              <strong>{daemonId}</strong>
-            </article>
-            <article className="agent-command-modal__summary-card" role="listitem">
-              <span>{isUpdate ? tx("令牌来源", "Token source") : tx("令牌 ID", "Token ID")}</span>
-              <strong>{daemonTokenId}</strong>
-            </article>
+        <div className="modal-card__body agent-command-modal__body">
+          <div className="agent-command-modal__progress" role="list">
+            {setupSteps.map((step, index) => {
+              const stepNumber = index + 1;
+              const state = stepNumber < currentStep ? "done" : stepNumber === currentStep ? "current" : "upcoming";
+              return (
+                <article
+                  aria-current={state === "current" ? "step" : undefined}
+                  className={`agent-command-modal__progress-step agent-command-modal__progress-step--${state}`}
+                  key={step.title}
+                  role="listitem"
+                >
+                  <span className="agent-command-modal__progress-index">
+                    {state === "done" ? <AppIcon name="checkCircle" /> : stepNumber}
+                  </span>
+                  <span>
+                    <strong>{step.title}</strong>
+                    <small>{step.body}</small>
+                  </span>
+                </article>
+              );
+            })}
           </div>
 
-          <div className="agent-command-modal__steps">
-            {setupSteps.map((step, index) => (
-              <div className="agent-command-modal__step" key={step}>
-                <span>{String(index + 1).padStart(2, "0")}</span>
-                <strong>{step}</strong>
+          <div className="agent-command-modal__workspace">
+            <section className="agent-command-modal__command-panel" aria-labelledby={`${labelId}-command`}>
+              <div className="agent-command-modal__section-heading">
+                <div>
+                  <span>{tx("步骤 1", "Step 1")}</span>
+                  <h4 id={`${labelId}-command`}>{isUpdate ? tx("更新命令", "Update command") : tx("安装命令", "Install command")}</h4>
+                </div>
+                <span className="agent-command-modal__environment">Linux / macOS</span>
               </div>
-            ))}
+              <p>
+                {isUpdate
+                  ? tx("复制后，在这台服务器原来的登录用户下执行。", "Copy and run it as the original OS user on this server.")
+                  : tx("复制后，在准备接入的服务器终端中执行。", "Copy and run it in the terminal of the server you want to connect.")}
+              </p>
+              <textarea
+                aria-label={isUpdate ? tx("更新命令", "Update command") : tx("安装命令", "Install command")}
+                autoFocus
+                className="agent-command-modal__textarea"
+                readOnly
+                rows={5}
+                value={command}
+              />
+            </section>
+
+            <aside className="agent-command-modal__checklist" aria-label={tx("接入前检查", "Connection checklist")}>
+              <div className="agent-command-modal__section-heading">
+                <div>
+                  <span>{tx("接入前检查", "Before you connect")}</span>
+                  <h4>{tx("服务器准备", "Server readiness")}</h4>
+                </div>
+              </div>
+              <ul>
+                <li><AppIcon name="checkCircle" /><span>{tx("可访问互联网并已安装 curl", "Internet access and curl installed")}</span></li>
+                <li><AppIcon name="checkCircle" /><span>{tx("拥有当前用户的软件安装权限", "Permission to install software for the current user")}</span></li>
+                <li><AppIcon name="checkCircle" /><span>{tx("支持 Codex、Claude Code、OpenCode 等 Provider", "Supports Codex, Claude Code, OpenCode, and more")}</span></li>
+              </ul>
+              <dl className="agent-command-modal__identifiers">
+                <div><dt>{tx("服务器 ID", "Server ID")}</dt><dd>{daemonId}</dd></div>
+                <div><dt>{isUpdate ? tx("令牌来源", "Token source") : tx("令牌 ID", "Token ID")}</dt><dd>{daemonTokenId}</dd></div>
+              </dl>
+            </aside>
           </div>
 
-          <label className="form-field">
-            <span>{isUpdate ? tx("更新命令", "Update command") : tx("安装命令", "Install command")}</span>
-            <textarea
-              autoFocus
-              className="agent-command-modal__textarea"
-              readOnly
-              rows={4}
-              value={command}
-            />
-          </label>
           {statusMessage ? (
             <FeedbackBanner
               feedback={{
-                tone: status === "error" ? "error" : "success",
+                tone: status === "error" ? "error" : status === "waiting" ? "info" : "success",
                 message: statusMessage,
               }}
             />
           ) : null}
+          {copyError ? <FeedbackBanner feedback={{ tone: "error", message: copyError }} /> : null}
           <div className="agent-command-modal__notes">
-            <p className="panel-note">
+            <p className="panel-note" id={`${labelId}-security-note`}>
               {tx(
                 isUpdate
                   ? "命令包含新令牌，并会覆盖目标机器 daemon.env 里的旧令牌。请只在对应服务器执行，并避免泄露。"
@@ -228,14 +257,27 @@ export function AddContainerModal({
             {tx("关闭", "Close")}
           </button>
           <button
+            aria-busy={status === "waiting"}
             className="modal-secondary-button"
-            disabled={status === "waiting"}
+            disabled={!hasCopied || status === "waiting" || status === "success"}
             onClick={() => startPolling()}
+            title={!hasCopied ? tx("请先复制命令", "Copy the command first") : undefined}
             type="button"
           >
-            {status === "waiting" ? tx("等待中...", "Waiting...") : tx("我已运行", "I ran it")}
+            {status === "waiting"
+              ? tx("正在检测...", "Verifying...")
+              : status === "error"
+                ? tx("重新检测", "Verify again")
+                : tx("开始检测", "Start verification")}
           </button>
-          <button className="primary-button" onClick={() => void handleCopy()} type="button">
+          <button
+            aria-describedby={`${labelId}-security-note`}
+            aria-live="polite"
+            className="primary-button"
+            onClick={() => void handleCopy()}
+            type="button"
+          >
+            <AppIcon name={copied ? "checkCircle" : "copy"} />
             {copied ? tx("已复制", "Copied") : tx("复制命令", "Copy command")}
           </button>
         </div>

@@ -14,6 +14,7 @@ import { EmptyState } from "@/shared/ui/empty-state";
 import { runToastAction } from "@/shared/lib/toast-action";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
+import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
 
 type FilterKey = "all" | ApprovalItemStatus;
 type KnowledgeDraft = {
@@ -170,9 +171,22 @@ export function ApprovalsPageClient({
   const showDetailPane = !isCompactLayout || mobilePane === "detail";
 
   return (
-    <section className={`approvals-shell${isCompactLayout ? " approvals-shell--compact" : ""}`}>
-      {showListPane ? (
-        <aside className="approvals-list-pane">
+    <section className="page-shell approvals-page">
+      <WorkbenchPageHeader
+        description={tx("优先处理待审批和高风险变更，所有决定都会保留审计记录。", "Prioritize pending and high-risk changes. Every decision is retained in the audit trail.")}
+        eyebrow={tx("协作", "Collaboration")}
+        meta={(
+          <>
+            <span>{tx(`${data.pendingCount} 待处理`, `${data.pendingCount} pending`)}</span>
+            <span>{tx(`${data.approvedCount} 已批准`, `${data.approvedCount} approved`)}</span>
+            <span>{tx(`${data.rejectedCount} 已驳回`, `${data.rejectedCount} rejected`)}</span>
+          </>
+        )}
+        title={tx("审批中心", "Approval center")}
+      />
+      <div className={`approvals-shell${isCompactLayout ? " approvals-shell--compact" : ""}`}>
+        {showListPane ? (
+          <aside className="approvals-list-pane">
           <div className="approvals-filters">
             {filterTabs.map((tab) => (
               <button
@@ -228,11 +242,11 @@ export function ApprovalsPageClient({
               ))
             )}
           </div>
-        </aside>
-      ) : null}
+          </aside>
+        ) : null}
 
-      {showDetailPane ? (
-        <main className="approvals-detail-pane">
+        {showDetailPane ? (
+          <main className="approvals-detail-pane">
           {selected ? (
             <div className="approvals-detail">
               <div className="approvals-detail__header">
@@ -335,8 +349,9 @@ export function ApprovalsPageClient({
               title={tx("等待选择审批项", "Choose an approval")}
             />
           )}
-        </main>
-      ) : null}
+          </main>
+        ) : null}
+      </div>
     </section>
   );
 }

@@ -517,16 +517,16 @@ export function ConversationShell({
       {showListPane ? (
         <aside className="contacts-list-pane">
           <div className="contacts-list-pane__header">
-            <div>
+            <div className="contacts-list-pane__header-copy">
               {listKicker && listKicker !== listTitle ? (
                 <p className="page-eyebrow">{listKicker}</p>
               ) : null}
-              <h2>{listTitle}</h2>
+              <div className="contacts-list-pane__title-row">
+                <h2>{listTitle}</h2>
+                <span className="contacts-list-pane__count">{listCount}</span>
+              </div>
             </div>
-            <div className="contacts-list-pane__header-actions">
-              <span className="panel-note">{listCount}</span>
-              {listActions}
-            </div>
+            {listActions ? <div className="contacts-list-pane__header-actions">{listActions}</div> : null}
           </div>
 
           <div className="contacts-list">

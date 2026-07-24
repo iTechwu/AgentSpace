@@ -5,6 +5,7 @@ interface EmptyStateProps {
   readonly body?: ReactNode;
   readonly actionLabel?: string;
   readonly onAction?: () => void;
+  readonly actionHref?: string;
   readonly eyebrow?: string;
   readonly variant?: "default" | "warm" | "cool";
 }
@@ -14,6 +15,7 @@ export function EmptyState({
   body,
   actionLabel,
   onAction,
+  actionHref,
   eyebrow,
   variant = "default",
 }: EmptyStateProps) {
@@ -22,7 +24,11 @@ export function EmptyState({
       {eyebrow ? <span className="workspace-empty__eyebrow">{eyebrow}</span> : null}
       <strong>{title}</strong>
       {body ? <p>{body}</p> : null}
-      {actionLabel && onAction ? (
+      {actionLabel && actionHref ? (
+        <a className="action-button" href={actionHref}>
+          {actionLabel}
+        </a>
+      ) : actionLabel && onAction ? (
         <button className="action-button" onClick={onAction} type="button">
           {actionLabel}
         </button>

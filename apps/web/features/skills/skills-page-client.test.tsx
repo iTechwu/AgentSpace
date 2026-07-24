@@ -333,11 +333,11 @@ describe("SkillsPageClient", () => {
 
     renderSkillsPage();
 
-    await user.click(screen.getByRole("button", { name: "新建 Skill" }));
-    expect(await screen.findByRole("heading", { name: "创建 Skill" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /添加技能|Add skill/i }));
+    expect(await screen.findByRole("heading", { name: /创建 Skill|Create Skill/i })).toBeInTheDocument();
     expect(screen.getByText("Financial Analysis Agent")).toBeInTheDocument();
 
-    await user.click(screen.getAllByRole("button", { name: "导入预设" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: /导入预设|Import preset/i })[0]!);
 
     await waitFor(() => {
       expect(mockImportWorkspaceSkillFromUrlAction).toHaveBeenCalledWith({

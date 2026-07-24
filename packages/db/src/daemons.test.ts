@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before, beforeEach } from "node:test";
 import {
+  DEFAULT_DAEMON_HEARTBEAT_STALE_MS,
   heartbeatDaemonSync,
   listDaemonSnapshotsSync,
   markDaemonOfflineSync,
@@ -61,6 +62,25 @@ test("prunes old offline daemon connections within the target workspace", () => 
   ]);
 });
 
+test("marks daemon runtimes offline when their heartbeat exceeds the liveness window", () => {
+  registerDaemon("stale-default", "default");
+  const db = getDatabase();
+  const staleHeartbeat = new Date(Date.now() - DEFAULT_DAEMON_HEARTBEAT_STALE_MS - 1_000).toISOString();
+  db.prepare("UPDATE daemon_connection SET last_heartbeat_at = ? WHERE daemon_key = ?")
+    .run(staleHeartbeat, "stale-default");
+  db.prepare(
+    `UPDATE agent_runtime
+     SET last_heartbeat_at = ?
+     WHERE daemon_connection_id = (SELECT id FROM daemon_connection WHERE daemon_key = ?)`,
+  ).run(staleHeartbeat, "stale-default");
+
+  const snapshot = listDaemonSnapshotsSync("default").find((item) => item.daemon.daemonKey === "stale-default");
+
+  assert.equal(snapshot?.daemon.status, "offline");
+  assert.equal(snapshot?.runtimes.every((runtime) => runtime.status === "offline"), true);
+  assert.equal(snapshot?.runtimes.every((runtime) => runtime.lastError === "Daemon heartbeat timed out."), true);
+});
+
 test("heartbeat can refresh daemon metadata without changing runtimes", () => {
   registerDaemon("build-box-readiness", "default");
 
@@ -112,6 +132,30 @@ test("heartbeat can refresh runtime provider health metadata", () => {
 
   assert.equal(metadata.providerHealth?.status, "broken");
   assert.equal(metadata.providerHealth?.error?.code, "provider.profile_missing");
+});
+
+test("heartbeat only marks the runtimes it reports as online", () => {
+  registerDaemonRuntimesSync({
+    daemonKey: "filtered-runtime-heartbeat",
+    deviceName: "Build Box",
+    workspaceId: "default",
+    runtimes: [
+      { provider: "codex", name: "Remote Agent · Codex" },
+      { provider: "claude", name: "Remote Agent · Claude Code" },
+    ],
+  });
+  const db = getDatabase();
+  const snapshot = readDaemonSnapshotSync("filtered-runtime-heartbeat");
+  const claudeRuntime = snapshot.runtimes.find((runtime) => runtime.provider === "claude")!;
+  const codexRuntime = snapshot.runtimes.find((runtime) => runtime.provider === "codex")!;
+  db.prepare("UPDATE agent_runtime SET status = 'offline' WHERE id = ?").run(claudeRuntime.id);
+
+  const refreshed = heartbeatDaemonSync("filtered-runtime-heartbeat", {
+    runtimes: [{ id: codexRuntime.id, provider: "codex" }],
+  });
+
+  assert.equal(refreshed.runtimes.find((runtime) => runtime.id === codexRuntime.id)?.status, "online");
+  assert.equal(refreshed.runtimes.find((runtime) => runtime.id === claudeRuntime.id)?.status, "offline");
 });
 
 test.after(() => {

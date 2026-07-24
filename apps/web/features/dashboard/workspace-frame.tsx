@@ -5,8 +5,6 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { logoutAndRedirectAction, switchWorkspaceAction } from "@/features/auth/actions";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
-import { createChannelAction } from "@/features/channels/actions";
-import { CreateChannelModal } from "@/features/channels/create-channel-modal";
 import {
   SidebarVisibilityProvider,
   type SidebarVisibilityState,
@@ -27,6 +25,7 @@ import {
 } from "@/features/dashboard/onboarding-guide";
 import { WorkspaceModuleHost } from "@/features/dashboard/workspace-module-host";
 import { WorkspaceModuleNavigationProvider } from "@/features/dashboard/workspace-module-navigation";
+import { WorkspaceSwitcher } from "@/features/dashboard/workspace-switcher";
 import { useWorkspaceModuleRouteState } from "@/features/dashboard/use-workspace-module-route-state";
 import { isWorkspaceModuleLoaderId } from "@/features/dashboard/workspace-module-loader-types";
 import { canUseWorkspaceClientModule } from "@/features/dashboard/workspace-workbench-flags";
@@ -51,6 +50,8 @@ import type { WorkspaceShellData } from "@/features/dashboard/workspace-shell-da
 import { useLanguage } from "@/features/i18n/language-provider";
 import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
 import { GeneratedAvatar } from "@/shared/ui/generated-avatar";
+
+export const WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY = "agent-space:workspace-sidebar-collapsed";
 
 export function WorkspaceFrame({
   accessScope = "workspace",
@@ -148,12 +149,8 @@ function WorkspaceFrameContent({
     initialShell: shell,
     workspaceSlug: currentWorkspace.slug,
   });
-  const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-  const [showApprovals, setShowApprovals] = useState(false);
-  const [showTaskBoard, setShowTaskBoard] = useState(false);
-  const [showContacts, setShowContacts] = useState(isHumanContactsView || isDigitalContactsView);
-  const [showKnowledge, setShowKnowledge] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const searchKey = searchParams.toString();
@@ -178,10 +175,24 @@ function WorkspaceFrameContent({
   }, [pathname, searchKey]);
 
   useEffect(() => {
-    if (isHumanContactsView || isDigitalContactsView) {
-      setShowContacts(true);
+    try {
+      setSidebarCollapsed(window.localStorage.getItem(WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY) === "true");
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
     }
-  }, [isDigitalContactsView, isHumanContactsView]);
+  }, []);
+
+  const toggleSidebarCollapsed = useCallback(() => {
+    setSidebarCollapsed((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY, String(next));
+      } catch {
+        // The visual state still works for the current session.
+      }
+      return next;
+    });
+  }, []);
 
   const sectionTitle =
     logicalPathname === "/inbox"
@@ -228,18 +239,21 @@ function WorkspaceFrameContent({
   const workspaceHref = (path: string): string => buildWorkspacePath(currentWorkspace.slug, path);
   const sidebarSignals = [
     {
+      active: logicalPathname === "/task-board",
       icon: "taskBoard" as const,
       label: tx("打开任务", "Open tasks"),
       href: workspaceHref("/task-board"),
       value: counters.openTaskCount,
     },
     {
+      active: logicalPathname === "/approvals",
       icon: "approvals" as const,
       label: tx("待审批", "Approvals"),
       href: workspaceHref("/approvals"),
       value: counters.pendingApprovalCount,
     },
     {
+      active: logicalPathname === "/knowledge",
       icon: "knowledge" as const,
       label: tx("知识页", "Knowledge"),
       href: workspaceHref("/knowledge"),
@@ -249,6 +263,14 @@ function WorkspaceFrameContent({
   const showCommunicationSidebarGroup = visibility.messages || visibility.channels || visibility.contacts;
   const showOperationsSidebarGroup = visibility.employeeManagement || (visibility.containers && canViewRuntimes);
   const showResourceSidebarGroup = visibility.skills || visibility.knowledge || visibility.market;
+  const showBusinessSidebarGroup =
+    visibility.performance ||
+    visibility.orgChart ||
+    visibility.costs ||
+    visibility.tables ||
+    visibility.automations ||
+    visibility.calendar ||
+    visibility.templates;
   const onboardingSteps = useMemo<WorkspaceOnboardingStep[]>(
     () => buildWorkspaceOnboardingSteps({
       canViewRuntimes,
@@ -311,6 +333,24 @@ function WorkspaceFrameContent({
   ) => {
     prefetchWorkspaceModuleHref(event.currentTarget.href);
   }, [prefetchWorkspaceModuleHref]);
+  const handleWorkspaceSelect = useCallback((nextWorkspaceSlug: string) => {
+    if (!nextWorkspaceSlug || nextWorkspaceSlug === currentWorkspace.slug) {
+      return;
+    }
+
+    startTransition(async () => {
+      await switchWorkspaceAction(nextWorkspaceSlug);
+      const nextPath = logicalPathname === "/" ? "/im" : logicalPathname;
+      const query = searchParams.toString();
+      router.push(
+        buildWorkspacePath(
+          nextWorkspaceSlug,
+          `${nextPath}${query ? `?${query}` : ""}`,
+        ),
+      );
+      router.refresh();
+    });
+  }, [currentWorkspace.slug, logicalPathname, router, searchParams]);
 
   useEffect(() => {
     const sidebar = sidebarRef.current;
@@ -356,10 +396,6 @@ function WorkspaceFrameContent({
     };
   }, [
     prefetchWorkspaceModuleHref,
-    showApprovals,
-    showContacts,
-    showKnowledge,
-    showTaskBoard,
     visibility,
   ]);
 
@@ -460,27 +496,16 @@ function WorkspaceFrameContent({
   }
 
   return (
-    <div className={`workspace-layout${mobileSidebarOpen ? " workspace-layout--sidebar-open" : ""}`} data-testid="workspace-layout">
+    <div
+      className={`workspace-layout${sidebarCollapsed ? " workspace-layout--sidebar-collapsed" : ""}${mobileSidebarOpen ? " workspace-layout--sidebar-open" : ""}`}
+      data-testid="workspace-layout"
+    >
       {!isChannelScopedGuest ? (
         <GlobalSearchDialog
           agentOptions={shell.agents}
           onWorkspaceModuleNavigate={handleWorkspaceModuleNavigate}
           open={showSearch}
           onClose={() => setShowSearch(false)}
-        />
-      ) : null}
-
-      {showCreateChannel ? (
-        <CreateChannelModal
-          candidates={shell.channelMemberCandidates.filter((candidate) => candidate.id !== user.displayName)}
-          pending={isPending}
-          onClose={() => setShowCreateChannel(false)}
-          onSubmit={(input) => {
-            startTransition(async () => {
-              await createChannelAction(input);
-              setShowCreateChannel(false);
-            });
-          }}
         />
       ) : null}
 
@@ -500,98 +525,96 @@ function WorkspaceFrameContent({
         type="button"
       />
 
-      <aside className={`workspace-sidebar${mobileSidebarOpen ? " workspace-sidebar--open" : ""}`} data-testid="workspace-sidebar" ref={sidebarRef}>
+      <aside
+        aria-label={tx("工作区导航", "Workspace navigation")}
+        className={`workspace-sidebar${mobileSidebarOpen ? " workspace-sidebar--open" : ""}`}
+        data-collapsed={sidebarCollapsed ? "true" : "false"}
+        data-testid="workspace-sidebar"
+        ref={sidebarRef}
+      >
         <div className="workspace-sidebar__top">
-          <GeneratedAvatar
-            className="workspace-user-badge"
-            id={user.id}
-            name={user.displayName}
-            variant="human"
+          <WorkspaceSwitcher
+            currentWorkspace={currentWorkspace}
+            disabled={isPending}
+            organizationName={user.organizationName}
+            workspaces={workspaces}
+            onSelect={handleWorkspaceSelect}
+            tx={tx}
           />
-          <div className="workspace-sidebar__workspace-picker" data-onboarding-target="workspace-switcher">
-            <label className="workspace-sidebar__workspace-label" htmlFor="workspace-switcher">
-              {tx("SSO 工作区", "SSO workspace")}
-            </label>
-            <select
-              className="workspace-sidebar__workspace-select"
-              disabled={isPending || workspaces.length <= 1}
-              id="workspace-switcher"
-              onChange={(event) => {
-                const nextWorkspaceId = event.currentTarget.value;
-                if (!nextWorkspaceId || nextWorkspaceId === currentWorkspace.slug) {
-                  return;
-                }
-
-                startTransition(async () => {
-                  await switchWorkspaceAction(nextWorkspaceId);
-                  const nextPath = logicalPathname === "/" ? "/im" : logicalPathname;
-                  const query = searchParams.toString();
-                  router.push(
-                    buildWorkspacePath(
-                      nextWorkspaceId,
-                      `${nextPath}${query ? `?${query}` : ""}`,
-                    ),
-                  );
-                  router.refresh();
-                });
-              }}
-              value={currentWorkspace.slug}
-            >
-              {workspaces.map((workspace) => (
-                <option key={workspace.id} value={workspace.slug}>
-                  {workspace.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <button
+            aria-expanded={!sidebarCollapsed}
+            aria-label={sidebarCollapsed ? tx("展开侧边导航", "Expand sidebar") : tx("收起侧边导航", "Collapse sidebar")}
+            className="workspace-square-button workspace-sidebar__collapse-button"
+            onClick={toggleSidebarCollapsed}
+            title={sidebarCollapsed ? tx("展开侧边导航", "Expand sidebar") : tx("收起侧边导航", "Collapse sidebar")}
+            type="button"
+          >
+            <AppIcon name="arrowLeft" />
+          </button>
+          <button
+            aria-label={tx("关闭侧边导航", "Close sidebar")}
+            className="workspace-square-button workspace-sidebar__mobile-close"
+            onClick={() => setMobileSidebarOpen(false)}
+            title={tx("关闭侧边导航", "Close sidebar")}
+            type="button"
+          >
+            <AppIcon name="close" />
+          </button>
         </div>
 
         {!isChannelScopedGuest ? (
-        <label className="workspace-search" data-onboarding-target="search">
-          <span className="workspace-search__field">
+        <button
+          aria-label={tx("打开全局搜索", "Open global search")}
+          className="workspace-search workspace-search__field"
+          data-onboarding-target="search"
+          onClick={() => setShowSearch(true)}
+          title={tx("搜索消息、任务、知识与文档", "Search messages, tasks, knowledge, and docs")}
+          type="button"
+        >
             <span className="workspace-search__icon">
               <AppIcon name="search" />
             </span>
-            <input
-              onClick={() => setShowSearch(true)}
-              onFocus={(e) => {
-                e.currentTarget.blur();
-                setShowSearch(true);
-              }}
-              placeholder={tx("搜索消息、任务、知识与文档", "Search messages, tasks, knowledge, and docs")}
-              readOnly
-              type="search"
-            />
+            <span className="workspace-search__label">
+              {tx("搜索消息、任务、知识与文档", "Search messages, tasks, knowledge, and docs")}
+            </span>
             <span className="workspace-search__hint">⌘K</span>
-          </span>
-        </label>
+        </button>
         ) : null}
 
         {!isChannelScopedGuest ? (
-        <div className="workspace-sidebar__signals" data-onboarding-target="signals" role="list">
-          {sidebarSignals.map((signal) => (
-            <div key={signal.label} role="listitem">
-              <Link
-                className="workspace-sidebar__signal"
-                href={signal.href}
-                onClick={handleWorkspaceModuleLinkClick}
-                onFocus={handleWorkspaceModuleLinkPrefetch}
-                onMouseEnter={handleWorkspaceModuleLinkPrefetch}
-              >
-                <span className="workspace-sidebar__signal-icon">
-                  <AppIcon name={signal.icon} />
-                </span>
-                <span className="workspace-sidebar__signal-copy">
-                  <small>{signal.label}</small>
-                  <strong>{signal.value}</strong>
-                </span>
-              </Link>
-            </div>
-          ))}
-        </div>
+        <section className="workspace-sidebar__navigation-group workspace-sidebar__navigation-group--signals">
+          <SidebarGroupLabel label={tx("待处理", "Needs attention")} />
+          <div className="workspace-sidebar__signals" data-onboarding-target="signals" role="list">
+            {sidebarSignals.map((signal) => (
+              <div key={signal.label} role="listitem">
+                <Link
+                  aria-current={signal.active ? "page" : undefined}
+                  className={`workspace-sidebar__signal${signal.active ? " workspace-sidebar__signal--active" : ""}`}
+                  href={signal.href}
+                  onClick={handleWorkspaceModuleLinkClick}
+                  onFocus={handleWorkspaceModuleLinkPrefetch}
+                  onMouseEnter={handleWorkspaceModuleLinkPrefetch}
+                  title={signal.label}
+                >
+                  <span className="workspace-sidebar__signal-icon">
+                    <AppIcon name={signal.icon} />
+                  </span>
+                  <span className="workspace-sidebar__signal-copy">
+                    <small>{signal.label}</small>
+                    {signal.value > 0 ? <strong className="workspace-sidebar__count">{signal.value}</strong> : null}
+                  </span>
+                </Link>
+              </div>
+            ))}
+          </div>
+        </section>
         ) : null}
 
         <div className="workspace-sidebar__content">
+          {!isChannelScopedGuest && showCommunicationSidebarGroup ? (
+            <SidebarGroupLabel label={tx("协作", "Collaboration")} />
+          ) : null}
+
           {visibility.messages && !isChannelScopedGuest ? (
             <section className="workspace-sidebar__group" data-onboarding-target="feed">
               <SidebarSectionLink
@@ -609,123 +632,74 @@ function WorkspaceFrameContent({
 
           {visibility.approvals && !isChannelScopedGuest ? (
             <section className="workspace-sidebar__group" data-onboarding-target="approvals">
-              <SidebarSectionToggle
+              <SidebarSectionLink
+                href={workspaceHref("/approvals")}
                 icon="approvals"
                 label={tx("审批", "Approvals")}
                 count={counters.pendingApprovalCount}
-                expanded={showApprovals}
-                onToggle={() => setShowApprovals((current) => !current)}
+                active={logicalPathname === "/approvals"}
+                onClick={handleWorkspaceModuleLinkClick}
+                onPrefetch={handleWorkspaceModuleLinkPrefetch}
+                showArrow={false}
               />
-              {showApprovals ? (
-                <nav className="workspace-shortcuts" aria-label="Approval navigation">
-                  <SidebarShortcut
-                    icon="approvals"
-                    href={workspaceHref("/approvals")}
-                    label={tx("审批列表", "Approval List")}
-                    count={counters.pendingApprovalCount}
-                    active={logicalPathname === "/approvals"}
-                    onClick={handleWorkspaceModuleLinkClick}
-                    onPrefetch={handleWorkspaceModuleLinkPrefetch}
-                  />
-                </nav>
-              ) : null}
             </section>
           ) : null}
 
           {visibility.taskBoard && !isChannelScopedGuest ? (
             <section className="workspace-sidebar__group" data-onboarding-target="task-board">
-              <SidebarSectionToggle
+              <SidebarSectionLink
+                href={workspaceHref("/task-board")}
                 icon="taskBoard"
                 label={tx("项目看板", "Task Board")}
                 count={counters.openTaskCount}
-                expanded={showTaskBoard}
-                onToggle={() => setShowTaskBoard((current) => !current)}
+                active={logicalPathname === "/task-board"}
+                onClick={handleWorkspaceModuleLinkClick}
+                onPrefetch={handleWorkspaceModuleLinkPrefetch}
+                showArrow={false}
               />
-              {showTaskBoard ? (
-                <nav className="workspace-shortcuts" aria-label="Task board navigation">
-                  <SidebarShortcut
-                    icon="taskBoard"
-                    href={workspaceHref("/task-board")}
-                    label={tx("看板视图", "Board View")}
-                    count={counters.openTaskCount}
-                    active={logicalPathname === "/task-board"}
-                    onClick={handleWorkspaceModuleLinkClick}
-                    onPrefetch={handleWorkspaceModuleLinkPrefetch}
-                  />
-                </nav>
-              ) : null}
             </section>
           ) : null}
 
           {visibility.channels ? (
             <section className="workspace-sidebar__group" data-onboarding-target="messages">
-              <div className="workspace-sidebar__label-row">
-                <SidebarSectionLink
-                  href={workspaceHref("/im")}
-                  icon="groups"
-                  label={tx("消息", "Messages")}
-                  count={counters.messageCount}
-                  active={logicalPathname === "/im" && conversationView !== "direct"}
-                  onClick={(event) => {
-                    handleWorkspaceModuleLinkClick(event);
-                    if (logicalPathname !== "/im") {
-                      return;
-                    }
-                    event.preventDefault();
-                    switchConversationViewLocally("all");
-                  }}
-                  onPrefetch={handleWorkspaceModuleLinkPrefetch}
-                  showArrow={false}
-                />
-                {!isChannelScopedGuest ? (
-                <button
-                  aria-label={tx("创建群组", "Create group")}
-                  className="workspace-square-button workspace-add-button"
-                  onClick={() => setShowCreateChannel(true)}
-                  type="button"
-                >
-                  <AppIcon name="plus" />
-                </button>
-                ) : null}
-              </div>
+              <SidebarSectionLink
+                href={workspaceHref("/im")}
+                icon="groups"
+                label={tx("消息", "Messages")}
+                count={counters.messageCount}
+                active={logicalPathname === "/im" && conversationView !== "direct"}
+                onClick={(event) => {
+                  handleWorkspaceModuleLinkClick(event);
+                  if (logicalPathname !== "/im") {
+                    return;
+                  }
+                  event.preventDefault();
+                  switchConversationViewLocally("all");
+                }}
+                onPrefetch={handleWorkspaceModuleLinkPrefetch}
+                showArrow={false}
+              />
             </section>
           ) : null}
 
           {visibility.contacts && !isChannelScopedGuest ? (
             <section className="workspace-sidebar__group" data-onboarding-target="contacts">
-              <SidebarSectionToggle
+              <SidebarSectionLink
+                href={workspaceHref("/contacts")}
                 icon="contacts"
                 label={tx("联系人", "Contacts")}
                 count={counters.contactCount}
-                expanded={showContacts}
-                onToggle={() => setShowContacts((current) => !current)}
+                active={isHumanContactsView || isDigitalContactsView}
+                onClick={handleWorkspaceModuleLinkClick}
+                onPrefetch={handleWorkspaceModuleLinkPrefetch}
+                showArrow={false}
               />
-              {showContacts ? (
-                <nav className="workspace-shortcuts" aria-label={tx("联系人导航", "Contacts navigation")}>
-                  <SidebarShortcut
-                    icon="contacts"
-                    href={workspaceHref("/contacts")}
-                    label={tx("真人联系人", "Human contacts")}
-                    count={counters.humanContactCount}
-                    active={isHumanContactsView}
-                    onClick={handleWorkspaceModuleLinkClick}
-                    onPrefetch={handleWorkspaceModuleLinkPrefetch}
-                  />
-                  <SidebarShortcut
-                    icon="contacts"
-                    href={workspaceHref("/im?view=direct")}
-                    label={tx("数字联系人", "Digital contacts")}
-                    count={counters.localAgentCount}
-                    active={isDigitalContactsView}
-                    onClick={handleWorkspaceModuleLinkClick}
-                    onPrefetch={handleWorkspaceModuleLinkPrefetch}
-                  />
-                </nav>
-              ) : null}
             </section>
           ) : null}
 
-          {!isChannelScopedGuest && showCommunicationSidebarGroup && showOperationsSidebarGroup ? <SidebarGroupDivider /> : null}
+          {!isChannelScopedGuest && showOperationsSidebarGroup ? (
+            <SidebarGroupLabel label={tx("数字员工", "Digital workforce")} />
+          ) : null}
 
           {visibility.employeeManagement && !isChannelScopedGuest ? (
             <section className="workspace-sidebar__group" data-onboarding-target="agents">
@@ -759,94 +733,50 @@ function WorkspaceFrameContent({
 
           {visibility.containers && canViewRuntimes && !isChannelScopedGuest ? (
             <section className="workspace-sidebar__group" data-onboarding-target="containers">
-              <div className="workspace-sidebar__label-row">
-                <SidebarSectionLink
-                  href={workspaceHref("/agents?mode=container")}
-                  icon="containers"
-                  label={tx("执行引擎管理", "Execution Engine Management")}
-                  count={counters.runtimeCount}
-                  active={logicalPathname === "/agents" && mode === "container"}
-                  onClick={handleWorkspaceModuleLinkClick}
-                  onPrefetch={handleWorkspaceModuleLinkPrefetch}
-                  showArrow={false}
-                />
-                {canConnectRuntimes ? (
-                  <Link
-                    aria-label={tx("添加服务器", "Add server")}
-                    className="workspace-square-button workspace-add-button"
-                    href={workspaceHref("/agents?mode=container&create=server")}
-                    onClick={handleWorkspaceModuleLinkClick}
-                    onFocus={handleWorkspaceModuleLinkPrefetch}
-                    onMouseEnter={handleWorkspaceModuleLinkPrefetch}
-                    prefetch={false}
-                  >
-                    <AppIcon name="plus" />
-                  </Link>
-                ) : null}
-              </div>
+              <SidebarSectionLink
+                href={workspaceHref("/agents?mode=container")}
+                icon="containers"
+                label={tx("执行引擎管理", "Execution Engine Management")}
+                count={counters.runtimeCount}
+                active={logicalPathname === "/agents" && mode === "container"}
+                onClick={handleWorkspaceModuleLinkClick}
+                onPrefetch={handleWorkspaceModuleLinkPrefetch}
+                showArrow={false}
+              />
             </section>
           ) : null}
 
-          {!isChannelScopedGuest && showOperationsSidebarGroup && showResourceSidebarGroup ? <SidebarGroupDivider /> : null}
+          {!isChannelScopedGuest && showResourceSidebarGroup ? (
+            <SidebarGroupLabel label={tx("能力资源", "Capabilities")} />
+          ) : null}
 
           {visibility.skills && !isChannelScopedGuest ? (
             <section className="workspace-sidebar__group" data-onboarding-target="skills">
-              <div className="workspace-sidebar__label-row">
-                <SidebarSectionLink
-                  href={workspaceHref("/skills")}
-                  icon="skills"
-                  label={tx("技能库", "Skills")}
-                  count={counters.skillCount}
-                  active={logicalPathname === "/skills"}
-                  onClick={handleWorkspaceModuleLinkClick}
-                  onPrefetch={handleWorkspaceModuleLinkPrefetch}
-                  showArrow={false}
-                />
-                <Link
-                  aria-label={tx("添加技能", "Add skill")}
-                  className="workspace-square-button workspace-add-button"
-                  href={workspaceHref("/skills?create=skill")}
-                  onClick={handleWorkspaceModuleLinkClick}
-                  onFocus={handleWorkspaceModuleLinkPrefetch}
-                  onMouseEnter={handleWorkspaceModuleLinkPrefetch}
-                  prefetch={false}
-                >
-                  <AppIcon name="plus" />
-                </Link>
-              </div>
+              <SidebarSectionLink
+                href={workspaceHref("/skills")}
+                icon="skills"
+                label={tx("技能库", "Skills")}
+                count={counters.skillCount}
+                active={logicalPathname === "/skills"}
+                onClick={handleWorkspaceModuleLinkClick}
+                onPrefetch={handleWorkspaceModuleLinkPrefetch}
+                showArrow={false}
+              />
             </section>
           ) : null}
 
           {visibility.knowledge && !isChannelScopedGuest ? (
             <section className="workspace-sidebar__group" data-onboarding-target="knowledge">
-              <SidebarSectionToggle
+              <SidebarSectionLink
+                href={workspaceHref("/knowledge")}
                 icon="knowledge"
                 label={tx("知识库", "Knowledge")}
                 count={counters.knowledgePageCount}
-                expanded={showKnowledge}
-                onToggle={() => setShowKnowledge((current) => !current)}
+                active={logicalPathname === "/knowledge"}
+                onClick={handleWorkspaceModuleLinkClick}
+                onPrefetch={handleWorkspaceModuleLinkPrefetch}
+                showArrow={false}
               />
-              {showKnowledge ? (
-                <nav className="workspace-shortcuts" aria-label="Knowledge navigation">
-                  <SidebarShortcut
-                    icon="knowledge"
-                    href={workspaceHref("/knowledge")}
-                    label={tx("知识页面", "Wiki Pages")}
-                    count={counters.knowledgePageCount}
-                    active={logicalPathname === "/knowledge" && knowledgeView === "knowledge"}
-                    onClick={handleWorkspaceModuleLinkClick}
-                    onPrefetch={handleWorkspaceModuleLinkPrefetch}
-                  />
-                  <SidebarShortcut
-                    icon="knowledge"
-                    href={workspaceHref("/knowledge?view=documents")}
-                    label={tx("文档页面", "Document pages")}
-                    active={logicalPathname === "/knowledge" && knowledgeView === "documents"}
-                    onClick={handleWorkspaceModuleLinkClick}
-                    onPrefetch={handleWorkspaceModuleLinkPrefetch}
-                  />
-                </nav>
-              ) : null}
             </section>
           ) : null}
 
@@ -862,6 +792,10 @@ function WorkspaceFrameContent({
                 showArrow={false}
               />
             </section>
+          ) : null}
+
+          {!isChannelScopedGuest && showBusinessSidebarGroup ? (
+            <SidebarGroupLabel label={tx("业务工具", "Business tools")} />
           ) : null}
 
           {visibility.performance && !isChannelScopedGuest ? (
@@ -980,13 +914,16 @@ function WorkspaceFrameContent({
             </div>
             ) : (
             <Link
-              className="workspace-account__entry"
+              aria-label={tx("打开设置", "Open settings")}
+              aria-current={isSettingsPath ? "page" : undefined}
+              className={`workspace-account__entry${isSettingsPath ? " workspace-account__entry--active" : ""}`}
               data-onboarding-target="settings"
               href={workspaceHref("/settings")}
               onClick={handleWorkspaceModuleLinkClick}
               onFocus={handleWorkspaceModuleLinkPrefetch}
               onMouseEnter={handleWorkspaceModuleLinkPrefetch}
               prefetch={false}
+              title={tx("打开设置", "Open settings")}
             >
               <GeneratedAvatar
                 className="workspace-account__avatar"
@@ -1001,7 +938,11 @@ function WorkspaceFrameContent({
             </Link>
             )}
             <form action={logoutAndRedirectAction}>
-              <button className="workspace-circle-button workspace-circle-button--ghost" type="submit">
+              <button
+                aria-label={tx("退出登录", "Sign out")}
+                className="workspace-circle-button workspace-circle-button--ghost"
+                type="submit"
+              >
                 <AppIcon name="logout" />
               </button>
             </form>
@@ -1159,75 +1100,8 @@ function buildWorkspaceOnboardingSteps({
   ];
 }
 
-function SidebarShortcut({
-  icon,
-  href,
-  label,
-  count,
-  active,
-  onClick,
-  onPrefetch,
-}: {
-  icon: AppIconName;
-  href: string;
-  label: string;
-  count?: number;
-  active: boolean;
-  onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
-  onPrefetch?: (event: FocusEvent<HTMLAnchorElement> | MouseEvent<HTMLAnchorElement>) => void;
-}) {
-  return (
-    <Link
-      className={`workspace-shortcut${active ? " workspace-shortcut--active" : ""}`}
-      href={href}
-      onClick={onClick}
-      onFocus={onPrefetch}
-      onMouseEnter={onPrefetch}
-      prefetch={false}
-    >
-      <span className="workspace-sidebar__item-main">
-        <span className="workspace-sidebar__section-icon">
-          <AppIcon name={icon} />
-        </span>
-        <span>{label}</span>
-      </span>
-      {typeof count === "number" ? <small>{count}</small> : null}
-    </Link>
-  );
-}
-
-
-function SidebarGroupDivider() {
-  return <div className="workspace-sidebar__group-divider" role="separator" aria-orientation="horizontal" />;
-}
-
-function SidebarSectionToggle({
-  icon,
-  label,
-  count,
-  expanded,
-  onToggle,
-}: {
-  icon: AppIconName;
-  label: string;
-  count?: number;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button aria-expanded={expanded} className="workspace-sidebar__section-toggle" onClick={onToggle} type="button">
-      <span className="workspace-sidebar__item-main">
-        <span className="workspace-sidebar__section-icon">
-          <AppIcon name={icon} />
-        </span>
-        <span>{label}</span>
-      </span>
-      {typeof count === "number" ? <small>{count}</small> : null}
-      <span className={`workspace-sidebar__subgroup-caret${expanded ? " workspace-sidebar__subgroup-caret--open" : ""}`}>
-        <AppIcon name="chevronDown" />
-      </span>
-    </button>
-  );
+function SidebarGroupLabel({ label }: { label: string }) {
+  return <h2 className="workspace-sidebar__group-label">{label}</h2>;
 }
 
 function SidebarSectionLink({
@@ -1259,7 +1133,7 @@ function SidebarSectionLink({
         </span>
         <span>{label}</span>
       </span>
-      {typeof count === "number" ? <small>{count}</small> : null}
+      {typeof count === "number" && count > 0 ? <small className="workspace-sidebar__count">{count}</small> : null}
       {showArrow ? (
         <span aria-hidden="true" className="workspace-sidebar__external-arrow">
           <AppIcon name="open" />
@@ -1271,11 +1145,13 @@ function SidebarSectionLink({
   if (nativeNavigation) {
     return (
       <a
+        aria-current={active ? "page" : undefined}
         className={`workspace-sidebar__section-link${active ? " workspace-sidebar__section-link--active" : ""}`}
         href={href}
         onClick={onClick}
         onFocus={onPrefetch}
         onMouseEnter={onPrefetch}
+        title={label}
       >
         {content}
       </a>
@@ -1284,12 +1160,14 @@ function SidebarSectionLink({
 
   return (
     <Link
+      aria-current={active ? "page" : undefined}
       className={`workspace-sidebar__section-link${active ? " workspace-sidebar__section-link--active" : ""}`}
       href={href}
       onClick={onClick}
       onFocus={onPrefetch}
       onMouseEnter={onPrefetch}
       prefetch={false}
+      title={label}
     >
       {content}
     </Link>

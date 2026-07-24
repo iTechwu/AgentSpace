@@ -81,6 +81,7 @@ const {
   routerRefreshMock,
   addWorkspaceMembersToChannelActionMock,
   archiveChannelDocumentActionMock,
+  createChannelActionMock,
   deleteChannelAttachmentActionMock,
   getChannelDetailDataActionMock,
   renameChannelActionMock,
@@ -93,6 +94,7 @@ const {
   routerRefreshMock: vi.fn(),
   addWorkspaceMembersToChannelActionMock: vi.fn(async () => {}),
   archiveChannelDocumentActionMock: vi.fn(async () => {}),
+  createChannelActionMock: vi.fn(async () => {}),
   deleteChannelAttachmentActionMock: vi.fn(async () => {}),
   getChannelDetailDataActionMock: vi.fn(async ({ channelName }: { channelName: string }) => ({
     threads: [],
@@ -125,6 +127,7 @@ vi.mock("@/features/channels/actions", () => ({
   addWorkspaceMembersToChannelAction: addWorkspaceMembersToChannelActionMock,
   addChannelDocumentCollaboratorAction: vi.fn(async () => {}),
   archiveChannelDocumentAction: archiveChannelDocumentActionMock,
+  createChannelAction: createChannelActionMock,
   createGoogleSheetDocumentAction: vi.fn(async () => ({ documentId: "sheet-created" })),
   createExternalGoogleSheetDocumentAction: vi.fn(async () => ({ documentId: "sheet-1" })),
   createChannelDocumentFromAttachmentAction: vi.fn(async () => ({ documentId: "doc-1" })),
@@ -304,12 +307,27 @@ describe("ChannelsPageClient", () => {
     routerRefreshMock.mockReset();
     addWorkspaceMembersToChannelActionMock.mockClear();
     archiveChannelDocumentActionMock.mockClear();
+    createChannelActionMock.mockClear();
     deleteChannelAttachmentActionMock.mockClear();
     getChannelDetailDataActionMock.mockClear();
     renameChannelActionMock.mockClear();
     sendChannelMessageActionMock.mockClear();
     sendContactMessageActionMock.mockClear();
     updateDigitalContactRemarkActionMock.mockClear();
+  });
+
+  it("keeps conversation switching and group creation in the list container", async () => {
+    const user = userEvent.setup();
+    render(
+      <TestProviders>
+        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+      </TestProviders>,
+    );
+
+    expect(screen.getByRole("tab", { name: "会话" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "数字联系人" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "创建群组" }));
+    expect(screen.getByRole("dialog", { name: "创建群组" })).toBeInTheDocument();
   });
 
   it("renders image previews and file links for channel attachments", () => {
@@ -1411,6 +1429,10 @@ describe("ChannelsPageClient", () => {
         />
       </TestProviders>,
     );
+
+    expect(screen.getByRole("button", { name: "文件" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "云文档" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "新建内容" })).toBeDisabled();
 
     await user.type(screen.getByPlaceholderText("发送到 Atlas"), "你好");
     await user.click(screen.getByRole("button", { name: "发送消息" }));

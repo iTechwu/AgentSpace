@@ -8,6 +8,7 @@ import {
   archiveChannelDocumentAction,
   createGoogleSheetDocumentAction,
   createExternalGoogleSheetDocumentAction,
+  createChannelAction,
   disconnectGoogleWorkspaceAction,
   createChannelDocumentFromAttachmentAction,
   getChannelDetailDataAction,
@@ -34,6 +35,7 @@ import {
   sendChannelMessageAction,
   acknowledgeMessageAction,
 } from "@/features/channels/actions";
+import { CreateChannelModal } from "@/features/channels/create-channel-modal";
 import {
   ConversationShell,
   type ConversationListItem,
@@ -542,6 +544,7 @@ export function ChannelsPageClient({
     router.replace(href, { scroll: false });
   }, [navigateWorkspaceModule, router, workspaceHref]);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(data.channels[0]?.id ?? null);
+  const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showRename, setShowRename] = useState(false);
   const [activeTab, setActiveTab] = useState<ChannelWorkspaceTab>("messages");
   const [documentsView, setDocumentsView] = useState<ChannelDocumentsView>("list");
@@ -1719,6 +1722,23 @@ export function ChannelsPageClient({
 
   return (
     <>
+      {showCreateChannel ? (
+        <CreateChannelModal
+          candidates={(data.channelMemberCandidates ?? []).filter(
+            (candidate) => candidate.id !== currentUserDisplayName && candidate.label !== currentUserDisplayName,
+          )}
+          pending={isPending}
+          onClose={() => setShowCreateChannel(false)}
+          onSubmit={(input) => {
+            startTransition(async () => {
+              await createChannelAction(input);
+              setShowCreateChannel(false);
+              refreshChannelModule();
+            });
+          }}
+        />
+      ) : null}
+
       {showRename && selectedChannel && selectedChannelCanRename ? (
         <RenameChannelModal
           channelName={selectedChannel.name}
@@ -1779,6 +1799,7 @@ export function ChannelsPageClient({
                 <ChannelWorkspaceHeader
                   activeTab={activeTab}
                   backButton={backButton}
+                  contentTabsEnabled={Boolean(selectedConversationChannelName)}
                   memberCount={selectedChannel.memberCount ?? estimateChannelMemberCount(selectedChannel.memberLabel)}
                   onCreateAnnouncement={() => {
                     setShowHeaderMenu(false);
@@ -1856,6 +1877,45 @@ export function ChannelsPageClient({
             : undefined
         }
         items={items}
+        listActions={
+          <div className="conversation-list-actions">
+            <div
+              aria-label={tx("会话类型", "Conversation type")}
+              className="container-view-switch"
+              role="tablist"
+            >
+              <button
+                aria-selected={conversationView === "all"}
+                className={`container-view-switch__item${conversationView === "all" ? " container-view-switch__item--active" : ""}`}
+                disabled={conversationView === "all"}
+                onClick={() => replaceWorkspaceModule("/im")}
+                role="tab"
+                type="button"
+              >
+                {tx("会话", "Conversations")}
+              </button>
+              <button
+                aria-selected={conversationView === "direct"}
+                className={`container-view-switch__item${conversationView === "direct" ? " container-view-switch__item--active" : ""}`}
+                disabled={conversationView === "direct"}
+                onClick={() => replaceWorkspaceModule("/im?view=direct")}
+                role="tab"
+                type="button"
+              >
+                {tx("数字联系人", "Digital contacts")}
+              </button>
+            </div>
+            <button
+              aria-label={tx("创建群组", "Create group")}
+              className="action-button action-button--compact action-button--icon"
+              onClick={() => setShowCreateChannel(true)}
+              title={tx("创建群组", "Create group")}
+              type="button"
+            >
+              <AppIcon name="plus" />
+            </button>
+          </div>
+        }
         listCount={items.length}
         listKicker={conversationView === "direct" ? tx("私聊", "Direct messages") : tx("会话", "Conversations")}
         listTitle={conversationView === "direct" ? tx("私聊", "Direct messages") : tx("会话", "Conversations")}
@@ -2440,6 +2500,7 @@ function ChannelDetailErrorState({
 function ChannelWorkspaceHeader({
   activeTab,
   backButton,
+  contentTabsEnabled,
   createMenuRef,
   headerMenuRef,
   memberCount,
@@ -2469,6 +2530,7 @@ function ChannelWorkspaceHeader({
 }: {
   activeTab: ChannelWorkspaceTab;
   backButton: React.ReactNode | null;
+  contentTabsEnabled: boolean;
   createMenuRef: React.RefObject<HTMLDivElement | null>;
   headerMenuRef: React.RefObject<HTMLDivElement | null>;
   memberCount: number;
@@ -2551,7 +2613,7 @@ function ChannelWorkspaceHeader({
           <HeaderIconButton label={tx("搜索", "Search")} onClick={onSearchAction}>
             <SearchIcon />
           </HeaderIconButton>
-          <HeaderIconButton label={tx("视频会议", "Video meeting")}>
+          <HeaderIconButton label={tx("视频会议（暂不可用）", "Video meeting (not available yet)")}>
             <VideoIcon />
           </HeaderIconButton>
           {!isDirect ? (
@@ -2628,12 +2690,16 @@ function ChannelWorkspaceHeader({
         />
         <ChannelTabButton
           active={activeTab === "files"}
+          disabled={!contentTabsEnabled}
+          disabledReason={tx("发送首条消息后可使用文件", "Files become available after the first message")}
           icon={<FolderIcon />}
           label={tx("文件", "Files")}
           onClick={() => onSwitchTab("files")}
         />
         <ChannelTabButton
           active={activeTab === "documents"}
+          disabled={!contentTabsEnabled}
+          disabledReason={tx("发送首条消息后可使用云文档", "Cloud docs become available after the first message")}
           icon={<CloudDocIcon />}
           label={tx("云文档", "Docs")}
           onClick={() => onSwitchTab("documents")}
@@ -2642,10 +2708,12 @@ function ChannelWorkspaceHeader({
           <button
             aria-label={tx("新建内容", "Create content")}
             className="channel-workspace-header__tab-plus"
+            disabled={!contentTabsEnabled}
             onClick={onOpenCreateMenu}
+            title={contentTabsEnabled ? tx("新建内容", "Create content") : tx("发送首条消息后可新建内容", "Create content after the first message")}
             type="button"
           >
-            +
+            <AppIcon name="plus" />
           </button>
           {showCreateMenu ? (
             <div className="channel-workspace-header__menu channel-workspace-header__menu--compact">
@@ -2928,11 +2996,15 @@ function DigitalContactRemarkModal({
 
 function ChannelTabButton({
   active,
+  disabled = false,
+  disabledReason,
   icon,
   label,
   onClick,
 }: {
   active: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
@@ -2940,7 +3012,9 @@ function ChannelTabButton({
   return (
     <button
       className={`channel-workspace-tab${active ? " channel-workspace-tab--active" : ""}`}
+      disabled={disabled}
       onClick={onClick}
+      title={disabled ? disabledReason : undefined}
       type="button"
     >
       <span className="channel-workspace-tab__icon">{icon}</span>
@@ -2967,6 +3041,7 @@ function HeaderIconButton({
       aria-describedby={describedBy}
       aria-label={label}
       className={`channel-workspace-header__icon-button${active ? " channel-workspace-header__icon-button--active" : ""}`}
+      disabled={!onClick}
       onClick={onClick}
       title={label}
       type="button"

@@ -1,3 +1,3 @@
 export type FeedbackState =
   | { tone: "idle" }
-  | { tone: "error" | "success"; message: string };
+  | { tone: "error" | "info" | "success"; message: string };

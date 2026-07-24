@@ -80,7 +80,13 @@ export function CreateChannelModal({
           <div>
             <h3 id={labelId}>{tx("创建群组", "Create channel")}</h3>
           </div>
-          <button className="modal-close" onClick={onClose} type="button">
+          <button
+            aria-label={tx("关闭创建群组", "Close create channel")}
+            className="modal-close"
+            onClick={onClose}
+            title={tx("关闭", "Close")}
+            type="button"
+          >
             <AppIcon name="close" />
           </button>
         </div>

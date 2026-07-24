@@ -63,14 +63,16 @@ export async function seedWorkspaceSession(page: Page): Promise<SeededWorkspaceS
   const agentName = `Atlas ${suffix}`;
   const channelName = `e2e-general-${suffix}`;
   const privateChannelName = `e2e-private-${suffix}`;
+  const workspaceId = `sso-team-e2e-${suffix}`;
   const user = createUserSync({
     displayName: userDisplayName,
     primaryEmail: `e2e-owner-${suffix}@example.com`,
   });
   const workspace = createWorkspaceSync({
+    id: workspaceId,
     createdBy: user.id,
     name: `E2E Workspace ${suffix}`,
-    slug: `e2e-${suffix}`,
+    slug: workspaceId,
   });
   createWorkspaceMembershipSync({
     role: "owner",

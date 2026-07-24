@@ -134,6 +134,7 @@ const data: KnowledgePageData = {
 describe("KnowledgePageClient", () => {
   beforeEach(() => {
     mockMatchMedia(false);
+    window.localStorage.clear();
     searchParamsStore.forEach((_, key) => searchParamsStore.delete(key));
     createKnowledgePageFromDocumentActionMock.mockClear();
     updateKnowledgePageActionMock.mockClear();
@@ -141,12 +142,27 @@ describe("KnowledgePageClient", () => {
     routerReplaceMock.mockReset();
   });
 
+  it("switches knowledge views from the page header", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <KnowledgePageClient data={data} />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("tab", { name: "知识页面" })).toBeDisabled();
+    await user.click(screen.getByRole("tab", { name: "文档页面" }));
+
+    expect(routerReplaceMock).toHaveBeenCalledWith("/w/workspace-alpha/knowledge?view=documents");
+    expect(screen.getByRole("tab", { name: "文档页面" })).toBeDisabled();
+  });
+
   it("switches between page tree and detail on compact layouts", async () => {
     mockMatchMedia(true);
     const user = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <KnowledgePageClient data={data} />
       </LanguageProvider>,
     );
@@ -172,7 +188,7 @@ describe("KnowledgePageClient", () => {
     searchParamsStore.set("view", "documents");
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <KnowledgePageClient data={data} />
       </LanguageProvider>,
     );
@@ -230,7 +246,7 @@ describe("KnowledgePageClient", () => {
     const onDataChanged = vi.fn();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <KnowledgePageClient data={data} moduleSearchParams={new URLSearchParams()} onDataChanged={onDataChanged} />
       </LanguageProvider>,
     );

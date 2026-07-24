@@ -588,6 +588,7 @@ export function ChatComposer({
             <button
               aria-label={tx("剪贴内容（暂未启用）", "Clip content (not available yet)")}
               className="contacts-tool-button"
+              disabled
               type="button"
             >
               ✂

@@ -1176,6 +1176,38 @@ describe("AgentsPageClient", () => {
     expect(screen.queryByRole("button", { name: /服务器管理/ })).not.toBeInTheDocument();
   });
 
+  it("switches the execution engine details when a runtime row is clicked", async () => {
+    searchParams.set("mode", "container");
+    const user = userEvent.setup();
+    const secondContainer = {
+      ...data.containers[0],
+      id: "container-2",
+      name: "Cloud Runtime",
+      runtimeId: "runtime-2",
+      daemonKey: "daemon-2",
+      deviceName: "Cloud Host",
+    };
+
+    renderAgentsPage({
+      ...data,
+      containers: [...data.containers, secondContainer],
+      containerCount: 2,
+    });
+
+    const localRuntimeButton = screen.getByRole("button", { name: /^Local Runtime/ });
+    const cloudRuntimeButton = screen.getByRole("button", { name: /^Cloud Runtime/ });
+    expect(screen.getByRole("heading", { name: "Local Runtime" })).toBeInTheDocument();
+    expect(localRuntimeButton).toHaveAttribute("aria-pressed", "true");
+    expect(cloudRuntimeButton).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(cloudRuntimeButton);
+
+    expect(screen.getByRole("heading", { name: "Cloud Runtime" })).toBeInTheDocument();
+    expect(screen.getByText("daemon-2")).toBeInTheDocument();
+    expect(localRuntimeButton).toHaveAttribute("aria-pressed", "false");
+    expect(cloudRuntimeButton).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("lets regular members open the execution engine view before any engine is assigned", async () => {
     searchParams.set("mode", "container");
     const user = userEvent.setup();
@@ -1209,9 +1241,9 @@ describe("AgentsPageClient", () => {
 
     renderAgentsPage();
 
-    await user.click(screen.getAllByRole("button", { name: "编辑备注名" })[0]);
+    await user.click(screen.getByRole("button", { name: "编辑备注名" }));
     await user.type(screen.getByLabelText("备注名"), "办公室 Mac mini");
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "保存备注" }));
 
     await waitFor(() => {
       expect(updateWorkspaceRuntimeDisplayNameAction).toHaveBeenCalledWith({
@@ -1250,7 +1282,7 @@ describe("AgentsPageClient", () => {
     expect(screen.getByDisplayValue(/--server-url "http:\/\/localhost(?::3000)?"/)).toBeInTheDocument();
     expect(screen.getByDisplayValue(/--daemon-token "adt_test"/)).toBeInTheDocument();
     expect(screen.getByDisplayValue(/--daemon-id "daemon-/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "我已运行" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始检测" })).toBeDisabled();
   });
 
   it("clears the create server deep link through workbench navigation when mounted as a module", async () => {
@@ -1271,12 +1303,24 @@ describe("AgentsPageClient", () => {
   it("generates a bash update command for an existing runtime", async () => {
     searchParams.set("mode", "container");
     const user = userEvent.setup();
+    let resolveInstallToken: ((value: { id: string; label: string; token: string }) => void) | undefined;
+    vi.mocked(createContainerInstallTokenAction).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveInstallToken = resolve;
+      }),
+    );
 
     renderAgentsPage();
 
     await user.click(screen.getByRole("button", { name: "更新 Runtime" }));
 
     expect(createContainerInstallTokenAction).toHaveBeenCalledTimes(1);
+    const generatingButton = screen.getByRole("button", { name: "生成中..." });
+    expect(generatingButton).toBeDisabled();
+    expect(generatingButton).toHaveAttribute("aria-busy", "true");
+
+    resolveInstallToken?.({ id: "daemon-token-1", label: "container", token: "adt_test" });
+
     expect(await screen.findByRole("heading", { name: "更新 Runtime" })).toBeInTheDocument();
     expect(screen.getByDisplayValue(/bash <\(curl -fsSL http:\/\/localhost(?::3000)?\/api\/daemon\/install-script\)/)).toBeInTheDocument();
     expect(screen.getByDisplayValue(/--update-existing/)).toBeInTheDocument();
@@ -1309,7 +1353,8 @@ describe("AgentsPageClient", () => {
     renderAgentsPage();
 
     await user.click(screen.getByRole("button", { name: "接入服务器" }));
-    await user.click(await screen.findByRole("button", { name: "我已运行" }));
+    await user.click(await screen.findByRole("button", { name: "复制命令" }));
+    await user.click(screen.getByRole("button", { name: "开始检测" }));
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/api\/daemon\/onboarding-status\?daemonKey=daemon-/),

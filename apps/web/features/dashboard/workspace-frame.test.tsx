@@ -10,7 +10,7 @@ import {
   buildWorkspaceOnboardingStorageKey,
   WORKSPACE_ONBOARDING_REPLAY_EVENT,
 } from "@/features/dashboard/onboarding-guide";
-import { WorkspaceFrame } from "@/features/dashboard/workspace-frame";
+import { WorkspaceFrame, WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY } from "@/features/dashboard/workspace-frame";
 import { WorkspaceInitialModuleData } from "@/features/dashboard/workspace-initial-module-data";
 import { PerformancePageClient } from "@/features/performance/performance-page-client";
 import { ChannelsPageClient } from "@/features/channels/channels-page-client";
@@ -223,7 +223,7 @@ describe("WorkspaceFrame", () => {
     searchParams.delete("view");
   });
 
-  it("shows the compact default sidebar groups with dividers", async () => {
+  it("shows the compact default sidebar groups with clear hierarchy", async () => {
     render(
       <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
@@ -236,23 +236,47 @@ describe("WorkspaceFrame", () => {
 
     expect(screen.getByRole("link", { name: /通知/ })).toHaveTextContent("3");
     expect(screen.getByRole("link", { name: /消息/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /联系人/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /联系人/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /员工管理/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /执行引擎管理/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /技能库/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /知识库/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /知识库/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /应用市场/ })).toBeInTheDocument();
 
     expect(screen.getByRole("link", { name: /待审批/ })).toHaveAttribute("href", "/w/workspace-alpha/approvals");
 
-    expect(screen.queryByRole("button", { name: /审批/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /项目看板/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^审批/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^项目看板/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /绩效看板/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /模板库/ })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("separator")).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "待处理" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "协作" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "数字员工" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "能力资源" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /通知/ })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("collapses the desktop sidebar and persists the preference", async () => {
+    const userEventApi = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
+          <div>Workspace content</div>
+        </WorkspaceFrame>
+      </LanguageProvider>,
+    );
+
+    await userEventApi.click(screen.getByRole("button", { name: "收起侧边导航" }));
+
+    expect(screen.getByTestId("workspace-layout")).toHaveClass("workspace-layout--sidebar-collapsed");
+    expect(screen.getByTestId("workspace-sidebar")).toHaveAttribute("data-collapsed", "true");
+    expect(window.localStorage.getItem(WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe("true");
+    expect(screen.getByRole("button", { name: "展开侧边导航" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("link", { name: "打开设置" })).toHaveAttribute("title", "打开设置");
   });
 
   it("hides sidebar sections that were disabled in settings", async () => {
+    const userEventApi = userEvent.setup();
     window.localStorage.setItem(
       SIDEBAR_VISIBILITY_STORAGE_KEY,
       JSON.stringify({
@@ -274,28 +298,60 @@ describe("WorkspaceFrame", () => {
     );
 
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /审批/ })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /日历/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^审批/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /日历/ })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: /应用市场/ })).not.toBeInTheDocument();
     });
 
     expect(screen.getByRole("link", { name: /通知/ })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /私聊消息/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /消息/ })).toHaveTextContent("2");
-    expect(screen.getByRole("button", { name: /联系人/ })).toHaveTextContent("2");
+    expect(screen.getByRole("link", { name: /联系人/ })).toHaveTextContent("2");
     expect(screen.getByRole("link", { name: /员工管理/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /技能库/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /执行引擎管理/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /添加技能/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /添加服务器/ })).toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toHaveValue("workspace-alpha");
-    expect(screen.getByRole("option", { name: "Alpha Workspace" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Beta Workspace" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /添加技能/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /添加服务器/ })).not.toBeInTheDocument();
+    const workspaceSwitcher = screen.getByRole("button", { name: /切换团队工作区/ });
+    expect(workspaceSwitcher).toHaveTextContent("Agent Space / Alpha Workspace");
+    await userEventApi.click(workspaceSwitcher);
+    expect(screen.getByRole("menuitemradio", { name: "Alpha Workspace" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("menuitemradio", { name: "Beta Workspace" })).toHaveAttribute("aria-checked", "false");
     expect(screen.queryByText("general")).not.toBeInTheDocument();
     expect(screen.queryByText("Alice")).not.toBeInTheDocument();
     expect(screen.queryByText("Ops Bot")).not.toBeInTheDocument();
     expect(screen.queryByText("Container A")).not.toBeInTheDocument();
     expect(screen.getByText("Workspace content")).toBeInTheDocument();
+  });
+
+  it("keeps a single hierarchical team selectable without duplicating its name", async () => {
+    const userEventApi = userEvent.setup();
+    const hierarchicalWorkspace = {
+      ...workspaces[0],
+      name: "优惠豚 / 全体",
+    };
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <WorkspaceFrame
+          currentMembershipRole="owner"
+          currentWorkspace={hierarchicalWorkspace}
+          shell={shell}
+          user={user}
+          workspaces={[hierarchicalWorkspace]}
+        >
+          <div>Workspace content</div>
+        </WorkspaceFrame>
+      </LanguageProvider>,
+    );
+
+    const workspaceSwitcher = screen.getByRole("button", { name: "切换团队工作区" });
+    expect(workspaceSwitcher).toHaveTextContent("优惠豚 / 全体");
+    expect(workspaceSwitcher).not.toHaveTextContent("优惠豚 / 全体 / 优惠豚 / 全体");
+
+    await userEventApi.click(workspaceSwitcher);
+
+    expect(screen.getByRole("menuitemradio", { name: "优惠豚 / 全体" })).toHaveAttribute("aria-checked", "true");
   });
 
   it("links to the runtime app market from the sidebar", () => {
@@ -785,7 +841,7 @@ describe("WorkspaceFrame", () => {
     expect(screen.queryByPlaceholderText("发送到 general")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /消息/ })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /通知/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /联系人/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /联系人/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /员工管理/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /技能库/ })).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -1436,7 +1492,7 @@ describe("WorkspaceFrame", () => {
       </LanguageProvider>,
     );
 
-    expect(screen.getByRole("link", { name: /数字联系人/ })).toHaveClass("workspace-shortcut--active");
+    expect(screen.getByRole("link", { name: /联系人/ })).toHaveClass("workspace-sidebar__section-link--active");
     expect(screen.getByRole("link", { name: /消息/ })).not.toHaveClass("workspace-sidebar__section-link--active");
   });
 
@@ -1462,7 +1518,7 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByRole("link", { name: /消息/ })).toHaveClass("workspace-sidebar__section-link--active");
   });
 
-  it("lets regular members open execution engine management and add their own server", () => {
+  it("lets regular members open execution engine management while keeping add actions in the page", () => {
     const memberShell: WorkspaceShellData = {
       ...shell,
       directMessages: [],
@@ -1477,10 +1533,8 @@ describe("WorkspaceFrame", () => {
     );
 
     expect(screen.getByRole("link", { name: /执行引擎管理/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /添加服务器/ })).toHaveAttribute(
-      "href",
-      "/w/workspace-alpha/agents?mode=container&create=server",
-    );
+    expect(screen.getByRole("link", { name: /执行引擎管理/ })).toHaveAttribute("href", "/w/workspace-alpha/agents?mode=container");
+    expect(screen.queryByRole("link", { name: /添加服务器/ })).not.toBeInTheDocument();
   });
 
   it("uses an explicit agent-mode link when leaving execution engine management", () => {
@@ -1499,9 +1553,8 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByRole("link", { name: /数字员工展板/ })).toHaveAttribute("href", "/w/workspace-alpha/agents?mode=showcase");
   });
 
-  it("shows separate human and digital contact shortcuts", async () => {
+  it("keeps contacts as one stable sidebar destination", () => {
     pathname = "/w/workspace-alpha/im";
-    const userEventApi = userEvent.setup();
 
     render(
       <LanguageProvider initialLanguage="zh">
@@ -1511,10 +1564,9 @@ describe("WorkspaceFrame", () => {
       </LanguageProvider>,
     );
 
-    await userEventApi.click(screen.getByRole("button", { name: /联系人/ }));
-
-    expect(screen.getByRole("link", { name: /真人联系人/ })).toHaveTextContent("1");
-    expect(screen.getByRole("link", { name: /数字联系人/ })).toHaveTextContent("1");
+    expect(screen.getByRole("link", { name: /联系人/ })).toHaveTextContent("2");
+    expect(screen.queryByRole("link", { name: /真人联系人/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /数字联系人/ })).not.toBeInTheDocument();
   });
 
   it("switches human contacts through the workbench loader", async () => {
@@ -1554,8 +1606,7 @@ describe("WorkspaceFrame", () => {
       </LanguageProvider>,
     );
 
-    await userEventApi.click(screen.getByRole("button", { name: /联系人/ }));
-    await userEventApi.click(screen.getByRole("link", { name: /真人联系人/ }));
+    await userEventApi.click(screen.getByRole("link", { name: /联系人/ }));
 
     expect(routerPushMock).not.toHaveBeenCalled();
     await waitFor(() => {
@@ -1581,13 +1632,12 @@ describe("WorkspaceFrame", () => {
       </LanguageProvider>,
     );
 
-    expect(screen.getByRole("link", { name: /真人联系人/ })).toHaveClass("workspace-shortcut--active");
+    expect(screen.getByRole("link", { name: /联系人/ })).toHaveClass("workspace-sidebar__section-link--active");
   });
 
-  it("shows separate knowledge and document page links in the sidebar", async () => {
+  it("keeps knowledge as one stable sidebar destination", () => {
     pathname = "/w/workspace-alpha/knowledge";
     searchParams.set("view", "documents");
-    const userEventApi = userEvent.setup();
 
     render(
       <LanguageProvider initialLanguage="zh">
@@ -1597,10 +1647,8 @@ describe("WorkspaceFrame", () => {
       </LanguageProvider>,
     );
 
-    await userEventApi.click(screen.getByRole("button", { name: /知识库/i }));
-
-    expect(screen.getByRole("link", { name: /知识页面/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /文档页面/i })).toHaveClass("workspace-shortcut--active");
+    expect(screen.getByRole("link", { name: /知识库/i })).toHaveClass("workspace-sidebar__section-link--active");
+    expect(screen.queryByRole("link", { name: /文档页面/i })).not.toBeInTheDocument();
   });
 
   it("keeps the settings section title for nested settings routes", () => {

@@ -92,7 +92,7 @@ describe("TaskBoardPageClient", () => {
     const user = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <TaskBoardPageClient data={data} />
         </FeedbackToastProvider>
@@ -122,7 +122,7 @@ describe("TaskBoardPageClient", () => {
     });
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <TaskBoardPageClient data={data} onDataChanged={onDataChanged} onInvalidation={onInvalidation} />
         </FeedbackToastProvider>
@@ -135,5 +135,28 @@ describe("TaskBoardPageClient", () => {
     await waitFor(() => expect(onInvalidation).toHaveBeenCalledWith(taskBoardInvalidation));
     await waitFor(() => expect(onDataChanged).toHaveBeenCalledTimes(1));
     expect(mockRefresh).not.toHaveBeenCalled();
+  });
+
+  it("guides an empty board into the message workflow", () => {
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <TaskBoardPageClient
+            data={{
+              ...data,
+              tasks: [],
+              totalCount: 0,
+              todoCount: 0,
+              inProgressCount: 0,
+              doneCount: 0,
+            }}
+          />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "任务看板" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "前往消息" })).toHaveAttribute("href", "./im");
+    expect(screen.queryByRole("heading", { name: "Todo" })).not.toBeInTheDocument();
   });
 });

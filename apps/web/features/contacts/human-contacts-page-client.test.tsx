@@ -5,17 +5,21 @@ import { HumanContactsPageClient } from "@/features/contacts/human-contacts-page
 import { LanguageProvider } from "@/features/i18n/language-provider";
 
 const {
+  routerPushMock,
   routerRefreshMock,
   sendHumanDirectMessageActionMock,
 } = vi.hoisted(() => ({
+  routerPushMock: vi.fn(),
   routerRefreshMock: vi.fn(),
   sendHumanDirectMessageActionMock: vi.fn<(formData: FormData) => Promise<void>>(async () => {}),
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
+    push: routerPushMock,
     refresh: routerRefreshMock,
   }),
+  usePathname: () => "/w/workspace-alpha/contacts",
 }));
 
 vi.mock("@/features/channels/actions", () => ({
@@ -45,8 +49,27 @@ function mockMatchMedia(matches: boolean): void {
 describe("HumanContactsPageClient", () => {
   beforeEach(() => {
     mockMatchMedia(false);
+    routerPushMock.mockReset();
     routerRefreshMock.mockReset();
     sendHumanDirectMessageActionMock.mockClear();
+  });
+
+  it("keeps contact type switching in the page container", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <HumanContactsPageClient
+          channels={[]}
+          contacts={[]}
+          currentUserDisplayName="Tianyu"
+          threads={[]}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("tab", { name: "真人" })).toBeDisabled();
+    await user.click(screen.getByRole("tab", { name: "数字员工" }));
+    expect(routerPushMock).toHaveBeenCalledWith("/w/workspace-alpha/im?view=direct");
   });
 
   it("sends a direct message to a selected workspace member", async () => {
