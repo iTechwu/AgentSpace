@@ -21,7 +21,6 @@ import {
   permissionsApproveChannelAccessRequestAction,
   permissionsBindAgentRuntimeAction,
   permissionsCreateDaemonApiTokenAction,
-  permissionsDisconnectGoogleWorkspaceAction,
   permissionsApproveDocumentPermissionRequestAction,
   permissionsGrantRuntimeUseAction,
   permissionsGrantDocumentAgentAccessAction,
@@ -31,14 +30,12 @@ import {
   permissionsRemoveChannelDocumentCollaboratorAction,
   permissionsRevokeDocumentAgentAccessAction,
   permissionsRemoveWorkspaceMemberFromChannelAction,
-  permissionsRevokeAgentGoogleWorkspaceDelegationAction,
   permissionsRevokeChannelInvitationAction,
   permissionsRevokeDaemonApiTokenAction,
   permissionsRevokeRuntimeUseAction,
   permissionsSetAgentChannelMemberAccessAction,
   permissionsSetAgentKnowledgeAssignmentsAction,
   permissionsSetAgentSkillAssignmentsAction,
-  permissionsSyncExternalGoogleSheetPermissionsAction,
   permissionsUnbindAgentRuntimeAction,
   permissionsUpdateChannelDocumentAccessRoleAction,
 } from "@/features/permissions/actions";
@@ -611,22 +608,6 @@ function NodeOperationPanel({
         </div>
       ) : null}
 
-      {node.resourceType === "external_document" && documentId ? (
-        <button
-          className="primary-button"
-          disabled={isPending}
-          onClick={() => runPermissionAction({
-            startTransition,
-            setFeedback,
-            tx,
-            success: tx("外部权限同步已触发。", "External permission sync started."),
-            action: () => permissionsSyncExternalGoogleSheetPermissionsAction(documentId),
-          })}
-          type="button"
-        >
-          {tx("同步 Google Drive 权限", "Sync Google Drive permissions")}
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -899,10 +880,6 @@ async function runRevokeAction(input: {
       return void await permissionsRevokeDaemonApiTokenAction(input.tokenId);
     case "agent_runtime_unbind":
       return void await permissionsUnbindAgentRuntimeAction(input.employeeName);
-    case "agent_google_delegation_revoke":
-      return void await permissionsRevokeAgentGoogleWorkspaceDelegationAction({
-        employeeName: input.employeeName,
-      });
     case "document_collaborator_remove":
       if (!input.actorType) {
         return;
@@ -921,8 +898,6 @@ async function runRevokeAction(input: {
         documentId: input.documentId,
         agentName: input.actorId || input.employeeName,
       });
-    case "oauth_credential_revoke":
-      return permissionsDisconnectGoogleWorkspaceAction();
     default:
       return;
   }
@@ -1077,12 +1052,8 @@ function revokeLabel(action: string, tx: SettingsTx): string {
       return tx("吊销 token", "Revoke token");
     case "agent_runtime_unbind":
       return tx("解绑 runtime", "Unbind runtime");
-    case "agent_google_delegation_revoke":
-      return tx("撤销委托", "Revoke delegation");
     case "document_collaborator_remove":
       return tx("移除 collaborator", "Remove collaborator");
-    case "oauth_credential_revoke":
-      return tx("断开 Google", "Disconnect Google");
     default:
       return tx("撤销", "Revoke");
   }
@@ -1191,8 +1162,6 @@ function formatSource(source: string, tx: SettingsTx): string {
       return "Skill assignment";
     case "oauth_delegation":
       return "OAuth delegation";
-    case "external_drive_permission":
-      return "Google Drive";
     case "external_guest_policy":
       return tx("外部访客策略", "External guest policy");
     case "derived":

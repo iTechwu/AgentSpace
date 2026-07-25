@@ -160,8 +160,8 @@ agent.dofe 为 Agent 组织提供四个关键能力：调度、能力共享、�
 
 随着 Agent 承担更多执行工作，治理不能事后补上。
 
-- 从一个地方治理 workspace role、频道、文档、技能、知识、runtime、daemon token 和 Google credential。
-- 支持文档权限请求、runtime tool approval、knowledge proposal review 和 agent-scoped Google Workspace delegation。
+- 从一个地方治理 workspace role、频道、文档、技能、知识、runtime、daemon token 和飞书资源绑定。
+- 支持文档权限请求、runtime tool approval、knowledge proposal review 和飞书 Bot 数据操作治理。
 - 可以按资源树或 actor 反查权限。
 - 在一个控制面内撤销、审计和诊断权限漂移，避免问题扩大。
 
@@ -200,7 +200,7 @@ agent.dofe 为 Agent 组织提供四个关键能力：调度、能力共享、�
 
 1. **创始人在 workspace 频道里提出请求** — 不需要额外 ticket 系统，也没有启动成本。
 2. **协调型 Agent 自动拆解** — 任务被拆分、界定范围，并分配给合适的专业 Agent。
-3. **Agent 收集所需上下文** — 文档、知识页、Google Workspace 文件和历史执行产物都会进入上下文。
+3. **Agent 收集所需上下文** — 文档、知识页、已绑定的飞书资源和历史执行产物都会进入上下文。
 4. **高风险动作会在发生前被标记** — 工具调用、文档访问、外发动作和预算敏感动作会进入人类审批节点。
 5. **人类批准或拒绝** — 一次决策，完整可见，不需要微观管理。
 6. **Agent 完成工作** — 结果写回任务、文档、附件和 runtime output，不会丢失。
@@ -220,7 +220,7 @@ agent.dofe 为 Agent 组织提供四个关键能力：调度、能力共享、�
 - [Framework](#framework)
   - [数字员工展板](#数字员工展板)
   - [权限控制面](#权限控制面)
-  - [技能、知识和 Google Workspace](#技能知识和-google-workspace)
+  - [技能、知识和飞书](#技能知识和飞书)
 - [高级配置](#高级配置)
 - [代码结构](#代码结构)
 - [文档](#文档)
@@ -237,7 +237,7 @@ agent.dofe 为 Agent 组织提供四个关键能力：调度、能力共享、�
 - npm 11.x。
 - 推荐 PostgreSQL 16。仓库内包含本地 Docker Compose 配置。
 - 可选 provider CLI：`codex`、`claude`、`agy`（Antigravity）、`gemini`（legacy）、`opencode`、`openclaw`、`nanobot`、`hermes`。
-- 可选 Google OAuth / Google Workspace 配置。
+- 可选飞书自建应用和 Bot 配置。
 
 ### Path A：运行 Workspace
 
@@ -368,7 +368,7 @@ flowchart TD
   Legacy --> NanoBot["NanoBot"]
   Runtime --> Output["runtime-output / diagnostics / sessions"]
   Output --> Services
-  Services --> Docs["documents / knowledge / attachments / Google Workspace"]
+  Services --> Docs["documents / knowledge / attachments / Feishu resources"]
   Docs --> Web
 ```
 
@@ -396,18 +396,18 @@ flowchart TD
 | Runtime 授权 | user-level grants、runtime sharing、bind/unbind、runtime provider health |
 | Daemon 安全 | API token 创建/撤销、远程 daemon 注册、runtime display name |
 | 文档 | owner/editor/viewer 角色、agent access、permission requests、version rollback |
-| Google Workspace | OAuth credential owner、agent-scoped delegation、external document requests |
+| 飞书 | Bot 绑定、文档/表格/多维表格资源绑定、受治理的数据操作 |
 | 审批 | runtime tool approvals、knowledge proposal approvals、document permissions |
 | 诊断 | missing grants、revoked credentials、orphaned grants、unavailable providers |
 
-### 技能、知识和 Google Workspace
+### 技能、知识和飞书
 
 agent.dofe 包含可复用的执行构件：
 
 - file-backed workspace skills，可创建、导入、导出并分配给 Agent
 - knowledge pages、materials、attachments、channel docs 和 generated knowledge proposals
-- Google Sheets 和 Docs 创建或链接
-- 面向 Agent 的 scoped Google Workspace delegation
+- 在 Agent 设置页完成飞书自建应用和 Bot 的接入引导
+- 为 Agent 绑定飞书文档、表格和多维表格资源
 - 缺少访问权限时的 permission request flows
 
 ---
@@ -465,11 +465,11 @@ DofeAgent/
 
 已实现：
 
-- 多租户工作空间、Google 登录、工作空间成员体系和访问控制
+- 多租户工作空间、Dofe SSO 登录、工作空间成员体系和访问控制
 - PostgreSQL 主存储、附件和可靠通知
 - 频道文档、知识库、全局搜索、审批、任务看板、预算、成本和性能仪表盘
 - 远程 daemon、runtime sharing、AgentRouter harness switching、OpenClaw provider health 和 Hermes Agent support
-- agent-scoped Google Workspace OAuth、Google Sheets 创建/回写、runtime output CLI 和 permission center
+- 飞书 Bot 通信、飞书文档/表格/多维表格资源绑定和受治理的数据操作
 
 计划中：
 

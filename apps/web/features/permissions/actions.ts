@@ -15,7 +15,6 @@ import type { ChannelDocumentAccessRole } from "@dofe-agent/domain";
 import {
   bindWorkspaceAgentRuntimeAction,
   grantWorkspaceRuntimeUseAction,
-  revokeWorkspaceAgentGoogleWorkspaceDelegationAction,
   revokeWorkspaceRuntimeUseAction,
   setWorkspaceAgentChannelMemberAccessAction,
   setWorkspaceAgentKnowledgeAssignmentsAction,
@@ -26,11 +25,9 @@ import {
   addChannelDocumentCollaboratorAction,
   addWorkspaceMembersToChannelAction,
   approveChannelAccessRequestAction,
-  disconnectGoogleWorkspaceAction,
   rejectChannelAccessRequestAction,
   removeChannelDocumentCollaboratorAction,
   revokeChannelInvitationAction,
-  syncExternalGoogleSheetPermissionsAction,
   updateChannelDocumentAccessRoleAction,
 } from "@/features/channels/actions";
 import {
@@ -247,15 +244,6 @@ export async function permissionsSetAgentKnowledgeAssignmentsAction(input: {
   return result;
 }
 
-export async function permissionsRevokeAgentGoogleWorkspaceDelegationAction(input: {
-  employeeName: string;
-}) {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  const result = await revokeWorkspaceAgentGoogleWorkspaceDelegationAction(input);
-  revalidatePermissions(workspaceContext.currentWorkspace.slug);
-  return result;
-}
-
 export async function permissionsUpdateChannelDocumentAccessRoleAction(input: {
   documentId: string;
   actorId: string;
@@ -285,12 +273,6 @@ export async function permissionsRemoveChannelDocumentCollaboratorAction(input: 
 }): Promise<void> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   await removeChannelDocumentCollaboratorAction(input);
-  revalidatePermissions(workspaceContext.currentWorkspace.slug);
-}
-
-export async function permissionsSyncExternalGoogleSheetPermissionsAction(documentId: string): Promise<void> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  await syncExternalGoogleSheetPermissionsAction(documentId);
   revalidatePermissions(workspaceContext.currentWorkspace.slug);
 }
 
@@ -360,12 +342,6 @@ export async function permissionsRejectAgentAccessRequestAction(requestId: strin
     requestId,
     actorUserId: workspaceContext.currentUser.id,
   });
-  revalidatePermissions(workspaceContext.currentWorkspace.slug);
-}
-
-export async function permissionsDisconnectGoogleWorkspaceAction(): Promise<void> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  await disconnectGoogleWorkspaceAction();
   revalidatePermissions(workspaceContext.currentWorkspace.slug);
 }
 

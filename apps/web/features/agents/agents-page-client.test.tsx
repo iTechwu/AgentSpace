@@ -387,6 +387,8 @@ const data: AgentsPageData = {
           "bitable:app",
         ],
         eventCallbackPath: "/api/integrations/feishu/events",
+        developerConsoleUrl: "https://open.feishu.cn/app",
+        openPlatformSetupSteps: [],
       },
     },
   ],
@@ -442,23 +444,6 @@ const data: AgentsPageData = {
       mode: "remote",
       serverUrl: "https://daemon.example.com",
       runtimeName: "Remote Agent",
-      googleWorkspaceReadiness: {
-        checkedAt: "2026-04-10T09:00:00.000Z",
-        executor: "gws",
-        dofeAgentOutput: {
-          available: true,
-          version: "dofe-agent output",
-        },
-        gws: {
-          available: true,
-          version: "gws 0.22.5",
-        },
-        bwrap: {
-          available: true,
-          version: "bubblewrap 0.11.0",
-          supportsPerms: true,
-        },
-      },
       runtimes: [
         {
           id: "runtime-1",
@@ -1436,8 +1421,6 @@ describe("AgentsPageClient", () => {
 
     expect(screen.getByText("Build Box 1")).toBeInTheDocument();
     expect(screen.getByText("Remote Codex")).toBeInTheDocument();
-    expect(screen.getByText(/Google Sheets readiness/)).toBeInTheDocument();
-    expect(screen.getByText(/dofe-agent output: 可用/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "服务器接入令牌" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "创建新令牌" }));

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import type {
-  ChannelsPageData,
   ChannelFileRecord,
   ChannelDocumentChangeSetRecord,
   ChannelDocumentConflictRecord,
@@ -59,18 +58,13 @@ export function ChannelDocumentsPanel({
   panelKicker,
   panelTitle,
   emptyStateBody,
-  googleWorkspace,
-  onDisconnectGoogleWorkspace,
-  onRefreshExternalSheet,
-  onSyncExternalSheetPermissions,
 }: {
   archivedDocuments: ChannelDocumentRecord[];
   documents: ChannelDocumentRecord[];
-  googleWorkspace?: ChannelsPageData["googleWorkspace"];
   selectedDocument: ChannelDocumentRecord | null;
   selectedDocumentId: string | null;
   selectedDocumentConflicts: ChannelDocumentConflictRecord[];
-  createMode?: "markdown" | "nativeSheet" | "nativeDeck" | "googleSheet" | "googleSheetCreate";
+  createMode?: "markdown" | "nativeSheet" | "nativeDeck";
   draftTitle: string;
   draftSummary: string;
   draftContent: string;
@@ -115,9 +109,6 @@ export function ChannelDocumentsPanel({
   onDeleteAttachment?: (file: ChannelFileRecord) => void;
   onViewDocumentInKnowledge: (documentId: string) => void;
   onViewAttachmentInKnowledge: (attachmentId: string) => void;
-  onDisconnectGoogleWorkspace?: () => void;
-  onRefreshExternalSheet?: () => void;
-  onSyncExternalSheetPermissions?: () => void;
   tx: (zh: string, en: string) => string;
   panelKicker?: string;
   panelTitle?: string;
@@ -132,16 +123,11 @@ export function ChannelDocumentsPanel({
   const currentUserRole = selectedDocument?.currentUserRole ?? "viewer";
   const canEditDocument = !selectedDocument || currentUserRole === "owner" || currentUserRole === "forwarder" || currentUserRole === "editor";
   const canManageDocument = selectedDocument ? currentUserRole === "owner" : false;
-  const isLinkingGoogleSheet = !selectedDocument && createMode === "googleSheet";
-  const isCreatingGoogleSheet = !selectedDocument && createMode === "googleSheetCreate";
   const isCreatingNativeSheet = !selectedDocument && createMode === "nativeSheet";
   const isCreatingNativeDeck = !selectedDocument && createMode === "nativeDeck";
-  const isGoogleSheetCreateFlow = isLinkingGoogleSheet || isCreatingGoogleSheet;
   const isNativeStructuredCreateFlow = isCreatingNativeSheet || isCreatingNativeDeck;
-  const isExternalGoogleSheet = Boolean(selectedDocument?.externalSheet);
-  const canEditMarkdownContent = canEditDocument && !isExternalGoogleSheet;
+  const canEditMarkdownContent = canEditDocument;
   const ownerCount = selectedDocument?.collaborators.filter((collaborator) => collaborator.role === "owner").length ?? 0;
-  const googleWorkspaceConnected = googleWorkspace?.status === "connected";
   const [selectedCandidateKey, setSelectedCandidateKey] = useState("");
   const [selectedCandidateRole, setSelectedCandidateRole] = useState<ChannelDocumentAccessRole>("editor");
 
@@ -175,11 +161,7 @@ export function ChannelDocumentsPanel({
               >
                 <strong>{document.title}</strong>
                 <span>{document.summary || tx("暂无摘要", "No summary yet")}</span>
-                {document.externalSheet ? (
-                  <small>
-                    {tx("Google Sheet", "Google Sheet")} · {formatExternalSheetStatusLabel(document.externalSheet.syncStatus, tx)}
-                  </small>
-                ) : document.kind !== "markdown" ? (
+                {document.kind !== "markdown" ? (
                   <small>{formatDocumentKindLabel(document.kind, tx)}</small>
                 ) : null}
                 <small>
@@ -299,54 +281,6 @@ export function ChannelDocumentsPanel({
             ) : null}
           </FeedbackBanner>
         ) : null}
-        {selectedDocument?.externalSheet ? (
-          <FeedbackBanner
-            role="status"
-            title={tx("Google Sheet 已连接", "Google Sheet connected")}
-            tone={selectedDocument.externalSheet.syncStatus === "ok" ? "success" : "error"}
-          >
-            <p>
-              {tx("状态", "Status")} · {formatExternalSheetStatusLabel(selectedDocument.externalSheet.syncStatus, tx)}
-              {selectedDocument.externalSheet.externalRevisionId ? ` · rev ${selectedDocument.externalSheet.externalRevisionId}` : ""}
-            </p>
-            {selectedDocument.externalSheet.externalUpdatedAt ? (
-              <p>
-                {tx("外部更新时间", "External updated")} · {formatDocumentTime(selectedDocument.externalSheet.externalUpdatedAt)}
-              </p>
-            ) : null}
-            <div className="detail-actions">
-              <a className="action-button" href={selectedDocument.externalSheet.externalUrl} rel="noreferrer" target="_blank">
-                {tx("打开 Google Sheet", "Open Google Sheet")}
-              </a>
-              <button
-                className="action-button"
-                disabled={pending || !onRefreshExternalSheet}
-                onClick={onRefreshExternalSheet}
-                type="button"
-              >
-                {tx("刷新状态", "Refresh status")}
-              </button>
-              <button
-                className="action-button"
-                disabled={pending || !onSyncExternalSheetPermissions || !canManageDocument}
-                onClick={onSyncExternalSheetPermissions}
-                type="button"
-              >
-                {tx("同步权限", "Sync permissions")}
-              </button>
-              {selectedDocument.externalSheet.syncStatus === "permission_error" || !googleWorkspaceConnected ? (
-                <a className="action-button" href="/api/integrations/google/start">
-                  {tx("重新连接", "Reconnect")}
-                </a>
-              ) : null}
-              {googleWorkspaceConnected && onDisconnectGoogleWorkspace ? (
-                <button className="action-button action-button--danger" disabled={pending} onClick={onDisconnectGoogleWorkspace} type="button">
-                  {tx("断开 Google", "Disconnect Google")}
-                </button>
-              ) : null}
-            </div>
-          </FeedbackBanner>
-        ) : null}
         {hasRecoverableDraft ? (
           <FeedbackBanner role="alert" title={tx("已保留未保存的草稿", "Unsaved draft preserved")} tone="success">
             <p>
@@ -369,11 +303,7 @@ export function ChannelDocumentsPanel({
           <div>
             <h3>
               {draftTitle.trim() ||
-                (isCreatingGoogleSheet
-                  ? tx("创建 Google Sheet", "Create Google Sheet")
-                  : isLinkingGoogleSheet
-                    ? tx("链接 Google Sheet", "Link Google Sheet")
-                    : isCreatingNativeSheet
+                (isCreatingNativeSheet
                       ? tx("新建表格", "New sheet")
                       : isCreatingNativeDeck
                         ? tx("新建 Deck", "New deck")
@@ -401,21 +331,16 @@ export function ChannelDocumentsPanel({
               className="primary-button"
               disabled={
                 pending ||
-                (!isGoogleSheetCreateFlow && (!canEditMarkdownContent || draftTitle.trim().length === 0)) ||
-                (isNativeStructuredCreateFlow && draftTitle.trim().length === 0) ||
-                (isCreatingGoogleSheet && (draftTitle.trim().length === 0 || !googleWorkspaceConnected)) ||
-                (isLinkingGoogleSheet && (draftTitle.trim().length === 0 || draftContent.trim().length === 0))
+                !canEditMarkdownContent ||
+                draftTitle.trim().length === 0 ||
+                (isNativeStructuredCreateFlow && draftTitle.trim().length === 0)
               }
               onClick={onSave}
               type="button"
             >
               {pending
                 ? tx("保存中...", "Saving...")
-                : isCreatingGoogleSheet
-                  ? tx("创建", "Create")
-                  : isLinkingGoogleSheet
-                    ? tx("链接", "Link")
-                    : isNativeStructuredCreateFlow
+                : isNativeStructuredCreateFlow
                       ? tx("创建", "Create")
                     : tx("保存", "Save")}
             </button>
@@ -440,7 +365,7 @@ export function ChannelDocumentsPanel({
           <label className="form-field form-field--full">
             <span>{tx("标题", "Title")}</span>
             <input
-              disabled={!canEditMarkdownContent && !isGoogleSheetCreateFlow}
+              disabled={!canEditMarkdownContent}
               onFocus={onBeginEditing}
               onChange={(event) => onDraftTitleChange(event.currentTarget.value)}
               placeholder={tx("标题", "Title")}
@@ -451,7 +376,7 @@ export function ChannelDocumentsPanel({
           <label className="form-field form-field--full">
             <span>{tx("摘要", "Summary")}</span>
             <input
-              disabled={!canEditMarkdownContent && !isGoogleSheetCreateFlow}
+              disabled={!canEditMarkdownContent}
               onFocus={onBeginEditing}
               onChange={(event) => onDraftSummaryChange(event.currentTarget.value)}
               placeholder={tx("简短摘要", "Short summary")}
@@ -459,80 +384,7 @@ export function ChannelDocumentsPanel({
               value={draftSummary}
             />
           </label>
-          {isCreatingGoogleSheet ? (
-            <div className="channel-documents-panel__workflow-item">
-              <strong>{tx("将创建新的 Google Sheet", "A new Google Sheet will be created")}</strong>
-              <span>
-                {googleWorkspaceConnected
-                  ? tx(
-                      `已连接 ${googleWorkspace.email ?? "Google Workspace"}`,
-                      `Connected as ${googleWorkspace.email ?? "Google Workspace"}`,
-                    )
-                  : tx("未连接 Google Workspace", "Google Workspace is not connected")}
-              </span>
-              <div className="detail-actions">
-                {!googleWorkspaceConnected ? (
-                  <a className="action-button" href="/api/integrations/google/start">
-                    {tx("连接 Google Workspace", "Connect Google Workspace")}
-                  </a>
-                ) : null}
-                {googleWorkspaceConnected && onDisconnectGoogleWorkspace ? (
-                  <button className="action-button action-button--danger" disabled={pending} onClick={onDisconnectGoogleWorkspace} type="button">
-                    {tx("断开 Google", "Disconnect Google")}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ) : isLinkingGoogleSheet ? (
-            <>
-              <div className="channel-documents-panel__workflow-item">
-                <strong>{tx("绑定已有 Google Sheet", "Bind existing Google Sheet")}</strong>
-                <span>
-                  {googleWorkspaceConnected
-                    ? tx(
-                        `已连接 ${googleWorkspace.email ?? "Google Workspace"}`,
-                        `Connected as ${googleWorkspace.email ?? "Google Workspace"}`,
-                      )
-                    : tx("仅保存外部链接；API 写入需要连接 Google Workspace", "Only the external link is stored; API writes require Google Workspace")}
-                </span>
-                <div className="detail-actions">
-                  {!googleWorkspaceConnected ? (
-                    <a className="action-button" href="/api/integrations/google/start">
-                      {tx("连接 Google Workspace", "Connect Google Workspace")}
-                    </a>
-                  ) : null}
-                  {googleWorkspaceConnected && onDisconnectGoogleWorkspace ? (
-                    <button className="action-button action-button--danger" disabled={pending} onClick={onDisconnectGoogleWorkspace} type="button">
-                      {tx("断开 Google", "Disconnect Google")}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-              <label className="form-field form-field--full">
-                <span>{tx("Google Sheet URL", "Google Sheet URL")}</span>
-                <textarea
-                  className="channel-documents-panel__textarea"
-                  disabled={pending}
-                  onFocus={onBeginEditing}
-                  onChange={(event) => onDraftContentChange(event.currentTarget.value)}
-                  placeholder="https://docs.google.com/spreadsheets/d/..."
-                  rows={4}
-                  value={draftContent}
-                />
-              </label>
-            </>
-          ) : isExternalGoogleSheet ? (
-            <div className="channel-documents-panel__workflow-item">
-              <strong>{tx("表格内容在 Google Sheets 中编辑", "Sheet content is edited in Google Sheets")}</strong>
-              <span>
-                {tx(
-                  "agent.dofe 会保留链接、权限状态和 agent 操作记录。",
-                  "agent.dofe keeps the link, permission state, and agent operation history.",
-                )}
-              </span>
-            </div>
-          ) : (
-            <label className="form-field form-field--full">
+          <label className="form-field form-field--full">
               <span>
                 {isCreatingNativeSheet || selectedDocument?.kind === "sheet"
                     ? tx("表格草稿", "Sheet draft")
@@ -548,55 +400,12 @@ export function ChannelDocumentsPanel({
                 rows={14}
                 value={draftContent}
               />
-            </label>
-          )}
+          </label>
         </div>
       </div>
 
-      {runs.length > 0 || conflicts.length > 0 || (selectedDocument?.externalSheetOperations.length ?? 0) > 0 ? (
+      {runs.length > 0 || conflicts.length > 0 ? (
         <div className="channel-documents-panel__activity">
-          {selectedDocument?.externalSheetOperations.length ? (
-            <section className="channel-documents-panel__activity-card">
-              <div className="panel-header">
-                <div>
-                  <h3>{tx("Google Sheet 操作", "Google Sheet operations")}</h3>
-                </div>
-              </div>
-              <div className="channel-documents-panel__workflow-list">
-                {selectedDocument.externalSheetOperations.slice(0, 8).map((operation) => (
-                  <div className="channel-documents-panel__workflow-item" key={operation.id}>
-                    <strong>{operation.intent}</strong>
-                    <span>
-                      {operation.actorId} · {formatExternalSheetOperationStatusLabel(operation.status, tx)} ·{" "}
-                      {formatExternalSheetOperationTypeLabel(operation.operationType, tx)}
-                    </span>
-                    {operation.delegatedGoogleEmail || operation.delegatedUserDisplayName ? (
-                      <small>
-                        {tx("授权账号", "Delegated account")} · {operation.delegatedGoogleEmail ?? operation.delegatedUserDisplayName}
-                      </small>
-                    ) : null}
-                    {operation.rangeA1 ? <small>{tx("范围", "Range")} · {operation.rangeA1}</small> : null}
-                    <small>
-                      {operation.requestSummary}
-                      {operation.affectedRows !== undefined ? ` · ${tx("行", "Rows")} ${operation.affectedRows}` : ""}
-                      {operation.affectedCells !== undefined ? ` · ${tx("单元格", "Cells")} ${operation.affectedCells}` : ""}
-                    </small>
-                    {operation.responseSummary ? <small>{operation.responseSummary}</small> : null}
-                    {operation.errorMessage ? (
-                      <small className="channel-documents-panel__conflict">
-                        {operation.errorCode ? `${operation.errorCode} · ` : ""}{operation.errorMessage}
-                      </small>
-                    ) : null}
-                    <small>
-                      {formatDocumentTime(operation.startedAt)}
-                      {operation.finishedAt ? ` → ${formatDocumentTime(operation.finishedAt)}` : ""}
-                    </small>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
           {runs.length > 0 ? (
             <section className="channel-documents-panel__activity-card">
               <div className="panel-header">
@@ -1101,16 +910,6 @@ function formatRunStepStatusLabel(
   return tx("失败", "Failed");
 }
 
-function formatExternalSheetStatusLabel(
-  status: NonNullable<ChannelDocumentRecord["externalSheet"]>["syncStatus"],
-  tx: (zh: string, en: string) => string,
-): string {
-  if (status === "ok") return tx("已连接", "Connected");
-  if (status === "permission_error") return tx("权限异常", "Permission issue");
-  if (status === "missing") return tx("文件不可用", "Missing");
-  return tx("未知", "Unknown");
-}
-
 function formatDocumentKindLabel(
   kind: ChannelDocumentRecord["kind"],
   tx: (zh: string, en: string) => string,
@@ -1121,29 +920,6 @@ function formatDocumentKindLabel(
   return tx("Markdown", "Markdown");
 }
 
-function formatExternalSheetOperationStatusLabel(
-  status: ChannelDocumentRecord["externalSheetOperations"][number]["status"],
-  tx: (zh: string, en: string) => string,
-): string {
-  if (status === "queued") return tx("已排队", "Queued");
-  if (status === "running") return tx("进行中", "Running");
-  if (status === "succeeded") return tx("已成功", "Succeeded");
-  return tx("失败", "Failed");
-}
-
-function formatExternalSheetOperationTypeLabel(
-  operationType: ChannelDocumentRecord["externalSheetOperations"][number]["operationType"],
-  tx: (zh: string, en: string) => string,
-): string {
-  if (operationType === "append_rows") return tx("追加行", "Append rows");
-  if (operationType === "append_text") return tx("追加文本", "Append text");
-  if (operationType === "create") return tx("新建表格", "Create sheet");
-  if (operationType === "update_values") return tx("更新单元格", "Update values");
-  if (operationType === "batch_update") return tx("批量更新", "Batch update");
-  if (operationType === "share") return tx("共享权限", "Share");
-  if (operationType === "metadata_refresh") return tx("元数据刷新", "Metadata refresh");
-  return tx("读取", "Read");
-}
 
 function formatFileLabel(
   file: ChannelFileRecord,

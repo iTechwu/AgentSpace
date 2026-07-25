@@ -30,11 +30,9 @@ import type { AgentAccessRequestRecord, AgentForkInvitationRecord, PerformanceDa
 import {
   DEFAULT_WORKSPACE_ID,
   countUsersSync,
-  listAgentGoogleWorkspaceDelegationsSync,
   listDaemonApiTokensSync,
   listDaemonSnapshotsSync,
   listEmployeeRuntimeBindingsSync,
-  listGoogleOAuthCredentialsSync,
   listQueuedTasksSync,
   listRuntimeAppOperationsSync,
   listRuntimeInstalledAppsSync,
@@ -47,7 +45,6 @@ import {
   listTaskExecutionEventsSync,
   listWorkspaceRuntimeDisplayNamesSync,
   listWorkspaceMemberUsersSync,
-  readActiveGoogleOAuthCredentialSync,
 } from "@dofe-agent/db";
 import type { BudgetAction, BudgetPeriod, BudgetScope, TaskExecutionEventRecord, TaskExecutionEventType, WorkspaceMemberUserRecord, WorkspaceRole } from "@dofe-agent/db";
 import type {
@@ -124,11 +121,6 @@ const listWorkspaceRuntimeDisplayNamesCached = cache((workspaceId: string) =>
   listWorkspaceRuntimeDisplayNamesSync(workspaceId)
 );
 const listWorkspaceMemberUsersCached = cache((workspaceId: string) => listWorkspaceMemberUsersSync(workspaceId));
-const listAgentGoogleWorkspaceDelegationsCached = cache((workspaceId: string) => listAgentGoogleWorkspaceDelegationsSync(workspaceId));
-const listGoogleOAuthCredentialsCached = cache((workspaceId: string) => listGoogleOAuthCredentialsSync(workspaceId));
-const readActiveGoogleOAuthCredentialCached = cache((workspaceId: string, userId: string) =>
-  readActiveGoogleOAuthCredentialSync({ workspaceId, userId })
-);
 const listDaemonApiTokensCached = cache((workspaceId: string) => listDaemonApiTokensSync(workspaceId));
 const listStoredSkillImportEventsCached = cache((workspaceId: string, limit: number) => listStoredSkillImportEventsSync(workspaceId, limit));
 const getCostDashboardDataCached = cache((period: BudgetPeriod, workspaceId: string) => getCostDashboardDataSync(period, workspaceId));
@@ -325,13 +317,6 @@ export interface ChannelThreadData {
 
 export interface ChannelsPageData {
   workspaceId: string;
-  googleWorkspace: {
-    status: "connected" | "not_connected";
-    email?: string;
-    scopes?: string[];
-    updatedAt?: string;
-    expiresAt?: string;
-  };
   channels: ChannelListItem[];
   threads: ChannelThreadData[];
   documents: ChannelDocumentRecord[];
@@ -605,18 +590,6 @@ export interface AgentWorkAreaRecord {
   errorText?: string;
 }
 
-export interface WorkspaceAgentGoogleWorkspaceDelegationRecord {
-  status: "not_delegated" | "connected" | "reconnect_required" | "revoked";
-  delegationId?: string;
-  userId?: string;
-  delegatedByDisplayName?: string;
-  googleEmail?: string;
-  scopes?: string[];
-  updatedAt?: string;
-  expiresAt?: string;
-  canRevoke: boolean;
-}
-
 export interface WorkspaceAgentDocumentAccessRecord {
   id: string;
   documentId: string;
@@ -770,7 +743,6 @@ export interface WorkspaceAgentRecord extends ManagementRecordBase {
   workAreas: AgentWorkAreaRecord[];
   instructions?: string;
   knowledge?: WorkspaceAgentKnowledgeRecord;
-  googleWorkspaceDelegation?: WorkspaceAgentGoogleWorkspaceDelegationRecord;
   feishuAgentBot?: FeishuIntegrationSettingsItem;
   feishuAgentBotSetupReference?: FeishuAgentBotSetupReference;
   canManageFeishuAgentBot?: boolean;
@@ -971,7 +943,6 @@ export interface DaemonSnapshotView {
   mode: "local" | "remote";
   serverUrl?: string;
   runtimeName?: string;
-  googleWorkspaceReadiness?: GoogleWorkspaceReadinessView;
   runtimes: Array<{
     id: string;
     provider: string;
@@ -982,22 +953,6 @@ export interface DaemonSnapshotView {
     lastHeartbeatAt?: string;
     version: string;
   }>;
-}
-
-export interface GoogleWorkspaceReadinessView {
-  checkedAt?: string;
-  executor: string;
-  dofeAgentOutput: ReadinessItemView;
-  gws: ReadinessItemView;
-  bwrap: ReadinessItemView & {
-    supportsPerms?: boolean;
-  };
-  latestOperationFailure?: {
-    operationType: string;
-    errorCode?: string;
-    errorMessage?: string;
-    finishedAt?: string;
-  };
 }
 
 export interface ReadinessItemView {
@@ -2049,7 +2004,6 @@ export function getChannelsPageData(
 ): ChannelsPageData {
   const state = readWorkspaceStateCached(workspaceId);
   const queuedTasks = listQueuedTasksCached(workspaceId);
-  const googleCredential = currentUserId ? readActiveGoogleOAuthCredentialCached(workspaceId, currentUserId) : null;
   const channelScope = normalizeChannelScope(options?.channelNames);
   const channelScoped = channelScope !== null;
   const workspaceMembers = channelScoped ? [] : listWorkspaceMemberUsersCached(workspaceId);
@@ -2254,15 +2208,6 @@ export function getChannelsPageData(
 
   return {
     workspaceId,
-    googleWorkspace: googleCredential
-      ? {
-          status: "connected",
-          email: googleCredential.googleEmail,
-          scopes: googleCredential.scopes.split(/\s+/).filter(Boolean),
-          updatedAt: googleCredential.updatedAt,
-          expiresAt: googleCredential.expiresAt,
-        }
-      : { status: "not_connected" },
     channels,
     threads,
     documents: workspaceArtifacts.documents,
@@ -2648,12 +2593,6 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
   const employeeDisplayNameByName = new Map(
     state.activeEmployees.map((employee) => [employee.name, employee.remarkName?.trim() || employee.name]),
   );
-  const googleCredentialByUserId = new Map(listGoogleOAuthCredentialsCached(workspaceId).map((credential) => [credential.userId, credential]));
-  const googleDelegationByEmployeeName = new Map(
-    listAgentGoogleWorkspaceDelegationsCached(workspaceId)
-      .filter((delegation) => delegation.status === "active")
-      .map((delegation) => [delegation.employeeName, delegation]),
-  );
   const documentAccessByEmployeeName = buildWorkspaceAgentDocumentAccessSummaries(workspaceId, state);
   const feishuAgentBotByAgentId = new Map(
     canManageAllAgents
@@ -2724,12 +2663,6 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
       ...agent,
       ownerDisplayName: agent.ownerUserId ? memberByUserId.get(agent.ownerUserId)?.displayName : undefined,
       forkedFrom: parseAgentForkOrigin(agent.origin),
-      googleWorkspaceDelegation: buildWorkspaceAgentGoogleWorkspaceDelegationRecord(
-        googleDelegationByEmployeeName.get(agent.internalName),
-        googleCredentialByUserId,
-        memberByUserId,
-        currentUserId,
-      ),
       feishuAgentBot: feishuAgentBotByAgentId.get(agent.internalName),
       feishuAgentBotSetupReference,
       canManageFeishuAgentBot: canManageAllAgents,
@@ -3033,39 +2966,6 @@ function mapWorkspaceMemberForRuntimeGrant(member: WorkspaceMemberUserRecord): R
     displayName: member.displayName,
     primaryEmail: member.primaryEmail,
     role: member.role,
-  };
-}
-
-function buildWorkspaceAgentGoogleWorkspaceDelegationRecord(
-  delegation: ReturnType<typeof listAgentGoogleWorkspaceDelegationsSync>[number] | undefined,
-  googleCredentialByUserId: Map<string, ReturnType<typeof listGoogleOAuthCredentialsSync>[number]>,
-  memberByUserId: Map<string, RuntimeGrantMember>,
-  currentUserId: string | undefined,
-): WorkspaceAgentGoogleWorkspaceDelegationRecord {
-  if (!delegation) {
-    return {
-      status: "not_delegated",
-      canRevoke: false,
-    };
-  }
-
-  const credential = googleCredentialByUserId.get(delegation.userId);
-  const status =
-    delegation.status === "revoked"
-      ? "revoked"
-      : !credential || credential.status !== "active" || credential.id !== delegation.googleOAuthCredentialId || !credential.refreshTokenEncrypted
-        ? "reconnect_required"
-        : "connected";
-  return {
-    status,
-    delegationId: delegation.id,
-    userId: delegation.userId,
-    delegatedByDisplayName: memberByUserId.get(delegation.userId)?.displayName,
-    googleEmail: delegation.googleEmail ?? credential?.googleEmail,
-    scopes: delegation.scopes.split(/\s+/).filter(Boolean),
-    updatedAt: delegation.updatedAt,
-    expiresAt: credential?.expiresAt,
-    canRevoke: currentUserId === delegation.userId,
   };
 }
 
@@ -3561,7 +3461,6 @@ function roleRankForAgentDocumentAccess(role: WorkspaceAgentDocumentAccessRecord
 
 export function listDaemonSnapshotViews(workspaceId = DEFAULT_WORKSPACE_ID): DaemonSnapshotView[] {
   const runtimeDisplayNames = buildRuntimeDisplayNameIndex(workspaceId);
-  const latestExternalSheetFailure = findLatestExternalSheetFailure(readWorkspaceStateCached(workspaceId));
   return listDaemonSnapshotsCached(workspaceId).map((snapshot) => {
     const daemonMetadata = safeParseJson(snapshot.daemon.metadataJson);
     const runtimeName = typeof daemonMetadata.runtimeName === "string" && daemonMetadata.runtimeName.trim()
@@ -3575,10 +3474,6 @@ export function listDaemonSnapshotViews(workspaceId = DEFAULT_WORKSPACE_ID): Dae
       mode: daemonMetadata.mode === "remote" ? "remote" : "local",
       serverUrl: typeof daemonMetadata.serverUrl === "string" ? daemonMetadata.serverUrl : undefined,
       runtimeName,
-      googleWorkspaceReadiness: buildGoogleWorkspaceReadinessView(
-        daemonMetadata.googleWorkspaceReadiness,
-        latestExternalSheetFailure,
-      ),
       runtimes: snapshot.runtimes.map((runtime) => ({
         id: runtime.id,
         provider: runtime.provider,
@@ -3595,69 +3490,6 @@ export function listDaemonSnapshotViews(workspaceId = DEFAULT_WORKSPACE_ID): Dae
       })),
     };
   });
-}
-
-function buildGoogleWorkspaceReadinessView(
-  value: unknown,
-  latestFailure: ExternalSheetOperationRun | undefined,
-): GoogleWorkspaceReadinessView | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return latestFailure
-      ? {
-          executor: "gws",
-          dofeAgentOutput: { available: false, error: "No daemon readiness heartbeat has been recorded yet." },
-          gws: { available: false, error: "No daemon readiness heartbeat has been recorded yet." },
-          bwrap: { available: false, error: "No daemon readiness heartbeat has been recorded yet." },
-          latestOperationFailure: buildLatestOperationFailureView(latestFailure),
-        }
-      : undefined;
-  }
-
-  const record = value as Record<string, unknown>;
-  const bwrap = readReadinessItem(record.bwrap);
-  return {
-    checkedAt: readOptionalString(record.checkedAt),
-    executor: readOptionalString(record.executor) ?? "gws",
-    dofeAgentOutput: readReadinessItem(record.dofeAgentOutput),
-    gws: readReadinessItem(record.gws),
-    bwrap: {
-      ...bwrap,
-      supportsPerms: readOptionalBoolean((record.bwrap as Record<string, unknown> | undefined)?.supportsPerms),
-    },
-    latestOperationFailure: buildLatestOperationFailureView(latestFailure),
-  };
-}
-
-function readReadinessItem(value: unknown): ReadinessItemView {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { available: false, error: "Readiness check is missing." };
-  }
-  const record = value as Record<string, unknown>;
-  return {
-    available: record.available === true,
-    version: readOptionalString(record.version),
-    error: readOptionalString(record.error),
-  };
-}
-
-function findLatestExternalSheetFailure(state: DofeAgentState): ExternalSheetOperationRun | undefined {
-  return [...(state.externalSheetOperationRuns ?? [])]
-    .filter((run) => run.status === "failed")
-    .sort((left, right) =>
-      new Date(right.finishedAt ?? right.startedAt).getTime() - new Date(left.finishedAt ?? left.startedAt).getTime()
-    )[0];
-}
-
-function buildLatestOperationFailureView(run: ExternalSheetOperationRun | undefined): GoogleWorkspaceReadinessView["latestOperationFailure"] {
-  if (!run) {
-    return undefined;
-  }
-  return {
-    operationType: run.operationType,
-    errorCode: run.errorCode,
-    errorMessage: run.errorMessage,
-    finishedAt: run.finishedAt ?? run.startedAt,
-  };
 }
 
 function readOptionalString(value: unknown): string | undefined {
@@ -4154,10 +3986,6 @@ function buildWorkspaceAgentRecord(
     instructions: employee.instructions,
     knowledge,
     documentAccess,
-    googleWorkspaceDelegation: {
-      status: "not_delegated",
-      canRevoke: false,
-    },
   };
 }
 

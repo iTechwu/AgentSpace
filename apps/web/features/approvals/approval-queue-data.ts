@@ -9,7 +9,6 @@ import {
 import {
   DEFAULT_WORKSPACE_ID,
   listChannelAccessRequestsSync,
-  readActiveGoogleOAuthCredentialSync,
   readUserSync,
 } from "@dofe-agent/db";
 import type { WorkspaceRole } from "@dofe-agent/db";
@@ -33,9 +32,6 @@ const listAgentAccessRequestsCached = cache((workspaceId: string, actorUserId: s
   })
 );
 const readUserCached = cache((userId: string) => readUserSync(userId));
-const readActiveGoogleOAuthCredentialCached = cache((workspaceId: string, userId: string) =>
-  readActiveGoogleOAuthCredentialSync({ workspaceId, userId })
-);
 
 export type ApprovalItemKind = "workspace_approval" | "channel_access" | "document_permission" | "agent_access" | "knowledge_proposal";
 export type ApprovalItemStatus = ApprovalStatus | "cancelled" | "stale";
@@ -324,10 +320,6 @@ function canActorSeeDocumentPermissionRequest(
     if (access) {
       return true;
     }
-  }
-  if (request.externalProvider === "google_workspace" && (request.externalFileId || request.externalUrl)) {
-    const credential = readActiveGoogleOAuthCredentialCached(workspaceId, actor.userId);
-    return Boolean(credential?.refreshTokenEncrypted);
   }
   return false;
 }

@@ -10,7 +10,7 @@ import test from "node:test";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const installerPath = join(repoRoot, "deploy", "install-remote-daemon.sh");
 
-test("install script readiness hook passes when dofe-agent, gws, and bwrap are compatible", () => {
+test("install script readiness hook passes when dofe-agent output and bwrap are compatible", () => {
   const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-install-bin-"));
   try {
     writeExecutable(binDir, "dofe-agent", [
@@ -21,7 +21,6 @@ test("install script readiness hook passes when dofe-agent, gws, and bwrap are c
       "exit 1",
       "",
     ].join("\n"));
-    writeExecutable(binDir, "gws", "#!/bin/sh\necho gws 1.0.0\n");
     writeExecutable(binDir, "bwrap", [
       "#!/bin/sh",
       "if [ \"$1\" = \"--version\" ]; then",
@@ -48,7 +47,6 @@ test("install script readiness hook fails when dofe-agent output is unavailable"
   const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-install-bin-"));
   try {
     writeExecutable(binDir, "dofe-agent", "#!/bin/sh\nexit 1\n");
-    writeExecutable(binDir, "gws", "#!/bin/sh\necho gws 1.0.0\n");
     writeCompatibleBwrap(binDir);
 
     const result = runReadinessHook(binDir);
@@ -59,50 +57,10 @@ test("install script readiness hook fails when dofe-agent output is unavailable"
   }
 });
 
-test("install script readiness hook warns but passes when gws is missing", () => {
-  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-install-bin-"));
-  try {
-    writeDofeAgentOutput(binDir);
-    writeCompatibleBwrap(binDir);
-
-    const result = runReadinessHook(binDir);
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /gws CLI was not found/i);
-    assert.match(result.stderr, /Google Workspace features will be unavailable/i);
-    assert.match(result.stdout, /readiness checks passed/i);
-  } finally {
-    rmSync(binDir, { recursive: true, force: true });
-  }
-});
-
-test("install script readiness hook prints gws version failure output but still passes", () => {
-  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-install-bin-"));
-  try {
-    writeDofeAgentOutput(binDir);
-    writeExecutable(binDir, "gws", [
-      "#!/bin/sh",
-      "echo 'GLIBC_2.34 not found' >&2",
-      "exit 1",
-      "",
-    ].join("\n"));
-    writeCompatibleBwrap(binDir);
-
-    const result = runReadinessHook(binDir);
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /gws --version failed/i);
-    assert.match(result.stderr, /GLIBC_2\.34 not found/i);
-    assert.match(result.stderr, /Google Workspace features will be unavailable/i);
-    assert.match(result.stdout, /readiness checks passed/i);
-  } finally {
-    rmSync(binDir, { recursive: true, force: true });
-  }
-});
-
 test("install script readiness hook warns but passes when bwrap does not support --perms", () => {
   const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-install-bin-"));
   try {
     writeDofeAgentOutput(binDir);
-    writeExecutable(binDir, "gws", "#!/bin/sh\necho gws 1.0.0\n");
     writeExecutable(binDir, "bwrap", [
       "#!/bin/sh",
       "if [ \"$1\" = \"--version\" ]; then",
@@ -141,7 +99,6 @@ test("install script prints installed daemon version in bootstrap summary", () =
     mkdirSync(providerBinDir, { recursive: true });
     writeFileSync(packagePath, "not-a-real-tarball", "utf8");
     writeDofeAgentOutput(providerBinDir);
-    writeExecutable(providerBinDir, "gws", "#!/bin/sh\necho gws 1.0.0\n");
     writeCompatibleBwrap(providerBinDir);
     writeExecutable(npmDir, "npm", [
       "#!/bin/sh",
@@ -211,182 +168,6 @@ test("install script prints installed daemon version in bootstrap summary", () =
   }
 });
 
-test("install script installs gws into the daemon runtime when it is missing", () => {
-  const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-install-gws-"));
-  const packagePath = join(tempRoot, "dofe-agent-daemon-test.tgz");
-  const npmDir = join(tempRoot, "npm-bin");
-  const providerBinDir = join(tempRoot, "provider-bin");
-  const baseDir = join(tempRoot, "state");
-  const installRoot = join(tempRoot, "runtime");
-  const envFile = join(baseDir, "daemon.env");
-  const launcherPath = join(baseDir, "start-daemon.sh");
-
-  try {
-    mkdirSync(npmDir, { recursive: true });
-    mkdirSync(providerBinDir, { recursive: true });
-    writeFileSync(packagePath, "not-a-real-tarball", "utf8");
-    writeCompatibleBwrap(providerBinDir);
-    writeExecutable(npmDir, "npm", [
-      "#!/bin/sh",
-      "prefix=''",
-      "pkg=''",
-      "while [ $# -gt 0 ]; do",
-      "  if [ \"$1\" = \"--prefix\" ]; then",
-      "    prefix=\"$2\"",
-      "    shift 2",
-      "    continue",
-      "  fi",
-      "  pkg=\"$1\"",
-      "  shift",
-      "done",
-      "printf '%s\\n' \"$pkg\" >> " + shellQuote(join(tempRoot, "npm-packages.txt")),
-      "mkdir -p \"$prefix/bin\"",
-      "if [ \"$pkg\" = \"@googleworkspace/cli\" ]; then",
-      "  cat > \"$prefix/bin/gws\" <<'GWS'",
-      "#!/bin/sh",
-      "if [ \"$1\" = \"--version\" ]; then echo gws 1.0.0; exit 0; fi",
-      "exit 0",
-      "GWS",
-      "  chmod +x \"$prefix/bin/gws\"",
-      "  exit 0",
-      "fi",
-      "cat > \"$prefix/bin/dofe-agent-daemon\" <<'DAEMON'",
-      "#!/bin/sh",
-      "if [ \"$1\" = \"--version\" ]; then echo 9.8.7-test; exit 0; fi",
-      "if [ \"$1\" = \"status\" ]; then echo '{\"running\":true}'; exit 0; fi",
-      "if [ \"$1\" = \"stop\" ]; then exit 0; fi",
-      "if [ \"$1\" = \"start\" ]; then echo 'Remote daemon started (pid 123).'; exit 0; fi",
-      "exit 0",
-      "DAEMON",
-      "chmod +x \"$prefix/bin/dofe-agent-daemon\"",
-      "cat > \"$prefix/bin/dofe-agent\" <<'CLI'",
-      "#!/bin/sh",
-      "if [ \"$1\" = \"output\" ]; then exit 0; fi",
-      "exit 1",
-      "CLI",
-      "chmod +x \"$prefix/bin/dofe-agent\"",
-      "exit 0",
-      "",
-    ].join("\n"));
-
-    const result = spawnSync("bash", [
-      installerPath,
-      "--package", packagePath,
-      "--server-url", "https://dofe-agent.example",
-      "--daemon-token", "adt_test",
-      "--daemon-id", "daemon-test",
-      "--base-dir", baseDir,
-      "--env-file", envFile,
-      "--launcher", launcherPath,
-      "--install-root", installRoot,
-      "--path", providerBinDir,
-      "--no-start",
-    ], {
-      env: {
-        ...process.env,
-        PATH: `${npmDir}:${process.env.PATH ?? ""}`,
-      },
-      encoding: "utf8",
-    });
-
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /gws CLI was not found; installing @googleworkspace\/cli/);
-    assert.match(readText(join(tempRoot, "npm-packages.txt")), /@googleworkspace\/cli/);
-    assert.match(readText(envFile), new RegExp(`PATH=${escapeRegExp(`${installRoot}/bin`)}`));
-  } finally {
-    rmSync(tempRoot, { recursive: true, force: true });
-  }
-});
-
-test("install script continues agent install when installed gws cannot run", () => {
-  const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-install-gws-fail-"));
-  const packagePath = join(tempRoot, "dofe-agent-daemon-test.tgz");
-  const npmDir = join(tempRoot, "npm-bin");
-  const providerBinDir = join(tempRoot, "provider-bin");
-  const baseDir = join(tempRoot, "state");
-  const installRoot = join(tempRoot, "runtime");
-  const envFile = join(baseDir, "daemon.env");
-  const launcherPath = join(baseDir, "start-daemon.sh");
-
-  try {
-    mkdirSync(npmDir, { recursive: true });
-    mkdirSync(providerBinDir, { recursive: true });
-    writeFileSync(packagePath, "not-a-real-tarball", "utf8");
-    writeCompatibleBwrap(providerBinDir);
-    writeExecutable(npmDir, "npm", [
-      "#!/bin/sh",
-      "prefix=''",
-      "pkg=''",
-      "while [ $# -gt 0 ]; do",
-      "  if [ \"$1\" = \"--prefix\" ]; then",
-      "    prefix=\"$2\"",
-      "    shift 2",
-      "    continue",
-      "  fi",
-      "  pkg=\"$1\"",
-      "  shift",
-      "done",
-      "mkdir -p \"$prefix/bin\"",
-      "if [ \"$pkg\" = \"@googleworkspace/cli\" ]; then",
-      "  cat > \"$prefix/bin/gws\" <<'GWS'",
-      "#!/bin/sh",
-      "echo 'GLIBC_2.34 not found' >&2",
-      "exit 1",
-      "GWS",
-      "  chmod +x \"$prefix/bin/gws\"",
-      "  exit 0",
-      "fi",
-      "cat > \"$prefix/bin/dofe-agent-daemon\" <<'DAEMON'",
-      "#!/bin/sh",
-      "if [ \"$1\" = \"--version\" ]; then echo 9.8.7-test; exit 0; fi",
-      "if [ \"$1\" = \"status\" ]; then echo '{\"running\":true}'; exit 0; fi",
-      "if [ \"$1\" = \"stop\" ]; then exit 0; fi",
-      "if [ \"$1\" = \"start\" ]; then echo 'Remote daemon started (pid 123).'; exit 0; fi",
-      "exit 0",
-      "DAEMON",
-      "chmod +x \"$prefix/bin/dofe-agent-daemon\"",
-      "cat > \"$prefix/bin/dofe-agent\" <<'CLI'",
-      "#!/bin/sh",
-      "if [ \"$1\" = \"output\" ]; then exit 0; fi",
-      "exit 1",
-      "CLI",
-      "chmod +x \"$prefix/bin/dofe-agent\"",
-      "exit 0",
-      "",
-    ].join("\n"));
-
-    const result = spawnSync("bash", [
-      installerPath,
-      "--package", packagePath,
-      "--server-url", "https://dofe-agent.example",
-      "--daemon-token", "adt_test",
-      "--daemon-id", "daemon-test",
-      "--base-dir", baseDir,
-      "--env-file", envFile,
-      "--launcher", launcherPath,
-      "--install-root", installRoot,
-      "--path", providerBinDir,
-      "--no-start",
-    ], {
-      env: {
-        ...process.env,
-        PATH: `${npmDir}:${process.env.PATH ?? ""}`,
-      },
-      encoding: "utf8",
-    });
-
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /gws --version failed/i);
-    assert.match(result.stderr, /GLIBC_2\.34 not found/i);
-    assert.match(result.stderr, /Google Workspace features will be unavailable/i);
-    assert.match(result.stdout, /User-space remote daemon bootstrap completed/);
-    assert.match(result.stdout, /"gws":\{"available":false/);
-    assert.match(readText(envFile), new RegExp(`PATH=${escapeRegExp(`${installRoot}/bin`)}`));
-  } finally {
-    rmSync(tempRoot, { recursive: true, force: true });
-  }
-});
-
 test("install script update-existing reinstalls into the existing daemon binary root", () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-install-update-root-"));
   const packagePath = join(tempRoot, "dofe-agent-daemon-test.tgz");
@@ -405,7 +186,6 @@ test("install script update-existing reinstalls into the existing daemon binary 
     mkdirSync(baseDir, { recursive: true });
     writeFileSync(packagePath, "not-a-real-tarball", "utf8");
     writeDofeAgentOutput(providerBinDir);
-    writeExecutable(providerBinDir, "gws", "#!/bin/sh\necho gws 1.0.0\n");
     writeCompatibleBwrap(providerBinDir);
     writeExecutable(join(existingRoot, "bin"), "dofe-agent-daemon", [
       "#!/bin/sh",
@@ -487,7 +267,7 @@ function runReadinessHook(binDir: string): SpawnSyncReturns<string> {
   return spawnSync("bash", [installerPath], {
     env: {
       ...process.env,
-      DOFE_AGENT_INSTALLER_TEST_HOOK: "verify-google-sheets-readiness",
+      DOFE_AGENT_INSTALLER_TEST_HOOK: "verify-runtime-readiness",
       DOFE_AGENT_INSTALLER_TEST_PATH: binDir,
     },
     encoding: "utf8",

@@ -58,8 +58,7 @@ const BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME = "workspace-context";
 const BUILTIN_WORKSPACE_CONTEXT_SKILL_DESCRIPTION = "Inspect workspace-scoped collaborators, channels, messages, and documents with dofe-agent workspace context commands. Use when the inline task context is insufficient and the agent needs verifiable workspace facts before answering.";
 const BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME = "update-channel-documents";
 const BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_DESCRIPTION = "Use when Codex should create or update shared channel documents via dofe-agent output document.";
-const BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME = "google-workspace-cli";
-const BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_DESCRIPTION = "Read or write Google Workspace channel documents from the Agent runtime using the official gws CLI and DofeAgent runtime-output manifests.";
+const RETIRED_BUILTIN_SKILL_NAMES = ["google-workspace-cli"] as const;
 
 export function normalizeWorkspaceState(state: Partial<DofeAgentState>): DofeAgentState {
   const fallback = createDefaultWorkspaceState();
@@ -281,11 +280,10 @@ export function sortWorkspaceSkillFiles(files: WorkspaceSkillFile[]): WorkspaceS
 }
 
 export function ensureBuiltinWorkspaceSkills(skills: WorkspaceSkill[]): WorkspaceSkill[] {
-  let nextSkills = [...skills];
+  let nextSkills = skills.filter((skill) => !RETIRED_BUILTIN_SKILL_NAMES.some((name) => sameValue(skill.name, name)));
   nextSkills = replaceBuiltinWorkspaceSkill(nextSkills, BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME, createBuiltinReturnOutputFilesSkill);
   nextSkills = replaceBuiltinWorkspaceSkill(nextSkills, BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME, createBuiltinWorkspaceContextSkill);
   nextSkills = replaceBuiltinWorkspaceSkill(nextSkills, BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME, createBuiltinUpdateChannelDocumentsSkill);
-  nextSkills = replaceBuiltinWorkspaceSkill(nextSkills, BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME, createBuiltinGoogleWorkspaceCliSkill);
   for (const skill of createPredefinedAgentTemplateSkillRecords()) {
     nextSkills = replaceBuiltinWorkspaceSkill(nextSkills, skill.name, () => skill);
   }
@@ -529,75 +527,6 @@ Referenced markdown files should live under \`runtime-output/artifacts/\`.
 - Do not reference files outside the current \`workDir\`
 - Prefer updating the shared document instead of replying with a disposable summary
 - If you do not want to modify documents, do not run an output document command
-`;
-}
-
-export function createBuiltinGoogleWorkspaceCliSkillContent(): string {
-  return `---
-name: ${BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME}
-description: ${BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_DESCRIPTION}
----
-
-# Google Workspace CLI
-
-Use this skill when the current task includes Google Workspace channel documents, or when the user asks you to create a Google Sheet for the current channel.
-
-## Contract
-
-- For Google Sheets, run the official \`gws\` CLI in the current Agent runtime so you can use the real stdout in the same reply.
-- Save Google Sheets JSON stdout under \`runtime-output/artifacts/sheets/*.json\`
-- Register Sheets results with \`dofe-agent output sheets-result add ...\`, then run \`dofe-agent output validate\`
-- For new Google Sheets, run \`gws drive files create\`, save the JSON stdout, register it with \`dofe-agent output external-document create-google-sheet ...\`, then run \`dofe-agent output validate\`
-- For Google Docs, use \`dofe-agent output google-docs append-text ...\` or \`dofe-agent output google-docs batch-update ...\`, then run \`dofe-agent output validate\`
-- Do not request, print, or store Google OAuth tokens
-- Do not specify a credential, CLI binary path, or token environment variable
-- DofeAgent validates permissions, injects delegated credentials, audits operation runs, and reports status
-
-## Sheets Runtime Flow
-
-Read example:
-
-\`\`\`bash
-gws sheets spreadsheets values get --format json --params '{"spreadsheetId":"google-file-id","range":"Sheet1!A1:Z20"}'
-mkdir -p runtime-output/artifacts/sheets
-# Save the JSON stdout from the previous gws command to runtime-output/artifacts/sheets/read.json.
-dofe-agent output sheets-result add --document-id channel-doc-sheet-123 --operation read --range "Sheet1!A1:Z20" --result-json runtime-output/artifacts/sheets/read.json --summary "Read Sheet1 A1:Z20."
-dofe-agent output validate
-\`\`\`
-
-For append/update/batch_update, run the matching \`gws\` Sheets command first, save the JSON result, then register it with \`dofe-agent output sheets-result add --operation append_rows|update_values|batch_update\`.
-
-Create example:
-
-\`\`\`bash
-mkdir -p runtime-output/artifacts/sheets
-gws drive files create --format json --params '{"fields":"id,name,webViewLink,mimeType,modifiedTime"}' --json '{"name":"Pipeline Forecast","mimeType":"application/vnd.google-apps.spreadsheet"}'
-# Save the JSON stdout from the previous gws command to runtime-output/artifacts/sheets/create-sheet.json.
-dofe-agent output external-document create-google-sheet --target-channel "sales" --title "Pipeline Forecast" --external-file-id "spreadsheet-id-from-gws" --external-url "webViewLink-from-gws" --summary "Agent-created forecast sheet." --gws-result-json runtime-output/artifacts/sheets/create-sheet.json
-dofe-agent output validate
-\`\`\`
-
-Do not only paste the Google Sheets URL into the final reply. The sheet must be registered with \`external-document create-google-sheet\` so DofeAgent can add it to the channel cloud documents list, validate permissions, and audit the operation.
-
-## Docs Runtime Flow
-
-\`\`\`bash
-mkdir -p runtime-output/artifacts/docs
-# Save append text to runtime-output/artifacts/docs/summary.md.
-dofe-agent output google-docs append-text --document-id channel-doc-google-doc-123 --intent "Append meeting summary" --text-file runtime-output/artifacts/docs/summary.md
-# Save a JSON array of Docs batchUpdate requests to runtime-output/artifacts/docs/requests.json.
-dofe-agent output google-docs batch-update --document-id channel-doc-google-doc-123 --intent "Apply structured Docs changes" --requests-json runtime-output/artifacts/docs/requests.json
-dofe-agent output validate
-\`\`\`
-
-## Rules
-
-- Use the DofeAgent channel document id in \`documentId\`, not the raw Google file id
-- Keep \`intent\` specific enough for audit review
-- Use \`requestSummary\` for risky writes when helpful
-- Batch update payloads should match Google API request schemas; use smaller, explicit requests
-- Mutating operations are audited and may require dry-run, review, or human approval as configured
-- If the task does not require Google Workspace access, do not run Google Workspace output commands
 `;
 }
 
@@ -1454,15 +1383,6 @@ function createBuiltinUpdateChannelDocumentsSkill(): WorkspaceSkill {
     name: BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME,
     description: BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_DESCRIPTION,
     content: createBuiltinUpdateChannelDocumentsSkillContent(),
-    sourceType: "builtin",
-  });
-}
-
-function createBuiltinGoogleWorkspaceCliSkill(): WorkspaceSkill {
-  return createWorkspaceSkillRecord({
-    name: BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME,
-    description: BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_DESCRIPTION,
-    content: createBuiltinGoogleWorkspaceCliSkillContent(),
     sourceType: "builtin",
   });
 }

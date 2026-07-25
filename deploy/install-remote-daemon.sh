@@ -88,7 +88,7 @@ Optional:
 Notes:
   - Run this script as a user that has access to codex / claude / agy / gemini / opencode / openclaw / nanobot / hermes.
   - Root is supported for server installs, but Claude Code must be logged in for /root and task commands run with root privileges.
-  - Google Sheet agent writes require dofe-agent output and gws. If gws is missing, this installer installs @googleworkspace/cli into the daemon runtime.
+  - Feishu document and data operations are enabled through a bound Feishu Bot and resource bindings in the web application.
   - Codex-based agents may also require a compatible bwrap unless the installed Codex can fall back to its vendored bwrap.
   - For advanced systemd deployment, use deploy/systemd manually.
 EOF
@@ -149,74 +149,8 @@ verify_dofe_agent_output_cli() {
   cli_path="$(resolve_on_provider_path dofe-agent || true)"
   [[ -n "$cli_path" ]] || fail "dofe-agent CLI was not found on PATH after install. Expected ${INSTALL_ROOT%/}/bin to be present."
   run_on_provider_path dofe-agent output --help >/dev/null || fail "dofe-agent output --help failed after install."
-  run_on_provider_path dofe-agent output sheets-result add --help >/dev/null || fail "dofe-agent output sheets-result add --help failed after install."
   run_on_provider_path dofe-agent output validate --help >/dev/null || fail "dofe-agent output validate --help failed after install."
   DOFE_AGENT_OUTPUT_CLI_PATH="$cli_path"
-}
-
-verify_gws_cli() {
-  GWS_COMMAND="${DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR:-gws}"
-  local gws_path
-  gws_path="$(resolve_on_provider_path "$GWS_COMMAND" || true)"
-  if [[ -z "$gws_path" ]]; then
-    GWS_AVAILABLE="false"
-    GWS_CLI_PATH=""
-    GWS_VERSION=""
-    GWS_ERROR="gws CLI was not found. Google Workspace features will be unavailable until the Google Workspace CLI is installed and executable."
-    warn "$GWS_ERROR"
-    return 0
-  fi
-  if ! GWS_VERSION="$(run_on_provider_path "$GWS_COMMAND" --version 2>&1)"; then
-    GWS_AVAILABLE="false"
-    GWS_CLI_PATH="$gws_path"
-    GWS_ERROR="gws --version failed. Google Workspace features will be unavailable until this is fixed. Output: ${GWS_VERSION:-<no output>}"
-    warn "$GWS_ERROR"
-    return 0
-  fi
-  if [[ -z "$GWS_VERSION" ]]; then
-    GWS_AVAILABLE="false"
-    GWS_CLI_PATH="$gws_path"
-    GWS_ERROR="gws --version returned no output. Google Workspace features may be unavailable until this is fixed."
-    warn "$GWS_ERROR"
-    return 0
-  fi
-  GWS_AVAILABLE="true"
-  GWS_CLI_PATH="$gws_path"
-  GWS_ERROR=""
-}
-
-install_gws_cli_if_missing() {
-  GWS_COMMAND="${DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR:-gws}"
-  local gws_path
-  gws_path="$(resolve_on_provider_path "$GWS_COMMAND" || true)"
-  if [[ -n "$gws_path" ]]; then
-    return 0
-  fi
-  if [[ "$GWS_COMMAND" == */* ]]; then
-    fail "Configured Google Workspace executor was not found or is not executable: $GWS_COMMAND"
-  fi
-  if [[ "$GWS_COMMAND" != "gws" ]]; then
-    fail "Google Workspace executor '$GWS_COMMAND' was not found on PATH. Set DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR to an executable path or use the default 'gws'."
-  fi
-
-  log "gws CLI was not found; installing @googleworkspace/cli into $INSTALL_ROOT"
-  if ! npm --cache "$NPM_CACHE_DIR" --prefix "$INSTALL_ROOT" install -g @googleworkspace/cli; then
-    GWS_AVAILABLE="false"
-    GWS_CLI_PATH=""
-    GWS_VERSION=""
-    GWS_ERROR="Automatic gws install failed. Google Workspace features will be unavailable until @googleworkspace/cli is installed manually or DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR points to an executable."
-    warn "$GWS_ERROR"
-    return 0
-  fi
-  gws_path="$(resolve_on_provider_path "$GWS_COMMAND" || true)"
-  if [[ -z "$gws_path" ]]; then
-    GWS_AVAILABLE="false"
-    GWS_CLI_PATH=""
-    GWS_VERSION=""
-    GWS_ERROR="Installed @googleworkspace/cli, but gws was still not found at ${INSTALL_ROOT%/}/bin/gws. Google Workspace features will be unavailable until this is fixed."
-    warn "$GWS_ERROR"
-    return 0
-  fi
 }
 
 verify_bwrap_cli() {
@@ -248,16 +182,11 @@ verify_bwrap_cli() {
   BWRAP_SUPPORTS_PERMS="true"
 }
 
-if [[ "${DOFE_AGENT_INSTALLER_TEST_HOOK:-}" == "verify-google-sheets-readiness" ]]; then
+if [[ "${DOFE_AGENT_INSTALLER_TEST_HOOK:-}" == "verify-runtime-readiness" ]]; then
   PROVIDER_PATH="${DOFE_AGENT_INSTALLER_TEST_PATH:-$PROVIDER_PATH}"
   verify_dofe_agent_output_cli
-  GWS_AVAILABLE="false"
-  GWS_CLI_PATH=""
-  GWS_VERSION=""
-  GWS_ERROR=""
-  verify_gws_cli
   verify_bwrap_cli
-  printf 'Google Sheets readiness checks passed.\n'
+  printf 'Runtime readiness checks passed.\n'
   exit 0
 fi
 
@@ -460,21 +389,14 @@ if [[ ":$PROVIDER_PATH:" != *":$INSTALL_BIN_DIR:"* ]]; then
   PROVIDER_PATH="$INSTALL_BIN_DIR:$PROVIDER_PATH"
 fi
 
-log "Checking Google Sheets runtime readiness"
+log "Checking runtime output readiness"
 verify_dofe_agent_output_cli
-GWS_AVAILABLE="false"
-GWS_CLI_PATH=""
-GWS_VERSION=""
-GWS_ERROR=""
-install_gws_cli_if_missing
-verify_gws_cli
 verify_bwrap_cli
 
 TMP_ENV_FILE="$(mktemp /tmp/dofe-agent-daemon-env.XXXXXX)"
 cat >"$TMP_ENV_FILE" <<EOF
 # Generated by $SCRIPT_NAME
 PATH=$(printf '%q' "$PROVIDER_PATH")
-DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR=$(printf '%q' "$GWS_COMMAND")
 DOFE_AGENT_SERVER_URL=$(printf '%q' "$SERVER_URL")
 DOFE_AGENT_DAEMON_TOKEN=$(printf '%q' "$DAEMON_TOKEN")
 DOFE_AGENT_DAEMON_ID=$(printf '%q' "$DAEMON_ID")
@@ -514,7 +436,7 @@ else
 fi
 
 STATUS_JSON="$("$BIN_PATH" status --json --state-dir "$STATE_DIR" 2>/dev/null || true)"
-READINESS_JSON="{\"dofeAgentOutput\":{\"available\":true,\"path\":\"$(json_escape "$DOFE_AGENT_OUTPUT_CLI_PATH")\"},\"gws\":{\"available\":$GWS_AVAILABLE,\"path\":\"$(json_escape "$GWS_CLI_PATH")\",\"version\":\"$(json_escape "$GWS_VERSION")\",\"error\":\"$(json_escape "$GWS_ERROR")\"},\"bwrap\":{\"available\":$BWRAP_AVAILABLE,\"path\":\"$(json_escape "$BWRAP_CLI_PATH")\",\"version\":\"$(json_escape "$BWRAP_VERSION")\",\"supportsPerms\":$BWRAP_SUPPORTS_PERMS,\"error\":\"$(json_escape "$BWRAP_ERROR")\"},\"executor\":\"$(json_escape "$GWS_COMMAND")\"}"
+READINESS_JSON="{\"dofeAgentOutput\":{\"available\":true,\"path\":\"$(json_escape "$DOFE_AGENT_OUTPUT_CLI_PATH")\"},\"bwrap\":{\"available\":$BWRAP_AVAILABLE,\"path\":\"$(json_escape "$BWRAP_CLI_PATH")\",\"version\":\"$(json_escape "$BWRAP_VERSION")\",\"supportsPerms\":$BWRAP_SUPPORTS_PERMS,\"error\":\"$(json_escape "$BWRAP_ERROR")\"}}"
 
 cat <<EOF
 

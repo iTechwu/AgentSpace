@@ -11,7 +11,6 @@ export {
   sanitizePathSegment,
 } from "./bundle.ts";
 export * from "./channel-documents.ts";
-export * from "./google-workspace-readiness.ts";
 export * from "./openclaw-health.ts";
 export * from "./agent-router/index.ts";
 export * from "./provider-runtime.ts";

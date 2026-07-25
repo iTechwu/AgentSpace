@@ -99,24 +99,6 @@ export function DaemonManagementPanel({
                     Server: {daemon.serverUrl}
                   </p>
                 ) : null}
-                {daemon.googleWorkspaceReadiness ? (
-                  <div className="settings-daemon-readiness">
-                    <p className="settings-daemon-card__meta">
-                      Google Sheets readiness: {formatReadinessSummary(daemon.googleWorkspaceReadiness, tx)}
-                    </p>
-                    <div className="settings-daemon-readiness__items">
-                      <span>{formatReadinessItem("dofe-agent output", daemon.googleWorkspaceReadiness.dofeAgentOutput, tx)}</span>
-                      <span>{formatReadinessItem("gws", daemon.googleWorkspaceReadiness.gws, tx)}</span>
-                      <span>{formatReadinessItem("bwrap", daemon.googleWorkspaceReadiness.bwrap, tx)}</span>
-                      <span>executor: {daemon.googleWorkspaceReadiness.executor}</span>
-                    </div>
-                    {daemon.googleWorkspaceReadiness.latestOperationFailure ? (
-                      <p className="settings-daemon-card__meta">
-                        {tx("最近 Google Workspace 失败", "Latest Google Workspace failure")}: {daemon.googleWorkspaceReadiness.latestOperationFailure.errorCode ?? daemon.googleWorkspaceReadiness.latestOperationFailure.operationType}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
                 <div className="settings-daemon-runtimes">
                   {daemon.runtimes.length > 0 ? (
                     daemon.runtimes.map((runtime) => (
@@ -283,26 +265,4 @@ function formatProviderHealth(
     return tx("Provider 不可用", "Provider unavailable");
   }
   return tx("Provider 未验证", "Provider unverified");
-}
-
-function formatReadinessSummary(
-  readiness: NonNullable<DaemonSnapshotView["googleWorkspaceReadiness"]>,
-  tx: (zh: string, en: string) => string,
-): string {
-  if (
-    readiness.dofeAgentOutput.available &&
-    readiness.gws.available &&
-    readiness.bwrap.available
-  ) {
-    return tx("可用", "Ready");
-  }
-  return tx("需要处理", "Needs attention");
-}
-
-function formatReadinessItem(
-  label: string,
-  item: { available: boolean; error?: string },
-  tx: (zh: string, en: string) => string,
-): string {
-  return `${label}: ${item.available ? tx("可用", "ok") : item.error ?? tx("不可用", "missing")}`;
 }

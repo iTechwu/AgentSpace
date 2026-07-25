@@ -161,8 +161,8 @@ Real work moves through people, systems, and decisions — not just a single cha
 
 As agents take on more execution, governance can't be an afterthought.
 
-- Govern workspace roles, channels, documents, skills, knowledge, runtimes, daemon tokens, and Google credentials — all from one place.
-- Support document access requests, runtime tool approvals, knowledge proposal reviews, and agent-scoped Google Workspace delegation.
+- Govern workspace roles, channels, documents, skills, knowledge, runtimes, daemon tokens, and Feishu resource bindings — all from one place.
+- Support document access requests, runtime tool approvals, knowledge proposal reviews, and Feishu Bot data-operation governance.
 - Inspect permissions by resource tree or by actor.
 - Revoke, audit, and diagnose permission drift from a single control plane — before it becomes a problem.
 
@@ -201,7 +201,7 @@ Small teams move fast — but fast without control creates debt. agent.dofe give
 
 1. **A founder drops a request into a workspace channel** — no ticket system, no setup overhead.
 2. **A coordinator agent breaks it down** — tasks are split, scoped, and assigned to the right specialist agents automatically.
-3. **Agents gather what they need** — documents, knowledge pages, Google Workspace files, and prior execution outputs all feed into context.
+3. **Agents gather what they need** — documents, knowledge pages, bound Feishu resources, and prior execution outputs all feed into context.
 4. **Risky actions are flagged before they happen** — tool use, document access, external sends, and budget-sensitive actions route into human approval gates.
 5. **Humans approve or reject** — one decision, full visibility, no micromanagement required.
 6. **Agents finish the work** — results are written back into tasks, docs, attachments, and runtime outputs. Nothing gets lost.
@@ -221,7 +221,7 @@ The goal isn't a smarter chatbot. It's a governed operating surface where humans
 - [Framework](#framework)
   - [Digital Employee Board](#digital-employee-board)
   - [Permission Control Plane](#permission-control-plane)
-  - [Skills, Knowledge, and Google Workspace](#skills-knowledge-and-google-workspace)
+  - [Skills, Knowledge, and Feishu](#skills-knowledge-and-feishu)
 - [Advanced Configuration](#advanced-configuration)
 - [Code Structure](#code-structure)
 - [Documentation](#documentation)
@@ -238,7 +238,7 @@ The goal isn't a smarter chatbot. It's a governed operating surface where humans
 - npm 11.x.
 - PostgreSQL 16 recommended. A local Docker Compose setup is included.
 - Optional provider CLIs: `codex`, `claude`, `agy` (Antigravity), `gemini` (legacy), `opencode`, `openclaw`, `nanobot`, `hermes`.
-- Optional Google Workspace configuration.
+- Optional Feishu custom application and Bot configuration.
 
 ### Path A: Run the Workspace
 
@@ -369,7 +369,7 @@ flowchart TD
   Legacy --> NanoBot["NanoBot"]
   Runtime --> Output["runtime-output / diagnostics / sessions"]
   Output --> Services
-  Services --> Docs["documents / knowledge / attachments / Google Workspace"]
+  Services --> Docs["documents / knowledge / attachments / Feishu resources"]
   Docs --> Web
 ```
 
@@ -398,18 +398,18 @@ The permission model is organized around resources, actors, grant sources, execu
 | Runtime grants | user-level grants, runtime sharing, bind/unbind, runtime provider health |
 | Daemon security | API token create/revoke, remote daemon registration, runtime display name |
 | Documents | owner/editor/viewer roles, agent access, permission requests, version rollback |
-| Google Workspace | OAuth credential owner, agent-scoped delegation, external document requests |
+| Feishu | Bot binding, document/sheet/base resource bindings, governed data operations |
 | Approvals | runtime tool approvals, knowledge proposal approvals, document permissions |
 | Diagnostics | missing grants, revoked credentials, orphaned grants, unavailable providers |
 
-### Skills, Knowledge, and Google Workspace
+### Skills, Knowledge, and Feishu
 
 agent.dofe includes reusable execution building blocks:
 
 - file-backed workspace skills that can be created, imported, exported, and assigned to agents
 - knowledge pages, materials, attachments, channel docs, and generated knowledge proposals
-- Google Sheets and Docs creation or linking
-- scoped Google Workspace delegation for agents
+- Feishu custom app and Bot onboarding directly in the agent settings page
+- Feishu Docs, Sheets, and Base resource bindings for agents
 - permission request flows when access is missing
 
 ---
@@ -471,7 +471,7 @@ Implemented:
 - PostgreSQL primary storage, attachments, and reliable notifications
 - channel documents, knowledge base, global search, approvals, task boards, budgets, costs, and performance dashboards
 - remote daemon, runtime sharing, AgentRouter harness switching, OpenClaw provider health, and Hermes Agent support
-- agent-scoped Google Workspace OAuth, Google Sheets creation/write-back, runtime output CLI, and permission center
+- Feishu Bot transport, Feishu Docs/Sheets/Base resource bindings, and governed data operations
 
 Planned:
 

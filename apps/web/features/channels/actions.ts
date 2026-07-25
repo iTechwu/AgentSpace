@@ -5,7 +5,6 @@ import { resolveWorkspaceAccessForIdentifierSync } from "@/features/auth/server-
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { getWorkspaceChannelVisibilitySync } from "@/features/auth/workspace-channel-visibility";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";
-import { revokeGoogleOAuthCredentialSync } from "@dofe-agent/db";
 import type { ChannelDocumentAccessRole } from "@dofe-agent/domain";
 import {
   addChannelEmployeesSync,
@@ -18,8 +17,6 @@ import {
   createChannelParticipantsForMembersSync,
   createChannelDocumentFromAttachmentSync,
   createChannelDocumentSync,
-  createExternalGoogleDocChannelDocumentSync,
-  createExternalGoogleSheetChannelDocumentSync,
   deleteChannelSync,
   deleteChannelAttachmentSync,
   exportChannelDocumentAsAttachmentSync,
@@ -40,30 +37,17 @@ import {
   pinMessageSync,
   readChannelDocumentSync,
   readWorkspaceStateSync,
-  recordExternalSheetOperationRunSync,
   rejectChannelAccessRequestForActorSync,
   requestChannelAccessForActorSync,
   revokeChannelInvitationForActorSync,
   sameValue,
   unpinMessageSync,
   updateEmployeeRemarkNameSync,
-  updateExternalChannelDocumentMetadataSync,
-  updateExternalSheetOperationRunSync,
   upsertChannelDocumentPresenceSync,
   updateChannelDocumentSync,
   reviewApprovalSync,
 } from "@dofe-agent/services";
 import { persistFormAttachments } from "@/features/chat/attachment-actions";
-import type { ChannelDocument, ExternalDocumentSyncStatus } from "@dofe-agent/domain/workspace";
-import {
-  createGoogleWorkspaceDoc,
-  createGoogleWorkspaceSheet,
-  getGoogleWorkspaceAccessTokenForUser,
-  GoogleWorkspaceApiError,
-  readGoogleDriveFileMetadata,
-  readGoogleWorkspaceOAuthConfig,
-} from "@/features/integrations/google-workspace";
-import { syncGoogleSheetDocumentDrivePermissions } from "@/features/integrations/google-drive-permissions";
 import {
   actionToastResult,
   successToast,
@@ -551,303 +535,6 @@ export async function saveChannelDocumentAction(input: {
   return { documentId: document.id };
 }
 
-export async function createExternalGoogleSheetDocumentAction(input: {
-  channelName: string;
-  title: string;
-  externalUrl: string;
-  externalFileId?: string;
-  summary?: string;
-}): Promise<{ documentId: string }> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  const actorName = workspaceContext.currentUser.displayName.trim() || "你";
-
-  assertRequired(input.channelName, "channel name");
-  assertRequired(input.title, "document title");
-  assertRequired(input.externalUrl, "Google Sheet URL");
-  assertChannelAccess(workspaceContext, input.channelName);
-
-  const externalUrl = input.externalUrl.trim();
-  const externalFileId = input.externalFileId?.trim() || parseGoogleSheetFileId(externalUrl);
-  if (!externalFileId) {
-    throw new Error("Could not read a Google Sheet file id from that URL.");
-  }
-
-  const { accessToken, credential } = await getGoogleWorkspaceAccessTokenForUser({
-    workspaceId: workspaceContext.currentWorkspace.id,
-    userId: workspaceContext.currentUser.id,
-  });
-  const metadata = await readGoogleDriveFileMetadata({
-    accessToken,
-    fileId: externalFileId,
-  });
-
-  const { document } = createExternalGoogleSheetChannelDocumentSync({
-    channelName: input.channelName.trim(),
-    title: input.title.trim(),
-    externalFileId,
-    externalUrl: metadata.webViewLink || externalUrl,
-    externalMimeType: metadata.mimeType,
-    externalUpdatedAt: metadata.modifiedTime,
-    summary: input.summary,
-    createdBy: actorName,
-    createdByType: "human",
-  }, workspaceContext.currentWorkspace.id);
-  upsertChannelDocumentPresenceSync({
-    documentId: document.id,
-    actorId: actorName,
-    actorType: "human",
-    status: "viewing",
-  }, workspaceContext.currentWorkspace.id);
-  await syncGoogleSheetDocumentDrivePermissions({
-    accessToken,
-    workspaceId: workspaceContext.currentWorkspace.id,
-    documentId: document.id,
-    actorId: actorName,
-    actorType: "human",
-    skipEmails: [
-      workspaceContext.currentUser.email,
-      credential?.googleEmail,
-    ].filter((email): email is string => Boolean(email)),
-  });
-  revalidateChannelRoutes(workspaceContext.currentWorkspace.slug);
-  return { documentId: document.id };
-}
-
-export async function createGoogleSheetDocumentAction(input: {
-  channelName: string;
-  title: string;
-  summary?: string;
-}): Promise<{ documentId: string }> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  const actorName = workspaceContext.currentUser.displayName.trim() || "你";
-
-  assertRequired(input.channelName, "channel name");
-  assertRequired(input.title, "document title");
-  assertChannelAccess(workspaceContext, input.channelName);
-
-  const { accessToken, credential } = await getGoogleWorkspaceAccessTokenForUser({
-    workspaceId: workspaceContext.currentWorkspace.id,
-    userId: workspaceContext.currentUser.id,
-  });
-  const googleConfig = readGoogleWorkspaceOAuthConfig();
-  const file = await createGoogleWorkspaceSheet({
-    accessToken,
-    name: input.title.trim(),
-    parentFolderId: googleConfig.driveParentFolderId,
-  });
-
-  const { document } = createExternalGoogleSheetChannelDocumentSync({
-    channelName: input.channelName.trim(),
-    title: input.title.trim(),
-    externalFileId: file.id,
-    externalUrl: file.webViewLink,
-    externalMimeType: file.mimeType,
-    externalUpdatedAt: file.modifiedTime,
-    summary: input.summary,
-    createdBy: actorName,
-    createdByType: "human",
-  }, workspaceContext.currentWorkspace.id);
-  upsertChannelDocumentPresenceSync({
-    documentId: document.id,
-    actorId: actorName,
-    actorType: "human",
-    status: "viewing",
-  }, workspaceContext.currentWorkspace.id);
-  await syncGoogleSheetDocumentDrivePermissions({
-    accessToken,
-    workspaceId: workspaceContext.currentWorkspace.id,
-    documentId: document.id,
-    actorId: actorName,
-    actorType: "human",
-    skipEmails: [
-      workspaceContext.currentUser.email,
-      credential?.googleEmail,
-    ].filter((email): email is string => Boolean(email)),
-  });
-  revalidateChannelRoutes(workspaceContext.currentWorkspace.slug);
-  return { documentId: document.id };
-}
-
-export async function createExternalGoogleDocDocumentAction(input: {
-  channelName: string;
-  title: string;
-  externalUrl: string;
-  externalFileId?: string;
-  summary?: string;
-}): Promise<{ documentId: string }> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  const actorName = workspaceContext.currentUser.displayName.trim() || "你";
-
-  assertRequired(input.channelName, "channel name");
-  assertRequired(input.title, "document title");
-  assertRequired(input.externalUrl, "Google Doc URL");
-  assertChannelAccess(workspaceContext, input.channelName);
-
-  const externalUrl = input.externalUrl.trim();
-  const externalFileId = input.externalFileId?.trim() || parseGoogleDocFileId(externalUrl);
-  if (!externalFileId) {
-    throw new Error("Could not read a Google Doc file id from that URL.");
-  }
-
-  const { document } = createExternalGoogleDocChannelDocumentSync({
-    channelName: input.channelName.trim(),
-    title: input.title.trim(),
-    externalFileId,
-    externalUrl,
-    summary: input.summary,
-    createdBy: actorName,
-    createdByType: "human",
-  }, workspaceContext.currentWorkspace.id);
-  upsertChannelDocumentPresenceSync({
-    documentId: document.id,
-    actorId: actorName,
-    actorType: "human",
-    status: "viewing",
-  }, workspaceContext.currentWorkspace.id);
-  revalidateChannelRoutes(workspaceContext.currentWorkspace.slug);
-  return { documentId: document.id };
-}
-
-export async function createGoogleDocDocumentAction(input: {
-  channelName: string;
-  title: string;
-  summary?: string;
-}): Promise<{ documentId: string }> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  const actorName = workspaceContext.currentUser.displayName.trim() || "你";
-
-  assertRequired(input.channelName, "channel name");
-  assertRequired(input.title, "document title");
-  assertChannelAccess(workspaceContext, input.channelName);
-
-  const { accessToken, credential } = await getGoogleWorkspaceAccessTokenForUser({
-    workspaceId: workspaceContext.currentWorkspace.id,
-    userId: workspaceContext.currentUser.id,
-  });
-  const file = await createGoogleWorkspaceDoc({
-    accessToken,
-    title: input.title.trim(),
-  });
-
-  const { document } = createExternalGoogleDocChannelDocumentSync({
-    channelName: input.channelName.trim(),
-    title: input.title.trim(),
-    externalFileId: file.id,
-    externalUrl: file.webViewLink,
-    externalMimeType: file.mimeType,
-    externalUpdatedAt: file.modifiedTime,
-    summary: input.summary,
-    createdBy: actorName,
-    createdByType: "human",
-  }, workspaceContext.currentWorkspace.id);
-  upsertChannelDocumentPresenceSync({
-    documentId: document.id,
-    actorId: actorName,
-    actorType: "human",
-    status: "viewing",
-  }, workspaceContext.currentWorkspace.id);
-  await syncGoogleSheetDocumentDrivePermissions({
-    accessToken,
-    workspaceId: workspaceContext.currentWorkspace.id,
-    documentId: document.id,
-    actorId: actorName,
-    actorType: "human",
-    skipEmails: [
-      workspaceContext.currentUser.email,
-      credential?.googleEmail,
-    ].filter((email): email is string => Boolean(email)),
-  });
-  revalidateChannelRoutes(workspaceContext.currentWorkspace.slug);
-  return { documentId: document.id };
-}
-
-export async function refreshExternalGoogleSheetDocumentAction(documentId: string): Promise<void> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  const actorName = workspaceContext.currentUser.displayName.trim() || "你";
-  assertRequired(documentId, "document id");
-  assertDocumentChannelAccess(workspaceContext.currentWorkspace.id, workspaceContext.currentUser.displayName, documentId);
-
-  const { document } = readChannelDocumentSync(documentId.trim(), workspaceContext.currentWorkspace.id);
-  assertExternalGoogleSheetDocument(document);
-  const run = recordExternalSheetOperationRunSync({
-    channelDocumentId: document.id,
-    actorType: "human",
-    actorId: actorName,
-    status: "running",
-    intent: "Refresh Google Sheet metadata",
-    operationType: "metadata_refresh",
-    requestSummary: "Read Google Drive file metadata and update agent.dofe external status.",
-  }, workspaceContext.currentWorkspace.id);
-
-  try {
-    const { accessToken } = await getGoogleWorkspaceAccessTokenForUser({
-      workspaceId: workspaceContext.currentWorkspace.id,
-      userId: workspaceContext.currentUser.id,
-    });
-    const metadata = await readGoogleDriveFileMetadata({
-      accessToken,
-      fileId: document.externalFileId ?? "",
-    });
-    updateExternalChannelDocumentMetadataSync({
-      documentId: document.id,
-      externalSyncStatus: "ok",
-      externalMimeType: metadata.mimeType,
-      externalUpdatedAt: metadata.modifiedTime,
-      updatedBy: actorName,
-    }, workspaceContext.currentWorkspace.id);
-    updateExternalSheetOperationRunSync({
-      runId: run.id,
-      status: "succeeded",
-      responseSummary: `Google Drive reports "${metadata.name}" updated at ${metadata.modifiedTime ?? "unknown time"}.`,
-    }, workspaceContext.currentWorkspace.id);
-  } catch (error) {
-    const nextSyncStatus = resolveExternalSheetStatusFromError(error);
-    updateExternalChannelDocumentMetadataSync({
-      documentId: document.id,
-      externalSyncStatus: nextSyncStatus,
-      updatedBy: actorName,
-    }, workspaceContext.currentWorkspace.id);
-    updateExternalSheetOperationRunSync({
-      runId: run.id,
-      status: "failed",
-      errorCode: error instanceof GoogleWorkspaceApiError ? error.code : error instanceof Error ? error.name : "Error",
-      errorMessage: error instanceof Error ? error.message : String(error),
-    }, workspaceContext.currentWorkspace.id);
-  }
-
-  revalidateChannelRoutes(workspaceContext.currentWorkspace.slug);
-}
-
-export async function syncExternalGoogleSheetPermissionsAction(documentId: string): Promise<void> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  const actorName = workspaceContext.currentUser.displayName.trim() || "你";
-  assertRequired(documentId, "document id");
-  assertDocumentChannelAccess(workspaceContext.currentWorkspace.id, workspaceContext.currentUser.displayName, documentId);
-  await syncExternalGoogleSheetPermissionsForCurrentUser({
-    workspaceId: workspaceContext.currentWorkspace.id,
-    documentId: documentId.trim(),
-    actorId: actorName,
-    userId: workspaceContext.currentUser.id,
-    userEmail: workspaceContext.currentUser.email,
-  });
-  revalidateChannelRoutes(workspaceContext.currentWorkspace.slug);
-}
-
-export async function disconnectGoogleWorkspaceAction(): Promise<void> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  try {
-    revokeGoogleOAuthCredentialSync({
-      workspaceId: workspaceContext.currentWorkspace.id,
-      userId: workspaceContext.currentUser.id,
-    });
-  } catch (error) {
-    if (!(error instanceof Error) || error.message !== "Google OAuth credential does not exist.") {
-      throw error;
-    }
-  }
-  revalidateChannelRoutes(workspaceContext.currentWorkspace.slug);
-}
-
 export async function rollbackChannelDocumentVersionAction(input: {
   documentId: string;
   versionId: string;
@@ -985,13 +672,6 @@ export async function updateChannelDocumentAccessRoleAction(input: {
     changedBy: actorName,
     changedByType: "human",
   }, workspaceContext.currentWorkspace.id);
-  await syncExternalGoogleSheetPermissionsForCurrentUser({
-    workspaceId: workspaceContext.currentWorkspace.id,
-    documentId: input.documentId.trim(),
-    actorId: actorName,
-    userId: workspaceContext.currentUser.id,
-    userEmail: workspaceContext.currentUser.email,
-  });
   revalidateChannelRoutes(workspaceContext.currentWorkspace.slug);
 }
 
@@ -1014,13 +694,6 @@ export async function addChannelDocumentCollaboratorAction(input: {
     addedBy: actorName,
     addedByType: "human",
   }, workspaceContext.currentWorkspace.id);
-  await syncExternalGoogleSheetPermissionsForCurrentUser({
-    workspaceId: workspaceContext.currentWorkspace.id,
-    documentId: input.documentId.trim(),
-    actorId: actorName,
-    userId: workspaceContext.currentUser.id,
-    userEmail: workspaceContext.currentUser.email,
-  });
   revalidateChannelRoutes(workspaceContext.currentWorkspace.slug);
 }
 
@@ -1041,13 +714,6 @@ export async function removeChannelDocumentCollaboratorAction(input: {
     removedBy: actorName,
     removedByType: "human",
   }, workspaceContext.currentWorkspace.id);
-  await syncExternalGoogleSheetPermissionsForCurrentUser({
-    workspaceId: workspaceContext.currentWorkspace.id,
-    documentId: input.documentId.trim(),
-    actorId: actorName,
-    userId: workspaceContext.currentUser.id,
-    userEmail: workspaceContext.currentUser.email,
-  });
   revalidateChannelRoutes(workspaceContext.currentWorkspace.slug);
 }
 
@@ -1136,105 +802,6 @@ function assertDocumentChannelAccess(workspaceId: string, currentUserDisplayName
   if (!canViewChannelDocumentSync(documentId.trim(), currentUserDisplayName, "human", workspaceId)) {
     throw new Error("Forbidden.");
   }
-}
-
-function assertExternalGoogleSheetDocument(document: ChannelDocument): void {
-  if (
-    document.kind !== "sheet" ||
-    document.storageMode !== "external" ||
-    document.externalProvider !== "google_workspace" ||
-    !document.externalFileId ||
-    !document.externalUrl
-  ) {
-    throw new Error(`Channel document "${document.title}" is not an external Google Sheet.`);
-  }
-}
-
-async function syncExternalGoogleSheetPermissionsForCurrentUser(input: {
-  workspaceId: string;
-  documentId: string;
-  actorId: string;
-  userId: string;
-  userEmail?: string;
-}): Promise<void> {
-  const { document } = readChannelDocumentSync(input.documentId, input.workspaceId);
-  if (
-    document.kind !== "sheet" ||
-    document.storageMode !== "external" ||
-    document.externalProvider !== "google_workspace"
-  ) {
-    return;
-  }
-
-  try {
-    const { accessToken, credential } = await getGoogleWorkspaceAccessTokenForUser({
-      workspaceId: input.workspaceId,
-      userId: input.userId,
-    });
-    await syncGoogleSheetDocumentDrivePermissions({
-      accessToken,
-      workspaceId: input.workspaceId,
-      documentId: document.id,
-      actorId: input.actorId,
-      actorType: "human",
-      skipEmails: [
-        input.userEmail,
-        credential?.googleEmail,
-      ].filter((email): email is string => Boolean(email)),
-    });
-  } catch (error) {
-    recordExternalSheetOperationRunSync({
-      channelDocumentId: document.id,
-      actorType: "human",
-      actorId: input.actorId,
-      status: "failed",
-      intent: "Sync Google Drive permissions for external sheet",
-      operationType: "share",
-      requestSummary: "Sync Drive permissions after agent.dofe collaborator change.",
-      errorCode: error instanceof GoogleWorkspaceApiError ? error.code : error instanceof Error ? error.name : "Error",
-      errorMessage: error instanceof Error ? error.message : String(error),
-    }, input.workspaceId);
-  }
-}
-
-function resolveExternalSheetStatusFromError(error: unknown): ExternalDocumentSyncStatus {
-  if (error instanceof GoogleWorkspaceApiError) {
-    if (error.status === 404) {
-      return "missing";
-    }
-    if (error.status === 401 || error.status === 403) {
-      return "permission_error";
-    }
-  }
-  const message = error instanceof Error ? error.message : String(error);
-  if (message === "google_workspace.not_connected" || message === "google_workspace.reconnect_required") {
-    return "permission_error";
-  }
-  return "unknown";
-}
-
-function parseGoogleSheetFileId(value: string): string {
-  const trimmed = value.trim();
-  const match = trimmed.match(/\/spreadsheets\/d\/([^/?#]+)/);
-  if (match?.[1]) {
-    return decodeURIComponent(match[1]);
-  }
-  if (/^[a-zA-Z0-9_-]{20,}$/.test(trimmed)) {
-    return trimmed;
-  }
-  return "";
-}
-
-function parseGoogleDocFileId(value: string): string {
-  const trimmed = value.trim();
-  const match = trimmed.match(/\/document\/d\/([^/?#]+)/);
-  if (match?.[1]) {
-    return decodeURIComponent(match[1]);
-  }
-  if (/^[a-zA-Z0-9_-]{20,}$/.test(trimmed)) {
-    return trimmed;
-  }
-  return "";
 }
 
 function findConflictDocumentId(workspaceId: string, conflictId: string): string | undefined {

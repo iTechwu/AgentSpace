@@ -567,11 +567,11 @@ async function executeRemoteTask(
       {
         sessionId: bundle.metadata.routerSession?.providerSessionId ?? resolveRemoteTaskProviderSessionId(task.inputJson),
         taskTimeoutMs: config.taskTimeoutMs,
-        contextEnv: buildRuntimeContextEnv({
+        contextEnv: {
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
           DOFE_AGENT_CONTEXT_AGENT_NAME: readRemoteTaskAgentName(task),
           DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
-        }, bundle.metadata.googleWorkspace),
+        },
         runtimeApps: bundle.metadata.runtimeApps?.apps ?? [],
         runtimeToolCapabilities: bundle.metadata.runtimeToolCapabilities?.capabilities ?? [],
         onEvent: (event) => {
@@ -621,19 +621,6 @@ async function executeRemoteTask(
       rmSync(workDir, { recursive: true, force: true });
     }
   }
-}
-
-function buildRuntimeContextEnv(
-  base: Record<string, string>,
-  googleWorkspace: DaemonTaskInputBundle["metadata"]["googleWorkspace"],
-): Record<string, string> {
-  if (googleWorkspace?.status !== "available" || !googleWorkspace.env) {
-    return base;
-  }
-  return {
-    ...base,
-    ...googleWorkspace.env,
-  };
 }
 
 function buildRemoteRuntimeRecords(

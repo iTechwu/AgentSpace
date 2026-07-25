@@ -6,10 +6,7 @@ import {
   addWorkspaceMembersToChannelAction,
   addChannelDocumentCollaboratorAction,
   archiveChannelDocumentAction,
-  createGoogleSheetDocumentAction,
-  createExternalGoogleSheetDocumentAction,
   createChannelAction,
-  disconnectGoogleWorkspaceAction,
   createChannelDocumentFromAttachmentAction,
   getChannelDetailDataAction,
   deleteChannelAttachmentAction,
@@ -24,8 +21,6 @@ import {
   resolveChannelDocumentConflictAction,
   restoreChannelDocumentAction,
   retryChannelDocumentConflictAction,
-  refreshExternalGoogleSheetDocumentAction,
-  syncExternalGoogleSheetPermissionsAction,
   touchChannelDocumentPresenceAction,
   updateDigitalContactRemarkAction,
   updateChannelDocumentAccessRoleAction,
@@ -81,7 +76,7 @@ interface RecoverableDocumentDraft {
 
 type ChannelWorkspaceTab = "messages" | "files" | "documents";
 type ChannelDocumentsView = "list" | "workspace";
-type ChannelDocumentCreateMode = "markdown" | "nativeSheet" | "nativeDeck" | "googleSheet" | "googleSheetCreate";
+type ChannelDocumentCreateMode = "markdown" | "nativeSheet" | "nativeDeck";
 
 const CHANNEL_REFRESH_POLL_MS = 2000;
 const CHANNEL_REALTIME_REFRESH_DEBOUNCE_MS = 350;
@@ -1284,15 +1279,10 @@ export function ChannelsPageClient({
       return;
     }
     const confirmed = window.confirm(
-      document.externalSheet
-        ? tx(
-            `确定删除云文档「${document.title}」？这只会从 agent.dofe 会话里移除绑定，不会删除 Google Drive 里的原始表格。`,
-            `Delete cloud document "${document.title}"? This only removes the binding from the agent.dofe conversation; the original Google Drive sheet is not deleted.`,
-          )
-        : tx(
-            `确定删除云文档「${document.title}」？删除后可在已删除文档中恢复。`,
-            `Delete cloud document "${document.title}"? You can restore it from deleted documents.`,
-          ),
+      tx(
+        `确定删除云文档「${document.title}」？删除后可在已删除文档中恢复。`,
+        `Delete cloud document "${document.title}"? You can restore it from deleted documents.`,
+      ),
     );
     if (!confirmed) {
       return;
@@ -1349,15 +1339,11 @@ export function ChannelsPageClient({
           <div>
             <h3>
               {isCreatingDocument
-                ? documentCreateMode === "googleSheetCreate"
-                  ? tx("创建 Google Sheet", "Create Google Sheet")
-                  : documentCreateMode === "googleSheet"
-                    ? tx("链接 Google Sheet", "Link Google Sheet")
-                    : documentCreateMode === "nativeSheet"
-                      ? tx("新建表格", "New sheet")
-                      : documentCreateMode === "nativeDeck"
-                        ? tx("新建 Deck", "New deck")
-                        : tx("新建云文档", "New cloud doc")
+                ? documentCreateMode === "nativeSheet"
+                  ? tx("新建表格", "New sheet")
+                  : documentCreateMode === "nativeDeck"
+                    ? tx("新建 Deck", "New deck")
+                    : tx("新建云文档", "New cloud doc")
                 : tx("云文档工作台", "Cloud docs workspace")}
             </h3>
           </div>
@@ -1382,7 +1368,6 @@ export function ChannelsPageClient({
         <ChannelDocumentsPanel
           archivedDocuments={archivedChannelDocuments}
           documents={channelDocuments}
-          googleWorkspace={data.googleWorkspace}
           selectedDocument={selectedDocument}
           selectedDocumentConflicts={selectedDocumentConflicts}
           draftContent={draftContent}
@@ -1411,45 +1396,6 @@ export function ChannelsPageClient({
                 refreshChannelModule(selectedConversationChannelName);
               } catch (error) {
                 setDocumentFeedback(error instanceof Error ? error.message : tx("恢复失败", "Restore failed"));
-              }
-            });
-          }}
-          onDisconnectGoogleWorkspace={() => {
-            startTransition(async () => {
-              try {
-                setDocumentFeedback(null);
-                await disconnectGoogleWorkspaceAction();
-                refreshChannelModule(selectedConversationChannelName);
-              } catch (error) {
-                setDocumentFeedback(error instanceof Error ? error.message : tx("断开连接失败", "Disconnect failed"));
-              }
-            });
-          }}
-          onRefreshExternalSheet={() => {
-            if (!selectedDocument?.id) {
-              return;
-            }
-            startTransition(async () => {
-              try {
-                setDocumentFeedback(null);
-                await refreshExternalGoogleSheetDocumentAction(selectedDocument.id);
-                refreshChannelModule(selectedConversationChannelName);
-              } catch (error) {
-                setDocumentFeedback(error instanceof Error ? error.message : tx("刷新失败", "Refresh failed"));
-              }
-            });
-          }}
-          onSyncExternalSheetPermissions={() => {
-            if (!selectedDocument?.id) {
-              return;
-            }
-            startTransition(async () => {
-              try {
-                setDocumentFeedback(null);
-                await syncExternalGoogleSheetPermissionsAction(selectedDocument.id);
-                refreshChannelModule(selectedConversationChannelName);
-              } catch (error) {
-                setDocumentFeedback(error instanceof Error ? error.message : tx("同步权限失败", "Permission sync failed"));
               }
             });
           }}
@@ -1488,41 +1434,6 @@ export function ChannelsPageClient({
             startTransition(async () => {
               try {
                 setDocumentFeedback(null);
-                if (isCreatingDocument && documentCreateMode === "googleSheet") {
-                  const result = await createExternalGoogleSheetDocumentAction({
-                    channelName: selectedConversationChannelName,
-                    title: draftTitle,
-                    externalUrl: draftContent,
-                    summary: draftSummary,
-                  });
-                  setIsCreatingDocument(false);
-                  setDocumentCreateMode("markdown");
-                  setRecoverableDraft(null);
-                  setSelectedDocumentId(result.documentId);
-                  replaceChannelRoute(selectedChannel.id, {
-                    tab: "documents",
-                    documentId: result.documentId,
-                  });
-                  refreshChannelModule(selectedConversationChannelName);
-                  return;
-                }
-                if (isCreatingDocument && documentCreateMode === "googleSheetCreate") {
-                  const result = await createGoogleSheetDocumentAction({
-                    channelName: selectedConversationChannelName,
-                    title: draftTitle,
-                    summary: draftSummary,
-                  });
-                  setIsCreatingDocument(false);
-                  setDocumentCreateMode("markdown");
-                  setRecoverableDraft(null);
-                  setSelectedDocumentId(result.documentId);
-                  replaceChannelRoute(selectedChannel.id, {
-                    tab: "documents",
-                    documentId: result.documentId,
-                  });
-                  refreshChannelModule(selectedConversationChannelName);
-                  return;
-                }
                 const result = await saveChannelDocumentAction({
                   documentId: selectedDocument?.id,
                   baseVersionId: selectedDocument?.currentVersionId,
@@ -1850,8 +1761,6 @@ export function ChannelsPageClient({
                   onCreateDocument={() => openFreshDocumentWorkspace()}
                   onCreateNativeDeck={() => openFreshDocumentWorkspace("", "nativeDeck")}
                   onCreateNativeSheet={() => openFreshDocumentWorkspace("", "nativeSheet")}
-                  onCreateGoogleSheet={() => openFreshDocumentWorkspace("", "googleSheetCreate")}
-                  onLinkGoogleSheet={() => openFreshDocumentWorkspace("", "googleSheet")}
                   onDeleteChannel={() => {
                     setShowHeaderMenu(false);
                     startTransition(async () => {
@@ -2654,8 +2563,6 @@ function ChannelWorkspaceHeader({
   onCreateDocument,
   onCreateNativeDeck,
   onCreateNativeSheet,
-  onCreateGoogleSheet,
-  onLinkGoogleSheet,
   onCreateLabelPage,
   onDeleteChannel,
   onOpenAddMembers,
@@ -2684,8 +2591,6 @@ function ChannelWorkspaceHeader({
   onCreateDocument: () => void;
   onCreateNativeDeck: () => void;
   onCreateNativeSheet: () => void;
-  onCreateGoogleSheet: () => void;
-  onLinkGoogleSheet: () => void;
   onCreateLabelPage: () => void;
   onDeleteChannel: () => void;
   onOpenAddMembers: () => void;
@@ -2878,14 +2783,6 @@ function ChannelWorkspaceHeader({
               <button className="channel-workspace-header__menu-item" onClick={onCreateNativeDeck} type="button">
                 <CloudDocIcon />
                 <span>{tx("新建 Deck", "New deck")}</span>
-              </button>
-              <button className="channel-workspace-header__menu-item" onClick={onCreateGoogleSheet} type="button">
-                <SheetIcon />
-                <span>{tx("创建 Google Sheet", "Create Google Sheet")}</span>
-              </button>
-              <button className="channel-workspace-header__menu-item" onClick={onLinkGoogleSheet} type="button">
-                <SheetIcon />
-                <span>{tx("链接 Google Sheet", "Link Google Sheet")}</span>
               </button>
             </div>
           ) : null}
@@ -3342,16 +3239,11 @@ function ChannelDocumentsOverview({
             <div className="channel-workspace-row" key={document.id}>
               <div className="channel-workspace-row__title">
                 <span className="channel-workspace-row__icon channel-workspace-row__icon--doc">
-                  {document.externalSheet ? <SheetIcon /> : <CloudDocIcon />}
+                  {document.kind === "sheet" ? <SheetIcon /> : <CloudDocIcon />}
                 </span>
                 <div>
                   <strong>{document.title}</strong>
                   <small>{document.summary || tx("暂无摘要", "No summary yet")}</small>
-                  {document.externalSheet ? (
-                    <small>
-                      {tx("Google Sheet", "Google Sheet")} · {document.externalSheet.syncStatus === "ok" ? tx("已连接", "Connected") : tx("需检查", "Needs check")}
-                    </small>
-                  ) : null}
                 </div>
               </div>
               <span>{translateSystemSpeaker(document.updatedBy, tx)}</span>
@@ -3360,11 +3252,6 @@ function ChannelDocumentsOverview({
                 <button className="action-button" onClick={() => onOpenDocument(document.id)} type="button">
                   {tx("打开", "Open")}
                 </button>
-                {document.externalSheet ? (
-                  <a className="action-button" href={document.externalSheet.externalUrl} rel="noreferrer" target="_blank">
-                    {tx("表格", "Sheet")}
-                  </a>
-                ) : null}
                 <button
                   className="action-button action-button--danger"
                   disabled={pending || document.currentUserRole !== "owner"}

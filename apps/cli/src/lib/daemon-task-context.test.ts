@@ -8,7 +8,6 @@ import type { ActiveEmployee } from "@dofe-agent/domain/workspace";
 import {
   createDocumentPermissionRequestSync,
   createNotificationSync,
-  BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME,
   BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME,
   BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME,
   createEmployeeSync,
@@ -182,7 +181,7 @@ test("prepareDaemonTaskContext materializes agent knowledge and mentions it in t
   assert.match(context.prompt, /不要手写 runtime-output\/knowledge-proposals\.json/);
 });
 
-test("prepareDaemonTaskContext injects google-workspace-cli skill for external Google documents", () => {
+test("prepareDaemonTaskContext does not inject retired Google Workspace skills", () => {
   createEmployeeSync({ name: "Planner" });
   const workspaceState = readWorkspaceStateSync();
   const agentProfile = workspaceState.activeEmployees.find((employee: ActiveEmployee) => employee.name === "Planner");
@@ -243,13 +242,8 @@ test("prepareDaemonTaskContext injects google-workspace-cli skill for external G
     ],
   });
 
-  assert.ok(context.agentSkills.some((skill) => skill.name === BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME));
-  assert.match(context.prompt, /google-workspace-cli/);
-  assert.match(context.prompt, /gws sheets spreadsheets values get/);
-  assert.match(context.prompt, /dofe-agent output sheets-result add/);
-  assert.doesNotMatch(context.prompt, /If the CLI is unavailable|如果 CLI 不可用|再手写/);
-  assert.match(context.prompt, /official gws CLI|官方 gws/);
-  assert.equal(existsSync(join(context.skillContextDir!, `${BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME}-${context.agentSkills.find((skill) => skill.name === BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME)!.id.slice(-6)}`, "SKILL.md")), true);
+  assert.equal(context.agentSkills.some((skill) => skill.name === "google-workspace-cli"), false);
+  assert.doesNotMatch(context.prompt, /\bgws\b/i);
 });
 
 test("prepareDaemonTaskContext includes rejected document permission requests", () => {

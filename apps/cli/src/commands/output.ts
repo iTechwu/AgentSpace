@@ -73,18 +73,6 @@ export async function runOutputCommand(
     if (subcommand === "knowledge") {
       return runKnowledgeCommand(args, format);
     }
-    if (subcommand === "sheets") {
-      return runSheetsCommand(args, format);
-    }
-    if (subcommand === "sheets-result") {
-      return runSheetsResultCommand(args, format);
-    }
-    if (subcommand === "google-docs") {
-      return runGoogleDocsCommand(args, format);
-    }
-    if (subcommand === "external-document") {
-      return runExternalDocumentCommand(args, format);
-    }
     if (subcommand === "feishu") {
       return runFeishuCommand(args, format);
     }
@@ -1148,11 +1136,6 @@ function printOutputHelp(): void {
   dofe-agent output skill import ...
   dofe-agent output knowledge propose-create ...
   dofe-agent output knowledge propose-update ...
-  dofe-agent output sheets <command> ...
-  dofe-agent output sheets-result add ...
-  dofe-agent output google-docs <command> ...
-  dofe-agent output external-document link-google-sheet ...
-  dofe-agent output external-document create-google-sheet ...
   dofe-agent output feishu data-operation-approval ...
   dofe-agent output permission request-document ...
   dofe-agent output validate [--work-dir <path>] [--json]
@@ -1167,6 +1150,22 @@ function printDocumentHelp(): void {
   dofe-agent output document delete-block --document-id <id> --base-version-id <id> --title <title> --block-id <id> --base-revision <n>`);
 }
 
+function printSheetsHelp(): void {
+  console.log("The sheets runtime-output command has been removed. Use `dofe-agent output feishu data-operation-approval` for bound Feishu resources.");
+}
+
+function printSheetsResultHelp(): void {
+  console.log("The sheets-result runtime-output command has been removed. Use bound Feishu resources instead.");
+}
+
+function printGoogleDocsHelp(): void {
+  console.log("The google-docs runtime-output command has been removed. Use bound Feishu resources instead.");
+}
+
+function printExternalDocumentHelp(): void {
+  console.log("The external-document runtime-output command has been removed. Use bound Feishu resources instead.");
+}
+
 function printSkillHelp(): void {
   console.log(`Usage:
   dofe-agent output skill import --url <url> [--conflict reject|rename|replace|skip] [--assign-to-self true|false]
@@ -1178,32 +1177,6 @@ function printKnowledgeHelp(): void {
   console.log(`Usage:
   dofe-agent output knowledge propose-create --title <title> --content-file runtime-output/artifacts/knowledge/page.md [--assignment-mode all_agents|selected_agents] [--assigned-employee-names "Agent A,Agent B"] [--assign-to-self true|false] [--tags "tag-a,tag-b"] [--parent-id <page-id>] [--summary <text>] [--reason <text>]
   dofe-agent output knowledge propose-update --knowledge-page-id <page-id> --base-updated-at <iso> --title <title> --content-file runtime-output/artifacts/knowledge/page.md [--assignment-mode all_agents|selected_agents] [--assigned-employee-names "Agent A,Agent B"] [--tags "tag-a,tag-b"] [--summary <text>] [--reason <text>]`);
-}
-
-function printSheetsHelp(): void {
-  console.log(`Usage:
-  dofe-agent output sheets read --document-id <id> --range <A1> --intent <text>
-  dofe-agent output sheets append-rows --document-id <id> --range <A1> --intent <text> --values-json <json>
-  dofe-agent output sheets update-values --document-id <id> --range <A1> --intent <text> --values-json <json>
-  dofe-agent output sheets batch-update --document-id <id> --intent <text> --requests-json <json>`);
-}
-
-function printSheetsResultHelp(): void {
-  console.log(`Usage:
-  dofe-agent output sheets-result add --document-id <id> --operation read|append_rows|update_values|batch_update --result-json runtime-output/artifacts/sheets/result.json [--range <A1>] [--summary <text>] [--request-summary <text>] [--started-at <iso>] [--finished-at <iso>] [--duration-ms <ms>]`);
-}
-
-function printGoogleDocsHelp(): void {
-  console.log(`Usage:
-  dofe-agent output google-docs append-text --document-id <doc-id> --intent <text> --text-file runtime-output/artifacts/docs/summary.md [--request-summary <text>]
-  dofe-agent output google-docs batch-update --document-id <doc-id> --intent <text> --requests-json runtime-output/artifacts/docs/requests.json [--request-summary <text>]`);
-}
-
-function printExternalDocumentHelp(): void {
-  console.log(`Usage:
-  dofe-agent output external-document link-google-sheet --source-document-id <doc-id> --target-channel <channel> --title <title> [--summary <text>]
-  dofe-agent output external-document link-google-sheet --external-file-id <spreadsheet-id> --external-url <url> --target-channel <channel> --title <title> [--summary <text>]
-  dofe-agent output external-document create-google-sheet --external-file-id <spreadsheet-id> --external-url <url> --target-channel <channel> --title <title> --gws-result-json runtime-output/artifacts/sheets/create-sheet.json [--summary <text>]`);
 }
 
 function printFeishuOutputHelp(): void {
@@ -1221,7 +1194,7 @@ Common parameter helpers:
 function printPermissionHelp(): void {
   console.log(`Usage:
   dofe-agent output permission request-document --role viewer|editor|forwarder --reason <text> --document-id <doc-id> [--target-channel <channel>]
-  dofe-agent output permission request-document --role viewer|editor|forwarder --reason <text> --external-url <url> [--external-provider google_workspace] [--target-channel <channel>]`);
+  dofe-agent output permission request-document --role viewer|editor|forwarder --reason <text> --external-url <url> --external-provider notion|microsoft_365 [--target-channel <channel>]`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

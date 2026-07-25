@@ -34,8 +34,6 @@ Commands:
   skill import              Import a skill from a supported external URL
   skill export              Export one or more skills as a zip bundle
   output attach             Add a runtime-output attachment manifest entry
-  output sheets-result      Register an Agent-executed Google Sheet result
-  output google-docs        Register Google Docs operations
   output validate           Validate runtime-output manifests
   output preview            Preview runtime-output manifests
   message list              List recent collaboration messages
@@ -80,8 +78,6 @@ Examples:
   dofe-agent skill import --url https://github.com/octo-org/skill-repo/tree/main/skills/research-pack --conflict rename --json
   dofe-agent skill export skill-abc123 --out ./research-pack.zip --json
   dofe-agent output attach runtime-output/artifacts/chart.png --name chart.png --media-type image/png --text "图表已生成。"
-  dofe-agent output sheets-result add --document-id channel-doc-123 --operation read --range Sheet1!A1:Z20 --result-json runtime-output/artifacts/sheets/read-1.json --summary "Read 20 rows."
-  dofe-agent output google-docs append-text --document-id channel-doc-456 --intent "Append meeting notes" --text-file runtime-output/artifacts/docs/summary.md
   dofe-agent output validate --json
   dofe-agent message post --channel general --summary "先确认今天的优先级"
   dofe-agent task create --title "整理联调顺序" --channel general --assignee Nova --priority high
@@ -218,13 +214,6 @@ Examples:
   dofe-agent output skill import --local-path <path> [--conflict reject|rename|replace|skip] [--json]
   dofe-agent output knowledge propose-create --title <title> --content-file runtime-output/artifacts/knowledge/page.md [--assignment-mode all_agents|selected_agents] [--reason <text>] [--json]
   dofe-agent output knowledge propose-update --knowledge-page-id <page-id> --base-updated-at <iso> --title <title> --content-file runtime-output/artifacts/knowledge/page.md [--reason <text>] [--json]
-  dofe-agent output sheets read --document-id <id> --range <A1> --intent <text> [--json]
-  dofe-agent output sheets append-rows --document-id <id> --range <A1> --intent <text> --values-json <json> [--json]
-  dofe-agent output sheets update-values --document-id <id> --range <A1> --intent <text> --values-json <json> [--json]
-  dofe-agent output sheets batch-update --document-id <id> --intent <text> --requests-json <json> [--json]
-  dofe-agent output sheets-result add --document-id <id> --operation read|append_rows|update_values|batch_update --result-json runtime-output/artifacts/sheets/result.json [--range <A1>] [--summary <text>] [--request-summary <text>] [--json]
-  dofe-agent output google-docs append-text --document-id <doc-id> --intent <text> --text-file runtime-output/artifacts/docs/summary.md [--request-summary <text>] [--json]
-  dofe-agent output google-docs batch-update --document-id <doc-id> --intent <text> --requests-json runtime-output/artifacts/docs/requests.json [--request-summary <text>] [--json]
   dofe-agent output feishu data-operation-approval --operation docs.update_document|sheets.update_range|base.mutate_records --type doc|sheet|base_table --resource <bound-feishu-token> [--parameters-json <json>] [--preview <text>] [--json]
   dofe-agent output validate [--work-dir <path>] [--json]
   dofe-agent output preview [--work-dir <path>] [--json]`);

@@ -4,7 +4,6 @@ import {
   createDaemonApiTokenSync,
   deleteAgentRuntimeSync,
   pruneOfflineDaemonsSync,
-  revokeAgentGoogleWorkspaceDelegationSync,
   readAgentRuntimeSync,
   updateWorkspaceRuntimeDisplayNameSync,
 } from "@dofe-agent/db";
@@ -454,33 +453,6 @@ export async function cancelAgentAccessRequestAction(input: {
     successToast("申请已取消。", "Request cancelled."),
     buildAgentAccessRequestInvalidation(workspaceId, request.sourceAgentName),
   );
-}
-
-export async function revokeWorkspaceAgentGoogleWorkspaceDelegationAction(input: {
-  employeeName: string;
-}): Promise<ActionToastResult<void>> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  const workspaceId = workspaceContext.currentWorkspace.id;
-  assertRequired(input.employeeName, "employee name");
-  assertCanManageEmployeeForActorSync({
-    workspaceId,
-    employeeName: input.employeeName.trim(),
-    actorUserId: workspaceContext.currentUser.id,
-  });
-
-  try {
-    revokeAgentGoogleWorkspaceDelegationSync({
-      workspaceId,
-      employeeName: input.employeeName.trim(),
-      userId: workspaceContext.currentUser.id,
-    });
-  } catch (error) {
-    if (!(error instanceof Error) || error.message !== "Agent Google Workspace delegation does not exist.") {
-      throw error;
-    }
-  }
-  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
-  return actionToastResult(undefined, successToast("此 Agent 的 Google 授权已撤销。", "Google access revoked for this agent."));
 }
 
 export async function grantWorkspaceRuntimeUseAction(input: {

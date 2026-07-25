@@ -5,7 +5,6 @@ import { join } from "node:path";
 import test, { before } from "node:test";
 import type { ActiveEmployee, ChannelRecord } from "@dofe-agent/domain/workspace";
 import {
-  BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME,
   BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME,
   createEmployeeSync,
   initializeOrganizationSync,
@@ -59,7 +58,6 @@ test("workspace initialization includes the builtin workspace-context skill", ()
   });
 
   assert.ok(listWorkspaceSkillsSync().some((skill) => skill.name === BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME));
-  assert.ok(listWorkspaceSkillsSync().some((skill) => skill.name === BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME));
 });
 
 test("workspace context command refuses to run without runtime context", () => {
