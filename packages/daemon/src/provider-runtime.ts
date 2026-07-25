@@ -3,7 +3,7 @@ import { accessSync, constants, existsSync, readFileSync, writeFileSync } from "
 import { spawnSync } from "node:child_process";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { arch, platform, version as nodeVersion } from "node:process";
-import type { DaemonProvider, ProviderErrorCategory, ProviderErrorCode, RuntimeAppContextEntry, RuntimeToolCapability } from "@dofe-agent/domain";
+import type { DaemonProvider, ProviderErrorCategory, ProviderErrorCode, ProviderHealthSnapshot, RuntimeAppContextEntry, RuntimeToolCapability } from "@dofe-agent/domain";
 import { formatDaemonProviderLabel, isDaemonProvider } from "@dofe-agent/domain";
 import { connectSandbox, resolveSandboxTaskTimeoutMs, type ExecController } from "@dofe-agent/sandbox";
 import { buildFeishuLarkCliDiagnosticRuntimeToolCapability } from "@dofe-agent/services";
@@ -31,6 +31,7 @@ export interface ProviderRuntimeRecord {
     executablePath: string;
     mode: "local" | "remote";
     providerHealth?: Record<string, unknown>;
+    providerVerificationRequestedAt?: string;
     openClawProfile?: string;
     openClawModel?: string;
   };
@@ -854,7 +855,57 @@ export function buildProviderRuntimeMetadata(runtime: Pick<ProviderRuntimeRecord
       providerHealth: buildOpenClawProviderHealthSnapshot(health),
     };
   }
+  if (requiresProviderVerification(runtime)) {
+    return {
+      ...base,
+      providerHealth: inspectProviderCliHealth(runtime),
+    };
+  }
   return base;
+}
+
+function requiresProviderVerification(runtime: Pick<ProviderRuntimeRecord, "metadata">): boolean {
+  const requestedAt = runtime.metadata.providerVerificationRequestedAt;
+  if (!requestedAt) {
+    return false;
+  }
+  const existingHealth = runtime.metadata.providerHealth as ProviderHealthSnapshot | undefined;
+  if (!existingHealth?.checkedAt) {
+    return true;
+  }
+  return new Date(existingHealth.checkedAt).getTime() < new Date(requestedAt).getTime();
+}
+
+function inspectProviderCliHealth(runtime: Pick<ProviderRuntimeRecord, "provider" | "metadata">): ProviderHealthSnapshot {
+  const checkedAt = new Date().toISOString();
+  const result = spawnSync(runtime.metadata.executablePath, ["--version"], {
+    encoding: "utf8",
+    timeout: 5_000,
+    windowsHide: true,
+  });
+  if (!result.error && result.status === 0) {
+    return {
+      status: "healthy",
+      checkedAt,
+      reason: `${formatDaemonProviderLabel(runtime.provider)} CLI preflight passed.`,
+    };
+  }
+  const errorDetails = result.error as unknown as { code?: unknown } | undefined;
+  const errorCode = typeof errorDetails?.code === "string"
+    ? errorDetails.code
+    : undefined;
+  const message = result.error?.message || result.stderr?.trim() || `${formatDaemonProviderLabel(runtime.provider)} CLI exited with status ${result.status ?? "unknown"}.`;
+  return {
+    status: "broken",
+    checkedAt,
+    reason: message,
+    error: {
+      code: errorCode === "ENOENT" ? "provider.cli_missing" : "provider.runtime_generic_failure",
+      category: errorCode === "ENOENT" ? "runtime" : "provider",
+      provider: runtime.provider,
+      message,
+    },
+  };
 }
 
 function readRuntimeProviderHealthMetadata(runtime: ProviderRuntimeRecord): ReturnType<typeof buildOpenClawProviderHealthSnapshot> | undefined {

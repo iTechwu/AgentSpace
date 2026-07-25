@@ -5,6 +5,7 @@ import { delimiter, join } from "node:path";
 import test from "node:test";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import {
+  buildProviderRuntimeMetadata,
   detectProviders,
   readProviderTaskFailureMetadata,
   resolveModelId,
@@ -103,6 +104,31 @@ test("detectProviders registers only the configured container provider", () => {
     } else {
       process.env.DOFE_AGENT_RUNTIME_PROVIDER = originalRuntimeProvider;
     }
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata runs a requested provider verification", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-bin-"));
+  const executablePath = join(binDir, "claude");
+
+  try {
+    writeFileSync(executablePath, "#!/bin/sh\necho 1.0.0\n", "utf8");
+    chmodSync(executablePath, 0o755);
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "claude",
+      metadata: {
+        executablePath,
+        mode: "local",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    });
+
+    const health = metadata.providerHealth as { status?: unknown; checkedAt?: unknown } | undefined;
+    assert.equal(health?.status, "healthy");
+    assert.equal(typeof health?.checkedAt, "string");
+  } finally {
     rmSync(binDir, { recursive: true, force: true });
   }
 });
@@ -576,7 +602,7 @@ test("runProviderTask starts a new Claude conversation when resume session is mi
   }
 });
 
-test("runProviderTask keeps built-in Claude tool grants narrow when running as root", async () => {
+test("runProviderTask keeps built-in Claude tool grants narrow and excludes retired Google Workspace tools when running as root", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-root-permissions-"));
   const providerBinDir = join(workDir, "provider-bin");
   const gwsBinDir = join(workDir, "gws-bin");
@@ -636,7 +662,7 @@ test("runProviderTask keeps built-in Claude tool grants narrow when running as r
       assert.equal(args.includes("Bash(gws *)"), false);
       assert.equal(args.includes("Bash(gws +*)"), false);
       assert.equal(args.includes("Bash(gws sheets *)"), false);
-      assert.equal(args.includes("Bash(gws --version)"), true);
+      assert.equal(args.includes("Bash(gws --version)"), false);
       assert.equal(args.includes("Bash(command -v *)"), true);
       assert.equal(args.includes("Bash(dofe-agent output *)"), false);
       assert.equal(args.includes("Bash(dofe-agent output text *)"), true);

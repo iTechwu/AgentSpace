@@ -5,6 +5,7 @@ import {
   deleteAgentRuntimeSync,
   pruneOfflineDaemonsSync,
   readAgentRuntimeSync,
+  requestAgentRuntimeProviderVerificationSync,
   updateWorkspaceRuntimeDisplayNameSync,
 } from "@dofe-agent/db";
 import type { AgentForkOptions } from "@dofe-agent/services";
@@ -190,6 +191,39 @@ export async function unbindWorkspaceAgentRuntimeAction(employeeName: string): P
     undefined,
     successToast("执行引擎绑定已解除。", "Execution-engine binding removed."),
     buildAgentInvalidation(workspaceId, employeeName.trim()),
+  );
+}
+
+export async function verifyWorkspaceAgentRuntimeProviderAction(input: {
+  employeeName: string;
+  runtimeId: string;
+}): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  assertRequired(input.employeeName, "employee name");
+  assertRequired(input.runtimeId, "runtime id");
+  assertCanManageEmployeeForActorSync({
+    workspaceId,
+    employeeName: input.employeeName.trim(),
+    actorUserId: workspaceContext.currentUser.id,
+  });
+  assertCanUseRuntimeForActorSync({
+    workspaceId,
+    runtimeId: input.runtimeId.trim(),
+    actorUserId: workspaceContext.currentUser.id,
+  });
+  requestAgentRuntimeProviderVerificationSync({
+    workspaceId,
+    runtimeId: input.runtimeId.trim(),
+  });
+  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+  return actionToastResult(
+    undefined,
+    successToast(
+      "Provider 验证已请求，在线执行引擎会在下一次心跳执行本机 CLI 预检。",
+      "Provider verification requested. The online execution engine will run a local CLI preflight on its next heartbeat.",
+    ),
+    buildAgentInvalidation(workspaceId, input.employeeName.trim()),
   );
 }
 

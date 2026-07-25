@@ -410,6 +410,52 @@ test("agent bot first messages auto-provision a channel and route @bot to the ag
   assert.equal(mappingMetadata.dofeAgentCommandUsed, false);
 });
 
+test("agent bot direct messages auto-provision a channel and route without an @ mention", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindChannel: false });
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-agent-bot-direct-first-message",
+      messageId: "om-agent-bot-direct-first-message",
+      chatId: "oc_direct_first_message",
+      chatType: "p2p",
+      text: "Please help me plan the launch",
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "sent");
+  assert.ok(result.mappedChannelName);
+  const [queuedTask] = listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID });
+  assert.equal(queuedTask?.agentId, "Atlas");
+
+  const binding = readExternalChannelBindingByExternalChatSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalChatId: "oc_direct_first_message",
+  });
+  assert.ok(binding);
+  assert.equal(binding.channelName, result.mappedChannelName);
+  assert.equal(binding.externalChatType, "p2p");
+  const bindingMetadata = JSON.parse(binding.metadataJson) as Record<string, unknown>;
+  assert.equal(bindingMetadata.provisionSource, "first_message");
+  assert.equal(bindingMetadata.agentId, "Atlas");
+
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-direct-first-message",
+  });
+  assert.ok(mapping);
+  const mappingMetadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(mappingMetadata.agentBotMentioned, true);
+  assert.equal(mappingMetadata.dispatchStatus, "sent");
+});
+
 test("agent bot inbound mapping records slash-agent command usage without storing message text", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindChannel: false });
 

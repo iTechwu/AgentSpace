@@ -403,6 +403,41 @@ export function readAgentRuntimeSync(runtimeId: string): AgentRuntimeRecord | nu
   return row ? mapAgentRuntimeRecord(row) : null;
 }
 
+export function requestAgentRuntimeProviderVerificationSync(input: {
+  runtimeId: string;
+  workspaceId?: string;
+}): AgentRuntimeRecord {
+  const runtimeId = input.runtimeId.trim();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  if (!runtimeId) {
+    throw new Error("runtimeId is required.");
+  }
+  const runtime = readAgentRuntimeSync(runtimeId);
+  if (!runtime || runtime.workspaceId !== workspaceId) {
+    throw new Error("runtime.not_found");
+  }
+  if (runtime.status !== "online") {
+    throw new Error("runtime.offline");
+  }
+
+  const metadata = parseMetadataJson(runtime.metadataJson);
+  getDatabase().prepare(
+    `UPDATE agent_runtime
+     SET metadata_json = ?,
+         updated_at = ?
+     WHERE id = ? AND workspace_id = ?`,
+  ).run(
+    JSON.stringify({
+      ...metadata,
+      providerVerificationRequestedAt: new Date().toISOString(),
+    }),
+    new Date().toISOString(),
+    runtimeId,
+    workspaceId,
+  );
+  return readAgentRuntimeSync(runtimeId)!;
+}
+
 export function deleteAgentRuntimeSync(input: {
   runtimeId: string;
   workspaceId?: string;

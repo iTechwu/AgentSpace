@@ -272,6 +272,7 @@ export {
   markStaleDaemonsOfflineSync,
   readDaemonConnectionSync,
   readAgentRuntimeSync,
+  requestAgentRuntimeProviderVerificationSync,
   deleteAgentRuntimeSync,
   readDaemonSnapshotSync,
   listDaemonSnapshotsSync,

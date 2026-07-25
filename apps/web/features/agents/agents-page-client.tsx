@@ -24,6 +24,7 @@ import {
   unbindWorkspaceAgentRuntimeAction,
   updateWorkspaceAgentInstructionsAction,
   updateWorkspaceRuntimeDisplayNameAction,
+  verifyWorkspaceAgentRuntimeProviderAction,
 } from "@/features/agents/actions";
 import { useLanguage } from "@/features/i18n/language-provider";
 import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-invalidation";
@@ -97,6 +98,7 @@ export function AgentsPageClient({
     mode: GeneratedInstallCommandMode;
   } | null>(null);
   const [forkAcceptDrafts, setForkAcceptDrafts] = useState<Record<string, { agentName: string; runtimeId: string }>>({});
+  const [providerVerificationPendingRuntimeIds, setProviderVerificationPendingRuntimeIds] = useState<Set<string>>(() => new Set());
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [mobilePane, setMobilePane] = useState<"list" | "detail">("list");
   const [isPending, startTransition] = useTransition();
@@ -150,11 +152,24 @@ export function AgentsPageClient({
   const selectedAgent = selectedAgentId ? allAgents.find((agent) => agent.id === selectedAgentId) ?? null : null;
   const shouldPollAgentUpdates = useMemo(
     () =>
+      providerVerificationPendingRuntimeIds.size > 0
+      ||
       data.daemonSnapshots.some((daemon) => daemon.status === "online")
       || data.containers.some((container) => container.queueCounts.running > 0 || container.queueCounts.queued > 0)
       || data.agents.some((agent) => agent.workAreas.some((area) => area.queueStatus === "queued" || area.queueStatus === "claimed" || area.queueStatus === "running")),
-    [data.agents, data.containers, data.daemonSnapshots],
+    [data.agents, data.containers, data.daemonSnapshots, providerVerificationPendingRuntimeIds],
   );
+  useEffect(() => {
+    setProviderVerificationPendingRuntimeIds((current) => {
+      const next = new Set(
+        [...current].filter((runtimeId) => data.agents.some((agent) =>
+          agent.boundContainerId === runtimeId
+          && (!agent.boundProviderHealth || agent.boundProviderHealth.providerUsable === "unverified")
+        )),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [data.agents]);
   const forkAcceptDraftById = useMemo(() => {
     const next: Record<string, { agentName: string; runtimeId: string }> = {};
     for (const invitation of pendingForkInvitations) {
@@ -651,6 +666,10 @@ export function AgentsPageClient({
                 <AgentDetail
                   containerOptions={data.containerOptions}
                   pending={isPending}
+                  providerVerificationPending={Boolean(
+                    selectedAgent.boundContainerId
+                    && providerVerificationPendingRuntimeIds.has(selectedAgent.boundContainerId),
+                  )}
                   record={selectedAgent}
                   workspaceMembers={data.workspaceMembers}
                   workspaceSkills={data.workspaceSkills}
@@ -668,6 +687,18 @@ export function AgentsPageClient({
                       () => unbindWorkspaceAgentRuntimeAction(selectedAgent.internalName),
                     )
                   }
+                  onVerifyProvider={() => {
+                    if (!selectedAgent.boundContainerId) return;
+                    runAction(
+                      () => verifyWorkspaceAgentRuntimeProviderAction({
+                        employeeName: selectedAgent.internalName,
+                        runtimeId: selectedAgent.boundContainerId!,
+                      }),
+                      () => setProviderVerificationPendingRuntimeIds((current) =>
+                        new Set([...current, selectedAgent.boundContainerId!]),
+                      ),
+                    );
+                  }}
                   onDeleteAgent={() =>
                     runAction(
                       () => deleteWorkspaceAgentAction(selectedAgent.internalName),

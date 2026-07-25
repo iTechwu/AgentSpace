@@ -8589,6 +8589,12 @@ textarea:focus {
   font-size: 0.86rem;
 }
 
+.runtime-binding-details small {
+  color: var(--console-muted, rgba(53, 46, 38, 0.62));
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
 .runtime-grants-panel__row {
   display: flex;
   align-items: center;
@@ -10211,6 +10217,20 @@ textarea:focus {
   background: rgba(255, 255, 255, 0.72);
 }
 
+.feishu-agent-settings-panel__summary .feishu-agent-settings-panel__health--success {
+  border-color: rgba(20, 145, 93, 0.5);
+}
+
+.feishu-agent-settings-panel__summary .feishu-agent-settings-panel__health--warning {
+  border-color: rgba(194, 117, 24, 0.62);
+  background: rgba(255, 248, 235, 0.86);
+}
+
+.feishu-agent-settings-panel__summary .feishu-agent-settings-panel__health--error {
+  border-color: rgba(205, 67, 58, 0.72);
+  background: rgba(255, 245, 244, 0.9);
+}
+
 .feishu-agent-settings-panel__summary span,
 .feishu-agent-settings-panel__command span {
   color: rgba(0, 0, 0, 0.56);
@@ -10232,6 +10252,22 @@ textarea:focus {
   padding: 0.32rem 0.4rem;
   font-size: 0.72rem;
   white-space: nowrap;
+}
+
+.feishu-agent-settings-panel__health-feedback {
+  margin: 0.12rem 0 0;
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.feishu-agent-settings-panel__health-feedback--success {
+  color: #087f4f;
+}
+
+.feishu-agent-settings-panel__health-feedback--error {
+  color: #b23a34;
 }
 
 .feishu-agent-settings-panel__command-list {

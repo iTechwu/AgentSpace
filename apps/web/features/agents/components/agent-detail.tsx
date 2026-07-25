@@ -20,11 +20,13 @@ import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 interface AgentDetailProps {
   readonly containerOptions: AgentsPageData["containerOptions"];
   readonly pending: boolean;
+  readonly providerVerificationPending?: boolean;
   readonly record: WorkspaceAgentRecord;
   readonly workspaceMembers?: AgentsPageData["workspaceMembers"];
   readonly workspaceSkills: WorkspaceSkill[];
   readonly onBindContainer: (runtimeId: string) => void;
   readonly onUnbindContainer: () => void;
+  readonly onVerifyProvider?: () => void;
   readonly onDeleteAgent: () => void;
   readonly onSaveInstructions: (instructions: string) => void;
   readonly onSetChannelMemberAccess?: (access: WorkspaceAgentRecord["channelMemberAccess"]) => void;
@@ -47,11 +49,13 @@ interface AgentDetailProps {
 export function AgentDetail({
   containerOptions,
   pending,
+  providerVerificationPending = false,
   record,
   workspaceMembers = [],
   workspaceSkills,
   onBindContainer,
   onUnbindContainer,
+  onVerifyProvider,
   onDeleteAgent,
   onSaveInstructions,
   onSetChannelMemberAccess,
@@ -105,10 +109,14 @@ export function AgentDetail({
     record.canManageChannelMemberAccess &&
     Boolean(onSetChannelMemberAccess);
   const boundProviderLabel = record.boundProvider ? formatDaemonProviderLabel(record.boundProvider) : tx("未绑定", "Unbound");
-  const providerUsabilityLabel = record.boundProviderHealth
+  const providerUsabilityLabel = providerVerificationPending
+    ? tx("验证中", "Verifying")
+    : record.boundProviderHealth
     ? formatProviderUsability(record.boundProviderHealth, tx)
     : tx("未验证", "Unverified");
-  const providerUsabilityTone = record.boundProviderHealth
+  const providerUsabilityTone = providerVerificationPending
+    ? "warning"
+    : record.boundProviderHealth
     ? providerUsabilityStatusTone(record.boundProviderHealth)
     : "neutral";
   const providerError = record.boundProviderHealth?.lastProviderErrorCode
@@ -607,6 +615,16 @@ export function AgentDetail({
                   <div className="runtime-binding-overview__chips">
                     <span className={`status-chip status-chip--${providerUsabilityTone}`}>{providerUsabilityLabel}</span>
                     <span className="tag-pill tag-pill--muted">{boundProviderLabel}</span>
+                    {record.boundContainerId && onVerifyProvider ? (
+                      <button
+                        className="action-button"
+                        disabled={pending || providerVerificationPending || !canManage || record.boundContainerStatus !== "online"}
+                        onClick={onVerifyProvider}
+                        type="button"
+                      >
+                        {pending || providerVerificationPending ? tx("验证中...", "Verifying...") : tx("验证 Provider", "Verify provider")}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -626,6 +644,11 @@ export function AgentDetail({
                   <div>
                     <dt>{tx("Provider 状态", "Provider status")}</dt>
                     <dd>{providerUsabilityLabel}</dd>
+                    {providerVerificationPending ? (
+                      <small>{tx("正在等待执行引擎回传验证结果。", "Waiting for the execution engine to return the verification result.")}</small>
+                    ) : providerUsabilityTone === "neutral" ? (
+                      <small>{tx("点击上方按钮执行本机 CLI 预检。", "Use the button above to run a local CLI preflight.")}</small>
+                    ) : null}
                   </div>
                 </dl>
 

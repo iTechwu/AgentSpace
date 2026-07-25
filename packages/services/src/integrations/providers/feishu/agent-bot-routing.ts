@@ -223,11 +223,15 @@ export function isFeishuAgentBotMentioned(
   if (!message) {
     return false;
   }
+  if (isFeishuDirectChatType(asString(message.chat_type) ?? asString(message.chatType))) {
+    return true;
+  }
   if (message.mentioned_bot === true || message.mentionedBot === true) {
     return true;
   }
   const botOpenId = readFeishuAgentBotOpenId(binding);
   const mentions = Array.isArray(message.mentions) ? message.mentions : [];
+  const botMentions = mentions.filter((mention) => asRecord(mention)?.is_bot === true);
   for (const mention of mentions) {
     const record = asRecord(mention);
     if (!record) {
@@ -244,9 +248,16 @@ export function isFeishuAgentBotMentioned(
   }
 
   if (!botOpenId) {
-    return false;
+    // Older bindings may predate storing the bot Open ID. A single bot
+    // mention is unambiguous; multiple bots still require an exact ID match.
+    return botMentions.length === 1;
   }
   return extractFeishuAtMentionIds(asString(message.content)).some((mentionId) => mentionId === botOpenId);
+}
+
+function isFeishuDirectChatType(chatType: string | undefined): boolean {
+  const normalized = chatType?.trim().toLowerCase();
+  return normalized === "p2p" || normalized === "direct" || normalized === "private";
 }
 
 function containsAgentMention(text: string, agentId: string): boolean {

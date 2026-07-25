@@ -16,6 +16,7 @@ import {
   pruneOldOfflineDaemonsAction,
   setWorkspaceAgentChannelMemberAccessAction,
   updateWorkspaceRuntimeDisplayNameAction,
+  verifyWorkspaceAgentRuntimeProviderAction,
 } from "@/features/agents/actions";
 import {
   checkFeishuIntegrationHealthAction,
@@ -65,6 +66,7 @@ vi.mock("@/features/agents/actions", () => ({
   unbindWorkspaceAgentRuntimeAction: vi.fn(async () => {}),
   updateWorkspaceAgentInstructionsAction: vi.fn(async () => {}),
   updateWorkspaceRuntimeDisplayNameAction: vi.fn(async () => {}),
+  verifyWorkspaceAgentRuntimeProviderAction: vi.fn(async () => ({ data: undefined })),
 }));
 
 vi.mock("@/features/settings/actions", () => ({
@@ -827,6 +829,32 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText(/provider.auth_invalid/)).toBeInTheDocument();
   });
 
+  it("requests provider verification from the bound execution engine", async () => {
+    const user = userEvent.setup();
+    renderAgentsPage({
+      ...data,
+      agents: [
+        {
+          ...data.agents[0]!,
+          boundProviderHealth: undefined,
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    expect(screen.getByText("点击上方按钮执行本机 CLI 预检。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "验证 Provider" }));
+
+    await waitFor(() => {
+      expect(verifyWorkspaceAgentRuntimeProviderAction).toHaveBeenCalledWith({
+        employeeName: "planner",
+        runtimeId: "runtime-1",
+      });
+    });
+    expect(screen.getAllByText("验证中")).toHaveLength(2);
+    expect(screen.getByText("正在等待执行引擎回传验证结果。")).toBeInTheDocument();
+  });
+
   it("shows an agent-scoped Feishu bot in agent settings", async () => {
     const user = userEvent.setup();
 
@@ -883,6 +911,32 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("飞书 Bot 连接检查通过。")).toBeInTheDocument();
   });
 
+  it("keeps Feishu bot health check failures inside the health card", async () => {
+    const user = userEvent.setup();
+    vi.mocked(checkFeishuIntegrationHealthAction).mockResolvedValueOnce({
+      ...buildAgentFeishuBot({ lastHealthStatus: "error" }),
+    });
+
+    renderAgentsPage({
+      ...data,
+      agents: [
+        {
+          ...data.agents[0]!,
+          feishuAgentBot: buildAgentFeishuBot({ lastHealthStatus: undefined }),
+          canManageFeishuAgentBot: true,
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    await user.click(screen.getByRole("button", { name: "检查连接" }));
+
+    const feedback = await screen.findByText("飞书 Bot 连接检查失败。");
+    const healthCard = feedback.closest(".feishu-agent-settings-panel__health");
+    expect(healthCard).toHaveClass("feishu-agent-settings-panel__health--error");
+    expect(healthCard).toContainElement(screen.getByText("异常"));
+  });
+
   it("binds a Feishu bot from agent settings with only App ID and App Secret", async () => {
     const user = userEvent.setup();
 
@@ -906,7 +960,7 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("sheets:spreadsheet")).not.toBeVisible();
     await user.type(screen.getByLabelText("App ID"), "cli_planner");
     await user.type(screen.getByLabelText("App Secret"), "secret_planner");
-    await user.click(screen.getByRole("button", { name: "绑定 Bot" }));
+    await user.click(screen.getByRole("button", { name: "绑定 Bot 并启用工作区" }));
 
     await waitFor(() => {
       expect(createFeishuAgentBotBindingAction).toHaveBeenCalledWith({
@@ -964,7 +1018,7 @@ describe("AgentsPageClient", () => {
     await user.selectOptions(screen.getByLabelText("建群审核状态"), "needs_identity_binding");
     await user.selectOptions(screen.getByLabelText("未绑定用户"), "require_identity");
     await user.selectOptions(screen.getByLabelText("访客权限"), "none");
-    await user.click(screen.getByRole("button", { name: "绑定 Bot" }));
+    await user.click(screen.getByRole("button", { name: "绑定 Bot 并启用工作区" }));
 
     await waitFor(() => {
       expect(createFeishuAgentBotBindingAction).toHaveBeenCalledWith({

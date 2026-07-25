@@ -1494,6 +1494,9 @@ function toProviderRuntimeRecord(runtime: AgentRuntimeRecord): ProviderRuntimeRe
       executablePath: typeof metadata.executablePath === "string" ? metadata.executablePath : "",
       mode: metadata.mode === "remote" ? "remote" : "local",
       providerHealth: isRecord(metadata.providerHealth) ? metadata.providerHealth : undefined,
+      providerVerificationRequestedAt: typeof metadata.providerVerificationRequestedAt === "string"
+        ? metadata.providerVerificationRequestedAt
+        : undefined,
       openClawProfile: typeof metadata.openClawProfile === "string" ? metadata.openClawProfile : undefined,
       openClawModel: typeof metadata.openClawModel === "string" ? metadata.openClawModel : undefined,
     },

@@ -24,6 +24,11 @@ interface FeishuAgentBotAgentSettingsPanelProps {
   readonly setupReference?: FeishuAgentBotSetupReference;
 }
 
+type HealthCheckFeedback = {
+  readonly message: string;
+  readonly tone: "success" | "error";
+};
+
 export function FeishuAgentBotAgentSettingsPanel({
   agentId,
   agentName,
@@ -36,6 +41,7 @@ export function FeishuAgentBotAgentSettingsPanel({
   const [isPending, startTransition] = useTransition();
   const [currentIntegration, setCurrentIntegration] = useState(integration);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [healthCheckFeedback, setHealthCheckFeedback] = useState<HealthCheckFeedback | null>(null);
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -52,11 +58,13 @@ export function FeishuAgentBotAgentSettingsPanel({
   useEffect(() => {
     setCurrentIntegration(integration);
     setFeedback(null);
+    setHealthCheckFeedback(null);
   }, [integration?.id, agentId]);
 
   const requiresVerificationToken = transportMode === "http_webhook";
   const canCreate = canManage && appId.trim() && appSecret.trim() && (!requiresVerificationToken || verificationToken.trim());
   const disabled = isPending || !canManage;
+  const healthTone = healthCheckFeedback?.tone ?? resolveHealthTone(currentIntegration?.lastHealthStatus);
 
   const handleCreated = (created: FeishuIntegrationSettingsItem) => {
     setCurrentIntegration(created);
@@ -113,7 +121,7 @@ export function FeishuAgentBotAgentSettingsPanel({
               <span>{tx("连接方式", "Transport")}</span>
               <strong>{formatTransportMode(currentIntegration.transportMode, tx)}</strong>
             </div>
-            <div className="feishu-agent-settings-panel__health">
+            <div className={`feishu-agent-settings-panel__health${healthTone ? ` feishu-agent-settings-panel__health--${healthTone}` : ""}`}>
               <span>{tx("健康状态", "Health")}</span>
               <strong>{formatHealthStatus(currentIntegration.lastHealthStatus, tx)}</strong>
               <button
@@ -123,12 +131,15 @@ export function FeishuAgentBotAgentSettingsPanel({
                   startTransition(async () => {
                     try {
                       const updated = await checkFeishuIntegrationHealthAction(currentIntegration.id);
-                      setFeedback(updated.lastHealthStatus === "healthy"
-                        ? tx("飞书 Bot 连接检查通过。", "Feishu bot health check passed.")
-                        : tx("飞书 Bot 连接检查失败。", "Feishu bot health check failed."));
+                      setHealthCheckFeedback(updated.lastHealthStatus === "healthy"
+                        ? { tone: "success", message: tx("飞书 Bot 连接检查通过。", "Feishu bot health check passed.") }
+                        : { tone: "error", message: tx("飞书 Bot 连接检查失败。", "Feishu bot health check failed.") });
                       handleUpdated(updated);
                     } catch (error) {
-                      setFeedback(translateSettingsActionError(error, tx));
+                      setHealthCheckFeedback({
+                        tone: "error",
+                        message: translateSettingsActionError(error, tx),
+                      });
                     }
                   });
                 }}
@@ -136,6 +147,11 @@ export function FeishuAgentBotAgentSettingsPanel({
               >
                 {isPending ? tx("检查中...", "Checking...") : tx("检查连接", "Check Connection")}
               </button>
+              {healthCheckFeedback ? (
+                <p aria-live="polite" className={`feishu-agent-settings-panel__health-feedback feishu-agent-settings-panel__health-feedback--${healthCheckFeedback.tone}`}>
+                  {healthCheckFeedback.message}
+                </p>
+              ) : null}
             </div>
             <div>
               <span>{tx("已绑定群聊", "Bound groups")}</span>
@@ -669,5 +685,18 @@ function formatHealthStatus(
       return tx("异常", "Error");
     default:
       return tx("未检查", "Unchecked");
+  }
+}
+
+function resolveHealthTone(status: string | undefined): "success" | "error" | "warning" | undefined {
+  switch (status) {
+    case "healthy":
+      return "success";
+    case "degraded":
+      return "warning";
+    case "error":
+      return "error";
+    default:
+      return undefined;
   }
 }

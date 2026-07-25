@@ -94,6 +94,18 @@ test("routes only mentions of the current Feishu agent bot", () => {
   }), binding), true);
 });
 
+test("treats direct messages as addressed to the bot and supports old bindings without a bot Open ID", () => {
+  const legacyBinding = buildAgentBotBinding({ botOpenId: "" });
+
+  assert.equal(isFeishuAgentBotMentioned(buildPayload({ chatType: "p2p" }), legacyBinding), true);
+  assert.equal(isFeishuAgentBotMentioned(buildPayload({
+    mentions: [{ is_bot: true }],
+  }), legacyBinding), true);
+  assert.equal(isFeishuAgentBotMentioned(buildPayload({
+    mentions: [{ is_bot: true }, { is_bot: true }],
+  }), legacyBinding), false);
+});
+
 test("resolves Feishu chat descriptors from bot-added payload variants", () => {
   assert.deepEqual(resolveFeishuChatDescriptor({
     event: {
@@ -141,6 +153,7 @@ test("resolves Feishu chat descriptors from bot-added payload variants", () => {
 });
 
 function buildPayload(input: {
+  chatType?: string;
   senderType?: string;
   messageSenderType?: string;
   mentionedBot?: boolean;
@@ -162,6 +175,7 @@ function buildPayload(input: {
       },
       message: {
         chat_id: "oc_general",
+        chat_type: input.chatType,
         message_id: "om-bot-sender",
         sender_type: input.messageSenderType,
         mentioned_bot: input.mentionedBot,

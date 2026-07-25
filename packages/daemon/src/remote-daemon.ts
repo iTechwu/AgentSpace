@@ -144,6 +144,14 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
           buildRemoteRuntimeHeartbeatMetadata(runtimes),
         );
         runtimes = reconcileRemoteRuntimesWithHeartbeat(runtimes, heartbeat);
+        if (runtimes.some(hasPendingProviderVerification)) {
+          const verificationHeartbeat = await client.sendHeartbeatWithMetadata(
+            config.daemonKey,
+            readNodeMetadata(config.serverUrl ?? "", config.runtimeName, runtimes),
+            buildRemoteRuntimeHeartbeatMetadata(runtimes),
+          );
+          runtimes = reconcileRemoteRuntimesWithHeartbeat(runtimes, verificationHeartbeat);
+        }
         for (const runtimeId of activeRuntimes) {
           if (!runtimes.some((runtime) => runtime.id === runtimeId)) {
             activeRuntimes.delete(runtimeId);
@@ -688,6 +696,18 @@ function buildRemoteRuntimeHeartbeatMetadata(runtimes: RemoteRuntimeRecord[]): A
     provider: runtime.provider,
     metadata: buildProviderRuntimeMetadata(runtime),
   }));
+}
+
+function hasPendingProviderVerification(runtime: RemoteRuntimeRecord): boolean {
+  const requestedAt = runtime.metadata.providerVerificationRequestedAt;
+  if (!requestedAt) {
+    return false;
+  }
+  const health = runtime.metadata.providerHealth as { checkedAt?: unknown } | undefined;
+  if (typeof health?.checkedAt !== "string") {
+    return true;
+  }
+  return new Date(health.checkedAt).getTime() < new Date(requestedAt).getTime();
 }
 
 function resolveStateDir(flags: Record<string, string | boolean>): string {
