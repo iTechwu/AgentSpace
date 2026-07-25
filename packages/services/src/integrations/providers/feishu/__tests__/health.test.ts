@@ -9,7 +9,7 @@ import {
   readFeishuBotInfo,
 } from "../index.ts";
 import type { FeishuApiClient } from "../client.ts";
-import { FEISHU_DEFAULT_SCOPES } from "../constants.ts";
+import { FEISHU_BOT_SMOKE_SCOPES, FEISHU_DEFAULT_SCOPES } from "../constants.ts";
 
 test("fetchFeishuTenantAccessToken posts app credentials and returns tenant token", async () => {
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
@@ -132,6 +132,31 @@ test("readFeishuAppScopes resolves granted app scope names", async () => {
   assert.deepEqual(await readFeishuAppScopes(client), [
     "bitable:app",
     "im:message",
+  ]);
+});
+
+test("readFeishuAppScopes supports Feishu v6 scope_name responses", async () => {
+  const client: FeishuApiClient = {
+    async request(input) {
+      assert.equal(input.path, "/open-apis/application/v6/scopes");
+      return {
+        code: 0,
+        data: {
+          scopes: FEISHU_DEFAULT_SCOPES.map((scope) => ({
+            scope_name: scope,
+            grant_status: 1,
+            scope_type: "tenant",
+          })),
+        },
+      };
+    },
+  };
+
+  assert.deepEqual(await readFeishuAppScopes(client), [...FEISHU_DEFAULT_SCOPES].sort());
+  assert.deepEqual(FEISHU_BOT_SMOKE_SCOPES, [
+    "im:message",
+    "im:message:send_as_bot",
+    "contact:contact.base:readonly",
   ]);
 });
 

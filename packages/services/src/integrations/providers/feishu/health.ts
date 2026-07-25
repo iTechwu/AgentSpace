@@ -249,7 +249,9 @@ function readGrantedScopeName(value: unknown): string | undefined {
   if (grantStatus !== undefined && grantStatus !== 1) {
     return undefined;
   }
-  return asString(record.scope);
+  return asString(record.scope_name)
+    ?? asString(record.scopeName)
+    ?? asString(record.scope);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

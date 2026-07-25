@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "23";
+export const POSTGRES_SCHEMA_VERSION = "25";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -316,6 +316,14 @@ export function getPostgresSchemaStatements(): string[] {
       )
     `,
     `
+      ALTER TABLE external_resource_binding
+        ADD COLUMN IF NOT EXISTS dofe_agent_resource_type TEXT
+    `,
+    `
+      ALTER TABLE external_resource_binding
+        ADD COLUMN IF NOT EXISTS dofe_agent_resource_id TEXT
+    `,
+    `
       CREATE TABLE IF NOT EXISTS external_message_mapping (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
@@ -334,6 +342,25 @@ export function getPostgresSchemaStatements(): string[] {
         UNIQUE(integration_id, external_message_id),
         UNIQUE(integration_id, external_event_id)
       )
+    `,
+    `
+      ALTER TABLE external_message_mapping
+        ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT
+    `,
+    `
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'external_message_mapping'
+            AND column_name = 'agent_space_message_id'
+        ) THEN
+          UPDATE external_message_mapping
+          SET dofe_agent_message_id = COALESCE(dofe_agent_message_id, agent_space_message_id);
+        END IF;
+      END $$
     `,
     `
       CREATE TABLE IF NOT EXISTS external_message_outbox (
@@ -360,6 +387,25 @@ export function getPostgresSchemaStatements(): string[] {
     `
       ALTER TABLE external_message_outbox
         ADD COLUMN IF NOT EXISTS metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    `,
+    `
+      ALTER TABLE external_message_outbox
+        ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT
+    `,
+    `
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'external_message_outbox'
+            AND column_name = 'agent_space_message_id'
+        ) THEN
+          UPDATE external_message_outbox
+          SET dofe_agent_message_id = COALESCE(dofe_agent_message_id, agent_space_message_id);
+        END IF;
+      END $$
     `,
     `
       CREATE TABLE IF NOT EXISTS external_data_operation_run (
@@ -954,6 +1000,25 @@ export function getPostgresSchemaStatements(): string[] {
           ON UPDATE CASCADE,
         UNIQUE(workspace_id, provider, tenant_key, external_chat_id, external_thread_id, agent_id)
       )
+    `,
+    `
+      ALTER TABLE external_thread_binding
+        ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT
+    `,
+    `
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'external_thread_binding'
+            AND column_name = 'agent_space_message_id'
+        ) THEN
+          UPDATE external_thread_binding
+          SET dofe_agent_message_id = COALESCE(dofe_agent_message_id, agent_space_message_id);
+        END IF;
+      END $$
     `,
     `
       CREATE TABLE IF NOT EXISTS agent_router_session (

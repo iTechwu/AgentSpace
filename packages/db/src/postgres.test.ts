@@ -20,6 +20,11 @@ test("postgres schema includes the expected core and derived tables", () => {
   assert.match(statements, /workspace_snapshot_ledger/);
   assert.match(statements, /CREATE UNIQUE INDEX IF NOT EXISTS idx_external_integration_provider_app_tenant/);
   assert.match(statements, /ON external_integration\(workspace_id, provider, app_id, COALESCE\(tenant_key, ''\)\)/);
+  assert.match(statements, /ALTER TABLE external_resource_binding\s+ADD COLUMN IF NOT EXISTS dofe_agent_resource_type TEXT/);
+  assert.match(statements, /ALTER TABLE external_resource_binding\s+ADD COLUMN IF NOT EXISTS dofe_agent_resource_id TEXT/);
+  assert.match(statements, /ALTER TABLE external_message_mapping\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
+  assert.match(statements, /ALTER TABLE external_message_outbox\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
+  assert.match(statements, /ALTER TABLE external_thread_binding\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
 });
 
 test("collectSqliteMigrationSnapshotSync extracts relational rows and derived attachments/audit logs", () => {

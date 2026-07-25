@@ -448,7 +448,7 @@ export function FeishuAgentBotsPanel({
               />
               <div className="feishu-integration-form__actions">
                 <button
-                  className="danger-button"
+                  className="action-button action-button--danger"
                   disabled={isPending || integration.status === "disabled"}
                   onClick={() => {
                     startTransition(async () => {

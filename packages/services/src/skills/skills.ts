@@ -24,14 +24,12 @@ import {
 export const BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME = "return-output-files";
 export const BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME = "workspace-context";
 export const BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME = "update-channel-documents";
-export const BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME = "google-workspace-cli";
 
 export function isSystemSkillName(name: string): boolean {
   return (
     sameValue(name, BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME)
     || sameValue(name, BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME)
     || sameValue(name, BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME)
-    || sameValue(name, BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME)
     || isPredefinedAgentTemplateSkillName(name)
   );
 }

@@ -27,7 +27,6 @@ import {
   replacePendingChannelMessageSync,
   resolveCompatibleDirectChannelRecord,
   AgentDocumentPermissionError,
-  updateExternalChannelDocumentMetadataSync,
   writeConversationExecutionWorkspaceStateSync,
   upsertDirectConversationStateSync,
   updateTaskStatusSync,
@@ -40,10 +39,6 @@ import {
   getDaemonTaskOutputStagingDir,
   materializeOutputBundleToStaging,
 } from "../../../_lib/output-bundle";
-import { applyExternalSheetOperations } from "@/features/integrations/external-sheets";
-import { applyExternalGoogleDocOperations } from "@/features/integrations/external-google-docs";
-import { getGoogleWorkspaceAccessTokenForAgent } from "@/features/integrations/google-workspace";
-import { syncGoogleSheetDocumentDrivePermissions } from "@/features/integrations/google-drive-permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -134,13 +129,6 @@ export async function POST(
       sourceDofeAgentMessageId: payload.sourceMessageId,
       resourceGrants: feishuLarkCliResourceGrants,
     });
-    const createdSheetPermissionSync = await syncAgentCreatedGoogleSheetPermissions({
-      workspaceId: task.workspaceId,
-      actorName: payload.assignee ?? task.agentId,
-      operations: documentRuntimeOutputOperations.externalDocumentLinks,
-    });
-    documentRuntimeOutputOperations.warnings.push(...createdSheetPermissionSync.warnings);
-    documentRuntimeOutputOperations.statusMessages.push(...createdSheetPermissionSync.statusMessages);
     const knowledgeProposalOperations = applyKnowledgeProposalOperations({
       workDir: stagingDir,
       workspaceId: task.workspaceId,
@@ -148,32 +136,8 @@ export async function POST(
       sourceTaskQueueId: task.id,
       sourceChannelName: effectiveChannelName,
     });
-    const externalSheetOperations = await applyExternalSheetOperations({
-      workDir: stagingDir,
-      workspaceId: task.workspaceId,
-      actorId: payload.assignee ?? task.agentId,
-      credentialSource: {
-        type: "agent_delegation",
-        employeeName: payload.assignee ?? task.agentId,
-      },
-      channelName: effectiveChannelName,
-      taskId: task.id,
-    });
-    const externalGoogleDocOperations = await applyExternalGoogleDocOperations({
-      workDir: stagingDir,
-      workspaceId: task.workspaceId,
-      actorId: payload.assignee ?? task.agentId,
-      credentialSource: {
-        type: "agent_delegation",
-        employeeName: payload.assignee ?? task.agentId,
-      },
-      channelName: effectiveChannelName,
-    });
     const outputEnvelope = loadTaskOutputEnvelope(stagingDir, fallbackOutput, task.workspaceId);
-    const finalOutputText = appendExternalSheetOperationStatus(
-      outputEnvelope.text,
-      externalSheetOperations.operations,
-    );
+    const finalOutputText = outputEnvelope.text;
     persistedAttachments = outputEnvelope.attachments;
 
     appendTaskMessageSync({
@@ -244,34 +208,6 @@ export async function POST(
         content: message,
       });
     }
-    for (const message of externalSheetOperations.statusMessages) {
-      appendTaskMessageSync({
-        taskId: task.id,
-        type: "status",
-        content: message,
-      });
-    }
-    for (const message of externalGoogleDocOperations.statusMessages) {
-      appendTaskMessageSync({
-        taskId: task.id,
-        type: "status",
-        content: message,
-      });
-    }
-    for (const warning of externalSheetOperations.warnings) {
-      appendTaskMessageSync({
-        taskId: task.id,
-        type: "status",
-        content: warning,
-      });
-    }
-    for (const warning of externalGoogleDocOperations.warnings) {
-      appendTaskMessageSync({
-        taskId: task.id,
-        type: "status",
-        content: warning,
-      });
-    }
     for (const warning of documentOperations.warnings) {
       appendTaskMessageSync({
         taskId: task.id,
@@ -300,8 +236,6 @@ export async function POST(
         feishuRuntimeDataOperationApprovalIds: feishuRuntimeDataOperationRequests.approvalIds,
         documentPermissionRequests: documentRuntimeOutputOperations.permissionRequests,
         knowledgeProposals: knowledgeProposalOperations.knowledgeProposals,
-        externalSheetOperations: externalSheetOperations.operations,
-        externalGoogleDocOperations: externalGoogleDocOperations.operations,
       },
       sessionId: body.sessionId,
       workDir: body.workDir,
@@ -634,100 +568,6 @@ function enqueueFeishuReplyOutboxBestEffort(input: {
     const message = error instanceof Error ? error.message : String(error);
     return [`Feishu outbound enqueue failed: ${message}`];
   }
-}
-
-function appendExternalSheetOperationStatus(
-  outputText: string,
-  operations: Array<{ status: "succeeded" | "failed"; operationType?: string; message: string }>,
-): string {
-  const messages = operations
-    .filter((operation) => operation.status === "failed" || operation.status === "succeeded")
-    .map((operation) => operation.message.startsWith("Google Sheet")
-      ? operation.message
-      : `Google Sheet 操作${operation.status === "failed" ? "失败" : "成功"}：${operation.operationType ?? "unknown"} · ${operation.message}`)
-    .filter((message) => !outputText.includes(message));
-  if (messages.length === 0) {
-    return outputText;
-  }
-  return [outputText, ...messages].filter(Boolean).join("\n\n");
-}
-
-async function syncAgentCreatedGoogleSheetPermissions(input: {
-  workspaceId: string;
-  actorName: string;
-  operations: Array<{
-    operationType?: string;
-    status: "succeeded" | "failed";
-    permissionSync?: {
-      documentId: string;
-      delegatedGoogleEmail?: string;
-    };
-  }>;
-}): Promise<{ warnings: string[]; statusMessages: string[] }> {
-  const warnings: string[] = [];
-  const statusMessages: string[] = [];
-  const targets = input.operations.filter((operation) =>
-    operation.operationType === "create_google_sheet" &&
-    operation.status === "succeeded" &&
-    operation.permissionSync?.documentId,
-  );
-  if (targets.length === 0) {
-    return { warnings, statusMessages };
-  }
-
-  let accessToken: string;
-  try {
-    const token = await getGoogleWorkspaceAccessTokenForAgent({
-      workspaceId: input.workspaceId,
-      employeeName: input.actorName,
-    });
-    accessToken = token.accessToken;
-  } catch (error) {
-    const message = `Google Sheet 权限同步失败：${error instanceof Error ? error.message : String(error)}`;
-    for (const target of targets) {
-      updateExternalChannelDocumentMetadataSync({
-        documentId: target.permissionSync!.documentId,
-        externalSyncStatus: "permission_error",
-        updatedBy: "系统提示",
-      }, input.workspaceId);
-    }
-    return {
-      warnings: [message],
-      statusMessages: [message],
-    };
-  }
-
-  for (const target of targets) {
-    try {
-      const result = await syncGoogleSheetDocumentDrivePermissions({
-        accessToken,
-        workspaceId: input.workspaceId,
-        documentId: target.permissionSync!.documentId,
-        actorId: input.actorName,
-        actorType: "agent",
-        skipEmails: [target.permissionSync?.delegatedGoogleEmail].filter((email): email is string => Boolean(email)),
-      });
-      statusMessages.push(`Google Sheet 权限同步${result.status === "succeeded" ? "成功" : "失败"}：${result.message}`);
-      if (result.status === "failed") {
-        updateExternalChannelDocumentMetadataSync({
-          documentId: target.permissionSync!.documentId,
-          externalSyncStatus: "permission_error",
-          updatedBy: "系统提示",
-        }, input.workspaceId);
-        warnings.push(result.message);
-      }
-    } catch (error) {
-      const message = `Google Sheet 权限同步失败：${error instanceof Error ? error.message : String(error)}`;
-      updateExternalChannelDocumentMetadataSync({
-        documentId: target.permissionSync!.documentId,
-        externalSyncStatus: "permission_error",
-        updatedBy: "系统提示",
-      }, input.workspaceId);
-      warnings.push(message);
-      statusMessages.push(message);
-    }
-  }
-  return { warnings, statusMessages };
 }
 
 function tryContinueAutoContinuation(input: {

@@ -16,7 +16,6 @@ import {
 } from "./agent-router/index.ts";
 import { buildRedactions, redactText } from "./agent-router/utils.ts";
 import { clearTaskOutputArtifacts } from "./bundle.ts";
-import { readGoogleWorkspaceReadiness } from "./google-workspace-readiness.ts";
 import { buildOpenClawProviderHealthSnapshot, inspectOpenClawDaemonAuthHealth } from "./openclaw-health.ts";
 import { readCliHubReadiness } from "./runtime-apps.ts";
 
@@ -409,25 +408,6 @@ function buildBuiltinRuntimeToolCapabilities(contextEnv?: Record<string, string>
     },
   ];
 
-  const googleTokenEnvName = readGoogleWorkspaceTokenEnvName(contextEnv);
-  if (googleTokenEnvName) {
-    const command = process.env.DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR?.trim() || "gws";
-    const binDir = resolveCommandDirFromCurrentEnv(command);
-    capabilities.push({
-      id: "google-workspace",
-      command,
-      displayName: "Google Workspace",
-      binPath: isPathLike(command) ? command : undefined,
-      binDir,
-      allowedShellPatterns: [
-        `${command} --version`,
-      ],
-      diagnosticCommands: [`command -v ${shellQuote(command)}`],
-      env: pickEnv(contextEnv, [googleTokenEnvName]),
-      source: "builtin",
-    });
-  }
-
   const feishuLarkCliCapability = buildFeishuLarkCliDiagnosticRuntimeToolCapability({
     environment: process.env,
     source: "builtin",
@@ -459,30 +439,6 @@ function buildCliHubRuntimeToolCapabilities(runtimeApps: RuntimeAppContextEntry[
       source: "cli-hub",
     }];
   });
-}
-
-function readGoogleWorkspaceTokenEnvName(contextEnv?: Record<string, string>): string | undefined {
-  if (!contextEnv) {
-    return undefined;
-  }
-  if (typeof contextEnv.GOOGLE_WORKSPACE_CLI_TOKEN === "string" && contextEnv.GOOGLE_WORKSPACE_CLI_TOKEN.trim()) {
-    return "GOOGLE_WORKSPACE_CLI_TOKEN";
-  }
-  return Object.keys(contextEnv).find((key) => /^GOOGLE_.*TOKEN$/i.test(key) && contextEnv[key]?.trim());
-}
-
-function pickEnv(source: Record<string, string> | undefined, keys: string[]): Record<string, string> | undefined {
-  if (!source) {
-    return undefined;
-  }
-  const env: Record<string, string> = {};
-  for (const key of keys) {
-    const value = source[key];
-    if (typeof value === "string") {
-      env[key] = value;
-    }
-  }
-  return Object.keys(env).length > 0 ? env : undefined;
 }
 
 function resolveCommandDirFromCurrentEnv(command: string): string | undefined {
@@ -869,7 +825,6 @@ export function readNodeMetadata(serverUrl: string, runtimeName: string, runtime
     platform,
     arch,
     serverUrl,
-    googleWorkspaceReadiness: readGoogleWorkspaceReadiness(),
     cliHubReadiness: readCliHubReadiness(),
     providerHealth: Object.fromEntries(
       runtimes

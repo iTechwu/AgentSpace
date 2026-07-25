@@ -2,14 +2,12 @@ import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ContactAgentContext, MaterializedSkillDirectories } from "@dofe-agent/services";
 import {
-  readActiveAgentGoogleWorkspaceDelegationSync,
   type AgentRuntimeRecord,
   type QueuedTaskRecord,
 } from "@dofe-agent/db";
 import type { ActiveEmployee, ChannelDocument, KnowledgePage, WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import {
   BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME,
-  BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME,
   BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME,
   BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME,
   listRuntimeAppContextEntriesForRuntimeSync,
@@ -421,13 +419,7 @@ export function prepareDaemonTaskContext(input: {
     workspaceId: input.task.workspaceId,
     requestedByAgentName: agentName,
   }).filter((request) => request.status === "pending" || request.status === "rejected");
-  const visibleDocuments = agentDocumentContexts.map((context) => context.document);
   let agentSkills = resolveAgentSkills(workspaceState, input.agentProfile, input.task.workspaceId);
-  agentSkills = includeGoogleWorkspaceCliSkill(agentSkills, workspaceState.skills, visibleDocuments, {
-    workspaceId: input.task.workspaceId,
-    agentName,
-    channelName: payload.channelName ?? payload.channel,
-  });
   agentSkills = filterRuntimeAppSkillsByRuntimeAvailability(agentSkills, runtimeApps);
   const agentKnowledgePages = resolveAgentKnowledgePages(workspaceState, input.agentProfile, input.task.workspaceId);
   const skillDirectories = materializeAgentSkills(agentSkills, input.workDir, input.runtime.provider);
@@ -1055,41 +1047,6 @@ export function resolveAgentSkills(
   return assignedSkills;
 }
 
-function includeGoogleWorkspaceCliSkill(
-  assignedSkills: WorkspaceSkill[],
-  workspaceSkills: WorkspaceSkill[],
-  channelDocuments: ChannelDocument[],
-  context: {
-    workspaceId: string;
-    agentName: string;
-    channelName?: string;
-  },
-): WorkspaceSkill[] {
-  if (!channelDocuments.some(isExternalGoogleWorkspaceDocument) && !canCreateGoogleSheetInChannel(context)) {
-    return assignedSkills;
-  }
-
-  const googleWorkspaceCliSkill = workspaceSkills.find((skill) => sameValue(skill.name, BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME));
-  if (!googleWorkspaceCliSkill || assignedSkills.some((skill) => skill.id === googleWorkspaceCliSkill.id)) {
-    return assignedSkills;
-  }
-  return [googleWorkspaceCliSkill, ...assignedSkills];
-}
-
-function canCreateGoogleSheetInChannel(input: {
-  workspaceId: string;
-  agentName: string;
-  channelName?: string;
-}): boolean {
-  if (process.env.DOFE_AGENT_AGENT_GOOGLE_SHEET_CREATE_ENABLED === "false" || !input.channelName) {
-    return false;
-  }
-  return Boolean(readActiveAgentGoogleWorkspaceDelegationSync({
-    workspaceId: input.workspaceId,
-    employeeName: input.agentName,
-  }));
-}
-
 function filterRuntimeAppSkillsByRuntimeAvailability(
   skills: WorkspaceSkill[],
   runtimeApps: RuntimeAppContextEntry[],
@@ -1124,14 +1081,6 @@ function readRuntimeAppSkillConfigKey(configJson: string | undefined): string | 
   return undefined;
 }
 
-function isExternalGoogleWorkspaceDocument(document: ChannelDocument): boolean {
-  return (
-    document.storageMode === "external" &&
-    document.externalProvider === "google_workspace" &&
-    Boolean(document.externalFileId)
-  );
-}
-
 function buildAgentContextLines(
   agentProfile: ActiveEmployee | undefined,
   agentSkills: WorkspaceSkill[],
@@ -1162,7 +1111,7 @@ function buildAgentContextLines(
     }
   }
 
-  lines.push("如需回传文件、群文档、skill import、Google Docs 操作或已执行的外部表格结果，只使用 dofe-agent output ...；CLI 会生成 runtime-output manifest，daemon 会在任务结束后回收。");
+  lines.push("如需回传文件、群文档、skill import 或飞书受控数据操作，只使用 dofe-agent output ...；CLI 会生成 runtime-output manifest，daemon 会在任务结束后回收。");
   lines.push(`如需回传文件或图片，请遵循 ${BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME} skill，使用 dofe-agent output attach ...，然后运行 dofe-agent output validate。`);
   lines.push("如需把新 skill 导入工作区，使用 dofe-agent output skill import ...，然后运行 dofe-agent output validate。");
   lines.push("如果本次任务总结出可复用的规则、流程、约束或已验证事实，可以用 dofe-agent output knowledge propose-create/propose-update 提交 workspace knowledge 候选；这只会进入人类审批，不会直接写入全局知识库。");

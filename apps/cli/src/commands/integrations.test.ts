@@ -45,7 +45,7 @@ import { printCommandHelp } from "../lib/help.ts";
 const FEISHU_TEST_SCOPES = [
   "im:message",
   "im:message:send_as_bot",
-  "contact:user.base:readonly",
+  "contact:contact.base:readonly",
   "docx:document",
   "drive:drive",
   "sheets:spreadsheet",
@@ -298,7 +298,7 @@ test("Feishu create CLI stores encrypted credentials and returns redacted setup 
   assert.deepEqual(report.openPlatformSetup.botScopes, [
     "im:message",
     "im:message:send_as_bot",
-    "contact:user.base:readonly",
+    "contact:contact.base:readonly",
   ]);
   assert.deepEqual(report.openPlatformSetup.dataPlaneScopes, [
     "docx:document",
@@ -8438,7 +8438,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.deepEqual(report.appSetup.botScopes, [
     "im:message",
     "im:message:send_as_bot",
-    "contact:user.base:readonly",
+    "contact:contact.base:readonly",
   ]);
   assert.deepEqual(report.appSetup.dataPlaneScopes, [
     "docx:document",
@@ -9536,7 +9536,7 @@ test("Feishu readiness report blocks manual smoke when local scopes are incomple
   assert.equal(report.strictSatisfied, false);
   assert.equal(item?.readyForBotSmoke, false);
   assert.equal(item?.readyForDataPlaneSmoke, false);
-  assert.deepEqual(item?.scopes.missingForBotSmoke, ["contact:user.base:readonly"]);
+  assert.deepEqual(item?.scopes.missingForBotSmoke, ["contact:contact.base:readonly"]);
   assert.deepEqual(item?.scopes.missingForDataPlaneSmoke, [
     "docx:document",
     "drive:drive",

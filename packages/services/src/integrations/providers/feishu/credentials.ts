@@ -91,7 +91,8 @@ function readFeishuCredentialEncryptionKey(): Buffer {
   const effectiveEnv = readEffectiveRuntimeEnv();
   const value =
     effectiveEnv.DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY?.trim()
-    || effectiveEnv.DOFE_AGENT_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY?.trim();
+    || effectiveEnv.DOFE_AGENT_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY?.trim()
+    || effectiveEnv.AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY?.trim();
   if (!value) {
     throw new Error("DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.");
   }

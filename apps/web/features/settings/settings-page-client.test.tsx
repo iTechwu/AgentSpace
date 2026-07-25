@@ -1948,7 +1948,7 @@ function buildFeishuCreationGuide(): NonNullable<
     requiredScopes: [
       "im:message",
       "im:message:send_as_bot",
-      "contact:user.base:readonly",
+      "contact:contact.base:readonly",
       "docx:document",
       "drive:drive",
       "sheets:spreadsheet",

@@ -18,6 +18,7 @@ import {
   updateWorkspaceRuntimeDisplayNameAction,
 } from "@/features/agents/actions";
 import {
+  checkFeishuIntegrationHealthAction,
   createFeishuAgentBotBindingAction,
   rotateFeishuAgentBotCredentialsAction,
 } from "@/features/integrations/feishu/feishu-actions";
@@ -78,6 +79,32 @@ vi.mock("@/features/settings/actions", () => ({
 }));
 
 vi.mock("@/features/integrations/feishu/feishu-actions", () => ({
+  checkFeishuIntegrationHealthAction: vi.fn(async () => ({
+    id: "feishu-agent-bot-planner",
+    displayName: "Planner Feishu Bot",
+    status: "active",
+    transportMode: "websocket_worker",
+    agentId: "planner",
+    appId: "cli_planner",
+    callbackUrl: "",
+    createdAt: "2026-04-10T08:00:00.000Z",
+    updatedAt: "2026-04-10T08:00:00.000Z",
+    lastHealthStatus: "healthy",
+    hasAppSecret: true,
+    hasVerificationToken: false,
+    hasEncryptKey: false,
+    userBindingCount: 1,
+    channelBindingCount: 2,
+    resourceBindingCount: 0,
+    operationRunCount: 0,
+    outboxFailureCount: 0,
+    userBindings: [],
+    channelBindings: [],
+    resourceBindings: [],
+    operationRuns: [],
+    recentOutboxFailures: [],
+    recentInboundEvents: [],
+  })),
   createFeishuAgentBotBindingAction: vi.fn(async () => ({
     id: "feishu-agent-bot-planner",
     displayName: "Planner Feishu Bot",
@@ -353,7 +380,7 @@ const data: AgentsPageData = {
         requiredScopes: [
           "im:message",
           "im:message:send_as_bot",
-          "contact:user.base:readonly",
+          "contact:contact.base:readonly",
           "docx:document",
           "drive:drive",
           "sheets:spreadsheet",
@@ -846,6 +873,29 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("im.chat.member.bot.added_v1")).toBeInTheDocument();
     expect(screen.getByText("im:message")).toBeInTheDocument();
     expect(screen.getByText("调整治理策略")).toBeInTheDocument();
+  });
+
+  it("checks an agent-scoped Feishu bot connection from its health card", async () => {
+    const user = userEvent.setup();
+
+    renderAgentsPage({
+      ...data,
+      agents: [
+        {
+          ...data.agents[0]!,
+          feishuAgentBot: buildAgentFeishuBot({ lastHealthStatus: undefined }),
+          canManageFeishuAgentBot: true,
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    await user.click(screen.getByRole("button", { name: "检查连接" }));
+
+    await waitFor(() => {
+      expect(checkFeishuIntegrationHealthAction).toHaveBeenCalledWith("feishu-agent-bot-planner");
+    });
+    expect(screen.getByText("飞书 Bot 连接检查通过。")).toBeInTheDocument();
   });
 
   it("binds a Feishu bot from agent settings with only App ID and App Secret", async () => {

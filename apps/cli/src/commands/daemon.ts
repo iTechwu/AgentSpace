@@ -23,7 +23,6 @@ import {
   normalizeProviderTaskErrorCategory,
   buildProviderRuntimeMetadata,
   readProviderTaskFailureMetadata,
-  readGoogleWorkspaceReadiness,
   resolveModelId as resolveSharedModelId,
   runProviderTask as runSharedProviderTask,
   runRemoteDaemonForeground as runStandaloneRemoteDaemonForeground,
@@ -48,7 +47,6 @@ import {
   listAgentTaskAttemptsSync,
   markDaemonOfflineSync,
   pruneOfflineDaemonsSync,
-  readActiveAgentGoogleWorkspaceDelegationSync,
   readAgentRouterSessionForTaskSync,
   readDaemonSnapshotSync,
   readLatestAgentRouterContextSnapshotSync,
@@ -340,7 +338,6 @@ function buildLocalDaemonMetadata(config: DaemonConfig): Record<string, unknown>
     nodeVersion,
     platform,
     arch,
-    googleWorkspaceReadiness: readGoogleWorkspaceReadiness(),
   };
 }
 
@@ -727,33 +724,6 @@ interface TokenAccumulator {
   modelId?: string;
 }
 
-function buildRuntimeContextEnv(
-  base: Record<string, string>,
-  googleWorkspace: DaemonTaskInputBundle["metadata"]["googleWorkspace"],
-): Record<string, string> {
-  if (googleWorkspace?.status !== "available" || !googleWorkspace.env) {
-    return base;
-  }
-  return {
-    ...base,
-    ...googleWorkspace.env,
-  };
-}
-
-function canAgentCreateGoogleSheet(input: {
-  workspaceId: string;
-  agentName: string;
-  channelName?: string;
-}): boolean {
-  if (process.env.DOFE_AGENT_AGENT_GOOGLE_SHEET_CREATE_ENABLED === "false" || !input.channelName) {
-    return false;
-  }
-  return Boolean(readActiveAgentGoogleWorkspaceDelegationSync({
-    workspaceId: input.workspaceId,
-    employeeName: input.agentName,
-  }));
-}
-
 function enqueueFeishuReplyOutboxBestEffort(input: {
   workspaceId: string;
   channelName: string;
@@ -844,11 +814,11 @@ async function executeRemoteQueuedTask(
       workDir,
       {
         sessionId: (bundle.metadata.routerSession?.providerSessionId ?? payload.channelSessionId?.trim()) || undefined,
-        contextEnv: buildRuntimeContextEnv({
+        contextEnv: {
           DOFE_AGENT_CONTEXT_AGENT_NAME: payload.assignee ?? task.agentId,
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
           DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
-        }, bundle.metadata.googleWorkspace),
+        },
         runtimeToolCapabilities: bundle.metadata.runtimeToolCapabilities?.capabilities ?? [],
         onEvent: (event) => {
           void client.reportMessages(task.id, {
@@ -1024,11 +994,6 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
           DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
         },
         runtimeToolCapabilities: buildDocumentRuntimeToolCapabilities(agentDocumentContexts, {
-          canCreateGoogleSheet: canAgentCreateGoogleSheet({
-            workspaceId: task.workspaceId,
-            agentName,
-            channelName: effectivePayload.channelName ?? effectivePayload.channel,
-          }),
           feishuLarkCliResourceGrants,
         }),
         onEvent: (event) => {

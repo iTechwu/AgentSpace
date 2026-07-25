@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { translateSettingsActionError } from "@/features/settings/settings-utils";
 import {
+  checkFeishuIntegrationHealthAction,
   createFeishuAgentBotBindingAction,
   disableFeishuAgentBotBindingAction,
 } from "./feishu-actions";
@@ -63,7 +64,7 @@ export function FeishuAgentBotAgentSettingsPanel({
     setAppSecret("");
     setVerificationToken("");
     setEncryptKey("");
-    setFeedback(tx("Agent 飞书 Bot 已绑定。", "Agent Feishu bot bound."));
+    setFeedback(tx("Agent 飞书 Bot 已绑定，工作区已启用。", "Agent Feishu bot bound and workspace enabled."));
     onUpdated?.(created);
   };
 
@@ -93,6 +94,14 @@ export function FeishuAgentBotAgentSettingsPanel({
         )}
       </div>
 
+      {!currentIntegration && setupReference ? (
+        <FeishuAgentBotOnboarding
+          developerConsoleUrl={setupReference.developerConsoleUrl}
+          setupSteps={setupReference.openPlatformSetupSteps}
+          tx={tx}
+        />
+      ) : null}
+
       {currentIntegration ? (
         <div className="feishu-agent-settings-panel__bound">
           <div className="feishu-agent-settings-panel__summary">
@@ -104,9 +113,29 @@ export function FeishuAgentBotAgentSettingsPanel({
               <span>{tx("连接方式", "Transport")}</span>
               <strong>{formatTransportMode(currentIntegration.transportMode, tx)}</strong>
             </div>
-            <div>
+            <div className="feishu-agent-settings-panel__health">
               <span>{tx("健康状态", "Health")}</span>
               <strong>{formatHealthStatus(currentIntegration.lastHealthStatus, tx)}</strong>
+              <button
+                className="action-button feishu-agent-settings-panel__health-check"
+                disabled={disabled || currentIntegration.status !== "active"}
+                onClick={() => {
+                  startTransition(async () => {
+                    try {
+                      const updated = await checkFeishuIntegrationHealthAction(currentIntegration.id);
+                      setFeedback(updated.lastHealthStatus === "healthy"
+                        ? tx("飞书 Bot 连接检查通过。", "Feishu bot health check passed.")
+                        : tx("飞书 Bot 连接检查失败。", "Feishu bot health check failed."));
+                      handleUpdated(updated);
+                    } catch (error) {
+                      setFeedback(translateSettingsActionError(error, tx));
+                    }
+                  });
+                }}
+                type="button"
+              >
+                {isPending ? tx("检查中...", "Checking...") : tx("检查连接", "Check Connection")}
+              </button>
             </div>
             <div>
               <span>{tx("已绑定群聊", "Bound groups")}</span>
@@ -246,7 +275,7 @@ export function FeishuAgentBotAgentSettingsPanel({
 
           <div className="feishu-integration-form__actions">
             <button
-              className="danger-button"
+              className="action-button action-button--danger"
               disabled={disabled || currentIntegration.status === "disabled"}
               onClick={() => {
                 startTransition(async () => {
@@ -461,7 +490,7 @@ export function FeishuAgentBotAgentSettingsPanel({
               }}
               type="button"
             >
-              {tx("绑定 Bot", "Bind Bot")}
+              {tx("绑定 Bot 并启用工作区", "Bind Bot and Enable Workspace")}
             </button>
           </div>
         </div>
@@ -521,6 +550,60 @@ function FeishuAgentBotSetupReference({
       </section>
     </div>
   );
+}
+
+function FeishuAgentBotOnboarding({
+  developerConsoleUrl,
+  setupSteps,
+  tx,
+}: {
+  developerConsoleUrl: string;
+  setupSteps: ReadonlyArray<{ id: string; required: string[] }>;
+  tx: (zh: string, en: string) => string;
+}) {
+  return (
+    <section className="feishu-setup-summary feishu-agent-settings-panel__setup-reference">
+      <div>
+        <strong>{tx("先在飞书开放平台完成以下配置", "Complete this setup in the Feishu developer console")}</strong>
+        <a href={developerConsoleUrl} rel="noreferrer" target="_blank">
+          {tx("打开飞书开放平台", "Open Feishu Developer Console")}
+        </a>
+      </div>
+      <ol>
+        {setupSteps.map((step) => (
+          <li key={step.id}>
+            <span>{formatFeishuSetupStep(step.id, tx)}</span>
+            <small>{step.required.join(", ")}</small>
+          </li>
+        ))}
+      </ol>
+      <p>
+        {tx(
+          "绑定后会立即启用此 Agent 的飞书工作区数据平面；机器人进群或被 @ 时会自动建立对应 Channel。",
+          "Binding immediately enables this agent's Feishu workspace data plane and automatically provisions a Channel when the bot is added or mentioned.",
+        )}
+      </p>
+    </section>
+  );
+}
+
+function formatFeishuSetupStep(id: string, tx: (zh: string, en: string) => string): string {
+  switch (id) {
+    case "create_custom_app":
+      return tx("创建企业自建应用", "Create a custom app");
+    case "enable_bot":
+      return tx("在应用能力中启用 Bot", "Enable the Bot capability");
+    case "configure_event_subscription":
+      return tx("订阅消息、进群和卡片事件", "Subscribe to message, bot-added, and card events");
+    case "grant_bot_scopes":
+      return tx("授予 Bot 和成员基础权限", "Grant Bot and member permissions");
+    case "grant_data_plane_scopes":
+      return tx("授予文档、表格和多维表格权限", "Grant Docs, Sheets, and Base permissions");
+    case "release_or_install_app":
+      return tx("发布或安装应用到当前租户", "Publish or install the app for this tenant");
+    default:
+      return id;
+  }
 }
 
 function FeishuAgentSettingsCommand({

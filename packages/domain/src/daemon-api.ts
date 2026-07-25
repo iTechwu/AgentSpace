@@ -183,15 +183,6 @@ export interface DaemonTaskInputBundle {
     taskTriggerType: string;
     channelName?: string;
     contactId?: string;
-    googleWorkspace?: {
-      status: "not_required" | "available";
-      capabilities?: Array<"read_existing_sheet" | "write_existing_sheet" | "forward_sheet" | "create_sheet">;
-      tokenEnvName?: string;
-      expiresAt?: string;
-      delegatedGoogleEmail?: string;
-      delegatedUserDisplayName?: string;
-      env?: Record<string, string>;
-    };
     runtimeApps?: {
       status: "available" | "none";
       apps: RuntimeAppContextEntry[];

@@ -184,6 +184,8 @@ export interface FeishuAgentBotSetupReference {
   requiredEvents: string[];
   requiredScopes: string[];
   eventCallbackPath: string;
+  developerConsoleUrl: string;
+  openPlatformSetupSteps: FeishuOpenPlatformSetupStep[];
 }
 
 export interface FeishuIntegrationSettingsItem {

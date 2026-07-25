@@ -16,7 +16,6 @@ import {
   deleteWorkspaceRuntimeAction,
   grantWorkspaceRuntimeUseAction,
   rejectAgentAccessRequestAction,
-  revokeWorkspaceAgentGoogleWorkspaceDelegationAction,
   revokeAgentForkInvitationAction,
   revokeWorkspaceRuntimeUseAction,
   setWorkspaceAgentChannelMemberAccessAction,
@@ -382,18 +381,6 @@ export function AgentsPageClient({
     });
   }
 
-  function handleConnectAgentGoogleWorkspace(agentName: string): void {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const redirectAfter = workspaceHref(`/agents?focus=${encodeURIComponent(`agent:${agentName}`)}`);
-    const params = new URLSearchParams({
-      agent: agentName,
-      redirectAfter,
-    });
-    window.location.assign(`/api/integrations/google/start?${params.toString()}`);
-  }
-
   useEffect(() => {
     if (mode !== "agent" || searchParams.get("create") !== "agent") {
       return;
@@ -736,15 +723,6 @@ export function AgentsPageClient({
                   onRevokeForkInvitation={(invitationId) =>
                     runAction(
                       () => revokeAgentForkInvitationAction({ invitationId }),
-                    )
-                  }
-                  onConnectGoogleWorkspace={() => handleConnectAgentGoogleWorkspace(selectedAgent.internalName)}
-                  onRevokeGoogleWorkspaceDelegation={() =>
-                    runAction(
-                      () =>
-                        revokeWorkspaceAgentGoogleWorkspaceDelegationAction({
-                          employeeName: selectedAgent.internalName,
-                        }),
                     )
                   }
                   onFeishuAgentBotUpdated={() => refreshWorkspaceModule(onDataChanged, router)}

@@ -168,25 +168,22 @@ function buildFeishuAgentBotConfig(input: CreateFeishuAgentBotBindingInput): Rec
 function buildFeishuAgentBotChannelAutoProvisioningConfig(
   policy: FeishuAgentBotChannelAutoProvisioningInput | undefined,
 ): Record<string, unknown> {
-  if (!policy) {
-    return {};
-  }
   const channelAutoProvisioning = compactRecord({
     botAdded: normalizeOptionalPolicyValue(
-      policy.botAdded,
+      policy?.botAdded,
       ["auto_create_channel", "pending_admin_review", "disabled"],
       "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy",
-    ),
+    ) ?? "auto_create_channel",
     firstMessage: normalizeOptionalPolicyValue(
-      policy.firstMessage,
+      policy?.firstMessage,
       ["auto_create_if_bot_mentioned", "pending_admin_review", "reply_with_setup_card", "disabled"],
       "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy",
-    ),
+    ) ?? "auto_create_if_bot_mentioned",
     reviewStatus: normalizeOptionalPolicyValue(
-      policy.reviewStatus,
+      policy?.reviewStatus,
       ["approved", "pending_admin_review", "needs_identity_binding"],
       "feishu.agent_bot_binding.invalid_channel_auto_provisioning_policy",
-    ),
+    ) ?? "approved",
   });
   return {
     channelAutoProvisioning,

@@ -41,8 +41,6 @@ interface AgentDetailProps {
     };
   }) => void;
   readonly onRevokeForkInvitation?: (invitationId: string) => void;
-  readonly onConnectGoogleWorkspace?: () => void;
-  readonly onRevokeGoogleWorkspaceDelegation?: () => void;
   readonly onFeishuAgentBotUpdated?: () => void;
 }
 
@@ -61,8 +59,6 @@ export function AgentDetail({
   onSetKnowledgePageIds,
   onCreateForkInvitation,
   onRevokeForkInvitation,
-  onConnectGoogleWorkspace,
-  onRevokeGoogleWorkspaceDelegation,
   onFeishuAgentBotUpdated,
 }: AgentDetailProps) {
   const { tx } = useLanguage();
@@ -118,12 +114,6 @@ export function AgentDetail({
   const providerError = record.boundProviderHealth?.lastProviderErrorCode
     ? formatProviderError(record.boundProviderHealth)
     : "";
-  const googleWorkspaceDelegation = record.googleWorkspaceDelegation ?? {
-    status: "not_delegated" as const,
-    canRevoke: false,
-  };
-  const googleWorkspaceStatus = formatAgentGoogleWorkspaceStatus(googleWorkspaceDelegation.status, tx);
-  const googleWorkspaceStatusTone = agentGoogleWorkspaceStatusTone(googleWorkspaceDelegation.status);
   const documentAccess = record.documentAccess ?? {
     readableCount: 0,
     editableCount: 0,
@@ -589,78 +579,6 @@ export function AgentDetail({
               </section>
             ) : null}
 
-            <section className="form-panel form-panel--nested agent-access-panel">
-              <div className="panel-header">
-                <div>
-                  <h3>{tx("Google Workspace", "Google Workspace")}</h3>
-                </div>
-                <span className={`status-chip status-chip--${googleWorkspaceStatusTone}`}>{googleWorkspaceStatus}</span>
-              </div>
-              <div className="runtime-binding-overview">
-                <div className="runtime-binding-overview__summary">
-                  <span className="runtime-binding-overview__icon">
-                    <AppIcon name="tables" />
-                  </span>
-                  <div className="runtime-binding-overview__copy">
-                    <span>{tx("委托账号", "Delegated account")}</span>
-                    <strong>
-                      {googleWorkspaceDelegation.googleEmail
-                        ?? googleWorkspaceDelegation.delegatedByDisplayName
-                        ?? tx("未授权", "Not delegated")}
-                    </strong>
-                  </div>
-                  <div className="runtime-binding-overview__chips">
-                    {googleWorkspaceDelegation.delegatedByDisplayName ? (
-                      <span className="tag-pill tag-pill--muted">{googleWorkspaceDelegation.delegatedByDisplayName}</span>
-                    ) : null}
-                    {googleWorkspaceDelegation.scopes?.length ? (
-                      <span className="tag-pill tag-pill--muted">{tx(`${googleWorkspaceDelegation.scopes.length} 个 scope`, `${googleWorkspaceDelegation.scopes.length} scopes`)}</span>
-                    ) : null}
-                  </div>
-                </div>
-                <dl className="runtime-binding-details">
-                  <div>
-                    <dt>{tx("状态", "Status")}</dt>
-                    <dd>{googleWorkspaceStatus}</dd>
-                  </div>
-                  <div>
-                    <dt>{tx("更新时间", "Updated")}</dt>
-                    <dd>{googleWorkspaceDelegation.updatedAt ? formatAgentTimestamp(googleWorkspaceDelegation.updatedAt) : tx("无", "None")}</dd>
-                  </div>
-                  <div>
-                    <dt>{tx("授权用户", "Grantor")}</dt>
-                    <dd>{googleWorkspaceDelegation.delegatedByDisplayName ?? tx("无", "None")}</dd>
-                  </div>
-                </dl>
-              </div>
-              <div className="detail-actions">
-                <button
-                  className="primary-button"
-                  disabled={pending || !canManage || !onConnectGoogleWorkspace}
-                  onClick={onConnectGoogleWorkspace}
-                  type="button"
-                >
-                  {googleWorkspaceDelegation.status === "connected"
-                    ? tx("重新授权 Google Workspace", "Reconnect Google Workspace")
-                    : tx("授权 Google Workspace", "Delegate Google Workspace")}
-                </button>
-                <button
-                  className="action-button action-button--danger"
-                  disabled={
-                    pending ||
-                    !canManage ||
-                    !googleWorkspaceDelegation.canRevoke ||
-                    googleWorkspaceDelegation.status === "not_delegated" ||
-                    !onRevokeGoogleWorkspaceDelegation
-                  }
-                  onClick={onRevokeGoogleWorkspaceDelegation}
-                  type="button"
-                >
-                  {tx("撤销授权", "Revoke")}
-                </button>
-              </div>
-            </section>
-
             <form
               className="form-panel form-panel--nested runtime-binding-panel"
               onSubmit={(event) => {
@@ -901,37 +819,6 @@ function formatProviderError(health: NonNullable<WorkspaceAgentRecord["boundProv
     health.lastProviderErrorCode,
     health.lastProviderErrorMessage ?? health.providerHealthReason,
   ].filter(Boolean).join(" · ");
-}
-
-function formatAgentGoogleWorkspaceStatus(
-  status: NonNullable<WorkspaceAgentRecord["googleWorkspaceDelegation"]>["status"],
-  tx: (zh: string, en: string) => string,
-): string {
-  if (status === "connected") {
-    return tx("已授权", "Delegated");
-  }
-  if (status === "reconnect_required") {
-    return tx("需重连", "Reconnect");
-  }
-  if (status === "revoked") {
-    return tx("已撤销", "Revoked");
-  }
-  return tx("未授权", "Not delegated");
-}
-
-function agentGoogleWorkspaceStatusTone(
-  status: NonNullable<WorkspaceAgentRecord["googleWorkspaceDelegation"]>["status"],
-): "positive" | "warning" | "danger" | "neutral" {
-  if (status === "connected") {
-    return "positive";
-  }
-  if (status === "reconnect_required") {
-    return "warning";
-  }
-  if (status === "revoked") {
-    return "danger";
-  }
-  return "neutral";
 }
 
 function formatAgentDocumentRole(

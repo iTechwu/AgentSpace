@@ -11,7 +11,6 @@ import {
   chooseProviderSessionForTaskSync,
   listAgentRouterEventsSync,
   listAgentTaskAttemptsSync,
-  readActiveAgentGoogleWorkspaceDelegationSync,
   readAgentRouterSessionForTaskSync,
   readLatestAgentRouterContextSnapshotSync,
   readAgentRuntimeSync,
@@ -24,11 +23,8 @@ import {
   resolveAgentDocumentContextSync,
   resolveCompatibleDirectChannelRecord,
   sameValue,
-  type AgentDocumentContext,
 } from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
-import { getGoogleWorkspaceAccessTokenForAgent } from "@/features/integrations/google-workspace";
-import { GOOGLE_WORKSPACE_CLI_TOKEN_ENV } from "@/features/integrations/google-workspace-cli";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,26 +88,9 @@ export async function GET(
       payloadOverride: effectivePayload,
       routerSessionContext,
     });
-    let googleWorkspace: NonNullable<DaemonTaskInputBundle["metadata"]["googleWorkspace"]>;
-    try {
-      googleWorkspace = await resolveGoogleWorkspaceBundleMetadata({
-        workspaceId: task.workspaceId,
-        agentName: prepared.payload.assignee ?? task.agentId,
-        agentDocumentContexts,
-        channelName: prepared.payload.channelName,
-      });
-    } catch (error) {
-      return Response.json(
-        { error: error instanceof Error ? error.message : String(error) },
-        { status: 403 },
-      );
-    }
-
     const runtimeToolCapabilities = [
       ...buildRuntimeToolCapabilitiesForBundle(prepared.runtimeApps),
-      ...buildDocumentRuntimeToolCapabilities(prepared.agentDocumentContexts, {
-        canCreateGoogleSheet: googleWorkspace.capabilities?.includes("create_sheet") ?? false,
-      }),
+      ...buildDocumentRuntimeToolCapabilities(prepared.agentDocumentContexts),
     ];
     const bundle: DaemonTaskInputBundle = {
       version: 1,
@@ -124,7 +103,6 @@ export async function GET(
         taskTriggerType: task.triggerType,
         channelName: prepared.payload.channelName,
         contactId: prepared.payload.contactId,
-        googleWorkspace,
         runtimeApps: {
           status: prepared.runtimeApps.length > 0 ? "available" : "none",
           apps: prepared.runtimeApps,
@@ -177,54 +155,6 @@ export async function GET(
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
-}
-
-async function resolveGoogleWorkspaceBundleMetadata(input: {
-  workspaceId: string;
-  agentName: string;
-  agentDocumentContexts: AgentDocumentContext[];
-  channelName?: string;
-}): Promise<NonNullable<DaemonTaskInputBundle["metadata"]["googleWorkspace"]>> {
-  const hasExternalGoogleWorkspaceDocument = input.agentDocumentContexts.some(({ document }) =>
-    document.storageMode === "external" &&
-    document.externalProvider === "google_workspace" &&
-    Boolean(document.externalFileId),
-  );
-  const canCreateGoogleSheet = isAgentGoogleSheetCreateEnabled() && Boolean(input.channelName) && Boolean(readActiveAgentGoogleWorkspaceDelegationSync({
-    workspaceId: input.workspaceId,
-    employeeName: input.agentName,
-  }));
-  if (!hasExternalGoogleWorkspaceDocument && !canCreateGoogleSheet) {
-    return { status: "not_required" };
-  }
-
-  try {
-    const token = await getGoogleWorkspaceAccessTokenForAgent({
-      workspaceId: input.workspaceId,
-      employeeName: input.agentName,
-    });
-    return {
-      status: "available",
-      capabilities: [
-        ...(hasExternalGoogleWorkspaceDocument ? ["read_existing_sheet" as const, "write_existing_sheet" as const, "forward_sheet" as const] : []),
-        ...(canCreateGoogleSheet ? ["create_sheet" as const] : []),
-      ],
-      tokenEnvName: GOOGLE_WORKSPACE_CLI_TOKEN_ENV,
-      expiresAt: token.credential.expiresAt,
-      delegatedGoogleEmail: token.delegation.googleEmail,
-      delegatedUserDisplayName: token.delegatedUserDisplayName,
-      env: {
-        [GOOGLE_WORKSPACE_CLI_TOKEN_ENV]: token.accessToken,
-      },
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`google_workspace.agent_runtime_auth_unavailable: ${message}`);
-  }
-}
-
-function isAgentGoogleSheetCreateEnabled(): boolean {
-  return process.env.DOFE_AGENT_AGENT_GOOGLE_SHEET_CREATE_ENABLED !== "false";
 }
 
 function buildRuntimeToolCapabilitiesForBundle(

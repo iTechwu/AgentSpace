@@ -373,6 +373,8 @@ export function buildFeishuAgentBotSetupReference(): FeishuAgentBotSetupReferenc
     requiredEvents: [...FEISHU_REQUIRED_EVENTS],
     requiredScopes: [...FEISHU_DEFAULT_SCOPES],
     eventCallbackPath: FEISHU_EVENT_CALLBACK_PATH,
+    developerConsoleUrl: FEISHU_OPEN_PLATFORM_CONSOLE_URLS.appList,
+    openPlatformSetupSteps: buildFeishuOpenPlatformSetupSteps(),
   };
 }
 

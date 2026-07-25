@@ -1,9 +1,9 @@
 import type { IntegrationProviderDescriptor } from "../../core/index.ts";
 export declare const FEISHU_PROVIDER_ID = "feishu";
 export declare const FEISHU_EVENT_CALLBACK_PATH = "/api/integrations/feishu/events";
-export declare const FEISHU_BOT_SMOKE_SCOPES: readonly ["im:message", "im:message:send_as_bot", "contact:user.base:readonly"];
+export declare const FEISHU_BOT_SMOKE_SCOPES: readonly ["im:message", "im:message:send_as_bot", "contact:contact.base:readonly"];
 export declare const FEISHU_DATA_PLANE_SMOKE_SCOPES: readonly ["docx:document", "drive:drive", "sheets:spreadsheet", "bitable:app"];
-export declare const FEISHU_DEFAULT_SCOPES: readonly ["im:message", "im:message:send_as_bot", "contact:user.base:readonly", "docx:document", "drive:drive", "sheets:spreadsheet", "bitable:app"];
+export declare const FEISHU_DEFAULT_SCOPES: readonly ["im:message", "im:message:send_as_bot", "contact:contact.base:readonly", "docx:document", "drive:drive", "sheets:spreadsheet", "bitable:app"];
 export declare const FEISHU_REQUIRED_EVENTS: readonly ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"];
 export declare const FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS: readonly ["app_id", "app_secret"];
 export declare const FEISHU_EVENT_CALLBACK_REQUIRED_CREDENTIAL_FIELDS: readonly ["app_id", "app_secret", "verification_token"];
@@ -27,7 +27,7 @@ export declare const FEISHU_OPEN_PLATFORM_SETUP_STEPS: readonly [{
 }, {
     readonly id: "grant_bot_scopes";
     readonly consoleUrl: "https://open.feishu.cn/app";
-    readonly required: readonly ["im:message", "im:message:send_as_bot", "contact:user.base:readonly"];
+    readonly required: readonly ["im:message", "im:message:send_as_bot", "contact:contact.base:readonly"];
 }, {
     readonly id: "grant_data_plane_scopes";
     readonly consoleUrl: "https://open.feishu.cn/app";

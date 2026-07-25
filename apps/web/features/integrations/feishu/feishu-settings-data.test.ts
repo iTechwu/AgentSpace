@@ -41,7 +41,7 @@ vi.mock("@dofe-agent/services", () => ({
   FEISHU_DEFAULT_SCOPES: [
     "im:message",
     "im:message:send_as_bot",
-    "contact:user.base:readonly",
+    "contact:contact.base:readonly",
     "docx:document",
     "drive:drive",
     "sheets:spreadsheet",
@@ -225,7 +225,7 @@ describe("Feishu settings data", () => {
       requiredScopes: [
         "im:message",
         "im:message:send_as_bot",
-        "contact:user.base:readonly",
+        "contact:contact.base:readonly",
         "docx:document",
         "drive:drive",
         "sheets:spreadsheet",
@@ -394,7 +394,7 @@ describe("Feishu settings data", () => {
       requiredScopes: [
         "im:message",
         "im:message:send_as_bot",
-        "contact:user.base:readonly",
+        "contact:contact.base:readonly",
         "docx:document",
         "drive:drive",
         "sheets:spreadsheet",

@@ -6,7 +6,7 @@ export const FEISHU_EVENT_CALLBACK_PATH = "/api/integrations/feishu/events";
 export const FEISHU_BOT_SMOKE_SCOPES = [
   "im:message",
   "im:message:send_as_bot",
-  "contact:user.base:readonly",
+  "contact:contact.base:readonly",
 ] as const;
 
 export const FEISHU_DATA_PLANE_SMOKE_SCOPES = [
