@@ -2,14 +2,14 @@ import {
   createExternalMessageOutboxSync,
   listPendingExternalMessageOutboxSync,
   type ExternalMessageOutboxRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type { ExternalOutboundMessagePayload } from "./message-transport.ts";
 import type { IntegrationRuntimeContext } from "./types.ts";
 
 export function enqueueExternalOutboundMessageSync(input: {
   context: IntegrationRuntimeContext;
   channelBindingId?: string;
-  agentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
   outbound: ExternalOutboundMessagePayload;
   metadataJson?: string | Record<string, unknown> | unknown[];
   nextAttemptAt?: string;
@@ -20,7 +20,7 @@ export function enqueueExternalOutboundMessageSync(input: {
     channelBindingId: input.channelBindingId,
     targetExternalChatId: input.outbound.targetExternalChatId,
     targetExternalThreadId: input.outbound.targetExternalThreadId,
-    agentSpaceMessageId: input.agentSpaceMessageId,
+    dofeAgentMessageId: input.dofeAgentMessageId,
     payloadJson: input.outbound.payload,
     metadataJson: input.metadataJson,
     nextAttemptAt: input.nextAttemptAt,

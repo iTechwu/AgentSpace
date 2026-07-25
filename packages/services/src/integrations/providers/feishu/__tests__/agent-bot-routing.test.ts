@@ -9,7 +9,7 @@ import {
 } from "../agent-bot-routing.ts";
 import type { FeishuAgentBotBinding } from "../agent-bot-bindings.ts";
 
-test("identifies Feishu app and bot senders before AgentSpace routing", () => {
+test("identifies Feishu app and bot senders before DofeAgent routing", () => {
   assert.equal(isFeishuBotSenderPayload({
     payload: buildPayload({ senderType: "app" }),
     externalSenderId: "ou_any_bot",

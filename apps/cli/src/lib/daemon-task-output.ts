@@ -2,4 +2,4 @@ export {
   clearTaskOutputArtifacts,
   discardTaskOutputAttachments,
   loadTaskOutputEnvelope,
-} from "agent-space-daemon";
+} from "dofe-agent-daemon";

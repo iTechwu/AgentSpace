@@ -6,7 +6,7 @@ import {
   parseTaskPayload,
   prepareDaemonTaskContext,
   type RouterSessionPromptContext,
-} from "agent-space-daemon";
+} from "dofe-agent-daemon";
 import {
   chooseProviderSessionForTaskSync,
   listAgentRouterEventsSync,
@@ -16,8 +16,8 @@ import {
   readLatestAgentRouterContextSnapshotSync,
   readAgentRuntimeSync,
   type QueuedTaskRecord,
-} from "@agent-space/db";
-import type { DaemonTaskInputBundle, DaemonBundleFile } from "@agent-space/domain";
+} from "@dofe-agent/db";
+import type { DaemonTaskInputBundle, DaemonBundleFile } from "@dofe-agent/domain";
 import {
   buildContactAgentContext,
   readWorkspaceStateSync,
@@ -25,7 +25,7 @@ import {
   resolveCompatibleDirectChannelRecord,
   sameValue,
   type AgentDocumentContext,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 import { getGoogleWorkspaceAccessTokenForAgent } from "@/features/integrations/google-workspace";
 import { GOOGLE_WORKSPACE_CLI_TOKEN_ENV } from "@/features/integrations/google-workspace-cli";
@@ -78,7 +78,7 @@ export async function GET(
   });
   const channelDocuments = agentDocumentContexts.map((context) => context.document);
   const routerSessionContext = buildRouterSessionPromptContext(task);
-  const tempDir = mkdtempSync(join(tmpdir(), `agent-space-task-input-${task.id}-`));
+  const tempDir = mkdtempSync(join(tmpdir(), `dofe-agent-task-input-${task.id}-`));
 
   try {
     const prepared = prepareDaemonTaskContext({
@@ -224,7 +224,7 @@ async function resolveGoogleWorkspaceBundleMetadata(input: {
 }
 
 function isAgentGoogleSheetCreateEnabled(): boolean {
-  return process.env.AGENT_SPACE_AGENT_GOOGLE_SHEET_CREATE_ENABLED !== "false";
+  return process.env.DOFE_AGENT_AGENT_GOOGLE_SHEET_CREATE_ENABLED !== "false";
 }
 
 function buildRuntimeToolCapabilitiesForBundle(

@@ -1,6 +1,6 @@
 "use client";
 
-import { formatDaemonProviderLabel } from "@agent-space/domain";
+import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -109,14 +109,14 @@ export function AgentsPageClient({
     defaultWidth: 360,
     maxWidth: 620,
     minWidth: 300,
-    storageKey: "agent-space.agent-management-list-width",
+    storageKey: "dofe-agent.agent-management-list-width",
   });
   const containerListPaneResize = useResizablePane({
     cssVariableName: "--workspace-list-width",
     defaultWidth: 360,
     maxWidth: 620,
     minWidth: 300,
-    storageKey: "agent-space.execution-engine-list-width",
+    storageKey: "dofe-agent.execution-engine-list-width",
   });
 
   useEffect(() => {

@@ -223,11 +223,11 @@ export {
   planBoundFeishuWriteDataOperation,
   validateApprovedFeishuDataOperationBinding,
   validateApprovedFeishuDataOperationRun,
-  validateFeishuAgentSpaceResourceAccessForDataOperation,
+  validateFeishuDofeAgentResourceAccessForDataOperation,
   validateFeishuResourceBindingScopes,
   validateFeishuResourceBindingForDataOperation,
-  type FeishuAgentSpaceResourceAccessDependencies,
-  type FeishuAgentSpaceResourceAccessValidationResult,
+  type FeishuDofeAgentResourceAccessDependencies,
+  type FeishuDofeAgentResourceAccessValidationResult,
   type FeishuApprovedDataOperationBindingValidationResult,
   type FeishuApprovedDataOperationValidationResult,
   type FeishuBoundDataOperationActor,
@@ -268,7 +268,7 @@ export {
   type FeishuExternalChannelDocumentSyncResult,
   type FeishuExternalDataTableInput,
   type FeishuExternalDataTableSyncResult,
-} from "./agent-space-sync.ts";
+} from "./dofe-agent-sync.ts";
 export {
   resolveFeishuDocResource,
 } from "./docs.ts";

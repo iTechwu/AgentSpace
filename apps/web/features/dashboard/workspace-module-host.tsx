@@ -61,7 +61,7 @@ import { SkillsPageClient } from "@/features/skills/skills-page-client";
 import { TablesPageClient } from "@/features/tables/tables-page-client";
 import { TaskBoardPageClient } from "@/features/task-board/task-board-page-client";
 import { TemplatesPageClient } from "@/features/templates/templates-page-client";
-import type { PerformanceDashboardData } from "@agent-space/services";
+import type { PerformanceDashboardData } from "@dofe-agent/services";
 
 export function WorkspaceModuleHost({
   children,

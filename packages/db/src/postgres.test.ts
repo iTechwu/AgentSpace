@@ -23,8 +23,8 @@ test("postgres schema includes the expected core and derived tables", () => {
 });
 
 test("collectSqliteMigrationSnapshotSync extracts relational rows and derived attachments/audit logs", () => {
-  const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-pg-migration-"));
-  const sqlitePath = join(tempRoot, "agent-space.sqlite");
+  const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-pg-migration-"));
+  const sqlitePath = join(tempRoot, "dofe-agent.sqlite");
   const db = new DatabaseSync(sqlitePath);
 
   try {
@@ -732,8 +732,8 @@ test("collectSqliteMigrationSnapshotSync extracts relational rows and derived at
 
 test("redactPostgresDatabaseUrl hides passwords and cutover plan references the new commands", () => {
   assert.equal(
-    redactPostgresDatabaseUrl("postgres://agent:secret@example.com:5432/agent_space"),
-    "postgres://agent:***@example.com:5432/agent_space",
+    redactPostgresDatabaseUrl("postgres://agent:secret@example.com:5432/dofe_agent"),
+    "postgres://agent:***@example.com:5432/dofe_agent",
   );
   assert.match(renderPostgresCutoverPlan(), /npm run db:pg:init/);
   assert.match(renderPostgresCutoverPlan(), /npm run db:pg:migrate/);

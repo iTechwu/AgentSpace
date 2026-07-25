@@ -10,7 +10,7 @@ import {
   getDatabase,
   listChannelAccessRequestsSync,
   listWorkspaceNotificationsForRecipientSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   canReadChannelForActorSync,
   createChannelParticipantsForMembersSync,
@@ -21,7 +21,7 @@ import {
   writeWorkspaceStateSync,
 } from "../index.ts";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-channel-privacy-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-channel-privacy-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

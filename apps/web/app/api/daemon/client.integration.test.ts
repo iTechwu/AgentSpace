@@ -8,8 +8,8 @@ import {
   enqueueNativeTaskSync,
   listDaemonSnapshotsSync,
   listTaskMessagesForTaskSync,
-} from "@agent-space/db";
-import { getDatabase } from "@agent-space/db/database";
+} from "@dofe-agent/db";
+import { getDatabase } from "@dofe-agent/db/database";
 import {
   bindEmployeeRuntimeSync,
   createEmployeeSync,
@@ -19,8 +19,8 @@ import {
   sendChannelHumanMessageSync,
   sendContactMessageSync,
   writeWorkspaceStateSync,
-} from "@agent-space/services";
-import { HttpDaemonClient } from "agent-space-daemon/daemon-client";
+} from "@dofe-agent/services";
+import { HttpDaemonClient } from "dofe-agent-daemon/daemon-client";
 import { POST as registerPOST } from "./register/route";
 import { POST as heartbeatPOST } from "./heartbeat/route";
 import { POST as deregisterPOST } from "./deregister/route";
@@ -32,7 +32,7 @@ import { GET as inputBundleGET } from "./tasks/[taskId]/input-bundle/route";
 import { POST as outputBundlePOST } from "./tasks/[taskId]/output-bundle/route";
 import { POST as completePOST } from "./tasks/[taskId]/complete/route";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-remote-daemon-integration-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-remote-daemon-integration-"));
 const repositoryRoot = resolve(process.cwd(), "../..");
 
 beforeAll(() => {

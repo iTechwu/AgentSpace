@@ -3,8 +3,8 @@ import { join } from "node:path";
 import {
   readActiveAgentGoogleWorkspaceDelegationSync,
   readUserSync,
-} from "@agent-space/db";
-import type { ExternalDocumentSyncStatus, ExternalSheetOperationRun, ExternalSheetOperationType } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import type { ExternalDocumentSyncStatus, ExternalSheetOperationRun, ExternalSheetOperationType } from "@dofe-agent/domain/workspace";
 import {
   assertAgentDocumentActionAllowedSync,
   AgentDocumentPermissionError,
@@ -13,7 +13,7 @@ import {
   sameValue,
   updateExternalChannelDocumentMetadataSync,
   updateExternalSheetOperationRunSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import {
   appendGoogleDocText,
   batchUpdateGoogleDoc,
@@ -102,7 +102,7 @@ export async function applyExternalGoogleDocOperations(input: {
   const warnings: string[] = [];
   if (rawOperations.some(isLegacyExternalGoogleDocOperation)) {
     warnings.push(
-      `${RUNTIME_OUTPUT_EXTERNAL_GOOGLE_DOCS_RELATIVE_PATH} legacy hand-written operations are deprecated: Agents must use agent-space output google-docs ... instead of editing this JSON directly.`,
+      `${RUNTIME_OUTPUT_EXTERNAL_GOOGLE_DOCS_RELATIVE_PATH} legacy hand-written operations are deprecated: Agents must use dofe-agent output google-docs ... instead of editing this JSON directly.`,
     );
   }
 

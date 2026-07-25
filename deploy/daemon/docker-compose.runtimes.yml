@@ -5,11 +5,11 @@ services:
       dockerfile: deploy/daemon/Dockerfile
       args:
         PROVIDER_INSTALL_COMMAND: ${CODEX_PROVIDER_INSTALL_COMMAND}
-    image: agent-space-runtime-codex:local
+    image: dofe-agent-runtime-codex:local
     env_file: ./runtimes/codex.env
     volumes:
-      - codex-auth:/home/agent-space
-      - codex-state:/var/lib/agent-space-daemon
+      - codex-auth:/home/dofe-agent
+      - codex-state:/var/lib/dofe-agent-daemon
     read_only: true
     tmpfs: [/tmp]
     security_opt: [no-new-privileges:true]
@@ -22,11 +22,11 @@ services:
       dockerfile: deploy/daemon/Dockerfile
       args:
         PROVIDER_INSTALL_COMMAND: ${CLAUDE_PROVIDER_INSTALL_COMMAND}
-    image: agent-space-runtime-claude:local
+    image: dofe-agent-runtime-claude:local
     env_file: ./runtimes/claude.env
     volumes:
-      - claude-auth:/home/agent-space
-      - claude-state:/var/lib/agent-space-daemon
+      - claude-auth:/home/dofe-agent
+      - claude-state:/var/lib/dofe-agent-daemon
     read_only: true
     tmpfs: [/tmp]
     security_opt: [no-new-privileges:true]
@@ -39,11 +39,11 @@ services:
       dockerfile: deploy/daemon/Dockerfile
       args:
         PROVIDER_INSTALL_COMMAND: ${OPENCLAW_PROVIDER_INSTALL_COMMAND}
-    image: agent-space-runtime-openclaw:local
+    image: dofe-agent-runtime-openclaw:local
     env_file: ./runtimes/openclaw.env
     volumes:
-      - openclaw-auth:/home/agent-space
-      - openclaw-state:/var/lib/agent-space-daemon
+      - openclaw-auth:/home/dofe-agent
+      - openclaw-state:/var/lib/dofe-agent-daemon
     read_only: true
     tmpfs: [/tmp]
     security_opt: [no-new-privileges:true]
@@ -56,11 +56,11 @@ services:
       dockerfile: deploy/daemon/Dockerfile
       args:
         PROVIDER_INSTALL_COMMAND: ${HERMES_PROVIDER_INSTALL_COMMAND}
-    image: agent-space-runtime-hermes:local
+    image: dofe-agent-runtime-hermes:local
     env_file: ./runtimes/hermes.env
     volumes:
-      - hermes-auth:/home/agent-space
-      - hermes-state:/var/lib/agent-space-daemon
+      - hermes-auth:/home/dofe-agent
+      - hermes-state:/var/lib/dofe-agent-daemon
     read_only: true
     tmpfs: [/tmp]
     security_opt: [no-new-privileges:true]

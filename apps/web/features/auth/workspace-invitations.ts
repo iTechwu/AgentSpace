@@ -5,8 +5,8 @@ import {
   readWorkspaceSync,
   type WorkspaceInvitationStatus,
   type WorkspaceRole,
-} from "@agent-space/db";
-import { addHumanMemberSync, tryRecordWorkspaceAuditEventSync } from "@agent-space/services";
+} from "@dofe-agent/db";
+import { addHumanMemberSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { writeWorkspaceSelectionCookie } from "./workspace-selection";
 
 export interface WorkspaceInvitationDetails {

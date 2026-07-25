@@ -7,7 +7,7 @@ const repositoryRoot = join(projectDir, "..", "..");
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   allowedDevOrigins: [
-    "agentspace.local.dofe.ai",
+    "dofe-agent.local.dofe.ai",
     "hire-an-agent.online",
     "feishu-e2e.hire-an-agent.online",
     "127.0.0.1",
@@ -20,18 +20,18 @@ const nextConfig = {
     tsconfigPath: "tsconfig.typecheck.json",
   },
   transpilePackages: [
-    "@agent-space/db",
-    "@agent-space/domain",
-    "@agent-space/sandbox",
-    "@agent-space/services",
+    "@dofe-agent/db",
+    "@dofe-agent/domain",
+    "@dofe-agent/sandbox",
+    "@dofe-agent/services",
     "@dofe/sso-node",
-    "agent-space-daemon",
+    "dofe-agent-daemon",
   ],
   outputFileTracingRoot: repositoryRoot,
   outputFileTracingExcludes: {
     "/*": [
       "../../.git/**/*",
-      "../../.agentspace-record-live/**/*",
+      "../../.dofe-agent-record-live/**/*",
       "../../.claude/**/*",
       "../../.github/**/*",
       "../../Design/**/*",
@@ -68,14 +68,14 @@ const nextConfig = {
   },
   turbopack: {
     resolveAlias: {
-      "@agent-space/db": "../../packages/db/src/index.ts",
-      "@agent-space/domain": "../../packages/domain/src/index.ts",
-      "@agent-space/domain/workspace": "../../packages/domain/src/workspace.ts",
-      "@agent-space/sandbox": "../../packages/sandbox/src/index.ts",
-      "@agent-space/services": "../../packages/services/src/index.ts",
-      "agent-space-daemon": "../../packages/daemon/src/index.ts",
-      "agent-space-daemon/agent-router": "../../packages/daemon/src/agent-router/index.ts",
-      "agent-space-daemon/daemon-client": "../../packages/daemon/src/daemon-client.ts",
+      "@dofe-agent/db": "../../packages/db/src/index.ts",
+      "@dofe-agent/domain": "../../packages/domain/src/index.ts",
+      "@dofe-agent/domain/workspace": "../../packages/domain/src/workspace.ts",
+      "@dofe-agent/sandbox": "../../packages/sandbox/src/index.ts",
+      "@dofe-agent/services": "../../packages/services/src/index.ts",
+      "dofe-agent-daemon": "../../packages/daemon/src/index.ts",
+      "dofe-agent-daemon/agent-router": "../../packages/daemon/src/agent-router/index.ts",
+      "dofe-agent-daemon/daemon-client": "../../packages/daemon/src/daemon-client.ts",
     },
     root: repositoryRoot,
   },

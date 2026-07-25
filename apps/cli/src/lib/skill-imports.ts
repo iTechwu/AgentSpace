@@ -5,4 +5,4 @@ export {
   type AppliedSkillImportOperation,
   type PreparedSkillImportOperationArtifacts,
   type SkillImportOperationResult,
-} from "agent-space-daemon";
+} from "dofe-agent-daemon";

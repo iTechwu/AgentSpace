@@ -97,7 +97,7 @@ test("readFeishuBotInfo resolves bot fields from Feishu response data", async ()
       return {
         data: {
           open_id: "ou_bot",
-          app_name: "AgentSpace Bot",
+          app_name: "DofeAgent Bot",
         },
       };
     },
@@ -107,7 +107,7 @@ test("readFeishuBotInfo resolves bot fields from Feishu response data", async ()
     const info = await readFeishuBotInfo(client);
     assert.deepEqual(info, {
       botOpenId: "ou_bot",
-      botAppName: "AgentSpace Bot",
+      botAppName: "DofeAgent Bot",
     });
   });
 });
@@ -199,7 +199,7 @@ test("checkFeishuIntegrationHealth returns ok after token and bot info succeed",
         return {
           data: {
             open_id: "ou_bot",
-            app_name: "AgentSpace Bot",
+            app_name: "DofeAgent Bot",
           },
         };
       },
@@ -235,7 +235,7 @@ test("checkFeishuIntegrationHealth degrades when required scopes are missing", a
         return {
           data: {
             open_id: "ou_bot",
-            app_name: "AgentSpace Bot",
+            app_name: "DofeAgent Bot",
           },
         };
       },
@@ -269,7 +269,7 @@ test("checkFeishuIntegrationHealth degrades when Feishu rejects scope inspection
         return {
           data: {
             open_id: "ou_bot",
-            app_name: "AgentSpace Bot",
+            app_name: "DofeAgent Bot",
           },
         };
       },
@@ -303,7 +303,7 @@ test("checkFeishuIntegrationHealth falls back to manual scope review when scope 
         return {
           data: {
             open_id: "ou_bot",
-            app_name: "AgentSpace Bot",
+            app_name: "DofeAgent Bot",
           },
         };
       },

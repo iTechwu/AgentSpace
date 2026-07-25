@@ -1,4 +1,4 @@
-import { readEffectiveRuntimeEnv } from "@agent-space/db";
+import { readEffectiveRuntimeEnv } from "@dofe-agent/db";
 
 export interface AttachmentRuntimeConfig {
   provider: "local" | "tos";
@@ -17,16 +17,16 @@ export interface AttachmentRuntimeConfig {
   };
 }
 
-export interface AgentSpaceRuntimeConfig {
+export interface DofeAgentRuntimeConfig {
   databaseUrl: string;
   directDatabaseUrl?: string;
   attachments: AttachmentRuntimeConfig;
 }
 
-export function resolveAgentSpaceRuntimeConfig(env: NodeJS.ProcessEnv = process.env): AgentSpaceRuntimeConfig {
+export function resolveDofeAgentRuntimeConfig(env: NodeJS.ProcessEnv = process.env): DofeAgentRuntimeConfig {
   const effectiveEnv = readEffectiveRuntimeEnv({ env, repositoryOverridesEnv: env === process.env });
   return {
-    databaseUrl: requireFirstEnvValue(effectiveEnv, ["SELF_HOSTED_DATABASE_URL", "AGENT_SPACE_PG_URL", "DATABASE_URL"]),
+    databaseUrl: requireFirstEnvValue(effectiveEnv, ["SELF_HOSTED_DATABASE_URL", "DOFE_AGENT_PG_URL", "DATABASE_URL"]),
     directDatabaseUrl: firstEnvValue(effectiveEnv, ["SELF_HOSTED_DATABASE_DIRECT_URL", "DATABASE_DIRECT_URL"]),
     attachments: resolveAttachmentRuntimeConfig(effectiveEnv),
   };

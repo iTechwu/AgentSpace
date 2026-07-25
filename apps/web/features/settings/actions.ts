@@ -21,8 +21,8 @@ import {
   updateWorkspaceMembershipRoleSync,
   removeWorkspaceMembershipSync,
   readAuthIdentityForUserSync,
-} from "@agent-space/db";
-import { addHumanMemberSync, createNotificationSync, tryRecordWorkspaceAuditEventSync } from "@agent-space/services";
+} from "@dofe-agent/db";
+import { addHumanMemberSync, createNotificationSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { getCurrentSession } from "@/features/auth/server-auth";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";

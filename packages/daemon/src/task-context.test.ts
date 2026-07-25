@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentRuntimeRecord } from "@agent-space/db";
+import type { AgentRuntimeRecord } from "@dofe-agent/db";
 import { buildTaskPrompt, parseTaskInputJson } from "./task-context.ts";
 
 test("parseTaskInputJson preserves untrusted Feishu external input metadata", () => {
@@ -135,13 +135,13 @@ test("buildTaskPrompt treats Feishu lark-cli write grants as approval-gated", ()
     }],
   );
 
-  assert.match(prompt, /当前频道有 1 个已由 AgentSpace 绑定并授权给本任务上下文的 Feishu\/Lark Docs\/Sheets\/Base 资源/);
-  assert.match(prompt, /allowed write 只表示可以通过 AgentSpace 申请受控写入/);
-  assert.match(prompt, /agent-space output feishu data-operation-approval/);
+  assert.match(prompt, /当前频道有 1 个已由 DofeAgent 绑定并授权给本任务上下文的 Feishu\/Lark Docs\/Sheets\/Base 资源/);
+  assert.match(prompt, /allowed write 只表示可以通过 DofeAgent 申请受控写入/);
+  assert.match(prompt, /dofe-agent output feishu data-operation-approval/);
   assert.match(prompt, /带 payload hash 的 operation manifest/);
   assert.match(prompt, /不得直接运行 \+update/);
   assert.match(prompt, /runtime-output\/feishu-data-operation-result\.json/);
-  assert.match(prompt, /agent-space\.feishu\.lark-cli\.result/);
+  assert.match(prompt, /dofe-agent\.feishu\.lark-cli\.result/);
   assert.match(prompt, /不要写入文档正文、表格单元格值、Base record 字段值/);
   assert.match(prompt, /url ref_[a-f0-9]{8}/);
   assert.equal(prompt.includes("tenant.feishu.cn"), false);

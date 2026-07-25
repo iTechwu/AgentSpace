@@ -2,7 +2,7 @@ import {
   listExternalIntegrationsSync,
   readExternalIntegrationSync,
   type ExternalIntegrationRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { sameValue } from "../../../shared/helpers.ts";
 import { isFeishuAgentBotBinding, type FeishuAgentBotBinding } from "./agent-bot-bindings.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";

@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from "@agent-space/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
 import type { SettingsTx, SettingsWorkspaceInvitationItem } from "@/features/settings/settings-types";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 
@@ -129,8 +129,8 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
       );
     case "feishu.integration.credential_encryption_key_missing":
       return tx(
-        "agent.dofe 未配置飞书凭据加密密钥。请设置 AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
-        "agent.dofe is missing the Feishu credential encryption key. Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
+        "agent.dofe 未配置飞书凭据加密密钥。请设置 DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
+        "agent.dofe is missing the Feishu credential encryption key. Set DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
       );
     case "feishu.integration.credential_encryption_key_invalid":
       return tx(
@@ -175,8 +175,8 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
       );
     case "feishu.agent_bot_binding.credential_encryption_key_missing":
       return tx(
-        "agent.dofe 未配置飞书凭据加密密钥。请设置 AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
-        "agent.dofe is missing the Feishu credential encryption key. Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
+        "agent.dofe 未配置飞书凭据加密密钥。请设置 DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
+        "agent.dofe is missing the Feishu credential encryption key. Set DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
       );
     case "feishu.agent_bot_binding.credential_encryption_key_invalid":
       return tx(
@@ -243,9 +243,9 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
         "飞书 Base 视图绑定需要同时包含 table 和 view 上下文，请使用完整 Base 视图链接。",
         "Feishu Base view bindings require both table and view context. Use the full Base view URL.",
       );
-    case "feishu.resource_binding.missing_agent_space_resource_type":
+    case "feishu.resource_binding.missing_dofe_agent_resource_type":
       return tx("请选择 agent.dofe 资源类型。", "Select an agent.dofe resource type.");
-    case "feishu.resource_binding.missing_agent_space_resource_id":
+    case "feishu.resource_binding.missing_dofe_agent_resource_id":
       return tx("请填写 agent.dofe 资源 ID。", "agent.dofe resource ID is required.");
     case "feishu.resource_binding.channel_not_found":
       return tx("未找到要关联的 agent.dofe 频道。", "Linked agent.dofe channel not found.");

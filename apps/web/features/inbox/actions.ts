@@ -7,8 +7,8 @@ import {
   sameValue,
   updateTaskStatusSync,
   type WorkspaceNotificationRecipient,
-} from "@agent-space/services";
-import type { TaskStatus } from "@agent-space/domain/workspace";
+} from "@dofe-agent/services";
+import type { TaskStatus } from "@dofe-agent/domain/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";
 import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-invalidation";
@@ -124,7 +124,7 @@ function mutateOwnedInboxNotification(input: {
 }
 
 function revalidateWorkspaceRoutes(workspaceSlug: string): void {
-  revalidateWorkspacePaths(workspaceSlug, ["/inbox", "/agents", "/im", "/market", "/task-board"]);
+  revalidateWorkspacePaths(workspaceSlug, ["/inbox", "/agents", "/im", "/market", "/task/board"]);
 }
 
 function buildInboxTaskInvalidation(workspaceId: string, taskId: string): WorkspaceInvalidationEvent {

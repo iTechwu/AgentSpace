@@ -78,7 +78,7 @@ async function buildOpenClawLaunch(input: AgentRouterRunRequest): Promise<Harnes
   });
   const args = buildOpenClawGlobalArgs(contract);
   const agentName = input.openClawEphemeralAgent && !input.sessionId
-    ? `agent-space-${randomUUID().slice(0, 8)}`
+    ? `dofe-agent-${randomUUID().slice(0, 8)}`
     : undefined;
   args.push("agent", "--local");
   if (agentName) {
@@ -185,18 +185,18 @@ function buildOpenClawGlobalArgs(contract: OpenClawLaunchContract): string[] {
 
 function resolveOpenClawContract(input: AgentRouterRunRequest): OpenClawLaunchContract {
   const env = { ...(input.env ?? {}) };
-  const profile = env.AGENT_SPACE_OPENCLAW_PROFILE_OVERRIDE?.trim()
+  const profile = env.DOFE_AGENT_OPENCLAW_PROFILE_OVERRIDE?.trim()
     || env.OPENCLAW_PROFILE?.trim()
     || process.env.OPENCLAW_PROFILE?.trim()
     || undefined;
-  const model = env.AGENT_SPACE_OPENCLAW_MODEL_OVERRIDE?.trim()
+  const model = env.DOFE_AGENT_OPENCLAW_MODEL_OVERRIDE?.trim()
     || input.model?.trim()
     || env.OPENCLAW_MODEL?.trim()
     || process.env.OPENCLAW_MODEL?.trim()
     || undefined;
 
-  delete env.AGENT_SPACE_OPENCLAW_PROFILE_OVERRIDE;
-  delete env.AGENT_SPACE_OPENCLAW_MODEL_OVERRIDE;
+  delete env.DOFE_AGENT_OPENCLAW_PROFILE_OVERRIDE;
+  delete env.DOFE_AGENT_OPENCLAW_MODEL_OVERRIDE;
 
   if (profile) {
     env.OPENCLAW_PROFILE = profile;
@@ -441,7 +441,7 @@ function isDaemonTaskOpenClawRun(input: AgentRouterRunRequest, env: Record<strin
   if (!input.openClawEphemeralAgent) {
     return false;
   }
-  return Boolean(env.AGENT_SPACE_CONTEXT_TASK_ID?.trim());
+  return Boolean(env.DOFE_AGENT_CONTEXT_TASK_ID?.trim());
 }
 
 function dedupeOpenClawDiagnostics(diagnostics: AgentRouterDiagnostic[]): AgentRouterDiagnostic[] {

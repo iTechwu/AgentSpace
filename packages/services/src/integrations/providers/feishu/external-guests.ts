@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ExternalIntegrationRecord } from "@agent-space/db";
+import type { ExternalIntegrationRecord } from "@dofe-agent/db";
 import { asRecord, asString } from "./events.ts";
 import { isFeishuAgentBotBinding } from "./agent-bot-bindings.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";

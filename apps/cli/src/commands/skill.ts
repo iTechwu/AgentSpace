@@ -9,7 +9,7 @@ import {
   readWorkspaceSkillSync,
   updateWorkspaceSkillSync,
   upsertWorkspaceSkillFileSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
@@ -28,7 +28,7 @@ export async function runSkillCommand(
     const parsed = parseArgs(args);
     const skillId = parsed.positionals[0]?.trim();
     if (!skillId) {
-      console.error("Usage: agent-space skill get <skill-id> [--workspace-id <id>] [--json]");
+      console.error("Usage: dofe-agent skill get <skill-id> [--workspace-id <id>] [--json]");
       return 1;
     }
     const skill = readWorkspaceSkillSync(skillId, getStringFlag(parsed.flags, "workspace-id") ?? undefined);
@@ -44,7 +44,7 @@ export async function runSkillCommand(
     const { flags } = parseArgs(args);
     const name = getStringFlag(flags, "name")?.trim();
     if (!name) {
-      console.error("Usage: agent-space skill create --name <name> [--description <text>] [--workspace-id <id>] [--json]");
+      console.error("Usage: dofe-agent skill create --name <name> [--description <text>] [--workspace-id <id>] [--json]");
       return 1;
     }
     const skill = createWorkspaceSkillSync({
@@ -59,7 +59,7 @@ export async function runSkillCommand(
     const parsed = parseArgs(args);
     const skillId = parsed.positionals[0]?.trim();
     if (!skillId) {
-      console.error("Usage: agent-space skill update <skill-id> [--name <name>] [--description <text>] [--workspace-id <id>] [--json]");
+      console.error("Usage: dofe-agent skill update <skill-id> [--name <name>] [--description <text>] [--workspace-id <id>] [--json]");
       return 1;
     }
     const skill = updateWorkspaceSkillSync({
@@ -75,7 +75,7 @@ export async function runSkillCommand(
     const parsed = parseArgs(args);
     const skillId = parsed.positionals[0]?.trim();
     if (!skillId) {
-      console.error("Usage: agent-space skill delete <skill-id> [--workspace-id <id>] [--json]");
+      console.error("Usage: dofe-agent skill delete <skill-id> [--workspace-id <id>] [--json]");
       return 1;
     }
     deleteWorkspaceSkillSync(skillId, getStringFlag(parsed.flags, "workspace-id") ?? undefined);
@@ -95,7 +95,7 @@ export async function runSkillCommand(
         .filter(Boolean),
     ];
     if (skillIds.length === 0) {
-      console.error("Usage: agent-space skill export <skill-id> [more-skill-ids...] [--workspace-id <id>] [--out <zip-path>] [--json]");
+      console.error("Usage: dofe-agent skill export <skill-id> [more-skill-ids...] [--workspace-id <id>] [--out <zip-path>] [--json]");
       return 1;
     }
 
@@ -130,7 +130,7 @@ export async function runSkillCommand(
     const { flags } = parseArgs(args);
     const url = getStringFlag(flags, "url")?.trim();
     if (!url) {
-      console.error("Usage: agent-space skill import --url <url> [--conflict reject|rename|replace|skip] [--workspace-id <id>] [--json]");
+      console.error("Usage: dofe-agent skill import --url <url> [--conflict reject|rename|replace|skip] [--workspace-id <id>] [--json]");
       return 1;
     }
     const conflict = getStringFlag(flags, "conflict") as "reject" | "rename" | "replace" | "skip" | undefined;
@@ -149,16 +149,16 @@ export async function runSkillCommand(
   }
 
   console.error("Usage:");
-  console.error("  agent-space skill list [--workspace-id <id>] [--json]");
-  console.error("  agent-space skill get <skill-id> [--workspace-id <id>] [--json]");
-  console.error("  agent-space skill create --name <name> [--description <text>] [--workspace-id <id>] [--json]");
-  console.error("  agent-space skill update <skill-id> [--name <name>] [--description <text>] [--workspace-id <id>] [--json]");
-  console.error("  agent-space skill delete <skill-id> [--workspace-id <id>] [--json]");
-  console.error("  agent-space skill files list <skill-id> [--workspace-id <id>] [--json]");
-  console.error("  agent-space skill files upsert <skill-id> --path <path> --content <content> [--file-id <id>] [--workspace-id <id>] [--json]");
-  console.error("  agent-space skill files delete <skill-id> --file-id <id> [--workspace-id <id>] [--json]");
-  console.error("  agent-space skill import --url <url> [--conflict reject|rename|replace|skip] [--workspace-id <id>] [--json]");
-  console.error("  agent-space skill export <skill-id> [more-skill-ids...] [--workspace-id <id>] [--out <zip-path>] [--json]");
+  console.error("  dofe-agent skill list [--workspace-id <id>] [--json]");
+  console.error("  dofe-agent skill get <skill-id> [--workspace-id <id>] [--json]");
+  console.error("  dofe-agent skill create --name <name> [--description <text>] [--workspace-id <id>] [--json]");
+  console.error("  dofe-agent skill update <skill-id> [--name <name>] [--description <text>] [--workspace-id <id>] [--json]");
+  console.error("  dofe-agent skill delete <skill-id> [--workspace-id <id>] [--json]");
+  console.error("  dofe-agent skill files list <skill-id> [--workspace-id <id>] [--json]");
+  console.error("  dofe-agent skill files upsert <skill-id> --path <path> --content <content> [--file-id <id>] [--workspace-id <id>] [--json]");
+  console.error("  dofe-agent skill files delete <skill-id> --file-id <id> [--workspace-id <id>] [--json]");
+  console.error("  dofe-agent skill import --url <url> [--conflict reject|rename|replace|skip] [--workspace-id <id>] [--json]");
+  console.error("  dofe-agent skill export <skill-id> [more-skill-ids...] [--workspace-id <id>] [--out <zip-path>] [--json]");
   return 1;
 }
 
@@ -170,7 +170,7 @@ function runSkillFilesCommand(args: string[], format: OutputFormat): number {
 
   if (action === "list") {
     if (!skillId) {
-      console.error("Usage: agent-space skill files list <skill-id> [--workspace-id <id>] [--json]");
+      console.error("Usage: dofe-agent skill files list <skill-id> [--workspace-id <id>] [--json]");
       return 1;
     }
     const skill = readWorkspaceSkillSync(skillId, workspaceId);
@@ -184,7 +184,7 @@ function runSkillFilesCommand(args: string[], format: OutputFormat): number {
 
   if (action === "upsert") {
     if (!skillId) {
-      console.error("Usage: agent-space skill files upsert <skill-id> --path <path> --content <content> [--file-id <id>] [--workspace-id <id>] [--json]");
+      console.error("Usage: dofe-agent skill files upsert <skill-id> --path <path> --content <content> [--file-id <id>] [--workspace-id <id>] [--json]");
       return 1;
     }
     const path = getStringFlag(parsed.flags, "path")?.trim();
@@ -206,7 +206,7 @@ function runSkillFilesCommand(args: string[], format: OutputFormat): number {
 
   if (action === "delete") {
     if (!skillId) {
-      console.error("Usage: agent-space skill files delete <skill-id> --file-id <id> [--workspace-id <id>] [--json]");
+      console.error("Usage: dofe-agent skill files delete <skill-id> --file-id <id> [--workspace-id <id>] [--json]");
       return 1;
     }
     const fileId = getStringFlag(parsed.flags, "file-id")?.trim();
@@ -220,9 +220,9 @@ function runSkillFilesCommand(args: string[], format: OutputFormat): number {
   }
 
   console.error("Usage:");
-  console.error("  agent-space skill files list <skill-id> [--workspace-id <id>] [--json]");
-  console.error("  agent-space skill files upsert <skill-id> --path <path> --content <content> [--file-id <id>] [--workspace-id <id>] [--json]");
-  console.error("  agent-space skill files delete <skill-id> --file-id <id> [--workspace-id <id>] [--json]");
+  console.error("  dofe-agent skill files list <skill-id> [--workspace-id <id>] [--json]");
+  console.error("  dofe-agent skill files upsert <skill-id> --path <path> --content <content> [--file-id <id>] [--workspace-id <id>] [--json]");
+  console.error("  dofe-agent skill files delete <skill-id> --file-id <id> [--workspace-id <id>] [--json]");
   return 1;
 }
 

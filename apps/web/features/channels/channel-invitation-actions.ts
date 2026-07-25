@@ -2,12 +2,12 @@
 
 import {
   readWorkspaceSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   acceptChannelInvitationForActorSync,
   rejectChannelInvitationForActorSync,
   tryRecordWorkspaceAuditEventSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { getCurrentUser } from "@/features/auth/server-auth";
 import { writeWorkspaceSelectionCookie } from "@/features/auth/workspace-selection";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";

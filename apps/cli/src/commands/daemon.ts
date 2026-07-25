@@ -29,7 +29,7 @@ import {
   runRemoteDaemonForeground as runStandaloneRemoteDaemonForeground,
   type DetectedProvider as SharedDetectedProvider,
   type ProviderRuntimeRecord,
-} from "agent-space-daemon";
+} from "dofe-agent-daemon";
 import {
   appendTaskMessageSync,
   chooseProviderSessionForTaskSync,
@@ -58,7 +58,7 @@ import {
   recordTokenUsageSync,
   type AgentRuntimeRecord,
   type QueuedTaskRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   buildContactAgentContext,
   checkAllBudgetsForAgentSync,
@@ -87,9 +87,9 @@ import {
   updateTaskStatusSync,
   writeWorkspaceStateSync,
   type FeishuAgentStatusCardStatus,
-} from "@agent-space/services";
-import type { ActiveEmployee, MessageAttachment } from "@agent-space/domain/workspace";
-import type { DaemonTaskInputBundle, RuntimeToolCapability } from "@agent-space/domain";
+} from "@dofe-agent/services";
+import type { ActiveEmployee, MessageAttachment } from "@dofe-agent/domain/workspace";
+import type { DaemonTaskInputBundle, RuntimeToolCapability } from "@dofe-agent/domain";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 import { HttpDaemonClient } from "../lib/daemon-client.ts";
@@ -139,14 +139,14 @@ export async function runDaemonCommand(
   }
 
   console.error(
-    "Usage: agent-space daemon start [--foreground] [--daemon-id <id>] [--device-name <name>] [--runtime-name <label>] [--heartbeat-interval <ms>] [--task-timeout <ms>]",
+    "Usage: dofe-agent daemon start [--foreground] [--daemon-id <id>] [--device-name <name>] [--runtime-name <label>] [--heartbeat-interval <ms>] [--task-timeout <ms>]",
   );
-  console.error("   or: agent-space daemon stop");
-  console.error("   or: agent-space daemon status [--json]");
-  console.error("   or: agent-space daemon logs [--lines <n>] [--follow]");
-  console.error("   or: agent-space daemon token create --label <label> [--created-by <name>] [--json]");
-  console.error("   or: agent-space daemon token list [--json]");
-  console.error("   or: agent-space daemon token revoke --id <token-id> [--json]");
+  console.error("   or: dofe-agent daemon stop");
+  console.error("   or: dofe-agent daemon status [--json]");
+  console.error("   or: dofe-agent daemon logs [--lines <n>] [--follow]");
+  console.error("   or: dofe-agent daemon token create --label <label> [--created-by <name>] [--json]");
+  console.error("   or: dofe-agent daemon token list [--json]");
+  console.error("   or: dofe-agent daemon token revoke --id <token-id> [--json]");
   return 1;
 }
 
@@ -235,7 +235,7 @@ async function runDaemonForeground(config: DaemonConfig): Promise<number> {
 async function runLocalDaemonForeground(config: DaemonConfig): Promise<number> {
   const pidPath = getDaemonPidFilePath();
   writeFileSync(pidPath, `${process.pid}\n`, "utf8");
-  process.env.AGENT_SPACE_TASK_TIMEOUT_MS = String(config.taskTimeoutMs);
+  process.env.DOFE_AGENT_TASK_TIMEOUT_MS = String(config.taskTimeoutMs);
 
   const detected = detectProviders();
   if (detected.length === 0) {
@@ -491,7 +491,7 @@ function runDaemonTokenCommand(args: string[], format: OutputFormat): number {
     const label = getStringFlag(parsed.flags, "label")?.trim() ?? "";
     const createdBy = getStringFlag(parsed.flags, "created-by")?.trim() ?? "system";
     if (!label) {
-      console.error("Usage: agent-space daemon token create --label <label> [--created-by <name>] [--json]");
+      console.error("Usage: dofe-agent daemon token create --label <label> [--created-by <name>] [--json]");
       return 1;
     }
 
@@ -520,7 +520,7 @@ function runDaemonTokenCommand(args: string[], format: OutputFormat): number {
   if (action === "revoke") {
     const id = getStringFlag(parsed.flags, "id")?.trim() ?? "";
     if (!id) {
-      console.error("Usage: agent-space daemon token revoke --id <token-id> [--json]");
+      console.error("Usage: dofe-agent daemon token revoke --id <token-id> [--json]");
       return 1;
     }
 
@@ -529,9 +529,9 @@ function runDaemonTokenCommand(args: string[], format: OutputFormat): number {
   }
 
   console.error(
-    "Usage: agent-space daemon token create --label <label> [--created-by <name>] [--json]\n"
-      + "       agent-space daemon token list [--json]\n"
-      + "       agent-space daemon token revoke --id <token-id> [--json]",
+    "Usage: dofe-agent daemon token create --label <label> [--created-by <name>] [--json]\n"
+      + "       dofe-agent daemon token list [--json]\n"
+      + "       dofe-agent daemon token revoke --id <token-id> [--json]",
   );
   return 1;
 }
@@ -567,7 +567,7 @@ function buildDaemonConfig(flags: Record<string, string | boolean>): DaemonConfi
       1_000,
       Number(
         getStringFlag(flags, "task-timeout")
-          ?? process.env.AGENT_SPACE_TASK_TIMEOUT_MS
+          ?? process.env.DOFE_AGENT_TASK_TIMEOUT_MS
           ?? 12 * 60 * 60 * 1000,
       ),
     ),
@@ -739,7 +739,7 @@ function canAgentCreateGoogleSheet(input: {
   agentName: string;
   channelName?: string;
 }): boolean {
-  if (process.env.AGENT_SPACE_AGENT_GOOGLE_SHEET_CREATE_ENABLED === "false" || !input.channelName) {
+  if (process.env.DOFE_AGENT_AGENT_GOOGLE_SHEET_CREATE_ENABLED === "false" || !input.channelName) {
     return false;
   }
   return Boolean(readActiveAgentGoogleWorkspaceDelegationSync({
@@ -754,8 +754,8 @@ function enqueueFeishuReplyOutboxBestEffort(input: {
   agentId?: string;
   text: string;
   attachments?: MessageAttachment[];
-  agentSpaceMessageId?: string;
-  sourceAgentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
+  sourceDofeAgentMessageId?: string;
   statusCard?: {
     status: FeishuAgentStatusCardStatus;
     agentNames: string[];
@@ -773,8 +773,8 @@ function enqueueFeishuReplyOutboxBestEffort(input: {
           agentNames: input.statusCard.agentNames,
           message: input.statusCard.message,
           taskId: input.statusCard.taskId,
-          agentSpaceMessageId: input.agentSpaceMessageId,
-          sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+          dofeAgentMessageId: input.dofeAgentMessageId,
+          sourceDofeAgentMessageId: input.sourceDofeAgentMessageId,
         })
       : [];
     const replyOutboxItems = queueFeishuChannelReplyOutboxSync(input);
@@ -839,9 +839,9 @@ async function executeRemoteQueuedTask(
       {
         sessionId: (bundle.metadata.routerSession?.providerSessionId ?? payload.channelSessionId?.trim()) || undefined,
         contextEnv: buildRuntimeContextEnv({
-          AGENT_SPACE_CONTEXT_AGENT_NAME: payload.assignee ?? task.agentId,
-          AGENT_SPACE_CONTEXT_TASK_ID: task.id,
-          AGENT_SPACE_CONTEXT_TRIGGER_TYPE: task.triggerType,
+          DOFE_AGENT_CONTEXT_AGENT_NAME: payload.assignee ?? task.agentId,
+          DOFE_AGENT_CONTEXT_TASK_ID: task.id,
+          DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
         }, bundle.metadata.googleWorkspace),
         runtimeToolCapabilities: bundle.metadata.runtimeToolCapabilities?.capabilities ?? [],
         onEvent: (event) => {
@@ -1013,9 +1013,9 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       {
         sessionId: providerSession?.providerSessionId ?? effectivePayload.channelSessionId,
         contextEnv: {
-          AGENT_SPACE_CONTEXT_AGENT_NAME: agentName,
-          AGENT_SPACE_CONTEXT_TASK_ID: task.id,
-          AGENT_SPACE_CONTEXT_TRIGGER_TYPE: task.triggerType,
+          DOFE_AGENT_CONTEXT_AGENT_NAME: agentName,
+          DOFE_AGENT_CONTEXT_TASK_ID: task.id,
+          DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
         },
         runtimeToolCapabilities: buildDocumentRuntimeToolCapabilities(agentDocumentContexts, {
           canCreateGoogleSheet: canAgentCreateGoogleSheet({
@@ -1077,7 +1077,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       actorName: agentName,
       sourceTaskQueueId: task.id,
       sourceChannelName: effectiveChannelName,
-      sourceAgentSpaceMessageId: effectivePayload.sourceMessageId,
+      sourceDofeAgentMessageId: effectivePayload.sourceMessageId,
       resourceGrants: feishuLarkCliResourceGrants,
     });
     const knowledgeProposalOperations = applyKnowledgeProposalOperations({
@@ -1249,8 +1249,8 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         agentId: agentName,
         text: outputEnvelope.text,
         attachments: outputEnvelope.attachments,
-        agentSpaceMessageId: replyResult.message.id,
-        sourceAgentSpaceMessageId: payload.sourceMessageId,
+        dofeAgentMessageId: replyResult.message.id,
+        sourceDofeAgentMessageId: payload.sourceMessageId,
         statusCard: {
           status: "complete",
           agentNames: [agentName],
@@ -1310,8 +1310,8 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         agentId: agentName,
         text: outputEnvelope.text,
         attachments: outputEnvelope.attachments,
-        agentSpaceMessageId: replyResult.message.id,
-        sourceAgentSpaceMessageId: payload.sourceMessageId,
+        dofeAgentMessageId: replyResult.message.id,
+        sourceDofeAgentMessageId: payload.sourceMessageId,
         statusCard: {
           status: "complete",
           agentNames: [agentName],

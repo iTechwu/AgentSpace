@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { employeeToPersona } from "@agent-space/domain";
-import type { ActiveEmployee } from "@agent-space/domain/workspace";
+import { employeeToPersona } from "@dofe-agent/domain";
+import type { ActiveEmployee } from "@dofe-agent/domain/workspace";
 import {
   didKeyFromPublicKey,
   signPersona,

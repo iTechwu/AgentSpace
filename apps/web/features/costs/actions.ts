@@ -1,7 +1,7 @@
 "use server";
 
-import { deleteBudgetSync, toggleBudgetSync, tryRecordWorkspaceAuditEventSync, upsertBudgetSync } from "@agent-space/services";
-import { readBudgetByIdSync, type BudgetAction, type BudgetPeriod, type BudgetScope } from "@agent-space/db";
+import { deleteBudgetSync, toggleBudgetSync, tryRecordWorkspaceAuditEventSync, upsertBudgetSync } from "@dofe-agent/services";
+import { readBudgetByIdSync, type BudgetAction, type BudgetPeriod, type BudgetScope } from "@dofe-agent/db";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePath } from "@/features/auth/workspace-revalidation";

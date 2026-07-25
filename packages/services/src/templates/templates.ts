@@ -1,4 +1,4 @@
-import type { AgentSpaceState, Template } from "@agent-space/domain/workspace";
+import type { DofeAgentState, Template } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { createOpaqueId } from "../shared/helpers.ts";
 
@@ -18,7 +18,7 @@ export function createTemplateSync(input: {
   description?: string;
   configJson: string;
   createdBy?: string;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const name = input.name.trim();
   if (!name) {
@@ -58,7 +58,7 @@ export function updateTemplateSync(
     configJson?: string;
   },
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const template = (state.templates ?? []).find((t) => t.id === id);
   if (!template) {
@@ -94,7 +94,7 @@ export function updateTemplateSync(
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function deleteTemplateSync(id: string, workspaceId?: string): AgentSpaceState {
+export function deleteTemplateSync(id: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const template = (state.templates ?? []).find((t) => t.id === id);
   if (!template) {

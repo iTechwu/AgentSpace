@@ -1,4 +1,4 @@
-import { type AgentSpaceState, type WorkspaceSkill, type WorkspaceSkillFile } from "@agent-space/domain/workspace";
+import { type DofeAgentState, type WorkspaceSkill, type WorkspaceSkillFile } from "@dofe-agent/domain/workspace";
 import {
   createStoredWorkspaceSkillSync,
   deleteStoredWorkspaceSkillFileSync,
@@ -9,7 +9,7 @@ import {
   writeWorkspaceStateRecordSync,
   updateStoredWorkspaceSkillMetaSync,
   upsertStoredWorkspaceSkillFileSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { ensureWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue, createOpaqueId, normalizeSkillFilePath } from "../shared/helpers.ts";
 import {
@@ -161,7 +161,7 @@ export function readWorkspaceSkillSync(skillId: string, workspaceId?: string): W
   return readStoredWorkspaceSkillSync(skillId, workspaceId);
 }
 
-export function deleteWorkspaceSkillSync(skillId: string, workspaceId?: string): AgentSpaceState {
+export function deleteWorkspaceSkillSync(skillId: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const skill = requireStoredSkill(skillId, workspaceId);
   if (isBuiltinSkill(skill.name)) {
@@ -300,7 +300,7 @@ export function upsertWorkspaceSkillFileSync(input: {
   return skill.files.find((item) => item.id === file.id) ?? file;
 }
 
-export function deleteWorkspaceSkillFileSync(skillId: string, fileId: string, workspaceId?: string): AgentSpaceState {
+export function deleteWorkspaceSkillFileSync(skillId: string, fileId: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const skill = requireStoredSkill(skillId, workspaceId);
   if (isBuiltinSkill(skill.name)) {
@@ -462,12 +462,12 @@ function readSkillMarkdownContent(skill: WorkspaceSkill): string {
   return skill.files.find((file) => sameValue(file.path, "SKILL.md"))?.content ?? "";
 }
 
-function replaceStateSkillSnapshot(state: AgentSpaceState, skillId: string, nextSkill: WorkspaceSkill): void {
+function replaceStateSkillSnapshot(state: DofeAgentState, skillId: string, nextSkill: WorkspaceSkill): void {
   const nextSkills = state.skills.filter((item) => item.id !== skillId);
   nextSkills.unshift(nextSkill);
   state.skills = nextSkills;
 }
 
-function removeStateSkillSnapshot(state: AgentSpaceState, skillId: string): void {
+function removeStateSkillSnapshot(state: DofeAgentState, skillId: string): void {
   state.skills = state.skills.filter((item) => item.id !== skillId);
 }

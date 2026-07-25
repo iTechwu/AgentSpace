@@ -1,20 +1,20 @@
 import { appendFileSync, existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
-  AgentSpaceState,
+  DofeAgentState,
   DirectConversationState,
   MessageAttachment,
   MessageMention,
   WorkspaceMessage,
-} from "@agent-space/domain/workspace";
-import type { ChannelDocumentRunStep } from "@agent-space/domain";
-import type { MentionCandidate } from "@agent-space/domain";
+} from "@dofe-agent/domain/workspace";
+import type { ChannelDocumentRunStep } from "@dofe-agent/domain";
+import type { MentionCandidate } from "@dofe-agent/domain";
 import {
   DEFAULT_WORKSPACE_ID,
   enqueueNativeTaskSync,
   getWorkspaceChannelHistoryDirPath,
   readLatestChannelExecutionSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   markChannelDocumentRunStepQueued,
 } from "../documents/runs.ts";
@@ -136,7 +136,7 @@ export function buildExternalMessageData(input: ExternalMessageInputContext | un
 }
 
 export function pushWorkspaceMessageIfChannel(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channel: string | undefined,
   input: {
     speaker: string;
@@ -158,7 +158,7 @@ export function pushWorkspaceMessageIfChannel(
 }
 
 export function pushWorkspaceMessageToChannel(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channel: string,
   input: {
     speaker: string;
@@ -233,7 +233,7 @@ export function createWorkspaceMessageRecord(input: {
   };
 }
 
-export function buildMentionCandidates(state: AgentSpaceState, channelName: string): MentionCandidate[] {
+export function buildMentionCandidates(state: DofeAgentState, channelName: string): MentionCandidate[] {
   return state.activeEmployees.map((employee) => ({
     agentId: employee.name,
     label: employee.remarkName?.trim() || employee.name,
@@ -242,7 +242,7 @@ export function buildMentionCandidates(state: AgentSpaceState, channelName: stri
   }));
 }
 
-export function buildChannelHistorySnapshot(state: AgentSpaceState, channelName: string): Array<{
+export function buildChannelHistorySnapshot(state: DofeAgentState, channelName: string): Array<{
   speaker: string;
   role?: string;
   summary: string;
@@ -271,7 +271,7 @@ export function buildChannelHistorySnapshot(state: AgentSpaceState, channelName:
 }
 
 export function enqueueChannelMentionStepSync(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: {
     channelName: string;
     sourceMessage?: WorkspaceMessage;

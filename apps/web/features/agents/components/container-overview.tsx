@@ -1,4 +1,4 @@
-import { formatDaemonProviderLabel } from "@agent-space/domain";
+import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import { useEffect, useState } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { MetaCard } from "@/shared/ui/meta-card";

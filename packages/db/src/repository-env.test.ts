@@ -6,26 +6,26 @@ import test from "node:test";
 import { readEffectiveRuntimeEnv } from "./repository-env.ts";
 
 test("readEffectiveRuntimeEnv lets runtime env override repository .env when disabled", () => {
-  const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-repository-env-"));
+  const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-repository-env-"));
   const previous = {
-    AGENT_SPACE_APP_URL: process.env.AGENT_SPACE_APP_URL,
-    AGENT_SPACE_REPOSITORY_ENV_OVERRIDE: process.env.AGENT_SPACE_REPOSITORY_ENV_OVERRIDE,
-    AGENT_SPACE_REPOSITORY_ROOT: process.env.AGENT_SPACE_REPOSITORY_ROOT,
+    DOFE_AGENT_APP_URL: process.env.DOFE_AGENT_APP_URL,
+    DOFE_AGENT_REPOSITORY_ENV_OVERRIDE: process.env.DOFE_AGENT_REPOSITORY_ENV_OVERRIDE,
+    DOFE_AGENT_REPOSITORY_ROOT: process.env.DOFE_AGENT_REPOSITORY_ROOT,
   };
 
   try {
     writeFileSync(join(tempRoot, "Target.md"), "# test\n");
-    writeFileSync(join(tempRoot, ".env"), "AGENT_SPACE_APP_URL=https://production.test\n", "utf8");
+    writeFileSync(join(tempRoot, ".env"), "DOFE_AGENT_APP_URL=https://production.test\n", "utf8");
 
-    process.env.AGENT_SPACE_REPOSITORY_ROOT = tempRoot;
-    process.env.AGENT_SPACE_APP_URL = "https://runtime.test";
-    process.env.AGENT_SPACE_REPOSITORY_ENV_OVERRIDE = "0";
+    process.env.DOFE_AGENT_REPOSITORY_ROOT = tempRoot;
+    process.env.DOFE_AGENT_APP_URL = "https://runtime.test";
+    process.env.DOFE_AGENT_REPOSITORY_ENV_OVERRIDE = "0";
 
-    assert.equal(readEffectiveRuntimeEnv().AGENT_SPACE_APP_URL, "https://runtime.test");
+    assert.equal(readEffectiveRuntimeEnv().DOFE_AGENT_APP_URL, "https://runtime.test");
   } finally {
-    restoreEnv("AGENT_SPACE_APP_URL", previous.AGENT_SPACE_APP_URL);
-    restoreEnv("AGENT_SPACE_REPOSITORY_ENV_OVERRIDE", previous.AGENT_SPACE_REPOSITORY_ENV_OVERRIDE);
-    restoreEnv("AGENT_SPACE_REPOSITORY_ROOT", previous.AGENT_SPACE_REPOSITORY_ROOT);
+    restoreEnv("DOFE_AGENT_APP_URL", previous.DOFE_AGENT_APP_URL);
+    restoreEnv("DOFE_AGENT_REPOSITORY_ENV_OVERRIDE", previous.DOFE_AGENT_REPOSITORY_ENV_OVERRIDE);
+    restoreEnv("DOFE_AGENT_REPOSITORY_ROOT", previous.DOFE_AGENT_REPOSITORY_ROOT);
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });

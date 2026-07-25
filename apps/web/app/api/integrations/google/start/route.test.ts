@@ -10,7 +10,7 @@ const {
   mockGetCurrentWorkspaceContext: vi.fn(),
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   assertCanManageEmployeeForActorSync: mockAssertCanManageEmployeeForActorSync,
 }));
 

@@ -3,7 +3,7 @@ import {
   updateExternalDataOperationRunStatusSync,
   type ExternalDataOperationRunStatus,
   type ExternalDataOperationRunRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type {
   ExternalDataOperationRequest,
   ExternalDataOperationResult,

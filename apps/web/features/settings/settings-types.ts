@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from "@agent-space/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
 import type {
   FeishuAvailableAgentItem,
   FeishuAvailableChannelItem,
@@ -6,7 +6,7 @@ import type {
   FeishuIntegrationCreationGuide,
   FeishuIntegrationSettingsItem,
 } from "@/features/integrations/feishu/feishu-types";
-import type { PermissionCenterData } from "@agent-space/services";
+import type { PermissionCenterData } from "@dofe-agent/services";
 
 export type SettingsTx = (zh: string, en: string) => string;
 export type SettingsPermissionCenterData = PermissionCenterData;

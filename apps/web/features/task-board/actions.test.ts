@@ -14,7 +14,7 @@ const {
   mockUpdateTaskStatusSync: vi.fn(),
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   addTaskLabelSync: vi.fn(),
   assertCanUseEmployeeInChannelForActorSync: mockAssertCanUseEmployeeInChannelForActorSync,
   estimateTaskSync: vi.fn(),
@@ -65,7 +65,7 @@ describe("task-board actions", () => {
       actorRole: "owner",
     });
     expect(mockUpdateTaskStatusSync).toHaveBeenCalledWith("task-1", "done", "workspace-1");
-    expect(mockRevalidateWorkspacePaths).toHaveBeenCalledWith("workspace-alpha", ["/task-board", "/inbox", "/agents"]);
+    expect(mockRevalidateWorkspacePaths).toHaveBeenCalledWith("workspace-alpha", ["/task/board", "/inbox", "/agents"]);
     expect(result.invalidation).toEqual({
       workspaceId: "workspace-1",
       modules: ["task-board", "inbox", "agents"],

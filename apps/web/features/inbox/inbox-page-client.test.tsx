@@ -362,7 +362,7 @@ describe("InboxPageClient", () => {
             {
               id: "notification-history-1",
               role: "system",
-              actor: "AgentSpace",
+              actor: "DofeAgent",
               timestamp: "12:00",
               body: "Planner can now edit Research Plan.",
             },

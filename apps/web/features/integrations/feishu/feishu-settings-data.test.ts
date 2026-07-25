@@ -24,7 +24,7 @@ const {
   mockListWorkspaceMemberUsersSync: vi.fn(),
 }));
 
-vi.mock("@agent-space/db", () => ({
+vi.mock("@dofe-agent/db", () => ({
   listExternalChannelBindingsSync: mockListExternalChannelBindingsSync,
   listExternalDataOperationRunsSync: mockListExternalDataOperationRunsSync,
   listExternalIntegrationEventsSync: mockListExternalIntegrationEventsSync,
@@ -36,7 +36,7 @@ vi.mock("@agent-space/db", () => ({
   listWorkspaceMemberUsersSync: mockListWorkspaceMemberUsersSync,
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS: ["app_id", "app_secret"],
   FEISHU_DEFAULT_SCOPES: [
     "im:message",
@@ -54,7 +54,7 @@ vi.mock("@agent-space/services", () => ({
     guestPolicy: "external_guest_reply_on_mention_allow_with_dispatch + external_guest_reply_all_without_mention + external_guest_require_identity_without_dispatch + sent_identity_binding_notice + external_guest_ignore_without_dispatch_or_reply + external_guest_mention_required_without_dispatch_or_reply",
     workerRestart: "two_correlated_websocket_replies",
     workerCardAction: "processed_approval_card_action_with_governance_context",
-    dataPlane: "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_agentspace_sync + bound_governed_base_read + bound_approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
+    dataPlane: "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_dofe-agent_sync + bound_governed_base_read + bound_approved_base_mutation_with_dofe-agent_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
     failureVisibility: "provider_failure_row + degraded_or_error_health + agent_bot_failure_with_safe_context",
   },
   FEISHU_OPEN_PLATFORM_CONSOLE_URLS: {
@@ -261,6 +261,18 @@ describe("Feishu settings data", () => {
     });
   });
 
+  it("rejects placeholder and insecure public URLs for Feishu callbacks", () => {
+    for (const appUrl of ["https://agentspace.example.com", "http://agent.test"]) {
+      expect(buildFeishuIntegrationCreationGuide({
+        workspaceId: "workspace-1",
+        appUrl,
+      })).toMatchObject({
+        publicAppUrlStatus: "missing",
+        callbackUrlTemplate: "/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=created-integration-id",
+      });
+    }
+  });
+
   it("uses shell-safe public URL placeholders in settings setup commands", () => {
     const [item] = listFeishuIntegrationSettingsItems({
       workspaceId: "workspace-1",
@@ -271,10 +283,10 @@ describe("Feishu settings data", () => {
     });
 
     expect(item?.setupGuide?.commands.smokeEnv).toBe(
-      "agent-space integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-1 --app-url CHANGE_ME_PUBLIC_AGENTSPACE_URL > scripts/feishu/.env",
+      "dofe-agent integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-1 --app-url CHANGE_ME_PUBLIC_DOFE_AGENT_URL > scripts/feishu/.env",
     );
     expect(item?.setupGuide?.commands.smokePlan).toBe(
-      "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-1 --app-url CHANGE_ME_PUBLIC_AGENTSPACE_URL",
+      "dofe-agent integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-1 --app-url CHANGE_ME_PUBLIC_DOFE_AGENT_URL",
     );
     expect(item?.setupGuide?.commands.verifyBotAddedPayload).toBe(
       "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
@@ -294,7 +306,7 @@ describe("Feishu settings data", () => {
           channelBindingId: "channel-binding-1",
           targetExternalChatId: "oc_general",
           targetExternalThreadId: "om_thread_1",
-          agentSpaceMessageId: "message-1",
+          dofeAgentMessageId: "message-1",
           metadataJson: JSON.stringify({
             provider: "feishu",
             agentId: "Codex",
@@ -364,7 +376,7 @@ describe("Feishu settings data", () => {
         targetExternalChatIdRedacted: true,
         targetExternalThreadReference: "thread 296234ee",
         targetExternalThreadIdRedacted: true,
-        agentSpaceMessageId: "message-1",
+        dofeAgentMessageId: "message-1",
         status: "failed",
         attempts: 3,
         lastError: "feishu.outbound.network_unreachable",
@@ -473,15 +485,15 @@ describe("Feishu settings data", () => {
         },
         {
           key: "data_plane",
-          required: "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_agentspace_sync + bound_governed_base_read + bound_approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
+          required: "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_dofe-agent_sync + bound_governed_base_read + bound_approved_base_mutation_with_dofe-agent_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
         },
         {
           key: "failure_visibility",
           required: "provider_failure_row + degraded_or_error_health + agent_bot_failure_with_safe_context",
         },
         {
-          key: "agentspace_local_evidence",
-          required: "fresh_24h_agentspace_local_evidence_rows",
+          key: "dofe-agent_local_evidence",
+          required: "fresh_24h_dofe-agent_local_evidence_rows",
         },
         {
           key: "openapi_artifact",
@@ -493,18 +505,18 @@ describe("Feishu settings data", () => {
         },
       ],
       commands: {
-        healthCheck: "agent-space integrations feishu health-check --workspace-id workspace-1 --integration feishu-1 --strict --json",
-        bindSecondAgentBot: "agent-space integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
-        botReadiness: "agent-space integrations feishu readiness --workspace-id workspace-1 --integration feishu-1 --strict --require bot --json",
-        dataPlaneReadiness: "agent-space integrations feishu readiness --workspace-id workspace-1 --integration feishu-1 --strict --require data-plane --json",
-        workerReadiness: "agent-space integrations feishu readiness --workspace-id workspace-1 --integration feishu-1 --strict --require worker --json",
-        smokeEnv: "agent-space integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test > scripts/feishu/.env",
+        healthCheck: "dofe-agent integrations feishu health-check --workspace-id workspace-1 --integration feishu-1 --strict --json",
+        bindSecondAgentBot: "dofe-agent integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
+        botReadiness: "dofe-agent integrations feishu readiness --workspace-id workspace-1 --integration feishu-1 --strict --require bot --json",
+        dataPlaneReadiness: "dofe-agent integrations feishu readiness --workspace-id workspace-1 --integration feishu-1 --strict --require data-plane --json",
+        workerReadiness: "dofe-agent integrations feishu readiness --workspace-id workspace-1 --integration feishu-1 --strict --require worker --json",
+        smokeEnv: "dofe-agent integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test > scripts/feishu/.env",
         checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
         strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
         verifyOpenApiEvidence: "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
         verifyBotAddedPayload: "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
-        smokePlan: "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test",
-        evidence: "agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-1 --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
+        smokePlan: "dofe-agent integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test",
+        evidence: "dofe-agent integrations feishu evidence --workspace-id workspace-1 --integration feishu-1 --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
       },
     });
     expect(JSON.stringify(item)).not.toContain("encrypted-secret-marker");
@@ -787,25 +799,25 @@ describe("Feishu settings data", () => {
       requireIdentityFor: ["writes", "approvals"],
     });
     expect(atlas?.setupGuide?.commands.botReadiness).toBe(
-      "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent Atlas --strict --require bot --json",
+      "dofe-agent integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent Atlas --strict --require bot --json",
     );
     expect(atlas?.setupGuide?.commands.dataPlaneReadiness).toBe(
-      "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent Atlas --strict --require data-plane --json",
+      "dofe-agent integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent Atlas --strict --require data-plane --json",
     );
     expect(atlas?.setupGuide?.commands.bindSecondAgentBot).toBe(
-      "agent-space integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
+      "dofe-agent integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
     );
     expect(atlas?.setupGuide?.commands.autoProvisionPolicy).toBe(
-      "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --agent Atlas --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
+      "dofe-agent integrations feishu auto-provision-policy --workspace-id workspace-1 --agent Atlas --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
     );
     expect(atlas?.setupGuide?.commands.agentChannelAccessDisable).toBe(
-      "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Atlas --access disabled --json",
+      "dofe-agent integrations feishu agent-channel-access --workspace-id workspace-1 --agent Atlas --access disabled --json",
     );
     expect(atlas?.setupGuide?.commands.agentChannelAccessRestore).toBe(
-      "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Atlas --access enabled --json",
+      "dofe-agent integrations feishu agent-channel-access --workspace-id workspace-1 --agent Atlas --access enabled --json",
     );
     expect(atlas?.setupGuide?.commands.channelBindings).toBe(
-      "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration agent-bot-atlas --json",
+      "dofe-agent integrations feishu channel-bindings --workspace-id workspace-1 --integration agent-bot-atlas --json",
     );
     expect(atlas?.setupGuide?.commands.verifyBotAddedPayload).toBe(
       "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
@@ -839,7 +851,7 @@ describe("Feishu settings data", () => {
     });
   });
 
-  it("lists active AgentSpace agents for Feishu bot binding forms", () => {
+  it("lists active DofeAgent agents for Feishu bot binding forms", () => {
     mockListActiveEmployeesSync.mockReturnValue([
       {
         name: "Codex",
@@ -921,8 +933,8 @@ function buildResourceBinding(input: {
     providerResourceType: input.providerResourceType,
     providerResourceToken: input.providerResourceToken,
     providerResourceUrl: undefined,
-    agentSpaceResourceType: input.providerResourceType === "doc" ? "channel_document" : "data_table",
-    agentSpaceResourceId: input.providerResourceType === "doc" ? "doc-1" : "table-1",
+    dofeAgentResourceType: input.providerResourceType === "doc" ? "channel_document" : "data_table",
+    dofeAgentResourceId: input.providerResourceType === "doc" ? "doc-1" : "table-1",
     channelName: "general",
     displayName: undefined,
     status: "active",
@@ -951,7 +963,7 @@ function buildDataOperationRun(input: {
     requestJson: input.requestJson ?? "{}",
     resultJson: input.resultJson ?? "{}",
     errorCode: "feishu.data_operation_external_guest_requires_identity",
-    errorMessage: "External guests must bind an AgentSpace identity before writing Feishu resources.",
+    errorMessage: "External guests must bind an DofeAgent identity before writing Feishu resources.",
     createdAt: "2026-06-24T00:00:00.000Z",
     updatedAt: "2026-06-24T00:00:00.000Z",
   };

@@ -17,7 +17,7 @@ import {
   revokeGoogleOAuthCredentialSync,
   upsertAgentGoogleWorkspaceDelegationSync,
   upsertGoogleOAuthCredentialSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   bindEmployeeRuntimeSync,
   createChannelDocumentSync,
@@ -35,13 +35,13 @@ import {
   setKnowledgePageAssignmentModeSync,
   writeWorkspaceStateSync,
 } from "../index.ts";
-import type { ExternalSheetOperationRun } from "@agent-space/domain/workspace";
+import type { ExternalSheetOperationRun } from "@dofe-agent/domain/workspace";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-permissions-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-permissions-"));
 
 before(() => {
-  process.env.AGENT_SPACE_REPOSITORY_ROOT = originalCwd;
+  process.env.DOFE_AGENT_REPOSITORY_ROOT = originalCwd;
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   process.chdir(tempRoot);
@@ -526,7 +526,7 @@ test("Google credential owners can review external document permission requests 
 
 test.after(() => {
   process.chdir(originalCwd);
-  delete process.env.AGENT_SPACE_REPOSITORY_ROOT;
+  delete process.env.DOFE_AGENT_REPOSITORY_ROOT;
   rmSync(tempRoot, { recursive: true, force: true });
 });
 

@@ -6,7 +6,7 @@ import { moveTaskToColumnAction } from "@/features/task-board/actions";
 import type { TaskBoardColumn, TaskBoardGroupBy, TaskBoardPageData } from "@/features/dashboard/data";
 import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-invalidation";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
-import type { TaskRecord, TaskStatus } from "@agent-space/domain/workspace";
+import type { TaskRecord, TaskStatus } from "@dofe-agent/domain/workspace";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { runToastAction } from "@/shared/lib/toast-action";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";

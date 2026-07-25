@@ -128,7 +128,7 @@ export interface KnowledgeProposalManifestEntry {
 
 export interface KnowledgeProposalsManifest {
   version?: 1;
-  generatedBy?: "agent-space-cli";
+  generatedBy?: "dofe-agent-cli";
   proposals: KnowledgeProposalManifestEntry[];
 }
 
@@ -235,7 +235,7 @@ export type ExternalDocumentManifestEntry =
 
 export interface ExternalDocumentsManifest {
   version?: 1;
-  generatedBy?: "agent-space-cli";
+  generatedBy?: "dofe-agent-cli";
   operations: ExternalDocumentManifestEntry[];
 }
 
@@ -251,7 +251,7 @@ export interface DocumentPermissionRequestManifestEntry {
 
 export interface DocumentPermissionRequestsManifest {
   version?: 1;
-  generatedBy?: "agent-space-cli";
+  generatedBy?: "dofe-agent-cli";
   requests: DocumentPermissionRequestManifestEntry[];
 }
 
@@ -430,7 +430,7 @@ export function appendKnowledgeProposalManifestEntry(
   const manifest = readKnowledgeProposalsManifest(workDir);
   const next = {
     version: 1,
-    generatedBy: "agent-space-cli",
+    generatedBy: "dofe-agent-cli",
     proposals: [...(Array.isArray(manifest.proposals) ? manifest.proposals : []), entry],
   } satisfies KnowledgeProposalsManifest;
   writeManifestFile(workDir, RUNTIME_OUTPUT_KNOWLEDGE_PROPOSALS_RELATIVE_PATH, next);
@@ -534,7 +534,7 @@ function appendExternalDocumentOperation(
   const manifest = readExternalDocumentsManifest(workDir);
   const next = {
     version: 1,
-    generatedBy: "agent-space-cli",
+    generatedBy: "dofe-agent-cli",
     operations: [...manifest.operations, operation],
   } satisfies ExternalDocumentsManifest;
   writeManifestFile(workDir, RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH, next);
@@ -556,7 +556,7 @@ export function appendDocumentPermissionRequest(
   const manifest = readDocumentPermissionRequestsManifest(workDir);
   const next = {
     version: 1,
-    generatedBy: "agent-space-cli",
+    generatedBy: "dofe-agent-cli",
     requests: [...manifest.requests, request],
   } satisfies DocumentPermissionRequestsManifest;
   writeManifestFile(workDir, RUNTIME_OUTPUT_PERMISSION_REQUESTS_RELATIVE_PATH, next);
@@ -921,8 +921,8 @@ function validateKnowledgeProposalsManifest(workDir: string, errors: string[]): 
   if (parsed.version !== undefined && parsed.version !== 1) {
     errors.push(`${RUNTIME_OUTPUT_KNOWLEDGE_PROPOSALS_RELATIVE_PATH}.version must be 1.`);
   }
-  if (parsed.generatedBy !== "agent-space-cli") {
-    errors.push(`${RUNTIME_OUTPUT_KNOWLEDGE_PROPOSALS_RELATIVE_PATH}.generatedBy must be agent-space-cli; use agent-space output knowledge propose-create/propose-update.`);
+  if (parsed.generatedBy !== "dofe-agent-cli") {
+    errors.push(`${RUNTIME_OUTPUT_KNOWLEDGE_PROPOSALS_RELATIVE_PATH}.generatedBy must be dofe-agent-cli; use dofe-agent output knowledge propose-create/propose-update.`);
   }
   if (!Array.isArray(parsed.proposals)) {
     errors.push(`${RUNTIME_OUTPUT_KNOWLEDGE_PROPOSALS_RELATIVE_PATH}.proposals must be an array.`);
@@ -1228,8 +1228,8 @@ function validateExternalDocumentsManifest(workDir: string, errors: string[]): v
   if (parsed.version !== undefined && parsed.version !== 1) {
     errors.push(`${RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH}.version must be 1.`);
   }
-  if (parsed.generatedBy !== "agent-space-cli") {
-    errors.push(`${RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH}.generatedBy must be agent-space-cli; use agent-space output external-document link-google-sheet/create-google-sheet.`);
+  if (parsed.generatedBy !== "dofe-agent-cli") {
+    errors.push(`${RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH}.generatedBy must be dofe-agent-cli; use dofe-agent output external-document link-google-sheet/create-google-sheet.`);
   }
   if (!Array.isArray(parsed.operations)) {
     errors.push(`${RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH}.operations must be an array.`);
@@ -1386,8 +1386,8 @@ function validatePermissionRequestsManifest(workDir: string, errors: string[]): 
   if (parsed.version !== undefined && parsed.version !== 1) {
     errors.push(`${RUNTIME_OUTPUT_PERMISSION_REQUESTS_RELATIVE_PATH}.version must be 1.`);
   }
-  if (parsed.generatedBy !== "agent-space-cli") {
-    errors.push(`${RUNTIME_OUTPUT_PERMISSION_REQUESTS_RELATIVE_PATH}.generatedBy must be agent-space-cli; use agent-space output permission request-document.`);
+  if (parsed.generatedBy !== "dofe-agent-cli") {
+    errors.push(`${RUNTIME_OUTPUT_PERMISSION_REQUESTS_RELATIVE_PATH}.generatedBy must be dofe-agent-cli; use dofe-agent output permission request-document.`);
   }
   if (!Array.isArray(parsed.requests)) {
     errors.push(`${RUNTIME_OUTPUT_PERMISSION_REQUESTS_RELATIVE_PATH}.requests must be an array.`);
@@ -1438,14 +1438,14 @@ function validateFeishuDataOperationRequestsManifest(workDir: string, errors: st
     errors.push(`${RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH} must be an object.`);
     return;
   }
-  if (parsed.kind !== "agent-space.feishu.data-operation.requests") {
-    errors.push(`${RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH}.kind must be agent-space.feishu.data-operation.requests.`);
+  if (parsed.kind !== "dofe-agent.feishu.data-operation.requests") {
+    errors.push(`${RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH}.kind must be dofe-agent.feishu.data-operation.requests.`);
   }
   if (parsed.schemaVersion !== 1) {
     errors.push(`${RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH}.schemaVersion must be 1.`);
   }
-  if (parsed.generatedBy !== "agent-space-cli") {
-    errors.push(`${RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH}.generatedBy must be agent-space-cli; use agent-space output feishu data-operation-approval.`);
+  if (parsed.generatedBy !== "dofe-agent-cli") {
+    errors.push(`${RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH}.generatedBy must be dofe-agent-cli; use dofe-agent output feishu data-operation-approval.`);
   }
   if (!Array.isArray(parsed.requests)) {
     errors.push(`${RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH}.requests must be an array.`);

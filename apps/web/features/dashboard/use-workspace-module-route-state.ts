@@ -84,7 +84,7 @@ export function useWorkspaceModuleRouteState(currentWorkspaceSlug: string): {
 
     const nextUrl = new URL(href, window.location.href);
     const nextPath = `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
-    const historyState = { agentSpaceWorkspaceModule: true };
+    const historyState = { dofeAgentWorkspaceModule: true };
     if (options?.replace) {
       window.history.replaceState(historyState, "", nextPath);
     } else {
@@ -127,7 +127,7 @@ function readCurrentBrowserPathKey(): string {
   return `${window.location.pathname}${window.location.search}${window.location.hash}`;
 }
 
-function readHrefPathKey(href: string, base = "https://agent-space.local"): string {
+function readHrefPathKey(href: string, base = "https://dofe-agent.local"): string {
   const parsed = new URL(href, base);
   return `${parsed.pathname}${parsed.search}${parsed.hash}`;
 }

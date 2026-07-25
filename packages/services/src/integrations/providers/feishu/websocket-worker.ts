@@ -3,7 +3,7 @@ import {
   updateExternalIntegrationHealthSync,
   type ExternalIntegrationHealthStatus,
   type ExternalIntegrationRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type { WSConnectionStatus } from "@larksuiteoapi/node-sdk";
 import type { IntegrationRuntimeContext } from "../../core/index.ts";
 import { createFeishuInboundAttachmentDownloader } from "./attachments.ts";
@@ -355,7 +355,7 @@ async function createFeishuSdkWebSocketWorkerSession(
     appSecret: input.appSecret,
     domain: input.domain,
     autoReconnect: true,
-    source: "agent-space-feishu-worker",
+    source: "dofe-agent-feishu-worker",
     onReady: input.onReady,
     onError(error) {
       input.onError(error);

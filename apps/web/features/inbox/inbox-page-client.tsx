@@ -11,7 +11,7 @@ import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { ConversationMessageBubble } from "@/features/chat/chat-primitives";
 import type { InboxItem, InboxItemKind, InboxPageData, RouterExecutionView, TaskExecutionTimelineCategory, TaskExecutionTimelineEntry } from "@/features/dashboard/data";
-import type { TaskStatus } from "@agent-space/domain/workspace";
+import type { TaskStatus } from "@dofe-agent/domain/workspace";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { useAutoRefresh } from "@/shared/lib/use-auto-refresh";
 import {
@@ -83,7 +83,7 @@ export function InboxPageClient({
     defaultWidth: 340,
     maxWidth: 560,
     minWidth: 300,
-    storageKey: "agent-space.inbox-list-width",
+    storageKey: "dofe-agent.inbox-list-width",
   });
 
   useEffect(() => {

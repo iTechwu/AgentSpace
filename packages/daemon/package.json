@@ -1,12 +1,12 @@
 {
-  "name": "agent-space-daemon",
+  "name": "dofe-agent-daemon",
   "version": "0.1.3",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
     "agent-router": "./bin/agent-router.js",
-    "agent-space": "./bin/agent-space.js",
-    "agent-space-daemon": "./bin/agent-space-daemon.js"
+    "dofe-agent": "./bin/dofe-agent.js",
+    "dofe-agent-daemon": "./bin/dofe-agent-daemon.js"
   },
   "exports": {
     ".": {
@@ -38,13 +38,13 @@
     "types": "../../apps/web/node_modules/.bin/tsc -p tsconfig.types.json --incremental false",
     "build": "node ./scripts/build.mjs",
     "prepack": "npm run types && npm run build",
-    "agent-space-daemon": "node ./bin/agent-space-daemon.js"
+    "dofe-agent-daemon": "node ./bin/dofe-agent-daemon.js"
   },
   "dependencies": {
-    "@agent-space/db": "file:../db",
-    "@agent-space/domain": "file:../domain",
-    "@agent-space/sandbox": "file:../sandbox",
-    "@agent-space/services": "file:../services"
+    "@dofe-agent/db": "file:../db",
+    "@dofe-agent/domain": "file:../domain",
+    "@dofe-agent/sandbox": "file:../sandbox",
+    "@dofe-agent/services": "file:../services"
   },
   "devDependencies": {
     "esbuild": "^0.27.7"

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="asset/agentspace-logo.png" alt="agent.dofe logo" width="220" />
+  <img src="asset/dofe-agent-logo.png" alt="agent.dofe logo" width="220" />
 </p>
 
 <h1 align="center">agent.dofe：人类 + Agent。一个团队。一个工作空间</h1>
@@ -242,8 +242,8 @@ agent.dofe 为 Agent 组织提供四个关键能力：调度、能力共享、�
 ### Path A：运行 Workspace
 
 ```bash
-git clone <your-agentspace-repo-url>
-cd AgentSpace
+git clone <your-dofe-agent-repo-url>
+cd DofeAgent
 
 npm run setup
 cp .env.example .env
@@ -263,15 +263,18 @@ http://127.0.0.1:1455
 
 ### Path B：使用 CLI
 
+首次使用时，在项目根目录执行一次 `npm link`，将 `dofe-agent` 添加到终端 `PATH`：
+
 ```bash
-npm run cli -- help
-npm run cli -- doctor --json
-npm run cli -- workspace status --json
-npm run cli -- db status --json
-npm run cli -- im channels --json
-npm run cli -- channel list --json
-npm run cli -- task list --json
-npm run cli -- daemon status --json
+npm link
+dofe-agent help
+dofe-agent doctor --json
+dofe-agent workspace status --json
+dofe-agent db status --json
+dofe-agent im channels --json
+dofe-agent channel list --json
+dofe-agent task list --json
+dofe-agent daemon status --json
 ```
 
 数据库命令：
@@ -279,7 +282,7 @@ npm run cli -- daemon status --json
 ```bash
 npm run db:pg:status -- --json
 npm run db:pg:init
-npm run db:pg:migrate -- --dry-run --sqlite-path data/agent-space.sqlite --json
+npm run db:pg:migrate -- --dry-run --sqlite-path data/dofe-agent.sqlite --json
 ```
 
 ### Path C：接入远程 Daemon
@@ -293,17 +296,17 @@ npm run daemon:pack
 在远端主机安装并启动：
 
 ```bash
-npm install -g ./agent-space-daemon-0.1.3.tgz
+npm install -g ./dofe-agent-daemon-0.1.3.tgz
 
-agent-space-daemon start \
+dofe-agent-daemon start \
   --foreground \
-  --server-url "https://your-agentspace-domain" \
+  --server-url "https://your-dofe-agent-domain" \
   --daemon-token "adt_xxx" \
   --daemon-id "daemon-prod-01" \
   --device-name "prod-daemon-host-01" \
   --runtime-name "Remote Agent" \
   --task-timeout "43200000" \
-  --state-dir "$HOME/.agent-space-daemon"
+  --state-dir "$HOME/.dofe-agent-daemon"
 ```
 
 provider 说明、OpenClaw health、Hermes、Cube scaffold 和故障排查见 [packages/daemon/README.md](packages/daemon/README.md)。
@@ -345,13 +348,13 @@ agent-router run --harness hermes --cwd /workspace/project "summarize this repo"
 ```mermaid
 flowchart TD
   User["人类成员"] --> Web["Next.js workspace"]
-  User --> CLI["agent-space CLI"]
-  Web --> Services["@agent-space/services"]
+  User --> CLI["dofe-agent CLI"]
+  Web --> Services["@dofe-agent/services"]
   CLI --> Services
-  Services --> DB["@agent-space/db / PostgreSQL"]
-  Services --> Domain["@agent-space/domain"]
+  Services --> DB["@dofe-agent/db / PostgreSQL"]
+  Services --> Domain["@dofe-agent/domain"]
   Services --> Queue["tasks / approvals / notifications"]
-  Queue --> Daemon["agent-space-daemon"]
+  Queue --> Daemon["dofe-agent-daemon"]
   Daemon --> Runtime["provider-runtime"]
   Runtime --> Router["AgentRouter"]
   Runtime --> Legacy["legacy provider runtime"]
@@ -414,8 +417,8 @@ agent.dofe 包含可复用的执行构件：
 环境变量和部署示例请从这里开始：
 
 - [.env.example](.env.example)
-- [deploy/systemd/agentspace.env.example](deploy/systemd/agentspace.env.example)
-- [deploy/systemd/agentspace-daemon.env.example](deploy/systemd/agentspace-daemon.env.example)
+- [deploy/systemd/dofe-agent.env.example](deploy/systemd/dofe-agent.env.example)
+- [deploy/systemd/dofe-agent-daemon.env.example](deploy/systemd/dofe-agent-daemon.env.example)
 
 质量检查命令：
 
@@ -431,7 +434,7 @@ npm run quality:web
 ## 代码结构
 
 ```text
-AgentSpace/
+DofeAgent/
 ├── apps/
 │   ├── web/                 # Next.js App Router workspace UI
 │   └── cli/                 # 本地控制 CLI
@@ -453,10 +456,10 @@ AgentSpace/
 - [创始团队执行 showcase](deploy/FOUNDER_EXECUTION_SHOWCASE.md)
 - [远程 daemon 安装脚本](deploy/install-remote-daemon.sh)
 - [Daemon package README](packages/daemon/README.md)
-- [Web systemd unit](deploy/systemd/agentspace.service)
-- [Web 环境变量模板](deploy/systemd/agentspace.env.example)
-- [Daemon systemd unit](deploy/systemd/agentspace-daemon.service)
-- [Daemon 环境变量模板](deploy/systemd/agentspace-daemon.env.example)
+- [Web systemd unit](deploy/systemd/dofe-agent.service)
+- [Web 环境变量模板](deploy/systemd/dofe-agent.env.example)
+- [Daemon systemd unit](deploy/systemd/dofe-agent-daemon.service)
+- [Daemon 环境变量模板](deploy/systemd/dofe-agent-daemon.env.example)
 
 ## 路线图
 

@@ -16,7 +16,7 @@ import {
 } from "../runtime-output.ts";
 
 test("applies Feishu lark-cli result manifests as scoped Agent read evidence", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-feishu-lark-cli-result-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-lark-cli-result-"));
   const manifestPath = join(workDir, FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH);
   try {
     mkdirSync(join(workDir, "runtime-output"), { recursive: true });
@@ -120,7 +120,7 @@ test("applies Feishu lark-cli result manifests as scoped Agent read evidence", (
 });
 
 test("refuses unbound or write Feishu lark-cli result manifests", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-feishu-lark-cli-unbound-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-lark-cli-unbound-"));
   const manifestPath = join(workDir, FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH);
   try {
     mkdirSync(join(workDir, "runtime-output"), { recursive: true });
@@ -147,7 +147,7 @@ test("refuses unbound or write Feishu lark-cli result manifests", () => {
     });
 
     assert.equal(unbound.operationRunIds.length, 0);
-    assert.match(unbound.warnings.join("\n"), /did not match an active AgentSpace resource binding/);
+    assert.match(unbound.warnings.join("\n"), /did not match an active DofeAgent resource binding/);
 
     writeFileSync(
       manifestPath,
@@ -185,7 +185,7 @@ test("refuses unbound or write Feishu lark-cli result manifests", () => {
 });
 
 test("applies Feishu runtime data-operation requests as scoped approval plans", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-feishu-runtime-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-runtime-output-"));
   try {
     appendFeishuRuntimeDataOperationRequest(workDir, {
       operationType: "sheets.update_range",
@@ -193,7 +193,7 @@ test("applies Feishu runtime data-operation requests as scoped approval plans", 
       providerResourceToken: "shtcnABC123",
       parameters: {
         range: "Sheet1!A1:B1",
-        values: [["AgentSpace smoke"]],
+        values: [["DofeAgent smoke"]],
       },
       contentPreview: "Update shtcnABC123 smoke range.",
     });
@@ -205,7 +205,7 @@ test("applies Feishu runtime data-operation requests as scoped approval plans", 
       actorName: "Atlas",
       sourceTaskQueueId: "task-1",
       sourceChannelName: "research",
-      sourceAgentSpaceMessageId: "message-1",
+      sourceDofeAgentMessageId: "message-1",
       resourceGrants: [{
         integrationId: "integration-1",
         resourceBindingId: "binding-1",
@@ -246,7 +246,7 @@ test("applies Feishu runtime data-operation requests as scoped approval plans", 
       approval: {
         channelName: string;
         sourceId?: string;
-        sourceAgentSpaceMessageId?: string;
+        sourceDofeAgentMessageId?: string;
         contentPreview?: string;
       };
     };
@@ -262,7 +262,7 @@ test("applies Feishu runtime data-operation requests as scoped approval plans", 
     assert.equal(input.request.actorId, "Atlas");
     assert.deepEqual(input.request.parameters, {
       range: "Sheet1!A1:B1",
-      values: [["AgentSpace smoke"]],
+      values: [["DofeAgent smoke"]],
       channelName: "research",
       taskId: "task-1",
       feishuGovernance: {
@@ -274,7 +274,7 @@ test("applies Feishu runtime data-operation requests as scoped approval plans", 
     });
     assert.equal(input.approval.channelName, "research");
     assert.equal(input.approval.sourceId, "task-1");
-    assert.equal(input.approval.sourceAgentSpaceMessageId, "message-1");
+    assert.equal(input.approval.sourceDofeAgentMessageId, "message-1");
     assert.equal(input.approval.contentPreview, "Update [redacted] smoke range.");
     assert.deepEqual((input.approval as { metadata?: Record<string, unknown> }).metadata?.governanceContext, {
       provider: "feishu",
@@ -288,9 +288,9 @@ test("applies Feishu runtime data-operation requests as scoped approval plans", 
 });
 
 test("queues identity binding cards when external guests request Feishu writes", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-feishu-runtime-output-"));
-  const previousAppUrl = process.env.AGENT_SPACE_APP_URL;
-  process.env.AGENT_SPACE_APP_URL = "https://agentspace.test";
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-runtime-output-"));
+  const previousAppUrl = process.env.DOFE_AGENT_APP_URL;
+  process.env.DOFE_AGENT_APP_URL = "https://dofe-agent.test";
   try {
     appendFeishuRuntimeDataOperationRequest(workDir, {
       operationType: "sheets.update_range",
@@ -311,7 +311,7 @@ test("queues identity binding cards when external guests request Feishu writes",
       actorName: "Atlas",
       sourceTaskQueueId: "task-guest-write",
       sourceChannelName: "research",
-      sourceAgentSpaceMessageId: "message-guest-write",
+      sourceDofeAgentMessageId: "message-guest-write",
       resourceGrants: [{
         integrationId: "integration-1",
         resourceBindingId: "binding-1",
@@ -328,7 +328,7 @@ test("queues identity binding cards when external guests request Feishu writes",
         externalMessageId: "om_guest_write",
         externalThreadId: "om_thread_guest_write",
         externalSenderId: "ou_raw_guest_user",
-        agentSpaceMessageId: "message-guest-write",
+        dofeAgentMessageId: "message-guest-write",
         taskQueueId: "task-guest-write",
         metadataJson: JSON.stringify({
           actorType: "external_guest",
@@ -409,25 +409,25 @@ test("queues identity binding cards when external guests request Feishu writes",
       agentId: "Codex",
       status: "failed",
       agentNames: ["Codex"],
-      message: "External guests must bind an AgentSpace identity before writing Feishu Docs, Sheets, or Base resources.",
+      message: "External guests must bind an DofeAgent identity before writing Feishu Docs, Sheets, or Base resources.",
       taskId: "task-guest-write",
-      sourceAgentSpaceMessageId: "message-guest-write",
-      actionUrl: "https://agentspace.test/w/workspace-1/settings/integrations#feishu-user-bindings",
+      sourceDofeAgentMessageId: "message-guest-write",
+      actionUrl: "https://dofe-agent.test/w/workspace-1/settings/integrations#feishu-user-bindings",
     });
     assert.equal(JSON.stringify(planned).includes("ou_raw_guest_user"), false);
     assert.equal(JSON.stringify(queuedCards).includes("ou_raw_guest_user"), false);
   } finally {
     if (previousAppUrl === undefined) {
-      delete process.env.AGENT_SPACE_APP_URL;
+      delete process.env.DOFE_AGENT_APP_URL;
     } else {
-      process.env.AGENT_SPACE_APP_URL = previousAppUrl;
+      process.env.DOFE_AGENT_APP_URL = previousAppUrl;
     }
     rmSync(workDir, { recursive: true, force: true });
   }
 });
 
 test("ignores Feishu runtime requests without writable bound grants", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-feishu-runtime-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-runtime-output-"));
   try {
     mkdirSync(join(workDir, "runtime-output"), { recursive: true });
     writeFileSync(
@@ -435,14 +435,14 @@ test("ignores Feishu runtime requests without writable bound grants", async () =
       JSON.stringify({
         kind: FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND,
         schemaVersion: 1,
-        generatedBy: "agent-space-cli",
+        generatedBy: "dofe-agent-cli",
         requests: [{
           operationType: "sheets.update_range",
           providerResourceType: "sheet",
           providerResourceToken: "shtcnABC123",
           parameters: {
             range: "Sheet1!A1:B1",
-            values: [["AgentSpace smoke"]],
+            values: [["DofeAgent smoke"]],
           },
         }],
       }),
@@ -469,7 +469,7 @@ test("ignores Feishu runtime requests without writable bound grants", async () =
 
     assert.equal(result.operationRunIds.length, 0);
     assert.equal(result.approvalIds.length, 0);
-    assert.match(result.warnings.join("\n"), /did not match an active writable AgentSpace resource binding/);
+    assert.match(result.warnings.join("\n"), /did not match an active writable DofeAgent resource binding/);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

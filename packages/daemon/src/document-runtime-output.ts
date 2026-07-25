@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { getWorkspaceDataDirPath } from "@agent-space/db";
+import { getWorkspaceDataDirPath } from "@dofe-agent/db";
 import {
   createDocumentPermissionRequestSync,
   createExternalGoogleSheetChannelDocumentSync,
@@ -11,12 +11,12 @@ import {
   AgentDocumentPermissionError,
   type DocumentPermissionRequestExternalProvider,
   type DocumentPermissionRequestRecord,
-} from "@agent-space/services";
-import type { ChannelDocument } from "@agent-space/domain/workspace";
+} from "@dofe-agent/services";
+import type { ChannelDocument } from "@dofe-agent/domain/workspace";
 import {
   readActiveAgentGoogleWorkspaceDelegationSync,
   readUserSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   readDocumentPermissionRequestsManifest,
   readExternalDocumentsManifest,
@@ -129,12 +129,12 @@ function assertControlledDocumentRuntimeOutputManifests(workDir: string): string
     assertControlledDocumentRuntimeOutputManifest(
       getRuntimeOutputPermissionRequestsPath(workDir),
       RUNTIME_OUTPUT_PERMISSION_REQUESTS_RELATIVE_PATH,
-      "agent-space output permission request-document",
+      "dofe-agent output permission request-document",
     ),
     assertControlledDocumentRuntimeOutputManifest(
       getRuntimeOutputExternalDocumentsPath(workDir),
       RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH,
-      "agent-space output external-document link-google-sheet/create-google-sheet",
+      "dofe-agent output external-document link-google-sheet/create-google-sheet",
     ),
   ].filter((message): message is string => Boolean(message));
 }
@@ -153,7 +153,7 @@ function assertControlledDocumentRuntimeOutputManifest(
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return undefined;
     }
-    if ((parsed as { generatedBy?: unknown }).generatedBy === "agent-space-cli") {
+    if ((parsed as { generatedBy?: unknown }).generatedBy === "dofe-agent-cli") {
       return undefined;
     }
     return `${relativePath} 已被拒绝：请使用 ${command} 生成受控 manifest，不要手写 JSON。`;
@@ -343,7 +343,7 @@ function applyExternalDocumentCreateGoogleSheetManifestEntry(
 ): AppliedExternalDocumentLinkOperation {
   const targetChannel = entry.targetChannel.trim();
   try {
-    if (process.env.AGENT_SPACE_AGENT_GOOGLE_SHEET_CREATE_ENABLED === "false") {
+    if (process.env.DOFE_AGENT_AGENT_GOOGLE_SHEET_CREATE_ENABLED === "false") {
       throw new Error("agent-created Google Sheet creation is disabled.");
     }
     assertTargetChannelAllowed({

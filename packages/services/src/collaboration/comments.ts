@@ -1,11 +1,11 @@
-import { DEFAULT_WORKSPACE_ID } from "@agent-space/db";
+import { DEFAULT_WORKSPACE_ID } from "@dofe-agent/db";
 import type {
   CollaborationActorRef,
   CollaborationComment,
   CollaborationCommentThread,
   CollaborationCommentThreadWithComments,
   CollaborativeObjectType,
-} from "@agent-space/domain";
+} from "@dofe-agent/domain";
 import { createOpaqueId } from "../shared/helpers.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { appendCollaborationActivity } from "./activity.ts";

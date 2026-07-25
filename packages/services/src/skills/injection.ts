@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { DaemonProvider } from "@agent-space/domain";
-import type { WorkspaceSkill } from "@agent-space/domain/workspace";
+import type { DaemonProvider } from "@dofe-agent/domain";
+import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { normalizeSkillFilePath } from "../shared/helpers.ts";
 
 const PROVIDER_NATIVE_SKILL_ROOT_SEGMENTS: Partial<Record<DaemonProvider, readonly string[]>> = {

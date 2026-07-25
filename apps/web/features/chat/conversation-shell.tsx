@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { useRouter } from "next/navigation";
 import { ChatComposer, ChatEmptyState, ChatHeader, ConversationListRow, ConversationMessageBubble } from "@/features/chat/chat-primitives";
 import type { MessageAcknowledgement, MessageAttachment, MessageMention } from "@/shared/types/workspace";
-import { applyMentionSelection, findDraftMentionQuery } from "@agent-space/domain";
+import { applyMentionSelection, findDraftMentionQuery } from "@dofe-agent/domain";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { translateSystemSpeaker } from "@/features/i18n/presentation";
 import { AppIcon } from "@/shared/ui/app-icon";
@@ -149,7 +149,7 @@ export function ConversationShell({
     defaultWidth: 340,
     maxWidth: 560,
     minWidth: 300,
-    storageKey: "agent-space.conversation-list-width",
+    storageKey: "dofe-agent.conversation-list-width",
   });
   const threadViewportRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

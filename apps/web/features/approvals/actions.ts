@@ -13,9 +13,9 @@ import {
   rejectKnowledgeProposalForActorSync,
   reviewFeishuDataOperationApproval,
   reviewApprovalSync,
-} from "@agent-space/services";
-import type { ApprovalRequest } from "@agent-space/domain/workspace";
-import type { KnowledgeAssignmentMode } from "@agent-space/domain/workspace";
+} from "@dofe-agent/services";
+import type { ApprovalRequest } from "@dofe-agent/domain/workspace";
+import type { KnowledgeAssignmentMode } from "@dofe-agent/domain/workspace";
 import type { ApprovalItemKind } from "@/features/approvals/approval-queue-data";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";

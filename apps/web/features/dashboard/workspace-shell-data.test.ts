@@ -20,14 +20,14 @@ const {
   mockResolveChannelHumanMemberCount: vi.fn(),
 }));
 
-vi.mock("@agent-space/db", () => ({
+vi.mock("@dofe-agent/db", () => ({
   DEFAULT_WORKSPACE_ID: "default",
   listDaemonSnapshotsSync: mockListDaemonSnapshotsSync,
   listRuntimeGrantsSync: mockListRuntimeGrantsSync,
   listWorkspaceMemberUsersSync: mockListWorkspaceMemberUsersSync,
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   countUnreadNotificationsSync: mockCountUnreadNotificationsSync,
   listWorkspaceSkillsSync: mockListWorkspaceSkillsSync,
   readWorkspaceStateSnapshotSync: mockReadWorkspaceStateSnapshotSync,

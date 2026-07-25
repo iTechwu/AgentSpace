@@ -1,4 +1,4 @@
-import type { LedgerItem } from "@agent-space/domain/workspace";
+import type { LedgerItem } from "@dofe-agent/domain/workspace";
 import { readWorkspaceStateSync, writeWorkspaceStateSync } from "./state-io.ts";
 
 const MAX_AUDIT_LEDGER_ENTRIES = 200;

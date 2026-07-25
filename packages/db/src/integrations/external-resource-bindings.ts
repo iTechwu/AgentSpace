@@ -6,7 +6,7 @@ export {
 } from "./external-integrations.ts";
 export type {
   ExternalBindingStatus,
-  ExternalResourceBindingAgentSpaceType,
+  ExternalResourceBindingDofeAgentType,
   ExternalResourceBindingProviderType,
   ExternalResourceBindingRecord,
 } from "../types.ts";

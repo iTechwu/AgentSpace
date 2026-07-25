@@ -1,11 +1,11 @@
 import { spawnSync } from "node:child_process";
 
-const GOOGLE_WORKSPACE_EXECUTOR_ENV = "AGENT_SPACE_GOOGLE_WORKSPACE_EXECUTOR";
+const GOOGLE_WORKSPACE_EXECUTOR_ENV = "DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR";
 
 export interface GoogleWorkspaceReadiness {
   checkedAt: string;
   executor: string;
-  agentSpaceOutput: CommandReadiness;
+  dofeAgentOutput: CommandReadiness;
   gws: CommandReadiness;
   bwrap: CommandReadiness & {
     supportsPerms?: boolean;
@@ -24,14 +24,14 @@ export function readGoogleWorkspaceReadiness(environment: NodeJS.ProcessEnv = pr
   return {
     checkedAt: new Date().toISOString(),
     executor,
-    agentSpaceOutput: checkAgentSpaceOutput(environment),
+    dofeAgentOutput: checkDofeAgentOutput(environment),
     gws: checkCommandVersion(executor, ["--version"], environment),
     bwrap: checkBwrap(environment),
   };
 }
 
-function checkAgentSpaceOutput(environment: NodeJS.ProcessEnv): CommandReadiness {
-  const command = "agent-space";
+function checkDofeAgentOutput(environment: NodeJS.ProcessEnv): CommandReadiness {
+  const command = "dofe-agent";
   const available = checkCommandVersion(command, ["output", "--help"], environment);
   if (!available.available) {
     return available;

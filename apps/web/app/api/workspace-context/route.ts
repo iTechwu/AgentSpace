@@ -4,7 +4,7 @@ import {
   listWorkspaceContextEntitiesSync,
   resolveWorkspaceContextEntitySync,
   searchWorkspaceContextMessagesSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 
@@ -123,12 +123,12 @@ type WorkspaceContextCacheEntry = {
 };
 
 const workspaceContextCacheGlobal = globalThis as typeof globalThis & {
-  __agentSpaceLoadtestWorkspaceContextCache?: Map<string, WorkspaceContextCacheEntry>;
+  __dofeAgentLoadtestWorkspaceContextCache?: Map<string, WorkspaceContextCacheEntry>;
 };
 
-const loadtestWorkspaceContextCache = workspaceContextCacheGlobal.__agentSpaceLoadtestWorkspaceContextCache
+const loadtestWorkspaceContextCache = workspaceContextCacheGlobal.__dofeAgentLoadtestWorkspaceContextCache
   ?? new Map<string, WorkspaceContextCacheEntry>();
-workspaceContextCacheGlobal.__agentSpaceLoadtestWorkspaceContextCache = loadtestWorkspaceContextCache;
+workspaceContextCacheGlobal.__dofeAgentLoadtestWorkspaceContextCache = loadtestWorkspaceContextCache;
 
 function readLoadtestWorkspaceContextCache(
   key: string,
@@ -176,7 +176,7 @@ function readLoadtestWorkspaceContextCache(
 }
 
 function getLoadtestWorkspaceContextCacheTtlMs(): number {
-  const explicit = Number(process.env.AGENT_SPACE_WORKSPACE_CONTEXT_CACHE_TTL_MS ?? "");
+  const explicit = Number(process.env.DOFE_AGENT_WORKSPACE_CONTEXT_CACHE_TTL_MS ?? "");
   if (Number.isFinite(explicit) && explicit > 0) {
     return explicit;
   }

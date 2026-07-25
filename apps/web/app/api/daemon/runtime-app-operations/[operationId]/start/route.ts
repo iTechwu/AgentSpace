@@ -1,4 +1,4 @@
-import { startRuntimeAppOperationSync } from "@agent-space/db";
+import { startRuntimeAppOperationSync } from "@dofe-agent/db";
 import { readRuntimeAppOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

@@ -1,4 +1,4 @@
-import { drainFeishuOutboxMessages } from "@agent-space/services";
+import { drainFeishuOutboxMessages } from "@dofe-agent/services";
 import { getNumberFlag, getStringFlag, parseArgs } from "../../lib/args.ts";
 import { writeData, type OutputFormat } from "../../lib/format.ts";
 
@@ -23,7 +23,7 @@ export async function runIntegrationsOutboxCommand(args: string[], format: Outpu
   const workspaceId = getStringFlag(parsed.flags, "workspace-id") ?? "default";
   const integrationId = getStringFlag(parsed.flags, "integration") ?? getStringFlag(parsed.flags, "integration-id");
   const limit = getNumberFlag(parsed.flags, "limit", 50);
-  const lockedBy = getStringFlag(parsed.flags, "locked-by") ?? "agent-space-cli";
+  const lockedBy = getStringFlag(parsed.flags, "locked-by") ?? "dofe-agent-cli";
   const baseUrl = getStringFlag(parsed.flags, "base-url");
 
   const result = await drainFeishuOutboxMessages({
@@ -43,13 +43,13 @@ function hasHelpFlag(flags: Record<string, string | boolean>): boolean {
 
 function printIntegrationsOutboxHelp(): void {
   console.log(`Usage:
-  agent-space integrations outbox drain [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--json]
+  dofe-agent integrations outbox drain [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--json]
 
 Options:
-  --workspace-id <id>      AgentSpace workspace id; defaults to default
+  --workspace-id <id>      DofeAgent workspace id; defaults to default
   --integration <id>       Limit the drain run to one external integration
   --limit <n>              Outbox drain batch size; defaults to 50
   --base-url <url>         Provider API base URL override
-  --locked-by <id>         Worker lock owner; defaults to agent-space-cli
+  --locked-by <id>         Worker lock owner; defaults to dofe-agent-cli
   --json                   Print machine-readable output`);
 }

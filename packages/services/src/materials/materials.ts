@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join } from "node:path";
-import { type AgentSpaceState, type MaterialInput } from "@agent-space/domain/workspace";
+import { type DofeAgentState, type MaterialInput } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { STATE_DIR, slugify, resolveRepositoryRoot } from "../shared/helpers.ts";
 
@@ -8,7 +8,7 @@ export function listMaterialsSync(): MaterialInput[] {
   return ensureWorkspaceStateSync().materials;
 }
 
-export function addMaterialSync(source: string, status: string): AgentSpaceState {
+export function addMaterialSync(source: string, status: string): DofeAgentState {
   const state = ensureWorkspaceStateSync();
   state.materials.unshift({
     id: `mat-${Date.now()}`,
@@ -28,7 +28,7 @@ export function importMaterialFileSync(input: {
   filePath: string;
   label?: string;
   status: string;
-}): AgentSpaceState {
+}): DofeAgentState {
   const state = ensureWorkspaceStateSync();
 
   if (!existsSync(input.filePath)) {
@@ -68,7 +68,7 @@ export function importMaterialFileSync(input: {
   return writeWorkspaceStateSync(state);
 }
 
-export function parseMaterialSync(id: string): AgentSpaceState {
+export function parseMaterialSync(id: string): DofeAgentState {
   const state = ensureWorkspaceStateSync();
   const material = state.materials.find((item) => item.id === id);
 

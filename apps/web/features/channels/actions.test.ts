@@ -64,7 +64,7 @@ const {
   mockUnpinMessageSync: vi.fn(),
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   addChannelEmployeesSync: mockAddChannelEmployeesSync,
   addWorkspaceMemberToChannelForActorSync: mockAddWorkspaceMemberToChannelForActorSync,
   acknowledgeMessageSync: mockAcknowledgeMessageSync,

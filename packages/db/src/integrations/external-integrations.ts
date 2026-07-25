@@ -17,7 +17,7 @@ import type {
   ExternalMessageMappingRecord,
   ExternalMessageOutboxRecord,
   ExternalMessageOutboxStatus,
-  ExternalResourceBindingAgentSpaceType,
+  ExternalResourceBindingDofeAgentType,
   ExternalResourceBindingProviderType,
   ExternalResourceBindingRecord,
   ExternalThreadBindingRecord,
@@ -699,8 +699,8 @@ export function upsertExternalResourceBindingSync(input: {
   providerResourceType: ExternalResourceBindingProviderType;
   providerResourceToken: string;
   providerResourceUrl?: string;
-  agentSpaceResourceType: ExternalResourceBindingAgentSpaceType;
-  agentSpaceResourceId: string;
+  dofeAgentResourceType: ExternalResourceBindingDofeAgentType;
+  dofeAgentResourceId: string;
   channelName?: string;
   displayName?: string;
   status?: ExternalBindingStatus;
@@ -712,8 +712,8 @@ export function upsertExternalResourceBindingSync(input: {
   const integrationId = normalizeRequiredText(input.integrationId, "External resource binding integration id is required.");
   const providerResourceType = normalizeRequiredText(input.providerResourceType, "External resource provider type is required.");
   const providerResourceToken = normalizeRequiredText(input.providerResourceToken, "External resource token is required.");
-  const agentSpaceResourceType = normalizeRequiredText(input.agentSpaceResourceType, "AgentSpace resource type is required.");
-  const agentSpaceResourceId = normalizeRequiredText(input.agentSpaceResourceId, "AgentSpace resource id is required.");
+  const dofeAgentResourceType = normalizeRequiredText(input.dofeAgentResourceType, "DofeAgent resource type is required.");
+  const dofeAgentResourceId = normalizeRequiredText(input.dofeAgentResourceId, "DofeAgent resource id is required.");
   const id = `external-resource-binding-${randomLikeId()}`;
   const now = new Date().toISOString();
 
@@ -725,8 +725,8 @@ export function upsertExternalResourceBindingSync(input: {
        provider_resource_type,
        provider_resource_token,
        provider_resource_url,
-       agent_space_resource_type,
-       agent_space_resource_id,
+       dofe_agent_resource_type,
+       dofe_agent_resource_id,
        channel_name,
        display_name,
        status,
@@ -740,8 +740,8 @@ export function upsertExternalResourceBindingSync(input: {
      ON CONFLICT(integration_id, provider_resource_type, provider_resource_token)
      DO UPDATE SET
        provider_resource_url = EXCLUDED.provider_resource_url,
-       agent_space_resource_type = EXCLUDED.agent_space_resource_type,
-       agent_space_resource_id = EXCLUDED.agent_space_resource_id,
+       dofe_agent_resource_type = EXCLUDED.dofe_agent_resource_type,
+       dofe_agent_resource_id = EXCLUDED.dofe_agent_resource_id,
        channel_name = EXCLUDED.channel_name,
        display_name = EXCLUDED.display_name,
        status = EXCLUDED.status,
@@ -756,8 +756,8 @@ export function upsertExternalResourceBindingSync(input: {
     providerResourceType,
     providerResourceToken,
     normalizeOptionalText(input.providerResourceUrl),
-    agentSpaceResourceType,
-    agentSpaceResourceId,
+    dofeAgentResourceType,
+    dofeAgentResourceId,
     normalizeOptionalText(input.channelName),
     normalizeOptionalText(input.displayName),
     input.status ?? "active",
@@ -860,7 +860,7 @@ export function createExternalMessageMappingSync(input: {
   externalThreadId?: string;
   externalSenderId?: string;
   externalEventId?: string;
-  agentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
   taskQueueId?: string;
   routerSessionId?: string;
   metadataJson?: JsonInput;
@@ -882,7 +882,7 @@ export function createExternalMessageMappingSync(input: {
        external_thread_id,
        external_sender_id,
        external_event_id,
-       agent_space_message_id,
+       dofe_agent_message_id,
        task_queue_id,
        router_session_id,
        metadata_json,
@@ -894,7 +894,7 @@ export function createExternalMessageMappingSync(input: {
        external_thread_id = COALESCE(EXCLUDED.external_thread_id, external_message_mapping.external_thread_id),
        external_sender_id = COALESCE(EXCLUDED.external_sender_id, external_message_mapping.external_sender_id),
        external_event_id = COALESCE(EXCLUDED.external_event_id, external_message_mapping.external_event_id),
-       agent_space_message_id = COALESCE(EXCLUDED.agent_space_message_id, external_message_mapping.agent_space_message_id),
+       dofe_agent_message_id = COALESCE(EXCLUDED.dofe_agent_message_id, external_message_mapping.dofe_agent_message_id),
        task_queue_id = COALESCE(EXCLUDED.task_queue_id, external_message_mapping.task_queue_id),
        router_session_id = COALESCE(EXCLUDED.router_session_id, external_message_mapping.router_session_id),
        metadata_json = EXCLUDED.metadata_json`,
@@ -908,7 +908,7 @@ export function createExternalMessageMappingSync(input: {
     normalizeOptionalText(input.externalThreadId),
     normalizeOptionalText(input.externalSenderId),
     normalizeOptionalText(input.externalEventId),
-    normalizeOptionalText(input.agentSpaceMessageId),
+    normalizeOptionalText(input.dofeAgentMessageId),
     normalizeOptionalText(input.taskQueueId),
     normalizeOptionalText(input.routerSessionId),
     normalizeJsonInput(input.metadataJson, DEFAULT_JSON_OBJECT),
@@ -936,15 +936,15 @@ export function readExternalMessageMappingByExternalMessageSync(input: {
   return row ? mapExternalMessageMappingRecord(row) : null;
 }
 
-export function readExternalMessageMappingByAgentSpaceMessageSync(input: {
+export function readExternalMessageMappingByDofeAgentMessageSync(input: {
   workspaceId?: string;
   integrationId?: string;
-  agentSpaceMessageId: string;
+  dofeAgentMessageId: string;
   direction?: ExternalMessageDirection;
 }): ExternalMessageMappingRecord | null {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  const where = ["workspace_id = ?", "agent_space_message_id = ?"];
-  const params: unknown[] = [workspaceId, input.agentSpaceMessageId.trim()];
+  const where = ["workspace_id = ?", "dofe_agent_message_id = ?"];
+  const params: unknown[] = [workspaceId, input.dofeAgentMessageId.trim()];
   if (input.integrationId?.trim()) {
     where.push("integration_id = ?");
     params.push(input.integrationId.trim());
@@ -1003,7 +1003,7 @@ export function upsertExternalThreadBindingSync(input: {
   channelName: string;
   agentId: string;
   taskQueueId?: string;
-  agentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
   status?: ExternalThreadBindingStatus;
   metadataJson?: JsonInput;
   lastMessageAt?: string;
@@ -1033,7 +1033,7 @@ export function upsertExternalThreadBindingSync(input: {
        channel_name,
        agent_id,
        task_queue_id,
-       agent_space_message_id,
+       dofe_agent_message_id,
        status,
        metadata_json,
        last_message_at,
@@ -1046,7 +1046,7 @@ export function upsertExternalThreadBindingSync(input: {
        channel_binding_id = COALESCE(EXCLUDED.channel_binding_id, external_thread_binding.channel_binding_id),
        channel_name = EXCLUDED.channel_name,
        task_queue_id = COALESCE(EXCLUDED.task_queue_id, external_thread_binding.task_queue_id),
-       agent_space_message_id = COALESCE(EXCLUDED.agent_space_message_id, external_thread_binding.agent_space_message_id),
+       dofe_agent_message_id = COALESCE(EXCLUDED.dofe_agent_message_id, external_thread_binding.dofe_agent_message_id),
        status = EXCLUDED.status,
        metadata_json = EXCLUDED.metadata_json,
        last_message_at = EXCLUDED.last_message_at,
@@ -1063,7 +1063,7 @@ export function upsertExternalThreadBindingSync(input: {
     channelName,
     agentId,
     normalizeOptionalText(input.taskQueueId),
-    normalizeOptionalText(input.agentSpaceMessageId),
+    normalizeOptionalText(input.dofeAgentMessageId),
     input.status ?? "active",
     normalizeJsonInput(input.metadataJson, DEFAULT_JSON_OBJECT),
     lastMessageAt,
@@ -1197,7 +1197,7 @@ export function createExternalMessageOutboxSync(input: {
   channelBindingId?: string;
   targetExternalChatId: string;
   targetExternalThreadId?: string;
-  agentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
   payloadJson: JsonInput;
   metadataJson?: JsonInput;
   nextAttemptAt?: string;
@@ -1221,7 +1221,7 @@ export function createExternalMessageOutboxSync(input: {
        channel_binding_id,
        target_external_chat_id,
        target_external_thread_id,
-       agent_space_message_id,
+       dofe_agent_message_id,
        payload_json,
        metadata_json,
        status,
@@ -1237,7 +1237,7 @@ export function createExternalMessageOutboxSync(input: {
     normalizeOptionalText(input.channelBindingId),
     targetExternalChatId,
     normalizeOptionalText(input.targetExternalThreadId),
-    normalizeOptionalText(input.agentSpaceMessageId),
+    normalizeOptionalText(input.dofeAgentMessageId),
     normalizeJsonInput(input.payloadJson, DEFAULT_JSON_OBJECT),
     metadataJson,
     normalizeOptionalText(input.nextAttemptAt),
@@ -1917,8 +1917,8 @@ function selectExternalResourceBindingSql(): string {
     provider_resource_type AS providerResourceType,
     provider_resource_token AS providerResourceToken,
     provider_resource_url AS providerResourceUrl,
-    agent_space_resource_type AS agentSpaceResourceType,
-    agent_space_resource_id AS agentSpaceResourceId,
+    dofe_agent_resource_type AS dofeAgentResourceType,
+    dofe_agent_resource_id AS dofeAgentResourceId,
     channel_name AS channelName,
     display_name AS displayName,
     status,
@@ -1942,7 +1942,7 @@ function selectExternalMessageMappingSql(): string {
     external_thread_id AS externalThreadId,
     external_sender_id AS externalSenderId,
     external_event_id AS externalEventId,
-    agent_space_message_id AS agentSpaceMessageId,
+    dofe_agent_message_id AS dofeAgentMessageId,
     task_queue_id AS taskQueueId,
     router_session_id AS routerSessionId,
     metadata_json AS metadataJson,
@@ -1963,7 +1963,7 @@ function selectExternalThreadBindingSql(): string {
     channel_name AS channelName,
     agent_id AS agentId,
     task_queue_id AS taskQueueId,
-    agent_space_message_id AS agentSpaceMessageId,
+    dofe_agent_message_id AS dofeAgentMessageId,
     status,
     metadata_json AS metadataJson,
     last_message_at AS lastMessageAt,
@@ -1980,7 +1980,7 @@ function selectExternalMessageOutboxSql(): string {
     channel_binding_id AS channelBindingId,
     target_external_chat_id AS targetExternalChatId,
     target_external_thread_id AS targetExternalThreadId,
-    agent_space_message_id AS agentSpaceMessageId,
+    dofe_agent_message_id AS dofeAgentMessageId,
     payload_json AS payloadJson,
     metadata_json AS metadataJson,
     status,
@@ -2151,8 +2151,8 @@ function mapExternalResourceBindingRecord(value: Record<string, unknown>): Exter
     typeof value.integrationId !== "string" ||
     typeof value.providerResourceType !== "string" ||
     typeof value.providerResourceToken !== "string" ||
-    typeof value.agentSpaceResourceType !== "string" ||
-    typeof value.agentSpaceResourceId !== "string" ||
+    typeof value.dofeAgentResourceType !== "string" ||
+    typeof value.dofeAgentResourceId !== "string" ||
     !isExternalBindingStatus(value.status) ||
     typeof value.permissionsJson !== "string" ||
     typeof value.metadataJson !== "string" ||
@@ -2169,8 +2169,8 @@ function mapExternalResourceBindingRecord(value: Record<string, unknown>): Exter
     providerResourceType: value.providerResourceType,
     providerResourceToken: value.providerResourceToken,
     providerResourceUrl: asOptionalString(value.providerResourceUrl),
-    agentSpaceResourceType: value.agentSpaceResourceType,
-    agentSpaceResourceId: value.agentSpaceResourceId,
+    dofeAgentResourceType: value.dofeAgentResourceType,
+    dofeAgentResourceId: value.dofeAgentResourceId,
     channelName: asOptionalString(value.channelName),
     displayName: asOptionalString(value.displayName),
     status: value.status,
@@ -2206,7 +2206,7 @@ function mapExternalMessageMappingRecord(value: Record<string, unknown>): Extern
     externalThreadId: asOptionalString(value.externalThreadId),
     externalSenderId: asOptionalString(value.externalSenderId),
     externalEventId: asOptionalString(value.externalEventId),
-    agentSpaceMessageId: asOptionalString(value.agentSpaceMessageId),
+    dofeAgentMessageId: asOptionalString(value.dofeAgentMessageId),
     taskQueueId: asOptionalString(value.taskQueueId),
     routerSessionId: asOptionalString(value.routerSessionId),
     metadataJson: value.metadataJson,
@@ -2245,7 +2245,7 @@ function mapExternalThreadBindingRecord(value: Record<string, unknown>): Externa
     channelName: value.channelName,
     agentId: value.agentId,
     taskQueueId: asOptionalString(value.taskQueueId),
-    agentSpaceMessageId: asOptionalString(value.agentSpaceMessageId),
+    dofeAgentMessageId: asOptionalString(value.dofeAgentMessageId),
     status: value.status,
     metadataJson: value.metadataJson,
     lastMessageAt: value.lastMessageAt,
@@ -2277,7 +2277,7 @@ function mapExternalMessageOutboxRecord(value: Record<string, unknown>): Externa
     channelBindingId: asOptionalString(value.channelBindingId),
     targetExternalChatId: value.targetExternalChatId,
     targetExternalThreadId: asOptionalString(value.targetExternalThreadId),
-    agentSpaceMessageId: asOptionalString(value.agentSpaceMessageId),
+    dofeAgentMessageId: asOptionalString(value.dofeAgentMessageId),
     payloadJson: value.payloadJson,
     metadataJson: value.metadataJson,
     status: value.status,

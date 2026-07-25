@@ -1,4 +1,4 @@
-import type { ActiveEmployee, AgentSpaceState, WorkspaceMessage } from "@agent-space/domain/workspace";
+import type { ActiveEmployee, DofeAgentState, WorkspaceMessage } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue, uniqueNames } from "../shared/helpers.ts";
 
@@ -27,7 +27,7 @@ export function buildContactAgentContextSync(agentName: string): ContactAgentCon
   return buildContactAgentContext(ensureWorkspaceStateSync(), agentName);
 }
 
-export function buildContactAgentContext(state: AgentSpaceState, agentName: string): ContactAgentContext {
+export function buildContactAgentContext(state: DofeAgentState, agentName: string): ContactAgentContext {
   const self = state.activeEmployees.find((employee) => sameValue(employee.name, agentName));
   const selfChannels = self?.channels ?? [];
 
@@ -59,7 +59,7 @@ export function buildContactAgentContext(state: AgentSpaceState, agentName: stri
 }
 
 function buildContactContextEntity(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   self: ActiveEmployee,
   candidate: ActiveEmployee,
 ): ContactContextEntity | undefined {
@@ -90,7 +90,7 @@ function getSharedChannels(self: ActiveEmployee, candidate: ActiveEmployee): str
 }
 
 function collectObservedLabels(
-  messages: AgentSpaceState["messages"],
+  messages: DofeAgentState["messages"],
   entityName: string,
   sharedChannels: string[],
 ): string[] {
@@ -118,7 +118,7 @@ function collectObservedLabels(
 }
 
 function findRecentSharedInteraction(
-  messages: AgentSpaceState["messages"],
+  messages: DofeAgentState["messages"],
   selfName: string,
   entityName: string,
   sharedChannels: string[],

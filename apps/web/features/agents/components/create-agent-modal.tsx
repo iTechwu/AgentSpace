@@ -3,7 +3,7 @@ import {
   resolveAgentTemplateSkillMatches,
   type AgentTemplateId,
   type SystemAgentTemplatePreset,
-} from "@agent-space/domain";
+} from "@dofe-agent/domain";
 import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";

@@ -9,7 +9,7 @@ import type {
   AutomationTriggerType,
   AutomationActionType,
   AutomationConditionOperator,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import {
   createAutomationRuleAction,
   toggleAutomationRuleAction,

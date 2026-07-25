@@ -1,9 +1,9 @@
 import type {
-  AgentSpaceState,
+  DofeAgentState,
   ConversationAutoContinuationState,
   ConversationExecutionWorkspaceState,
-} from "@agent-space/domain/workspace";
-import { getDaemonChannelWorkDirPath, getLocalDaemonStateDirPath } from "@agent-space/db";
+} from "@dofe-agent/domain/workspace";
+import { getDaemonChannelWorkDirPath, getLocalDaemonStateDirPath } from "@dofe-agent/db";
 import { sameValue } from "./helpers.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "./state-io.ts";
 
@@ -29,7 +29,7 @@ export function resolveConversationExecutionWorkspacePath(input: {
 }
 
 export function readConversationExecutionWorkspaceState(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: {
     channelName: string;
     agentId: string;
@@ -70,7 +70,7 @@ export function readConversationExecutionWorkspaceState(
 }
 
 export function upsertConversationExecutionWorkspaceState(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: {
     channelName: string;
     agentId: string;
@@ -122,8 +122,8 @@ export function upsertConversationExecutionWorkspaceState(
 export function writeConversationExecutionWorkspaceStateSync(
   input: Parameters<typeof upsertConversationExecutionWorkspaceState>[1],
   workspaceId?: string,
-  stateArg?: AgentSpaceState,
-): AgentSpaceState {
+  stateArg?: DofeAgentState,
+): DofeAgentState {
   const state = stateArg ?? ensureWorkspaceStateSync(workspaceId);
   upsertConversationExecutionWorkspaceState(state, input);
   return stateArg ? state : writeWorkspaceStateSync(state, workspaceId);

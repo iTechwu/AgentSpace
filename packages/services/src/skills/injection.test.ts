@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { WorkspaceSkill } from "@agent-space/domain/workspace";
+import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { materializeWorkspaceSkillsForProvider } from "./injection.ts";
 
 function createSkill(): WorkspaceSkill {
@@ -33,7 +33,7 @@ function createSkill(): WorkspaceSkill {
 }
 
 test("materializeWorkspaceSkillsForProvider dual-writes provider-native and compatibility paths", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-skill-injection-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-skill-injection-"));
 
   try {
     const result = materializeWorkspaceSkillsForProvider({
@@ -59,7 +59,7 @@ test("materializeWorkspaceSkillsForProvider dual-writes provider-native and comp
 });
 
 test("materializeWorkspaceSkillsForProvider falls back to compatibility-only paths for unsupported native providers", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-skill-injection-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-skill-injection-"));
 
   try {
     const result = materializeWorkspaceSkillsForProvider({

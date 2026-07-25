@@ -13,8 +13,8 @@ import {
   revokeAgentForkInvitationSync,
   type AgentForkInvitationStatus,
   type StoredAgentForkInvitationRecord,
-} from "@agent-space/db";
-import type { ActiveEmployee } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import type { ActiveEmployee } from "@dofe-agent/domain/workspace";
 import {
   bindEmployeeRuntimeSync,
   createEmployeeSync,

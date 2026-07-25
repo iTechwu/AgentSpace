@@ -21,7 +21,7 @@ import {
   readGoogleOAuthCredentialSync,
   readWorkspaceSync,
   type WorkspaceRole,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type {
   ActiveEmployee,
   ChannelDocument,
@@ -30,7 +30,7 @@ import type {
   MessageAttachment,
   WorkspaceMessage,
   WorkspaceSkill,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import { resolveChannelHumanMemberNames } from "../channels/channels.ts";
 import { listEmployeeSkillIdsMapSync, buildLegacyAgentIdForEmployeeName } from "../employees/employees.ts";
 import {

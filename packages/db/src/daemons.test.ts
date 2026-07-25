@@ -15,7 +15,7 @@ import {
 import { getDatabase } from "./database.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-db-daemons-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-db-daemons-"));
 const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
 
 before(() => {

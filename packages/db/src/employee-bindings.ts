@@ -1,4 +1,4 @@
-import { isDaemonProvider } from "@agent-space/domain";
+import { isDaemonProvider } from "@dofe-agent/domain";
 import { getDatabase, withTransaction, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import type { EmployeeRuntimeBindingRecord } from "./types.ts";
 

@@ -18,4 +18,4 @@ export type {
   WorkspaceMode,
   WorkspaceSnapshot,
   WorkspaceStat,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";

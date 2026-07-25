@@ -5,16 +5,16 @@ import {
   listDocumentPermissionRequestsSync,
   readWorkspaceStateSnapshotSync,
   sanitizeFeishuDataOperationApprovalMetadata,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import {
   DEFAULT_WORKSPACE_ID,
   listChannelAccessRequestsSync,
   readActiveGoogleOAuthCredentialSync,
   readUserSync,
-} from "@agent-space/db";
-import type { WorkspaceRole } from "@agent-space/db";
-import { allowsDocumentAction } from "@agent-space/domain";
-import type { ApprovalRequest, ApprovalStatus, ChannelDocument } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
+import { allowsDocumentAction } from "@dofe-agent/domain";
+import type { ApprovalRequest, ApprovalStatus, ChannelDocument } from "@dofe-agent/domain/workspace";
 
 const CHANNEL_ACCESS_STATUSES = ["pending", "approved", "rejected", "cancelled"] as const;
 

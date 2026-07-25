@@ -1,12 +1,12 @@
-import type { SearchResult } from "@agent-space/services";
+import type { SearchResult } from "@dofe-agent/services";
 import {
   canReadChannelForActorSync,
   readWorkspaceStateSync,
   resolveChannelHumanMemberNames,
   sameValue,
-} from "@agent-space/services";
-import type { ChannelRecord } from "@agent-space/domain/workspace";
-import type { WorkspaceRole } from "@agent-space/db";
+} from "@dofe-agent/services";
+import type { ChannelRecord } from "@dofe-agent/domain/workspace";
+import type { WorkspaceRole } from "@dofe-agent/db";
 
 export interface WorkspaceChannelVisibility {
   readonly visibleChannelNames: string[];

@@ -3,7 +3,7 @@ import {
   importMaterialFileSync,
   listMaterialsSync,
   parseMaterialSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { parseArgs, getStringFlag } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
@@ -23,7 +23,7 @@ export function runMaterialCommand(
     const status = getStringFlag(flags, "status") ?? "待处理";
 
     if (!source) {
-      console.error('Usage: agent-space material add --source <source> [--status <status>] [--json]');
+      console.error('Usage: dofe-agent material add --source <source> [--status <status>] [--json]');
       return 1;
     }
 
@@ -45,7 +45,7 @@ export function runMaterialCommand(
 
     if (!filePath) {
       console.error(
-        'Usage: agent-space material import-file --path <file-path> [--label <name>] [--status <status>] [--json]',
+        'Usage: dofe-agent material import-file --path <file-path> [--label <name>] [--status <status>] [--json]',
       );
       return 1;
     }
@@ -71,7 +71,7 @@ export function runMaterialCommand(
     const id = getStringFlag(flags, "id");
 
     if (!id) {
-      console.error('Usage: agent-space material parse --id <material-id> [--json]');
+      console.error('Usage: dofe-agent material parse --id <material-id> [--json]');
       return 1;
     }
 
@@ -92,12 +92,12 @@ export function runMaterialCommand(
     return 1;
   }
 
-  console.error("Usage: agent-space material list [--json]");
-  console.error("   or: agent-space material add --source <source> [--status <status>] [--json]");
+  console.error("Usage: dofe-agent material list [--json]");
+  console.error("   or: dofe-agent material add --source <source> [--status <status>] [--json]");
   console.error(
-    "   or: agent-space material import-file --path <file-path> [--label <name>] [--status <status>] [--json]",
+    "   or: dofe-agent material import-file --path <file-path> [--label <name>] [--status <status>] [--json]",
   );
-  console.error("   or: agent-space material parse --id <material-id> [--json]");
-  console.error("   or: agent-space material generate --id <material-id> [--json]");
+  console.error("   or: dofe-agent material parse --id <material-id> [--json]");
+  console.error("   or: dofe-agent material generate --id <material-id> [--json]");
   return 1;
 }

@@ -1,21 +1,21 @@
 {
-  "name": "@agent-space/cli",
+  "name": "@dofe-agent/cli",
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
-    "agent-space": "./bin/agent-space.js"
+    "dofe-agent": "./bin/dofe-agent.js"
   },
   "scripts": {
-    "agent-space": "node --experimental-strip-types src/index.ts",
+    "dofe-agent": "node --experimental-strip-types src/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agent-space/db": "file:../../packages/db",
-    "@agent-space/domain": "file:../../packages/domain",
-    "@agent-space/services": "file:../../packages/services",
-    "agent-space-daemon": "file:../../packages/daemon"
+    "@dofe-agent/db": "file:../../packages/db",
+    "@dofe-agent/domain": "file:../../packages/domain",
+    "@dofe-agent/services": "file:../../packages/services",
+    "dofe-agent-daemon": "file:../../packages/daemon"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",

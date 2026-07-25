@@ -1,12 +1,12 @@
-import { createExternalMessageOutboxSync } from "@agent-space/db";
+import { createExternalMessageOutboxSync } from "@dofe-agent/db";
 import {
   buildFeishuIdentityBindingRequiredCard,
   buildFeishuInteractiveCardOutboundMessage,
   createRuntimeToolApprovalRequestSync,
   evaluateFeishuExternalGuestRuntimeToolIdentityRequirementFromTaskInput,
   type FeishuRuntimeToolIdentityRequirement,
-} from "@agent-space/services";
-import type { CreateRuntimeApprovalRequest } from "@agent-space/domain";
+} from "@dofe-agent/services";
+import type { CreateRuntimeApprovalRequest } from "@dofe-agent/domain";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

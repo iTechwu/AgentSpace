@@ -20,6 +20,7 @@ describe("workspace module route", () => {
     expect(parseWorkspaceModulePath("/w/acme/agents", "mode=container").agentsMode).toBe("container");
     expect(parseWorkspaceModulePath("/w/acme/agents", "mode=showcase").agentsMode).toBe("showcase");
     expect(parseWorkspaceModulePath("/w/acme/knowledge", "view=documents").knowledgeView).toBe("documents");
+    expect(parseWorkspaceModulePath("/w/acme/task/board").moduleId).toBe("task-board");
 
     const settings = parseWorkspaceModulePath("/w/acme/settings/security");
     expect(settings.moduleId).toBe("settings");
@@ -58,7 +59,7 @@ describe("workspace module route", () => {
     ["im", "/im", "view=direct&focus=contact%3Aatlas&tab=files"],
     ["contacts", "/contacts", "view=digital&focus=human%3Auser-1"],
     ["approvals", "/approvals", ""],
-    ["task-board", "/task-board", ""],
+    ["task-board", "/task/board", ""],
     ["agents", "/agents", "mode=container&create=server"],
     ["skills", "/skills", "create=skill"],
     ["knowledge", "/knowledge", "view=documents&document=doc-1"],
@@ -92,6 +93,10 @@ describe("workspace module route", () => {
     expect(parsed.moduleId).toBe("settings");
     expect(parsed.settingsPath).toEqual(["members"]);
     expect(parsed.searchParams.toString()).toBe("source=nav");
+  });
+
+  it("builds the canonical task board URL", () => {
+    expect(buildWorkspaceModuleHref("acme", "task-board")).toBe("/w/acme/task/board");
   });
 
   it("guards known workspace module ids", () => {

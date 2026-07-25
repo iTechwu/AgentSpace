@@ -1,9 +1,9 @@
-import { allowsDocumentAction, type ChannelDocumentAccessRole } from "@agent-space/domain";
-import type { AgentSpaceState, ChannelDocument } from "@agent-space/domain/workspace";
+import { allowsDocumentAction, type ChannelDocumentAccessRole } from "@dofe-agent/domain";
+import type { DofeAgentState, ChannelDocument } from "@dofe-agent/domain/workspace";
 import { sameValue } from "../shared/helpers.ts";
 import { resolveChannelHumanMemberNames } from "../channels/channels.ts";
 
-export function ensureChannelDocumentAccessSeeds(state: AgentSpaceState): boolean {
+export function ensureChannelDocumentAccessSeeds(state: DofeAgentState): boolean {
   let changed = false;
 
   for (const document of state.channelDocuments) {
@@ -20,9 +20,9 @@ export function ensureChannelDocumentAccessSeeds(state: AgentSpaceState): boolea
 }
 
 export function listChannelDocumentAccesses(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   documentId: string,
-): AgentSpaceState["channelDocumentAccesses"] {
+): DofeAgentState["channelDocumentAccesses"] {
   return state.channelDocumentAccesses
     .filter((access) => access.documentId === documentId)
     .sort((left, right) => {
@@ -36,7 +36,7 @@ export function listChannelDocumentAccesses(
 }
 
 export function resolveChannelDocumentRole(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   documentId: string,
   actorId: string,
   actorType: "human" | "agent",
@@ -51,7 +51,7 @@ export function resolveChannelDocumentRole(
 }
 
 export function canViewChannelDocument(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   document: ChannelDocument,
   actorId: string,
   actorType: "human" | "agent",
@@ -61,7 +61,7 @@ export function canViewChannelDocument(
 }
 
 export function assertCanViewChannelDocument(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   document: ChannelDocument,
   actorId: string,
   actorType: "human" | "agent",
@@ -73,7 +73,7 @@ export function assertCanViewChannelDocument(
 }
 
 export function assertCanCreateChannelDocument(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channelName: string,
   actorId: string,
   actorType: "human" | "agent",
@@ -95,7 +95,7 @@ export function assertCanCreateChannelDocument(
 }
 
 export function assertCanEditChannelDocument(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   document: ChannelDocument,
   actorId: string,
   actorType: "human" | "agent",
@@ -108,7 +108,7 @@ export function assertCanEditChannelDocument(
 }
 
 export function assertCanManageChannelDocument(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   document: ChannelDocument,
   actorId: string,
   actorType: "human" | "agent",
@@ -121,14 +121,14 @@ export function assertCanManageChannelDocument(
 }
 
 export function upsertChannelDocumentAccessRole(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: {
     documentId: string;
     actorId: string;
     actorType: "human" | "agent";
     role: ChannelDocumentAccessRole;
   },
-): AgentSpaceState["channelDocumentAccesses"][number] {
+): DofeAgentState["channelDocumentAccesses"][number] {
   assertAccessTargetExists(state, input.actorId, input.actorType);
   assertAgentIsNotOwner(input.actorType, input.role);
 
@@ -153,20 +153,20 @@ export function upsertChannelDocumentAccessRole(
     role: input.role,
     createdAt: now,
     updatedAt: now,
-  } satisfies AgentSpaceState["channelDocumentAccesses"][number];
+  } satisfies DofeAgentState["channelDocumentAccesses"][number];
   state.channelDocumentAccesses.unshift(created);
   return created;
 }
 
 export function addChannelDocumentCollaborator(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: {
     documentId: string;
     actorId: string;
     actorType: "human" | "agent";
     role: ChannelDocumentAccessRole;
   },
-): AgentSpaceState["channelDocumentAccesses"][number] {
+): DofeAgentState["channelDocumentAccesses"][number] {
   assertAgentIsNotOwner(input.actorType, input.role);
   const existing = state.channelDocumentAccesses.find(
     (access) =>
@@ -182,13 +182,13 @@ export function addChannelDocumentCollaborator(
 }
 
 export function removeChannelDocumentCollaborator(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: {
     documentId: string;
     actorId: string;
     actorType: "human" | "agent";
   },
-): AgentSpaceState["channelDocumentAccesses"][number] {
+): DofeAgentState["channelDocumentAccesses"][number] {
   const existing = state.channelDocumentAccesses.find(
     (access) =>
       access.documentId === input.documentId &&
@@ -204,7 +204,7 @@ export function removeChannelDocumentCollaborator(
 }
 
 export function ensureDocumentKeepsAnOwner(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   documentId: string,
   nextActorId: string,
   nextActorType: "human" | "agent",
@@ -223,11 +223,11 @@ export function ensureDocumentKeepsAnOwner(
 }
 
 function buildDefaultDocumentAccesses(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   document: ChannelDocument,
-): AgentSpaceState["channelDocumentAccesses"] {
+): DofeAgentState["channelDocumentAccesses"] {
   const now = document.createdAt;
-  const result: AgentSpaceState["channelDocumentAccesses"] = [];
+  const result: DofeAgentState["channelDocumentAccesses"] = [];
   const seen = new Set<string>();
   const channel = state.channels.find((item) => sameValue(item.name, document.channelName));
   const humanMemberNames = channel
@@ -274,7 +274,7 @@ function createDocumentAccess(
   actorType: "human" | "agent",
   role: ChannelDocumentAccessRole,
   now: string,
-): AgentSpaceState["channelDocumentAccesses"][number] {
+): DofeAgentState["channelDocumentAccesses"][number] {
   return {
     id: `channel-doc-access-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     documentId,
@@ -287,7 +287,7 @@ function createDocumentAccess(
 }
 
 function assertAccessTargetExists(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   actorId: string,
   actorType: "human" | "agent",
 ): void {

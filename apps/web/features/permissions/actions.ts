@@ -9,9 +9,9 @@ import {
   rejectDocumentPermissionRequestSync,
   revokeDocumentAgentAccessSync,
   tryRecordWorkspaceAuditEventSync,
-} from "@agent-space/services";
-import type { WorkspaceRole } from "@agent-space/db";
-import type { ChannelDocumentAccessRole } from "@agent-space/domain";
+} from "@dofe-agent/services";
+import type { WorkspaceRole } from "@dofe-agent/db";
+import type { ChannelDocumentAccessRole } from "@dofe-agent/domain";
 import {
   bindWorkspaceAgentRuntimeAction,
   grantWorkspaceRuntimeUseAction,

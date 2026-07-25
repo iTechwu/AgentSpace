@@ -7,15 +7,15 @@ import {
   getDatabase,
   readWorkspaceStateCurrentVersionSync,
   readWorkspaceStateVersion,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
   writeWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-workspace-state-versioning-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-workspace-state-versioning-"));
 
 beforeAll(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

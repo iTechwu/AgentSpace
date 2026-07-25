@@ -8,16 +8,16 @@ import {
   recordTokenUsageSync,
   registerDaemonRuntimesSync,
   upsertBudgetSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   bindEmployeeRuntimeSync,
   createEmployeeSync,
   resetWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { runCostCommand } from "./cost.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-cost-command-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-cost-command-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

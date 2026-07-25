@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before, beforeEach } from "node:test";
-import type { MessageAttachment } from "@agent-space/domain/workspace";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
   createExternalIntegrationSync,
   createExternalMessageMappingSync,
@@ -11,11 +11,11 @@ import {
   createStoredChannelSync,
   createWorkspaceSync,
   getDatabase,
-  readExternalMessageMappingByAgentSpaceMessageSync,
+  readExternalMessageMappingByDofeAgentMessageSync,
   readExternalMessageOutboxSync,
   updateExternalIntegrationStatusSync,
   upsertExternalChannelBindingSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { FEISHU_PROVIDER_ID } from "../constants.ts";
 import {
   processFeishuOutboxMessage,
@@ -26,10 +26,10 @@ import type { FeishuApiClient, FeishuApiRequest } from "../client.ts";
 
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..", "..", "..");
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-feishu-outbound-"));
-const databaseTestOptions = process.env.AGENT_SPACE_FEISHU_OUTBOUND_DB_TESTS === "1"
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-outbound-"));
+const databaseTestOptions = process.env.DOFE_AGENT_FEISHU_OUTBOUND_DB_TESTS === "1"
   ? {}
-  : { skip: "Set AGENT_SPACE_FEISHU_OUTBOUND_DB_TESTS=1 with a test Postgres URL to run Feishu outbound DB integration tests." };
+  : { skip: "Set DOFE_AGENT_FEISHU_OUTBOUND_DB_TESTS=1 with a test Postgres URL to run Feishu outbound DB integration tests." };
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -112,7 +112,7 @@ test("temporary Feishu send failures keep outbox pending for retry", databaseTes
   assert.equal(Date.parse(stored.nextAttemptAt) > Date.parse(stored.updatedAt), true);
 });
 
-test("AgentSpace replies are sent back to the source Feishu thread", databaseTestOptions, async () => {
+test("DofeAgent replies are sent back to the source Feishu thread", databaseTestOptions, async () => {
   const workspace = createWorkspaceWithTourVisitChannel({
     slug: "feishu-thread-reply",
     name: "Feishu Thread Reply",
@@ -142,7 +142,7 @@ test("AgentSpace replies are sent back to the source Feishu thread", databaseTes
     externalMessageId: "om_source",
     externalThreadId: "om_root",
     externalSenderId: "ou_mina",
-    agentSpaceMessageId: "agent-space-source-message-1",
+    dofeAgentMessageId: "dofe-agent-source-message-1",
     metadataJson: {},
   });
 
@@ -150,8 +150,8 @@ test("AgentSpace replies are sent back to the source Feishu thread", databaseTes
     workspaceId: workspace.id,
     channelName: "tour visit",
     text: "Atlas reply for Feishu",
-    agentSpaceMessageId: "agent-space-agent-reply-1",
-    sourceAgentSpaceMessageId: "agent-space-source-message-1",
+    dofeAgentMessageId: "dofe-agent-agent-reply-1",
+    sourceDofeAgentMessageId: "dofe-agent-source-message-1",
   });
   assert.equal(queuedOutbox.length, 1);
   assert.equal(queuedOutbox[0]?.targetExternalChatId, "oc_tour");
@@ -210,10 +210,10 @@ test("AgentSpace replies are sent back to the source Feishu thread", databaseTes
   assert.equal(storedOutbox.status, "sent");
   assert.equal(storedOutbox.sentAt !== undefined, true);
 
-  const outboundMapping = readExternalMessageMappingByAgentSpaceMessageSync({
+  const outboundMapping = readExternalMessageMappingByDofeAgentMessageSync({
     workspaceId: workspace.id,
     integrationId: integration.id,
-    agentSpaceMessageId: "agent-space-agent-reply-1",
+    dofeAgentMessageId: "dofe-agent-agent-reply-1",
     direction: "outbound",
   });
   assert.ok(outboundMapping);
@@ -317,7 +317,7 @@ test("Feishu replies without agent id reuse the source agent bot integration", d
     externalMessageId: "om_source",
     externalThreadId: "om_root",
     externalSenderId: "ou_mina",
-    agentSpaceMessageId: "agent-space-source-message-1",
+    dofeAgentMessageId: "dofe-agent-source-message-1",
     metadataJson: {
       agentId: "Atlas",
       botBindingId: agentBotIntegration.id,
@@ -328,8 +328,8 @@ test("Feishu replies without agent id reuse the source agent bot integration", d
     workspaceId: workspace.id,
     channelName: "tour visit",
     text: "Atlas reply for Feishu",
-    agentSpaceMessageId: "agent-space-agent-reply-1",
-    sourceAgentSpaceMessageId: "agent-space-source-message-1",
+    dofeAgentMessageId: "dofe-agent-agent-reply-1",
+    sourceDofeAgentMessageId: "dofe-agent-source-message-1",
   });
 
   assert.equal(queuedOutbox.length, 1);
@@ -340,7 +340,7 @@ test("Feishu replies without agent id reuse the source agent bot integration", d
     content?: string;
   };
   const content = JSON.parse(String(payload.content)) as { text?: string };
-  assert.equal(content.text, "Atlas · AgentSpace\nAtlas reply for Feishu");
+  assert.equal(content.text, "Atlas · DofeAgent\nAtlas reply for Feishu");
 });
 
 test("Feishu replies do not fall back to workspace bot when the source agent bot is disabled", databaseTestOptions, () => {
@@ -391,7 +391,7 @@ test("Feishu replies do not fall back to workspace bot when the source agent bot
     externalMessageId: "om_source",
     externalThreadId: "om_root",
     externalSenderId: "ou_mina",
-    agentSpaceMessageId: "agent-space-source-message-1",
+    dofeAgentMessageId: "dofe-agent-source-message-1",
     metadataJson: {
       agentId: "Atlas",
       botBindingId: agentBotIntegration.id,
@@ -407,8 +407,8 @@ test("Feishu replies do not fall back to workspace bot when the source agent bot
     workspaceId: workspace.id,
     channelName: "tour visit",
     text: "Atlas reply for Feishu",
-    agentSpaceMessageId: "agent-space-agent-reply-1",
-    sourceAgentSpaceMessageId: "agent-space-source-message-1",
+    dofeAgentMessageId: "dofe-agent-agent-reply-1",
+    sourceDofeAgentMessageId: "dofe-agent-source-message-1",
   });
 
   assert.deepEqual(queuedOutbox, []);
@@ -444,11 +444,11 @@ test("Agent status cards are queued back to the source Feishu thread", databaseT
     externalMessageId: "om_source",
     externalThreadId: "om_root",
     externalSenderId: "ou_mina",
-    agentSpaceMessageId: "agent-space-source-message-1",
+    dofeAgentMessageId: "dofe-agent-source-message-1",
     metadataJson: {},
   });
-  const previousAppUrl = process.env.AGENT_SPACE_APP_URL;
-  process.env.AGENT_SPACE_APP_URL = "https://agentspace.test";
+  const previousAppUrl = process.env.DOFE_AGENT_APP_URL;
+  process.env.DOFE_AGENT_APP_URL = "https://dofe-agent.test";
 
   try {
     const queuedOutbox = queueFeishuAgentStatusCardOutboxSync({
@@ -456,8 +456,8 @@ test("Agent status cards are queued back to the source Feishu thread", databaseT
       channelName: "tour visit",
       status: "thinking",
       agentNames: ["Atlas"],
-      message: "AgentSpace has queued the requested agent work.",
-      sourceAgentSpaceMessageId: "agent-space-source-message-1",
+      message: "DofeAgent has queued the requested agent work.",
+      sourceDofeAgentMessageId: "dofe-agent-source-message-1",
     });
 
     assert.equal(queuedOutbox.length, 1);
@@ -480,20 +480,20 @@ test("Agent status cards are queued back to the source Feishu thread", databaseT
       }>;
     };
     assert.equal(card.header.template, "blue");
-    assert.equal(card.header.title.content, "Atlas · AgentSpace");
+    assert.equal(card.header.title.content, "Atlas · DofeAgent");
     assert.match(card.elements[0]?.content ?? "", /\*\*Atlas\*\* · Thinking/);
-    assert.equal(card.elements[1]?.actions?.[0]?.text?.content, "Open AgentSpace");
-    assert.equal(card.elements[1]?.actions?.[0]?.url, "https://agentspace.test/w/feishu-thread-status-card/im?focus=channel%3Atour+visit");
+    assert.equal(card.elements[1]?.actions?.[0]?.text?.content, "Open DofeAgent");
+    assert.equal(card.elements[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/feishu-thread-status-card/im?focus=channel%3Atour+visit");
   } finally {
     if (previousAppUrl === undefined) {
-      delete process.env.AGENT_SPACE_APP_URL;
+      delete process.env.DOFE_AGENT_APP_URL;
     } else {
-      process.env.AGENT_SPACE_APP_URL = previousAppUrl;
+      process.env.DOFE_AGENT_APP_URL = previousAppUrl;
     }
   }
 });
 
-test("AgentSpace replies with attachments queue text and attachment outbox items", databaseTestOptions, () => {
+test("DofeAgent replies with attachments queue text and attachment outbox items", databaseTestOptions, () => {
   const workspace = createWorkspaceWithTourVisitChannel({
     slug: "feishu-thread-reply-attachments",
     name: "Feishu Thread Reply Attachments",
@@ -522,7 +522,7 @@ test("AgentSpace replies with attachments queue text and attachment outbox items
     direction: "inbound",
     externalMessageId: "om_source",
     externalThreadId: "om_root",
-    agentSpaceMessageId: "agent-space-source-message-1",
+    dofeAgentMessageId: "dofe-agent-source-message-1",
     metadataJson: {},
   });
 
@@ -538,8 +538,8 @@ test("AgentSpace replies with attachments queue text and attachment outbox items
       storedPath: "/tmp/chart.png",
       storageUrl: "https://storage.example/signed-chart.png?X-Amz-Signature=secret",
     })],
-    agentSpaceMessageId: "agent-space-agent-reply-1",
-    sourceAgentSpaceMessageId: "agent-space-source-message-1",
+    dofeAgentMessageId: "dofe-agent-agent-reply-1",
+    sourceDofeAgentMessageId: "dofe-agent-source-message-1",
   });
 
   assert.equal(queuedOutbox.length, 2);
@@ -547,7 +547,7 @@ test("AgentSpace replies with attachments queue text and attachment outbox items
   assert.equal(textPayload.msg_type, "text");
   assert.equal(textPayload.reply_to_message_id, "om_root");
   const attachmentPayload = JSON.parse(queuedOutbox[1]?.payloadJson ?? "{}") as {
-    agent_space_payload_kind?: string;
+    dofe_agent_payload_kind?: string;
     reply_to_message_id?: string;
     attachment?: {
       id?: string;
@@ -556,7 +556,7 @@ test("AgentSpace replies with attachments queue text and attachment outbox items
       storedPath?: string;
     };
   };
-  assert.equal(attachmentPayload.agent_space_payload_kind, "agent_space_feishu_attachment_v1");
+  assert.equal(attachmentPayload.dofe_agent_payload_kind, "dofe_agent_feishu_attachment_v1");
   assert.equal(attachmentPayload.reply_to_message_id, "om_root");
   assert.deepEqual(attachmentPayload.attachment, {
     id: "att-chart",

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type MouseEvent, useCallback, useEffect, useState, useTransition } from "react";
-import type { WorkspaceRole } from "@agent-space/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useWorkspaceModuleNavigation } from "@/features/dashboard/workspace-module-navigation";

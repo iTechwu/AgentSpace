@@ -1,4 +1,4 @@
-import type { TaskRecord } from "@agent-space/domain/workspace";
+import type { TaskRecord } from "@dofe-agent/domain/workspace";
 import { DEFAULT_WORKSPACE_ID, getDatabase, withTransaction } from "./database.ts";
 
 export function listStoredTasksSync(workspaceId = DEFAULT_WORKSPACE_ID): TaskRecord[] {

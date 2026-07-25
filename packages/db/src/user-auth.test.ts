@@ -29,7 +29,7 @@ import {
 } from "./index.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-user-auth-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-user-auth-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

@@ -12,7 +12,7 @@ mkdirSync(outDir, { recursive: true });
 await build({
   entryPoints: {
     "agent-router": resolve(rootDir, "src", "agent-router", "cli.ts"),
-    "agent-space": resolve(rootDir, "..", "..", "apps", "cli", "src", "index.ts"),
+    "dofe-agent": resolve(rootDir, "..", "..", "apps", "cli", "src", "index.ts"),
     cli: resolve(rootDir, "src", "cli.ts"),
     index: resolve(rootDir, "src", "index.ts"),
     "daemon-client": resolve(rootDir, "src", "daemon-client.ts"),
@@ -20,11 +20,11 @@ await build({
   },
   outdir: outDir,
   bundle: true,
-  external: ["agent-space-daemon"],
+  external: ["dofe-agent-daemon"],
   // Provider SDKs still issue CommonJS dynamic requires. Keep ESM so daemon
   // entrypoints retain import.meta.url, and provide Node CommonJS globals.
   banner: {
-    js: 'import { createRequire as __agentSpaceCreateRequire } from "node:module"; import { fileURLToPath as __agentSpaceFileURLToPath } from "node:url"; import { dirname as __agentSpaceDirname } from "node:path"; const require = __agentSpaceCreateRequire(import.meta.url); const __filename = __agentSpaceFileURLToPath(import.meta.url); const __dirname = __agentSpaceDirname(__filename);',
+    js: 'import { createRequire as __dofeAgentCreateRequire } from "node:module"; import { fileURLToPath as __dofeAgentFileURLToPath } from "node:url"; import { dirname as __dofeAgentDirname } from "node:path"; const require = __dofeAgentCreateRequire(import.meta.url); const __filename = __dofeAgentFileURLToPath(import.meta.url); const __dirname = __dofeAgentDirname(__filename);',
   },
   format: "esm",
   platform: "node",

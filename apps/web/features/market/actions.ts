@@ -1,11 +1,11 @@
 "use server";
 
-import type { RuntimeAppCatalogSource, RuntimeAppOperationType } from "@agent-space/db";
+import type { RuntimeAppCatalogSource, RuntimeAppOperationType } from "@dofe-agent/db";
 import {
   requestRuntimeAppOperationSync,
   syncCliHubCatalog,
   syncRuntimeAppSkill,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";

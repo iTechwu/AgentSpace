@@ -1,4 +1,4 @@
-import type { ExternalIntegrationProvider } from "@agent-space/db";
+import type { ExternalIntegrationProvider } from "@dofe-agent/db";
 
 export class IntegrationProviderError extends Error {
   readonly provider: ExternalIntegrationProvider;

@@ -1,5 +1,5 @@
-import type { ExternalDataOperationActorType, ExternalIntegrationHealthStatus, ExternalIntegrationProvider, ExternalIntegrationTransportMode, ExternalResourceBindingProviderType } from "@agent-space/db";
-import type { MessageAttachment } from "@agent-space/domain/workspace";
+import type { ExternalDataOperationActorType, ExternalIntegrationHealthStatus, ExternalIntegrationProvider, ExternalIntegrationTransportMode, ExternalResourceBindingProviderType } from "@dofe-agent/db";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 export type IntegrationCapability = "message_transport" | "docs_data_plane" | "sheets_data_plane" | "base_data_plane";
 export interface IntegrationProviderDescriptor {
     provider: ExternalIntegrationProvider;
@@ -38,15 +38,15 @@ export interface ExternalMessageEnvelope {
     receivedAt: string;
 }
 export type NormalizedExternalMessageEvent = ExternalMessageEnvelope;
-export interface AgentSpaceOutboundMessage {
+export interface DofeAgentOutboundMessage {
     channelName: string;
     text: string;
     attachments?: MessageAttachment[];
-    agentSpaceMessageId?: string;
+    dofeAgentMessageId?: string;
     externalThreadId?: string;
     metadata?: Record<string, unknown>;
 }
-export type MessageTransportSendInput = AgentSpaceOutboundMessage;
+export type MessageTransportSendInput = DofeAgentOutboundMessage;
 export interface IntegrationHealth {
     status: ExternalIntegrationHealthStatus;
     checkedAt: string;

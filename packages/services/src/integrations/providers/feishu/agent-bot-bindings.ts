@@ -9,7 +9,7 @@ import {
   updateExternalIntegrationStatusSync,
   type ExternalIntegrationRecord,
   type ExternalIntegrationTransportMode,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { FEISHU_DEFAULT_SCOPES, FEISHU_EVENT_CALLBACK_PATH, FEISHU_PROVIDER_ID } from "./constants.ts";
 import type { FeishuApiClient } from "./client.ts";
 import {

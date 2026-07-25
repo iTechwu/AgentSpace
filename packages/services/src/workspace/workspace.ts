@@ -1,9 +1,9 @@
 import {
   createDefaultWorkspaceState,
   createWorkspaceSnapshot,
-  type AgentSpaceState,
+  type DofeAgentState,
   type WorkspaceSnapshot,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync, getWorkspaceDatabaseFilePath } from "../shared/state-io.ts";
 import { sameValue } from "../shared/helpers.ts";
 
@@ -12,7 +12,7 @@ export function bootstrapWorkspaceSync(input: {
   ownerName: string;
   ownerRole: string;
   firstChannelName: string;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = createDefaultWorkspaceState();
   state.organizationName = input.organizationName;
   state.humanMembers = [{ name: input.ownerName, role: input.ownerRole }];
@@ -32,7 +32,7 @@ export function initializeOrganizationSync(input: {
   ownerName: string;
   ownerRole: string;
   firstChannelName?: string;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   return bootstrapWorkspaceSync({
     organizationName: input.organizationName,
     ownerName: input.ownerName,
@@ -41,7 +41,7 @@ export function initializeOrganizationSync(input: {
   }, workspaceId);
 }
 
-export function addHumanMemberSync(input: { name: string; role: string }, workspaceId?: string): AgentSpaceState {
+export function addHumanMemberSync(input: { name: string; role: string }, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
 
   if (!state.humanMembers.some((member) => sameValue(member.name, input.name))) {

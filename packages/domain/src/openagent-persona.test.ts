@@ -44,7 +44,7 @@ test("employeeToPersona redacts sensitive fields by default", () => {
   const persona = employeeToPersona(employee, skills);
 
   // Owner identity is dropped from org.name.
-  assert.equal(persona.org?.name, "AgentSpace");
+  assert.equal(persona.org?.name, "DofeAgent");
   // Operator instructions do not leak into behavior…
   assert.equal(persona.behavior, "Digs through papers and surfaces the load-bearing claims.");
   assert.ok(!persona.behavior.includes("Cite sources"));
@@ -60,7 +60,7 @@ test("employeeToPersona --include-sensitive opts private fields back in", () => 
   const persona = employeeToPersona(employee, skills, { includeSensitive: true });
 
   // Owner identity is restored to org.name.
-  assert.equal(persona.org?.name, "AgentSpace (user-42)");
+  assert.equal(persona.org?.name, "DofeAgent (user-42)");
   // Instructions flow back into behavior and the voice rules.
   assert.equal(
     persona.behavior,

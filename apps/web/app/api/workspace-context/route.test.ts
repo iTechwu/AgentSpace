@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resetWorkspaceStateSync, writeWorkspaceStateSync } from "@agent-space/services";
+import { resetWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services";
 
 const { mockGetCurrentWorkspaceContext } = vi.hoisted(() => ({
   mockGetCurrentWorkspaceContext: vi.fn(),
@@ -15,7 +15,7 @@ vi.mock("@/features/auth/server-workspace", () => ({
 import { GET } from "./route";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-workspace-context-route-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-workspace-context-route-"));
 
 beforeAll(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

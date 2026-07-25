@@ -1,7 +1,7 @@
 import { readServerEnvValue } from "./server-env";
 
 export function readPublicAppUrl(): string | undefined {
-  const rawValue = readServerEnvValue("AGENT_SPACE_APP_URL")?.trim();
+  const rawValue = readServerEnvValue("DOFE_AGENT_APP_URL")?.trim();
   if (!rawValue) {
     return undefined;
   }

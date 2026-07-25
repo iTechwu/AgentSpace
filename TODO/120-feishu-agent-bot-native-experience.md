@@ -1,7 +1,7 @@
 # 120. Feishu Agent Bot Native Experience
 
-> 更新时间：2026-06-26
-> 状态：规划中，承接 TODO119 之后的产品模型调整
+> 更新时间：2026-07-25
+> 状态：Phase 0-5 已完成；Phase 6 真实飞书租户 Smoke / E2E 待执行
 > 关联：`TODO/119-feishu-message-transport-adapter.md`、`TODO/84-integration-adapter-contract.md`、`TODO/80-unified-permission-management.md`、`TODO/85-agent-action-permission-policy.md`、`TODO/113-agent-mention-self-addressing.md`
 > 适用范围：Feishu/Lark bot identity、Agent external identity、Feishu group/channel auto provisioning、external guest policy、AgentSpace channel governance
 

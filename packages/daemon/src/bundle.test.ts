@@ -6,7 +6,7 @@ import test from "node:test";
 import { collectRuntimeOutputBundle, materializeInputBundle } from "./bundle.ts";
 
 test("materializeInputBundle rejects path traversal", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-standalone-daemon-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-standalone-daemon-"));
 
   try {
     assert.throws(
@@ -35,7 +35,7 @@ test("materializeInputBundle rejects path traversal", () => {
 });
 
 test("collectRuntimeOutputBundle captures manifests and referenced runtime-output files", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-standalone-daemon-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-standalone-daemon-"));
 
   try {
     const artifactsDir = join(workDir, "runtime-output", "artifacts");
@@ -106,7 +106,7 @@ test("collectRuntimeOutputBundle captures manifests and referenced runtime-outpu
 });
 
 test("collectRuntimeOutputBundle uploads only parseable manifest files on parse failure", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-standalone-daemon-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-standalone-daemon-"));
 
   try {
     const artifactsDir = join(workDir, "runtime-output", "artifacts");
@@ -125,7 +125,7 @@ test("collectRuntimeOutputBundle uploads only parseable manifest files on parse 
 });
 
 test("collectRuntimeOutputBundle recursively captures referenced skill artifact directories", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-standalone-daemon-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-standalone-daemon-"));
 
   try {
     const skillDir = join(workDir, "runtime-output", "artifacts", "skills", "local-skill");
@@ -155,8 +155,8 @@ test("collectRuntimeOutputBundle recursively captures referenced skill artifact 
 });
 
 test("collectRuntimeOutputBundle rejects referenced symlink artifacts", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-standalone-daemon-"));
-  const externalDir = mkdtempSync(join(tmpdir(), "agent-space-standalone-external-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-standalone-daemon-"));
+  const externalDir = mkdtempSync(join(tmpdir(), "dofe-agent-standalone-external-"));
 
   try {
     const artifactsDir = join(workDir, "runtime-output", "artifacts");
@@ -179,7 +179,7 @@ test("collectRuntimeOutputBundle rejects referenced symlink artifacts", () => {
 });
 
 test("materializeInputBundle restores bundled files into workDir", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-standalone-daemon-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-standalone-daemon-"));
 
   try {
     materializeInputBundle(workDir, {

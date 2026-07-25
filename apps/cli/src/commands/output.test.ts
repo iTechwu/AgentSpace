@@ -3,15 +3,15 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { discardTaskOutputAttachments, loadTaskOutputEnvelope } from "agent-space-daemon";
+import { discardTaskOutputAttachments, loadTaskOutputEnvelope } from "dofe-agent-daemon";
 import {
   FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND,
   FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_RELATIVE_PATH,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { runOutputCommand } from "./output.ts";
 
 test("output attach creates and appends agent-output attachments", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
     mkdirSync(join(workDir, "runtime-output", "artifacts"), { recursive: true });
     writeFileSync(join(workDir, "runtime-output", "artifacts", "chart.png"), "image", "utf8");
@@ -57,7 +57,7 @@ test("output attach creates and appends agent-output attachments", async () => {
 });
 
 test("daemon consumes CLI-generated agent-output manifests", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
     mkdirSync(join(workDir, "runtime-output", "artifacts"), { recursive: true });
     writeFileSync(join(workDir, "runtime-output", "artifacts", "chart.png"), "image", "utf8");
@@ -91,8 +91,8 @@ test("daemon consumes CLI-generated agent-output manifests", async () => {
 });
 
 test("output attach rejects absolute files unless --copy is set", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
-  const externalDir = mkdtempSync(join(tmpdir(), "agent-space-output-external-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
+  const externalDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-external-"));
   try {
     const externalFile = join(externalDir, "chart.png");
     writeFileSync(externalFile, "image", "utf8");
@@ -113,7 +113,7 @@ test("output attach rejects absolute files unless --copy is set", async () => {
 });
 
 test("output document and sheets commands write compatible manifests", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
     mkdirSync(join(workDir, "runtime-output", "artifacts"), { recursive: true });
     writeFileSync(join(workDir, "runtime-output", "artifacts", "notes.md"), "# Notes\n", "utf8");
@@ -172,7 +172,7 @@ test("output document and sheets commands write compatible manifests", async () 
 });
 
 test("output knowledge commands write controlled proposal manifests", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
     mkdirSync(join(workDir, "runtime-output", "artifacts", "knowledge"), { recursive: true });
     writeFileSync(join(workDir, "runtime-output", "artifacts", "knowledge", "approval.md"), "# Approval\n", "utf8");
@@ -202,7 +202,7 @@ test("output knowledge commands write controlled proposal manifests", async () =
       generatedBy?: string;
       proposals?: Array<{ operation: string; title: string; contentPath: string; reason?: string; assignToSelf?: boolean }>;
     };
-    assert.equal(manifest.generatedBy, "agent-space-cli");
+    assert.equal(manifest.generatedBy, "dofe-agent-cli");
     assert.equal(manifest.proposals?.[0]?.operation, "create");
     assert.equal(manifest.proposals?.[0]?.title, "Approval checklist");
     assert.equal(manifest.proposals?.[0]?.contentPath, "runtime-output/artifacts/knowledge/approval.md");
@@ -213,7 +213,7 @@ test("output knowledge commands write controlled proposal manifests", async () =
 });
 
 test("output sheets commands cover read, update, and batch manifests", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
     assert.equal(
       await runOutputCommand(
@@ -291,7 +291,7 @@ test("output sheets commands cover read, update, and batch manifests", async () 
 });
 
 test("output sheets-result add registers executed gws JSON results", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
     const sheetsDir = join(workDir, "runtime-output", "artifacts", "sheets");
     mkdirSync(sheetsDir, { recursive: true });
@@ -346,7 +346,7 @@ test("output sheets-result add registers executed gws JSON results", async () =>
 });
 
 test("output google-docs commands create validated manifests from artifact files", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
     const docsDir = join(workDir, "runtime-output", "artifacts", "docs");
     mkdirSync(docsDir, { recursive: true });
@@ -427,7 +427,7 @@ test("output google-docs commands create validated manifests from artifact files
 });
 
 test("output google-docs rejects token material in artifacts", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
     const docsDir = join(workDir, "runtime-output", "artifacts", "docs");
     mkdirSync(docsDir, { recursive: true });
@@ -458,7 +458,7 @@ test("output google-docs rejects token material in artifacts", async () => {
 });
 
 test("output external-document and permission commands write controlled manifests", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
     assert.equal(
       await runOutputCommand(
@@ -508,10 +508,10 @@ test("output external-document and permission commands write controlled manifest
       generatedBy?: string;
       requests?: Array<{ requestedRole?: string; documentId?: string }>;
     };
-    assert.equal(externalDocuments.generatedBy, "agent-space-cli");
+    assert.equal(externalDocuments.generatedBy, "dofe-agent-cli");
     assert.equal(externalDocuments.operations?.[0]?.operationType, "link_google_sheet");
     assert.equal(externalDocuments.operations?.[0]?.sourceDocumentId, "channel-doc-123");
-    assert.equal(permissionRequests.generatedBy, "agent-space-cli");
+    assert.equal(permissionRequests.generatedBy, "dofe-agent-cli");
     assert.equal(permissionRequests.requests?.[0]?.requestedRole, "forwarder");
     assert.equal(permissionRequests.requests?.[0]?.documentId, "channel-doc-123");
   } finally {
@@ -520,7 +520,7 @@ test("output external-document and permission commands write controlled manifest
 });
 
 test("output external-document create-google-sheet writes controlled manifest", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
     const artifactDir = join(workDir, "runtime-output", "artifacts", "sheets");
     mkdirSync(artifactDir, { recursive: true });
@@ -566,7 +566,7 @@ test("output external-document create-google-sheet writes controlled manifest", 
       generatedBy?: string;
       operations?: Array<{ operationType?: string; externalFileId?: string; resultPath?: string }>;
     };
-    assert.equal(externalDocuments.generatedBy, "agent-space-cli");
+    assert.equal(externalDocuments.generatedBy, "dofe-agent-cli");
     assert.equal(externalDocuments.operations?.[0]?.operationType, "create_google_sheet");
     assert.equal(externalDocuments.operations?.[0]?.externalFileId, "spreadsheet-created-123");
     assert.equal(externalDocuments.operations?.[0]?.resultPath, "runtime-output/artifacts/sheets/create-sheet.json");
@@ -576,7 +576,7 @@ test("output external-document create-google-sheet writes controlled manifest", 
 });
 
 test("output external-document create-google-sheet rejects mismatched gws result", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
     const artifactDir = join(workDir, "runtime-output", "artifacts", "sheets");
     mkdirSync(artifactDir, { recursive: true });
@@ -619,7 +619,7 @@ test("output external-document create-google-sheet rejects mismatched gws result
 });
 
 test("output feishu data-operation-approval writes controlled approval request manifest", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
     assert.equal(
       await runOutputCommand(
@@ -635,7 +635,7 @@ test("output feishu data-operation-approval writes controlled approval request m
           "--range",
           "Sheet1!A1:B1",
           "--values-json",
-          "[[\"AgentSpace smoke\"]]",
+          "[[\"DofeAgent smoke\"]]",
           "--preview",
           "Update smoke range",
           "--work-dir",
@@ -661,13 +661,13 @@ test("output feishu data-operation-approval writes controlled approval request m
       }>;
     };
     assert.equal(manifest.kind, FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND);
-    assert.equal(manifest.generatedBy, "agent-space-cli");
+    assert.equal(manifest.generatedBy, "dofe-agent-cli");
     assert.equal(manifest.requests?.[0]?.operationType, "sheets.update_range");
     assert.equal(manifest.requests?.[0]?.providerResourceType, "sheet");
     assert.equal(manifest.requests?.[0]?.providerResourceToken, "shtcnABC123");
     assert.deepEqual(manifest.requests?.[0]?.parameters, {
       range: "Sheet1!A1:B1",
-      values: [["AgentSpace smoke"]],
+      values: [["DofeAgent smoke"]],
     });
     assert.equal(manifest.requests?.[0]?.contentPreview, "Update smoke range");
   } finally {
@@ -677,8 +677,8 @@ test("output feishu data-operation-approval writes controlled approval request m
 
 
 test("output skill import packages local skills into runtime-output artifacts", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
-  const skillDir = mkdtempSync(join(tmpdir(), "agent-space-local-skill-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
+  const skillDir = mkdtempSync(join(tmpdir(), "dofe-agent-local-skill-"));
   try {
     writeFileSync(join(skillDir, "SKILL.md"), "---\nname: local-skill\n---\n# Local\n", "utf8");
     assert.equal(
@@ -693,7 +693,7 @@ test("output skill import packages local skills into runtime-output artifacts", 
     const manifest = JSON.parse(readFileSync(join(workDir, "runtime-output", "skill-imports.json"), "utf8")) as {
       imports?: Array<{ path?: string; conflict?: string }>;
     };
-    assert.match(manifest.imports?.[0]?.path ?? "", /^runtime-output\/artifacts\/skills\/agent-space-local-skill-/);
+    assert.match(manifest.imports?.[0]?.path ?? "", /^runtime-output\/artifacts\/skills\/dofe-agent-local-skill-/);
     assert.equal(manifest.imports?.[0]?.conflict, "rename");
     assert.equal(await runOutputCommand("validate", ["--work-dir", workDir], "text"), 0);
   } finally {

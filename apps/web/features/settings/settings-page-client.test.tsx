@@ -227,7 +227,7 @@ describe("SettingsPageClient", () => {
     await user.selectOptions(languageSelect, "en");
 
     expect(languageSelect).toHaveValue("en");
-    expect(window.localStorage.getItem("agent-space-language")).toBe("en");
+    expect(window.localStorage.getItem("dofe-agent-language")).toBe("en");
   });
 
   it("persists sidebar visibility toggles in local storage", async () => {
@@ -673,7 +673,7 @@ describe("SettingsPageClient", () => {
       });
     });
 
-    const channelSelect = screen.getByRole("combobox", { name: "AgentSpace 频道" });
+    const channelSelect = screen.getByRole("combobox", { name: "DofeAgent 频道" });
     await waitFor(() => {
       expect(channelSelect).toBeEnabled();
     });
@@ -703,19 +703,19 @@ describe("SettingsPageClient", () => {
     expect(within(resourceScopeHint).getByText("drive:drive")).toBeInTheDocument();
     expect(resourceScopeHint).toHaveTextContent("推荐类型");
     expect(resourceScopeHint).toHaveTextContent("频道文档");
-    const agentSpaceTypeSelect = screen.getByRole("combobox", { name: "AgentSpace 类型" });
-    expect(agentSpaceTypeSelect).toHaveValue("channel_document");
+    const dofeAgentTypeSelect = screen.getByRole("combobox", { name: "DofeAgent 类型" });
+    expect(dofeAgentTypeSelect).toHaveValue("channel_document");
     await user.selectOptions(resourceTypeSelect, "base_table");
     await waitFor(() => {
       expect(resourceTypeSelect).toHaveValue("base_table");
-      expect(agentSpaceTypeSelect).toHaveValue("data_table");
+      expect(dofeAgentTypeSelect).toHaveValue("data_table");
     });
     expect(within(resourceScopeHint).getByText("bitable:app")).toBeInTheDocument();
     expect(resourceScopeHint).toHaveTextContent("数据表");
     await user.selectOptions(resourceTypeSelect, "sheet");
     await waitFor(() => {
       expect(resourceTypeSelect).toHaveValue("sheet");
-      expect(agentSpaceTypeSelect).toHaveValue("data_table");
+      expect(dofeAgentTypeSelect).toHaveValue("data_table");
     });
     expect(within(resourceScopeHint).getByText("sheets:spreadsheet")).toBeInTheDocument();
     expect(resourceScopeHint).toHaveTextContent("数据表");
@@ -729,8 +729,8 @@ describe("SettingsPageClient", () => {
       integrationId: "feishu-1",
       providerResourceType: "sheet",
       resourceUrlOrToken: "https://example.feishu.cn/sheets/shtcnTest123",
-      agentSpaceResourceType: "data_table",
-      agentSpaceResourceId: "",
+      dofeAgentResourceType: "data_table",
+      dofeAgentResourceId: "",
       channelName: "general",
       displayName: "Launch Sheet",
       allowWrite: true,
@@ -978,6 +978,12 @@ describe("SettingsPageClient", () => {
     const cardView = within(card as HTMLElement);
 
     await user.click(cardView.getByText("调整治理策略"));
+    const identityGroup = cardView.getByRole("group", { name: "需绑定身份" });
+    expect(within(identityGroup).getAllByRole("checkbox")).toHaveLength(4);
+    expect(within(identityGroup).getByRole("checkbox", { name: "写入" })).toBeChecked();
+    expect(within(identityGroup).getByRole("checkbox", { name: "审批" })).toBeChecked();
+    expect(within(identityGroup).getByRole("checkbox", { name: "私有资源" })).toBeChecked();
+    expect(within(identityGroup).getByRole("checkbox", { name: "高风险工具" })).toBeChecked();
     await user.selectOptions(cardView.getByRole("combobox", { name: "机器人进群" }), "disabled");
     await user.selectOptions(cardView.getByRole("combobox", { name: "首次消息" }), "reply_with_setup_card");
     await user.selectOptions(cardView.getByRole("combobox", { name: "建群审核状态" }), "pending_admin_review");
@@ -1031,17 +1037,17 @@ describe("SettingsPageClient", () => {
     expect(within(evidenceGates).getByText("原生 Agent Bot 证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("数据面证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("失败可见证据")).toBeInTheDocument();
-    expect(within(evidenceGates).getByText("24 小时 AgentSpace 本地证据")).toBeInTheDocument();
+    expect(within(evidenceGates).getByText("24 小时 DofeAgent 本地证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("24 小时 OpenAPI 证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("24 小时 Bot 进群 Payload 证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("processed_inbound_with_safe_summary + sent_agent_bot_reply_outbox_with_safe_context + same_agent_bot_correlated_reply_mapping")).toBeInTheDocument();
     expect(within(evidenceGates).getByText(
-      "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_agentspace_sync + bound_governed_base_read + bound_approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
+      "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_dofe-agent_sync + bound_governed_base_read + bound_approved_base_mutation_with_dofe-agent_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
     )).toBeInTheDocument();
     expect(within(evidenceGates).getByText(
       "provider_failure_row + degraded_or_error_health + agent_bot_failure_with_safe_context",
     )).toBeInTheDocument();
-    expect(within(evidenceGates).getByText("fresh_24h_agentspace_local_evidence_rows")).toBeInTheDocument();
+    expect(within(evidenceGates).getByText("fresh_24h_dofe-agent_local_evidence_rows")).toBeInTheDocument();
     const checklist = screen.getByLabelText("飞书联调清单");
     expect(within(checklist).getByText("回调路径")).toBeInTheDocument();
     expect(within(checklist).getByText("/api/integrations/feishu/events")).toBeInTheDocument();
@@ -1050,26 +1056,26 @@ describe("SettingsPageClient", () => {
     expect(screen.getByText("检查联调环境")).toBeInTheDocument();
     expect(screen.getByText("治理策略命令")).toBeInTheDocument();
     expect(screen.getByText(
-      "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --agent Codex --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
+      "dofe-agent integrations feishu auto-provision-policy --workspace-id workspace-1 --agent Codex --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
     )).toBeInTheDocument();
     expect(screen.getByText(
-      "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent Codex --strict --require bot --json",
+      "dofe-agent integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent Codex --strict --require bot --json",
     )).toBeInTheDocument();
     expect(screen.getByText("绑定第二个 Agent Bot")).toBeInTheDocument();
     expect(screen.getByText(
-      "agent-space integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
+      "dofe-agent integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
     )).toBeInTheDocument();
     expect(screen.getByText("禁用 Agent 频道访问")).toBeInTheDocument();
     expect(screen.getByText(
-      "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access disabled --json",
+      "dofe-agent integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access disabled --json",
     )).toBeInTheDocument();
     expect(screen.getByText("恢复 Agent 频道访问")).toBeInTheDocument();
     expect(screen.getByText(
-      "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access enabled --json",
+      "dofe-agent integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access enabled --json",
     )).toBeInTheDocument();
     expect(screen.getByText("群聊映射命令")).toBeInTheDocument();
     expect(screen.getByText(
-      "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-1 --json",
+      "dofe-agent integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-1 --json",
     )).toBeInTheDocument();
     expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native")).toBeInTheDocument();
     expect(screen.getByText("严格实测")).toBeInTheDocument();
@@ -1088,7 +1094,7 @@ describe("SettingsPageClient", () => {
       status: "healthy",
       checkedAt: "2026-06-24T00:00:00.000Z",
       botOpenId: "ou_bot",
-      botAppName: "AgentSpace Bot",
+      botAppName: "DofeAgent Bot",
       scopeReadiness: "manual_review_required",
       requiredScopes: ["im:message", "docx:document"],
     });
@@ -1127,7 +1133,7 @@ describe("SettingsPageClient", () => {
     const summary = await screen.findByLabelText("飞书连接测试摘要");
     expect(summary).toHaveTextContent("连接测试");
     expect(summary).toHaveTextContent("正常");
-    expect(summary).toHaveTextContent("Bot: AgentSpace Bot (ou_bot)");
+    expect(summary).toHaveTextContent("Bot: DofeAgent Bot (ou_bot)");
     expect(summary).toHaveTextContent("请在飞书开放平台确认已启用以下权限。");
     expect(within(summary).getByText("im:message")).toBeInTheDocument();
     expect(within(summary).getByText("docx:document")).toBeInTheDocument();
@@ -1139,15 +1145,15 @@ describe("SettingsPageClient", () => {
     const createdSetupGuide = buildFeishuSetupGuide();
     createdSetupGuide.commands = {
       ...createdSetupGuide.commands,
-      healthCheck: "agent-space integrations feishu health-check --workspace-id workspace-1 --integration feishu-created --strict --json",
-      botReadiness: "agent-space integrations feishu readiness --workspace-id workspace-1 --integration feishu-created --strict --require bot --json",
-      dataPlaneReadiness: "agent-space integrations feishu readiness --workspace-id workspace-1 --integration feishu-created --strict --require data-plane --json",
-      workerReadiness: "agent-space integrations feishu readiness --workspace-id workspace-1 --integration feishu-created --strict --require worker --json",
-      smokeEnv: "agent-space integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-created --app-url https://agent.test > scripts/feishu/.env",
+      healthCheck: "dofe-agent integrations feishu health-check --workspace-id workspace-1 --integration feishu-created --strict --json",
+      botReadiness: "dofe-agent integrations feishu readiness --workspace-id workspace-1 --integration feishu-created --strict --require bot --json",
+      dataPlaneReadiness: "dofe-agent integrations feishu readiness --workspace-id workspace-1 --integration feishu-created --strict --require data-plane --json",
+      workerReadiness: "dofe-agent integrations feishu readiness --workspace-id workspace-1 --integration feishu-created --strict --require worker --json",
+      smokeEnv: "dofe-agent integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-created --app-url https://agent.test > scripts/feishu/.env",
       strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
       verifyOpenApiEvidence: "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
-      smokePlan: "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-created --app-url https://agent.test",
-      evidence: "agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-created --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
+      smokePlan: "dofe-agent integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-created --app-url https://agent.test",
+      evidence: "dofe-agent integrations feishu evidence --workspace-id workspace-1 --integration feishu-created --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
     };
     mockCreateFeishuIntegrationAction.mockResolvedValue(buildFeishuIntegration({
       id: "feishu-created",
@@ -1226,7 +1232,7 @@ describe("SettingsPageClient", () => {
     expect(screen.getByText("cli_launch")).toBeInTheDocument();
     const checklist = screen.getByLabelText("飞书联调清单");
     expect(within(checklist).getByText(
-      "agent-space integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-created --app-url https://agent.test > scripts/feishu/.env",
+      "dofe-agent integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-created --app-url https://agent.test > scripts/feishu/.env",
     )).toBeInTheDocument();
     expect(within(checklist).getByText(
       "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
@@ -1238,7 +1244,7 @@ describe("SettingsPageClient", () => {
       "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
     )).toBeInTheDocument();
     expect(within(checklist).getByText(
-      "agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-created --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
+      "dofe-agent integrations feishu evidence --workspace-id workspace-1 --integration feishu-created --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
     )).toBeInTheDocument();
   });
 
@@ -1262,7 +1268,7 @@ describe("SettingsPageClient", () => {
     await user.click(screen.getByRole("button", { name: "创建集成" }));
 
     expect(await screen.findByText(
-      "AgentSpace 未配置飞书凭据加密密钥。请设置 AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
+      "DofeAgent 未配置飞书凭据加密密钥。请设置 DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
     )).toBeInTheDocument();
     expect(mockCreateFeishuIntegrationAction).toHaveBeenCalledWith(expect.objectContaining({
       appId: "cli_launch",
@@ -1321,7 +1327,7 @@ describe("SettingsPageClient", () => {
     expect(screen.queryByText("飞书会话映射")).toBeNull();
     expect(screen.queryByText("飞书资源映射")).toBeNull();
     expect(screen.queryByText("飞书数据操作记录")).toBeNull();
-    expect(screen.getByRole("textbox", { name: "AgentSpace 用户" })).toHaveValue("Mina (mina@example.com)");
+    expect(screen.getByRole("textbox", { name: "DofeAgent 用户" })).toHaveValue("Mina (mina@example.com)");
 
     await user.type(screen.getByRole("textbox", { name: "飞书 Open ID" }), "ou_mina");
     await user.click(screen.getByRole("button", { name: "保存用户绑定" }));
@@ -1630,8 +1636,8 @@ describe("SettingsPageClient", () => {
               providerResourceType: "doc",
               providerResourceReference: "doc / resource f8ccdd86",
               providerResourceTokenRedacted: true,
-              agentSpaceResourceType: "channel_document",
-              agentSpaceResourceId: "doc-1",
+              dofeAgentResourceType: "channel_document",
+              dofeAgentResourceId: "doc-1",
               channelName: "general",
               displayName: "Active Doc",
               canWrite: false,
@@ -1646,8 +1652,8 @@ describe("SettingsPageClient", () => {
               providerResourceType: "sheet",
               providerResourceReference: "sheet / resource 960ee2a5",
               providerResourceTokenRedacted: true,
-              agentSpaceResourceType: "data_table",
-              agentSpaceResourceId: "table-1",
+              dofeAgentResourceType: "data_table",
+              dofeAgentResourceId: "table-1",
               channelName: "general",
               displayName: "Paused Sheet",
               canWrite: true,
@@ -1662,8 +1668,8 @@ describe("SettingsPageClient", () => {
               providerResourceType: "base",
               providerResourceReference: "base / resource daf16a16",
               providerResourceTokenRedacted: true,
-              agentSpaceResourceType: "data_table",
-              agentSpaceResourceId: "table-2",
+              dofeAgentResourceType: "data_table",
+              dofeAgentResourceId: "table-2",
               channelName: "finance",
               displayName: "Archived Base",
               canWrite: false,
@@ -1741,8 +1747,8 @@ describe("SettingsPageClient", () => {
           providerResourceType: "sheet",
           providerResourceReference: "sheet / resource cab203c1",
           providerResourceTokenRedacted: true,
-          agentSpaceResourceType: "data_table",
-          agentSpaceResourceId: "table-1",
+          dofeAgentResourceType: "data_table",
+          dofeAgentResourceId: "table-1",
           displayName: "Launch Sheet",
           canWrite: true,
           guestReadable: false,
@@ -1889,15 +1895,15 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
       },
       {
         key: "data_plane",
-        required: "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_agentspace_sync + bound_governed_base_read + bound_approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
+        required: "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_dofe-agent_sync + bound_governed_base_read + bound_approved_base_mutation_with_dofe-agent_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
       },
       {
         key: "failure_visibility",
         required: "provider_failure_row + degraded_or_error_health + agent_bot_failure_with_safe_context",
       },
       {
-        key: "agentspace_local_evidence",
-        required: "fresh_24h_agentspace_local_evidence_rows",
+        key: "dofe-agent_local_evidence",
+        required: "fresh_24h_dofe-agent_local_evidence_rows",
       },
       {
         key: "openapi_artifact",
@@ -1909,26 +1915,26 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
       },
     ],
     commands: {
-      healthCheck: `agent-space integrations feishu health-check ${readinessFlags} --strict --json`,
-      bindSecondAgentBot: "agent-space integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
-      botReadiness: `agent-space integrations feishu ${readinessCommand} ${readinessFlags} --strict --require bot --json`,
-      dataPlaneReadiness: `agent-space integrations feishu ${readinessCommand} ${readinessFlags} --strict --require data-plane --json`,
-      workerReadiness: `agent-space integrations feishu ${readinessCommand} ${readinessFlags} --strict --require worker --json`,
+      healthCheck: `dofe-agent integrations feishu health-check ${readinessFlags} --strict --json`,
+      bindSecondAgentBot: "dofe-agent integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
+      botReadiness: `dofe-agent integrations feishu ${readinessCommand} ${readinessFlags} --strict --require bot --json`,
+      dataPlaneReadiness: `dofe-agent integrations feishu ${readinessCommand} ${readinessFlags} --strict --require data-plane --json`,
+      workerReadiness: `dofe-agent integrations feishu ${readinessCommand} ${readinessFlags} --strict --require worker --json`,
       ...(options.agentBot
         ? {
-          autoProvisionPolicy: "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --agent Codex --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
-          agentChannelAccessDisable: "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access disabled --json",
-          agentChannelAccessRestore: "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access enabled --json",
-          channelBindings: "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-1 --json",
+          autoProvisionPolicy: "dofe-agent integrations feishu auto-provision-policy --workspace-id workspace-1 --agent Codex --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
+          agentChannelAccessDisable: "dofe-agent integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access disabled --json",
+          agentChannelAccessRestore: "dofe-agent integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access enabled --json",
+          channelBindings: "dofe-agent integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-1 --json",
         }
         : {}),
-      smokeEnv: "agent-space integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test > scripts/feishu/.env",
+      smokeEnv: "dofe-agent integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test > scripts/feishu/.env",
       checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
       strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
       verifyOpenApiEvidence: "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
       verifyBotAddedPayload: "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
-      smokePlan: "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test",
-      evidence: "agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-1 --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
+      smokePlan: "dofe-agent integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test",
+      evidence: "dofe-agent integrations feishu evidence --workspace-id workspace-1 --integration feishu-1 --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
     },
   };
 }

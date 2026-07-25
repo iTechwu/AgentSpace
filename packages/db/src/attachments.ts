@@ -1,4 +1,4 @@
-import type { AgentSpaceState, MessageAttachment, WorkspaceMessage } from "@agent-space/domain/workspace";
+import type { DofeAgentState, MessageAttachment, WorkspaceMessage } from "@dofe-agent/domain/workspace";
 import { DEFAULT_WORKSPACE_ID, getDatabase, withTransaction } from "./database.ts";
 
 export interface StoredAttachmentRecord extends MessageAttachment {
@@ -14,7 +14,7 @@ export interface StoredAttachmentRecord extends MessageAttachment {
 }
 
 export function replaceStoredAttachmentsSync(
-  state: Pick<AgentSpaceState, "messages">,
+  state: Pick<DofeAgentState, "messages">,
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): void {
   const db = getDatabase();

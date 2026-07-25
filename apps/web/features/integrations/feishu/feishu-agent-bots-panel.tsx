@@ -690,17 +690,26 @@ export function FeishuAgentBotPolicyEditor({
 
         <fieldset className="feishu-agent-bot-policy-editor__checks">
           <legend>{tx("需绑定身份", "Identity Required")}</legend>
-          {FEISHU_AGENT_BOT_IDENTITY_REQUIREMENTS.map((value) => (
-            <label key={value}>
-              <input
-                checked={requireIdentityFor.includes(value)}
-                disabled={isPending || integration.status === "disabled"}
-                onChange={(event) => toggleIdentityRequirement(value, event.currentTarget.checked)}
-                type="checkbox"
-              />
-              <span>{translateIdentityRequirement(value, tx)}</span>
-            </label>
-          ))}
+          <div className="feishu-agent-bot-policy-editor__check-grid">
+            {FEISHU_AGENT_BOT_IDENTITY_REQUIREMENTS.map((value) => {
+              const isChecked = requireIdentityFor.includes(value);
+
+              return (
+                <label
+                  className={`feishu-agent-bot-policy-editor__check${isChecked ? " feishu-agent-bot-policy-editor__check--selected" : ""}`}
+                  key={value}
+                >
+                  <input
+                    checked={isChecked}
+                    disabled={isPending || integration.status === "disabled"}
+                    onChange={(event) => toggleIdentityRequirement(value, event.currentTarget.checked)}
+                    type="checkbox"
+                  />
+                  <span>{translateIdentityRequirement(value, tx)}</span>
+                </label>
+              );
+            })}
+          </div>
         </fieldset>
       </div>
 

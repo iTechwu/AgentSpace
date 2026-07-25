@@ -5,7 +5,7 @@ import type {
   KnowledgeProposalStatus,
   ResetKnowledgeProposalsResult,
 } from "./types.ts";
-import type { KnowledgeAssignmentMode } from "@agent-space/domain/workspace";
+import type { KnowledgeAssignmentMode } from "@dofe-agent/domain/workspace";
 
 export interface CreateKnowledgeProposalInput {
   workspaceId?: string;

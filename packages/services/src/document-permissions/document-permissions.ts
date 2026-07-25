@@ -16,15 +16,15 @@ import {
   type DocumentAgentAccessRecord,
   type DocumentPermissionRequestExternalProvider,
   type DocumentPermissionRequestRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   allowsDocumentAction,
   getAllowedDocumentActions,
   type AgentAssignableDocumentAccessRole,
   type DocumentAccessRole,
   type DocumentAction,
-} from "@agent-space/domain";
-import type { ChannelDocument } from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain";
+import type { ChannelDocument } from "@dofe-agent/domain/workspace";
 import { resolveChannelHumanMemberNames } from "../channels/channels.ts";
 import {
   createExternalGoogleDocChannelDocumentSync,

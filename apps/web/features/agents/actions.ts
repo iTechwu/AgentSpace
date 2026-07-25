@@ -7,8 +7,8 @@ import {
   revokeAgentGoogleWorkspaceDelegationSync,
   readAgentRuntimeSync,
   updateWorkspaceRuntimeDisplayNameSync,
-} from "@agent-space/db";
-import type { AgentForkOptions } from "@agent-space/services";
+} from "@dofe-agent/db";
+import type { AgentForkOptions } from "@dofe-agent/services";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { revalidateWorkspacePath, revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";
 import {
@@ -36,8 +36,8 @@ import {
   tryRecordWorkspaceAuditEventSync,
   unbindEmployeeRuntimeSync,
   updateEmployeeInstructionsSync,
-} from "@agent-space/services";
-import type { TaskRecord } from "@agent-space/domain/workspace";
+} from "@dofe-agent/services";
+import type { TaskRecord } from "@dofe-agent/domain/workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-invalidation";
 import {
@@ -670,7 +670,7 @@ function assertRequired(value: string | undefined, label: string): void {
 }
 
 function revalidateWorkspaceRoutes(workspaceSlug: string): void {
-  revalidateWorkspacePaths(workspaceSlug, ["/inbox", "/agents", "/im", "/market", "/skills", "/knowledge", "/task-board"]);
+  revalidateWorkspacePaths(workspaceSlug, ["/inbox", "/agents", "/im", "/market", "/skills", "/knowledge", "/task/board"]);
 }
 
 function revalidateAgentAccessRequestRoutes(workspaceSlug: string): void {

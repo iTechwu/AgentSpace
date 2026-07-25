@@ -13,9 +13,9 @@ import {
   recordChannelDocumentConflictSync,
   readWorkspaceStateSync,
   updateChannelDocumentSync,
-} from "@agent-space/services";
-import type { AgentDocumentContext } from "@agent-space/services";
-import type { ChannelDocument } from "@agent-space/domain/workspace";
+} from "@dofe-agent/services";
+import type { AgentDocumentContext } from "@dofe-agent/services";
+import type { ChannelDocument } from "@dofe-agent/domain/workspace";
 import {
   getRuntimeOutputChannelDocumentsPath,
   RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR,
@@ -139,7 +139,7 @@ export function buildChannelDocumentPromptLines(
       ? "editor 文档可在当前授权上下文读取和编辑，但不可跨频道转发、复制 external binding 或挂到其他频道。"
       : "",
     contexts.some((context) => context.role === "forwarder")
-      ? "forwarder 文档可读取、编辑并通过受控 output 命令转发/链接到目标频道；必须使用 agent-space output external-document link-google-sheet 或权限申请命令。"
+      ? "forwarder 文档可读取、编辑并通过受控 output 命令转发/链接到目标频道；必须使用 dofe-agent output external-document link-google-sheet 或权限申请命令。"
       : "",
     externalGoogleSheets.length > 0
       ? [
@@ -150,23 +150,23 @@ export function buildChannelDocumentPromptLines(
           `如需读取 Google Sheet，先单独运行 gws 读取命令，例如：gws sheets spreadsheets values get --format json --params '{"spreadsheetId":"spreadsheetId","range":"Sheet1!A1:Z20"}'。不要把 mkdir、gws、重定向和 cat 合并成一条 Bash 命令；你可以在同一轮读取 stdout 并基于真实单元格内容回答用户。`,
           `当前 Agent runtime 是非交互 headless 执行环境；不要要求 Web 用户批准 CLI/Bash/命令权限，也不要等待聊天里的“允许”。如果命令权限被 provider 拦截，请明确报告 runtime 配置问题。`,
           "如需写入 Google Sheet，只有 editor/forwarder 文档可直接运行对应 gws values append/update 或 spreadsheets batchUpdate 命令；viewer 文档不得写入。不要让 server 代执行 Google Sheet 写入。",
-          `gws stdout 必须保存到 ${RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR}/sheets/*.json，然后运行 agent-space output sheets-result add --document-id <文档ID> --operation read|append_rows|update_values|batch_update --range <A1> --result-json ${RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR}/sheets/result.json --summary <摘要>，生成 ${RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH} 并运行 agent-space output validate。`,
+          `gws stdout 必须保存到 ${RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR}/sheets/*.json，然后运行 dofe-agent output sheets-result add --document-id <文档ID> --operation read|append_rows|update_values|batch_update --range <A1> --result-json ${RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR}/sheets/result.json --summary <摘要>，生成 ${RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH} 并运行 dofe-agent output validate。`,
         ].join("\n")
       : "",
-    "如需新建 Google Sheet，必须先运行 gws drive files create 创建 application/vnd.google-apps.spreadsheet，并把 JSON stdout 保存到 runtime-output/artifacts/sheets/create-*.json；随后运行 agent-space output external-document create-google-sheet --target-channel <频道> --title <标题> --external-file-id <spreadsheetId> --external-url <webViewLink> --gws-result-json runtime-output/artifacts/sheets/create-*.json，再运行 agent-space output validate。不要只把 Google Sheet URL 写进最终回复。",
+    "如需新建 Google Sheet，必须先运行 gws drive files create 创建 application/vnd.google-apps.spreadsheet，并把 JSON stdout 保存到 runtime-output/artifacts/sheets/create-*.json；随后运行 dofe-agent output external-document create-google-sheet --target-channel <频道> --title <标题> --external-file-id <spreadsheetId> --external-url <webViewLink> --gws-result-json runtime-output/artifacts/sheets/create-*.json，再运行 dofe-agent output validate。不要只把 Google Sheet URL 写进最终回复。",
     externalGoogleDocs.length > 0
       ? [
-          `当前频道有 ${externalGoogleDocs.length} 份 Google Docs 外部群文档。请只通过 AgentSpace output CLI 表达写入意图；AgentSpace/daemon 会校验权限并使用官方 gws CLI 执行。`,
+          `当前频道有 ${externalGoogleDocs.length} 份 Google Docs 外部群文档。请只通过 DofeAgent output CLI 表达写入意图；DofeAgent/daemon 会校验权限并使用官方 gws CLI 执行。`,
           externalGoogleDocs
             .map((document) => `- Google Doc ${document.id} | ${document.title} | role ${roleByDocumentId.get(document.id) ?? "editor"} | ${document.externalUrl} | 状态 ${document.externalSyncStatus ?? "unknown"}`)
             .join("\n"),
-          `如需写入 Google Doc，只有 editor/forwarder 文档可运行 agent-space output google-docs append-text --document-id <文档ID> --intent <意图> --text-file ${RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR}/docs/summary.md，或 agent-space output google-docs batch-update --document-id <文档ID> --intent <意图> --requests-json ${RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR}/docs/requests.json；随后运行 agent-space output validate。不要直接运行 gws，不要请求或输出 token，不要指定 CLI binary。`,
+          `如需写入 Google Doc，只有 editor/forwarder 文档可运行 dofe-agent output google-docs append-text --document-id <文档ID> --intent <意图> --text-file ${RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR}/docs/summary.md，或 dofe-agent output google-docs batch-update --document-id <文档ID> --intent <意图> --requests-json ${RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR}/docs/requests.json；随后运行 dofe-agent output validate。不要直接运行 gws，不要请求或输出 token，不要指定 CLI binary。`,
           `${RUNTIME_OUTPUT_EXTERNAL_GOOGLE_DOCS_RELATIVE_PATH} 是 output CLI 与 daemon 之间的内部文件，不要手工编辑。`,
         ].join("\n")
       : "",
     channelDocumentsContextDir ? `如果需要读取或更新群文档，请查看目录：${channelDocumentsContextDir}` : "",
     `如果内容属于长期共享工作稿，优先遵循 ${BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME} skill，并更新群文档，而不是只发一次性附件。`,
-    `如需更新群文档，只有 editor/forwarder 文档可使用 agent-space output document upsert ...、agent-space output document replace-block ...、agent-space output document insert-after ... 或 agent-space output document delete-block ...，并运行 agent-space output validate；viewer 文档只能读取。${RUNTIME_OUTPUT_CHANNEL_DOCUMENTS_RELATIVE_PATH} 是 output CLI 与 daemon 之间的内部文件，不要手工编辑。`,
+    `如需更新群文档，只有 editor/forwarder 文档可使用 dofe-agent output document upsert ...、dofe-agent output document replace-block ...、dofe-agent output document insert-after ... 或 dofe-agent output document delete-block ...，并运行 dofe-agent output validate；viewer 文档只能读取。${RUNTIME_OUTPUT_CHANNEL_DOCUMENTS_RELATIVE_PATH} 是 output CLI 与 daemon 之间的内部文件，不要手工编辑。`,
   ].filter(Boolean);
 }
 

@@ -32,7 +32,7 @@ import {
   type ExternalResourceBindingRecord,
   type ExternalThreadBindingRecord,
   type ExternalUserBindingRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { readFileSync } from "node:fs";
 import {
   checkFeishuIntegrationHealth,
@@ -89,7 +89,7 @@ import {
   type FeishuApiRequest,
   type FeishuHealthCheckResult,
   type FeishuWebSocketWorkerMetrics,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { getNumberFlag, getStringFlag, parseArgs } from "../../lib/args.ts";
 import { writeData, type OutputFormat } from "../../lib/format.ts";
 
@@ -97,12 +97,12 @@ const FEISHU_SMOKE_EVIDENCE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const FEISHU_SMOKE_EVIDENCE_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 const FEISHU_CLI_PLACEHOLDERS = {
-  publicAppUrl: "CHANGE_ME_PUBLIC_AGENTSPACE_URL",
+  publicAppUrl: "CHANGE_ME_PUBLIC_DOFE_AGENT_URL",
   integrationId: "CHANGE_ME_FEISHU_INTEGRATION_ID",
-  agentSpaceChannel: "CHANGE_ME_AGENTSPACE_CHANNEL",
+  dofeAgentChannel: "CHANGE_ME_DOFE_AGENT_CHANNEL",
   agentName: "CHANGE_ME_AGENT_NAME",
   secondAgentName: "CHANGE_ME_SECOND_AGENT_NAME",
-  agentSpaceUserId: "CHANGE_ME_AGENTSPACE_USER_ID",
+  dofeAgentUserId: "CHANGE_ME_DOFE_AGENT_USER_ID",
   approvalId: "CHANGE_ME_FEISHU_APPROVAL_ID",
   feishuChatId: "CHANGE_ME_FEISHU_CHAT_ID",
   feishuOpenId: "CHANGE_ME_FEISHU_OPEN_ID",
@@ -220,7 +220,7 @@ export type FeishuSmokePlanEvidenceGateKey =
   | "worker_card_action"
   | "data_plane"
   | "failure_visibility"
-  | "agentspace_local_evidence"
+  | "dofe-agent_local_evidence"
   | "openapi_artifact"
   | "bot_added_payload_artifact";
 
@@ -448,8 +448,8 @@ export interface FeishuBindingCliResult {
   channelName?: string;
   userId?: string;
   providerResourceType?: string;
-  agentSpaceResourceType?: string;
-  agentSpaceResourceId?: string;
+  dofeAgentResourceType?: string;
+  dofeAgentResourceId?: string;
 }
 
 export interface FeishuChannelBindingsCliReport {
@@ -976,21 +976,21 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
 
   const workspaceId = getStringFlag(parsed.flags, "workspace-id")
     ?? getStringFlag(parsed.flags, "workspace")
-    ?? process.env.AGENT_SPACE_WORKSPACE_ID?.trim()
+    ?? process.env.DOFE_AGENT_WORKSPACE_ID?.trim()
     ?? "default";
   const integrationId = getStringFlag(parsed.flags, "integration")
     ?? getStringFlag(parsed.flags, "integration-id")
-    ?? process.env.AGENT_SPACE_FEISHU_INTEGRATION_ID?.trim();
+    ?? process.env.DOFE_AGENT_FEISHU_INTEGRATION_ID?.trim();
   const limit = getNumberFlag(parsed.flags, "limit", 50);
   const lockedBy = getStringFlag(parsed.flags, "locked-by")
-    ?? process.env.AGENT_SPACE_FEISHU_WORKER_ID?.trim()
-    ?? "agent-space-feishu-worker";
+    ?? process.env.DOFE_AGENT_FEISHU_WORKER_ID?.trim()
+    ?? "dofe-agent-feishu-worker";
   const baseUrl = getStringFlag(parsed.flags, "base-url")
-    ?? process.env.AGENT_SPACE_FEISHU_API_BASE_URL?.trim();
+    ?? process.env.DOFE_AGENT_FEISHU_API_BASE_URL?.trim();
   const appUrl = getStringFlag(parsed.flags, "app-url")
     ?? readFeishuCliPublicAppUrl();
   const domain = getStringFlag(parsed.flags, "domain")
-    ?? process.env.AGENT_SPACE_FEISHU_WS_DOMAIN?.trim();
+    ?? process.env.DOFE_AGENT_FEISHU_WS_DOMAIN?.trim();
   const dryRun = hasBooleanFlag(parsed.flags, "dry-run");
   const includeWebhookIntegrations = hasBooleanFlag(parsed.flags, "include-webhook");
   const drainOutboxOnly = hasBooleanFlag(parsed.flags, "drain-outbox") || hasBooleanFlag(parsed.flags, "once");
@@ -1109,7 +1109,7 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
           flags: parsed.flags,
           flagKeys: ["app-secret", "app_secret"],
           envFlagKeys: ["app-secret-env", "app_secret_env"],
-          defaultEnvNames: ["FEISHU_APP_SECRET", "AGENT_SPACE_FEISHU_APP_SECRET"],
+          defaultEnvNames: ["FEISHU_APP_SECRET", "DOFE_AGENT_FEISHU_APP_SECRET"],
           missingCode: "feishu.agent_bot_binding.missing_app_secret",
           env,
         })),
@@ -1117,14 +1117,14 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
           flags: parsed.flags,
           flagKeys: ["verification-token", "verification_token"],
           envFlagKeys: ["verification-token-env", "verification_token_env"],
-          defaultEnvNames: ["FEISHU_VERIFICATION_TOKEN", "AGENT_SPACE_FEISHU_VERIFICATION_TOKEN"],
+          defaultEnvNames: ["FEISHU_VERIFICATION_TOKEN", "DOFE_AGENT_FEISHU_VERIFICATION_TOKEN"],
           env,
         })),
         encryptKey: validateOptionalFeishuAgentBotValue("encrypt_key", readStringFlagOrEnv({
           flags: parsed.flags,
           flagKeys: ["encrypt-key", "encrypt_key"],
           envFlagKeys: ["encrypt-key-env", "encrypt_key_env"],
-          defaultEnvNames: ["FEISHU_ENCRYPT_KEY", "AGENT_SPACE_FEISHU_ENCRYPT_KEY"],
+          defaultEnvNames: ["FEISHU_ENCRYPT_KEY", "DOFE_AGENT_FEISHU_ENCRYPT_KEY"],
           env,
         })),
         tenantKey: validateOptionalFeishuAgentBotValue("tenant_key", readStringFlagOrEnv({
@@ -1369,14 +1369,14 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
         integrationId: requireCliIntegrationId(integrationId),
         providerResourceType: requireStringFlag(parsed.flags, "type"),
         resourceUrlOrToken: requireStringFlag(parsed.flags, "resource"),
-        agentSpaceResourceType: requireStringFlag(parsed.flags, "agent-space-type"),
-        agentSpaceResourceId: getStringFlag(parsed.flags, "agent-space-id") ?? "",
+        dofeAgentResourceType: requireStringFlag(parsed.flags, "dofe-agent-type"),
+        dofeAgentResourceId: getStringFlag(parsed.flags, "dofe-agent-id") ?? "",
         channelName: getStringFlag(parsed.flags, "channel"),
         displayName: getStringFlag(parsed.flags, "display-name"),
         allowWrite: hasBooleanFlag(parsed.flags, "allow-write"),
         guestReadable: hasBooleanFlag(parsed.flags, "guest-readable"),
         createdByUserId,
-        createdBy: getStringFlag(parsed.flags, "created-by-name") ?? "AgentSpace CLI",
+        createdBy: getStringFlag(parsed.flags, "created-by-name") ?? "DofeAgent CLI",
       });
       writeData(format, report);
       return 0;
@@ -1551,20 +1551,20 @@ export function createFeishuIntegrationForCli(
     secretRedacted: true,
     auditRecorded,
     nextCommands: {
-      healthCheck: `agent-space integrations feishu health-check ${flags} --strict --json`,
-      smokePlan: `agent-space integrations feishu smoke-plan ${flags}${appUrlFlag}`,
+      healthCheck: `dofe-agent integrations feishu health-check ${flags} --strict --json`,
+      smokePlan: `dofe-agent integrations feishu smoke-plan ${flags}${appUrlFlag}`,
       smokeEnv: smokeHarness.prepareEnvCommand,
       checkEnv: smokeHarness.checkEnvCommand,
       strictLiveSmoke: smokeHarness.strictLiveCommand,
       verifyOpenApiEvidence: smokeHarness.verifyEvidenceCommand,
       verifyBotAddedPayload: smokeHarness.verifyBotAddedPayloadCommand,
-      finalEvidence: `agent-space integrations feishu evidence ${flags} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all`,
-      bindSecondAgentBot: `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
-      bindChannel: `agent-space integrations feishu bind-channel ${flags} --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --chat-id ${FEISHU_CLI_PLACEHOLDERS.feishuChatId} --json`,
-      bindUser: `agent-space integrations feishu bind-user ${flags} --user-id ${FEISHU_CLI_PLACEHOLDERS.agentSpaceUserId} --open-id ${FEISHU_CLI_PLACEHOLDERS.feishuOpenId} --json`,
-      bindResourceDoc: `agent-space integrations feishu bind-resource ${flags} --type doc --resource ${FEISHU_CLI_PLACEHOLDERS.docResource} --agent-space-type channel_document --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --allow-write --json`,
-      bindResourceSheet: `agent-space integrations feishu bind-resource ${flags} --type sheet --resource ${FEISHU_CLI_PLACEHOLDERS.sheetResource} --agent-space-type data_table --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --allow-write --json`,
-      bindResourceBase: `agent-space integrations feishu bind-resource ${flags} --type base_table --resource ${FEISHU_CLI_PLACEHOLDERS.baseResource} --agent-space-type data_table --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --allow-write --json`,
+      finalEvidence: `dofe-agent integrations feishu evidence ${flags} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all`,
+      bindSecondAgentBot: `dofe-agent integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
+      bindChannel: `dofe-agent integrations feishu bind-channel ${flags} --channel ${FEISHU_CLI_PLACEHOLDERS.dofeAgentChannel} --chat-id ${FEISHU_CLI_PLACEHOLDERS.feishuChatId} --json`,
+      bindUser: `dofe-agent integrations feishu bind-user ${flags} --user-id ${FEISHU_CLI_PLACEHOLDERS.dofeAgentUserId} --open-id ${FEISHU_CLI_PLACEHOLDERS.feishuOpenId} --json`,
+      bindResourceDoc: `dofe-agent integrations feishu bind-resource ${flags} --type doc --resource ${FEISHU_CLI_PLACEHOLDERS.docResource} --dofe-agent-type channel_document --channel ${FEISHU_CLI_PLACEHOLDERS.dofeAgentChannel} --allow-write --json`,
+      bindResourceSheet: `dofe-agent integrations feishu bind-resource ${flags} --type sheet --resource ${FEISHU_CLI_PLACEHOLDERS.sheetResource} --dofe-agent-type data_table --channel ${FEISHU_CLI_PLACEHOLDERS.dofeAgentChannel} --allow-write --json`,
+      bindResourceBase: `dofe-agent integrations feishu bind-resource ${flags} --type base_table --resource ${FEISHU_CLI_PLACEHOLDERS.baseResource} --dofe-agent-type data_table --channel ${FEISHU_CLI_PLACEHOLDERS.dofeAgentChannel} --allow-write --json`,
     },
   };
 }
@@ -1733,9 +1733,9 @@ function buildFeishuAgentChannelAccessNextCommands(input: {
 }): FeishuAgentChannelAccessCliResult["nextCommands"] {
   const targetFlags = `--agent ${input.agentId}`;
   return {
-    disableForSmoke: `agent-space integrations feishu agent-channel-access --workspace-id ${input.workspaceId} ${targetFlags} --access disabled --json`,
-    restoreAfterSmoke: `agent-space integrations feishu agent-channel-access --workspace-id ${input.workspaceId} ${targetFlags} --access enabled --json`,
-    smokePlan: `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId} ${input.integrationId ? `--integration ${input.integrationId}` : ""}`.trim(),
+    disableForSmoke: `dofe-agent integrations feishu agent-channel-access --workspace-id ${input.workspaceId} ${targetFlags} --access disabled --json`,
+    restoreAfterSmoke: `dofe-agent integrations feishu agent-channel-access --workspace-id ${input.workspaceId} ${targetFlags} --access enabled --json`,
+    smokePlan: `dofe-agent integrations feishu smoke-plan --workspace-id ${input.workspaceId} ${input.integrationId ? `--integration ${input.integrationId}` : ""}`.trim(),
   };
 }
 
@@ -1771,22 +1771,22 @@ function buildFeishuAgentBotNextCommands(binding: FeishuAgentBotBinding): Feishu
     integrationId: binding.id,
   });
   return {
-    healthCheck: `agent-space integrations feishu health-check ${agentFlags} --strict --json`,
-    botReadiness: `agent-space integrations feishu agent-bot-readiness ${agentFlags} --strict --require bot --json`,
-    dataPlaneReadiness: `agent-space integrations feishu agent-bot-readiness ${agentFlags} --strict --require data-plane --json`,
-    workerReadiness: `agent-space integrations feishu agent-bot-readiness ${agentFlags} --strict --require worker --json`,
-    autoProvisionPolicy: `agent-space integrations feishu auto-provision-policy ${agentFlags} --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json`,
-    agentChannelAccessDisable: `agent-space integrations feishu agent-channel-access ${agentFlags} --access disabled --json`,
-    agentChannelAccessRestore: `agent-space integrations feishu agent-channel-access ${agentFlags} --access enabled --json`,
-    channelBindings: `agent-space integrations feishu channel-bindings ${integrationFlags} --json`,
+    healthCheck: `dofe-agent integrations feishu health-check ${agentFlags} --strict --json`,
+    botReadiness: `dofe-agent integrations feishu agent-bot-readiness ${agentFlags} --strict --require bot --json`,
+    dataPlaneReadiness: `dofe-agent integrations feishu agent-bot-readiness ${agentFlags} --strict --require data-plane --json`,
+    workerReadiness: `dofe-agent integrations feishu agent-bot-readiness ${agentFlags} --strict --require worker --json`,
+    autoProvisionPolicy: `dofe-agent integrations feishu auto-provision-policy ${agentFlags} --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json`,
+    agentChannelAccessDisable: `dofe-agent integrations feishu agent-channel-access ${agentFlags} --access disabled --json`,
+    agentChannelAccessRestore: `dofe-agent integrations feishu agent-channel-access ${agentFlags} --access enabled --json`,
+    channelBindings: `dofe-agent integrations feishu channel-bindings ${integrationFlags} --json`,
     smokeEnv: smokeHarness.prepareEnvCommand,
     checkEnv: smokeHarness.checkEnvCommand,
     strictLiveSmoke: smokeHarness.strictLiveCommand,
     verifyOpenApiEvidence: smokeHarness.verifyEvidenceCommand,
     verifyBotAddedPayload: smokeHarness.verifyBotAddedPayloadCommand,
-    smokePlan: `agent-space integrations feishu smoke-plan ${integrationFlags} --app-url ${FEISHU_CLI_PLACEHOLDERS.publicAppUrl}`,
-    finalEvidence: `agent-space integrations feishu evidence ${integrationFlags} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all`,
-    bindSecondAgentBot: `agent-space integrations feishu bind-agent-bot --workspace-id ${binding.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
+    smokePlan: `dofe-agent integrations feishu smoke-plan ${integrationFlags} --app-url ${FEISHU_CLI_PLACEHOLDERS.publicAppUrl}`,
+    finalEvidence: `dofe-agent integrations feishu evidence ${integrationFlags} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all`,
+    bindSecondAgentBot: `dofe-agent integrations feishu bind-agent-bot --workspace-id ${binding.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
   };
 }
 
@@ -1801,7 +1801,7 @@ export function buildFeishuCreateCliInputFromFlags(input: {
     flags: input.flags,
     flagKeys: ["app-id", "app_id"],
     envFlagKeys: ["app-id-env", "app_id_env"],
-    defaultEnvNames: ["FEISHU_APP_ID", "AGENT_SPACE_FEISHU_APP_ID"],
+    defaultEnvNames: ["FEISHU_APP_ID", "DOFE_AGENT_FEISHU_APP_ID"],
     missingCode: "feishu.create.missing_app_id",
     env: input.env,
   }));
@@ -1809,7 +1809,7 @@ export function buildFeishuCreateCliInputFromFlags(input: {
     flags: input.flags,
     flagKeys: ["app-secret", "app_secret"],
     envFlagKeys: ["app-secret-env", "app_secret_env"],
-    defaultEnvNames: ["FEISHU_APP_SECRET", "AGENT_SPACE_FEISHU_APP_SECRET"],
+    defaultEnvNames: ["FEISHU_APP_SECRET", "DOFE_AGENT_FEISHU_APP_SECRET"],
     missingCode: "feishu.create.missing_app_secret",
     env: input.env,
   }));
@@ -1817,7 +1817,7 @@ export function buildFeishuCreateCliInputFromFlags(input: {
     flags: input.flags,
     flagKeys: ["verification-token", "verification_token"],
     envFlagKeys: ["verification-token-env", "verification_token_env"],
-    defaultEnvNames: ["FEISHU_VERIFICATION_TOKEN", "AGENT_SPACE_FEISHU_VERIFICATION_TOKEN"],
+    defaultEnvNames: ["FEISHU_VERIFICATION_TOKEN", "DOFE_AGENT_FEISHU_VERIFICATION_TOKEN"],
     missingCode: "feishu.create.missing_verification_token",
     env: input.env,
   }));
@@ -1825,14 +1825,14 @@ export function buildFeishuCreateCliInputFromFlags(input: {
     flags: input.flags,
     flagKeys: ["encrypt-key", "encrypt_key"],
     envFlagKeys: ["encrypt-key-env", "encrypt_key_env"],
-    defaultEnvNames: ["FEISHU_ENCRYPT_KEY", "AGENT_SPACE_FEISHU_ENCRYPT_KEY"],
+    defaultEnvNames: ["FEISHU_ENCRYPT_KEY", "DOFE_AGENT_FEISHU_ENCRYPT_KEY"],
     env: input.env,
   }));
   const tenantKey = validateOptionalFeishuCreateValue("tenant_key", readStringFlagOrEnv({
     flags: input.flags,
     flagKeys: ["tenant-key", "tenant_key"],
     envFlagKeys: ["tenant-key-env", "tenant_key_env"],
-    defaultEnvNames: ["FEISHU_TENANT_KEY", "AGENT_SPACE_FEISHU_TENANT_KEY"],
+    defaultEnvNames: ["FEISHU_TENANT_KEY", "DOFE_AGENT_FEISHU_TENANT_KEY"],
     env: input.env,
   }));
   return {
@@ -1864,7 +1864,7 @@ export function buildFeishuAgentBotCliInputFromFlags(input: {
     flags: input.flags,
     flagKeys: ["app-id", "app_id"],
     envFlagKeys: ["app-id-env", "app_id_env"],
-    defaultEnvNames: ["FEISHU_APP_ID", "AGENT_SPACE_FEISHU_APP_ID"],
+    defaultEnvNames: ["FEISHU_APP_ID", "DOFE_AGENT_FEISHU_APP_ID"],
     missingCode: "feishu.agent_bot_binding.missing_app_id",
     env: input.env,
   }));
@@ -1872,7 +1872,7 @@ export function buildFeishuAgentBotCliInputFromFlags(input: {
     flags: input.flags,
     flagKeys: ["app-secret", "app_secret"],
     envFlagKeys: ["app-secret-env", "app_secret_env"],
-    defaultEnvNames: ["FEISHU_APP_SECRET", "AGENT_SPACE_FEISHU_APP_SECRET"],
+    defaultEnvNames: ["FEISHU_APP_SECRET", "DOFE_AGENT_FEISHU_APP_SECRET"],
     missingCode: "feishu.agent_bot_binding.missing_app_secret",
     env: input.env,
   }));
@@ -1880,21 +1880,21 @@ export function buildFeishuAgentBotCliInputFromFlags(input: {
     flags: input.flags,
     flagKeys: ["verification-token", "verification_token"],
     envFlagKeys: ["verification-token-env", "verification_token_env"],
-    defaultEnvNames: ["FEISHU_VERIFICATION_TOKEN", "AGENT_SPACE_FEISHU_VERIFICATION_TOKEN"],
+    defaultEnvNames: ["FEISHU_VERIFICATION_TOKEN", "DOFE_AGENT_FEISHU_VERIFICATION_TOKEN"],
     env: input.env,
   }));
   const encryptKey = validateOptionalFeishuAgentBotValue("encrypt_key", readStringFlagOrEnv({
     flags: input.flags,
     flagKeys: ["encrypt-key", "encrypt_key"],
     envFlagKeys: ["encrypt-key-env", "encrypt_key_env"],
-    defaultEnvNames: ["FEISHU_ENCRYPT_KEY", "AGENT_SPACE_FEISHU_ENCRYPT_KEY"],
+    defaultEnvNames: ["FEISHU_ENCRYPT_KEY", "DOFE_AGENT_FEISHU_ENCRYPT_KEY"],
     env: input.env,
   }));
   const tenantKey = validateOptionalFeishuAgentBotValue("tenant_key", readStringFlagOrEnv({
     flags: input.flags,
     flagKeys: ["tenant-key", "tenant_key"],
     envFlagKeys: ["tenant-key-env", "tenant_key_env"],
-    defaultEnvNames: ["FEISHU_TENANT_KEY", "AGENT_SPACE_FEISHU_TENANT_KEY"],
+    defaultEnvNames: ["FEISHU_TENANT_KEY", "DOFE_AGENT_FEISHU_TENANT_KEY"],
     env: input.env,
   }));
   return {
@@ -2138,7 +2138,7 @@ export function createFeishuChannelBindingForCli(
   const auditRecorded = auditRecorder({
     workspaceId: input.workspaceId,
     title: "Feishu channel binding saved from CLI",
-    note: `Feishu CLI mapped AgentSpace channel "${channelName}" to a Feishu chat.`,
+    note: `Feishu CLI mapped DofeAgent channel "${channelName}" to a Feishu chat.`,
     code: "workspace.external_channel_binding_upserted",
     data: {
       actorType: "cli",
@@ -2334,7 +2334,7 @@ export function createFeishuUserBindingForCli(
   const auditRecorded = auditRecorder({
     workspaceId: input.workspaceId,
     title: "Feishu user binding saved from CLI",
-    note: `Feishu CLI mapped AgentSpace user "${userId}" to a Feishu user.`,
+    note: `Feishu CLI mapped DofeAgent user "${userId}" to a Feishu user.`,
     code: "workspace.external_user_binding_upserted",
     data: {
       actorType: "cli",
@@ -2366,8 +2366,8 @@ export function createFeishuResourceBindingForCli(
     integrationId: string;
     providerResourceType: string;
     resourceUrlOrToken: string;
-    agentSpaceResourceType: string;
-    agentSpaceResourceId?: string;
+    dofeAgentResourceType: string;
+    dofeAgentResourceId?: string;
     channelName?: string;
     displayName?: string;
     allowWrite?: boolean;
@@ -2427,15 +2427,15 @@ export function createFeishuResourceBindingForCli(
     throw new Error("feishu.bind_resource.scope_missing");
   }
 
-  const agentSpaceResourceType = requireNonEmpty(
-    input.agentSpaceResourceType,
-    "feishu.bind_resource.missing_agent_space_type",
+  const dofeAgentResourceType = requireNonEmpty(
+    input.dofeAgentResourceType,
+    "feishu.bind_resource.missing_dofe_agent_type",
   );
-  if (isFeishuCliPlaceholderValue(agentSpaceResourceType)) {
+  if (isFeishuCliPlaceholderValue(dofeAgentResourceType)) {
     throw new Error("feishu.bind_resource.placeholder_value");
   }
-  let agentSpaceResourceId = validateOptionalFeishuBindingValue(
-    input.agentSpaceResourceId,
+  let dofeAgentResourceId = validateOptionalFeishuBindingValue(
+    input.dofeAgentResourceId,
     "feishu.bind_resource.placeholder_value",
   ) ?? "";
   let channelName = validateOptionalFeishuBindingValue(
@@ -2444,11 +2444,11 @@ export function createFeishuResourceBindingForCli(
   );
   const displayName = normalizeOptionalText(input.displayName);
   if (
-    !agentSpaceResourceId &&
-    agentSpaceResourceType !== "channel_document" &&
-    agentSpaceResourceType !== "data_table"
+    !dofeAgentResourceId &&
+    dofeAgentResourceType !== "channel_document" &&
+    dofeAgentResourceType !== "data_table"
   ) {
-    throw new Error("feishu.bind_resource.missing_agent_space_id");
+    throw new Error("feishu.bind_resource.missing_dofe_agent_id");
   }
   if (channelName && !readChannel(channelName, input.workspaceId)) {
     throw new Error("feishu.bind_resource.channel_not_found");
@@ -2461,54 +2461,54 @@ export function createFeishuResourceBindingForCli(
   });
   if (existingResourceBinding && existingResourceBinding.status !== "archived") {
     if (
-      existingResourceBinding.agentSpaceResourceType !== agentSpaceResourceType ||
-      (agentSpaceResourceId && existingResourceBinding.agentSpaceResourceId !== agentSpaceResourceId) ||
+      existingResourceBinding.dofeAgentResourceType !== dofeAgentResourceType ||
+      (dofeAgentResourceId && existingResourceBinding.dofeAgentResourceId !== dofeAgentResourceId) ||
       (channelName && (existingResourceBinding.channelName ?? "") !== channelName)
     ) {
       throw new Error("feishu.bind_resource.external_resource_taken");
     }
-    agentSpaceResourceId = existingResourceBinding.agentSpaceResourceId;
+    dofeAgentResourceId = existingResourceBinding.dofeAgentResourceId;
     channelName = channelName ?? existingResourceBinding.channelName;
   }
 
   let metadataJson: Record<string, unknown> = descriptor.metadata ?? {};
-  if (agentSpaceResourceType === "channel_document") {
+  if (dofeAgentResourceType === "channel_document") {
     const syncedDocument = syncChannelDocument({
       channelName,
-      agentSpaceResourceId,
+      dofeAgentResourceId,
       providerResourceType: descriptor.providerResourceType,
       providerResourceToken: descriptor.providerResourceToken,
       providerResourceUrl: descriptor.providerResourceUrl,
       title: displayName,
-      createdBy: normalizeOptionalText(input.createdBy) ?? "AgentSpace CLI",
+      createdBy: normalizeOptionalText(input.createdBy) ?? "DofeAgent CLI",
       createdByType: "human",
     }, input.workspaceId);
-    agentSpaceResourceId = syncedDocument.document.id;
+    dofeAgentResourceId = syncedDocument.document.id;
     channelName = syncedDocument.document.channelName;
     metadataJson = {
       ...metadataJson,
-      agentSpaceSync: {
+      dofeAgentSync: {
         channelDocumentId: syncedDocument.document.id,
         channelName: syncedDocument.document.channelName,
         created: syncedDocument.created,
       },
     };
-  } else if (agentSpaceResourceType === "data_table") {
+  } else if (dofeAgentResourceType === "data_table") {
     const syncedTable = syncDataTable({
       channelName,
-      agentSpaceResourceId,
+      dofeAgentResourceId,
       providerResourceType: descriptor.providerResourceType,
       providerResourceToken: descriptor.providerResourceToken,
       providerResourceUrl: descriptor.providerResourceUrl,
       title: displayName,
       metadata: descriptor.metadata ?? {},
-      createdBy: normalizeOptionalText(input.createdBy) ?? "AgentSpace CLI",
+      createdBy: normalizeOptionalText(input.createdBy) ?? "DofeAgent CLI",
     }, input.workspaceId);
-    agentSpaceResourceId = syncedTable.table.id;
+    dofeAgentResourceId = syncedTable.table.id;
     channelName = syncedTable.table.channelName ?? channelName;
     metadataJson = {
       ...metadataJson,
-      agentSpaceSync: {
+      dofeAgentSync: {
         dataTableId: syncedTable.table.id,
         channelName: syncedTable.table.channelName,
         created: syncedTable.created,
@@ -2522,8 +2522,8 @@ export function createFeishuResourceBindingForCli(
     providerResourceType: descriptor.providerResourceType,
     providerResourceToken: descriptor.providerResourceToken,
     providerResourceUrl: descriptor.providerResourceUrl,
-    agentSpaceResourceType,
-    agentSpaceResourceId,
+    dofeAgentResourceType,
+    dofeAgentResourceId,
     channelName,
     displayName,
     status: "active",
@@ -2537,7 +2537,7 @@ export function createFeishuResourceBindingForCli(
   const auditRecorded = auditRecorder({
     workspaceId: input.workspaceId,
     title: "Feishu resource binding saved from CLI",
-    note: `Feishu CLI mapped a Feishu ${descriptor.providerResourceType} resource to AgentSpace.`,
+    note: `Feishu CLI mapped a Feishu ${descriptor.providerResourceType} resource to DofeAgent.`,
     code: "workspace.external_resource_binding_upserted",
     data: {
       actorType: "cli",
@@ -2546,8 +2546,8 @@ export function createFeishuResourceBindingForCli(
       provider: FEISHU_PROVIDER_ID,
       integrationId: integration.id,
       providerResourceType: binding.providerResourceType,
-      agentSpaceResourceType: binding.agentSpaceResourceType,
-      agentSpaceResourceId: binding.agentSpaceResourceId,
+      dofeAgentResourceType: binding.dofeAgentResourceType,
+      dofeAgentResourceId: binding.dofeAgentResourceId,
       channelName: binding.channelName,
       writeAllowed: input.allowWrite === true,
       guestReadable: input.guestReadable === true,
@@ -2566,8 +2566,8 @@ export function createFeishuResourceBindingForCli(
     auditRecorded,
     channelName: binding.channelName,
     providerResourceType: binding.providerResourceType,
-    agentSpaceResourceType: binding.agentSpaceResourceType,
-    agentSpaceResourceId: binding.agentSpaceResourceId,
+    dofeAgentResourceType: binding.dofeAgentResourceType,
+    dofeAgentResourceId: binding.dofeAgentResourceId,
   };
 }
 
@@ -3615,21 +3615,21 @@ function normalizeFeishuCreateCliError(error: unknown): Error {
 function buildFeishuCliCreateErrorReport(error: unknown): FeishuCliErrorReport | undefined {
   const message = error instanceof Error ? error.message : String(error);
   switch (message) {
-    case "AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.":
+    case "DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.":
     case "feishu.create.credential_encryption_key_missing":
       return {
         ok: false,
         errorCode: "feishu.create.credential_encryption_key_missing",
-        errorMessage: "AgentSpace credential encryption key is missing.",
-        nextStep: "export AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32)",
+        errorMessage: "DofeAgent credential encryption key is missing.",
+        nextStep: "export DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32)",
       };
-    case "AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.":
+    case "DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.":
     case "feishu.create.credential_encryption_key_invalid":
       return {
         ok: false,
         errorCode: "feishu.create.credential_encryption_key_invalid",
-        errorMessage: "AgentSpace credential encryption key must be a base64-encoded 32-byte key.",
-        nextStep: "export AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32)",
+        errorMessage: "DofeAgent credential encryption key must be a base64-encoded 32-byte key.",
+        nextStep: "export DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32)",
       };
     case "External integration app and tenant are already connected.":
     case "feishu.create.duplicate_app_tenant":
@@ -3713,40 +3713,40 @@ function buildFeishuCliCreateErrorReport(error: unknown): FeishuCliErrorReport |
 export function buildFeishuCliAgentBotErrorReport(error: unknown): FeishuCliErrorReport | undefined {
   const message = error instanceof Error ? error.message : String(error);
   switch (message) {
-    case "AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.":
+    case "DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.":
     case "feishu.agent_bot_binding.credential_encryption_key_missing":
       return {
         ok: false,
         errorCode: "feishu.agent_bot_binding.credential_encryption_key_missing",
-        errorMessage: "AgentSpace credential encryption key is missing.",
-        nextStep: "export AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32)",
+        errorMessage: "DofeAgent credential encryption key is missing.",
+        nextStep: "export DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32)",
       };
-    case "AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.":
+    case "DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.":
     case "feishu.agent_bot_binding.credential_encryption_key_invalid":
       return {
         ok: false,
         errorCode: "feishu.agent_bot_binding.credential_encryption_key_invalid",
-        errorMessage: "AgentSpace credential encryption key must be a base64-encoded 32-byte key.",
-        nextStep: "export AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32)",
+        errorMessage: "DofeAgent credential encryption key must be a base64-encoded 32-byte key.",
+        nextStep: "export DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32)",
       };
     case "feishu.agent_bot_binding.duplicate_app_tenant":
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "This Feishu App ID and Tenant Key are already connected to an AgentSpace bot binding.",
+        errorMessage: "This Feishu App ID and Tenant Key are already connected to an DofeAgent bot binding.",
       };
     case "feishu.agent_bot_binding.duplicate_agent":
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "This AgentSpace agent already has an active Feishu bot binding.",
+        errorMessage: "This DofeAgent agent already has an active Feishu bot binding.",
         nextStep: "Disable or rotate the existing agent bot binding instead of creating a second active binding.",
       };
     case "feishu.agent_bot_binding.missing_agent_id":
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "AgentSpace agent id or name is required.",
+        errorMessage: "DofeAgent agent id or name is required.",
         nextStep: "Set --agent <agent-id-or-name>.",
       };
     case "feishu.agent_bot_binding.missing_app_id":
@@ -3829,7 +3829,7 @@ export function buildFeishuCliAgentBotErrorReport(error: unknown): FeishuCliErro
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "AgentSpace agent was not found after updating channel-member access.",
+        errorMessage: "DofeAgent agent was not found after updating channel-member access.",
         nextStep: "Check --workspace-id and --agent.",
       };
   }
@@ -3895,14 +3895,14 @@ export function buildFeishuCliBindingErrorReport(error: unknown): FeishuCliError
         ok: false,
         errorCode: message,
         errorMessage: "Feishu integration id is required.",
-        nextStep: "Pass --integration <id> or set AGENT_SPACE_FEISHU_INTEGRATION_ID.",
+        nextStep: "Pass --integration <id> or set DOFE_AGENT_FEISHU_INTEGRATION_ID.",
       };
     case "feishu.integration.not_found":
       return {
         ok: false,
         errorCode: message,
         errorMessage: "Feishu integration was not found in this workspace.",
-        nextStep: "Run agent-space integrations feishu create or check --workspace-id / --integration.",
+        nextStep: "Run dofe-agent integrations feishu create or check --workspace-id / --integration.",
       };
     case "feishu.integration.not_active":
       return {
@@ -3930,13 +3930,13 @@ export function buildFeishuCliBindingErrorReport(error: unknown): FeishuCliError
         ok: false,
         errorCode: message,
         errorMessage: "Feishu channel binding input contains a placeholder value.",
-        nextStep: "Replace the generated CHANGE_ME_* placeholders with a real AgentSpace channel and Feishu chat id.",
+        nextStep: "Replace the generated CHANGE_ME_* placeholders with a real DofeAgent channel and Feishu chat id.",
       };
     case "feishu.bind_channel.missing_channel":
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "AgentSpace channel name is required.",
+        errorMessage: "DofeAgent channel name is required.",
         nextStep: "Pass --channel <channel-name>.",
       };
     case "feishu.bind_channel.missing_chat_id":
@@ -3950,22 +3950,22 @@ export function buildFeishuCliBindingErrorReport(error: unknown): FeishuCliError
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "AgentSpace channel was not found.",
-        nextStep: "Create the AgentSpace channel first or pass a different --channel value.",
+        errorMessage: "DofeAgent channel was not found.",
+        nextStep: "Create the DofeAgent channel first or pass a different --channel value.",
       };
     case "feishu.bind_channel.external_chat_taken":
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "This Feishu chat is already mapped to another AgentSpace channel.",
+        errorMessage: "This Feishu chat is already mapped to another DofeAgent channel.",
         nextStep: "Have a workspace admin review or revoke the existing Feishu channel binding before retrying.",
       };
     case "feishu.bind_user.missing_user_id":
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "AgentSpace user id is required.",
-        nextStep: "Pass --user-id <agent-space-user-id>.",
+        errorMessage: "DofeAgent user id is required.",
+        nextStep: "Pass --user-id <dofe-agent-user-id>.",
       };
     case "feishu.bind_user.missing_open_id":
       return {
@@ -3978,14 +3978,14 @@ export function buildFeishuCliBindingErrorReport(error: unknown): FeishuCliError
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "AgentSpace workspace user was not found.",
-        nextStep: "Invite the user to the AgentSpace workspace before binding their Feishu identity.",
+        errorMessage: "DofeAgent workspace user was not found.",
+        nextStep: "Invite the user to the DofeAgent workspace before binding their Feishu identity.",
       };
     case "feishu.bind_user.external_user_taken":
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "This Feishu Open ID is already bound to another AgentSpace user.",
+        errorMessage: "This Feishu Open ID is already bound to another DofeAgent user.",
         nextStep: "Have a workspace admin review or revoke the existing Feishu user binding before retrying.",
       };
     case "feishu.bind_user.placeholder_value":
@@ -3993,7 +3993,7 @@ export function buildFeishuCliBindingErrorReport(error: unknown): FeishuCliError
         ok: false,
         errorCode: message,
         errorMessage: "Feishu user binding input contains a placeholder value.",
-        nextStep: "Replace the generated CHANGE_ME_* placeholders with a real AgentSpace user id and Feishu Open ID.",
+        nextStep: "Replace the generated CHANGE_ME_* placeholders with a real DofeAgent user id and Feishu Open ID.",
       };
     case "feishu.bind_resource.missing_type":
       return {
@@ -4021,7 +4021,7 @@ export function buildFeishuCliBindingErrorReport(error: unknown): FeishuCliError
         ok: false,
         errorCode: message,
         errorMessage: "Feishu Base table/view binding requires a Base app token.",
-        nextStep: "Pass --resource <base-table-url-with-app-token>; a raw table/view id is not enough for AgentSpace data-plane governance.",
+        nextStep: "Pass --resource <base-table-url-with-app-token>; a raw table/view id is not enough for DofeAgent data-plane governance.",
       };
     case "feishu.bind_resource.base_table_id_missing":
       return {
@@ -4042,34 +4042,34 @@ export function buildFeishuCliBindingErrorReport(error: unknown): FeishuCliError
         ok: false,
         errorCode: message,
         errorMessage: "Feishu resource binding input contains a placeholder value.",
-        nextStep: "Replace the generated CHANGE_ME_* placeholders with a real Feishu resource URL/token and AgentSpace target.",
+        nextStep: "Replace the generated CHANGE_ME_* placeholders with a real Feishu resource URL/token and DofeAgent target.",
       };
-    case "feishu.bind_resource.missing_agent_space_type":
+    case "feishu.bind_resource.missing_dofe_agent_type":
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "AgentSpace resource type is required.",
-        nextStep: "Pass --agent-space-type channel_document|data_table|knowledge_page.",
+        errorMessage: "DofeAgent resource type is required.",
+        nextStep: "Pass --dofe-agent-type channel_document|data_table|knowledge_page.",
       };
-    case "feishu.bind_resource.missing_agent_space_id":
+    case "feishu.bind_resource.missing_dofe_agent_id":
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "AgentSpace resource id is required for this resource type.",
-        nextStep: "Pass --agent-space-id <id>, or use channel_document/data_table with --channel to let AgentSpace create the local resource.",
+        errorMessage: "DofeAgent resource id is required for this resource type.",
+        nextStep: "Pass --dofe-agent-id <id>, or use channel_document/data_table with --channel to let DofeAgent create the local resource.",
       };
     case "feishu.bind_resource.channel_not_found":
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "AgentSpace channel for the resource binding was not found.",
-        nextStep: "Create the AgentSpace channel first or pass a different --channel value.",
+        errorMessage: "DofeAgent channel for the resource binding was not found.",
+        nextStep: "Create the DofeAgent channel first or pass a different --channel value.",
       };
     case "feishu.bind_resource.external_resource_taken":
       return {
         ok: false,
         errorCode: message,
-        errorMessage: "This Feishu resource is already bound to another AgentSpace resource.",
+        errorMessage: "This Feishu resource is already bound to another DofeAgent resource.",
         nextStep: "Have a workspace admin review or archive the existing Feishu resource binding before retrying.",
       };
   }
@@ -4322,7 +4322,7 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
   const workspaceEvidence = buildFeishuWorkspaceEvidenceSatisfaction(allEvidenceItems, freshEvidenceSources, {
     requiredNativeIntegrationId: input.integrationId,
   });
-  const agentSpaceStrictSatisfied = isFeishuEvidenceReportStrictSatisfied({
+  const dofeAgentStrictSatisfied = isFeishuEvidenceReportStrictSatisfied({
     requiredEvidence,
     evidenceItems,
     workspaceEvidence,
@@ -4429,7 +4429,7 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
     requiredEvidence,
     integrationCount: evidenceItems.length,
     strictSatisfied: reportIssues.length === 0 &&
-      agentSpaceStrictSatisfied &&
+      dofeAgentStrictSatisfied &&
       (!finalOpenApiEvidence || finalOpenApiEvidence.valid) &&
       (!botAddedPayloadEvidence || botAddedPayloadEvidence.valid),
     issues: reportIssues,
@@ -4527,7 +4527,7 @@ function buildFeishuLocalEvidenceFreshnessSummary(
 
 export function formatFeishuEvidenceCommandText(report: FeishuEvidenceReport): string {
   const lines = [
-    "AgentSpace Feishu evidence",
+    "DofeAgent Feishu evidence",
     `Workspace: ${report.workspaceId}`,
     ...(report.integrationId ? [`Selected integration: ${report.integrationId}`] : []),
     `Required evidence: ${report.requiredEvidence}`,
@@ -4667,7 +4667,7 @@ function formatFeishuEmptyIntegrationEvidenceLine(report: FeishuEvidenceReport):
     if (report.integrationId) {
       return `- no Feishu agent bot integrations found in this workspace; --integration ${report.integrationId} cannot be evaluated until an agent-specific Feishu bot is bound.`;
     }
-    return "- no Feishu agent bot integrations found; run smoke-plan, then bind a Feishu custom app to a concrete AgentSpace agent.";
+    return "- no Feishu agent bot integrations found; run smoke-plan, then bind a Feishu custom app to a concrete DofeAgent agent.";
   }
   return "- none found; create or select an active Feishu agent bot integration before final evidence.";
 }
@@ -4712,11 +4712,11 @@ function buildFeishuEvidenceReportRemediationSteps(input: {
         steps.push({
           stepId: "bind_feishu_agent_bot",
           title: "Live smoke: create an active Feishu agent bot binding",
-          detail: "Final evidence requires at least one active AgentSpace Feishu agent bot binding. Run smoke-plan for the ordered setup checklist, then bind a Feishu custom app to a concrete AgentSpace agent with App ID and App Secret.",
+          detail: "Final evidence requires at least one active DofeAgent Feishu agent bot binding. Run smoke-plan for the ordered setup checklist, then bind a Feishu custom app to a concrete DofeAgent agent with App ID and App Secret.",
           issues: [issue],
           command: [
-            `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
-            `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
+            `dofe-agent integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
+            `dofe-agent integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
           ].join("\n"),
         });
         break;
@@ -4726,7 +4726,7 @@ function buildFeishuEvidenceReportRemediationSteps(input: {
           title: "Live smoke: select an existing Feishu agent bot binding",
           detail: "The requested --integration id did not match any Feishu integration in this workspace. Rerun smoke-plan without --integration to find active bindings, or bind a fresh agent-specific Feishu bot before final evidence.",
           issues: [issue],
-          command: `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
+          command: `dofe-agent integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
         });
         break;
       case "selected_integration_not_active":
@@ -4736,20 +4736,20 @@ function buildFeishuEvidenceReportRemediationSteps(input: {
           detail: "The requested --integration id matched a disabled or archived Feishu binding. Final evidence only counts active agent bot bindings, so choose an active binding or bind a fresh agent-specific Feishu bot before rerunning smoke.",
           issues: [issue],
           command: [
-            `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId} --integration ${input.integrationId ?? FEISHU_CLI_PLACEHOLDERS.integrationId}`,
-            `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
+            `dofe-agent integrations feishu smoke-plan --workspace-id ${input.workspaceId} --integration ${input.integrationId ?? FEISHU_CLI_PLACEHOLDERS.integrationId}`,
+            `dofe-agent integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
           ].join("\n"),
         });
         break;
       case "selected_integration_not_agent_bot":
         steps.push({
           stepId: "bind_feishu_agent_bot",
-          title: "Live smoke: bind a Feishu bot to a concrete AgentSpace agent",
-          detail: "The requested --integration id is a workspace-level Feishu integration, not an agent-scoped bot binding. TODO120 final evidence requires each Feishu bot identity to be bound to a concrete AgentSpace agent.",
+          title: "Live smoke: bind a Feishu bot to a concrete DofeAgent agent",
+          detail: "The requested --integration id is a workspace-level Feishu integration, not an agent-scoped bot binding. TODO120 final evidence requires each Feishu bot identity to be bound to a concrete DofeAgent agent.",
           issues: [issue],
           command: [
-            `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
-            `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
+            `dofe-agent integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
+            `dofe-agent integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
           ].join("\n"),
         });
         break;
@@ -4757,11 +4757,11 @@ function buildFeishuEvidenceReportRemediationSteps(input: {
         steps.push({
           stepId: "bind_feishu_agent_bot",
           title: "Live smoke: create or select an active Feishu agent bot binding",
-          detail: "Feishu integration records exist, but none are active. Final evidence requires an active AgentSpace Feishu agent bot binding with fresh local smoke evidence.",
+          detail: "Feishu integration records exist, but none are active. Final evidence requires an active DofeAgent Feishu agent bot binding with fresh local smoke evidence.",
           issues: [issue],
           command: [
-            `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
-            `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
+            `dofe-agent integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
+            `dofe-agent integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
           ].join("\n"),
         });
         break;
@@ -4769,11 +4769,11 @@ function buildFeishuEvidenceReportRemediationSteps(input: {
         steps.push({
           stepId: "bind_feishu_agent_bot",
           title: "Live smoke: create an active Feishu agent bot binding",
-          detail: "Feishu integration records exist, but none are active agent-scoped bot bindings. Bind a Feishu custom app to a concrete AgentSpace agent before collecting TODO120 native smoke evidence.",
+          detail: "Feishu integration records exist, but none are active agent-scoped bot bindings. Bind a Feishu custom app to a concrete DofeAgent agent before collecting TODO120 native smoke evidence.",
           issues: [issue],
           command: [
-            `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
-            `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
+            `dofe-agent integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
+            `dofe-agent integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
           ].join("\n"),
         });
         break;
@@ -4883,7 +4883,7 @@ export function buildFeishuSmokeEnvTemplateReport(
       workspaceId: input.workspaceId,
       integrationId: selectedIntegration.id,
     })
-    : "CHANGE_ME_AGENTSPACE_CALLBACK_URL";
+    : "CHANGE_ME_DOFE_AGENT_CALLBACK_URL";
   const appId = selectedIntegration?.appId?.trim();
   const tenantKey = selectedIntegration?.tenantKey?.trim();
   const issues = [
@@ -4918,7 +4918,7 @@ export function buildFeishuSmokeEnvTemplateReport(
           secret: false,
           required: false,
           source: "integration" as const,
-          note: "Optional tenant key saved on the AgentSpace integration; strict-live evidence stores only its hash.",
+          note: "Optional tenant key saved on the DofeAgent integration; strict-live evidence stores only its hash.",
         }]
         : []),
       {
@@ -4927,7 +4927,7 @@ export function buildFeishuSmokeEnvTemplateReport(
         secret: true,
         required: true,
         source: "placeholder",
-        note: "Fill from Feishu developer console; AgentSpace never prints saved app secrets.",
+        note: "Fill from Feishu developer console; DofeAgent never prints saved app secrets.",
       },
       {
         key: "FEISHU_VERIFICATION_TOKEN",
@@ -4935,7 +4935,7 @@ export function buildFeishuSmokeEnvTemplateReport(
         secret: true,
         required: true,
         source: "placeholder",
-        note: "Use the same verification token saved on the AgentSpace integration.",
+        note: "Use the same verification token saved on the DofeAgent integration.",
       },
       {
         key: "FEISHU_ENCRYPT_KEY",
@@ -4951,7 +4951,7 @@ export function buildFeishuSmokeEnvTemplateReport(
         secret: false,
         required: false,
         source: "placeholder",
-        note: "Optional for isolated OpenAPI smoke; required for TODO120 Phase 6 multi-agent smoke as the second disposable Feishu app id. After filling it, bind the second app with: agent-space integrations feishu bind-agent-bot --workspace-id <id> --agent <second-agent> --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
+        note: "Optional for isolated OpenAPI smoke; required for TODO120 Phase 6 multi-agent smoke as the second disposable Feishu app id. After filling it, bind the second app with: dofe-agent integrations feishu bind-agent-bot --workspace-id <id> --agent <second-agent> --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
       },
       {
         key: "FEISHU_SECOND_AGENT_APP_SECRET",
@@ -4959,14 +4959,14 @@ export function buildFeishuSmokeEnvTemplateReport(
         secret: true,
         required: false,
         source: "placeholder",
-        note: "Optional for isolated OpenAPI smoke; required for TODO120 Phase 6 multi-agent smoke as the second Feishu app secret. This env value only feeds the bind-agent-bot command; AgentSpace still needs a real second agent bot binding before same-group reuse and thread-collaboration smoke can pass.",
+        note: "Optional for isolated OpenAPI smoke; required for TODO120 Phase 6 multi-agent smoke as the second Feishu app secret. This env value only feeds the bind-agent-bot command; DofeAgent still needs a real second agent bot binding before same-group reuse and thread-collaboration smoke can pass.",
       },
       {
         key: "FEISHU_API_BASE_URL",
-        value: process.env.AGENT_SPACE_FEISHU_API_BASE_URL?.trim() || "https://open.feishu.cn",
+        value: process.env.DOFE_AGENT_FEISHU_API_BASE_URL?.trim() || "https://open.feishu.cn",
         secret: false,
         required: false,
-        source: process.env.AGENT_SPACE_FEISHU_API_BASE_URL?.trim() ? "env" : "placeholder",
+        source: process.env.DOFE_AGENT_FEISHU_API_BASE_URL?.trim() ? "env" : "placeholder",
       },
       {
         key: "FEISHU_SMOKE_CALLBACK_URL",
@@ -4974,7 +4974,7 @@ export function buildFeishuSmokeEnvTemplateReport(
         secret: false,
         required: true,
         source: appUrl && selectedIntegration ? "app-url" : "placeholder",
-        note: "Generated from --app-url/AGENT_SPACE_APP_URL plus workspace/integration ids.",
+        note: "Generated from --app-url/DOFE_AGENT_APP_URL plus workspace/integration ids.",
       },
       {
         key: "FEISHU_SMOKE_CHAT_ID",
@@ -4999,7 +4999,7 @@ export function buildFeishuSmokeEnvTemplateReport(
       },
       {
         key: "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON",
-        value: "[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+        value: "[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
         secret: false,
         required: true,
         source: "placeholder",
@@ -5028,7 +5028,7 @@ export function buildFeishuSmokeEnvTemplateReport(
       },
       {
         key: "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON",
-        value: "[[\"AgentSpace smoke\"]]",
+        value: "[[\"DofeAgent smoke\"]]",
         secret: false,
         required: true,
         source: "placeholder",
@@ -5056,7 +5056,7 @@ export function buildFeishuSmokeEnvTemplateReport(
       },
       {
         key: "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON",
-        value: "{\"Smoke\":\"AgentSpace\"}",
+        value: "{\"Smoke\":\"DofeAgent\"}",
         secret: false,
         required: true,
         source: "placeholder",
@@ -5090,21 +5090,21 @@ function buildFeishuDataPlaneSmokeCommands(input: {
   workspaceId: string;
   integrationId: string;
 }): FeishuDataPlaneSmokeCommands {
-  const reviewDataOperationCommand = `agent-space integrations feishu review-data-operation --workspace-id ${input.workspaceId} --approval-id ${FEISHU_CLI_PLACEHOLDERS.approvalId} --decision approved --json`;
+  const reviewDataOperationCommand = `dofe-agent integrations feishu review-data-operation --workspace-id ${input.workspaceId} --approval-id ${FEISHU_CLI_PLACEHOLDERS.approvalId} --decision approved --json`;
   return {
-    liveDocReadCommand: `agent-space integrations feishu data-operation --workspace-id ${input.workspaceId} --integration ${input.integrationId} --operation read-doc --resource ${FEISHU_CLI_PLACEHOLDERS.docResource} --json`,
+    liveDocReadCommand: `dofe-agent integrations feishu data-operation --workspace-id ${input.workspaceId} --integration ${input.integrationId} --operation read-doc --resource ${FEISHU_CLI_PLACEHOLDERS.docResource} --json`,
     liveDocWriteCommand: [
-      `agent-space integrations feishu data-operation --workspace-id ${input.workspaceId} --integration ${input.integrationId} --operation plan-doc-append --resource ${FEISHU_CLI_PLACEHOLDERS.docResource} --parent-block-id ${FEISHU_CLI_PLACEHOLDERS.docBlockId} --blocks-json '[{"block_type":2,"text":{"elements":[{"text_run":{"content":"AgentSpace smoke"}}]}}]' --approval-agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --approval-channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --json`,
+      `dofe-agent integrations feishu data-operation --workspace-id ${input.workspaceId} --integration ${input.integrationId} --operation plan-doc-append --resource ${FEISHU_CLI_PLACEHOLDERS.docResource} --parent-block-id ${FEISHU_CLI_PLACEHOLDERS.docBlockId} --blocks-json '[{"block_type":2,"text":{"elements":[{"text_run":{"content":"DofeAgent smoke"}}]}}]' --approval-agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --approval-channel ${FEISHU_CLI_PLACEHOLDERS.dofeAgentChannel} --json`,
       reviewDataOperationCommand,
     ].join("\n"),
-    liveSheetReadCommand: `agent-space integrations feishu data-operation --workspace-id ${input.workspaceId} --integration ${input.integrationId} --operation read-sheet --resource ${FEISHU_CLI_PLACEHOLDERS.sheetResource} --range ${FEISHU_CLI_PLACEHOLDERS.sheetRange} --json`,
+    liveSheetReadCommand: `dofe-agent integrations feishu data-operation --workspace-id ${input.workspaceId} --integration ${input.integrationId} --operation read-sheet --resource ${FEISHU_CLI_PLACEHOLDERS.sheetResource} --range ${FEISHU_CLI_PLACEHOLDERS.sheetRange} --json`,
     liveSheetWriteCommand: [
-      `agent-space integrations feishu data-operation --workspace-id ${input.workspaceId} --integration ${input.integrationId} --operation plan-sheet-write --resource ${FEISHU_CLI_PLACEHOLDERS.sheetResource} --range ${FEISHU_CLI_PLACEHOLDERS.sheetWriteRange} --values-json '[["AgentSpace smoke"]]' --approval-agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --approval-channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --json`,
+      `dofe-agent integrations feishu data-operation --workspace-id ${input.workspaceId} --integration ${input.integrationId} --operation plan-sheet-write --resource ${FEISHU_CLI_PLACEHOLDERS.sheetResource} --range ${FEISHU_CLI_PLACEHOLDERS.sheetWriteRange} --values-json '[["DofeAgent smoke"]]' --approval-agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --approval-channel ${FEISHU_CLI_PLACEHOLDERS.dofeAgentChannel} --json`,
       reviewDataOperationCommand,
     ].join("\n"),
     liveBaseCommand: [
-      `agent-space integrations feishu data-operation --workspace-id ${input.workspaceId} --integration ${input.integrationId} --operation query-base --resource ${FEISHU_CLI_PLACEHOLDERS.baseResource} --json`,
-      `agent-space integrations feishu data-operation --workspace-id ${input.workspaceId} --integration ${input.integrationId} --operation plan-base-update --resource ${FEISHU_CLI_PLACEHOLDERS.baseResource} --record-id ${FEISHU_CLI_PLACEHOLDERS.baseRecordId} --fields-json '{"Smoke":"AgentSpace"}' --approval-agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --approval-channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --json`,
+      `dofe-agent integrations feishu data-operation --workspace-id ${input.workspaceId} --integration ${input.integrationId} --operation query-base --resource ${FEISHU_CLI_PLACEHOLDERS.baseResource} --json`,
+      `dofe-agent integrations feishu data-operation --workspace-id ${input.workspaceId} --integration ${input.integrationId} --operation plan-base-update --resource ${FEISHU_CLI_PLACEHOLDERS.baseResource} --record-id ${FEISHU_CLI_PLACEHOLDERS.baseRecordId} --fields-json '{"Smoke":"DofeAgent"}' --approval-agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --approval-channel ${FEISHU_CLI_PLACEHOLDERS.dofeAgentChannel} --json`,
       reviewDataOperationCommand,
     ].join("\n"),
   };
@@ -5118,7 +5118,7 @@ function buildFeishuExternalGuestPolicySmokeCommands(input: {
   const targetFlags = input.agentId
     ? `--agent ${input.agentId}`
     : `--integration ${input.integrationId}`;
-  const baseCommand = `agent-space integrations feishu auto-provision-policy --workspace-id ${input.workspaceId} ${targetFlags}`;
+  const baseCommand = `dofe-agent integrations feishu auto-provision-policy --workspace-id ${input.workspaceId} ${targetFlags}`;
   const defaultRequireIdentityFor = "--require-identity-for writes,approvals,private_resources,runtime_sensitive_tools";
   return {
     replyOnMentionCommand: `${baseCommand} --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only ${defaultRequireIdentityFor} --json`,
@@ -5137,7 +5137,7 @@ function buildFeishuAgentChannelAccessSmokeCommands(input: {
   const targetFlags = input.agentId
     ? `--agent ${input.agentId}`
     : `--integration ${input.integrationId}`;
-  const baseCommand = `agent-space integrations feishu agent-channel-access --workspace-id ${input.workspaceId} ${targetFlags}`;
+  const baseCommand = `dofe-agent integrations feishu agent-channel-access --workspace-id ${input.workspaceId} ${targetFlags}`;
   return {
     disableCommand: `${baseCommand} --access disabled --json`,
     restoreCommand: `${baseCommand} --access enabled --json`,
@@ -5281,14 +5281,14 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
       {
         id: "configure_credential_encryption_key",
         area: "setup",
-        title: "Configure AgentSpace credential encryption key",
+        title: "Configure DofeAgent credential encryption key",
         status: credentialEncryptionReady ? "done" : "pending",
         detail: credentialEncryptionReady
-          ? `AgentSpace credential encryption key is configured via ${runtimeSetup.credentialEncryption.configuredEnvName}.`
-          : "Set a base64-encoded 32-byte AgentSpace credential encryption key before creating a Feishu integration from CLI.",
+          ? `DofeAgent credential encryption key is configured via ${runtimeSetup.credentialEncryption.configuredEnvName}.`
+          : "Set a base64-encoded 32-byte DofeAgent credential encryption key before creating a Feishu integration from CLI.",
         command: credentialEncryptionReady
           ? undefined
-          : "export AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32)",
+          : "export DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -base64 32)",
         issues: credentialEncryptionIssues,
       },
       {
@@ -5299,8 +5299,8 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         detail: hasActiveIntegration
           ? "An active Feishu agent bot binding already exists; use smoke-env for workspace-specific live smoke resources."
           : hasScopedSourceIntegration
-            ? "Existing Feishu records are not usable as active agent bot bindings. Keep the env file ready so you can bind a fresh active AgentSpace agent bot with App ID + App Secret."
-            : "Create scripts/feishu/.env from the checked-in template, then replace the Feishu app credential placeholders before binding an AgentSpace agent to its Feishu bot.",
+            ? "Existing Feishu records are not usable as active agent bot bindings. Keep the env file ready so you can bind a fresh active DofeAgent agent bot with App ID + App Secret."
+            : "Create scripts/feishu/.env from the checked-in template, then replace the Feishu app credential placeholders before binding an DofeAgent agent to its Feishu bot.",
         command: hasActiveIntegration
           ? undefined
           : "test -f scripts/feishu/.env || cp scripts/feishu/env.example scripts/feishu/.env",
@@ -5312,23 +5312,23 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         title: "Create disposable Feishu app set for native smoke",
         status: hasSecondAgentBot ? "done" : "pending",
         detail: hasSecondAgentBot
-          ? "Found two Phase 6-ready active AgentSpace agent bot bindings backed by distinct Feishu apps and distinct AgentSpace agents."
-          : "In Feishu Open Platform, create two disposable custom apps in the same test tenant, such as Codex Bot and HermesAgent Bot. Enable bot capability, subscribe to im.message.receive_v1, im.chat.member.bot.added_v1, and card.action.trigger, grant bot plus Docs/Sheets/Base scopes, install or publish both apps, then bind each app to a different AgentSpace agent.",
+          ? "Found two Phase 6-ready active DofeAgent agent bot bindings backed by distinct Feishu apps and distinct DofeAgent agents."
+          : "In Feishu Open Platform, create two disposable custom apps in the same test tenant, such as Codex Bot and HermesAgent Bot. Enable bot capability, subscribe to im.message.receive_v1, im.chat.member.bot.added_v1, and card.action.trigger, grant bot plus Docs/Sheets/Base scopes, install or publish both apps, then bind each app to a different DofeAgent agent.",
         issues: hasSecondAgentBot ? [] : nativeAgentBotReadiness.issues,
       },
       {
         id: "bind_feishu_agent_bot",
         area: "setup",
-        title: "Bind one AgentSpace agent to its Feishu bot",
+        title: "Bind one DofeAgent agent to its Feishu bot",
         status: hasActiveIntegration ? "done" : credentialEncryptionReady ? "pending" : "blocked",
         detail: hasActiveIntegration
           ? `Found ${activeReadinessItems.length} active Feishu agent bot binding record(s) in this workspace.`
           : hasScopedSourceIntegration
-            ? "Feishu records exist, but none are usable active agent bot bindings. Bind a concrete AgentSpace agent to its Feishu bot before live smoke."
-          : "Create a Feishu custom app for a specific AgentSpace agent, then bind it with App ID + App Secret. WebSocket worker is the default quick start; EventCallback verification token/encrypt key stay in advanced setup.",
+            ? "Feishu records exist, but none are usable active agent bot bindings. Bind a concrete DofeAgent agent to its Feishu bot before live smoke."
+          : "Create a Feishu custom app for a specific DofeAgent agent, then bind it with App ID + App Secret. WebSocket worker is the default quick start; EventCallback verification token/encrypt key stay in advanced setup.",
         command: hasActiveIntegration
           ? undefined
-          : `agent-space integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
+          : `dofe-agent integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
         issues: hasActiveIntegration
           ? []
           : uniqueStrings([...activeIntegrationIssues, ...credentialEncryptionIssues]),
@@ -5339,7 +5339,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         title: "Configure agent bot app credentials",
         status: prereqStatus(hasActiveIntegration, hasConfiguredAppCredentials),
         detail: hasConfiguredAppCredentials
-          ? "AgentSpace has a Feishu app id plus required secret configuration for at least one agent bot binding."
+          ? "DofeAgent has a Feishu app id plus required secret configuration for at least one agent bot binding."
           : "For quick start, save only App ID and App Secret on the agent bot binding. Add verification token and encrypt key only when using EventCallback.",
         issues: hasActiveIntegration
           ? collectSetupIssues(setupCandidate, ["app_id_missing", "credentials_incomplete"])
@@ -5358,10 +5358,10 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
       {
         id: "check_connection_health",
         area: "setup",
-        title: "Run AgentSpace health check",
+        title: "Run DofeAgent health check",
         status: prereqStatus(hasActiveIntegration, hasHealthChecked),
         detail: "Run Test connection in settings or the readiness CLI so manual smoke is not attempted against unknown health.",
-        command: `agent-space integrations feishu readiness --workspace-id ${readiness.workspaceId} --json`,
+        command: `dofe-agent integrations feishu readiness --workspace-id ${readiness.workspaceId} --json`,
         issues: hasActiveIntegration
           ? collectSetupIssues(setupCandidate, ["health_not_checked", "health_error", "health_degraded"])
           : activeIntegrationIssues,
@@ -5387,19 +5387,19 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
       {
         id: "bind_feishu_chat",
         area: "bot",
-        title: "Manual fallback: bind Feishu group to an AgentSpace channel",
+        title: "Manual fallback: bind Feishu group to an DofeAgent channel",
         status: prereqStatus(hasActiveIntegration, hasChannelBinding),
-        detail: "TODO120's primary path is automatic: adding the agent bot to a Feishu group should create or reuse the AgentSpace channel. Use this manual binding only as a fallback when auto-provisioning is disabled or under admin review.",
-        command: `agent-space integrations feishu bind-channel --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --chat-id ${FEISHU_CLI_PLACEHOLDERS.feishuChatId} --json`,
+        detail: "TODO120's primary path is automatic: adding the agent bot to a Feishu group should create or reuse the DofeAgent channel. Use this manual binding only as a fallback when auto-provisioning is disabled or under admin review.",
+        command: `dofe-agent integrations feishu bind-channel --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --channel ${FEISHU_CLI_PLACEHOLDERS.dofeAgentChannel} --chat-id ${FEISHU_CLI_PLACEHOLDERS.feishuChatId} --json`,
         issues: hasActiveIntegration ? collectSetupIssues(botCandidate, ["channel_binding_missing"]) : activeIntegrationIssues,
       },
       {
         id: "bind_feishu_user",
         area: "bot",
-        title: "Bind Feishu user to an AgentSpace user",
+        title: "Bind Feishu user to an DofeAgent user",
         status: prereqStatus(hasActiveIntegration, hasUserBinding),
-        detail: "Bind the Feishu sender to a workspace member so inbound messages remain governed by AgentSpace permissions.",
-        command: `agent-space integrations feishu bind-user --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --user-id ${FEISHU_CLI_PLACEHOLDERS.agentSpaceUserId} --open-id ${FEISHU_CLI_PLACEHOLDERS.feishuOpenId} --json`,
+        detail: "Bind the Feishu sender to a workspace member so inbound messages remain governed by DofeAgent permissions.",
+        command: `dofe-agent integrations feishu bind-user --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --user-id ${FEISHU_CLI_PLACEHOLDERS.dofeAgentUserId} --open-id ${FEISHU_CLI_PLACEHOLDERS.feishuOpenId} --json`,
         issues: hasActiveIntegration ? collectSetupIssues(botCandidate, ["user_binding_missing"]) : activeIntegrationIssues,
       },
       {
@@ -5410,7 +5410,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         detail: readyForBot
           ? `Bot smoke prerequisites pass for ${formatIntegrationLabel(botCandidate)}.`
           : "Local prerequisites are incomplete; do not treat live bot smoke as meaningful yet.",
-        command: `agent-space integrations feishu readiness --workspace-id ${readiness.workspaceId} --strict --require bot --json`,
+        command: `dofe-agent integrations feishu readiness --workspace-id ${readiness.workspaceId} --strict --require bot --json`,
         issues: readyForBot ? [] : botIssues,
       },
       {
@@ -5418,7 +5418,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: @agent-specific Feishu bot and verify reply",
         status: readyForBot ? "pending" : "blocked",
-        detail: "In the mapped Feishu group, mention the concrete agent bot, such as @Codex Bot, without any /agent command. Verify AgentSpace records agentId + botBindingId, queues the internal task, creates a sent Feishu agent_reply outbox with safe chat/thread context, and replies from the same Feishu bot identity in the same thread.",
+        detail: "In the mapped Feishu group, mention the concrete agent bot, such as @Codex Bot, without any /agent command. Verify DofeAgent records agentId + botBindingId, queues the internal task, creates a sent Feishu agent_reply outbox with safe chat/thread context, and replies from the same Feishu bot identity in the same thread.",
         issues: readyForBot ? [] : botIssues,
       },
       {
@@ -5426,7 +5426,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: direct @agent bot route evidence",
         status: readyForBot ? "pending" : "blocked",
-        detail: "From a bound Feishu user, directly @ the agent-specific bot and verify AgentSpace records actorType=user, actorUserId, safe audit references, the concrete agentId, botBindingId, task, and message evidence without using /agent routing text.",
+        detail: "From a bound Feishu user, directly @ the agent-specific bot and verify DofeAgent records actorType=user, actorUserId, safe audit references, the concrete agentId, botBindingId, task, and message evidence without using /agent routing text.",
         issues: readyForBot ? [] : botIssues,
       },
       {
@@ -5434,7 +5434,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: agent bot auto-provisions channel",
         status: hasActiveIntegration ? "pending" : "blocked",
-        detail: "Add the agent's Feishu bot to a new Feishu group and verify AgentSpace creates or binds the channel automatically with provisionSource=bot_added, safe chat reference metadata, agent membership, and a confirmation card.",
+        detail: "Add the agent's Feishu bot to a new Feishu group and verify DofeAgent creates or binds the channel automatically with provisionSource=bot_added, safe chat reference metadata, agent membership, and a confirmation card.",
         issues: activeIntegrationIssues,
       },
       {
@@ -5451,20 +5451,20 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: first mentioned message provisions channel",
         status: hasActiveIntegration ? "pending" : "blocked",
-        detail: "In a Feishu group that has no AgentSpace channel binding yet, send the first message mentioning the concrete agent bot. Verify AgentSpace records provisionSource=first_message, creates or binds the channel according to policy, and does not require a /agent command.",
+        detail: "In a Feishu group that has no DofeAgent channel binding yet, send the first message mentioning the concrete agent bot. Verify DofeAgent records provisionSource=first_message, creates or binds the channel according to policy, and does not require a /agent command.",
         issues: activeIntegrationIssues,
       },
       {
         id: "bind_second_feishu_agent_bot",
         area: "setup",
-        title: "Bind second AgentSpace agent to its Feishu bot",
+        title: "Bind second DofeAgent agent to its Feishu bot",
         status: hasSecondAgentBot ? "done" : hasIntegration && credentialEncryptionReady ? "pending" : "blocked",
         detail: hasSecondAgentBot
-          ? `Found ${nativeAgentBotReadiness.readyAgentBotBindingCount} Phase 6-ready agent-scoped Feishu bot bindings across distinct AgentSpace agents and Feishu apps.`
-          : "Create a second active Feishu custom app, such as HermesAgent Bot, and bind it to a different AgentSpace agent with app credentials, bot scopes, healthy/degraded health, and no unresolved outbox failures before testing same-group reuse and thread collaboration.",
+          ? `Found ${nativeAgentBotReadiness.readyAgentBotBindingCount} Phase 6-ready agent-scoped Feishu bot bindings across distinct DofeAgent agents and Feishu apps.`
+          : "Create a second active Feishu custom app, such as HermesAgent Bot, and bind it to a different DofeAgent agent with app credentials, bot scopes, healthy/degraded health, and no unresolved outbox failures before testing same-group reuse and thread collaboration.",
         command: hasSecondAgentBot
           ? undefined
-          : `agent-space integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
+          : `dofe-agent integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
         issues: hasSecondAgentBot
           ? []
           : hasIntegration
@@ -5476,7 +5476,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: second agent bot reuses channel",
         status: hasSecondAgentBot ? "pending" : "blocked",
-        detail: "After the second agent bot binding exists, add that bot to the same Feishu group and verify AgentSpace reuses the existing channel, adds only that agent membership, and records linkedFromBindingId plus different linkedFromAgentId/linkedFromBotBindingId metadata instead of creating a duplicate channel.",
+        detail: "After the second agent bot binding exists, add that bot to the same Feishu group and verify DofeAgent reuses the existing channel, adds only that agent membership, and records linkedFromBindingId plus different linkedFromAgentId/linkedFromBotBindingId metadata instead of creating a duplicate channel.",
         issues: hasSecondAgentBot ? [] : nativeAgentBotReadiness.issues,
       },
       {
@@ -5484,7 +5484,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: second agent bot joins an active thread",
         status: readyForBot && hasSecondAgentBot ? "pending" : "blocked",
-        detail: "Mention one agent-specific Feishu bot in a mapped group thread, then mention the second agent bot in that same Feishu thread. Verify AgentSpace keeps separate thread bindings, records threadCollaboration=true with collaborator agent ids and bot binding ids, and sends a collaboration card that matches the active thread binding without raw Feishu ids.",
+        detail: "Mention one agent-specific Feishu bot in a mapped group thread, then mention the second agent bot in that same Feishu thread. Verify DofeAgent keeps separate thread bindings, records threadCollaboration=true with collaborator agent ids and bot binding ids, and sends a collaboration card that matches the active thread binding without raw Feishu ids.",
         issues: readyForBot && hasSecondAgentBot
           ? []
           : uniqueStrings([
@@ -5495,9 +5495,9 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
       {
         id: "live_feishu_thread_task_binding",
         area: "bot",
-        title: "Live smoke: Feishu thread binds to AgentSpace task",
+        title: "Live smoke: Feishu thread binds to DofeAgent task",
         status: readyForBot ? "pending" : "blocked",
-        detail: "Mention the agent bot in a Feishu thread and verify AgentSpace records the thread binding with taskQueueId, agentSpaceMessageId, agentId, botBindingId, and a safe thread reference.",
+        detail: "Mention the agent bot in a Feishu thread and verify DofeAgent records the thread binding with taskQueueId, dofeAgentMessageId, agentId, botBindingId, and a safe thread reference.",
         issues: readyForBot ? [] : botIssues,
       },
       {
@@ -5505,7 +5505,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: Feishu thread follow-up continues",
         status: readyForBot ? "pending" : "blocked",
-        detail: "After a mentioned agent bot message creates a Feishu thread binding, send a follow-up in the same Feishu thread without mentioning the bot and verify AgentSpace records threadContinuation=true with the same active thread binding reference, taskQueueId, agentSpaceMessageId, agentId, and botBindingId.",
+        detail: "After a mentioned agent bot message creates a Feishu thread binding, send a follow-up in the same Feishu thread without mentioning the bot and verify DofeAgent records threadContinuation=true with the same active thread binding reference, taskQueueId, dofeAgentMessageId, agentId, and botBindingId.",
         issues: readyForBot ? [] : botIssues,
       },
       {
@@ -5513,7 +5513,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: unbound Feishu user routes as external guest",
         status: readyForBot ? "pending" : "blocked",
-        detail: "From a Feishu user that is not bound to AgentSpace, mention the agent bot and verify AgentSpace dispatches actorType=external_guest with permissionProfile=channel_context_only, no userId/actorUserId, task/message dispatch, safe audit references, no real workspace member, and no raw Feishu user ids.",
+        detail: "From a Feishu user that is not bound to DofeAgent, mention the agent bot and verify DofeAgent dispatches actorType=external_guest with permissionProfile=channel_context_only, no userId/actorUserId, task/message dispatch, safe audit references, no real workspace member, and no raw Feishu user ids.",
         command: externalGuestPolicyCommands.replyOnMentionCommand,
         issues: readyForBot ? [] : botIssues,
       },
@@ -5522,7 +5522,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: reply_all external guest dispatch",
         status: readyForBot ? "pending" : "blocked",
-        detail: `Temporarily set the agent bot external guest policy to reply_all, send an unbound Feishu message without mentioning the bot, and verify AgentSpace still routes it to the bot's agent as channel_context_only external_guest. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `Temporarily set the agent bot external guest policy to reply_all, send an unbound Feishu message without mentioning the bot, and verify DofeAgent still routes it to the bot's agent as channel_context_only external_guest. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.replyAllCommand,
         issues: readyForBot ? [] : botIssues,
       },
@@ -5531,7 +5531,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: external guest must bind identity",
         status: readyForBot ? "pending" : "blocked",
-        detail: `Temporarily set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, and verify AgentSpace records the require_identity decision plus the identity-binding notice. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `Temporarily set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, and verify DofeAgent records the require_identity decision plus the identity-binding notice. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.requireIdentityCommand,
         issues: readyForBot ? [] : botIssues,
       },
@@ -5540,7 +5540,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: external guest replies can be disabled",
         status: readyForBot ? "pending" : "blocked",
-        detail: `Temporarily set the agent bot external guest policy to ignore with permissionProfile=none, mention the bot from an unbound Feishu user, and verify AgentSpace records the ignore decision without dispatching a task or sending a reply. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `Temporarily set the agent bot external guest policy to ignore with permissionProfile=none, mention the bot from an unbound Feishu user, and verify DofeAgent records the ignore decision without dispatching a task or sending a reply. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.ignoreCommand,
         issues: readyForBot ? [] : botIssues,
       },
@@ -5549,7 +5549,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: unmentioned guest message is ignored",
         status: readyForBot ? "pending" : "blocked",
-        detail: "With reply_on_mention enabled, send an unbound Feishu group message that does not mention the agent bot and verify AgentSpace records the bot-mention-required decision without dispatching.",
+        detail: "With reply_on_mention enabled, send an unbound Feishu group message that does not mention the agent bot and verify DofeAgent records the bot-mention-required decision without dispatching.",
         command: externalGuestPolicyCommands.replyOnMentionCommand,
         issues: readyForBot ? [] : botIssues,
       },
@@ -5558,7 +5558,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: bound Feishu user actor audit",
         status: readyForBot && readyForDataPlane ? "pending" : "blocked",
-        detail: "From a Feishu user that is bound to an AgentSpace user, ask the concrete agent bot to use a bound Doc/Sheet/Base resource. Verify the data operation records governanceContext.actorType=user, actorUserId, agentId, botBindingId, and safe audit references without raw Feishu ids.",
+        detail: "From a Feishu user that is bound to an DofeAgent user, ask the concrete agent bot to use a bound Doc/Sheet/Base resource. Verify the data operation records governanceContext.actorType=user, actorUserId, agentId, botBindingId, and safe audit references without raw Feishu ids.",
         command: dataPlaneSmokeCommands.liveDocReadCommand,
         issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
       },
@@ -5567,7 +5567,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: external guest write requires identity",
         status: readyForBot && readyForDataPlane ? "pending" : "blocked",
-        detail: `From an unbound Feishu user, ask the concrete agent bot to write a bound smoke Sheet/Base resource. Verify AgentSpace records external_guest governance on a bound write run with permissionProfile=none or permissionProfile=channel_context_only, refuses the final Feishu write with require_identity, sends the identity-binding notice, and does not create a real workspace member. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `From an unbound Feishu user, ask the concrete agent bot to write a bound smoke Sheet/Base resource. Verify DofeAgent records external_guest governance on a bound write run with permissionProfile=none or permissionProfile=channel_context_only, refuses the final Feishu write with require_identity, sends the identity-binding notice, and does not create a real workspace member. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.requireIdentityCommand,
         issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
       },
@@ -5588,7 +5588,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: disabled agent/channel policy blocks replies",
         status: readyForBot ? "pending" : "blocked",
-        detail: `Disable the agent's channel-member access, mention the Feishu agent bot, and verify AgentSpace records the policy denial without writing a channel message, queueing a task, or sending a bot reply. Restore after this smoke step with: ${agentChannelAccessCommands.restoreCommand}`,
+        detail: `Disable the agent's channel-member access, mention the Feishu agent bot, and verify DofeAgent records the policy denial without writing a channel message, queueing a task, or sending a bot reply. Restore after this smoke step with: ${agentChannelAccessCommands.restoreCommand}`,
         command: agentChannelAccessCommands.disableCommand,
         issues: readyForBot ? [] : botIssues,
       },
@@ -5597,7 +5597,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: agent bot summarizes a bound Feishu Doc",
         status: readyForBot && readyForDataPlane ? "pending" : "blocked",
-        detail: "In the mapped Feishu group, ask the concrete agent bot, such as @Codex Bot, to summarize the already-bound Feishu Doc. Verify the agent uses AgentSpace-scoped lark-cli/resource context, creates normal task/reply evidence, and sends the answer back to the Feishu thread.",
+        detail: "In the mapped Feishu group, ask the concrete agent bot, such as @Codex Bot, to summarize the already-bound Feishu Doc. Verify the agent uses DofeAgent-scoped lark-cli/resource context, creates normal task/reply evidence, and sends the answer back to the Feishu thread.",
         issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
       },
       {
@@ -5614,7 +5614,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "worker",
         title: "Live smoke: receive Feishu message through WebSocket worker",
         status: readyForWorkerSmoke ? "pending" : "blocked",
-        detail: "Start the worker in a self-hosted environment, mention the concrete agent bot in a mapped Feishu group, then trigger one Sheet/Base approval card action from Feishu; verify both bypass the HTTP callback route while still creating the AgentSpace task/reply and approval execution.",
+        detail: "Start the worker in a self-hosted environment, mention the concrete agent bot in a mapped Feishu group, then trigger one Sheet/Base approval card action from Feishu; verify both bypass the HTTP callback route while still creating the DofeAgent task/reply and approval execution.",
         command: workerHarness.startCommand,
         issues: workerIssues,
       },
@@ -5632,11 +5632,11 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Bind Feishu Doc, Sheet, and Base resources",
         status: prereqStatus(hasActiveIntegration, hasDocBinding && hasSheetBinding && hasBaseBinding),
-        detail: "Bind one Feishu Doc, one Sheet, and one Base table to AgentSpace resources for data-plane smoke.",
+        detail: "Bind one Feishu Doc, one Sheet, and one Base table to DofeAgent resources for data-plane smoke.",
         command: [
-          `agent-space integrations feishu bind-resource --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --type doc --resource ${FEISHU_CLI_PLACEHOLDERS.docResource} --agent-space-type channel_document --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --allow-write --json`,
-          `agent-space integrations feishu bind-resource --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --type sheet --resource ${FEISHU_CLI_PLACEHOLDERS.sheetResource} --agent-space-type data_table --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --allow-write --json`,
-          `agent-space integrations feishu bind-resource --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --type base_table --resource ${FEISHU_CLI_PLACEHOLDERS.baseResource} --agent-space-type data_table --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --allow-write --json`,
+          `dofe-agent integrations feishu bind-resource --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --type doc --resource ${FEISHU_CLI_PLACEHOLDERS.docResource} --dofe-agent-type channel_document --channel ${FEISHU_CLI_PLACEHOLDERS.dofeAgentChannel} --allow-write --json`,
+          `dofe-agent integrations feishu bind-resource --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --type sheet --resource ${FEISHU_CLI_PLACEHOLDERS.sheetResource} --dofe-agent-type data_table --channel ${FEISHU_CLI_PLACEHOLDERS.dofeAgentChannel} --allow-write --json`,
+          `dofe-agent integrations feishu bind-resource --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --type base_table --resource ${FEISHU_CLI_PLACEHOLDERS.baseResource} --dofe-agent-type data_table --channel ${FEISHU_CLI_PLACEHOLDERS.dofeAgentChannel} --allow-write --json`,
         ].join("\n"),
         issues: hasActiveIntegration
           ? collectDataPlaneBindingIssues({
@@ -5658,7 +5658,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         detail: readyForDataPlane
           ? `Docs/Sheets/Base prerequisites pass for ${formatIntegrationLabel(dataPlaneCandidate)}.`
           : "Data-plane prerequisites are incomplete; live Doc/Sheet/Base smoke would be inconclusive.",
-        command: `agent-space integrations feishu readiness --workspace-id ${readiness.workspaceId} --strict --require data-plane --json`,
+        command: `dofe-agent integrations feishu readiness --workspace-id ${readiness.workspaceId} --strict --require data-plane --json`,
         issues: readyForDataPlane ? [] : dataPlaneIssues,
       },
       {
@@ -5666,7 +5666,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: read bound Feishu Doc",
         status: readyForDataPlane ? "pending" : "blocked",
-        detail: "Read the bound Feishu Doc through AgentSpace and verify the operation run uses an active resource binding, records Feishu governance context with agentId, botBindingId, and actor provenance, stores only safe resource references plus a safe summary, and never stores raw resource tokens.",
+        detail: "Read the bound Feishu Doc through DofeAgent and verify the operation run uses an active resource binding, records Feishu governance context with agentId, botBindingId, and actor provenance, stores only safe resource references plus a safe summary, and never stores raw resource tokens.",
         command: dataPlaneSmokeCommands.liveDocReadCommand,
         issues: readyForDataPlane ? [] : dataPlaneIssues,
       },
@@ -5675,7 +5675,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: approve a small Doc write",
         status: readyForDataPlane ? "pending" : "blocked",
-        detail: "Create a governed Doc append approval from CLI, review the returned approval id through the same AgentSpace approval execution path, then verify payload hash check, Feishu write, and safe result summary.",
+        detail: "Create a governed Doc append approval from CLI, review the returned approval id through the same DofeAgent approval execution path, then verify payload hash check, Feishu write, and safe result summary.",
         command: dataPlaneSmokeCommands.liveDocWriteCommand,
         issues: readyForDataPlane ? [] : dataPlaneIssues,
       },
@@ -5684,7 +5684,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: read bound Feishu Sheet",
         status: readyForDataPlane ? "pending" : "blocked",
-        detail: "Read a small bound Sheet range through AgentSpace and verify the operation run uses an active resource binding, records Feishu governance context with agentId, botBindingId, and actor provenance, stores only safe resource references plus a safe summary, and never stores raw resource tokens.",
+        detail: "Read a small bound Sheet range through DofeAgent and verify the operation run uses an active resource binding, records Feishu governance context with agentId, botBindingId, and actor provenance, stores only safe resource references plus a safe summary, and never stores raw resource tokens.",
         command: dataPlaneSmokeCommands.liveSheetReadCommand,
         issues: readyForDataPlane ? [] : dataPlaneIssues,
       },
@@ -5693,7 +5693,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: approve a small Sheet write",
         status: readyForDataPlane ? "pending" : "blocked",
-        detail: "Create a governed Sheet write approval from CLI, review the returned approval id through the same AgentSpace approval execution path, then verify payload hash check, Feishu write, AgentSpace data table sync, and safe result summary.",
+        detail: "Create a governed Sheet write approval from CLI, review the returned approval id through the same DofeAgent approval execution path, then verify payload hash check, Feishu write, DofeAgent data table sync, and safe result summary.",
         command: dataPlaneSmokeCommands.liveSheetWriteCommand,
         issues: readyForDataPlane ? [] : dataPlaneIssues,
       },
@@ -5702,7 +5702,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: preview and update one Base record",
         status: readyForDataPlane ? "pending" : "blocked",
-        detail: "Read Base records through an active resource binding with Feishu governance context, agentId, botBindingId, actor provenance, safe resource references, and no raw resource tokens; then create a governed Base update approval from CLI, review the returned approval id through the same AgentSpace approval execution path, and verify approvalId, payload hash check, Feishu Base update, operation run, and AgentSpace data table sync succeed.",
+        detail: "Read Base records through an active resource binding with Feishu governance context, agentId, botBindingId, actor provenance, safe resource references, and no raw resource tokens; then create a governed Base update approval from CLI, review the returned approval id through the same DofeAgent approval execution path, and verify approvalId, payload hash check, Feishu Base update, operation run, and DofeAgent data table sync succeed.",
         command: dataPlaneSmokeCommands.liveBaseCommand,
         issues: readyForDataPlane ? [] : dataPlaneIssues,
       },
@@ -5711,7 +5711,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: run isolated Feishu callback and OpenAPI harness",
         status: readyForDataPlane ? "pending" : "blocked",
-        detail: `Run the throwaway smoke harness after check-env passes. It must pass ${smokeHarness.requiredLiveSteps} live checks, including destructive writes for ${smokeHarness.destructiveLiveStepNames.join(", ")}, before saving the redacted OpenAPI evidence artifact consumed by the final AgentSpace evidence gate. Regenerate it if final evidence will run more than 24 hours later.`,
+        detail: `Run the throwaway smoke harness after check-env passes. It must pass ${smokeHarness.requiredLiveSteps} live checks, including destructive writes for ${smokeHarness.destructiveLiveStepNames.join(", ")}, before saving the redacted OpenAPI evidence artifact consumed by the final DofeAgent evidence gate. Regenerate it if final evidence will run more than 24 hours later.`,
         command: smokeHarness.strictLiveCommand,
         issues: readyForDataPlane ? [] : dataPlaneIssues,
       },
@@ -5730,16 +5730,16 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         title: "Live smoke: verify visible provider failure",
         status: hasActiveIntegration ? "pending" : "blocked",
         detail: "Temporarily revoke a Feishu scope, use a wrong secret, or stop Feishu API access, then refresh health and verify a failed outbox/data-operation row plus degraded/error health are visible with agent/bot and safe chat/resource context, without leaking secrets.",
-        command: `agent-space integrations feishu health-check --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --json`,
+        command: `dofe-agent integrations feishu health-check --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --json`,
         issues: activeIntegrationIssues,
       },
       {
-        id: "verify_agentspace_live_evidence",
+        id: "verify_dofe-agent_live_evidence",
         area: "failure",
-        title: "Verify AgentSpace-side Feishu live smoke evidence",
+        title: "Verify DofeAgent-side Feishu live smoke evidence",
         status: finalEvidenceReady ? "pending" : "blocked",
-        detail: "After live native agent bot, guest-policy, data-plane, worker when using websocket_worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires two Phase 6-ready agent bot bindings, agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration with sent card proof, bot sender loop guard, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, sent identity-binding notice, ignore, and mention-required decisions. Local AgentSpace evidence rows plus OpenAPI and bot-added artifacts must all be generated within 24 hours.",
-        command: `agent-space integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all`,
+        detail: "After live native agent bot, guest-policy, data-plane, worker when using websocket_worker, and failure smoke, verify local DofeAgent DB evidence without exposing external ids or resource tokens. Native evidence requires two Phase 6-ready agent bot bindings, agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration with sent card proof, bot sender loop guard, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, sent identity-binding notice, ignore, and mention-required decisions. Local DofeAgent evidence rows plus OpenAPI and bot-added artifacts must all be generated within 24 hours.",
+        command: `dofe-agent integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --bot-added-payload-evidence ${smokeHarness.botAddedPayloadEvidencePath} --strict --require all`,
         issues: finalEvidenceIssues,
       },
   ];
@@ -5776,7 +5776,7 @@ export function getFeishuSmokePlanExitCode(
 
 export function formatFeishuSmokePlanCommandText(report: FeishuSmokePlanReport): string {
   const lines = [
-    "AgentSpace Feishu smoke plan",
+    "DofeAgent Feishu smoke plan",
     `Workspace: ${report.workspaceId}`,
     `Required readiness: ${report.requiredReadiness}`,
     `Strict readiness satisfied: ${report.strictSatisfied ? "yes" : "no"}`,
@@ -5821,7 +5821,7 @@ export function formatFeishuSmokePlanCommandText(report: FeishuSmokePlanReport):
     }
   }
 
-  const finalEvidenceStep = report.steps.find((step) => step.id === "verify_agentspace_live_evidence");
+  const finalEvidenceStep = report.steps.find((step) => step.id === "verify_dofe-agent_live_evidence");
   lines.push(
     "",
     "Smoke commands:",
@@ -5832,7 +5832,7 @@ export function formatFeishuSmokePlanCommandText(report: FeishuSmokePlanReport):
     `- verify bot-added payload: ${report.smokeHarness.verifyBotAddedPayloadCommand}`,
   );
   if (finalEvidenceStep?.command) {
-    lines.push(`- final AgentSpace evidence: ${finalEvidenceStep.command}`);
+    lines.push(`- final DofeAgent evidence: ${finalEvidenceStep.command}`);
   }
   lines.push("", "Use --json for machine-readable blockers, evidence gates, and the full step list.");
 
@@ -5924,23 +5924,23 @@ function describeFeishuSmokePlanIssueNextAction(issue: string): string {
   }
   switch (issue) {
     case "credential_encryption_key_missing":
-      return "Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY or AGENT_SPACE_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY to a base64-encoded 32-byte key before binding Feishu app credentials.";
+      return "Set DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY or DOFE_AGENT_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY to a base64-encoded 32-byte key before binding Feishu app credentials.";
     case "credential_encryption_key_invalid":
-      return "Replace the configured AgentSpace credential encryption key with a valid base64-encoded 32-byte key before binding Feishu app credentials.";
+      return "Replace the configured DofeAgent credential encryption key with a valid base64-encoded 32-byte key before binding Feishu app credentials.";
     case "integration_missing":
-      return "Create or bind an active Feishu agent bot integration in AgentSpace with App ID and App Secret.";
+      return "Create or bind an active Feishu agent bot integration in DofeAgent with App ID and App Secret.";
     case "integration_not_active":
       return "Re-enable the intended Feishu agent bot binding or create a fresh active binding before live smoke.";
     case "active_agent_bot_integration_missing":
-      return "Bind a Feishu custom app to a concrete AgentSpace agent; active workspace-level Feishu records cannot be used as TODO120 agent bot evidence.";
+      return "Bind a Feishu custom app to a concrete DofeAgent agent; active workspace-level Feishu records cannot be used as TODO120 agent bot evidence.";
     case "selected_integration_missing":
       return "Rerun smoke-plan without --integration or pass an existing Feishu agent bot binding id.";
     case "selected_integration_not_active":
       return "Select an active Feishu integration or re-enable the selected binding before generating smoke env values.";
     case "selected_integration_not_agent_bot":
-      return "Select an active agent-scoped Feishu bot binding or bind this Feishu app to a concrete AgentSpace agent before live smoke.";
+      return "Select an active agent-scoped Feishu bot binding or bind this Feishu app to a concrete DofeAgent agent before live smoke.";
     case "app_url_missing":
-      return "Pass --app-url with the public AgentSpace HTTPS URL so callback URLs can be generated.";
+      return "Pass --app-url with the public DofeAgent HTTPS URL so callback URLs can be generated.";
     case "app_id_missing":
       return "Save the Feishu App ID on the selected agent bot binding.";
     case "credentials_incomplete":
@@ -5954,17 +5954,17 @@ function describeFeishuSmokePlanIssueNextAction(issue: string): string {
     case "channel_binding_missing":
       return "Add the Feishu bot to a group to auto-provision a channel, or use bind-channel as a manual fallback.";
     case "user_binding_missing":
-      return "Bind at least one Feishu sender to an AgentSpace user for bound-user smoke and audit evidence.";
+      return "Bind at least one Feishu sender to an DofeAgent user for bound-user smoke and audit evidence.";
     case "doc_resource_binding_missing":
-      return "Bind a Feishu Doc to the AgentSpace channel before Docs data-plane smoke.";
+      return "Bind a Feishu Doc to the DofeAgent channel before Docs data-plane smoke.";
     case "doc_resource_write_grant_missing":
       return "Enable write permission on the bound Feishu Doc resource before approved write smoke.";
     case "sheet_resource_binding_missing":
-      return "Bind a Feishu Sheet to the AgentSpace channel before Sheets data-plane smoke.";
+      return "Bind a Feishu Sheet to the DofeAgent channel before Sheets data-plane smoke.";
     case "sheet_resource_write_grant_missing":
       return "Enable write permission on the bound Feishu Sheet resource before approved write smoke.";
     case "base_resource_binding_missing":
-      return "Bind a Feishu Base table to the AgentSpace channel before Base data-plane smoke.";
+      return "Bind a Feishu Base table to the DofeAgent channel before Base data-plane smoke.";
     case "base_resource_app_token_missing":
       return "Add the Base app token/table metadata required for a data-plane-ready Base binding.";
     case "base_resource_write_grant_missing":
@@ -5972,13 +5972,13 @@ function describeFeishuSmokePlanIssueNextAction(issue: string): string {
     case "websocket_worker_integration_missing":
       return "Use an active websocket_worker Feishu agent bot binding before running WebSocket worker smoke.";
     case "second_agent_bot_missing":
-      return "Create a second disposable Feishu app and bind it to a different AgentSpace agent.";
+      return "Create a second disposable Feishu app and bind it to a different DofeAgent agent.";
     case "second_agent_bot_not_ready":
       return "Make two agent-scoped Feishu bot bindings Phase 6-ready: active, credentialed, health-checked, scoped, and without unresolved outbox failures.";
     case "second_agent_bot_distinct_agent_missing":
-      return "Bind the second Feishu bot to a different AgentSpace agent.";
+      return "Bind the second Feishu bot to a different DofeAgent agent.";
     case "second_agent_bot_distinct_app_missing":
-      return "Use a different Feishu App ID for the second AgentSpace agent bot.";
+      return "Use a different Feishu App ID for the second DofeAgent agent bot.";
     default:
       return "Resolve this smoke-plan issue, rerun readiness, then regenerate smoke-plan.";
   }
@@ -6020,8 +6020,8 @@ function buildFeishuSmokePlanEvidenceGates(input: {
       required: FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS.failureVisibility,
     },
     {
-      key: "agentspace_local_evidence",
-      required: "fresh_24h_agentspace_local_evidence_rows",
+      key: "dofe-agent_local_evidence",
+      required: "fresh_24h_dofe-agent_local_evidence_rows",
     },
     {
       key: "openapi_artifact",
@@ -6580,8 +6580,8 @@ function readFeishuMatchedIdentityIntegrationId(
 
 function hasFeishuApprovedDataTableWriteSyncEvidence(operation: ExternalDataOperationRunRecord): boolean {
   const result = readJsonRecord(operation.resultJson);
-  const agentSpaceSync = isRecord(result?.agentSpaceSync) ? result.agentSpaceSync : undefined;
-  return agentSpaceSync?.dataTableLastApprovedWriteSynced === true;
+  const dofeAgentSync = isRecord(result?.dofeAgentSync) ? result.dofeAgentSync : undefined;
+  return dofeAgentSync?.dataTableLastApprovedWriteSynced === true;
 }
 
 function hasFeishuAgentBotGovernedWriteContext(operation: ExternalDataOperationRunRecord): boolean {
@@ -6783,7 +6783,7 @@ function countFeishuSentAgentBotReplyOutboxEvidence(outbox: readonly ExternalMes
     }
     if (
       !hasNonEmptyString(item.channelBindingId) ||
-      !hasNonEmptyString(item.agentSpaceMessageId) ||
+      !hasNonEmptyString(item.dofeAgentMessageId) ||
       !hasNonEmptyString(item.targetExternalThreadId)
     ) {
       return false;
@@ -7098,7 +7098,7 @@ function buildFeishuEvidenceIssues(input: {
     } else if (input.sheetApprovedWritesSucceeded === 0) {
       issues.push("sheet_write_approval_evidence_missing");
     } else if (input.sheetApprovedWriteSyncSucceeded === 0) {
-      issues.push("sheet_write_agentspace_sync_evidence_missing");
+      issues.push("sheet_write_dofe-agent_sync_evidence_missing");
     }
     if (input.baseReadSucceeded === 0) {
       issues.push("base_read_evidence_missing");
@@ -7108,7 +7108,7 @@ function buildFeishuEvidenceIssues(input: {
     } else if (input.baseApprovedMutationsSucceeded === 0) {
       issues.push("base_mutate_approval_evidence_missing");
     } else if (input.baseApprovedMutationSyncSucceeded === 0) {
-      issues.push("base_mutate_agentspace_sync_evidence_missing");
+      issues.push("base_mutate_dofe-agent_sync_evidence_missing");
     }
     if (input.userActorEvidence === 0) {
       issues.push("user_actor_data_operation_evidence_missing");
@@ -7213,21 +7213,21 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "enable_agent_bot_binding",
         title: "Live smoke: use an active Feishu agent bot binding",
-        detail: "Final evidence must be captured through an active AgentSpace Feishu agent bot binding. Re-enable the intended binding or create a fresh active agent bot binding before rerunning smoke-plan, live smoke, and the final evidence gate.",
+        detail: "Final evidence must be captured through an active DofeAgent Feishu agent bot binding. Re-enable the intended binding or create a fresh active agent bot binding before rerunning smoke-plan, live smoke, and the final evidence gate.",
       };
     case "integration_not_agent_bot":
       return {
         stepId: "bind_feishu_agent_bot",
-        title: "Live smoke: bind Feishu to a concrete AgentSpace agent",
-        detail: "Final evidence cannot use a workspace-level Feishu integration as the bot identity. Bind a Feishu custom app to the concrete AgentSpace agent that users will mention in Feishu.",
-        command: `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${input.integration.agentId ?? FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
+        title: "Live smoke: bind Feishu to a concrete DofeAgent agent",
+        detail: "Final evidence cannot use a workspace-level Feishu integration as the bot identity. Bind a Feishu custom app to the concrete DofeAgent agent that users will mention in Feishu.",
+        command: `dofe-agent integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${input.integration.agentId ?? FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
       };
     case "stale_local_evidence_rows_ignored":
       return {
-        stepId: "rerun_fresh_agentspace_live_smoke",
-        title: "Live smoke: rerun stale AgentSpace evidence steps",
-        detail: "The final evidence gate only counts local AgentSpace DB evidence rows from the last 24 hours. Rerun the native bot, guest-policy, data-plane, worker when using websocket_worker, and failure smoke steps, then rerun the final evidence gate.",
-        command: `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId} --integration ${input.integration.id}`,
+        stepId: "rerun_fresh_dofe-agent_live_smoke",
+        title: "Live smoke: rerun stale DofeAgent evidence steps",
+        detail: "The final evidence gate only counts local DofeAgent DB evidence rows from the last 24 hours. Rerun the native bot, guest-policy, data-plane, worker when using websocket_worker, and failure smoke steps, then rerun the final evidence gate.",
+        command: `dofe-agent integrations feishu smoke-plan --workspace-id ${input.workspaceId} --integration ${input.integration.id}`,
       };
     case "processed_inbound_event_missing":
     case "inbound_message_mapping_missing":
@@ -7237,132 +7237,132 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_bot_message_reply",
         title: "Live smoke: @Agent in Feishu and verify reply",
-        detail: "Send a message in the bound Feishu group mentioning the concrete agent bot, then verify the final evidence sees a processed safe inbound summary, a sent Feishu agent_reply outbox with agentId, botBindingId, AgentSpace message/channel binding, safe chat/thread references, and a same-bot correlated reply mapping in the same Feishu thread.",
+        detail: "Send a message in the bound Feishu group mentioning the concrete agent bot, then verify the final evidence sees a processed safe inbound summary, a sent Feishu agent_reply outbox with agentId, botBindingId, DofeAgent message/channel binding, safe chat/thread references, and a same-bot correlated reply mapping in the same Feishu thread.",
       };
     case "agent_bot_route_evidence_missing":
     case "bound_user_bot_mention_evidence_missing":
       return {
         stepId: "live_agent_bot_direct_mention",
-        title: "Live smoke: @agent bot routes to its AgentSpace agent",
-        detail: "From a bound Feishu user, mention the agent-specific Feishu bot in a group and verify AgentSpace records actorType=user, actorUserId, safe audit references, and a sent inbound mapping with agentId, botBindingId, task, and message evidence.",
+        title: "Live smoke: @agent bot routes to its DofeAgent agent",
+        detail: "From a bound Feishu user, mention the agent-specific Feishu bot in a group and verify DofeAgent records actorType=user, actorUserId, safe audit references, and a sent inbound mapping with agentId, botBindingId, task, and message evidence.",
       };
     case "external_guest_bot_mention_evidence_missing":
       return {
         stepId: "live_external_guest_agent_bot_mention",
         title: "Live smoke: unbound Feishu user routes as external guest",
-        detail: "From an unbound Feishu user, mention the agent-specific bot and verify AgentSpace records actorType=external_guest, permissionProfile=channel_context_only, no userId/actorUserId, task/message dispatch, safe audit references, and no raw Feishu user ids.",
+        detail: "From an unbound Feishu user, mention the agent-specific bot and verify DofeAgent records actorType=external_guest, permissionProfile=channel_context_only, no userId/actorUserId, task/message dispatch, safe audit references, and no raw Feishu user ids.",
         command: externalGuestPolicyCommands.replyOnMentionCommand,
       };
     case "external_guest_policy_allow_evidence_missing":
       return {
         stepId: "live_external_guest_agent_bot_mention",
         title: "Live smoke: unbound Feishu user routes as external guest",
-        detail: "From an unbound Feishu user, mention the agent-specific bot and verify AgentSpace records external_guest policy allow metadata plus low-permission task/message dispatch with permissionProfile=channel_context_only and no userId/actorUserId.",
+        detail: "From an unbound Feishu user, mention the agent-specific bot and verify DofeAgent records external_guest policy allow metadata plus low-permission task/message dispatch with permissionProfile=channel_context_only and no userId/actorUserId.",
         command: externalGuestPolicyCommands.replyOnMentionCommand,
       };
     case "external_guest_policy_reply_all_evidence_missing":
       return {
         stepId: "live_external_guest_reply_all",
         title: "Live smoke: external guest reply_all dispatches without mention",
-        detail: `Set the agent bot external guest policy to reply_all, send an unbound Feishu message without mentioning the bot, and verify AgentSpace records the reply_all allow decision plus the low-permission task dispatch. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `Set the agent bot external guest policy to reply_all, send an unbound Feishu message without mentioning the bot, and verify DofeAgent records the reply_all allow decision plus the low-permission task dispatch. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.replyAllCommand,
       };
     case "external_guest_policy_require_identity_evidence_missing":
       return {
         stepId: "live_external_guest_identity_required",
         title: "Live smoke: external guest is asked to bind identity",
-        detail: `Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, and verify AgentSpace records the require_identity decision and sends the binding notice with externalGuestReference, permissionProfile=none, and no raw Feishu open_id/union_id. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, and verify DofeAgent records the require_identity decision and sends the binding notice with externalGuestReference, permissionProfile=none, and no raw Feishu open_id/union_id. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.requireIdentityCommand,
       };
     case "external_guest_identity_binding_notice_evidence_missing":
       return {
         stepId: "live_external_guest_identity_required",
         title: "Live smoke: external guest identity notice is sent",
-        detail: `Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, drain the Feishu outbox, and verify AgentSpace records a sent identity-binding notice correlated to that ignored inbound message with externalGuestReference, permissionProfile=none, and no raw Feishu open_id/union_id. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, drain the Feishu outbox, and verify DofeAgent records a sent identity-binding notice correlated to that ignored inbound message with externalGuestReference, permissionProfile=none, and no raw Feishu open_id/union_id. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.requireIdentityCommand,
       };
     case "external_guest_policy_ignore_evidence_missing":
       return {
         stepId: "live_external_guest_reply_disabled",
         title: "Live smoke: external guest replies can be disabled",
-        detail: `Set the agent bot external guest policy to ignore with permissionProfile=none, mention the bot from an unbound Feishu user, and verify AgentSpace records the ignore decision without dispatching a task or reply. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `Set the agent bot external guest policy to ignore with permissionProfile=none, mention the bot from an unbound Feishu user, and verify DofeAgent records the ignore decision without dispatching a task or reply. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.ignoreCommand,
       };
     case "external_guest_policy_mention_required_evidence_missing":
       return {
         stepId: "live_unmentioned_guest_message_ignored",
         title: "Live smoke: unmentioned guest message is ignored",
-        detail: "With reply_on_mention enabled, send an unbound Feishu message that does not mention the agent bot and verify AgentSpace records the bot-mention-required decision without dispatching.",
+        detail: "With reply_on_mention enabled, send an unbound Feishu message that does not mention the agent bot and verify DofeAgent records the bot-mention-required decision without dispatching.",
         command: externalGuestPolicyCommands.replyOnMentionCommand,
       };
     case "agent_channel_policy_disabled_evidence_missing":
       return {
         stepId: "live_agent_channel_policy_disabled",
         title: "Live smoke: disabled agent/channel policy blocks replies",
-        detail: `Disable the agent's channel-member access, mention the Feishu agent bot, and verify AgentSpace records the policy denial without writing a channel message, queueing a task, or sending a bot reply. Restore after this smoke step with: ${agentChannelAccessCommands.restoreCommand}`,
+        detail: `Disable the agent's channel-member access, mention the Feishu agent bot, and verify DofeAgent records the policy denial without writing a channel message, queueing a task, or sending a bot reply. Restore after this smoke step with: ${agentChannelAccessCommands.restoreCommand}`,
         command: agentChannelAccessCommands.disableCommand,
       };
     case "channel_auto_provision_evidence_missing":
       return {
         stepId: "live_agent_bot_channel_auto_provision",
         title: "Live smoke: agent bot auto-provisions channel",
-        detail: "Add the agent bot to a new Feishu group or send a first mentioned message in an unbound group, then verify the channel binding records an AgentSpace channel name, review status, and safe chat reference with bot_added or first_message auto-provisioning.",
+        detail: "Add the agent bot to a new Feishu group or send a first mentioned message in an unbound group, then verify the channel binding records an DofeAgent channel name, review status, and safe chat reference with bot_added or first_message auto-provisioning.",
       };
     case "bot_added_auto_provision_evidence_missing":
       return {
         stepId: "live_agent_bot_channel_auto_provision",
         title: "Live smoke: agent bot auto-provisions channel",
-        detail: "Add the agent bot to a new Feishu group and verify the channel binding records provisionSource=bot_added with AgentSpace channel identity, review status, and safe chat reference metadata.",
+        detail: "Add the agent bot to a new Feishu group and verify the channel binding records provisionSource=bot_added with DofeAgent channel identity, review status, and safe chat reference metadata.",
       };
     case "first_message_auto_provision_evidence_missing":
       return {
         stepId: "live_agent_bot_first_message_auto_provision",
         title: "Live smoke: first mentioned message provisions channel",
-        detail: "Send the first mentioned message from an unbound Feishu group and verify AgentSpace records provisionSource=first_message with AgentSpace channel identity, review status, and safe chat reference metadata.",
+        detail: "Send the first mentioned message from an unbound Feishu group and verify DofeAgent records provisionSource=first_message with DofeAgent channel identity, review status, and safe chat reference metadata.",
       };
     case "multi_agent_channel_reuse_evidence_missing":
       return {
         stepId: "live_multi_agent_bot_channel_reuse",
         title: "Live smoke: second agent bot reuses channel",
-        detail: "Add a second agent bot to the same Feishu group and verify AgentSpace adds that agent to the existing channel with a distinct linkedFromBindingId plus different linkedFromAgentId/linkedFromBotBindingId metadata instead of creating a duplicate channel.",
+        detail: "Add a second agent bot to the same Feishu group and verify DofeAgent adds that agent to the existing channel with a distinct linkedFromBindingId plus different linkedFromAgentId/linkedFromBotBindingId metadata instead of creating a duplicate channel.",
       };
     case "thread_task_binding_evidence_missing":
       return {
         stepId: "live_feishu_thread_task_binding",
-        title: "Live smoke: Feishu thread binds to AgentSpace task",
-        detail: "Mention the agent bot in a Feishu thread and verify AgentSpace records the thread binding with taskQueueId, agentSpaceMessageId, agentId, and botBindingId.",
+        title: "Live smoke: Feishu thread binds to DofeAgent task",
+        detail: "Mention the agent bot in a Feishu thread and verify DofeAgent records the thread binding with taskQueueId, dofeAgentMessageId, agentId, and botBindingId.",
       };
     case "thread_continuation_evidence_missing":
       return {
         stepId: "live_feishu_thread_continuation",
         title: "Live smoke: Feishu thread follow-up continues without re-mention",
-        detail: "After a mentioned agent bot message creates a Feishu thread binding, send a follow-up in the same Feishu thread without mentioning the bot and verify AgentSpace records threadContinuation=true with taskQueueId, agentSpaceMessageId, agentId, botBindingId, and the same active thread binding reference.",
+        detail: "After a mentioned agent bot message creates a Feishu thread binding, send a follow-up in the same Feishu thread without mentioning the bot and verify DofeAgent records threadContinuation=true with taskQueueId, dofeAgentMessageId, agentId, botBindingId, and the same active thread binding reference.",
       };
     case "thread_collaboration_evidence_missing":
     case "thread_collaboration_card_evidence_missing":
       return {
         stepId: "live_multi_agent_thread_collaboration",
         title: "Live smoke: second agent bot joins an active thread",
-        detail: "Mention one agent bot in a Feishu thread, then mention a second agent bot in that same thread and verify AgentSpace keeps separate thread bindings, records threadCollaboration=true with collaborator agent ids and bot binding ids, and sends a collaboration card that matches the active thread binding without raw Feishu ids.",
+        detail: "Mention one agent bot in a Feishu thread, then mention a second agent bot in that same thread and verify DofeAgent keeps separate thread bindings, records threadCollaboration=true with collaborator agent ids and bot binding ids, and sends a collaboration card that matches the active thread binding without raw Feishu ids.",
       };
     case "bot_sender_loop_guard_evidence_missing":
       return {
         stepId: "live_multi_agent_thread_collaboration",
         title: "Live smoke: second agent bot joins an active thread",
-        detail: "Mention one agent bot in a Feishu thread, then have another registered agent bot reply or mention it in the same group; verify AgentSpace records feishu_bot_sender_ignored without dispatching a task or leaking raw Feishu ids.",
+        detail: "Mention one agent bot in a Feishu thread, then have another registered agent bot reply or mention it in the same group; verify DofeAgent records feishu_bot_sender_ignored without dispatching a task or leaking raw Feishu ids.",
       };
     case "doc_read_evidence_missing":
       return {
         stepId: "live_doc_read",
         title: "Live smoke: read bound Feishu Doc",
-        detail: "Run the AgentSpace data-operation Doc read smoke so a succeeded, non-runtime Doc read operation is recorded with active resource binding, Feishu governance context, agentId, botBindingId, actor provenance, safe resource references, and no raw resource tokens.",
+        detail: "Run the DofeAgent data-operation Doc read smoke so a succeeded, non-runtime Doc read operation is recorded with active resource binding, Feishu governance context, agentId, botBindingId, actor provenance, safe resource references, and no raw resource tokens.",
         command: dataPlaneCommands.liveDocReadCommand,
       };
     case "agent_doc_read_evidence_missing":
       return {
         stepId: "live_agent_bound_doc_summary",
         title: "Live smoke: @Agent summarizes a bound Feishu Doc",
-        detail: "Ask an Agent from the bound Feishu group to summarize the already-bound Doc so AgentSpace records the lark-cli result-manifest Doc read evidence.",
+        detail: "Ask an Agent from the bound Feishu group to summarize the already-bound Doc so DofeAgent records the lark-cli result-manifest Doc read evidence.",
       };
     case "doc_write_evidence_missing":
     case "doc_write_approval_evidence_missing":
@@ -7376,33 +7376,33 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_sheet_read",
         title: "Live smoke: read bound Feishu Sheet",
-        detail: "Run the AgentSpace data-operation Sheet read smoke so a succeeded safe range preview is recorded with active resource binding, Feishu governance context, agentId, botBindingId, actor provenance, safe resource references, and no raw resource tokens.",
+        detail: "Run the DofeAgent data-operation Sheet read smoke so a succeeded safe range preview is recorded with active resource binding, Feishu governance context, agentId, botBindingId, actor provenance, safe resource references, and no raw resource tokens.",
         command: dataPlaneCommands.liveSheetReadCommand,
       };
     case "sheet_write_evidence_missing":
     case "sheet_write_approval_evidence_missing":
-    case "sheet_write_agentspace_sync_evidence_missing":
+    case "sheet_write_dofe-agent_sync_evidence_missing":
       return {
         stepId: "live_sheet_write_with_approval",
         title: "Live smoke: approve a small Sheet write",
-        detail: "Create and approve the governed Sheet write smoke so the operation run carries approvalId, SHA-256 payloadHash, approved policy metadata, active resource binding, and AgentSpace syncs the bound data table preview from the approved write result.",
+        detail: "Create and approve the governed Sheet write smoke so the operation run carries approvalId, SHA-256 payloadHash, approved policy metadata, active resource binding, and DofeAgent syncs the bound data table preview from the approved write result.",
         command: dataPlaneCommands.liveSheetWriteCommand,
       };
     case "base_read_evidence_missing":
     case "base_mutate_evidence_missing":
     case "base_mutate_approval_evidence_missing":
-    case "base_mutate_agentspace_sync_evidence_missing":
+    case "base_mutate_dofe-agent_sync_evidence_missing":
       return {
         stepId: "live_base_preview_and_update",
         title: "Live smoke: preview and update one Base record",
-        detail: "Run the Base preview plus approved Base update smoke so AgentSpace records safe read evidence with active resource binding, Feishu governance context, agentId, botBindingId, actor provenance, safe resource references, and no raw resource tokens, plus approvalId, SHA-256 payloadHash, Feishu Base write evidence, and approved data-table sync evidence.",
+        detail: "Run the Base preview plus approved Base update smoke so DofeAgent records safe read evidence with active resource binding, Feishu governance context, agentId, botBindingId, actor provenance, safe resource references, and no raw resource tokens, plus approvalId, SHA-256 payloadHash, Feishu Base write evidence, and approved data-table sync evidence.",
         command: dataPlaneCommands.liveBaseCommand,
       };
     case "user_actor_data_operation_evidence_missing":
       return {
         stepId: "live_bound_user_data_operation",
         title: "Live smoke: bound Feishu user data operation",
-        detail: "Bind one Feishu user to an AgentSpace user, then ask that user to trigger a governed Doc/Sheet/Base operation so the run records governanceContext.actorType=user.",
+        detail: "Bind one Feishu user to an DofeAgent user, then ask that user to trigger a governed Doc/Sheet/Base operation so the run records governanceContext.actorType=user.",
         command: dataPlaneCommands.liveDocReadCommand,
       };
     case "external_guest_actor_data_operation_evidence_missing":
@@ -7410,7 +7410,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_external_guest_read_guest_readable",
         title: "Live smoke: external guest reads guest-readable resource",
-        detail: "From an unbound Feishu user, ask an agent bot to read a guest-readable resource bound to the current channel and verify AgentSpace records permissionProfile=channel_context_only plus externalGuestResourceAccess=guest_readable_current_channel.",
+        detail: "From an unbound Feishu user, ask an agent bot to read a guest-readable resource bound to the current channel and verify DofeAgent records permissionProfile=channel_context_only plus externalGuestResourceAccess=guest_readable_current_channel.",
         command: [
           externalGuestPolicyCommands.replyOnMentionCommand,
           dataPlaneCommands.liveDocReadCommand,
@@ -7420,7 +7420,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_external_guest_write_denied",
         title: "Live smoke: external guest write is denied",
-        detail: `From an unbound Feishu user, ask an agent bot to write a bound Sheet/Base resource and verify AgentSpace records external_guest governance with permissionProfile=none or permissionProfile=channel_context_only on the bound write operation plus the identity-required denial. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `From an unbound Feishu user, ask an agent bot to write a bound Sheet/Base resource and verify DofeAgent records external_guest governance with permissionProfile=none or permissionProfile=channel_context_only on the bound write operation plus the identity-required denial. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: [
           externalGuestPolicyCommands.requireIdentityCommand,
           dataPlaneCommands.liveSheetWriteCommand,
@@ -7430,7 +7430,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_websocket_receive_message",
         title: "Live smoke: receive Feishu message through WebSocket worker",
-        detail: "Start the self-hosted WebSocket worker, send a bound Feishu message, and verify the AgentSpace task/reply path runs without the HTTP callback route.",
+        detail: "Start the self-hosted WebSocket worker, send a bound Feishu message, and verify the DofeAgent task/reply path runs without the HTTP callback route.",
         command: workerHarness.startCommand,
       };
     case "websocket_worker_restart_evidence_missing":
@@ -7444,7 +7444,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_websocket_receive_message",
         title: "Live smoke: receive Feishu message through WebSocket worker",
-        detail: "Trigger one approval card action through the self-hosted worker so AgentSpace proves card-button governance without a public callback URL.",
+        detail: "Trigger one approval card action through the self-hosted worker so DofeAgent proves card-button governance without a public callback URL.",
         command: workerHarness.startCommand,
       };
     case "provider_failure_evidence_missing":
@@ -7455,7 +7455,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         stepId: "live_failure_visibility",
         title: "Live smoke: verify visible provider failure",
         detail: "Temporarily use a wrong agent bot secret, revoke a required scope, or force a failed agent-bot outbox/data operation, then refresh Feishu health until degraded/error status and a provider failure row with agentId, botBindingId, and safe chat/resource context are both visible.",
-        command: `agent-space integrations feishu health-check --workspace-id ${input.workspaceId} --integration ${input.integration.id} --json`,
+        command: `dofe-agent integrations feishu health-check --workspace-id ${input.workspaceId} --integration ${input.integration.id} --json`,
       };
     default:
       return undefined;
@@ -7586,14 +7586,14 @@ function countFeishuAgentBotRouteEvidence(
   mappings: readonly ExternalMessageMappingRecord[],
 ): number {
   return mappings.filter((mapping) => {
-    if (mapping.direction !== "inbound" || !mapping.taskQueueId || !mapping.agentSpaceMessageId) {
+    if (mapping.direction !== "inbound" || !mapping.taskQueueId || !mapping.dofeAgentMessageId) {
       return false;
     }
     const metadata = readJsonRecord(mapping.metadataJson);
     return metadata?.provider === FEISHU_PROVIDER_ID &&
       metadata.dispatchStatus === "sent" &&
       hasFeishuSafeInboundMessageContext(metadata) &&
-      hasNoFeishuAgentSpaceCommandRoute(metadata) &&
+      hasNoFeishuDofeAgentCommandRoute(metadata) &&
       metadata.agentBotMentioned === true &&
       hasFeishuMessageMappingAgentBotContext(mapping, metadata);
   }).length;
@@ -7604,7 +7604,7 @@ function countFeishuNativeActorMentionEvidence(
   actorType: "user" | "external_guest",
 ): number {
   return mappings.filter((mapping) => {
-    if (mapping.direction !== "inbound" || !mapping.taskQueueId || !mapping.agentSpaceMessageId) {
+    if (mapping.direction !== "inbound" || !mapping.taskQueueId || !mapping.dofeAgentMessageId) {
       return false;
     }
     const metadata = readJsonRecord(mapping.metadataJson);
@@ -7612,7 +7612,7 @@ function countFeishuNativeActorMentionEvidence(
       metadata?.provider !== FEISHU_PROVIDER_ID ||
       metadata.dispatchStatus !== "sent" ||
       !hasFeishuSafeInboundMessageContext(metadata) ||
-      !hasNoFeishuAgentSpaceCommandRoute(metadata) ||
+      !hasNoFeishuDofeAgentCommandRoute(metadata) ||
       metadata.agentBotMentioned !== true ||
       metadata.actorType !== actorType ||
       !hasFeishuMessageMappingAgentBotContext(mapping, metadata)
@@ -7642,7 +7642,7 @@ function countFeishuAgentChannelPolicyDeniedEvidence(
     "feishu_agent_runtime_unavailable_to_actor",
   ]);
   return mappings.filter((mapping) => {
-    if (mapping.direction !== "inbound" || mapping.taskQueueId || mapping.agentSpaceMessageId) {
+    if (mapping.direction !== "inbound" || mapping.taskQueueId || mapping.dofeAgentMessageId) {
       return false;
     }
     const metadata = readJsonRecord(mapping.metadataJson);
@@ -7651,7 +7651,7 @@ function countFeishuAgentChannelPolicyDeniedEvidence(
       metadata.dispatchStatus === "ignored" &&
       hasFeishuMessageMappingAgentBotContext(mapping, metadata) &&
       hasFeishuSafeInboundMessageContext(metadata) &&
-      hasNoFeishuAgentSpaceCommandRoute(metadata) &&
+      hasNoFeishuDofeAgentCommandRoute(metadata) &&
       hasNoFeishuRawExternalLocationContext(metadata) &&
       hasNoFeishuRawProviderIdentityContext(metadata) &&
       metadata.agentBotMentioned === true &&
@@ -7680,19 +7680,19 @@ function hasFeishuCorrelatedOutboundReply(
   });
 }
 
-function hasNoFeishuAgentSpaceCommandRoute(metadata: Record<string, unknown>): boolean {
+function hasNoFeishuDofeAgentCommandRoute(metadata: Record<string, unknown>): boolean {
   if (
-    metadata.agentSpaceCommandUsed === true ||
+    metadata.dofeAgentCommandUsed === true ||
     metadata.routeCommandUsed === true ||
     metadata.slashCommandUsed === true ||
     metadata.agentCommandUsed === true
   ) {
     return false;
   }
-  return !containsFeishuAgentSpaceCommandSummary(metadata);
+  return !containsFeishuDofeAgentCommandSummary(metadata);
 }
 
-function containsFeishuAgentSpaceCommandSummary(metadata: Record<string, unknown>): boolean {
+function containsFeishuDofeAgentCommandSummary(metadata: Record<string, unknown>): boolean {
   const textFields = [
     "text",
     "messageText",
@@ -7714,7 +7714,7 @@ function countFeishuBotSenderLoopGuardEvidence(
   mappings: readonly ExternalMessageMappingRecord[],
 ): number {
   return mappings.filter((mapping) => {
-    if (mapping.direction !== "inbound" || mapping.taskQueueId || mapping.agentSpaceMessageId) {
+    if (mapping.direction !== "inbound" || mapping.taskQueueId || mapping.dofeAgentMessageId) {
       return false;
     }
     const metadata = readJsonRecord(mapping.metadataJson);
@@ -7760,15 +7760,15 @@ function countFeishuExternalGuestPolicyEvidence(
       typeof metadata.externalGuestPermissionProfile !== "string" ||
       metadata.externalGuestPermissionProfile.trim().length === 0 ||
       !hasFeishuExternalGuestNoWorkspaceMemberEvidence(metadata) ||
-      !hasNoFeishuAgentSpaceCommandRoute(metadata) ||
+      !hasNoFeishuDofeAgentCommandRoute(metadata) ||
       !hasFeishuMessageMappingAgentBotContext(mapping, metadata)
     ) {
       return false;
     }
-    if (input.requireDispatchEvidence && (!mapping.taskQueueId || !mapping.agentSpaceMessageId)) {
+    if (input.requireDispatchEvidence && (!mapping.taskQueueId || !mapping.dofeAgentMessageId)) {
       return false;
     }
-    if (input.requireNoDispatchEvidence && (mapping.taskQueueId || mapping.agentSpaceMessageId)) {
+    if (input.requireNoDispatchEvidence && (mapping.taskQueueId || mapping.dofeAgentMessageId)) {
       return false;
     }
     if (input.requireNoOutboundReply && hasFeishuCorrelatedOutboundReply(mappings, mapping)) {
@@ -7794,7 +7794,7 @@ function countFeishuExternalGuestReplyAllEvidence(
   mappings: readonly ExternalMessageMappingRecord[],
 ): number {
   return mappings.filter((mapping) => {
-    if (mapping.direction !== "inbound" || !mapping.taskQueueId || !mapping.agentSpaceMessageId) {
+    if (mapping.direction !== "inbound" || !mapping.taskQueueId || !mapping.dofeAgentMessageId) {
       return false;
     }
     const metadata = readJsonRecord(mapping.metadataJson);
@@ -7805,7 +7805,7 @@ function countFeishuExternalGuestReplyAllEvidence(
       metadata.externalGuestPolicyReasonCode === "feishu_external_guest_allowed" &&
       metadata.externalGuestUnboundUserMode === "reply_all" &&
       metadata.agentBotMentioned === false &&
-      hasNoFeishuAgentSpaceCommandRoute(metadata) &&
+      hasNoFeishuDofeAgentCommandRoute(metadata) &&
       hasFeishuSafeInboundMessageContext(metadata) &&
       typeof metadata.externalGuestReference === "string" &&
       metadata.externalGuestReference.trim().length > 0 &&
@@ -7820,7 +7820,7 @@ function countFeishuIdentityBindingNoticeEvidence(
   outbox: readonly ExternalMessageOutboxRecord[],
 ): number {
   return mappings.filter((mapping) => {
-    if (mapping.direction !== "inbound" || mapping.taskQueueId || mapping.agentSpaceMessageId) {
+    if (mapping.direction !== "inbound" || mapping.taskQueueId || mapping.dofeAgentMessageId) {
       return false;
     }
     const metadata = readJsonRecord(mapping.metadataJson);
@@ -7834,7 +7834,7 @@ function countFeishuIdentityBindingNoticeEvidence(
       metadata.agentBotMentioned !== true ||
       !hasFeishuExternalGuestNoWorkspaceMemberEvidence(metadata) ||
       !hasFeishuMessageMappingAgentBotContext(mapping, metadata) ||
-      !hasNoFeishuAgentSpaceCommandRoute(metadata) ||
+      !hasNoFeishuDofeAgentCommandRoute(metadata) ||
       !hasFeishuSafeInboundMessageContext(metadata)
     ) {
       return false;
@@ -7972,7 +7972,7 @@ function countFeishuThreadTaskBindingEvidence(
     if (binding.provider !== FEISHU_PROVIDER_ID || binding.status !== "active") {
       return false;
     }
-    if (!binding.taskQueueId || !binding.agentSpaceMessageId || !binding.agentId) {
+    if (!binding.taskQueueId || !binding.dofeAgentMessageId || !binding.agentId) {
       return false;
     }
     const metadata = readJsonRecord(binding.metadataJson);
@@ -7992,7 +7992,7 @@ function countFeishuThreadContinuationEvidence(
   bindings: readonly ExternalThreadBindingRecord[],
 ): number {
   return mappings.filter((mapping) => {
-    if (mapping.direction !== "inbound" || !mapping.taskQueueId || !mapping.agentSpaceMessageId) {
+    if (mapping.direction !== "inbound" || !mapping.taskQueueId || !mapping.dofeAgentMessageId) {
       return false;
     }
     const metadata = readJsonRecord(mapping.metadataJson);
@@ -8036,7 +8036,7 @@ function hasMatchingFeishuThreadContinuationBinding(
       binding.integrationId !== mapping.integrationId ||
       binding.channelBindingId !== mapping.channelBindingId ||
       binding.taskQueueId !== mapping.taskQueueId ||
-      binding.agentSpaceMessageId !== mapping.agentSpaceMessageId ||
+      binding.dofeAgentMessageId !== mapping.dofeAgentMessageId ||
       expected.botBindingId !== binding.integrationId ||
       !binding.agentId ||
       binding.agentId.trim() !== expected.agentId
@@ -8058,7 +8058,7 @@ function countFeishuThreadCollaborationEvidence(
     if (binding.provider !== FEISHU_PROVIDER_ID || binding.status !== "active") {
       return false;
     }
-    if (!binding.taskQueueId || !binding.agentSpaceMessageId || !binding.agentId) {
+    if (!binding.taskQueueId || !binding.dofeAgentMessageId || !binding.agentId) {
       return false;
     }
     const metadata = readJsonRecord(binding.metadataJson);
@@ -8140,7 +8140,7 @@ function hasMatchingFeishuThreadCollaborationBindingForCard(
       binding.status !== "active" ||
       binding.integrationId !== expected.integrationId ||
       !binding.taskQueueId ||
-      !binding.agentSpaceMessageId ||
+      !binding.dofeAgentMessageId ||
       !binding.agentId ||
       binding.agentId.trim() !== expected.agentId
     ) {
@@ -8503,7 +8503,7 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
     }
   }
 
-  const callbackStep = steps.find((item) => isFeishuOpenApiSmokeStepNamed(item, "AgentSpace callback URL verification"));
+  const callbackStep = steps.find((item) => isFeishuOpenApiSmokeStepNamed(item, "DofeAgent callback URL verification"));
   if (!hasValidFeishuCallbackRouteProof(callbackStep)) {
     issues.push("openapi_callback_route_proof_missing");
   } else if (input.expectedCallbackRouteProofs) {
@@ -8555,7 +8555,7 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
     if (typeof step.detail === "string" && containsRawFeishuOpenApiEvidenceIdentifier(step.detail)) {
       issues.push(`openapi_raw_feishu_identifier_in_detail:${step.name}`);
     }
-    if (typeof step.detail === "string" && containsAgentSpaceCallbackUrlOpenApiEvidence(step.detail)) {
+    if (typeof step.detail === "string" && containsDofeAgentCallbackUrlOpenApiEvidence(step.detail)) {
       issues.push(`openapi_callback_url_in_detail:${step.name}`);
     }
   }
@@ -8565,7 +8565,7 @@ function verifyFeishuOpenApiSmokeEvidence(input: {
   if (containsRawFeishuOpenApiEvidenceIdentifier(JSON.stringify(evidence))) {
     issues.push("openapi_raw_feishu_identifier_in_evidence");
   }
-  if (containsAgentSpaceCallbackUrlOpenApiEvidence(JSON.stringify(evidence))) {
+  if (containsDofeAgentCallbackUrlOpenApiEvidence(JSON.stringify(evidence))) {
     issues.push("openapi_callback_url_in_evidence");
   }
 
@@ -8775,7 +8775,7 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
   if (containsRawFeishuOpenApiEvidenceIdentifier(serialized)) {
     issues.push("bot_added_payload_raw_feishu_identifier");
   }
-  if (containsAgentSpaceCallbackUrlOpenApiEvidence(serialized)) {
+  if (containsDofeAgentCallbackUrlOpenApiEvidence(serialized)) {
     issues.push("bot_added_payload_callback_url");
   }
 
@@ -8922,7 +8922,7 @@ function containsRawFeishuOpenApiEvidenceIdentifier(serialized: string): boolean
   ].some((pattern) => pattern.test(serialized));
 }
 
-function containsAgentSpaceCallbackUrlOpenApiEvidence(serialized: string): boolean {
+function containsDofeAgentCallbackUrlOpenApiEvidence(serialized: string): boolean {
   return /https?:\/\/[^"'\s<>]+\/api\/integrations\/feishu\/events(?:\?[^"'\s<>]*)?/i.test(serialized);
 }
 
@@ -9989,7 +9989,7 @@ function buildFeishuSmokeHarnessSummary(input: {
     requiredLiveSteps: FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS.length,
     destructiveLiveChecks: FEISHU_OPENAPI_REQUIRED_DESTRUCTIVE_LIVE_SMOKE_STEPS.length,
     destructiveLiveStepNames: [...FEISHU_OPENAPI_REQUIRED_DESTRUCTIVE_LIVE_SMOKE_STEPS],
-    prepareEnvCommand: `agent-space integrations feishu smoke-env --workspace-id ${input.workspaceId}${integrationFlag} --app-url ${appUrlFlag} > ${envFilePath}`,
+    prepareEnvCommand: `dofe-agent integrations feishu smoke-env --workspace-id ${input.workspaceId}${integrationFlag} --app-url ${appUrlFlag} > ${envFilePath}`,
     checkEnvCommand: `npm run smoke:feishu -- --env-file ${envFilePath} --check-env --json --require-todo120-native`,
     strictLiveCommand: `npm run smoke:feishu -- --env-file ${envFilePath} --live --strict-live --evidence ${evidencePath} --json --require-todo120-native`,
     verifyEvidenceCommand: `npm run smoke:feishu -- --verify-evidence ${evidencePath} --json`,
@@ -10046,8 +10046,8 @@ function buildFeishuCredentialEncryptionReadiness(
   env: Record<string, string | undefined>,
 ): FeishuCredentialEncryptionReadiness {
   const checkedEnvNames = [
-    "AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY",
-    "AGENT_SPACE_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY",
+    "DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY",
+    "DOFE_AGENT_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY",
   ];
   const configuredEnvName = checkedEnvNames.find((envName) => Boolean(env[envName]?.trim()));
   if (!configuredEnvName) {
@@ -10077,8 +10077,8 @@ function buildFeishuCredentialEncryptionReadiness(
 
 function renderFeishuSmokeEnvTemplate(report: FeishuSmokeEnvTemplateReport): string {
   const lines = [
-    "# AgentSpace Feishu smoke env",
-    "# Generated by: agent-space integrations feishu smoke-env",
+    "# DofeAgent Feishu smoke env",
+    "# Generated by: dofe-agent integrations feishu smoke-env",
     `# Workspace: ${report.workspaceId}`,
     `# Integration: ${report.selectedIntegrationId ?? "missing"}`,
     "# Secrets are placeholders. Fill them from the Feishu developer console or the integration setup.",
@@ -10105,7 +10105,7 @@ export function formatFeishuSmokeEnvCommandText(
 ): { stdout?: string; stderr?: string } {
   if (report.issues.length > 0) {
     return {
-      stderr: `Feishu smoke-env is not ready (${report.issues.join(", ")}). Fix the AgentSpace Feishu integration setup and rerun smoke-env; no env template was printed.`,
+      stderr: `Feishu smoke-env is not ready (${report.issues.join(", ")}). Fix the DofeAgent Feishu integration setup and rerun smoke-env; no env template was printed.`,
     };
   }
 
@@ -10137,8 +10137,8 @@ function buildFeishuCliPublicUrl(path: string, appUrl: string): string {
 
 function readFeishuCliPublicAppUrl(): string | undefined {
   return normalizeFeishuCliPublicAppUrl(
-    process.env.AGENT_SPACE_APP_URL?.trim()
-    || process.env.NEXT_PUBLIC_AGENT_SPACE_APP_URL?.trim()
+    process.env.DOFE_AGENT_APP_URL?.trim()
+    || process.env.NEXT_PUBLIC_DOFE_AGENT_APP_URL?.trim()
     || process.env.NEXT_PUBLIC_APP_URL?.trim(),
   );
 }
@@ -10223,8 +10223,8 @@ function buildFeishuWorkerHarnessSummary(input: {
   workspaceId: string;
   integrationId?: string;
 }): FeishuWorkerHarnessSummary {
-  const systemdUnitPath = "deploy/systemd/agentspace-feishu-worker.service";
-  const systemdEnvExamplePath = "deploy/systemd/agentspace-feishu-worker.env.example";
+  const systemdUnitPath = "deploy/systemd/dofe-agent-feishu-worker.service";
+  const systemdEnvExamplePath = "deploy/systemd/dofe-agent-feishu-worker.env.example";
   const dockerComposePath = "deploy/feishu-worker/docker-compose.yml";
   const dockerEnvExamplePath = "deploy/feishu-worker/feishu-worker.env.example";
   const integrationFlag = input.integrationId ? ` --integration ${input.integrationId}` : "";
@@ -10235,9 +10235,9 @@ function buildFeishuWorkerHarnessSummary(input: {
     dockerComposePath,
     dockerEnvExamplePath,
     dryRunCommand:
-      `agent-space integrations feishu worker --workspace-id ${input.workspaceId}${integrationFlag} --dry-run --json`,
-    startCommand: `agent-space integrations feishu worker --workspace-id ${input.workspaceId}${integrationFlag} --json`,
-    systemdRestartCommand: "sudo systemctl restart agentspace-feishu-worker && sudo systemctl status agentspace-feishu-worker --no-pager",
+      `dofe-agent integrations feishu worker --workspace-id ${input.workspaceId}${integrationFlag} --dry-run --json`,
+    startCommand: `dofe-agent integrations feishu worker --workspace-id ${input.workspaceId}${integrationFlag} --json`,
+    systemdRestartCommand: "sudo systemctl restart dofe-agent-feishu-worker && sudo systemctl status dofe-agent-feishu-worker --no-pager",
     dockerRestartCommand: `docker compose -f ${dockerComposePath} restart feishu-worker && docker compose -f ${dockerComposePath} logs --tail=100 feishu-worker`,
   };
 }
@@ -10502,30 +10502,30 @@ function waitForShutdownSignal(): Promise<void> {
 
 function printFeishuIntegrationHelp(): void {
   console.log(`Usage:
-  agent-space integrations feishu create --workspace-id <id> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --verification-token-env FEISHU_VERIFICATION_TOKEN [--encrypt-key-env FEISHU_ENCRYPT_KEY] [--tenant-key-env FEISHU_TENANT_KEY] [--name <name>] [--transport http_webhook|websocket_worker] [--app-url <url>] [--json]
-  agent-space integrations feishu bind-agent-bot --workspace-id <id> --agent <agent-id-or-name> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET [--transport websocket_worker|http_webhook] [--verification-token-env FEISHU_VERIFICATION_TOKEN] [--encrypt-key-env FEISHU_ENCRYPT_KEY] [--tenant-key-env FEISHU_TENANT_KEY] [--json]
-  agent-space integrations feishu rotate-agent-bot-secret --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--env-file scripts/feishu/.env] --app-secret-env FEISHU_APP_SECRET [--app-id-env FEISHU_APP_ID] [--json]
-  agent-space integrations feishu disable-agent-bot --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--json]
-  agent-space integrations feishu auto-provision-policy --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--bot-added-policy auto_create_channel|pending_admin_review|disabled] [--first-message-policy auto_create_if_bot_mentioned|pending_admin_review|reply_with_setup_card|disabled] [--review-status approved|pending_admin_review|needs_identity_binding] [--unbound-user-mode ignore|reply_on_mention|reply_all|require_identity] [--guest-permission-profile none|channel_context_only|channel_readonly] [--require-identity-for writes,approvals] [--json]
-  agent-space integrations feishu agent-channel-access --workspace-id <id> (--agent <agent-id-or-name>|--integration <agent-bot-id>) --access enabled|disabled [--json]
-  agent-space integrations feishu agent-bot-readiness --workspace-id <id> [--agent <agent-id-or-name>|--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
-  agent-space integrations feishu worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--domain <host>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
-  agent-space integrations feishu readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
-  agent-space integrations feishu smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require bot|data-plane|worker] [--json]
-  agent-space integrations feishu smoke-env [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--json]
-  agent-space integrations feishu health-check [--workspace-id <id>] [--integration <id>|--agent <agent-id-or-name>] [--base-url <url>] [--dry-run] [--strict] [--json]
-  agent-space integrations feishu evidence [--workspace-id <id>] [--integration <id>] [--openapi-evidence <path>] [--bot-added-payload-evidence <path>] [--strict] [--require bot|native|guest-policy|data-plane|worker|failure|all] [--json]
-  agent-space integrations feishu data-operation --workspace-id <id> --integration <id> --operation read-doc|plan-doc-create|plan-doc-update|plan-doc-append|read-sheet|query-base|plan-sheet-write|plan-base-update --resource <url-or-token> [--type doc|sheet|base|base_table|base_view] [--title <doc-title>] [--folder-token <folder-token>] [--parent-block-id <block-id>] [--block-id <block-id>] [--document-revision-id <n>] [--client-token <token>] [--blocks-json <json>] [--children-json <json>] [--block-json <json>] [--app-token <base-app-token>] [--table-id <base-table-id>] [--range <sheet-range>] [--values-json <json>] [--record-id <id>] [--fields-json <json>] [--approval-agent <agent-id> --approval-channel <channel>] [--json]
-  agent-space integrations feishu review-data-operation --workspace-id <id> --approval-id <approval-id> --decision approved|rejected [--comment <text>] [--base-url <url>] [--json]
-  agent-space integrations feishu channel-bindings --workspace-id <id> [--integration <id>] [--status active|disabled|archived] [--json]
-  agent-space integrations feishu bind-channel --workspace-id <id> --integration <id> --channel <name> --chat-id <oc_xxx> [--chat-type group|p2p] [--chat-name <name>] [--json]
-  agent-space integrations feishu bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --open-id <ou_xxx> [--union-id <on_xxx>] [--feishu-user-id <id>] [--json]
-  agent-space integrations feishu bind-resource --workspace-id <id> --integration <id> --type doc|sheet|base|base_table|base_view --resource <url-or-token> --agent-space-type channel_document|data_table|knowledge_page [--agent-space-id <id>] [--channel <name>] [--allow-write] [--guest-readable] [--json]
+  dofe-agent integrations feishu create --workspace-id <id> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --verification-token-env FEISHU_VERIFICATION_TOKEN [--encrypt-key-env FEISHU_ENCRYPT_KEY] [--tenant-key-env FEISHU_TENANT_KEY] [--name <name>] [--transport http_webhook|websocket_worker] [--app-url <url>] [--json]
+  dofe-agent integrations feishu bind-agent-bot --workspace-id <id> --agent <agent-id-or-name> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET [--transport websocket_worker|http_webhook] [--verification-token-env FEISHU_VERIFICATION_TOKEN] [--encrypt-key-env FEISHU_ENCRYPT_KEY] [--tenant-key-env FEISHU_TENANT_KEY] [--json]
+  dofe-agent integrations feishu rotate-agent-bot-secret --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--env-file scripts/feishu/.env] --app-secret-env FEISHU_APP_SECRET [--app-id-env FEISHU_APP_ID] [--json]
+  dofe-agent integrations feishu disable-agent-bot --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--json]
+  dofe-agent integrations feishu auto-provision-policy --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--bot-added-policy auto_create_channel|pending_admin_review|disabled] [--first-message-policy auto_create_if_bot_mentioned|pending_admin_review|reply_with_setup_card|disabled] [--review-status approved|pending_admin_review|needs_identity_binding] [--unbound-user-mode ignore|reply_on_mention|reply_all|require_identity] [--guest-permission-profile none|channel_context_only|channel_readonly] [--require-identity-for writes,approvals] [--json]
+  dofe-agent integrations feishu agent-channel-access --workspace-id <id> (--agent <agent-id-or-name>|--integration <agent-bot-id>) --access enabled|disabled [--json]
+  dofe-agent integrations feishu agent-bot-readiness --workspace-id <id> [--agent <agent-id-or-name>|--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
+  dofe-agent integrations feishu worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--domain <host>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
+  dofe-agent integrations feishu readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
+  dofe-agent integrations feishu smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require bot|data-plane|worker] [--json]
+  dofe-agent integrations feishu smoke-env [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--json]
+  dofe-agent integrations feishu health-check [--workspace-id <id>] [--integration <id>|--agent <agent-id-or-name>] [--base-url <url>] [--dry-run] [--strict] [--json]
+  dofe-agent integrations feishu evidence [--workspace-id <id>] [--integration <id>] [--openapi-evidence <path>] [--bot-added-payload-evidence <path>] [--strict] [--require bot|native|guest-policy|data-plane|worker|failure|all] [--json]
+  dofe-agent integrations feishu data-operation --workspace-id <id> --integration <id> --operation read-doc|plan-doc-create|plan-doc-update|plan-doc-append|read-sheet|query-base|plan-sheet-write|plan-base-update --resource <url-or-token> [--type doc|sheet|base|base_table|base_view] [--title <doc-title>] [--folder-token <folder-token>] [--parent-block-id <block-id>] [--block-id <block-id>] [--document-revision-id <n>] [--client-token <token>] [--blocks-json <json>] [--children-json <json>] [--block-json <json>] [--app-token <base-app-token>] [--table-id <base-table-id>] [--range <sheet-range>] [--values-json <json>] [--record-id <id>] [--fields-json <json>] [--approval-agent <agent-id> --approval-channel <channel>] [--json]
+  dofe-agent integrations feishu review-data-operation --workspace-id <id> --approval-id <approval-id> --decision approved|rejected [--comment <text>] [--base-url <url>] [--json]
+  dofe-agent integrations feishu channel-bindings --workspace-id <id> [--integration <id>] [--status active|disabled|archived] [--json]
+  dofe-agent integrations feishu bind-channel --workspace-id <id> --integration <id> --channel <name> --chat-id <oc_xxx> [--chat-type group|p2p] [--chat-name <name>] [--json]
+  dofe-agent integrations feishu bind-user --workspace-id <id> --integration <id> --user-id <dofe-agent-user-id> --open-id <ou_xxx> [--union-id <on_xxx>] [--feishu-user-id <id>] [--json]
+  dofe-agent integrations feishu bind-resource --workspace-id <id> --integration <id> --type doc|sheet|base|base_table|base_view --resource <url-or-token> --dofe-agent-type channel_document|data_table|knowledge_page [--dofe-agent-id <id>] [--channel <name>] [--allow-write] [--guest-readable] [--json]
 
 Options:
-  --workspace-id <id>      AgentSpace workspace id; defaults to AGENT_SPACE_WORKSPACE_ID or default
+  --workspace-id <id>      DofeAgent workspace id; defaults to DOFE_AGENT_WORKSPACE_ID or default
   --integration <id>       Limit the worker, drain, readiness, or health run to one Feishu integration
-  --agent <id-or-name>     Agent bot commands: AgentSpace agent id/name to bind to a Feishu bot
+  --agent <id-or-name>     Agent bot commands: DofeAgent agent id/name to bind to a Feishu bot
   --env-file <path>        Create: read FEISHU_* credentials from a local KEY=value file; process env wins
   --app-id-env <name>      Create/bind: read Feishu app id from an env var; defaults also check FEISHU_APP_ID
   --app-secret-env <name>  Create/bind/rotate: read Feishu app secret from an env var; defaults also check FEISHU_APP_SECRET
@@ -10540,12 +10540,12 @@ Options:
   --review-status <status> Agent bot bind/policy: approved|pending_admin_review|needs_identity_binding for auto-provisioned channels
   --unbound-user-mode <mode> Agent bot bind/policy: ignore|reply_on_mention|reply_all|require_identity
   --guest-permission-profile <profile> Agent bot bind/policy: none|channel_context_only|channel_readonly
-  --require-identity-for <csv> Agent bot bind/policy: comma-separated operations that require a bound AgentSpace identity
+  --require-identity-for <csv> Agent bot bind/policy: comma-separated operations that require a bound DofeAgent identity
   --access <value>         Agent channel access smoke helper: enabled|disabled
   --guest-readable       Resource bind: allow external guests to read this bound resource in its current channel
   --limit <n>              Outbox drain batch size; defaults to 50
-  --base-url <url>         Feishu OpenAPI base URL; defaults to AGENT_SPACE_FEISHU_API_BASE_URL
-  --app-url <url>          Public AgentSpace URL used by smoke-plan/smoke-env callback values
+  --base-url <url>         Feishu OpenAPI base URL; defaults to DOFE_AGENT_FEISHU_API_BASE_URL
+  --app-url <url>          Public DofeAgent URL used by smoke-plan/smoke-env callback values
   --title <text>           Data operation: Feishu Doc create title; stored output only reports length
   --folder-token <token>   Data operation: Feishu Doc create folder token when different from --resource
   --parent-block-id <id>   Data operation: Feishu Doc append/create child blocks under this block
@@ -10554,34 +10554,34 @@ Options:
   --client-token <token>   Data operation: Feishu Doc mutation idempotency token
   --app-token <token>      Data operation: Feishu Base app token when --resource is a Base table/view id
   --table-id <id>          Data operation: Feishu Base table id when --type base/base_view is used
-  --approval-agent <id>    Data operation write plans: also create a pending AgentSpace approval request for this agent
+  --approval-agent <id>    Data operation write plans: also create a pending DofeAgent approval request for this agent
   --approval-channel <name> Data operation write plans: approval channel used with --approval-agent
   --approval-preview <text> Data operation write plans: optional safe approval preview text
-  --approval-id <id>       Review data operation: approval id returned by a write plan or shown in AgentSpace approvals
+  --approval-id <id>       Review data operation: approval id returned by a write plan or shown in DofeAgent approvals
   --decision <value>       Review data operation: approved/approve or rejected/reject
   --status <value>         Binding list filter: active|disabled|archived
-  --domain <host>          Feishu WebSocket domain; defaults to AGENT_SPACE_FEISHU_WS_DOMAIN
-  --locked-by <id>         Worker lock owner; defaults to AGENT_SPACE_FEISHU_WORKER_ID or agent-space-feishu-worker
+  --domain <host>          Feishu WebSocket domain; defaults to DOFE_AGENT_FEISHU_WS_DOMAIN
+  --locked-by <id>         Worker lock owner; defaults to DOFE_AGENT_FEISHU_WORKER_ID or dofe-agent-feishu-worker
   --dry-run                Validate WebSocket worker config without opening live connections
   --include-webhook        Include http_webhook integrations in dry-run/start selection
   --drain-outbox, --once   Drain due Feishu outbox messages once without opening WebSocket connections
-  create                   Create a workspace-level AgentSpace Feishu integration with encrypted credentials
-  bind-agent-bot           Bind one AgentSpace agent to one Feishu bot; default transport only needs App ID + App Secret
+  create                   Create a workspace-level DofeAgent Feishu integration with encrypted credentials
+  bind-agent-bot           Bind one DofeAgent agent to one Feishu bot; default transport only needs App ID + App Secret
   rotate-agent-bot-secret  Rotate an existing agent bot binding secret without exposing it in output
   disable-agent-bot        Disable an existing agent bot binding
   auto-provision-policy    View/update agent bot auto-provisioning and external guest policy
-  agent-channel-access     Temporarily disable/restore AgentSpace agent channel-member access for Feishu no-reply smoke
+  agent-channel-access     Temporarily disable/restore DofeAgent agent channel-member access for Feishu no-reply smoke
   agent-bot-readiness      Summarize readiness for agent-scoped Feishu bot bindings
-  readiness                Summarize local AgentSpace-side prerequisites for Feishu manual smoke
+  readiness                Summarize local DofeAgent-side prerequisites for Feishu manual smoke
   smoke-plan               Generate the live Feishu manual smoke checklist from current local readiness
   smoke-env                Print a safe scripts/feishu/.env template with placeholders for secrets/resources
   health-check             Refresh saved Feishu health/scope status; --dry-run skips persistence
-  evidence                 Summarize AgentSpace-side Feishu live smoke evidence from local DB state
+  evidence                 Summarize DofeAgent-side Feishu live smoke evidence from local DB state
   data-operation           Run a bound Feishu read or create a governed pending write/approval operation; output redacts resource tokens
-  review-data-operation    Approve/reject a Feishu data operation approval and execute approved writes through AgentSpace governance
-  channel-bindings         List Feishu chat -> AgentSpace channel bindings with redacted chat references
-  bind-channel             Create/update a Feishu chat -> AgentSpace channel binding; output redacts chat id
-  bind-user                Create/update a Feishu Open ID -> AgentSpace user binding; output redacts external ids
+  review-data-operation    Approve/reject a Feishu data operation approval and execute approved writes through DofeAgent governance
+  channel-bindings         List Feishu chat -> DofeAgent channel bindings with redacted chat references
+  bind-channel             Create/update a Feishu chat -> DofeAgent channel binding; output redacts chat id
+  bind-user                Create/update a Feishu Open ID -> DofeAgent user binding; output redacts external ids
   bind-resource            Create/update a Feishu Docs/Sheets/Base resource binding; output redacts resource tokens
   --openapi-evidence <path> Evidence: required for --require all; verifies redacted strict live smoke artifact from npm run smoke:feishu
   --bot-added-payload-evidence <path> Evidence: required for --require all; verifies redacted bot-added callback payload artifact from npm run smoke:feishu

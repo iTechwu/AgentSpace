@@ -22,7 +22,7 @@ import type { AuthUser } from "@/features/auth/server-auth";
 import type { ChannelsPageData, InboxPageData } from "@/features/dashboard/data";
 import type { WorkspaceShellData } from "@/features/dashboard/workspace-shell-data";
 import type { ActionToastResult } from "@/shared/lib/toast-action";
-import type { PerformanceDashboardData } from "@agent-space/services";
+import type { PerformanceDashboardData } from "@dofe-agent/services";
 
 const searchParams = new URLSearchParams();
 let pathname = "/inbox";
@@ -67,14 +67,14 @@ vi.mock("@/features/task-board/actions", () => ({
 
 const user: AuthUser = {
   id: "user-1",
-  organizationName: "Agent Space",
+  organizationName: "Dofe Agent",
   displayName: "techwu",
   role: "admin",
   email: "techwu@example.com",
 };
 
 const shell: WorkspaceShellData = {
-  organizationName: "Agent Space",
+  organizationName: "Dofe Agent",
   humanMembers: 1,
   channelCount: 1,
   messageCount: 2,
@@ -314,7 +314,7 @@ describe("WorkspaceFrame", () => {
     expect(screen.queryByRole("link", { name: /添加技能/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /添加服务器/ })).not.toBeInTheDocument();
     const workspaceSwitcher = screen.getByRole("button", { name: /切换团队工作区/ });
-    expect(workspaceSwitcher).toHaveTextContent("Agent Space / Alpha Workspace");
+    expect(workspaceSwitcher).toHaveTextContent("Dofe Agent / Alpha Workspace");
     await userEventApi.click(workspaceSwitcher);
     expect(screen.getByRole("menuitemradio", { name: "Alpha Workspace" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("menuitemradio", { name: "Beta Workspace" })).toHaveAttribute("aria-checked", "false");
@@ -546,7 +546,7 @@ describe("WorkspaceFrame", () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
-    expect(window.location.pathname).toBe("/w/workspace-alpha/task-board");
+    expect(window.location.pathname).toBe("/w/workspace-alpha/task/board");
   });
 
   it("prefetches module data on sidebar hover and reuses it on click", async () => {

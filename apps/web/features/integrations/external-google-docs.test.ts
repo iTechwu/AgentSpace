@@ -41,12 +41,12 @@ const {
   mockUpdateExternalSheetOperationRunSync: vi.fn(),
 }));
 
-vi.mock("@agent-space/db", () => ({
+vi.mock("@dofe-agent/db", () => ({
   readActiveAgentGoogleWorkspaceDelegationSync: mockReadActiveAgentGoogleWorkspaceDelegationSync,
   readUserSync: mockReadUserSync,
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   AgentDocumentPermissionError: class AgentDocumentPermissionError extends Error {},
   assertAgentDocumentActionAllowedSync: mockAssertAgentDocumentActionAllowedSync,
   readChannelDocumentSync: mockReadChannelDocumentSync,
@@ -236,13 +236,13 @@ describe("external Google Doc operation manifest", () => {
     });
 
     expect(result.warnings).toEqual([
-      "runtime-output/external-google-docs.json legacy hand-written operations are deprecated: Agents must use agent-space output google-docs ... instead of editing this JSON directly.",
+      "runtime-output/external-google-docs.json legacy hand-written operations are deprecated: Agents must use dofe-agent output google-docs ... instead of editing this JSON directly.",
     ]);
   });
 });
 
 function writeManifest(manifest: unknown): string {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-external-google-docs-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-external-google-docs-"));
   mkdirSync(join(workDir, "runtime-output"), { recursive: true });
   writeFileSync(join(workDir, "runtime-output", "external-google-docs.json"), JSON.stringify(manifest), "utf8");
   return workDir;

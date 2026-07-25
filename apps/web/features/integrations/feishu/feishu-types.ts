@@ -7,13 +7,13 @@ import type {
   ExternalIntegrationStatus,
   ExternalIntegrationTransportMode,
   ExternalMessageOutboxStatus,
-  ExternalResourceBindingAgentSpaceType,
+  ExternalResourceBindingDofeAgentType,
   ExternalResourceBindingProviderType,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type {
   FeishuAgentBotChannelAutoProvisioningInput,
   FeishuAgentBotExternalGuestPolicyInput,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 
 export interface FeishuAvailableChannelItem {
   name: string;
@@ -60,7 +60,7 @@ export interface FeishuChannelBindingSettingsItem {
   externalChatName?: string;
   status: ExternalBindingStatus;
   syncMode: "mirror" | "ingest_only" | "send_only";
-  provisionSource?: "manual" | "bot_added" | "first_message" | "agentspace_created";
+  provisionSource?: "manual" | "bot_added" | "first_message" | "dofe-agent_created";
   reviewStatus?: "approved" | "pending_admin_review" | "needs_identity_binding";
   agentId?: string;
   botBindingId?: string;
@@ -75,8 +75,8 @@ export interface FeishuResourceBindingSettingsItem {
   providerResourceType: ExternalResourceBindingProviderType;
   providerResourceReference: string;
   providerResourceTokenRedacted: true;
-  agentSpaceResourceType: ExternalResourceBindingAgentSpaceType;
-  agentSpaceResourceId: string;
+  dofeAgentResourceType: ExternalResourceBindingDofeAgentType;
+  dofeAgentResourceId: string;
   channelName?: string;
   displayName?: string;
   canWrite: boolean;
@@ -130,7 +130,7 @@ export interface FeishuOutboxSettingsItem {
   targetExternalChatIdRedacted: true;
   targetExternalThreadReference?: string;
   targetExternalThreadIdRedacted?: true;
-  agentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
   status: ExternalMessageOutboxStatus;
   attempts: number;
   nextAttemptAt?: string;
@@ -274,7 +274,7 @@ export type FeishuIntegrationEvidenceGateKey =
   | "worker_card_action"
   | "data_plane"
   | "failure_visibility"
-  | "agentspace_local_evidence"
+  | "dofe-agent_local_evidence"
   | "openapi_artifact"
   | "bot_added_payload_artifact";
 
@@ -399,8 +399,8 @@ export interface CreateFeishuResourceBindingInput {
   integrationId: string;
   providerResourceType: ExternalResourceBindingProviderType;
   resourceUrlOrToken: string;
-  agentSpaceResourceType: ExternalResourceBindingAgentSpaceType;
-  agentSpaceResourceId: string;
+  dofeAgentResourceType: ExternalResourceBindingDofeAgentType;
+  dofeAgentResourceId: string;
   channelName?: string;
   displayName?: string;
   allowWrite?: boolean;

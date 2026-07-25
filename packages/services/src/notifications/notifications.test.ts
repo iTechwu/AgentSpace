@@ -6,7 +6,7 @@ import test, { before } from "node:test";
 import {
   createUserSync,
   createWorkspaceSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   archiveNotificationSync,
   countUnreadNotificationsSync,
@@ -19,7 +19,7 @@ import {
   writeWorkspaceStateSync,
 } from "../index.ts";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-notification-service-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-notification-service-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

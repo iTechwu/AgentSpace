@@ -1,4 +1,4 @@
-import { type ExternalDataOperationRunStatus, type ExternalDataOperationRunRecord } from "@agent-space/db";
+import { type ExternalDataOperationRunStatus, type ExternalDataOperationRunRecord } from "@dofe-agent/db";
 import type { ExternalDataOperationRequest, ExternalDataOperationResult, IntegrationRuntimeContext } from "./types.ts";
 export declare function recordExternalDataOperationStartSync(input: {
     context: IntegrationRuntimeContext;

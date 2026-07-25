@@ -1,6 +1,6 @@
-import { startQueuedTaskSync } from "@agent-space/db";
-import { parseTaskPayload } from "agent-space-daemon";
-import { postMessageSync } from "@agent-space/services";
+import { startQueuedTaskSync } from "@dofe-agent/db";
+import { parseTaskPayload } from "dofe-agent-daemon";
+import { postMessageSync } from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

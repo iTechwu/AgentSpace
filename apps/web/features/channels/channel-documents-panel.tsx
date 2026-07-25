@@ -9,7 +9,7 @@ import type {
   ChannelDocumentRecord,
   ChannelDocumentRunRecord,
 } from "@/features/dashboard/data";
-import type { ChannelDocumentAccessRole } from "@agent-space/domain";
+import type { ChannelDocumentAccessRole } from "@dofe-agent/domain";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { FeedbackBanner } from "@/shared/ui/feedback-banner";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";

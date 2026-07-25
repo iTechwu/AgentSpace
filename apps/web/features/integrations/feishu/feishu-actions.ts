@@ -22,7 +22,7 @@ import {
   upsertExternalUserBindingSync,
   type ExternalBindingStatus,
   type WorkspaceRole,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   FEISHU_DEFAULT_SCOPES,
   FEISHU_EVENT_CALLBACK_PATH,
@@ -39,7 +39,7 @@ import {
   upsertFeishuExternalDataTableSync,
   validateFeishuResourceDescriptorForBinding,
   validateFeishuResourceBindingScopes,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { readPublicAppUrl } from "@/features/auth/public-app-url";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
@@ -690,10 +690,10 @@ function normalizeFeishuIntegrationWriteError(error: unknown): Error {
   if (message === "External integration app and tenant are already connected.") {
     return new Error("feishu.integration.duplicate_app_tenant");
   }
-  if (message === "AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.") {
+  if (message === "DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.") {
     return new Error("feishu.integration.credential_encryption_key_missing");
   }
-  if (message === "AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.") {
+  if (message === "DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.") {
     return new Error("feishu.integration.credential_encryption_key_invalid");
   }
   return error instanceof Error ? error : new Error(message);
@@ -986,11 +986,11 @@ export async function createFeishuResourceBindingAction(
     "feishu.resource_binding.placeholder_value",
   );
   assertNoFeishuPlaceholderBindingValue(
-    input.agentSpaceResourceType.trim(),
+    input.dofeAgentResourceType.trim(),
     "feishu.resource_binding.placeholder_value",
   );
   assertNoFeishuPlaceholderBindingValue(
-    input.agentSpaceResourceId.trim(),
+    input.dofeAgentResourceId.trim(),
     "feishu.resource_binding.placeholder_value",
   );
   assertNoFeishuPlaceholderBindingValue(
@@ -1016,18 +1016,18 @@ export async function createFeishuResourceBindingAction(
   if (!scopeValidation.ok) {
     throw new Error("feishu.resource_binding.scope_missing");
   }
-  const agentSpaceResourceType = input.agentSpaceResourceType.trim();
-  let agentSpaceResourceId = input.agentSpaceResourceId.trim();
+  const dofeAgentResourceType = input.dofeAgentResourceType.trim();
+  let dofeAgentResourceId = input.dofeAgentResourceId.trim();
   let channelName = input.channelName?.trim();
-  if (!agentSpaceResourceType) {
-    throw new Error("feishu.resource_binding.missing_agent_space_resource_type");
+  if (!dofeAgentResourceType) {
+    throw new Error("feishu.resource_binding.missing_dofe_agent_resource_type");
   }
   if (
-    !agentSpaceResourceId &&
-    agentSpaceResourceType !== "channel_document" &&
-    agentSpaceResourceType !== "data_table"
+    !dofeAgentResourceId &&
+    dofeAgentResourceType !== "channel_document" &&
+    dofeAgentResourceType !== "data_table"
   ) {
-    throw new Error("feishu.resource_binding.missing_agent_space_resource_id");
+    throw new Error("feishu.resource_binding.missing_dofe_agent_resource_id");
   }
   if (channelName && !readStoredChannelSync(channelName, workspaceContext.currentWorkspace.id)) {
     throw new Error("feishu.resource_binding.channel_not_found");
@@ -1040,21 +1040,21 @@ export async function createFeishuResourceBindingAction(
   });
   if (existingResourceBinding && existingResourceBinding.status !== "archived") {
     if (
-      existingResourceBinding.agentSpaceResourceType !== agentSpaceResourceType ||
-      (agentSpaceResourceId && existingResourceBinding.agentSpaceResourceId !== agentSpaceResourceId) ||
+      existingResourceBinding.dofeAgentResourceType !== dofeAgentResourceType ||
+      (dofeAgentResourceId && existingResourceBinding.dofeAgentResourceId !== dofeAgentResourceId) ||
       (channelName && (existingResourceBinding.channelName ?? "") !== channelName)
     ) {
       throw new Error("feishu.resource_binding.external_resource_taken");
     }
-    agentSpaceResourceId = existingResourceBinding.agentSpaceResourceId;
+    dofeAgentResourceId = existingResourceBinding.dofeAgentResourceId;
     channelName = channelName ?? existingResourceBinding.channelName;
   }
 
   let metadataJson: Record<string, unknown> = descriptor.metadata ?? {};
-  if (agentSpaceResourceType === "channel_document") {
+  if (dofeAgentResourceType === "channel_document") {
     const syncedDocument = upsertFeishuExternalChannelDocumentSync({
       channelName,
-      agentSpaceResourceId,
+      dofeAgentResourceId,
       providerResourceType: descriptor.providerResourceType,
       providerResourceToken: descriptor.providerResourceToken,
       providerResourceUrl: descriptor.providerResourceUrl,
@@ -1062,20 +1062,20 @@ export async function createFeishuResourceBindingAction(
       createdBy: workspaceContext.currentUser.displayName,
       createdByType: "human",
     }, workspaceContext.currentWorkspace.id);
-    agentSpaceResourceId = syncedDocument.document.id;
+    dofeAgentResourceId = syncedDocument.document.id;
     channelName = syncedDocument.document.channelName;
     metadataJson = {
       ...metadataJson,
-      agentSpaceSync: {
+      dofeAgentSync: {
         channelDocumentId: syncedDocument.document.id,
         channelName: syncedDocument.document.channelName,
         created: syncedDocument.created,
       },
     };
-  } else if (agentSpaceResourceType === "data_table") {
+  } else if (dofeAgentResourceType === "data_table") {
     const syncedTable = upsertFeishuExternalDataTableSync({
       channelName,
-      agentSpaceResourceId,
+      dofeAgentResourceId,
       providerResourceType: descriptor.providerResourceType,
       providerResourceToken: descriptor.providerResourceToken,
       providerResourceUrl: descriptor.providerResourceUrl,
@@ -1083,11 +1083,11 @@ export async function createFeishuResourceBindingAction(
       metadata: descriptor.metadata ?? {},
       createdBy: workspaceContext.currentUser.displayName,
     }, workspaceContext.currentWorkspace.id);
-    agentSpaceResourceId = syncedTable.table.id;
+    dofeAgentResourceId = syncedTable.table.id;
     channelName = syncedTable.table.channelName ?? channelName;
     metadataJson = {
       ...metadataJson,
-      agentSpaceSync: {
+      dofeAgentSync: {
         dataTableId: syncedTable.table.id,
         channelName: syncedTable.table.channelName,
         created: syncedTable.created,
@@ -1101,8 +1101,8 @@ export async function createFeishuResourceBindingAction(
     providerResourceType: descriptor.providerResourceType,
     providerResourceToken: descriptor.providerResourceToken,
     providerResourceUrl: descriptor.providerResourceUrl,
-    agentSpaceResourceType,
-    agentSpaceResourceId,
+    dofeAgentResourceType,
+    dofeAgentResourceId,
     channelName,
     displayName: input.displayName?.trim(),
     status: "active",
@@ -1126,8 +1126,8 @@ export async function createFeishuResourceBindingAction(
       provider: FEISHU_PROVIDER_ID,
       integrationId: integration.id,
       providerResourceType: descriptor.providerResourceType,
-      agentSpaceResourceType,
-      agentSpaceResourceId,
+      dofeAgentResourceType,
+      dofeAgentResourceId,
       writeAllowed: input.allowWrite === true,
       guestReadable: input.guestReadable === true,
       externalIdRedacted: true,

@@ -11,9 +11,9 @@ import {
 import { createDefaultWorkspaceState } from "../../../packages/domain/src/workspace.ts";
 import { writeWorkspaceStateSync } from "../../../packages/services/src/index.ts";
 
-const AUTH_COOKIE_NAME = "agent_space_session";
-const WORKSPACE_SELECTION_COOKIE = "agent_space_workspace";
-const WORKSPACE_RECENT_SELECTION_COOKIE = "agent_space_recent_workspaces";
+const AUTH_COOKIE_NAME = "dofe_agent_session";
+const WORKSPACE_SELECTION_COOKIE = "dofe_agent_workspace";
+const WORKSPACE_RECENT_SELECTION_COOKIE = "dofe_agent_recent_workspaces";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 export interface SeededWorkspaceSession {

@@ -10,10 +10,10 @@ import test from "node:test";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const installerPath = join(repoRoot, "deploy", "install-remote-daemon.sh");
 
-test("install script readiness hook passes when agent-space, gws, and bwrap are compatible", () => {
-  const binDir = mkdtempSync(join(tmpdir(), "agent-space-install-bin-"));
+test("install script readiness hook passes when dofe-agent, gws, and bwrap are compatible", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-install-bin-"));
   try {
-    writeExecutable(binDir, "agent-space", [
+    writeExecutable(binDir, "dofe-agent", [
       "#!/bin/sh",
       "if [ \"$1\" = \"output\" ]; then",
       "  exit 0",
@@ -44,25 +44,25 @@ test("install script readiness hook passes when agent-space, gws, and bwrap are 
   }
 });
 
-test("install script readiness hook fails when agent-space output is unavailable", () => {
-  const binDir = mkdtempSync(join(tmpdir(), "agent-space-install-bin-"));
+test("install script readiness hook fails when dofe-agent output is unavailable", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-install-bin-"));
   try {
-    writeExecutable(binDir, "agent-space", "#!/bin/sh\nexit 1\n");
+    writeExecutable(binDir, "dofe-agent", "#!/bin/sh\nexit 1\n");
     writeExecutable(binDir, "gws", "#!/bin/sh\necho gws 1.0.0\n");
     writeCompatibleBwrap(binDir);
 
     const result = runReadinessHook(binDir);
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /agent-space output --help failed/i);
+    assert.match(result.stderr, /dofe-agent output --help failed/i);
   } finally {
     rmSync(binDir, { recursive: true, force: true });
   }
 });
 
 test("install script readiness hook warns but passes when gws is missing", () => {
-  const binDir = mkdtempSync(join(tmpdir(), "agent-space-install-bin-"));
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-install-bin-"));
   try {
-    writeAgentSpaceOutput(binDir);
+    writeDofeAgentOutput(binDir);
     writeCompatibleBwrap(binDir);
 
     const result = runReadinessHook(binDir);
@@ -76,9 +76,9 @@ test("install script readiness hook warns but passes when gws is missing", () =>
 });
 
 test("install script readiness hook prints gws version failure output but still passes", () => {
-  const binDir = mkdtempSync(join(tmpdir(), "agent-space-install-bin-"));
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-install-bin-"));
   try {
-    writeAgentSpaceOutput(binDir);
+    writeDofeAgentOutput(binDir);
     writeExecutable(binDir, "gws", [
       "#!/bin/sh",
       "echo 'GLIBC_2.34 not found' >&2",
@@ -99,9 +99,9 @@ test("install script readiness hook prints gws version failure output but still 
 });
 
 test("install script readiness hook warns but passes when bwrap does not support --perms", () => {
-  const binDir = mkdtempSync(join(tmpdir(), "agent-space-install-bin-"));
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-install-bin-"));
   try {
-    writeAgentSpaceOutput(binDir);
+    writeDofeAgentOutput(binDir);
     writeExecutable(binDir, "gws", "#!/bin/sh\necho gws 1.0.0\n");
     writeExecutable(binDir, "bwrap", [
       "#!/bin/sh",
@@ -127,8 +127,8 @@ test("install script readiness hook warns but passes when bwrap does not support
 });
 
 test("install script prints installed daemon version in bootstrap summary", () => {
-  const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-install-version-"));
-  const packagePath = join(tempRoot, "agent-space-daemon-test.tgz");
+  const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-install-version-"));
+  const packagePath = join(tempRoot, "dofe-agent-daemon-test.tgz");
   const npmDir = join(tempRoot, "npm-bin");
   const providerBinDir = join(tempRoot, "provider-bin");
   const baseDir = join(tempRoot, "state");
@@ -140,7 +140,7 @@ test("install script prints installed daemon version in bootstrap summary", () =
     mkdirSync(npmDir, { recursive: true });
     mkdirSync(providerBinDir, { recursive: true });
     writeFileSync(packagePath, "not-a-real-tarball", "utf8");
-    writeAgentSpaceOutput(providerBinDir);
+    writeDofeAgentOutput(providerBinDir);
     writeExecutable(providerBinDir, "gws", "#!/bin/sh\necho gws 1.0.0\n");
     writeCompatibleBwrap(providerBinDir);
     writeExecutable(npmDir, "npm", [
@@ -155,7 +155,7 @@ test("install script prints installed daemon version in bootstrap summary", () =
       "  shift",
       "done",
       "mkdir -p \"$prefix/bin\"",
-      "cat > \"$prefix/bin/agent-space-daemon\" <<'DAEMON'",
+      "cat > \"$prefix/bin/dofe-agent-daemon\" <<'DAEMON'",
       "#!/bin/sh",
       "if [ \"$1\" = \"--version\" ]; then echo 9.8.7-test; exit 0; fi",
       "if [ \"$1\" = \"status\" ]; then echo '{\"running\":true}'; exit 0; fi",
@@ -163,13 +163,13 @@ test("install script prints installed daemon version in bootstrap summary", () =
       "if [ \"$1\" = \"start\" ]; then echo 'Remote daemon started (pid 123).'; exit 0; fi",
       "exit 0",
       "DAEMON",
-      "chmod +x \"$prefix/bin/agent-space-daemon\"",
-      "cat > \"$prefix/bin/agent-space\" <<'CLI'",
+      "chmod +x \"$prefix/bin/dofe-agent-daemon\"",
+      "cat > \"$prefix/bin/dofe-agent\" <<'CLI'",
       "#!/bin/sh",
       "if [ \"$1\" = \"output\" ]; then exit 0; fi",
       "exit 1",
       "CLI",
-      "chmod +x \"$prefix/bin/agent-space\"",
+      "chmod +x \"$prefix/bin/dofe-agent\"",
       "exit 0",
       "",
     ].join("\n"));
@@ -177,7 +177,7 @@ test("install script prints installed daemon version in bootstrap summary", () =
     const result = spawnSync("bash", [
       installerPath,
       "--package", packagePath,
-      "--server-url", "https://agentspace.example",
+      "--server-url", "https://dofe-agent.example",
       "--daemon-token", "adt_test",
       "--daemon-id", "daemon-test",
       "--base-dir", baseDir,
@@ -194,7 +194,7 @@ test("install script prints installed daemon version in bootstrap summary", () =
     });
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /Installed agent-space-daemon version: 9\.8\.7-test/);
+    assert.match(result.stdout, /Installed dofe-agent-daemon version: 9\.8\.7-test/);
     assert.match(result.stdout, /Version:\n  9\.8\.7-test/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
@@ -202,8 +202,8 @@ test("install script prints installed daemon version in bootstrap summary", () =
 });
 
 test("install script installs gws into the daemon runtime when it is missing", () => {
-  const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-install-gws-"));
-  const packagePath = join(tempRoot, "agent-space-daemon-test.tgz");
+  const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-install-gws-"));
+  const packagePath = join(tempRoot, "dofe-agent-daemon-test.tgz");
   const npmDir = join(tempRoot, "npm-bin");
   const providerBinDir = join(tempRoot, "provider-bin");
   const baseDir = join(tempRoot, "state");
@@ -240,7 +240,7 @@ test("install script installs gws into the daemon runtime when it is missing", (
       "  chmod +x \"$prefix/bin/gws\"",
       "  exit 0",
       "fi",
-      "cat > \"$prefix/bin/agent-space-daemon\" <<'DAEMON'",
+      "cat > \"$prefix/bin/dofe-agent-daemon\" <<'DAEMON'",
       "#!/bin/sh",
       "if [ \"$1\" = \"--version\" ]; then echo 9.8.7-test; exit 0; fi",
       "if [ \"$1\" = \"status\" ]; then echo '{\"running\":true}'; exit 0; fi",
@@ -248,13 +248,13 @@ test("install script installs gws into the daemon runtime when it is missing", (
       "if [ \"$1\" = \"start\" ]; then echo 'Remote daemon started (pid 123).'; exit 0; fi",
       "exit 0",
       "DAEMON",
-      "chmod +x \"$prefix/bin/agent-space-daemon\"",
-      "cat > \"$prefix/bin/agent-space\" <<'CLI'",
+      "chmod +x \"$prefix/bin/dofe-agent-daemon\"",
+      "cat > \"$prefix/bin/dofe-agent\" <<'CLI'",
       "#!/bin/sh",
       "if [ \"$1\" = \"output\" ]; then exit 0; fi",
       "exit 1",
       "CLI",
-      "chmod +x \"$prefix/bin/agent-space\"",
+      "chmod +x \"$prefix/bin/dofe-agent\"",
       "exit 0",
       "",
     ].join("\n"));
@@ -262,7 +262,7 @@ test("install script installs gws into the daemon runtime when it is missing", (
     const result = spawnSync("bash", [
       installerPath,
       "--package", packagePath,
-      "--server-url", "https://agentspace.example",
+      "--server-url", "https://dofe-agent.example",
       "--daemon-token", "adt_test",
       "--daemon-id", "daemon-test",
       "--base-dir", baseDir,
@@ -289,8 +289,8 @@ test("install script installs gws into the daemon runtime when it is missing", (
 });
 
 test("install script continues agent install when installed gws cannot run", () => {
-  const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-install-gws-fail-"));
-  const packagePath = join(tempRoot, "agent-space-daemon-test.tgz");
+  const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-install-gws-fail-"));
+  const packagePath = join(tempRoot, "dofe-agent-daemon-test.tgz");
   const npmDir = join(tempRoot, "npm-bin");
   const providerBinDir = join(tempRoot, "provider-bin");
   const baseDir = join(tempRoot, "state");
@@ -326,7 +326,7 @@ test("install script continues agent install when installed gws cannot run", () 
       "  chmod +x \"$prefix/bin/gws\"",
       "  exit 0",
       "fi",
-      "cat > \"$prefix/bin/agent-space-daemon\" <<'DAEMON'",
+      "cat > \"$prefix/bin/dofe-agent-daemon\" <<'DAEMON'",
       "#!/bin/sh",
       "if [ \"$1\" = \"--version\" ]; then echo 9.8.7-test; exit 0; fi",
       "if [ \"$1\" = \"status\" ]; then echo '{\"running\":true}'; exit 0; fi",
@@ -334,13 +334,13 @@ test("install script continues agent install when installed gws cannot run", () 
       "if [ \"$1\" = \"start\" ]; then echo 'Remote daemon started (pid 123).'; exit 0; fi",
       "exit 0",
       "DAEMON",
-      "chmod +x \"$prefix/bin/agent-space-daemon\"",
-      "cat > \"$prefix/bin/agent-space\" <<'CLI'",
+      "chmod +x \"$prefix/bin/dofe-agent-daemon\"",
+      "cat > \"$prefix/bin/dofe-agent\" <<'CLI'",
       "#!/bin/sh",
       "if [ \"$1\" = \"output\" ]; then exit 0; fi",
       "exit 1",
       "CLI",
-      "chmod +x \"$prefix/bin/agent-space\"",
+      "chmod +x \"$prefix/bin/dofe-agent\"",
       "exit 0",
       "",
     ].join("\n"));
@@ -348,7 +348,7 @@ test("install script continues agent install when installed gws cannot run", () 
     const result = spawnSync("bash", [
       installerPath,
       "--package", packagePath,
-      "--server-url", "https://agentspace.example",
+      "--server-url", "https://dofe-agent.example",
       "--daemon-token", "adt_test",
       "--daemon-id", "daemon-test",
       "--base-dir", baseDir,
@@ -378,8 +378,8 @@ test("install script continues agent install when installed gws cannot run", () 
 });
 
 test("install script update-existing reinstalls into the existing daemon binary root", () => {
-  const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-install-update-root-"));
-  const packagePath = join(tempRoot, "agent-space-daemon-test.tgz");
+  const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-install-update-root-"));
+  const packagePath = join(tempRoot, "dofe-agent-daemon-test.tgz");
   const npmDir = join(tempRoot, "npm-bin");
   const providerBinDir = join(tempRoot, "provider-bin");
   const baseDir = join(tempRoot, "state");
@@ -394,23 +394,23 @@ test("install script update-existing reinstalls into the existing daemon binary 
     mkdirSync(join(existingRoot, "bin"), { recursive: true });
     mkdirSync(baseDir, { recursive: true });
     writeFileSync(packagePath, "not-a-real-tarball", "utf8");
-    writeAgentSpaceOutput(providerBinDir);
+    writeDofeAgentOutput(providerBinDir);
     writeExecutable(providerBinDir, "gws", "#!/bin/sh\necho gws 1.0.0\n");
     writeCompatibleBwrap(providerBinDir);
-    writeExecutable(join(existingRoot, "bin"), "agent-space-daemon", [
+    writeExecutable(join(existingRoot, "bin"), "dofe-agent-daemon", [
       "#!/bin/sh",
       "if [ \"$1\" = \"stop\" ]; then exit 0; fi",
       "exit 0",
       "",
     ].join("\n"));
     writeFileSync(envFile, [
-      "AGENT_SPACE_SERVER_URL=https://agentspace.example",
-      "AGENT_SPACE_DAEMON_TOKEN=adt_existing",
-      "AGENT_SPACE_DAEMON_ID=daemon-existing",
-      "AGENT_SPACE_DEVICE_NAME=device-existing",
-      "AGENT_SPACE_RUNTIME_NAME=Remote\\ Agent",
-      `AGENT_SPACE_DAEMON_STATE_DIR=${shellQuote(baseDir)}`,
-      `AGENT_SPACE_DAEMON_BIN=${shellQuote(join(existingRoot, "bin", "agent-space-daemon"))}`,
+      "DOFE_AGENT_SERVER_URL=https://dofe-agent.example",
+      "DOFE_AGENT_DAEMON_TOKEN=adt_existing",
+      "DOFE_AGENT_DAEMON_ID=daemon-existing",
+      "DOFE_AGENT_DEVICE_NAME=device-existing",
+      "DOFE_AGENT_RUNTIME_NAME=Remote\\ Agent",
+      `DOFE_AGENT_DAEMON_STATE_DIR=${shellQuote(baseDir)}`,
+      `DOFE_AGENT_DAEMON_BIN=${shellQuote(join(existingRoot, "bin", "dofe-agent-daemon"))}`,
       "",
     ].join("\n"), "utf8");
     writeExecutable(npmDir, "npm", [
@@ -426,7 +426,7 @@ test("install script update-existing reinstalls into the existing daemon binary 
       "done",
       "printf '%s\\n' \"$prefix\" > " + shellQuote(join(tempRoot, "npm-prefix.txt")),
       "mkdir -p \"$prefix/bin\"",
-      "cat > \"$prefix/bin/agent-space-daemon\" <<'DAEMON'",
+      "cat > \"$prefix/bin/dofe-agent-daemon\" <<'DAEMON'",
       "#!/bin/sh",
       "if [ \"$1\" = \"--version\" ]; then echo 1.2.3-updated; exit 0; fi",
       "if [ \"$1\" = \"status\" ]; then echo '{\"running\":true}'; exit 0; fi",
@@ -434,13 +434,13 @@ test("install script update-existing reinstalls into the existing daemon binary 
       "if [ \"$1\" = \"start\" ]; then echo 'Remote daemon started (pid 456).'; exit 0; fi",
       "exit 0",
       "DAEMON",
-      "chmod +x \"$prefix/bin/agent-space-daemon\"",
-      "cat > \"$prefix/bin/agent-space\" <<'CLI'",
+      "chmod +x \"$prefix/bin/dofe-agent-daemon\"",
+      "cat > \"$prefix/bin/dofe-agent\" <<'CLI'",
       "#!/bin/sh",
       "if [ \"$1\" = \"output\" ]; then exit 0; fi",
       "exit 1",
       "CLI",
-      "chmod +x \"$prefix/bin/agent-space\"",
+      "chmod +x \"$prefix/bin/dofe-agent\"",
       "exit 0",
       "",
     ].join("\n"));
@@ -466,8 +466,8 @@ test("install script update-existing reinstalls into the existing daemon binary 
     assert.equal(readText(join(tempRoot, "npm-prefix.txt")).trim(), existingRoot);
     assert.equal(exists(defaultRoot), false);
     const updatedEnv = readText(envFile);
-    assert.match(updatedEnv, new RegExp(`AGENT_SPACE_DAEMON_INSTALL_ROOT=${escapeRegExp(existingRoot)}`));
-    assert.match(updatedEnv, new RegExp(`AGENT_SPACE_DAEMON_BIN=${escapeRegExp(join(existingRoot, "bin", "agent-space-daemon"))}`));
+    assert.match(updatedEnv, new RegExp(`DOFE_AGENT_DAEMON_INSTALL_ROOT=${escapeRegExp(existingRoot)}`));
+    assert.match(updatedEnv, new RegExp(`DOFE_AGENT_DAEMON_BIN=${escapeRegExp(join(existingRoot, "bin", "dofe-agent-daemon"))}`));
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -477,15 +477,15 @@ function runReadinessHook(binDir: string): SpawnSyncReturns<string> {
   return spawnSync("bash", [installerPath], {
     env: {
       ...process.env,
-      AGENT_SPACE_INSTALLER_TEST_HOOK: "verify-google-sheets-readiness",
-      AGENT_SPACE_INSTALLER_TEST_PATH: binDir,
+      DOFE_AGENT_INSTALLER_TEST_HOOK: "verify-google-sheets-readiness",
+      DOFE_AGENT_INSTALLER_TEST_PATH: binDir,
     },
     encoding: "utf8",
   });
 }
 
-function writeAgentSpaceOutput(binDir: string): void {
-  writeExecutable(binDir, "agent-space", [
+function writeDofeAgentOutput(binDir: string): void {
+  writeExecutable(binDir, "dofe-agent", [
     "#!/bin/sh",
     "if [ \"$1\" = \"output\" ]; then",
     "  exit 0",

@@ -5,7 +5,7 @@ import {
   verify as edVerify,
   type KeyObject,
 } from "node:crypto";
-import type { OpenAgentPersona } from "@agent-space/domain";
+import type { OpenAgentPersona } from "@dofe-agent/domain";
 
 /**
  * Node-layer signer for OpenAgent persona-cards. The pure `employeeToPersona()`
@@ -127,7 +127,7 @@ export function signPersona(
     created_by: {
       name: persona.name,
       key: publicPem,
-      url: "https://github.com/HKUDS/AgentSpace",
+      url: "https://github.com/HKUDS/DofeAgent",
     },
     signed_at: opts.now ?? new Date().toISOString(),
   };

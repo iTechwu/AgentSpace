@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { basename } from "node:path";
-import type { MessageAttachment } from "@agent-space/domain/workspace";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
   canViewChannelDocumentSync,
   createAttachmentStorageClient,
@@ -11,7 +11,7 @@ import {
   readWorkspaceStateSync,
   resolveAttachmentMediaType,
   tryRecordWorkspaceAuditEventSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { getWorkspaceChannelVisibilitySync } from "@/features/auth/workspace-channel-visibility";
 
@@ -296,7 +296,7 @@ function findAttachment(
 }
 
 function shouldUseLegacyAttachmentFallback(): boolean {
-  const configured = process.env.AGENT_SPACE_ATTACHMENT_LEGACY_FALLBACK_ENABLED?.trim().toLowerCase();
+  const configured = process.env.DOFE_AGENT_ATTACHMENT_LEGACY_FALLBACK_ENABLED?.trim().toLowerCase();
   if (configured) {
     return configured !== "0" && configured !== "false";
   }

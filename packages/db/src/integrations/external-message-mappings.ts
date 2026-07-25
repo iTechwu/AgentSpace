@@ -1,7 +1,7 @@
 export {
   createExternalMessageMappingSync,
   listExternalMessageMappingsSync,
-  readExternalMessageMappingByAgentSpaceMessageSync,
+  readExternalMessageMappingByDofeAgentMessageSync,
   readExternalMessageMappingByExternalMessageSync,
 } from "./external-integrations.ts";
 export type {

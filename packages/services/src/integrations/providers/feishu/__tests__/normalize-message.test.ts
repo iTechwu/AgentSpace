@@ -17,7 +17,7 @@ test("normalizes Feishu text messages and removes bot at tags", () => {
     context,
     payload: buildPayload({
       messageId: "om-text",
-      content: { text: '<at user_id="bot_open_id">@AgentSpaceBot</at> @Atlas summarize this' },
+      content: { text: '<at user_id="bot_open_id">@DofeAgentBot</at> @Atlas summarize this' },
     }),
   });
 
@@ -33,7 +33,7 @@ test("downgrades Feishu markdown message content to text", () => {
       messageId: "om-markdown",
       messageType: "markdown",
       content: {
-        markdown: '<at user_id="bot_open_id">@AgentSpaceBot</at> @Atlas **summarize** the launch notes',
+        markdown: '<at user_id="bot_open_id">@DofeAgentBot</at> @Atlas **summarize** the launch notes',
       },
     }),
   });
@@ -53,7 +53,7 @@ test("downgrades Feishu post message content to title and plain text", () => {
             title: "Launch Plan",
             content: [
               [
-                { tag: "at", user_name: "@AgentSpaceBot" },
+                { tag: "at", user_name: "@DofeAgentBot" },
                 { tag: "text", text: " @Atlas summarize " },
               ],
               [
@@ -132,7 +132,7 @@ test("normalizes Feishu file messages into downloadable attachment descriptors",
   });
 });
 
-test("normalizes @larksuite/channel messages into the AgentSpace envelope", () => {
+test("normalizes @larksuite/channel messages into the DofeAgent envelope", () => {
   const message = normalizeFeishuChannelSdkMessage({
     context,
     externalEventId: "evt-channel-sdk-1",
@@ -142,7 +142,7 @@ test("normalizes @larksuite/channel messages into the AgentSpace envelope", () =
       chatType: "group",
       senderId: "ou_mina",
       senderName: "Mina",
-      content: '<at user_id="bot_open_id">@AgentSpaceBot</at> @Atlas inspect the launch brief',
+      content: '<at user_id="bot_open_id">@DofeAgentBot</at> @Atlas inspect the launch brief',
       rawContentType: "post",
       rootId: "om-root",
       createTime: 1782220800000,
@@ -151,7 +151,7 @@ test("normalizes @larksuite/channel messages into the AgentSpace envelope", () =
       mentions: [{
         key: "bot_open_id",
         openId: "bot_open_id",
-        name: "AgentSpaceBot",
+        name: "DofeAgentBot",
         isBot: true,
       }],
       resources: [{
@@ -208,7 +208,7 @@ test("normalizes @larksuite/channel messages into the AgentSpace envelope", () =
   assert.equal(message?.rawPayload.schema, "channel_sdk_normalized");
 });
 
-test("ignores incomplete @larksuite/channel messages before AgentSpace dispatch", () => {
+test("ignores incomplete @larksuite/channel messages before DofeAgent dispatch", () => {
   assert.equal(normalizeFeishuChannelSdkMessage({
     context,
     message: {

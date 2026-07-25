@@ -7,8 +7,8 @@ import {
   deleteBudgetSync,
   getSpentUsdSync,
   getMonthStartIso,
-} from "@agent-space/db";
-import type { BudgetAction, BudgetPeriod, BudgetRecord, BudgetScope } from "@agent-space/db";
+} from "@dofe-agent/db";
+import type { BudgetAction, BudgetPeriod, BudgetRecord, BudgetScope } from "@dofe-agent/db";
 
 export type BudgetCheckResult =
   | { status: "ok" }

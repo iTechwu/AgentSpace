@@ -92,7 +92,7 @@ const {
   mockListFeishuIntegrationSettingsItems: vi.fn(),
 }));
 
-vi.mock("@agent-space/db", () => ({
+vi.mock("@dofe-agent/db", () => ({
   cancelExternalMessageOutboxForIntegrationSync: mockCancelExternalMessageOutboxForIntegrationSync,
   createExternalIntegrationSync: mockCreateExternalIntegrationSync,
   deleteExternalIntegrationSync: mockDeleteExternalIntegrationSync,
@@ -114,7 +114,7 @@ vi.mock("@agent-space/db", () => ({
   upsertExternalUserBindingSync: mockUpsertExternalUserBindingSync,
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   FEISHU_DEFAULT_SCOPES: ["im:message"],
   FEISHU_EVENT_CALLBACK_PATH: "/api/integrations/feishu/events",
   FEISHU_PROVIDER_ID: "feishu",
@@ -238,8 +238,8 @@ describe("Feishu actions", () => {
     mockListFeishuIntegrationSettingsItems.mockReset();
 
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member", "user-1"));
-    mockReadPublicAppUrl.mockReturnValue("https://agentspace.test");
-    mockBuildFeishuEventCallbackUrl.mockReturnValue("https://agentspace.test/api/integrations/feishu/events");
+    mockReadPublicAppUrl.mockReturnValue("https://dofe-agent.test");
+    mockBuildFeishuEventCallbackUrl.mockReturnValue("https://dofe-agent.test/api/integrations/feishu/events");
     mockListFeishuIntegrationSettingsItems.mockReturnValue([buildSettingsItem()]);
     mockBuildFeishuHealthSnapshotConfigJson.mockImplementation((input: {
       configJson: string | Record<string, unknown>;
@@ -290,7 +290,7 @@ describe("Feishu actions", () => {
     }));
     expect(mockTryRecordWorkspaceAuditEventSync).toHaveBeenCalledWith(expect.objectContaining({
       code: "workspace.external_user_binding_upserted",
-      note: "Member One mapped AgentSpace user \"user-1\" to a Feishu user.",
+      note: "Member One mapped DofeAgent user \"user-1\" to a Feishu user.",
       data: expect.objectContaining({
         resourceId: "binding-1",
         provider: "feishu",
@@ -340,7 +340,7 @@ describe("Feishu actions", () => {
     }));
     expect(mockTryRecordWorkspaceAuditEventSync).toHaveBeenCalledWith(expect.objectContaining({
       code: "workspace.external_channel_binding_upserted",
-      note: "Member One mapped AgentSpace channel \"general\" to a Feishu chat.",
+      note: "Member One mapped DofeAgent channel \"general\" to a Feishu chat.",
       data: expect.objectContaining({
         resourceId: "channel-binding-1",
         provider: "feishu",
@@ -352,7 +352,7 @@ describe("Feishu actions", () => {
     expect(JSON.stringify(mockTryRecordWorkspaceAuditEventSync.mock.calls)).not.toContain("oc_general");
   });
 
-  it("rejects Feishu chats already mapped to another AgentSpace channel before writing", async () => {
+  it("rejects Feishu chats already mapped to another DofeAgent channel before writing", async () => {
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin", "admin-1"));
     mockReadStoredChannelSync.mockReturnValue({
       id: "channel-general",
@@ -384,7 +384,7 @@ describe("Feishu actions", () => {
     expect(mockTryRecordWorkspaceAuditEventSync).not.toHaveBeenCalled();
   });
 
-  it("rejects members binding another AgentSpace user before writing", async () => {
+  it("rejects members binding another DofeAgent user before writing", async () => {
     await expect(createFeishuUserBindingAction({
       integrationId: "integration-1",
       userId: "user-2",
@@ -395,7 +395,7 @@ describe("Feishu actions", () => {
     expect(mockUpsertExternalUserBindingSync).not.toHaveBeenCalled();
   });
 
-  it("rejects Feishu Open IDs already bound to another AgentSpace user before writing", async () => {
+  it("rejects Feishu Open IDs already bound to another DofeAgent user before writing", async () => {
     mockReadExternalUserBindingByExternalUserSync.mockReturnValue(buildUserBinding("user-2"));
 
     await expect(createFeishuUserBindingAction({
@@ -507,7 +507,7 @@ describe("Feishu actions", () => {
 	  it("returns stable error codes for missing or invalid Feishu credential encryption key", async () => {
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin", "admin-1"));
     mockBuildEncryptedFeishuCredentials.mockImplementationOnce(() => {
-      throw new Error("AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.");
+      throw new Error("DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.");
     });
 
     await expect(createFeishuIntegrationAction({
@@ -528,7 +528,7 @@ describe("Feishu actions", () => {
       tenantKey: "tenant-old",
     }));
     mockBuildEncryptedFeishuCredentials.mockImplementationOnce(() => {
-      throw new Error("AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.");
+      throw new Error("DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.");
     });
 
     await expect(rotateFeishuIntegrationSecretAction({
@@ -596,8 +596,8 @@ describe("Feishu actions", () => {
       integrationId: "integration-1",
       providerResourceType: "sheet",
       resourceUrlOrToken: "CHANGE-ME-FEISHU-SHEET-URL-OR-TOKEN",
-      agentSpaceResourceType: "data_table",
-      agentSpaceResourceId: "",
+      dofeAgentResourceType: "data_table",
+      dofeAgentResourceId: "",
       channelName: "general",
       allowWrite: true,
     })).rejects.toThrow("feishu.resource_binding.placeholder_value");
@@ -672,7 +672,7 @@ describe("Feishu actions", () => {
     expect(result).toEqual({ integrationId: "integration-1" });
   });
 
-  it("lets admins bind a Feishu Doc to an AgentSpace channel document", async () => {
+  it("lets admins bind a Feishu Doc to an DofeAgent channel document", async () => {
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin", "admin-1"));
     mockReadStoredChannelSync.mockReturnValue({ name: "general" });
     mockResolveFeishuResourceDescriptorForType.mockReturnValue({
@@ -694,8 +694,8 @@ describe("Feishu actions", () => {
       providerResourceType: "doc",
       providerResourceToken: "doccnLaunch123",
       providerResourceUrl: "https://example.feishu.cn/docx/doccnLaunch123",
-      agentSpaceResourceType: "channel_document",
-      agentSpaceResourceId: "channel-document-feishu-1",
+      dofeAgentResourceType: "channel_document",
+      dofeAgentResourceId: "channel-document-feishu-1",
       channelName: "general",
       displayName: "Launch brief",
       status: "active",
@@ -709,8 +709,8 @@ describe("Feishu actions", () => {
       integrationId: "integration-1",
       providerResourceType: "doc",
       resourceUrlOrToken: " https://example.feishu.cn/docx/doccnLaunch123 ",
-      agentSpaceResourceType: "channel_document",
-      agentSpaceResourceId: "",
+      dofeAgentResourceType: "channel_document",
+      dofeAgentResourceId: "",
       channelName: " general ",
       displayName: " Launch brief ",
       allowWrite: true,
@@ -727,7 +727,7 @@ describe("Feishu actions", () => {
     });
     expect(mockUpsertFeishuExternalChannelDocumentSync).toHaveBeenCalledWith({
       channelName: "general",
-      agentSpaceResourceId: "",
+      dofeAgentResourceId: "",
       providerResourceType: "doc",
       providerResourceToken: "doccnLaunch123",
       providerResourceUrl: "https://example.feishu.cn/docx/doccnLaunch123",
@@ -741,8 +741,8 @@ describe("Feishu actions", () => {
       providerResourceType: "doc",
       providerResourceToken: "doccnLaunch123",
       providerResourceUrl: "https://example.feishu.cn/docx/doccnLaunch123",
-      agentSpaceResourceType: "channel_document",
-      agentSpaceResourceId: "channel-document-feishu-1",
+      dofeAgentResourceType: "channel_document",
+      dofeAgentResourceId: "channel-document-feishu-1",
       channelName: "general",
       displayName: "Launch brief",
       status: "active",
@@ -753,7 +753,7 @@ describe("Feishu actions", () => {
       },
       createdByUserId: "admin-1",
       metadataJson: {
-        agentSpaceSync: {
+        dofeAgentSync: {
           channelDocumentId: "channel-document-feishu-1",
           channelName: "general",
           created: true,
@@ -763,13 +763,13 @@ describe("Feishu actions", () => {
     expect(mockUpsertFeishuExternalDataTableSync).not.toHaveBeenCalled();
     expect(mockTryRecordWorkspaceAuditEventSync).toHaveBeenCalledWith(expect.objectContaining({
       code: "workspace.external_resource_binding_upserted",
-      note: "Member One mapped a Feishu doc resource to AgentSpace.",
+      note: "Member One mapped a Feishu doc resource to DofeAgent.",
       data: expect.objectContaining({
         provider: "feishu",
         resourceId: "resource-binding-1",
         providerResourceType: "doc",
-        agentSpaceResourceType: "channel_document",
-        agentSpaceResourceId: "channel-document-feishu-1",
+        dofeAgentResourceType: "channel_document",
+        dofeAgentResourceId: "channel-document-feishu-1",
         writeAllowed: true,
         guestReadable: true,
         externalIdRedacted: true,
@@ -779,7 +779,7 @@ describe("Feishu actions", () => {
     expect(result.id).toBe("integration-1");
   });
 
-  it("rejects Feishu resources already bound to another AgentSpace target before syncing local resources", async () => {
+  it("rejects Feishu resources already bound to another DofeAgent target before syncing local resources", async () => {
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin", "admin-1"));
     mockReadStoredChannelSync.mockReturnValue({ name: "general" });
     mockResolveFeishuResourceDescriptorForType.mockReturnValue({
@@ -793,8 +793,8 @@ describe("Feishu actions", () => {
       integrationId: "integration-1",
       providerResourceType: "sheet",
       providerResourceToken: "shtcnLaunch123",
-      agentSpaceResourceType: "data_table",
-      agentSpaceResourceId: "data-table-launch",
+      dofeAgentResourceType: "data_table",
+      dofeAgentResourceId: "data-table-launch",
       channelName: "launch",
       status: "active",
     });
@@ -803,8 +803,8 @@ describe("Feishu actions", () => {
       integrationId: "integration-1",
       providerResourceType: "sheet",
       resourceUrlOrToken: "https://example.feishu.cn/sheets/shtcnLaunch123",
-      agentSpaceResourceType: "data_table",
-      agentSpaceResourceId: "",
+      dofeAgentResourceType: "data_table",
+      dofeAgentResourceId: "",
       channelName: "general",
       displayName: "Launch Sheet",
       allowWrite: true,
@@ -823,7 +823,7 @@ describe("Feishu actions", () => {
     }));
   });
 
-  it("reuses the existing AgentSpace target when rebinding the same Feishu resource", async () => {
+  it("reuses the existing DofeAgent target when rebinding the same Feishu resource", async () => {
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin", "admin-1"));
     mockResolveFeishuResourceDescriptorForType.mockReturnValue({
       providerResourceType: "sheet",
@@ -836,8 +836,8 @@ describe("Feishu actions", () => {
       integrationId: "integration-1",
       providerResourceType: "sheet",
       providerResourceToken: "shtcnLaunch123",
-      agentSpaceResourceType: "data_table",
-      agentSpaceResourceId: "data-table-existing",
+      dofeAgentResourceType: "data_table",
+      dofeAgentResourceId: "data-table-existing",
       channelName: "general",
       status: "active",
     });
@@ -854,8 +854,8 @@ describe("Feishu actions", () => {
       integrationId: "integration-1",
       providerResourceType: "sheet",
       providerResourceToken: "shtcnLaunch123",
-      agentSpaceResourceType: "data_table",
-      agentSpaceResourceId: "data-table-existing",
+      dofeAgentResourceType: "data_table",
+      dofeAgentResourceId: "data-table-existing",
       channelName: "general",
       status: "active",
       permissionsJson: "{}",
@@ -868,19 +868,19 @@ describe("Feishu actions", () => {
       integrationId: "integration-1",
       providerResourceType: "sheet",
       resourceUrlOrToken: "https://example.feishu.cn/sheets/shtcnLaunch123",
-      agentSpaceResourceType: "data_table",
-      agentSpaceResourceId: "",
+      dofeAgentResourceType: "data_table",
+      dofeAgentResourceId: "",
       displayName: "Launch Sheet",
       allowWrite: true,
     });
 
     expect(mockUpsertFeishuExternalDataTableSync).toHaveBeenCalledWith(expect.objectContaining({
-      agentSpaceResourceId: "data-table-existing",
+      dofeAgentResourceId: "data-table-existing",
       channelName: "general",
       providerResourceToken: "shtcnLaunch123",
     }), "workspace-1");
     expect(mockUpsertExternalResourceBindingSync).toHaveBeenCalledWith(expect.objectContaining({
-      agentSpaceResourceId: "data-table-existing",
+      dofeAgentResourceId: "data-table-existing",
       channelName: "general",
       providerResourceToken: "shtcnLaunch123",
     }));
@@ -910,8 +910,8 @@ describe("Feishu actions", () => {
       integrationId: "integration-1",
       providerResourceType: "sheet",
       resourceUrlOrToken: "https://example.feishu.cn/sheets/shtcnLaunch123",
-      agentSpaceResourceType: "data_table",
-      agentSpaceResourceId: "",
+      dofeAgentResourceType: "data_table",
+      dofeAgentResourceId: "",
       channelName: "general",
       displayName: "Launch Sheet",
       allowWrite: true,
@@ -952,8 +952,8 @@ describe("Feishu actions", () => {
       integrationId: "integration-1",
       providerResourceType: "base_table",
       resourceUrlOrToken: "tblLaunch123",
-      agentSpaceResourceType: "data_table",
-      agentSpaceResourceId: "",
+      dofeAgentResourceType: "data_table",
+      dofeAgentResourceId: "",
       channelName: "general",
       displayName: "Launch Base",
       allowWrite: true,
@@ -983,7 +983,7 @@ describe("Feishu actions", () => {
       tenantAccessToken: "tenant-secret-token",
       expireSeconds: 7200,
       botOpenId: "ou_bot",
-      botAppName: "AgentSpace Bot",
+      botAppName: "DofeAgent Bot",
       scopeReadiness: "verified",
       enabledScopes: ["im:message"],
       missingScopes: [],
@@ -1002,7 +1002,7 @@ describe("Feishu actions", () => {
       status: "healthy",
       checkedAt: "2026-06-24T00:00:00.000Z",
       botOpenId: "ou_bot",
-      botAppName: "AgentSpace Bot",
+      botAppName: "DofeAgent Bot",
       scopeReadiness: "verified",
       requiredScopes: ["im:message"],
       enabledScopes: ["im:message"],
@@ -1050,7 +1050,7 @@ describe("Feishu actions", () => {
       checkedAt: "2026-06-24T00:02:00.000Z",
       tenantAccessToken: "tenant-secret-token",
       botOpenId: "ou_bot",
-      botAppName: "AgentSpace Bot",
+      botAppName: "DofeAgent Bot",
       scopeReadiness: "unauthorized",
       scopeErrorMessage: "permission denied for app_id cli_test app_secret=secret_test Bearer tenant-secret-token",
       errorMessage: "Feishu app scope check was rejected by Feishu: permission denied for cli_test",
@@ -1081,7 +1081,7 @@ describe("Feishu actions", () => {
       checkedAt: "2026-06-24T00:02:30.000Z",
       tenantAccessToken: "tenant-secret-token",
       botOpenId: "ou_bot",
-      botAppName: "AgentSpace Bot",
+      botAppName: "DofeAgent Bot",
       scopeReadiness: "manual_review_required",
       scopeErrorMessage: "scope API unavailable for app_id cli_test app_secret=secret_test Bearer tenant-secret-token",
       errorMessage: "Feishu app scopes could not be verified automatically for cli_test app_secret=secret_test Bearer tenant-secret-token",
@@ -1175,7 +1175,7 @@ describe("Feishu actions", () => {
       appId: "cli_health",
     }));
     mockReadFeishuIntegrationCredentials.mockImplementation(() => {
-      throw new Error("AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.");
+      throw new Error("DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.");
     });
 
     await expect(checkFeishuIntegrationHealthAction("integration-1"))

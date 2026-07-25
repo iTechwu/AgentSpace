@@ -22,8 +22,8 @@ import {
   type StoredChannelInvitationRecord,
   type StoredChannelParticipantRecord,
   type WorkspaceRole,
-} from "@agent-space/db";
-import type { AgentSpaceState, ChannelRecord } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import type { DofeAgentState, ChannelRecord } from "@dofe-agent/domain/workspace";
 import { resolveChannelHumanMemberNames, updateChannelHumanMemberNamesSync } from "../channels/channels.ts";
 import {
   resolveChannelDocumentRole,
@@ -88,7 +88,7 @@ export function canReadDirectChannelForActorSync(input: {
   workspaceId: string;
   channel: ChannelRecord;
   actor: ChannelAccessActor;
-  state?: AgentSpaceState;
+  state?: DofeAgentState;
 }): boolean {
   const actorUserId = input.actor.userId.trim();
   if (!actorUserId) {
@@ -686,7 +686,7 @@ function removeLegacyHumanMemberForUser(workspaceId: string, channelName: string
 }
 
 function grantExistingChannelDocumentsToHumanMember(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channelName: string,
   displayName: string,
   workspaceId: string,

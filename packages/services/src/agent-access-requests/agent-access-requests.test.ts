@@ -10,7 +10,7 @@ import {
   getDatabase,
   listWorkspaceNotificationsForRecipientSync,
   readStoredEmployeeSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   approveAgentAccessRequestForActorSync,
   createAgentAccessRequestForActorSync,
@@ -21,11 +21,11 @@ import {
   writeWorkspaceStateSync,
 } from "../index.ts";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-agent-access-request-service-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-agent-access-request-service-"));
 const originalCwd = process.cwd();
 
 before(() => {
-  process.env.AGENT_SPACE_REPOSITORY_ROOT = originalCwd;
+  process.env.DOFE_AGENT_REPOSITORY_ROOT = originalCwd;
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   process.chdir(tempRoot);

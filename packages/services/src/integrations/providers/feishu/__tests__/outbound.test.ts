@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { MessageAttachment } from "@agent-space/domain/workspace";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import { createIntegrationProviderError } from "../../../core/index.ts";
 import type { FeishuApiClient, FeishuApiRequest, FeishuMultipartUploadRequest } from "../client.ts";
 import {
@@ -32,7 +32,7 @@ import {
   splitFeishuTextMessageChunks,
 } from "../outbound.ts";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-feishu-outbound-pure-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-outbound-pure-"));
 
 test("buildFeishuMessageCreateRequest moves receive id type into query", () => {
   const request = buildFeishuMessageCreateRequest({
@@ -111,9 +111,9 @@ test("buildFeishuTextOutboundMessages labels agent-scoped text replies in every 
   assert.ok(messages.length > 1);
   const reconstructed = messages.map((message) => {
     const content = JSON.parse(String(message.payload.content)) as { text: string };
-    assert.match(content.text, /^Atlas · AgentSpace\n/);
+    assert.match(content.text, /^Atlas · DofeAgent\n/);
     return content.text
-      .replace(/^Atlas · AgentSpace\n/, "")
+      .replace(/^Atlas · DofeAgent\n/, "")
       .replace(/^\[\d+\/\d+\]\n/, "");
   }).join("");
   assert.equal(reconstructed, "Agent reply content that should split into multiple Feishu text payloads.");
@@ -136,7 +136,7 @@ test("buildFeishuAttachmentOutboundMessage stores only attachment metadata for d
   assert.equal(outbound.targetExternalChatId, "oc_general");
   assert.equal(outbound.targetExternalThreadId, "om_source_1");
   assert.deepEqual(outbound.payload, {
-    agent_space_payload_kind: "agent_space_feishu_attachment_v1",
+    dofe_agent_payload_kind: "dofe_agent_feishu_attachment_v1",
     receive_id_type: "chat_id",
     receive_id: "oc_general",
     reply_to_message_id: "om_source_1",
@@ -165,7 +165,7 @@ test("buildFeishuAgentStatusCard wraps status cards as Feishu interactive messag
     channelName: "general",
     agentNames: ["Atlas", "Atlas", "Nova"],
     message: "Finished the itinerary and saved the summary.",
-    actionUrl: "https://agentspace.test/w/northstar/im?focus=channel%3Ageneral",
+    actionUrl: "https://dofe-agent.test/w/northstar/im?focus=channel%3Ageneral",
     taskId: "task-123",
   });
   const outbound = buildFeishuInteractiveCardOutboundMessage({
@@ -188,12 +188,12 @@ test("buildFeishuAgentStatusCard wraps status cards as Feishu interactive messag
     }>;
   };
   assert.equal(parsed.header.template, "green");
-  assert.equal(parsed.header.title.content, "Atlas, Nova · AgentSpace");
+  assert.equal(parsed.header.title.content, "Atlas, Nova · DofeAgent");
   assert.match(parsed.elements[0]?.content ?? "", /\*\*Atlas, Nova\*\* · Complete/);
   assert.match(parsed.elements[0]?.content ?? "", /Channel: general/);
   assert.match(parsed.elements[0]?.content ?? "", /Task: task-123/);
-  assert.equal(parsed.elements[1]?.actions?.[0]?.text?.content, "Open AgentSpace");
-  assert.equal(parsed.elements[1]?.actions?.[0]?.url, "https://agentspace.test/w/northstar/im?focus=channel%3Ageneral");
+  assert.equal(parsed.elements[1]?.actions?.[0]?.text?.content, "Open DofeAgent");
+  assert.equal(parsed.elements[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/northstar/im?focus=channel%3Ageneral");
 });
 
 test("buildFeishuAgentStatusCard adds safe approval action values", () => {
@@ -244,14 +244,14 @@ test("buildFeishuAgentStatusCard adds safe approval action values", () => {
 test("buildFeishuIdentityBindingRequiredCard points guests to identity binding without raw Feishu ids", () => {
   const card = buildFeishuIdentityBindingRequiredCard({
     agentId: "Atlas",
-    settingsUrl: "https://agentspace.test/w/default/settings/integrations#feishu-user-bindings",
+    settingsUrl: "https://dofe-agent.test/w/default/settings/integrations#feishu-user-bindings",
   });
 
   assert.deepEqual(card.header, {
     template: "yellow",
     title: {
       tag: "plain_text",
-      content: "Atlas · AgentSpace",
+      content: "Atlas · DofeAgent",
     },
   });
   const elements = card.elements as Array<{
@@ -260,9 +260,9 @@ test("buildFeishuIdentityBindingRequiredCard points guests to identity binding w
     actions?: Array<{ text?: { content?: string }; url?: string }>;
   }>;
   assert.match(elements[0]?.content ?? "", /identity required/);
-  assert.match(elements[0]?.content ?? "", /绑定 AgentSpace 身份/);
-  assert.equal(elements[1]?.actions?.[0]?.text?.content, "Open AgentSpace");
-  assert.equal(elements[1]?.actions?.[0]?.url, "https://agentspace.test/w/default/settings/integrations#feishu-user-bindings");
+  assert.match(elements[0]?.content ?? "", /绑定 DofeAgent 身份/);
+  assert.equal(elements[1]?.actions?.[0]?.text?.content, "Open DofeAgent");
+  assert.equal(elements[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/default/settings/integrations#feishu-user-bindings");
   const serialized = JSON.stringify(card);
   assert.equal(serialized.includes("ou_mina"), false);
   assert.equal(serialized.includes("on_mina"), false);
@@ -274,14 +274,14 @@ test("buildFeishuAgentThreadCollaborationCard describes multi-agent thread joins
   const card = buildFeishuAgentThreadCollaborationCard({
     currentAgentId: "Hermes",
     previousAgentIds: ["Atlas", "Atlas"],
-    actionUrl: "https://agentspace.test/w/default/im?focus=channel%3Ageneral",
+    actionUrl: "https://dofe-agent.test/w/default/im?focus=channel%3Ageneral",
   });
 
   assert.deepEqual(card.header, {
     template: "blue",
     title: {
       tag: "plain_text",
-      content: "Hermes · AgentSpace",
+      content: "Hermes · DofeAgent",
     },
   });
   const elements = card.elements as Array<{
@@ -291,8 +291,8 @@ test("buildFeishuAgentThreadCollaborationCard describes multi-agent thread joins
   assert.match(elements[0]?.content ?? "", /agent joined this thread/);
   assert.match(elements[0]?.content ?? "", /Current: Hermes/);
   assert.match(elements[0]?.content ?? "", /Existing context: Atlas/);
-  assert.equal(elements[1]?.actions?.[0]?.text?.content, "Open AgentSpace");
-  assert.equal(elements[1]?.actions?.[0]?.url, "https://agentspace.test/w/default/im?focus=channel%3Ageneral");
+  assert.equal(elements[1]?.actions?.[0]?.text?.content, "Open DofeAgent");
+  assert.equal(elements[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/default/im?focus=channel%3Ageneral");
   const serialized = JSON.stringify(card);
   assert.equal(serialized.includes("oc_general"), false);
   assert.equal(serialized.includes("om_root"), false);
@@ -371,7 +371,7 @@ test("buildFeishuOutboundMessagePolicyInput summarizes external sends without me
     outbox: {
       targetExternalChatId: "oc_general",
       targetExternalThreadId: "om_source_1",
-      agentSpaceMessageId: "message-1",
+      dofeAgentMessageId: "message-1",
       payloadJson,
     },
   });
@@ -393,7 +393,7 @@ test("buildFeishuOutboundMessagePolicyInput summarizes external sends without me
     outbox: {
       targetExternalChatId: "oc_general",
       targetExternalThreadId: "om_source_1",
-      agentSpaceMessageId: "message-1",
+      dofeAgentMessageId: "message-1",
       payloadJson,
     },
   });
@@ -491,7 +491,7 @@ test("buildFeishuOutboundMappingMetadata records safe agent bot reply evidence",
     outbox: {
       targetExternalChatId: "oc_secret_room",
       targetExternalThreadId: "om_secret_root",
-      agentSpaceMessageId: "message-1",
+      dofeAgentMessageId: "message-1",
       payloadJson,
     },
   });

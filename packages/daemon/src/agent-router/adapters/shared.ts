@@ -8,7 +8,7 @@ import type {
   HarnessErrorContext,
   HarnessLaunchPlan,
 } from "../types.ts";
-import type { ExecController } from "@agent-space/sandbox";
+import type { ExecController } from "@dofe-agent/sandbox";
 import { runLaunchPlan, type SubprocessRunResult } from "../subprocess.ts";
 import {
   createDiagnostic,

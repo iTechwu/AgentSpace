@@ -37,7 +37,7 @@ import { createChannelDocumentRun, markChannelDocumentRunStepQueued } from "./ru
 import { applyChannelDocumentBlockOperations } from "./operations.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-doc-sync-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-doc-sync-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -477,7 +477,7 @@ test("markdown attachments with legacy octet-stream media type still show up as 
 
 test("completeChannelDocumentRunStepSync warns when a document step finishes without a new version", () => {
   const originalCwd = process.cwd();
-  const repoRoot = mkdtempSync(join(tmpdir(), "agent-space-doc-runs-"));
+  const repoRoot = mkdtempSync(join(tmpdir(), "dofe-agent-doc-runs-"));
 
   try {
     writeFileSync(join(repoRoot, "Target.md"), "# test\n");

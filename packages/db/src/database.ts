@@ -255,9 +255,9 @@ const NORMALIZED_ROW_KEY_ALIASES = new Map([
   ["respondedat", "respondedAt"],
   ["respondedby", "respondedBy"],
   ["accesstokenencrypted", "accessTokenEncrypted"],
-  ["agentspacemessageid", "agentSpaceMessageId"],
-  ["agentspaceresourceid", "agentSpaceResourceId"],
-  ["agentspaceresourcetype", "agentSpaceResourceType"],
+  ["dofe-agentmessageid", "dofeAgentMessageId"],
+  ["dofe-agentresourceid", "dofeAgentResourceId"],
+  ["dofe-agentresourcetype", "dofeAgentResourceType"],
   ["appid", "appId"],
   ["capabilitiesjson", "capabilitiesJson"],
   ["channelbindingid", "channelBindingId"],
@@ -504,7 +504,7 @@ export function randomLikeId(): string {
 
 export function resolveRepositoryRoot(): string {
   const candidates = [
-    process.env.AGENT_SPACE_REPOSITORY_ROOT,
+    process.env.DOFE_AGENT_REPOSITORY_ROOT,
     /*turbopackIgnore: true*/ process.cwd(),
     join(/*turbopackIgnore: true*/ process.cwd(), ".."),
     join(/*turbopackIgnore: true*/ process.cwd(), "..", ".."),
@@ -596,7 +596,7 @@ function acquireRuntimeSchemaLock(
     if (elapsedMs >= timeoutMs) {
       throw new Error(
         `PostgreSQL schema migration lock is busy after ${timeoutMs}ms. `
-        + `Another AgentSpace process may be initializing schema version ${POSTGRES_SCHEMA_VERSION}; `
+        + `Another DofeAgent process may be initializing schema version ${POSTGRES_SCHEMA_VERSION}; `
         + "wait for it to finish or stop the stale process before rerunning the command.",
       );
     }
@@ -668,7 +668,7 @@ function seedDefaultWorkspace(db: PostgresSyncDatabase): void {
        join_code, join_code_updated_at, join_code_updated_by
      )
      VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
-  ).run(DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_ID, "Agent Space", "", now, now, joinCode, now, "system");
+  ).run(DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_ID, "Dofe Agent", "", now, now, joinCode, now, "system");
 }
 
 function createPostgresSyncDatabase(currentDatabaseUrl: string): PostgresSyncDatabase {
@@ -893,12 +893,12 @@ function resolveLocalDbPackageJsonPath(): string {
 }
 
 function resolveWorkerRequestTimeoutMs(): number {
-  const parsed = Number.parseInt(process.env.AGENT_SPACE_DB_WORKER_TIMEOUT_MS ?? "", 10);
+  const parsed = Number.parseInt(process.env.DOFE_AGENT_DB_WORKER_TIMEOUT_MS ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000;
 }
 
 function resolveSchemaLockTimeoutMs(): number {
-  const parsed = Number.parseInt(process.env.AGENT_SPACE_DB_SCHEMA_LOCK_TIMEOUT_MS ?? "", 10);
+  const parsed = Number.parseInt(process.env.DOFE_AGENT_DB_SCHEMA_LOCK_TIMEOUT_MS ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : Math.max(1_000, WORKER_REQUEST_TIMEOUT_MS - 1_000);
 }
 

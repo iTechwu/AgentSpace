@@ -10,21 +10,21 @@ export function resolvePostgresDatabaseUrl(input?: PostgresConnectionInput): str
   const env = input?.env ? readEffectiveRuntimeEnv({ env: input.env, repositoryOverridesEnv: false }) : readEffectiveRuntimeEnv();
   const databaseUrl =
     input?.databaseUrl?.trim()
-    || rawEnv.AGENT_SPACE_TEST_DATABASE_URL?.trim()
-    || rawEnv.AGENT_SPACE_PG_TEST_URL?.trim()
-    || env.AGENT_SPACE_TEST_DATABASE_URL?.trim()
-    || env.AGENT_SPACE_PG_TEST_URL?.trim()
+    || rawEnv.DOFE_AGENT_TEST_DATABASE_URL?.trim()
+    || rawEnv.DOFE_AGENT_PG_TEST_URL?.trim()
+    || env.DOFE_AGENT_TEST_DATABASE_URL?.trim()
+    || env.DOFE_AGENT_PG_TEST_URL?.trim()
     || rawEnv.SELF_HOSTED_DATABASE_URL?.trim()
-    || rawEnv.AGENT_SPACE_PG_URL?.trim()
+    || rawEnv.DOFE_AGENT_PG_URL?.trim()
     || rawEnv.DATABASE_URL?.trim()
     || env.SELF_HOSTED_DATABASE_URL?.trim()
-    || env.AGENT_SPACE_PG_URL?.trim()
+    || env.DOFE_AGENT_PG_URL?.trim()
     || env.DATABASE_URL?.trim()
     || "";
 
   if (!databaseUrl) {
     throw new Error(
-      "PostgreSQL database URL is required. Set SELF_HOSTED_DATABASE_URL, AGENT_SPACE_PG_URL, or DATABASE_URL.",
+      "PostgreSQL database URL is required. Set SELF_HOSTED_DATABASE_URL, DOFE_AGENT_PG_URL, or DATABASE_URL.",
     );
   }
 
@@ -58,7 +58,7 @@ export function redactPostgresDatabaseUrl(databaseUrl: string): string {
 }
 
 function assertSafeTestDatabaseUrl(databaseUrl: string, env: NodeJS.ProcessEnv): void {
-  if (!isTestProcess(env) || env.AGENT_SPACE_ALLOW_PRODUCTION_TEST_DB === "1") {
+  if (!isTestProcess(env) || env.DOFE_AGENT_ALLOW_PRODUCTION_TEST_DB === "1") {
     return;
   }
 
@@ -68,15 +68,15 @@ function assertSafeTestDatabaseUrl(databaseUrl: string, env: NodeJS.ProcessEnv):
 
   throw new Error(
     "Refusing to use a non-test PostgreSQL database while running tests. "
-    + "Set AGENT_SPACE_TEST_DATABASE_URL or AGENT_SPACE_PG_TEST_URL to an isolated test database, "
-    + "or set AGENT_SPACE_ALLOW_PRODUCTION_TEST_DB=1 if this is intentional.",
+    + "Set DOFE_AGENT_TEST_DATABASE_URL or DOFE_AGENT_PG_TEST_URL to an isolated test database, "
+    + "or set DOFE_AGENT_ALLOW_PRODUCTION_TEST_DB=1 if this is intentional.",
   );
 }
 
 function isTestProcess(env: NodeJS.ProcessEnv): boolean {
   return Boolean(
     env.NODE_TEST_CONTEXT
-    || env.AGENT_SPACE_E2E === "1"
+    || env.DOFE_AGENT_E2E === "1"
     || env.VITEST
     || env.JEST_WORKER_ID
     || env.NODE_ENV === "test"

@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { type AgentSpaceState, type MessageAttachment, type WorkspaceMessage } from "@agent-space/domain/workspace";
-import { DEFAULT_WORKSPACE_ID, readUserSync, readWorkspaceMembershipSync } from "@agent-space/db";
-import type { WorkspaceRole } from "@agent-space/db";
+import { type DofeAgentState, type MessageAttachment, type WorkspaceMessage } from "@dofe-agent/domain/workspace";
+import { DEFAULT_WORKSPACE_ID, readUserSync, readWorkspaceMembershipSync } from "@dofe-agent/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
 import { canReadChannelForActorSync, isWorkspaceAdminOrOwnerRole } from "../channel-access/channel-access.ts";
 import { getWorkspaceAttachmentsDirPath, readWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { createOpaqueId, sanitizeAttachmentFileName, resolveAttachmentMediaType, inferAttachmentKind, sameValue } from "../shared/helpers.ts";
@@ -17,7 +17,7 @@ type PersistWorkspaceAttachmentInput = {
 };
 
 export interface DeleteChannelAttachmentResult {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   attachmentId: string;
   removedFromMessage: boolean;
   physicalFileDeleted: boolean;
@@ -277,7 +277,7 @@ function normalizeAttachmentDisplayName(value: string): string {
   return normalized || "attachment.bin";
 }
 
-function collectReferencedAttachmentPaths(state: AgentSpaceState): Set<string> {
+function collectReferencedAttachmentPaths(state: DofeAgentState): Set<string> {
   const result = new Set<string>();
 
   for (const message of state.messages) {
@@ -305,7 +305,7 @@ function collectReferencedAttachmentPaths(state: AgentSpaceState): Set<string> {
 }
 
 function findChannelAttachment(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channelName: string,
   attachmentId: string,
 ): { attachment: MessageAttachment; message: WorkspaceMessage } | null {
@@ -340,7 +340,7 @@ function canActorDeleteAttachment(input: {
   return Boolean(actorDisplayName) && sameValue(input.message.speaker, actorDisplayName);
 }
 
-function isAttachmentStillReferenced(state: AgentSpaceState, deletedAttachment: MessageAttachment): boolean {
+function isAttachmentStillReferenced(state: DofeAgentState, deletedAttachment: MessageAttachment): boolean {
   const deletedPath = resolve(deletedAttachment.storedPath);
 
   for (const message of state.messages) {

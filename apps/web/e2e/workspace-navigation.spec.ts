@@ -10,7 +10,7 @@ test("preserves the IM composer draft across workbench module switches", async (
   await composer.fill(draft);
 
   await page.getByRole("link", { name: /打开任务|Open tasks/i }).click();
-  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/task-board(?:\\?.*)?$`));
+  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/task/board(?:\\?.*)?$`));
   await expect(page.getByRole("button", { name: /按状态|By Status/i })).toBeVisible();
 
   await page.getByRole("link", { name: /消息|Messages/i }).click();
@@ -18,7 +18,7 @@ test("preserves the IM composer draft across workbench module switches", async (
   await expect(composer).toHaveValue(draft);
 
   await page.goBack();
-  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/task-board(?:\\?.*)?$`));
+  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/task/board(?:\\?.*)?$`));
   await page.goForward();
   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/im(?:\\?.*)?$`));
   await expect(composer).toHaveValue(draft);
@@ -75,7 +75,7 @@ test("keeps the final active module after rapid desktop switching", async ({ pag
 test("keeps workspace chrome mounted during client module switches", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/im");
   await page.locator("[data-testid='workspace-layout']").evaluate((element) => {
-    const key = "__agentSpaceWorkspaceChrome";
+    const key = "__dofeAgentWorkspaceChrome";
     const record = {
       layout: element,
       main: document.querySelector("[data-testid='workspace-main']"),
@@ -85,7 +85,7 @@ test("keeps workspace chrome mounted during client module switches", async ({ pa
   });
 
   await page.getByRole("link", { name: /打开任务|Open tasks/i }).click();
-  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/task-board(?:\\?.*)?$`));
+  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/task/board(?:\\?.*)?$`));
   await expect(page.getByRole("button", { name: /按状态|By Status/i })).toBeVisible();
 
   await page.getByRole("link", { name: /消息|Messages/i }).click();
@@ -95,12 +95,12 @@ test("keeps workspace chrome mounted during client module switches", async ({ pa
   await expect.poll(async () =>
     page.evaluate(() => {
       const record = (window as typeof window & {
-        __agentSpaceWorkspaceChrome?: {
+        __dofeAgentWorkspaceChrome?: {
           layout: Element | null;
           main: Element | null;
           sidebar: Element | null;
         };
-      }).__agentSpaceWorkspaceChrome;
+      }).__dofeAgentWorkspaceChrome;
       return Boolean(
         record?.layout?.isConnected
           && record.main?.isConnected
@@ -203,7 +203,7 @@ test("closes the mobile sidebar after module navigation and restores with back",
   await expect(layout).toHaveClass(/workspace-layout--sidebar-open/);
 
   await page.getByRole("link", { name: /打开任务|Open tasks/i }).click();
-  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/task-board(?:\\?.*)?$`));
+  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/task/board(?:\\?.*)?$`));
   await expect(layout).not.toHaveClass(/workspace-layout--sidebar-open/);
   await expect(page.getByRole("button", { name: /按状态|By Status/i })).toBeVisible();
 

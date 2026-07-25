@@ -8,10 +8,16 @@ import {
   updateWorkspaceMembershipRoleSync,
   updateWorkspaceSync,
   type WorkspaceRole,
-} from "@agent-space/db";
-import { createDefaultWorkspaceState } from "@agent-space/domain/workspace";
-import { readWorkspaceStateSync, writeWorkspaceStateSync } from "@agent-space/services";
-import type { UserTeam, UserTenant } from "@dofe/sso-node";
+} from "@dofe-agent/db";
+import { createDefaultWorkspaceState } from "@dofe-agent/domain/workspace";
+import { readWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services";
+import type {
+  InternalTeam,
+  InternalTenant,
+  SsoInternalClient,
+  UserTeam,
+  UserTenant,
+} from "@dofe/sso-node";
 
 export interface SsoWorkspaceScope {
   id: string;
@@ -19,8 +25,10 @@ export interface SsoWorkspaceScope {
   role: WorkspaceRole;
   tenantId: string;
   tenantName: string;
+  tenantSlug?: string;
   teamId?: string;
   teamName?: string;
+  teamSlug?: string;
 }
 
 export function buildSsoWorkspaceScopes(input: {
@@ -36,8 +44,10 @@ export function buildSsoWorkspaceScopes(input: {
       role: toWorkspaceRole(team.role),
       tenantId: team.tenantId,
       tenantName: team.tenantName,
+      tenantSlug: team.tenantSlug,
       teamId: team.teamId,
       teamName: team.teamName,
+      teamSlug: team.teamSlug,
     })),
     ...input.tenants
       .filter((tenant) => !teamTenantIds.has(tenant.tenantId))
@@ -47,6 +57,7 @@ export function buildSsoWorkspaceScopes(input: {
         role: toWorkspaceRole(tenant.role),
         tenantId: tenant.tenantId,
         tenantName: tenant.tenantDisplayName?.trim() || tenant.tenantName,
+        tenantSlug: tenant.tenantSlug,
       })),
   ];
 
@@ -54,6 +65,66 @@ export function buildSsoWorkspaceScopes(input: {
     const leftPreferred = left.tenantId === input.preferredTenantId ? 0 : 1;
     const rightPreferred = right.tenantId === input.preferredTenantId ? 0 : 1;
     return leftPreferred - rightPreferred || left.name.localeCompare(right.name);
+  });
+}
+
+export async function buildSsoWorkspaceScopesForUser(input: {
+  client: Pick<SsoInternalClient, "teams" | "tenants">;
+  isAdmin: boolean;
+  preferredTenantId?: string | null;
+  teams: readonly UserTeam[];
+  tenants: readonly UserTenant[];
+}): Promise<SsoWorkspaceScope[]> {
+  if (!input.isAdmin) {
+    return buildSsoWorkspaceScopes(input);
+  }
+
+  const [teams, tenants] = await Promise.all([
+    listAllSsoDirectoryItems((query) => input.client.teams.list(query)),
+    listAllSsoDirectoryItems((query) => input.client.tenants.list(query)),
+  ]);
+  return buildSsoAdminWorkspaceScopes({
+    preferredTenantId: input.preferredTenantId,
+    teams,
+    tenants,
+  });
+}
+
+export function buildSsoAdminWorkspaceScopes(input: {
+  teams: readonly InternalTeam[];
+  tenants: readonly InternalTenant[];
+  preferredTenantId?: string | null;
+}): SsoWorkspaceScope[] {
+  const tenantById = new Map(input.tenants.map((tenant) => [tenant.id, tenant]));
+  const teams = input.teams
+    .map((team): UserTeam | null => {
+      const tenant = tenantById.get(team.tenantId);
+      if (!tenant) {
+        return null;
+      }
+      return {
+        teamId: team.id,
+        teamSlug: team.slug,
+        teamName: team.name,
+        tenantId: tenant.id,
+        tenantSlug: tenant.slug,
+        tenantName: tenant.name,
+        role: "ADMIN",
+      };
+    })
+    .filter((team): team is UserTeam => team !== null);
+  const tenants = input.tenants.map((tenant): UserTenant => ({
+    tenantId: tenant.id,
+    tenantSlug: tenant.slug,
+    tenantName: tenant.name,
+    tenantDisplayName: tenant.name,
+    role: "ADMIN",
+  }));
+
+  return buildSsoWorkspaceScopes({
+    teams,
+    tenants,
+    preferredTenantId: input.preferredTenantId,
   });
 }
 
@@ -83,10 +154,18 @@ export function syncSsoWorkspacesForUserSync(input: {
       state.humanMembers = [{ name: input.displayName, role: workspaceRoleLabel(scope.role) }];
       state.channels = [];
       writeWorkspaceStateSync(state, scope.id);
-    } else if (existingWorkspace.name !== scope.name) {
-      updateWorkspaceSync(scope.id, { name: scope.name });
-      const state = readWorkspaceStateSync(scope.id);
-      writeWorkspaceStateSync({ ...state, organizationName: scope.name }, scope.id);
+    } else {
+      const nextSlug = ssoWorkspaceSlug(scope);
+      if (existingWorkspace.name !== scope.name || existingWorkspace.slug !== nextSlug) {
+        updateWorkspaceSync(scope.id, {
+          ...(existingWorkspace.name !== scope.name ? { name: scope.name } : {}),
+          ...(existingWorkspace.slug !== nextSlug ? { slug: nextSlug } : {}),
+        });
+      }
+      if (existingWorkspace.name !== scope.name) {
+        const state = readWorkspaceStateSync(scope.id);
+        writeWorkspaceStateSync({ ...state, organizationName: scope.name }, scope.id);
+      }
     }
 
     const membership = listUserWorkspacesSync(input.userId).find((item) => item.workspaceId === scope.id);
@@ -105,12 +184,34 @@ function ssoWorkspaceId(kind: "team" | "tenant", sourceId: string): string {
 }
 
 function ssoWorkspaceSlug(scope: SsoWorkspaceScope): string {
-  const source = `${scope.tenantName}-${scope.teamName ?? "tenant"}`
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 32) || "sso-workspace";
+  const source = [
+    scope.tenantSlug,
+    scope.teamSlug,
+    scope.tenantName,
+    scope.teamName,
+  ]
+    .map(toUrlSlugPart)
+    .filter(Boolean)
+    .join("-")
+    .slice(0, 40) || "workspace";
   return `${source}-${scope.id.slice(-6)}`;
+}
+
+function toUrlSlugPart(value: string | undefined): string {
+  const source = (value ?? "")
+    .trim()
+    .toLowerCase();
+  const asciiSlug = source
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (asciiSlug) {
+    return asciiSlug;
+  }
+
+  return source
+    .replace(/[\\/?#%]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function toWorkspaceRole(role: string): WorkspaceRole {
@@ -121,4 +222,21 @@ function toWorkspaceRole(role: string): WorkspaceRole {
 
 function workspaceRoleLabel(role: WorkspaceRole): string {
   return role === "owner" ? "Owner" : role === "admin" ? "Admin" : "Member";
+}
+
+async function listAllSsoDirectoryItems<TItem>(
+  loadPage: (query: { limit: number; page: number; status: string }) => Promise<{
+    list: TItem[];
+    total: number;
+  }>,
+): Promise<TItem[]> {
+  const limit = 100;
+  const items: TItem[] = [];
+  for (let page = 1; ; page += 1) {
+    const result = await loadPage({ limit, page, status: "ACTIVE" });
+    items.push(...result.list);
+    if (result.list.length === 0 || items.length >= result.total) {
+      return items;
+    }
+  }
 }

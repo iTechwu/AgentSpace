@@ -499,7 +499,7 @@ export interface Template {
   updatedAt: string;
 }
 
-export interface AgentSpaceState {
+export interface DofeAgentState {
   organizationName: string;
   pendingHandoffs: number;
   humanMembers: HumanMember[];
@@ -613,8 +613,8 @@ export const navItems: NavItem[] = [
 
 const defaultActiveEmployees: ActiveEmployee[] = [];
 
-export const defaultWorkspaceState: AgentSpaceState = {
-  organizationName: "AgentSpace",
+export const defaultWorkspaceState: DofeAgentState = {
+  organizationName: "DofeAgent",
   pendingHandoffs: 0,
   humanMembers: [],
   skills: [],
@@ -648,11 +648,11 @@ export const defaultWorkspaceState: AgentSpaceState = {
   ledger: [],
 };
 
-export function createDefaultWorkspaceState(): AgentSpaceState {
+export function createDefaultWorkspaceState(): DofeAgentState {
   return structuredClone(defaultWorkspaceState);
 }
 
-export function createWorkspaceSnapshot(state: AgentSpaceState): WorkspaceSnapshot {
+export function createWorkspaceSnapshot(state: DofeAgentState): WorkspaceSnapshot {
   return {
     navItems,
     stats: [

@@ -10,13 +10,13 @@ import {
 } from "../credentials.ts";
 
 test("Feishu credentials are encrypted at rest and only summarized for settings", () => {
-  const originalRepositoryRoot = process.env.AGENT_SPACE_REPOSITORY_ROOT;
-  const originalFeishuKey = process.env.AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY;
-  const repositoryRoot = mkdtempSync(join(tmpdir(), "agentspace-feishu-credentials-"));
+  const originalRepositoryRoot = process.env.DOFE_AGENT_REPOSITORY_ROOT;
+  const originalFeishuKey = process.env.DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY;
+  const repositoryRoot = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-credentials-"));
   writeFileSync(join(repositoryRoot, "Target.md"), "test\n");
 
-  process.env.AGENT_SPACE_REPOSITORY_ROOT = repositoryRoot;
-  process.env.AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY = Buffer
+  process.env.DOFE_AGENT_REPOSITORY_ROOT = repositoryRoot;
+  process.env.DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY = Buffer
     .from("0123456789abcdef0123456789abcdef", "utf8")
     .toString("base64");
 
@@ -46,8 +46,8 @@ test("Feishu credentials are encrypted at rest and only summarized for settings"
       encryptKey: "encrypt-key",
     });
   } finally {
-    restoreOptionalEnv("AGENT_SPACE_REPOSITORY_ROOT", originalRepositoryRoot);
-    restoreOptionalEnv("AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY", originalFeishuKey);
+    restoreOptionalEnv("DOFE_AGENT_REPOSITORY_ROOT", originalRepositoryRoot);
+    restoreOptionalEnv("DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY", originalFeishuKey);
     rmSync(repositoryRoot, { recursive: true, force: true });
   }
 });

@@ -5,7 +5,7 @@ import {
   listEmployeeSkillIdsSync,
   setEmployeeSkillIdsSync,
   tryRecordWorkspaceAuditEventSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import {
   getRuntimeOutputSkillImportsPath,
   RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR,

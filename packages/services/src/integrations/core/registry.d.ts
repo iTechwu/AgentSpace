@@ -1,4 +1,4 @@
-import type { ExternalIntegrationProvider } from "@agent-space/db";
+import type { ExternalIntegrationProvider } from "@dofe-agent/db";
 import type { ExternalDocumentProviderAdapter } from "./document-provider.ts";
 import type { MessageTransportAdapter } from "./message-transport.ts";
 import type { IntegrationHealth, IntegrationProviderDescriptor, IntegrationRuntimeContext } from "./types.ts";

@@ -15,7 +15,7 @@ import {
 import { LocalSandbox } from "./local/local-sandbox.ts";
 
 test("connectSandbox defaults to the local provider", async () => {
-  const workDir = await mkdtemp(join(tmpdir(), "agent-space-sandbox-local-"));
+  const workDir = await mkdtemp(join(tmpdir(), "dofe-agent-sandbox-local-"));
 
   try {
     const sandbox = await connectSandbox({
@@ -32,7 +32,7 @@ test("connectSandbox defaults to the local provider", async () => {
 });
 
 test("connectSandbox provisions a Cube sandbox when the provider env is cube", async () => {
-  const workDir = await mkdtemp(join(tmpdir(), "agent-space-sandbox-cube-"));
+  const workDir = await mkdtemp(join(tmpdir(), "dofe-agent-sandbox-cube-"));
   const requests: Array<{ url: string; method: string; body: string }> = [];
   const originalFetch = globalThis.fetch;
 

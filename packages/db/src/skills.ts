@@ -1,4 +1,4 @@
-import type { WorkspaceSkill } from "@agent-space/domain/workspace";
+import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
 import type {
   StoredAgentSkillRecord,

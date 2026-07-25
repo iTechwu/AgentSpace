@@ -4,7 +4,7 @@ import {
   type TaskExecutionEventInput,
   type TaskExecutionEventListOptions,
   type TaskExecutionEventRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { publishTaskExecutionEventCreatedEvent } from "./realtime/events.ts";
 
 export function recordTaskExecutionEventSync(input: TaskExecutionEventInput): TaskExecutionEventRecord {

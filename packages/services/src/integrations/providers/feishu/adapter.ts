@@ -1,6 +1,6 @@
 import {
   createIntegrationProviderError,
-  type AgentSpaceOutboundMessage,
+  type DofeAgentOutboundMessage,
   type ExternalMessageEnvelope,
   type ExternalOutboundMessagePayload,
   type IncomingMessageRequest,
@@ -47,7 +47,7 @@ export const feishuIntegrationProviderAdapter: IntegrationProviderAdapter = {
     },
     buildOutboundMessage(
       _context: IntegrationRuntimeContext,
-      message: AgentSpaceOutboundMessage,
+      message: DofeAgentOutboundMessage,
     ): ExternalOutboundMessagePayload {
       const targetExternalChatId = typeof message.metadata?.externalChatId === "string"
         ? message.metadata.externalChatId

@@ -13,7 +13,7 @@ import {
 import { getDatabase } from "./database.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-db-daemon-tokens-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-db-daemon-tokens-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

@@ -1,4 +1,4 @@
-import { formatDaemonProviderLabel } from "@agent-space/domain";
+import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import { useEffect, useId, useRef, useState } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import type { AgentsPageData } from "@/features/dashboard/data";

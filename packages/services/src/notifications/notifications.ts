@@ -10,7 +10,7 @@ import {
   type WorkspaceNotificationRecord,
   type WorkspaceNotificationRecipientType,
   type WorkspaceNotificationStatus,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { postMessageSync } from "../messages/messages.ts";
 import { readWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue } from "../shared/helpers.ts";

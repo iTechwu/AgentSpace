@@ -1,5 +1,5 @@
 import type {
-  AgentSpaceState,
+  DofeAgentState,
   ChannelDocument,
   ChannelDocumentEditorType,
   ChannelDocumentExternalProvider,
@@ -8,7 +8,7 @@ import type {
   ChannelDocumentStorageMode,
   ChannelDocumentTriggerType,
   ChannelDocumentVersion,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import {
   buildChannelDocumentRecord,
   buildChannelDocumentVersionRecord,
@@ -18,7 +18,7 @@ import {
 } from "./model.ts";
 
 export function listChannelDocuments(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channelName?: string,
 ): ChannelDocument[] {
   const documents = channelName
@@ -29,7 +29,7 @@ export function listChannelDocuments(
 }
 
 export function listChannelDocumentVersions(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   documentId: string,
 ): ChannelDocumentVersion[] {
   return state.channelDocumentVersions
@@ -38,7 +38,7 @@ export function listChannelDocumentVersions(
 }
 
 export function readChannelDocument(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   documentId: string,
 ): {
   document: ChannelDocument;
@@ -60,7 +60,7 @@ export function readChannelDocument(
 }
 
 export function createChannelDocument(input: {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   channelName: string;
   title: string;
   kind?: ChannelDocumentKind;
@@ -83,7 +83,7 @@ export function createChannelDocument(input: {
   sourceAttachmentId?: string;
   sourceAttachmentStoredPath?: string;
   sourceTaskQueueId?: string;
-}): { state: AgentSpaceState; document: ChannelDocument; version: ChannelDocumentVersion } {
+}): { state: DofeAgentState; document: ChannelDocument; version: ChannelDocumentVersion } {
   const { state } = input;
   if (!state.channels.some((channel) => sameValue(channel.name, input.channelName))) {
     throw new Error(`Channel "${input.channelName}" does not exist.`);
@@ -154,7 +154,7 @@ export function createChannelDocument(input: {
 }
 
 export function updateChannelDocument(input: {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   documentId: string;
   contentMarkdown: string;
   contentJson?: ChannelDocumentJsonContent;
@@ -166,7 +166,7 @@ export function updateChannelDocument(input: {
   sourceAttachmentId?: string;
   sourceAttachmentStoredPath?: string;
   sourceTaskQueueId?: string;
-}): { state: AgentSpaceState; document: ChannelDocument; version: ChannelDocumentVersion } {
+}): { state: DofeAgentState; document: ChannelDocument; version: ChannelDocumentVersion } {
   const { state } = input;
   const document = state.channelDocuments.find((item) => item.id === input.documentId);
   if (!document) {
@@ -201,10 +201,10 @@ export function updateChannelDocument(input: {
 }
 
 export function renameChannelDocument(input: {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   documentId: string;
   nextTitle: string;
-}): { state: AgentSpaceState; document: ChannelDocument; previousTitle: string } {
+}): { state: DofeAgentState; document: ChannelDocument; previousTitle: string } {
   const { state } = input;
   const document = state.channelDocuments.find((item) => item.id === input.documentId);
   if (!document) {
@@ -235,9 +235,9 @@ export function renameChannelDocument(input: {
 }
 
 export function archiveChannelDocument(input: {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   documentId: string;
-}): { state: AgentSpaceState; document: ChannelDocument } {
+}): { state: DofeAgentState; document: ChannelDocument } {
   const { state } = input;
   const document = state.channelDocuments.find((item) => item.id === input.documentId);
   if (!document) {
@@ -250,9 +250,9 @@ export function archiveChannelDocument(input: {
 }
 
 export function restoreChannelDocument(input: {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   documentId: string;
-}): { state: AgentSpaceState; document: ChannelDocument } {
+}): { state: DofeAgentState; document: ChannelDocument } {
   const { state } = input;
   const document = state.channelDocuments.find((item) => item.id === input.documentId);
   if (!document) {
@@ -279,12 +279,12 @@ export function restoreChannelDocument(input: {
 }
 
 export function rollbackChannelDocumentVersion(input: {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   documentId: string;
   versionId: string;
   updatedBy: string;
   updatedByType: ChannelDocumentEditorType;
-}): { state: AgentSpaceState; document: ChannelDocument; version: ChannelDocumentVersion } {
+}): { state: DofeAgentState; document: ChannelDocument; version: ChannelDocumentVersion } {
   const { state } = input;
   const { document } = readChannelDocument(state, input.documentId);
   const versionToRestore = listChannelDocumentVersions(state, input.documentId).find((version) => version.id === input.versionId);

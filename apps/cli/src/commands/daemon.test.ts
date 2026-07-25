@@ -3,13 +3,13 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before } from "node:test";
-import type { ContactAgentContext } from "@agent-space/services";
+import type { ContactAgentContext } from "@dofe-agent/services";
 import {
   initializeOrganizationSync,
   postMessageSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import {
   buildTaskPrompt,
   clearTaskOutputArtifacts,
@@ -19,7 +19,7 @@ import {
 
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-daemon-test-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-test-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -32,7 +32,7 @@ before(() => {
 });
 
 test("loadTaskOutputEnvelope accepts relative workDir attachments", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-"));
   const artifactPath = join(workDir, "runtime-output", "artifacts", "chart.png");
   const manifestPath = join(workDir, "runtime-output", "agent-output.json");
   mkdirSync(join(workDir, "runtime-output", "artifacts"), { recursive: true });
@@ -62,7 +62,7 @@ test("loadTaskOutputEnvelope accepts relative workDir attachments", () => {
 });
 
 test("loadTaskOutputEnvelope stores output attachments inside the owning workspace directory", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-"));
   const artifactPath = join(workDir, "runtime-output", "artifacts", "workspace-chart.png");
   const manifestPath = join(workDir, "runtime-output", "agent-output.json");
   mkdirSync(join(workDir, "runtime-output", "artifacts"), { recursive: true });
@@ -93,7 +93,7 @@ test("loadTaskOutputEnvelope stores output attachments inside the owning workspa
 });
 
 test("loadTaskOutputEnvelope falls back to plain text when no manifest exists", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-"));
 
   const result = loadTaskOutputEnvelope(workDir, "plain fallback", "default");
 
@@ -105,7 +105,7 @@ test("loadTaskOutputEnvelope falls back to plain text when no manifest exists", 
 });
 
 test("loadTaskOutputEnvelope rejects absolute paths", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-"));
   const artifactPath = join(workDir, "runtime-output", "artifacts", "chart.png");
   const manifestPath = join(workDir, "runtime-output", "agent-output.json");
   mkdirSync(join(workDir, "runtime-output", "artifacts"), { recursive: true });
@@ -128,7 +128,7 @@ test("loadTaskOutputEnvelope rejects absolute paths", () => {
 });
 
 test("loadTaskOutputEnvelope rejects empty files", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-"));
   const artifactPath = join(workDir, "runtime-output", "artifacts", "empty.png");
   const manifestPath = join(workDir, "runtime-output", "agent-output.json");
   mkdirSync(join(workDir, "runtime-output", "artifacts"), { recursive: true });
@@ -152,7 +152,7 @@ test("loadTaskOutputEnvelope rejects empty files", () => {
 });
 
 test("loadTaskOutputEnvelope enforces a total attachment size limit", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-"));
   const artifactsDir = join(workDir, "runtime-output", "artifacts");
   const manifestPath = join(workDir, "runtime-output", "agent-output.json");
   mkdirSync(artifactsDir, { recursive: true });
@@ -194,7 +194,7 @@ test("simulated task output can persist a PNG attachment and write it back into 
     firstChannelName: "tour visit",
   });
 
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-"));
   const artifactPath = join(workDir, "runtime-output", "artifacts", "chart.png");
   const manifestPath = join(workDir, "runtime-output", "agent-output.json");
   mkdirSync(join(workDir, "runtime-output", "artifacts"), { recursive: true });
@@ -229,7 +229,7 @@ test("simulated task output can persist a PNG attachment and write it back into 
 });
 
 test("clearTaskOutputArtifacts removes stale output files before the next task starts", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-"));
   const outputFile = join(workDir, "last-message.txt");
   const manifestFile = join(workDir, "runtime-output", "agent-output.json");
   const documentsFile = join(workDir, "runtime-output", "channel-documents.json");
@@ -287,7 +287,7 @@ test("buildTaskPrompt uses user-provided identity for direct-channel chat", () =
 
   assert.ok(prompt.includes("Tony的个人助手"));
   assert.ok(prompt.includes("你是Tony的个人助手"));
-  assert.equal(prompt.includes("你是 AgentSpace 的联系人 Agent"), false);
+  assert.equal(prompt.includes("你是 DofeAgent 的联系人 Agent"), false);
   assert.equal(prompt.includes("角色: Agent"), false);
 });
 
@@ -351,7 +351,7 @@ test("buildTaskPrompt for channel tasks includes channel document context and up
   assert.ok(prompt.includes("当前任务有 1 份按文档权限授权的协作文档。"));
   assert.ok(prompt.includes("大阪-濑户内海行程"));
   assert.ok(prompt.includes("/tmp/channel-docs"));
-  assert.ok(prompt.includes("agent-space output document"));
+  assert.ok(prompt.includes("dofe-agent output document"));
   assert.ok(prompt.includes("blocks.json"));
   assert.ok(prompt.includes("你可以在最终回复里显式 @频道内成员"));
 });
@@ -579,7 +579,7 @@ test("buildTaskPrompt for direct-channel chat prefers unified channel prompt", (
 
   assert.ok(prompt.includes("当前共享会话: direct-test"));
   assert.ok(prompt.includes("会话消息: 你认识个人助手吗？"));
-  assert.ok(prompt.includes("agent-space output document"));
+  assert.ok(prompt.includes("dofe-agent output document"));
   assert.equal(prompt.includes("用户消息: 你认识个人助手吗？"), false);
 });
 

@@ -274,7 +274,7 @@ function resolveSafeFeishuApiBaseUrl(
 function canUseUnsafeFeishuApiBaseUrlForTests(parsed: URL, hostname: string): boolean {
   if (
     process.env.NODE_ENV !== "test" ||
-    process.env.AGENT_SPACE_FEISHU_ALLOW_UNSAFE_TEST_API_BASE_URL !== "1"
+    process.env.DOFE_AGENT_FEISHU_ALLOW_UNSAFE_TEST_API_BASE_URL !== "1"
   ) {
     return false;
   }

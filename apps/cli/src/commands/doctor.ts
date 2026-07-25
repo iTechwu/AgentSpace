@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { cwd, version } from "node:process";
-import { ensureWorkspaceStateSync, getWorkspaceDatabaseFilePath } from "@agent-space/services";
+import { ensureWorkspaceStateSync, getWorkspaceDatabaseFilePath } from "@dofe-agent/services";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
 export function runDoctorCommand(format: OutputFormat): number {
@@ -27,7 +27,7 @@ export function runDoctorCommand(format: OutputFormat): number {
       workspaceSnapshotNote = formatErrorNote(error, "workspace snapshot 访问失败");
     }
   } else {
-    workspaceSnapshotNote = "先配置 SELF_HOSTED_DATABASE_URL、AGENT_SPACE_PG_URL 或 DATABASE_URL";
+    workspaceSnapshotNote = "先配置 SELF_HOSTED_DATABASE_URL、DOFE_AGENT_PG_URL 或 DATABASE_URL";
   }
 
   const checks = [
@@ -53,7 +53,7 @@ export function runDoctorCommand(format: OutputFormat): number {
     return 0;
   }
 
-  console.log("AgentSpace Doctor");
+  console.log("DofeAgent Doctor");
   console.log("");
   console.log(`root: ${summary.projectRoot}`);
   console.log(`node: ${summary.node}`);

@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { ActiveEmployee, ChannelRecord } from "@agent-space/domain/workspace";
+import type { ActiveEmployee, ChannelRecord } from "@dofe-agent/domain/workspace";
 import { applyChannelDocumentOperations } from "./channel-documents.ts";
 import {
   createEmployeeSync,
@@ -13,11 +13,11 @@ import {
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
   writeWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 
 test("applyChannelDocumentOperations accepts a valid relative contentPath for document creation", () => {
   const originalCwd = process.cwd();
-  const repoRoot = mkdtempSync(join(tmpdir(), "agent-space-channel-docs-"));
+  const repoRoot = mkdtempSync(join(tmpdir(), "dofe-agent-channel-docs-"));
 
   try {
     writeFileSync(join(repoRoot, "Target.md"), "# test\n");

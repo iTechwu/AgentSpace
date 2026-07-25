@@ -30,7 +30,7 @@ import {
 import {
   appendFeishuRuntimeDataOperationRequest,
   type FeishuRuntimeDataOperationRequestManifestEntry,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { prepareSkillImportOperationArtifacts } from "../../../../packages/daemon/src/skill-imports.ts";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
@@ -104,7 +104,7 @@ function runAttach(args: string[], format: OutputFormat): number {
   const workDir = resolveWorkDir(parsed.flags);
   const sourcePath = parsed.positionals[0];
   if (!sourcePath) {
-    throw new Error("Usage: agent-space output attach <file> [--name <display-name>] [--media-type <mime>] [--text <message>] [--copy] [--work-dir <path>]");
+    throw new Error("Usage: dofe-agent output attach <file> [--name <display-name>] [--media-type <mime>] [--text <message>] [--copy] [--work-dir <path>]");
   }
 
   const prepared = prepareRuntimeOutputArtifactReference({
@@ -135,7 +135,7 @@ function runText(args: string[], format: OutputFormat): number {
   const workDir = resolveWorkDir(parsed.flags);
   const text = parsed.positionals.join(" ").trim();
   if (!text) {
-    throw new Error("Usage: agent-space output text <message> [--work-dir <path>]");
+    throw new Error("Usage: dofe-agent output text <message> [--work-dir <path>]");
   }
 
   const manifest = setAgentOutputText(workDir, text);
@@ -1142,73 +1142,73 @@ function printPreview(preview: ReturnType<typeof createRuntimeOutputPreview>): v
 
 function printOutputHelp(): void {
   console.log(`Usage:
-  agent-space output attach <file> [--name <display-name>] [--media-type <mime>] [--text <message>] [--copy] [--work-dir <path>] [--json]
-  agent-space output text <message> [--work-dir <path>] [--json]
-  agent-space output document <command> ...
-  agent-space output skill import ...
-  agent-space output knowledge propose-create ...
-  agent-space output knowledge propose-update ...
-  agent-space output sheets <command> ...
-  agent-space output sheets-result add ...
-  agent-space output google-docs <command> ...
-  agent-space output external-document link-google-sheet ...
-  agent-space output external-document create-google-sheet ...
-  agent-space output feishu data-operation-approval ...
-  agent-space output permission request-document ...
-  agent-space output validate [--work-dir <path>] [--json]
-  agent-space output preview [--work-dir <path>] [--json]`);
+  dofe-agent output attach <file> [--name <display-name>] [--media-type <mime>] [--text <message>] [--copy] [--work-dir <path>] [--json]
+  dofe-agent output text <message> [--work-dir <path>] [--json]
+  dofe-agent output document <command> ...
+  dofe-agent output skill import ...
+  dofe-agent output knowledge propose-create ...
+  dofe-agent output knowledge propose-update ...
+  dofe-agent output sheets <command> ...
+  dofe-agent output sheets-result add ...
+  dofe-agent output google-docs <command> ...
+  dofe-agent output external-document link-google-sheet ...
+  dofe-agent output external-document create-google-sheet ...
+  dofe-agent output feishu data-operation-approval ...
+  dofe-agent output permission request-document ...
+  dofe-agent output validate [--work-dir <path>] [--json]
+  dofe-agent output preview [--work-dir <path>] [--json]`);
 }
 
 function printDocumentHelp(): void {
   console.log(`Usage:
-  agent-space output document upsert --title <title> --content <path> [--document-id <id>] [--base-version-id <id>] [--summary <text>] [--mode create|update|create_or_update]
-  agent-space output document replace-block --document-id <id> --base-version-id <id> --title <title> --block-id <id> --base-revision <n> --content <path> [--heading <text>]
-  agent-space output document insert-after --document-id <id> --base-version-id <id> --title <title> [--after-block-id <id>] --content <path> [--heading <text>]
-  agent-space output document delete-block --document-id <id> --base-version-id <id> --title <title> --block-id <id> --base-revision <n>`);
+  dofe-agent output document upsert --title <title> --content <path> [--document-id <id>] [--base-version-id <id>] [--summary <text>] [--mode create|update|create_or_update]
+  dofe-agent output document replace-block --document-id <id> --base-version-id <id> --title <title> --block-id <id> --base-revision <n> --content <path> [--heading <text>]
+  dofe-agent output document insert-after --document-id <id> --base-version-id <id> --title <title> [--after-block-id <id>] --content <path> [--heading <text>]
+  dofe-agent output document delete-block --document-id <id> --base-version-id <id> --title <title> --block-id <id> --base-revision <n>`);
 }
 
 function printSkillHelp(): void {
   console.log(`Usage:
-  agent-space output skill import --url <url> [--conflict reject|rename|replace|skip] [--assign-to-self true|false]
-  agent-space output skill import --path runtime-output/artifacts/skills/name [--conflict reject|rename|replace|skip]
-  agent-space output skill import --local-path <path> [--conflict reject|rename|replace|skip]`);
+  dofe-agent output skill import --url <url> [--conflict reject|rename|replace|skip] [--assign-to-self true|false]
+  dofe-agent output skill import --path runtime-output/artifacts/skills/name [--conflict reject|rename|replace|skip]
+  dofe-agent output skill import --local-path <path> [--conflict reject|rename|replace|skip]`);
 }
 
 function printKnowledgeHelp(): void {
   console.log(`Usage:
-  agent-space output knowledge propose-create --title <title> --content-file runtime-output/artifacts/knowledge/page.md [--assignment-mode all_agents|selected_agents] [--assigned-employee-names "Agent A,Agent B"] [--assign-to-self true|false] [--tags "tag-a,tag-b"] [--parent-id <page-id>] [--summary <text>] [--reason <text>]
-  agent-space output knowledge propose-update --knowledge-page-id <page-id> --base-updated-at <iso> --title <title> --content-file runtime-output/artifacts/knowledge/page.md [--assignment-mode all_agents|selected_agents] [--assigned-employee-names "Agent A,Agent B"] [--tags "tag-a,tag-b"] [--summary <text>] [--reason <text>]`);
+  dofe-agent output knowledge propose-create --title <title> --content-file runtime-output/artifacts/knowledge/page.md [--assignment-mode all_agents|selected_agents] [--assigned-employee-names "Agent A,Agent B"] [--assign-to-self true|false] [--tags "tag-a,tag-b"] [--parent-id <page-id>] [--summary <text>] [--reason <text>]
+  dofe-agent output knowledge propose-update --knowledge-page-id <page-id> --base-updated-at <iso> --title <title> --content-file runtime-output/artifacts/knowledge/page.md [--assignment-mode all_agents|selected_agents] [--assigned-employee-names "Agent A,Agent B"] [--tags "tag-a,tag-b"] [--summary <text>] [--reason <text>]`);
 }
 
 function printSheetsHelp(): void {
   console.log(`Usage:
-  agent-space output sheets read --document-id <id> --range <A1> --intent <text>
-  agent-space output sheets append-rows --document-id <id> --range <A1> --intent <text> --values-json <json>
-  agent-space output sheets update-values --document-id <id> --range <A1> --intent <text> --values-json <json>
-  agent-space output sheets batch-update --document-id <id> --intent <text> --requests-json <json>`);
+  dofe-agent output sheets read --document-id <id> --range <A1> --intent <text>
+  dofe-agent output sheets append-rows --document-id <id> --range <A1> --intent <text> --values-json <json>
+  dofe-agent output sheets update-values --document-id <id> --range <A1> --intent <text> --values-json <json>
+  dofe-agent output sheets batch-update --document-id <id> --intent <text> --requests-json <json>`);
 }
 
 function printSheetsResultHelp(): void {
   console.log(`Usage:
-  agent-space output sheets-result add --document-id <id> --operation read|append_rows|update_values|batch_update --result-json runtime-output/artifacts/sheets/result.json [--range <A1>] [--summary <text>] [--request-summary <text>] [--started-at <iso>] [--finished-at <iso>] [--duration-ms <ms>]`);
+  dofe-agent output sheets-result add --document-id <id> --operation read|append_rows|update_values|batch_update --result-json runtime-output/artifacts/sheets/result.json [--range <A1>] [--summary <text>] [--request-summary <text>] [--started-at <iso>] [--finished-at <iso>] [--duration-ms <ms>]`);
 }
 
 function printGoogleDocsHelp(): void {
   console.log(`Usage:
-  agent-space output google-docs append-text --document-id <doc-id> --intent <text> --text-file runtime-output/artifacts/docs/summary.md [--request-summary <text>]
-  agent-space output google-docs batch-update --document-id <doc-id> --intent <text> --requests-json runtime-output/artifacts/docs/requests.json [--request-summary <text>]`);
+  dofe-agent output google-docs append-text --document-id <doc-id> --intent <text> --text-file runtime-output/artifacts/docs/summary.md [--request-summary <text>]
+  dofe-agent output google-docs batch-update --document-id <doc-id> --intent <text> --requests-json runtime-output/artifacts/docs/requests.json [--request-summary <text>]`);
 }
 
 function printExternalDocumentHelp(): void {
   console.log(`Usage:
-  agent-space output external-document link-google-sheet --source-document-id <doc-id> --target-channel <channel> --title <title> [--summary <text>]
-  agent-space output external-document link-google-sheet --external-file-id <spreadsheet-id> --external-url <url> --target-channel <channel> --title <title> [--summary <text>]
-  agent-space output external-document create-google-sheet --external-file-id <spreadsheet-id> --external-url <url> --target-channel <channel> --title <title> --gws-result-json runtime-output/artifacts/sheets/create-sheet.json [--summary <text>]`);
+  dofe-agent output external-document link-google-sheet --source-document-id <doc-id> --target-channel <channel> --title <title> [--summary <text>]
+  dofe-agent output external-document link-google-sheet --external-file-id <spreadsheet-id> --external-url <url> --target-channel <channel> --title <title> [--summary <text>]
+  dofe-agent output external-document create-google-sheet --external-file-id <spreadsheet-id> --external-url <url> --target-channel <channel> --title <title> --gws-result-json runtime-output/artifacts/sheets/create-sheet.json [--summary <text>]`);
 }
 
 function printFeishuOutputHelp(): void {
   console.log(`Usage:
-  agent-space output feishu data-operation-approval --operation docs.update_document|sheets.update_range|base.mutate_records --type doc|sheet|base_table --resource <bound-feishu-token> [--parameters-json <json>] [--preview <text>] [--work-dir <path>] [--json]
+  dofe-agent output feishu data-operation-approval --operation docs.update_document|sheets.update_range|base.mutate_records --type doc|sheet|base_table --resource <bound-feishu-token> [--parameters-json <json>] [--preview <text>] [--work-dir <path>] [--json]
 
 Common parameter helpers:
   --range <A1> --values-json <json>                  Sheet update range
@@ -1220,8 +1220,8 @@ Common parameter helpers:
 
 function printPermissionHelp(): void {
   console.log(`Usage:
-  agent-space output permission request-document --role viewer|editor|forwarder --reason <text> --document-id <doc-id> [--target-channel <channel>]
-  agent-space output permission request-document --role viewer|editor|forwarder --reason <text> --external-url <url> [--external-provider google_workspace] [--target-channel <channel>]`);
+  dofe-agent output permission request-document --role viewer|editor|forwarder --reason <text> --document-id <doc-id> [--target-channel <channel>]
+  dofe-agent output permission request-document --role viewer|editor|forwarder --reason <text> --external-url <url> [--external-provider google_workspace] [--target-channel <channel>]`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

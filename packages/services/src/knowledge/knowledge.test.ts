@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test, { before, beforeEach } from "node:test";
-import type { MessageAttachment } from "@agent-space/domain/workspace";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
   createChannelDocumentSync,
   createEmployeeSync,
@@ -22,7 +22,7 @@ import {
 } from "../index.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-knowledge-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-knowledge-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

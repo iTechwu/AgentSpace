@@ -19,8 +19,8 @@ if (typeof window !== "undefined" && typeof window.localStorage?.getItem !== "fu
 }
 
 const explicitTestDatabaseUrl =
-  process.env.AGENT_SPACE_TEST_DATABASE_URL?.trim()
-  || process.env.AGENT_SPACE_PG_TEST_URL?.trim()
+  process.env.DOFE_AGENT_TEST_DATABASE_URL?.trim()
+  || process.env.DOFE_AGENT_PG_TEST_URL?.trim()
   || resolveConfiguredTestDatabaseUrl();
 
 if (explicitTestDatabaseUrl) {
@@ -30,22 +30,22 @@ if (explicitTestDatabaseUrl) {
       + "Use a database name containing test/e2e.",
     );
   }
-  process.env.AGENT_SPACE_PG_URL = explicitTestDatabaseUrl;
+  process.env.DOFE_AGENT_PG_URL = explicitTestDatabaseUrl;
   process.env.DATABASE_URL = explicitTestDatabaseUrl;
-} else if (process.env.AGENT_SPACE_ALLOW_PRODUCTION_TEST_DB !== "1") {
+} else if (process.env.DOFE_AGENT_ALLOW_PRODUCTION_TEST_DB !== "1") {
   const databaseUrl = resolveConfiguredDatabaseUrl();
   if (databaseUrl && !looksLikeTestDatabaseUrl(databaseUrl)) {
     throw new Error(
       "Refusing to run web tests against the configured application database. "
-      + "Set AGENT_SPACE_TEST_DATABASE_URL to an isolated PostgreSQL test database, "
-      + "or set AGENT_SPACE_ALLOW_PRODUCTION_TEST_DB=1 if this is intentional.",
+      + "Set DOFE_AGENT_TEST_DATABASE_URL to an isolated PostgreSQL test database, "
+      + "or set DOFE_AGENT_ALLOW_PRODUCTION_TEST_DB=1 if this is intentional.",
     );
   }
 }
 
 function resolveConfiguredDatabaseUrl(): string | undefined {
   const fromEnv = process.env.SELF_HOSTED_DATABASE_URL?.trim()
-    || process.env.AGENT_SPACE_PG_URL?.trim()
+    || process.env.DOFE_AGENT_PG_URL?.trim()
     || process.env.DATABASE_URL?.trim();
   if (fromEnv) {
     return fromEnv;
@@ -58,7 +58,7 @@ function resolveConfiguredDatabaseUrl(): string | undefined {
 
   const parsed = parseDotEnv(readFileSync(envFilePath, "utf8"));
   return parsed.SELF_HOSTED_DATABASE_URL?.trim()
-    || parsed.AGENT_SPACE_PG_URL?.trim()
+    || parsed.DOFE_AGENT_PG_URL?.trim()
     || parsed.DATABASE_URL?.trim()
     || undefined;
 }
@@ -70,8 +70,8 @@ function resolveConfiguredTestDatabaseUrl(): string | undefined {
   }
 
   const parsed = parseDotEnv(readFileSync(envFilePath, "utf8"));
-  return parsed.AGENT_SPACE_TEST_DATABASE_URL?.trim()
-    || parsed.AGENT_SPACE_PG_TEST_URL?.trim()
+  return parsed.DOFE_AGENT_TEST_DATABASE_URL?.trim()
+    || parsed.DOFE_AGENT_PG_TEST_URL?.trim()
     || undefined;
 }
 

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LanguageProvider, useLanguage } from "@/features/i18n/language-provider";
 
-const STORAGE_KEY = "agent-space-language";
+const STORAGE_KEY = "dofe-agent-language";
 
 function LanguageProbe() {
   const { language, setLanguage, tx } = useLanguage();

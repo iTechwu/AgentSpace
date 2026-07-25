@@ -1,9 +1,9 @@
-import type { RuntimeToolCapability } from "@agent-space/domain";
+import type { RuntimeToolCapability } from "@dofe-agent/domain";
 import {
   buildFeishuLarkCliRuntimeToolCapability,
   type AgentDocumentContext,
   type FeishuLarkCliResourceGrant,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 
 export function buildDocumentRuntimeToolCapabilities(
   agentDocumentContexts: AgentDocumentContext[],
@@ -42,28 +42,28 @@ export function buildDocumentRuntimeToolCapabilities(
 
   const capabilities: RuntimeToolCapability[] = [
     {
-      id: "document-permission:agent-space-output",
-      command: "agent-space",
-      displayName: "AgentSpace document output permission",
+      id: "document-permission:dofe-agent-output",
+      command: "dofe-agent",
+      displayName: "DofeAgent document output permission",
       allowedShellPatterns: [
-        "agent-space output text *",
-        "agent-space output attach *",
-        "agent-space output validate *",
-        "agent-space output preview *",
-        "agent-space output permission request-document *",
+        "dofe-agent output text *",
+        "dofe-agent output attach *",
+        "dofe-agent output validate *",
+        "dofe-agent output preview *",
+        "dofe-agent output permission request-document *",
         ...(hasEditableDocument
           ? [
-              "agent-space output document upsert *",
-              "agent-space output document replace-block *",
-              "agent-space output document insert-after *",
-              "agent-space output document delete-block *",
+              "dofe-agent output document upsert *",
+              "dofe-agent output document replace-block *",
+              "dofe-agent output document insert-after *",
+              "dofe-agent output document delete-block *",
             ]
           : []),
-        ...(hasReadableGoogleWorkspaceDocument ? ["agent-space output sheets-result add *"] : []),
-        ...(hasForwardableGoogleSheet ? ["agent-space output external-document link-google-sheet *"] : []),
-        ...(options?.canCreateGoogleSheet ? ["agent-space output external-document create-google-sheet *"] : []),
-        ...(hasWritableGoogleDoc ? ["agent-space output google-docs *"] : []),
-        ...(hasWritableFeishuResource ? ["agent-space output feishu data-operation-approval *"] : []),
+        ...(hasReadableGoogleWorkspaceDocument ? ["dofe-agent output sheets-result add *"] : []),
+        ...(hasForwardableGoogleSheet ? ["dofe-agent output external-document link-google-sheet *"] : []),
+        ...(options?.canCreateGoogleSheet ? ["dofe-agent output external-document create-google-sheet *"] : []),
+        ...(hasWritableGoogleDoc ? ["dofe-agent output google-docs *"] : []),
+        ...(hasWritableFeishuResource ? ["dofe-agent output feishu data-operation-approval *"] : []),
       ],
       source: "workspace",
     },

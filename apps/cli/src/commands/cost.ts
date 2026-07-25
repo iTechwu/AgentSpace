@@ -5,15 +5,15 @@ import {
   getWorkspaceCostSummarySync,
   listModelPricingSync,
   getMonthStartIso,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   listBudgetsWithSpentSync,
   upsertBudgetSync,
   toggleBudgetSync,
   deleteBudgetSync,
   checkAllBudgetsForAgentSync,
-} from "@agent-space/services";
-import type { BudgetAction, BudgetPeriod, BudgetScope } from "@agent-space/db";
+} from "@dofe-agent/services";
+import type { BudgetAction, BudgetPeriod, BudgetScope } from "@dofe-agent/db";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
@@ -43,15 +43,15 @@ export function runCostCommand(
     return runBudgetCommand(args, format);
   }
 
-  console.error("Usage: agent-space cost summary [--workspace-id <id>] [--period monthly|total] [--json]");
-  console.error("   or: agent-space cost agent --name <agent> [--workspace-id <id>] [--period monthly|total] [--json]");
-  console.error("   or: agent-space cost recent [--workspace-id <id>] [--agent <name>] [--limit <n>] [--json]");
-  console.error("   or: agent-space cost pricing [--json]");
-  console.error("   or: agent-space cost budget list [--workspace-id <id>] [--json]");
-  console.error("   or: agent-space cost budget set --scope <workspace|agent|channel> [--scope-id <id>] --workspace-id <id> --limit <usd> [--period monthly|total] [--action warn|pause|approve] [--threshold <0-1>] [--json]");
-  console.error("   or: agent-space cost budget toggle --id <budget-id> [--workspace-id <id>] --enabled true|false [--json]");
-  console.error("   or: agent-space cost budget delete --id <budget-id> [--workspace-id <id>] [--json]");
-  console.error("   or: agent-space cost budget check --agent <name> [--workspace-id <id>] [--channel <name>] [--json]");
+  console.error("Usage: dofe-agent cost summary [--workspace-id <id>] [--period monthly|total] [--json]");
+  console.error("   or: dofe-agent cost agent --name <agent> [--workspace-id <id>] [--period monthly|total] [--json]");
+  console.error("   or: dofe-agent cost recent [--workspace-id <id>] [--agent <name>] [--limit <n>] [--json]");
+  console.error("   or: dofe-agent cost pricing [--json]");
+  console.error("   or: dofe-agent cost budget list [--workspace-id <id>] [--json]");
+  console.error("   or: dofe-agent cost budget set --scope <workspace|agent|channel> [--scope-id <id>] --workspace-id <id> --limit <usd> [--period monthly|total] [--action warn|pause|approve] [--threshold <0-1>] [--json]");
+  console.error("   or: dofe-agent cost budget toggle --id <budget-id> [--workspace-id <id>] --enabled true|false [--json]");
+  console.error("   or: dofe-agent cost budget delete --id <budget-id> [--workspace-id <id>] [--json]");
+  console.error("   or: dofe-agent cost budget check --agent <name> [--workspace-id <id>] [--channel <name>] [--json]");
   return 1;
 }
 
@@ -89,7 +89,7 @@ function runCostAgent(args: string[], format: OutputFormat): number {
   const { flags } = parseArgs(args);
   const name = getStringFlag(flags, "name");
   if (!name) {
-    console.error("Usage: agent-space cost agent --name <agent> [--period monthly|total] [--json]");
+    console.error("Usage: dofe-agent cost agent --name <agent> [--period monthly|total] [--json]");
     return 1;
   }
 
@@ -137,7 +137,7 @@ function runBudgetCommand(args: string[], format: OutputFormat): number {
     const limitRaw = getStringFlag(flags, "limit");
 
     if (!scope || !limitRaw || (scope !== "workspace" && !scopeId)) {
-      console.error("Usage: agent-space cost budget set --scope <workspace|agent|channel> [--scope-id <id>] --limit <usd> [--period monthly|total] [--action warn|pause|approve] [--threshold <0-1>] [--json]");
+      console.error("Usage: dofe-agent cost budget set --scope <workspace|agent|channel> [--scope-id <id>] --limit <usd> [--period monthly|total] [--action warn|pause|approve] [--threshold <0-1>] [--json]");
       return 1;
     }
 
@@ -174,7 +174,7 @@ function runBudgetCommand(args: string[], format: OutputFormat): number {
     const id = getStringFlag(flags, "id");
     const enabledRaw = getStringFlag(flags, "enabled");
     if (!id || !enabledRaw) {
-      console.error("Usage: agent-space cost budget toggle --id <budget-id> --enabled true|false [--json]");
+      console.error("Usage: dofe-agent cost budget toggle --id <budget-id> --enabled true|false [--json]");
       return 1;
     }
     toggleBudgetSync(id, enabledRaw === "true", workspaceId);
@@ -185,7 +185,7 @@ function runBudgetCommand(args: string[], format: OutputFormat): number {
   if (action === "delete") {
     const id = getStringFlag(flags, "id");
     if (!id) {
-      console.error("Usage: agent-space cost budget delete --id <budget-id> [--json]");
+      console.error("Usage: dofe-agent cost budget delete --id <budget-id> [--json]");
       return 1;
     }
     deleteBudgetSync(id, workspaceId);
@@ -196,7 +196,7 @@ function runBudgetCommand(args: string[], format: OutputFormat): number {
   if (action === "check") {
     const agent = getStringFlag(flags, "agent");
     if (!agent) {
-      console.error("Usage: agent-space cost budget check --agent <name> [--channel <name>] [--json]");
+      console.error("Usage: dofe-agent cost budget check --agent <name> [--channel <name>] [--json]");
       return 1;
     }
     const channel = getStringFlag(flags, "channel") ?? undefined;

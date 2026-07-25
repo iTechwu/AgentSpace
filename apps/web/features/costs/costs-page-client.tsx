@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { upsertBudgetAction, toggleBudgetAction, deleteBudgetAction } from "@/features/costs/actions";
 import type { CostPageData, BudgetPageData, BudgetPageItem } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
-import type { BudgetAction, BudgetPeriod, BudgetScope } from "@agent-space/db";
+import type { BudgetAction, BudgetPeriod, BudgetScope } from "@dofe-agent/db";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 

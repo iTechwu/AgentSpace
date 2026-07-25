@@ -8,7 +8,7 @@ const {
   mockRevokeGoogleOAuthCredentialSync: vi.fn(),
 }));
 
-vi.mock("@agent-space/db", () => ({
+vi.mock("@dofe-agent/db", () => ({
   revokeGoogleOAuthCredentialSync: mockRevokeGoogleOAuthCredentialSync,
 }));
 

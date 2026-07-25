@@ -1,5 +1,5 @@
 import type {
-  AgentSpaceState,
+  DofeAgentState,
   WorkspaceMessage,
   ActiveEmployee,
   TaskRecord,
@@ -7,7 +7,7 @@ import type {
   ChannelDocument,
   ChannelDocumentVersion,
   KnowledgePage,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync } from "../shared/state-io.ts";
 import { listWorkspaceSkillsSync } from "../skills/skills.ts";
 import { listEmployeeKnowledgePageIdsSync } from "../knowledge/assignments.ts";
@@ -71,7 +71,7 @@ export function globalSearchSync(
 }
 
 function searchMessages(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   query: string,
   channelName?: string,
 ): SearchResult[] {
@@ -105,7 +105,7 @@ function searchMessages(
 }
 
 function searchDocuments(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   query: string,
   channelName?: string,
 ): SearchResult[] {
@@ -160,7 +160,7 @@ function searchDocuments(
 }
 
 function searchTasks(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   query: string,
 ): SearchResult[] {
   const lowerQuery = query.toLocaleLowerCase("zh-CN");
@@ -188,7 +188,7 @@ function searchTasks(
 }
 
 function searchAgents(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   query: string,
 ): SearchResult[] {
   const lowerQuery = query.toLocaleLowerCase("zh-CN");
@@ -214,7 +214,7 @@ function searchAgents(
 }
 
 function searchSkills(
-  _state: AgentSpaceState,
+  _state: DofeAgentState,
   query: string,
   workspaceId?: string,
 ): SearchResult[] {
@@ -238,7 +238,7 @@ function searchSkills(
 }
 
 function searchKnowledge(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   query: string,
   assignedAgentName?: string,
   workspaceId?: string,

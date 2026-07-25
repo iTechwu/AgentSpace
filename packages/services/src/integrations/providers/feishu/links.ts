@@ -1,10 +1,10 @@
-import { readWorkspaceSync } from "@agent-space/db";
+import { readWorkspaceSync } from "@dofe-agent/db";
 
-export function buildAgentSpaceChannelDeepLink(input: {
+export function buildDofeAgentChannelDeepLink(input: {
   workspaceId: string;
   channelName: string;
 }): string | undefined {
-  const appUrl = readAgentSpaceAppUrl();
+  const appUrl = readDofeAgentAppUrl();
   if (!appUrl) {
     return undefined;
   }
@@ -13,11 +13,11 @@ export function buildAgentSpaceChannelDeepLink(input: {
   return url.toString();
 }
 
-export function buildAgentSpaceSettingsIntegrationsDeepLink(input: {
+export function buildDofeAgentSettingsIntegrationsDeepLink(input: {
   workspaceId: string;
   target?: "channel-bindings" | "user-bindings";
 }): string | undefined {
-  const appUrl = readAgentSpaceAppUrl();
+  const appUrl = readDofeAgentAppUrl();
   if (!appUrl) {
     return undefined;
   }
@@ -30,9 +30,9 @@ export function buildAgentSpaceSettingsIntegrationsDeepLink(input: {
   return url.toString();
 }
 
-export function readAgentSpaceAppUrl(): string | undefined {
-  const value = process.env.AGENT_SPACE_APP_URL?.trim()
-    || process.env.NEXT_PUBLIC_AGENT_SPACE_APP_URL?.trim()
+export function readDofeAgentAppUrl(): string | undefined {
+  const value = process.env.DOFE_AGENT_APP_URL?.trim()
+    || process.env.NEXT_PUBLIC_DOFE_AGENT_APP_URL?.trim()
     || process.env.NEXT_PUBLIC_APP_URL?.trim();
   if (!value) {
     return undefined;

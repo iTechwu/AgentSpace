@@ -15,7 +15,7 @@ import {
 import { getDatabase } from "./database.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-runtime-apps-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-runtime-apps-"));
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
 
 before(() => {

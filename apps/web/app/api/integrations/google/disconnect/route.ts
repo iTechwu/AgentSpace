@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { revokeGoogleOAuthCredentialSync } from "@agent-space/db";
+import { revokeGoogleOAuthCredentialSync } from "@dofe-agent/db";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 
 export const runtime = "nodejs";

@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
-import type { WorkspaceSkill } from "@agent-space/domain/workspace";
-import { recordStoredSkillImportEventSync } from "@agent-space/db";
+import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
+import { recordStoredSkillImportEventSync } from "@dofe-agent/db";
 import { strFromU8, unzipSync } from "fflate";
 import {
   normalizeSkillFilePath,
@@ -336,7 +336,7 @@ async function importGitHubSkillDefinitionFromPointer(
 async function importSkillsShSkillDefinition(sourceUrl: string, parsedUrl: URL): Promise<ImportedSkillDefinition> {
   const installPageResponse = await fetch(parsedUrl, {
     headers: {
-      "User-Agent": "AgentSpace/0.1.0",
+      "User-Agent": "DofeAgent/0.1.0",
     },
   });
   if (!installPageResponse.ok) {
@@ -365,7 +365,7 @@ async function importSkillsShSkillDefinition(sourceUrl: string, parsedUrl: URL):
 async function importClawHubSkillDefinition(sourceUrl: string): Promise<ImportedSkillDefinition> {
   const pageResponse = await fetch(sourceUrl, {
     headers: {
-      "User-Agent": "AgentSpace/0.1.0",
+      "User-Agent": "DofeAgent/0.1.0",
     },
   });
   if (!pageResponse.ok) {
@@ -379,7 +379,7 @@ async function importClawHubSkillDefinition(sourceUrl: string): Promise<Imported
 
   const downloadResponse = await fetch(downloadUrl, {
     headers: {
-      "User-Agent": "AgentSpace/0.1.0",
+      "User-Agent": "DofeAgent/0.1.0",
     },
   });
   if (!downloadResponse.ok) {
@@ -566,7 +566,7 @@ async function fetchGitHubDefaultBranch(owner: string, repo: string): Promise<st
   const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
     headers: {
       Accept: "application/vnd.github+json",
-      "User-Agent": "AgentSpace/0.1.0",
+      "User-Agent": "DofeAgent/0.1.0",
     },
   });
   if (!response.ok) {
@@ -586,7 +586,7 @@ async function resolveGitHubSkillPointerBySlug(input: {
   const response = await fetch(`https://api.github.com/repos/${input.owner}/${input.repo}/git/trees/${encodeURIComponent(input.ref)}?recursive=1`, {
     headers: {
       Accept: "application/vnd.github+json",
-      "User-Agent": "AgentSpace/0.1.0",
+      "User-Agent": "DofeAgent/0.1.0",
     },
   });
   if (!response.ok) {
@@ -642,7 +642,7 @@ async function fetchGitHubDirectoryFiles(
   const response = await fetch(contentsUrl, {
     headers: {
       Accept: "application/vnd.github+json",
-      "User-Agent": "AgentSpace/0.1.0",
+      "User-Agent": "DofeAgent/0.1.0",
     },
   });
   if (!response.ok) {
@@ -692,7 +692,7 @@ async function fetchGitHubDirectoryFiles(
     const fileResponse = await fetch(buildGitHubContentsApiUrl(pointer.owner, pointer.repo, entry.path, pointer.ref), {
       headers: {
         Accept: "application/vnd.github+json",
-        "User-Agent": "AgentSpace/0.1.0",
+        "User-Agent": "DofeAgent/0.1.0",
       },
     });
     if (!fileResponse.ok) {
@@ -723,7 +723,7 @@ async function fetchGitHubDirectoryFiles(
 async function fetchGitHubRawFile(pointer: GitHubDirectoryPointer): Promise<string> {
   const response = await fetch(
     `https://raw.githubusercontent.com/${pointer.owner}/${pointer.repo}/${pointer.ref}/${pointer.path}`,
-    { headers: { "User-Agent": "AgentSpace/0.1.0" } },
+    { headers: { "User-Agent": "DofeAgent/0.1.0" } },
   );
   if (!response.ok) {
     throw new Error(`Failed to fetch GitHub skill file: ${response.status}`);

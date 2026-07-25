@@ -1,8 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { readWorkspaceSync } from "@agent-space/db";
-import { tryRecordWorkspaceAuditEventSync } from "@agent-space/services";
+import { readWorkspaceSync } from "@dofe-agent/db";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { clearCurrentSession, readCurrentSsoIdToken } from "./server-auth";
 import { getSsoLogoutUrl } from "./sso-oidc";
 import { requireCurrentWorkspaceContext } from "./server-workspace";

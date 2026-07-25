@@ -11,7 +11,7 @@ import {
   readActiveAgentGoogleWorkspaceDelegationSync,
   upsertAgentGoogleWorkspaceDelegationSync,
   upsertGoogleOAuthCredentialSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   addChannelEmployeesSync,
   createChannelSync,
@@ -21,7 +21,7 @@ import {
   initializeOrganizationSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import {
   appendExternalDocumentCreateGoogleSheetOperation,
   appendExternalDocumentLinkOperation,
@@ -36,7 +36,7 @@ beforeEach(() => {
 });
 
 test("document runtime output rejects hand-written controlled manifests before service writes", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-document-runtime-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-document-runtime-output-"));
   try {
     mkdirSync(join(workDir, "runtime-output"), { recursive: true });
     writeFileSync(
@@ -82,7 +82,7 @@ test("document runtime output rejects hand-written controlled manifests before s
 });
 
 test("document runtime output forwards external Google Sheets only with forwarder access", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-document-runtime-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-document-runtime-output-"));
   try {
     const owner = seedForwardingWorkspace();
     const sourceDocument = createExternalGoogleSheetChannelDocumentSync({
@@ -133,7 +133,7 @@ test("document runtime output forwards external Google Sheets only with forwarde
 });
 
 test("document runtime output fails forged forwarding without forwarder access", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-document-runtime-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-document-runtime-output-"));
   try {
     const owner = seedForwardingWorkspace();
     const sourceDocument = createExternalGoogleSheetChannelDocumentSync({
@@ -183,7 +183,7 @@ test("document runtime output fails forged forwarding without forwarder access",
 });
 
 test("document runtime output creates agent Google Sheet channel documents", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-document-runtime-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-document-runtime-output-"));
   try {
     const owner = seedForwardingWorkspace();
     mkdirSync(join(workDir, "runtime-output", "artifacts", "sheets"), { recursive: true });
@@ -240,7 +240,7 @@ test("document runtime output creates agent Google Sheet channel documents", () 
 });
 
 test("document runtime output fails duplicate created Google Sheet bindings", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-document-runtime-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-document-runtime-output-"));
   try {
     seedForwardingWorkspace();
     createExternalGoogleSheetChannelDocumentSync({
@@ -286,7 +286,7 @@ test("document runtime output fails duplicate created Google Sheet bindings", ()
 });
 
 test("document runtime output requires Google Workspace delegation for created Sheets", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-document-runtime-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-document-runtime-output-"));
   try {
     seedForwardingWorkspace({ delegate: false });
     mkdirSync(join(workDir, "runtime-output", "artifacts", "sheets"), { recursive: true });

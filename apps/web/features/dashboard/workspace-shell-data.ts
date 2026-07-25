@@ -4,16 +4,16 @@ import {
   listDaemonSnapshotsSync,
   listRuntimeGrantsSync,
   listWorkspaceMemberUsersSync,
-} from "@agent-space/db";
-import type { WorkspaceRole } from "@agent-space/db";
-import { formatDaemonProviderLabel } from "@agent-space/domain";
-import type { ChannelRecord } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
+import { formatDaemonProviderLabel } from "@dofe-agent/domain";
+import type { ChannelRecord } from "@dofe-agent/domain/workspace";
 import {
   countUnreadNotificationsSync,
   listWorkspaceSkillsSync,
   readWorkspaceStateSnapshotSync,
   resolveChannelHumanMemberCount,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { getPendingApprovalCount } from "@/features/approvals/approval-queue-data";
 
 const readWorkspaceStateCached = cache((workspaceId: string) => readWorkspaceStateSnapshotSync(workspaceId));
@@ -195,7 +195,7 @@ function readLoadtestWorkspaceShellCache<TData>(key: string, load: () => TData):
 }
 
 function readLoadtestWorkspaceShellCacheTtlMs(): number {
-  const configured = Number.parseInt(process.env.AGENT_SPACE_WORKSPACE_SHELL_CACHE_TTL_MS ?? "", 10);
+  const configured = Number.parseInt(process.env.DOFE_AGENT_WORKSPACE_SHELL_CACHE_TTL_MS ?? "", 10);
   if (Number.isFinite(configured) && configured > 0) {
     return configured;
   }

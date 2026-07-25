@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ProviderHealthSnapshot } from "@agent-space/domain";
+import type { ProviderHealthSnapshot } from "@dofe-agent/domain";
 
 export type OpenClawHealthStatus = "healthy" | "degraded" | "broken" | "unknown";
 export type OpenClawProviderErrorCategory =
@@ -296,7 +296,7 @@ function buildOpenClawError(
 }
 
 function isDaemonTaskWorkDir(workDir: string | undefined, env: NodeJS.ProcessEnv): boolean {
-  if (env.AGENT_SPACE_CONTEXT_TASK_ID?.trim()) {
+  if (env.DOFE_AGENT_CONTEXT_TASK_ID?.trim()) {
     return true;
   }
   if (!workDir) {

@@ -2,9 +2,9 @@
 
 import { type FormEvent, type TransitionStartFunction, useEffect, useState } from "react";
 import type {
-  ExternalResourceBindingAgentSpaceType,
+  ExternalResourceBindingDofeAgentType,
   ExternalResourceBindingProviderType,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type { SettingsTx } from "@/features/settings/settings-types";
 import { translateSettingsActionError } from "@/features/settings/settings-utils";
 import {
@@ -31,10 +31,10 @@ const FEISHU_RESOURCE_TYPE_OPTIONS: Array<{
   { value: "base_view", labelZh: "Base View", labelEn: "Base View" },
 ];
 
-const AGENT_SPACE_RESOURCE_TYPE_OPTIONS: Array<{
+const DOFE_AGENT_RESOURCE_TYPE_OPTIONS: Array<{
   labelZh: string;
   labelEn: string;
-  value: ExternalResourceBindingAgentSpaceType;
+  value: ExternalResourceBindingDofeAgentType;
 }> = [
   { value: "channel_document", labelZh: "频道文档", labelEn: "Channel Document" },
   { value: "data_table", labelZh: "数据表", labelEn: "Data Table" },
@@ -62,8 +62,8 @@ export function FeishuResourceBindingsPanel({
   const [integrationId, setIntegrationId] = useState(selectableIntegrations[0]?.id ?? "");
   const [providerResourceType, setProviderResourceType] = useState<ExternalResourceBindingProviderType>("doc");
   const [resourceUrlOrToken, setResourceUrlOrToken] = useState("");
-  const [agentSpaceResourceType, setAgentSpaceResourceType] = useState<ExternalResourceBindingAgentSpaceType>("channel_document");
-  const [agentSpaceResourceId, setAgentSpaceResourceId] = useState("");
+  const [dofeAgentResourceType, setDofeAgentResourceType] = useState<ExternalResourceBindingDofeAgentType>("channel_document");
+  const [dofeAgentResourceId, setDofeAgentResourceId] = useState("");
   const [channelName, setChannelName] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [allowWrite, setAllowWrite] = useState(false);
@@ -100,9 +100,9 @@ export function FeishuResourceBindingsPanel({
     integrationId &&
     resourceUrlOrToken.trim() &&
     (
-      agentSpaceResourceType === "channel_document"
-        ? channelName || agentSpaceResourceId.trim()
-        : agentSpaceResourceType === "data_table" || agentSpaceResourceId.trim()
+      dofeAgentResourceType === "channel_document"
+        ? channelName || dofeAgentResourceId.trim()
+        : dofeAgentResourceType === "data_table" || dofeAgentResourceId.trim()
     ),
   );
 
@@ -118,15 +118,15 @@ export function FeishuResourceBindingsPanel({
           integrationId,
           providerResourceType,
           resourceUrlOrToken,
-          agentSpaceResourceType,
-          agentSpaceResourceId,
+          dofeAgentResourceType,
+          dofeAgentResourceId,
           channelName,
           displayName,
           allowWrite,
           guestReadable,
         });
         setResourceUrlOrToken("");
-        setAgentSpaceResourceId("");
+        setDofeAgentResourceId("");
         setDisplayName("");
         setAllowWrite(false);
         setGuestReadable(false);
@@ -186,8 +186,8 @@ export function FeishuResourceBindingsPanel({
             onChange={(event) => {
               const nextProviderResourceType = event.currentTarget.value as ExternalResourceBindingProviderType;
               setProviderResourceType(nextProviderResourceType);
-              setAgentSpaceResourceType(
-                buildFeishuResourceBindingRequirement(nextProviderResourceType, tx).recommendedAgentSpaceType,
+              setDofeAgentResourceType(
+                buildFeishuResourceBindingRequirement(nextProviderResourceType, tx).recommendedDofeAgentType,
               );
             }}
             value={providerResourceType}
@@ -205,7 +205,7 @@ export function FeishuResourceBindingsPanel({
           </div>
           <div>
             <strong>{tx("推荐类型", "Recommended Type")}</strong>
-            <span>{resourceRequirement.recommendedAgentSpaceTypeLabel}</span>
+            <span>{resourceRequirement.recommendedDofeAgentTypeLabel}</span>
           </div>
         </div>
 
@@ -223,10 +223,10 @@ export function FeishuResourceBindingsPanel({
           <span>{tx("agent.dofe 类型", "agent.dofe type")}</span>
           <select
             disabled={isPending}
-            onChange={(event) => setAgentSpaceResourceType(event.currentTarget.value)}
-            value={agentSpaceResourceType}
+            onChange={(event) => setDofeAgentResourceType(event.currentTarget.value)}
+            value={dofeAgentResourceType}
           >
-            {AGENT_SPACE_RESOURCE_TYPE_OPTIONS.map((option) => (
+            {DOFE_AGENT_RESOURCE_TYPE_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>{tx(option.labelZh, option.labelEn)}</option>
             ))}
           </select>
@@ -237,15 +237,15 @@ export function FeishuResourceBindingsPanel({
           <input
             autoComplete="off"
             disabled={isPending}
-            onChange={(event) => setAgentSpaceResourceId(event.currentTarget.value)}
+            onChange={(event) => setDofeAgentResourceId(event.currentTarget.value)}
             placeholder={
-              agentSpaceResourceType === "channel_document"
+              dofeAgentResourceType === "channel_document"
                 ? tx("留空则创建频道文档", "Blank creates a channel document")
-                : agentSpaceResourceType === "data_table"
+                : dofeAgentResourceType === "data_table"
                   ? tx("留空则创建数据表", "Blank creates a data table")
                   : undefined
             }
-            value={agentSpaceResourceId}
+            value={dofeAgentResourceId}
           />
         </label>
 
@@ -338,8 +338,8 @@ export function FeishuResourceBindingsPanel({
                 </div>
                 <div className="feishu-binding-card__meta">
                   <span>{tx("飞书", "Feishu")}: {binding.providerResourceReference}</span>
-                  <span>agent.dofe: {binding.agentSpaceResourceType}</span>
-                  <span>{tx("资源 ID", "Resource ID")}: {binding.agentSpaceResourceId}</span>
+                  <span>agent.dofe: {binding.dofeAgentResourceType}</span>
+                  <span>{tx("资源 ID", "Resource ID")}: {binding.dofeAgentResourceId}</span>
                   <span>{tx("写入", "Write")}: {binding.canWrite ? tx("需审批", "Approval required") : tx("未授权", "Not allowed")}</span>
                   <span>{tx("访客读取", "Guest read")}: {binding.guestReadable ? tx("允许", "Allowed") : tx("关闭", "Off")}</span>
                   <span>{tx("状态", "Status")}: {translateBindingStatus(binding.status, tx)}</span>
@@ -462,21 +462,21 @@ function buildFeishuResourceBindingRequirement(
   tx: SettingsTx,
 ): {
   scopes: string[];
-  recommendedAgentSpaceType: ExternalResourceBindingAgentSpaceType;
-  recommendedAgentSpaceTypeLabel: string;
+  recommendedDofeAgentType: ExternalResourceBindingDofeAgentType;
+  recommendedDofeAgentTypeLabel: string;
 } {
   if (providerResourceType === "doc") {
     return {
       scopes: ["docx:document", "drive:drive"],
-      recommendedAgentSpaceType: "channel_document",
-      recommendedAgentSpaceTypeLabel: tx("频道文档", "Channel Document"),
+      recommendedDofeAgentType: "channel_document",
+      recommendedDofeAgentTypeLabel: tx("频道文档", "Channel Document"),
     };
   }
   if (providerResourceType === "sheet") {
     return {
       scopes: ["sheets:spreadsheet"],
-      recommendedAgentSpaceType: "data_table",
-      recommendedAgentSpaceTypeLabel: tx("数据表", "Data Table"),
+      recommendedDofeAgentType: "data_table",
+      recommendedDofeAgentTypeLabel: tx("数据表", "Data Table"),
     };
   }
   if (
@@ -486,14 +486,14 @@ function buildFeishuResourceBindingRequirement(
   ) {
     return {
       scopes: ["bitable:app"],
-      recommendedAgentSpaceType: "data_table",
-      recommendedAgentSpaceTypeLabel: tx("数据表", "Data Table"),
+      recommendedDofeAgentType: "data_table",
+      recommendedDofeAgentTypeLabel: tx("数据表", "Data Table"),
     };
   }
   return {
     scopes: [],
-    recommendedAgentSpaceType: "knowledge_page",
-    recommendedAgentSpaceTypeLabel: tx("外部资源", "External Resource"),
+    recommendedDofeAgentType: "knowledge_page",
+    recommendedDofeAgentTypeLabel: tx("外部资源", "External Resource"),
   };
 }
 

@@ -12,7 +12,7 @@ import {
 } from "../../../policies/agent-actions.ts";
 import type { FeishuApiRequest } from "./client.ts";
 import { FEISHU_DATA_OPERATION_DESCRIPTORS } from "./data-plane.ts";
-import { summarizeFeishuResourceMetadataSnapshot } from "./agent-space-sync.ts";
+import { summarizeFeishuResourceMetadataSnapshot } from "./dofe-agent-sync.ts";
 
 export type FeishuDataOperationPolicyDecision = Exclude<ExternalDataOperationPolicyDecision, "approved">;
 
@@ -144,7 +144,7 @@ function buildFeishuDataOperationPolicyActor(
   }
   return {
     type: "system",
-    systemId: actorId || "agent-space",
+    systemId: actorId || "dofe-agent",
   };
 }
 
@@ -357,7 +357,7 @@ export function buildFeishuBlockedOperationResult(input: {
     ok: false,
     errorCode: input.reasonCode,
     errorMessage: input.decision === "require_approval"
-      ? "Feishu write operations require AgentSpace approval before execution."
+      ? "Feishu write operations require DofeAgent approval before execution."
       : "Feishu data operation is not allowed.",
     data: {
       policyDecision: input.decision,

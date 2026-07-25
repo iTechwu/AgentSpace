@@ -1,4 +1,4 @@
-import type { ChannelRecord } from "@agent-space/domain/workspace";
+import type { ChannelRecord } from "@dofe-agent/domain/workspace";
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
 
 export function listStoredChannelsSync(workspaceId = DEFAULT_WORKSPACE_ID): ChannelRecord[] {

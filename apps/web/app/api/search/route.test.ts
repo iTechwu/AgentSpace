@@ -3,8 +3,8 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
-import { createWorkspaceSync, getDatabase } from "@agent-space/db";
-import { readWorkspaceStateSync, resetWorkspaceStateSync, writeWorkspaceStateSync } from "@agent-space/services";
+import { createWorkspaceSync, getDatabase } from "@dofe-agent/db";
+import { readWorkspaceStateSync, resetWorkspaceStateSync, writeWorkspaceStateSync } from "@dofe-agent/services";
 
 const { mockGetCurrentWorkspaceContext } = vi.hoisted(() => ({
   mockGetCurrentWorkspaceContext: vi.fn(),
@@ -17,7 +17,7 @@ vi.mock("@/features/auth/server-workspace", () => ({
 import { GET } from "./route";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-search-route-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-search-route-"));
 
 beforeAll(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

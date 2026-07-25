@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import type { ExecController } from "@agent-space/sandbox";
+import type { ExecController } from "@dofe-agent/sandbox";
 import type { AgentRouterEvent, AgentRouterObserver, HarnessLaunchPlan } from "./types.ts";
 import { normalizeSignal, redactText } from "./utils.ts";
 

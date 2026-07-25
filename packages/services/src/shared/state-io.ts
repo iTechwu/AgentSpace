@@ -24,11 +24,11 @@ import {
   readWorkspaceSync,
   readWorkspaceStateVersion,
   writeWorkspaceStateRecordSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   createDefaultWorkspaceState,
-  type AgentSpaceState,
-} from "@agent-space/domain/workspace";
+  type DofeAgentState,
+} from "@dofe-agent/domain/workspace";
 import { ensureChannelDocumentAccessSeeds } from "../documents/access.ts";
 import { normalizeWorkspaceState } from "./normalizers.ts";
 
@@ -44,11 +44,11 @@ export function getWorkspaceAttachmentsDirPath(workspaceId = DEFAULT_WORKSPACE_I
   return getWorkspaceAttachmentsDirPathFromDb(workspaceId);
 }
 
-export function ensureWorkspaceStateSync(workspaceId = DEFAULT_WORKSPACE_ID): AgentSpaceState {
+export function ensureWorkspaceStateSync(workspaceId = DEFAULT_WORKSPACE_ID): DofeAgentState {
   return readWorkspaceStateSnapshotSync(workspaceId);
 }
 
-export function readWorkspaceStateSnapshotSync(workspaceId = DEFAULT_WORKSPACE_ID): AgentSpaceState {
+export function readWorkspaceStateSnapshotSync(workspaceId = DEFAULT_WORKSPACE_ID): DofeAgentState {
   ensureWorkspaceRecordForStateSync(workspaceId);
   const stored = ensureWorkspaceStateRecordSync(createDefaultWorkspaceState(), workspaceId);
   const storedVersion = readWorkspaceStateVersion(stored);
@@ -67,15 +67,15 @@ export function readWorkspaceStateSnapshotSync(workspaceId = DEFAULT_WORKSPACE_I
   return snapshot;
 }
 
-export function readWorkspaceStateSync(workspaceId = DEFAULT_WORKSPACE_ID): AgentSpaceState {
+export function readWorkspaceStateSync(workspaceId = DEFAULT_WORKSPACE_ID): DofeAgentState {
   return readWorkspaceStateSnapshotSync(workspaceId);
 }
 
 export function writeWorkspaceStateSync(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   workspaceId = DEFAULT_WORKSPACE_ID,
   options?: { skipVersionCheck?: boolean },
-): AgentSpaceState {
+): DofeAgentState {
   ensureWorkspaceRecordForStateSync(workspaceId);
   const normalized = normalizeWorkspaceState(state);
   ensureChannelDocumentAccessSeeds(normalized);
@@ -89,7 +89,7 @@ export function writeWorkspaceStateSync(
 }
 
 function persistCoreWorkspaceStorage(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): void {
   replaceStoredChannelsSync(state.channels, workspaceId);
@@ -98,7 +98,7 @@ function persistCoreWorkspaceStorage(
   replaceStoredAttachmentsSync(state, workspaceId);
 }
 
-export function resetWorkspaceStateSync(workspaceId = DEFAULT_WORKSPACE_ID): AgentSpaceState {
+export function resetWorkspaceStateSync(workspaceId = DEFAULT_WORKSPACE_ID): DofeAgentState {
   ensureWorkspaceRecordForStateSync(workspaceId);
   resetWorkspaceExecutionStateSync(workspaceId);
   resetStoredWorkspaceSkillsSync(workspaceId);
@@ -134,13 +134,13 @@ function ensureWorkspaceRecordForStateSync(workspaceId: string): void {
   createWorkspaceSync({
     id: workspaceId,
     slug: workspaceId,
-    name: workspaceId === DEFAULT_WORKSPACE_ID ? "Agent Space" : workspaceId,
+    name: workspaceId === DEFAULT_WORKSPACE_ID ? "Dofe Agent" : workspaceId,
     createdBy: "system",
   });
 }
 
 function initializeWorkspaceSkillStorageIfEmpty(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): void {
   if (listStoredWorkspaceSkillsSync(workspaceId).length > 0) {

@@ -21,7 +21,7 @@ import {
 } from "./runtime-output-manifests.ts";
 
 test("runtime output helpers create and validate agent-output manifests", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-manifest-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-manifest-"));
   try {
     mkdirSync(join(workDir, "source"), { recursive: true });
     writeFileSync(join(workDir, "source", "chart.png"), "image", "utf8");
@@ -53,7 +53,7 @@ test("runtime output helpers create and validate agent-output manifests", () => 
 });
 
 test("runtime output validation rejects path traversal and empty attachments", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-manifest-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-manifest-"));
   try {
     mkdirSync(join(workDir, "runtime-output", "artifacts"), { recursive: true });
     writeFileSync(join(workDir, "runtime-output", "artifacts", "empty.txt"), "", "utf8");
@@ -78,7 +78,7 @@ test("runtime output validation rejects path traversal and empty attachments", (
 });
 
 test("runtime output helpers append document and sheets operations for preview", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-manifest-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-manifest-"));
   try {
     mkdirSync(join(workDir, "runtime-output", "artifacts"), { recursive: true });
     writeFileSync(join(workDir, "runtime-output", "artifacts", "notes.md"), "# Notes\n", "utf8");
@@ -133,9 +133,9 @@ test("runtime output helpers append document and sheets operations for preview",
     writeFileSync(
       join(workDir, "runtime-output", "feishu-data-operation-requests.json"),
       JSON.stringify({
-        kind: "agent-space.feishu.data-operation.requests",
+        kind: "dofe-agent.feishu.data-operation.requests",
         schemaVersion: 1,
-        generatedBy: "agent-space-cli",
+        generatedBy: "dofe-agent-cli",
         requests: [{
           operationType: "sheets.update_range",
           providerResourceType: "sheet",
@@ -164,7 +164,7 @@ test("runtime output helpers append document and sheets operations for preview",
 });
 
 test("knowledge proposal manifests must be CLI generated and reference markdown artifacts", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-manifest-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-manifest-"));
   try {
     mkdirSync(join(workDir, "runtime-output", "artifacts"), { recursive: true });
     writeFileSync(join(workDir, "runtime-output", "artifacts", "notes.txt"), "hello", "utf8");
@@ -191,7 +191,7 @@ test("knowledge proposal manifests must be CLI generated and reference markdown 
 });
 
 test("runtime output validation covers Google Docs artifacts and token material", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-manifest-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-manifest-"));
   try {
     mkdirSync(join(workDir, "runtime-output", "artifacts", "docs"), { recursive: true });
     writeFileSync(join(workDir, "runtime-output", "artifacts", "docs", "requests.json"), "{\"not\":\"array\"}", "utf8");
@@ -227,7 +227,7 @@ test("runtime output validation covers Google Docs artifacts and token material"
 });
 
 test("document access manifests must be generated through the output CLI helpers", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-manifest-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-manifest-"));
   try {
     mkdirSync(join(workDir, "runtime-output"), { recursive: true });
     writeFileSync(
@@ -293,9 +293,9 @@ test("document access manifests must be generated through the output CLI helpers
     writeFileSync(
       join(workDir, "runtime-output", "feishu-data-operation-requests.json"),
       JSON.stringify({
-        kind: "agent-space.feishu.data-operation.requests",
+        kind: "dofe-agent.feishu.data-operation.requests",
         schemaVersion: 1,
-        generatedBy: "agent-space-cli",
+        generatedBy: "dofe-agent-cli",
         requests: [{
           operationType: "sheets.update_range",
           providerResourceType: "sheet",
@@ -320,7 +320,7 @@ test("document access manifests must be generated through the output CLI helpers
 });
 
 test("runtime output validation rejects create-google-sheet artifacts outside runtime artifacts", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-runtime-output-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-runtime-output-"));
   try {
     mkdirSync(join(workDir, "runtime-output"), { recursive: true });
     mkdirSync(join(workDir, "other"), { recursive: true });
@@ -337,7 +337,7 @@ test("runtime output validation rejects create-google-sheet artifacts outside ru
       join(workDir, "runtime-output", "external-documents.json"),
       JSON.stringify({
         version: 1,
-        generatedBy: "agent-space-cli",
+        generatedBy: "dofe-agent-cli",
         operations: [{
           operationType: "create_google_sheet",
           externalFileId: "spreadsheet-created-123",

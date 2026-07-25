@@ -1,4 +1,4 @@
-import type { AgentSpaceState, ScheduledTask } from "@agent-space/domain/workspace";
+import type { DofeAgentState, ScheduledTask } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { createOpaqueId } from "../shared/helpers.ts";
 
@@ -21,7 +21,7 @@ export function createScheduledTaskSync(input: {
   cronExpression?: string;
   scheduledAt: string;
   createdBy?: string;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const title = input.title.trim();
   if (!title) {
@@ -72,7 +72,7 @@ export function updateScheduledTaskSync(
     scheduledAt?: string;
   },
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const task = (state.scheduledTasks ?? []).find((t) => t.id === id);
   if (!task) {
@@ -122,7 +122,7 @@ export function updateScheduledTaskSync(
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function toggleScheduledTaskSync(id: string, status: "active" | "paused", workspaceId?: string): AgentSpaceState {
+export function toggleScheduledTaskSync(id: string, status: "active" | "paused", workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const task = (state.scheduledTasks ?? []).find((t) => t.id === id);
   if (!task) {
@@ -135,7 +135,7 @@ export function toggleScheduledTaskSync(id: string, status: "active" | "paused",
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function deleteScheduledTaskSync(id: string, workspaceId?: string): AgentSpaceState {
+export function deleteScheduledTaskSync(id: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const task = (state.scheduledTasks ?? []).find((t) => t.id === id);
   if (!task) {

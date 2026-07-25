@@ -1,4 +1,4 @@
-import { claimNextQueuedTaskForRuntimeSync } from "@agent-space/db";
+import { claimNextQueuedTaskForRuntimeSync } from "@dofe-agent/db";
 import { readRuntimeForDaemon, requireDaemonAuth } from "../../../../_lib/auth";
 
 export const runtime = "nodejs";

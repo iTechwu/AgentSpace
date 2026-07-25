@@ -5,8 +5,8 @@ import { resolveWorkspaceAccessForIdentifierSync } from "@/features/auth/server-
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { getWorkspaceChannelVisibilitySync } from "@/features/auth/workspace-channel-visibility";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";
-import { revokeGoogleOAuthCredentialSync } from "@agent-space/db";
-import type { ChannelDocumentAccessRole } from "@agent-space/domain";
+import { revokeGoogleOAuthCredentialSync } from "@dofe-agent/db";
+import type { ChannelDocumentAccessRole } from "@dofe-agent/domain";
 import {
   addChannelEmployeesSync,
   addWorkspaceMemberToChannelForActorSync,
@@ -52,9 +52,9 @@ import {
   upsertChannelDocumentPresenceSync,
   updateChannelDocumentSync,
   reviewApprovalSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { persistFormAttachments } from "@/features/chat/attachment-actions";
-import type { ChannelDocument, ExternalDocumentSyncStatus } from "@agent-space/domain/workspace";
+import type { ChannelDocument, ExternalDocumentSyncStatus } from "@dofe-agent/domain/workspace";
 import {
   createGoogleWorkspaceDoc,
   createGoogleWorkspaceSheet,

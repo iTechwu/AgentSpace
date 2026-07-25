@@ -16,13 +16,13 @@ import {
   updateUserSync,
   type StoredSessionRecord,
   type StoredUserRecord,
-} from "@agent-space/db";
-import { tryRecordWorkspaceAuditEventSync } from "@agent-space/services";
+} from "@dofe-agent/db";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { syncSsoWorkspacesForUserSync, type SsoWorkspaceScope } from "./sso-workspaces";
 import { clearWorkspaceSelectionCookie, writeWorkspaceSelectionCookie } from "./workspace-selection";
 
-const AUTH_COOKIE_NAME = "agent_space_session";
-const SSO_ID_TOKEN_COOKIE_NAME = "agent_space_sso_id_token";
+const AUTH_COOKIE_NAME = "dofe_agent_session";
+const SSO_ID_TOKEN_COOKIE_NAME = "dofe_agent_sso_id_token";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 export interface AuthUser {

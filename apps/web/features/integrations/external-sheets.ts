@@ -4,18 +4,18 @@ import {
   getWorkspaceDataDirPath,
   readActiveAgentGoogleWorkspaceDelegationSync,
   readUserSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type {
   ExternalSheetOperationType,
   ExternalSheetResultPreview,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import {
   assertAgentDocumentActionAllowedSync,
   AgentDocumentPermissionError,
   readChannelDocumentSync,
   recordExternalSheetOperationRunSync,
   sameValue,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 
 export const RUNTIME_OUTPUT_EXTERNAL_SHEETS_RELATIVE_PATH = "runtime-output/external-sheets.json";
 export const RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH = "runtime-output/external-sheets-results.json";
@@ -77,7 +77,7 @@ export async function applyExternalSheetOperations(input: {
   const legacyPath = join(input.workDir, RUNTIME_OUTPUT_EXTERNAL_SHEETS_RELATIVE_PATH);
   if (existsSync(/*turbopackIgnore: true*/ legacyPath)) {
     warnings.push(
-      `${RUNTIME_OUTPUT_EXTERNAL_SHEETS_RELATIVE_PATH} 已弃用：Web 后端不再代执行 gws。请在 Agent runtime 直接运行 gws，并用 agent-space output sheets-result add 生成 ${RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH}。`,
+      `${RUNTIME_OUTPUT_EXTERNAL_SHEETS_RELATIVE_PATH} 已弃用：Web 后端不再代执行 gws。请在 Agent runtime 直接运行 gws，并用 dofe-agent output sheets-result add 生成 ${RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH}。`,
     );
   }
 

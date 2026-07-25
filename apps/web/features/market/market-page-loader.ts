@@ -4,12 +4,12 @@ import {
   listRuntimeAppOperationsSync,
   listRuntimeInstalledAppsSync,
   readRuntimeAppCatalogHealthSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   assessRuntimeAppRisk,
   readCliHubReadinessForRuntimeSync,
   syncCliHubCatalog,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import type { MarketPageData } from "@/features/market/market-page-client";
 
 export async function loadMarketPageData(input: {

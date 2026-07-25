@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
-import type { MessageAttachment } from "@agent-space/domain/workspace";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 
 export const STATE_DIR = "data";
 
@@ -69,7 +69,7 @@ export function sameValue(left: string, right: string): boolean {
 
 export function resolveRepositoryRoot(): string {
   const candidates = [
-    process.env.AGENT_SPACE_REPOSITORY_ROOT,
+    process.env.DOFE_AGENT_REPOSITORY_ROOT,
     /*turbopackIgnore: true*/ process.cwd(),
     join(/*turbopackIgnore: true*/ process.cwd(), ".."),
     join(/*turbopackIgnore: true*/ process.cwd(), "..", ".."),

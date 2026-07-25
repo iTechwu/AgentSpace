@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDefaultWorkspaceState, type ActiveEmployee } from "@agent-space/domain/workspace";
+import { createDefaultWorkspaceState, type ActiveEmployee } from "@dofe-agent/domain/workspace";
 import { addChannelEmployeesToState, removeChannelArtifactsFromState } from "./channels.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-channels-state-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-channels-state-"));
 
 function buildEmployee(name: string, channels: string[] = []): ActiveEmployee {
   return {

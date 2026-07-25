@@ -1,4 +1,4 @@
-import { SYSTEM_AGENT_TEMPLATE_PRESETS, type AgentTemplateSkillRecommendation } from "@agent-space/domain";
+import { SYSTEM_AGENT_TEMPLATE_PRESETS, type AgentTemplateSkillRecommendation } from "@dofe-agent/domain";
 import { useMemo, useState } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { getField } from "@/shared/lib/form";

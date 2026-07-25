@@ -13,7 +13,7 @@ import {
 } from "./index.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-db-workspaces-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-db-workspaces-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -320,8 +320,8 @@ function seedWorkspaceRecords(workspaceId: string, suffix: string): void {
        provider_resource_type,
        provider_resource_token,
        provider_resource_url,
-       agent_space_resource_type,
-       agent_space_resource_id,
+       dofe_agent_resource_type,
+       dofe_agent_resource_id,
        channel_name,
        display_name,
        status,
@@ -354,7 +354,7 @@ function seedWorkspaceRecords(workspaceId: string, suffix: string): void {
        external_thread_id,
        external_sender_id,
        external_event_id,
-       agent_space_message_id,
+       dofe_agent_message_id,
        metadata_json,
        created_at
      ) VALUES (?, ?, ?, ?, 'inbound', ?, ?, ?, ?, ?, '{}', ?)`,
@@ -505,7 +505,7 @@ function seedWorkspaceRecords(workspaceId: string, suffix: string): void {
        channel_name,
        agent_id,
        task_queue_id,
-       agent_space_message_id,
+       dofe_agent_message_id,
        status,
        metadata_json,
        last_message_at,

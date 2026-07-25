@@ -1,9 +1,9 @@
 import {
   getDatabaseStatusSync,
   readWorkspaceSync,
-} from "@agent-space/db";
-import { scanStorageArtifactsSync } from "@agent-space/services/storage/storage-scan";
-import { purgeWorkspaceStorageSync } from "@agent-space/services/storage/workspace-purge";
+} from "@dofe-agent/db";
+import { scanStorageArtifactsSync } from "@dofe-agent/services/storage/storage-scan";
+import { purgeWorkspaceStorageSync } from "@dofe-agent/services/storage/workspace-purge";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
@@ -24,7 +24,7 @@ export function runDatabaseCommand(subcommand: string | undefined, args: string[
     const force = flags.force === true;
 
     if (!workspaceIdentifier || !force) {
-      console.error("Usage: agent-space db workspace-purge --id <workspace-id> --force [--json]");
+      console.error("Usage: dofe-agent db workspace-purge --id <workspace-id> --force [--json]");
       return 1;
     }
 
@@ -41,8 +41,8 @@ export function runDatabaseCommand(subcommand: string | undefined, args: string[
     return 0;
   }
 
-  console.error("Usage: agent-space db status [--json]");
-  console.error("   or: agent-space db storage-scan [--json]");
-  console.error("   or: agent-space db workspace-purge --id <workspace-id> --force [--json]");
+  console.error("Usage: dofe-agent db status [--json]");
+  console.error("   or: dofe-agent db storage-scan [--json]");
+  console.error("   or: dofe-agent db workspace-purge --id <workspace-id> --force [--json]");
   return 1;
 }

@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
-  readExternalMessageMappingByAgentSpaceMessageSync,
+  readExternalMessageMappingByDofeAgentMessageSync,
   type ExternalResourceBindingProviderType,
   type ExternalMessageMappingRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type {
   ExternalDataOperationRequest,
   IntegrationRuntimeContext,
@@ -22,7 +22,7 @@ import type { FeishuApiClient } from "./client.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
 import type { FeishuBoundDataOperationActor } from "./data-plane.ts";
 import type { FeishuExternalGuestRestrictedAction } from "./external-guests.ts";
-import { buildAgentSpaceSettingsIntegrationsDeepLink } from "./links.ts";
+import { buildDofeAgentSettingsIntegrationsDeepLink } from "./links.ts";
 import {
   FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
   resolveFeishuLarkCliOperationKind,
@@ -31,7 +31,7 @@ import {
 } from "./lark-cli.ts";
 import { queueFeishuAgentStatusCardOutboxSync } from "./outbound.ts";
 
-export const FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND = "agent-space.feishu.data-operation.requests";
+export const FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND = "dofe-agent.feishu.data-operation.requests";
 export const FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_SCHEMA_VERSION = 1;
 export const FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_RELATIVE_PATH = "runtime-output/feishu-data-operation-requests.json";
 
@@ -46,7 +46,7 @@ export interface FeishuRuntimeDataOperationRequestManifestEntry {
 export interface FeishuRuntimeDataOperationRequestsManifest {
   kind: typeof FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND;
   schemaVersion: typeof FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_SCHEMA_VERSION;
-  generatedBy: "agent-space-cli";
+  generatedBy: "dofe-agent-cli";
   requests: FeishuRuntimeDataOperationRequestManifestEntry[];
 }
 
@@ -63,7 +63,7 @@ export interface FeishuLarkCliResultManifestOperationSummary {
   operationRunIds: string[];
 }
 
-type ReadFeishuRuntimeSourceMessageMapping = typeof readExternalMessageMappingByAgentSpaceMessageSync;
+type ReadFeishuRuntimeSourceMessageMapping = typeof readExternalMessageMappingByDofeAgentMessageSync;
 
 export function appendFeishuRuntimeDataOperationRequest(
   workDir: string,
@@ -74,7 +74,7 @@ export function appendFeishuRuntimeDataOperationRequest(
   const manifest = readFeishuRuntimeDataOperationRequestsManifest(workDir) ?? {
     kind: FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND,
     schemaVersion: FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_SCHEMA_VERSION,
-    generatedBy: "agent-space-cli" as const,
+    generatedBy: "dofe-agent-cli" as const,
     requests: [],
   };
   manifest.requests.push(normalized);
@@ -100,7 +100,7 @@ export async function applyFeishuRuntimeDataOperationRequests(input: {
   actorName: string;
   sourceTaskQueueId?: string;
   sourceChannelName?: string;
-  sourceAgentSpaceMessageId?: string;
+  sourceDofeAgentMessageId?: string;
   resourceGrants: FeishuLarkCliResourceGrant[];
   planWriteOperationWithApproval?: typeof planBoundFeishuWriteDataOperationWithApproval;
   queueAgentStatusCard?: typeof queueFeishuAgentStatusCardOutboxSync;
@@ -152,13 +152,13 @@ export async function applyFeishuRuntimeDataOperationRequests(input: {
       providerResourceToken: entry.providerResourceToken,
     });
     if (!grant?.integrationId || !grant.resourceBindingId) {
-      warnings.push(`Feishu runtime data-operation request ${index + 1} did not match an active writable AgentSpace resource binding.`);
+      warnings.push(`Feishu runtime data-operation request ${index + 1} did not match an active writable DofeAgent resource binding.`);
       continue;
     }
 
     const sourceContext = resolveFeishuRuntimeDataOperationSourceContext({
       workspaceId: input.workspaceId,
-      sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+      sourceDofeAgentMessageId: input.sourceDofeAgentMessageId,
       actorName: input.actorName,
       channelName,
       readSourceMessageMapping: input.readSourceMessageMapping,
@@ -185,7 +185,7 @@ export async function applyFeishuRuntimeDataOperationRequests(input: {
       agentId: input.actorName,
       channelName,
       sourceId: input.sourceTaskQueueId,
-      sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+      sourceDofeAgentMessageId: input.sourceDofeAgentMessageId,
       taskId: input.sourceTaskQueueId,
       contentPreview: sanitizeFeishuRuntimeApprovalPreview(entry.contentPreview, grant),
       metadata: {
@@ -218,7 +218,7 @@ export async function applyFeishuRuntimeDataOperationRequests(input: {
           channelName,
           actorName: input.actorName,
           taskId: input.sourceTaskQueueId,
-          sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+          sourceDofeAgentMessageId: input.sourceDofeAgentMessageId,
           sourceContext,
           errorCode: planned.result.errorCode,
           queueAgentStatusCard,
@@ -261,7 +261,7 @@ export function applyFeishuLarkCliResultManifestOperations(input: {
   } catch {
     return {
       statusMessages: [],
-      warnings: ["Feishu lark-cli result manifest could not be parsed; no AgentSpace data operation evidence was recorded."],
+      warnings: ["Feishu lark-cli result manifest could not be parsed; no DofeAgent data operation evidence was recorded."],
       operationRunIds: [],
     };
   }
@@ -276,7 +276,7 @@ export function applyFeishuLarkCliResultManifestOperations(input: {
   if (!operationType || !providerResourceType || !providerResourceToken) {
     return {
       statusMessages: [],
-      warnings: ["Feishu lark-cli result manifest is missing operation/resource fields; no AgentSpace data operation evidence was recorded."],
+      warnings: ["Feishu lark-cli result manifest is missing operation/resource fields; no DofeAgent data operation evidence was recorded."],
       operationRunIds: [],
     };
   }
@@ -285,7 +285,7 @@ export function applyFeishuLarkCliResultManifestOperations(input: {
   if (operationKind !== "read") {
     return {
       statusMessages: [],
-      warnings: ["Feishu lark-cli write result manifest was ignored; Feishu writes must execute through AgentSpace approval and payload-hash governance."],
+      warnings: ["Feishu lark-cli write result manifest was ignored; Feishu writes must execute through DofeAgent approval and payload-hash governance."],
       operationRunIds: [],
     };
   }
@@ -298,7 +298,7 @@ export function applyFeishuLarkCliResultManifestOperations(input: {
   if (!grant?.integrationId || !grant.resourceBindingId) {
     return {
       statusMessages: [],
-      warnings: ["Feishu lark-cli result manifest did not match an active AgentSpace resource binding; no evidence was recorded."],
+      warnings: ["Feishu lark-cli result manifest did not match an active DofeAgent resource binding; no evidence was recorded."],
       operationRunIds: [],
     };
   }
@@ -375,7 +375,7 @@ function queueFeishuExternalGuestIdentityRequiredCardBestEffort(input: {
   channelName: string;
   actorName: string;
   taskId?: string;
-  sourceAgentSpaceMessageId?: string;
+  sourceDofeAgentMessageId?: string;
   sourceContext: FeishuRuntimeDataOperationSourceContext;
   errorCode?: string;
   queueAgentStatusCard: typeof queueFeishuAgentStatusCardOutboxSync;
@@ -385,7 +385,7 @@ function queueFeishuExternalGuestIdentityRequiredCardBestEffort(input: {
   }
   try {
     const agentId = readStringField(input.sourceContext.governance, "agentId") ?? input.actorName;
-    const settingsUrl = buildAgentSpaceSettingsIntegrationsDeepLink({
+    const settingsUrl = buildDofeAgentSettingsIntegrationsDeepLink({
       workspaceId: input.workspaceId,
       target: "user-bindings",
     });
@@ -395,9 +395,9 @@ function queueFeishuExternalGuestIdentityRequiredCardBestEffort(input: {
       agentId,
       status: "failed",
       agentNames: [agentId],
-      message: "External guests must bind an AgentSpace identity before writing Feishu Docs, Sheets, or Base resources.",
+      message: "External guests must bind an DofeAgent identity before writing Feishu Docs, Sheets, or Base resources.",
       taskId: input.taskId,
-      sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+      sourceDofeAgentMessageId: input.sourceDofeAgentMessageId,
       actionUrl: settingsUrl ?? null,
     }).length;
   } catch {
@@ -412,18 +412,18 @@ interface FeishuRuntimeDataOperationSourceContext {
 
 function resolveFeishuRuntimeDataOperationSourceContext(input: {
   workspaceId: string;
-  sourceAgentSpaceMessageId?: string;
+  sourceDofeAgentMessageId?: string;
   actorName: string;
   channelName: string;
   readSourceMessageMapping?: ReadFeishuRuntimeSourceMessageMapping;
 }): FeishuRuntimeDataOperationSourceContext {
   let sourceMapping: ExternalMessageMappingRecord | null = null;
-  if (input.sourceAgentSpaceMessageId) {
+  if (input.sourceDofeAgentMessageId) {
     try {
-      const readSourceMessageMapping = input.readSourceMessageMapping ?? readExternalMessageMappingByAgentSpaceMessageSync;
+      const readSourceMessageMapping = input.readSourceMessageMapping ?? readExternalMessageMappingByDofeAgentMessageSync;
       sourceMapping = readSourceMessageMapping({
         workspaceId: input.workspaceId,
-        agentSpaceMessageId: input.sourceAgentSpaceMessageId,
+        dofeAgentMessageId: input.sourceDofeAgentMessageId,
         direction: "inbound",
       });
     } catch {
@@ -535,7 +535,7 @@ function parseFeishuRuntimeDataOperationRequestsManifest(
   if (
     manifest?.kind !== FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND ||
     manifest.schemaVersion !== FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_SCHEMA_VERSION ||
-    manifest.generatedBy !== "agent-space-cli" ||
+    manifest.generatedBy !== "dofe-agent-cli" ||
     !Array.isArray(manifest.requests)
   ) {
     throw new Error("Invalid Feishu runtime data-operation request manifest.");
@@ -543,7 +543,7 @@ function parseFeishuRuntimeDataOperationRequestsManifest(
   return {
     kind: FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND,
     schemaVersion: FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_SCHEMA_VERSION,
-    generatedBy: "agent-space-cli",
+    generatedBy: "dofe-agent-cli",
     requests: manifest.requests.map((request) =>
       normalizeFeishuRuntimeDataOperationRequest(readPlainObject(request) ?? {})
     ),

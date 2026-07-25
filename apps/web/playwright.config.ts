@@ -29,11 +29,11 @@ export default defineConfig({
 });
 
 function prepareE2eDatabaseEnv(): Record<string, string> {
-  const databaseUrl = process.env.AGENT_SPACE_TEST_DATABASE_URL?.trim() || process.env.AGENT_SPACE_PG_TEST_URL?.trim();
-  if (!databaseUrl) throw new Error("E2E requires AGENT_SPACE_TEST_DATABASE_URL or AGENT_SPACE_PG_TEST_URL.");
+  const databaseUrl = process.env.DOFE_AGENT_TEST_DATABASE_URL?.trim() || process.env.DOFE_AGENT_PG_TEST_URL?.trim();
+  if (!databaseUrl) throw new Error("E2E requires DOFE_AGENT_TEST_DATABASE_URL or DOFE_AGENT_PG_TEST_URL.");
   return {
-    AGENT_SPACE_TEST_DATABASE_URL: databaseUrl,
-    AGENT_SPACE_PG_URL: databaseUrl,
+    DOFE_AGENT_TEST_DATABASE_URL: databaseUrl,
+    DOFE_AGENT_PG_URL: databaseUrl,
     DATABASE_URL: databaseUrl,
   };
 }

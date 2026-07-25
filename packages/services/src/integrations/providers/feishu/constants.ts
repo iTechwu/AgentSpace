@@ -87,13 +87,13 @@ export const FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS = {
   guestPolicy: "external_guest_reply_on_mention_allow_with_dispatch + external_guest_reply_all_without_mention + external_guest_require_identity_without_dispatch + sent_identity_binding_notice + external_guest_ignore_without_dispatch_or_reply + external_guest_mention_required_without_dispatch_or_reply",
   workerRestart: "two_correlated_websocket_replies",
   workerCardAction: "processed_approval_card_action_with_governance_context",
-  dataPlane: "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_agentspace_sync + bound_governed_base_read + bound_approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
+  dataPlane: "bound_governed_doc_read + agent_runtime_doc_read_from_lark_cli_manifest + bound_approved_doc_write + bound_governed_sheet_read + bound_approved_sheet_write_with_dofe-agent_sync + bound_governed_base_read + bound_approved_base_mutation_with_dofe-agent_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
   failureVisibility: "provider_failure_row + degraded_or_error_health + agent_bot_failure_with_safe_context",
 } as const;
 
 export const FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS = [
   "Client im.message.create",
-  "AgentSpace callback URL verification",
+  "DofeAgent callback URL verification",
   "Tenant access token",
   "Docs docx metadata",
   "Docs docx read blocks",

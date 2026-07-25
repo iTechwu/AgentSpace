@@ -1,7 +1,7 @@
 import { createSsoInternalClient } from "@dofe/sso-node";
-import type { WorkspaceRole } from "@agent-space/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
 import { readServerEnvValue } from "./server-env";
-import { buildSsoWorkspaceScopes } from "./sso-workspaces";
+import { buildSsoWorkspaceScopesForUser } from "./sso-workspaces";
 
 export interface SsoWorkspaceDirectory {
   role: WorkspaceRole;
@@ -17,18 +17,21 @@ export async function loadSsoWorkspaceDirectory(input: {
     internalSecret: readRequiredSsoEnv("INTERNAL_API_SECRET"),
     serviceName: readRequiredSsoEnv("SSO_SERVICE_NAME"),
   });
-  const [teams, tenants, preference] = await Promise.all([
+  const [user, teams, tenants, preference] = await Promise.all([
+    client.users.get(input.subject),
     client.users.getTeams(input.subject),
     client.users.getTenants(input.subject),
     client.users.getTenantPreference(input.subject),
   ]).catch(() => {
     throw new Error("auth.sso_user_lookup_failed");
   });
-  const scope = buildSsoWorkspaceScopes({
+  const scope = (await buildSsoWorkspaceScopesForUser({
+    client,
+    isAdmin: user.isAdmin,
     teams,
     tenants,
     preferredTenantId: preference.lastTenantId,
-  }).find((candidate) => candidate.id === input.workspaceId);
+  })).find((candidate) => candidate.id === input.workspaceId);
   if (!scope) {
     throw new Error("auth.sso_no_workspace");
   }

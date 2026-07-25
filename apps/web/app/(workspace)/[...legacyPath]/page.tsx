@@ -60,5 +60,5 @@ export default async function LegacyWorkspaceRedirectPage({
     notFound();
   }
 
-  await redirectToCurrentWorkspacePath(`/${firstSegment}`, searchParams);
+  await redirectToCurrentWorkspacePath(firstSegment === "task-board" ? "/task/board" : `/${firstSegment}`, searchParams);
 }

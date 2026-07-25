@@ -25,10 +25,10 @@ import {
 } from "../approval.ts";
 import {
   applyFeishuResourceBindingParameters,
-  type FeishuAgentSpaceResourceAccessDependencies,
+  type FeishuDofeAgentResourceAccessDependencies,
   validateApprovedFeishuDataOperationBinding,
   validateApprovedFeishuDataOperationRun,
-  validateFeishuAgentSpaceResourceAccessForDataOperation,
+  validateFeishuDofeAgentResourceAccessForDataOperation,
   validateFeishuDataOperationScopes,
   validateFeishuResourceBindingScopes,
   validateFeishuResourceBindingForDataOperation,
@@ -37,7 +37,7 @@ import type { ExternalDataOperationRequest } from "../../../core/index.ts";
 import type {
   ExternalDataOperationRunRecord,
   ExternalResourceBindingRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 
 test("plans Feishu Docs read operation as an allowed blocks request", () => {
   const request = buildRequest({
@@ -1168,7 +1168,7 @@ test("Feishu approval metadata keeps execution payload server-side and sanitizes
   assert.equal(sanitized?.payloadHash, buildFeishuDataOperationPayloadHash(request));
 });
 
-test("Feishu approval metadata can retain AgentSpace reply context for review receipts", () => {
+test("Feishu approval metadata can retain DofeAgent reply context for review receipts", () => {
   const request: ExternalDataOperationRequest = {
     operationType: "sheets.update_range",
     providerResourceType: "sheet",
@@ -1204,14 +1204,14 @@ test("Feishu approval metadata can retain AgentSpace reply context for review re
       run,
       request,
     }),
-    sourceAgentSpaceMessageId: "message-source-1",
+    sourceDofeAgentMessageId: "message-source-1",
     taskId: "task-receipt-1",
   };
 
-  assert.equal(metadata.sourceAgentSpaceMessageId, "message-source-1");
+  assert.equal(metadata.sourceDofeAgentMessageId, "message-source-1");
   assert.equal(metadata.taskId, "task-receipt-1");
   const sanitized = sanitizeFeishuDataOperationApprovalMetadata(metadata);
-  assert.equal(sanitized?.sourceAgentSpaceMessageId, "message-source-1");
+  assert.equal(sanitized?.sourceDofeAgentMessageId, "message-source-1");
   assert.equal(sanitized?.taskId, "task-receipt-1");
   assert.equal(JSON.stringify(sanitized).includes("shtcnReceipt123"), false);
   assert.equal(sanitized?.operationRequest, undefined);
@@ -1290,7 +1290,7 @@ test("Feishu read operations require an active matching resource binding", () =>
       action: "create_resource_binding",
       providerResourceType: "doc",
       providerResourceToken: "docToken",
-      recommendedAgentSpaceResourceType: "channel_document",
+      recommendedDofeAgentResourceType: "channel_document",
       operationType: "docs.read_document",
     });
   }
@@ -1610,7 +1610,7 @@ test("Feishu write operation binding requires an explicit write grant", () => {
   });
 });
 
-test("Feishu bound reads enforce AgentSpace document and data table access", () => {
+test("Feishu bound reads enforce DofeAgent document and data table access", () => {
   const context = {
     workspaceId: "workspace-1",
     integrationId: "integration-1",
@@ -1626,10 +1626,10 @@ test("Feishu bound reads enforce AgentSpace document and data table access", () 
   const documentBinding = buildResourceBinding({
     providerResourceType: "doc",
     providerResourceToken: "docToken",
-    agentSpaceResourceType: "channel_document",
-    agentSpaceResourceId: "doc-1",
+    dofeAgentResourceType: "channel_document",
+    dofeAgentResourceId: "doc-1",
   });
-  const documentDenied = validateFeishuAgentSpaceResourceAccessForDataOperation({
+  const documentDenied = validateFeishuDofeAgentResourceAccessForDataOperation({
     context,
     request: documentRequest,
     binding: documentBinding,
@@ -1642,7 +1642,7 @@ test("Feishu bound reads enforce AgentSpace document and data table access", () 
     assert.equal(documentDenied.errorCode, "feishu.data_operation_channel_document_access_denied");
   }
 
-  const documentAllowed = validateFeishuAgentSpaceResourceAccessForDataOperation({
+  const documentAllowed = validateFeishuDofeAgentResourceAccessForDataOperation({
     context,
     request: documentRequest,
     binding: documentBinding,
@@ -1663,10 +1663,10 @@ test("Feishu bound reads enforce AgentSpace document and data table access", () 
   const tableBinding = buildResourceBinding({
     providerResourceType: "sheet",
     providerResourceToken: "sheetToken",
-    agentSpaceResourceType: "data_table",
-    agentSpaceResourceId: "table-1",
+    dofeAgentResourceType: "data_table",
+    dofeAgentResourceId: "table-1",
   });
-  const tableNotFound = validateFeishuAgentSpaceResourceAccessForDataOperation({
+  const tableNotFound = validateFeishuDofeAgentResourceAccessForDataOperation({
     context,
     request: tableRequest,
     binding: tableBinding,
@@ -1680,7 +1680,7 @@ test("Feishu bound reads enforce AgentSpace document and data table access", () 
     assert.equal(tableNotFound.errorCode, "feishu.data_operation_data_table_not_found");
   }
 
-  const tableMismatch = validateFeishuAgentSpaceResourceAccessForDataOperation({
+  const tableMismatch = validateFeishuDofeAgentResourceAccessForDataOperation({
     context,
     request: tableRequest,
     binding: tableBinding,
@@ -1699,7 +1699,7 @@ test("Feishu bound reads enforce AgentSpace document and data table access", () 
     assert.equal(tableMismatch.errorCode, "feishu.data_operation_data_table_binding_mismatch");
   }
 
-  const tableChannelDenied = validateFeishuAgentSpaceResourceAccessForDataOperation({
+  const tableChannelDenied = validateFeishuDofeAgentResourceAccessForDataOperation({
     context,
     request: tableRequest,
     binding: tableBinding,
@@ -1720,7 +1720,7 @@ test("Feishu bound reads enforce AgentSpace document and data table access", () 
     assert.equal(tableChannelDenied.errorCode, "feishu.data_operation_data_table_channel_access_denied");
   }
 
-  const tableAllowed = validateFeishuAgentSpaceResourceAccessForDataOperation({
+  const tableAllowed = validateFeishuDofeAgentResourceAccessForDataOperation({
     context,
     request: tableRequest,
     binding: tableBinding,
@@ -2097,7 +2097,7 @@ test("validates Feishu external guest reads against guest-readable current-chann
     sourceChannelName: "travel",
   };
 
-  assert.deepEqual(validateFeishuAgentSpaceResourceAccessForDataOperation({
+  assert.deepEqual(validateFeishuDofeAgentResourceAccessForDataOperation({
     context: {
       workspaceId: "workspace-1",
       integrationId: "integration-1",
@@ -2112,7 +2112,7 @@ test("validates Feishu external guest reads against guest-readable current-chann
     actor,
   }), { ok: true });
 
-  const privateResource = validateFeishuAgentSpaceResourceAccessForDataOperation({
+  const privateResource = validateFeishuDofeAgentResourceAccessForDataOperation({
     context: {
       workspaceId: "workspace-1",
       integrationId: "integration-1",
@@ -2129,7 +2129,7 @@ test("validates Feishu external guest reads against guest-readable current-chann
   assert.equal(privateResource.ok, false);
   assert.equal(privateResource.ok ? undefined : privateResource.errorCode, "feishu.data_operation_external_guest_resource_denied");
 
-  const otherChannel = validateFeishuAgentSpaceResourceAccessForDataOperation({
+  const otherChannel = validateFeishuDofeAgentResourceAccessForDataOperation({
     context: {
       workspaceId: "workspace-1",
       integrationId: "integration-1",
@@ -2175,8 +2175,8 @@ function buildResourceBinding(
     providerResourceType: input.providerResourceType,
     providerResourceToken: input.providerResourceToken,
     providerResourceUrl: input.providerResourceUrl,
-    agentSpaceResourceType: input.agentSpaceResourceType ?? "channel_document",
-    agentSpaceResourceId: input.agentSpaceResourceId ?? "document-1",
+    dofeAgentResourceType: input.dofeAgentResourceType ?? "channel_document",
+    dofeAgentResourceId: input.dofeAgentResourceId ?? "document-1",
     channelName: input.channelName ?? "travel",
     displayName: input.displayName,
     status: input.status ?? "active",
@@ -2214,9 +2214,9 @@ function buildRun(input: {
 
 function buildAccessDependencies(input: {
   canViewChannelDocument?: boolean;
-  readDataTable?: ReturnType<FeishuAgentSpaceResourceAccessDependencies["readDataTable"]>;
+  readDataTable?: ReturnType<FeishuDofeAgentResourceAccessDependencies["readDataTable"]>;
   canReadChannel?: boolean;
-} = {}): FeishuAgentSpaceResourceAccessDependencies {
+} = {}): FeishuDofeAgentResourceAccessDependencies {
   return {
     canViewChannelDocument() {
       return input.canViewChannelDocument ?? true;

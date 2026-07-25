@@ -33,7 +33,7 @@ import {
 } from "./index.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-router-sessions-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-router-sessions-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

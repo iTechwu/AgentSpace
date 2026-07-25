@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { StoredWorkspaceRecord } from "@agent-space/db";
+import type { StoredWorkspaceRecord } from "@dofe-agent/db";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { GeneratedAvatar } from "@/shared/ui/generated-avatar";
 

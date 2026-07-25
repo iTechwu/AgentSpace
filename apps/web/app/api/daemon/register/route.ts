@@ -2,9 +2,9 @@ import {
   grantRuntimeUseToUserSync,
   readWorkspaceMembershipSync,
   registerDaemonRuntimesSync,
-} from "@agent-space/db";
-import { isDaemonProvider, type RegisterDaemonRequest, type RegisterDaemonResponse } from "@agent-space/domain";
-import { tryRecordWorkspaceAuditEventSync } from "@agent-space/services";
+} from "@dofe-agent/db";
+import { isDaemonProvider, type RegisterDaemonRequest, type RegisterDaemonResponse } from "@dofe-agent/domain";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { requireDaemonAuth } from "../_lib/auth";
 
 export const runtime = "nodejs";

@@ -1,18 +1,18 @@
 import type {
-  AgentSpaceState,
+  DofeAgentState,
   ChannelDocument,
   ChannelDocumentVersion,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import type {
   ChannelDocumentAccess,
   ChannelDocumentBlock,
   ChannelDocumentChangeSet,
   ChannelDocumentConflict,
   ChannelDocumentPresence,
-} from "@agent-space/domain";
+} from "@dofe-agent/domain";
 
 export function rebuildChannelDocumentBlocksForVersion(input: {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   document: ChannelDocument;
   version: ChannelDocumentVersion;
   actorName: string;
@@ -45,7 +45,7 @@ export function rebuildChannelDocumentBlocksForVersion(input: {
   input.state.channelDocumentBlocks.push(...blocks);
 }
 
-export function listChannelDocumentBlocks(state: AgentSpaceState, documentId: string): ChannelDocumentBlock[] {
+export function listChannelDocumentBlocks(state: DofeAgentState, documentId: string): ChannelDocumentBlock[] {
   return state.channelDocumentBlocks
     .filter((block) => block.documentId === documentId)
     .sort((left, right) => left.order - right.order);
@@ -101,9 +101,9 @@ export function createChannelDocumentConflict(input: {
 }
 
 export function normalizeChannelDocumentBlocks(
-  blocks: AgentSpaceState["channelDocumentBlocks"] | undefined,
-  fallback: AgentSpaceState["channelDocumentBlocks"],
-): AgentSpaceState["channelDocumentBlocks"] {
+  blocks: DofeAgentState["channelDocumentBlocks"] | undefined,
+  fallback: DofeAgentState["channelDocumentBlocks"],
+): DofeAgentState["channelDocumentBlocks"] {
   if (!Array.isArray(blocks)) {
     return fallback;
   }
@@ -120,9 +120,9 @@ export function normalizeChannelDocumentBlocks(
 }
 
 export function normalizeChannelDocumentAccesses(
-  accesses: AgentSpaceState["channelDocumentAccesses"] | undefined,
-  fallback: AgentSpaceState["channelDocumentAccesses"],
-): AgentSpaceState["channelDocumentAccesses"] {
+  accesses: DofeAgentState["channelDocumentAccesses"] | undefined,
+  fallback: DofeAgentState["channelDocumentAccesses"],
+): DofeAgentState["channelDocumentAccesses"] {
   if (!Array.isArray(accesses)) {
     return fallback;
   }
@@ -134,9 +134,9 @@ export function normalizeChannelDocumentAccesses(
 }
 
 export function normalizeChannelDocumentChangeSets(
-  changeSets: AgentSpaceState["channelDocumentChangeSets"] | undefined,
-  fallback: AgentSpaceState["channelDocumentChangeSets"],
-): AgentSpaceState["channelDocumentChangeSets"] {
+  changeSets: DofeAgentState["channelDocumentChangeSets"] | undefined,
+  fallback: DofeAgentState["channelDocumentChangeSets"],
+): DofeAgentState["channelDocumentChangeSets"] {
   if (!Array.isArray(changeSets)) {
     return fallback;
   }
@@ -148,9 +148,9 @@ export function normalizeChannelDocumentChangeSets(
 }
 
 export function normalizeChannelDocumentConflicts(
-  conflicts: AgentSpaceState["channelDocumentConflicts"] | undefined,
-  fallback: AgentSpaceState["channelDocumentConflicts"],
-): AgentSpaceState["channelDocumentConflicts"] {
+  conflicts: DofeAgentState["channelDocumentConflicts"] | undefined,
+  fallback: DofeAgentState["channelDocumentConflicts"],
+): DofeAgentState["channelDocumentConflicts"] {
   if (!Array.isArray(conflicts)) {
     return fallback;
   }
@@ -162,9 +162,9 @@ export function normalizeChannelDocumentConflicts(
 }
 
 export function normalizeChannelDocumentPresences(
-  presences: AgentSpaceState["channelDocumentPresences"] | undefined,
-  fallback: AgentSpaceState["channelDocumentPresences"],
-): AgentSpaceState["channelDocumentPresences"] {
+  presences: DofeAgentState["channelDocumentPresences"] | undefined,
+  fallback: DofeAgentState["channelDocumentPresences"],
+): DofeAgentState["channelDocumentPresences"] {
   if (!Array.isArray(presences)) {
     return fallback;
   }

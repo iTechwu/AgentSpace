@@ -1,11 +1,11 @@
-import type { ExternalResourceBindingProviderType, ExternalResourceBindingRecord } from "@agent-space/db";
-import type { RuntimeToolCapability } from "@agent-space/domain";
+import type { ExternalResourceBindingProviderType, ExternalResourceBindingRecord } from "@dofe-agent/db";
+import type { RuntimeToolCapability } from "@dofe-agent/domain";
 import type { ExternalDataOperationRequest, ExternalDataOperationResult } from "../../core/index.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
 export declare const DEFAULT_FEISHU_LARK_CLI_COMMAND = "lark-cli";
-export declare const FEISHU_LARK_CLI_EXECUTOR_ENV_NAMES: readonly ["AGENT_SPACE_FEISHU_LARK_CLI_EXECUTOR", "AGENT_SPACE_LARK_CLI_EXECUTOR"];
-export declare const FEISHU_LARK_CLI_OPERATION_MANIFEST_KIND = "agent-space.feishu.lark-cli.operation";
-export declare const FEISHU_LARK_CLI_RESULT_MANIFEST_KIND = "agent-space.feishu.lark-cli.result";
+export declare const FEISHU_LARK_CLI_EXECUTOR_ENV_NAMES: readonly ["DOFE_AGENT_FEISHU_LARK_CLI_EXECUTOR", "DOFE_AGENT_LARK_CLI_EXECUTOR"];
+export declare const FEISHU_LARK_CLI_OPERATION_MANIFEST_KIND = "dofe-agent.feishu.lark-cli.operation";
+export declare const FEISHU_LARK_CLI_RESULT_MANIFEST_KIND = "dofe-agent.feishu.lark-cli.result";
 export declare const FEISHU_LARK_CLI_MANIFEST_SCHEMA_VERSION = 1;
 export declare const FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH = "runtime-output/feishu-data-operation-result.json";
 export type FeishuLarkCliOperationKind = "read" | "write";

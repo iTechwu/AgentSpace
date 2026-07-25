@@ -18,7 +18,7 @@ const {
   mockRequireCurrentWorkspaceContext: vi.fn(),
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   createAutomationRuleSync: mockCreateAutomationRuleSync,
   createDataTableSync: mockCreateDataTableSync,
   createKnowledgePageSync: mockCreateKnowledgePageSync,

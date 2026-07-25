@@ -1,10 +1,10 @@
 import type {
-  AgentSpaceState,
+  DofeAgentState,
   AutomationRule,
   AutomationTrigger,
   AutomationCondition,
   AutomationAction,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { createOpaqueId } from "../shared/helpers.ts";
 
@@ -25,7 +25,7 @@ export function createAutomationRuleSync(input: {
   conditions?: AutomationCondition[];
   actions: AutomationAction[];
   createdBy?: string;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const name = input.name.trim();
   if (!name) {
@@ -72,7 +72,7 @@ export function updateAutomationRuleSync(
     actions?: AutomationAction[];
   },
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const rule = (state.automationRules ?? []).find((r) => r.id === id);
   if (!rule) {
@@ -116,7 +116,7 @@ export function updateAutomationRuleSync(
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function toggleAutomationRuleSync(id: string, enabled: boolean, workspaceId?: string): AgentSpaceState {
+export function toggleAutomationRuleSync(id: string, enabled: boolean, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const rule = (state.automationRules ?? []).find((r) => r.id === id);
   if (!rule) {
@@ -129,7 +129,7 @@ export function toggleAutomationRuleSync(id: string, enabled: boolean, workspace
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function deleteAutomationRuleSync(id: string, workspaceId?: string): AgentSpaceState {
+export function deleteAutomationRuleSync(id: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const rule = (state.automationRules ?? []).find((r) => r.id === id);
   if (!rule) {

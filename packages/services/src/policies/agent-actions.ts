@@ -72,7 +72,7 @@ export function decideAgentActionPolicySync(input: AgentActionPolicyInput): Agen
     return {
       decision: "require_approval",
       reasonCode: "agent_action.external_document_write_requires_approval",
-      reason: "External document write actions require AgentSpace approval before execution.",
+      reason: "External document write actions require DofeAgent approval before execution.",
       approvalType: "external_data_operation",
       requiredReviewerRole: "channel_manager",
       auditData: buildAgentActionPolicyAuditData(input),
@@ -91,7 +91,7 @@ export function decideAgentActionPolicySync(input: AgentActionPolicyInput): Agen
     return {
       decision: "require_approval",
       reasonCode: "agent_action.external_message_send_requires_approval",
-      reason: "Sending messages to an external system requires AgentSpace policy approval.",
+      reason: "Sending messages to an external system requires DofeAgent policy approval.",
       approvalType: "external_message_send",
       requiredReviewerRole: "channel_manager",
       auditData: buildAgentActionPolicyAuditData(input),
@@ -102,7 +102,7 @@ export function decideAgentActionPolicySync(input: AgentActionPolicyInput): Agen
     return {
       decision: "allow",
       reasonCode: "agent_action.external_document_read_allowed",
-      reason: "External document reads are allowed after provider scope, binding, and AgentSpace resource checks pass.",
+      reason: "External document reads are allowed after provider scope, binding, and DofeAgent resource checks pass.",
       auditData: buildAgentActionPolicyAuditData(input),
     };
   }
@@ -111,7 +111,7 @@ export function decideAgentActionPolicySync(input: AgentActionPolicyInput): Agen
     return {
       decision: "require_approval",
       reasonCode: "agent_action.high_risk_action_requires_approval",
-      reason: "High-risk Agent actions require AgentSpace approval before execution.",
+      reason: "High-risk Agent actions require DofeAgent approval before execution.",
       approvalType: "agent_action",
       requiredReviewerRole: "admin",
       auditData: buildAgentActionPolicyAuditData(input),
@@ -121,7 +121,7 @@ export function decideAgentActionPolicySync(input: AgentActionPolicyInput): Agen
   return {
     decision: "allow",
     reasonCode: "agent_action.allowed_by_default_policy",
-    reason: "Agent action is allowed by the default AgentSpace action policy.",
+    reason: "Agent action is allowed by the default DofeAgent action policy.",
     auditData: buildAgentActionPolicyAuditData(input),
   };
 }

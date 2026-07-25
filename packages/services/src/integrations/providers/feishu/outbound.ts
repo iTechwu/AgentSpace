@@ -7,19 +7,19 @@ import {
   listPendingExternalMessageOutboxSync,
   markExternalMessageOutboxLockedSync,
   readExternalIntegrationSync,
-  readExternalMessageMappingByAgentSpaceMessageSync,
+  readExternalMessageMappingByDofeAgentMessageSync,
   readExternalChannelBindingSync,
   type ExternalIntegrationRecord,
   type ExternalMessageMappingRecord,
   type ExternalMessageOutboxRecord,
-} from "@agent-space/db";
-import type { MessageAttachment } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import { readFileSync } from "node:fs";
 import {
   IntegrationProviderError,
   createIntegrationProviderError,
   enqueueExternalOutboundMessageSync,
-  type AgentSpaceOutboundMessage,
+  type DofeAgentOutboundMessage,
   type ExternalOutboundMessagePayload,
   type IntegrationRuntimeContext,
 } from "../../core/index.ts";
@@ -37,13 +37,13 @@ import {
 } from "./client.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
 import { readFeishuIntegrationCredentials } from "./credentials.ts";
-import { buildAgentSpaceChannelDeepLink } from "./links.ts";
+import { buildDofeAgentChannelDeepLink } from "./links.ts";
 import { createAttachmentStorageClient } from "../../../attachments/storage.ts";
 
 export const FEISHU_TEXT_MESSAGE_MAX_BYTES = 120 * 1024;
 export const FEISHU_OUTBOX_MAX_ATTEMPTS = 10;
 export const FEISHU_OUTBOUND_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
-const FEISHU_OUTBOUND_ATTACHMENT_PAYLOAD_KIND = "agent_space_feishu_attachment_v1";
+const FEISHU_OUTBOUND_ATTACHMENT_PAYLOAD_KIND = "dofe_agent_feishu_attachment_v1";
 const FEISHU_CARD_TEXT_MAX_CHARS = 900;
 
 export interface FeishuOutboxProcessResult {
@@ -109,7 +109,7 @@ export interface FeishuOutboundAttachmentRef {
 }
 
 export interface FeishuOutboundAttachmentPayload extends Record<string, unknown> {
-  agent_space_payload_kind: typeof FEISHU_OUTBOUND_ATTACHMENT_PAYLOAD_KIND;
+  dofe_agent_payload_kind: typeof FEISHU_OUTBOUND_ATTACHMENT_PAYLOAD_KIND;
   receive_id_type: "chat_id";
   receive_id: string;
   reply_to_message_id?: string;
@@ -212,7 +212,7 @@ export function buildFeishuAgentStatusCard(input: {
       tag: "button",
       text: {
         tag: "plain_text",
-        content: "Open AgentSpace",
+        content: "Open DofeAgent",
       },
       type: "primary",
       url: input.actionUrl,
@@ -232,7 +232,7 @@ export function buildFeishuAgentStatusCard(input: {
       template: statusView.template,
       title: {
         tag: "plain_text",
-        content: `${agentLabel} · AgentSpace`,
+        content: `${agentLabel} · DofeAgent`,
       },
     },
     elements,
@@ -247,9 +247,9 @@ export function buildFeishuIdentityBindingRequiredCard(input: {
   const elements: Record<string, unknown>[] = [{
     tag: "markdown",
     content: [
-      "**AgentSpace identity required**",
+      "**DofeAgent identity required**",
       `Agent: ${escapeFeishuCardMarkdown(agentLabel)}`,
-      "请先绑定 AgentSpace 身份后继续。未绑定飞书用户只能在允许的低权限 guest 策略下试用，不能执行需要真实身份的操作。",
+      "请先绑定 DofeAgent 身份后继续。未绑定飞书用户只能在允许的低权限 guest 策略下试用，不能执行需要真实身份的操作。",
     ].join("\n"),
   }];
   if (input.settingsUrl) {
@@ -259,7 +259,7 @@ export function buildFeishuIdentityBindingRequiredCard(input: {
         tag: "button",
         text: {
           tag: "plain_text",
-          content: "Open AgentSpace",
+          content: "Open DofeAgent",
         },
         type: "primary",
         url: input.settingsUrl,
@@ -274,7 +274,7 @@ export function buildFeishuIdentityBindingRequiredCard(input: {
       template: "yellow",
       title: {
         tag: "plain_text",
-        content: `${agentLabel} · AgentSpace`,
+        content: `${agentLabel} · DofeAgent`,
       },
     },
     elements,
@@ -292,10 +292,10 @@ export function buildFeishuAgentThreadCollaborationCard(input: {
   const elements: Record<string, unknown>[] = [{
     tag: "markdown",
     content: [
-      "**AgentSpace agent joined this thread**",
+      "**DofeAgent agent joined this thread**",
       `Current: ${escapeFeishuCardMarkdown(currentAgent)}`,
       `Existing context: ${escapeFeishuCardMarkdown(previousLabel)}`,
-      "AgentSpace keeps each agent task binding separate, so this thread can continue as a governed multi-agent collaboration.",
+      "DofeAgent keeps each agent task binding separate, so this thread can continue as a governed multi-agent collaboration.",
     ].join("\n"),
   }];
   if (input.actionUrl) {
@@ -305,7 +305,7 @@ export function buildFeishuAgentThreadCollaborationCard(input: {
         tag: "button",
         text: {
           tag: "plain_text",
-          content: "Open AgentSpace",
+          content: "Open DofeAgent",
         },
         type: "primary",
         url: input.actionUrl,
@@ -320,7 +320,7 @@ export function buildFeishuAgentThreadCollaborationCard(input: {
       template: "blue",
       title: {
         tag: "plain_text",
-        content: `${currentAgent} · AgentSpace`,
+        content: `${currentAgent} · DofeAgent`,
       },
     },
     elements,
@@ -351,7 +351,7 @@ export function buildFeishuAgentStatusCardOutboundMessage(input: {
       approvalAction: input.approvalAction,
       actionUrl: input.actionUrl === null
         ? undefined
-        : input.actionUrl ?? buildAgentSpaceChannelDeepLink({
+        : input.actionUrl ?? buildDofeAgentChannelDeepLink({
           workspaceId: input.workspaceId,
           channelName: input.channelName,
         }),
@@ -400,7 +400,7 @@ export function buildFeishuAttachmentOutboundMessage(input: {
     targetExternalChatId: input.targetExternalChatId,
     targetExternalThreadId: input.targetExternalThreadId,
     payload: {
-      agent_space_payload_kind: FEISHU_OUTBOUND_ATTACHMENT_PAYLOAD_KIND,
+      dofe_agent_payload_kind: FEISHU_OUTBOUND_ATTACHMENT_PAYLOAD_KIND,
       receive_id_type: "chat_id",
       receive_id: input.targetExternalChatId,
       ...(input.targetExternalThreadId ? { reply_to_message_id: input.targetExternalThreadId } : {}),
@@ -434,12 +434,12 @@ export function splitFeishuTextMessageChunks(
 
 function buildFeishuTextAgentPrefix(agentId: string | undefined): string {
   const agentLabel = agentId?.trim();
-  return agentLabel ? `${agentLabel} · AgentSpace\n` : "";
+  return agentLabel ? `${agentLabel} · DofeAgent\n` : "";
 }
 
 export function queueFeishuOutboundMessageSync(input: {
   context: IntegrationRuntimeContext;
-  message: AgentSpaceOutboundMessage;
+  message: DofeAgentOutboundMessage;
 }): ExternalMessageOutboxRecord {
   const channelBinding = readExternalChannelBindingSync({
     workspaceId: input.context.workspaceId,
@@ -466,7 +466,7 @@ export function queueFeishuOutboundMessageSync(input: {
   }).map((outbound) => enqueueExternalOutboundMessageSync({
     context: input.context,
     channelBindingId: channelBinding.id,
-    agentSpaceMessageId: input.message.agentSpaceMessageId,
+    dofeAgentMessageId: input.message.dofeAgentMessageId,
     outbound,
     metadataJson: buildFeishuQueuedOutboxMetadata({
       source: "direct_outbound_message",
@@ -483,13 +483,13 @@ export function queueFeishuChannelReplyOutboxSync(input: {
   agentId?: string;
   text: string;
   attachments?: MessageAttachment[];
-  agentSpaceMessageId?: string;
-  sourceAgentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
+  sourceDofeAgentMessageId?: string;
 }): ExternalMessageOutboxRecord[] {
   const candidates = listFeishuOutboundIntegrationCandidatesSync({
     workspaceId: input.workspaceId,
     agentId: input.agentId,
-    sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+    sourceDofeAgentMessageId: input.sourceDofeAgentMessageId,
   });
   const outboxItems: ExternalMessageOutboxRecord[] = [];
 
@@ -521,7 +521,7 @@ export function queueFeishuChannelReplyOutboxSync(input: {
           provider: FEISHU_PROVIDER_ID,
         },
         channelBindingId: channelBinding.id,
-        agentSpaceMessageId: input.agentSpaceMessageId,
+        dofeAgentMessageId: input.dofeAgentMessageId,
         outbound,
         metadataJson: buildFeishuQueuedOutboxMetadata({
           source: "agent_reply",
@@ -543,15 +543,15 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
   agentNames: string[];
   message?: string;
   taskId?: string;
-  agentSpaceMessageId?: string;
-  sourceAgentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
+  sourceDofeAgentMessageId?: string;
   approvalAction?: FeishuApprovalCardActionPayload;
   actionUrl?: string | null;
 }): ExternalMessageOutboxRecord[] {
   const candidates = listFeishuOutboundIntegrationCandidatesSync({
     workspaceId: input.workspaceId,
     agentId: input.agentId ?? resolveSingleAgentName(input.agentNames),
-    sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+    sourceDofeAgentMessageId: input.sourceDofeAgentMessageId,
   });
   const outboxItems: ExternalMessageOutboxRecord[] = [];
 
@@ -588,7 +588,7 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
         provider: FEISHU_PROVIDER_ID,
       },
       channelBindingId: channelBinding.id,
-      agentSpaceMessageId: input.agentSpaceMessageId,
+      dofeAgentMessageId: input.dofeAgentMessageId,
       outbound,
       metadataJson: buildFeishuQueuedOutboxMetadata({
         source: "agent_status_card",
@@ -625,13 +625,13 @@ interface FeishuOutboundIntegrationCandidate {
 function listFeishuOutboundIntegrationCandidatesSync(input: {
   workspaceId: string;
   agentId?: string;
-  sourceAgentSpaceMessageId?: string;
+  sourceDofeAgentMessageId?: string;
 }): FeishuOutboundIntegrationCandidate[] {
-  const sourceAgentSpaceMessageId = input.sourceAgentSpaceMessageId?.trim();
-  if (sourceAgentSpaceMessageId) {
+  const sourceDofeAgentMessageId = input.sourceDofeAgentMessageId?.trim();
+  if (sourceDofeAgentMessageId) {
     const sourceMapped = resolveFeishuSourceMappedOutboundIntegrationSync({
       workspaceId: input.workspaceId,
-      sourceAgentSpaceMessageId,
+      sourceDofeAgentMessageId,
     });
     if (sourceMapped) {
       return sourceMapped.integration.status === "active" ? [sourceMapped] : [];
@@ -643,11 +643,11 @@ function listFeishuOutboundIntegrationCandidatesSync(input: {
     agentId: input.agentId,
   }).map((integration) => ({
     integration,
-    sourceMapping: sourceAgentSpaceMessageId
-      ? readExternalMessageMappingByAgentSpaceMessageSync({
+    sourceMapping: sourceDofeAgentMessageId
+      ? readExternalMessageMappingByDofeAgentMessageSync({
         workspaceId: input.workspaceId,
         integrationId: integration.id,
-        agentSpaceMessageId: sourceAgentSpaceMessageId,
+        dofeAgentMessageId: sourceDofeAgentMessageId,
         direction: "inbound",
       })
       : null,
@@ -656,17 +656,17 @@ function listFeishuOutboundIntegrationCandidatesSync(input: {
 
 function resolveFeishuSourceMappedOutboundIntegrationSync(input: {
   workspaceId: string;
-  sourceAgentSpaceMessageId: string;
+  sourceDofeAgentMessageId: string;
 }): FeishuOutboundIntegrationCandidate | null {
   for (const integration of listExternalIntegrationsSync({
     workspaceId: input.workspaceId,
     provider: FEISHU_PROVIDER_ID,
     includeDisabled: true,
   })) {
-    const sourceMapping = readExternalMessageMappingByAgentSpaceMessageSync({
+    const sourceMapping = readExternalMessageMappingByDofeAgentMessageSync({
       workspaceId: input.workspaceId,
       integrationId: integration.id,
-      agentSpaceMessageId: input.sourceAgentSpaceMessageId,
+      dofeAgentMessageId: input.sourceDofeAgentMessageId,
       direction: "inbound",
     });
     if (sourceMapping) {
@@ -760,7 +760,7 @@ export function buildFeishuOutboundMessagePolicyInput(input: {
   outbox: Pick<ExternalMessageOutboxRecord,
     "targetExternalChatId" |
     "targetExternalThreadId" |
-    "agentSpaceMessageId" |
+    "dofeAgentMessageId" |
     "payloadJson"
   >;
 }): AgentActionPolicyInput {
@@ -791,7 +791,7 @@ export function decideFeishuOutboundMessagePolicy(input: {
   outbox: Pick<ExternalMessageOutboxRecord,
     "targetExternalChatId" |
     "targetExternalThreadId" |
-    "agentSpaceMessageId" |
+    "dofeAgentMessageId" |
     "payloadJson"
   >;
 }): FeishuOutboundMessagePolicyResult {
@@ -1025,7 +1025,7 @@ export async function processFeishuOutboxMessage(input: {
       direction: "outbound",
       externalMessageId: sent.externalMessageId,
       externalThreadId: locked.targetExternalThreadId,
-      agentSpaceMessageId: locked.agentSpaceMessageId,
+      dofeAgentMessageId: locked.dofeAgentMessageId,
       metadataJson: buildFeishuOutboundMappingMetadata({
         integration,
         outbox: locked,
@@ -1185,7 +1185,7 @@ export async function uploadFeishuOutboundAttachment(input: {
     throw createIntegrationProviderError({
       provider: FEISHU_PROVIDER_ID,
       code: "feishu.outbound.attachment_unavailable",
-      message: `Feishu outbound attachment "${input.attachment.fileName}" could not be read from AgentSpace storage.`,
+      message: `Feishu outbound attachment "${input.attachment.fileName}" could not be read from DofeAgent storage.`,
       cause: error,
     });
   }
@@ -1425,7 +1425,7 @@ function buildFeishuOutboundPolicySummary(input: {
 }
 
 function isFeishuOutboundAttachmentPayload(payload: Record<string, unknown>): payload is FeishuOutboundAttachmentPayload {
-  if (payload.agent_space_payload_kind !== FEISHU_OUTBOUND_ATTACHMENT_PAYLOAD_KIND) {
+  if (payload.dofe_agent_payload_kind !== FEISHU_OUTBOUND_ATTACHMENT_PAYLOAD_KIND) {
     return false;
   }
   const attachment = asRecord(payload.attachment);

@@ -9,7 +9,7 @@ import {
   replaceStoredWorkspaceSkillsSync,
   readWorkspaceStateRecordSync,
   writeWorkspaceStateRecordSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME,
   BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME,
@@ -29,7 +29,7 @@ import {
 } from "../index.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-skills-storage-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-skills-storage-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -300,7 +300,7 @@ test("agent template skills are preloaded into skill storage and state", () => {
   assert.equal(financeSkill.description.startsWith("Create agents for financial analysis"), true);
   assert.equal(financeSkill.files.some((file) => file.path === "examples/financial_data_collector.py"), true);
   assert.equal(
-    financeSkill.files.find((file) => file.path === "SKILL.md")?.content.includes("preloaded by AgentSpace"),
+    financeSkill.files.find((file) => file.path === "SKILL.md")?.content.includes("preloaded by DofeAgent"),
     false,
   );
 

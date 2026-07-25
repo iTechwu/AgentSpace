@@ -4,7 +4,7 @@ export async function runDevCommand(args: string[]): Promise<number> {
   const [target, ...rest] = args;
 
   if (target !== "web") {
-    console.error("Usage: agent-space dev web [--port <n>] [--hostname <host>]");
+    console.error("Usage: dofe-agent dev web [--port <n>] [--hostname <host>]");
     return 1;
   }
 

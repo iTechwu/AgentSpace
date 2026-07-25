@@ -5,8 +5,8 @@ import {
   readEmployeeRuntimeBindingSync,
   updateStoredTaskSync,
   buildTaskExecutionEventContext,
-} from "@agent-space/db";
-import { type AgentSpaceState, type TaskRecord, type TaskStatus } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import { type DofeAgentState, type TaskRecord, type TaskStatus } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue, createOpaqueId } from "../shared/helpers.ts";
 import { pushWorkspaceMessageToChannel } from "../shared/messaging.ts";
@@ -30,7 +30,7 @@ export function createTaskSync(input: {
   priority: TaskRecord["priority"];
   requestedByUserId?: string;
   requestedByDisplayName?: string;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
 
   if (!state.channels.some((channel) => sameValue(channel.name, input.channel))) {
@@ -113,7 +113,7 @@ export function createTaskSync(input: {
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function updateTaskStatusSync(taskId: string, status: TaskStatus, workspaceId?: string): AgentSpaceState {
+export function updateTaskStatusSync(taskId: string, status: TaskStatus, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const task = state.tasks.find((item) => item.id === taskId);
 
@@ -167,7 +167,7 @@ function recordTaskBlockedByWorkspaceStatus(task: TaskRecord, workspaceId?: stri
   });
 }
 
-export function reorderTaskSync(taskId: string, newSortOrder: number, workspaceId?: string): AgentSpaceState {
+export function reorderTaskSync(taskId: string, newSortOrder: number, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const task = state.tasks.find((item) => item.id === taskId);
 
@@ -180,7 +180,7 @@ export function reorderTaskSync(taskId: string, newSortOrder: number, workspaceI
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function addTaskLabelSync(taskId: string, label: string, workspaceId?: string): AgentSpaceState {
+export function addTaskLabelSync(taskId: string, label: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const task = state.tasks.find((item) => item.id === taskId);
 
@@ -202,7 +202,7 @@ export function addTaskLabelSync(taskId: string, label: string, workspaceId?: st
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function removeTaskLabelSync(taskId: string, label: string, workspaceId?: string): AgentSpaceState {
+export function removeTaskLabelSync(taskId: string, label: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const task = state.tasks.find((item) => item.id === taskId);
 

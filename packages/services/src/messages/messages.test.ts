@@ -3,14 +3,14 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test, { before } from "node:test";
-import type { MessageAttachment } from "@agent-space/domain/workspace";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
   createUserSync,
   createWorkspaceMembershipSync,
   DEFAULT_WORKSPACE_ID,
   listQueuedTasksSync,
   registerDaemonRuntimesSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   AUTO_CONTINUATION_REPLY,
   acknowledgeMessageSync,
@@ -42,7 +42,7 @@ import {
 
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-message-attachments-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-message-attachments-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

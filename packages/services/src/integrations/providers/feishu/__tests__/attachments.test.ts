@@ -12,7 +12,7 @@ import {
   resolveFeishuInboundAttachmentDescriptor,
 } from "../attachments.ts";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-feishu-attachments-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-attachments-"));
 const context: IntegrationRuntimeContext = {
   workspaceId: "default",
   integrationId: "external-integration-feishu",

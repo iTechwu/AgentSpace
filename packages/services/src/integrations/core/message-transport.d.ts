@@ -1,5 +1,5 @@
-import type { ExternalIntegrationProvider } from "@agent-space/db";
-import type { AgentSpaceOutboundMessage, ExternalMessageEnvelope, IntegrationRuntimeContext } from "./types.ts";
+import type { ExternalIntegrationProvider } from "@dofe-agent/db";
+import type { DofeAgentOutboundMessage, ExternalMessageEnvelope, IntegrationRuntimeContext } from "./types.ts";
 export interface IncomingMessageRequest {
     headers: Record<string, string | string[] | undefined>;
     bodyText: string;
@@ -19,5 +19,5 @@ export interface MessageTransportAdapter {
     provider: ExternalIntegrationProvider;
     verifyIncomingRequest(context: IntegrationRuntimeContext, request: IncomingMessageRequest): Promise<IncomingMessageVerificationResult> | IncomingMessageVerificationResult;
     normalizeInboundMessage(context: IntegrationRuntimeContext, request: IncomingMessageRequest): Promise<ExternalMessageEnvelope | null> | ExternalMessageEnvelope | null;
-    buildOutboundMessage(context: IntegrationRuntimeContext, message: AgentSpaceOutboundMessage): Promise<ExternalOutboundMessagePayload> | ExternalOutboundMessagePayload;
+    buildOutboundMessage(context: IntegrationRuntimeContext, message: DofeAgentOutboundMessage): Promise<ExternalOutboundMessagePayload> | ExternalOutboundMessagePayload;
 }

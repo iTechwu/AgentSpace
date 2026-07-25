@@ -84,7 +84,7 @@ test("text verification output reports strict live Feishu evidence freshness", (
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Feishu smoke evidence: valid/);
-  assert.match(result.stdout, /Evidence freshness: fresh \(24h required for final AgentSpace evidence\)\./);
+  assert.match(result.stdout, /Evidence freshness: fresh \(24h required for final DofeAgent evidence\)\./);
 });
 
 test("rejects old Feishu smoke evidence that lacks Doc append coverage", () => {
@@ -268,9 +268,9 @@ test("rejects Feishu smoke evidence with raw Feishu identifiers in details", () 
 
 test("rejects Feishu smoke evidence without callback route proof", () => {
   const evidence = buildEvidenceFixture();
-  const callbackStep = evidence.steps.find((step) => step.name === "AgentSpace callback URL verification");
+  const callbackStep = evidence.steps.find((step) => step.name === "DofeAgent callback URL verification");
   if (!callbackStep) {
-    throw new Error("Missing AgentSpace callback URL verification fixture.");
+    throw new Error("Missing DofeAgent callback URL verification fixture.");
   }
   delete (callbackStep as { callbackRoute?: string }).callbackRoute;
   delete (callbackStep as { callbackRouteFingerprint?: string }).callbackRouteFingerprint;
@@ -288,9 +288,9 @@ test("rejects Feishu smoke evidence without callback route proof", () => {
 
 test("rejects Feishu smoke evidence with a raw callback URL", () => {
   const evidence = buildEvidenceFixture();
-  const callbackStep = evidence.steps.find((step) => step.name === "AgentSpace callback URL verification");
+  const callbackStep = evidence.steps.find((step) => step.name === "DofeAgent callback URL verification");
   if (!callbackStep) {
-    throw new Error("Missing AgentSpace callback URL verification fixture.");
+    throw new Error("Missing DofeAgent callback URL verification fixture.");
   }
   const callbackUrl = "https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1";
   (callbackStep as { callbackUrl?: string }).callbackUrl = callbackUrl;
@@ -304,7 +304,7 @@ test("rejects Feishu smoke evidence with a raw callback URL", () => {
     issues: string[];
   };
   assert.equal(output.valid, false);
-  assert.ok(output.issues.includes("callback_url_in_detail:AgentSpace callback URL verification"));
+  assert.ok(output.issues.includes("callback_url_in_detail:DofeAgent callback URL verification"));
   assert.ok(output.issues.includes("callback_url_in_evidence"));
 });
 
@@ -380,7 +380,7 @@ test("dry-run validates Feishu message, bot-added, and card-action EventDispatch
 });
 
 test("verifies a captured bot-added payload without leaking Feishu identifiers", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-bot-added-evidence-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-bot-added-evidence-"));
   const payloadPath = join(directory, "callback.json");
   const evidencePath = join(directory, "bot-added-evidence.json");
   writeFileSync(payloadPath, `${JSON.stringify({
@@ -483,7 +483,7 @@ test("verifies a captured bot-added payload without leaking Feishu identifiers",
 });
 
 test("text verification output reports bot-added payload artifact freshness start", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-bot-added-text-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-bot-added-text-"));
   const payloadPath = join(directory, "callback.json");
   writeFileSync(payloadPath, `${JSON.stringify({
     schema: "2.0",
@@ -522,7 +522,7 @@ test("text verification output reports bot-added payload artifact freshness star
 });
 
 test("rejects stale bot-added payload event create_time even when verified now", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-bot-added-stale-event-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-bot-added-stale-event-"));
   const payloadPath = join(directory, "callback.json");
   const evidencePath = join(directory, "bot-added-evidence.json");
   writeFileSync(evidencePath, "{\"existing\":true}\n", "utf8");
@@ -574,7 +574,7 @@ test("rejects stale bot-added payload event create_time even when verified now",
 });
 
 test("rejects bot-added payloads without event create_time", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-bot-added-missing-event-time-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-bot-added-missing-event-time-"));
   const payloadPath = join(directory, "callback.json");
   const evidencePath = join(directory, "bot-added-evidence.json");
   writeFileSync(evidencePath, "{\"existing\":true}\n", "utf8");
@@ -625,7 +625,7 @@ test("rejects bot-added payloads without event create_time", () => {
 });
 
 test("rejects captured payloads that are not bot-added events", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-bot-added-invalid-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-bot-added-invalid-"));
   const payloadPath = join(directory, "callback.json");
   const evidencePath = join(directory, "bot-added-evidence.json");
   writeFileSync(evidencePath, "{\"existing\":true}\n", "utf8");
@@ -698,7 +698,7 @@ test("strict-live without live mode cannot be mistaken for completed evidence", 
 });
 
 test("evidence output requires live mode and does not write dry-run artifacts", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-dry-evidence-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-dry-evidence-"));
   const evidencePath = join(directory, "live.json");
 
   try {
@@ -731,7 +731,7 @@ test("evidence output requires live mode and does not write dry-run artifacts", 
 });
 
 test("evidence output requires strict live mode and does not write partial live artifacts", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-partial-evidence-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-partial-evidence-"));
   const evidencePath = join(directory, "live.json");
 
   try {
@@ -786,7 +786,7 @@ test("evidence output does not overwrite artifacts when strict live checks fail"
     assert.ok(address && typeof address === "object");
     const baseUrl = `http://127.0.0.1:${address.port}`;
     const callbackUrl = `${baseUrl}/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1`;
-    directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-failed-evidence-"));
+    directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-failed-evidence-"));
     const envPath = join(directory, ".env");
     const evidencePath = join(directory, "live.json");
     writeFileSync(envPath, [
@@ -797,14 +797,14 @@ test("evidence output does not overwrite artifacts when strict live checks fail"
       "FEISHU_SMOKE_CHAT_ID=oc_failed_secret",
       "FEISHU_SMOKE_DOC_TOKEN=doccn_failed_secret",
       "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_failed_secret",
-      "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+      "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
       "FEISHU_SMOKE_SHEET_TOKEN=shtcn_failed_secret",
       "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-      "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+      "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
       "FEISHU_SMOKE_BASE_APP_TOKEN=app_failed_secret",
       "FEISHU_SMOKE_BASE_TABLE_ID=tbl_failed_secret",
       "FEISHU_SMOKE_BASE_RECORD_ID=rec_failed_secret",
-      "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+      "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
       `FEISHU_API_BASE_URL=${baseUrl}`,
       "",
     ].join("\n"), "utf8");
@@ -866,7 +866,7 @@ test("live smoke executes mock OpenAPI data-plane coverage including Doc append"
     assert.ok(address && typeof address === "object");
     const baseUrl = `http://127.0.0.1:${address.port}`;
     const callbackUrl = `${baseUrl}/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1`;
-    directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-openapi-smoke-"));
+    directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-openapi-smoke-"));
     const envPath = join(directory, ".env");
     writeFileSync(envPath, [
       "FEISHU_APP_ID=cli_ready_secret",
@@ -875,14 +875,14 @@ test("live smoke executes mock OpenAPI data-plane coverage including Doc append"
       `FEISHU_SMOKE_CALLBACK_URL=${callbackUrl}`,
       "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
       "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
-      "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+      "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
       "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
       "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-      "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+      "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
       "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
       "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
       "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
-      "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+      "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
       `FEISHU_API_BASE_URL=${baseUrl}`,
       "",
     ].join("\n"), "utf8");
@@ -932,7 +932,7 @@ test("live smoke executes mock OpenAPI data-plane coverage including Doc append"
   }
 });
 
-test("live callback probe verifies AgentSpace callback URL without exposing secrets", async () => {
+test("live callback probe verifies DofeAgent callback URL without exposing secrets", async () => {
   let receivedPayload: Record<string, unknown> | undefined;
   let receivedUrl: string | undefined;
   const server = createServer((request, response) => {
@@ -971,7 +971,7 @@ test("live callback probe verifies AgentSpace callback URL without exposing secr
     assert.ok(address && typeof address === "object");
     const callbackPath = "/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=integration-1";
     const callbackUrl = `http://127.0.0.1:${address.port}${callbackPath}`;
-    directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-callback-smoke-"));
+    directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-callback-smoke-"));
     const envPath = join(directory, ".env");
     writeFileSync(envPath, [
       `FEISHU_SMOKE_CALLBACK_URL=${callbackUrl}`,
@@ -998,7 +998,7 @@ test("live callback probe verifies AgentSpace callback URL without exposing secr
         callbackRouteFingerprint?: string;
       }>;
     };
-    const callbackStep = output.steps.find((step) => step.name === "AgentSpace callback URL verification");
+    const callbackStep = output.steps.find((step) => step.name === "DofeAgent callback URL verification");
 
     assert.equal(output.live, true);
     assert.equal(callbackStep?.status, "pass");
@@ -1067,7 +1067,7 @@ test("live response summaries redact Feishu identifiers before JSON output", asy
     const address = server.address();
     assert.ok(address && typeof address === "object");
     const envPath = join(
-      directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-redacted-response-")),
+      directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-redacted-response-")),
       ".env",
     );
     writeFileSync(envPath, [
@@ -1110,7 +1110,7 @@ test("live response summaries redact Feishu identifiers before JSON output", asy
 });
 
 test("check-env reports missing and invalid live smoke env without exposing values", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-missing-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-check-env-missing-"));
   const envPath = join(directory, ".env");
   writeFileSync(envPath, [
     "FEISHU_APP_ID=cli_secret_app",
@@ -1173,7 +1173,7 @@ test("check-env reports missing and invalid live smoke env without exposing valu
 });
 
 test("check-env accepts a complete strict live smoke env without printing resource tokens", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-ready-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-check-env-ready-"));
   const envPath = join(directory, ".env");
   writeFileSync(envPath, [
     "FEISHU_APP_ID=cli_ready_secret",
@@ -1184,14 +1184,14 @@ test("check-env accepts a complete strict live smoke env without printing resour
     "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
     "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
     "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
-    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
     "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
     "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
     "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
     "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
     "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
-    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
     "",
   ].join("\n"), "utf8");
 
@@ -1234,7 +1234,7 @@ test("check-env accepts a complete strict live smoke env without printing resour
       key: "FEISHU_TENANT_KEY",
       required: false,
       status: "ready",
-      note: "Optional tenant key saved on the AgentSpace integration; strict-live evidence stores only its hash.",
+      note: "Optional tenant key saved on the DofeAgent integration; strict-live evidence stores only its hash.",
     });
     assert.equal(output.todo120NativeSmoke.ready, false);
     assert.equal(output.todo120NativeSmoke.required, 2);
@@ -1260,7 +1260,7 @@ test("check-env accepts a complete strict live smoke env without printing resour
 });
 
 test("check-env can require TODO120 native multi-agent env", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-require-todo120-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-check-env-require-todo120-"));
   const envPath = join(directory, ".env");
   writeFileSync(envPath, [
     "FEISHU_APP_ID=cli_ready_secret",
@@ -1270,14 +1270,14 @@ test("check-env can require TODO120 native multi-agent env", () => {
     "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
     "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
     "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
-    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
     "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
     "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
     "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
     "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
     "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
-    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
     "",
   ].join("\n"), "utf8");
 
@@ -1310,7 +1310,7 @@ test("check-env can require TODO120 native multi-agent env", () => {
 });
 
 test("check-env reports TODO120 native multi-agent env readiness separately from OpenAPI readiness", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-todo120-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-check-env-todo120-"));
   const envPath = join(directory, ".env");
   writeFileSync(envPath, [
     "FEISHU_APP_ID=cli_ready_secret",
@@ -1320,14 +1320,14 @@ test("check-env reports TODO120 native multi-agent env readiness separately from
     "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
     "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
     "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
-    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
     "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
     "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
     "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
     "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
     "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
-    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
     "FEISHU_SECOND_AGENT_APP_ID=cli_second_ready_secret",
     "FEISHU_SECOND_AGENT_APP_SECRET=second_secret_ready",
     "",
@@ -1376,7 +1376,7 @@ test("check-env reports TODO120 native multi-agent env readiness separately from
 });
 
 test("check-env rejects reusing the primary Feishu app as the second TODO120 agent bot", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-todo120-same-app-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-check-env-todo120-same-app-"));
   const envPath = join(directory, ".env");
   writeFileSync(envPath, [
     "FEISHU_APP_ID=cli_same_app_secret",
@@ -1386,14 +1386,14 @@ test("check-env rejects reusing the primary Feishu app as the second TODO120 age
     "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
     "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
     "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
-    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
     "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
     "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
     "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
     "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
     "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
-    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
     "FEISHU_SECOND_AGENT_APP_ID=cli_same_app_secret",
     "FEISHU_SECOND_AGENT_APP_SECRET=second_secret_ready",
     "",
@@ -1438,7 +1438,7 @@ test("check-env rejects reusing the primary Feishu app as the second TODO120 age
 });
 
 test("check-env rejects reusing the primary Feishu app secret for the second TODO120 agent bot", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-todo120-same-secret-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-check-env-todo120-same-secret-"));
   const envPath = join(directory, ".env");
   writeFileSync(envPath, [
     "FEISHU_APP_ID=cli_primary_app",
@@ -1448,14 +1448,14 @@ test("check-env rejects reusing the primary Feishu app secret for the second TOD
     "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
     "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
     "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
-    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
     "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
     "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
     "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
     "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
     "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
-    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
     "FEISHU_SECOND_AGENT_APP_ID=cli_second_app",
     "FEISHU_SECOND_AGENT_APP_SECRET=shared_secret_value",
     "",
@@ -1497,8 +1497,8 @@ test("check-env rejects reusing the primary Feishu app secret for the second TOD
   }
 });
 
-test("check-env rejects callback URLs outside the AgentSpace Feishu route", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-callback-"));
+test("check-env rejects callback URLs outside the DofeAgent Feishu route", () => {
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-check-env-callback-"));
   const envPath = join(directory, ".env");
   const wrongPathCallbackUrl = "https://agent.test/api/not-feishu/events?workspaceId=workspace-1&integrationId=feishu-1";
   const missingQueryCallbackUrl = "https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1";
@@ -1514,7 +1514,7 @@ test("check-env rejects callback URLs outside the AgentSpace Feishu route", () =
     assert.equal(wrongPathOutput.ready, false);
     assert.deepEqual(wrongPathOutput.invalidRequired, [{
       key: "FEISHU_SMOKE_CALLBACK_URL",
-      reason: "must_be_agentspace_feishu_callback_url",
+      reason: "must_be_dofe-agent_feishu_callback_url",
     }]);
     assert.equal(wrongPath.stdout.includes(wrongPathCallbackUrl), false);
 
@@ -1567,7 +1567,7 @@ test("check-env rejects checked-in placeholder smoke env values", () => {
 });
 
 test("check-env rejects smoke-env generated CHANGE_ME placeholders while accepting generated callback URL", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-template-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-check-env-template-"));
   const envPath = join(directory, ".env");
   const callbackUrl = "https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1";
   writeFileSync(envPath, [
@@ -1579,14 +1579,14 @@ test("check-env rejects smoke-env generated CHANGE_ME placeholders while accepti
     "FEISHU_SMOKE_CHAT_ID=CHANGE_ME_FEISHU_CHAT_ID",
     "FEISHU_SMOKE_DOC_TOKEN=CHANGE_ME_DOCX_TOKEN",
     "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=CHANGE_ME_DOCX_PARENT_BLOCK_ID",
-    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
     "FEISHU_SMOKE_SHEET_TOKEN=CHANGE_ME_SHEET_TOKEN",
     "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
     "FEISHU_SMOKE_BASE_APP_TOKEN=CHANGE_ME_BASE_APP_TOKEN",
     "FEISHU_SMOKE_BASE_TABLE_ID=CHANGE_ME_BASE_TABLE_ID",
     "FEISHU_SMOKE_BASE_RECORD_ID=CHANGE_ME_BASE_RECORD_ID",
-    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
     "",
   ].join("\n"), "utf8");
 
@@ -1639,7 +1639,7 @@ test("check-env rejects smoke-env generated CHANGE_ME placeholders while accepti
 });
 
 test("check-env reports malformed env-file lines as structured errors without exposing values", () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-invalid-file-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-check-env-invalid-file-"));
   const envPath = join(directory, ".env");
   writeFileSync(envPath, [
     "FEISHU_APP_ID=cli_invalid_file",
@@ -1669,7 +1669,7 @@ test("check-env reports malformed env-file lines as structured errors without ex
 });
 
 test("live smoke reports malformed JSON env as structured errors without exposing values", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-live-invalid-json-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-live-invalid-json-"));
   const envPath = join(directory, ".env");
   writeFileSync(envPath, [
     "FEISHU_APP_ID=cli_json_secret",
@@ -1705,7 +1705,7 @@ test("live smoke reports malformed JSON env as structured errors without exposin
 });
 
 test("strict live smoke rejects placeholder env before network calls without exposing values", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-live-placeholder-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-live-placeholder-"));
   const envPath = join(directory, ".env");
   const callbackUrl = "https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1";
   writeFileSync(envPath, [
@@ -1717,14 +1717,14 @@ test("strict live smoke rejects placeholder env before network calls without exp
     "FEISHU_SMOKE_CHAT_ID=CHANGE_ME_FEISHU_CHAT_ID",
     "FEISHU_SMOKE_DOC_TOKEN=CHANGE_ME_DOCX_TOKEN",
     "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=CHANGE_ME_DOCX_PARENT_BLOCK_ID",
-    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
     "FEISHU_SMOKE_SHEET_TOKEN=CHANGE_ME_SHEET_TOKEN",
     "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
     "FEISHU_SMOKE_BASE_APP_TOKEN=CHANGE_ME_BASE_APP_TOKEN",
     "FEISHU_SMOKE_BASE_TABLE_ID=CHANGE_ME_BASE_TABLE_ID",
     "FEISHU_SMOKE_BASE_RECORD_ID=CHANGE_ME_BASE_RECORD_ID",
-    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
     "",
   ].join("\n"), "utf8");
 
@@ -1757,7 +1757,7 @@ test("strict live smoke rejects placeholder env before network calls without exp
 });
 
 test("strict live smoke rejects placeholder tenant key before network calls", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-live-placeholder-tenant-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-live-placeholder-tenant-"));
   const envPath = join(directory, ".env");
   const callbackUrl = "https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1";
   writeFileSync(envPath, [
@@ -1769,14 +1769,14 @@ test("strict live smoke rejects placeholder tenant key before network calls", as
     "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
     "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
     "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
-    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
     "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
     "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
     "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
     "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
     "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
-    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
     "",
   ].join("\n"), "utf8");
 
@@ -1802,7 +1802,7 @@ test("strict live smoke rejects placeholder tenant key before network calls", as
 });
 
 test("strict live smoke rejects missing required env before network calls", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-live-missing-env-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-live-missing-env-"));
   const envPath = join(directory, ".env");
   writeFileSync(envPath, [
     "FEISHU_APP_ID=cli_missing_secret",
@@ -1834,7 +1834,7 @@ test("strict live smoke rejects missing required env before network calls", asyn
 });
 
 test("strict live smoke can require TODO120 native multi-agent env before network calls", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-live-require-todo120-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-live-require-todo120-"));
   const envPath = join(directory, ".env");
   writeFileSync(envPath, [
     "FEISHU_APP_ID=cli_ready_secret",
@@ -1844,14 +1844,14 @@ test("strict live smoke can require TODO120 native multi-agent env before networ
     "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
     "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
     "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
-    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
     "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
     "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
     "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
     "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
     "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
-    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
     "",
   ].join("\n"), "utf8");
 
@@ -1882,7 +1882,7 @@ test("strict live smoke can require TODO120 native multi-agent env before networ
 });
 
 test("strict live TODO120 native smoke rejects duplicate primary and second app ids before network calls", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-live-todo120-same-app-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-live-todo120-same-app-"));
   const envPath = join(directory, ".env");
   writeFileSync(envPath, [
     "FEISHU_APP_ID=cli_same_app_secret",
@@ -1892,14 +1892,14 @@ test("strict live TODO120 native smoke rejects duplicate primary and second app 
     "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
     "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
     "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
-    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
     "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
     "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
     "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
     "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
     "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
-    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
     "FEISHU_SECOND_AGENT_APP_ID=cli_same_app_secret",
     "FEISHU_SECOND_AGENT_APP_SECRET=second_secret_ready",
     "",
@@ -1926,7 +1926,7 @@ test("strict live TODO120 native smoke rejects duplicate primary and second app 
 });
 
 test("strict live TODO120 native smoke rejects duplicate primary and second app secrets before network calls", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-live-todo120-same-secret-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-live-todo120-same-secret-"));
   const envPath = join(directory, ".env");
   writeFileSync(envPath, [
     "FEISHU_APP_ID=cli_primary_app",
@@ -1936,14 +1936,14 @@ test("strict live TODO120 native smoke rejects duplicate primary and second app 
     "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
     "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
     "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
-    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
     "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
     "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
     "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
     "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
     "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
-    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
     "FEISHU_SECOND_AGENT_APP_ID=cli_second_app",
     "FEISHU_SECOND_AGENT_APP_SECRET=shared_secret_value",
     "",
@@ -2050,7 +2050,7 @@ function runSmokeLiveWithEnvFile(path: string, extraArgs: string[] = []): Promis
       cwd: process.cwd(),
       env: {
         ...withoutFeishuEnv(),
-        AGENT_SPACE_FEISHU_ALLOW_UNSAFE_TEST_API_BASE_URL: "1",
+        DOFE_AGENT_FEISHU_ALLOW_UNSAFE_TEST_API_BASE_URL: "1",
         NODE_ENV: "test",
       },
     });
@@ -2099,14 +2099,14 @@ function writeCompleteSmokeEnv(path: string, callbackUrl: string): void {
     "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
     "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
     "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
-    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"DofeAgent smoke\"}}]}}]",
     "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
     "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
-    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"DofeAgent smoke\"]]",
     "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
     "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
     "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
-    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"DofeAgent\"}",
     "",
   ].join("\n"), "utf8");
 }
@@ -2114,7 +2114,7 @@ function writeCompleteSmokeEnv(path: string, callbackUrl: string): void {
 function withoutFeishuEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
-    if (key.startsWith("FEISHU_") || key.startsWith("AGENT_SPACE_FEISHU_")) {
+    if (key.startsWith("FEISHU_") || key.startsWith("DOFE_AGENT_FEISHU_")) {
       delete env[key];
     }
   }
@@ -2150,7 +2150,7 @@ function close(server: ReturnType<typeof createServer>): Promise<void> {
 }
 
 function writeEvidenceFixture(evidence: ReturnType<typeof buildEvidenceFixture>): string {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-smoke-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-smoke-"));
   const evidencePath = join(directory, "live.json");
   writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
   tempFixtureDirectories.push(directory);
@@ -2158,7 +2158,7 @@ function writeEvidenceFixture(evidence: ReturnType<typeof buildEvidenceFixture>)
 }
 
 function writePayloadFixture(payload: Record<string, unknown>): string {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-payload-"));
+  const directory = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-payload-"));
   const payloadPath = join(directory, "callback.json");
   writeFileSync(payloadPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   tempFixtureDirectories.push(directory);
@@ -2280,7 +2280,7 @@ function buildEvidenceFixture() {
 
 function callbackLiveStep() {
   return {
-    name: "AgentSpace callback URL verification",
+    name: "DofeAgent callback URL verification",
     status: "pass",
     detail: "ok",
     liveCheck: true,

@@ -13,12 +13,12 @@ import {
   unbindEmployeeRuntimeSync as unbindEmployeeRuntimeRecordSync,
   updateStoredEmployeeSync,
   writeWorkspaceStateRecordSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   type AgentChannelMemberAccess,
   type ActiveEmployee,
-  type AgentSpaceState,
-} from "@agent-space/domain/workspace";
+  type DofeAgentState,
+} from "@dofe-agent/domain/workspace";
 import { pruneOrphanWorkspaceAttachmentsSync } from "../attachments/attachments.ts";
 import { isDirectChannel, removeChannelArtifactsFromState } from "../channels/channels.ts";
 import { listWorkspaceSkillsSync } from "../skills/skills.ts";
@@ -80,7 +80,7 @@ export function bindEmployeeRuntimeSync(
   runtimeId: string,
   workspaceId?: string,
   actorUserId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
   if (!employee) {
@@ -112,7 +112,7 @@ export function bindEmployeeRuntimeSync(
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function unbindEmployeeRuntimeSync(employeeName: string, workspaceId?: string): AgentSpaceState {
+export function unbindEmployeeRuntimeSync(employeeName: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
   if (!employee) {
@@ -139,7 +139,7 @@ export function unbindEmployeeRuntimeSync(employeeName: string, workspaceId?: st
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function deleteEmployeeSync(employeeName: string, workspaceId?: string): AgentSpaceState {
+export function deleteEmployeeSync(employeeName: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
   if (!employee) {
@@ -202,7 +202,7 @@ export function deleteEmployeeSync(employeeName: string, workspaceId?: string): 
   return written;
 }
 
-export function updateEmployeeInstructionsSync(employeeName: string, instructions: string, workspaceId?: string): AgentSpaceState {
+export function updateEmployeeInstructionsSync(employeeName: string, instructions: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
   if (!employee) {
@@ -219,7 +219,7 @@ export function updateEmployeeInstructionsSync(employeeName: string, instruction
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function updateEmployeeRemarkNameSync(employeeName: string, remarkName: string, workspaceId?: string): AgentSpaceState {
+export function updateEmployeeRemarkNameSync(employeeName: string, remarkName: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
   if (!employee) {
@@ -250,7 +250,7 @@ export function createEmployeeSync(input: {
   skillIds?: string[];
   ownerUserId?: string;
   channelMemberAccess?: AgentChannelMemberAccess;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const workspaceSkills = listWorkspaceSkillsSync(workspaceId);
   const state = ensureWorkspaceStateSync(workspaceId);
 
@@ -290,7 +290,7 @@ export function setEmployeeChannelMemberAccessSync(
   employeeName: string,
   channelMemberAccess: AgentChannelMemberAccess,
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
   if (!employee) {
@@ -310,7 +310,7 @@ export function setEmployeeChannelMemberAccessSync(
   return writeWorkspaceStateRecordSync(normalizeWorkspaceState(state), workspaceId);
 }
 
-export function setEmployeeSkillIdsSync(employeeName: string, skillIds: string[], workspaceId?: string): AgentSpaceState {
+export function setEmployeeSkillIdsSync(employeeName: string, skillIds: string[], workspaceId?: string): DofeAgentState {
   const workspaceSkills = listWorkspaceSkillsSync(workspaceId);
   const state = ensureWorkspaceStateSync(workspaceId);
   const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));

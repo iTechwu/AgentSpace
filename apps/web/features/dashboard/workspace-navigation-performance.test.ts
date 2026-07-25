@@ -53,15 +53,15 @@ describe("workspace navigation performance helpers", () => {
     recordWorkspaceShellCountersRefresh("workspace-alpha");
     recordWorkspaceShellCountersRefresh("workspace-alpha");
 
-    expect(mark).toHaveBeenCalledWith("agent-space.workspace.shell-counters.workspace-alpha.refresh.1");
-    expect(mark).toHaveBeenCalledWith("agent-space.workspace.shell-counters.workspace-alpha.refresh.2");
+    expect(mark).toHaveBeenCalledWith("dofe-agent.workspace.shell-counters.workspace-alpha.refresh.1");
+    expect(mark).toHaveBeenCalledWith("dofe-agent.workspace.shell-counters.workspace-alpha.refresh.2");
     expect(measure).toHaveBeenCalledWith(
-      "agent-space.workspace.shell-counters.workspace-alpha.refresh-interval",
-      "agent-space.workspace.shell-counters.workspace-alpha.refresh.1",
-      "agent-space.workspace.shell-counters.workspace-alpha.refresh.2",
+      "dofe-agent.workspace.shell-counters.workspace-alpha.refresh-interval",
+      "dofe-agent.workspace.shell-counters.workspace-alpha.refresh.1",
+      "dofe-agent.workspace.shell-counters.workspace-alpha.refresh.2",
     );
-    expect(clearMarks).toHaveBeenCalledWith("agent-space.workspace.shell-counters.workspace-alpha.refresh.1");
-    expect(clearMeasures).toHaveBeenCalledWith("agent-space.workspace.shell-counters.workspace-alpha.refresh-interval");
+    expect(clearMarks).toHaveBeenCalledWith("dofe-agent.workspace.shell-counters.workspace-alpha.refresh.1");
+    expect(clearMeasures).toHaveBeenCalledWith("dofe-agent.workspace.shell-counters.workspace-alpha.refresh-interval");
     expect(debug).toHaveBeenCalledWith("[workspace:shell-counters] workspace-alpha refresh #1");
     expect(debug).toHaveBeenCalledWith("[workspace:shell-counters] workspace-alpha refresh #2 interval 125ms");
   });
@@ -90,16 +90,16 @@ describe("workspace navigation performance helpers", () => {
     measureWorkspaceModuleNavigationCacheHit(routeState);
     measureWorkspaceModuleNavigationFirstLoad(routeState);
 
-    expect(mark).toHaveBeenCalledWith("agent-space.workspace.navigation.im.click");
+    expect(mark).toHaveBeenCalledWith("dofe-agent.workspace.navigation.im.click");
     expect(measure).toHaveBeenCalledWith(
-      "agent-space.workspace.navigation.im.click-to-cached-content",
-      "agent-space.workspace.navigation.im.click",
-      "agent-space.workspace.navigation.im.click-to-cached-content.end",
+      "dofe-agent.workspace.navigation.im.click-to-cached-content",
+      "dofe-agent.workspace.navigation.im.click",
+      "dofe-agent.workspace.navigation.im.click-to-cached-content.end",
     );
     expect(measure).toHaveBeenCalledWith(
-      "agent-space.workspace.navigation.im.click-to-first-load",
-      "agent-space.workspace.navigation.im.click",
-      "agent-space.workspace.navigation.im.click-to-first-load.end",
+      "dofe-agent.workspace.navigation.im.click-to-first-load",
+      "dofe-agent.workspace.navigation.im.click",
+      "dofe-agent.workspace.navigation.im.click-to-first-load.end",
     );
     expect(debug).toHaveBeenCalledWith("[workspace:nav] im click-to-cached-content 42ms");
     expect(debug).toHaveBeenCalledWith("[workspace:nav] im click-to-first-load 42ms");

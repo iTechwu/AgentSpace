@@ -29,4 +29,4 @@ export type {
   RuntimeAppRiskLevel,
   RuntimeToolCapability,
   StartRuntimeAppOperationRequest,
-} from "@agent-space/domain";
+} from "@dofe-agent/domain";

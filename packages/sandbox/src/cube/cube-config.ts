@@ -6,21 +6,21 @@ import {
 } from "../types.ts";
 import type { SandboxConnectOptions, SandboxProvider } from "../types.ts";
 
-export const SANDBOX_PROVIDER_ENV = "AGENT_SPACE_SANDBOX_PROVIDER";
+export const SANDBOX_PROVIDER_ENV = "DOFE_AGENT_SANDBOX_PROVIDER";
 export const LEGACY_SANDBOX_PROVIDER_ENV = "SANDBOX_PROVIDER";
-export const CUBE_API_URL_ENV = "AGENT_SPACE_CUBE_API_URL";
+export const CUBE_API_URL_ENV = "DOFE_AGENT_CUBE_API_URL";
 export const LEGACY_CUBE_API_URL_ENV = "E2B_API_URL";
-export const CUBE_API_KEY_ENV = "AGENT_SPACE_CUBE_API_KEY";
+export const CUBE_API_KEY_ENV = "DOFE_AGENT_CUBE_API_KEY";
 export const LEGACY_CUBE_API_KEY_ENV = "E2B_API_KEY";
-export const CUBE_TEMPLATE_ID_ENV = "AGENT_SPACE_CUBE_TEMPLATE_ID";
+export const CUBE_TEMPLATE_ID_ENV = "DOFE_AGENT_CUBE_TEMPLATE_ID";
 export const LEGACY_CUBE_TEMPLATE_ID_ENV = "CUBE_TEMPLATE_ID";
-export const CUBE_EXPERIMENTAL_ENABLE_ENV = "AGENT_SPACE_CUBE_ENABLE_EXPERIMENTAL";
-export const CUBE_TIMEOUT_SECONDS_ENV = "AGENT_SPACE_CUBE_TIMEOUT_SECONDS";
-export const CUBE_ALLOW_INTERNET_ENV = "AGENT_SPACE_CUBE_ALLOW_INTERNET";
-export const CUBE_ALLOW_OUT_ENV = "AGENT_SPACE_CUBE_ALLOW_OUT";
-export const CUBE_DENY_OUT_ENV = "AGENT_SPACE_CUBE_DENY_OUT";
-export const CUBE_MOUNT_WORKDIR_ENV = "AGENT_SPACE_CUBE_MOUNT_WORKDIR";
-export const CUBE_MOUNT_PATH_ENV = "AGENT_SPACE_CUBE_MOUNT_PATH";
+export const CUBE_EXPERIMENTAL_ENABLE_ENV = "DOFE_AGENT_CUBE_ENABLE_EXPERIMENTAL";
+export const CUBE_TIMEOUT_SECONDS_ENV = "DOFE_AGENT_CUBE_TIMEOUT_SECONDS";
+export const CUBE_ALLOW_INTERNET_ENV = "DOFE_AGENT_CUBE_ALLOW_INTERNET";
+export const CUBE_ALLOW_OUT_ENV = "DOFE_AGENT_CUBE_ALLOW_OUT";
+export const CUBE_DENY_OUT_ENV = "DOFE_AGENT_CUBE_DENY_OUT";
+export const CUBE_MOUNT_WORKDIR_ENV = "DOFE_AGENT_CUBE_MOUNT_WORKDIR";
+export const CUBE_MOUNT_PATH_ENV = "DOFE_AGENT_CUBE_MOUNT_PATH";
 export const CUBE_HOST_MOUNT_METADATA_KEY = "host-mount";
 export const DEFAULT_CUBE_MOUNT_PATH = "/workspace";
 export const DEFAULT_CUBE_API_REQUEST_TIMEOUT_MS = 30_000;
@@ -88,8 +88,8 @@ export function resolveCubeSandboxConfig(options: SandboxConnectOptions): CubeSa
   const mountPath = normalizeMountPath(env[CUBE_MOUNT_PATH_ENV] ?? DEFAULT_CUBE_MOUNT_PATH);
   const workDir = resolve(options.workDir);
   const metadata: Record<string, string> = {
-    "agent-space.runtime-id": options.runtimeId,
-    "agent-space.work-dir": workDir,
+    "dofe-agent.runtime-id": options.runtimeId,
+    "dofe-agent.work-dir": workDir,
   };
 
   if (mountWorkDir) {
@@ -99,7 +99,7 @@ export function resolveCubeSandboxConfig(options: SandboxConnectOptions): CubeSa
       readOnly: false,
     }];
     metadata[CUBE_HOST_MOUNT_METADATA_KEY] = JSON.stringify(hostMount);
-    metadata["agent-space.mount-path"] = mountPath;
+    metadata["dofe-agent.mount-path"] = mountPath;
   }
 
   return {

@@ -17,7 +17,7 @@ import {
   upsertExternalChannelBindingSync,
   upsertExternalResourceBindingSync,
   upsertExternalUserBindingSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { FEISHU_PROVIDER_ID } from "../constants.ts";
 import {
   executeFeishuDataOperationWithApproval,
@@ -44,10 +44,10 @@ import {
 
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..", "..", "..");
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-feishu-data-plane-"));
-const databaseTestOptions = process.env.AGENT_SPACE_FEISHU_DATA_PLANE_DB_TESTS === "1"
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-data-plane-"));
+const databaseTestOptions = process.env.DOFE_AGENT_FEISHU_DATA_PLANE_DB_TESTS === "1"
   ? {}
-  : { skip: "Set AGENT_SPACE_FEISHU_DATA_PLANE_DB_TESTS=1 with a test Postgres URL to run Feishu data-plane DB integration tests." };
+  : { skip: "Set DOFE_AGENT_FEISHU_DATA_PLANE_DB_TESTS=1 with a test Postgres URL to run Feishu data-plane DB integration tests." };
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -123,8 +123,8 @@ test("bound Feishu Doc reads create an operation run with a safe result summary"
     providerResourceType: "doc",
     providerResourceToken: "doccnBound123",
     providerResourceUrl: "https://example.feishu.cn/docx/doccnBound123",
-    agentSpaceResourceType: "channel_document",
-    agentSpaceResourceId: document.id,
+    dofeAgentResourceType: "channel_document",
+    dofeAgentResourceId: document.id,
     channelName: "general",
     displayName: "Launch brief",
   });
@@ -255,8 +255,8 @@ test("agent bot Feishu reads record bound user governance context", databaseTest
     providerResourceType: "doc",
     providerResourceToken: "doccnBoundUser123",
     providerResourceUrl: "https://example.feishu.cn/docx/doccnBoundUser123",
-    agentSpaceResourceType: "channel_document",
-    agentSpaceResourceId: document.id,
+    dofeAgentResourceType: "channel_document",
+    dofeAgentResourceId: document.id,
     channelName: "general",
     displayName: "Bound user brief",
   });
@@ -338,8 +338,8 @@ test("external guest Feishu reads require guest-readable current-channel resourc
     providerResourceType: "doc",
     providerResourceToken: "doccnGuest123",
     providerResourceUrl: "https://example.feishu.cn/docx/doccnGuest123",
-    agentSpaceResourceType: "channel_document",
-    agentSpaceResourceId: "channel-document-guest",
+    dofeAgentResourceType: "channel_document",
+    dofeAgentResourceId: "channel-document-guest",
     channelName: "general",
     displayName: "Guest readable brief",
     permissionsJson: {
@@ -443,8 +443,8 @@ test("external guest Feishu writes require identity before approval planning", d
     providerResourceType: "sheet",
     providerResourceToken: "shtcnGuestWrite123",
     providerResourceUrl: "https://example.feishu.cn/sheets/shtcnGuestWrite123",
-    agentSpaceResourceType: "data_table",
-    agentSpaceResourceId: table.id,
+    dofeAgentResourceType: "data_table",
+    dofeAgentResourceId: table.id,
     channelName: "general",
     displayName: "Guest write sheet",
     permissionsJson: {
@@ -546,8 +546,8 @@ test("approved Feishu Sheet writes update a pending operation run with a safe re
     providerResourceType: "sheet",
     providerResourceToken: "shtcnBound123",
     providerResourceUrl: "https://example.feishu.cn/sheets/shtcnBound123",
-    agentSpaceResourceType: "data_table",
-    agentSpaceResourceId: table.id,
+    dofeAgentResourceType: "data_table",
+    dofeAgentResourceId: table.id,
     channelName: "general",
     displayName: "Planning sheet",
     permissionsJson: {
@@ -693,8 +693,8 @@ test("approved Feishu Base mutations create and update records with safe result 
     providerResourceType: "base_table",
     providerResourceToken: "tblBound123",
     providerResourceUrl: "https://example.feishu.cn/base/appToken123?table=tblBound123",
-    agentSpaceResourceType: "data_table",
-    agentSpaceResourceId: table.id,
+    dofeAgentResourceType: "data_table",
+    dofeAgentResourceId: table.id,
     channelName: "general",
     displayName: "Planning base table",
     metadataJson: {
@@ -849,7 +849,7 @@ test("Feishu write approvals enqueue approval-required cards in the source threa
     externalMessageId: "om_source",
     externalThreadId: "om_root",
     externalSenderId: "ou_mina",
-    agentSpaceMessageId: "agent-space-source-message-1",
+    dofeAgentMessageId: "dofe-agent-source-message-1",
     metadataJson: {},
   });
   const binding = upsertExternalResourceBindingSync({
@@ -858,8 +858,8 @@ test("Feishu write approvals enqueue approval-required cards in the source threa
     providerResourceType: "sheet",
     providerResourceToken: "shtcnApproval123",
     providerResourceUrl: "https://example.feishu.cn/sheets/shtcnApproval123",
-    agentSpaceResourceType: "data_table",
-    agentSpaceResourceId: "data-table-approval",
+    dofeAgentResourceType: "data_table",
+    dofeAgentResourceId: "data-table-approval",
     channelName: "general",
     displayName: "Approval sheet",
   });
@@ -892,7 +892,7 @@ test("Feishu write approvals enqueue approval-required cards in the source threa
     approval: {
       agentId: "Atlas",
       channelName: "general",
-      sourceAgentSpaceMessageId: "agent-space-source-message-1",
+      sourceDofeAgentMessageId: "dofe-agent-source-message-1",
       taskId: "task-approval-1",
     },
   });
@@ -922,7 +922,7 @@ test("Feishu write approvals enqueue approval-required cards in the source threa
     elements: Array<{ content?: string }>;
   };
   assert.equal(card.header.template, "orange");
-  assert.equal(card.header.title.content, "Atlas · AgentSpace");
+  assert.equal(card.header.title.content, "Atlas · DofeAgent");
   assert.match(card.elements[0]?.content ?? "", /\*\*Atlas\*\* · Approval required/);
   assert.match(card.elements[0]?.content ?? "", /Task: task-approval-1/);
   assert.match(card.elements[0]?.content ?? "", /requested sheets\.update_range/);
@@ -990,7 +990,7 @@ test("Feishu approval card callbacks validate user binding token hash and execut
     externalMessageId: "om_card_source",
     externalThreadId: "om_card_root",
     externalSenderId: "ou_mina",
-    agentSpaceMessageId: "agent-space-card-source-message-1",
+    dofeAgentMessageId: "dofe-agent-card-source-message-1",
     metadataJson: {},
   });
   const table = createExternalDataTableSync({
@@ -1007,8 +1007,8 @@ test("Feishu approval card callbacks validate user binding token hash and execut
     providerResourceType: "sheet",
     providerResourceToken: "shtcnCardApproval123",
     providerResourceUrl: "https://example.feishu.cn/sheets/shtcnCardApproval123",
-    agentSpaceResourceType: "data_table",
-    agentSpaceResourceId: table.id,
+    dofeAgentResourceType: "data_table",
+    dofeAgentResourceId: table.id,
     channelName: "general",
     displayName: "Approval sheet",
     permissionsJson: {
@@ -1055,7 +1055,7 @@ test("Feishu approval card callbacks validate user binding token hash and execut
     approval: {
       agentId: "Atlas",
       channelName: "general",
-      sourceAgentSpaceMessageId: "agent-space-card-source-message-1",
+      sourceDofeAgentMessageId: "dofe-agent-card-source-message-1",
       taskId: "task-card-approval",
     },
   });
@@ -1146,7 +1146,7 @@ test("Feishu approval card callbacks validate user binding token hash and execut
     elements: Array<{ content?: string }>;
   };
   assert.equal(receiptCard.header.template, "green");
-  assert.equal(receiptCard.header.title.content, "Atlas · AgentSpace");
+  assert.equal(receiptCard.header.title.content, "Atlas · DofeAgent");
   assert.match(receiptCard.elements[0]?.content ?? "", /Approved sheets\.update_range completed/);
   assert.equal(JSON.stringify(receiptCard).includes("approved from card"), false);
   const event = readExternalIntegrationEventSync({

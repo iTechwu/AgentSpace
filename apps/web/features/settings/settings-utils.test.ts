@@ -27,7 +27,7 @@ describe("translateSettingsActionError", () => {
       new Error("feishu.integration.credential_encryption_key_missing"),
       englishTx,
     )).toBe(
-      "agent.dofe is missing the Feishu credential encryption key. Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
+      "agent.dofe is missing the Feishu credential encryption key. Set DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
     );
 
     expect(translateSettingsActionError(

@@ -45,13 +45,13 @@ import {
   isSettingsDetailSectionId,
 } from "@/features/settings/settings-sections";
 import type { AuthUser } from "@/features/auth/server-auth";
-import type { StoredWorkspaceRecord, WorkspaceRole } from "@agent-space/db";
+import type { StoredWorkspaceRecord, WorkspaceRole } from "@dofe-agent/db";
 import type { WorkspaceShellData } from "@/features/dashboard/workspace-shell-data";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
 import { GeneratedAvatar } from "@/shared/ui/generated-avatar";
 
-export const WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY = "agent-space:workspace-sidebar-collapsed";
+export const WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY = "dofe-agent:workspace-sidebar-collapsed";
 
 export function WorkspaceFrame({
   accessScope = "workspace",
@@ -204,7 +204,7 @@ function WorkspaceFrameContent({
           ? tx("真人联系人", "Human contacts")
           : logicalPathname === "/approvals"
             ? tx("审批", "Approvals")
-            : logicalPathname === "/task-board"
+            : logicalPathname === "/task/board"
               ? tx("项目看板", "Task Board")
             : logicalPathname === "/agents"
               ? mode === "container"
@@ -238,10 +238,10 @@ function WorkspaceFrameContent({
   const workspaceHref = (path: string): string => buildWorkspacePath(currentWorkspace.slug, path);
   const sidebarSignals = [
     {
-      active: logicalPathname === "/task-board",
+      active: logicalPathname === "/task/board",
       icon: "taskBoard" as const,
       label: tx("打开任务", "Open tasks"),
-      href: workspaceHref("/task-board"),
+      href: workspaceHref("/task/board"),
       value: counters.openTaskCount,
     },
     {
@@ -647,11 +647,11 @@ function WorkspaceFrameContent({
           {visibility.taskBoard && !isChannelScopedGuest ? (
             <section className="workspace-sidebar__group" data-onboarding-target="task-board">
               <SidebarSectionLink
-                href={workspaceHref("/task-board")}
+                href={workspaceHref("/task/board")}
                 icon="taskBoard"
                 label={tx("项目看板", "Task Board")}
                 count={counters.openTaskCount}
-                active={logicalPathname === "/task-board"}
+                active={logicalPathname === "/task/board"}
                 onClick={handleWorkspaceModuleLinkClick}
                 onPrefetch={handleWorkspaceModuleLinkPrefetch}
                 showArrow={false}

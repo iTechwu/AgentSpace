@@ -26,7 +26,7 @@ async function withCubeFetchStub(
 }
 
 test("CubeSandbox.exec throws a not-ready error until remote exec is wired", async () => {
-  const workDir = await mkdtemp(join(tmpdir(), "agent-space-cube-exec-"));
+  const workDir = await mkdtemp(join(tmpdir(), "dofe-agent-cube-exec-"));
 
   await withCubeFetchStub(async ({ url, method }) => {
     if (method === "POST" && url === "http://cube.test/sandboxes") {
@@ -49,10 +49,10 @@ test("CubeSandbox.exec throws a not-ready error until remote exec is wired", asy
         workDir,
         provider: "cube",
         env: {
-          AGENT_SPACE_CUBE_ENABLE_EXPERIMENTAL: "true",
-          AGENT_SPACE_CUBE_API_URL: "http://cube.test",
-          AGENT_SPACE_CUBE_API_KEY: "dummy",
-          AGENT_SPACE_CUBE_TEMPLATE_ID: "tpl-demo",
+          DOFE_AGENT_CUBE_ENABLE_EXPERIMENTAL: "true",
+          DOFE_AGENT_CUBE_API_URL: "http://cube.test",
+          DOFE_AGENT_CUBE_API_KEY: "dummy",
+          DOFE_AGENT_CUBE_TEMPLATE_ID: "tpl-demo",
         },
       });
 
@@ -67,7 +67,7 @@ test("CubeSandbox.exec throws a not-ready error until remote exec is wired", asy
 });
 
 test("CubeSandbox.snapshot falls back to a local snapshot when the Cube route is unavailable", async () => {
-  const workDir = await mkdtemp(join(tmpdir(), "agent-space-cube-snapshot-"));
+  const workDir = await mkdtemp(join(tmpdir(), "dofe-agent-cube-snapshot-"));
   await writeFile(join(workDir, "notes.txt"), "hello cube\n", "utf8");
 
   await withCubeFetchStub(async ({ url, method }) => {
@@ -100,10 +100,10 @@ test("CubeSandbox.snapshot falls back to a local snapshot when the Cube route is
         workDir,
         provider: "cube",
         env: {
-          AGENT_SPACE_CUBE_ENABLE_EXPERIMENTAL: "true",
-          AGENT_SPACE_CUBE_API_URL: "http://cube.test",
-          AGENT_SPACE_CUBE_API_KEY: "dummy",
-          AGENT_SPACE_CUBE_TEMPLATE_ID: "tpl-demo",
+          DOFE_AGENT_CUBE_ENABLE_EXPERIMENTAL: "true",
+          DOFE_AGENT_CUBE_API_URL: "http://cube.test",
+          DOFE_AGENT_CUBE_API_KEY: "dummy",
+          DOFE_AGENT_CUBE_TEMPLATE_ID: "tpl-demo",
         },
       });
 
@@ -119,7 +119,7 @@ test("CubeSandbox.snapshot falls back to a local snapshot when the Cube route is
 });
 
 test("CubeSandbox.refreshStatus maps paused and unknown remote states", async () => {
-  const workDir = await mkdtemp(join(tmpdir(), "agent-space-cube-status-"));
+  const workDir = await mkdtemp(join(tmpdir(), "dofe-agent-cube-status-"));
   let currentState = "paused";
 
   await withCubeFetchStub(async ({ url, method }) => {
@@ -156,10 +156,10 @@ test("CubeSandbox.refreshStatus maps paused and unknown remote states", async ()
         workDir,
         provider: "cube",
         env: {
-          AGENT_SPACE_CUBE_ENABLE_EXPERIMENTAL: "true",
-          AGENT_SPACE_CUBE_API_URL: "http://cube.test",
-          AGENT_SPACE_CUBE_API_KEY: "dummy",
-          AGENT_SPACE_CUBE_TEMPLATE_ID: "tpl-demo",
+          DOFE_AGENT_CUBE_ENABLE_EXPERIMENTAL: "true",
+          DOFE_AGENT_CUBE_API_URL: "http://cube.test",
+          DOFE_AGENT_CUBE_API_KEY: "dummy",
+          DOFE_AGENT_CUBE_TEMPLATE_ID: "tpl-demo",
         },
       });
 

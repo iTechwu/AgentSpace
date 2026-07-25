@@ -1,4 +1,4 @@
-import { canReadChannelForActorSync, subscribeWorkspaceRealtimeEvents } from "@agent-space/services";
+import { canReadChannelForActorSync, subscribeWorkspaceRealtimeEvents } from "@dofe-agent/services";
 import { getWorkspaceAccessForIdentifier } from "@/features/auth/server-workspace";
 
 export const runtime = "nodejs";

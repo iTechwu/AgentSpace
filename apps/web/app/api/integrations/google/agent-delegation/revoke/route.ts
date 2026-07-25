@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { revokeAgentGoogleWorkspaceDelegationSync } from "@agent-space/db";
-import { assertCanManageEmployeeForActorSync } from "@agent-space/services";
+import { revokeAgentGoogleWorkspaceDelegationSync } from "@dofe-agent/db";
+import { assertCanManageEmployeeForActorSync } from "@dofe-agent/services";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 
 export const runtime = "nodejs";

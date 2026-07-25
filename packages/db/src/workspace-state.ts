@@ -1,7 +1,7 @@
-import { createDefaultWorkspaceState, type AgentSpaceState } from "@agent-space/domain/workspace";
+import { createDefaultWorkspaceState, type DofeAgentState } from "@dofe-agent/domain/workspace";
 import { getDatabase, getDatabaseConnectionLabel, countRows, readMetadataValue, DEFAULT_WORKSPACE_ID } from "./database.ts";
 
-export const WORKSPACE_STATE_VERSION = Symbol("agent_space.workspace_state_version");
+export const WORKSPACE_STATE_VERSION = Symbol("dofe_agent.workspace_state_version");
 
 export class WorkspaceStateConflictError extends Error {
   readonly workspaceId: string;
@@ -29,9 +29,9 @@ type WorkspaceStateWriteOptions = {
 };
 
 export function ensureWorkspaceStateRecordSync(
-  defaultState: AgentSpaceState = createDefaultWorkspaceState(),
+  defaultState: DofeAgentState = createDefaultWorkspaceState(),
   workspaceId = DEFAULT_WORKSPACE_ID,
-): AgentSpaceState {
+): DofeAgentState {
   const state = readWorkspaceStateRecordSync(workspaceId);
   if (state) {
     return state;
@@ -42,7 +42,7 @@ export function ensureWorkspaceStateRecordSync(
   });
 }
 
-export function readWorkspaceStateRecordSync(workspaceId = DEFAULT_WORKSPACE_ID): AgentSpaceState | null {
+export function readWorkspaceStateRecordSync(workspaceId = DEFAULT_WORKSPACE_ID): DofeAgentState | null {
   const db = getDatabase();
   const row = db
     .prepare("SELECT state_json, state_version FROM workspace_snapshot WHERE id = ?")
@@ -52,14 +52,14 @@ export function readWorkspaceStateRecordSync(workspaceId = DEFAULT_WORKSPACE_ID)
     return null;
   }
 
-  return attachWorkspaceStateVersion(JSON.parse(row.state_json) as AgentSpaceState, row.state_version);
+  return attachWorkspaceStateVersion(JSON.parse(row.state_json) as DofeAgentState, row.state_version);
 }
 
 export function writeWorkspaceStateRecordSync(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   workspaceId = DEFAULT_WORKSPACE_ID,
   options?: WorkspaceStateWriteOptions,
-): AgentSpaceState {
+): DofeAgentState {
   const db = getDatabase();
   const now = new Date().toISOString();
   const existing = db
@@ -378,8 +378,8 @@ export function resetWorkspaceExecutionStateSync(workspaceId = DEFAULT_WORKSPACE
   };
 }
 
-export function readWorkspaceStateVersion(state: AgentSpaceState): number | undefined {
-  const candidate = state as AgentSpaceState & { [WORKSPACE_STATE_VERSION]?: unknown };
+export function readWorkspaceStateVersion(state: DofeAgentState): number | undefined {
+  const candidate = state as DofeAgentState & { [WORKSPACE_STATE_VERSION]?: unknown };
   return typeof candidate[WORKSPACE_STATE_VERSION] === "number" ? candidate[WORKSPACE_STATE_VERSION] : undefined;
 }
 
@@ -392,7 +392,7 @@ export function readWorkspaceStateCurrentVersionSync(workspaceId = DEFAULT_WORKS
   return typeof row?.state_version === "number" ? row.state_version : null;
 }
 
-function attachWorkspaceStateVersion<T extends AgentSpaceState>(state: T, version: number): T {
+function attachWorkspaceStateVersion<T extends DofeAgentState>(state: T, version: number): T {
   Object.defineProperty(state, WORKSPACE_STATE_VERSION, {
     value: version,
     enumerable: true,

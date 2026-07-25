@@ -49,8 +49,8 @@ import {
   resolveSettingsLoaderSection,
   type SettingsPageData,
 } from "@/features/settings/settings-page-loader";
-import { readWorkspaceSync, type WorkspaceRole } from "@agent-space/db";
-import type { PerformanceDashboardData } from "@agent-space/services";
+import { readWorkspaceSync, type WorkspaceRole } from "@dofe-agent/db";
+import type { PerformanceDashboardData } from "@dofe-agent/services";
 
 export type WorkspaceModuleLoaderData =
   | {
@@ -320,7 +320,7 @@ function readLoadtestWorkspaceModuleCache(
 }
 
 function readLoadtestWorkspaceModuleCacheTtlMs(): number {
-  const configured = Number.parseInt(process.env.AGENT_SPACE_WORKSPACE_MODULE_LOAD_CACHE_TTL_MS ?? "", 10);
+  const configured = Number.parseInt(process.env.DOFE_AGENT_WORKSPACE_MODULE_LOAD_CACHE_TTL_MS ?? "", 10);
   if (Number.isFinite(configured) && configured > 0) {
     return configured;
   }

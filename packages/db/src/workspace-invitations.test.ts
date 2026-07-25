@@ -19,7 +19,7 @@ import {
 } from "./index.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-workspace-invitations-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-workspace-invitations-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

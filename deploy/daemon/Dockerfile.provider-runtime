@@ -7,22 +7,22 @@ USER root
 
 ARG PROVIDER_PATH=""
 
-RUN groupadd --gid 10001 agent-space \
-  && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/agent-space --shell /usr/sbin/nologin agent-space
+RUN groupadd --gid 10001 dofe-agent \
+  && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent
 
-COPY agent-space-daemon-*.tgz /tmp/
+COPY dofe-agent-daemon-*.tgz /tmp/
 
-RUN npm install --global /tmp/agent-space-daemon-*.tgz \
-  && rm /tmp/agent-space-daemon-*.tgz \
-  && mkdir -p /var/lib/agent-space-daemon \
-  && chown -R agent-space:agent-space /home/agent-space /var/lib/agent-space-daemon
+RUN npm install --global /tmp/dofe-agent-daemon-*.tgz \
+  && rm /tmp/dofe-agent-daemon-*.tgz \
+  && mkdir -p /var/lib/dofe-agent-daemon \
+  && chown -R dofe-agent:dofe-agent /home/dofe-agent /var/lib/dofe-agent-daemon
 
-ENV HOME=/home/agent-space \
-    AGENT_SPACE_DAEMON_STATE_DIR=/var/lib/agent-space-daemon \
+ENV HOME=/home/dofe-agent \
+    DOFE_AGENT_DAEMON_STATE_DIR=/var/lib/dofe-agent-daemon \
     NODE_ENV=production \
     PROVIDER_PATH=${PROVIDER_PATH}
 ENV PATH=${PROVIDER_PATH}:${PATH}
 
-USER agent-space
+USER dofe-agent
 
-ENTRYPOINT ["agent-space-daemon", "start", "--foreground"]
+ENTRYPOINT ["dofe-agent-daemon", "start", "--foreground"]

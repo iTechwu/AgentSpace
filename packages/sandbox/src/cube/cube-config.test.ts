@@ -16,7 +16,7 @@ import type { SandboxConnectOptions } from "../types.ts";
 function buildOptions(env: NodeJS.ProcessEnv = {}): SandboxConnectOptions {
   return {
     runtimeId: "runtime-cube-test",
-    workDir: "/tmp/agent-space-cube-test",
+    workDir: "/tmp/dofe-agent-cube-test",
     env,
   };
 }
@@ -43,7 +43,7 @@ test("resolveSandboxProvider falls back to local and honors legacy provider env"
 test("resolveSandboxProvider requires an explicit experimental guard for cube", () => {
   assert.throws(
     () => resolveSandboxProvider(buildOptions({ [LEGACY_SANDBOX_PROVIDER_ENV]: "cube" })),
-    /AGENT_SPACE_CUBE_ENABLE_EXPERIMENTAL/,
+    /DOFE_AGENT_CUBE_ENABLE_EXPERIMENTAL/,
   );
 });
 
@@ -61,16 +61,16 @@ test("resolveCubeSandboxConfig reads E2B-compatible env vars and derives timeout
   assert.equal(config.timeoutSeconds, 60);
   assert.equal(config.mountWorkDir, false);
   assert.deepEqual(config.metadata, {
-    "agent-space.runtime-id": "runtime-cube-test",
-    "agent-space.work-dir": "/tmp/agent-space-cube-test",
+    "dofe-agent.runtime-id": "runtime-cube-test",
+    "dofe-agent.work-dir": "/tmp/dofe-agent-cube-test",
   });
 });
 
-test("resolveCubeSandboxConfig prefers AGENT_SPACE_* env names over legacy Cube aliases", () => {
+test("resolveCubeSandboxConfig prefers DOFE_AGENT_* env names over legacy Cube aliases", () => {
   const config = resolveCubeSandboxConfig(buildOptions({
-    AGENT_SPACE_CUBE_API_URL: "http://cube-primary.test",
-    AGENT_SPACE_CUBE_API_KEY: "primary-key",
-    AGENT_SPACE_CUBE_TEMPLATE_ID: "tpl-primary",
+    DOFE_AGENT_CUBE_API_URL: "http://cube-primary.test",
+    DOFE_AGENT_CUBE_API_KEY: "primary-key",
+    DOFE_AGENT_CUBE_TEMPLATE_ID: "tpl-primary",
     [LEGACY_CUBE_API_URL_ENV]: "http://cube-legacy.test",
     [LEGACY_CUBE_API_KEY_ENV]: "legacy-key",
     [LEGACY_CUBE_TEMPLATE_ID_ENV]: "tpl-legacy",
@@ -91,17 +91,17 @@ test("resolveCubeSandboxConfig can mount the daemon workDir into the Cube sandbo
 
   assert.equal(config.mountWorkDir, true);
   assert.equal(config.mountPath, "/workspace");
-  assert.equal(config.metadata["agent-space.mount-path"], "/workspace");
+  assert.equal(config.metadata["dofe-agent.mount-path"], "/workspace");
   assert.equal(
     config.metadata["host-mount"],
-    JSON.stringify([{ hostPath: "/tmp/agent-space-cube-test", mountPath: "/workspace", readOnly: false }]),
+    JSON.stringify([{ hostPath: "/tmp/dofe-agent-cube-test", mountPath: "/workspace", readOnly: false }]),
   );
 });
 
 test("resolveCubeSandboxConfig rejects missing Cube connection env", () => {
   assert.throws(
     () => resolveCubeSandboxConfig(buildOptions({ [LEGACY_CUBE_API_KEY_ENV]: "dummy" })),
-    /AGENT_SPACE_CUBE_API_URL or E2B_API_URL/,
+    /DOFE_AGENT_CUBE_API_URL or E2B_API_URL/,
   );
 });
 
@@ -111,8 +111,8 @@ test("resolveCubeSandboxConfig rejects invalid explicit Cube timeout seconds", (
       [LEGACY_CUBE_API_URL_ENV]: "http://127.0.0.1:3000",
       [LEGACY_CUBE_API_KEY_ENV]: "dummy",
       [LEGACY_CUBE_TEMPLATE_ID_ENV]: "tpl-demo",
-      AGENT_SPACE_CUBE_TIMEOUT_SECONDS: "0",
+      DOFE_AGENT_CUBE_TIMEOUT_SECONDS: "0",
     })),
-    /AGENT_SPACE_CUBE_TIMEOUT_SECONDS must be a positive integer/,
+    /DOFE_AGENT_CUBE_TIMEOUT_SECONDS must be a positive integer/,
   );
 });

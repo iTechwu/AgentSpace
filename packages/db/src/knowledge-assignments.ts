@@ -1,4 +1,4 @@
-import type { KnowledgeAssignmentMode } from "@agent-space/domain/workspace";
+import type { KnowledgeAssignmentMode } from "@dofe-agent/domain/workspace";
 import { DEFAULT_WORKSPACE_ID, getDatabase, withTransaction } from "./database.ts";
 import type {
   StoredAgentKnowledgePageRecord,

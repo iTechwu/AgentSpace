@@ -1,8 +1,8 @@
-# agent-space-daemon
+# dofe-agent-daemon
 
-`agent-space-daemon` 是 AgentSpace remote daemon 的独立可分发产物。
+`dofe-agent-daemon` 是 DofeAgent remote daemon 的独立可分发产物。
 
-在产品定位上，它不是一个孤立的运维组件，而是 AgentSpace 作为“创始人团队数字执行系统”的远程执行底座：数字员工要持续推进跨天任务，必须依赖可独立部署、可远程接入、可安全回收产物的执行层。
+在产品定位上，它不是一个孤立的运维组件，而是 DofeAgent 作为“创始人团队数字执行系统”的远程执行底座：数字员工要持续推进跨天任务，必须依赖可独立部署、可远程接入、可安全回收产物的执行层。
 
 它只包含远程 daemon 运行时所需的最小代码：
 
@@ -15,20 +15,20 @@
 除了 CLI 入口，包内现在还暴露了一个很小的 library surface，专门给仓库内外的 server-side 调用方复用 daemon HTTP client：
 
 ```ts
-import { HttpDaemonClient } from "agent-space-daemon/daemon-client";
+import { HttpDaemonClient } from "dofe-agent-daemon/daemon-client";
 ```
 
 构建后对应的运行时产物是 `dist/index.js` 和 `dist/daemon-client.js`。当前这条 surface 只承诺 `HttpDaemonClient` 与它依赖的 daemon API 类型；remote daemon 运行时、provider glue code 等仍然只通过 CLI 入口消费。
 
 它承担的核心角色是：
 
-- 把远端机器接入 AgentSpace 工作区
+- 把远端机器接入 DofeAgent 工作区
 - 为 long-horizon agent 提供独立执行环境
 - 把运行时产物安全回收并写回正式工作流
 
 它不依赖：
 
-- AgentSpace 仓库 checkout
+- DofeAgent 仓库 checkout
 - `Target.md`
 - `apps/web`
 - `packages/db`
@@ -67,24 +67,24 @@ npm pack
 在远端机器安装：
 
 ```bash
-npm install -g ./agent-space-daemon-<version>.tgz
+npm install -g ./dofe-agent-daemon-<version>.tgz
 ```
 
 ## 使用
 
 ```bash
-agent-space-daemon start \
+dofe-agent-daemon start \
   --foreground \
-  --server-url "https://your-agentspace-domain" \
+  --server-url "https://your-dofe-agent-domain" \
   --daemon-token "adt_xxx" \
   --daemon-id "daemon-prod-01" \
   --device-name "prod-daemon-host-01" \
   --runtime-name "Remote Agent" \
   --task-timeout "43200000" \
-  --state-dir "$HOME/.agent-space-daemon"
+  --state-dir "$HOME/.dofe-agent-daemon"
 ```
 
-`--task-timeout`/`AGENT_SPACE_TASK_TIMEOUT_MS` 用于 long-horizon 任务。当前默认值是 12 小时，避免 daemon 在 20 分钟左右提前中断跨天执行。
+`--task-timeout`/`DOFE_AGENT_TASK_TIMEOUT_MS` 用于 long-horizon 任务。当前默认值是 12 小时，避免 daemon 在 20 分钟左右提前中断跨天执行。
 
 Claude Code runtime 必须由已登录 Claude Code 的用户启动。服务器场景可以用 root 启动，但要确认 `/root` 下已完成 Claude Code 登录；daemon 任务命令会以 root 权限执行。
 
@@ -106,7 +106,7 @@ Claude Code runtime 必须由已登录 Claude Code 的用户启动。服务器�
 
 OpenClaw profile/model contract：
 
-1. runtime metadata 中的 `openClawProfile` / `openClawModel`（传给 adapter 时会转换为 `AGENT_SPACE_OPENCLAW_*_OVERRIDE`）
+1. runtime metadata 中的 `openClawProfile` / `openClawModel`（传给 adapter 时会转换为 `DOFE_AGENT_OPENCLAW_*_OVERRIDE`）
 2. task / AgentRouter request 的 `model`
 3. `OPENCLAW_PROFILE` / `OPENCLAW_MODEL`
 4. OpenClaw profile 默认 model
@@ -125,7 +125,7 @@ OpenClaw troubleshooting：
 - `provider.auth_invalid`：重新登录或刷新 OpenClaw/OpenRouter profile，检查 daemon 继承的 env
 - `provider.model_unavailable`：确认 `OPENCLAW_MODEL` 或 profile 默认 model 在当前 auth profile 下可用
 - `provider.session_invalid`：旧 session/conversation/agent 不存在；provider-runtime 会清理 task output 并自动开启新会话
-- `provider.tool_missing` / `provider.tool_unauthorized` / `provider.tool_permission_denied`：检查 `agent-space output`、Google Workspace `gws`、CLI-Hub app 是否在 PATH 且已授权
+- `provider.tool_missing` / `provider.tool_unauthorized` / `provider.tool_permission_denied`：检查 `dofe-agent output`、Google Workspace `gws`、CLI-Hub app 是否在 PATH 且已授权
 - `provider.protocol_parse_failed`：OpenClaw stdout/stderr 不符合 JSON event 预期；查看 provider diagnostic tail
 
 ## Sandbox provider（实验中的 Cube scaffold）
@@ -143,19 +143,19 @@ remote daemon 当前默认仍使用本地 `LocalSandbox`。`packages/sandbox` �
 
 ```bash
 # provider 选择
-AGENT_SPACE_SANDBOX_PROVIDER=cube
+DOFE_AGENT_SANDBOX_PROVIDER=cube
 # 显式确认你要启用实验性 Cube scaffold
-AGENT_SPACE_CUBE_ENABLE_EXPERIMENTAL=true
+DOFE_AGENT_CUBE_ENABLE_EXPERIMENTAL=true
 # 兼容旧约定
 SANDBOX_PROVIDER=cube
 
 # 注意：当前仅用于验证 create/pause/snapshot/destroy 生命周期；
 # 真正的 provider CLI 执行仍然必须继续使用 local
 
-# Cube API 连接（优先使用 AGENT_SPACE_* 命名）
-AGENT_SPACE_CUBE_API_URL=http://127.0.0.1:3000
-AGENT_SPACE_CUBE_API_KEY=dummy
-AGENT_SPACE_CUBE_TEMPLATE_ID=<your-template-id>
+# Cube API 连接（优先使用 DOFE_AGENT_* 命名）
+DOFE_AGENT_CUBE_API_URL=http://127.0.0.1:3000
+DOFE_AGENT_CUBE_API_KEY=dummy
+DOFE_AGENT_CUBE_TEMPLATE_ID=<your-template-id>
 
 # 兼容 Cube 示例中的 E2B 命名
 E2B_API_URL=http://127.0.0.1:3000
@@ -163,16 +163,16 @@ E2B_API_KEY=dummy
 CUBE_TEMPLATE_ID=<your-template-id>
 
 # 可选：让 sandbox TTL 与 long-horizon task timeout 对齐
-AGENT_SPACE_CUBE_TIMEOUT_SECONDS=43200
+DOFE_AGENT_CUBE_TIMEOUT_SECONDS=43200
 
 # 可选：把 daemon workDir 作为 Cube host-mount metadata 传过去
-AGENT_SPACE_CUBE_MOUNT_WORKDIR=true
-AGENT_SPACE_CUBE_MOUNT_PATH=/workspace
+DOFE_AGENT_CUBE_MOUNT_WORKDIR=true
+DOFE_AGENT_CUBE_MOUNT_PATH=/workspace
 
 # 可选：网络策略
-AGENT_SPACE_CUBE_ALLOW_INTERNET=false
-AGENT_SPACE_CUBE_ALLOW_OUT=10.0.0.53/32,10.0.1.0/24
-AGENT_SPACE_CUBE_DENY_OUT=169.254.0.0/16
+DOFE_AGENT_CUBE_ALLOW_INTERNET=false
+DOFE_AGENT_CUBE_ALLOW_OUT=10.0.0.53/32,10.0.1.0/24
+DOFE_AGENT_CUBE_DENY_OUT=169.254.0.0/16
 ```
 
 如果 CubeAPI 走 HTTPS 且证书不在系统信任链中，需要先把对应 CA 注入 Node 运行时信任链（例如设置 `NODE_EXTRA_CA_CERTS=/path/to/rootCA.pem`），再启动 daemon。
@@ -181,12 +181,12 @@ AGENT_SPACE_CUBE_DENY_OUT=169.254.0.0/16
 查看帮助：
 
 ```bash
-agent-space-daemon help
+dofe-agent-daemon help
 ```
 
 ## AgentRouter MVP
 
-`agent-router` 是同包发布的轻量跨 harness CLI，用来直接验证 Claude Code、Codex CLI、Antigravity CLI、OpenCode、OpenClaw、Hermes Agent 的原生 headless 调用与统一结果 contract。daemon 的 Claude Code、Codex CLI、Antigravity CLI、OpenCode、OpenClaw、Hermes Agent task execution 已经通过 AgentRouter 执行；AgentSpace task queue、runtime-output、gws、workspace skills 和 Web UI 仍由 daemon 外层流程处理。Gemini、NanoBot 暂时保留旧 provider runtime 路径。
+`agent-router` 是同包发布的轻量跨 harness CLI，用来直接验证 Claude Code、Codex CLI、Antigravity CLI、OpenCode、OpenClaw、Hermes Agent 的原生 headless 调用与统一结果 contract。daemon 的 Claude Code、Codex CLI、Antigravity CLI、OpenCode、OpenClaw、Hermes Agent task execution 已经通过 AgentRouter 执行；DofeAgent task queue、runtime-output、gws、workspace skills 和 Web UI 仍由 daemon 外层流程处理。Gemini、NanoBot 暂时保留旧 provider runtime 路径。
 
 AgentRouter 工作机制图见仓库根目录 `README.md`。
 

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import {
   createKnowledgeProposalFromAgentSync,
   type CreateKnowledgeProposalFromAgentInput,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import {
   MAX_KNOWLEDGE_PROPOSAL_MARKDOWN_BYTES,
   readKnowledgeProposalsManifest,
@@ -72,10 +72,10 @@ function assertControlledKnowledgeProposalManifest(workDir: string): string | un
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return undefined;
     }
-    if ((parsed as { generatedBy?: unknown }).generatedBy === "agent-space-cli") {
+    if ((parsed as { generatedBy?: unknown }).generatedBy === "dofe-agent-cli") {
       return undefined;
     }
-    return `${RUNTIME_OUTPUT_KNOWLEDGE_PROPOSALS_RELATIVE_PATH} 已被拒绝：请使用 agent-space output knowledge propose-create/propose-update 生成受控 manifest，不要手写 JSON。`;
+    return `${RUNTIME_OUTPUT_KNOWLEDGE_PROPOSALS_RELATIVE_PATH} 已被拒绝：请使用 dofe-agent output knowledge propose-create/propose-update 生成受控 manifest，不要手写 JSON。`;
   } catch (error) {
     return `${RUNTIME_OUTPUT_KNOWLEDGE_PROPOSALS_RELATIVE_PATH} 已被拒绝：manifest 无法验证来源（${error instanceof Error ? error.message : String(error)}）。`;
   }

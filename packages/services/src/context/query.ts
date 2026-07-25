@@ -1,4 +1,4 @@
-import type { AgentSpaceState, ChannelDocument, WorkspaceMessage } from "@agent-space/domain/workspace";
+import type { DofeAgentState, ChannelDocument, WorkspaceMessage } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue, uniqueNames } from "../shared/helpers.ts";
 import { buildContactAgentContext, type ContactContextEntity } from "./provider.ts";
@@ -20,7 +20,7 @@ export function listWorkspaceContextEntitiesSync(agentName: string, workspaceId?
   return listWorkspaceContextEntities(ensureWorkspaceStateSync(workspaceId), agentName);
 }
 
-export function listWorkspaceContextEntities(state: AgentSpaceState, agentName: string): ContactContextEntity[] {
+export function listWorkspaceContextEntities(state: DofeAgentState, agentName: string): ContactContextEntity[] {
   return buildContactAgentContext(state, agentName).knownEntities;
 }
 
@@ -33,7 +33,7 @@ export function resolveWorkspaceContextEntitySync(
 }
 
 export function resolveWorkspaceContextEntity(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   agentName: string,
   query: string,
 ): ContactContextEntity | undefined {
@@ -53,7 +53,7 @@ export function listWorkspaceContextChannelsSync(agentName: string, workspaceId?
 }
 
 export function listWorkspaceContextChannels(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   agentName: string,
 ): WorkspaceContextChannelSummary[] {
   const visibleChannels = getVisibleChannels(state, agentName);
@@ -79,7 +79,7 @@ export function listWorkspaceContextDocumentsSync(
 }
 
 export function listWorkspaceContextDocuments(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   agentName: string,
   channelName?: string,
 ): ChannelDocument[] {
@@ -112,7 +112,7 @@ export function searchWorkspaceContextMessagesSync(
 }
 
 export function searchWorkspaceContextMessages(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   agentName: string,
   query: string,
   channelName?: string,
@@ -137,7 +137,7 @@ export function searchWorkspaceContextMessages(
     }));
 }
 
-function getVisibleChannels(state: AgentSpaceState, agentName: string): string[] {
+function getVisibleChannels(state: DofeAgentState, agentName: string): string[] {
   const self = state.activeEmployees.find((employee) => sameValue(employee.name, agentName));
   if (!self) {
     return [];

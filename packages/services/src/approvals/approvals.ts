@@ -5,8 +5,8 @@ import {
   listWorkspaceMembershipsSync,
   readQueuedTaskSync,
   readUserSync,
-} from "@agent-space/db";
-import type { AgentSpaceState, ApprovalRequest, ApprovalStatus } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import type { DofeAgentState, ApprovalRequest, ApprovalStatus } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue, createOpaqueId } from "../shared/helpers.ts";
 import { recordTaskExecutionEventSync } from "../task-execution-events.ts";
@@ -25,7 +25,7 @@ export function createApprovalRequestSync(input: {
   channelName: string;
   contentPreview: string;
   metadata?: Record<string, unknown>;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
 
   if (!state.activeEmployees.some((employee) => sameValue(employee.name, input.agentId))) {
@@ -119,7 +119,7 @@ export function reviewApprovalSync(
   decision: "approved" | "rejected",
   comment?: string,
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const approval = state.approvals.find((item) => item.id === approvalId);
 
@@ -213,7 +213,7 @@ function createApprovalDecisionNotifications(
   approval: ApprovalRequest,
   decision: "approved" | "rejected",
   workspaceId: string,
-  state: AgentSpaceState,
+  state: DofeAgentState,
 ): void {
   const employee = state.activeEmployees.find((item) => sameValue(item.name, approval.agentId));
   const owner = employee?.ownerUserId ? readUserSync(employee.ownerUserId) : null;
@@ -274,7 +274,7 @@ function createApprovalDecisionNotifications(
   ]);
 }
 
-function updateApprovalConversationMessages(state: AgentSpaceState, approval: ApprovalRequest): void {
+function updateApprovalConversationMessages(state: DofeAgentState, approval: ApprovalRequest): void {
   for (const message of state.messages) {
     if (message.code !== "approval.created" || message.data?.approval_id !== approval.id) {
       continue;

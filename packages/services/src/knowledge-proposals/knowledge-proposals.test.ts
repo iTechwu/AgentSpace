@@ -13,7 +13,7 @@ import {
   listTaskExecutionEventsSync,
   listWorkspaceNotificationsForRecipientSync,
   registerDaemonRuntimesSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   approveKnowledgeProposalForActorSync,
   createEmployeeSync,
@@ -28,11 +28,11 @@ import {
 } from "../index.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-knowledge-proposals-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-knowledge-proposals-"));
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
 
 before(() => {
-  process.env.AGENT_SPACE_REPOSITORY_ROOT = repositoryRoot;
+  process.env.DOFE_AGENT_REPOSITORY_ROOT = repositoryRoot;
   loadRepositoryEnvIntoProcess({ startDir: repositoryRoot, override: false });
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });

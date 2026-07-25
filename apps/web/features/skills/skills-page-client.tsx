@@ -49,7 +49,7 @@ export function SkillsPageClient({
     defaultWidth: 360,
     maxWidth: 620,
     minWidth: 300,
-    storageKey: "agent-space.skills-list-width",
+    storageKey: "dofe-agent.skills-list-width",
   });
 
   useEffect(() => {

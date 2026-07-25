@@ -4,7 +4,7 @@ import {
   readChannelInvitationSync,
   readUserSync,
   readWorkspaceSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   acceptChannelInvitationAction,
   rejectChannelInvitationAction,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentSpaceState } from "@agent-space/domain/workspace";
+import type { DofeAgentState } from "@dofe-agent/domain/workspace";
 import { normalizeWorkspaceState } from "../shared/normalizers.ts";
 import {
   buildChannelDocumentRecord,
@@ -135,7 +135,7 @@ test("workspace normalization preserves legacy markdown documents as native docu
         title: "Legacy notes",
         currentVersionId: "ver-1",
       },
-    ] as unknown as AgentSpaceState["channelDocuments"],
+    ] as unknown as DofeAgentState["channelDocuments"],
     channelDocumentVersions: [
       {
         id: "ver-1",
@@ -143,7 +143,7 @@ test("workspace normalization preserves legacy markdown documents as native docu
         contentMarkdown: "# Legacy",
         createdBy: "Mina",
       },
-    ] as unknown as AgentSpaceState["channelDocumentVersions"],
+    ] as unknown as DofeAgentState["channelDocumentVersions"],
   });
 
   assert.equal(state.channelDocuments[0]?.kind, "markdown");
@@ -168,7 +168,7 @@ test("workspace normalization keeps Google Sheets external metadata and operatio
         externalRevisionId: "rev-7",
         externalSyncStatus: "ok",
       },
-    ] as unknown as AgentSpaceState["channelDocuments"],
+    ] as unknown as DofeAgentState["channelDocuments"],
     channelDocumentVersions: [
       {
         id: "ver-1",
@@ -176,7 +176,7 @@ test("workspace normalization keeps Google Sheets external metadata and operatio
         contentMarkdown: "",
         createdBy: "Atlas",
       },
-    ] as unknown as AgentSpaceState["channelDocumentVersions"],
+    ] as unknown as DofeAgentState["channelDocumentVersions"],
     externalSheetOperationRuns: [
       {
         id: "run-1",

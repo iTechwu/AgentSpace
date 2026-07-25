@@ -44,8 +44,8 @@ import {
   upsertExternalUserBindingSync,
 } from "./index.ts";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-db-integrations-"));
-const runIntegrationDbTests = process.env.AGENT_SPACE_DB_INTEGRATIONS_TESTS === "1";
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-db-integrations-"));
+const runIntegrationDbTests = process.env.DOFE_AGENT_DB_INTEGRATIONS_TESTS === "1";
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -71,7 +71,7 @@ beforeEach(() => {
 test("external integration list records keep encrypted credentials but do not contain raw app secrets", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const workspace = createWorkspaceSync({
     slug: "integrations-secret-list",
@@ -108,7 +108,7 @@ test("external integration list records keep encrypted credentials but do not co
 test("external integrations are unique by workspace provider tenant and app", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const workspace = createWorkspaceSync({
     slug: "integrations-app-tenant",
@@ -189,7 +189,7 @@ test("external integrations are unique by workspace provider tenant and app", {
 test("external integrations can be scoped to agent bot bindings", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const workspace = createWorkspaceSync({
     slug: "integrations-agent-bots",
@@ -256,7 +256,7 @@ test("external integrations can be scoped to agent bot bindings", {
 test("external integration health update can persist a config snapshot", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const workspace = createWorkspaceSync({
     slug: "integrations-health-config",
@@ -306,10 +306,10 @@ test("external integration health update can persist a config snapshot", {
   });
 });
 
-test("external user bindings are unique by AgentSpace user and Feishu user", {
+test("external user bindings are unique by DofeAgent user and Feishu user", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const { workspace, integration, user } = seedIntegrationWorkspace("users");
   const first = upsertExternalUserBindingSync({
@@ -356,10 +356,10 @@ test("external user bindings are unique by AgentSpace user and Feishu user", {
   }));
 });
 
-test("external channel bindings are unique by AgentSpace channel and Feishu chat", {
+test("external channel bindings are unique by DofeAgent channel and Feishu chat", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const { workspace, integration } = seedIntegrationWorkspace("channels");
   createStoredChannelSync({
@@ -415,7 +415,7 @@ test("external channel bindings are unique by AgentSpace channel and Feishu chat
 test("external channel bindings can be resolved by provider tenant and chat across integrations", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const { workspace, integration } = seedIntegrationWorkspace("provider-chat");
   const secondIntegration = createExternalIntegrationSync({
@@ -489,7 +489,7 @@ test("external channel bindings can be resolved by provider tenant and chat acro
 test("external resource bindings are unique by provider resource key", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const { workspace, integration } = seedIntegrationWorkspace("resources");
   const first = upsertExternalResourceBindingSync({
@@ -498,8 +498,8 @@ test("external resource bindings are unique by provider resource key", {
     providerResourceType: "sheet",
     providerResourceToken: "shtcnTest",
     providerResourceUrl: "https://example.feishu.cn/sheets/shtcnTest",
-    agentSpaceResourceType: "data_table",
-    agentSpaceResourceId: "table-1",
+    dofeAgentResourceType: "data_table",
+    dofeAgentResourceId: "table-1",
     displayName: "Launch Sheet",
     permissionsJson: { read: true },
   });
@@ -509,14 +509,14 @@ test("external resource bindings are unique by provider resource key", {
     providerResourceType: "sheet",
     providerResourceToken: "shtcnTest",
     providerResourceUrl: "https://example.feishu.cn/sheets/shtcnTest",
-    agentSpaceResourceType: "data_table",
-    agentSpaceResourceId: "table-2",
+    dofeAgentResourceType: "data_table",
+    dofeAgentResourceId: "table-2",
     displayName: "Launch Sheet Updated",
     permissionsJson: { read: true, write: true },
   });
 
   assert.equal(updated.id, first.id);
-  assert.equal(updated.agentSpaceResourceId, "table-2");
+  assert.equal(updated.dofeAgentResourceId, "table-2");
   assert.equal(updated.displayName, "Launch Sheet Updated");
   assert.deepEqual(JSON.parse(updated.permissionsJson), { read: true, write: true });
   assert.equal(listExternalResourceBindingsSync({ workspaceId: workspace.id, integrationId: integration.id }).length, 1);
@@ -531,7 +531,7 @@ test("external resource bindings are unique by provider resource key", {
 test("external message mappings are idempotent by external message id", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const { workspace, integration } = seedIntegrationWorkspace("mappings");
   const first = createExternalMessageMappingSync({
@@ -549,14 +549,14 @@ test("external message mappings are idempotent by external message id", {
     integrationId: integration.id,
     direction: "inbound",
     externalMessageId: "om_1",
-    agentSpaceMessageId: "message-1",
+    dofeAgentMessageId: "message-1",
     metadataJson: { dispatchStatus: "sent" },
   });
 
   assert.equal(updated.id, first.id);
   assert.equal(updated.externalThreadId, "om_root");
   assert.equal(updated.externalSenderId, "ou_mina");
-  assert.equal(updated.agentSpaceMessageId, "message-1");
+  assert.equal(updated.dofeAgentMessageId, "message-1");
   assert.deepEqual(JSON.parse(updated.metadataJson), { dispatchStatus: "sent" });
   assert.equal(readExternalMessageMappingByExternalMessageSync({
     workspaceId: workspace.id,
@@ -569,7 +569,7 @@ test("external message mappings are idempotent by external message id", {
     direction: "outbound",
     externalMessageId: "om_reply_1",
     externalThreadId: "om_1",
-    agentSpaceMessageId: "message-reply-1",
+    dofeAgentMessageId: "message-reply-1",
     metadataJson: { dispatchStatus: "sent" },
   });
   const mappings = listExternalMessageMappingsSync({
@@ -588,7 +588,7 @@ test("external message mappings are idempotent by external message id", {
 test("external thread bindings are idempotent per provider chat thread and agent", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const { workspace, integration } = seedIntegrationWorkspace("threads");
   const hermesIntegration = createExternalIntegrationSync({
@@ -624,7 +624,7 @@ test("external thread bindings are idempotent per provider chat thread and agent
     externalThreadId: "om_root",
     channelName: "general",
     agentId: "Atlas",
-    agentSpaceMessageId: "message-1",
+    dofeAgentMessageId: "message-1",
     metadataJson: { source: "first" },
     lastMessageAt: "2026-06-24T00:00:00.000Z",
   });
@@ -637,7 +637,7 @@ test("external thread bindings are idempotent per provider chat thread and agent
     externalThreadId: "om_root",
     channelName: "general",
     agentId: "Atlas",
-    agentSpaceMessageId: "message-2",
+    dofeAgentMessageId: "message-2",
     metadataJson: { source: "second" },
     lastMessageAt: "2026-06-24T00:01:00.000Z",
   });
@@ -649,11 +649,11 @@ test("external thread bindings are idempotent per provider chat thread and agent
     externalThreadId: "om_root",
     channelName: "general",
     agentId: "Hermes",
-    agentSpaceMessageId: "message-hermes",
+    dofeAgentMessageId: "message-hermes",
   });
 
   assert.equal(updated.id, first.id);
-  assert.equal(updated.agentSpaceMessageId, "message-2");
+  assert.equal(updated.dofeAgentMessageId, "message-2");
   assert.equal(updated.lastMessageAt, "2026-06-24T00:01:00.000Z");
   assert.deepEqual(JSON.parse(updated.metadataJson), { source: "second" });
   assert.notEqual(hermes.id, first.id);
@@ -675,7 +675,7 @@ test("external thread bindings are idempotent per provider chat thread and agent
 test("external data operation runs preserve payload hashes through status transitions", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const { workspace, integration } = seedIntegrationWorkspace("data-runs");
   const run = createExternalDataOperationRunSync({
@@ -741,7 +741,7 @@ test("external data operation runs preserve payload hashes through status transi
 test("listExternalMessageOutboxSync filters by integration and status", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const workspace = createWorkspaceSync({
     slug: "integrations-outbox",
@@ -831,7 +831,7 @@ test("listExternalMessageOutboxSync filters by integration and status", {
 test("cancelExternalMessageOutboxForIntegrationSync cancels pending and locked items", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const workspace = createWorkspaceSync({
     slug: "integrations-outbox-cancel",
@@ -918,7 +918,7 @@ test("cancelExternalMessageOutboxForIntegrationSync cancels pending and locked i
 test("listExternalIntegrationEventsSync filters recent webhook events", {
   skip: runIntegrationDbTests
     ? false
-    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+    : "Set DOFE_AGENT_DB_INTEGRATIONS_TESTS=1 with DOFE_AGENT_TEST_DATABASE_URL to run external integration DB tests.",
 }, () => {
   const workspace = createWorkspaceSync({
     slug: "integrations-events",

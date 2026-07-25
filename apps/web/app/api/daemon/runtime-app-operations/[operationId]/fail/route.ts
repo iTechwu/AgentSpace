@@ -1,6 +1,6 @@
-import { failRuntimeAppOperationSync } from "@agent-space/db";
-import type { FailRuntimeAppOperationRequest } from "@agent-space/domain";
-import { tryRecordWorkspaceAuditEventSync } from "@agent-space/services";
+import { failRuntimeAppOperationSync } from "@dofe-agent/db";
+import type { FailRuntimeAppOperationRequest } from "@dofe-agent/domain";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { readRuntimeAppOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

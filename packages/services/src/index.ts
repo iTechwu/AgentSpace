@@ -381,11 +381,11 @@ export {
 } from "./attachments/storage.ts";
 export {
   readStoredAttachmentSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 export {
-  resolveAgentSpaceRuntimeConfig,
+  resolveDofeAgentRuntimeConfig,
   resolveAttachmentRuntimeConfig,
-  type AgentSpaceRuntimeConfig,
+  type DofeAgentRuntimeConfig,
   type AttachmentRuntimeConfig,
 } from "./config/deployment.ts";
 export {
@@ -407,7 +407,7 @@ export {
   recordExternalDataOperationPlanSync,
   recordExternalDataOperationStartSync,
   registerIntegrationProviderAdapter,
-  type AgentSpaceOutboundMessage,
+  type DofeAgentOutboundMessage,
   type ExternalDataOperationRequest,
   type ExternalDataOperationResult,
   type ExternalDocumentProviderAdapter,
@@ -589,7 +589,7 @@ export {
   upsertFeishuExternalChannelDocumentSync,
   uploadFeishuOutboundAttachment,
   validateApprovedFeishuDataOperationRun,
-  validateFeishuAgentSpaceResourceAccessForDataOperation,
+  validateFeishuDofeAgentResourceAccessForDataOperation,
   validateFeishuResourceDescriptorForBinding,
   validateFeishuResourceBindingScopes,
   validateFeishuResourceBindingForDataOperation,
@@ -618,8 +618,8 @@ export {
   type FeishuDataOperationWithApprovalResult,
   type FeishuDataTablePreviewSyncResult,
   type FeishuEncryptedPayload,
-  type FeishuAgentSpaceResourceAccessDependencies,
-  type FeishuAgentSpaceResourceAccessValidationResult,
+  type FeishuDofeAgentResourceAccessDependencies,
+  type FeishuDofeAgentResourceAccessValidationResult,
   type FeishuExternalChannelDocumentInput,
   type FeishuExternalChannelDocumentSyncResult,
   type FeishuExternalDataTableInput,

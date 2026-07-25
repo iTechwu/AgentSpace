@@ -8,8 +8,8 @@ import {
   readUserSync,
   readWorkspaceMembershipSync,
   type WorkspaceRole,
-} from "@agent-space/db";
-import { type AgentSpaceState, type ChannelRecord, type DirectConversationState, type MessageAttachment } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import { type DofeAgentState, type ChannelRecord, type DirectConversationState, type MessageAttachment } from "@dofe-agent/domain/workspace";
 import { ensureDirectChannelRecord, resolveCompatibleDirectChannelRecord } from "../channels/channels.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import {
@@ -37,7 +37,7 @@ export function sendContactMessageSync(
   content: string,
   workspaceId?: string,
   requesterUserId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   return sendContactMessageWithAttachmentsSync(contactId, content, undefined, workspaceId, requesterUserId);
 }
 
@@ -48,7 +48,7 @@ export function sendContactMessageWithAttachmentsSync(
   workspaceId?: string,
   requesterUserId?: string,
   externalInput?: ExternalMessageInputContext,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
   const resolvedHumanMember = requesterUserId
@@ -80,7 +80,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
   workspaceId?: string,
   requesterUserId?: string,
   externalInput?: ExternalMessageInputContext,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
   const contact = state.activeEmployees.find((employee) => sameValue(employee.name, contactId));
@@ -244,7 +244,7 @@ export function sendHumanDirectMessageSync(input: {
   content: string;
   attachments?: MessageAttachment[];
   replyToMessageId?: string;
-}): AgentSpaceState {
+}): DofeAgentState {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const actorUserId = input.actorUserId.trim();
   const targetUserId = input.targetUserId.trim();
@@ -327,7 +327,7 @@ export function postHumanDirectSystemMessageSync(input: {
   summary: string;
   code: string;
   data?: Record<string, string | undefined>;
-}): AgentSpaceState {
+}): DofeAgentState {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const leftUserId = input.leftUserId.trim();
   const rightUserId = input.rightUserId.trim();
@@ -403,7 +403,7 @@ export function postHumanDirectSystemMessageSync(input: {
 export function resolveHumanDirectChannelForUsersSync(input: {
   workspaceId?: string;
   userIds: [string, string];
-  state?: AgentSpaceState;
+  state?: DofeAgentState;
 }): ChannelRecord | null {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const [leftUserId, rightUserId] = input.userIds.map((userId) => userId.trim()) as [string, string];
@@ -448,7 +448,7 @@ function compactStringRecord(input: Record<string, string | undefined>): Record<
 }
 
 function resolveDefaultHumanMemberName(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   workspaceId: string,
 ): { name: string; changed: boolean } | undefined {
   const legacyName = state.humanMembers[0]?.name;
@@ -466,7 +466,7 @@ function resolveDefaultHumanMemberName(
 }
 
 function resolveHumanMemberNameForUser(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   workspaceId: string,
   userId: string,
 ): { name: string; changed: boolean } | undefined {
@@ -489,8 +489,8 @@ export function upsertDirectConversationStateSync(
     workDir?: string | null;
   },
   workspaceId?: string,
-  stateArg?: AgentSpaceState,
-): AgentSpaceState {
+  stateArg?: DofeAgentState,
+): DofeAgentState {
   const state = stateArg ?? ensureWorkspaceStateSync(workspaceId);
   const employee = state.activeEmployees.find((item) => sameValue(item.name, input.contactId));
   const shell = ensureLegacyContactShell(
@@ -513,9 +513,9 @@ export function upsertDirectConversationStateSync(
 }
 
 function ensureLegacyContactShell(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   contactId: string,
-  employee?: AgentSpaceState["activeEmployees"][number],
+  employee?: DofeAgentState["activeEmployees"][number],
   required = false,
   humanMemberName?: string,
 ): DirectConversationState | null {
@@ -558,7 +558,7 @@ function ensureHumanDirectParticipants(
 }
 
 function ensureHumanMemberSnapshot(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   displayName: string,
   role: WorkspaceRole,
 ): boolean {
@@ -582,6 +582,6 @@ function formatWorkspaceRole(role: WorkspaceRole): string {
   return "Member";
 }
 
-function resolveLegacyContactMirrorChannel(state: AgentSpaceState, contactId: string): string | null {
+function resolveLegacyContactMirrorChannel(state: DofeAgentState, contactId: string): string | null {
   return resolveCompatibleDirectChannelRecord(state, contactId)?.name ?? null;
 }

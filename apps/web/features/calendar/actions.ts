@@ -5,8 +5,8 @@ import {
   updateScheduledTaskSync,
   toggleScheduledTaskSync,
   deleteScheduledTaskSync,
-} from "@agent-space/services";
-import type { ScheduledTask } from "@agent-space/domain/workspace";
+} from "@dofe-agent/services";
+import type { ScheduledTask } from "@dofe-agent/domain/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePath } from "@/features/auth/workspace-revalidation";

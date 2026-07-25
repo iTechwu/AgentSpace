@@ -1,4 +1,4 @@
-import { readEffectiveRuntimeEnv } from "@agent-space/db";
+import { readEffectiveRuntimeEnv } from "@dofe-agent/db";
 
 export function readServerEnvValue(name: string): string | undefined {
   const value = readEffectiveRuntimeEnv()[name]?.trim();

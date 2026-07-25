@@ -1,13 +1,13 @@
 import type {
   ExternalResourceBindingRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type {
   ChannelDocument,
   ChannelDocumentEditorType,
   ChannelDocumentKind,
   DataTable,
   DataTableExternalPreview,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import type { ExternalDataOperationResult } from "../../core/index.ts";
 import {
   createChannelDocumentSync,
@@ -22,7 +22,7 @@ import {
 
 export interface FeishuExternalChannelDocumentInput {
   channelName?: string;
-  agentSpaceResourceId?: string;
+  dofeAgentResourceId?: string;
   providerResourceType: string;
   providerResourceToken: string;
   providerResourceUrl?: string;
@@ -40,7 +40,7 @@ export interface FeishuExternalChannelDocumentSyncResult {
 
 export interface FeishuExternalDataTableInput {
   channelName?: string;
-  agentSpaceResourceId?: string;
+  dofeAgentResourceId?: string;
   providerResourceType: string;
   providerResourceToken: string;
   providerResourceUrl?: string;
@@ -209,8 +209,8 @@ export function upsertFeishuExternalChannelDocumentWithDependenciesForTests(
     throw new Error("feishu.resource_binding.invalid_resource");
   }
 
-  const existingDocument = input.agentSpaceResourceId?.trim()
-    ? dependencies.readChannelDocument(input.agentSpaceResourceId.trim(), workspaceId)
+  const existingDocument = input.dofeAgentResourceId?.trim()
+    ? dependencies.readChannelDocument(input.dofeAgentResourceId.trim(), workspaceId)
     : null;
   if (existingDocument) {
     if (
@@ -292,8 +292,8 @@ export function upsertFeishuExternalDataTableWithDependenciesForTests(
     throw new Error("feishu.resource_binding.unsupported_data_table_resource");
   }
 
-  const existingTable = input.agentSpaceResourceId?.trim()
-    ? dependencies.readDataTable(input.agentSpaceResourceId.trim(), workspaceId)
+  const existingTable = input.dofeAgentResourceId?.trim()
+    ? dependencies.readDataTable(input.dofeAgentResourceId.trim(), workspaceId)
     : null;
   if (existingTable) {
     if (
@@ -356,7 +356,7 @@ export function syncFeishuDataTablePreviewFromReadResultWithDependenciesForTests
   },
   dependencies: FeishuDataTablePreviewSyncDependencies,
 ): FeishuDataTablePreviewSyncResult {
-  if (input.binding.agentSpaceResourceType !== "data_table") {
+  if (input.binding.dofeAgentResourceType !== "data_table") {
     return {
       synced: false,
       reasonCode: "feishu.data_table_preview_not_bound_to_table",
@@ -378,7 +378,7 @@ export function syncFeishuDataTablePreviewFromReadResultWithDependenciesForTests
   }
 
   try {
-    const table = dependencies.updateExternalDataTableMetadata(input.binding.agentSpaceResourceId, {
+    const table = dependencies.updateExternalDataTableMetadata(input.binding.dofeAgentResourceId, {
       externalProvider: "feishu",
       externalResourceType: input.binding.providerResourceType,
       externalResourceToken: input.binding.providerResourceToken,
@@ -429,7 +429,7 @@ export function syncFeishuDataTableApprovedWriteResultWithDependenciesForTests(
   },
   dependencies: FeishuApprovedDataTableWriteSyncDependencies,
 ): FeishuApprovedDataTableWriteSyncResult {
-  if (input.binding.agentSpaceResourceType !== "data_table") {
+  if (input.binding.dofeAgentResourceType !== "data_table") {
     return {
       synced: false,
       reasonCode: "feishu.data_table_write_not_bound_to_table",
@@ -442,7 +442,7 @@ export function syncFeishuDataTableApprovedWriteResultWithDependenciesForTests(
     };
   }
 
-  const table = dependencies.readDataTable(input.binding.agentSpaceResourceId, input.workspaceId);
+  const table = dependencies.readDataTable(input.binding.dofeAgentResourceId, input.workspaceId);
   if (!table) {
     return {
       synced: false,
@@ -460,7 +460,7 @@ export function syncFeishuDataTableApprovedWriteResultWithDependenciesForTests(
   });
 
   try {
-    const updated = dependencies.updateExternalDataTableMetadata(input.binding.agentSpaceResourceId, {
+    const updated = dependencies.updateExternalDataTableMetadata(input.binding.dofeAgentResourceId, {
       externalProvider: "feishu",
       externalResourceType: input.binding.providerResourceType,
       externalResourceToken: input.binding.providerResourceToken,
@@ -560,9 +560,9 @@ export function syncFeishuResourceMetadataSnapshotWithDependenciesForTests(
   }
 
   try {
-    if (input.binding.agentSpaceResourceType === "channel_document") {
+    if (input.binding.dofeAgentResourceType === "channel_document") {
       dependencies.updateExternalChannelDocumentMetadata({
-        documentId: input.binding.agentSpaceResourceId,
+        documentId: input.binding.dofeAgentResourceId,
         title: snapshot.title,
         externalRevisionId: snapshot.revisionId,
         externalSyncStatus: snapshot.syncStatus,
@@ -573,12 +573,12 @@ export function syncFeishuResourceMetadataSnapshotWithDependenciesForTests(
         synced: true,
         snapshot,
         targetType: "channel_document",
-        targetId: input.binding.agentSpaceResourceId,
+        targetId: input.binding.dofeAgentResourceId,
       };
     }
-    if (input.binding.agentSpaceResourceType === "data_table") {
+    if (input.binding.dofeAgentResourceType === "data_table") {
       const bindingMetadata = readJsonObject(input.binding.metadataJson);
-      dependencies.updateExternalDataTableMetadata(input.binding.agentSpaceResourceId, {
+      dependencies.updateExternalDataTableMetadata(input.binding.dofeAgentResourceId, {
         name: snapshot.title,
         externalProvider: "feishu",
         externalResourceType: input.binding.providerResourceType,
@@ -595,12 +595,12 @@ export function syncFeishuResourceMetadataSnapshotWithDependenciesForTests(
         synced: true,
         snapshot,
         targetType: "data_table",
-        targetId: input.binding.agentSpaceResourceId,
+        targetId: input.binding.dofeAgentResourceId,
       };
     }
     return {
       synced: false,
-      reasonCode: "feishu.resource_metadata_unsupported_agent_space_resource",
+      reasonCode: "feishu.resource_metadata_unsupported_dofe_agent_resource",
     };
   } catch (error) {
     return {

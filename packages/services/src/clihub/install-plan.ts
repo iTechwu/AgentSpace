@@ -1,5 +1,5 @@
-import type { RuntimeAppCatalogItemRecord, RuntimeAppInstallStrategy, RuntimeAppRiskLevel } from "@agent-space/db";
-import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan, RuntimeAppOperationType } from "@agent-space/domain";
+import type { RuntimeAppCatalogItemRecord, RuntimeAppInstallStrategy, RuntimeAppRiskLevel } from "@dofe-agent/db";
+import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan, RuntimeAppOperationType } from "@dofe-agent/domain";
 
 const UNSAFE_COMMAND_PATTERN = /(\||&&|;|`|\$\(|<\(|>\(|\bcurl\b|\bwget\b|\bsudo\b|\bsu\b|\bchmod\b|\bchown\b|\bsystemctl\b|\blaunchctl\b|\btee\s+-a\b|>>|~\/\.(?:bash|zsh|profile|config))/i;
 
@@ -103,7 +103,7 @@ function buildPlanNotes(
   const notes = [
     `Operation: ${operation}`,
     `Install strategy: ${strategy}`,
-    "AgentSpace executes a controlled command plan with argument arrays; registry install_cmd is catalog metadata only.",
+    "DofeAgent executes a controlled command plan with argument arrays; registry install_cmd is catalog metadata only.",
   ];
   if (!cliHubAvailable && (operation === "install" || operation === "update" || operation === "uninstall")) {
     notes.push("Target runtime did not report cli-hub readiness, so the plan bootstraps cli-anything-hub with python -m pip install --user before running cli-hub.");

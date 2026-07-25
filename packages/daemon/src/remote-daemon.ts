@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
-import { getDaemonChannelWorkDirPath, getDaemonTaskWorkDirPath } from "@agent-space/db";
+import { getDaemonChannelWorkDirPath, getDaemonTaskWorkDirPath } from "@dofe-agent/db";
 import { getStringFlag, parseArgs } from "./args.ts";
 import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, RegisterDaemonResponse } from "./daemon-api.ts";
 import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputBundle } from "./bundle.ts";
@@ -94,9 +94,9 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
   const detected = detectProviders();
   if (detected.length === 0) {
     rmSync(pidPath, { force: true });
-    const configuredProvider = process.env.AGENT_SPACE_RUNTIME_PROVIDER?.trim();
+    const configuredProvider = process.env.DOFE_AGENT_RUNTIME_PROVIDER?.trim();
     const providerScope = configuredProvider
-      ? ` for AGENT_SPACE_RUNTIME_PROVIDER=${configuredProvider}`
+      ? ` for DOFE_AGENT_RUNTIME_PROVIDER=${configuredProvider}`
       : "";
     console.error(
       `No supported provider CLI found${providerScope}. Install the configured provider and ensure it is on PATH.`,
@@ -212,17 +212,17 @@ export function buildRemoteDaemonConfig(
   return {
     stateDir:
       getStringFlag(flags, "state-dir")?.trim()
-      || environment.AGENT_SPACE_DAEMON_STATE_DIR?.trim()
+      || environment.DOFE_AGENT_DAEMON_STATE_DIR?.trim()
       || options?.defaultStateDir
       || resolveDefaultDaemonStateDir(environment),
-    daemonKey: getStringFlag(flags, "daemon-id")?.trim() || environment.AGENT_SPACE_DAEMON_ID?.trim() || hostname,
-    deviceName: getStringFlag(flags, "device-name")?.trim() || environment.AGENT_SPACE_DEVICE_NAME?.trim() || hostname,
-    runtimeName: getStringFlag(flags, "runtime-name")?.trim() || environment.AGENT_SPACE_RUNTIME_NAME?.trim() || "Remote Agent",
+    daemonKey: getStringFlag(flags, "daemon-id")?.trim() || environment.DOFE_AGENT_DAEMON_ID?.trim() || hostname,
+    deviceName: getStringFlag(flags, "device-name")?.trim() || environment.DOFE_AGENT_DEVICE_NAME?.trim() || hostname,
+    runtimeName: getStringFlag(flags, "runtime-name")?.trim() || environment.DOFE_AGENT_RUNTIME_NAME?.trim() || "Remote Agent",
     heartbeatIntervalMs: Math.max(
       1_000,
       Number(
         getStringFlag(flags, "heartbeat-interval")
-          ?? environment.AGENT_SPACE_HEARTBEAT_INTERVAL
+          ?? environment.DOFE_AGENT_HEARTBEAT_INTERVAL
           ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
       ),
     ),
@@ -230,7 +230,7 @@ export function buildRemoteDaemonConfig(
       1_000,
       Number(
         getStringFlag(flags, "poll-interval")
-          ?? environment.AGENT_SPACE_TASK_POLL_INTERVAL
+          ?? environment.DOFE_AGENT_TASK_POLL_INTERVAL
           ?? DEFAULT_TASK_POLL_INTERVAL_MS,
       ),
     ),
@@ -238,39 +238,39 @@ export function buildRemoteDaemonConfig(
       1_000,
       Number(
         getStringFlag(flags, "task-timeout")
-          ?? environment.AGENT_SPACE_TASK_TIMEOUT_MS
+          ?? environment.DOFE_AGENT_TASK_TIMEOUT_MS
           ?? 12 * 60 * 60 * 1000,
       ),
     ),
-    serverUrl: getStringFlag(flags, "server-url")?.trim() || environment.AGENT_SPACE_SERVER_URL?.trim(),
-    daemonToken: getStringFlag(flags, "daemon-token")?.trim() || environment.AGENT_SPACE_DAEMON_TOKEN?.trim(),
+    serverUrl: getStringFlag(flags, "server-url")?.trim() || environment.DOFE_AGENT_SERVER_URL?.trim(),
+    daemonToken: getStringFlag(flags, "daemon-token")?.trim() || environment.DOFE_AGENT_DAEMON_TOKEN?.trim(),
   };
 }
 
 export function printRemoteDaemonHelp(): void {
-  console.log(`agent-space-daemon
+  console.log(`dofe-agent-daemon
 
 Usage:
-  agent-space-daemon start [--foreground] [--server-url <url>] [--daemon-token <token>] [--daemon-id <id>] [--device-name <name>] [--runtime-name <label>] [--heartbeat-interval <ms>] [--poll-interval <ms>] [--task-timeout <ms>] [--state-dir <dir>]
-  agent-space-daemon stop [--state-dir <dir>]
-  agent-space-daemon status [--json] [--state-dir <dir>]
-  agent-space-daemon logs [--lines <n>] [--follow] [--state-dir <dir>]
+  dofe-agent-daemon start [--foreground] [--server-url <url>] [--daemon-token <token>] [--daemon-id <id>] [--device-name <name>] [--runtime-name <label>] [--heartbeat-interval <ms>] [--poll-interval <ms>] [--task-timeout <ms>] [--state-dir <dir>]
+  dofe-agent-daemon stop [--state-dir <dir>]
+  dofe-agent-daemon status [--json] [--state-dir <dir>]
+  dofe-agent-daemon logs [--lines <n>] [--follow] [--state-dir <dir>]
 
 Environment:
-  AGENT_SPACE_SERVER_URL
-  AGENT_SPACE_DAEMON_TOKEN
-  AGENT_SPACE_DAEMON_ID
-  AGENT_SPACE_DEVICE_NAME
-  AGENT_SPACE_RUNTIME_NAME
-  AGENT_SPACE_DAEMON_STATE_DIR
-  AGENT_SPACE_HEARTBEAT_INTERVAL
-  AGENT_SPACE_TASK_POLL_INTERVAL
-  AGENT_SPACE_TASK_TIMEOUT_MS
+  DOFE_AGENT_SERVER_URL
+  DOFE_AGENT_DAEMON_TOKEN
+  DOFE_AGENT_DAEMON_ID
+  DOFE_AGENT_DEVICE_NAME
+  DOFE_AGENT_RUNTIME_NAME
+  DOFE_AGENT_DAEMON_STATE_DIR
+  DOFE_AGENT_HEARTBEAT_INTERVAL
+  DOFE_AGENT_TASK_POLL_INTERVAL
+  DOFE_AGENT_TASK_TIMEOUT_MS
 
 Examples:
-  agent-space-daemon start --foreground --server-url https://agentspace.example --daemon-token adt_xxx
-  agent-space-daemon status --json
-  agent-space-daemon logs --follow`);
+  dofe-agent-daemon start --foreground --server-url https://dofe-agent.example --daemon-token adt_xxx
+  dofe-agent-daemon status --json
+  dofe-agent-daemon logs --follow`);
 }
 
 async function runRemoteDaemonStart(args: string[]): Promise<number> {
@@ -568,9 +568,9 @@ async function executeRemoteTask(
         sessionId: bundle.metadata.routerSession?.providerSessionId ?? resolveRemoteTaskProviderSessionId(task.inputJson),
         taskTimeoutMs: config.taskTimeoutMs,
         contextEnv: buildRuntimeContextEnv({
-          AGENT_SPACE_CONTEXT_TASK_ID: task.id,
-          AGENT_SPACE_CONTEXT_AGENT_NAME: readRemoteTaskAgentName(task),
-          AGENT_SPACE_CONTEXT_TRIGGER_TYPE: task.triggerType,
+          DOFE_AGENT_CONTEXT_TASK_ID: task.id,
+          DOFE_AGENT_CONTEXT_AGENT_NAME: readRemoteTaskAgentName(task),
+          DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
         }, bundle.metadata.googleWorkspace),
         runtimeApps: bundle.metadata.runtimeApps?.apps ?? [],
         runtimeToolCapabilities: bundle.metadata.runtimeToolCapabilities?.capabilities ?? [],

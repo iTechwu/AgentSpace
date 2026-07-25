@@ -16,6 +16,12 @@ export async function GET(request: Request): Promise<NextResponse> {
   const code = url.searchParams.get("code")?.trim();
   const returnedState = url.searchParams.get("state")?.trim();
   const providerError = url.searchParams.get("error")?.trim();
+
+  // RP-initiated logout returns here without an authorization response.
+  if (!code && !returnedState && !providerError) {
+    return NextResponse.redirect(buildSsoCallbackRedirectUrl("/", request.url));
+  }
+
   const cookieStore = await cookies();
   const state = decodeSsoOidcState(cookieStore.get(SSO_OIDC_STATE_COOKIE)?.value);
 

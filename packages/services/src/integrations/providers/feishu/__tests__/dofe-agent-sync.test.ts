@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ExternalResourceBindingRecord } from "@agent-space/db";
+import type { ExternalResourceBindingRecord } from "@dofe-agent/db";
 import type {
   ChannelDocument,
   ChannelDocumentKind,
   DataTable,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import {
   type FeishuExternalChannelDocumentSyncDependencies,
   type FeishuExternalDataTableSyncDependencies,
@@ -15,7 +15,7 @@ import {
   syncFeishuResourceMetadataSnapshotWithDependenciesForTests,
   upsertFeishuExternalChannelDocumentWithDependenciesForTests,
   upsertFeishuExternalDataTableWithDependenciesForTests,
-} from "../agent-space-sync.ts";
+} from "../dofe-agent-sync.ts";
 
 test("creates a Feishu external channel document for a resource binding target", () => {
   const fake = createFakeDocumentSync();
@@ -55,7 +55,7 @@ test("reuses matching Feishu external channel documents and rejects mismatched t
   }, fake.dependencies);
 
   const reused = upsertFeishuExternalChannelDocumentWithDependenciesForTests({
-    agentSpaceResourceId: created.document.id,
+    dofeAgentResourceId: created.document.id,
     providerResourceType: "sheet",
     providerResourceToken: "shtcnTest123",
     providerResourceUrl: "https://example.feishu.cn/sheets/shtcnTest123",
@@ -70,7 +70,7 @@ test("reuses matching Feishu external channel documents and rejects mismatched t
   const nativeDocument = fake.createNativeDocument("native-doc-1");
   assert.throws(
     () => upsertFeishuExternalChannelDocumentWithDependenciesForTests({
-      agentSpaceResourceId: nativeDocument.id,
+      dofeAgentResourceId: nativeDocument.id,
       providerResourceType: "doc",
       providerResourceToken: "doccnOther",
       createdBy: "techwu",
@@ -108,7 +108,7 @@ test("creates and reuses Feishu external data tables for sheet and base resource
   });
 
   const reused = upsertFeishuExternalDataTableWithDependenciesForTests({
-    agentSpaceResourceId: created.table.id,
+    dofeAgentResourceId: created.table.id,
     providerResourceType: "base_table",
     providerResourceToken: "tblTest123",
     providerResourceUrl: "https://example.feishu.cn/base/appTest123?table=tblTest123",
@@ -134,7 +134,7 @@ test("creates and reuses Feishu external data tables for sheet and base resource
   });
   assert.throws(
     () => upsertFeishuExternalDataTableWithDependenciesForTests({
-      agentSpaceResourceId: mismatched.id,
+      dofeAgentResourceId: mismatched.id,
       providerResourceType: "sheet",
       providerResourceToken: "shtcnTest123",
       createdBy: "techwu",
@@ -162,8 +162,8 @@ test("syncs Feishu sheet and base read previews into external data table metadat
   const sheetSync = syncFeishuDataTablePreviewFromReadResultWithDependenciesForTests({
     workspaceId: "workspace-1",
     binding: buildResourceBinding({
-      agentSpaceResourceType: "data_table",
-      agentSpaceResourceId: sheetTable.id,
+      dofeAgentResourceType: "data_table",
+      dofeAgentResourceId: sheetTable.id,
       providerResourceType: "sheet",
       providerResourceToken: "shtcnTest123",
       providerResourceUrl: "https://example.feishu.cn/sheets/shtcnTest123",
@@ -199,8 +199,8 @@ test("syncs Feishu sheet and base read previews into external data table metadat
   const baseSync = syncFeishuDataTablePreviewFromReadResultWithDependenciesForTests({
     workspaceId: "workspace-1",
     binding: buildResourceBinding({
-      agentSpaceResourceType: "data_table",
-      agentSpaceResourceId: baseTable.id,
+      dofeAgentResourceType: "data_table",
+      dofeAgentResourceId: baseTable.id,
       providerResourceType: "base_table",
       providerResourceToken: "tblTest123",
     }),
@@ -246,8 +246,8 @@ test("syncs Feishu sheet and base read previews into external data table metadat
   const skipped = syncFeishuDataTablePreviewFromReadResultWithDependenciesForTests({
     workspaceId: "workspace-1",
     binding: buildResourceBinding({
-      agentSpaceResourceType: "channel_document",
-      agentSpaceResourceId: "doc-1",
+      dofeAgentResourceType: "channel_document",
+      dofeAgentResourceId: "doc-1",
       providerResourceType: "sheet",
       providerResourceToken: "shtcnTest123",
     }),
@@ -282,8 +282,8 @@ test("syncs approved Feishu data table writes as safe metadata summaries", () =>
   const synced = syncFeishuDataTableApprovedWriteResultWithDependenciesForTests({
     workspaceId: "workspace-1",
     binding: buildResourceBinding({
-      agentSpaceResourceType: "data_table",
-      agentSpaceResourceId: table.id,
+      dofeAgentResourceType: "data_table",
+      dofeAgentResourceId: table.id,
       providerResourceType: "sheet",
       providerResourceToken: "shtcnTest123",
       providerResourceUrl: "https://example.feishu.cn/sheets/shtcnTest123",
@@ -364,8 +364,8 @@ test("syncs Feishu metadata snapshots into channel documents and data tables", (
   const documentSync = syncFeishuResourceMetadataSnapshotWithDependenciesForTests({
     workspaceId: "workspace-1",
     binding: buildResourceBinding({
-      agentSpaceResourceType: "channel_document",
-      agentSpaceResourceId: createdDocument.document.id,
+      dofeAgentResourceType: "channel_document",
+      dofeAgentResourceId: createdDocument.document.id,
       providerResourceType: "doc",
       providerResourceToken: "doccnTest123",
     }),
@@ -391,8 +391,8 @@ test("syncs Feishu metadata snapshots into channel documents and data tables", (
   const tableSync = syncFeishuResourceMetadataSnapshotWithDependenciesForTests({
     workspaceId: "workspace-1",
     binding: buildResourceBinding({
-      agentSpaceResourceType: "data_table",
-      agentSpaceResourceId: table.id,
+      dofeAgentResourceType: "data_table",
+      dofeAgentResourceId: table.id,
       providerResourceType: "base_table",
       providerResourceToken: "tblTest123",
       providerResourceUrl: "https://example.feishu.cn/base/appTest123?table=tblTest123",
@@ -617,8 +617,8 @@ function buildResourceBinding(input: Partial<ExternalResourceBindingRecord>): Ex
     providerResourceType: input.providerResourceType ?? "sheet",
     providerResourceToken: input.providerResourceToken ?? "shtcnTest123",
     providerResourceUrl: input.providerResourceUrl,
-    agentSpaceResourceType: input.agentSpaceResourceType ?? "data_table",
-    agentSpaceResourceId: input.agentSpaceResourceId ?? "table-1",
+    dofeAgentResourceType: input.dofeAgentResourceType ?? "data_table",
+    dofeAgentResourceId: input.dofeAgentResourceId ?? "table-1",
     channelName: input.channelName,
     displayName: input.displayName,
     status: input.status ?? "active",

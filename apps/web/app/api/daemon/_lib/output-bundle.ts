@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
-import { getWorkspaceDaemonRemoteStagingDirPath } from "@agent-space/db";
-import type { DaemonTaskOutputBundle } from "@agent-space/domain";
+import { getWorkspaceDaemonRemoteStagingDirPath } from "@dofe-agent/db";
+import type { DaemonTaskOutputBundle } from "@dofe-agent/domain";
 
 const MAX_OUTPUT_BUNDLE_FILES = 64;
 const MAX_OUTPUT_BUNDLE_SINGLE_FILE_BYTES = 10 * 1024 * 1024;

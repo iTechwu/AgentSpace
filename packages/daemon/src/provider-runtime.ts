@@ -3,10 +3,10 @@ import { accessSync, constants, existsSync, readFileSync, writeFileSync } from "
 import { spawnSync } from "node:child_process";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { arch, platform, version as nodeVersion } from "node:process";
-import type { DaemonProvider, ProviderErrorCategory, ProviderErrorCode, RuntimeAppContextEntry, RuntimeToolCapability } from "@agent-space/domain";
-import { formatDaemonProviderLabel, isDaemonProvider } from "@agent-space/domain";
-import { connectSandbox, resolveSandboxTaskTimeoutMs, type ExecController } from "@agent-space/sandbox";
-import { buildFeishuLarkCliDiagnosticRuntimeToolCapability } from "@agent-space/services";
+import type { DaemonProvider, ProviderErrorCategory, ProviderErrorCode, RuntimeAppContextEntry, RuntimeToolCapability } from "@dofe-agent/domain";
+import { formatDaemonProviderLabel, isDaemonProvider } from "@dofe-agent/domain";
+import { connectSandbox, resolveSandboxTaskTimeoutMs, type ExecController } from "@dofe-agent/sandbox";
+import { buildFeishuLarkCliDiagnosticRuntimeToolCapability } from "@dofe-agent/services";
 import {
   buildDefaultClaudeAllowedTools,
   runAgentRouter,
@@ -186,7 +186,7 @@ export function detectProviders(): DetectedProvider[] {
 }
 
 function readProviderAllowlist(): Set<DaemonProvider> | undefined {
-  const configured = process.env.AGENT_SPACE_RUNTIME_PROVIDER?.trim();
+  const configured = process.env.DOFE_AGENT_RUNTIME_PROVIDER?.trim();
   if (!configured) {
     return undefined;
   }
@@ -337,7 +337,7 @@ async function runAgentRouterProviderTask(
 
       if (allowedTools.length > 0 && result.sessionId) {
         clearTaskOutputArtifacts(workDir);
-        return runAgentRouterProviderTask(runtime, "用户已经在 AgentSpace 前端批准了刚才被拦截的工具调用。请从刚才中断的位置继续，重新执行已获批准的工具命令，并基于真实结果完成用户请求。", workDir, taskTimeoutMs, {
+        return runAgentRouterProviderTask(runtime, "用户已经在 DofeAgent 前端批准了刚才被拦截的工具调用。请从刚才中断的位置继续，重新执行已获批准的工具命令，并基于真实结果完成用户请求。", workDir, taskTimeoutMs, {
           ...options,
           sessionId: result.sessionId,
           temporaryAllowedTools: allowedTools,
@@ -360,7 +360,7 @@ async function runAgentRouterProviderTask(
 
 function resolveAgentRouterMode(runtime: ProviderRuntimeRecord): string | undefined {
   if (runtime.provider === "codex") {
-    return process.env.AGENT_SPACE_CODEX_SANDBOX?.trim() || "workspace-write";
+    return process.env.DOFE_AGENT_CODEX_SANDBOX?.trim() || "workspace-write";
   }
   if (runtime.provider === "openclaw") {
     return process.env.OPENCLAW_THINKING?.trim() || undefined;
@@ -390,20 +390,20 @@ function buildRuntimeToolCapabilities(options: ProviderTaskOptions): RuntimeTool
 function buildBuiltinRuntimeToolCapabilities(contextEnv?: Record<string, string>): RuntimeToolCapability[] {
   const capabilities: RuntimeToolCapability[] = [
     {
-      id: "agent-space-output",
-      command: "agent-space",
-      displayName: "AgentSpace output CLI",
-      binDir: process.env.AGENT_SPACE_DAEMON_BIN ? dirname(process.env.AGENT_SPACE_DAEMON_BIN) : undefined,
+      id: "dofe-agent-output",
+      command: "dofe-agent",
+      displayName: "DofeAgent output CLI",
+      binDir: process.env.DOFE_AGENT_DAEMON_BIN ? dirname(process.env.DOFE_AGENT_DAEMON_BIN) : undefined,
       pathDirs: [
-        process.env.AGENT_SPACE_DAEMON_INSTALL_ROOT
-          ? join(process.env.AGENT_SPACE_DAEMON_INSTALL_ROOT, "bin")
+        process.env.DOFE_AGENT_DAEMON_INSTALL_ROOT
+          ? join(process.env.DOFE_AGENT_DAEMON_INSTALL_ROOT, "bin")
           : "",
       ].filter(Boolean),
       allowedShellPatterns: [
-        "agent-space output text *",
-        "agent-space output attach *",
-        "agent-space output validate *",
-        "agent-space output preview *",
+        "dofe-agent output text *",
+        "dofe-agent output attach *",
+        "dofe-agent output validate *",
+        "dofe-agent output preview *",
       ],
       source: "builtin",
     },
@@ -411,7 +411,7 @@ function buildBuiltinRuntimeToolCapabilities(contextEnv?: Record<string, string>
 
   const googleTokenEnvName = readGoogleWorkspaceTokenEnvName(contextEnv);
   if (googleTokenEnvName) {
-    const command = process.env.AGENT_SPACE_GOOGLE_WORKSPACE_EXECUTOR?.trim() || "gws";
+    const command = process.env.DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR?.trim() || "gws";
     const binDir = resolveCommandDirFromCurrentEnv(command);
     capabilities.push({
       id: "google-workspace",
@@ -772,7 +772,7 @@ async function runCodexProviderTaskAttempt(
   const outputFile = join(workDir, "last-message.txt");
   let discoveredSessionId: string | undefined = sessionId;
   const baseArgs = ["--json", "--skip-git-repo-check", "-o", outputFile];
-  const sandboxArgs = ["--sandbox", process.env.AGENT_SPACE_CODEX_SANDBOX?.trim() || "workspace-write"];
+  const sandboxArgs = ["--sandbox", process.env.DOFE_AGENT_CODEX_SANDBOX?.trim() || "workspace-write"];
   const providerArgs = sessionId
     ? ["exec", "resume", ...baseArgs, ...sandboxArgs, sessionId, prompt]
     : ["exec", ...baseArgs, ...sandboxArgs, "--cd", workDir, prompt];
@@ -942,10 +942,10 @@ function buildAgentRouterProviderEnv(
   const profile = readRuntimeMetadataString(runtime, "openClawProfile", "openclawProfile");
   const model = readRuntimeMetadataString(runtime, "openClawModel", "openclawModel");
   if (profile) {
-    env.AGENT_SPACE_OPENCLAW_PROFILE_OVERRIDE = profile;
+    env.DOFE_AGENT_OPENCLAW_PROFILE_OVERRIDE = profile;
   }
   if (model) {
-    env.AGENT_SPACE_OPENCLAW_MODEL_OVERRIDE = model;
+    env.DOFE_AGENT_OPENCLAW_MODEL_OVERRIDE = model;
   }
   return env;
 }
@@ -1023,7 +1023,7 @@ function warnClaudeRootRuntimeIfNeeded(action: "detected" | "executing"): void {
   }
   didWarnClaudeRootRuntime = true;
   console.warn(
-    `Claude Code runtime ${action} while agent-space-daemon is running as root. `
+    `Claude Code runtime ${action} while dofe-agent-daemon is running as root. `
     + "Ensure /root is logged in to Claude Code and treat task commands as root-privileged.",
   );
 }
@@ -1253,7 +1253,7 @@ async function runClaudeProviderTaskAttempt(
     if (allowedTools.length > 0 && discoveredSessionId) {
       return runClaudeProviderTaskAttempt(
         runtime,
-        "用户已经在 AgentSpace 前端批准了刚才被拦截的工具调用。请从刚才中断的位置继续，重新执行已获批准的工具命令，并基于真实结果完成用户请求。",
+        "用户已经在 DofeAgent 前端批准了刚才被拦截的工具调用。请从刚才中断的位置继续，重新执行已获批准的工具命令，并基于真实结果完成用户请求。",
         workDir,
         taskTimeoutMs,
         {
@@ -1564,7 +1564,7 @@ async function buildClaudeControlResponse(
           request_id: requestId,
           response: {
             behavior: "deny",
-            message: decision.comment ?? "Rejected in AgentSpace.",
+            message: decision.comment ?? "Rejected in DofeAgent.",
           },
         },
       });
@@ -1931,8 +1931,8 @@ function buildClaudeEnv(runtime: ProviderRuntimeRecord, extra?: NodeJS.ProcessEn
 function ensureProviderPath(pathValue: string, runtime: ProviderRuntimeRecord): string {
   const runtimeBinDirs = dedupeStrings([
     dirname(runtime.metadata.executablePath),
-    process.env.AGENT_SPACE_DAEMON_BIN ? dirname(process.env.AGENT_SPACE_DAEMON_BIN) : "",
-    process.env.AGENT_SPACE_DAEMON_INSTALL_ROOT ? join(process.env.AGENT_SPACE_DAEMON_INSTALL_ROOT, "bin") : "",
+    process.env.DOFE_AGENT_DAEMON_BIN ? dirname(process.env.DOFE_AGENT_DAEMON_BIN) : "",
+    process.env.DOFE_AGENT_DAEMON_INSTALL_ROOT ? join(process.env.DOFE_AGENT_DAEMON_INSTALL_ROOT, "bin") : "",
   ]);
   const parts = pathValue.split(delimiter).filter(Boolean);
   const existing = parts.filter((part) => !runtimeBinDirs.includes(part));

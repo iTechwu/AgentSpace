@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="asset/agentspace-logo.png" alt="agent.dofe logo" width="220" />
+  <img src="asset/dofe-agent-logo.png" alt="agent.dofe logo" width="220" />
 </p>
 
 <h1 align="center" style="font-size: 2.5rem; font-weight: bold;">agent.dofe: Human + Agents. One Team. One Workspace</h1>
@@ -243,8 +243,8 @@ The goal isn't a smarter chatbot. It's a governed operating surface where humans
 ### Path A: Run the Workspace
 
 ```bash
-git clone <your-agentspace-repo-url>
-cd AgentSpace
+git clone <your-dofe-agent-repo-url>
+cd DofeAgent
 
 npm run setup
 cp .env.example .env
@@ -264,15 +264,18 @@ http://127.0.0.1:1455
 
 ### Path B: Use the CLI
 
+Link the local package once to expose the `dofe-agent` command on your PATH:
+
 ```bash
-npm run cli -- help
-npm run cli -- doctor --json
-npm run cli -- workspace status --json
-npm run cli -- db status --json
-npm run cli -- im channels --json
-npm run cli -- channel list --json
-npm run cli -- task list --json
-npm run cli -- daemon status --json
+npm link
+dofe-agent help
+dofe-agent doctor --json
+dofe-agent workspace status --json
+dofe-agent db status --json
+dofe-agent im channels --json
+dofe-agent channel list --json
+dofe-agent task list --json
+dofe-agent daemon status --json
 ```
 
 Database commands:
@@ -280,7 +283,7 @@ Database commands:
 ```bash
 npm run db:pg:status -- --json
 npm run db:pg:init
-npm run db:pg:migrate -- --dry-run --sqlite-path data/agent-space.sqlite --json
+npm run db:pg:migrate -- --dry-run --sqlite-path data/dofe-agent.sqlite --json
 ```
 
 ### Path C: Connect a Remote Daemon
@@ -294,17 +297,17 @@ npm run daemon:pack
 Install and start it on a remote host:
 
 ```bash
-npm install -g ./agent-space-daemon-0.1.3.tgz
+npm install -g ./dofe-agent-daemon-0.1.3.tgz
 
-agent-space-daemon start \
+dofe-agent-daemon start \
   --foreground \
-  --server-url "https://your-agentspace-domain" \
+  --server-url "https://your-dofe-agent-domain" \
   --daemon-token "adt_xxx" \
   --daemon-id "daemon-prod-01" \
   --device-name "prod-daemon-host-01" \
   --runtime-name "Remote Agent" \
   --task-timeout "43200000" \
-  --state-dir "$HOME/.agent-space-daemon"
+  --state-dir "$HOME/.dofe-agent-daemon"
 ```
 
 See [packages/daemon/README.md](packages/daemon/README.md) for provider notes, OpenClaw health, Hermes, Cube scaffold, and troubleshooting.
@@ -346,13 +349,13 @@ agent-router run --harness hermes --cwd /workspace/project "summarize this repo"
 ```mermaid
 flowchart TD
   User["Human members"] --> Web["Next.js workspace"]
-  User --> CLI["agent-space CLI"]
-  Web --> Services["@agent-space/services"]
+  User --> CLI["dofe-agent CLI"]
+  Web --> Services["@dofe-agent/services"]
   CLI --> Services
-  Services --> DB["@agent-space/db / PostgreSQL"]
-  Services --> Domain["@agent-space/domain"]
+  Services --> DB["@dofe-agent/db / PostgreSQL"]
+  Services --> Domain["@dofe-agent/domain"]
   Services --> Queue["tasks / approvals / notifications"]
-  Queue --> Daemon["agent-space-daemon"]
+  Queue --> Daemon["dofe-agent-daemon"]
   Daemon --> Runtime["provider-runtime"]
   Runtime --> Router["AgentRouter"]
   Runtime --> Legacy["legacy provider runtime"]
@@ -377,7 +380,7 @@ The board exposes agents as managed organizational resources:
 - role, summary, owner, readiness, and status
 - assigned skills and knowledge
 - runtime and harness binding
-- export any digital employee as a signed [OpenAgent](https://github.com/5dive-ai/openagent) persona-card (`agent-space employee export-persona --name <employee> --sign`); operator instructions, skills, and owner identity are redacted by default — add `--include-sensitive` to embed them
+- export any digital employee as a signed [OpenAgent](https://github.com/5dive-ai/openagent) persona-card (`dofe-agent employee export-persona --name <employee> --sign`); operator instructions, skills, and owner identity are redacted by default — add `--include-sensitive` to embed them
 - common channels and channel availability
 - borrow/request flows
 - review queues for owners and admins
@@ -416,8 +419,8 @@ agent.dofe includes reusable execution building blocks:
 For environment variables and deployment examples, start with:
 
 - [.env.example](.env.example)
-- [deploy/systemd/agentspace.env.example](deploy/systemd/agentspace.env.example)
-- [deploy/systemd/agentspace-daemon.env.example](deploy/systemd/agentspace-daemon.env.example)
+- [deploy/systemd/dofe-agent.env.example](deploy/systemd/dofe-agent.env.example)
+- [deploy/systemd/dofe-agent-daemon.env.example](deploy/systemd/dofe-agent-daemon.env.example)
 
 Quality commands:
 
@@ -433,7 +436,7 @@ npm run quality:web
 ## Code Structure
 
 ```text
-AgentSpace/
+DofeAgent/
 ├── apps/
 │   ├── web/                 # Next.js App Router workspace UI
 │   └── cli/                 # Local control CLI
@@ -455,10 +458,10 @@ AgentSpace/
 - [Founder execution showcase](deploy/FOUNDER_EXECUTION_SHOWCASE.md)
 - [Remote daemon installer](deploy/install-remote-daemon.sh)
 - [Daemon package README](packages/daemon/README.md)
-- [Web systemd unit](deploy/systemd/agentspace.service)
-- [Web environment template](deploy/systemd/agentspace.env.example)
-- [Daemon systemd unit](deploy/systemd/agentspace-daemon.service)
-- [Daemon environment template](deploy/systemd/agentspace-daemon.env.example)
+- [Web systemd unit](deploy/systemd/dofe-agent.service)
+- [Web environment template](deploy/systemd/dofe-agent.env.example)
+- [Daemon systemd unit](deploy/systemd/dofe-agent-daemon.service)
+- [Daemon environment template](deploy/systemd/dofe-agent-daemon.env.example)
 
 ## Roadmap
 
@@ -487,6 +490,6 @@ agent.dofe is an actively developed product repository licensed under the [Apach
 
 <p align="center">
   <em> ❤️ Thanks for visiting ✨ agent.dofe!</em><br><br>
-  <img src="https://visitor-badge.laobi.icu/badge?page_id=HKUDS.AgentSpace&style=for-the-badge&color=00d4ff"
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=HKUDS.DofeAgent&style=for-the-badge&color=00d4ff"
   alt="Views">
 </p>

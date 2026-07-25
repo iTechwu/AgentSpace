@@ -15,10 +15,10 @@
     "rootDir": "./src",
     "outDir": "./dist-types",
     "paths": {
-      "@agent-space/domain": [
+      "@dofe-agent/domain": [
         "../domain/dist-types/index.d.ts"
       ],
-      "@agent-space/domain/*": [
+      "@dofe-agent/domain/*": [
         "../domain/dist-types/*"
       ]
     }

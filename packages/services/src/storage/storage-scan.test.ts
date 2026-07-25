@@ -17,12 +17,12 @@ import {
   registerDaemonRuntimesSync,
   replaceStoredChannelsSync,
   replaceStoredEmployeesSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { resetDatabaseForTests } from "../../../db/src/database.ts";
 import { scanStorageArtifactsSync } from "./storage-scan.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-storage-scan-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-storage-scan-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

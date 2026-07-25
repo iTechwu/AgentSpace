@@ -583,10 +583,10 @@ test("runAgentRouter includes daemon and Google Workspace CLIs in provider PATH"
   const daemonBinDir = join(workDir, "daemon-runtime", "bin");
   const gwsBinDir = join(workDir, "gws-bin");
   const codexPath = join(providerBinDir, "codex");
-  const daemonPath = join(daemonBinDir, "agent-space");
+  const daemonPath = join(daemonBinDir, "dofe-agent");
   const gwsPath = join(gwsBinDir, "gws");
   const seenPathFile = join(workDir, "seen-path.txt");
-  const originalDaemonBin = process.env.AGENT_SPACE_DAEMON_BIN;
+  const originalDaemonBin = process.env.DOFE_AGENT_DAEMON_BIN;
   const originalPath = process.env.PATH;
 
   try {
@@ -601,7 +601,7 @@ test("runAgentRouter includes daemon and Google Workspace CLIs in provider PATH"
         "prev=''",
         "for arg in \"$@\"; do",
         "  if [ \"$prev\" = '-o' ]; then",
-        "    if command -v agent-space >/dev/null 2>&1 && command -v gws >/dev/null 2>&1; then",
+        "    if command -v dofe-agent >/dev/null 2>&1 && command -v gws >/dev/null 2>&1; then",
         "      printf '%s' 'path ok' > \"$arg\"",
         "    else",
         "      printf '%s' 'path missing' > \"$arg\"",
@@ -615,7 +615,7 @@ test("runAgentRouter includes daemon and Google Workspace CLIs in provider PATH"
     writeExecutable(gwsPath, "#!/bin/sh\nexit 0\n");
 
     process.env.PATH = `${providerBinDir}${delimiter}${gwsBinDir}`;
-    process.env.AGENT_SPACE_DAEMON_BIN = join(daemonBinDir, "agent-space-daemon");
+    process.env.DOFE_AGENT_DAEMON_BIN = join(daemonBinDir, "dofe-agent-daemon");
 
     const result = await runAgentRouter({
       version: 1,
@@ -646,9 +646,9 @@ test("runAgentRouter includes daemon and Google Workspace CLIs in provider PATH"
     assert.equal(seenPath.includes(gwsBinDir), true);
   } finally {
     if (originalDaemonBin === undefined) {
-      delete process.env.AGENT_SPACE_DAEMON_BIN;
+      delete process.env.DOFE_AGENT_DAEMON_BIN;
     } else {
-      process.env.AGENT_SPACE_DAEMON_BIN = originalDaemonBin;
+      process.env.DOFE_AGENT_DAEMON_BIN = originalDaemonBin;
     }
     process.env.PATH = originalPath;
     rmSync(workDir, { recursive: true, force: true });
@@ -909,7 +909,7 @@ test("runAgentRouter performs OpenClaw daemon preflight before CLI launch", asyn
       openClawEphemeralAgent: true,
       env: {
         OPENCLAW_COUNT_PATH: countPath,
-        AGENT_SPACE_CONTEXT_TASK_ID: "task-openclaw",
+        DOFE_AGENT_CONTEXT_TASK_ID: "task-openclaw",
       },
       timeoutMs: 1_000,
     });

@@ -21,13 +21,14 @@ vi.mock("@/features/auth/sso-oidc", async (importOriginal) => ({
 }));
 
 vi.mock("@/features/auth/server-env", () => ({
-  readServerEnvValue: (name: string) => name === "SSO_REDIRECT_URI" ? "https://agentspace.local.dofe.ai/auth/callback" : undefined,
+  readServerEnvValue: (name: string) => name === "SSO_REDIRECT_URI" ? "https://dofe-agent.local.dofe.ai/auth/callback" : undefined,
 }));
 
 import { GET } from "./route";
 
 describe("SSO callback route", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mockCookies.mockResolvedValue({
       get: () => ({ value: "encoded-state" }),
     });
@@ -44,7 +45,15 @@ describe("SSO callback route", () => {
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
-      "https://agentspace.local.dofe.ai/auth/error?code=auth.sso_profile_missing_email",
+      "https://dofe-agent.local.dofe.ai/auth/error?code=auth.sso_profile_missing_email",
     );
+  });
+
+  it("returns to the application after an SSO logout callback without authorization parameters", async () => {
+    const response = await GET(new Request("https://0.0.0.0:1455/auth/callback"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://dofe-agent.local.dofe.ai/");
+    expect(mockExchangeSsoAuthorizationCode).not.toHaveBeenCalled();
   });
 });

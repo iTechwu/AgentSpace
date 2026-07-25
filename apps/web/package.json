@@ -1,5 +1,5 @@
 {
-  "name": "@agent-space/web",
+  "name": "@dofe-agent/web",
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
@@ -18,10 +18,10 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@agent-space/domain": "file:../../packages/domain",
-    "@agent-space/services": "file:../../packages/services",
+    "@dofe-agent/domain": "file:../../packages/domain",
+    "@dofe-agent/services": "file:../../packages/services",
     "@dofe/sso-node": "^0.1.72",
-    "agent-space-daemon": "file:../../packages/daemon",
+    "dofe-agent-daemon": "file:../../packages/daemon",
     "next": "^16.1.6",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

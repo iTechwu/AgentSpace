@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { readWorkspaceMembershipSync, upsertAgentGoogleWorkspaceDelegationSync } from "@agent-space/db";
-import { assertCanManageEmployeeForActorSync } from "@agent-space/services";
+import { readWorkspaceMembershipSync, upsertAgentGoogleWorkspaceDelegationSync } from "@dofe-agent/db";
+import { assertCanManageEmployeeForActorSync } from "@dofe-agent/services";
 import { buildPublicAppUrl } from "@/features/auth/public-app-url";
 import { getCurrentUser } from "@/features/auth/server-auth";
 import {
@@ -82,7 +82,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 }
 
 function appendStatusParam(path: string, key: string, value: string): string {
-  const url = new URL(path, "http://agent-space.local");
+  const url = new URL(path, "http://dofe-agent.local");
   url.searchParams.set(key, value);
   return `${url.pathname}${url.search}${url.hash}`;
 }

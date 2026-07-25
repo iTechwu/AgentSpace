@@ -17,16 +17,16 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["apps/web/*"],
-      "@agent-space/domain": ["packages/domain/src/index.ts"],
-      "@agent-space/domain/*": ["packages/domain/src/*.ts"],
-      "@agent-space/services": ["packages/services/src/index.ts"],
-      "@agent-space/services/*": ["packages/services/src/*.ts"],
-      "@agent-space/db": ["packages/db/src/index.ts"],
-      "@agent-space/db/*": ["packages/db/src/*.ts"],
-      "@agent-space/sandbox": ["packages/sandbox/src/index.ts"],
-      "agent-space-daemon": ["packages/daemon/src/index.ts"],
-      "agent-space-daemon/agent-router": ["packages/daemon/src/agent-router/index.ts"],
-      "agent-space-daemon/daemon-client": ["packages/daemon/src/daemon-client.ts"]
+      "@dofe-agent/domain": ["packages/domain/src/index.ts"],
+      "@dofe-agent/domain/*": ["packages/domain/src/*.ts"],
+      "@dofe-agent/services": ["packages/services/src/index.ts"],
+      "@dofe-agent/services/*": ["packages/services/src/*.ts"],
+      "@dofe-agent/db": ["packages/db/src/index.ts"],
+      "@dofe-agent/db/*": ["packages/db/src/*.ts"],
+      "@dofe-agent/sandbox": ["packages/sandbox/src/index.ts"],
+      "dofe-agent-daemon": ["packages/daemon/src/index.ts"],
+      "dofe-agent-daemon/agent-router": ["packages/daemon/src/agent-router/index.ts"],
+      "dofe-agent-daemon/daemon-client": ["packages/daemon/src/daemon-client.ts"]
     }
   }
 }

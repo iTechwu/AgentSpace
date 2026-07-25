@@ -10,7 +10,7 @@ import {
   listWorkspaceMemberUsersSync,
   type ExternalResourceBindingRecord,
   type WorkspaceRole,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS,
   FEISHU_DEFAULT_SCOPES,
@@ -23,7 +23,7 @@ import {
   FEISHU_REQUIRED_EVENTS,
   listActiveEmployeesSync,
   sanitizeFeishuOperationResponseSummary,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { buildPublicAppUrl } from "@/features/auth/public-app-url";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 import { summarizeFeishuStoredCredentials } from "./feishu-credentials";
@@ -54,7 +54,7 @@ import type {
 const FEISHU_SMOKE_EVIDENCE_PATH = "runtime-output/feishu-smoke/live.json";
 const FEISHU_BOT_ADDED_PAYLOAD_PATH = "runtime-output/feishu-smoke/bot-added-callback.json";
 const FEISHU_BOT_ADDED_PAYLOAD_EVIDENCE_PATH = "runtime-output/feishu-smoke/bot-added-payload-evidence.json";
-const FEISHU_PUBLIC_APP_URL_PLACEHOLDER = "CHANGE_ME_PUBLIC_AGENTSPACE_URL";
+const FEISHU_PUBLIC_APP_URL_PLACEHOLDER = "CHANGE_ME_PUBLIC_DOFE_AGENT_URL";
 const FEISHU_SECOND_AGENT_NAME_PLACEHOLDER = "CHANGE_ME_SECOND_AGENT_NAME";
 
 export function listFeishuIntegrationSettingsItems(input: {
@@ -176,8 +176,8 @@ export function listFeishuIntegrationSettingsItems(input: {
       providerResourceType: binding.providerResourceType,
       providerResourceReference: buildFeishuResourceReference(binding),
       providerResourceTokenRedacted: true,
-      agentSpaceResourceType: binding.agentSpaceResourceType,
-      agentSpaceResourceId: binding.agentSpaceResourceId,
+      dofeAgentResourceType: binding.dofeAgentResourceType,
+      dofeAgentResourceId: binding.dofeAgentResourceId,
       channelName: binding.channelName,
       displayName: binding.displayName,
       canWrite: readResourceBindingCanWrite(binding.permissionsJson),
@@ -229,7 +229,7 @@ export function listFeishuIntegrationSettingsItems(input: {
             value: item.targetExternalThreadId,
           }) : undefined,
           targetExternalThreadIdRedacted: item.targetExternalThreadId ? true : undefined,
-          agentSpaceMessageId: item.agentSpaceMessageId,
+          dofeAgentMessageId: item.dofeAgentMessageId,
           status: item.status,
           attempts: item.attempts,
           nextAttemptAt: item.nextAttemptAt,
@@ -348,18 +348,19 @@ export function buildFeishuIntegrationCreationGuide(input: {
   workspaceId: string;
   appUrl?: string;
 }): FeishuIntegrationCreationGuide {
+  const appUrl = resolveFeishuEventCallbackAppUrl(input.appUrl);
   const callbackUrlTemplate = buildFeishuEventCallbackUrl({
     workspaceId: input.workspaceId,
     integrationId: "created-integration-id",
-    appUrl: input.appUrl,
+    appUrl,
   });
   return {
     requiredCredentialFields: [...FEISHU_REQUIRED_CREDENTIAL_FIELDS],
     requiredEvents: [...FEISHU_REQUIRED_EVENTS],
     requiredScopes: [...FEISHU_DEFAULT_SCOPES],
     eventCallbackPath: FEISHU_EVENT_CALLBACK_PATH,
-    publicAppUrlStatus: input.appUrl?.trim() ? "configured" : "missing",
-    ...(input.appUrl?.trim() ? { publicAppUrl: input.appUrl.trim() } : {}),
+    publicAppUrlStatus: appUrl ? "configured" : "missing",
+    ...(appUrl ? { publicAppUrl: appUrl } : {}),
     callbackUrlTemplate,
     developerConsoleUrl: FEISHU_OPEN_PLATFORM_CONSOLE_URLS.appList,
     openPlatformSetupSteps: buildFeishuOpenPlatformSetupSteps(),
@@ -415,7 +416,34 @@ export function buildFeishuEventCallbackUrl(input: {
     workspaceId: input.workspaceId,
     integrationId: input.integrationId,
   });
-  return buildPublicAppUrl(`${FEISHU_EVENT_CALLBACK_PATH}?${searchParams.toString()}`, input.appUrl);
+  return buildPublicAppUrl(
+    `${FEISHU_EVENT_CALLBACK_PATH}?${searchParams.toString()}`,
+    resolveFeishuEventCallbackAppUrl(input.appUrl),
+  );
+}
+
+function resolveFeishuEventCallbackAppUrl(value: string | undefined): string | undefined {
+  const appUrl = value?.trim();
+  if (!appUrl) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(appUrl);
+    const hostname = url.hostname.toLowerCase();
+    if (
+      url.protocol !== "https:"
+      || hostname === "example.com"
+      || hostname.endsWith(".example.com")
+    ) {
+      return undefined;
+    }
+    url.hash = "";
+    url.search = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
 }
 
 function buildFeishuIntegrationSetupGuide(input: {
@@ -433,7 +461,7 @@ function buildFeishuIntegrationSetupGuide(input: {
   const readinessCommand = input.agentId
     ? "agent-bot-readiness"
     : "readiness";
-  const appUrlFlag = `--app-url ${input.appUrl?.trim() || FEISHU_PUBLIC_APP_URL_PLACEHOLDER}`;
+  const appUrlFlag = `--app-url ${resolveFeishuEventCallbackAppUrl(input.appUrl) || FEISHU_PUBLIC_APP_URL_PLACEHOLDER}`;
   return {
     requiredCredentialFields: resolveFeishuSetupGuideRequiredCredentialFields({
       agentId: input.agentId,
@@ -447,26 +475,26 @@ function buildFeishuIntegrationSetupGuide(input: {
     checks: input.checks,
     evidenceGates: buildFeishuEvidenceGates(input.transportMode),
     commands: {
-      healthCheck: `agent-space integrations feishu health-check ${agentFlags} --strict --json`,
-      bindSecondAgentBot: `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_SECOND_AGENT_NAME_PLACEHOLDER} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
-      botReadiness: `agent-space integrations feishu ${readinessCommand} ${agentFlags} --strict --require bot --json`,
-      dataPlaneReadiness: `agent-space integrations feishu ${readinessCommand} ${agentFlags} --strict --require data-plane --json`,
-      workerReadiness: `agent-space integrations feishu ${readinessCommand} ${agentFlags} --strict --require worker --json`,
+      healthCheck: `dofe-agent integrations feishu health-check ${agentFlags} --strict --json`,
+      bindSecondAgentBot: `dofe-agent integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_SECOND_AGENT_NAME_PLACEHOLDER} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
+      botReadiness: `dofe-agent integrations feishu ${readinessCommand} ${agentFlags} --strict --require bot --json`,
+      dataPlaneReadiness: `dofe-agent integrations feishu ${readinessCommand} ${agentFlags} --strict --require data-plane --json`,
+      workerReadiness: `dofe-agent integrations feishu ${readinessCommand} ${agentFlags} --strict --require worker --json`,
       ...(input.agentId
         ? {
-          autoProvisionPolicy: `agent-space integrations feishu auto-provision-policy ${agentFlags} --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json`,
-          agentChannelAccessDisable: `agent-space integrations feishu agent-channel-access ${agentFlags} --access disabled --json`,
-          agentChannelAccessRestore: `agent-space integrations feishu agent-channel-access ${agentFlags} --access enabled --json`,
-          channelBindings: `agent-space integrations feishu channel-bindings ${flags} --json`,
+          autoProvisionPolicy: `dofe-agent integrations feishu auto-provision-policy ${agentFlags} --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json`,
+          agentChannelAccessDisable: `dofe-agent integrations feishu agent-channel-access ${agentFlags} --access disabled --json`,
+          agentChannelAccessRestore: `dofe-agent integrations feishu agent-channel-access ${agentFlags} --access enabled --json`,
+          channelBindings: `dofe-agent integrations feishu channel-bindings ${flags} --json`,
         }
         : {}),
-      smokeEnv: `agent-space integrations feishu smoke-env ${flags} ${appUrlFlag} > scripts/feishu/.env`,
+      smokeEnv: `dofe-agent integrations feishu smoke-env ${flags} ${appUrlFlag} > scripts/feishu/.env`,
       checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
       strictLiveSmoke: `npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --json --require-todo120-native`,
       verifyOpenApiEvidence: `npm run smoke:feishu -- --verify-evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --json`,
       verifyBotAddedPayload: `npm run smoke:feishu -- --verify-bot-added-payload ${FEISHU_BOT_ADDED_PAYLOAD_PATH} --bot-added-payload-evidence ${FEISHU_BOT_ADDED_PAYLOAD_EVIDENCE_PATH} --json`,
-      smokePlan: `agent-space integrations feishu smoke-plan ${flags} ${appUrlFlag}`,
-      evidence: `agent-space integrations feishu evidence ${flags} --openapi-evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --bot-added-payload-evidence ${FEISHU_BOT_ADDED_PAYLOAD_EVIDENCE_PATH} --strict --require all`,
+      smokePlan: `dofe-agent integrations feishu smoke-plan ${flags} ${appUrlFlag}`,
+      evidence: `dofe-agent integrations feishu evidence ${flags} --openapi-evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --bot-added-payload-evidence ${FEISHU_BOT_ADDED_PAYLOAD_EVIDENCE_PATH} --strict --require all`,
     },
   };
 }
@@ -520,8 +548,8 @@ function buildFeishuEvidenceGates(transportMode: string): FeishuIntegrationSetup
       required: FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS.failureVisibility,
     },
     {
-      key: "agentspace_local_evidence",
-      required: "fresh_24h_agentspace_local_evidence_rows",
+      key: "dofe-agent_local_evidence",
+      required: "fresh_24h_dofe-agent_local_evidence_rows",
     },
     {
       key: "openapi_artifact",
@@ -710,7 +738,7 @@ function readFeishuChannelProvisionSource(
     "manual",
     "bot_added",
     "first_message",
-    "agentspace_created",
+    "dofe-agent_created",
   ] as const);
 }
 

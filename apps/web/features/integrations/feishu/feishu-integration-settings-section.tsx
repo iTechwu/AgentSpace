@@ -1,7 +1,7 @@
 "use client";
 
 import { type TransitionStartFunction, useEffect, useState } from "react";
-import type { WorkspaceRole } from "@agent-space/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
 import { SettingsSectionShell } from "@/features/settings/components/settings-chrome";
 import type { SettingsSectionMeta } from "@/features/settings/settings-meta";
 import type { SettingsTx } from "@/features/settings/settings-types";

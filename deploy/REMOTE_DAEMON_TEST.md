@@ -1,8 +1,8 @@
-# AgentSpace Remote Daemon 测试清单
+# DofeAgent Remote Daemon 测试清单
 
 这份文档只保留最短测试路径。
 
-如果你要演示 AgentSpace 作为“创始人团队数字执行系统”的完整差异化路径，请配合阅读 `deploy/FOUNDER_EXECUTION_SHOWCASE.md`。
+如果你要演示 DofeAgent 作为“创始人团队数字执行系统”的完整差异化路径，请配合阅读 `deploy/FOUNDER_EXECUTION_SHOWCASE.md`。
 
 目标：
 
@@ -16,7 +16,7 @@
 
 ### Server A
 
-- AgentSpace Web/Backend 已经可访问
+- DofeAgent Web/Backend 已经可访问
 - 你能打开这些页面：
   - `/agents?mode=container`
   - `/agents?mode=agent`
@@ -119,8 +119,8 @@ bash <(curl -fsSL https://<server-a-domain>/api/daemon/install-script) \
 执行完成后，建议立刻看状态：
 
 ```bash
-~/.agent-space-daemon/runtime/bin/agent-space-daemon status --json --state-dir ~/.agent-space-daemon
-~/.agent-space-daemon/runtime/bin/agent-space-daemon logs --lines 50 --state-dir ~/.agent-space-daemon
+~/.dofe-agent-daemon/runtime/bin/dofe-agent-daemon status --json --state-dir ~/.dofe-agent-daemon
+~/.dofe-agent-daemon/runtime/bin/dofe-agent-daemon logs --lines 50 --state-dir ~/.dofe-agent-daemon
 ```
 
 预期：
@@ -239,7 +239,7 @@ manual mention smoke passed
 如果你想同时看 `Server B` 执行日志：
 
 ```bash
-~/.agent-space-daemon/runtime/bin/agent-space-daemon logs --follow --state-dir ~/.agent-space-daemon
+~/.dofe-agent-daemon/runtime/bin/dofe-agent-daemon logs --follow --state-dir ~/.dofe-agent-daemon
 ```
 
 ## 9. 测试 contact_chat
@@ -307,7 +307,7 @@ https://<server-a-domain>/im
 在 `Server B` 执行：
 
 ```bash
-~/.agent-space-daemon/runtime/bin/agent-space-daemon stop --state-dir ~/.agent-space-daemon
+~/.dofe-agent-daemon/runtime/bin/dofe-agent-daemon stop --state-dir ~/.dofe-agent-daemon
 ```
 
 然后刷新：
@@ -327,7 +327,7 @@ https://<server-a-domain>/settings
 1. `Server B` 日志
 
 ```bash
-~/.agent-space-daemon/runtime/bin/agent-space-daemon logs --lines 100 --state-dir ~/.agent-space-daemon
+~/.dofe-agent-daemon/runtime/bin/dofe-agent-daemon logs --lines 100 --state-dir ~/.dofe-agent-daemon
 ```
 
 2. 前端 `/settings`
@@ -368,5 +368,5 @@ https://<server-a-domain>/settings
 如果还没停，在 `Server B` 执行：
 
 ```bash
-~/.agent-space-daemon/runtime/bin/agent-space-daemon stop --state-dir ~/.agent-space-daemon
+~/.dofe-agent-daemon/runtime/bin/dofe-agent-daemon stop --state-dir ~/.dofe-agent-daemon
 ```

@@ -297,8 +297,8 @@ export function getPostgresSchemaStatements(): string[] {
         provider_resource_type TEXT NOT NULL,
         provider_resource_token TEXT NOT NULL,
         provider_resource_url TEXT,
-        agent_space_resource_type TEXT NOT NULL,
-        agent_space_resource_id TEXT NOT NULL,
+        dofe_agent_resource_type TEXT NOT NULL,
+        dofe_agent_resource_id TEXT NOT NULL,
         channel_name TEXT,
         display_name TEXT,
         status TEXT NOT NULL DEFAULT 'active',
@@ -326,7 +326,7 @@ export function getPostgresSchemaStatements(): string[] {
         external_thread_id TEXT,
         external_sender_id TEXT,
         external_event_id TEXT,
-        agent_space_message_id TEXT,
+        dofe_agent_message_id TEXT,
         task_queue_id TEXT,
         router_session_id TEXT,
         metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -343,7 +343,7 @@ export function getPostgresSchemaStatements(): string[] {
         channel_binding_id TEXT REFERENCES external_channel_binding(id) ON DELETE SET NULL,
         target_external_chat_id TEXT NOT NULL,
         target_external_thread_id TEXT,
-        agent_space_message_id TEXT,
+        dofe_agent_message_id TEXT,
         payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         status TEXT NOT NULL DEFAULT 'pending',
@@ -942,7 +942,7 @@ export function getPostgresSchemaStatements(): string[] {
         channel_name TEXT NOT NULL,
         agent_id TEXT NOT NULL,
         task_queue_id TEXT REFERENCES agent_task_queue(id) ON DELETE SET NULL,
-        agent_space_message_id TEXT,
+        dofe_agent_message_id TEXT,
         status TEXT NOT NULL DEFAULT 'active',
         metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         last_message_at TIMESTAMPTZ NOT NULL,
@@ -1558,7 +1558,7 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_external_resource_binding_workspace_resource
-        ON external_resource_binding(workspace_id, agent_space_resource_type, agent_space_resource_id, status)
+        ON external_resource_binding(workspace_id, dofe_agent_resource_type, dofe_agent_resource_id, status)
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_external_resource_binding_channel

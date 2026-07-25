@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { PerformanceDashboardData } from "@agent-space/services";
+import type { PerformanceDashboardData } from "@dofe-agent/services";
 import { useLanguage } from "@/features/i18n/language-provider";
 
 export function PerformancePageClient({ data }: { data: PerformanceDashboardData }) {

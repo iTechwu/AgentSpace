@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type {
   ExternalDataOperationRunRecord,
   ExternalResourceBindingRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   listExternalUserBindingsSync,
   readExternalUserBindingByExternalUserSync,
@@ -12,8 +12,8 @@ import {
   recordExternalIntegrationEventSync,
   updateExternalDataOperationRunStatusSync,
   updateExternalIntegrationEventStatusSync,
-} from "@agent-space/db";
-import type { ApprovalRequest } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import type { ApprovalRequest } from "@dofe-agent/domain/workspace";
 import {
   createApprovalRequestSync,
   listApprovalsSync,
@@ -65,7 +65,7 @@ export interface FeishuDataOperationApprovalContext {
   sourceId?: string;
   contentPreview?: string;
   metadata?: Record<string, unknown>;
-  sourceAgentSpaceMessageId?: string;
+  sourceDofeAgentMessageId?: string;
   taskId?: string;
 }
 
@@ -85,7 +85,7 @@ export interface FeishuDataOperationApprovalMetadata {
   governanceContext?: Record<string, unknown>;
   feishuCardActionToken?: string;
   feishuCardActionExpiresAt?: string;
-  sourceAgentSpaceMessageId?: string;
+  sourceDofeAgentMessageId?: string;
   taskId?: string;
 }
 
@@ -229,8 +229,8 @@ export function createFeishuDataOperationApprovalRequestSync(input: {
 
   const metadata = {
     ...buildFeishuDataOperationApprovalMetadata(input),
-    ...(input.approval.sourceAgentSpaceMessageId
-      ? { sourceAgentSpaceMessageId: input.approval.sourceAgentSpaceMessageId }
+    ...(input.approval.sourceDofeAgentMessageId
+      ? { sourceDofeAgentMessageId: input.approval.sourceDofeAgentMessageId }
       : {}),
     ...(input.approval.taskId ? { taskId: input.approval.taskId } : {}),
   };
@@ -264,7 +264,7 @@ export function createFeishuDataOperationApprovalRequestSync(input: {
     channelName: input.approval.channelName,
     agentId: input.approval.agentId,
     approval: created,
-    sourceAgentSpaceMessageId: input.approval.sourceAgentSpaceMessageId,
+    sourceDofeAgentMessageId: input.approval.sourceDofeAgentMessageId,
     taskId: input.approval.taskId,
   });
   return created;
@@ -275,7 +275,7 @@ function queueFeishuDataOperationApprovalCardBestEffort(input: {
   channelName: string;
   agentId: string;
   approval: ApprovalRequest;
-  sourceAgentSpaceMessageId?: string;
+  sourceDofeAgentMessageId?: string;
   taskId?: string;
 }): void {
   try {
@@ -286,7 +286,7 @@ function queueFeishuDataOperationApprovalCardBestEffort(input: {
       agentNames: [input.agentId],
       message: input.approval.contentPreview,
       taskId: input.taskId,
-      sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+      sourceDofeAgentMessageId: input.sourceDofeAgentMessageId,
       approvalAction: buildFeishuApprovalCardAction(input.approval),
     });
   } catch {
@@ -309,7 +309,7 @@ function queueFeishuDataOperationReviewStatusCardBestEffort(input: {
       agentNames: [input.approval.agentId],
       message: input.message,
       taskId: input.metadata.taskId,
-      sourceAgentSpaceMessageId: input.metadata.sourceAgentSpaceMessageId,
+      sourceDofeAgentMessageId: input.metadata.sourceDofeAgentMessageId,
     });
   } catch {
     // Feishu review receipts are external notifications; approval/run state remains authoritative.
@@ -932,7 +932,7 @@ function readFeishuDataOperationApprovalMetadata(approval: ApprovalRequest): Fei
     agentActionPolicyDecision: readRecord(metadata.agentActionPolicyDecision) as AgentActionPolicyDecision | undefined,
     feishuCardActionToken: readString(metadata, "feishuCardActionToken"),
     feishuCardActionExpiresAt: readString(metadata, "feishuCardActionExpiresAt"),
-    sourceAgentSpaceMessageId: readString(metadata, "sourceAgentSpaceMessageId"),
+    sourceDofeAgentMessageId: readString(metadata, "sourceDofeAgentMessageId"),
     taskId: readString(metadata, "taskId"),
   };
 }

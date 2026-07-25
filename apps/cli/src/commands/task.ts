@@ -2,8 +2,8 @@ import {
   createTaskSync,
   listTasksSync,
   updateTaskStatusSync,
-} from "@agent-space/services";
-import { listQueuedTasksSync, listTaskMessagesForTaskSync } from "@agent-space/db";
+} from "@dofe-agent/services";
+import { listQueuedTasksSync, listTaskMessagesForTaskSync } from "@dofe-agent/db";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
@@ -38,7 +38,7 @@ export function runTaskCommand(
 
     if (!title || !channel || !assignee) {
       console.error(
-        'Usage: agent-space task create --title <title> --channel <name> --assignee <employee> [--priority low|medium|high] [--json]',
+        'Usage: dofe-agent task create --title <title> --channel <name> --assignee <employee> [--priority low|medium|high] [--json]',
       );
       return 1;
     }
@@ -66,7 +66,7 @@ export function runTaskCommand(
     const id = getStringFlag(flags, "id");
 
     if (!id) {
-      console.error("Usage: agent-space task inspect --id <task-id> [--json]");
+      console.error("Usage: dofe-agent task inspect --id <task-id> [--json]");
       return 1;
     }
 
@@ -94,7 +94,7 @@ export function runTaskCommand(
 
     if (!id || !status || !["todo", "in_progress", "blocked", "done"].includes(status)) {
       console.error(
-        'Usage: agent-space task move --id <task-id> --status todo|in_progress|blocked|done [--json]',
+        'Usage: dofe-agent task move --id <task-id> --status todo|in_progress|blocked|done [--json]',
       );
       return 1;
     }
@@ -109,13 +109,13 @@ export function runTaskCommand(
     return 0;
   }
 
-  console.error("Usage: agent-space task list [--json]");
+  console.error("Usage: dofe-agent task list [--json]");
   console.error(
-    "   or: agent-space task create --title <title> --channel <name> --assignee <employee> [--priority low|medium|high] [--json]",
+    "   or: dofe-agent task create --title <title> --channel <name> --assignee <employee> [--priority low|medium|high] [--json]",
   );
   console.error(
-    "   or: agent-space task move --id <task-id> --status todo|in_progress|blocked|done [--json]",
+    "   or: dofe-agent task move --id <task-id> --status todo|in_progress|blocked|done [--json]",
   );
-  console.error("   or: agent-space task inspect --id <task-id> [--json]");
+  console.error("   or: dofe-agent task inspect --id <task-id> [--json]");
   return 1;
 }

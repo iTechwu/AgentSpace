@@ -5,17 +5,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   readWorkspaceStateRecordSync,
   writeWorkspaceStateRecordSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   createChannelSync,
   createEmployeeSync,
   createTaskSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-core-storage-reconciliation-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-core-storage-reconciliation-"));
 
 beforeAll(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

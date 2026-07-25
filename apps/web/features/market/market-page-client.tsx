@@ -1,6 +1,6 @@
 "use client";
 
-import type { RuntimeAppCatalogSource, RuntimeAppOperationType } from "@agent-space/db";
+import type { RuntimeAppCatalogSource, RuntimeAppOperationType } from "@dofe-agent/db";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { requestRuntimeAppOperationAction, refreshRuntimeAppCatalogAction, syncRuntimeAppSkillAction } from "@/features/market/actions";

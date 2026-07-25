@@ -1,4 +1,4 @@
-import { markDaemonOfflineSync } from "@agent-space/db";
+import { markDaemonOfflineSync } from "@dofe-agent/db";
 import { readDaemonConnectionForDaemon, requireDaemonAuth } from "../_lib/auth";
 
 export const runtime = "nodejs";

@@ -3,7 +3,7 @@ import {
   readRuntimeInstalledAppSync,
   upsertRuntimeAppSkillBindingSync,
   type RuntimeAppCatalogSource,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { createWorkspaceSkillSync, listWorkspaceSkillsSync, upsertWorkspaceSkillFileSync } from "../skills/skills.ts";
 
 export interface RuntimeAppSkillSyncResult {
@@ -98,7 +98,7 @@ async function resolveSkillMdContent(
       `The CLI-Hub catalog references SKILL.md at: ${trimmed}`,
       "",
       "This skill only describes how to use the tool. It is not proof that the software is installed.",
-      "AgentSpace will expose this skill in task context only when the bound runtime reports the app as installed and enabled.",
+      "DofeAgent will expose this skill in task context only when the bound runtime reports the app as installed and enabled.",
     ].join("\n"),
     warning: "Catalog SKILL.md is a relative path; a placeholder skill was created until the source file can be resolved.",
   };

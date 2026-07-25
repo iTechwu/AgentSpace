@@ -304,8 +304,8 @@ function ensureExecutablePath(pathValue: string, executablePath: string, pathDir
   return ensureEnvPath(pathValue, [
     dirname(executablePath),
     ...pathDirs,
-    process.env.AGENT_SPACE_DAEMON_BIN ? dirname(process.env.AGENT_SPACE_DAEMON_BIN) : "",
-    process.env.AGENT_SPACE_DAEMON_INSTALL_ROOT ? join(process.env.AGENT_SPACE_DAEMON_INSTALL_ROOT, "bin") : "",
+    process.env.DOFE_AGENT_DAEMON_BIN ? dirname(process.env.DOFE_AGENT_DAEMON_BIN) : "",
+    process.env.DOFE_AGENT_DAEMON_INSTALL_ROOT ? join(process.env.DOFE_AGENT_DAEMON_INSTALL_ROOT, "bin") : "",
     "/usr/local/sbin",
     "/usr/local/bin",
     "/usr/sbin",

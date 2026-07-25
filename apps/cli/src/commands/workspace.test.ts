@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before } from "node:test";
-import type { ActiveEmployee, ChannelRecord } from "@agent-space/domain/workspace";
+import type { ActiveEmployee, ChannelRecord } from "@dofe-agent/domain/workspace";
 import {
   BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME,
   BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME,
@@ -13,13 +13,13 @@ import {
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
   writeWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { runWorkspaceCommand } from "./workspace.ts";
 
 const originalCwd = process.cwd();
-const originalAgentEnv = process.env.AGENT_SPACE_CONTEXT_AGENT_NAME;
-const originalTaskEnv = process.env.AGENT_SPACE_CONTEXT_TASK_ID;
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-workspace-command-"));
+const originalAgentEnv = process.env.DOFE_AGENT_CONTEXT_AGENT_NAME;
+const originalTaskEnv = process.env.DOFE_AGENT_CONTEXT_TASK_ID;
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-workspace-command-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -29,8 +29,8 @@ before(() => {
 
 test("workspace context resolve-entity infers the current agent from runtime env", () => {
   seedWorkspace();
-  process.env.AGENT_SPACE_CONTEXT_AGENT_NAME = "Test";
-  delete process.env.AGENT_SPACE_CONTEXT_TASK_ID;
+  process.env.DOFE_AGENT_CONTEXT_AGENT_NAME = "Test";
+  delete process.env.DOFE_AGENT_CONTEXT_TASK_ID;
 
   const logs: string[] = [];
   const originalLog = console.log;
@@ -63,8 +63,8 @@ test("workspace initialization includes the builtin workspace-context skill", ()
 });
 
 test("workspace context command refuses to run without runtime context", () => {
-  delete process.env.AGENT_SPACE_CONTEXT_AGENT_NAME;
-  delete process.env.AGENT_SPACE_CONTEXT_TASK_ID;
+  delete process.env.DOFE_AGENT_CONTEXT_AGENT_NAME;
+  delete process.env.DOFE_AGENT_CONTEXT_TASK_ID;
 
   const errors: string[] = [];
   const originalError = console.error;
@@ -178,13 +178,13 @@ function seedWorkspace(): void {
 test.after(() => {
   process.chdir(originalCwd);
   if (originalAgentEnv) {
-    process.env.AGENT_SPACE_CONTEXT_AGENT_NAME = originalAgentEnv;
+    process.env.DOFE_AGENT_CONTEXT_AGENT_NAME = originalAgentEnv;
   } else {
-    delete process.env.AGENT_SPACE_CONTEXT_AGENT_NAME;
+    delete process.env.DOFE_AGENT_CONTEXT_AGENT_NAME;
   }
   if (originalTaskEnv) {
-    process.env.AGENT_SPACE_CONTEXT_TASK_ID = originalTaskEnv;
+    process.env.DOFE_AGENT_CONTEXT_TASK_ID = originalTaskEnv;
   } else {
-    delete process.env.AGENT_SPACE_CONTEXT_TASK_ID;
+    delete process.env.DOFE_AGENT_CONTEXT_TASK_ID;
   }
 });

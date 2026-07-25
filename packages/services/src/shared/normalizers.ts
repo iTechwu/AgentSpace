@@ -2,13 +2,13 @@ import {
   SYSTEM_AGENT_TEMPLATE_PRESETS,
   type AgentTemplateSkillRecommendation,
   type SystemAgentTemplatePreset,
-} from "@agent-space/domain";
+} from "@dofe-agent/domain";
 import {
   type ConversationAutoContinuationState,
   type ConversationExecutionWorkspaceState,
   createDefaultWorkspaceState,
   type ActiveEmployee,
-  type AgentSpaceState,
+  type DofeAgentState,
   type ChannelRecord,
   type DirectConversationState,
   type HumanMember,
@@ -19,7 +19,7 @@ import {
   type WorkspaceMessage,
   type WorkspaceSkill,
   type WorkspaceSkillFile,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import {
   normalizeChannelDocuments,
   normalizeChannelDocumentVersions,
@@ -53,15 +53,15 @@ import {
 import { formatFrontmatterDescription, createDefaultSkillFileContent } from "./skill-frontmatter.ts";
 
 const BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME = "return-output-files";
-const BUILTIN_RETURN_OUTPUT_FILES_SKILL_DESCRIPTION = "Return generated files to AgentSpace via agent-space output attach/text. Use when a task should deliver artifacts such as images, markdown, PDFs, or other files back into chat instead of only replying with plain text.";
+const BUILTIN_RETURN_OUTPUT_FILES_SKILL_DESCRIPTION = "Return generated files to DofeAgent via dofe-agent output attach/text. Use when a task should deliver artifacts such as images, markdown, PDFs, or other files back into chat instead of only replying with plain text.";
 const BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME = "workspace-context";
-const BUILTIN_WORKSPACE_CONTEXT_SKILL_DESCRIPTION = "Inspect workspace-scoped collaborators, channels, messages, and documents with agent-space workspace context commands. Use when the inline task context is insufficient and the agent needs verifiable workspace facts before answering.";
+const BUILTIN_WORKSPACE_CONTEXT_SKILL_DESCRIPTION = "Inspect workspace-scoped collaborators, channels, messages, and documents with dofe-agent workspace context commands. Use when the inline task context is insufficient and the agent needs verifiable workspace facts before answering.";
 const BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME = "update-channel-documents";
-const BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_DESCRIPTION = "Use when Codex should create or update shared channel documents via agent-space output document.";
+const BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_DESCRIPTION = "Use when Codex should create or update shared channel documents via dofe-agent output document.";
 const BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME = "google-workspace-cli";
-const BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_DESCRIPTION = "Read or write Google Workspace channel documents from the Agent runtime using the official gws CLI and AgentSpace runtime-output manifests.";
+const BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_DESCRIPTION = "Read or write Google Workspace channel documents from the Agent runtime using the official gws CLI and DofeAgent runtime-output manifests.";
 
-export function normalizeWorkspaceState(state: Partial<AgentSpaceState>): AgentSpaceState {
+export function normalizeWorkspaceState(state: Partial<DofeAgentState>): DofeAgentState {
   const fallback = createDefaultWorkspaceState();
   const skillPool = ensureBuiltinWorkspaceSkills(normalizeWorkspaceSkills(state.skills, fallback.skills));
   const activeEmployees = normalizeActiveEmployees(state.activeEmployees, fallback.activeEmployees, skillPool);
@@ -75,11 +75,11 @@ export function normalizeWorkspaceState(state: Partial<AgentSpaceState>): AgentS
     skills: sortWorkspaceSkills(skillPool),
     activeEmployees,
     directConversations: normalizeDirectConversations(
-      (state as { directConversations?: AgentSpaceState["directConversations"] }).directConversations,
+      (state as { directConversations?: DofeAgentState["directConversations"] }).directConversations,
       fallback.directConversations,
     ),
     conversationExecutionWorkspaces: normalizeConversationExecutionWorkspaces(
-      (state as { conversationExecutionWorkspaces?: AgentSpaceState["conversationExecutionWorkspaces"] }).conversationExecutionWorkspaces,
+      (state as { conversationExecutionWorkspaces?: DofeAgentState["conversationExecutionWorkspaces"] }).conversationExecutionWorkspaces,
       fallback.conversationExecutionWorkspaces ?? [],
     ),
     channels: normalizeChannels(state.channels, fallback.channels, humanMembers),
@@ -146,10 +146,10 @@ export function normalizeWorkspaceState(state: Partial<AgentSpaceState>): AgentS
 }
 
 function normalizeChannels(
-  channels: AgentSpaceState["channels"] | undefined,
-  fallback: AgentSpaceState["channels"],
+  channels: DofeAgentState["channels"] | undefined,
+  fallback: DofeAgentState["channels"],
   humanMembers: HumanMember[],
-): AgentSpaceState["channels"] {
+): DofeAgentState["channels"] {
   if (!Array.isArray(channels)) {
     return fallback;
   }
@@ -200,7 +200,7 @@ function normalizeChannel(channel: unknown, humanMembers: HumanMember[]): Channe
 }
 
 export function buildRecoveredActiveEmployee(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   employeeName: string,
   runtimeName: string,
 ): ActiveEmployee {
@@ -429,18 +429,18 @@ Use this skill when your final answer should include generated files instead of 
 ## Commands
 
 \`\`\`bash
-agent-space output text "Optional summary shown in the chat message."
-agent-space output attach runtime-output/artifacts/chart.png --name chart.png --media-type image/png --text "Chart generated."
-agent-space output validate
+dofe-agent output text "Optional summary shown in the chat message."
+dofe-agent output attach runtime-output/artifacts/chart.png --name chart.png --media-type image/png --text "Chart generated."
+dofe-agent output validate
 \`\`\`
 
 ## Rules
 
-- Every file passed to \`agent-space output attach\` must already exist and be non-empty
+- Every file passed to \`dofe-agent output attach\` must already exist and be non-empty
 - Keep \`text\` as the human-readable summary shown in chat
 - Use \`name\` only when you want a different display name
 - Use \`mediaType\` when the file type is not obvious from the extension
-- If no file should be returned, use a normal text reply or \`agent-space output text\`
+- If no file should be returned, use a normal text reply or \`dofe-agent output text\`
 
 ## Examples
 
@@ -469,7 +469,7 @@ Use this skill when the inline task prompt does not contain enough workspace fac
 
 ## Contract
 
-- Use the shared \`agent-space workspace context ...\` commands
+- Use the shared \`dofe-agent workspace context ...\` commands
 - Do not pass an agent name, user identity, or database path
 - The runtime injects the current Agent context automatically
 - Treat all returned data as workspace-scoped context, not real-world identity
@@ -477,11 +477,11 @@ Use this skill when the inline task prompt does not contain enough workspace fac
 ## Commands
 
 \`\`\`bash
-agent-space workspace context list-entities --json
-agent-space workspace context resolve-entity --query "个人助手" --json
-agent-space workspace context list-channels --json
-agent-space workspace context search-messages --query "任天堂博物馆" --channel "tour visit" --json
-agent-space workspace context list-documents --channel "tour visit" --json
+dofe-agent workspace context list-entities --json
+dofe-agent workspace context resolve-entity --query "个人助手" --json
+dofe-agent workspace context list-channels --json
+dofe-agent workspace context search-messages --query "任天堂博物馆" --channel "tour visit" --json
+dofe-agent workspace context list-documents --channel "tour visit" --json
 \`\`\`
 
 ## Rules
@@ -513,11 +513,11 @@ Use this skill when your result should become a persistent shared channel docume
 ## Output contract
 
 \`\`\`bash
-agent-space output document upsert --title "Research Notes" --content runtime-output/artifacts/research-notes.md --summary "Summarized interview findings."
-agent-space output document replace-block --document-id channel-doc-123 --base-version-id channel-doc-version-456 --title "Research Notes" --block-id channel-doc-block-1 --base-revision 3 --content runtime-output/artifacts/updated-block.md
-agent-space output document insert-after --document-id channel-doc-123 --base-version-id channel-doc-version-456 --title "Research Notes" --after-block-id channel-doc-block-1 --content runtime-output/artifacts/new-block.md
-agent-space output document delete-block --document-id channel-doc-123 --base-version-id channel-doc-version-456 --title "Research Notes" --block-id channel-doc-block-1 --base-revision 3
-agent-space output validate
+dofe-agent output document upsert --title "Research Notes" --content runtime-output/artifacts/research-notes.md --summary "Summarized interview findings."
+dofe-agent output document replace-block --document-id channel-doc-123 --base-version-id channel-doc-version-456 --title "Research Notes" --block-id channel-doc-block-1 --base-revision 3 --content runtime-output/artifacts/updated-block.md
+dofe-agent output document insert-after --document-id channel-doc-123 --base-version-id channel-doc-version-456 --title "Research Notes" --after-block-id channel-doc-block-1 --content runtime-output/artifacts/new-block.md
+dofe-agent output document delete-block --document-id channel-doc-123 --base-version-id channel-doc-version-456 --title "Research Notes" --block-id channel-doc-block-1 --base-revision 3
+dofe-agent output validate
 \`\`\`
 
 Referenced markdown files should live under \`runtime-output/artifacts/\`.
@@ -546,12 +546,12 @@ Use this skill when the current task includes Google Workspace channel documents
 
 - For Google Sheets, run the official \`gws\` CLI in the current Agent runtime so you can use the real stdout in the same reply.
 - Save Google Sheets JSON stdout under \`runtime-output/artifacts/sheets/*.json\`
-- Register Sheets results with \`agent-space output sheets-result add ...\`, then run \`agent-space output validate\`
-- For new Google Sheets, run \`gws drive files create\`, save the JSON stdout, register it with \`agent-space output external-document create-google-sheet ...\`, then run \`agent-space output validate\`
-- For Google Docs, use \`agent-space output google-docs append-text ...\` or \`agent-space output google-docs batch-update ...\`, then run \`agent-space output validate\`
+- Register Sheets results with \`dofe-agent output sheets-result add ...\`, then run \`dofe-agent output validate\`
+- For new Google Sheets, run \`gws drive files create\`, save the JSON stdout, register it with \`dofe-agent output external-document create-google-sheet ...\`, then run \`dofe-agent output validate\`
+- For Google Docs, use \`dofe-agent output google-docs append-text ...\` or \`dofe-agent output google-docs batch-update ...\`, then run \`dofe-agent output validate\`
 - Do not request, print, or store Google OAuth tokens
 - Do not specify a credential, CLI binary path, or token environment variable
-- AgentSpace validates permissions, injects delegated credentials, audits operation runs, and reports status
+- DofeAgent validates permissions, injects delegated credentials, audits operation runs, and reports status
 
 ## Sheets Runtime Flow
 
@@ -561,11 +561,11 @@ Read example:
 gws sheets spreadsheets values get --format json --params '{"spreadsheetId":"google-file-id","range":"Sheet1!A1:Z20"}'
 mkdir -p runtime-output/artifacts/sheets
 # Save the JSON stdout from the previous gws command to runtime-output/artifacts/sheets/read.json.
-agent-space output sheets-result add --document-id channel-doc-sheet-123 --operation read --range "Sheet1!A1:Z20" --result-json runtime-output/artifacts/sheets/read.json --summary "Read Sheet1 A1:Z20."
-agent-space output validate
+dofe-agent output sheets-result add --document-id channel-doc-sheet-123 --operation read --range "Sheet1!A1:Z20" --result-json runtime-output/artifacts/sheets/read.json --summary "Read Sheet1 A1:Z20."
+dofe-agent output validate
 \`\`\`
 
-For append/update/batch_update, run the matching \`gws\` Sheets command first, save the JSON result, then register it with \`agent-space output sheets-result add --operation append_rows|update_values|batch_update\`.
+For append/update/batch_update, run the matching \`gws\` Sheets command first, save the JSON result, then register it with \`dofe-agent output sheets-result add --operation append_rows|update_values|batch_update\`.
 
 Create example:
 
@@ -573,26 +573,26 @@ Create example:
 mkdir -p runtime-output/artifacts/sheets
 gws drive files create --format json --params '{"fields":"id,name,webViewLink,mimeType,modifiedTime"}' --json '{"name":"Pipeline Forecast","mimeType":"application/vnd.google-apps.spreadsheet"}'
 # Save the JSON stdout from the previous gws command to runtime-output/artifacts/sheets/create-sheet.json.
-agent-space output external-document create-google-sheet --target-channel "sales" --title "Pipeline Forecast" --external-file-id "spreadsheet-id-from-gws" --external-url "webViewLink-from-gws" --summary "Agent-created forecast sheet." --gws-result-json runtime-output/artifacts/sheets/create-sheet.json
-agent-space output validate
+dofe-agent output external-document create-google-sheet --target-channel "sales" --title "Pipeline Forecast" --external-file-id "spreadsheet-id-from-gws" --external-url "webViewLink-from-gws" --summary "Agent-created forecast sheet." --gws-result-json runtime-output/artifacts/sheets/create-sheet.json
+dofe-agent output validate
 \`\`\`
 
-Do not only paste the Google Sheets URL into the final reply. The sheet must be registered with \`external-document create-google-sheet\` so AgentSpace can add it to the channel cloud documents list, validate permissions, and audit the operation.
+Do not only paste the Google Sheets URL into the final reply. The sheet must be registered with \`external-document create-google-sheet\` so DofeAgent can add it to the channel cloud documents list, validate permissions, and audit the operation.
 
 ## Docs Runtime Flow
 
 \`\`\`bash
 mkdir -p runtime-output/artifacts/docs
 # Save append text to runtime-output/artifacts/docs/summary.md.
-agent-space output google-docs append-text --document-id channel-doc-google-doc-123 --intent "Append meeting summary" --text-file runtime-output/artifacts/docs/summary.md
+dofe-agent output google-docs append-text --document-id channel-doc-google-doc-123 --intent "Append meeting summary" --text-file runtime-output/artifacts/docs/summary.md
 # Save a JSON array of Docs batchUpdate requests to runtime-output/artifacts/docs/requests.json.
-agent-space output google-docs batch-update --document-id channel-doc-google-doc-123 --intent "Apply structured Docs changes" --requests-json runtime-output/artifacts/docs/requests.json
-agent-space output validate
+dofe-agent output google-docs batch-update --document-id channel-doc-google-doc-123 --intent "Apply structured Docs changes" --requests-json runtime-output/artifacts/docs/requests.json
+dofe-agent output validate
 \`\`\`
 
 ## Rules
 
-- Use the AgentSpace channel document id in \`documentId\`, not the raw Google file id
+- Use the DofeAgent channel document id in \`documentId\`, not the raw Google file id
 - Keep \`intent\` specific enough for audit review
 - Use \`requestSummary\` for risky writes when helpful
 - Batch update payloads should match Google API request schemas; use smaller, explicit requests
@@ -604,10 +604,10 @@ agent-space output validate
 // ── Private normalizers ──────────────────────────────────────────────
 
 function normalizeActiveEmployees(
-  employees: AgentSpaceState["activeEmployees"] | undefined,
-  fallback: AgentSpaceState["activeEmployees"],
+  employees: DofeAgentState["activeEmployees"] | undefined,
+  fallback: DofeAgentState["activeEmployees"],
   skillPool: WorkspaceSkill[],
-): AgentSpaceState["activeEmployees"] {
+): DofeAgentState["activeEmployees"] {
   if (!Array.isArray(employees)) {
     return fallback;
   }
@@ -731,9 +731,9 @@ function normalizeWorkspaceSkill(skill: unknown): WorkspaceSkill | null {
 }
 
 function normalizeKnowledgePages(
-  pages: AgentSpaceState["knowledgePages"] | undefined,
-  fallback: AgentSpaceState["knowledgePages"],
-): AgentSpaceState["knowledgePages"] {
+  pages: DofeAgentState["knowledgePages"] | undefined,
+  fallback: DofeAgentState["knowledgePages"],
+): DofeAgentState["knowledgePages"] {
   if (!Array.isArray(pages)) {
     return fallback;
   }
@@ -796,9 +796,9 @@ function normalizeKnowledgePages(
 }
 
 function normalizeLedgerItems(
-  ledger: AgentSpaceState["ledger"] | undefined,
-  fallback: AgentSpaceState["ledger"],
-): AgentSpaceState["ledger"] {
+  ledger: DofeAgentState["ledger"] | undefined,
+  fallback: DofeAgentState["ledger"],
+): DofeAgentState["ledger"] {
   if (!Array.isArray(ledger)) {
     return fallback;
   }
@@ -1031,9 +1031,9 @@ function normalizeLegacyAgentSkill(skill: unknown): { name: string; description:
 }
 
 function normalizeDirectConversations(
-  conversations: AgentSpaceState["directConversations"] | undefined,
-  fallback: AgentSpaceState["directConversations"],
-): AgentSpaceState["directConversations"] {
+  conversations: DofeAgentState["directConversations"] | undefined,
+  fallback: DofeAgentState["directConversations"],
+): DofeAgentState["directConversations"] {
   if (!Array.isArray(conversations)) {
     return fallback;
   }
@@ -1070,7 +1070,7 @@ function normalizeDirectConversation(thread: unknown): DirectConversationState |
 }
 
 function normalizeConversationExecutionWorkspaces(
-  workspaces: AgentSpaceState["conversationExecutionWorkspaces"] | undefined,
+  workspaces: DofeAgentState["conversationExecutionWorkspaces"] | undefined,
   fallback: ConversationExecutionWorkspaceState[],
 ): ConversationExecutionWorkspaceState[] {
   if (!Array.isArray(workspaces)) {
@@ -1184,7 +1184,7 @@ function normalizeConversationAutoContinuation(input: unknown): ConversationAuto
   };
 }
 
-function normalizeWorkspaceMessages(messages: AgentSpaceState["messages"] | undefined, fallback: AgentSpaceState["messages"]): AgentSpaceState["messages"] {
+function normalizeWorkspaceMessages(messages: DofeAgentState["messages"] | undefined, fallback: DofeAgentState["messages"]): DofeAgentState["messages"] {
   if (!Array.isArray(messages)) {
     return fallback;
   }

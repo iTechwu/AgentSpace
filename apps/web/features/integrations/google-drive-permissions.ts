@@ -1,11 +1,11 @@
-import { listWorkspaceMemberUsersSync } from "@agent-space/db";
-import type { ChannelDocumentAccessRole } from "@agent-space/domain";
+import { listWorkspaceMemberUsersSync } from "@dofe-agent/db";
+import type { ChannelDocumentAccessRole } from "@dofe-agent/domain";
 import {
   listChannelDocumentAccessesSync,
   readChannelDocumentSync,
   recordExternalSheetOperationRunSync,
   updateExternalSheetOperationRunSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import {
   createGoogleDriveFilePermission,
   deleteGoogleDriveFilePermission,

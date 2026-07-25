@@ -14,13 +14,13 @@
     "rootDir": "./src",
     "outDir": "./dist-types",
     "paths": {
-      "@agent-space/domain": [
+      "@dofe-agent/domain": [
         "../domain/dist-types/index.d.ts"
       ],
-      "@agent-space/domain/*": [
+      "@dofe-agent/domain/*": [
         "../domain/dist-types/*"
       ],
-      "@agent-space/db": [
+      "@dofe-agent/db": [
         "../db/dist-types/index.d.ts"
       ]
     }

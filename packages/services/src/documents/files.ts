@@ -1,18 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
-  AgentSpaceState,
+  DofeAgentState,
   ChannelRecord,
   ChannelDocument,
   ChannelDocumentVersion,
   MessageAttachment,
   WorkspaceMessage,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import { sameValue, sanitizeAttachmentFileName } from "../shared/helpers.ts";
 import { resolveChannelHumanMemberNames } from "../channels/channels.ts";
 
 export function findWorkspaceAttachmentById(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   attachmentId: string,
 ): { attachment: MessageAttachment; message?: WorkspaceMessage } | null {
   for (const message of state.messages) {
@@ -25,7 +25,7 @@ export function findWorkspaceAttachmentById(
 }
 
 export function assertCanAccessWorkspaceAttachment(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   attachmentId: string,
   actorId: string,
   actorType: "human" | "agent",
@@ -82,7 +82,7 @@ export function readMarkdownAttachmentContent(
 }
 
 function canHumanActorAccessChannel(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channelName: string,
   actorId: string,
 ): boolean {
@@ -97,7 +97,7 @@ function canHumanActorAccessChannel(
 }
 
 function canAgentActorAccessChannel(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channelName: string,
   actorId: string,
 ): boolean {
@@ -105,6 +105,6 @@ function canAgentActorAccessChannel(
   return Boolean(employee?.channels.some((channel) => sameValue(channel, channelName)));
 }
 
-function findChannelRecord(state: AgentSpaceState, channelName: string): ChannelRecord | undefined {
+function findChannelRecord(state: DofeAgentState, channelName: string): ChannelRecord | undefined {
   return state.channels.find((channel) => sameValue(channel.name, channelName));
 }

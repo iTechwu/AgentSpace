@@ -1,4 +1,4 @@
-import { postMessageSync, sendChannelHumanMessageSync, readWorkspaceSnapshotSync } from "@agent-space/services";
+import { postMessageSync, sendChannelHumanMessageSync, readWorkspaceSnapshotSync } from "@dofe-agent/services";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
@@ -22,7 +22,7 @@ export function runMessageCommand(
 
     if (!channel || !summary) {
       console.error(
-        'Usage: agent-space message post --channel <name> --summary <text> [--speaker <name>] [--role human|agent] [--json]',
+        'Usage: dofe-agent message post --channel <name> --summary <text> [--speaker <name>] [--role human|agent] [--json]',
       );
       return 1;
     }
@@ -41,9 +41,9 @@ export function runMessageCommand(
     return 0;
   }
 
-  console.error("Usage: agent-space message list [--json]");
+  console.error("Usage: dofe-agent message list [--json]");
   console.error(
-    "   or: agent-space message post --channel <name> --summary <text> [--speaker <name>] [--role human|agent] [--json]",
+    "   or: dofe-agent message post --channel <name> --summary <text> [--speaker <name>] [--role human|agent] [--json]",
   );
   return 1;
 }

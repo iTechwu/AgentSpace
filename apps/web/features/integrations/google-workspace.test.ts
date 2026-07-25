@@ -12,7 +12,7 @@ describe("Google Workspace API helpers", () => {
   });
 
   it("creates Google Drive user permissions without sending email notifications", async () => {
-    vi.stubEnv("AGENT_SPACE_GOOGLE_WORKSPACE_EXECUTOR", "api");
+    vi.stubEnv("DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR", "api");
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({
         id: "permission-1",
@@ -55,7 +55,7 @@ describe("Google Workspace API helpers", () => {
   });
 
   it("wraps failed Drive permission responses with a Google Workspace error code", async () => {
-    vi.stubEnv("AGENT_SPACE_GOOGLE_WORKSPACE_EXECUTOR", "api");
+    vi.stubEnv("DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR", "api");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response(JSON.stringify({
         error: {
@@ -78,7 +78,7 @@ describe("Google Workspace API helpers", () => {
   });
 
   it("explains OAuth visibility when Drive metadata returns 404", async () => {
-    vi.stubEnv("AGENT_SPACE_GOOGLE_WORKSPACE_EXECUTOR", "api");
+    vi.stubEnv("DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR", "api");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response(JSON.stringify({
         error: {

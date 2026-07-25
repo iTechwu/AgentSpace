@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createDefaultWorkspaceState } from "@agent-space/domain/workspace";
+import { createDefaultWorkspaceState } from "@dofe-agent/domain/workspace";
 import { createChannelDocumentRun, markChannelDocumentRunStepCompleted } from "./runs.ts";
 
 test("channel document run promotes dependent step after the upstream document step completes", () => {

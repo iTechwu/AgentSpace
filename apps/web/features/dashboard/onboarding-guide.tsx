@@ -3,10 +3,10 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
 
-export const WORKSPACE_ONBOARDING_REPLAY_EVENT = "agent-space:workspace-onboarding:replay";
+export const WORKSPACE_ONBOARDING_REPLAY_EVENT = "dofe-agent:workspace-onboarding:replay";
 
 const WORKSPACE_ONBOARDING_DONE_VALUE = "done";
-const WORKSPACE_ONBOARDING_STORAGE_PREFIX = "agent-space-workspace-onboarding:v1";
+const WORKSPACE_ONBOARDING_STORAGE_PREFIX = "dofe-agent-workspace-onboarding:v1";
 
 export interface WorkspaceOnboardingStep {
   body: string;

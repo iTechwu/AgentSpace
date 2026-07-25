@@ -1,9 +1,12 @@
 {
-  "name": "agent-space",
+  "name": "dofe-agent",
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
   "packageManager": "pnpm@10.26.2",
+  "bin": {
+    "dofe-agent": "./apps/cli/bin/dofe-agent.js"
+  },
   "scripts": {
     "cli": "node --experimental-strip-types apps/cli/src/index.ts",
     "daemon:pack": "npm pack ./packages/daemon",

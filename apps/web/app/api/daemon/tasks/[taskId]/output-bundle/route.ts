@@ -1,7 +1,7 @@
-import { buildTaskExecutionEventContext, recordTaskExecutionEventSync } from "@agent-space/db";
-import type { DaemonTaskOutputBundle } from "@agent-space/domain";
-import { parseTaskPayload } from "agent-space-daemon";
-import { postMessageSync } from "@agent-space/services";
+import { buildTaskExecutionEventContext, recordTaskExecutionEventSync } from "@dofe-agent/db";
+import type { DaemonTaskOutputBundle } from "@dofe-agent/domain";
+import { parseTaskPayload } from "dofe-agent-daemon";
+import { postMessageSync } from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 import { materializeOutputBundleToStaging } from "../../../_lib/output-bundle";
 

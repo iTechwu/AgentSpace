@@ -35,7 +35,7 @@ export {
   type FakeIntegrationProviderAdapterOptions,
 } from "./fake-adapter.ts";
 export type {
-  AgentSpaceOutboundMessage,
+  DofeAgentOutboundMessage,
   ExternalDataOperationRequest,
   ExternalDataOperationPlan,
   ExternalDataOperationPolicyDecision,

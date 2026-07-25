@@ -16,11 +16,11 @@ import {
   readChannelParticipantSync,
 } from "./index.ts";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-channel-access-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-channel-access-"));
 const originalCwd = process.cwd();
 
 before(() => {
-  process.env.AGENT_SPACE_REPOSITORY_ROOT = originalCwd;
+  process.env.DOFE_AGENT_REPOSITORY_ROOT = originalCwd;
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   process.chdir(tempRoot);

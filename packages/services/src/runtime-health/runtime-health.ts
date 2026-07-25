@@ -5,7 +5,7 @@ import {
   type ProviderUsabilityStatus,
   type RuntimeOnlineStatus,
   type RuntimeProviderHealth,
-} from "@agent-space/domain";
+} from "@dofe-agent/domain";
 
 export interface NormalizeRuntimeProviderHealthInput {
   runtimeStatus: RuntimeOnlineStatus;

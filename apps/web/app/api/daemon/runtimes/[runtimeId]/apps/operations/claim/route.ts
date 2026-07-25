@@ -1,5 +1,5 @@
-import { claimNextRuntimeAppOperationForRuntimeSync } from "@agent-space/db";
-import type { ClaimRuntimeAppOperationResponse, RuntimeAppInstallPlan } from "@agent-space/domain";
+import { claimNextRuntimeAppOperationForRuntimeSync } from "@dofe-agent/db";
+import type { ClaimRuntimeAppOperationResponse, RuntimeAppInstallPlan } from "@dofe-agent/domain";
 import { readRuntimeForDaemon, requireDaemonAuth } from "../../../../../_lib/auth";
 
 export const runtime = "nodejs";

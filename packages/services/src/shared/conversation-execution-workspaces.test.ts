@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { before } from "node:test";
-import { createDefaultWorkspaceState } from "@agent-space/domain/workspace";
+import { createDefaultWorkspaceState } from "@dofe-agent/domain/workspace";
 import {
   buildConversationExecutionWorkspaceKey,
   readConversationExecutionWorkspaceState,
@@ -13,7 +13,7 @@ import {
 } from "./conversation-execution-workspaces.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-conversation-execution-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-conversation-execution-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

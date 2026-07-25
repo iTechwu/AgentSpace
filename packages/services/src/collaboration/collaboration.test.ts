@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before, beforeEach } from "node:test";
-import { createWorkspaceSync, readWorkspaceSync } from "@agent-space/db";
+import { createWorkspaceSync, readWorkspaceSync } from "@dofe-agent/db";
 import {
   acceptCollaborationChangeProposalSync,
   addCollaborationCommentSync,
@@ -21,7 +21,7 @@ import {
   resetWorkspaceStateSync,
 } from "../index.ts";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-collaboration-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-collaboration-"));
 const WORKSPACE_ID = "workspace-collab";
 
 before(() => {

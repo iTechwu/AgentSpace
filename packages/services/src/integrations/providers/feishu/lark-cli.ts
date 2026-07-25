@@ -1,12 +1,12 @@
 import type {
   ExternalResourceBindingProviderType,
   ExternalResourceBindingRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   listExternalIntegrationsSync,
   listExternalResourceBindingsSync,
-} from "@agent-space/db";
-import type { RuntimeToolCapability } from "@agent-space/domain";
+} from "@dofe-agent/db";
+import type { RuntimeToolCapability } from "@dofe-agent/domain";
 import type {
   ExternalDataOperationRequest,
   ExternalDataOperationResult,
@@ -15,11 +15,11 @@ import { FEISHU_PROVIDER_ID } from "./constants.ts";
 
 export const DEFAULT_FEISHU_LARK_CLI_COMMAND = "lark-cli";
 export const FEISHU_LARK_CLI_EXECUTOR_ENV_NAMES = [
-  "AGENT_SPACE_FEISHU_LARK_CLI_EXECUTOR",
-  "AGENT_SPACE_LARK_CLI_EXECUTOR",
+  "DOFE_AGENT_FEISHU_LARK_CLI_EXECUTOR",
+  "DOFE_AGENT_LARK_CLI_EXECUTOR",
 ] as const;
-export const FEISHU_LARK_CLI_OPERATION_MANIFEST_KIND = "agent-space.feishu.lark-cli.operation";
-export const FEISHU_LARK_CLI_RESULT_MANIFEST_KIND = "agent-space.feishu.lark-cli.result";
+export const FEISHU_LARK_CLI_OPERATION_MANIFEST_KIND = "dofe-agent.feishu.lark-cli.operation";
+export const FEISHU_LARK_CLI_RESULT_MANIFEST_KIND = "dofe-agent.feishu.lark-cli.result";
 export const FEISHU_LARK_CLI_MANIFEST_SCHEMA_VERSION = 1;
 export const FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH = "runtime-output/feishu-data-operation-result.json";
 
@@ -169,7 +169,7 @@ export function diagnoseFeishuLarkCliRuntime(
   return {
     status: "available",
     reasonCode: "feishu.lark_cli.available",
-    message: "Feishu lark-cli runtime capability is available with scoped AgentSpace grants.",
+    message: "Feishu lark-cli runtime capability is available with scoped DofeAgent grants.",
     command,
     capability,
   };
@@ -350,7 +350,7 @@ export function summarizeFeishuLarkCliResultManifest(value: unknown): ExternalDa
 export function isFeishuLarkCliRuntimeEnabled(
   environment: Record<string, string | undefined> = process.env,
 ): boolean {
-  if (readBooleanEnvironmentFlag(environment.AGENT_SPACE_FEISHU_LARK_CLI_ENABLED)) {
+  if (readBooleanEnvironmentFlag(environment.DOFE_AGENT_FEISHU_LARK_CLI_ENABLED)) {
     return true;
   }
   return FEISHU_LARK_CLI_EXECUTOR_ENV_NAMES.some((envName) => Boolean(environment[envName]?.trim()));

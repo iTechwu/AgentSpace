@@ -4,4 +4,4 @@ export {
   clearChannelDocumentOperationArtifacts,
   materializeChannelDocuments,
   resolveChannelDocuments,
-} from "agent-space-daemon";
+} from "dofe-agent-daemon";

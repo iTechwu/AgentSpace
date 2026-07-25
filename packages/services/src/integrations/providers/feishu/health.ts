@@ -1,4 +1,4 @@
-import type { ExternalIntegrationHealthStatus } from "@agent-space/db";
+import type { ExternalIntegrationHealthStatus } from "@dofe-agent/db";
 import {
   createFeishuApiClient,
   fetchFeishuTenantAccessToken,

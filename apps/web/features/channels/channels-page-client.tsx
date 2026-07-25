@@ -85,7 +85,7 @@ type ChannelDocumentCreateMode = "markdown" | "nativeSheet" | "nativeDeck" | "go
 
 const CHANNEL_REFRESH_POLL_MS = 2000;
 const CHANNEL_REALTIME_REFRESH_DEBOUNCE_MS = 350;
-const IM_PERFORMANCE_MARK_PREFIX = "agent-space.im";
+const IM_PERFORMANCE_MARK_PREFIX = "dofe-agent.im";
 
 type ChannelRecord = ChannelsPageData["channels"][number];
 type ChannelDocumentRecord = ChannelsPageData["documents"][number];
@@ -1869,7 +1869,7 @@ export function ChannelsPageClient({
                   }}
                   onOpenTaskBoard={() => {
                     setShowHeaderMenu(false);
-                    navigateToWorkspaceModule("/task-board");
+                    navigateToWorkspaceModule("/task/board");
                   }}
                   onOpenCreateMenu={() => {
                     setShowHeaderMenu(false);

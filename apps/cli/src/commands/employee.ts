@@ -6,8 +6,8 @@ import {
   listEmployeeRuntimeBindingsForWorkspaceSync,
   listEmployeeSkillIdsSync,
   unbindEmployeeRuntimeSync,
-} from "@agent-space/services";
-import { employeeToPersona } from "@agent-space/domain";
+} from "@dofe-agent/services";
+import { employeeToPersona } from "@dofe-agent/domain";
 import { signPersona } from "../lib/openagent-persona-sign.ts";
 import { parseArgs, getStringFlag } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
@@ -50,7 +50,7 @@ export function runEmployeeCommand(
 
     if (!name || !role) {
       console.error(
-        'Usage: agent-space employee create --name <name> --role <role> [--traits a,b] [--summary <text>] [--fit <text>] [--origin <label>] [--json]',
+        'Usage: dofe-agent employee create --name <name> --role <role> [--traits a,b] [--summary <text>] [--fit <text>] [--origin <label>] [--json]',
       );
       return 1;
     }
@@ -82,7 +82,7 @@ export function runEmployeeCommand(
 
     if (!name || !runtimeId) {
       console.error(
-        "Usage: agent-space employee bind-runtime --name <employee> --runtime-id <runtime-id> [--json]",
+        "Usage: dofe-agent employee bind-runtime --name <employee> --runtime-id <runtime-id> [--json]",
       );
       return 1;
     }
@@ -102,7 +102,7 @@ export function runEmployeeCommand(
     const name = getStringFlag(flags, "name");
 
     if (!name) {
-      console.error("Usage: agent-space employee unbind-runtime --name <employee> [--json]");
+      console.error("Usage: dofe-agent employee unbind-runtime --name <employee> [--json]");
       return 1;
     }
 
@@ -121,7 +121,7 @@ export function runEmployeeCommand(
 
     if (!name) {
       console.error(
-        "Usage: agent-space employee export-persona --name <employee> [--sign] [--include-sensitive] [--out <path>] [--json]",
+        "Usage: dofe-agent employee export-persona --name <employee> [--sign] [--include-sensitive] [--out <path>] [--json]",
       );
       return 1;
     }
@@ -167,16 +167,16 @@ export function runEmployeeCommand(
     return 0;
   }
 
-  console.error("Usage: agent-space employee list [--json]");
+  console.error("Usage: dofe-agent employee list [--json]");
   console.error(
-    "   or: agent-space employee create --name <name> --role <role> [--traits a,b] [--summary <text>] [--fit <text>] [--origin <label>] [--json]",
+    "   or: dofe-agent employee create --name <name> --role <role> [--traits a,b] [--summary <text>] [--fit <text>] [--origin <label>] [--json]",
   );
   console.error(
-    "   or: agent-space employee bind-runtime --name <employee> --runtime-id <runtime-id> [--json]",
+    "   or: dofe-agent employee bind-runtime --name <employee> --runtime-id <runtime-id> [--json]",
   );
-  console.error("   or: agent-space employee unbind-runtime --name <employee> [--json]");
+  console.error("   or: dofe-agent employee unbind-runtime --name <employee> [--json]");
   console.error(
-    "   or: agent-space employee export-persona --name <employee> [--sign] [--include-sensitive] [--out <path>] [--json]",
+    "   or: dofe-agent employee export-persona --name <employee> [--sign] [--include-sensitive] [--out <path>] [--json]",
   );
   return 1;
 }

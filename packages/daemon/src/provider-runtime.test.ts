@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test from "node:test";
-import { formatDaemonProviderLabel } from "@agent-space/domain";
+import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import {
   detectProviders,
   readProviderTaskFailureMetadata,
@@ -14,7 +14,7 @@ import {
 import { inspectOpenClawDaemonAuthHealth, normalizeOpenClawProviderError } from "./openclaw-health.ts";
 
 test("detectProviders includes antigravity, opencode, openclaw, nanobot, and hermes when their CLIs are on PATH", () => {
-  const binDir = mkdtempSync(join(tmpdir(), "agent-space-provider-bin-"));
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-bin-"));
   const originalPath = process.env.PATH;
 
   try {
@@ -53,7 +53,7 @@ test("detectProviders includes antigravity, opencode, openclaw, nanobot, and her
 });
 
 test("detectProviders allows Claude Code when the daemon is running as root", async () => {
-  const binDir = mkdtempSync(join(tmpdir(), "agent-space-provider-bin-"));
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-bin-"));
   const originalPath = process.env.PATH;
 
   try {
@@ -82,9 +82,9 @@ test("detectProviders allows Claude Code when the daemon is running as root", as
 });
 
 test("detectProviders registers only the configured container provider", () => {
-  const binDir = mkdtempSync(join(tmpdir(), "agent-space-provider-bin-"));
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-bin-"));
   const originalPath = process.env.PATH;
-  const originalRuntimeProvider = process.env.AGENT_SPACE_RUNTIME_PROVIDER;
+  const originalRuntimeProvider = process.env.DOFE_AGENT_RUNTIME_PROVIDER;
 
   try {
     for (const command of ["codex", "claude"]) {
@@ -93,15 +93,15 @@ test("detectProviders registers only the configured container provider", () => {
       chmodSync(filePath, 0o755);
     }
     process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
-    process.env.AGENT_SPACE_RUNTIME_PROVIDER = "codex";
+    process.env.DOFE_AGENT_RUNTIME_PROVIDER = "codex";
 
     assert.deepEqual(detectProviders().map((provider) => provider.provider), ["codex"]);
   } finally {
     process.env.PATH = originalPath;
     if (originalRuntimeProvider === undefined) {
-      delete process.env.AGENT_SPACE_RUNTIME_PROVIDER;
+      delete process.env.DOFE_AGENT_RUNTIME_PROVIDER;
     } else {
-      process.env.AGENT_SPACE_RUNTIME_PROVIDER = originalRuntimeProvider;
+      process.env.DOFE_AGENT_RUNTIME_PROVIDER = originalRuntimeProvider;
     }
     rmSync(binDir, { recursive: true, force: true });
   }
@@ -215,7 +215,7 @@ test("formatDaemonProviderLabel returns friendly labels for expanded providers",
 });
 
 test("runProviderTask resumes Codex sessions when sessionId is provided", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-codex-resume-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-codex-resume-"));
   const binPath = join(workDir, "codex");
   const argsPath = join(workDir, "codex-args.json");
   writeFileSync(
@@ -275,11 +275,11 @@ test("runProviderTask resumes Codex sessions when sessionId is provided", async 
 });
 
 test("runProviderTask adds daemon bin directory to provider PATH", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-codex-provider-path-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-codex-provider-path-"));
   const providerBinDir = join(workDir, "provider-bin");
   const daemonBinDir = join(workDir, "daemon-runtime", "bin");
   const binPath = join(providerBinDir, "codex");
-  const daemonBinPath = join(daemonBinDir, "agent-space-daemon");
+  const daemonBinPath = join(daemonBinDir, "dofe-agent-daemon");
   const seenPathFile = join(workDir, "seen-path.txt");
   mkdirSync(providerBinDir, { recursive: true });
   mkdirSync(daemonBinDir, { recursive: true });
@@ -291,7 +291,7 @@ test("runProviderTask adds daemon bin directory to provider PATH", async () => {
       "previous_arg=\"\"",
       "for arg in \"$@\"; do",
       "  if [ \"$previous_arg\" = \"-o\" ]; then",
-      "    if command -v agent-space-daemon >/dev/null 2>&1; then",
+      "    if command -v dofe-agent-daemon >/dev/null 2>&1; then",
       "      printf '%s' 'path ok' > \"$arg\"",
       "    else",
       "      printf '%s' 'path missing' > \"$arg\"",
@@ -318,10 +318,10 @@ test("runProviderTask adds daemon bin directory to provider PATH", async () => {
       mode: "remote",
     },
   };
-  const originalDaemonBin = process.env.AGENT_SPACE_DAEMON_BIN;
+  const originalDaemonBin = process.env.DOFE_AGENT_DAEMON_BIN;
 
   try {
-    process.env.AGENT_SPACE_DAEMON_BIN = daemonBinPath;
+    process.env.DOFE_AGENT_DAEMON_BIN = daemonBinPath;
     const result = await runProviderTask(runtime, "check path", workDir, {
       contextEnv: {
         PATH: providerBinDir,
@@ -336,16 +336,16 @@ test("runProviderTask adds daemon bin directory to provider PATH", async () => {
     assert.equal(seenPath.includes(daemonBinDir), true);
   } finally {
     if (originalDaemonBin === undefined) {
-      delete process.env.AGENT_SPACE_DAEMON_BIN;
+      delete process.env.DOFE_AGENT_DAEMON_BIN;
     } else {
-      process.env.AGENT_SPACE_DAEMON_BIN = originalDaemonBin;
+      process.env.DOFE_AGENT_DAEMON_BIN = originalDaemonBin;
     }
     rmSync(workDir, { recursive: true, force: true });
   }
 });
 
 test("runProviderTask starts a new Codex conversation when resume rollout is missing", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-codex-stale-resume-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-codex-stale-resume-"));
   const binPath = join(workDir, "codex");
   const argsDir = join(workDir, "args");
   const countPath = join(workDir, "count.txt");
@@ -426,7 +426,7 @@ test("runProviderTask starts a new Codex conversation when resume rollout is mis
 });
 
 test("runProviderTask sends Claude prompts through stream-json stdin", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-claude-stdin-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-stdin-"));
   const binPath = join(workDir, "claude");
   const argsPath = join(workDir, "claude-args.txt");
   const stdinPath = join(workDir, "claude-stdin.json");
@@ -500,7 +500,7 @@ test("runProviderTask sends Claude prompts through stream-json stdin", async () 
 });
 
 test("runProviderTask starts a new Claude conversation when resume session is missing", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-claude-stale-resume-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-stale-resume-"));
   const binPath = join(workDir, "claude");
   const argsDir = join(workDir, "args");
   const countPath = join(workDir, "count.txt");
@@ -577,7 +577,7 @@ test("runProviderTask starts a new Claude conversation when resume session is mi
 });
 
 test("runProviderTask keeps built-in Claude tool grants narrow when running as root", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-claude-root-permissions-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-root-permissions-"));
   const providerBinDir = join(workDir, "provider-bin");
   const gwsBinDir = join(workDir, "gws-bin");
   const binPath = join(providerBinDir, "claude");
@@ -638,15 +638,15 @@ test("runProviderTask keeps built-in Claude tool grants narrow when running as r
       assert.equal(args.includes("Bash(gws sheets *)"), false);
       assert.equal(args.includes("Bash(gws --version)"), true);
       assert.equal(args.includes("Bash(command -v *)"), true);
-      assert.equal(args.includes("Bash(agent-space output *)"), false);
-      assert.equal(args.includes("Bash(agent-space output text *)"), true);
-      assert.equal(args.includes("Bash(agent-space output attach *)"), true);
-      assert.equal(args.includes("Bash(agent-space output document *)"), false);
-      assert.equal(args.includes("Bash(agent-space output skill import *)"), false);
-      assert.equal(args.includes("Bash(agent-space output sheets-result add *)"), false);
-      assert.equal(args.includes("Bash(agent-space output external-document link-google-sheet *)"), false);
-      assert.equal(args.includes("Bash(agent-space output permission request-document *)"), false);
-      assert.equal(args.includes("Bash(agent-space output google-docs *)"), false);
+      assert.equal(args.includes("Bash(dofe-agent output *)"), false);
+      assert.equal(args.includes("Bash(dofe-agent output text *)"), true);
+      assert.equal(args.includes("Bash(dofe-agent output attach *)"), true);
+      assert.equal(args.includes("Bash(dofe-agent output document *)"), false);
+      assert.equal(args.includes("Bash(dofe-agent output skill import *)"), false);
+      assert.equal(args.includes("Bash(dofe-agent output sheets-result add *)"), false);
+      assert.equal(args.includes("Bash(dofe-agent output external-document link-google-sheet *)"), false);
+      assert.equal(args.includes("Bash(dofe-agent output permission request-document *)"), false);
+      assert.equal(args.includes("Bash(dofe-agent output google-docs *)"), false);
       assert.equal(args.includes("Bash(*) Read Write Edit Glob Grep"), false);
       assert.equal(args.includes("bypassPermissions"), false);
       assert.equal(args.includes("--dangerously-skip-permissions"), false);
@@ -658,14 +658,14 @@ test("runProviderTask keeps built-in Claude tool grants narrow when running as r
 });
 
 test("runProviderTask exposes Feishu lark-cli diagnostic grants only when enabled", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-claude-feishu-lark-cli-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-feishu-lark-cli-"));
   const providerBinDir = join(workDir, "provider-bin");
   const larkBinDir = join(workDir, "lark-bin");
   const binPath = join(providerBinDir, "claude");
   const larkPath = join(larkBinDir, "lark-cli");
   const argsPath = join(workDir, "claude-args.txt");
   const originalPath = process.env.PATH;
-  const originalEnabled = process.env.AGENT_SPACE_FEISHU_LARK_CLI_ENABLED;
+  const originalEnabled = process.env.DOFE_AGENT_FEISHU_LARK_CLI_ENABLED;
   mkdirSync(providerBinDir, { recursive: true });
   mkdirSync(larkBinDir, { recursive: true });
   writeFileSync(
@@ -697,7 +697,7 @@ test("runProviderTask exposes Feishu lark-cli diagnostic grants only when enable
 
   try {
     process.env.PATH = `${providerBinDir}${delimiter}${larkBinDir}`;
-    process.env.AGENT_SPACE_FEISHU_LARK_CLI_ENABLED = "true";
+    process.env.DOFE_AGENT_FEISHU_LARK_CLI_ENABLED = "true";
     await withProcessGetuid(0, async () => {
       const result = await runProviderTask(runtime, "hi", workDir, {
         contextEnv: {
@@ -717,9 +717,9 @@ test("runProviderTask exposes Feishu lark-cli diagnostic grants only when enable
     });
   } finally {
     if (originalEnabled === undefined) {
-      delete process.env.AGENT_SPACE_FEISHU_LARK_CLI_ENABLED;
+      delete process.env.DOFE_AGENT_FEISHU_LARK_CLI_ENABLED;
     } else {
-      process.env.AGENT_SPACE_FEISHU_LARK_CLI_ENABLED = originalEnabled;
+      process.env.DOFE_AGENT_FEISHU_LARK_CLI_ENABLED = originalEnabled;
     }
     process.env.PATH = originalPath;
     rmSync(workDir, { recursive: true, force: true });
@@ -727,7 +727,7 @@ test("runProviderTask exposes Feishu lark-cli diagnostic grants only when enable
 });
 
 test("runProviderTask exposes CLI-Hub runtime app capabilities without adapter-specific code", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-claude-clihub-capability-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-clihub-capability-"));
   const providerBinDir = join(workDir, "provider-bin");
   const toolBinDir = join(workDir, "tool-bin");
   const binPath = join(providerBinDir, "claude");
@@ -798,7 +798,7 @@ test("runProviderTask exposes CLI-Hub runtime app capabilities without adapter-s
 });
 
 test("runProviderTask maps missing and unauthorized runtime tool capabilities to distinct provider errors", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-runtime-tool-diagnostics-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-runtime-tool-diagnostics-"));
   const binPath = join(workDir, "codex");
   writeFileSync(binPath, "#!/bin/sh\nexit 0\n", "utf8");
   chmodSync(binPath, 0o755);
@@ -859,18 +859,18 @@ test("runProviderTask maps missing and unauthorized runtime tool capabilities to
 });
 
 test("runProviderTask routes Hermes through AgentRouter with model, PATH capabilities, and structured errors", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-hermes-provider-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-hermes-provider-"));
   const providerBinDir = join(workDir, "provider-bin");
   const daemonBinDir = join(workDir, "daemon-bin");
   const toolBinDir = join(workDir, "tool-bin");
   const binPath = join(providerBinDir, "hermes");
-  const daemonBinPath = join(daemonBinDir, "agent-space-daemon");
-  const agentSpacePath = join(daemonBinDir, "agent-space");
+  const daemonBinPath = join(daemonBinDir, "dofe-agent-daemon");
+  const dofeAgentPath = join(daemonBinDir, "dofe-agent");
   const fakeCliPath = join(toolBinDir, "fake-cli");
   const argsPath = join(workDir, "hermes-args.txt");
   const seenPathFile = join(workDir, "seen-path.txt");
   const originalHermesModel = process.env.HERMES_MODEL;
-  const originalDaemonBin = process.env.AGENT_SPACE_DAEMON_BIN;
+  const originalDaemonBin = process.env.DOFE_AGENT_DAEMON_BIN;
   mkdirSync(providerBinDir, { recursive: true });
   mkdirSync(daemonBinDir, { recursive: true });
   mkdirSync(toolBinDir, { recursive: true });
@@ -885,10 +885,10 @@ test("runProviderTask routes Hermes through AgentRouter with model, PATH capabil
       "  exit 7",
       "fi",
       "if command -v fake-cli >/dev/null 2>&1; then",
-      "  if command -v agent-space >/dev/null 2>&1; then",
+      "  if command -v dofe-agent >/dev/null 2>&1; then",
       "    printf '%s\\n' 'hermes provider output'",
       "  else",
-      "    printf '%s\\n' 'missing agent-space'",
+      "    printf '%s\\n' 'missing dofe-agent'",
       "  fi",
       "else",
       "  printf '%s\\n' 'missing fake cli'",
@@ -898,11 +898,11 @@ test("runProviderTask routes Hermes through AgentRouter with model, PATH capabil
     "utf8",
   );
   writeFileSync(daemonBinPath, "#!/bin/sh\nexit 0\n", "utf8");
-  writeFileSync(agentSpacePath, "#!/bin/sh\necho agent-space\n", "utf8");
+  writeFileSync(dofeAgentPath, "#!/bin/sh\necho dofe-agent\n", "utf8");
   writeFileSync(fakeCliPath, "#!/bin/sh\necho fake-cli-ok\n", "utf8");
   chmodSync(binPath, 0o755);
   chmodSync(daemonBinPath, 0o755);
-  chmodSync(agentSpacePath, 0o755);
+  chmodSync(dofeAgentPath, 0o755);
   chmodSync(fakeCliPath, 0o755);
 
   const runtime: ProviderRuntimeRecord = {
@@ -918,7 +918,7 @@ test("runProviderTask routes Hermes through AgentRouter with model, PATH capabil
   };
 
   try {
-    process.env.AGENT_SPACE_DAEMON_BIN = daemonBinPath;
+    process.env.DOFE_AGENT_DAEMON_BIN = daemonBinPath;
     process.env.HERMES_MODEL = "nous-hermes";
     const result = await runProviderTask(runtime, "write a short reply", workDir, {
       sessionId: "previous-hermes-session",
@@ -970,27 +970,27 @@ test("runProviderTask routes Hermes through AgentRouter with model, PATH capabil
       process.env.HERMES_MODEL = originalHermesModel;
     }
     if (originalDaemonBin === undefined) {
-      delete process.env.AGENT_SPACE_DAEMON_BIN;
+      delete process.env.DOFE_AGENT_DAEMON_BIN;
     } else {
-      process.env.AGENT_SPACE_DAEMON_BIN = originalDaemonBin;
+      process.env.DOFE_AGENT_DAEMON_BIN = originalDaemonBin;
     }
     rmSync(workDir, { recursive: true, force: true });
   }
 });
 
 test("runProviderTask routes Antigravity through AgentRouter with prompt mode, model, session, and PATH capabilities", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-antigravity-provider-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-antigravity-provider-"));
   const providerBinDir = join(workDir, "provider-bin");
   const daemonBinDir = join(workDir, "daemon-bin");
   const toolBinDir = join(workDir, "tool-bin");
   const binPath = join(providerBinDir, "agy");
-  const daemonBinPath = join(daemonBinDir, "agent-space-daemon");
-  const agentSpacePath = join(daemonBinDir, "agent-space");
+  const daemonBinPath = join(daemonBinDir, "dofe-agent-daemon");
+  const dofeAgentPath = join(daemonBinDir, "dofe-agent");
   const fakeCliPath = join(toolBinDir, "fake-cli");
   const argsPath = join(workDir, "antigravity-args.txt");
   const seenPathFile = join(workDir, "seen-path.txt");
   const originalAntigravityModel = process.env.ANTIGRAVITY_MODEL;
-  const originalDaemonBin = process.env.AGENT_SPACE_DAEMON_BIN;
+  const originalDaemonBin = process.env.DOFE_AGENT_DAEMON_BIN;
   mkdirSync(providerBinDir, { recursive: true });
   mkdirSync(daemonBinDir, { recursive: true });
   mkdirSync(toolBinDir, { recursive: true });
@@ -1000,7 +1000,7 @@ test("runProviderTask routes Antigravity through AgentRouter with prompt mode, m
       "#!/bin/sh",
       "printf '%s\\n' \"$@\" > \"$ANTIGRAVITY_ARGS_PATH\"",
       "printf '%s' \"$PATH\" > \"$SEEN_PATH_FILE\"",
-      "if command -v fake-cli >/dev/null 2>&1 && command -v agent-space >/dev/null 2>&1; then",
+      "if command -v fake-cli >/dev/null 2>&1 && command -v dofe-agent >/dev/null 2>&1; then",
       "  printf '%s\\n' 'antigravity provider output'",
       "else",
       "  printf '%s\\n' 'missing runtime path'",
@@ -1010,11 +1010,11 @@ test("runProviderTask routes Antigravity through AgentRouter with prompt mode, m
     "utf8",
   );
   writeFileSync(daemonBinPath, "#!/bin/sh\nexit 0\n", "utf8");
-  writeFileSync(agentSpacePath, "#!/bin/sh\necho agent-space\n", "utf8");
+  writeFileSync(dofeAgentPath, "#!/bin/sh\necho dofe-agent\n", "utf8");
   writeFileSync(fakeCliPath, "#!/bin/sh\necho fake-cli-ok\n", "utf8");
   chmodSync(binPath, 0o755);
   chmodSync(daemonBinPath, 0o755);
-  chmodSync(agentSpacePath, 0o755);
+  chmodSync(dofeAgentPath, 0o755);
   chmodSync(fakeCliPath, 0o755);
 
   const runtime: ProviderRuntimeRecord = {
@@ -1030,7 +1030,7 @@ test("runProviderTask routes Antigravity through AgentRouter with prompt mode, m
   };
 
   try {
-    process.env.AGENT_SPACE_DAEMON_BIN = daemonBinPath;
+    process.env.DOFE_AGENT_DAEMON_BIN = daemonBinPath;
     process.env.ANTIGRAVITY_MODEL = "Gemini 3.5 Flash";
     const result = await runProviderTask(runtime, "write a short reply", workDir, {
       sessionId: "conversation-prev",
@@ -1072,26 +1072,26 @@ test("runProviderTask routes Antigravity through AgentRouter with prompt mode, m
       process.env.ANTIGRAVITY_MODEL = originalAntigravityModel;
     }
     if (originalDaemonBin === undefined) {
-      delete process.env.AGENT_SPACE_DAEMON_BIN;
+      delete process.env.DOFE_AGENT_DAEMON_BIN;
     } else {
-      process.env.AGENT_SPACE_DAEMON_BIN = originalDaemonBin;
+      process.env.DOFE_AGENT_DAEMON_BIN = originalDaemonBin;
     }
     rmSync(workDir, { recursive: true, force: true });
   }
 });
 
 test("runProviderTask routes OpenCode through AgentRouter with model, session, and PATH capabilities", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-opencode-provider-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-opencode-provider-"));
   const providerBinDir = join(workDir, "provider-bin");
   const daemonBinDir = join(workDir, "daemon-bin");
   const toolBinDir = join(workDir, "tool-bin");
   const binPath = join(providerBinDir, "opencode");
-  const daemonBinPath = join(daemonBinDir, "agent-space-daemon");
+  const daemonBinPath = join(daemonBinDir, "dofe-agent-daemon");
   const fakeCliPath = join(toolBinDir, "fake-cli");
   const argsPath = join(workDir, "opencode-args.txt");
   const seenPathFile = join(workDir, "seen-path.txt");
   const originalOpenCodeModel = process.env.OPENCODE_MODEL;
-  const originalDaemonBin = process.env.AGENT_SPACE_DAEMON_BIN;
+  const originalDaemonBin = process.env.DOFE_AGENT_DAEMON_BIN;
   mkdirSync(providerBinDir, { recursive: true });
   mkdirSync(daemonBinDir, { recursive: true });
   mkdirSync(toolBinDir, { recursive: true });
@@ -1101,7 +1101,7 @@ test("runProviderTask routes OpenCode through AgentRouter with model, session, a
       "#!/bin/sh",
       "printf '%s\\n' \"$@\" > \"$OPENCODE_ARGS_PATH\"",
       "printf '%s' \"$PATH\" > \"$SEEN_PATH_FILE\"",
-      "if command -v fake-cli >/dev/null 2>&1 && command -v agent-space-daemon >/dev/null 2>&1; then",
+      "if command -v fake-cli >/dev/null 2>&1 && command -v dofe-agent-daemon >/dev/null 2>&1; then",
       "  printf '%s\\n' '{\"type\":\"step_start\",\"sessionID\":\"opencode-session\",\"part\":{\"text\":\"working\"}}'",
       "  printf '%s\\n' '{\"type\":\"text\",\"sessionID\":\"opencode-session\",\"part\":{\"text\":\"opencode provider output\"}}'",
       "  printf '%s\\n' '{\"type\":\"step_finish\",\"sessionID\":\"opencode-session\",\"part\":{\"tokens\":{\"input\":3,\"output\":4}}}'",
@@ -1131,7 +1131,7 @@ test("runProviderTask routes OpenCode through AgentRouter with model, session, a
   };
 
   try {
-    process.env.AGENT_SPACE_DAEMON_BIN = daemonBinPath;
+    process.env.DOFE_AGENT_DAEMON_BIN = daemonBinPath;
     process.env.OPENCODE_MODEL = "openrouter/openai/gpt-4.1";
     const events: Array<{ type: string; content?: string }> = [];
     const result = await runProviderTask(runtime, "write a short reply", workDir, {
@@ -1176,16 +1176,16 @@ test("runProviderTask routes OpenCode through AgentRouter with model, session, a
       process.env.OPENCODE_MODEL = originalOpenCodeModel;
     }
     if (originalDaemonBin === undefined) {
-      delete process.env.AGENT_SPACE_DAEMON_BIN;
+      delete process.env.DOFE_AGENT_DAEMON_BIN;
     } else {
-      process.env.AGENT_SPACE_DAEMON_BIN = originalDaemonBin;
+      process.env.DOFE_AGENT_DAEMON_BIN = originalDaemonBin;
     }
     rmSync(workDir, { recursive: true, force: true });
   }
 });
 
 test("runProviderTask maps Hermes capability and empty-response diagnostics to provider errors", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-hermes-diagnostics-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-hermes-diagnostics-"));
   const binPath = join(workDir, "hermes");
   writeFileSync(binPath, "#!/bin/sh\nexit 0\n", "utf8");
   chmodSync(binPath, 0o755);
@@ -1260,7 +1260,7 @@ test("runProviderTask maps Hermes capability and empty-response diagnostics to p
 });
 
 test("runProviderTask routes Claude control requests through approval callback under root", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-claude-control-request-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-control-request-"));
   const binPath = join(workDir, "claude");
   const stdinPath = join(workDir, "claude-stdin.jsonl");
   writeFileSync(
@@ -1332,7 +1332,7 @@ test("runProviderTask routes Claude control requests through approval callback u
 });
 
 test("runProviderTask asks for approval and retries Claude permission denials under root", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-claude-permission-denial-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-permission-denial-"));
   const binPath = join(workDir, "claude");
   const argsPath = join(workDir, "claude-args.txt");
   const countPath = join(workDir, "count.txt");
@@ -1515,7 +1515,7 @@ test("runProviderTask value-redacts bare secret values leaked into Gemini output
   // diagnostic sanitizer only catches recognizable shapes (KEY=value, sk-…,
   // Bearer …); a bare secret value echoed by the provider is only scrubbed by
   // the value-based redaction added here, mirroring the agent-router path.
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-gemini-redact-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-gemini-redact-"));
   const binPath = join(workDir, "gemini");
   writeFileSync(binPath, "#!/bin/sh\nprintf '%s\\n' \"leaked: $CUSTOM_API_TOKEN\"\n", "utf8");
   chmodSync(binPath, 0o755);
@@ -1586,7 +1586,7 @@ test("runProviderTask allows Claude execution under root", async () => {
 });
 
 test("inspectOpenClawDaemonAuthHealth reports missing task auth profiles as broken", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-openclaw-health-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-health-"));
 
   try {
     const result = inspectOpenClawDaemonAuthHealth({
@@ -1609,7 +1609,7 @@ function createClaudeRuntimeFixture(scriptLines: string[]): {
   workDir: string;
   runtime: ProviderRuntimeRecord;
 } {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-claude-diagnostics-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-diagnostics-"));
   const binPath = join(workDir, "claude");
   writeFileSync(binPath, scriptLines.join("\n"), "utf8");
   chmodSync(binPath, 0o755);
@@ -1648,7 +1648,7 @@ async function withProcessGetuid<T>(uid: number, run: () => T | Promise<T>): Pro
 }
 
 test("inspectOpenClawDaemonAuthHealth reports missing model mappings separately", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-openclaw-health-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-health-"));
 
   try {
     mkdirSync(join(workDir, "agent"), { recursive: true });
@@ -1673,7 +1673,7 @@ test("inspectOpenClawDaemonAuthHealth reports missing model mappings separately"
 });
 
 test("inspectOpenClawDaemonAuthHealth reports usable and degraded states", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-openclaw-health-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-health-"));
 
   try {
     mkdirSync(join(workDir, "agent"), { recursive: true });
@@ -1726,7 +1726,7 @@ test("normalizeOpenClawProviderError maps auth and profile failures to structure
 });
 
 test("runProviderTask returns OpenClaw final text without keyword-classifying it", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-openclaw-task-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-task-"));
   const binPath = join(workDir, "openclaw");
   writeFileSync(
     binPath,
@@ -1767,7 +1767,7 @@ test("runProviderTask returns OpenClaw final text without keyword-classifying it
 });
 
 test("runProviderTask maps OpenClaw router diagnostics to provider errors", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-openclaw-diagnostic-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-diagnostic-"));
   const binPath = join(workDir, "openclaw");
   writeFileSync(
     binPath,
@@ -1800,7 +1800,7 @@ test("runProviderTask maps OpenClaw router diagnostics to provider errors", asyn
 });
 
 test("runProviderTask retries OpenClaw when resume session is missing", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-openclaw-stale-session-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-stale-session-"));
   const binPath = join(workDir, "openclaw");
   const argsDir = join(workDir, "args");
   const countPath = join(workDir, "count.txt");
@@ -1860,7 +1860,7 @@ test("runProviderTask retries OpenClaw when resume session is missing", async ()
 });
 
 test("runProviderTask fails OpenClaw daemon preflight before provider launch", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-openclaw-preflight-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-preflight-"));
   const binPath = join(workDir, "openclaw");
   const countPath = join(workDir, "count.txt");
   writeFileSync(binPath, "#!/bin/sh\nprintf '1' > \"$OPENCLAW_COUNT_PATH\"\necho should-not-run\n", "utf8");
@@ -1874,7 +1874,7 @@ test("runProviderTask fails OpenClaw daemon preflight before provider launch", a
       () => runProviderTask(runtime, "hi", workDir, {
         contextEnv: {
           OPENCLAW_COUNT_PATH: countPath,
-          AGENT_SPACE_CONTEXT_TASK_ID: "task-openclaw",
+          DOFE_AGENT_CONTEXT_TASK_ID: "task-openclaw",
         },
         taskTimeoutMs: 1_000,
       }),
@@ -1891,7 +1891,7 @@ test("runProviderTask fails OpenClaw daemon preflight before provider launch", a
 });
 
 test("runProviderTask keeps OpenClaw execution on AgentRouter launch shape", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-openclaw-router-only-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-openclaw-router-only-"));
   const binPath = join(workDir, "openclaw");
   const argsPath = join(workDir, "args.txt");
   writeFileSync(

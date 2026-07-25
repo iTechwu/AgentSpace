@@ -6,7 +6,7 @@ import {
   getLocalDaemonStateDirPath,
   hardDeleteWorkspaceSync,
   type HardDeleteWorkspaceResult,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 
 export type PurgeWorkspaceStorageResult = {
   workspaceId: string;

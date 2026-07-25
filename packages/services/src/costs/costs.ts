@@ -5,8 +5,8 @@ import {
   getWorkspaceCostSummarySync,
   listModelPricingSync,
   getMonthStartIso,
-} from "@agent-space/db";
-import type { ActiveEmployee } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import type { ActiveEmployee } from "@dofe-agent/domain/workspace";
 import { readWorkspaceStateSync } from "../shared/state-io.ts";
 
 export interface AgentCostProfile {

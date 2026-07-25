@@ -10,7 +10,7 @@ import {
   tryRecordWorkspaceAuditEventSync,
   updateWorkspaceSkillSync,
   upsertWorkspaceSkillFileSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";

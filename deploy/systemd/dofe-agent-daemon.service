@@ -1,17 +1,17 @@
 [Unit]
-Description=AgentSpace Remote Daemon
+Description=DofeAgent Remote Daemon
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/var/lib/agent-space-daemon
-StateDirectory=agent-space-daemon
-User=agentspace-daemon
-Group=agentspace-daemon
-EnvironmentFile=/etc/agentspace/daemon.env
-Environment=HOME=/var/lib/agent-space-daemon
-ExecStart=/usr/bin/env agent-space-daemon start --foreground --state-dir ${AGENT_SPACE_DAEMON_STATE_DIR} --server-url ${AGENT_SPACE_SERVER_URL} --daemon-token ${AGENT_SPACE_DAEMON_TOKEN} --daemon-id ${AGENT_SPACE_DAEMON_ID} --device-name ${AGENT_SPACE_DEVICE_NAME} --runtime-name ${AGENT_SPACE_RUNTIME_NAME}
+WorkingDirectory=/var/lib/dofe-agent-daemon
+StateDirectory=dofe-agent-daemon
+User=dofe-agent-daemon
+Group=dofe-agent-daemon
+EnvironmentFile=/etc/dofe-agent/daemon.env
+Environment=HOME=/var/lib/dofe-agent-daemon
+ExecStart=/usr/bin/env dofe-agent-daemon start --foreground --state-dir ${DOFE_AGENT_DAEMON_STATE_DIR} --server-url ${DOFE_AGENT_SERVER_URL} --daemon-token ${DOFE_AGENT_DAEMON_TOKEN} --daemon-id ${DOFE_AGENT_DAEMON_ID} --device-name ${DOFE_AGENT_DEVICE_NAME} --runtime-name ${DOFE_AGENT_RUNTIME_NAME}
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production

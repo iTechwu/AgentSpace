@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before } from "node:test";
-import { deleteStoredEmployeeSync, readWorkspaceStateRecordSync, writeWorkspaceStateRecordSync } from "@agent-space/db";
+import { deleteStoredEmployeeSync, readWorkspaceStateRecordSync, writeWorkspaceStateRecordSync } from "@dofe-agent/db";
 import {
   bindEmployeeRuntimeSync,
   createEmployeeSync,
@@ -14,10 +14,10 @@ import {
   resetWorkspaceStateSync,
   writeWorkspaceStateSync,
 } from "../index.ts";
-import { listDaemonSnapshotsSync, registerDaemonRuntimesSync } from "@agent-space/db";
+import { listDaemonSnapshotsSync, registerDaemonRuntimesSync } from "@dofe-agent/db";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-local-state-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-local-state-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

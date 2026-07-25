@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { TemplatesPageData } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
-import type { Template, TemplateCategory } from "@agent-space/domain/workspace";
+import type { Template, TemplateCategory } from "@dofe-agent/domain/workspace";
 import { createTemplateAction, updateTemplateAction, deleteTemplateAction } from "./actions";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { AppIcon } from "@/shared/ui/app-icon";

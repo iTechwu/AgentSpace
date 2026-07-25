@@ -2,9 +2,9 @@ services:
   feishu-worker:
     image: node:24-bookworm-slim
     restart: unless-stopped
-    working_dir: /srv/AgentSpace
+    working_dir: /srv/DofeAgent
     command: ["npm", "run", "cli", "--", "integrations", "feishu", "worker"]
     env_file:
       - ./feishu-worker.env
     volumes:
-      - ../..:/srv/AgentSpace
+      - ../..:/srv/DofeAgent

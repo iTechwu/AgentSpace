@@ -1,5 +1,5 @@
 {
-  "name": "@agent-space/services",
+  "name": "@dofe-agent/services",
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
@@ -8,8 +8,8 @@
     "types": "../../apps/web/node_modules/.bin/tsc -p tsconfig.types.json --incremental false"
   },
   "dependencies": {
-    "@agent-space/db": "file:../db",
-    "@agent-space/domain": "file:../domain",
+    "@dofe-agent/db": "file:../db",
+    "@dofe-agent/domain": "file:../domain",
     "@larksuiteoapi/node-sdk": "^1.67.0",
     "@volcengine/tos-sdk": "^2.9.1",
     "fflate": "^0.8.2"

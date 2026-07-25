@@ -8,9 +8,9 @@ import {
   removeTaskLabelSync,
   estimateTaskSync,
   readWorkspaceStateSync,
-} from "@agent-space/services";
-import type { TaskEstimationResult } from "@agent-space/services";
-import type { TaskStatus } from "@agent-space/domain/workspace";
+} from "@dofe-agent/services";
+import type { TaskEstimationResult } from "@dofe-agent/services";
+import type { TaskStatus } from "@dofe-agent/domain/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";
 import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-invalidation";
@@ -100,7 +100,7 @@ export async function estimateTaskAction(input: {
 }
 
 function revalidateTaskBoardRoutes(workspaceSlug: string): void {
-  revalidateWorkspacePaths(workspaceSlug, ["/task-board", "/inbox", "/agents"]);
+  revalidateWorkspacePaths(workspaceSlug, ["/task/board", "/inbox", "/agents"]);
 }
 
 function buildTaskBoardInvalidation(workspaceId: string, taskId: string): WorkspaceInvalidationEvent {

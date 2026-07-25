@@ -16,7 +16,7 @@ const {
   mockUpdateTaskStatusSync: vi.fn(),
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   archiveNotificationSync: mockArchiveNotificationSync,
   markNotificationReadSync: mockMarkNotificationReadSync,
   readWorkspaceStateSync: mockReadWorkspaceStateSync,
@@ -60,7 +60,7 @@ describe("inbox actions", () => {
       "/agents",
       "/im",
       "/market",
-      "/task-board",
+      "/task/board",
     ]);
     expect(result.invalidation).toEqual({
       workspaceId: "workspace-1",

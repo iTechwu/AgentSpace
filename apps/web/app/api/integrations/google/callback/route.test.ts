@@ -18,12 +18,12 @@ const {
   mockVerifyGoogleWorkspaceOAuthCallbackState: vi.fn(),
 }));
 
-vi.mock("@agent-space/db", () => ({
+vi.mock("@dofe-agent/db", () => ({
   readWorkspaceMembershipSync: mockReadWorkspaceMembershipSync,
   upsertAgentGoogleWorkspaceDelegationSync: mockUpsertAgentGoogleWorkspaceDelegationSync,
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   assertCanManageEmployeeForActorSync: mockAssertCanManageEmployeeForActorSync,
 }));
 

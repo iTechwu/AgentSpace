@@ -25,8 +25,8 @@ import {
   listAgentForkInvitationsForActorSync,
   listAgentForkInvitationsForSourceAgentSync,
   listAgentAccessRequestsForActorSync,
-} from "@agent-space/services";
-import type { AgentAccessRequestRecord, AgentForkInvitationRecord, PerformanceDashboardData, WorkspaceNotificationRecord } from "@agent-space/services";
+} from "@dofe-agent/services";
+import type { AgentAccessRequestRecord, AgentForkInvitationRecord, PerformanceDashboardData, WorkspaceNotificationRecord } from "@dofe-agent/services";
 import {
   DEFAULT_WORKSPACE_ID,
   countUsersSync,
@@ -48,11 +48,11 @@ import {
   listWorkspaceRuntimeDisplayNamesSync,
   listWorkspaceMemberUsersSync,
   readActiveGoogleOAuthCredentialSync,
-} from "@agent-space/db";
-import type { BudgetAction, BudgetPeriod, BudgetScope, TaskExecutionEventRecord, TaskExecutionEventType, WorkspaceMemberUserRecord, WorkspaceRole } from "@agent-space/db";
+} from "@dofe-agent/db";
+import type { BudgetAction, BudgetPeriod, BudgetScope, TaskExecutionEventRecord, TaskExecutionEventType, WorkspaceMemberUserRecord, WorkspaceRole } from "@dofe-agent/db";
 import type {
   ActiveEmployee,
-  AgentSpaceState,
+  DofeAgentState,
   AutomationRule,
   ChannelRecord,
   ChannelDocument,
@@ -69,7 +69,7 @@ import type {
   Template,
   WorkspaceSkill,
   WorkspaceMessage,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import type {
   ChannelDocumentBlock,
   ChannelDocumentAccessRole,
@@ -78,9 +78,9 @@ import type {
   ChannelDocumentPresence,
   ChannelDocumentRun,
   ChannelDocumentRunStep,
-} from "@agent-space/domain";
-import { formatDaemonProviderLabel } from "@agent-space/domain";
-import type { RuntimeProviderHealth } from "@agent-space/domain";
+} from "@dofe-agent/domain";
+import { formatDaemonProviderLabel } from "@dofe-agent/domain";
+import type { RuntimeProviderHealth } from "@dofe-agent/domain";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import {
   buildFeishuAgentBotSetupReference,
@@ -987,7 +987,7 @@ export interface DaemonSnapshotView {
 export interface GoogleWorkspaceReadinessView {
   checkedAt?: string;
   executor: string;
-  agentSpaceOutput: ReadinessItemView;
+  dofeAgentOutput: ReadinessItemView;
   gws: ReadinessItemView;
   bwrap: ReadinessItemView & {
     supportsPerms?: boolean;
@@ -1053,7 +1053,7 @@ function normalizeChannelScope(channelNames?: string[]): Set<string> | null {
 }
 
 function resolveDirectChannelForContact(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   currentUserDisplayName: string | undefined,
   employeeName: string,
   workspaceId?: string,
@@ -1105,7 +1105,7 @@ function resolveChannelMemberCount(channel: Pick<ChannelRecord, "humanMembers" |
 
 function buildChannelListItem(
   channel: ChannelRecord,
-  state: AgentSpaceState,
+  state: DofeAgentState,
 ): ChannelListItem {
   if (isDirectChannelRecord(channel)) {
     const directEmployee = state.activeEmployees.find((employee) =>
@@ -1150,7 +1150,7 @@ interface MentionUnreadViewer {
 }
 
 function buildMentionUnreadViewer(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   currentUserDisplayName: string | undefined,
   currentUserId: string | undefined,
 ): MentionUnreadViewer {
@@ -1220,7 +1220,7 @@ function isMessageAcknowledgedByViewer(message: WorkspaceMessage, viewer: Mentio
 
 
 function buildChannelWorkspaceArtifacts(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   queuedTasks: ReturnType<typeof listQueuedTasksSync>,
   currentUserDisplayName: string | undefined,
   visibleChannelNames: Set<string>,
@@ -1257,7 +1257,7 @@ function buildChannelWorkspaceArtifacts(
       versions.sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
     );
   }
-  const documentAccessesByDocumentId = new Map<string, NonNullable<AgentSpaceState["channelDocumentAccesses"]>>();
+  const documentAccessesByDocumentId = new Map<string, NonNullable<DofeAgentState["channelDocumentAccesses"]>>();
   for (const access of state.channelDocumentAccesses ?? []) {
     const accesses = documentAccessesByDocumentId.get(access.documentId) ?? [];
     accesses.push(access);
@@ -1590,7 +1590,7 @@ function buildChannelWorkspaceArtifacts(
 }
 
 function buildChannelFileDeleteMetadata(input: {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   message: WorkspaceMessage;
   attachment: MessageAttachment;
   attachmentReferenceIndex?: AttachmentReferenceIndex;
@@ -1645,7 +1645,7 @@ interface AttachmentReferenceIndex {
   storedPaths: Set<string>;
 }
 
-function buildAttachmentReferenceIndex(state: AgentSpaceState): AttachmentReferenceIndex {
+function buildAttachmentReferenceIndex(state: DofeAgentState): AttachmentReferenceIndex {
   const ids = new Set<string>();
   const storedPaths = new Set<string>();
 
@@ -1671,7 +1671,7 @@ function buildAttachmentReferenceIndex(state: AgentSpaceState): AttachmentRefere
 }
 
 function isAttachmentReferencedByKnowledgeOrDocument(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   attachment: MessageAttachment,
   referenceIndex = buildAttachmentReferenceIndex(state),
 ): boolean {
@@ -1680,7 +1680,7 @@ function isAttachmentReferencedByKnowledgeOrDocument(
 }
 
 function getVisibleWorkspaceChannelNames(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   currentUserDisplayName?: string,
 ): Set<string> {
   if (!currentUserDisplayName?.trim()) {
@@ -2338,7 +2338,7 @@ export function getChannelDetailData(
 }
 
 function buildMemberMentionableEmployees(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   ownedEmployees: ActiveEmployee[],
   accessibleGroupChannels: ChannelRecord[],
 ): ActiveEmployee[] {
@@ -2362,7 +2362,7 @@ function buildMemberMentionableEmployees(
 }
 
 function buildHumanMentionCandidates(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channels: ChannelRecord[],
   workspaceMembers: WorkspaceMemberUserRecord[],
 ): ChannelsPageData["mentionCandidates"] {
@@ -2408,7 +2408,7 @@ function buildHumanMentionCandidates(
 }
 
 function buildSyntheticDirectHumanMemberCount(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   currentUserDisplayName: string | undefined,
 ): number {
   if (currentUserDisplayName?.trim()) {
@@ -2418,14 +2418,14 @@ function buildSyntheticDirectHumanMemberCount(
 }
 
 function buildSyntheticDirectMemberCount(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   currentUserDisplayName: string | undefined,
 ): number {
   return buildSyntheticDirectHumanMemberCount(state, currentUserDisplayName) + 1;
 }
 
 function buildSyntheticDirectMemberLabel(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   currentUserDisplayName: string | undefined,
 ): string {
   return `${buildSyntheticDirectHumanMemberCount(state, currentUserDisplayName)} humans / 1 agents`;
@@ -2485,7 +2485,7 @@ interface ReadableChannelLookup {
 }
 
 function buildReadableChannelLookup(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   workspaceId: string,
   currentUser?: DashboardCurrentUser,
 ): ReadableChannelLookup {
@@ -2554,7 +2554,7 @@ function normalizeChannelLookupKey(value: string): string {
 }
 
 function buildNotificationInboxItems(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   workspaceId: string,
   currentUser?: DashboardCurrentUser,
 ): InboxItem[] {
@@ -2857,7 +2857,7 @@ function limitLoadtestDashboardPayload<T>(items: T[], limit: number): T[] {
 }
 
 function shouldUseLoadtestDashboardPayloadLimits(): boolean {
-  const configured = process.env.AGENT_SPACE_DASHBOARD_PAYLOAD_LIMITS_ENABLED?.trim().toLowerCase();
+  const configured = process.env.DOFE_AGENT_DASHBOARD_PAYLOAD_LIMITS_ENABLED?.trim().toLowerCase();
   if (configured) {
     return configured !== "0" && configured !== "false";
   }
@@ -3071,7 +3071,7 @@ function buildWorkspaceAgentGoogleWorkspaceDelegationRecord(
 
 function redactContainerForMember(
   container: ContainerRecord,
-  state: AgentSpaceState,
+  state: DofeAgentState,
   currentUserId: string | undefined,
 ): ContainerRecord {
   const ownedEmployeeNames = new Set(
@@ -3165,7 +3165,7 @@ function buildAgentForkInvitationView(
 
 function buildDigitalEmployeeShowcaseAgents(input: {
   agents: WorkspaceAgentRecord[];
-  state: AgentSpaceState;
+  state: DofeAgentState;
   memberByUserId: Map<string, RuntimeGrantMember>;
   currentUserId?: string;
   currentMembershipRole?: WorkspaceRole;
@@ -3312,7 +3312,7 @@ function buildAgentAccessRequestView(
 }
 
 function resolveShowcaseCommonChannels(input: {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   agentChannels: string[];
   currentUserId?: string;
   currentMembershipRole?: WorkspaceRole;
@@ -3335,7 +3335,7 @@ function resolveShowcaseCommonChannels(input: {
   });
 }
 
-function resolveShowcasePublicAgentChannels(state: AgentSpaceState, agentChannels: string[]): string[] {
+function resolveShowcasePublicAgentChannels(state: DofeAgentState, agentChannels: string[]): string[] {
   return agentChannels.filter((channelName) => {
     const channel = state.channels.find((item) => sameText(item.name, channelName));
     return channel?.kind !== "direct";
@@ -3452,7 +3452,7 @@ function suggestForkAgentName(sourceAgentDisplayName: string, targetDisplayName?
 
 function buildWorkspaceAgentDocumentAccessSummaries(
   workspaceId: string,
-  state: AgentSpaceState,
+  state: DofeAgentState,
 ): Map<string, WorkspaceAgentDocumentAccessSummaryRecord> {
   const documentById = new Map(state.channelDocuments.map((document) => [document.id, document]));
   const latestRunByDocumentId = new Map<string, ExternalSheetOperationRun>();
@@ -3605,7 +3605,7 @@ function buildGoogleWorkspaceReadinessView(
     return latestFailure
       ? {
           executor: "gws",
-          agentSpaceOutput: { available: false, error: "No daemon readiness heartbeat has been recorded yet." },
+          dofeAgentOutput: { available: false, error: "No daemon readiness heartbeat has been recorded yet." },
           gws: { available: false, error: "No daemon readiness heartbeat has been recorded yet." },
           bwrap: { available: false, error: "No daemon readiness heartbeat has been recorded yet." },
           latestOperationFailure: buildLatestOperationFailureView(latestFailure),
@@ -3618,7 +3618,7 @@ function buildGoogleWorkspaceReadinessView(
   return {
     checkedAt: readOptionalString(record.checkedAt),
     executor: readOptionalString(record.executor) ?? "gws",
-    agentSpaceOutput: readReadinessItem(record.agentSpaceOutput),
+    dofeAgentOutput: readReadinessItem(record.dofeAgentOutput),
     gws: readReadinessItem(record.gws),
     bwrap: {
       ...bwrap,
@@ -3640,7 +3640,7 @@ function readReadinessItem(value: unknown): ReadinessItemView {
   };
 }
 
-function findLatestExternalSheetFailure(state: AgentSpaceState): ExternalSheetOperationRun | undefined {
+function findLatestExternalSheetFailure(state: DofeAgentState): ExternalSheetOperationRun | undefined {
   return [...(state.externalSheetOperationRuns ?? [])]
     .filter((run) => run.status === "failed")
     .sort((left, right) =>
@@ -3736,7 +3736,7 @@ function readSkillImportWarnings(metadataJson: string): string[] {
 }
 
 function buildNativeRuntimeRecords(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   runtimeSnapshots: ReturnType<typeof listDaemonSnapshotsSync>,
   bindings: ReturnType<typeof listEmployeeRuntimeBindingsSync>,
   queuedTasks: ReturnType<typeof listQueuedTasksSync>,
@@ -3788,7 +3788,7 @@ function buildNativeRuntimeRecords(
 }
 
 function buildTaskInboxItems(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   bindings: Map<string, { runtimeId: string }>,
   runtimeIndex: Map<string, ContainerRecord>,
   queuedTasks: ReturnType<typeof listQueuedTasksSync>,
@@ -3896,7 +3896,7 @@ function buildTaskInboxItems(
 }
 
 function buildChannelInboxItems(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   runtimeIndex: Map<string, ContainerRecord>,
   queuedTasks: ReturnType<typeof listQueuedTasksSync>,
   workspaceId: string,
@@ -3985,7 +3985,7 @@ function buildChannelInboxItems(
 }
 
 function buildActivityInboxItems(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   workspaceId: string,
   currentUser?: DashboardCurrentUser,
   readableChannels: ReadableChannelLookup = buildReadableChannelLookup(state, workspaceId, currentUser),
@@ -4025,7 +4025,7 @@ function buildActivityInboxItems(
 
 function buildWorkspaceAgentRecord(
   employee: ActiveEmployee,
-  state: AgentSpaceState,
+  state: DofeAgentState,
   workspaceSkillIndex: Map<string, WorkspaceSkill>,
   skillIdsByAgentId: Map<string, string[]>,
   binding:
@@ -4969,7 +4969,7 @@ export function getTaskBoardPageData(
 function buildTaskBoardColumns(
   tasks: TaskRecord[],
   groupBy: TaskBoardGroupBy,
-  state: AgentSpaceState,
+  state: DofeAgentState,
 ): TaskBoardColumn[] {
   if (groupBy === "status") {
     const statuses: TaskStatus[] = ["todo", "in_progress", "blocked", "done"];
@@ -5258,7 +5258,7 @@ export function getKnowledgePageData(
   };
 }
 
-function buildKnowledgeAgentOptions(state: AgentSpaceState): KnowledgeAgentOption[] {
+function buildKnowledgeAgentOptions(state: DofeAgentState): KnowledgeAgentOption[] {
   return state.activeEmployees.map((employee) => ({
     id: buildLegacyAgentIdForEmployeeName(employee.name),
     employeeName: employee.name,

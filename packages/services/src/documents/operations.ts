@@ -1,9 +1,9 @@
 import type {
-  AgentSpaceState,
+  DofeAgentState,
   ChannelDocument,
   ChannelDocumentVersion,
-} from "@agent-space/domain/workspace";
-import type { ChannelDocumentBlock } from "@agent-space/domain";
+} from "@dofe-agent/domain/workspace";
+import type { ChannelDocumentBlock } from "@dofe-agent/domain";
 import {
   createChannelDocumentChangeSet,
   createChannelDocumentConflict,
@@ -33,7 +33,7 @@ export type ChannelDocumentOperation =
     };
 
 export function applyChannelDocumentBlockOperations(input: {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   document: ChannelDocument;
   baseVersionId: string;
   actorId: string;
@@ -43,7 +43,7 @@ export function applyChannelDocumentBlockOperations(input: {
   sourceMessageId?: string;
   sourceTaskQueueId?: string;
 }): {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   document?: ChannelDocument;
   version?: ChannelDocumentVersion;
   appliedOperationCount: number;
@@ -166,7 +166,7 @@ export function applyChannelDocumentBlockOperations(input: {
 }
 
 function createConflict(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   documentId: string,
   blockId: string,
   changeSetId: string,

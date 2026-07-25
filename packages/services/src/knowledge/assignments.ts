@@ -12,12 +12,12 @@ import {
   setStoredKnowledgePageAssignmentPolicySync,
   type StoredAgentKnowledgePageRecord,
   type StoredKnowledgeAssignmentPolicyRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type {
-  AgentSpaceState,
+  DofeAgentState,
   KnowledgeAssignmentMode,
   KnowledgePage,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue, uniqueStringValues } from "../shared/helpers.ts";
 
@@ -94,7 +94,7 @@ export function setKnowledgePageAssignmentModeSync(
   assignmentMode: KnowledgeAssignmentMode,
   actor = "system",
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const page = resolvePage(state, pageId);
   if (!page) {
@@ -138,7 +138,7 @@ export function setKnowledgePageAssignedEmployeesSync(
   employeeNames: string[],
   actor = "system",
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const page = resolvePage(state, pageId);
   if (!page) {
@@ -181,7 +181,7 @@ export function setEmployeeKnowledgePageIdsSync(
   pageIds: string[],
   actor = "system",
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const employee = resolveEmployee(state, employeeName);
   if (!employee) {
@@ -244,7 +244,7 @@ export function deleteKnowledgeAssignmentsForEmployeeSync(
 }
 
 function buildPolicyMap(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   workspaceId?: string,
 ): Map<string, KnowledgeAssignmentPolicy> {
   const storedPolicies = listStoredKnowledgeAssignmentPoliciesSync(workspaceId);
@@ -263,22 +263,22 @@ function buildPolicyMap(
   return map;
 }
 
-function resolvePage(state: AgentSpaceState, pageId: string): KnowledgePage | undefined {
+function resolvePage(state: DofeAgentState, pageId: string): KnowledgePage | undefined {
   return state.knowledgePages.find((page) => page.id === pageId);
 }
 
 function resolveEmployee(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   employeeName: string,
-): AgentSpaceState["activeEmployees"][number] | undefined {
+): DofeAgentState["activeEmployees"][number] | undefined {
   return state.activeEmployees.find((employee) => sameValue(employee.name, employeeName));
 }
 
 function resolveEmployees(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   employeeNames: string[],
-): AgentSpaceState["activeEmployees"] {
-  const result: AgentSpaceState["activeEmployees"] = [];
+): DofeAgentState["activeEmployees"] {
+  const result: DofeAgentState["activeEmployees"] = [];
   for (const employeeName of uniqueStringValues(employeeNames)) {
     const employee = resolveEmployee(state, employeeName);
     if (!employee) {

@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { KnowledgeDocumentPageRecord, KnowledgePageData, KnowledgePageRecord } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
-import type { KnowledgeAssignmentMode, KnowledgePage } from "@agent-space/domain/workspace";
+import type { KnowledgeAssignmentMode, KnowledgePage } from "@dofe-agent/domain/workspace";
 import { createChannelDocumentFromAttachmentAction } from "@/features/channels/actions";
 import {
   createKnowledgePageAction,

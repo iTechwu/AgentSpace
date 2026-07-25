@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { formatDaemonProviderLabel } from "@agent-space/domain";
+import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { AppIcon } from "@/shared/ui/app-icon";
@@ -15,7 +15,7 @@ import {
   translateQueueValue,
 } from "@/features/agents/lib/translate";
 import type { AgentsPageData, RouterExecutionView, WorkspaceAgentRecord } from "@/features/dashboard/data";
-import type { WorkspaceSkill } from "@agent-space/domain/workspace";
+import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 
 interface AgentDetailProps {
   readonly containerOptions: AgentsPageData["containerOptions"];

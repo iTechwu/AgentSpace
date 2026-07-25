@@ -8,8 +8,8 @@ import {
   type DaemonApiTokenRecord,
   type DaemonConnectionRecord,
   type QueuedTaskRecord,
-} from "@agent-space/db";
-import { tryRecordWorkspaceAuditEventSync } from "@agent-space/services";
+} from "@dofe-agent/db";
+import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 
 export interface DaemonAuthContext {
   token: DaemonApiTokenRecord;

@@ -10,7 +10,7 @@ import {
 } from "./storage.ts";
 
 test("local attachment storage writes, reads, and deletes bytes", async () => {
-  const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-attachment-storage-"));
+  const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-attachment-storage-"));
   const localPath = join(tempRoot, "data", "workspaces", "default", "attachments", "att-storage-note.txt");
 
   try {

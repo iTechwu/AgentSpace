@@ -1,16 +1,16 @@
 import { createHash } from "node:crypto";
 import type {
   ExternalDataOperationRunRecord,
-  ExternalResourceBindingAgentSpaceType,
+  ExternalResourceBindingDofeAgentType,
   ExternalResourceBindingRecord,
   WorkspaceRole,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   readExternalResourceBindingByKeySync,
   readExternalDataOperationRunSync,
   readExternalIntegrationSync,
   updateExternalDataOperationRunStatusSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { canReadChannelForActorSync } from "../../../channel-access/channel-access.ts";
 import { canViewChannelDocumentSync } from "../../../documents/sync.ts";
 import { readDataTableSync } from "../../../tables/tables.ts";
@@ -45,7 +45,7 @@ import {
   syncFeishuDataTableApprovedWriteResultSync,
   syncFeishuDataTablePreviewFromReadResultSync,
   syncFeishuResourceMetadataSnapshotFromResultSync,
-} from "./agent-space-sync.ts";
+} from "./dofe-agent-sync.ts";
 import {
   defaultFeishuExternalGuestRequireIdentityFor,
   evaluateFeishuExternalGuestIdentityRequirement,
@@ -69,13 +69,13 @@ export const FEISHU_DATA_OPERATION_DESCRIPTORS: ExternalResourceOperationDescrip
   {
     operationType: "docs.create_document",
     providerResourceTypes: ["doc"],
-    description: "Create a Feishu Docs document through an approved AgentSpace operation.",
+    description: "Create a Feishu Docs document through an approved DofeAgent operation.",
     writeOperation: true,
   },
   {
     operationType: "docs.update_document",
     providerResourceTypes: ["doc"],
-    description: "Update a Feishu Docs document through an approved AgentSpace operation.",
+    description: "Update a Feishu Docs document through an approved DofeAgent operation.",
     writeOperation: true,
   },
   {
@@ -93,7 +93,7 @@ export const FEISHU_DATA_OPERATION_DESCRIPTORS: ExternalResourceOperationDescrip
   {
     operationType: "sheets.update_range",
     providerResourceTypes: ["sheet"],
-    description: "Update a Feishu Sheets range through an approved AgentSpace operation.",
+    description: "Update a Feishu Sheets range through an approved DofeAgent operation.",
     writeOperation: true,
   },
   {
@@ -111,7 +111,7 @@ export const FEISHU_DATA_OPERATION_DESCRIPTORS: ExternalResourceOperationDescrip
   {
     operationType: "base.mutate_records",
     providerResourceTypes: ["base", "base_table"],
-    description: "Mutate Feishu Base records through an approved AgentSpace operation.",
+    description: "Mutate Feishu Base records through an approved DofeAgent operation.",
     writeOperation: true,
   },
 ];
@@ -177,7 +177,7 @@ export type FeishuResourceBindingValidationResult =
     data?: Record<string, unknown>;
   };
 
-export type FeishuAgentSpaceResourceAccessValidationResult =
+export type FeishuDofeAgentResourceAccessValidationResult =
   | {
     ok: true;
   }
@@ -221,7 +221,7 @@ export type FeishuResourceBindingScopeValidationResult =
 
 export type FeishuApprovedDataOperationBindingValidationResult = FeishuResourceBindingValidationResult;
 
-export interface FeishuAgentSpaceResourceAccessDependencies {
+export interface FeishuDofeAgentResourceAccessDependencies {
   canViewChannelDocument(input: {
     documentId: string;
     actorId: string;
@@ -300,7 +300,7 @@ export async function executeFeishuDataOperation(input: {
       result: {
         ok: false,
         errorCode: "feishu.data_operation_requires_approval",
-        errorMessage: "Feishu write operations require AgentSpace approval before execution.",
+        errorMessage: "Feishu write operations require DofeAgent approval before execution.",
         data: {
           policyDecision: plan.decision,
           payloadHash,
@@ -425,14 +425,14 @@ export async function executeBoundFeishuReadDataOperation(input: {
       request: requestWithActorContext,
       resourceBindingId: bindingValidation.binding.id,
       reasonCode: "feishu.data_operation_channel_access_denied",
-      errorMessage: "Actor cannot read the AgentSpace channel bound to this Feishu resource.",
+      errorMessage: "Actor cannot read the DofeAgent channel bound to this Feishu resource.",
       data: {
         channelName: bindingValidation.binding.channelName,
       },
     });
   }
 
-  const resourceAccessValidation = validateFeishuAgentSpaceResourceAccessForDataOperation({
+  const resourceAccessValidation = validateFeishuDofeAgentResourceAccessForDataOperation({
     context: input.context,
     request: requestWithActorContext,
     binding: bindingValidation.binding,
@@ -533,7 +533,7 @@ export async function planBoundFeishuWriteDataOperation(input: {
       request: requestWithActorContext,
       resourceBindingId: bindingValidation.binding.id,
       reasonCode: "feishu.data_operation_external_guest_requires_identity",
-      errorMessage: "External guests must bind an AgentSpace identity before writing Feishu resources.",
+      errorMessage: "External guests must bind an DofeAgent identity before writing Feishu resources.",
       data: {
         requireIdentity: true,
         identityRequirementAction: identityRequirement.action,
@@ -563,14 +563,14 @@ export async function planBoundFeishuWriteDataOperation(input: {
       request: requestWithActorContext,
       resourceBindingId: bindingValidation.binding.id,
       reasonCode: "feishu.data_operation_channel_access_denied",
-      errorMessage: "Actor cannot read the AgentSpace channel bound to this Feishu resource.",
+      errorMessage: "Actor cannot read the DofeAgent channel bound to this Feishu resource.",
       data: {
         channelName: bindingValidation.binding.channelName,
       },
     });
   }
 
-  const resourceAccessValidation = validateFeishuAgentSpaceResourceAccessForDataOperation({
+  const resourceAccessValidation = validateFeishuDofeAgentResourceAccessForDataOperation({
     context: input.context,
     request: requestWithActorContext,
     binding: bindingValidation.binding,
@@ -607,14 +607,14 @@ export async function planBoundFeishuWriteDataOperation(input: {
   };
 }
 
-export function validateFeishuAgentSpaceResourceAccessForDataOperation(input: {
+export function validateFeishuDofeAgentResourceAccessForDataOperation(input: {
   context: IntegrationRuntimeContext;
   request: ExternalDataOperationRequest;
   binding: ExternalResourceBindingRecord;
   actor?: FeishuBoundDataOperationActor;
-  dependencies?: FeishuAgentSpaceResourceAccessDependencies;
-}): FeishuAgentSpaceResourceAccessValidationResult {
-  const dependencies = input.dependencies ?? defaultFeishuAgentSpaceResourceAccessDependencies;
+  dependencies?: FeishuDofeAgentResourceAccessDependencies;
+}): FeishuDofeAgentResourceAccessValidationResult {
+  const dependencies = input.dependencies ?? defaultFeishuDofeAgentResourceAccessDependencies;
   if (input.actor && isFeishuExternalGuestDataOperationActor(input.actor)) {
     return validateFeishuExternalGuestResourceReadForDataOperation({
       request: input.request,
@@ -622,14 +622,14 @@ export function validateFeishuAgentSpaceResourceAccessForDataOperation(input: {
       actor: input.actor,
     });
   }
-  const resourceType = normalizeAgentSpaceResourceType(input.binding.agentSpaceResourceType);
+  const resourceType = normalizeDofeAgentResourceType(input.binding.dofeAgentResourceType);
   if (resourceType === "channel_document") {
     const actor = resolveFeishuDocumentAccessActor(input.request, input.actor);
     if (!actor) {
       return { ok: true };
     }
     if (!dependencies.canViewChannelDocument({
-      documentId: input.binding.agentSpaceResourceId,
+      documentId: input.binding.dofeAgentResourceId,
       actorId: actor.actorId,
       actorType: actor.actorType,
       workspaceId: input.context.workspaceId,
@@ -637,9 +637,9 @@ export function validateFeishuAgentSpaceResourceAccessForDataOperation(input: {
       return {
         ok: false,
         errorCode: "feishu.data_operation_channel_document_access_denied",
-        errorMessage: "Actor cannot view the AgentSpace channel document bound to this Feishu resource.",
+        errorMessage: "Actor cannot view the DofeAgent channel document bound to this Feishu resource.",
         data: {
-          agentSpaceResourceId: input.binding.agentSpaceResourceId,
+          dofeAgentResourceId: input.binding.dofeAgentResourceId,
           actorType: actor.actorType,
           actorId: actor.actorId,
         },
@@ -650,16 +650,16 @@ export function validateFeishuAgentSpaceResourceAccessForDataOperation(input: {
 
   if (resourceType === "data_table") {
     const table = dependencies.readDataTable({
-      tableId: input.binding.agentSpaceResourceId,
+      tableId: input.binding.dofeAgentResourceId,
       workspaceId: input.context.workspaceId,
     });
     if (!table) {
       return {
         ok: false,
         errorCode: "feishu.data_operation_data_table_not_found",
-        errorMessage: "AgentSpace data table bound to this Feishu resource does not exist.",
+        errorMessage: "DofeAgent data table bound to this Feishu resource does not exist.",
         data: {
-          agentSpaceResourceId: input.binding.agentSpaceResourceId,
+          dofeAgentResourceId: input.binding.dofeAgentResourceId,
         },
       };
     }
@@ -667,9 +667,9 @@ export function validateFeishuAgentSpaceResourceAccessForDataOperation(input: {
       return {
         ok: false,
         errorCode: "feishu.data_operation_data_table_inactive",
-        errorMessage: "AgentSpace data table bound to this Feishu resource is not active.",
+        errorMessage: "DofeAgent data table bound to this Feishu resource is not active.",
         data: {
-          agentSpaceResourceId: table.id,
+          dofeAgentResourceId: table.id,
           tableStatus: table.status,
         },
       };
@@ -682,9 +682,9 @@ export function validateFeishuAgentSpaceResourceAccessForDataOperation(input: {
       return {
         ok: false,
         errorCode: "feishu.data_operation_data_table_binding_mismatch",
-        errorMessage: "AgentSpace data table external metadata does not match the requested Feishu resource.",
+        errorMessage: "DofeAgent data table external metadata does not match the requested Feishu resource.",
         data: {
-          agentSpaceResourceId: table.id,
+          dofeAgentResourceId: table.id,
           tableExternalProvider: table.externalProvider,
           tableExternalResourceType: table.externalResourceType,
         },
@@ -704,9 +704,9 @@ export function validateFeishuAgentSpaceResourceAccessForDataOperation(input: {
       return {
         ok: false,
         errorCode: "feishu.data_operation_data_table_channel_access_denied",
-        errorMessage: "Actor cannot read the AgentSpace channel linked to this Feishu data table.",
+        errorMessage: "Actor cannot read the DofeAgent channel linked to this Feishu data table.",
         data: {
-          agentSpaceResourceId: table.id,
+          dofeAgentResourceId: table.id,
           channelName,
         },
       };
@@ -726,7 +726,7 @@ export function validateFeishuResourceBindingForDataOperation(input: {
     return {
       ok: false,
       errorCode: "feishu.data_operation_resource_unbound",
-      errorMessage: "Feishu data operation requires an active AgentSpace resource binding.",
+      errorMessage: "Feishu data operation requires an active DofeAgent resource binding.",
       data: {
         providerResourceType: input.request.providerResourceType,
         providerResourceToken: input.request.providerResourceToken,
@@ -821,7 +821,7 @@ function validateFeishuDocResourceBindingContext(
     return {
       ok: false,
       errorCode: "feishu.data_operation_doc_binding_context_mismatch",
-      errorMessage: "Feishu Docs operation context does not match the current AgentSpace resource binding.",
+      errorMessage: "Feishu Docs operation context does not match the current DofeAgent resource binding.",
       data: {
         providerResourceType: request.providerResourceType,
         field: "docType",
@@ -918,7 +918,7 @@ function buildFeishuBaseBindingContextMismatch(input: {
   return {
     ok: false,
     errorCode: "feishu.data_operation_base_binding_context_mismatch",
-    errorMessage: "Feishu Base operation context does not match the current AgentSpace resource binding.",
+    errorMessage: "Feishu Base operation context does not match the current DofeAgent resource binding.",
     data: {
       providerResourceType: input.providerResourceType,
       field: input.field,
@@ -934,12 +934,12 @@ function buildFeishuResourceBindingSuggestion(
     action: "create_resource_binding",
     providerResourceType: request.providerResourceType,
     providerResourceToken: request.providerResourceToken,
-    recommendedAgentSpaceResourceType: resolveRecommendedAgentSpaceResourceTypeForFeishuBinding(request.providerResourceType),
+    recommendedDofeAgentResourceType: resolveRecommendedDofeAgentResourceTypeForFeishuBinding(request.providerResourceType),
     operationType: request.operationType,
   };
 }
 
-function resolveRecommendedAgentSpaceResourceTypeForFeishuBinding(
+function resolveRecommendedDofeAgentResourceTypeForFeishuBinding(
   providerResourceType: string,
 ): "channel_document" | "data_table" | "external_resource" {
   if (providerResourceType === "doc") {
@@ -1187,7 +1187,7 @@ export async function executeApprovedFeishuDataOperation(input: {
       result,
       updatedBy: "Feishu",
     });
-    finalResult = withFeishuApprovedWriteAgentSpaceSyncSummary(result, {
+    finalResult = withFeishuApprovedWriteDofeAgentSyncSummary(result, {
       dataTableWriteSync,
       metadataSync,
     });
@@ -1306,7 +1306,7 @@ export function validateApprovedFeishuDataOperationBinding(input: {
     return {
       ok: false,
       errorCode: "feishu.data_operation_resource_binding_missing",
-      errorMessage: "Approved Feishu write operations require the original AgentSpace resource binding.",
+      errorMessage: "Approved Feishu write operations require the original DofeAgent resource binding.",
       data: {
         operationType: input.request.operationType,
         providerResourceType: input.request.providerResourceType,
@@ -1443,7 +1443,7 @@ export function applyFeishuResourceBindingParameters(
   };
 }
 
-const defaultFeishuAgentSpaceResourceAccessDependencies: FeishuAgentSpaceResourceAccessDependencies = {
+const defaultFeishuDofeAgentResourceAccessDependencies: FeishuDofeAgentResourceAccessDependencies = {
   canViewChannelDocument(input) {
     try {
       return canViewChannelDocumentSync(
@@ -1480,7 +1480,7 @@ function validateFeishuExternalGuestResourceReadForDataOperation(input: {
   request: ExternalDataOperationRequest;
   binding: ExternalResourceBindingRecord;
   actor: FeishuExternalGuestDataOperationActor;
-}): FeishuAgentSpaceResourceAccessValidationResult {
+}): FeishuDofeAgentResourceAccessValidationResult {
   if (input.actor.permissionProfile === "none") {
     return {
       ok: false,
@@ -1511,7 +1511,7 @@ function validateFeishuExternalGuestResourceReadForDataOperation(input: {
     return {
       ok: false,
       errorCode: "feishu.data_operation_external_guest_channel_scope_denied",
-      errorMessage: "External guest Feishu reads must be scoped to the current AgentSpace channel.",
+      errorMessage: "External guest Feishu reads must be scoped to the current DofeAgent channel.",
       data: {
         actorType: "external_guest",
         externalActorReference: input.actor.providerUserRefHash,
@@ -1663,7 +1663,7 @@ function readFeishuGovernanceActorType(
     : undefined;
 }
 
-function normalizeAgentSpaceResourceType(value: string): ExternalResourceBindingAgentSpaceType | undefined {
+function normalizeDofeAgentResourceType(value: string): ExternalResourceBindingDofeAgentType | undefined {
   if (value === "channel_document" || value === "data_table" || value === "knowledge_page") {
     return value;
   }
@@ -1840,7 +1840,7 @@ function recordFeishuDataOperationFinishSync(input: {
   });
 }
 
-function withFeishuApprovedWriteAgentSpaceSyncSummary(
+function withFeishuApprovedWriteDofeAgentSyncSummary(
   result: ExternalDataOperationResult,
   input: {
     dataTableWriteSync: ReturnType<typeof syncFeishuDataTableApprovedWriteResultSync>;
@@ -1854,7 +1854,7 @@ function withFeishuApprovedWriteAgentSpaceSyncSummary(
     ...result,
     data: {
       ...data,
-      agentSpaceSync: {
+      dofeAgentSync: {
         dataTableLastApprovedWriteSynced: input.dataTableWriteSync.synced,
         ...(!input.dataTableWriteSync.synced ? { dataTableReasonCode: input.dataTableWriteSync.reasonCode } : {}),
         resourceMetadataSynced: input.metadataSync.synced,

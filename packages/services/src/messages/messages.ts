@@ -3,14 +3,14 @@ import {
   enqueueNativeTaskSync,
   listQueuedTasksSync,
   readLatestChannelExecutionSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type {
-  AgentSpaceState,
+  DofeAgentState,
   MessageAttachment,
   MessageMention,
   WorkspaceMessage,
-} from "@agent-space/domain/workspace";
-import { parseAgentMentions, parseMentionPlan, type MentionCandidate } from "@agent-space/domain";
+} from "@dofe-agent/domain/workspace";
+import { parseAgentMentions, parseMentionPlan, type MentionCandidate } from "@dofe-agent/domain";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import {
   readConversationExecutionWorkspaceState,
@@ -76,7 +76,7 @@ export interface ChannelMentionParseResult {
 }
 
 export interface CompleteAgentChannelReplyResult {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   message: WorkspaceMessage;
   warnings: string[];
   queuedTaskIds: string[];
@@ -100,7 +100,7 @@ export function formatTaskFailureSummary(input: {
   return `任务 ${input.title} 执行失败：${formatUserFacingTaskFailure(input.errorText)}`;
 }
 
-export function pinMessageSync(messageId: string, workspaceId?: string, actorName?: string, actorUserId?: string): AgentSpaceState {
+export function pinMessageSync(messageId: string, workspaceId?: string, actorName?: string, actorUserId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
   const message = state.messages.find((m) => m.id === messageId);
@@ -117,7 +117,7 @@ export function pinMessageSync(messageId: string, workspaceId?: string, actorNam
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function unpinMessageSync(messageId: string, workspaceId?: string, actorName?: string, actorUserId?: string): AgentSpaceState {
+export function unpinMessageSync(messageId: string, workspaceId?: string, actorName?: string, actorUserId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
   const message = state.messages.find((m) => m.id === messageId);
@@ -139,7 +139,7 @@ export function acknowledgeMessageSync(
   workspaceId?: string,
   actorName?: string,
   actorUserId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
   const message = state.messages.find((m) => m.id === messageId);
@@ -184,7 +184,7 @@ export function postMessageSync(input: {
   status?: "pending" | "completed" | "error";
   attachments?: MessageAttachment[];
   mentions?: MessageMention[];
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
 
   if (!state.channels.some((channel) => sameValue(channel.name, input.channel))) {
@@ -213,7 +213,7 @@ export function postMessageSync(input: {
 }
 
 export function parseChannelMentionsSync(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channelName: string,
   summary: string,
 ): ChannelMentionParseResult {
@@ -254,7 +254,7 @@ export function sendChannelHumanMessageSync(
   workspaceId?: string,
   requesterUserId?: string,
   externalInput?: ExternalMessageInputContext,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
   const channel = state.channels.find((item) => sameValue(item.name, channelName));
@@ -553,7 +553,7 @@ export function sendChannelHumanMessageSync(
   return writeChannelMessageStateAndPublish(state, effectiveWorkspaceId, channel.name, humanMessage.id, humanMessage.time);
 }
 
-function buildHumanMentionCandidates(state: AgentSpaceState, channelName: string): MentionCandidate[] {
+function buildHumanMentionCandidates(state: DofeAgentState, channelName: string): MentionCandidate[] {
   const channel = state.channels.find((item) => sameValue(item.name, channelName));
   const channelHumanNames = channel ? resolveChannelHumanMemberNames(state, channel) : [];
   const names = uniqueNames([
@@ -598,7 +598,7 @@ function uniqueNames(values: string[]): string[] {
 }
 
 function assertHumanCanAccessMessageChannel(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channelName: string | undefined,
   actorName: string | undefined,
   actorUserId?: string,
@@ -611,7 +611,7 @@ function assertHumanCanAccessMessageChannel(
 }
 
 function assertHumanCanAccessChannel(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channelName: string,
   actorName: string,
   actorUserId?: string,
@@ -769,7 +769,7 @@ export function replacePendingChannelMessageSync(input: {
   summary: string;
   status?: "pending" | "completed" | "error";
   attachments?: MessageAttachment[];
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
 
   state.messages = state.messages.filter(
@@ -825,7 +825,7 @@ function emptyChannelMentionParseResult(): ChannelMentionParseResult {
 }
 
 function dispatchAgentOutputMentionsSync(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: {
     channelName: string;
     sourceMessage: WorkspaceMessage;
@@ -1040,12 +1040,12 @@ function formatUserFacingTaskFailure(errorText: string): string {
 }
 
 function writeChannelMessageStateAndPublish(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   workspaceId: string,
   channelName: string,
   messageId: string,
   createdAt: string,
-): AgentSpaceState {
+): DofeAgentState {
   const nextState = writeWorkspaceStateSync(state, workspaceId);
   publishChannelMessageCreatedEvent({
     workspaceId,

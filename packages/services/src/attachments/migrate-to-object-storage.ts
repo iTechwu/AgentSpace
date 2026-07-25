@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename } from "node:path";
-import type { AgentSpaceState, MessageAttachment, WorkspaceMessage } from "@agent-space/domain/workspace";
-import { getDatabase, withTransaction } from "@agent-space/db";
+import type { DofeAgentState, MessageAttachment, WorkspaceMessage } from "@dofe-agent/domain/workspace";
+import { getDatabase, withTransaction } from "@dofe-agent/db";
 import {
   createAttachmentStorageClient,
   type StoredAttachmentObject,
@@ -9,7 +9,7 @@ import {
 
 interface WorkspaceSnapshotRow {
   id: string;
-  stateJson: AgentSpaceState | string;
+  stateJson: DofeAgentState | string;
   stateVersion: number;
 }
 
@@ -47,7 +47,7 @@ export function migrateLocalAttachmentsToObjectStorageSync(input?: {
 
     for (const row of snapshots) {
       const state = typeof row.stateJson === "string"
-        ? JSON.parse(row.stateJson) as AgentSpaceState
+        ? JSON.parse(row.stateJson) as DofeAgentState
         : row.stateJson;
       let changed = false;
       for (const message of state.messages ?? []) {
@@ -130,7 +130,7 @@ function migrateMessageAttachments(input: {
   return changed;
 }
 
-function updateAttachmentRows(db: ReturnType<typeof getDatabase>, workspaceId: string, state: AgentSpaceState): void {
+function updateAttachmentRows(db: ReturnType<typeof getDatabase>, workspaceId: string, state: DofeAgentState): void {
   for (const message of state.messages ?? []) {
     for (const attachment of message.attachments ?? []) {
       db.prepare(

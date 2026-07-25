@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createDefaultWorkspaceState } from "@agent-space/domain/workspace";
+import { createDefaultWorkspaceState } from "@dofe-agent/domain/workspace";
 import { createChannelDocument } from "./service.ts";
 import { applyChannelDocumentBlockOperations } from "./operations.ts";
 import { listChannelDocumentBlocks, rebuildChannelDocumentBlocksForVersion } from "./collab.ts";

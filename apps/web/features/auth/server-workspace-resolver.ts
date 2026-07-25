@@ -4,7 +4,7 @@ import {
   readWorkspaceSync,
   type StoredWorkspaceMembershipRecord,
   type StoredWorkspaceRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type { AuthUser } from "./server-auth";
 
 export interface CurrentWorkspaceContext {

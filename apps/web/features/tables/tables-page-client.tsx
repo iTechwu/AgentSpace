@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { DataTablesPageData } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
-import type { DataTable, DataColumnType } from "@agent-space/domain/workspace";
+import type { DataTable, DataColumnType } from "@dofe-agent/domain/workspace";
 import {
   createDataTableAction,
   deleteDataTableAction,

@@ -6,7 +6,7 @@ import test from "node:test";
 import { createAttachmentFromChannelDocumentVersion, readMarkdownAttachmentContent } from "./files.ts";
 
 test("createAttachmentFromChannelDocumentVersion delegates attachment persistence with markdown content", () => {
-  const tempDir = mkdtempSync(join(tmpdir(), "agent-space-doc-export-"));
+  const tempDir = mkdtempSync(join(tmpdir(), "dofe-agent-doc-export-"));
   let persistedSourcePath = "";
   const attachment = createAttachmentFromChannelDocumentVersion({
     document: {
@@ -65,7 +65,7 @@ test("createAttachmentFromChannelDocumentVersion delegates attachment persistenc
 });
 
 test("readMarkdownAttachmentContent returns stored markdown content", () => {
-  const tempDir = mkdtempSync(join(tmpdir(), "agent-space-doc-import-"));
+  const tempDir = mkdtempSync(join(tmpdir(), "dofe-agent-doc-import-"));
   const filePath = join(tempDir, "plan.md");
   writeFileSync(filePath, "# 计划\n\n宇治", "utf8");
 
@@ -83,7 +83,7 @@ test("readMarkdownAttachmentContent returns stored markdown content", () => {
 });
 
 test("createAttachmentFromChannelDocumentVersion preserves Chinese file names", () => {
-  const tempDir = mkdtempSync(join(tmpdir(), "agent-space-doc-export-"));
+  const tempDir = mkdtempSync(join(tmpdir(), "dofe-agent-doc-export-"));
   let persistedSourcePath = "";
   const attachment = createAttachmentFromChannelDocumentVersion({
     document: {

@@ -58,7 +58,7 @@ const WORKSPACE_MODULE_PATHS: Record<WorkspaceModuleId, string> = {
   im: "/im",
   contacts: "/contacts",
   approvals: "/approvals",
-  "task-board": "/task-board",
+  "task-board": "/task/board",
   agents: "/agents",
   skills: "/skills",
   knowledge: "/knowledge",
@@ -130,7 +130,7 @@ export function parseWorkspaceModulePath(
 }
 
 export function parseWorkspaceModuleHref(href: string): WorkspaceModuleRouteState {
-  const parsed = new URL(href, "https://agent-space.local");
+  const parsed = new URL(href, "https://dofe-agent.local");
   return parseWorkspaceModulePath(parsed.pathname, parsed.searchParams);
 }
 
@@ -193,6 +193,10 @@ export function normalizeWorkspaceModuleQuery(
 }
 
 function resolveWorkspaceModuleId(appPath: string): WorkspaceModuleId | null {
+  if (appPath === "/task/board") {
+    return "task-board";
+  }
+
   const [firstSegment] = splitAppPath(appPath);
   if (!firstSegment) {
     return null;

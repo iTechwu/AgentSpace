@@ -1,11 +1,11 @@
 import { createHash, createPublicKey, randomBytes, verify } from "node:crypto";
 import { createSsoInternalClient } from "@dofe/sso-node";
 import { readServerEnvValue } from "./server-env";
-import { buildSsoWorkspaceScopes, type SsoWorkspaceScope } from "./sso-workspaces";
+import { buildSsoWorkspaceScopesForUser, type SsoWorkspaceScope } from "./sso-workspaces";
 
 const OIDC_STATE_TTL_SECONDS = 10 * 60;
 
-export const SSO_OIDC_STATE_COOKIE = "agent_space_sso_oidc";
+export const SSO_OIDC_STATE_COOKIE = "dofe_agent_sso_oidc";
 
 interface SsoConfig {
   apiUrl: string;
@@ -141,7 +141,13 @@ export async function exchangeSsoAuthorizationCode(input: {
       authoritativeUser,
       subject,
       userInfo,
-      workspaceScopes: buildSsoWorkspaceScopes({ teams, tenants, preferredTenantId: tenantPreference.lastTenantId }),
+      workspaceScopes: await buildSsoWorkspaceScopesForUser({
+        client: internalClient,
+        isAdmin: authoritativeUser.isAdmin,
+        preferredTenantId: tenantPreference.lastTenantId,
+        teams,
+        tenants,
+      }),
     }),
   };
 }
@@ -197,8 +203,11 @@ export async function getSsoLogoutUrl(idToken: string): Promise<string> {
   }
 
   const url = new URL(discovery.end_session_endpoint);
+  url.searchParams.set("client_id", config.clientId);
   url.searchParams.set("id_token_hint", idToken);
-  url.searchParams.set("post_logout_redirect_uri", config.redirectUri.replace(/\/auth\/callback$/, "/"));
+  // The identity provider validates this value against the client's registered redirect URIs.
+  // Keep the configured callback intact instead of changing it to the application root.
+  url.searchParams.set("post_logout_redirect_uri", config.redirectUri);
   return url.toString();
 }
 

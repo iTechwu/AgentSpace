@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import type { WorkspaceRole } from "@agent-space/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
 import { translateAuthError } from "./auth-error-messages";

@@ -14,17 +14,17 @@ test("buildRemoteDaemonConfig reads env-backed defaults without repository state
       environment: {
         HOME: "/tmp/daemon-home",
         HOSTNAME: "daemon-box",
-        AGENT_SPACE_SERVER_URL: "https://agentspace.example",
-        AGENT_SPACE_DAEMON_TOKEN: "adt_test",
+        DOFE_AGENT_SERVER_URL: "https://dofe-agent.example",
+        DOFE_AGENT_DAEMON_TOKEN: "adt_test",
       },
     },
   );
 
-  assert.equal(config.stateDir, join("/tmp/daemon-home", ".agent-space-daemon"));
+  assert.equal(config.stateDir, join("/tmp/daemon-home", ".dofe-agent-daemon"));
   assert.equal(config.daemonKey, "daemon-box");
   assert.equal(config.deviceName, "daemon-box");
   assert.equal(config.runtimeName, "Remote Agent");
-  assert.equal(config.serverUrl, "https://agentspace.example");
+  assert.equal(config.serverUrl, "https://dofe-agent.example");
   assert.equal(config.daemonToken, "adt_test");
   assert.equal(config.taskTimeoutMs, 12 * 60 * 60 * 1000);
 });
@@ -46,8 +46,8 @@ test("buildRemoteDaemonConfig prefers explicit flags over env", () => {
       environment: {
         HOME: "/tmp/daemon-home",
         HOSTNAME: "daemon-box",
-        AGENT_SPACE_SERVER_URL: "https://agentspace.example",
-        AGENT_SPACE_DAEMON_TOKEN: "adt_test",
+        DOFE_AGENT_SERVER_URL: "https://dofe-agent.example",
+        DOFE_AGENT_DAEMON_TOKEN: "adt_test",
       },
     },
   );
@@ -70,7 +70,7 @@ test("buildRemoteDaemonRelaunchCommand reuses the installed daemon bin without s
       "daemon-id": "daemon-prod-01",
       "device-name": "gpu-box-1",
       "runtime-name": "GPU Agent",
-      "server-url": "https://agentspace.example",
+      "server-url": "https://dofe-agent.example",
       "daemon-token": "adt_override",
       "heartbeat-interval": "20000",
       "poll-interval": "5000",
@@ -84,12 +84,12 @@ test("buildRemoteDaemonRelaunchCommand reuses the installed daemon bin without s
   );
 
   const command = buildRemoteDaemonRelaunchCommand(config, {
-    argv: ["node", "/opt/agent-space/bin/agent-space-daemon.js"],
+    argv: ["node", "/opt/dofe-agent/bin/dofe-agent-daemon.js"],
     execPath: "/usr/bin/node",
   });
 
   assert.equal(command.command, "/usr/bin/node");
-  assert.equal(command.args[0], "/opt/agent-space/bin/agent-space-daemon.js");
+  assert.equal(command.args[0], "/opt/dofe-agent/bin/dofe-agent-daemon.js");
   assert.equal(command.args.includes("--experimental-strip-types"), false);
   assert.deepEqual(command.args.slice(1, 8), [
     "start",
@@ -101,7 +101,7 @@ test("buildRemoteDaemonRelaunchCommand reuses the installed daemon bin without s
     "--device-name",
   ]);
   assert.equal(command.args.includes("--server-url"), true);
-  assert.equal(command.args.includes("https://agentspace.example"), true);
+  assert.equal(command.args.includes("https://dofe-agent.example"), true);
   assert.equal(command.args.includes("--daemon-token"), true);
   assert.equal(command.args.includes("adt_override"), true);
 });
@@ -120,11 +120,11 @@ test("buildRemoteDaemonRelaunchCommand resolves relative daemon bin paths before
   );
 
   const command = buildRemoteDaemonRelaunchCommand(config, {
-    argv: ["node", "runtime/bin/agent-space-daemon.js"],
+    argv: ["node", "runtime/bin/dofe-agent-daemon.js"],
     execPath: "/usr/bin/node",
   });
 
-  assert.equal(command.args[0], resolve("runtime/bin/agent-space-daemon.js"));
+  assert.equal(command.args[0], resolve("runtime/bin/dofe-agent-daemon.js"));
 });
 
 test("buildRemoteDaemonRelaunchCommand preserves strip-types only for source TypeScript entrypoints", () => {

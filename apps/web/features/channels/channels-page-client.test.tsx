@@ -933,7 +933,7 @@ describe("ChannelsPageClient", () => {
     await user.click(screen.getByRole("button", { name: "更多" }));
     await user.click(screen.getByRole("button", { name: "查看任务" }));
 
-    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-alpha/task-board");
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-alpha/task/board");
     expect(routerPushMock).not.toHaveBeenCalled();
   });
 

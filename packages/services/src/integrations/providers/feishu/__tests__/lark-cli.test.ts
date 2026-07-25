@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ExternalResourceBindingRecord } from "@agent-space/db";
+import type { ExternalResourceBindingRecord } from "@dofe-agent/db";
 import {
   FEISHU_LARK_CLI_MANIFEST_SCHEMA_VERSION,
   FEISHU_LARK_CLI_OPERATION_MANIFEST_KIND,
@@ -99,14 +99,14 @@ test("derives Base table scoped lark-cli grant from resource binding URL", () =>
   assert.equal(patterns.some((pattern) => pattern.includes("+record-update")), false);
 });
 
-test("resolves lark-cli executor from AgentSpace Feishu environment", () => {
+test("resolves lark-cli executor from DofeAgent Feishu environment", () => {
   assert.equal(resolveFeishuLarkCliCommand({}), "lark-cli");
   assert.equal(
-    resolveFeishuLarkCliCommand({ AGENT_SPACE_FEISHU_LARK_CLI_EXECUTOR: "/opt/lark/bin/lark-cli" }),
+    resolveFeishuLarkCliCommand({ DOFE_AGENT_FEISHU_LARK_CLI_EXECUTOR: "/opt/lark/bin/lark-cli" }),
     "/opt/lark/bin/lark-cli",
   );
   assert.equal(
-    resolveFeishuLarkCliCommand({ AGENT_SPACE_FEISHU_LARK_CLI_EXECUTOR: "npx lark-cli" }),
+    resolveFeishuLarkCliCommand({ DOFE_AGENT_FEISHU_LARK_CLI_EXECUTOR: "npx lark-cli" }),
     "lark-cli",
   );
 });
@@ -119,16 +119,16 @@ test("diagnoses Feishu lark-cli runtime readiness", () => {
   });
 
   assert.deepEqual(diagnoseFeishuLarkCliRuntime({
-    environment: { AGENT_SPACE_FEISHU_LARK_CLI_EXECUTOR: "npx lark-cli" },
+    environment: { DOFE_AGENT_FEISHU_LARK_CLI_EXECUTOR: "npx lark-cli" },
   }), {
     status: "blocked",
     reasonCode: "feishu.lark_cli.invalid_executor",
-    message: "AGENT_SPACE_FEISHU_LARK_CLI_EXECUTOR must be a single executable name or path without shell arguments.",
+    message: "DOFE_AGENT_FEISHU_LARK_CLI_EXECUTOR must be a single executable name or path without shell arguments.",
     command: "npx lark-cli",
   });
 
   assert.deepEqual(diagnoseFeishuLarkCliRuntime({
-    environment: { AGENT_SPACE_FEISHU_LARK_CLI_ENABLED: "true" },
+    environment: { DOFE_AGENT_FEISHU_LARK_CLI_ENABLED: "true" },
     includeDiagnostics: true,
     commandExists: () => false,
   }), {
@@ -139,7 +139,7 @@ test("diagnoses Feishu lark-cli runtime readiness", () => {
   });
 
   const available = diagnoseFeishuLarkCliRuntime({
-    environment: { AGENT_SPACE_FEISHU_LARK_CLI_ENABLED: "true" },
+    environment: { DOFE_AGENT_FEISHU_LARK_CLI_ENABLED: "true" },
     includeDiagnostics: true,
     commandExists: () => true,
   });
@@ -339,8 +339,8 @@ function createBinding(overrides: Partial<ExternalResourceBindingRecord>): Exter
     providerResourceType: "doc",
     providerResourceToken: "doccnABC123",
     providerResourceUrl: undefined,
-    agentSpaceResourceType: "channel_document",
-    agentSpaceResourceId: "document-1",
+    dofeAgentResourceType: "channel_document",
+    dofeAgentResourceId: "document-1",
     channelName: "research",
     displayName: "Research Doc",
     status: "active",

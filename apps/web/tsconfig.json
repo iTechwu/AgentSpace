@@ -23,22 +23,22 @@
       "@/*": [
         "./*"
       ],
-      "@agent-space/domain": [
+      "@dofe-agent/domain": [
         "../../packages/domain/src/index.ts"
       ],
-      "@agent-space/domain/*": [
+      "@dofe-agent/domain/*": [
         "../../packages/domain/src/*.ts"
       ],
-      "@agent-space/services": [
+      "@dofe-agent/services": [
         "../../packages/services/src/index.ts"
       ],
-      "@agent-space/services/*": [
+      "@dofe-agent/services/*": [
         "../../packages/services/src/*.ts"
       ],
-      "@agent-space/db": [
+      "@dofe-agent/db": [
         "../../packages/db/src/index.ts"
       ],
-      "@agent-space/db/*": [
+      "@dofe-agent/db/*": [
         "../../packages/db/src/*.ts"
       ]
     },

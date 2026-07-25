@@ -12,11 +12,11 @@ DAEMON_TOKEN=""
 DAEMON_ID=""
 DEVICE_NAME="$(hostname -s 2>/dev/null || hostname || echo remote-daemon)"
 RUNTIME_NAME="Remote Agent"
-BASE_DIR="${AGENT_SPACE_DAEMON_HOME:-$HOME/.agent-space-daemon}"
-STATE_DIR="${AGENT_SPACE_DAEMON_STATE_DIR:-$BASE_DIR}"
-INSTALL_ROOT="${AGENT_SPACE_DAEMON_INSTALL_ROOT:-$BASE_DIR/runtime}"
-ENV_FILE="${AGENT_SPACE_DAEMON_ENV_FILE:-$BASE_DIR/daemon.env}"
-LAUNCHER_PATH="${AGENT_SPACE_DAEMON_LAUNCHER:-$BASE_DIR/start-daemon.sh}"
+BASE_DIR="${DOFE_AGENT_DAEMON_HOME:-$HOME/.dofe-agent-daemon}"
+STATE_DIR="${DOFE_AGENT_DAEMON_STATE_DIR:-$BASE_DIR}"
+INSTALL_ROOT="${DOFE_AGENT_DAEMON_INSTALL_ROOT:-$BASE_DIR/runtime}"
+ENV_FILE="${DOFE_AGENT_DAEMON_ENV_FILE:-$BASE_DIR/daemon.env}"
+LAUNCHER_PATH="${DOFE_AGENT_DAEMON_LAUNCHER:-$BASE_DIR/start-daemon.sh}"
 PROVIDER_PATH="${PATH}"
 TMP_PACKAGE_PATH=""
 UPDATE_EXISTING="false"
@@ -31,20 +31,20 @@ PATH_SET="false"
 
 print_help() {
   cat <<'EOF'
-Install and start the standalone AgentSpace remote daemon in user space.
+Install and start the standalone DofeAgent remote daemon in user space.
 
 Usage:
   install-remote-daemon.sh --daemon-token adt_xxx
 
   install-remote-daemon.sh \
-    --package /path/to/agent-space-daemon-<version>.tgz \
-    --server-url https://agentspace.example \
+    --package /path/to/dofe-agent-daemon-<version>.tgz \
+    --server-url https://dofe-agent.example \
     --daemon-token adt_xxx \
     --daemon-id daemon-prod-01
 
   install-remote-daemon.sh \
-    --package-url https://artifact.example.com/agent-space-daemon-<version>.tgz \
-    --server-url https://agentspace.example \
+    --package-url https://artifact.example.com/dofe-agent-daemon-<version>.tgz \
+    --server-url https://dofe-agent.example \
     --daemon-token adt_xxx \
     --daemon-id daemon-prod-01
 
@@ -55,7 +55,7 @@ Defaults:
   --server-url <url>       default: baked into install-script when served from Server A
   --daemon-id <id>         default: hostname
   --package-url <url>      default: baked into install-script when served from Server A
-  --base-dir <dir>         default: ~/.agent-space-daemon
+  --base-dir <dir>         default: ~/.dofe-agent-daemon
   --state-dir <dir>        default: <base-dir>
   --install-root <dir>     default: <base-dir>/runtime
 
@@ -68,11 +68,11 @@ Package source:
 Optional:
   --device-name <name>     default: hostname
   --runtime-name <label>   default: Remote Agent
-  --base-dir <dir>         default: ~/.agent-space-daemon
-  --state-dir <dir>        default: ~/.agent-space-daemon
-  --install-root <dir>     default: ~/.agent-space-daemon/runtime
-  --env-file <path>        default: ~/.agent-space-daemon/daemon.env
-  --launcher <path>        default: ~/.agent-space-daemon/start-daemon.sh
+  --base-dir <dir>         default: ~/.dofe-agent-daemon
+  --state-dir <dir>        default: ~/.dofe-agent-daemon
+  --install-root <dir>     default: ~/.dofe-agent-daemon/runtime
+  --env-file <path>        default: ~/.dofe-agent-daemon/daemon.env
+  --launcher <path>        default: ~/.dofe-agent-daemon/start-daemon.sh
   --path <PATH>            PATH captured for codex/claude/agy/gemini/opencode/openclaw/nanobot/hermes lookup
   --update-existing        read existing daemon.env and reuse token/id/device/runtime settings
   --no-start               install files but do not start the daemon
@@ -81,7 +81,7 @@ Optional:
 Notes:
   - Run this script as a user that has access to codex / claude / agy / gemini / opencode / openclaw / nanobot / hermes.
   - Root is supported for server installs, but Claude Code must be logged in for /root and task commands run with root privileges.
-  - Google Sheet agent writes require agent-space output and gws. If gws is missing, this installer installs @googleworkspace/cli into the daemon runtime.
+  - Google Sheet agent writes require dofe-agent output and gws. If gws is missing, this installer installs @googleworkspace/cli into the daemon runtime.
   - Codex-based agents may also require a compatible bwrap unless the installed Codex can fall back to its vendored bwrap.
   - For advanced systemd deployment, use deploy/systemd manually.
 EOF
@@ -137,18 +137,18 @@ json_escape() {
   printf '%s' "$value"
 }
 
-verify_agent_space_output_cli() {
+verify_dofe_agent_output_cli() {
   local cli_path
-  cli_path="$(resolve_on_provider_path agent-space || true)"
-  [[ -n "$cli_path" ]] || fail "agent-space CLI was not found on PATH after install. Expected ${INSTALL_ROOT%/}/bin to be present."
-  run_on_provider_path agent-space output --help >/dev/null || fail "agent-space output --help failed after install."
-  run_on_provider_path agent-space output sheets-result add --help >/dev/null || fail "agent-space output sheets-result add --help failed after install."
-  run_on_provider_path agent-space output validate --help >/dev/null || fail "agent-space output validate --help failed after install."
-  AGENT_SPACE_OUTPUT_CLI_PATH="$cli_path"
+  cli_path="$(resolve_on_provider_path dofe-agent || true)"
+  [[ -n "$cli_path" ]] || fail "dofe-agent CLI was not found on PATH after install. Expected ${INSTALL_ROOT%/}/bin to be present."
+  run_on_provider_path dofe-agent output --help >/dev/null || fail "dofe-agent output --help failed after install."
+  run_on_provider_path dofe-agent output sheets-result add --help >/dev/null || fail "dofe-agent output sheets-result add --help failed after install."
+  run_on_provider_path dofe-agent output validate --help >/dev/null || fail "dofe-agent output validate --help failed after install."
+  DOFE_AGENT_OUTPUT_CLI_PATH="$cli_path"
 }
 
 verify_gws_cli() {
-  GWS_COMMAND="${AGENT_SPACE_GOOGLE_WORKSPACE_EXECUTOR:-gws}"
+  GWS_COMMAND="${DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR:-gws}"
   local gws_path
   gws_path="$(resolve_on_provider_path "$GWS_COMMAND" || true)"
   if [[ -z "$gws_path" ]]; then
@@ -179,7 +179,7 @@ verify_gws_cli() {
 }
 
 install_gws_cli_if_missing() {
-  GWS_COMMAND="${AGENT_SPACE_GOOGLE_WORKSPACE_EXECUTOR:-gws}"
+  GWS_COMMAND="${DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR:-gws}"
   local gws_path
   gws_path="$(resolve_on_provider_path "$GWS_COMMAND" || true)"
   if [[ -n "$gws_path" ]]; then
@@ -189,7 +189,7 @@ install_gws_cli_if_missing() {
     fail "Configured Google Workspace executor was not found or is not executable: $GWS_COMMAND"
   fi
   if [[ "$GWS_COMMAND" != "gws" ]]; then
-    fail "Google Workspace executor '$GWS_COMMAND' was not found on PATH. Set AGENT_SPACE_GOOGLE_WORKSPACE_EXECUTOR to an executable path or use the default 'gws'."
+    fail "Google Workspace executor '$GWS_COMMAND' was not found on PATH. Set DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR to an executable path or use the default 'gws'."
   fi
 
   log "gws CLI was not found; installing @googleworkspace/cli into $INSTALL_ROOT"
@@ -197,7 +197,7 @@ install_gws_cli_if_missing() {
     GWS_AVAILABLE="false"
     GWS_CLI_PATH=""
     GWS_VERSION=""
-    GWS_ERROR="Automatic gws install failed. Google Workspace features will be unavailable until @googleworkspace/cli is installed manually or AGENT_SPACE_GOOGLE_WORKSPACE_EXECUTOR points to an executable."
+    GWS_ERROR="Automatic gws install failed. Google Workspace features will be unavailable until @googleworkspace/cli is installed manually or DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR points to an executable."
     warn "$GWS_ERROR"
     return 0
   fi
@@ -241,9 +241,9 @@ verify_bwrap_cli() {
   BWRAP_SUPPORTS_PERMS="true"
 }
 
-if [[ "${AGENT_SPACE_INSTALLER_TEST_HOOK:-}" == "verify-google-sheets-readiness" ]]; then
-  PROVIDER_PATH="${AGENT_SPACE_INSTALLER_TEST_PATH:-$PROVIDER_PATH}"
-  verify_agent_space_output_cli
+if [[ "${DOFE_AGENT_INSTALLER_TEST_HOOK:-}" == "verify-google-sheets-readiness" ]]; then
+  PROVIDER_PATH="${DOFE_AGENT_INSTALLER_TEST_PATH:-$PROVIDER_PATH}"
+  verify_dofe_agent_output_cli
   GWS_AVAILABLE="false"
   GWS_CLI_PATH=""
   GWS_VERSION=""
@@ -349,28 +349,28 @@ if [[ "$UPDATE_EXISTING" == "true" ]]; then
   # shellcheck disable=SC1090
   source "$ENV_FILE"
 
-  if [[ "$SERVER_URL_SET" != "true" && -n "${AGENT_SPACE_SERVER_URL:-}" ]]; then
-    SERVER_URL="$AGENT_SPACE_SERVER_URL"
+  if [[ "$SERVER_URL_SET" != "true" && -n "${DOFE_AGENT_SERVER_URL:-}" ]]; then
+    SERVER_URL="$DOFE_AGENT_SERVER_URL"
   fi
-  if [[ "$DAEMON_TOKEN_SET" != "true" && -n "${AGENT_SPACE_DAEMON_TOKEN:-}" ]]; then
-    DAEMON_TOKEN="$AGENT_SPACE_DAEMON_TOKEN"
+  if [[ "$DAEMON_TOKEN_SET" != "true" && -n "${DOFE_AGENT_DAEMON_TOKEN:-}" ]]; then
+    DAEMON_TOKEN="$DOFE_AGENT_DAEMON_TOKEN"
   fi
-  if [[ "$DAEMON_ID_SET" != "true" && -n "${AGENT_SPACE_DAEMON_ID:-}" ]]; then
-    DAEMON_ID="$AGENT_SPACE_DAEMON_ID"
+  if [[ "$DAEMON_ID_SET" != "true" && -n "${DOFE_AGENT_DAEMON_ID:-}" ]]; then
+    DAEMON_ID="$DOFE_AGENT_DAEMON_ID"
   fi
-  if [[ "$DEVICE_NAME_SET" != "true" && -n "${AGENT_SPACE_DEVICE_NAME:-}" ]]; then
-    DEVICE_NAME="$AGENT_SPACE_DEVICE_NAME"
+  if [[ "$DEVICE_NAME_SET" != "true" && -n "${DOFE_AGENT_DEVICE_NAME:-}" ]]; then
+    DEVICE_NAME="$DOFE_AGENT_DEVICE_NAME"
   fi
-  if [[ "$RUNTIME_NAME_SET" != "true" && -n "${AGENT_SPACE_RUNTIME_NAME:-}" ]]; then
-    RUNTIME_NAME="$AGENT_SPACE_RUNTIME_NAME"
+  if [[ "$RUNTIME_NAME_SET" != "true" && -n "${DOFE_AGENT_RUNTIME_NAME:-}" ]]; then
+    RUNTIME_NAME="$DOFE_AGENT_RUNTIME_NAME"
   fi
-  if [[ "$STATE_DIR_SET" != "true" && -n "${AGENT_SPACE_DAEMON_STATE_DIR:-}" ]]; then
-    STATE_DIR="$AGENT_SPACE_DAEMON_STATE_DIR"
+  if [[ "$STATE_DIR_SET" != "true" && -n "${DOFE_AGENT_DAEMON_STATE_DIR:-}" ]]; then
+    STATE_DIR="$DOFE_AGENT_DAEMON_STATE_DIR"
   fi
-  if [[ "$INSTALL_ROOT_SET" != "true" && -n "${AGENT_SPACE_DAEMON_INSTALL_ROOT:-}" ]]; then
-    INSTALL_ROOT="$AGENT_SPACE_DAEMON_INSTALL_ROOT"
-  elif [[ "$INSTALL_ROOT_SET" != "true" && -n "${AGENT_SPACE_DAEMON_BIN:-}" ]]; then
-    INSTALL_ROOT="$(dirname "$(dirname "$AGENT_SPACE_DAEMON_BIN")")"
+  if [[ "$INSTALL_ROOT_SET" != "true" && -n "${DOFE_AGENT_DAEMON_INSTALL_ROOT:-}" ]]; then
+    INSTALL_ROOT="$DOFE_AGENT_DAEMON_INSTALL_ROOT"
+  elif [[ "$INSTALL_ROOT_SET" != "true" && -n "${DOFE_AGENT_DAEMON_BIN:-}" ]]; then
+    INSTALL_ROOT="$(dirname "$(dirname "$DOFE_AGENT_DAEMON_BIN")")"
   fi
   if [[ "$PATH_SET" != "true" ]]; then
     PROVIDER_PATH="$PATH"
@@ -403,12 +403,12 @@ require_command install
 
 if [[ -n "$PACKAGE_URL" ]]; then
   if command -v curl >/dev/null 2>&1; then
-    TMP_PACKAGE_PATH="$(mktemp /tmp/agent-space-daemon.XXXXXX.tgz)"
+    TMP_PACKAGE_PATH="$(mktemp /tmp/dofe-agent-daemon.XXXXXX.tgz)"
     log "Downloading package from $PACKAGE_URL"
     curl -fsSL -H "Authorization: Bearer $DAEMON_TOKEN" "$PACKAGE_URL" -o "$TMP_PACKAGE_PATH"
     PACKAGE_PATH="$TMP_PACKAGE_PATH"
   elif command -v wget >/dev/null 2>&1; then
-    TMP_PACKAGE_PATH="$(mktemp /tmp/agent-space-daemon.XXXXXX.tgz)"
+    TMP_PACKAGE_PATH="$(mktemp /tmp/dofe-agent-daemon.XXXXXX.tgz)"
     log "Downloading package from $PACKAGE_URL"
     wget -qO "$TMP_PACKAGE_PATH" --header="Authorization: Bearer $DAEMON_TOKEN" "$PACKAGE_URL"
     PACKAGE_PATH="$TMP_PACKAGE_PATH"
@@ -421,34 +421,34 @@ fi
 
 mkdir -p "$BASE_DIR" "$STATE_DIR" "$INSTALL_ROOT" "$(dirname "$ENV_FILE")" "$(dirname "$LAUNCHER_PATH")"
 
-OLD_BIN_PATH="${INSTALL_ROOT%/}/bin/agent-space-daemon"
+OLD_BIN_PATH="${INSTALL_ROOT%/}/bin/dofe-agent-daemon"
 if [[ -x "$OLD_BIN_PATH" ]]; then
   log "Stopping existing user-space daemon if it is running"
   env PATH="$PROVIDER_PATH" "$OLD_BIN_PATH" stop --state-dir "$STATE_DIR" >/dev/null 2>&1 || true
 fi
 
-NPM_CACHE_DIR="${TMPDIR:-/tmp}/agent-space-npm-cache"
+NPM_CACHE_DIR="${TMPDIR:-/tmp}/dofe-agent-npm-cache"
 mkdir -p "$NPM_CACHE_DIR"
 
 log "Installing standalone daemon package into $INSTALL_ROOT"
 npm --cache "$NPM_CACHE_DIR" --prefix "$INSTALL_ROOT" install -g "$PACKAGE_PATH"
 
-BIN_PATH="${INSTALL_ROOT%/}/bin/agent-space-daemon"
+BIN_PATH="${INSTALL_ROOT%/}/bin/dofe-agent-daemon"
 [[ -x "$BIN_PATH" ]] || fail "Installed binary not found at $BIN_PATH"
 DAEMON_VERSION="$("$BIN_PATH" --version 2>/dev/null || true)"
 DAEMON_VERSION="${DAEMON_VERSION//$'\r'/ }"
 DAEMON_VERSION="${DAEMON_VERSION//$'\n'/ }"
 DAEMON_VERSION="${DAEMON_VERSION:-unknown}"
-log "Installed agent-space-daemon version: $DAEMON_VERSION"
-AGENT_SPACE_CLI_PATH="${INSTALL_ROOT%/}/bin/agent-space"
-[[ -x "$AGENT_SPACE_CLI_PATH" ]] || fail "Installed agent-space CLI not found at $AGENT_SPACE_CLI_PATH"
+log "Installed dofe-agent-daemon version: $DAEMON_VERSION"
+DOFE_AGENT_CLI_PATH="${INSTALL_ROOT%/}/bin/dofe-agent"
+[[ -x "$DOFE_AGENT_CLI_PATH" ]] || fail "Installed dofe-agent CLI not found at $DOFE_AGENT_CLI_PATH"
 INSTALL_BIN_DIR="${INSTALL_ROOT%/}/bin"
 if [[ ":$PROVIDER_PATH:" != *":$INSTALL_BIN_DIR:"* ]]; then
   PROVIDER_PATH="$INSTALL_BIN_DIR:$PROVIDER_PATH"
 fi
 
 log "Checking Google Sheets runtime readiness"
-verify_agent_space_output_cli
+verify_dofe_agent_output_cli
 GWS_AVAILABLE="false"
 GWS_CLI_PATH=""
 GWS_VERSION=""
@@ -457,36 +457,36 @@ install_gws_cli_if_missing
 verify_gws_cli
 verify_bwrap_cli
 
-TMP_ENV_FILE="$(mktemp /tmp/agent-space-daemon-env.XXXXXX)"
+TMP_ENV_FILE="$(mktemp /tmp/dofe-agent-daemon-env.XXXXXX)"
 cat >"$TMP_ENV_FILE" <<EOF
 # Generated by $SCRIPT_NAME
 PATH=$(printf '%q' "$PROVIDER_PATH")
-AGENT_SPACE_GOOGLE_WORKSPACE_EXECUTOR=$(printf '%q' "$GWS_COMMAND")
-AGENT_SPACE_SERVER_URL=$(printf '%q' "$SERVER_URL")
-AGENT_SPACE_DAEMON_TOKEN=$(printf '%q' "$DAEMON_TOKEN")
-AGENT_SPACE_DAEMON_ID=$(printf '%q' "$DAEMON_ID")
-AGENT_SPACE_DEVICE_NAME=$(printf '%q' "$DEVICE_NAME")
-AGENT_SPACE_RUNTIME_NAME=$(printf '%q' "$RUNTIME_NAME")
-AGENT_SPACE_DAEMON_STATE_DIR=$(printf '%q' "$STATE_DIR")
-AGENT_SPACE_DAEMON_INSTALL_ROOT=$(printf '%q' "$INSTALL_ROOT")
-AGENT_SPACE_DAEMON_BIN=$(printf '%q' "$BIN_PATH")
+DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR=$(printf '%q' "$GWS_COMMAND")
+DOFE_AGENT_SERVER_URL=$(printf '%q' "$SERVER_URL")
+DOFE_AGENT_DAEMON_TOKEN=$(printf '%q' "$DAEMON_TOKEN")
+DOFE_AGENT_DAEMON_ID=$(printf '%q' "$DAEMON_ID")
+DOFE_AGENT_DEVICE_NAME=$(printf '%q' "$DEVICE_NAME")
+DOFE_AGENT_RUNTIME_NAME=$(printf '%q' "$RUNTIME_NAME")
+DOFE_AGENT_DAEMON_STATE_DIR=$(printf '%q' "$STATE_DIR")
+DOFE_AGENT_DAEMON_INSTALL_ROOT=$(printf '%q' "$INSTALL_ROOT")
+DOFE_AGENT_DAEMON_BIN=$(printf '%q' "$BIN_PATH")
 EOF
 install -D -m 600 "$TMP_ENV_FILE" "$ENV_FILE"
 rm -f "$TMP_ENV_FILE"
 
-TMP_LAUNCHER="$(mktemp /tmp/agent-space-daemon-launcher.XXXXXX)"
+TMP_LAUNCHER="$(mktemp /tmp/dofe-agent-daemon-launcher.XXXXXX)"
 cat >"$TMP_LAUNCHER" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 source "$ENV_FILE"
 export PATH
-exec "\$AGENT_SPACE_DAEMON_BIN" start \\
-  --state-dir "\$AGENT_SPACE_DAEMON_STATE_DIR" \\
-  --server-url "\$AGENT_SPACE_SERVER_URL" \\
-  --daemon-token "\$AGENT_SPACE_DAEMON_TOKEN" \\
-  --daemon-id "\$AGENT_SPACE_DAEMON_ID" \\
-  --device-name "\$AGENT_SPACE_DEVICE_NAME" \\
-  --runtime-name "\$AGENT_SPACE_RUNTIME_NAME"
+exec "\$DOFE_AGENT_DAEMON_BIN" start \\
+  --state-dir "\$DOFE_AGENT_DAEMON_STATE_DIR" \\
+  --server-url "\$DOFE_AGENT_SERVER_URL" \\
+  --daemon-token "\$DOFE_AGENT_DAEMON_TOKEN" \\
+  --daemon-id "\$DOFE_AGENT_DAEMON_ID" \\
+  --device-name "\$DOFE_AGENT_DEVICE_NAME" \\
+  --runtime-name "\$DOFE_AGENT_RUNTIME_NAME"
 EOF
 install -D -m 700 "$TMP_LAUNCHER" "$LAUNCHER_PATH"
 rm -f "$TMP_LAUNCHER"
@@ -499,7 +499,7 @@ else
 fi
 
 STATUS_JSON="$("$BIN_PATH" status --json --state-dir "$STATE_DIR" 2>/dev/null || true)"
-READINESS_JSON="{\"agentSpaceOutput\":{\"available\":true,\"path\":\"$(json_escape "$AGENT_SPACE_OUTPUT_CLI_PATH")\"},\"gws\":{\"available\":$GWS_AVAILABLE,\"path\":\"$(json_escape "$GWS_CLI_PATH")\",\"version\":\"$(json_escape "$GWS_VERSION")\",\"error\":\"$(json_escape "$GWS_ERROR")\"},\"bwrap\":{\"available\":$BWRAP_AVAILABLE,\"path\":\"$(json_escape "$BWRAP_CLI_PATH")\",\"version\":\"$(json_escape "$BWRAP_VERSION")\",\"supportsPerms\":$BWRAP_SUPPORTS_PERMS,\"error\":\"$(json_escape "$BWRAP_ERROR")\"},\"executor\":\"$(json_escape "$GWS_COMMAND")\"}"
+READINESS_JSON="{\"dofeAgentOutput\":{\"available\":true,\"path\":\"$(json_escape "$DOFE_AGENT_OUTPUT_CLI_PATH")\"},\"gws\":{\"available\":$GWS_AVAILABLE,\"path\":\"$(json_escape "$GWS_CLI_PATH")\",\"version\":\"$(json_escape "$GWS_VERSION")\",\"error\":\"$(json_escape "$GWS_ERROR")\"},\"bwrap\":{\"available\":$BWRAP_AVAILABLE,\"path\":\"$(json_escape "$BWRAP_CLI_PATH")\",\"version\":\"$(json_escape "$BWRAP_VERSION")\",\"supportsPerms\":$BWRAP_SUPPORTS_PERMS,\"error\":\"$(json_escape "$BWRAP_ERROR")\"},\"executor\":\"$(json_escape "$GWS_COMMAND")\"}"
 
 cat <<EOF
 

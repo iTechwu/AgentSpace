@@ -1,4 +1,4 @@
-import type { MessageAttachment } from "@agent-space/domain/workspace";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import { persistWorkspaceAttachmentFromBytesSync } from "../../../attachments/attachments.ts";
 import {
   createIntegrationProviderError,

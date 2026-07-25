@@ -12,9 +12,9 @@ import {
   postMessageSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-direct-channel-cleanup-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-direct-channel-cleanup-"));
 
 beforeAll(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

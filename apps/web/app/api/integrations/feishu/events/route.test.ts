@@ -31,7 +31,7 @@ const {
   mockRecordFeishuCallbackRejectedSync: vi.fn(),
 }));
 
-vi.mock("@agent-space/db", () => ({
+vi.mock("@dofe-agent/db", () => ({
   listExternalIntegrationsSync: mockListExternalIntegrationsSync,
   readExternalIntegrationSync: mockReadExternalIntegrationSync,
 }));
@@ -40,7 +40,7 @@ vi.mock("@/features/integrations/feishu/feishu-credentials", () => ({
   readFeishuIntegrationCredentials: mockReadFeishuIntegrationCredentials,
 }));
 
-vi.mock("@agent-space/services", () => {
+vi.mock("@dofe-agent/services", () => {
   function readToken(payload: Record<string, unknown>): string | undefined {
     const header = typeof payload.header === "object" && payload.header !== null
       ? payload.header as Record<string, unknown>
@@ -588,7 +588,7 @@ describe("Feishu event route", () => {
     expect(mockDrainFeishuOutboxMessages).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
       integrationId: "external-integration-1",
-      lockedBy: "agent-space-webhook",
+      lockedBy: "dofe-agent-webhook",
       limit: 5,
     });
   });

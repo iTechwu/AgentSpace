@@ -1,10 +1,10 @@
 import type { ActiveEmployee } from "./workspace.ts";
 
 /**
- * Map an AgentSpace Digital Employee onto an OpenAgent persona-card. OpenAgent
+ * Map an DofeAgent Digital Employee onto an OpenAgent persona-card. OpenAgent
  * (spec at github.com/5dive-ai/openagent) is an identity/persona layer: it
  * describes who an agent IS (name, role, face, voice, behavior) and can carry a
- * self-verifying ed25519 provenance block. AgentSpace already models the "who"
+ * self-verifying ed25519 provenance block. DofeAgent already models the "who"
  * as an ActiveEmployee, so the two compose.
  *
  * This module is the PURE, runtime-agnostic half: the persona TYPES and the
@@ -174,10 +174,10 @@ export function employeeToPersona(
     id,
     name: employee.name,
     role: personaRole(employee),
-    org: { name: exposedOwner ? `AgentSpace (${exposedOwner})` : "AgentSpace" },
+    org: { name: exposedOwner ? `DofeAgent (${exposedOwner})` : "DofeAgent" },
     behavior: personaBehavior(employee, exposedInstructions),
     face: {
-      ref: `agentspace:${id}`,
+      ref: `dofe-agent:${id}`,
       anchor: anchorColor(employee.name),
       recipe: { provider: "google-gemini", model: "imagen-4", prompt: facePrompt(employee) },
     },

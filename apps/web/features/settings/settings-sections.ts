@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from "@agent-space/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 
 const SETTINGS_DETAIL_SECTION_ORDER_INTERNAL = [

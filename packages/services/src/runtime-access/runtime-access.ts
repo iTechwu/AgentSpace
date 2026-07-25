@@ -12,7 +12,7 @@ import {
   revokeRuntimeUseFromUserSync,
   type WorkspaceRole,
   type WorkspaceRuntimeGrantRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { sameValue } from "../shared/helpers.ts";
 import { ensureWorkspaceStateSync } from "../shared/state-io.ts";
 import { canReadChannelForActorSync } from "../channel-access/channel-access.ts";

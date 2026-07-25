@@ -13,7 +13,7 @@ import {
   markWorkspaceNotificationReadSync,
 } from "./index.ts";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-notifications-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-notifications-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

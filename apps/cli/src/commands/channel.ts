@@ -3,7 +3,7 @@ import {
   deleteChannelSync,
   renameChannelSync,
   readWorkspaceSnapshotSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { parseArgs, getStringFlag } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
@@ -22,7 +22,7 @@ export function runChannelCommand(
     const name = getStringFlag(flags, "name");
 
     if (!name) {
-      console.error('Usage: agent-space channel create --name <name> [--json]');
+      console.error('Usage: dofe-agent channel create --name <name> [--json]');
       return 1;
     }
 
@@ -39,7 +39,7 @@ export function runChannelCommand(
     const { flags } = parseArgs(args);
     const name = getStringFlag(flags, "name");
     if (!name) {
-      console.error('Usage: agent-space channel delete --name <name> [--json]');
+      console.error('Usage: dofe-agent channel delete --name <name> [--json]');
       return 1;
     }
 
@@ -57,7 +57,7 @@ export function runChannelCommand(
     const name = getStringFlag(flags, "name");
     const nextName = getStringFlag(flags, "to");
     if (!name || !nextName) {
-      console.error('Usage: agent-space channel rename --name <name> --to <next-name> [--json]');
+      console.error('Usage: dofe-agent channel rename --name <name> --to <next-name> [--json]');
       return 1;
     }
 
@@ -71,9 +71,9 @@ export function runChannelCommand(
     return 0;
   }
 
-  console.error("Usage: agent-space channel list [--json]");
-  console.error("   or: agent-space channel create --name <name> [--json]");
-  console.error("   or: agent-space channel delete --name <name> [--json]");
-  console.error("   or: agent-space channel rename --name <name> --to <next-name> [--json]");
+  console.error("Usage: dofe-agent channel list [--json]");
+  console.error("   or: dofe-agent channel create --name <name> [--json]");
+  console.error("   or: dofe-agent channel delete --name <name> [--json]");
+  console.error("   or: dofe-agent channel rename --name <name> --to <next-name> [--json]");
   return 1;
 }

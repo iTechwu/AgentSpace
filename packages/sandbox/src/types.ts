@@ -50,7 +50,7 @@ export interface SandboxConnectOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-export const SANDBOX_TASK_TIMEOUT_ENV = "AGENT_SPACE_TASK_TIMEOUT_MS";
+export const SANDBOX_TASK_TIMEOUT_ENV = "DOFE_AGENT_TASK_TIMEOUT_MS";
 export const DEFAULT_SANDBOX_TASK_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 
 export function resolveSandboxTaskTimeoutMs(value?: number | string): number {

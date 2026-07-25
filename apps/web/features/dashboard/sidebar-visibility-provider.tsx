@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
-export const SIDEBAR_VISIBILITY_STORAGE_KEY = "agent-space-sidebar-visibility";
+export const SIDEBAR_VISIBILITY_STORAGE_KEY = "dofe-agent-sidebar-visibility";
 export const SIDEBAR_VISIBILITY_STORAGE_VERSION = 2;
 
 export const SIDEBAR_SECTION_IDS = [

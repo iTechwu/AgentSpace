@@ -12,8 +12,8 @@ import {
   type KnowledgeProposalRecord,
   type KnowledgeProposalStatus,
   type WorkspaceRole,
-} from "@agent-space/db";
-import type { KnowledgeAssignmentMode, KnowledgePage } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import type { KnowledgeAssignmentMode, KnowledgePage } from "@dofe-agent/domain/workspace";
 import { createApprovalRequestSync, reviewApprovalSync } from "../approvals/approvals.ts";
 import { setKnowledgePageAssignedEmployeesSync, setKnowledgePageAssignmentModeSync } from "../knowledge/assignments.ts";
 import { createKnowledgePageSync, updateKnowledgePageSync } from "../knowledge/knowledge.ts";

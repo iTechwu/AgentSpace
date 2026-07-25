@@ -6,7 +6,7 @@ import {
   upsertExternalChannelBindingSync,
   type ExternalChannelBindingRecord,
   type ExternalIntegrationRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { addChannelEmployeesSync, createChannelSync } from "../../../channels/channels.ts";
 import { readWorkspaceStateSync } from "../../../shared/state-io.ts";
 import { sameValue, slugify } from "../../../shared/helpers.ts";
@@ -14,7 +14,7 @@ import { FEISHU_PROVIDER_ID } from "./constants.ts";
 import { asRecord, asString } from "./events.ts";
 import { buildFeishuInteractiveCardOutboundMessage } from "./outbound.ts";
 
-export type FeishuChannelProvisionSource = "manual" | "bot_added" | "first_message" | "agentspace_created";
+export type FeishuChannelProvisionSource = "manual" | "bot_added" | "first_message" | "dofe-agent_created";
 export type FeishuChannelReviewStatus = "approved" | "pending_admin_review" | "needs_identity_binding";
 export type FeishuBotAddedAutoProvisionMode = "auto_create_channel" | "pending_admin_review" | "disabled";
 export type FeishuFirstMessageAutoProvisionMode =
@@ -36,7 +36,7 @@ export interface ResolveOrProvisionFeishuChannelBindingInput {
   externalChatId: string;
   externalChatType?: string;
   externalChatName?: string;
-  provisionSource: Exclude<FeishuChannelProvisionSource, "manual" | "agentspace_created">;
+  provisionSource: Exclude<FeishuChannelProvisionSource, "manual" | "dofe-agent_created">;
   createdByExternalActorId?: string;
   createdByUserId?: string;
 }
@@ -415,17 +415,17 @@ function buildFeishuChannelAutoProvisionConfirmationCard(input: {
   reviewStatus: FeishuChannelReviewStatus;
 }): Record<string, unknown> {
   const action = input.createdChannel
-    ? "AgentSpace channel 已自动创建"
+    ? "DofeAgent channel 已自动创建"
     : input.reusedProviderChannel
-      ? "已复用现有 AgentSpace channel"
-      : "AgentSpace channel 已确认";
+      ? "已复用现有 DofeAgent channel"
+      : "DofeAgent channel 已确认";
   return {
     config: { wide_screen_mode: true },
     header: {
       template: input.reviewStatus === "approved" ? "green" : "yellow",
       title: {
         tag: "plain_text",
-        content: `${input.agentId} · AgentSpace`,
+        content: `${input.agentId} · DofeAgent`,
       },
     },
     elements: [{
@@ -447,9 +447,9 @@ function buildFeishuChannelSetupCard(input: {
   const elements: Record<string, unknown>[] = [{
     tag: "markdown",
     content: [
-      "**AgentSpace channel setup required**",
+      "**DofeAgent channel setup required**",
       `Agent: ${input.agentId}`,
-      "这个飞书群还没有连接 AgentSpace channel。管理员完成 channel 绑定后，AgentSpace 才会在这里调度 Agent。",
+      "这个飞书群还没有连接 DofeAgent channel。管理员完成 channel 绑定后，DofeAgent 才会在这里调度 Agent。",
     ].join("\n"),
   }];
   if (input.settingsUrl) {
@@ -459,7 +459,7 @@ function buildFeishuChannelSetupCard(input: {
         tag: "button",
         text: {
           tag: "plain_text",
-          content: "Open AgentSpace",
+          content: "Open DofeAgent",
         },
         type: "primary",
         url: input.settingsUrl,
@@ -472,7 +472,7 @@ function buildFeishuChannelSetupCard(input: {
       template: "yellow",
       title: {
         tag: "plain_text",
-        content: `${input.agentId} · AgentSpace`,
+        content: `${input.agentId} · DofeAgent`,
       },
     },
     elements,
@@ -485,7 +485,7 @@ function readProvisionSource(binding: ExternalChannelBindingRecord): FeishuChann
   return value === "manual" ||
     value === "bot_added" ||
     value === "first_message" ||
-    value === "agentspace_created"
+    value === "dofe-agent_created"
     ? value
     : undefined;
 }

@@ -1,6 +1,6 @@
-import { DEFAULT_WORKSPACE_ID, listTokenUsageSync, readModelPricingSync, computeCostUsd } from "@agent-space/db";
-import type { TokenUsageRecord } from "@agent-space/db";
-import type { ActiveEmployee, TaskRecord } from "@agent-space/domain/workspace";
+import { DEFAULT_WORKSPACE_ID, listTokenUsageSync, readModelPricingSync, computeCostUsd } from "@dofe-agent/db";
+import type { TokenUsageRecord } from "@dofe-agent/db";
+import type { ActiveEmployee, TaskRecord } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue } from "../shared/helpers.ts";
 

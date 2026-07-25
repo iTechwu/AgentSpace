@@ -7,7 +7,7 @@ import type {
   MessageTransportAdapter,
 } from "./message-transport.ts";
 import type {
-  AgentSpaceOutboundMessage,
+  DofeAgentOutboundMessage,
   ExternalDataOperationRequest,
   ExternalDataOperationResult,
   ExternalMessageEnvelope,
@@ -103,7 +103,7 @@ function createFakeMessageTransport(now: () => string): MessageTransportAdapter 
     },
     buildOutboundMessage(
       _context: IntegrationRuntimeContext,
-      message: AgentSpaceOutboundMessage,
+      message: DofeAgentOutboundMessage,
     ): ExternalOutboundMessagePayload {
       const targetExternalChatId = readString(message.metadata?.externalChatId);
       if (!targetExternalChatId) {

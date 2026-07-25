@@ -1,1 +1,1 @@
-export { HttpDaemonClient } from "agent-space-daemon/daemon-client";
+export { HttpDaemonClient } from "dofe-agent-daemon/daemon-client";

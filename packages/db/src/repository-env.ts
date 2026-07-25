@@ -7,7 +7,7 @@ export function findRepositoryRoot(input?: {
 }): string | null {
   const env = input?.env ?? process.env;
   const candidates = [
-    env.AGENT_SPACE_REPOSITORY_ROOT,
+    env.DOFE_AGENT_REPOSITORY_ROOT,
     input?.startDir,
     /*turbopackIgnore: true*/ process.cwd(),
     join(/*turbopackIgnore: true*/ process.cwd(), ".."),
@@ -93,7 +93,7 @@ export function loadRepositoryEnvIntoProcess(input?: {
 }
 
 function shouldRepositoryOverrideRuntimeEnv(env: NodeJS.ProcessEnv): boolean {
-  const configured = env.AGENT_SPACE_REPOSITORY_ENV_OVERRIDE?.trim().toLowerCase();
+  const configured = env.DOFE_AGENT_REPOSITORY_ENV_OVERRIDE?.trim().toLowerCase();
   if (configured === "0" || configured === "false") {
     return false;
   }

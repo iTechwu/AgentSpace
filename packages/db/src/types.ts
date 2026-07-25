@@ -184,7 +184,7 @@ export interface ExternalChannelBindingRecord {
 }
 
 export type ExternalResourceBindingProviderType = string;
-export type ExternalResourceBindingAgentSpaceType = string;
+export type ExternalResourceBindingDofeAgentType = string;
 
 export interface ExternalResourceBindingRecord {
   id: string;
@@ -193,8 +193,8 @@ export interface ExternalResourceBindingRecord {
   providerResourceType: ExternalResourceBindingProviderType;
   providerResourceToken: string;
   providerResourceUrl?: string;
-  agentSpaceResourceType: ExternalResourceBindingAgentSpaceType;
-  agentSpaceResourceId: string;
+  dofeAgentResourceType: ExternalResourceBindingDofeAgentType;
+  dofeAgentResourceId: string;
   channelName?: string;
   displayName?: string;
   status: ExternalBindingStatus;
@@ -218,7 +218,7 @@ export interface ExternalMessageMappingRecord {
   externalThreadId?: string;
   externalSenderId?: string;
   externalEventId?: string;
-  agentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
   taskQueueId?: string;
   routerSessionId?: string;
   metadataJson: string;
@@ -234,7 +234,7 @@ export interface ExternalMessageOutboxRecord {
   channelBindingId?: string;
   targetExternalChatId: string;
   targetExternalThreadId?: string;
-  agentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
   payloadJson: string;
   metadataJson: string;
   status: ExternalMessageOutboxStatus;
@@ -262,7 +262,7 @@ export interface ExternalThreadBindingRecord {
   channelName: string;
   agentId: string;
   taskQueueId?: string;
-  agentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
   status: ExternalThreadBindingStatus;
   metadataJson: string;
   lastMessageAt: string;
@@ -310,8 +310,8 @@ export interface ExternalIntegrationEventRecord {
   processedAt?: string;
 }
 
-import type { DaemonProvider } from "@agent-space/domain";
-import type { KnowledgeAssignmentMode } from "@agent-space/domain/workspace";
+import type { DaemonProvider } from "@dofe-agent/domain";
+import type { KnowledgeAssignmentMode } from "@dofe-agent/domain/workspace";
 
 export interface DaemonConnectionRecord {
   id: string;

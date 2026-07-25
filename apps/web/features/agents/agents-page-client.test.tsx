@@ -418,9 +418,9 @@ const data: AgentsPageData = {
       googleWorkspaceReadiness: {
         checkedAt: "2026-04-10T09:00:00.000Z",
         executor: "gws",
-        agentSpaceOutput: {
+        dofeAgentOutput: {
           available: true,
-          version: "agent-space output",
+          version: "dofe-agent output",
         },
         gws: {
           available: true,
@@ -579,22 +579,22 @@ function buildAgentFeishuBot(
       checks: [],
       evidenceGates: [],
       commands: {
-        healthCheck: "agent-space integrations feishu health-check --workspace-id workspace-1 --agent planner --strict --json",
-        bindSecondAgentBot: "agent-space integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
-        botReadiness: "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent planner --strict --require bot --json",
-        dataPlaneReadiness: "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent planner --strict --require data-plane --json",
-        workerReadiness: "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent planner --strict --require worker --json",
-        autoProvisionPolicy: "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --agent planner --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
-        agentChannelAccessDisable: "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access disabled --json",
-        agentChannelAccessRestore: "agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access enabled --json",
-        channelBindings: "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-agent-bot-planner --json",
-        smokeEnv: "agent-space integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test > scripts/feishu/.env",
+        healthCheck: "dofe-agent integrations feishu health-check --workspace-id workspace-1 --agent planner --strict --json",
+        bindSecondAgentBot: "dofe-agent integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
+        botReadiness: "dofe-agent integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent planner --strict --require bot --json",
+        dataPlaneReadiness: "dofe-agent integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent planner --strict --require data-plane --json",
+        workerReadiness: "dofe-agent integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent planner --strict --require worker --json",
+        autoProvisionPolicy: "dofe-agent integrations feishu auto-provision-policy --workspace-id workspace-1 --agent planner --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
+        agentChannelAccessDisable: "dofe-agent integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access disabled --json",
+        agentChannelAccessRestore: "dofe-agent integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access enabled --json",
+        channelBindings: "dofe-agent integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-agent-bot-planner --json",
+        smokeEnv: "dofe-agent integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test > scripts/feishu/.env",
         checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
         strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
         verifyOpenApiEvidence: "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
         verifyBotAddedPayload: "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
-        smokePlan: "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test",
-        evidence: "agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-agent-bot-planner --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
+        smokePlan: "dofe-agent integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test",
+        evidence: "dofe-agent integrations feishu evidence --workspace-id workspace-1 --integration feishu-agent-bot-planner --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
       },
     },
     ...overrides,
@@ -834,15 +834,15 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("Feishu Bot")).toBeInTheDocument();
     expect(screen.getByText("Planner Feishu Bot")).toBeInTheDocument();
     expect(screen.getByText("健康")).toBeInTheDocument();
-    expect(screen.getByText("agent-space integrations feishu health-check --workspace-id workspace-1 --agent planner --strict --json")).toBeInTheDocument();
-    expect(screen.getByText("agent-space integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json")).toBeInTheDocument();
+    expect(screen.getByText("dofe-agent integrations feishu health-check --workspace-id workspace-1 --agent planner --strict --json")).toBeInTheDocument();
+    expect(screen.getByText("dofe-agent integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json")).toBeInTheDocument();
     expect(screen.getByText("先在 scripts/feishu/.env 填入第二个飞书 app 凭据，再运行此命令创建第二个 Bot 绑定；通过 Phase 6 前置检查前，最终 evidence --require all 会保持 blocked。")).toBeInTheDocument();
-    expect(screen.getByText("agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access disabled --json")).toBeInTheDocument();
-    expect(screen.getByText("agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access enabled --json")).toBeInTheDocument();
+    expect(screen.getByText("dofe-agent integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access disabled --json")).toBeInTheDocument();
+    expect(screen.getByText("dofe-agent integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access enabled --json")).toBeInTheDocument();
     expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native")).toBeInTheDocument();
     expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native")).toBeInTheDocument();
-    expect(screen.getByText("agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test")).toBeInTheDocument();
-    expect(screen.getByText("agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-agent-bot-planner --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all")).toBeInTheDocument();
+    expect(screen.getByText("dofe-agent integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test")).toBeInTheDocument();
+    expect(screen.getByText("dofe-agent integrations feishu evidence --workspace-id workspace-1 --integration feishu-agent-bot-planner --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all")).toBeInTheDocument();
     expect(screen.getByText("im.chat.member.bot.added_v1")).toBeInTheDocument();
     expect(screen.getByText("im:message")).toBeInTheDocument();
     expect(screen.getByText("调整治理策略")).toBeInTheDocument();
@@ -1387,7 +1387,7 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("Build Box 1")).toBeInTheDocument();
     expect(screen.getByText("Remote Codex")).toBeInTheDocument();
     expect(screen.getByText(/Google Sheets readiness/)).toBeInTheDocument();
-    expect(screen.getByText(/agent-space output: 可用/)).toBeInTheDocument();
+    expect(screen.getByText(/dofe-agent output: 可用/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "服务器接入令牌" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "创建新令牌" }));

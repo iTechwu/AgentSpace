@@ -14,25 +14,25 @@
     "rootDir": "./src",
     "outDir": "./dist-types",
     "paths": {
-      "@agent-space/domain": [
+      "@dofe-agent/domain": [
         "../domain/dist-types/index.d.ts"
       ],
-      "@agent-space/domain/*": [
+      "@dofe-agent/domain/*": [
         "../domain/dist-types/*"
       ],
-      "@agent-space/db": [
+      "@dofe-agent/db": [
         "../db/dist-types/index.d.ts"
       ],
-      "@agent-space/db/*": [
+      "@dofe-agent/db/*": [
         "../db/dist-types/*"
       ],
-      "@agent-space/services": [
+      "@dofe-agent/services": [
         "../services/dist-types/index.d.ts"
       ],
-      "@agent-space/services/*": [
+      "@dofe-agent/services/*": [
         "../services/dist-types/*"
       ],
-      "@agent-space/sandbox": [
+      "@dofe-agent/sandbox": [
         "../sandbox/dist-types/index.d.ts"
       ]
     }

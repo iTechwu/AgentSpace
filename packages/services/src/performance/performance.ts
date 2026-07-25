@@ -1,6 +1,6 @@
-import { listQueuedTasksSync } from "@agent-space/db";
-import type { QueuedTaskRecord } from "@agent-space/db";
-import type { ActiveEmployee } from "@agent-space/domain/workspace";
+import { listQueuedTasksSync } from "@dofe-agent/db";
+import type { QueuedTaskRecord } from "@dofe-agent/db";
+import type { ActiveEmployee } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync } from "../shared/state-io.ts";
 
 export interface AgentPerformanceMetrics {

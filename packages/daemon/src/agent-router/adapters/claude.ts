@@ -7,7 +7,7 @@ import type {
   HarnessErrorContext,
   HarnessLaunchPlan,
 } from "../types.ts";
-import type { ExecController } from "@agent-space/sandbox";
+import type { ExecController } from "@dofe-agent/sandbox";
 import { extractClaudeFallbackText, mapClaudeNativeEvent } from "../events.ts";
 import {
   buildCapabilityAllowedTools,
@@ -361,7 +361,7 @@ async function buildClaudeControlResponse(
           request_id: requestId,
           response: {
             behavior: "deny",
-            message: decision.comment ?? "Rejected in AgentSpace.",
+            message: decision.comment ?? "Rejected in DofeAgent.",
           },
         },
       });

@@ -1,5 +1,5 @@
-import { heartbeatDaemonSync } from "@agent-space/db";
-import type { HeartbeatDaemonRequest, HeartbeatDaemonResponse } from "@agent-space/domain";
+import { heartbeatDaemonSync } from "@dofe-agent/db";
+import type { HeartbeatDaemonRequest, HeartbeatDaemonResponse } from "@dofe-agent/domain";
 import { readDaemonConnectionForDaemon, requireDaemonAuth } from "../_lib/auth";
 
 export const runtime = "nodejs";

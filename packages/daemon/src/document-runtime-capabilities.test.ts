@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentDocumentContext } from "@agent-space/services";
+import type { AgentDocumentContext } from "@dofe-agent/services";
 import { buildDocumentRuntimeToolCapabilities } from "./document-runtime-capabilities.ts";
 
 test("document runtime capabilities keep viewer-only Google Sheets read-only", () => {
@@ -32,19 +32,19 @@ test("document runtime capabilities grant controlled forwarding only for forward
   assert.ok(patterns.includes("gws sheets spreadsheets values append *"));
   assert.ok(patterns.includes("gws sheets spreadsheets values update *"));
   assert.ok(patterns.includes("gws sheets spreadsheets batchUpdate *"));
-  assert.ok(patterns.includes("agent-space output external-document link-google-sheet *"));
+  assert.ok(patterns.includes("dofe-agent output external-document link-google-sheet *"));
 });
 
 test("document runtime capabilities expose Google Sheet creation only when enabled", () => {
   const withoutCreate = buildDocumentRuntimeToolCapabilities([]);
   const withoutPatterns = withoutCreate.flatMap((capability) => capability.allowedShellPatterns);
   assert.equal(withoutPatterns.includes("gws drive files create *"), false);
-  assert.equal(withoutPatterns.includes("agent-space output external-document create-google-sheet *"), false);
+  assert.equal(withoutPatterns.includes("dofe-agent output external-document create-google-sheet *"), false);
 
   const withCreate = buildDocumentRuntimeToolCapabilities([], { canCreateGoogleSheet: true });
   const withPatterns = withCreate.flatMap((capability) => capability.allowedShellPatterns);
   assert.ok(withPatterns.includes("gws drive files create *"));
-  assert.ok(withPatterns.includes("agent-space output external-document create-google-sheet *"));
+  assert.ok(withPatterns.includes("dofe-agent output external-document create-google-sheet *"));
   assert.equal(withPatterns.includes("gws sheets spreadsheets values update *"), false);
 });
 
@@ -64,7 +64,7 @@ test("document runtime capabilities expose scoped Feishu lark-cli grants", () =>
   assert.ok(feishuCapability.allowedShellPatterns.includes("lark-cli --version"));
   assert.ok(feishuCapability.allowedShellPatterns.includes("lark-cli sheets +csv-get *shtcnABC123*"));
   assert.equal(feishuCapability.allowedShellPatterns.some((pattern) => pattern.includes("+csv-put")), false);
-  assert.equal(patterns.includes("agent-space output feishu data-operation-approval *"), false);
+  assert.equal(patterns.includes("dofe-agent output feishu data-operation-approval *"), false);
 });
 
 test("document runtime capabilities expose Feishu approval output only for writable grants", () => {
@@ -77,7 +77,7 @@ test("document runtime capabilities expose Feishu approval output only for writa
   });
   const patterns = capabilities.flatMap((capability) => capability.allowedShellPatterns);
 
-  assert.ok(patterns.includes("agent-space output feishu data-operation-approval *"));
+  assert.ok(patterns.includes("dofe-agent output feishu data-operation-approval *"));
   assert.equal(patterns.some((pattern) => pattern.includes("+csv-put")), false);
 });
 

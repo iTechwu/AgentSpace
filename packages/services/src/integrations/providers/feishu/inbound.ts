@@ -18,8 +18,8 @@ import {
   type ExternalMessageOutboxRecord,
   type ExternalUserBindingRecord,
   type QueuedTaskRecord,
-} from "@agent-space/db";
-import type { ChannelRecord, MessageAttachment } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import type { ChannelRecord, MessageAttachment } from "@dofe-agent/domain/workspace";
 import type { ExternalMessageEnvelope, IntegrationRuntimeContext } from "../../core/index.ts";
 import { sendContactMessageWithAttachmentsSync } from "../../../contacts/contacts.ts";
 import { sendChannelHumanMessageSync } from "../../../messages/messages.ts";
@@ -34,8 +34,8 @@ import type { ExternalMessageInputContext } from "../../../shared/messaging.ts";
 import type { FeishuInboundAttachmentDownloader } from "./attachments.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
 import {
-  buildAgentSpaceChannelDeepLink,
-  buildAgentSpaceSettingsIntegrationsDeepLink,
+  buildDofeAgentChannelDeepLink,
+  buildDofeAgentSettingsIntegrationsDeepLink,
 } from "./links.ts";
 import {
   asRecord,
@@ -362,7 +362,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           targetExternalChatId: message.externalChatId,
           targetExternalThreadId: resolveFeishuInboundReplyTargetExternalMessageId(message),
           agentId: agentBotRoute.agentId,
-          settingsUrl: buildAgentSpaceSettingsIntegrationsDeepLink({
+          settingsUrl: buildDofeAgentSettingsIntegrationsDeepLink({
             workspaceId: input.context.workspaceId,
             target: "channel-bindings",
           }),
@@ -629,7 +629,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           message,
           channelBindingId: channelBinding.id,
           agentId: agentBotRoute.agentId,
-          settingsUrl: buildAgentSpaceSettingsIntegrationsDeepLink({
+          settingsUrl: buildDofeAgentSettingsIntegrationsDeepLink({
             workspaceId: input.context.workspaceId,
             target: "user-bindings",
           }),
@@ -682,7 +682,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         context: input.context,
         message,
         channelBindingId: channelBinding.id,
-        text: "你已绑定 AgentSpace 账号，但没有这个 AgentSpace channel 的访问权限。请先在 AgentSpace 申请或让管理员添加频道权限。",
+        text: "你已绑定 DofeAgent 账号，但没有这个 DofeAgent channel 的访问权限。请先在 DofeAgent 申请或让管理员添加频道权限。",
       });
     return {
       ready: false,
@@ -838,7 +838,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
 function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDispatch & {
   attachments: MessageAttachment[];
 }): FeishuInboundProcessResult {
-  let agentSpaceMessageId: string | undefined;
+  let dofeAgentMessageId: string | undefined;
   let pendingAgentNames: string[] = [];
   let dispatchedTask: QueuedTaskRecord | null = null;
   try {
@@ -874,40 +874,40 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
         input.userId,
         externalInput,
       );
-    agentSpaceMessageId = nextState.messages.find((candidate) =>
+    dofeAgentMessageId = nextState.messages.find((candidate) =>
       candidate.role === "human" &&
       candidate.channel === input.channelBinding.channelName &&
       (input.userId ? candidate.speakerUserId === input.userId : candidate.speaker === input.displayName) &&
       candidate.summary === input.text
     )?.id;
-    pendingAgentNames = agentSpaceMessageId
+    pendingAgentNames = dofeAgentMessageId
       ? nextState.messages
         .filter((candidate) =>
           candidate.channel === input.channelBinding.channelName &&
           candidate.role === "agent" &&
           candidate.status === "pending" &&
           candidate.code === "agent.pending" &&
-          candidate.data?.source_message_id === agentSpaceMessageId)
+          candidate.data?.source_message_id === dofeAgentMessageId)
         .map((candidate) => candidate.speaker)
       : [];
-    dispatchedTask = agentSpaceMessageId && input.agentId
+    dispatchedTask = dofeAgentMessageId && input.agentId
       ? resolveFeishuDispatchedTaskSync({
         workspaceId: input.context.workspaceId,
         channelName: input.channelBinding.channelName,
         agentId: input.agentId,
-        sourceMessageId: agentSpaceMessageId,
+        sourceMessageId: dofeAgentMessageId,
       })
       : null;
   } catch (error) {
     return finishFailedDispatch({
       ...input,
-      reasonCode: "agent_space_dispatch_failed",
+      reasonCode: "dofe_agent_dispatch_failed",
       error,
     });
   }
 
   const threadCollaboration = resolveFeishuThreadCollaborationNoticeSync(input);
-  const threadBinding = input.agentBotIntegration && input.agentId && agentSpaceMessageId
+  const threadBinding = input.agentBotIntegration && input.agentId && dofeAgentMessageId
     ? recordFeishuThreadBindingSync({
       workspaceId: input.context.workspaceId,
       integration: input.agentBotIntegration,
@@ -918,7 +918,7 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
       actorType: input.actorType,
       taskQueueId: dispatchedTask?.id,
       routerSessionId: dispatchedTask?.routerSessionId,
-      agentSpaceMessageId,
+      dofeAgentMessageId,
       collaboratingAgentIds: threadCollaboration?.previousAgentIds,
       collaboratingBotBindingIds: threadCollaboration?.previousBotBindingIds,
     })
@@ -940,19 +940,19 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
     routerSessionId: dispatchedTask?.routerSessionId,
     threadBindingId: threadBinding?.id,
     threadCollaboration,
-    agentSpaceMessageId,
+    dofeAgentMessageId,
     threadContinuation: input.threadContinuation,
     dispatchStatus: "sent",
     downloadedAttachmentCount: input.attachments.length,
   });
-  if (agentSpaceMessageId && pendingAgentNames.length > 0) {
+  if (dofeAgentMessageId && pendingAgentNames.length > 0) {
     queueFeishuAgentStatusCardBestEffort({
       workspaceId: input.context.workspaceId,
       channelName: input.channelBinding.channelName,
       agentId: input.agentId,
       agentNames: pendingAgentNames,
-      sourceAgentSpaceMessageId: agentSpaceMessageId,
-      message: "AgentSpace has queued the requested agent work.",
+      sourceDofeAgentMessageId: dofeAgentMessageId,
+      message: "DofeAgent has queued the requested agent work.",
     });
   }
   if (threadCollaboration) {
@@ -1003,7 +1003,7 @@ function queueFeishuAgentStatusCardBestEffort(input: {
   channelName: string;
   agentId?: string;
   agentNames: string[];
-  sourceAgentSpaceMessageId: string;
+  sourceDofeAgentMessageId: string;
   message: string;
 }): void {
   try {
@@ -1013,11 +1013,11 @@ function queueFeishuAgentStatusCardBestEffort(input: {
       agentId: input.agentId,
       status: "thinking",
       agentNames: input.agentNames,
-      sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+      sourceDofeAgentMessageId: input.sourceDofeAgentMessageId,
       message: input.message,
     });
   } catch {
-    // External status cards are best-effort; the internal AgentSpace dispatch already succeeded.
+    // External status cards are best-effort; the internal DofeAgent dispatch already succeeded.
   }
 }
 
@@ -1081,7 +1081,7 @@ function queueFeishuThreadCollaborationCardBestEffort(input: {
       card: buildFeishuAgentThreadCollaborationCard({
         currentAgentId: input.notice.currentAgentId,
         previousAgentIds: input.notice.previousAgentIds,
-        actionUrl: buildAgentSpaceChannelDeepLink({
+        actionUrl: buildDofeAgentChannelDeepLink({
           workspaceId: input.workspaceId,
           channelName: input.channelName,
         }),
@@ -1581,7 +1581,7 @@ function createFeishuInboundMapping(input: {
   routerSessionId?: string;
   threadBindingId?: string;
   threadCollaboration?: FeishuThreadCollaborationNotice;
-  agentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
   threadContinuation?: boolean;
   dispatchStatus: string;
   reasonCode?: string;
@@ -1597,7 +1597,7 @@ function createFeishuInboundMapping(input: {
     externalThreadId: input.message.externalThreadId,
     externalSenderId: input.message.externalSenderId,
     externalEventId: input.message.externalEventId,
-    agentSpaceMessageId: input.agentSpaceMessageId,
+    dofeAgentMessageId: input.dofeAgentMessageId,
     taskQueueId: input.taskQueueId,
     routerSessionId: input.routerSessionId,
     metadataJson: {
@@ -1619,7 +1619,7 @@ function createFeishuInboundMapping(input: {
       agentId: input.agentId,
       botBindingId: input.botBindingId,
       agentBotMentioned: input.agentBotMentioned,
-      agentSpaceCommandUsed: containsFeishuAgentSpaceCommand(input.message.text),
+      dofeAgentCommandUsed: containsFeishuDofeAgentCommand(input.message.text),
       threadBindingId: input.threadBindingId,
       threadCollaboration: input.threadCollaboration ? true : undefined,
       threadCollaboratorAgentIds: input.threadCollaboration?.previousAgentIds,
@@ -1643,7 +1643,7 @@ function buildFeishuInboundSafeThreadReference(message: ExternalMessageEnvelope)
   return targetExternalMessageId ? shortHash(targetExternalMessageId) : undefined;
 }
 
-function containsFeishuAgentSpaceCommand(text: string | undefined): boolean {
+function containsFeishuDofeAgentCommand(text: string | undefined): boolean {
   return /(^|\s)\/agent(?:\s|$)/i.test(text?.trim() ?? "");
 }
 
@@ -1889,21 +1889,21 @@ function queueFeishuIdentityBindingRequiredCardOutboxSync(input: {
 function buildFeishuChannelBindingNotice(input: {
   workspaceId: string;
 }): string {
-  const settingsUrl = buildAgentSpaceSettingsIntegrationsDeepLink({
+  const settingsUrl = buildDofeAgentSettingsIntegrationsDeepLink({
     workspaceId: input.workspaceId,
     target: "channel-bindings",
   });
   if (!settingsUrl) {
-    return "这个飞书群还没有绑定到 AgentSpace channel。请 workspace 管理员在 AgentSpace 设置页完成绑定。";
+    return "这个飞书群还没有绑定到 DofeAgent channel。请 workspace 管理员在 DofeAgent 设置页完成绑定。";
   }
-  return `这个飞书群还没有绑定到 AgentSpace channel。请 workspace 管理员打开 ${settingsUrl} 完成绑定。`;
+  return `这个飞书群还没有绑定到 DofeAgent channel。请 workspace 管理员打开 ${settingsUrl} 完成绑定。`;
 }
 
 function buildFeishuChannelReviewNotice(input: {
   workspaceId: string;
   reviewStatus: "pending_admin_review" | "needs_identity_binding";
 }): string {
-  const settingsUrl = buildAgentSpaceSettingsIntegrationsDeepLink({
+  const settingsUrl = buildDofeAgentSettingsIntegrationsDeepLink({
     workspaceId: input.workspaceId,
     target: "channel-bindings",
   });
@@ -1911,20 +1911,20 @@ function buildFeishuChannelReviewNotice(input: {
     ? "需要先完成身份绑定审核"
     : "正在等待管理员审核";
   if (!settingsUrl) {
-    return `这个飞书群已连接到 AgentSpace channel，但${action}。审核通过前，AgentSpace 不会在这里调度 Agent。`;
+    return `这个飞书群已连接到 DofeAgent channel，但${action}。审核通过前，DofeAgent 不会在这里调度 Agent。`;
   }
-  return `这个飞书群已连接到 AgentSpace channel，但${action}。审核通过前，AgentSpace 不会在这里调度 Agent。管理员可以打开 ${settingsUrl} 处理。`;
+  return `这个飞书群已连接到 DofeAgent channel，但${action}。审核通过前，DofeAgent 不会在这里调度 Agent。管理员可以打开 ${settingsUrl} 处理。`;
 }
 
 function buildFeishuUserBindingNotice(input: {
   workspaceId: string;
 }): string {
-  const settingsUrl = buildAgentSpaceSettingsIntegrationsDeepLink({
+  const settingsUrl = buildDofeAgentSettingsIntegrationsDeepLink({
     workspaceId: input.workspaceId,
     target: "user-bindings",
   });
   if (!settingsUrl) {
-    return "你还没有绑定 AgentSpace 账号。请在 AgentSpace 设置页完成飞书账号绑定后再调度 Agent。";
+    return "你还没有绑定 DofeAgent 账号。请在 DofeAgent 设置页完成飞书账号绑定后再调度 Agent。";
   }
-  return `你还没有绑定 AgentSpace 账号。请打开 ${settingsUrl} 完成飞书账号绑定后再调度 Agent。`;
+  return `你还没有绑定 DofeAgent 账号。请打开 ${settingsUrl} 完成飞书账号绑定后再调度 Agent。`;
 }

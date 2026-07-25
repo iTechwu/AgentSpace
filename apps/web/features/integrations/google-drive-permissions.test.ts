@@ -22,11 +22,11 @@ const {
   mockUpdateGoogleDriveFilePermission: vi.fn(),
 }));
 
-vi.mock("@agent-space/db", () => ({
+vi.mock("@dofe-agent/db", () => ({
   listWorkspaceMemberUsersSync: mockListWorkspaceMemberUsersSync,
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   listChannelDocumentAccessesSync: mockListChannelDocumentAccessesSync,
   readChannelDocumentSync: mockReadChannelDocumentSync,
   recordExternalSheetOperationRunSync: mockRecordExternalSheetOperationRunSync,

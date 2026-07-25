@@ -1,4 +1,4 @@
-import { isDaemonProvider, type DaemonProvider } from "@agent-space/domain";
+import { isDaemonProvider, type DaemonProvider } from "@dofe-agent/domain";
 import { getDatabase, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import { type QueuedTaskRecord, type EnqueueTaskInput, isNativeTaskStatus, priorityToNumber } from "./types.ts";
 import { readEmployeeRuntimeBindingSync } from "./employee-bindings.ts";
@@ -989,7 +989,7 @@ function buildFailureHandoffSnapshot(
     "",
     "## Continuation Guidance",
     "- Treat provider hidden state, provider session id, credentials, and runtime-local workDir as non-portable unless the next attempt is on the same runtime and provider.",
-    "- Rebuild context from AgentSpace messages, router events, knowledge, documents, attachments, and formal output records.",
+    "- Rebuild context from DofeAgent messages, router events, knowledge, documents, attachments, and formal output records.",
     "- Continue from the task goal above and explicitly call out any missing runtime-local artifact if it was not promoted to formal storage.",
   ];
   return lines.filter((line) => line !== "").join("\n");

@@ -7,13 +7,13 @@ import {
   readWorkspaceSummarySync,
   resetWorkspaceStateSync,
   searchWorkspaceContextMessagesSync,
-} from "@agent-space/services";
-import { readQueuedTaskSync } from "@agent-space/db";
+} from "@dofe-agent/services";
+import { readQueuedTaskSync } from "@dofe-agent/db";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
-const WORKSPACE_CONTEXT_AGENT_ENV = "AGENT_SPACE_CONTEXT_AGENT_NAME";
-const WORKSPACE_CONTEXT_TASK_ENV = "AGENT_SPACE_CONTEXT_TASK_ID";
+const WORKSPACE_CONTEXT_AGENT_ENV = "DOFE_AGENT_CONTEXT_AGENT_NAME";
+const WORKSPACE_CONTEXT_TASK_ENV = "DOFE_AGENT_CONTEXT_TASK_ID";
 
 export function runWorkspaceCommand(
   subcommand: string | undefined,
@@ -38,7 +38,7 @@ export function runWorkspaceCommand(
 
     if (!shouldReset && !organizationName && !ownerName && !ownerRole) {
       console.error(
-        "Usage: agent-space workspace init --reset [--json]\n       agent-space workspace init --name <organization> --owner <name> --owner-role <role> [--json]",
+        "Usage: dofe-agent workspace init --reset [--json]\n       dofe-agent workspace init --name <organization> --owner <name> --owner-role <role> [--json]",
       );
       console.error("Refusing to reset the workspace without an explicit --reset flag.");
       return 1;
@@ -47,7 +47,7 @@ export function runWorkspaceCommand(
     const state =
       organizationName || ownerName || ownerRole
         ? initializeOrganizationSync({
-            organizationName: organizationName ?? "AgentSpace",
+            organizationName: organizationName ?? "DofeAgent",
             ownerName: ownerName ?? "Mina",
             ownerRole: ownerRole ?? "CEO",
           })
@@ -64,13 +64,13 @@ export function runWorkspaceCommand(
     return 0;
   }
 
-  console.error("Usage: agent-space workspace status [--json]");
-  console.error("   or: agent-space workspace context <subcommand> [options] [--json]");
+  console.error("Usage: dofe-agent workspace status [--json]");
+  console.error("   or: dofe-agent workspace context <subcommand> [options] [--json]");
   console.error(
-    "   or: agent-space workspace init --reset [--json]",
+    "   or: dofe-agent workspace init --reset [--json]",
   );
   console.error(
-    "   or: agent-space workspace init --name <organization> --owner <name> --owner-role <role> [--json]",
+    "   or: dofe-agent workspace init --name <organization> --owner <name> --owner-role <role> [--json]",
   );
   return 1;
 }
@@ -95,7 +95,7 @@ function runWorkspaceContextCommand(args: string[], format: OutputFormat): numbe
   if (action === "resolve-entity") {
     const query = getStringFlag(parsed.flags, "query")?.trim();
     if (!query) {
-      console.error("Usage: agent-space workspace context resolve-entity --query <text> [--json]");
+      console.error("Usage: dofe-agent workspace context resolve-entity --query <text> [--json]");
       return 1;
     }
     writeData(format, resolveWorkspaceContextEntitySync(agentName, query) ?? { entity: null });
@@ -110,7 +110,7 @@ function runWorkspaceContextCommand(args: string[], format: OutputFormat): numbe
   if (action === "search-messages") {
     const query = getStringFlag(parsed.flags, "query")?.trim();
     if (!query) {
-      console.error("Usage: agent-space workspace context search-messages --query <text> [--channel <name>] [--json]");
+      console.error("Usage: dofe-agent workspace context search-messages --query <text> [--channel <name>] [--json]");
       return 1;
     }
     writeData(
@@ -126,11 +126,11 @@ function runWorkspaceContextCommand(args: string[], format: OutputFormat): numbe
   }
 
   console.error("Usage:");
-  console.error("  agent-space workspace context list-entities [--json]");
-  console.error("  agent-space workspace context resolve-entity --query <text> [--json]");
-  console.error("  agent-space workspace context list-channels [--json]");
-  console.error("  agent-space workspace context search-messages --query <text> [--channel <name>] [--json]");
-  console.error("  agent-space workspace context list-documents [--channel <name>] [--json]");
+  console.error("  dofe-agent workspace context list-entities [--json]");
+  console.error("  dofe-agent workspace context resolve-entity --query <text> [--json]");
+  console.error("  dofe-agent workspace context list-channels [--json]");
+  console.error("  dofe-agent workspace context search-messages --query <text> [--channel <name>] [--json]");
+  console.error("  dofe-agent workspace context list-documents [--channel <name>] [--json]");
   return 1;
 }
 

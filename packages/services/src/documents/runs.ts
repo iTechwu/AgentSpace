@@ -1,16 +1,16 @@
-import type { MentionPlan } from "@agent-space/domain";
-import type { ChannelDocumentRun, ChannelDocumentRunStep } from "@agent-space/domain";
+import type { MentionPlan } from "@dofe-agent/domain";
+import type { ChannelDocumentRun, ChannelDocumentRunStep } from "@dofe-agent/domain";
 import type {
-  AgentSpaceState,
-} from "@agent-space/domain/workspace";
+  DofeAgentState,
+} from "@dofe-agent/domain/workspace";
 
 export function createChannelDocumentRun(input: {
-  state: AgentSpaceState;
+  state: DofeAgentState;
   channelName: string;
   sourceMessageId: string;
   sourceSummary: string;
   plan: MentionPlan;
-}): { state: AgentSpaceState; run: ChannelDocumentRun; steps: ChannelDocumentRunStep[] } {
+}): { state: DofeAgentState; run: ChannelDocumentRun; steps: ChannelDocumentRunStep[] } {
   const now = new Date().toISOString();
   const run: ChannelDocumentRun = {
     id: `channel-doc-run-${createOpaqueId()}`,
@@ -49,7 +49,7 @@ export function createChannelDocumentRun(input: {
 }
 
 export function listChannelDocumentRunSteps(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   runId: string,
 ): ChannelDocumentRunStep[] {
   return state.channelDocumentRunSteps
@@ -58,21 +58,21 @@ export function listChannelDocumentRunSteps(
 }
 
 export function findChannelDocumentRunStepByQueuedTaskId(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   queuedTaskId: string,
 ): ChannelDocumentRunStep | null {
   return state.channelDocumentRunSteps.find((step) => step.queuedTaskId === queuedTaskId) ?? null;
 }
 
 export function listReadyChannelDocumentRunSteps(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   runId: string,
 ): ChannelDocumentRunStep[] {
   return listChannelDocumentRunSteps(state, runId).filter((step) => step.status === "ready");
 }
 
 export function markChannelDocumentRunStepQueued(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   stepId: string,
   queuedTaskId: string,
 ): ChannelDocumentRunStep {
@@ -85,7 +85,7 @@ export function markChannelDocumentRunStepQueued(
 }
 
 export function markChannelDocumentRunStepRunning(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   stepId: string,
 ): ChannelDocumentRunStep {
   const step = requireChannelDocumentRunStep(state, stepId);
@@ -98,7 +98,7 @@ export function markChannelDocumentRunStepRunning(
 }
 
 export function markChannelDocumentRunStepCompleted(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: {
     stepId: string;
     documentUpdates?: Array<{ documentId: string; documentVersionId: string }>;
@@ -146,7 +146,7 @@ export function markChannelDocumentRunStepCompleted(
 }
 
 export function markChannelDocumentRunStepFailed(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   stepId: string,
   errorText: string,
 ): { step: ChannelDocumentRunStep; run: ChannelDocumentRun } {
@@ -163,9 +163,9 @@ export function markChannelDocumentRunStepFailed(
 }
 
 export function normalizeChannelDocumentRuns(
-  runs: AgentSpaceState["channelDocumentRuns"] | undefined,
-  fallback: AgentSpaceState["channelDocumentRuns"],
-): AgentSpaceState["channelDocumentRuns"] {
+  runs: DofeAgentState["channelDocumentRuns"] | undefined,
+  fallback: DofeAgentState["channelDocumentRuns"],
+): DofeAgentState["channelDocumentRuns"] {
   if (!Array.isArray(runs)) {
     return fallback;
   }
@@ -177,9 +177,9 @@ export function normalizeChannelDocumentRuns(
 }
 
 export function normalizeChannelDocumentRunSteps(
-  steps: AgentSpaceState["channelDocumentRunSteps"] | undefined,
-  fallback: AgentSpaceState["channelDocumentRunSteps"],
-): AgentSpaceState["channelDocumentRunSteps"] {
+  steps: DofeAgentState["channelDocumentRunSteps"] | undefined,
+  fallback: DofeAgentState["channelDocumentRunSteps"],
+): DofeAgentState["channelDocumentRunSteps"] {
   if (!Array.isArray(steps)) {
     return fallback;
   }
@@ -270,7 +270,7 @@ function normalizeChannelDocumentRunStep(step: unknown): ChannelDocumentRunStep 
   };
 }
 
-function requireChannelDocumentRun(state: AgentSpaceState, runId: string): ChannelDocumentRun {
+function requireChannelDocumentRun(state: DofeAgentState, runId: string): ChannelDocumentRun {
   const run = state.channelDocumentRuns.find((item) => item.id === runId);
   if (!run) {
     throw new Error(`Channel document run "${runId}" does not exist.`);
@@ -278,7 +278,7 @@ function requireChannelDocumentRun(state: AgentSpaceState, runId: string): Chann
   return run;
 }
 
-function requireChannelDocumentRunStep(state: AgentSpaceState, stepId: string): ChannelDocumentRunStep {
+function requireChannelDocumentRunStep(state: DofeAgentState, stepId: string): ChannelDocumentRunStep {
   const step = state.channelDocumentRunSteps.find((item) => item.id === stepId);
   if (!step) {
     throw new Error(`Channel document run step "${stepId}" does not exist.`);
@@ -286,7 +286,7 @@ function requireChannelDocumentRunStep(state: AgentSpaceState, stepId: string): 
   return step;
 }
 
-function touchChannelDocumentRun(state: AgentSpaceState, runId: string): void {
+function touchChannelDocumentRun(state: DofeAgentState, runId: string): void {
   const run = requireChannelDocumentRun(state, runId);
   run.updatedAt = new Date().toISOString();
 }

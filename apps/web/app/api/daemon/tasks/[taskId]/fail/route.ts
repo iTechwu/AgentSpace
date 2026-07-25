@@ -1,6 +1,6 @@
-import { appendTaskMessageSync, failQueuedTaskSync } from "@agent-space/db";
-import { parseTaskPayload } from "agent-space-daemon";
-import type { FailTaskRequest } from "@agent-space/domain";
+import { appendTaskMessageSync, failQueuedTaskSync } from "@dofe-agent/db";
+import { parseTaskPayload } from "dofe-agent-daemon";
+import type { FailTaskRequest } from "@dofe-agent/domain";
 import {
   continueAutoContinuationAfterTaskSync,
   failChannelDocumentRunStepSync,
@@ -15,7 +15,7 @@ import {
   upsertDirectConversationStateSync,
   updateTaskStatusSync,
   writeWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -96,7 +96,7 @@ export async function POST(
       workspaceId: task.workspaceId,
       channelName: payload.channel,
       text: failureSummary,
-      sourceAgentSpaceMessageId: payload.sourceMessageId,
+      sourceDofeAgentMessageId: payload.sourceMessageId,
     })) {
       appendTaskMessageSync({
         taskId: task.id,
@@ -157,7 +157,7 @@ export async function POST(
       workspaceId: task.workspaceId,
       channelName: payload.channel,
       text: failureSummary,
-      sourceAgentSpaceMessageId: payload.sourceMessageId,
+      sourceDofeAgentMessageId: payload.sourceMessageId,
     })) {
       appendTaskMessageSync({
         taskId: task.id,
@@ -194,8 +194,8 @@ function enqueueFeishuReplyOutboxBestEffort(input: {
   workspaceId: string;
   channelName: string;
   text: string;
-  agentSpaceMessageId?: string;
-  sourceAgentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
+  sourceDofeAgentMessageId?: string;
 }): string[] {
   try {
     const outboxItems = queueFeishuChannelReplyOutboxSync(input);

@@ -1,5 +1,5 @@
 import type {
-  AgentSpaceState,
+  DofeAgentState,
   ChannelDocument,
   ChannelDocumentEditorType,
   ChannelDocumentExternalProvider,
@@ -9,7 +9,7 @@ import type {
   ChannelDocumentTriggerType,
   ChannelDocumentVersion,
   ExternalSheetOperationRun,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 
 export function buildChannelDocumentRecord(input: {
   id: string;
@@ -99,9 +99,9 @@ export function buildChannelDocumentVersionRecord(input: {
 }
 
 export function normalizeChannelDocuments(
-  documents: AgentSpaceState["channelDocuments"] | undefined,
-  fallback: AgentSpaceState["channelDocuments"],
-): AgentSpaceState["channelDocuments"] {
+  documents: DofeAgentState["channelDocuments"] | undefined,
+  fallback: DofeAgentState["channelDocuments"],
+): DofeAgentState["channelDocuments"] {
   if (!Array.isArray(documents)) {
     return fallback;
   }
@@ -173,10 +173,10 @@ export function normalizeChannelDocument(document: unknown): ChannelDocument | n
 }
 
 export function normalizeExternalSheetOperationRuns(
-  runs: AgentSpaceState["externalSheetOperationRuns"] | undefined,
-  fallback: AgentSpaceState["externalSheetOperationRuns"],
+  runs: DofeAgentState["externalSheetOperationRuns"] | undefined,
+  fallback: DofeAgentState["externalSheetOperationRuns"],
   documents: ChannelDocument[],
-): AgentSpaceState["externalSheetOperationRuns"] {
+): DofeAgentState["externalSheetOperationRuns"] {
   if (!Array.isArray(runs)) {
     return fallback;
   }
@@ -245,10 +245,10 @@ export function normalizeExternalSheetOperationRun(run: unknown): ExternalSheetO
 }
 
 export function normalizeChannelDocumentVersions(
-  versions: AgentSpaceState["channelDocumentVersions"] | undefined,
-  fallback: AgentSpaceState["channelDocumentVersions"],
+  versions: DofeAgentState["channelDocumentVersions"] | undefined,
+  fallback: DofeAgentState["channelDocumentVersions"],
   documents: ChannelDocument[],
-): AgentSpaceState["channelDocumentVersions"] {
+): DofeAgentState["channelDocumentVersions"] {
   if (!Array.isArray(versions)) {
     return fallback;
   }

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { StoredWorkspaceRecord } from "@agent-space/db";
+import type { StoredWorkspaceRecord } from "@dofe-agent/db";
 import { buildWorkspacePath } from "./workspace-paths";
 
 export function WorkspaceAccessScreen({

@@ -86,7 +86,7 @@ function translateFeishuProvisionSource(
       return tx("机器人进群自动创建", "Auto-provisioned by bot added");
     case "first_message":
       return tx("首次消息自动创建", "Auto-provisioned by first message");
-    case "agentspace_created":
+    case "dofe-agent_created":
       return tx("agent.dofe 创建", "Created by agent.dofe");
     case "manual":
       return tx("手动绑定", "Manual binding");

@@ -19,7 +19,7 @@ import {
   type WorkspaceRole,
   upsertExternalChannelBindingSync,
   upsertExternalUserBindingSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   bindEmployeeRuntimeSync,
   createEmployeeSync,
@@ -47,10 +47,10 @@ import {
 
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..", "..", "..");
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-feishu-inbound-"));
-const databaseTestOptions = process.env.AGENT_SPACE_FEISHU_INBOUND_DB_TESTS === "1"
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-inbound-"));
+const databaseTestOptions = process.env.DOFE_AGENT_FEISHU_INBOUND_DB_TESTS === "1"
   ? {}
-  : { skip: "Set AGENT_SPACE_FEISHU_INBOUND_DB_TESTS=1 with a test Postgres URL to run Feishu inbound DB integration tests." };
+  : { skip: "Set DOFE_AGENT_FEISHU_INBOUND_DB_TESTS=1 with a test Postgres URL to run Feishu inbound DB integration tests." };
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -60,7 +60,7 @@ before(() => {
     symlinkSync(join(repositoryRoot, "packages"), packagesLink, "dir");
   }
   process.chdir(tempRoot);
-  process.env.AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY = Buffer
+  process.env.DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY = Buffer
     .from("0123456789abcdef0123456789abcdef", "utf8")
     .toString("base64");
 });
@@ -96,7 +96,7 @@ beforeEach(() => {
   }, DEFAULT_WORKSPACE_ID);
 });
 
-test("bound Feishu messages enter the AgentSpace channel message and task queue path", databaseTestOptions, () => {
+test("bound Feishu messages enter the DofeAgent channel message and task queue path", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace();
 
   const result = processFeishuInboundEventSync({
@@ -108,7 +108,7 @@ test("bound Feishu messages enter the AgentSpace channel message and task queue 
     payload: buildFeishuMessagePayload({
       eventId: "evt-bound-1",
       messageId: "om-bound-1",
-      text: '<at user_id="bot_open_id">@AgentSpaceBot</at> @Atlas summarize this',
+      text: '<at user_id="bot_open_id">@DofeAgentBot</at> @Atlas summarize this',
     }),
     queueNotices: false,
   });
@@ -201,7 +201,7 @@ test("bound Feishu messages enter the AgentSpace channel message and task queue 
   assert.match(payloadSummary.payloadHash ?? "", /^[a-f0-9]{64}$/);
   assert.doesNotMatch(event.payloadJson, /evt-bound-1|om-bound-1|oc_general/);
   assert.doesNotMatch(event.payloadJson, /summarize this/);
-  assert.doesNotMatch(event.payloadJson, /AgentSpaceBot/);
+  assert.doesNotMatch(event.payloadJson, /DofeAgentBot/);
 
   const mapping = readExternalMessageMappingByExternalMessageSync({
     workspaceId: DEFAULT_WORKSPACE_ID,
@@ -216,7 +216,7 @@ test("bound Feishu messages enter the AgentSpace channel message and task queue 
   assert.doesNotMatch(mapping.metadataJson, /ou_mina|on_mina|oc_general|om-bound-1/);
 });
 
-test("bound Feishu direct messages enter the AgentSpace contact chat path without @Agent", databaseTestOptions, () => {
+test("bound Feishu direct messages enter the DofeAgent contact chat path without @Agent", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace({ bindChannel: false });
   const direct = ensureDirectChannelSync({
     humanMemberName: "Mina",
@@ -324,7 +324,7 @@ test("bound Feishu direct messages enter the AgentSpace contact chat path withou
     externalMessageId: "om-direct-1",
   });
   assert.ok(mapping);
-  assert.equal(mapping.agentSpaceMessageId, humanMessage.id);
+  assert.equal(mapping.dofeAgentMessageId, humanMessage.id);
   assert.equal(JSON.parse(mapping.metadataJson).dispatchStatus, "sent");
 });
 
@@ -389,7 +389,7 @@ test("agent bot first messages auto-provision a channel and route @bot to the ag
   assert.equal(threadBinding.channelName, result.mappedChannelName);
   assert.equal(threadBinding.integrationId, fixtures.integration.id);
   assert.equal(threadBinding.taskQueueId, queuedTask?.id);
-  assert.equal(threadBinding.agentSpaceMessageId, humanMessage.id);
+  assert.equal(threadBinding.dofeAgentMessageId, humanMessage.id);
   const threadMetadata = JSON.parse(threadBinding.metadataJson) as Record<string, unknown>;
   assert.equal(threadMetadata.agentId, "Atlas");
   assert.equal(threadMetadata.botBindingId, fixtures.integration.id);
@@ -407,7 +407,7 @@ test("agent bot first messages auto-provision a channel and route @bot to the ag
   const mappingMetadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
   assert.equal(mappingMetadata.threadBindingId, threadBinding.id);
   assert.equal(mappingMetadata.agentBotMentioned, true);
-  assert.equal(mappingMetadata.agentSpaceCommandUsed, false);
+  assert.equal(mappingMetadata.dofeAgentCommandUsed, false);
 });
 
 test("agent bot inbound mapping records slash-agent command usage without storing message text", databaseTestOptions, () => {
@@ -437,7 +437,7 @@ test("agent bot inbound mapping records slash-agent command usage without storin
   assert.ok(mapping);
   const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
   assert.equal(metadata.agentBotMentioned, true);
-  assert.equal(metadata.agentSpaceCommandUsed, true);
+  assert.equal(metadata.dofeAgentCommandUsed, true);
   assert.doesNotMatch(mapping.metadataJson, /\/agent Atlas summarize launch notes|oc_launch|ou_mina|on_mina/);
 });
 
@@ -493,7 +493,7 @@ test("pending review auto-provisioned channels do not dispatch first messages", 
   });
   assert.ok(mapping);
   assert.equal(mapping.taskQueueId, undefined);
-  assert.equal(mapping.agentSpaceMessageId, undefined);
+  assert.equal(mapping.dofeAgentMessageId, undefined);
   const mappingMetadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
   assert.equal(mappingMetadata.dispatchStatus, "ignored");
   assert.equal(mappingMetadata.reasonCode, "feishu_channel_binding_pending_admin_review");
@@ -519,7 +519,7 @@ test("reply-with-setup-card first message policy sends setup card without creati
     },
   });
 
-  const result = withAgentSpaceAppUrl("https://agentspace.test", () =>
+  const result = withDofeAgentAppUrl("https://dofe-agent.test", () =>
     processFeishuInboundEventSync({
       context: {
         workspaceId: DEFAULT_WORKSPACE_ID,
@@ -557,7 +557,7 @@ test("reply-with-setup-card first message policy sends setup card without creati
   assert.ok(mapping);
   assert.equal(mapping.channelBindingId, undefined);
   assert.equal(mapping.taskQueueId, undefined);
-  assert.equal(mapping.agentSpaceMessageId, undefined);
+  assert.equal(mapping.dofeAgentMessageId, undefined);
   const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
   assert.equal(metadata.dispatchStatus, "ignored");
   assert.equal(metadata.reasonCode, "feishu_channel_setup_card_required");
@@ -576,9 +576,9 @@ test("reply-with-setup-card first message policy sends setup card without creati
     header?: { title?: { content?: string } };
     elements?: Array<{ tag?: string; content?: string; actions?: Array<{ url?: string }> }>;
   };
-  assert.equal(card.header?.title?.content, "Atlas · AgentSpace");
+  assert.equal(card.header?.title?.content, "Atlas · DofeAgent");
   assert.match(card.elements?.[0]?.content ?? "", /channel setup required/);
-  assert.equal(card.elements?.[1]?.actions?.[0]?.url, "https://agentspace.test/w/default/settings/integrations#feishu-channel-bindings");
+  assert.equal(card.elements?.[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/default/settings/integrations#feishu-channel-bindings");
   assert.doesNotMatch(String(noticePayload.content), /oc_setup_card|om-setup-card-root|ou_mina|on_mina/);
 });
 
@@ -759,7 +759,7 @@ test("agent bot thread follow-ups continue without re-mentioning the bot for bou
   });
   assert.ok(threadBinding);
   assert.equal(threadBinding.taskQueueId, followUpMapping.taskQueueId);
-  assert.equal(threadBinding.agentSpaceMessageId, followUpMessage.id);
+  assert.equal(threadBinding.dofeAgentMessageId, followUpMessage.id);
 });
 
 test("mentioning a second agent bot in an active Feishu thread records collaboration without replacing the first binding", databaseTestOptions, () => {
@@ -838,7 +838,7 @@ test("mentioning a second agent bot in an active Feishu thread records collabora
     displayName: "Mina",
   });
 
-  const [first, second] = withAgentSpaceAppUrl("https://agentspace.test", () => {
+  const [first, second] = withDofeAgentAppUrl("https://dofe-agent.test", () => {
     const firstResult = processFeishuInboundEventSync({
       context: {
         workspaceId: DEFAULT_WORKSPACE_ID,
@@ -911,7 +911,7 @@ test("mentioning a second agent bot in an active Feishu thread records collabora
   const collaborationOutbox = listExternalMessageOutboxSync({
     workspaceId: DEFAULT_WORKSPACE_ID,
     integrationId: hermesBinding.id,
-  }).find((outbox) => outbox.payloadJson.includes("AgentSpace agent joined this thread"));
+  }).find((outbox) => outbox.payloadJson.includes("DofeAgent agent joined this thread"));
   assert.ok(collaborationOutbox);
   const payload = JSON.parse(collaborationOutbox.payloadJson) as { msg_type?: string; content?: string };
   assert.equal(payload.msg_type, "interactive");
@@ -919,10 +919,10 @@ test("mentioning a second agent bot in an active Feishu thread records collabora
     header?: { title?: { content?: string } };
     elements?: Array<{ content?: string; actions?: Array<{ url?: string }> }>;
   };
-  assert.equal(card.header?.title?.content, "Hermes · AgentSpace");
+  assert.equal(card.header?.title?.content, "Hermes · DofeAgent");
   assert.match(card.elements?.[0]?.content ?? "", /Current: Hermes/);
   assert.match(card.elements?.[0]?.content ?? "", /Existing context: Atlas/);
-  assert.equal(card.elements?.[1]?.actions?.[0]?.url, "https://agentspace.test/w/default/im?focus=channel%3Ageneral");
+  assert.equal(card.elements?.[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/default/im?focus=channel%3Ageneral");
   const collaborationMetadata = JSON.parse(collaborationOutbox.metadataJson) as Record<string, unknown>;
   assert.equal(collaborationMetadata.noticeType, "thread_collaboration");
   assert.equal(collaborationMetadata.agentId, "Hermes");
@@ -1278,7 +1278,7 @@ test("agent bot require_identity policy sends an identity binding card without d
     },
   });
 
-  const result = withAgentSpaceAppUrl("https://agentspace.test", () =>
+  const result = withDofeAgentAppUrl("https://dofe-agent.test", () =>
     processFeishuInboundEventSync({
       context: {
         workspaceId: DEFAULT_WORKSPACE_ID,
@@ -1342,10 +1342,10 @@ test("agent bot require_identity policy sends an identity binding card without d
     header?: { title?: { content?: string } };
     elements?: Array<{ tag?: string; content?: string; actions?: Array<{ url?: string }> }>;
   };
-  assert.equal(card.header?.title?.content, "Atlas · AgentSpace");
+  assert.equal(card.header?.title?.content, "Atlas · DofeAgent");
   assert.match(card.elements?.[0]?.content ?? "", /identity required/);
-  assert.match(card.elements?.[0]?.content ?? "", /绑定 AgentSpace 身份/);
-  assert.equal(card.elements?.[1]?.actions?.[0]?.url, "https://agentspace.test/w/default/settings/integrations#feishu-user-bindings");
+  assert.match(card.elements?.[0]?.content ?? "", /绑定 DofeAgent 身份/);
+  assert.equal(card.elements?.[1]?.actions?.[0]?.url, "https://dofe-agent.test/w/default/settings/integrations#feishu-user-bindings");
   assert.doesNotMatch(String(noticePayload.content), /ou_mina|on_mina|om-agent-bot-guest-require-identity/);
 });
 
@@ -1465,7 +1465,7 @@ test("agent bot ignores unmentioned bound Feishu user messages outside active th
   });
   assert.ok(mapping);
   assert.equal(mapping.taskQueueId, undefined);
-  assert.equal(mapping.agentSpaceMessageId, undefined);
+  assert.equal(mapping.dofeAgentMessageId, undefined);
   const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
   assert.equal(metadata.actorType, "user");
   assert.equal(metadata.userId, fixtures.user.id);
@@ -1899,7 +1899,7 @@ test("Feishu callbacks rejected by tenant context are audited with safe app and 
 test("unbound Feishu users are ignored and queued for a binding notice", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace({ bindUser: false });
 
-  const result = withAgentSpaceAppUrl("https://agentspace.test", () =>
+  const result = withDofeAgentAppUrl("https://dofe-agent.test", () =>
     processFeishuInboundEventSync({
       context: {
         workspaceId: DEFAULT_WORKSPACE_ID,
@@ -1936,8 +1936,8 @@ test("unbound Feishu users are ignored and queued for a binding notice", databas
   };
   assert.equal(noticePayload.reply_to_message_id, "om-unbound-user");
   const noticeContent = JSON.parse(String(noticePayload.content)) as { text?: string };
-  assert.match(noticeContent.text ?? "", /还没有绑定 AgentSpace 账号/);
-  assert.match(noticeContent.text ?? "", /https:\/\/agentspace\.test\/w\/default\/settings\/integrations#feishu-user-bindings/);
+  assert.match(noticeContent.text ?? "", /还没有绑定 DofeAgent 账号/);
+  assert.match(noticeContent.text ?? "", /https:\/\/dofe-agent\.test\/w\/default\/settings\/integrations#feishu-user-bindings/);
   assert.doesNotMatch(noticeContent.text ?? "", /ou_mina|on_mina|om-unbound-user/);
 });
 
@@ -1979,7 +1979,7 @@ test("unbound Feishu users do not trigger attachment downloads", databaseTestOpt
 test("unbound Feishu channels are ignored and queued for an admin binding notice", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace({ bindChannel: false });
 
-  const result = withAgentSpaceAppUrl(undefined, () =>
+  const result = withDofeAgentAppUrl(undefined, () =>
     processFeishuInboundEventSync({
       context: {
         workspaceId: DEFAULT_WORKSPACE_ID,
@@ -2012,7 +2012,7 @@ test("unbound Feishu channels are ignored and queued for an admin binding notice
 
   const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as { content?: string };
   const noticeContent = JSON.parse(String(noticePayload.content)) as { text?: string };
-  assert.match(noticeContent.text ?? "", /还没有绑定到 AgentSpace channel/);
+  assert.match(noticeContent.text ?? "", /还没有绑定到 DofeAgent channel/);
   assert.doesNotMatch(noticeContent.text ?? "", /https?:\/\//);
 });
 
@@ -2055,10 +2055,10 @@ test("bound Feishu users without channel access are ignored and queued for a den
 
   const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as { content?: string };
   const noticeContent = JSON.parse(String(noticePayload.content)) as { text?: string };
-  assert.match(noticeContent.text ?? "", /没有这个 AgentSpace channel 的访问权限/);
+  assert.match(noticeContent.text ?? "", /没有这个 DofeAgent channel 的访问权限/);
 });
 
-test("out-of-channel Feishu agent mentions reuse the AgentSpace mention error", databaseTestOptions, () => {
+test("out-of-channel Feishu agent mentions reuse the DofeAgent mention error", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace({ includeOutOfChannelAgent: true });
 
   const result = processFeishuInboundEventSync({
@@ -2075,7 +2075,7 @@ test("out-of-channel Feishu agent mentions reuse the AgentSpace mention error", 
   });
 
   assert.equal(result.dispatchStatus, "failed");
-  assert.equal(result.reasonCode, "agent_space_dispatch_failed");
+  assert.equal(result.reasonCode, "dofe_agent_dispatch_failed");
   assert.equal(result.noticeOutbox, undefined);
   assert.match(result.event.errorMessage ?? "", /以下 Agent 不在当前群组中：@Hermes/);
   assert.equal(countHumanMessages(), 0);
@@ -2089,7 +2089,7 @@ test("out-of-channel Feishu agent mentions reuse the AgentSpace mention error", 
   assert.ok(mapping);
   const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
   assert.equal(metadata.dispatchStatus, "failed");
-  assert.equal(metadata.reasonCode, "agent_space_dispatch_failed");
+  assert.equal(metadata.reasonCode, "dofe_agent_dispatch_failed");
   assert.match(String(metadata.errorMessage), /以下 Agent 不在当前群组中：@Hermes/);
   assert.equal(metadata.userId, fixtures.user.id);
 });
@@ -2328,21 +2328,21 @@ function expectedWorkspaceDataPolicy(input: {
   };
 }
 
-function withAgentSpaceAppUrl<T>(appUrl: string | undefined, run: () => T): T {
+function withDofeAgentAppUrl<T>(appUrl: string | undefined, run: () => T): T {
   const previous = {
-    AGENT_SPACE_APP_URL: process.env.AGENT_SPACE_APP_URL,
-    NEXT_PUBLIC_AGENT_SPACE_APP_URL: process.env.NEXT_PUBLIC_AGENT_SPACE_APP_URL,
+    DOFE_AGENT_APP_URL: process.env.DOFE_AGENT_APP_URL,
+    NEXT_PUBLIC_DOFE_AGENT_APP_URL: process.env.NEXT_PUBLIC_DOFE_AGENT_APP_URL,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
   };
-  setOptionalEnv("AGENT_SPACE_APP_URL", appUrl);
-  setOptionalEnv("NEXT_PUBLIC_AGENT_SPACE_APP_URL", undefined);
+  setOptionalEnv("DOFE_AGENT_APP_URL", appUrl);
+  setOptionalEnv("NEXT_PUBLIC_DOFE_AGENT_APP_URL", undefined);
   setOptionalEnv("NEXT_PUBLIC_APP_URL", undefined);
 
   try {
     return run();
   } finally {
-    setOptionalEnv("AGENT_SPACE_APP_URL", previous.AGENT_SPACE_APP_URL);
-    setOptionalEnv("NEXT_PUBLIC_AGENT_SPACE_APP_URL", previous.NEXT_PUBLIC_AGENT_SPACE_APP_URL);
+    setOptionalEnv("DOFE_AGENT_APP_URL", previous.DOFE_AGENT_APP_URL);
+    setOptionalEnv("NEXT_PUBLIC_DOFE_AGENT_APP_URL", previous.NEXT_PUBLIC_DOFE_AGENT_APP_URL);
     setOptionalEnv("NEXT_PUBLIC_APP_URL", previous.NEXT_PUBLIC_APP_URL);
   }
 }

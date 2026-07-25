@@ -3,7 +3,7 @@ import {
   listExternalIntegrationsSync,
   readExternalIntegrationSync,
   type ExternalIntegrationRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   FEISHU_PROVIDER_ID,
   buildFeishuUrlVerificationResponse,
@@ -23,7 +23,7 @@ import {
   validateFeishuCallbackContext,
   verifyFeishuCallbackToken,
   verifyFeishuRequestSignature,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { readFeishuIntegrationCredentials } from "@/features/integrations/feishu/feishu-credentials";
 
 export const runtime = "nodejs";
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         provider: FEISHU_PROVIDER_ID,
       },
       payload,
-      baseUrl: process.env.AGENT_SPACE_FEISHU_API_BASE_URL,
+      baseUrl: process.env.DOFE_AGENT_FEISHU_API_BASE_URL,
     });
     return NextResponse.json({
       ok: true,
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         workspaceId,
         appId: integration.appId ?? "",
         appSecret: credentials.appSecret,
-        baseUrl: process.env.AGENT_SPACE_FEISHU_API_BASE_URL,
+        baseUrl: process.env.DOFE_AGENT_FEISHU_API_BASE_URL,
       }),
     });
   } catch (error) {
@@ -284,7 +284,7 @@ async function drainFeishuWebhookOutbox(input: {
     const outboxDrain = await drainFeishuOutboxMessages({
       workspaceId: input.workspaceId,
       integrationId: input.integrationId,
-      lockedBy: "agent-space-webhook",
+      lockedBy: "dofe-agent-webhook",
       limit: 5,
     });
     return {

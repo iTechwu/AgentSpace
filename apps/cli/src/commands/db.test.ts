@@ -8,14 +8,14 @@ import {
   getLocalDaemonStateDirPath,
   getWorkspaceChannelHistoryDirPath,
   readWorkspaceSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   resetWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { runDatabaseCommand } from "./db.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-db-command-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-db-command-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

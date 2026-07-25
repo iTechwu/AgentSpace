@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import type { AgentSpaceState, KnowledgeAssignmentMode, KnowledgePage } from "@agent-space/domain/workspace";
+import type { DofeAgentState, KnowledgeAssignmentMode, KnowledgePage } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { isDescendant } from "./knowledge-tree.ts";
 import { createOpaqueId, resolveAttachmentMediaType } from "../shared/helpers.ts";
@@ -35,7 +35,7 @@ export function createKnowledgePageSync(input: {
   sourceApprovalId?: string;
   sourceTaskQueueId?: string;
   sourceAgentName?: string;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const page = buildKnowledgePageRecord(state, input);
 
@@ -65,7 +65,7 @@ export function updateKnowledgePageSync(
     sourceAgentName?: string;
   },
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const page = state.knowledgePages.find((p) => p.id === id);
   if (!page) {
@@ -118,7 +118,7 @@ export function moveKnowledgePageSync(
     sortOrder?: number;
   },
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const page = state.knowledgePages.find((p) => p.id === id);
   if (!page) {
@@ -154,7 +154,7 @@ export function moveKnowledgePageSync(
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function deleteKnowledgePageSync(id: string, workspaceId?: string): AgentSpaceState {
+export function deleteKnowledgePageSync(id: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const page = state.knowledgePages.find((p) => p.id === id);
   if (!page) {
@@ -179,7 +179,7 @@ export function materialToKnowledgePageSync(
   materialId: string,
   parentId?: string | null,
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const material = state.materials.find((m) => m.id === materialId);
   if (!material) {
@@ -283,7 +283,7 @@ export function createKnowledgePageFromSharedDocumentSync(input: {
 }
 
 function buildKnowledgePageRecord(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: {
     title: string;
     parentId?: string | null;

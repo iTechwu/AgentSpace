@@ -7,7 +7,7 @@ import {
   upsertGoogleOAuthCredentialSync,
   type StoredAgentGoogleWorkspaceDelegationRecord,
   type StoredGoogleOAuthCredentialRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { readServerEnvValue } from "@/features/auth/server-env";
 import {
   appendGoogleDocTextViaCli,
@@ -33,7 +33,7 @@ const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo";
 const GOOGLE_DRIVE_FILES_ENDPOINT = "https://www.googleapis.com/drive/v3/files";
 const GOOGLE_SHEETS_SPREADSHEETS_ENDPOINT = "https://sheets.googleapis.com/v4/spreadsheets";
-const GOOGLE_WORKSPACE_STATE_COOKIE = "agent_space_google_workspace_oauth_state";
+const GOOGLE_WORKSPACE_STATE_COOKIE = "dofe_agent_google_workspace_oauth_state";
 const GOOGLE_WORKSPACE_STATE_MAX_AGE_SECONDS = 10 * 60;
 const TOKEN_ENCRYPTION_VERSION = "v1";
 
@@ -113,14 +113,14 @@ export interface GoogleSheetsWriteResponse {
 }
 
 export function readGoogleWorkspaceOAuthConfig(): GoogleWorkspaceOAuthConfig {
-  const appUrl = readRequiredGoogleWorkspaceEnv("AGENT_SPACE_APP_URL");
-  const clientId = readRequiredGoogleWorkspaceEnv("AGENT_SPACE_GOOGLE_WORKSPACE_CLIENT_ID");
-  const clientSecret = readRequiredGoogleWorkspaceEnv("AGENT_SPACE_GOOGLE_WORKSPACE_CLIENT_SECRET");
+  const appUrl = readRequiredGoogleWorkspaceEnv("DOFE_AGENT_APP_URL");
+  const clientId = readRequiredGoogleWorkspaceEnv("DOFE_AGENT_GOOGLE_WORKSPACE_CLIENT_ID");
+  const clientSecret = readRequiredGoogleWorkspaceEnv("DOFE_AGENT_GOOGLE_WORKSPACE_CLIENT_SECRET");
   const callbackUrl =
-    readServerEnvValue("AGENT_SPACE_GOOGLE_WORKSPACE_CALLBACK_URL")?.trim()
+    readServerEnvValue("DOFE_AGENT_GOOGLE_WORKSPACE_CALLBACK_URL")?.trim()
     || `${appUrl}/api/integrations/google/callback`;
-  const stateSecret = readRequiredGoogleWorkspaceEnv("AGENT_SPACE_OAUTH_STATE_SECRET");
-  const driveParentFolderId = readServerEnvValue("AGENT_SPACE_GOOGLE_DRIVE_PARENT_FOLDER_ID")?.trim() || undefined;
+  const stateSecret = readRequiredGoogleWorkspaceEnv("DOFE_AGENT_OAUTH_STATE_SECRET");
+  const driveParentFolderId = readServerEnvValue("DOFE_AGENT_GOOGLE_DRIVE_PARENT_FOLDER_ID")?.trim() || undefined;
 
   return {
     appUrl,
@@ -133,7 +133,7 @@ export function readGoogleWorkspaceOAuthConfig(): GoogleWorkspaceOAuthConfig {
 }
 
 export function readGoogleWorkspaceExecutor(): "cli" | "api" {
-  return readServerEnvValue("AGENT_SPACE_GOOGLE_WORKSPACE_EXECUTOR")?.trim().toLowerCase() === "api"
+  return readServerEnvValue("DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR")?.trim().toLowerCase() === "api"
     ? "api"
     : "cli";
 }
@@ -1034,10 +1034,10 @@ function decryptGoogleWorkspaceToken(value: string): string {
 }
 
 function readGoogleWorkspaceTokenEncryptionKey(): Buffer {
-  const value = readRequiredGoogleWorkspaceEnv("AGENT_SPACE_GOOGLE_WORKSPACE_TOKEN_ENCRYPTION_KEY");
+  const value = readRequiredGoogleWorkspaceEnv("DOFE_AGENT_GOOGLE_WORKSPACE_TOKEN_ENCRYPTION_KEY");
   const key = Buffer.from(value, "base64");
   if (key.length !== 32) {
-    throw new Error("AGENT_SPACE_GOOGLE_WORKSPACE_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key.");
+    throw new Error("DOFE_AGENT_GOOGLE_WORKSPACE_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key.");
   }
   return key;
 }

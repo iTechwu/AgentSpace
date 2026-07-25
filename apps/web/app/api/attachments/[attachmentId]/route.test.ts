@@ -3,13 +3,13 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createWorkspaceSync, getDatabase } from "@agent-space/db";
+import { createWorkspaceSync, getDatabase } from "@dofe-agent/db";
 import {
   initializeOrganizationSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
   writeWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 const { mockGetCurrentWorkspaceContext } = vi.hoisted(() => ({
   mockGetCurrentWorkspaceContext: vi.fn(),
 }));
@@ -21,7 +21,7 @@ vi.mock("@/features/auth/server-workspace", () => ({
 import { GET } from "./route";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-attachments-route-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-attachments-route-"));
 
 beforeAll(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

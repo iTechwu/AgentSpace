@@ -1,6 +1,6 @@
 "use server";
 
-import { persistWorkspaceAttachmentFromBytesSync } from "@agent-space/services";
+import { persistWorkspaceAttachmentFromBytesSync } from "@dofe-agent/services";
 import type { MessageAttachment } from "@/shared/types/workspace";
 
 type UploadedFile = File & {

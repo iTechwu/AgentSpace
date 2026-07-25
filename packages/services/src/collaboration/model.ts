@@ -3,8 +3,8 @@ import type {
   CollaborationChangeProposal,
   CollaborationComment,
   CollaborationCommentThread,
-} from "@agent-space/domain";
-import type { AgentSpaceState } from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain";
+import type { DofeAgentState } from "@dofe-agent/domain/workspace";
 
 const OBJECT_TYPES = new Set([
   "channel",
@@ -21,9 +21,9 @@ const THREAD_STATUSES = new Set(["open", "resolved"]);
 const PROPOSAL_STATUSES = new Set(["open", "accepted", "rejected", "changes_requested"]);
 
 export function normalizeCollaborationCommentThreads(
-  threads: AgentSpaceState["collaborationCommentThreads"] | undefined,
-  fallback: AgentSpaceState["collaborationCommentThreads"],
-): AgentSpaceState["collaborationCommentThreads"] {
+  threads: DofeAgentState["collaborationCommentThreads"] | undefined,
+  fallback: DofeAgentState["collaborationCommentThreads"],
+): DofeAgentState["collaborationCommentThreads"] {
   if (!Array.isArray(threads)) {
     return fallback;
   }
@@ -35,9 +35,9 @@ export function normalizeCollaborationCommentThreads(
 }
 
 export function normalizeCollaborationComments(
-  comments: AgentSpaceState["collaborationComments"] | undefined,
-  fallback: AgentSpaceState["collaborationComments"],
-): AgentSpaceState["collaborationComments"] {
+  comments: DofeAgentState["collaborationComments"] | undefined,
+  fallback: DofeAgentState["collaborationComments"],
+): DofeAgentState["collaborationComments"] {
   if (!Array.isArray(comments)) {
     return fallback;
   }
@@ -49,9 +49,9 @@ export function normalizeCollaborationComments(
 }
 
 export function normalizeCollaborationActivities(
-  activities: AgentSpaceState["collaborationActivities"] | undefined,
-  fallback: AgentSpaceState["collaborationActivities"],
-): AgentSpaceState["collaborationActivities"] {
+  activities: DofeAgentState["collaborationActivities"] | undefined,
+  fallback: DofeAgentState["collaborationActivities"],
+): DofeAgentState["collaborationActivities"] {
   if (!Array.isArray(activities)) {
     return fallback;
   }
@@ -63,9 +63,9 @@ export function normalizeCollaborationActivities(
 }
 
 export function normalizeCollaborationChangeProposals(
-  proposals: AgentSpaceState["collaborationChangeProposals"] | undefined,
-  fallback: AgentSpaceState["collaborationChangeProposals"],
-): AgentSpaceState["collaborationChangeProposals"] {
+  proposals: DofeAgentState["collaborationChangeProposals"] | undefined,
+  fallback: DofeAgentState["collaborationChangeProposals"],
+): DofeAgentState["collaborationChangeProposals"] {
   if (!Array.isArray(proposals)) {
     return fallback;
   }

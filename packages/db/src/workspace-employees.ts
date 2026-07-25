@@ -1,4 +1,4 @@
-import type { ActiveEmployee } from "@agent-space/domain/workspace";
+import type { ActiveEmployee } from "@dofe-agent/domain/workspace";
 import { DEFAULT_WORKSPACE_ID, getDatabase, withTransaction } from "./database.ts";
 
 export function listStoredEmployeesSync(workspaceId = DEFAULT_WORKSPACE_ID): ActiveEmployee[] {

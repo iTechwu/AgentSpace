@@ -6,7 +6,7 @@ import {
   type RuntimeAppCatalogItemRecord,
   type RuntimeAppCatalogSource,
   type UpsertRuntimeAppCatalogItemInput,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 
 export const CLIHUB_HARNESS_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/registry.json";
 export const CLIHUB_PUBLIC_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/public_registry.json";

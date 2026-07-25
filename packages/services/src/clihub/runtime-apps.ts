@@ -10,8 +10,8 @@ import {
   type RuntimeAppOperationRecord,
   type RuntimeAppOperationType,
   type RuntimeInstalledAppRecord,
-} from "@agent-space/db";
-import type { RuntimeAppContextEntry, RuntimeAppInstallPlan } from "@agent-space/domain";
+} from "@dofe-agent/db";
+import type { RuntimeAppContextEntry, RuntimeAppInstallPlan } from "@dofe-agent/domain";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
 import { buildRuntimeAppInstallPlan } from "./install-plan.ts";

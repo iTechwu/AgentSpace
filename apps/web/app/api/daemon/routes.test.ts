@@ -27,8 +27,8 @@ import {
   listPendingExternalMessageOutboxSync,
   upsertExternalChannelBindingSync,
   upsertExternalResourceBindingSync,
-} from "@agent-space/db";
-import { getDatabase } from "@agent-space/db/database";
+} from "@dofe-agent/db";
+import { getDatabase } from "@dofe-agent/db/database";
 import {
   bindEmployeeRuntimeSync,
   addChannelEmployeesSync,
@@ -46,7 +46,7 @@ import {
   setEmployeeSkillIdsSync,
   unbindEmployeeRuntimeSync,
   writeWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { POST as registerPOST } from "./register/route";
 import { POST as heartbeatPOST } from "./heartbeat/route";
 import { GET as installScriptGET } from "./install-script/route";
@@ -84,7 +84,7 @@ vi.mock("@/features/integrations/google-drive-permissions", () => ({
   syncGoogleSheetDocumentDrivePermissions: mockSyncGoogleSheetDocumentDrivePermissions,
 }));
 
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-daemon-routes-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-routes-"));
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
 
@@ -192,9 +192,9 @@ describe("daemon API routes", () => {
       label: "remote-daemon",
       createdBy: "techwu",
     });
-    const packagePath = join(tempRoot, "agent-space-daemon-test.tgz");
+    const packagePath = join(tempRoot, "dofe-agent-daemon-test.tgz");
     writeFileSync(packagePath, Buffer.alloc(2048, 1));
-    process.env.AGENT_SPACE_DAEMON_PACKAGE_PATH = packagePath;
+    process.env.DOFE_AGENT_DAEMON_PACKAGE_PATH = packagePath;
 
     try {
       const response = await packageGET(
@@ -207,10 +207,10 @@ describe("daemon API routes", () => {
       const body = Buffer.from(await response.arrayBuffer());
 
       expect(response.status).toBe(200);
-      expect(response.headers.get("content-disposition")).toContain("agent-space-daemon-test.tgz");
+      expect(response.headers.get("content-disposition")).toContain("dofe-agent-daemon-test.tgz");
       expect(body.length).toBeGreaterThan(1024);
     } finally {
-      delete process.env.AGENT_SPACE_DAEMON_PACKAGE_PATH;
+      delete process.env.DOFE_AGENT_DAEMON_PACKAGE_PATH;
       rmSync(packagePath, { force: true });
     }
   });
@@ -823,7 +823,7 @@ describe("daemon API routes", () => {
       (capability: { allowedShellPatterns: string[] }) => capability.allowedShellPatterns,
     );
     expect(patterns).toContain("gws drive files create *");
-    expect(patterns).toContain("agent-space output external-document create-google-sheet *");
+    expect(patterns).toContain("dofe-agent output external-document create-google-sheet *");
     expect(bundle.prompt).toContain("external-document create-google-sheet");
   });
 
@@ -1532,8 +1532,8 @@ describe("daemon API routes", () => {
       providerResourceType: "doc",
       providerResourceToken: "doccnRoute123",
       providerResourceUrl: "https://example.feishu.cn/docx/doccnRoute123",
-      agentSpaceResourceType: "channel_document",
-      agentSpaceResourceId: "channel-document-feishu-doc",
+      dofeAgentResourceType: "channel_document",
+      dofeAgentResourceId: "channel-document-feishu-doc",
       channelName: "tour visit",
       displayName: "Quarterly Roadmap",
       permissionsJson: {
@@ -1718,7 +1718,7 @@ describe("daemon API routes", () => {
               contentBase64: Buffer.from(
                 JSON.stringify({
                   version: 1,
-                  generatedBy: "agent-space-cli",
+                  generatedBy: "dofe-agent-cli",
                   operations: [
                     {
                       operationType: "create_google_sheet",
@@ -2326,7 +2326,7 @@ describe("daemon API routes", () => {
       externalMessageId: "om_source",
       externalThreadId: "om_root",
       externalSenderId: "ou_techwu",
-      agentSpaceMessageId: sourceMessage!.id,
+      dofeAgentMessageId: sourceMessage!.id,
       metadataJson: {},
     });
 
@@ -2351,7 +2351,7 @@ describe("daemon API routes", () => {
     });
     expect(outbox).toHaveLength(1);
     expect(outbox[0]?.channelBindingId).toBe(channelBinding.id);
-    expect(outbox[0]?.agentSpaceMessageId).toBeUndefined();
+    expect(outbox[0]?.dofeAgentMessageId).toBeUndefined();
     expect(outbox[0]?.targetExternalChatId).toBe("oc_tour");
     expect(outbox[0]?.targetExternalThreadId).toBe("om_root");
     const outboundPayload = JSON.parse(outbox[0]!.payloadJson) as {
@@ -2451,7 +2451,7 @@ describe("daemon API routes", () => {
       externalMessageId: "om_source",
       externalThreadId: "om_root",
       externalSenderId: "ou_techwu",
-      agentSpaceMessageId: sourceMessage!.id,
+      dofeAgentMessageId: sourceMessage!.id,
       metadataJson: {},
     });
 
@@ -2498,7 +2498,7 @@ describe("daemon API routes", () => {
     expect(outbox).toHaveLength(2);
     for (const item of outbox) {
       expect(item.channelBindingId).toBe(channelBinding.id);
-      expect(item.agentSpaceMessageId).toBe(atlasReply?.id);
+      expect(item.dofeAgentMessageId).toBe(atlasReply?.id);
       expect(item.targetExternalChatId).toBe("oc_tour");
       expect(item.targetExternalThreadId).toBe("om_root");
     }

@@ -11,7 +11,7 @@ import {
 } from "../index.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-skill-export-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-skill-export-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

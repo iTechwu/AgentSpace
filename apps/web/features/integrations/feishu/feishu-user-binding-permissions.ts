@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from "@agent-space/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 
 export const FEISHU_USER_BINDING_FORBIDDEN_ERROR = "feishu.user_binding.forbidden";

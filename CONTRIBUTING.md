@@ -1,6 +1,6 @@
-# Contributing to AgentSpace
+# Contributing to DofeAgent
 
-Thank you for your interest in contributing to AgentSpace! We appreciate community contributions of all sizes, from documentation improvements to bug fixes and new features.
+Thank you for your interest in contributing to DofeAgent! We appreciate community contributions of all sizes, from documentation improvements to bug fixes and new features.
 
 ## Before You Start
 
@@ -63,5 +63,5 @@ Documentation contributions are always welcome. If you modify workflows, command
 
 Be respectful and constructive during discussions and code reviews. Respond to review feedback promptly and keep conversations focused on improving the project.
 
-Thank you for helping improve AgentSpace!
+Thank you for helping improve DofeAgent!
  

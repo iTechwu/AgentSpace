@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { spawnSync } from "node:child_process";
-import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan } from "@agent-space/domain";
+import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan } from "@dofe-agent/domain";
 
 const MAX_TAIL_CHARS = 8_000;
 const SECRET_PATTERNS = [

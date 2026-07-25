@@ -8,17 +8,17 @@ import {
   createWorkspaceSync,
   getDatabase,
   readExternalIntegrationSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { buildEncryptedFeishuCredentials } from "../credentials.ts";
 import { startFeishuWebSocketWorker, type FeishuWebSocketWorkerSessionFactoryInput } from "../websocket-worker.ts";
 import { FEISHU_PROVIDER_ID } from "../constants.ts";
 
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..", "..", "..");
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-feishu-worker-"));
-const databaseTestOptions = process.env.AGENT_SPACE_FEISHU_WORKER_DB_TESTS === "1"
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-worker-"));
+const databaseTestOptions = process.env.DOFE_AGENT_FEISHU_WORKER_DB_TESTS === "1"
   ? {}
-  : { skip: "Set AGENT_SPACE_FEISHU_WORKER_DB_TESTS=1 with a test Postgres URL to run Feishu worker DB integration tests." };
+  : { skip: "Set DOFE_AGENT_FEISHU_WORKER_DB_TESTS=1 with a test Postgres URL to run Feishu worker DB integration tests." };
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -28,7 +28,7 @@ before(() => {
     symlinkSync(join(repositoryRoot, "packages"), packagesLink, "dir");
   }
   process.chdir(tempRoot);
-  process.env.AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY = Buffer
+  process.env.DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY = Buffer
     .from("0123456789abcdef0123456789abcdef", "utf8")
     .toString("base64");
 });

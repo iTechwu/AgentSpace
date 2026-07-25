@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { dirname } from "node:path";
-import type { RuntimeToolCapability } from "@agent-space/domain";
+import type { RuntimeToolCapability } from "@dofe-agent/domain";
 import type { AgentRouterDiagnostic } from "./types.ts";
 import { createDiagnostic, ensureEnvPath, tailText } from "./utils.ts";
 

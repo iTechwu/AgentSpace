@@ -6,7 +6,7 @@ const DEFAULT_GOOGLE_WORKSPACE_CLI_BINARY = "gws";
 const DEFAULT_GOOGLE_WORKSPACE_CLI_TIMEOUT_MS = 30_000;
 export const GOOGLE_WORKSPACE_CLI_TOKEN_ENV = "GOOGLE_WORKSPACE_CLI_TOKEN";
 const GOOGLE_WORKSPACE_CLI_FORMAT_ARGS = ["--format", "json"] as const;
-export const GOOGLE_WORKSPACE_EXECUTOR_ENV = "AGENT_SPACE_GOOGLE_WORKSPACE_EXECUTOR";
+export const GOOGLE_WORKSPACE_EXECUTOR_ENV = "DOFE_AGENT_GOOGLE_WORKSPACE_EXECUTOR";
 export const DEFAULT_GOOGLE_WORKSPACE_EXECUTOR = "gws";
 
 type ExecFileCallback = (error: Error | null, stdout: string | Buffer, stderr: string | Buffer) => void;
@@ -122,7 +122,7 @@ export class GoogleWorkspaceCliError extends Error {
 
 export function readGoogleWorkspaceCliBinaryPath(): string {
   return readServerEnvValue(GOOGLE_WORKSPACE_EXECUTOR_ENV)?.trim()
-    || readServerEnvValue("AGENT_SPACE_GOOGLE_WORKSPACE_CLI_PATH")?.trim()
+    || readServerEnvValue("DOFE_AGENT_GOOGLE_WORKSPACE_CLI_PATH")?.trim()
     || DEFAULT_GOOGLE_WORKSPACE_CLI_BINARY;
 }
 
@@ -131,7 +131,7 @@ export function resolveGoogleWorkspaceExecutor(): string {
 }
 
 export function readGoogleWorkspaceCliTimeoutMs(): number {
-  const raw = readServerEnvValue("AGENT_SPACE_GOOGLE_WORKSPACE_CLI_TIMEOUT_MS")?.trim();
+  const raw = readServerEnvValue("DOFE_AGENT_GOOGLE_WORKSPACE_CLI_TIMEOUT_MS")?.trim();
   if (!raw) {
     return DEFAULT_GOOGLE_WORKSPACE_CLI_TIMEOUT_MS;
   }

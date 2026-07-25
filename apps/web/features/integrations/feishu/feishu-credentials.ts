@@ -3,4 +3,4 @@ export {
   readFeishuIntegrationCredentials,
   summarizeFeishuStoredCredentials,
   type FeishuPlainCredentials,
-} from "@agent-space/services";
+} from "@dofe-agent/services";

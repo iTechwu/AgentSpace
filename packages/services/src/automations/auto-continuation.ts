@@ -4,11 +4,11 @@ import {
   enqueueNativeTaskSync,
   readQueuedTaskSync,
   type QueuedTaskRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type {
-  AgentSpaceState,
+  DofeAgentState,
   ConversationAutoContinuationState,
-} from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain/workspace";
 import { getChannelHistoryFilePath, buildChannelHistorySnapshot, pushWorkspaceMessageToChannel } from "../shared/messaging.ts";
 import {
   readConversationExecutionWorkspaceState,

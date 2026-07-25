@@ -10,7 +10,7 @@ import {
   readWorkspaceSync,
   sanitizeStoragePathSegment,
   SYSTEM_WORKSPACE_ID,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { slugify } from "../shared/helpers.ts";
 
 export type StorageScanIssueKind =

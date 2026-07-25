@@ -3,12 +3,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, beforeEach } from "node:test";
-import { listStoredAgentSkillAssignmentsSync } from "@agent-space/db";
+import { listStoredAgentSkillAssignmentsSync } from "@dofe-agent/db";
 import {
   createEmployeeSync,
   listWorkspaceSkillsSync,
   resetWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { applySkillImportOperations, prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
 
 const originalFetch = globalThis.fetch;
@@ -23,7 +23,7 @@ after(() => {
 });
 
 test("applySkillImportOperations imports runtime-output skill requests and assigns them to the current agent", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-skill-imports-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-skill-imports-"));
 
   try {
     createEmployeeSync({ name: "Planner" });
@@ -67,7 +67,7 @@ test("applySkillImportOperations imports runtime-output skill requests and assig
 });
 
 test("applySkillImportOperations imports local skill directories from runtime-output artifacts", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-skill-imports-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-skill-imports-"));
 
   try {
     createEmployeeSync({ name: "Planner" });
@@ -121,8 +121,8 @@ test("applySkillImportOperations imports local skill directories from runtime-ou
 });
 
 test("prepareSkillImportOperationArtifacts packages local skill directories into runtime-output artifacts", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-skill-imports-"));
-  const localSkillDir = mkdtempSync(join(tmpdir(), "agent-space-local-skill-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-skill-imports-"));
+  const localSkillDir = mkdtempSync(join(tmpdir(), "dofe-agent-local-skill-"));
 
   try {
     createEmployeeSync({ name: "Planner" });
@@ -156,7 +156,7 @@ test("prepareSkillImportOperationArtifacts packages local skill directories into
     assert.deepEqual(prepared.warnings, []);
     assert.equal(prepared.packaged, 1);
     assert.equal(rewritten.imports[0]?.url, undefined);
-    assert.match(rewritten.imports[0]?.path ?? "", /^runtime-output\/artifacts\/skills\/agent-space-local-skill-/);
+    assert.match(rewritten.imports[0]?.path ?? "", /^runtime-output\/artifacts\/skills\/dofe-agent-local-skill-/);
 
     const result = await applySkillImportOperations(workDir, {
       workspaceId: "default",
@@ -177,7 +177,7 @@ test("prepareSkillImportOperationArtifacts packages local skill directories into
 });
 
 test("applySkillImportOperations rejects local path imports from runtime output", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-skill-imports-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-skill-imports-"));
 
   try {
     mkdirSync(join(workDir, "runtime-output"), { recursive: true });
@@ -206,7 +206,7 @@ test("applySkillImportOperations rejects local path imports from runtime output"
 });
 
 test("applySkillImportOperations rejects artifact paths outside runtime-output artifacts", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-skill-imports-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-skill-imports-"));
 
   try {
     mkdirSync(join(workDir, "runtime-output"), { recursive: true });

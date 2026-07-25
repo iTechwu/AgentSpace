@@ -1,5 +1,5 @@
-import type { RuntimeToolCapability } from "@agent-space/domain";
-import type { ProviderHealthSnapshot } from "@agent-space/domain";
+import type { RuntimeToolCapability } from "@dofe-agent/domain";
+import type { ProviderHealthSnapshot } from "@dofe-agent/domain";
 
 export const AGENT_ROUTER_HARNESSES = ["claude", "codex", "antigravity", "opencode", "openclaw", "hermes"] as const;
 
@@ -79,7 +79,7 @@ export interface AgentRouterDiagnostic {
   stderrTail?: string;
 }
 
-export type { RuntimeToolCapability } from "@agent-space/domain";
+export type { RuntimeToolCapability } from "@dofe-agent/domain";
 
 export interface AgentRouterApprovalRequest {
   harness: AgentRouterHarness;

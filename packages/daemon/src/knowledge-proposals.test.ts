@@ -11,13 +11,13 @@ import {
   enqueueNativeTaskSync,
   loadRepositoryEnvIntoProcess,
   registerDaemonRuntimesSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   createEmployeeSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
   writeWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import {
   appendKnowledgeProposalManifestEntry,
   MAX_KNOWLEDGE_PROPOSAL_MARKDOWN_BYTES,
@@ -25,11 +25,11 @@ import {
 import { applyKnowledgeProposalOperations } from "./knowledge-proposals.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-daemon-knowledge-proposals-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-knowledge-proposals-"));
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
 
 before(() => {
-  process.env.AGENT_SPACE_REPOSITORY_ROOT = repositoryRoot;
+  process.env.DOFE_AGENT_REPOSITORY_ROOT = repositoryRoot;
   loadRepositoryEnvIntoProcess({ startDir: repositoryRoot, override: false });
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
@@ -41,7 +41,7 @@ before(() => {
 });
 
 test("daemon applies CLI generated knowledge proposal manifests as pending approvals", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-daemon-knowledge-proposal-work-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-knowledge-proposal-work-"));
   try {
     const { queued, workspaceId } = seedWorkspace("apply");
     mkdirSync(join(workDir, "runtime-output", "artifacts", "knowledge"), { recursive: true });
@@ -70,7 +70,7 @@ test("daemon applies CLI generated knowledge proposal manifests as pending appro
 });
 
 test("daemon rejects hand-written knowledge proposal manifests", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-daemon-knowledge-proposal-work-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-knowledge-proposal-work-"));
   try {
     const { queued, workspaceId } = seedWorkspace("reject-forged");
     mkdirSync(join(workDir, "runtime-output"), { recursive: true });
@@ -103,7 +103,7 @@ test("daemon rejects hand-written knowledge proposal manifests", () => {
 });
 
 test("daemon rejects knowledge proposal markdown with token material", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-daemon-knowledge-proposal-work-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-knowledge-proposal-work-"));
   try {
     const { queued, workspaceId } = seedWorkspace("reject-secret");
     mkdirSync(join(workDir, "runtime-output", "artifacts", "knowledge"), { recursive: true });
@@ -135,7 +135,7 @@ test("daemon rejects knowledge proposal markdown with token material", () => {
 });
 
 test("daemon rejects invalid knowledge proposal content paths", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-daemon-knowledge-proposal-work-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-knowledge-proposal-work-"));
   try {
     const { queued, workspaceId } = seedWorkspace("reject-content-paths");
     mkdirSync(join(workDir, "runtime-output", "artifacts", "knowledge"), { recursive: true });

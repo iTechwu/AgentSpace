@@ -66,7 +66,7 @@ vi.mock("@/features/auth/server-auth", () => ({
   getCurrentSession: mockGetCurrentSession,
 }));
 
-vi.mock("@agent-space/db", () => ({
+vi.mock("@dofe-agent/db", () => ({
   createDaemonApiTokenSync: vi.fn(),
   createWorkspaceInvitationSync: mockCreateWorkspaceInvitationSync,
   listWorkspaceMemberUsersSync: mockListWorkspaceMemberUsersSync,
@@ -87,7 +87,7 @@ vi.mock("@agent-space/db", () => ({
   upsertWorkspaceMembershipSync: mockUpsertWorkspaceMembershipSync,
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   addHumanMemberSync: mockAddHumanMemberSync,
   createNotificationSync: mockCreateNotificationSync,
   tryRecordWorkspaceAuditEventSync: mockTryRecordWorkspaceAuditEventSync,

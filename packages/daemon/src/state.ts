@@ -6,10 +6,10 @@ import { fileURLToPath } from "node:url";
 export const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
 export const DEFAULT_TASK_POLL_INTERVAL_MS = 3_000;
 export const DEFAULT_LOG_LINES = 50;
-export const DEFAULT_STATE_DIR_NAME = ".agent-space-daemon";
+export const DEFAULT_STATE_DIR_NAME = ".dofe-agent-daemon";
 
 export function resolveDefaultDaemonStateDir(environment: NodeJS.ProcessEnv = process.env): string {
-  const configured = environment.AGENT_SPACE_DAEMON_STATE_DIR?.trim();
+  const configured = environment.DOFE_AGENT_DAEMON_STATE_DIR?.trim();
   if (configured) {
     return resolve(configured);
   }

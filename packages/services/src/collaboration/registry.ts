@@ -1,9 +1,9 @@
-import { DEFAULT_WORKSPACE_ID } from "@agent-space/db";
+import { DEFAULT_WORKSPACE_ID } from "@dofe-agent/db";
 import type {
   CollaborativeObjectRef,
   CollaborativeObjectType,
-} from "@agent-space/domain";
-import type { AgentSpaceState } from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain";
+import type { DofeAgentState } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue } from "../shared/helpers.ts";
 
@@ -20,7 +20,7 @@ export function resolveCollaborativeObjectSync(
 }
 
 export function resolveCollaborativeObject(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: CollaborativeObjectInput,
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): CollaborativeObjectRef {

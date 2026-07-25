@@ -23,13 +23,13 @@ const {
   mockSameValue: vi.fn((left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase()),
 }));
 
-vi.mock("@agent-space/db", () => ({
+vi.mock("@dofe-agent/db", () => ({
   getWorkspaceDataDirPath: mockGetWorkspaceDataDirPath,
   readActiveAgentGoogleWorkspaceDelegationSync: mockReadActiveAgentGoogleWorkspaceDelegationSync,
   readUserSync: mockReadUserSync,
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   AgentDocumentPermissionError: mockAgentDocumentPermissionError,
   assertAgentDocumentActionAllowedSync: mockAssertAgentDocumentActionAllowedSync,
   readChannelDocumentSync: mockReadChannelDocumentSync,
@@ -43,7 +43,7 @@ describe("external sheet result manifest ingestion", () => {
   let workspaceDataDir: string;
 
   beforeEach(() => {
-    workspaceDataDir = mkdtempSync(join(tmpdir(), "agent-space-workspace-data-"));
+    workspaceDataDir = mkdtempSync(join(tmpdir(), "dofe-agent-workspace-data-"));
     mockGetWorkspaceDataDirPath.mockReset();
     mockAssertAgentDocumentActionAllowedSync.mockReset();
     mockReadActiveAgentGoogleWorkspaceDelegationSync.mockReset();
@@ -163,7 +163,7 @@ describe("external sheet result manifest ingestion", () => {
   });
 
   it("does not execute legacy external-sheets manifests on the server", async () => {
-    const workDir = mkdtempSync(join(tmpdir(), "agent-space-external-sheets-"));
+    const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-external-sheets-"));
     mkdirSync(join(workDir, "runtime-output"), { recursive: true });
     writeFileSync(
       join(workDir, "runtime-output", "external-sheets.json"),
@@ -256,7 +256,7 @@ describe("external sheet result manifest ingestion", () => {
 });
 
 function writeResultManifest(manifest: unknown, resultJson: unknown): string {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-space-external-sheets-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-external-sheets-"));
   const sheetsDir = join(workDir, "runtime-output", "artifacts", "sheets");
   mkdirSync(sheetsDir, { recursive: true });
   writeFileSync(join(workDir, "runtime-output", "external-sheets-results.json"), JSON.stringify(manifest), "utf8");

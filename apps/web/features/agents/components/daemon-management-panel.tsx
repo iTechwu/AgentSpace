@@ -1,6 +1,6 @@
 "use client";
 
-import { formatDaemonProviderLabel } from "@agent-space/domain";
+import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { pruneOldOfflineDaemonsAction } from "@/features/agents/actions";
@@ -105,7 +105,7 @@ export function DaemonManagementPanel({
                       Google Sheets readiness: {formatReadinessSummary(daemon.googleWorkspaceReadiness, tx)}
                     </p>
                     <div className="settings-daemon-readiness__items">
-                      <span>{formatReadinessItem("agent-space output", daemon.googleWorkspaceReadiness.agentSpaceOutput, tx)}</span>
+                      <span>{formatReadinessItem("dofe-agent output", daemon.googleWorkspaceReadiness.dofeAgentOutput, tx)}</span>
                       <span>{formatReadinessItem("gws", daemon.googleWorkspaceReadiness.gws, tx)}</span>
                       <span>{formatReadinessItem("bwrap", daemon.googleWorkspaceReadiness.bwrap, tx)}</span>
                       <span>executor: {daemon.googleWorkspaceReadiness.executor}</span>
@@ -290,7 +290,7 @@ function formatReadinessSummary(
   tx: (zh: string, en: string) => string,
 ): string {
   if (
-    readiness.agentSpaceOutput.available &&
+    readiness.dofeAgentOutput.available &&
     readiness.gws.available &&
     readiness.bwrap.available
   ) {

@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 export type LanguageCode = "zh" | "en";
 
-const STORAGE_KEY = "agent-space-language";
+const STORAGE_KEY = "dofe-agent-language";
 
 type LanguageContextValue = {
   language: LanguageCode;

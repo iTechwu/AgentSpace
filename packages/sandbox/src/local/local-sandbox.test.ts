@@ -6,7 +6,7 @@ import test from "node:test";
 import { LocalSandbox } from "./local-sandbox.ts";
 
 test("LocalSandbox.exec can keep stdin open for runtime responses", async () => {
-  const workDir = await mkdtemp(join(tmpdir(), "agent-space-local-sandbox-stdin-"));
+  const workDir = await mkdtemp(join(tmpdir(), "dofe-agent-local-sandbox-stdin-"));
   const scriptPath = join(workDir, "interactive.sh");
   await writeFile(
     scriptPath,

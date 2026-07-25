@@ -1,7 +1,7 @@
 # Runtime images already available on the remote host. Each service wraps one
-# provider CLI and registers exactly one AgentSpace runtime.
+# provider CLI and registers exactly one DofeAgent runtime.
 x-daemon-healthcheck: &daemon-healthcheck
-  test: ["CMD", "agent-space-daemon", "status", "--json"]
+  test: ["CMD", "dofe-agent-daemon", "status", "--json"]
   interval: 30s
   timeout: 5s
   retries: 3
@@ -14,14 +14,14 @@ services:
       dockerfile: Dockerfile.provider-runtime
       args:
         PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/codex-cli:0.144.6
-    image: agent-space-runtime-codex:172-30-30-11
+    image: dofe-agent-runtime-codex:172-30-30-11
     env_file: ./runtimes/codex.env
     extra_hosts:
-      - agentspace.local.dofe.ai:172.30.140.30
+      - dofe-agent.local.dofe.ai:172.30.140.30
     volumes:
       - ./certs/rootCA.pem:/run/certs/rootCA.pem:ro
-      - codex-auth:/home/agent-space
-      - codex-state:/var/lib/agent-space-daemon
+      - codex-auth:/home/dofe-agent
+      - codex-state:/var/lib/dofe-agent-daemon
     read_only: true
     tmpfs:
       - /tmp
@@ -38,14 +38,14 @@ services:
       dockerfile: Dockerfile.provider-runtime
       args:
         PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/claude-code-cli:2.1.216
-    image: agent-space-runtime-claude:172-30-30-11
+    image: dofe-agent-runtime-claude:172-30-30-11
     env_file: ./runtimes/claude.env
     extra_hosts:
-      - agentspace.local.dofe.ai:172.30.140.30
+      - dofe-agent.local.dofe.ai:172.30.140.30
     volumes:
       - ./certs/rootCA.pem:/run/certs/rootCA.pem:ro
-      - claude-auth:/home/agent-space
-      - claude-state:/var/lib/agent-space-daemon
+      - claude-auth:/home/dofe-agent
+      - claude-state:/var/lib/dofe-agent-daemon
     read_only: true
     tmpfs:
       - /tmp
@@ -62,14 +62,14 @@ services:
       dockerfile: Dockerfile.provider-runtime
       args:
         PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/openclaw:2026.7.2-2fac2ec8bf80
-    image: agent-space-runtime-openclaw:172-30-30-11
+    image: dofe-agent-runtime-openclaw:172-30-30-11
     env_file: ./runtimes/openclaw.env
     extra_hosts:
-      - agentspace.local.dofe.ai:172.30.140.30
+      - dofe-agent.local.dofe.ai:172.30.140.30
     volumes:
       - ./certs/rootCA.pem:/run/certs/rootCA.pem:ro
-      - openclaw-auth:/home/agent-space
-      - openclaw-state:/var/lib/agent-space-daemon
+      - openclaw-auth:/home/dofe-agent
+      - openclaw-state:/var/lib/dofe-agent-daemon
     read_only: true
     tmpfs:
       - /tmp
@@ -87,16 +87,16 @@ services:
       args:
         PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/hermes-agent:1.0.0-1bf1a11135bf
         PROVIDER_PATH: /opt/hermes/bin:/opt/hermes/.venv/bin
-    image: agent-space-runtime-hermes:172-30-30-11
+    image: dofe-agent-runtime-hermes:172-30-30-11
     env_file: ./runtimes/hermes.env
     environment:
-      HERMES_HOME: /home/agent-space/.hermes
+      HERMES_HOME: /home/dofe-agent/.hermes
     extra_hosts:
-      - agentspace.local.dofe.ai:172.30.140.30
+      - dofe-agent.local.dofe.ai:172.30.140.30
     volumes:
       - ./certs/rootCA.pem:/run/certs/rootCA.pem:ro
-      - hermes-auth:/home/agent-space
-      - hermes-state:/var/lib/agent-space-daemon
+      - hermes-auth:/home/dofe-agent
+      - hermes-state:/var/lib/dofe-agent-daemon
     read_only: true
     tmpfs:
       - /tmp

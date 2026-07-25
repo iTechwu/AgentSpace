@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { MessageAttachment } from "@agent-space/domain/workspace";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
   completeQueuedTaskSync,
   createDaemonApiTokenSync,
@@ -22,7 +22,7 @@ import {
   upsertExternalChannelBindingSync,
   upsertExternalResourceBindingSync,
   writeWorkspaceStateRecordSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   bindEmployeeRuntimeSync,
   createChannelSync,
@@ -37,7 +37,7 @@ import {
   resetWorkspaceStateSync,
   setEmployeeSkillIdsSync,
   writeWorkspaceStateSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import {
   getAgentsPageData,
   getAutomationsPageData,
@@ -54,7 +54,7 @@ import {
 import { getWorkspaceShellData } from "./workspace-shell-data";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-dashboard-data-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-dashboard-data-"));
 
 beforeAll(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -67,7 +67,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  ensureTestWorkspace("default", "default", "Agent Space");
+  ensureTestWorkspace("default", "default", "Dofe Agent");
   ensureTestWorkspace("workspace-mars", "workspace-mars", "Mars Labs");
   clearWorkspaceScopedTestRows();
   resetWorkspaceStateSync();
@@ -397,8 +397,8 @@ describe("dashboard data", () => {
       integrationId: integration.id,
       providerResourceType: "doc",
       providerResourceToken: "doc_secret_token",
-      agentSpaceResourceType: "channel_document",
-      agentSpaceResourceId: "doc-1",
+      dofeAgentResourceType: "channel_document",
+      dofeAgentResourceId: "doc-1",
       channelName: "launch",
       displayName: "Launch Doc",
       permissionsJson: {

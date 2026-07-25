@@ -17,7 +17,7 @@ import {
 import { getDatabase } from "./database.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-task-events-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-task-events-"));
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
 
 before(() => {

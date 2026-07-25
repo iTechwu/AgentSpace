@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Client } from "pg";
-import type { AgentSpaceState, LedgerItem, MessageAttachment, WorkspaceMessage } from "@agent-space/domain/workspace";
+import type { DofeAgentState, LedgerItem, MessageAttachment, WorkspaceMessage } from "@dofe-agent/domain/workspace";
 import { getDataDirPath } from "./database.ts";
 import { POSTGRES_SCHEMA_VERSION, POSTGRES_TABLE_NAMES, getPostgresSchemaStatements, type PostgresTableName } from "./postgres-schema.ts";
 import { redactPostgresDatabaseUrl, resolvePostgresDatabaseUrl, type PostgresConnectionInput } from "./postgres-config.ts";
@@ -110,7 +110,7 @@ interface TableMigrationSnapshot {
 
 interface LegacyWorkspaceRow {
   id: string;
-  state_json: string | AgentSpaceState;
+  state_json: string | DofeAgentState;
   created_at: string;
   updated_at: string;
 }
@@ -304,7 +304,7 @@ export async function migrateSqliteToPostgres(
       })),
     };
 
-    if (dryRun && !input?.databaseUrl && !(input?.env?.AGENT_SPACE_PG_URL || input?.env?.DATABASE_URL)) {
+    if (dryRun && !input?.databaseUrl && !(input?.env?.DOFE_AGENT_PG_URL || input?.env?.DATABASE_URL)) {
       report.finishedAt = new Date().toISOString();
       return report;
     }
@@ -511,7 +511,7 @@ export function renderPostgresCutoverPlan(): string {
     "",
     "4. Production cutover window",
     "   - Freeze writes to the SQLite-backed app",
-    "   - Snapshot `data/agent-space.sqlite` and `data/workspaces/`",
+    "   - Snapshot `data/dofe-agent.sqlite` and `data/workspaces/`",
     "   - Run the PostgreSQL migration with `--reset` against the production target",
     "   - Verify row counts and critical paths: login, workspace access, tasks, skills, attachments",
     "",
@@ -832,13 +832,13 @@ function buildAttachmentRow(
 function readLegacyWorkspaceStateJson(
   workspace: LegacyWorkspaceRow,
   warnings: string[],
-): AgentSpaceState | null {
+): DofeAgentState | null {
   if (workspace.state_json && typeof workspace.state_json === "object") {
-    return workspace.state_json as AgentSpaceState;
+    return workspace.state_json as DofeAgentState;
   }
 
   try {
-    return JSON.parse(workspace.state_json) as AgentSpaceState;
+    return JSON.parse(workspace.state_json) as DofeAgentState;
   } catch (error) {
     warnings.push(
       `Could not parse migrated workspace snapshot JSON for workspace "${workspace.id}": ${error instanceof Error ? error.message : String(error)}`,
@@ -864,5 +864,5 @@ async function openSqliteDatabase(sqlitePath: string): Promise<DatabaseSync> {
 }
 
 export function getDefaultSqliteMigrationPath(): string {
-  return join(getDataDirPath(), "agent-space.sqlite");
+  return join(getDataDirPath(), "dofe-agent.sqlite");
 }

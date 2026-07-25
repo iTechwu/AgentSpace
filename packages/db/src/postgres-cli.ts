@@ -95,7 +95,7 @@ function printHelp(): void {
 
 Environment:
   SELF_HOSTED_DATABASE_URL
-  AGENT_SPACE_PG_URL
+  DOFE_AGENT_PG_URL
   DATABASE_URL
 
 The CLI also auto-loads these values from the repository root .env when present.`);

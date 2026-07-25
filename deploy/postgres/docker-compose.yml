@@ -5,9 +5,9 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: agent_space
-      POSTGRES_USER: agent_space
-      POSTGRES_PASSWORD: agent_space
+      POSTGRES_DB: dofe_agent
+      POSTGRES_USER: dofe_agent
+      POSTGRES_PASSWORD: dofe_agent
     volumes:
       - pgdata:/var/lib/postgresql/data
 

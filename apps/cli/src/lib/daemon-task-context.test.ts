@@ -3,8 +3,8 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFil
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before, beforeEach } from "node:test";
-import type { QueuedTaskRecord } from "@agent-space/db";
-import type { ActiveEmployee } from "@agent-space/domain/workspace";
+import type { QueuedTaskRecord } from "@dofe-agent/db";
+import type { ActiveEmployee } from "@dofe-agent/domain/workspace";
 import {
   createDocumentPermissionRequestSync,
   createNotificationSync,
@@ -19,12 +19,12 @@ import {
   setKnowledgePageAssignedEmployeesSync,
   setKnowledgePageAssignmentModeSync,
   setEmployeeSkillIdsSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import {
   createWorkspaceSync,
   createUserSync,
   rejectDocumentPermissionRequestSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   materializeAgentKnowledgePages,
   materializeAgentSkills,
@@ -37,7 +37,7 @@ import { parseTaskInputJson, resolveConversationThreadId } from "../../../../pac
 
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-daemon-task-context-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-task-context-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -178,7 +178,7 @@ test("prepareDaemonTaskContext materializes agent knowledge and mentions it in t
   assert.equal(existsSync(join(context.knowledgeContextDir!, "manifest.json")), true);
   assert.match(context.prompt, /当前 Agent 可用知识页: 1 篇/);
   assert.match(context.prompt, /Shared handbook/);
-  assert.match(context.prompt, /agent-space output knowledge propose-create\/propose-update/);
+  assert.match(context.prompt, /dofe-agent output knowledge propose-create\/propose-update/);
   assert.match(context.prompt, /不要手写 runtime-output\/knowledge-proposals\.json/);
 });
 
@@ -246,7 +246,7 @@ test("prepareDaemonTaskContext injects google-workspace-cli skill for external G
   assert.ok(context.agentSkills.some((skill) => skill.name === BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME));
   assert.match(context.prompt, /google-workspace-cli/);
   assert.match(context.prompt, /gws sheets spreadsheets values get/);
-  assert.match(context.prompt, /agent-space output sheets-result add/);
+  assert.match(context.prompt, /dofe-agent output sheets-result add/);
   assert.doesNotMatch(context.prompt, /If the CLI is unavailable|如果 CLI 不可用|再手写/);
   assert.match(context.prompt, /official gws CLI|官方 gws/);
   assert.equal(existsSync(join(context.skillContextDir!, `${BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME}-${context.agentSkills.find((skill) => skill.name === BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME)!.id.slice(-6)}`, "SKILL.md")), true);

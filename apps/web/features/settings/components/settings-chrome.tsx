@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { MouseEvent } from "react";
-import type { WorkspaceRole } from "@agent-space/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { getSettingsSectionMeta, type SettingsSectionMeta } from "@/features/settings/settings-meta";
 import {

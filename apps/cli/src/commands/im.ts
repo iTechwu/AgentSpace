@@ -1,4 +1,4 @@
-import { readWorkspaceSnapshotSync } from "@agent-space/services";
+import { readWorkspaceSnapshotSync } from "@dofe-agent/services";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
 export function runImCommand(subcommand: string | undefined, format: OutputFormat): number {
@@ -14,7 +14,7 @@ export function runImCommand(subcommand: string | undefined, format: OutputForma
     return 0;
   }
 
-  console.error("Usage: agent-space im channels [--json]");
-  console.error("   or: agent-space im feed [--json]");
+  console.error("Usage: dofe-agent im channels [--json]");
+  console.error("   or: dofe-agent im feed [--json]");
   return 1;
 }

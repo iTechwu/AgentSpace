@@ -1,5 +1,5 @@
-import { appendTaskMessageSync, completeQueuedTaskSync, failQueuedTaskSync, readAgentRuntimeSync } from "@agent-space/db";
-import type { MessageAttachment } from "@agent-space/domain/workspace";
+import { appendTaskMessageSync, completeQueuedTaskSync, failQueuedTaskSync, readAgentRuntimeSync } from "@dofe-agent/db";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
   applyDocumentRuntimeOutputOperations,
   applyChannelDocumentOperations,
@@ -8,8 +8,8 @@ import {
   discardTaskOutputAttachments,
   loadTaskOutputEnvelope,
   parseTaskPayload,
-} from "agent-space-daemon";
-import type { CompleteTaskRequest } from "@agent-space/domain";
+} from "dofe-agent-daemon";
+import type { CompleteTaskRequest } from "@dofe-agent/domain";
 import {
   completeChannelDocumentRunStepSync,
   completeAgentChannelReplySync,
@@ -33,7 +33,7 @@ import {
   updateTaskStatusSync,
   writeWorkspaceStateSync,
   type FeishuAgentStatusCardStatus,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 import {
   clearDaemonTaskOutputStaging,
@@ -131,7 +131,7 @@ export async function POST(
       actorName: payload.assignee ?? task.agentId,
       sourceTaskQueueId: task.id,
       sourceChannelName: effectiveChannelName,
-      sourceAgentSpaceMessageId: payload.sourceMessageId,
+      sourceDofeAgentMessageId: payload.sourceMessageId,
       resourceGrants: feishuLarkCliResourceGrants,
     });
     const createdSheetPermissionSync = await syncAgentCreatedGoogleSheetPermissions({
@@ -347,8 +347,8 @@ export async function POST(
         channelName: payload.channel,
         text: finalOutputText,
         attachments: outputEnvelope.attachments,
-        agentSpaceMessageId: replyResult.message.id,
-        sourceAgentSpaceMessageId: payload.sourceMessageId,
+        dofeAgentMessageId: replyResult.message.id,
+        sourceDofeAgentMessageId: payload.sourceMessageId,
         statusCard: {
           status: "complete",
           agentNames: [payload.assignee ?? task.agentId],
@@ -419,8 +419,8 @@ export async function POST(
         channelName: payload.channel,
         text: finalOutputText,
         attachments: outputEnvelope.attachments,
-        agentSpaceMessageId: replyResult.message.id,
-        sourceAgentSpaceMessageId: payload.sourceMessageId,
+        dofeAgentMessageId: replyResult.message.id,
+        sourceDofeAgentMessageId: payload.sourceMessageId,
         statusCard: {
           status: "complete",
           agentNames: [payload.assignee ?? task.agentId],
@@ -515,7 +515,7 @@ export async function POST(
         workspaceId: task.workspaceId,
         channelName: payload.channel,
         text: failureSummary,
-        sourceAgentSpaceMessageId: payload.sourceMessageId,
+        sourceDofeAgentMessageId: payload.sourceMessageId,
       })) {
         appendTaskMessageSync({
           taskId: task.id,
@@ -570,7 +570,7 @@ export async function POST(
         workspaceId: task.workspaceId,
         channelName: payload.channel,
         text: failureSummary,
-        sourceAgentSpaceMessageId: payload.sourceMessageId,
+        sourceDofeAgentMessageId: payload.sourceMessageId,
       })) {
         appendTaskMessageSync({
           taskId: task.id,
@@ -605,8 +605,8 @@ function enqueueFeishuReplyOutboxBestEffort(input: {
   channelName: string;
   text: string;
   attachments?: MessageAttachment[];
-  agentSpaceMessageId?: string;
-  sourceAgentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
+  sourceDofeAgentMessageId?: string;
   statusCard?: {
     status: FeishuAgentStatusCardStatus;
     agentNames: string[];
@@ -623,8 +623,8 @@ function enqueueFeishuReplyOutboxBestEffort(input: {
           agentNames: input.statusCard.agentNames,
           message: input.statusCard.message,
           taskId: input.statusCard.taskId,
-          agentSpaceMessageId: input.agentSpaceMessageId,
-          sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+          dofeAgentMessageId: input.dofeAgentMessageId,
+          sourceDofeAgentMessageId: input.sourceDofeAgentMessageId,
         })
       : [];
     const replyOutboxItems = queueFeishuChannelReplyOutboxSync(input);

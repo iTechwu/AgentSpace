@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PerformancePageClient } from "@/features/performance/performance-page-client";
 import { LanguageProvider } from "@/features/i18n/language-provider";
-import type { PerformanceDashboardData } from "@agent-space/services";
+import type { PerformanceDashboardData } from "@dofe-agent/services";
 
 function mockMatchMedia(matches: boolean): void {
   Object.defineProperty(window, "matchMedia", {

@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { CalendarPageData } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
-import type { ScheduledTask, ScheduledTaskRepeat } from "@agent-space/domain/workspace";
+import type { ScheduledTask, ScheduledTaskRepeat } from "@dofe-agent/domain/workspace";
 import {
   createScheduledTaskAction,
   toggleScheduledTaskAction,

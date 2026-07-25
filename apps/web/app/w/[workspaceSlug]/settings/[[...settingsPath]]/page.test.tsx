@@ -66,7 +66,7 @@ vi.mock("next/navigation", () => ({
   notFound: mockNotFound,
 }));
 
-vi.mock("@agent-space/db", () => ({
+vi.mock("@dofe-agent/db", () => ({
   listChannelAccessRequestsSync: mockListChannelAccessRequestsSync,
   listChannelInvitationsSync: mockListChannelInvitationsSync,
   listSessionsForUserSync: mockListSessionsForUserSync,
@@ -81,7 +81,7 @@ vi.mock("@/features/auth/sso-directory", () => ({
   loadSsoWorkspaceDirectory: mockLoadSsoWorkspaceDirectory,
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   getWorkspacePermissionCenterSync: mockGetWorkspacePermissionCenterSync,
 }));
 

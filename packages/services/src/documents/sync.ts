@@ -1,6 +1,6 @@
 import { basename, join } from "node:path";
 import type {
-  AgentSpaceState,
+  DofeAgentState,
   ChannelDocument,
   ChannelDocumentAccessRole,
   ChannelDocumentEditorType,
@@ -14,9 +14,9 @@ import type {
   ExternalSheetOperationRunStatus,
   ExternalSheetOperationType,
   MessageAttachment,
-} from "@agent-space/domain/workspace";
-import type { ChannelDocumentBlock } from "@agent-space/domain";
-import { DEFAULT_WORKSPACE_ID, listWorkspaceMemberUsersSync, readUserSync } from "@agent-space/db";
+} from "@dofe-agent/domain/workspace";
+import type { ChannelDocumentBlock } from "@dofe-agent/domain";
+import { DEFAULT_WORKSPACE_ID, listWorkspaceMemberUsersSync, readUserSync } from "@dofe-agent/db";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { createOpaqueId, sameValue, resolveAttachmentMediaType, resolveRepositoryRoot, STATE_DIR } from "../shared/helpers.ts";
 import {
@@ -109,7 +109,7 @@ export function upsertChannelDocumentPresenceSync(input: {
   actorId: string;
   actorType: "human" | "agent";
   status: "viewing" | "editing" | "processing";
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const { document } = readChannelDocument(state, input.documentId);
   if (input.status === "editing") {
@@ -146,7 +146,7 @@ export function clearChannelDocumentPresenceSync(input: {
   documentId: string;
   actorId: string;
   actorType: "human" | "agent";
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   state.channelDocumentPresences = state.channelDocumentPresences.filter(
     (presence) =>
@@ -324,7 +324,7 @@ export function createChannelDocumentSync(input: {
   sourceAttachmentId?: string;
   sourceAttachmentStoredPath?: string;
   sourceTaskQueueId?: string;
-}, workspaceId?: string): { state: AgentSpaceState; document: ChannelDocument; version: ChannelDocumentVersion } {
+}, workspaceId?: string): { state: DofeAgentState; document: ChannelDocument; version: ChannelDocumentVersion } {
   const state = ensureWorkspaceStateSync(workspaceId);
   if (input.createdByType === "human") {
     ensureLegacyHumanMemberForDisplayName(state, input.createdBy, workspaceId);
@@ -422,7 +422,7 @@ export function createExternalGoogleSheetChannelDocumentSync(input: {
   triggerType?: ChannelDocumentTriggerType;
   sourceTaskQueueId?: string;
   recordMetadataRun?: boolean;
-}, workspaceId?: string): { state: AgentSpaceState; document: ChannelDocument; version: ChannelDocumentVersion } {
+}, workspaceId?: string): { state: DofeAgentState; document: ChannelDocument; version: ChannelDocumentVersion } {
   const externalFileId = input.externalFileId.trim();
   const externalUrl = input.externalUrl.trim();
   if (!externalFileId) {
@@ -466,7 +466,7 @@ export function createExternalGoogleSheetChannelDocumentSync(input: {
       intent: "Link Google Sheet to channel document",
       operationType: "metadata_refresh",
       requestSummary: `Linked Google Sheet ${externalFileId}.`,
-      responseSummary: "External sheet metadata stored in AgentSpace.",
+      responseSummary: "External sheet metadata stored in DofeAgent.",
       startedAt: result.version.createdAt,
       finishedAt: result.version.createdAt,
     }, workspaceId);
@@ -489,7 +489,7 @@ export function createExternalGoogleDocChannelDocumentSync(input: {
   summary?: string;
   createdBy: string;
   createdByType: ChannelDocumentEditorType;
-}, workspaceId?: string): { state: AgentSpaceState; document: ChannelDocument; version: ChannelDocumentVersion } {
+}, workspaceId?: string): { state: DofeAgentState; document: ChannelDocument; version: ChannelDocumentVersion } {
   const externalFileId = input.externalFileId.trim();
   const externalUrl = input.externalUrl.trim();
   if (!externalFileId) {
@@ -531,7 +531,7 @@ export function createExternalGoogleDocChannelDocumentSync(input: {
     intent: "Link Google Doc to channel document",
     operationType: "metadata_refresh",
     requestSummary: `Linked Google Doc ${externalFileId}.`,
-    responseSummary: "External Google Doc metadata stored in AgentSpace.",
+    responseSummary: "External Google Doc metadata stored in DofeAgent.",
     startedAt: result.version.createdAt,
     finishedAt: result.version.createdAt,
   }, workspaceId);
@@ -603,7 +603,7 @@ export function updateChannelDocumentSync(input: {
   sourceAttachmentId?: string;
   sourceAttachmentStoredPath?: string;
   sourceTaskQueueId?: string;
-}, workspaceId?: string): { state: AgentSpaceState; document: ChannelDocument; version: ChannelDocumentVersion } {
+}, workspaceId?: string): { state: DofeAgentState; document: ChannelDocument; version: ChannelDocumentVersion } {
   const state = ensureWorkspaceStateSync(workspaceId);
   const existing = readChannelDocument(state, input.documentId);
   assertCanEditChannelDocument(state, existing.document, input.updatedBy, input.updatedByType);
@@ -718,7 +718,7 @@ export function updateChannelDocumentSync(input: {
   };
 }
 
-export function renameChannelDocumentSync(documentId: string, nextTitle: string, workspaceId?: string): AgentSpaceState {
+export function renameChannelDocumentSync(documentId: string, nextTitle: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const { document, previousTitle } = renameChannelDocument({
     state,
@@ -744,7 +744,7 @@ export function archiveChannelDocumentSync(input: {
   documentId: string;
   archivedBy: string;
   archivedByType: "human" | "agent";
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const existing = readChannelDocument(state, input.documentId);
   assertCanManageChannelDocument(state, existing.document, input.archivedBy, input.archivedByType);
@@ -781,7 +781,7 @@ export function restoreChannelDocumentSync(input: {
   documentId: string;
   restoredBy: string;
   restoredByType: "human" | "agent";
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const existing = readChannelDocument(state, input.documentId);
   assertCanManageChannelDocument(state, existing.document, input.restoredBy, input.restoredByType);
@@ -819,7 +819,7 @@ export function rollbackChannelDocumentVersionSync(input: {
   versionId: string;
   updatedBy: string;
   updatedByType: ChannelDocumentEditorType;
-}, workspaceId?: string): { state: AgentSpaceState; document: ChannelDocument; version: ChannelDocumentVersion } {
+}, workspaceId?: string): { state: DofeAgentState; document: ChannelDocument; version: ChannelDocumentVersion } {
   const state = ensureWorkspaceStateSync(workspaceId);
   const { document } = readChannelDocument(state, input.documentId);
   assertCanEditChannelDocument(state, document, input.updatedBy, input.updatedByType);
@@ -867,7 +867,7 @@ export function rollbackChannelDocumentVersionSync(input: {
 export function exportChannelDocumentAsAttachmentSync(input: {
   documentId: string;
   exportedBy: string;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const { document, currentVersion } = readChannelDocument(state, input.documentId);
   assertCanEditChannelDocument(state, document, input.exportedBy, "human");
@@ -913,7 +913,7 @@ export function createChannelDocumentFromAttachmentSync(input: {
   title?: string;
   createdBy: string;
   createdByType: ChannelDocumentEditorType;
-}, workspaceId?: string): { state: AgentSpaceState; document: ChannelDocument; version: ChannelDocumentVersion } {
+}, workspaceId?: string): { state: DofeAgentState; document: ChannelDocument; version: ChannelDocumentVersion } {
   const state = ensureWorkspaceStateSync(workspaceId);
   if (input.createdByType === "human") {
     ensureLegacyHumanMemberForDisplayName(state, input.createdBy, workspaceId);
@@ -987,7 +987,7 @@ function normalizeOptionalCount(value: number | undefined): number | undefined {
 }
 
 function writeAndReturnExternalSheetRun(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   runId: string,
   workspaceId?: string,
 ): ExternalSheetOperationRun {
@@ -999,7 +999,7 @@ function writeAndReturnExternalSheetRun(
   return run;
 }
 
-export function listChannelDocumentAccessesSync(documentId: string, workspaceId?: string): AgentSpaceState["channelDocumentAccesses"] {
+export function listChannelDocumentAccessesSync(documentId: string, workspaceId?: string): DofeAgentState["channelDocumentAccesses"] {
   const state = ensureWorkspaceStateSync(workspaceId);
   return listChannelDocumentAccesses(state, documentId);
 }
@@ -1011,7 +1011,7 @@ export function updateChannelDocumentAccessRoleSync(input: {
   role: ChannelDocumentAccessRole;
   changedBy: string;
   changedByType: "human" | "agent";
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const { document } = readChannelDocument(state, input.documentId);
   assertCanManageChannelDocument(state, document, input.changedBy, input.changedByType);
@@ -1087,7 +1087,7 @@ export function addChannelDocumentCollaboratorSync(input: {
   role: ChannelDocumentAccessRole;
   addedBy: string;
   addedByType: "human" | "agent";
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const { document } = readChannelDocument(state, input.documentId);
   assertCanManageChannelDocument(state, document, input.addedBy, input.addedByType);
@@ -1148,7 +1148,7 @@ export function addChannelDocumentCollaboratorSync(input: {
 }
 
 function ensureLegacyHumanMemberForDisplayName(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   displayName: string,
   workspaceId?: string,
 ): void {
@@ -1301,7 +1301,7 @@ export function removeChannelDocumentCollaboratorSync(input: {
   actorType: "human" | "agent";
   removedBy: string;
   removedByType: "human" | "agent";
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const { document } = readChannelDocument(state, input.documentId);
   assertCanManageChannelDocument(state, document, input.removedBy, input.removedByType);
@@ -1356,7 +1356,7 @@ export function recordChannelDocumentConflictSync(input: {
   operationsJson: string;
   sourceMessageId?: string;
   sourceTaskQueueId?: string;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const document = state.channelDocuments.find((item) => item.id === input.documentId);
   if (!document) {
@@ -1420,7 +1420,7 @@ export function resolveChannelDocumentConflictSync(input: {
   conflictId: string;
   resolvedBy: string;
   resolvedByType: "human" | "agent";
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const conflict = state.channelDocumentConflicts.find((item) => item.id === input.conflictId);
   if (!conflict) {
@@ -1468,7 +1468,7 @@ export function retryChannelDocumentConflictSync(input: {
   conflictId: string;
   retriedBy: string;
   retriedByType: "human" | "agent";
-}, workspaceId?: string): { state: AgentSpaceState; document: ChannelDocument; version: ChannelDocumentVersion } {
+}, workspaceId?: string): { state: DofeAgentState; document: ChannelDocument; version: ChannelDocumentVersion } {
   const state = ensureWorkspaceStateSync(workspaceId);
   const conflict = state.channelDocumentConflicts.find((item) => item.id === input.conflictId);
   if (!conflict) {
@@ -1570,7 +1570,7 @@ export function retryChannelDocumentConflictSync(input: {
   };
 }
 
-export function markChannelDocumentRunStepRunningSync(queuedTaskId: string, workspaceId?: string): AgentSpaceState {
+export function markChannelDocumentRunStepRunningSync(queuedTaskId: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const step = findChannelDocumentRunStepByQueuedTaskId(state, queuedTaskId);
   if (!step) {
@@ -1593,7 +1593,7 @@ export function completeChannelDocumentRunStepSync(input: {
   queuedTaskId: string;
   documentUpdates?: Array<{ documentId: string; documentVersionId: string }>;
   warningText?: string;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const step = findChannelDocumentRunStepByQueuedTaskId(state, input.queuedTaskId);
   if (!step) {
@@ -1714,7 +1714,7 @@ export function completeChannelDocumentRunStepSync(input: {
 export function failChannelDocumentRunStepSync(input: {
   queuedTaskId: string;
   errorText: string;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const step = findChannelDocumentRunStepByQueuedTaskId(state, input.queuedTaskId);
   if (!step) {
@@ -1745,7 +1745,7 @@ export function failChannelDocumentRunStepSync(input: {
 }
 
 function upsertDocumentPresence(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: {
     documentId: string;
     actorId: string;
@@ -1776,7 +1776,7 @@ function upsertDocumentPresence(
 }
 
 function clearDocumentPresence(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: {
     documentId: string;
     actorId: string;
@@ -1840,7 +1840,7 @@ function normalizeRetryJsonContent(value: unknown): ChannelDocumentJsonContent |
 }
 
 function buildRetriedBlockOperations(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   documentId: string,
   operationsJson: string,
 ): ChannelDocumentOperation[] | null {

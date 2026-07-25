@@ -7,7 +7,7 @@ import {
   createUserSync,
   createWorkspaceMembershipSync,
   createWorkspaceSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   addChannelEmployeesSync,
   approveDocumentPermissionRequestSync,
@@ -22,7 +22,7 @@ import {
   resolveAgentDocumentContextSync,
 } from "../index.ts";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-document-permissions-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-document-permissions-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

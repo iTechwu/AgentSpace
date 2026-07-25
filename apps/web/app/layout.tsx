@@ -4,7 +4,7 @@ import { LanguageProvider } from "@/features/i18n/language-provider";
 import { FeedbackToastProvider } from "@/shared/ui/feedback-toast-provider";
 import "./globals.css";
 
-const configuredLanguage = process.env.AGENTSPACE_UI_LANGUAGE;
+const configuredLanguage = process.env.DOFE_AGENT_UI_LANGUAGE;
 const initialLanguage = configuredLanguage === "en" || configuredLanguage === "zh" ? configuredLanguage : "zh";
 
 export const metadata: Metadata = {

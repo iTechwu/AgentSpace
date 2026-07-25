@@ -32,7 +32,7 @@ const {
   mockRevalidateWorkspacePaths: vi.fn(),
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   approveAgentAccessRequestForActorSync: mockApproveAgentAccessRequestForActorSync,
   approveChannelAccessRequestForActorSync: mockApproveChannelAccessRequestForActorSync,
   approveDocumentPermissionRequestSync: mockApproveDocumentPermissionRequestSync,

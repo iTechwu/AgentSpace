@@ -19,7 +19,7 @@ import {
 } from "./index.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-google-oauth-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-google-oauth-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

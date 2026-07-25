@@ -17,7 +17,7 @@ export function buildHostedInstallScript(serverUrl: string): string {
 }
 
 export function buildDaemonPackageTarball(): { fileName: string; content: Buffer } {
-  const overridePath = process.env.AGENT_SPACE_DAEMON_PACKAGE_PATH?.trim();
+  const overridePath = process.env.DOFE_AGENT_DAEMON_PACKAGE_PATH?.trim();
   if (overridePath) {
     if (!existsSync(overridePath)) {
       throw new Error(`Configured daemon package override does not exist: ${overridePath}`);
@@ -29,8 +29,8 @@ export function buildDaemonPackageTarball(): { fileName: string; content: Buffer
   }
 
   const packageDir = getDaemonPackageDirectory();
-  const packDestination = join("/tmp", "agent-space-daemon-dist");
-  const npmCacheDir = join("/tmp", "agent-space-npm-cache");
+  const packDestination = join("/tmp", "dofe-agent-daemon-dist");
+  const npmCacheDir = join("/tmp", "dofe-agent-npm-cache");
   mkdirSync(packDestination, { recursive: true });
   mkdirSync(npmCacheDir, { recursive: true });
 

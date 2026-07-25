@@ -2,8 +2,8 @@ import {
   listSessionsForUserSync,
   readAuthIdentityForUserSync,
   type WorkspaceRole,
-} from "@agent-space/db";
-import { getWorkspacePermissionCenterSync } from "@agent-space/services";
+} from "@dofe-agent/db";
+import { getWorkspacePermissionCenterSync } from "@dofe-agent/services";
 import { loadSsoWorkspaceDirectory } from "@/features/auth/sso-directory";
 import { readPublicAppUrl } from "@/features/auth/public-app-url";
 import {

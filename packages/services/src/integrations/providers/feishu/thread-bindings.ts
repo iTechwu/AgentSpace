@@ -6,7 +6,7 @@ import {
   type ExternalChannelBindingRecord,
   type ExternalIntegrationRecord,
   type ExternalThreadBindingRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import type { ExternalMessageEnvelope } from "../../core/index.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
 
@@ -20,7 +20,7 @@ export interface RecordFeishuThreadBindingInput {
   actorType?: "user" | "external_guest";
   taskQueueId?: string;
   routerSessionId?: string;
-  agentSpaceMessageId?: string;
+  dofeAgentMessageId?: string;
   collaboratingAgentIds?: string[];
   collaboratingBotBindingIds?: string[];
 }
@@ -61,7 +61,7 @@ export function recordFeishuThreadBindingSync(
     channelName: input.channelBinding.channelName,
     agentId: input.agentId,
     taskQueueId: input.taskQueueId,
-    agentSpaceMessageId: input.agentSpaceMessageId,
+    dofeAgentMessageId: input.dofeAgentMessageId,
     metadataJson: metadata,
     lastMessageAt: input.message.receivedAt,
   });

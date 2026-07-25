@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createWorkspaceMembershipSync, createWorkspaceSync, getDatabase, listUserWorkspacesSync } from "@agent-space/db";
+import { createWorkspaceMembershipSync, createWorkspaceSync, getDatabase, listUserWorkspacesSync } from "@dofe-agent/db";
 import type { AuthUser } from "./server-auth";
 import {
   resolveCurrentWorkspaceContextForUserSync,
@@ -10,7 +10,7 @@ import {
 } from "./server-workspace-resolver";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-server-workspace-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-server-workspace-"));
 
 beforeAll(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

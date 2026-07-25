@@ -1,10 +1,10 @@
-import { DEFAULT_WORKSPACE_ID } from "@agent-space/db";
+import { DEFAULT_WORKSPACE_ID } from "@dofe-agent/db";
 import type {
   CollaborationActivity,
   CollaborationActorRef,
   CollaborativeObjectType,
-} from "@agent-space/domain";
-import type { AgentSpaceState } from "@agent-space/domain/workspace";
+} from "@dofe-agent/domain";
+import type { DofeAgentState } from "@dofe-agent/domain/workspace";
 import { createOpaqueId } from "../shared/helpers.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { resolveCollaborativeObject } from "./registry.ts";
@@ -40,7 +40,7 @@ export function recordCollaborationActivitySync(
 }
 
 export function appendCollaborationActivity(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: {
     objectType: CollaborativeObjectType;
     objectId: string;

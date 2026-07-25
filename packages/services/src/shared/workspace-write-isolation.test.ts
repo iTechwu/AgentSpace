@@ -10,7 +10,7 @@ import {
   listStoredWorkspaceSkillsSync,
   readEmployeeRuntimeBindingSync,
   registerDaemonRuntimesSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import {
   createApprovalRequestSync,
   createAutomationRuleSync,
@@ -37,7 +37,7 @@ import {
 } from "../index.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-workspace-write-isolation-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-workspace-write-isolation-"));
 const WORKSPACE_ID = "workspace-mars";
 
 before(() => {

@@ -2,8 +2,8 @@
 
 import type { WorkspaceModuleRouteState } from "@/features/dashboard/workspace-module-route";
 
-const WORKSPACE_NAVIGATION_MARK_PREFIX = "agent-space.workspace.navigation";
-const WORKSPACE_SHELL_COUNTERS_MARK_PREFIX = "agent-space.workspace.shell-counters";
+const WORKSPACE_NAVIGATION_MARK_PREFIX = "dofe-agent.workspace.navigation";
+const WORKSPACE_SHELL_COUNTERS_MARK_PREFIX = "dofe-agent.workspace.shell-counters";
 
 const shellCountersRefreshState = new Map<string, {
   count: number;

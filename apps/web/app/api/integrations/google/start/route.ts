@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { assertCanManageEmployeeForActorSync } from "@agent-space/services";
+import { assertCanManageEmployeeForActorSync } from "@dofe-agent/services";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { createGoogleWorkspaceAuthorizationUrl } from "@/features/integrations/google-workspace";

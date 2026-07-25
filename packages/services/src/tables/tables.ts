@@ -1,4 +1,4 @@
-import type { AgentSpaceState, DataTable, DataColumn, DataRow } from "@agent-space/domain/workspace";
+import type { DofeAgentState, DataTable, DataColumn, DataRow } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { createOpaqueId } from "../shared/helpers.ts";
 
@@ -22,7 +22,7 @@ export function createDataTableSync(input: {
     required?: boolean;
   }>;
   createdBy?: string;
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const name = input.name.trim();
   if (!name) {
@@ -144,7 +144,7 @@ export function updateDataTableSync(
     }>;
   },
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const table = (state.dataTables ?? []).find((t) => t.id === id);
   if (!table) {
@@ -249,7 +249,7 @@ export function updateExternalDataTableMetadataSync(
   return persisted.dataTables.find((item) => item.id === table.id) ?? table;
 }
 
-export function deleteDataTableSync(id: string, workspaceId?: string): AgentSpaceState {
+export function deleteDataTableSync(id: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const table = (state.dataTables ?? []).find((t) => t.id === id);
   if (!table) {
@@ -273,7 +273,7 @@ export function addDataRowSync(
     createdBy?: string;
   },
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const table = (state.dataTables ?? []).find((t) => t.id === tableId);
   if (!table) {
@@ -300,7 +300,7 @@ export function updateDataRowSync(
   rowId: string,
   cells: Record<string, unknown>,
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const table = (state.dataTables ?? []).find((t) => t.id === tableId);
   if (!table) {
@@ -319,7 +319,7 @@ export function updateDataRowSync(
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function deleteDataRowSync(tableId: string, rowId: string, workspaceId?: string): AgentSpaceState {
+export function deleteDataRowSync(tableId: string, rowId: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const table = (state.dataTables ?? []).find((t) => t.id === tableId);
   if (!table) {

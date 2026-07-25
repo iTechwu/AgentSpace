@@ -12,7 +12,7 @@ import {
   type AgentAccessRequestRecord,
   type AgentAccessRequestStatus,
   type AgentAccessRequestType,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { createAgentForkInvitationForActorSync } from "../agent-forks/agent-forks.ts";
 import { canReadChannelForActorSync } from "../channel-access/channel-access.ts";
 import { setEmployeeChannelMemberAccessSync } from "../employees/employees.ts";

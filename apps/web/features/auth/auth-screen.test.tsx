@@ -9,10 +9,10 @@ describe("AuthScreen", () => {
   });
 
   it("uses the server-provided SSO start URL", () => {
-    render(<LanguageProvider><AuthScreen ssoStartUrl="https://agentspace.local.dofe.ai/api/auth/sso/start" /></LanguageProvider>);
+    render(<LanguageProvider><AuthScreen ssoStartUrl="https://dofe-agent.local.dofe.ai/api/auth/sso/start" /></LanguageProvider>);
     expect(screen.getByRole("link", { name: "Continue with Dofe SSO" })).toHaveAttribute(
       "href",
-      "https://agentspace.local.dofe.ai/api/auth/sso/start",
+      "https://dofe-agent.local.dofe.ai/api/auth/sso/start",
     );
   });
 

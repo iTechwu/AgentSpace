@@ -18,7 +18,7 @@ const {
   mockRevalidateWorkspacePaths: vi.fn(),
 }));
 
-vi.mock("@agent-space/db", () => ({
+vi.mock("@dofe-agent/db", () => ({
   createDaemonApiTokenSync: vi.fn(),
   deleteAgentRuntimeSync: vi.fn(),
   pruneOfflineDaemonsSync: vi.fn(),
@@ -27,7 +27,7 @@ vi.mock("@agent-space/db", () => ({
   updateWorkspaceRuntimeDisplayNameSync: vi.fn(),
 }));
 
-vi.mock("@agent-space/services", () => ({
+vi.mock("@dofe-agent/services", () => ({
   acceptAgentForkInvitationForActorSync: vi.fn(),
   assertCanManageEmployeeForActorSync: vi.fn(),
   assertCanUseEmployeeInChannelForActorSync: mockAssertCanUseEmployeeInChannelForActorSync,
@@ -108,7 +108,7 @@ describe("agent actions", () => {
       "/market",
       "/skills",
       "/knowledge",
-      "/task-board",
+      "/task/board",
     ]);
     expect(result.invalidation).toEqual({
       workspaceId: "workspace-1",

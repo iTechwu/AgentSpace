@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ExternalIntegrationRecord } from "@agent-space/db";
+import type { ExternalIntegrationRecord } from "@dofe-agent/db";
 import {
   buildFeishuWebSocketEventPayload,
   FEISHU_WEBSOCKET_WORKER_EVENT_TYPES,

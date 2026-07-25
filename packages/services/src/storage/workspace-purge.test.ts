@@ -11,11 +11,11 @@ import {
   getWorkspaceDataDirPath,
   readWorkspaceSync,
   writeWorkspaceStateRecordSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { purgeWorkspaceStorageSync } from "./workspace-purge.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-workspace-purge-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-workspace-purge-"));
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");

@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, type TransitionStartFunction, useEffect, useMemo, useState } from "react";
-import type { WorkspaceRole } from "@agent-space/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
 import type { SettingsTx } from "@/features/settings/settings-types";
 import { translateSettingsActionError } from "@/features/settings/settings-utils";
 import {

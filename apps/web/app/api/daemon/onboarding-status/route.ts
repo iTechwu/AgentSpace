@@ -1,4 +1,4 @@
-import { listDaemonSnapshotsSync } from "@agent-space/db";
+import { listDaemonSnapshotsSync } from "@dofe-agent/db";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 

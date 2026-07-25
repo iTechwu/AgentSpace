@@ -1,12 +1,12 @@
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ContactAgentContext, MaterializedSkillDirectories } from "@agent-space/services";
+import type { ContactAgentContext, MaterializedSkillDirectories } from "@dofe-agent/services";
 import {
   readActiveAgentGoogleWorkspaceDelegationSync,
   type AgentRuntimeRecord,
   type QueuedTaskRecord,
-} from "@agent-space/db";
-import type { ActiveEmployee, ChannelDocument, KnowledgePage, WorkspaceSkill } from "@agent-space/domain/workspace";
+} from "@dofe-agent/db";
+import type { ActiveEmployee, ChannelDocument, KnowledgePage, WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import {
   BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME,
   BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME,
@@ -27,8 +27,8 @@ import {
   type FeishuLarkCliResourceGrant,
   type WorkspaceDataPolicyDecision,
   type WorkspaceNotificationRecord,
-} from "@agent-space/services";
-import type { RuntimeAppContextEntry } from "@agent-space/domain";
+} from "@dofe-agent/services";
+import type { RuntimeAppContextEntry } from "@dofe-agent/domain";
 import {
   buildChannelDocumentPromptLines,
   materializeChannelDocuments,
@@ -757,7 +757,7 @@ function buildRouterSessionContextLines(context: RouterSessionPromptContext | un
     return [];
   }
   const lines = [
-    "以下是 AgentSpace 平台级 Router Session 状态；它是连续性的事实源，provider 原生 session 只是不可靠的可复用缓存：",
+    "以下是 DofeAgent 平台级 Router Session 状态；它是连续性的事实源，provider 原生 session 只是不可靠的可复用缓存：",
     `- routerSessionId: ${context.routerSessionId}`,
     context.conversationKey ? `- conversationKey: ${context.conversationKey}` : "",
     context.sourceType ? `- sourceType: ${context.sourceType}` : "",
@@ -884,7 +884,7 @@ function buildFeishuLarkCliResourceGrantLines(grants: FeishuLarkCliResourceGrant
     return [];
   }
   const lines = [
-    `当前频道有 ${grants.length} 个已由 AgentSpace 绑定并授权给本任务上下文的 Feishu/Lark Docs/Sheets/Base 资源。`,
+    `当前频道有 ${grants.length} 个已由 DofeAgent 绑定并授权给本任务上下文的 Feishu/Lark Docs/Sheets/Base 资源。`,
     "只能通过官方 lark-cli 访问下面列出的资源 token；不得读取、搜索或写入未列出的飞书资源。",
     ...grants.slice(0, 20).map((grant) => {
       const operations = grant.allowedOperations?.join(",") || "read";
@@ -907,13 +907,13 @@ function buildFeishuLarkCliResourceGrantLines(grants: FeishuLarkCliResourceGrant
     "读取示例：Doc 用 lark-cli docs +fetch --api-version v2；Sheet 用 lark-cli sheets +workbook-info / +csv-get / +cells-get；Base 用 lark-cli base +table-list / +record-list。命令必须包含上面列出的 token。",
   );
   lines.push(
-    `如果使用 lark-cli 读取 Feishu/Lark 资源并希望这次读取计入 AgentSpace evidence，请把安全结果摘要写入 ${FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH}，JSON 至少包含 kind="${FEISHU_LARK_CLI_RESULT_MANIFEST_KIND}"、schemaVersion=1、ok/status、operationType、providerResourceType 和 providerResourceToken；不要写入文档正文、表格单元格值、Base record 字段值或原始 provider 响应。`,
+    `如果使用 lark-cli 读取 Feishu/Lark 资源并希望这次读取计入 DofeAgent evidence，请把安全结果摘要写入 ${FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH}，JSON 至少包含 kind="${FEISHU_LARK_CLI_RESULT_MANIFEST_KIND}"、schemaVersion=1、ok/status、operationType、providerResourceType 和 providerResourceToken；不要写入文档正文、表格单元格值、Base record 字段值或原始 provider 响应。`,
   );
   lines.push(
-    "allowed write 只表示可以通过 AgentSpace 申请受控写入；如需修改 Feishu/Lark Docs/Sheets/Base，请使用 agent-space output feishu data-operation-approval --operation <docs.update_document|sheets.update_range|base.mutate_records> --type <doc|sheet|base_table> --resource <上方 token> ... 创建审批申请。",
+    "allowed write 只表示可以通过 DofeAgent 申请受控写入；如需修改 Feishu/Lark Docs/Sheets/Base，请使用 dofe-agent output feishu data-operation-approval --operation <docs.update_document|sheets.update_range|base.mutate_records> --type <doc|sheet|base_table> --resource <上方 token> ... 创建审批申请。",
   );
   lines.push(
-    "写入 Feishu/Lark Docs/Sheets/Base 前必须先有 AgentSpace policy/approval 和带 payload hash 的 operation manifest，不得直接运行 +update、+csv-put、+cells-set、+batch-update、+record-create 或 +record-update。",
+    "写入 Feishu/Lark Docs/Sheets/Base 前必须先有 DofeAgent policy/approval 和带 payload hash 的 operation manifest，不得直接运行 +update、+csv-put、+cells-set、+batch-update、+record-create 或 +record-update。",
   );
   lines.push("不要在 headless runtime 里运行 lark-cli config init 或 auth login；如果 lark-cli 未登录或权限不足，报告 runtime 配置问题。");
   return lines;
@@ -1081,7 +1081,7 @@ function canCreateGoogleSheetInChannel(input: {
   agentName: string;
   channelName?: string;
 }): boolean {
-  if (process.env.AGENT_SPACE_AGENT_GOOGLE_SHEET_CREATE_ENABLED === "false" || !input.channelName) {
+  if (process.env.DOFE_AGENT_AGENT_GOOGLE_SHEET_CREATE_ENABLED === "false" || !input.channelName) {
     return false;
   }
   return Boolean(readActiveAgentGoogleWorkspaceDelegationSync({
@@ -1162,10 +1162,10 @@ function buildAgentContextLines(
     }
   }
 
-  lines.push("如需回传文件、群文档、skill import、Google Docs 操作或已执行的外部表格结果，只使用 agent-space output ...；CLI 会生成 runtime-output manifest，daemon 会在任务结束后回收。");
-  lines.push(`如需回传文件或图片，请遵循 ${BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME} skill，使用 agent-space output attach ...，然后运行 agent-space output validate。`);
-  lines.push("如需把新 skill 导入工作区，使用 agent-space output skill import ...，然后运行 agent-space output validate。");
-  lines.push("如果本次任务总结出可复用的规则、流程、约束或已验证事实，可以用 agent-space output knowledge propose-create/propose-update 提交 workspace knowledge 候选；这只会进入人类审批，不会直接写入全局知识库。");
+  lines.push("如需回传文件、群文档、skill import、Google Docs 操作或已执行的外部表格结果，只使用 dofe-agent output ...；CLI 会生成 runtime-output manifest，daemon 会在任务结束后回收。");
+  lines.push(`如需回传文件或图片，请遵循 ${BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME} skill，使用 dofe-agent output attach ...，然后运行 dofe-agent output validate。`);
+  lines.push("如需把新 skill 导入工作区，使用 dofe-agent output skill import ...，然后运行 dofe-agent output validate。");
+  lines.push("如果本次任务总结出可复用的规则、流程、约束或已验证事实，可以用 dofe-agent output knowledge propose-create/propose-update 提交 workspace knowledge 候选；这只会进入人类审批，不会直接写入全局知识库。");
   lines.push("只沉淀长期有用且已验证的内容；不要把临时任务结果、隐私信息、凭据、token、未经验证的推测或只对当前对话有效的细节提交为 workspace knowledge。");
   lines.push("提交知识候选时，先把 Markdown 正文写到 runtime-output/artifacts/knowledge/*.md，再用 output CLI 生成 manifest；不要手写 runtime-output/knowledge-proposals.json。reason 必须说明来源任务上下文和为什么值得复用。");
 

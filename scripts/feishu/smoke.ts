@@ -357,7 +357,7 @@ async function main(): Promise<void> {
   steps.push(await smokeBotAddedEventDispatcher());
   steps.push(await smokeCardActionEventDispatcher());
   steps.push(smokeHttpChallenge());
-  steps.push(await smokeAgentSpaceCallbackVerification({ live, env }));
+  steps.push(await smokeDofeAgentCallbackVerification({ live, env }));
 
   const client = await createLiveClientIfNeeded({ live, env, steps });
   steps.push(await smokeFeishuRequest({
@@ -397,7 +397,7 @@ async function main(): Promise<void> {
         text: {
           elements: [{
             text_run: {
-              content: "AgentSpace smoke",
+              content: "DofeAgent smoke",
             },
           }],
         },
@@ -439,7 +439,7 @@ async function main(): Promise<void> {
     request: buildSheetWriteRequest({
       sheetToken: env.sheetToken ?? "shtcnSmokeToken",
       range: env.sheetWriteRange ?? "Sheet1!A1:B1",
-      values: env.sheetWriteValues ?? [["AgentSpace smoke"]],
+      values: env.sheetWriteValues ?? [["DofeAgent smoke"]],
     }),
   }));
   steps.push(await smokeFeishuRequest({
@@ -484,7 +484,7 @@ async function main(): Promise<void> {
       appToken: env.baseAppToken ?? "appSmokeToken",
       tableId: env.baseTableId ?? "tblSmokeId",
       recordId: env.baseRecordId ?? "recSmokeId",
-      fields: env.baseUpdateFields ?? { Smoke: "AgentSpace" },
+      fields: env.baseUpdateFields ?? { Smoke: "DofeAgent" },
     }),
   }));
 
@@ -574,9 +574,9 @@ async function smokeSdkClientMessageCreate(input: {
       receive_id: input.env.chatId,
       msg_type: "text",
       content: JSON.stringify({
-        text: `AgentSpace Feishu smoke ${new Date().toISOString()}`,
+        text: `DofeAgent Feishu smoke ${new Date().toISOString()}`,
       }),
-      uuid: `agentspace-smoke-${Date.now()}`,
+      uuid: `dofe-agent-smoke-${Date.now()}`,
     },
   });
   return {
@@ -623,7 +623,7 @@ async function smokeEventDispatcher(): Promise<SmokeStep> {
         chat_type: "group",
         message_id: "om_smoke",
         message_type: "text",
-        content: JSON.stringify({ text: "@AgentSpace smoke" }),
+        content: JSON.stringify({ text: "@DofeAgent smoke" }),
       },
       sender: {
         sender_id: {
@@ -755,7 +755,7 @@ function smokeHttpChallenge(): SmokeStep {
   };
 }
 
-async function smokeAgentSpaceCallbackVerification(input: {
+async function smokeDofeAgentCallbackVerification(input: {
   live: boolean;
   env: SmokeEnv;
 }): Promise<SmokeStep> {
@@ -763,9 +763,9 @@ async function smokeAgentSpaceCallbackVerification(input: {
   const callbackRouteProof = buildCallbackRouteProof(input.env.callbackUrl);
   if (!input.live) {
     return {
-      name: "AgentSpace callback URL verification",
+      name: "DofeAgent callback URL verification",
       status: "pass",
-      detail: "dry-run: AgentSpace callback probe payload is ready.",
+      detail: "dry-run: DofeAgent callback probe payload is ready.",
       liveCheck: true,
       requiredEnv,
       ...callbackRouteProof,
@@ -773,16 +773,16 @@ async function smokeAgentSpaceCallbackVerification(input: {
   }
   if (!input.env.callbackUrl || !input.env.verificationToken) {
     return {
-      name: "AgentSpace callback URL verification",
+      name: "DofeAgent callback URL verification",
       status: "skip",
-      detail: formatMissingEnvDetail(requiredEnv, "verify the AgentSpace callback endpoint"),
+      detail: formatMissingEnvDetail(requiredEnv, "verify the DofeAgent callback endpoint"),
       liveCheck: true,
       requiredEnv,
       ...callbackRouteProof,
     };
   }
 
-  const challenge = `agentspace-callback-smoke-${Date.now()}`;
+  const challenge = `dofe-agent-callback-smoke-${Date.now()}`;
   try {
     const response = await fetch(input.env.callbackUrl, {
       method: "POST",
@@ -798,7 +798,7 @@ async function smokeAgentSpaceCallbackVerification(input: {
     const body = await readJsonResponse(response);
     const matched = body?.challenge === challenge;
     return {
-      name: "AgentSpace callback URL verification",
+      name: "DofeAgent callback URL verification",
       status: response.ok && matched ? "pass" : "fail",
       detail: `status=${response.status}; challenge=${matched ? "matched" : "not matched"}`,
       liveCheck: true,
@@ -807,7 +807,7 @@ async function smokeAgentSpaceCallbackVerification(input: {
     };
   } catch (error) {
     return {
-      name: "AgentSpace callback URL verification",
+      name: "DofeAgent callback URL verification",
       status: "fail",
       detail: formatCallbackProbeError(error, input.env.callbackUrl),
       liveCheck: true,
@@ -954,7 +954,7 @@ function buildImMessageCreateRequest(chatId: string): FeishuApiRequest {
     body: {
       receive_id: chatId,
       msg_type: "text",
-      content: JSON.stringify({ text: "AgentSpace Feishu smoke" }),
+      content: JSON.stringify({ text: "DofeAgent Feishu smoke" }),
     },
   };
 }
@@ -1076,7 +1076,7 @@ function readSmokeEnv(): SmokeEnv {
     appSecret: readEnv("FEISHU_APP_SECRET"),
     secondAgentAppId: readEnv("FEISHU_SECOND_AGENT_APP_ID"),
     tenantKey: readEnv("FEISHU_TENANT_KEY"),
-    apiBaseUrl: readEnv("FEISHU_API_BASE_URL") ?? readEnv("AGENT_SPACE_FEISHU_API_BASE_URL"),
+    apiBaseUrl: readEnv("FEISHU_API_BASE_URL") ?? readEnv("DOFE_AGENT_FEISHU_API_BASE_URL"),
     callbackUrl: readEnv("FEISHU_SMOKE_CALLBACK_URL"),
     verificationToken: readEnv("FEISHU_VERIFICATION_TOKEN"),
     chatId: readEnv("FEISHU_SMOKE_CHAT_ID"),
@@ -1235,20 +1235,20 @@ const LIVE_SMOKE_ENV_CHECKS: Array<{
     group: "optional",
     key: "FEISHU_TENANT_KEY",
     required: false,
-    note: "Optional tenant key saved on the AgentSpace integration; strict-live evidence stores only its hash.",
+    note: "Optional tenant key saved on the DofeAgent integration; strict-live evidence stores only its hash.",
   },
   {
     group: "callback",
     key: "FEISHU_VERIFICATION_TOKEN",
     required: true,
-    note: "Verification token used by the AgentSpace callback challenge probe.",
+    note: "Verification token used by the DofeAgent callback challenge probe.",
   },
   {
     group: "callback",
     key: "FEISHU_SMOKE_CALLBACK_URL",
     required: true,
-    note: "Workspace/integration callback URL generated by AgentSpace.",
-    validate: validateAgentSpaceCallbackUrlEnv,
+    note: "Workspace/integration callback URL generated by DofeAgent.",
+    validate: validateDofeAgentCallbackUrlEnv,
   },
   {
     group: "im",
@@ -1324,14 +1324,14 @@ const LIVE_SMOKE_ENV_CHECKS: Array<{
     key: "FEISHU_SECOND_AGENT_APP_ID",
     required: false,
     todo120NativeSmokeRequired: true,
-    note: "TODO120 native multi-agent smoke: second disposable Feishu app id for another AgentSpace agent bot.",
+    note: "TODO120 native multi-agent smoke: second disposable Feishu app id for another DofeAgent agent bot.",
   },
   {
     group: "optional",
     key: "FEISHU_SECOND_AGENT_APP_SECRET",
     required: false,
     todo120NativeSmokeRequired: true,
-    note: "TODO120 native multi-agent smoke: second Feishu app secret used to bind another AgentSpace agent bot.",
+    note: "TODO120 native multi-agent smoke: second Feishu app secret used to bind another DofeAgent agent bot.",
   },
   {
     group: "optional",
@@ -1544,14 +1544,14 @@ function validateHttpUrlEnv(value: string): string | undefined {
   }
 }
 
-function validateAgentSpaceCallbackUrlEnv(value: string): string | undefined {
+function validateDofeAgentCallbackUrlEnv(value: string): string | undefined {
   const urlReason = validateHttpUrlEnv(value);
   if (urlReason) {
     return urlReason;
   }
   const url = new URL(value);
   if (url.pathname !== "/api/integrations/feishu/events") {
-    return "must_be_agentspace_feishu_callback_url";
+    return "must_be_dofe-agent_feishu_callback_url";
   }
   if (!url.searchParams.get("workspaceId")?.trim() || !url.searchParams.get("integrationId")?.trim()) {
     return "workspace_or_integration_query_missing";
@@ -1758,7 +1758,7 @@ function verifyFeishuBotAddedPayloadFile(path: string): FeishuBotAddedPayloadVer
   if (containsRawFeishuEvidenceIdentifier(serialized)) {
     output.issues.push("bot_added_summary_raw_feishu_identifier");
   }
-  if (containsAgentSpaceCallbackUrlEvidence(serialized)) {
+  if (containsDofeAgentCallbackUrlEvidence(serialized)) {
     output.issues.push("bot_added_summary_callback_url");
   }
   output.valid = output.issues.length === 0;
@@ -2006,7 +2006,7 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
     }
   }
 
-  const callbackStep = steps.find((item) => isSafeSmokeStepNamed(item, "AgentSpace callback URL verification"));
+  const callbackStep = steps.find((item) => isSafeSmokeStepNamed(item, "DofeAgent callback URL verification"));
   if (!hasValidCallbackRouteProof(callbackStep)) {
     issues.push("callback_route_proof_missing");
   }
@@ -2049,7 +2049,7 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
     if (typeof step.detail === "string" && containsRawFeishuEvidenceIdentifier(step.detail)) {
       issues.push(`raw_feishu_identifier_in_detail:${step.name}`);
     }
-    if (typeof step.detail === "string" && containsAgentSpaceCallbackUrlEvidence(step.detail)) {
+    if (typeof step.detail === "string" && containsDofeAgentCallbackUrlEvidence(step.detail)) {
       issues.push(`callback_url_in_detail:${step.name}`);
     }
   }
@@ -2060,7 +2060,7 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
   if (containsRawFeishuEvidenceIdentifier(JSON.stringify(evidence))) {
     issues.push("raw_feishu_identifier_in_evidence");
   }
-  if (containsAgentSpaceCallbackUrlEvidence(JSON.stringify(evidence))) {
+  if (containsDofeAgentCallbackUrlEvidence(JSON.stringify(evidence))) {
     issues.push("callback_url_in_evidence");
   }
 
@@ -2181,7 +2181,7 @@ function containsRawFeishuEvidenceIdentifier(serialized: string): boolean {
   ].some((pattern) => pattern.test(serialized));
 }
 
-function containsAgentSpaceCallbackUrlEvidence(serialized: string): boolean {
+function containsDofeAgentCallbackUrlEvidence(serialized: string): boolean {
   return /https?:\/\/[^"'\s<>]+\/api\/integrations\/feishu\/events(?:\?[^"'\s<>]*)?/i.test(serialized);
 }
 
@@ -2508,7 +2508,7 @@ function printEvidenceVerificationSummary(input: SmokeEvidenceVerificationOutput
   );
   console.log(
     `Evidence freshness: ${input.summary.generatedAtFresh ? "fresh" : "stale or missing"}`
-    + ` (24h required for final AgentSpace evidence).`,
+    + ` (24h required for final DofeAgent evidence).`,
   );
   console.log(
     `TODO120 native env: ${input.summary.todo120NativeSmokeConfigured}/`

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import { zipSync } from "fflate";
-import { listStoredAgentSkillAssignmentsSync, listStoredSkillImportEventsSync } from "@agent-space/db";
+import { listStoredAgentSkillAssignmentsSync, listStoredSkillImportEventsSync } from "@dofe-agent/db";
 import {
   createEmployeeSync,
   createWorkspaceSkillSync,
@@ -15,7 +15,7 @@ import {
 } from "../index.ts";
 
 const originalCwd = process.cwd();
-const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-skill-import-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-skill-import-"));
 const originalFetch = globalThis.fetch;
 
 before(() => {

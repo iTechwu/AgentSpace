@@ -1,4 +1,4 @@
-import { type AgentSpaceState, type ChannelRecord } from "@agent-space/domain/workspace";
+import { type DofeAgentState, type ChannelRecord } from "@dofe-agent/domain/workspace";
 import {
   createStoredChannelSync,
   DEFAULT_WORKSPACE_ID,
@@ -8,7 +8,7 @@ import {
   readStoredChannelSync,
   renameStoredTasksChannelSync,
   updateStoredChannelSync,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 import { pruneOrphanWorkspaceAttachmentsSync } from "../attachments/attachments.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { createOpaqueId, sameValue, uniqueNames } from "../shared/helpers.ts";
@@ -25,7 +25,7 @@ export function isGroupChannel(channel: Pick<ChannelRecord, "kind">): boolean {
 }
 
 export function findDirectChannelRecord(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: { humanMemberName: string; employeeName: string },
 ): ChannelRecord | undefined {
   const humanMemberName = input.humanMemberName.trim();
@@ -43,7 +43,7 @@ export function findDirectChannelRecord(
 }
 
 export function resolveChannelHumanMemberNames(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channel: Pick<ChannelRecord, "humanMemberNames" | "humanMembers">,
 ): string[] {
   const explicitNames = uniqueNames(channel.humanMemberNames ?? []);
@@ -57,14 +57,14 @@ export function resolveChannelHumanMemberNames(
 }
 
 export function resolveChannelHumanMemberCount(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channel: Pick<ChannelRecord, "humanMemberNames" | "humanMembers">,
 ): number {
   return resolveChannelHumanMemberNames(state, channel).length;
 }
 
 export function ensureDirectChannelRecord(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   input: { humanMemberName: string; employeeName: string },
 ): ChannelRecord {
   const humanMemberName = input.humanMemberName.trim();
@@ -114,7 +114,7 @@ export function ensureDirectChannelRecord(
 }
 
 export function resolveCompatibleDirectChannelRecord(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   employeeName: string,
 ): ChannelRecord | null {
   const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
@@ -154,7 +154,7 @@ export function resolveCompatibleDirectChannelRecord(
 export function ensureDirectChannelSync(input: {
   humanMemberName: string;
   employeeName: string;
-}, workspaceId?: string): { state: AgentSpaceState; channelName: string } {
+}, workspaceId?: string): { state: DofeAgentState; channelName: string } {
   const state = ensureWorkspaceStateSync(workspaceId);
   const channel = ensureDirectChannelRecord(state, input);
   upsertStoredChannelRecordSync(channel, workspaceId);
@@ -166,10 +166,10 @@ export function ensureDirectChannelSync(input: {
 }
 
 export function removeChannelArtifactsFromState(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   channelName: string,
   workspaceId?: string,
-): AgentSpaceState {
+): DofeAgentState {
   const documentIds = new Set(
     state.channelDocuments
       .filter((document) => sameValue(document.channelName, channelName))
@@ -230,7 +230,7 @@ export function createChannelSync(input: {
   humanMemberNames?: string[];
   employeeNames?: string[];
   kind?: ChannelRecord["kind"];
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const humanMemberNames = uniqueNames(input.humanMemberNames ?? []);
   const employeeNames = uniqueNames(input.employeeNames ?? []);
@@ -294,7 +294,7 @@ export function createChannelSync(input: {
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function addChannelEmployeesToState(state: AgentSpaceState, input: {
+export function addChannelEmployeesToState(state: DofeAgentState, input: {
   channelName: string;
   employeeNames: string[];
 }): ChannelRecord {
@@ -344,7 +344,7 @@ export function addChannelEmployeesToState(state: AgentSpaceState, input: {
 export function addChannelEmployeesSync(input: {
   channelName: string;
   employeeNames: string[];
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const channel = addChannelEmployeesToState(state, input);
   updateStoredChannelSync(channel.name, channel, workspaceId);
@@ -354,7 +354,7 @@ export function addChannelEmployeesSync(input: {
 export function updateChannelHumanMemberNamesSync(input: {
   channelName: string;
   humanMemberNames: string[];
-}, workspaceId?: string): AgentSpaceState {
+}, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const channel = state.channels.find((item) => sameValue(item.name, input.channelName));
   if (!channel) {
@@ -371,7 +371,7 @@ export function updateChannelHumanMemberNamesSync(input: {
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
-export function deleteChannelSync(channelName: string, workspaceId?: string): AgentSpaceState {
+export function deleteChannelSync(channelName: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const channel = state.channels.find((item) => sameValue(item.name, channelName));
   if (!channel) {
@@ -391,7 +391,7 @@ export function deleteChannelSync(channelName: string, workspaceId?: string): Ag
   return written;
 }
 
-export function renameChannelSync(channelName: string, nextName: string, workspaceId?: string): AgentSpaceState {
+export function renameChannelSync(channelName: string, nextName: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const trimmedNextName = nextName.trim();
   const channel = state.channels.find((item) => sameValue(item.name, channelName));
@@ -477,7 +477,7 @@ function upsertStoredChannelRecordSync(channel: ChannelRecord, workspaceId?: str
 }
 
 function ensureLegacyHumanMembersForDisplayNames(
-  state: AgentSpaceState,
+  state: DofeAgentState,
   displayNames: string[],
   workspaceId?: string,
 ): void {

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { main } from "../dist/agent-space.js";
+import { main } from "../dist/dofe-agent.js";
 
 main()
   .then((code) => {

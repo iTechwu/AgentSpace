@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from "@agent-space/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
 import type { CurrentWorkspaceContext } from "./server-workspace-resolver";
 
 const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {

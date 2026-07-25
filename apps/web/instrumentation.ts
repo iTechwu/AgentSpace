@@ -5,6 +5,6 @@ export async function register(): Promise<void> {
 
   const { loadRepositoryEnvIntoProcess } = await import("../../packages/db/src/repository-env.ts");
   loadRepositoryEnvIntoProcess({
-    override: process.env.AGENT_SPACE_REPOSITORY_ENV_OVERRIDE !== "0",
+    override: process.env.DOFE_AGENT_REPOSITORY_ENV_OVERRIDE !== "0",
   });
 }

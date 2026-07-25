@@ -5,31 +5,31 @@
       "@/*": [
         "./*"
       ],
-      "@agent-space/domain": [
+      "@dofe-agent/domain": [
         "../../packages/domain/dist-types/index.d.ts"
       ],
-      "@agent-space/domain/*": [
+      "@dofe-agent/domain/*": [
         "../../packages/domain/dist-types/*"
       ],
-      "@agent-space/services": [
+      "@dofe-agent/services": [
         "../../packages/services/dist-types/index.d.ts"
       ],
-      "@agent-space/services/*": [
+      "@dofe-agent/services/*": [
         "../../packages/services/dist-types/*"
       ],
-      "@agent-space/db": [
+      "@dofe-agent/db": [
         "../../packages/db/dist-types/index.d.ts"
       ],
-      "@agent-space/db/*": [
+      "@dofe-agent/db/*": [
         "../../packages/db/dist-types/*"
       ],
-      "agent-space-daemon": [
+      "dofe-agent-daemon": [
         "../../packages/daemon/dist-types/index.d.ts"
       ],
-      "agent-space-daemon/agent-router": [
+      "dofe-agent-daemon/agent-router": [
         "../../packages/daemon/dist-types/agent-router/index.d.ts"
       ],
-      "agent-space-daemon/daemon-client": [
+      "dofe-agent-daemon/daemon-client": [
         "../../packages/daemon/dist-types/daemon-client.d.ts"
       ]
     }

@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import {
   readEffectiveRuntimeEnv,
   type ExternalIntegrationRecord,
-} from "@agent-space/db";
+} from "@dofe-agent/db";
 
 const FEISHU_CREDENTIAL_VERSION = "v1";
 
@@ -90,15 +90,15 @@ function decryptFeishuCredential(value: string): string {
 function readFeishuCredentialEncryptionKey(): Buffer {
   const effectiveEnv = readEffectiveRuntimeEnv();
   const value =
-    effectiveEnv.AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY?.trim()
-    || effectiveEnv.AGENT_SPACE_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY?.trim();
+    effectiveEnv.DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY?.trim()
+    || effectiveEnv.DOFE_AGENT_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY?.trim();
   if (!value) {
-    throw new Error("AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.");
+    throw new Error("DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.");
   }
 
   const key = Buffer.from(value, "base64");
   if (key.length !== 32) {
-    throw new Error("AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.");
+    throw new Error("DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.");
   }
   return key;
 }

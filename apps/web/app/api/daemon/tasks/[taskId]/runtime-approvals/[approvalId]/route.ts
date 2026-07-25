@@ -1,4 +1,4 @@
-import { listApprovalsSync } from "@agent-space/services";
+import { listApprovalsSync } from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../../_lib/auth";
 
 export const runtime = "nodejs";

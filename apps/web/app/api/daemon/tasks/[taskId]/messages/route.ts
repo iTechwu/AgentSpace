@@ -3,8 +3,8 @@ import {
   markAgentRouterProviderSessionInvalidSync,
   recordAgentRouterEventSync,
   type QueuedTaskRecord,
-} from "@agent-space/db";
-import type { DaemonProvider, DaemonTaskMessageInput, ReportTaskMessagesRequest } from "@agent-space/domain";
+} from "@dofe-agent/db";
+import type { DaemonProvider, DaemonTaskMessageInput, ReportTaskMessagesRequest } from "@dofe-agent/domain";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";

@@ -6,8 +6,8 @@ import {
   toggleAutomationRuleSync,
   deleteAutomationRuleSync,
   stopAutoContinuationSync,
-} from "@agent-space/services";
-import type { AutomationTrigger, AutomationCondition, AutomationAction } from "@agent-space/domain/workspace";
+} from "@dofe-agent/services";
+import type { AutomationTrigger, AutomationCondition, AutomationAction } from "@dofe-agent/domain/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePath, revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";

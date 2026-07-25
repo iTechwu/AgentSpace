@@ -1,12 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { WorkspaceRole } from "@agent-space/db";
+import type { WorkspaceRole } from "@dofe-agent/db";
 import {
   canViewChannelDocumentSync,
   globalSearchSync,
   type SearchResult,
   type SearchResultType,
   tryRecordWorkspaceAuditEventSync,
-} from "@agent-space/services";
+} from "@dofe-agent/services";
 import { getKnowledgePageData } from "@/features/dashboard/data";
 import { getCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import {
@@ -207,12 +207,12 @@ type SearchResultsCacheEntry = {
 };
 
 const searchCacheGlobal = globalThis as typeof globalThis & {
-  __agentSpaceLoadtestSearchResultsCache?: Map<string, SearchResultsCacheEntry>;
+  __dofeAgentLoadtestSearchResultsCache?: Map<string, SearchResultsCacheEntry>;
 };
 
-const loadtestSearchResultsCache = searchCacheGlobal.__agentSpaceLoadtestSearchResultsCache
+const loadtestSearchResultsCache = searchCacheGlobal.__dofeAgentLoadtestSearchResultsCache
   ?? new Map<string, SearchResultsCacheEntry>();
-searchCacheGlobal.__agentSpaceLoadtestSearchResultsCache = loadtestSearchResultsCache;
+searchCacheGlobal.__dofeAgentLoadtestSearchResultsCache = loadtestSearchResultsCache;
 
 function readLoadtestSearchResultsCache(
   key: string,
@@ -260,7 +260,7 @@ function readLoadtestSearchResultsCache(
 }
 
 function getLoadtestSearchCacheTtlMs(): number {
-  const explicit = Number(process.env.AGENT_SPACE_SEARCH_CACHE_TTL_MS ?? "");
+  const explicit = Number(process.env.DOFE_AGENT_SEARCH_CACHE_TTL_MS ?? "");
   if (Number.isFinite(explicit) && explicit > 0) {
     return explicit;
   }

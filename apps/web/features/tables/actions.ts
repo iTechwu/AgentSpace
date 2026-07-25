@@ -7,8 +7,8 @@ import {
   addDataRowSync,
   updateDataRowSync,
   deleteDataRowSync,
-} from "@agent-space/services";
-import type { DataColumn } from "@agent-space/domain/workspace";
+} from "@dofe-agent/services";
+import type { DataColumn } from "@dofe-agent/domain/workspace";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePath } from "@/features/auth/workspace-revalidation";

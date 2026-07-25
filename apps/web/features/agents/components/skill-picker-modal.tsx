@@ -3,7 +3,7 @@ import { usePathname } from "next/navigation";
 import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/workspace-paths";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
-import type { WorkspaceSkill } from "@agent-space/domain/workspace";
+import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { AppIcon } from "@/shared/ui/app-icon";
 
 interface SkillPickerModalProps {

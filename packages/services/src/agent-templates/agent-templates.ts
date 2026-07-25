@@ -4,7 +4,7 @@ import {
   resolveAgentTemplateSkillMatches,
   type AgentTemplateSkillMatch,
   type SystemAgentTemplatePreset,
-} from "@agent-space/domain";
+} from "@dofe-agent/domain";
 import { listWorkspaceSkillsSync } from "../skills/skills.ts";
 
 export interface ResolvedAgentTemplateForWorkspace {
