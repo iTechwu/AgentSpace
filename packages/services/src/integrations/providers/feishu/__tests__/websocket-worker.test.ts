@@ -6,6 +6,7 @@ import {
   FEISHU_WEBSOCKET_WORKER_EVENT_TYPES,
   processFeishuWebSocketEvent,
   startFeishuWebSocketWorker,
+  startFeishuWebSocketWorkerSupervisor,
   type FeishuWebSocketWorkerMetrics,
 } from "../websocket-worker.ts";
 import { FEISHU_PROVIDER_ID } from "../constants.ts";
@@ -541,6 +542,70 @@ test("startFeishuWebSocketWorker can close and restart sessions with injected de
     integrationId: "integration-ws-1",
     lastHealthStatus: "healthy",
   }]);
+});
+
+test("worker supervisor refreshes changed bindings and drains outbound replies without a new event", async () => {
+  const firstIntegration = makeIntegration({
+    id: "integration-ws-1",
+    transportMode: "websocket_worker",
+  });
+  const secondIntegration = makeIntegration({
+    id: "integration-ws-2",
+    transportMode: "websocket_worker",
+  });
+  let integrations = [firstIntegration];
+  const started: string[] = [];
+  const closed: string[] = [];
+  let drainCalls = 0;
+
+  const worker = await startFeishuWebSocketWorkerSupervisor({
+    workspaceId: "workspace-1",
+    lockedBy: "worker-1",
+    refreshIntervalMs: 60_000,
+    outboxDrainIntervalMs: 60_000,
+    workerDependencies: {
+      listIntegrations() {
+        return integrations;
+      },
+      readIntegrationCredentials() {
+        return {
+          appSecret: "app-secret",
+        };
+      },
+      updateIntegrationHealth() {
+        return firstIntegration;
+      },
+    },
+    eventProcessorDependencies: {
+      async drainOutboxMessages() {
+        drainCalls += 1;
+        return {
+          processedCount: 1,
+          sentCount: 1,
+          failedCount: 0,
+          errors: [],
+        };
+      },
+    },
+    async sessionFactory(input) {
+      started.push(input.integrationId);
+      return {
+        close() {
+          closed.push(input.integrationId);
+        },
+      };
+    },
+  });
+
+  assert.equal(drainCalls, 1);
+  assert.equal(worker.metrics.outboxSentCount, 1);
+  integrations = [firstIntegration, secondIntegration];
+  assert.equal(await worker.refresh(), true);
+  assert.deepEqual(started, ["integration-ws-1", "integration-ws-1", "integration-ws-2"]);
+  assert.deepEqual(closed, ["integration-ws-1"]);
+
+  worker.close();
+  assert.deepEqual(closed, ["integration-ws-1", "integration-ws-1", "integration-ws-2"]);
 });
 
 function createMetrics(): FeishuWebSocketWorkerMetrics {

@@ -77,6 +77,11 @@ export interface FeishuWebSocketWorkerHandle {
   }>;
 }
 
+export interface FeishuWebSocketWorkerSupervisorHandle extends FeishuWebSocketWorkerHandle {
+  refresh(): Promise<boolean>;
+  drainOutbox(): Promise<void>;
+}
+
 export interface FeishuWebSocketWorkerSession {
   close(): void;
   getConnectionStatus?(): WSConnectionStatus;
@@ -290,6 +295,120 @@ export async function startFeishuWebSocketWorker(input: {
   };
 }
 
+export async function startFeishuWebSocketWorkerSupervisor(input: {
+  workspaceId: string;
+  integrationId?: string;
+  lockedBy: string;
+  refreshIntervalMs?: number;
+  outboxDrainIntervalMs?: number;
+  dryRun?: boolean;
+  domain?: string;
+  baseUrl?: string;
+  drainOutboxLimit?: number;
+  includeWebhookIntegrations?: boolean;
+  eventProcessorDependencies?: FeishuWebSocketEventProcessorDependencies;
+  workerDependencies?: FeishuWebSocketWorkerDependencies;
+  sessionFactory?: FeishuWebSocketWorkerSessionFactory;
+}): Promise<FeishuWebSocketWorkerSupervisorHandle> {
+  let worker = await startFeishuWebSocketWorker(input);
+  let fingerprint = buildFeishuWebSocketWorkerFingerprint(input);
+  let refreshing = false;
+  let draining = false;
+  let closed = false;
+  const refreshIntervalMs = Math.max(1_000, input.refreshIntervalMs ?? 15_000);
+  const outboxDrainIntervalMs = Math.max(500, input.outboxDrainIntervalMs ?? 2_000);
+
+  const refresh = async (): Promise<boolean> => {
+    if (closed || refreshing) {
+      return false;
+    }
+    refreshing = true;
+    try {
+      const nextFingerprint = buildFeishuWebSocketWorkerFingerprint(input);
+      if (nextFingerprint === fingerprint) {
+        return false;
+      }
+
+      const nextWorker = await startFeishuWebSocketWorker(input);
+      const hasUsableReplacement = nextWorker.summary.integrationCount === 0 || nextWorker.summary.startedCount > 0;
+      if (!hasUsableReplacement) {
+        nextWorker.close();
+        return false;
+      }
+
+      const previousWorker = worker;
+      worker = nextWorker;
+      fingerprint = nextFingerprint;
+      previousWorker.close();
+      return true;
+    } finally {
+      refreshing = false;
+    }
+  };
+
+  const refreshTimer = input.dryRun
+    ? undefined
+    : setInterval(() => {
+      void refresh();
+    }, refreshIntervalMs);
+  const drainOutbox = async (): Promise<void> => {
+    if (closed || draining) {
+      return;
+    }
+    draining = true;
+    try {
+      const drain = input.eventProcessorDependencies?.drainOutboxMessages ?? drainFeishuOutboxMessages;
+      const result = await drain({
+        workspaceId: input.workspaceId,
+        lockedBy: input.lockedBy,
+        limit: input.drainOutboxLimit,
+        baseUrl: input.baseUrl,
+      });
+      recordFeishuWorkerOutboxMetrics(worker.metrics, result);
+    } catch (error) {
+      worker.metrics.failedCount += 1;
+      worker.metrics.errors.push(normalizeFeishuWorkerError(input.integrationId ?? "workspace", error));
+    } finally {
+      draining = false;
+    }
+  };
+  const outboxTimer = input.dryRun
+    ? undefined
+    : setInterval(() => {
+      void drainOutbox();
+    }, outboxDrainIntervalMs);
+  if (!input.dryRun) {
+    void drainOutbox();
+  }
+
+  return {
+    get summary() {
+      return worker.summary;
+    },
+    get metrics() {
+      return worker.metrics;
+    },
+    close() {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+      }
+      if (outboxTimer) {
+        clearInterval(outboxTimer);
+      }
+      worker.close();
+    },
+    refresh,
+    drainOutbox,
+    getConnectionStatuses() {
+      return worker.getConnectionStatuses();
+    },
+  };
+}
+
 export function buildFeishuWebSocketEventPayload(input: {
   eventType: string;
   event: unknown;
@@ -333,6 +452,25 @@ function resolveFeishuWebSocketWorkerIntegrations(input: {
   }).filter((integration) =>
     integration.status === "active" &&
     (!input.integrationId || integration.id === input.integrationId));
+}
+
+function buildFeishuWebSocketWorkerFingerprint(input: {
+  workspaceId: string;
+  integrationId?: string;
+  includeWebhookIntegrations?: boolean;
+  workerDependencies?: FeishuWebSocketWorkerDependencies;
+}): string {
+  const integrations = resolveFeishuWebSocketWorkerIntegrations(input, input.workerDependencies)
+    .filter((integration) => input.includeWebhookIntegrations || integration.transportMode === "websocket_worker")
+    .map((integration) => ({
+      id: integration.id,
+      status: integration.status,
+      transportMode: integration.transportMode,
+      appId: integration.appId ?? "",
+      encryptedCredentialsJson: integration.encryptedCredentialsJson,
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  return JSON.stringify(integrations);
 }
 
 async function createFeishuSdkWebSocketWorkerSession(

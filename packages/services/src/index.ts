@@ -573,6 +573,7 @@ export {
   shouldAutoProvisionFeishuChannelForFirstMessage,
   splitFeishuTextMessageChunks,
   startFeishuWebSocketWorker,
+  startFeishuWebSocketWorkerSupervisor,
   syncFeishuDataTablePreviewFromReadResultSync,
   syncFeishuResourceMetadataSnapshotSync,
   syncFeishuResourceMetadataSnapshotFromResultSync,

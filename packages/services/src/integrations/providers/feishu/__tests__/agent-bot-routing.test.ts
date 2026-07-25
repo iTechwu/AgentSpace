@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { FEISHU_PROVIDER_ID } from "../constants.ts";
 import {
+  ensureFeishuAgentMentionText,
   isFeishuAgentBotMentioned,
   isFeishuBotSenderPayload,
   isFeishuKnownAgentBotSenderPayload,
@@ -77,6 +78,11 @@ test("routes only mentions of the current Feishu agent bot", () => {
   }), binding), true);
   assert.equal(isFeishuAgentBotMentioned(buildPayload({
     mentions: [{
+      id: { open_id: "ou_bot_atlas" },
+    }],
+  }), binding), true);
+  assert.equal(isFeishuAgentBotMentioned(buildPayload({
+    mentions: [{
       open_id: "ou_bot_hermes",
       is_bot: true,
     }],
@@ -104,6 +110,17 @@ test("treats direct messages as addressed to the bot and supports old bindings w
   assert.equal(isFeishuAgentBotMentioned(buildPayload({
     mentions: [{ is_bot: true }, { is_bot: true }],
   }), legacyBinding), false);
+});
+
+test("replaces Feishu SDK bot mention placeholders with the bound DofeAgent agent", () => {
+  assert.equal(ensureFeishuAgentMentionText({
+    agentId: "ClaudeCode Agent",
+    text: "@_user_1 请帮我分析一下飞书",
+  }), "@ClaudeCode Agent 请帮我分析一下飞书");
+  assert.equal(ensureFeishuAgentMentionText({
+    agentId: "ClaudeCode Agent",
+    text: "@_user_1 @Atlas 继续处理",
+  }), "@ClaudeCode Agent @Atlas 继续处理");
 });
 
 test("resolves Feishu chat descriptors from bot-added payload variants", () => {

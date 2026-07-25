@@ -112,6 +112,26 @@ test("readFeishuBotInfo resolves bot fields from Feishu response data", async ()
   });
 });
 
+test("readFeishuBotInfo resolves the nested bot payload returned by Feishu", async () => {
+  const client: FeishuApiClient = {
+    async request(input) {
+      assert.equal(input.path, "/open-apis/bot/v3/info");
+      return {
+        code: 0,
+        bot: {
+          open_id: "ou_nested_bot",
+          app_name: "ClaudeCode Agent",
+        },
+      };
+    },
+  };
+
+  assert.deepEqual(await readFeishuBotInfo(client), {
+    botOpenId: "ou_nested_bot",
+    botAppName: "ClaudeCode Agent",
+  });
+});
+
 test("readFeishuAppScopes resolves granted app scope names", async () => {
   const client: FeishuApiClient = {
     async request(input) {

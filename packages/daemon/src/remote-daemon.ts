@@ -5,7 +5,7 @@ import { getDaemonChannelWorkDirPath, getDaemonTaskWorkDirPath } from "@dofe-age
 import { getStringFlag, parseArgs } from "./args.ts";
 import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, RegisterDaemonResponse } from "./daemon-api.ts";
 import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputBundle } from "./bundle.ts";
-import { HttpDaemonClient } from "./daemon-client.ts";
+import { DaemonAuthError, DaemonResourceGoneError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
 import {
   type DetectedProvider,
@@ -61,6 +61,31 @@ interface DaemonStatusSummary {
   stateDir: string;
 }
 
+/**
+ * How the remote daemon loop should react to a given error. Extracted as a pure
+ * function so the decision is unit-testable without driving real timers/exit.
+ *
+ * - `shutdown`:   fatal auth failure (401/403) — token is invalid/revoked; stop.
+ * - `skip-runtime`: the targeted runtime is gone (404) — drop it, keep polling.
+ * - `log`:        transient / unknown — log and let the next tick retry.
+ */
+export type RemoteLoopErrorAction = "shutdown" | "skip-runtime" | "log";
+
+export function classifyRemoteLoopError(error: unknown): RemoteLoopErrorAction {
+  if (error instanceof DaemonAuthError) {
+    return "shutdown";
+  }
+  if (error instanceof DaemonResourceGoneError) {
+    return "skip-runtime";
+  }
+  return "log";
+}
+
+/** Shared, actionable message used wherever the daemon's token is rejected. */
+export const DAEMON_AUTH_REJECTED_MESSAGE =
+  "Daemon token rejected by server (HTTP 401/403 — invalid or revoked). "
+  + "Re-register the daemon with a valid --daemon-token / DOFE_AGENT_DAEMON_TOKEN.";
+
 export async function runRemoteDaemonCommand(subcommand: string | undefined, args: string[]): Promise<number> {
   if (subcommand === "start") {
     return runRemoteDaemonStart(args);
@@ -105,24 +130,34 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
   }
 
   const client = new HttpDaemonClient(config.serverUrl, config.daemonToken);
-  const registered = await client.register({
-    daemonKey: config.daemonKey,
-    deviceName: config.deviceName,
-    metadata: readNodeMetadata(config.serverUrl, config.runtimeName),
-    runtimes: detected.map((provider) => ({
-      provider: provider.provider,
-      name: `${config.runtimeName} · ${provider.label}`,
-      version: provider.version,
-      deviceInfo: config.deviceName,
-      metadata: buildProviderRuntimeMetadata({
+  let registered: RegisterDaemonResponse;
+  try {
+    registered = await client.register({
+      daemonKey: config.daemonKey,
+      deviceName: config.deviceName,
+      metadata: readNodeMetadata(config.serverUrl, config.runtimeName),
+      runtimes: detected.map((provider) => ({
         provider: provider.provider,
-        metadata: {
-          executablePath: provider.executablePath,
-          mode: "remote",
-        },
-      }),
-    })),
-  });
+        name: `${config.runtimeName} · ${provider.label}`,
+        version: provider.version,
+        deviceInfo: config.deviceName,
+        metadata: buildProviderRuntimeMetadata({
+          provider: provider.provider,
+          metadata: {
+            executablePath: provider.executablePath,
+            mode: "remote",
+          },
+        }),
+      })),
+    });
+  } catch (error) {
+    rmSync(pidPath, { force: true });
+    if (error instanceof DaemonAuthError) {
+      console.error(`\n[FATAL] ${DAEMON_AUTH_REJECTED_MESSAGE}\n`);
+      return 1;
+    }
+    throw error;
+  }
 
   let runtimes = buildRemoteRuntimeRecords(config, registered, detected);
   if (runtimes.length === 0) {
@@ -158,6 +193,10 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
           }
         }
       } catch (error) {
+        if (classifyRemoteLoopError(error) === "shutdown") {
+          fatalShutdown(DAEMON_AUTH_REJECTED_MESSAGE);
+          return;
+        }
         const message = error instanceof Error ? error.message : String(error);
         console.error(`Heartbeat failed: ${message}`);
       }
@@ -172,6 +211,10 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
     polling = true;
     void pollRemoteTasks(client, config, runtimes, activeRuntimes)
       .catch((error) => {
+        if (classifyRemoteLoopError(error) === "shutdown") {
+          fatalShutdown(DAEMON_AUTH_REJECTED_MESSAGE);
+          return;
+        }
         const message = error instanceof Error ? error.message : String(error);
         console.error(`Remote task polling failed: ${message}`);
       })
@@ -198,6 +241,30 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
       }
       console.log(`Remote daemon stopped (${signal}).`);
       process.exit(0);
+    })();
+  };
+
+  /**
+   * Fatal, non-recoverable exit. Used when the daemon's token is rejected: there is
+   * no point retrying, so we stop the loops, deregister best-effort, and exit with a
+   * loud, actionable message instead of spamming the server with doomed requests.
+   */
+  const fatalShutdown = (reason: string): void => {
+    if (stopping) {
+      return;
+    }
+    stopping = true;
+    clearInterval(heartbeatTimer);
+    clearInterval(taskPollTimer);
+    rmSync(pidPath, { force: true });
+    void (async () => {
+      try {
+        await client.deregister(config.daemonKey, reason);
+      } catch {
+        // Best effort — we are exiting regardless.
+      }
+      console.error(`\n[FATAL] ${reason}\n`);
+      process.exit(1);
     })();
   };
 
@@ -480,34 +547,46 @@ async function pollRemoteTasks(
       continue;
     }
 
-    const appOperation = await client.claimRuntimeAppOperation(runtime.id);
-    if (appOperation.operation) {
+    try {
+      const appOperation = await client.claimRuntimeAppOperation(runtime.id);
+      if (appOperation.operation) {
+        activeRuntimes.add(runtime.id);
+        void executeRemoteRuntimeAppOperation(client, appOperation.operation)
+          .catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(`Runtime app operation ${appOperation.operation?.id ?? "unknown"} crashed: ${message}`);
+          })
+          .finally(() => {
+            activeRuntimes.delete(runtime.id);
+          });
+        continue;
+      }
+
+      const claimed = await client.claimTask(runtime.id);
+      if (!claimed.task) {
+        continue;
+      }
+
       activeRuntimes.add(runtime.id);
-      void executeRemoteRuntimeAppOperation(client, appOperation.operation)
+      void executeRemoteTask(client, config, runtime, claimed.task)
         .catch((error) => {
           const message = error instanceof Error ? error.message : String(error);
-          console.error(`Runtime app operation ${appOperation.operation?.id ?? "unknown"} crashed: ${message}`);
+          console.error(`Remote task ${claimed.task?.id ?? "unknown"} crashed: ${message}`);
         })
         .finally(() => {
           activeRuntimes.delete(runtime.id);
         });
-      continue;
+    } catch (error) {
+      if (classifyRemoteLoopError(error) === "skip-runtime") {
+        // Runtime was deleted server-side. The next successful heartbeat reconciles
+        // (prunes) it from `runtimes`, so this surfaces at most once per deletion.
+        console.warn(
+          `Runtime ${runtime.id} no longer exists on the server; skipping until heartbeat reconciles.`,
+        );
+        continue;
+      }
+      throw error;
     }
-
-    const claimed = await client.claimTask(runtime.id);
-    if (!claimed.task) {
-      continue;
-    }
-
-    activeRuntimes.add(runtime.id);
-    void executeRemoteTask(client, config, runtime, claimed.task)
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`Remote task ${claimed.task?.id ?? "unknown"} crashed: ${message}`);
-      })
-      .finally(() => {
-        activeRuntimes.delete(runtime.id);
-      });
   }
 }
 

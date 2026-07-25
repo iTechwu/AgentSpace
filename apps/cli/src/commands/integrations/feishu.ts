@@ -68,7 +68,7 @@ import {
   resolveFeishuResourceDescriptorForType,
   sanitizeFeishuOperationResponseSummary,
   setEmployeeChannelMemberAccessSync,
-  startFeishuWebSocketWorker,
+  startFeishuWebSocketWorkerSupervisor,
   summarizeFeishuStoredCredentials,
   tryRecordWorkspaceAuditEventSync,
   rotateFeishuAgentBotCredentialsSync,
@@ -982,6 +982,8 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
     ?? getStringFlag(parsed.flags, "integration-id")
     ?? process.env.DOFE_AGENT_FEISHU_INTEGRATION_ID?.trim();
   const limit = getNumberFlag(parsed.flags, "limit", 50);
+  const refreshIntervalMs = getNumberFlag(parsed.flags, "refresh-interval", 15_000);
+  const outboxDrainIntervalMs = getNumberFlag(parsed.flags, "outbox-drain-interval", 2_000);
   const lockedBy = getStringFlag(parsed.flags, "locked-by")
     ?? process.env.DOFE_AGENT_FEISHU_WORKER_ID?.trim()
     ?? "dofe-agent-feishu-worker";
@@ -1391,13 +1393,15 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
   }
 
   if (!drainOutboxOnly) {
-    const worker = await startFeishuWebSocketWorker({
+    const worker = await startFeishuWebSocketWorkerSupervisor({
       workspaceId,
       integrationId,
       lockedBy,
       baseUrl,
       domain,
       drainOutboxLimit: limit,
+      refreshIntervalMs,
+      outboxDrainIntervalMs,
       dryRun,
       includeWebhookIntegrations,
     });
@@ -10509,7 +10513,7 @@ function printFeishuIntegrationHelp(): void {
   dofe-agent integrations feishu auto-provision-policy --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--bot-added-policy auto_create_channel|pending_admin_review|disabled] [--first-message-policy auto_create_if_bot_mentioned|pending_admin_review|reply_with_setup_card|disabled] [--review-status approved|pending_admin_review|needs_identity_binding] [--unbound-user-mode ignore|reply_on_mention|reply_all|require_identity] [--guest-permission-profile none|channel_context_only|channel_readonly] [--require-identity-for writes,approvals] [--json]
   dofe-agent integrations feishu agent-channel-access --workspace-id <id> (--agent <agent-id-or-name>|--integration <agent-bot-id>) --access enabled|disabled [--json]
   dofe-agent integrations feishu agent-bot-readiness --workspace-id <id> [--agent <agent-id-or-name>|--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
-  dofe-agent integrations feishu worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--domain <host>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
+  dofe-agent integrations feishu worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--refresh-interval <ms>] [--outbox-drain-interval <ms>] [--base-url <url>] [--domain <host>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
   dofe-agent integrations feishu readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
   dofe-agent integrations feishu smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require bot|data-plane|worker] [--json]
   dofe-agent integrations feishu smoke-env [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--json]
@@ -10544,6 +10548,8 @@ Options:
   --access <value>         Agent channel access smoke helper: enabled|disabled
   --guest-readable       Resource bind: allow external guests to read this bound resource in its current channel
   --limit <n>              Outbox drain batch size; defaults to 50
+  --refresh-interval <ms>  Reconcile active Feishu bindings; defaults to 15000ms
+  --outbox-drain-interval <ms> Send agent replies and status updates; defaults to 2000ms
   --base-url <url>         Feishu OpenAPI base URL; defaults to DOFE_AGENT_FEISHU_API_BASE_URL
   --app-url <url>          Public DofeAgent URL used by smoke-plan/smoke-env callback values
   --title <text>           Data operation: Feishu Doc create title; stored output only reports length

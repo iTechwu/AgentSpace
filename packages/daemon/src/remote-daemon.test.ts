@@ -4,8 +4,10 @@ import test from "node:test";
 import {
   buildRemoteDaemonConfig,
   buildRemoteDaemonRelaunchCommand,
+  classifyRemoteLoopError,
   resolveRemoteTaskProviderSessionId,
 } from "./remote-daemon.ts";
+import { DaemonAuthError, DaemonResourceGoneError } from "./daemon-client.ts";
 
 test("buildRemoteDaemonConfig reads env-backed defaults without repository state", () => {
   const config = buildRemoteDaemonConfig(
@@ -160,4 +162,19 @@ test("resolveRemoteTaskProviderSessionId reads channel session from task payload
   );
   assert.equal(resolveRemoteTaskProviderSessionId(JSON.stringify({ channelSessionId: "" })), undefined);
   assert.equal(resolveRemoteTaskProviderSessionId("{not-json"), undefined);
+});
+
+test("classifyRemoteLoopError routes auth failures to shutdown and 404 to skip-runtime", () => {
+  // Fatal auth errors (invalid/revoked token) must stop the daemon — never loop.
+  assert.equal(classifyRemoteLoopError(new DaemonAuthError("Invalid daemon token.", 403)), "shutdown");
+  assert.equal(classifyRemoteLoopError(new DaemonAuthError("Missing bearer token.", 401)), "shutdown");
+  // A deleted runtime is per-resource: drop it and keep polling the rest.
+  assert.equal(
+    classifyRemoteLoopError(new DaemonResourceGoneError('Runtime "x" does not exist.', 404)),
+    "skip-runtime",
+  );
+  // Transient / unknown errors stay on the existing "log and retry next tick" path.
+  assert.equal(classifyRemoteLoopError(new Error("connect ECONNREFUSED 127.0.0.1:5432")), "log");
+  assert.equal(classifyRemoteLoopError(new Error("temporary failure")), "log");
+  assert.equal(classifyRemoteLoopError("string error"), "log");
 });

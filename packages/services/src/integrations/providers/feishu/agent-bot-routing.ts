@@ -135,7 +135,11 @@ export function ensureFeishuAgentMentionText(input: {
   agentId: string;
 }): string {
   const agentId = input.agentId.trim();
-  const text = input.text?.trim() ?? "";
+  // Feishu's long-connection payload may serialize the bot mention as a
+  // synthetic token such as `@_user_1`. It is not a DofeAgent member, so
+  // leaving it in the message makes the channel mention parser reject an
+  // otherwise valid bot-directed group message.
+  const text = stripFeishuSyntheticMentionTokens(input.text ?? "").trim();
   if (!agentId) {
     return text;
   }
@@ -143,6 +147,12 @@ export function ensureFeishuAgentMentionText(input: {
     return text;
   }
   return text ? `@${agentId} ${text}` : `@${agentId}`;
+}
+
+function stripFeishuSyntheticMentionTokens(text: string): string {
+  return text
+    .replace(/@_user_[A-Za-z0-9_-]+\b/g, "")
+    .replace(/\s+/g, " ");
 }
 
 export function isFeishuBotSenderPayload(input: {
@@ -231,14 +241,20 @@ export function isFeishuAgentBotMentioned(
   }
   const botOpenId = readFeishuAgentBotOpenId(binding);
   const mentions = Array.isArray(message.mentions) ? message.mentions : [];
-  const botMentions = mentions.filter((mention) => asRecord(mention)?.is_bot === true);
+  const botMentions = mentions.filter((mention) => {
+    const record = asRecord(mention);
+    return record?.is_bot === true || record?.isBot === true;
+  });
   for (const mention of mentions) {
     const record = asRecord(mention);
     if (!record) {
       continue;
     }
+    const mentionId = asRecord(record.id);
     const mentionOpenId = asString(record.open_id)
       ?? asString(record.openId)
+      ?? asString(mentionId?.open_id)
+      ?? asString(mentionId?.openId)
       ?? asString(record.user_id)
       ?? asString(record.userId)
       ?? asString(record.id);

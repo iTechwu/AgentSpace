@@ -38,6 +38,35 @@ export type {
   StartRuntimeAppOperationRequest,
 } from "./daemon-api.ts";
 
+/**
+ * Raised when the server rejects the daemon's bearer token (HTTP 401/403).
+ * This is a fatal, non-recoverable condition: the token is missing, invalid, or
+ * revoked, so the daemon must stop polling and prompt the operator to re-register
+ * rather than spamming the server with requests that will never succeed.
+ */
+export class DaemonAuthError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "DaemonAuthError";
+    this.status = status;
+  }
+}
+
+/**
+ * Raised when the targeted runtime/task/operation no longer exists on the server
+ * (HTTP 404). The caller should drop that resource from its poll set and continue;
+ * the heartbeat reconciliation prunes deleted runtimes on the next successful beat.
+ */
+export class DaemonResourceGoneError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "DaemonResourceGoneError";
+    this.status = status;
+  }
+}
+
 export class HttpDaemonClient {
   private readonly serverUrl: string;
   private readonly daemonToken: string;
@@ -208,6 +237,12 @@ export class HttpDaemonClient {
         }
       } catch {
         // Ignore invalid error payloads.
+      }
+      if (response.status === 401 || response.status === 403) {
+        throw new DaemonAuthError(message, response.status);
+      }
+      if (response.status === 404) {
+        throw new DaemonResourceGoneError(message, response.status);
       }
       throw new Error(message);
     }

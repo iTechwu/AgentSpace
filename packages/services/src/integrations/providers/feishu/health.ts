@@ -94,10 +94,12 @@ export async function readFeishuBotInfo(client: FeishuApiClient): Promise<{
     method: "GET",
     path: "/open-apis/bot/v3/info",
   });
-  const data = asRecord(response.data) ?? response;
+  const responseRecord = asRecord(response) ?? {};
+  const data = asRecord(responseRecord.data);
+  const bot = asRecord(responseRecord.bot) ?? asRecord(data?.bot) ?? data ?? responseRecord;
   return {
-    botOpenId: asString(data.open_id) ?? asString(data.bot_open_id),
-    botAppName: asString(data.app_name) ?? asString(data.name),
+    botOpenId: asString(bot.open_id) ?? asString(bot.bot_open_id),
+    botAppName: asString(bot.app_name) ?? asString(bot.name),
   };
 }
 
