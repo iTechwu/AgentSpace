@@ -12,6 +12,7 @@ import {
 } from "@dofe-agent/services";
 import {
   buildTaskPrompt,
+  buildDaemonConfig,
   clearTaskOutputArtifacts,
   loadTaskOutputEnvelope,
   runDaemonCommand,
@@ -29,6 +30,12 @@ before(() => {
     symlinkSync(join(repositoryRoot, "packages"), packagesLink, "dir");
   }
   process.chdir(tempRoot);
+});
+
+test("buildDaemonConfig preserves an explicit workspace id", () => {
+  const config = buildDaemonConfig({ "workspace-id": "workspace-alpha" });
+
+  assert.equal(config.workspaceId, "workspace-alpha");
 });
 
 test("loadTaskOutputEnvelope accepts relative workDir attachments", () => {

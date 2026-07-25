@@ -132,7 +132,7 @@ test("install script prints installed daemon version in bootstrap summary", () =
   const npmDir = join(tempRoot, "npm-bin");
   const providerBinDir = join(tempRoot, "provider-bin");
   const baseDir = join(tempRoot, "state");
-  const installRoot = join(tempRoot, "runtime");
+  const installRoot = join(baseDir, "runtime");
   const envFile = join(baseDir, "daemon.env");
   const launcherPath = join(baseDir, "start-daemon.sh");
 
@@ -173,6 +173,17 @@ test("install script prints installed daemon version in bootstrap summary", () =
       "exit 0",
       "",
     ].join("\n"));
+    // Match BSD install: it does not support GNU's -D flag. The installer
+    // already creates parent directories, so plain install must be enough.
+    writeExecutable(npmDir, "install", [
+      "#!/bin/sh",
+      "if [ \"$1\" = \"-D\" ]; then exit 64; fi",
+      "mode=''",
+      "if [ \"$1\" = \"-m\" ]; then mode=\"$2\"; shift 2; fi",
+      "cp \"$1\" \"$2\"",
+      "if [ -n \"$mode\" ]; then chmod \"$mode\" \"$2\"; fi",
+      "",
+    ].join("\n"));
 
     const result = spawnSync("bash", [
       installerPath,
@@ -181,9 +192,6 @@ test("install script prints installed daemon version in bootstrap summary", () =
       "--daemon-token", "adt_test",
       "--daemon-id", "daemon-test",
       "--base-dir", baseDir,
-      "--env-file", envFile,
-      "--launcher", launcherPath,
-      "--install-root", installRoot,
       "--path", `${providerBinDir}:${process.env.PATH ?? ""}`,
     ], {
       env: {
@@ -196,6 +204,8 @@ test("install script prints installed daemon version in bootstrap summary", () =
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Installed dofe-agent-daemon version: 9\.8\.7-test/);
     assert.match(result.stdout, /Version:\n  9\.8\.7-test/);
+    assert.equal(existsSync(envFile), true);
+    assert.equal(existsSync(launcherPath), true);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

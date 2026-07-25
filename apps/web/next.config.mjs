@@ -7,6 +7,7 @@ const repositoryRoot = join(projectDir, "..", "..");
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   allowedDevOrigins: [
+    "agentspace.local.dofe.ai",
     "dofe-agent.local.dofe.ai",
     "hire-an-agent.online",
     "feishu-e2e.hire-an-agent.online",

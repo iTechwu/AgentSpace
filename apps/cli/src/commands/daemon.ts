@@ -139,7 +139,7 @@ export async function runDaemonCommand(
   }
 
   console.error(
-    "Usage: dofe-agent daemon start [--foreground] [--daemon-id <id>] [--device-name <name>] [--runtime-name <label>] [--heartbeat-interval <ms>] [--task-timeout <ms>]",
+    "Usage: dofe-agent daemon start [--foreground] [--workspace-id <id>] [--daemon-id <id>] [--device-name <name>] [--runtime-name <label>] [--heartbeat-interval <ms>] [--task-timeout <ms>]",
   );
   console.error("   or: dofe-agent daemon stop");
   console.error("   or: dofe-agent daemon status [--json]");
@@ -191,6 +191,9 @@ async function runDaemonStart(args: string[]): Promise<number> {
     "--task-timeout",
     String(config.taskTimeoutMs),
   ];
+  if (config.workspaceId) {
+    childArgs.push("--workspace-id", config.workspaceId);
+  }
   if (config.serverUrl) {
     childArgs.push("--server-url", config.serverUrl);
   }
@@ -249,6 +252,7 @@ async function runLocalDaemonForeground(config: DaemonConfig): Promise<number> {
   const snapshot = registerDaemonRuntimesSync({
     daemonKey: config.daemonKey,
     deviceName: config.deviceName,
+    workspaceId: config.workspaceId,
     metadata: buildLocalDaemonMetadata(config),
     runtimes: detected.map((provider) => ({
       provider: provider.provider,
@@ -541,6 +545,7 @@ interface DaemonConfig {
   daemonKey: string;
   deviceName: string;
   runtimeName: string;
+  workspaceId?: string;
   heartbeatIntervalMs: number;
   taskPollIntervalMs: number;
   taskTimeoutMs: number;
@@ -550,7 +555,7 @@ interface DaemonConfig {
 
 type DetectedProvider = SharedDetectedProvider;
 
-function buildDaemonConfig(flags: Record<string, string | boolean>): DaemonConfig {
+export function buildDaemonConfig(flags: Record<string, string | boolean>): DaemonConfig {
   const hostname = process.env.HOSTNAME || process.env.COMPUTERNAME || "local-machine";
   const mode = getStringFlag(flags, "mode")?.trim() === "remote" ? "remote" : "local";
   return {
@@ -558,6 +563,7 @@ function buildDaemonConfig(flags: Record<string, string | boolean>): DaemonConfi
     daemonKey: getStringFlag(flags, "daemon-id")?.trim() || hostname,
     deviceName: getStringFlag(flags, "device-name")?.trim() || hostname,
     runtimeName: getStringFlag(flags, "runtime-name")?.trim() || "Local Agent",
+    workspaceId: getStringFlag(flags, "workspace-id")?.trim() || process.env.DOFE_AGENT_WORKSPACE_ID?.trim() || undefined,
     heartbeatIntervalMs: Math.max(
       1_000,
       Number(getStringFlag(flags, "heartbeat-interval") ?? DEFAULT_HEARTBEAT_INTERVAL_MS),

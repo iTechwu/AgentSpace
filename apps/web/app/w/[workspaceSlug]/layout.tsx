@@ -3,6 +3,7 @@ import { getWorkspaceAccessForIdentifier } from "@/features/auth/server-workspac
 import { WorkspaceAccessScreen } from "@/features/auth/workspace-access-screen";
 import { WorkspaceFrame } from "@/features/dashboard/workspace-frame";
 import { getWorkspaceShellData } from "@/features/dashboard/workspace-shell-data";
+import { normalizeWorkspaceSlugParam } from "./_lib/workspace-slug";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,8 @@ export default async function WorkspaceSlugLayout({
   children: React.ReactNode;
   params: Promise<{ workspaceSlug: string }>;
 }) {
-  const { workspaceSlug } = await params;
+  const { workspaceSlug: routeWorkspaceSlug } = await params;
+  const workspaceSlug = normalizeWorkspaceSlugParam(routeWorkspaceSlug);
   const workspaceAccess = await getWorkspaceAccessForIdentifier(workspaceSlug);
   if (workspaceAccess.status === "unauthenticated") {
     redirect("/");

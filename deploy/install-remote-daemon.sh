@@ -27,7 +27,14 @@ DEVICE_NAME_SET="false"
 RUNTIME_NAME_SET="false"
 STATE_DIR_SET="false"
 INSTALL_ROOT_SET="false"
+ENV_FILE_SET="false"
+LAUNCHER_SET="false"
 PATH_SET="false"
+
+if [[ -n "${DOFE_AGENT_DAEMON_STATE_DIR:-}" ]]; then STATE_DIR_SET="true"; fi
+if [[ -n "${DOFE_AGENT_DAEMON_INSTALL_ROOT:-}" ]]; then INSTALL_ROOT_SET="true"; fi
+if [[ -n "${DOFE_AGENT_DAEMON_ENV_FILE:-}" ]]; then ENV_FILE_SET="true"; fi
+if [[ -n "${DOFE_AGENT_DAEMON_LAUNCHER:-}" ]]; then LAUNCHER_SET="true"; fi
 
 print_help() {
   cat <<'EOF'
@@ -299,6 +306,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --base-dir)
       BASE_DIR="${2:-}"
+      if [[ "$STATE_DIR_SET" != "true" ]]; then STATE_DIR="$BASE_DIR"; fi
+      if [[ "$INSTALL_ROOT_SET" != "true" ]]; then INSTALL_ROOT="$BASE_DIR/runtime"; fi
+      if [[ "$ENV_FILE_SET" != "true" ]]; then ENV_FILE="$BASE_DIR/daemon.env"; fi
+      if [[ "$LAUNCHER_SET" != "true" ]]; then LAUNCHER_PATH="$BASE_DIR/start-daemon.sh"; fi
       shift 2
       ;;
     --state-dir)
@@ -313,10 +324,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --env-file)
       ENV_FILE="${2:-}"
+      ENV_FILE_SET="true"
       shift 2
       ;;
     --launcher)
       LAUNCHER_PATH="${2:-}"
+      LAUNCHER_SET="true"
       shift 2
       ;;
     --path)
@@ -471,7 +484,9 @@ DOFE_AGENT_DAEMON_STATE_DIR=$(printf '%q' "$STATE_DIR")
 DOFE_AGENT_DAEMON_INSTALL_ROOT=$(printf '%q' "$INSTALL_ROOT")
 DOFE_AGENT_DAEMON_BIN=$(printf '%q' "$BIN_PATH")
 EOF
-install -D -m 600 "$TMP_ENV_FILE" "$ENV_FILE"
+# Parent directories were created above. Avoid GNU-only install -D so this
+# bootstrap works with the BSD install shipped by macOS as well.
+install -m 600 "$TMP_ENV_FILE" "$ENV_FILE"
 rm -f "$TMP_ENV_FILE"
 
 TMP_LAUNCHER="$(mktemp /tmp/dofe-agent-daemon-launcher.XXXXXX)"
@@ -488,7 +503,7 @@ exec "\$DOFE_AGENT_DAEMON_BIN" start \\
   --device-name "\$DOFE_AGENT_DEVICE_NAME" \\
   --runtime-name "\$DOFE_AGENT_RUNTIME_NAME"
 EOF
-install -D -m 700 "$TMP_LAUNCHER" "$LAUNCHER_PATH"
+install -m 700 "$TMP_LAUNCHER" "$LAUNCHER_PATH"
 rm -f "$TMP_LAUNCHER"
 
 if [[ "$START_NOW" == "true" ]]; then
