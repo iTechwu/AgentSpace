@@ -68,9 +68,9 @@ vi.mock("@/features/task-board/actions", () => ({
 const user: AuthUser = {
   id: "user-1",
   organizationName: "Agent Space",
-  displayName: "Tianyu",
+  displayName: "techwu",
   role: "admin",
-  email: "tianyu@example.com",
+  email: "techwu@example.com",
 };
 
 const shell: WorkspaceShellData = {
@@ -130,7 +130,7 @@ const channelsData: ChannelsPageData = {
       id: "general",
       name: "general",
       memberLabel: "1 humans / 1 agents",
-      humanMemberNames: ["Tianyu"],
+      humanMemberNames: ["techwu"],
       employeeNames: ["Ops Bot"],
       lastMessage: "hello",
       updatedAt: "10:00",
@@ -221,6 +221,7 @@ describe("WorkspaceFrame", () => {
     searchParams.delete("focus");
     searchParams.delete("mode");
     searchParams.delete("view");
+    searchParams.delete("context");
   });
 
   it("shows the compact default sidebar groups with clear hierarchy", async () => {
@@ -684,7 +685,7 @@ describe("WorkspaceFrame", () => {
         return new Response(JSON.stringify({
           data: {
             moduleId: "im",
-            currentUserDisplayName: "Tianyu",
+            currentUserDisplayName: "techwu",
             data: channelsData,
           },
         }), {
@@ -703,12 +704,12 @@ describe("WorkspaceFrame", () => {
             <WorkspaceInitialModuleData
               moduleData={{
                 moduleId: "im",
-                currentUserDisplayName: "Tianyu",
+                currentUserDisplayName: "techwu",
                 data: channelsData,
               }}
               workspaceId={workspaces[0].id}
             >
-              <ChannelsPageClient currentUserDisplayName="Tianyu" data={channelsData} />
+              <ChannelsPageClient currentUserDisplayName="techwu" data={channelsData} />
             </WorkspaceInitialModuleData>
           </WorkspaceFrame>
         </FeedbackToastProvider>
@@ -745,7 +746,7 @@ describe("WorkspaceFrame", () => {
         return new Response(JSON.stringify({
           data: {
             moduleId: "im",
-            currentUserDisplayName: "Tianyu",
+            currentUserDisplayName: "techwu",
             data: channelsData,
           },
         }), {
@@ -800,12 +801,12 @@ describe("WorkspaceFrame", () => {
             <WorkspaceInitialModuleData
               moduleData={{
                 moduleId: "im",
-                currentUserDisplayName: "Tianyu",
+                currentUserDisplayName: "techwu",
                 data: channelsData,
               }}
               workspaceId={workspaces[0].id}
             >
-              <ChannelsPageClient currentUserDisplayName="Tianyu" data={channelsData} />
+              <ChannelsPageClient currentUserDisplayName="techwu" data={channelsData} />
             </WorkspaceInitialModuleData>
           </WorkspaceFrame>
         </FeedbackToastProvider>
@@ -1186,8 +1187,8 @@ describe("WorkspaceFrame", () => {
             moduleId: "settings",
             data: {
               currentMembershipRole: "owner",
-              currentUserDisplayName: "Tianyu",
-              currentUserEmail: "tianyu@example.com",
+              currentUserDisplayName: "techwu",
+              currentUserEmail: "techwu@example.com",
               currentUserId: "user-1",
               currentWorkspaceName: "Alpha Workspace",
               currentWorkspaceSlug: "workspace-alpha",
@@ -1202,8 +1203,8 @@ describe("WorkspaceFrame", () => {
               members: [
                 {
                   userId: "user-1",
-                  displayName: "Tianyu",
-                  primaryEmail: "tianyu@example.com",
+                  displayName: "techwu",
+                  primaryEmail: "techwu@example.com",
                   role: "owner",
                 },
               ],
@@ -1228,8 +1229,8 @@ describe("WorkspaceFrame", () => {
                 moduleId: "settings",
                 data: {
                   currentMembershipRole: "owner",
-                  currentUserDisplayName: "Tianyu",
-                  currentUserEmail: "tianyu@example.com",
+                  currentUserDisplayName: "techwu",
+                  currentUserEmail: "techwu@example.com",
                   currentUserId: "user-1",
                   currentWorkspaceName: "Alpha Workspace",
                   currentWorkspaceSlug: "workspace-alpha",
@@ -1251,8 +1252,8 @@ describe("WorkspaceFrame", () => {
                 <div data-testid="settings-shell-marker">settings-shell-state</div>
                 <SettingsPageClient
                   currentMembershipRole="owner"
-                  currentUserDisplayName="Tianyu"
-                  currentUserEmail="tianyu@example.com"
+                  currentUserDisplayName="techwu"
+                  currentUserEmail="techwu@example.com"
                   currentUserId="user-1"
                   currentWorkspaceName="Alpha Workspace"
                   currentWorkspaceSlug="workspace-alpha"
@@ -1293,8 +1294,8 @@ describe("WorkspaceFrame", () => {
                 moduleId: "settings",
                 data: {
                   currentMembershipRole: "member",
-                  currentUserDisplayName: "Tianyu",
-                  currentUserEmail: "tianyu@example.com",
+                  currentUserDisplayName: "techwu",
+                  currentUserEmail: "techwu@example.com",
                   currentUserId: "user-1",
                   currentWorkspaceName: "Alpha Workspace",
                   currentWorkspaceSlug: "workspace-alpha",
@@ -1314,8 +1315,8 @@ describe("WorkspaceFrame", () => {
             >
               <SettingsPageClient
                 currentMembershipRole="member"
-                currentUserDisplayName="Tianyu"
-                currentUserEmail="tianyu@example.com"
+                currentUserDisplayName="techwu"
+                currentUserEmail="techwu@example.com"
                 currentUserId="user-1"
                 currentWorkspaceName="Alpha Workspace"
                 currentWorkspaceSlug="workspace-alpha"
@@ -1358,8 +1359,8 @@ describe("WorkspaceFrame", () => {
                 moduleId: "settings",
                 data: {
                   currentMembershipRole: "owner",
-                  currentUserDisplayName: "Tianyu",
-                  currentUserEmail: "tianyu@example.com",
+                  currentUserDisplayName: "techwu",
+                  currentUserEmail: "techwu@example.com",
                   currentUserId: "user-1",
                   currentWorkspaceName: "Alpha Workspace",
                   currentWorkspaceSlug: "workspace-alpha",
@@ -1379,8 +1380,8 @@ describe("WorkspaceFrame", () => {
             >
               <SettingsPageClient
                 currentMembershipRole="owner"
-                currentUserDisplayName="Tianyu"
-                currentUserEmail="tianyu@example.com"
+                currentUserDisplayName="techwu"
+                currentUserEmail="techwu@example.com"
                 currentUserId="user-1"
                 currentWorkspaceName="Alpha Workspace"
                 currentWorkspaceSlug="workspace-alpha"
@@ -1480,9 +1481,26 @@ describe("WorkspaceFrame", () => {
     expect(await screen.findByRole("dialog", { name: "新手引导" })).toBeInTheDocument();
   });
 
-  it("only highlights digital contacts in direct conversation view", () => {
+  it("keeps direct digital conversations under Messages", () => {
     pathname = "/w/workspace-alpha/im";
     searchParams.set("view", "direct");
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <WorkspaceFrame currentMembershipRole="owner" currentWorkspace={workspaces[0]} shell={shell} user={user} workspaces={workspaces}>
+          <div>Workspace content</div>
+        </WorkspaceFrame>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("link", { name: /消息/ })).toHaveClass("workspace-sidebar__section-link--active");
+    expect(screen.getByRole("link", { name: /联系人/ })).not.toHaveClass("workspace-sidebar__section-link--active");
+  });
+
+  it("highlights Contacts for the digital employee directory context", () => {
+    pathname = "/w/workspace-alpha/im";
+    searchParams.set("view", "direct");
+    searchParams.set("context", "contacts");
 
     render(
       <LanguageProvider initialLanguage="zh">
@@ -1575,7 +1593,7 @@ describe("WorkspaceFrame", () => {
       new Response(JSON.stringify({
         data: {
           moduleId: "contacts",
-          currentUserDisplayName: "Tianyu",
+          currentUserDisplayName: "techwu",
           data: {
             channels: ["general"],
             contacts: [

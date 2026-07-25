@@ -41,7 +41,7 @@ const data: DataTablesPageData = {
       id: "table-1",
       name: "行程表",
       status: "active",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdAt: "2026-04-10T08:00:00.000Z",
       updatedAt: "2026-04-10T09:00:00.000Z",
       columns: [
@@ -50,7 +50,7 @@ const data: DataTablesPageData = {
       rows: [
         {
           id: "row-1",
-          createdBy: "Tianyu",
+          createdBy: "techwu",
           createdAt: "2026-04-10T08:30:00.000Z",
           updatedAt: "2026-04-10T08:30:00.000Z",
           cells: { "col-city": "大阪" },

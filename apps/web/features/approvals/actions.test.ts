@@ -170,7 +170,7 @@ describe("approval actions", () => {
       requestId: "request-1",
       actor: {
         userId: "user-1",
-        displayName: "Tianyu",
+        displayName: "techwu",
         role: "admin",
       },
     });
@@ -240,7 +240,7 @@ describe("approval actions", () => {
       proposalId: "knowledge-proposal-1",
       actor: {
         userId: "user-1",
-        displayName: "Tianyu",
+        displayName: "techwu",
         role: "owner",
       },
       reviewerComment: "Keep it",
@@ -266,9 +266,9 @@ function buildWorkspaceContext(role: "owner" | "admin" | "member") {
     currentUser: {
       id: "user-1",
       organizationName: "Northstar Labs",
-      displayName: "Tianyu",
+      displayName: "techwu",
       role: "owner",
-      email: "tianyu@example.com",
+      email: "techwu@example.com",
     },
     currentWorkspace: {
       id: "workspace-1",

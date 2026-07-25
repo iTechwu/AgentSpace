@@ -526,8 +526,8 @@ export function ChannelDocumentsPanel({
               <strong>{tx("表格内容在 Google Sheets 中编辑", "Sheet content is edited in Google Sheets")}</strong>
               <span>
                 {tx(
-                  "AgentSpace 会保留链接、权限状态和 agent 操作记录。",
-                  "AgentSpace keeps the link, permission state, and agent operation history.",
+                  "agent.dofe 会保留链接、权限状态和 agent 操作记录。",
+                  "agent.dofe keeps the link, permission state, and agent operation history.",
                 )}
               </span>
             </div>

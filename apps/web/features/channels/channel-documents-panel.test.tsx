@@ -15,7 +15,7 @@ const baseDocument: ChannelDocumentRecord = {
   summary: "春季行程草稿",
   status: "active",
   updatedAt: "2026-04-07T09:30:00.000Z",
-  updatedBy: "Tianyu",
+  updatedBy: "techwu",
   lastEditorType: "human",
   contentMarkdown: "## Day 1\n大阪",
   versionCount: 2,
@@ -25,7 +25,7 @@ const baseDocument: ChannelDocumentRecord = {
       id: "ver-2",
       summary: "最新草稿",
       createdAt: "2026-04-07T09:30:00.000Z",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
       triggerType: "manual",
     },
@@ -83,7 +83,7 @@ const baseDocument: ChannelDocumentRecord = {
   currentUserRole: "owner",
   collaborators: [
     {
-      actorId: "Tianyu",
+      actorId: "techwu",
       actorType: "human",
       role: "owner",
       isCurrentUser: true,
@@ -619,7 +619,7 @@ describe("ChannelDocumentsPanel", () => {
         documents={[externalSheetDocument]}
         googleWorkspace={{
           status: "connected",
-          email: "tianyu@gmail.com",
+          email: "techwu@gmail.com",
           scopes: ["https://www.googleapis.com/auth/drive.file"],
           updatedAt: "2026-04-30T00:00:00.000Z",
         }}

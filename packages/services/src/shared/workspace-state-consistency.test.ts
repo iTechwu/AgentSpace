@@ -29,12 +29,12 @@ test("readWorkspaceStateSync recovers missing agents from runtime bindings", () 
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
-    ownerName: "Tianyu",
+    ownerName: "techwu",
     ownerRole: "Founder",
     firstChannelName: "tour visit",
   });
   createEmployeeSync({
-    name: "Tianyu's assistant",
+    name: "techwu's assistant",
     role: "Planner",
     origin: "manual",
   });
@@ -44,7 +44,7 @@ test("readWorkspaceStateSync recovers missing agents from runtime bindings", () 
     deviceName: "MacBook Pro",
     runtimes: [{ provider: "codex", name: "Local Agent · Codex" }],
   }).runtimes[0];
-  bindEmployeeRuntimeSync("Tianyu's assistant", runtime.id);
+  bindEmployeeRuntimeSync("techwu's assistant", runtime.id);
 
   const persisted = readWorkspaceStateRecordSync();
   assert.ok(persisted);
@@ -52,12 +52,12 @@ test("readWorkspaceStateSync recovers missing agents from runtime bindings", () 
     ...persisted!,
     activeEmployees: [],
   });
-  deleteStoredEmployeeSync("Tianyu's assistant");
+  deleteStoredEmployeeSync("techwu's assistant");
 
   const repairedState = readWorkspaceStateSync();
 
   assert.equal(repairedState.activeEmployees.length, 1);
-  assert.equal(repairedState.activeEmployees[0]?.name, "Tianyu's assistant");
+  assert.equal(repairedState.activeEmployees[0]?.name, "techwu's assistant");
   assert.equal(repairedState.activeEmployees[0]?.origin, "runtime-recovered");
   assert.equal(listEmployeeRuntimeBindingsForWorkspaceSync().length, 1);
   assert.match(repairedState.ledger[0]?.note ?? "", /recovered from native runtime binding/i);
@@ -67,12 +67,12 @@ test("readWorkspaceStateSnapshotSync projects recovered agents without mutating 
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
-    ownerName: "Tianyu",
+    ownerName: "techwu",
     ownerRole: "Founder",
     firstChannelName: "tour visit",
   });
   createEmployeeSync({
-    name: "Tianyu's assistant",
+    name: "techwu's assistant",
     role: "Planner",
     origin: "manual",
   });
@@ -82,7 +82,7 @@ test("readWorkspaceStateSnapshotSync projects recovered agents without mutating 
     deviceName: "MacBook Pro",
     runtimes: [{ provider: "codex", name: "Local Agent · Codex" }],
   }).runtimes[0];
-  bindEmployeeRuntimeSync("Tianyu's assistant", runtime.id);
+  bindEmployeeRuntimeSync("techwu's assistant", runtime.id);
 
   const persisted = readWorkspaceStateRecordSync();
   assert.ok(persisted);
@@ -90,13 +90,13 @@ test("readWorkspaceStateSnapshotSync projects recovered agents without mutating 
     ...persisted!,
     activeEmployees: [],
   });
-  deleteStoredEmployeeSync("Tianyu's assistant");
+  deleteStoredEmployeeSync("techwu's assistant");
 
   const projectedState = readWorkspaceStateSnapshotSync();
   const persistedStateBeforeRepair = readWorkspaceStateRecordSync();
 
   assert.equal(projectedState.activeEmployees.length, 1);
-  assert.equal(projectedState.activeEmployees[0]?.name, "Tianyu's assistant");
+  assert.equal(projectedState.activeEmployees[0]?.name, "techwu's assistant");
   assert.equal(projectedState.activeEmployees[0]?.origin, "runtime-recovered");
   assert.equal(
     projectedState.ledger.some((entry) => /recovered from native runtime binding/i.test(entry.note)),
@@ -114,7 +114,7 @@ test("resetWorkspaceStateSync clears runtime and binding execution state", () =>
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
-    ownerName: "Tianyu",
+    ownerName: "techwu",
     ownerRole: "Founder",
     firstChannelName: "tour visit",
   });

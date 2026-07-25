@@ -11,7 +11,7 @@ describe("workspace module loader profile helpers", () => {
   it("measures seed bytes and ranks slowest/largest modules", () => {
     const samples: WorkspaceModuleProfileSample[] = [
       createProfileSample({
-        moduleData: { moduleId: "im", currentUserDisplayName: "Tianyu", data: { channels: Array.from({ length: 8 }, (_, index) => ({ id: index })) } },
+        moduleData: { moduleId: "im", currentUserDisplayName: "techwu", data: { channels: Array.from({ length: 8 }, (_, index) => ({ id: index })) } },
         serverDurationMs: 24,
       }),
       createProfileSample({

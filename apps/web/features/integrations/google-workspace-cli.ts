@@ -865,7 +865,7 @@ function buildGoogleSheetsFailureMessage(
 ): string {
   const statusText = status ? ` (${status}${reason ? ` ${reason}` : ""})` : "";
   const visibilityHint = status === 404
-    ? " The current OAuth client/scope may be unable to see this file even if the Google account can open it in a browser. With drive.file scope, authorize the file through the app/Picker, create it through AgentSpace, or adopt a reviewed broader scope."
+    ? " The current OAuth client/scope may be unable to see this file even if the Google account can open it in a browser. With drive.file scope, authorize the file through the app/Picker, create it through agent.dofe, or adopt a reviewed broader scope."
     : "";
   return `Google Sheets ${operationType} failed${statusText}. ${message}${visibilityHint}`;
 }

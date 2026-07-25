@@ -34,9 +34,9 @@ describe("server workspace context", () => {
     const user: AuthUser = {
       id: "user-1",
       organizationName: "Northstar Labs",
-      displayName: "Tianyu",
+      displayName: "techwu",
       role: "Founder",
-      email: "tianyu@example.com",
+      email: "techwu@example.com",
     };
     seedUser(user);
 

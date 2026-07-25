@@ -159,9 +159,9 @@ function buildWorkspaceContext(
     currentUser: {
       id: "user-1",
       organizationName: workspaceName,
-      displayName: "Tianyu",
+      displayName: "techwu",
       role: "owner",
-      email: "tianyu@example.com",
+      email: "techwu@example.com",
     },
     currentWorkspace: {
       id: workspaceId,

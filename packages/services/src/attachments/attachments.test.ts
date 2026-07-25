@@ -405,11 +405,11 @@ test("pruneOrphanWorkspaceAttachmentsSync keeps attachments referenced by knowle
   writeWorkspaceStateSync({
     ...readWorkspaceStateSync(),
     organizationName: "Northstar Labs",
-    humanMembers: [{ name: "Tianyu", role: "Founder" }],
+    humanMembers: [{ name: "techwu", role: "Founder" }],
     activeEmployees: [],
     channels: [{
       name: "tour visit",
-      humanMemberNames: ["Tianyu"],
+      humanMemberNames: ["techwu"],
       humanMembers: 1,
       employeeNames: [],
     }],
@@ -427,7 +427,7 @@ test("pruneOrphanWorkspaceAttachmentsSync keeps attachments referenced by knowle
       {
         id: "message-1",
         channel: "tour visit",
-        speaker: "Tianyu",
+        speaker: "techwu",
         role: "human",
         time: "10:00",
         summary: "附件已保存。",
@@ -444,7 +444,7 @@ test("pruneOrphanWorkspaceAttachmentsSync keeps attachments referenced by knowle
   createKnowledgePageFromSharedDocumentSync({
     sourceType: "attachment",
     sourceId: referenced.id,
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
 
@@ -470,11 +470,11 @@ test("pruneOrphanWorkspaceAttachmentsSync keeps attachments referenced by import
   writeWorkspaceStateSync({
     ...readWorkspaceStateSync(),
     organizationName: "Northstar Labs",
-    humanMembers: [{ name: "Tianyu", role: "Founder" }],
+    humanMembers: [{ name: "techwu", role: "Founder" }],
     activeEmployees: [],
     channels: [{
       name: "tour visit",
-      humanMemberNames: ["Tianyu"],
+      humanMemberNames: ["techwu"],
       humanMembers: 1,
       employeeNames: [],
     }],
@@ -492,7 +492,7 @@ test("pruneOrphanWorkspaceAttachmentsSync keeps attachments referenced by import
       {
         id: "message-1",
         channel: "tour visit",
-        speaker: "Tianyu",
+        speaker: "techwu",
         role: "human",
         time: "10:00",
         summary: "附件已保存。",
@@ -509,7 +509,7 @@ test("pruneOrphanWorkspaceAttachmentsSync keeps attachments referenced by import
   createChannelDocumentFromAttachmentSync({
     channelName: "tour visit",
     attachmentId: referenced.id,
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
 
@@ -534,11 +534,11 @@ test("deleteChannelSync prunes attachments that only belonged to the deleted cha
   writeWorkspaceStateSync({
     ...readWorkspaceStateSync(),
     organizationName: "Northstar Labs",
-    humanMembers: [{ name: "Tianyu", role: "Founder" }],
+    humanMembers: [{ name: "techwu", role: "Founder" }],
     activeEmployees: [],
     channels: [{
       name: "tour visit",
-      humanMemberNames: ["Tianyu"],
+      humanMemberNames: ["techwu"],
       humanMembers: 1,
       employeeNames: [],
     }],
@@ -556,7 +556,7 @@ test("deleteChannelSync prunes attachments that only belonged to the deleted cha
       {
         id: "message-1",
         channel: "tour visit",
-        speaker: "Tianyu",
+        speaker: "techwu",
         role: "human",
         time: "10:00",
         summary: "附件已保存。",

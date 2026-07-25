@@ -35,7 +35,7 @@ describe("workspace shell counters route", () => {
 
     expect(response.status).toBe(200);
     expect(mockGetWorkspaceContextForIdentifier).toHaveBeenCalledWith("workspace-alpha");
-    expect(mockGetWorkspaceShellCounterData).toHaveBeenCalledWith("Tianyu", "workspace-1", "user-1", "owner", undefined);
+    expect(mockGetWorkspaceShellCounterData).toHaveBeenCalledWith("techwu", "workspace-1", "user-1", "owner", undefined);
     expect(payload).toMatchObject({
       data: {
         unreadNotificationCount: 5,
@@ -66,7 +66,7 @@ describe("workspace shell counters route", () => {
       { params: Promise.resolve({ workspaceId: "workspace-alpha" }) },
     );
 
-    expect(mockGetWorkspaceShellCounterData).toHaveBeenCalledWith("Tianyu", "workspace-1", "user-1", "owner", {
+    expect(mockGetWorkspaceShellCounterData).toHaveBeenCalledWith("techwu", "workspace-1", "user-1", "owner", {
       channelNames: ["general"],
     });
   });
@@ -90,8 +90,8 @@ function buildWorkspaceContext(options: { accessScope?: "workspace" | "channel";
     channelNames: options.channelNames,
     currentUser: {
       id: "user-1",
-      displayName: "Tianyu",
-      email: "tianyu@example.com",
+      displayName: "techwu",
+      email: "techwu@example.com",
       organizationName: "Northstar Labs",
       role: "owner",
     },

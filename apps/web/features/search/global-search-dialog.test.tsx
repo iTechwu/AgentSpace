@@ -182,7 +182,7 @@ describe("GlobalSearchDialog", () => {
           {
             type: "message",
             id: "message-trip",
-            title: "Tianyu #travel",
+            title: "techwu #travel",
             snippet: "itinerary",
             score: 1,
             meta: {

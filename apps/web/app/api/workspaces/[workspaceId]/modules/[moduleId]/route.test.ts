@@ -51,8 +51,8 @@ describe("workspace module route", () => {
     expect(mockGetWorkspaceContextForIdentifier).toHaveBeenCalledWith("workspace-alpha");
     expect(mockLoadWorkspaceModuleDataWithMeta).toHaveBeenCalledWith("performance", "workspace-1", {
       id: "user-1",
-      displayName: "Tianyu",
-      email: "tianyu@example.com",
+      displayName: "techwu",
+      email: "techwu@example.com",
       role: "owner",
     }, {
       accessScope: "workspace",
@@ -94,7 +94,7 @@ describe("workspace module route", () => {
     mockLoadWorkspaceModuleDataWithMeta.mockResolvedValue({
       data: {
         moduleId: "im",
-        currentUserDisplayName: "Tianyu",
+        currentUserDisplayName: "techwu",
         data: { workspaceId: "workspace-1", channels: [] },
       },
       meta: {
@@ -111,8 +111,8 @@ describe("workspace module route", () => {
     expect(response.status).toBe(200);
     expect(mockLoadWorkspaceModuleDataWithMeta).toHaveBeenCalledWith("im", "workspace-1", {
       id: "user-1",
-      displayName: "Tianyu",
-      email: "tianyu@example.com",
+      displayName: "techwu",
+      email: "techwu@example.com",
       role: "owner",
     }, {
       accessScope: "channel",
@@ -144,8 +144,8 @@ describe("workspace module route", () => {
     expect(response.status).toBe(200);
     expect(mockLoadWorkspaceModuleDataWithMeta).toHaveBeenCalledWith("settings", "workspace-1", {
       id: "user-1",
-      displayName: "Tianyu",
-      email: "tianyu@example.com",
+      displayName: "techwu",
+      email: "techwu@example.com",
       role: "owner",
     }, {
       accessScope: "workspace",
@@ -159,7 +159,7 @@ describe("workspace module route", () => {
     mockLoadWorkspaceModuleDataWithMeta.mockResolvedValue({
       data: {
         moduleId: "contacts",
-        currentUserDisplayName: "Tianyu",
+        currentUserDisplayName: "techwu",
         data: { channels: [], contacts: [], threads: [] },
       },
       meta: {
@@ -176,8 +176,8 @@ describe("workspace module route", () => {
     expect(response.status).toBe(200);
     expect(mockLoadWorkspaceModuleDataWithMeta).toHaveBeenCalledWith("contacts", "workspace-1", {
       id: "user-1",
-      displayName: "Tianyu",
-      email: "tianyu@example.com",
+      displayName: "techwu",
+      email: "techwu@example.com",
       role: "owner",
     }, {
       accessScope: "workspace",
@@ -187,7 +187,7 @@ describe("workspace module route", () => {
     });
     expect(payload.data).toMatchObject({
       moduleId: "contacts",
-      currentUserDisplayName: "Tianyu",
+      currentUserDisplayName: "techwu",
     });
   });
 
@@ -221,9 +221,9 @@ function buildWorkspaceContext(options: { accessScope?: "workspace" | "channel";
     currentUser: {
       id: "user-1",
       organizationName: "Northstar Labs",
-      displayName: "Tianyu",
+      displayName: "techwu",
       role: "owner",
-      email: "tianyu@example.com",
+      email: "techwu@example.com",
     },
     currentWorkspace: {
       id: "workspace-1",

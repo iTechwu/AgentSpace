@@ -807,7 +807,7 @@ function translateEvidenceGateLabel(
     case "failure_visibility":
       return tx("失败可见证据", "Failure Visibility Evidence");
     case "agentspace_local_evidence":
-      return tx("24 小时 AgentSpace 本地证据", "24h AgentSpace Local Evidence");
+      return tx("24 小时 agent.dofe 本地证据", "24h agent.dofe local evidence");
     case "openapi_artifact":
       return tx("24 小时 OpenAPI 证据", "24h OpenAPI Evidence");
     case "bot_added_payload_artifact":

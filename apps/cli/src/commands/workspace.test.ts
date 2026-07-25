@@ -46,14 +46,14 @@ test("workspace context resolve-entity infers the current agent from runtime env
   }
 
   const payload = JSON.parse(logs.join("\n")) as { name: string };
-  assert.equal(payload.name, "Tianyu's assistant");
+  assert.equal(payload.name, "techwu's assistant");
 });
 
 test("workspace initialization includes the builtin workspace-context skill", () => {
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
-    ownerName: "Tianyu",
+    ownerName: "techwu",
     ownerRole: "Founder",
     firstChannelName: "tour visit",
   });
@@ -86,7 +86,7 @@ function seedWorkspace(): void {
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
-    ownerName: "Tianyu",
+    ownerName: "techwu",
     ownerRole: "Founder",
     firstChannelName: "tour visit",
   });
@@ -95,14 +95,14 @@ function seedWorkspace(): void {
     ...resetWorkspaceStateSync(),
     organizationName: "Northstar Labs",
     pendingHandoffs: 0,
-    humanMembers: [{ name: "Tianyu", role: "Founder" }],
+    humanMembers: [{ name: "techwu", role: "Founder" }],
     activeEmployees: [],
     directConversations: [],
     channels: [
       {
         name: "tour visit",
         humanMembers: 1,
-        employeeNames: ["Test", "Tianyu's assistant"],
+        employeeNames: ["Test", "techwu's assistant"],
       },
     ],
     channelDocuments: [],
@@ -126,7 +126,7 @@ function seedWorkspace(): void {
         status: "completed",
         mentions: [
           {
-            agentId: "Tianyu's assistant",
+            agentId: "techwu's assistant",
             label: "个人助手",
             token: "个人助手",
             mentionType: "agent",
@@ -148,7 +148,7 @@ function seedWorkspace(): void {
     origin: "seed",
   });
   createEmployeeSync({
-    name: "Tianyu's assistant",
+    name: "techwu's assistant",
     role: "Assistant",
     remarkName: "个人助手",
     summary: "Personal assistant",
@@ -157,7 +157,7 @@ function seedWorkspace(): void {
   });
   const state = readWorkspaceStateSync();
   state.activeEmployees = state.activeEmployees.map((employee: ActiveEmployee) =>
-    employee.name === "Test" || employee.name === "Tianyu's assistant"
+    employee.name === "Test" || employee.name === "techwu's assistant"
       ? {
           ...employee,
           channels: ["tour visit"],
@@ -168,7 +168,7 @@ function seedWorkspace(): void {
     channel.name === "tour visit"
       ? {
           ...channel,
-          employeeNames: ["Test", "Tianyu's assistant"],
+          employeeNames: ["Test", "techwu's assistant"],
         }
       : channel,
   );

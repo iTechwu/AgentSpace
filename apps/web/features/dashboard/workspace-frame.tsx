@@ -135,7 +135,6 @@ function WorkspaceFrameContent({
   } = useWorkspaceModuleRouteState(currentWorkspace.slug);
   const logicalPathname = routeState.appPath;
   const mode = routeState.agentsMode;
-  const conversationView = routeState.conversationView;
   const isSettingsPath = routeState.isSettingsPath;
   const knowledgeView = routeState.knowledgeView;
   const isConversationLayout = routeState.isConversationLayout;
@@ -198,8 +197,8 @@ function WorkspaceFrameContent({
     logicalPathname === "/inbox"
       ? tx("通知", "Feed")
       : logicalPathname === "/im"
-        ? conversationView === "direct"
-          ? tx("数字联系人", "Digital contacts")
+        ? isDigitalContactsView
+          ? tx("联系人", "Contacts")
           : tx("消息", "Messages")
         : logicalPathname === "/contacts"
           ? tx("真人联系人", "Human contacts")
@@ -667,7 +666,7 @@ function WorkspaceFrameContent({
                 icon="groups"
                 label={tx("消息", "Messages")}
                 count={counters.messageCount}
-                active={logicalPathname === "/im" && conversationView !== "direct"}
+                active={logicalPathname === "/im" && !isDigitalContactsView}
                 onClick={(event) => {
                   handleWorkspaceModuleLinkClick(event);
                   if (logicalPathname !== "/im") {

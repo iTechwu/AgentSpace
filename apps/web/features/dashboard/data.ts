@@ -2605,7 +2605,7 @@ function buildNotificationInboxItems(
       {
         id: `notification-entry-${notification.id}`,
         role: "system",
-        actor: notification.actorId ?? "AgentSpace",
+        actor: notification.actorId ?? "agent.dofe",
         timestamp: formatAbsoluteDateTime(notification.createdAt),
         body: notification.body,
       },
@@ -4015,7 +4015,7 @@ function buildActivityInboxItems(
       {
         id: `activity-entry-${index}`,
         role: "system",
-        actor: "AgentSpace",
+        actor: "agent.dofe",
         timestamp: `记录 ${index + 1}`,
         body: entry.note,
       },

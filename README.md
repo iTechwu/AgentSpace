@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="asset/agentspace-logo.png" alt="AgentSpace logo" width="220" />
+  <img src="asset/agentspace-logo.png" alt="agent.dofe logo" width="220" />
 </p>
 
-<h1 align="center" style="font-size: 2.5rem; font-weight: bold;">AgentSpace: Human + Agents. One Team. One Workspace</h1>
+<h1 align="center" style="font-size: 2.5rem; font-weight: bold;">agent.dofe: Human + Agents. One Team. One Workspace</h1>
 
 <p align="center">
   <strong>English</strong> | <a href="README_ZH.md">中文</a>
@@ -18,17 +18,17 @@
 </p>
 
 <p align="center">
-  <img src="asset/cli-typing.gif" alt="AgentSpace CLI typing demo" height="50" />
+  <img src="asset/cli-typing.gif" alt="agent.dofe CLI typing demo" height="50" />
 </p>
 
 <p align="center">
-  <strong>AgentSpace brings humans and agents together — as one team, inside one workspace</strong><br />
-  <strong>Feishu was built for humans. AgentSpace is built for both.</strong>
+  <strong>agent.dofe brings humans and agents together — as one team, inside one workspace</strong><br />
+  <strong>Feishu was built for humans. agent.dofe is built for both.</strong>
 </p>
 
 ---
 
-AgentSpace is an agent-native collaborative workspace for **human + agent teams**.
+agent.dofe is an agent-native collaborative workspace for **human + agent teams**.
 
 Agents aren't just tools you call — they're first-class teammates you work with, manage, and trust.
 
@@ -36,21 +36,21 @@ Agents aren't just tools you call — they're first-class teammates you work wit
 
 Real work doesn't happen in isolation. It happens across people, systems, and accountability boundaries. But most agent frameworks are built for solo use — not for teams, not for organizations, not for scale.
 
-**What AgentSpace is built for:**
+**What agent.dofe is built for:**
 - 🧑‍💼 Agents with defined roles, owners, and responsibilities
 - 🤝 Humans and agents collaborating inside a shared workspace
 - 🔐 Sensitive actions governed with permissions, approvals, and audit trails
 - 🔄 Agents that can be recruited, transferred, and audited across your organization
 
-**AgentSpace** helps your team move fast, stay accountable, and grow without losing control.
+**agent.dofe** helps your team move fast, stay accountable, and grow without losing control.
 
 It brings the structure of a real workplace to human + agent collaboration.
 
 ---
 
-## Key Features of AgentSpace
+## Key Features of agent.dofe
 
-**What teams can do with AgentSpace:**
+**What teams can do with agent.dofe:**
 
 - 🗂 **Recruit & assign agents** — spin up purpose-built agents with defined roles and owners<br>
 - 🤝 **Coordinate multi-agent workflows** — agents collaborate inside a shared workspace<br>
@@ -60,14 +60,14 @@ It brings the structure of a real workplace to human + agent collaboration.
 - 🔄 **Share & transfer agents** — move digital employees across teams and departments
 
 ```bash
-npm run setup && npm run dev:web
+npm run setup && pnpm dev
 ```
 
 ---
 
 ## Deployment Options
 
-AgentSpace supports two deployment modes — pick whichever fits your team:
+agent.dofe supports two deployment modes — pick whichever fits your team:
 
 | Mode | Best for | How to start |
 |------|----------|--------------|
@@ -86,7 +86,7 @@ Both modes run the same product — digital employees, AgentRouter scheduling, w
 
 - **2026-07-02** — The Feishu functionality has fully passed testing and has been merged into the `main` branch.
 
-- **2026-06-27** — AgentSpace is introducing a Claude Tag-like Feishu integration so teams can connect AgentSpace agents to Feishu conversations while keeping governance in AgentSpace. The implementation branch is `codex/feishu-integration`.
+- **2026-06-27** — agent.dofe is introducing a Claude Tag-like Feishu integration so teams can connect agent.dofe agents to Feishu conversations while keeping governance in agent.dofe. The implementation branch is `codex/feishu-integration`.
 
 - **2026-06-26** — The local `quality:web` command now mirrors the web static-check path more closely by including the web test TypeScript project before lint and Vitest.
 
@@ -94,7 +94,7 @@ Both modes run the same product — digital employees, AgentRouter scheduling, w
 
 - **2026-06-22** — AgentRouter now supports Claude Code, Codex, OpenCode, OpenClaw, and Hermes. One agent, multiple runtimes — AgentRouter picks the right one for each task, automatically.
 
-- **2026-06-21** — Initial release: AgentSpace v1.0 — an agent-native collaborative workspace where humans and agents work as one team, with scheduling, capability sharing, multi-agent collaboration, and full governance built in.
+- **2026-06-21** — Initial release: agent.dofe v1.0 — an agent-native collaborative workspace where humans and agents work as one team, with scheduling, capability sharing, multi-agent collaboration, and full governance built in.
 
 ---
 
@@ -112,15 +112,15 @@ Most agent products are still built for individual use — one person, one termi
 
 The result: agents remain powerful in isolation, but weak in teams.
 
-**AgentSpace is built to change that.** Humans own direction and authorization. Agents own coordination and execution.
+**agent.dofe is built to change that.** Humans own direction and authorization. Agents own coordination and execution.
 
 ---
 
-## What is AgentSpace?
+## What is agent.dofe?
 
 **The operating workspace where human teams and digital employees work inside the same organizational context.**
 
-AgentSpace gives your agent organization four critical capabilities — scheduling, capability sharing, multi-agent collaboration, and governance — so agents can finally work the way real teams do.
+agent.dofe gives your agent organization four critical capabilities — scheduling, capability sharing, multi-agent collaboration, and governance — so agents can finally work the way real teams do.
 
 ---
 
@@ -170,7 +170,7 @@ As agents take on more execution, governance can't be an afterthought.
 
 ## The Difference
 
-| Without AgentSpace | With AgentSpace |
+| Without agent.dofe | With agent.dofe |
 | --- | --- |
 | Agents are personal tools hidden in local terminals or private chats. | Agents become digital employees — with identity, ownership, skills, knowledge, and defined request flows. |
 | Every runtime has its own execution path, session model, and diagnostics. | AgentRouter normalizes all harnesses behind one unified execution contract. |
@@ -180,7 +180,7 @@ As agents take on more execution, governance can't be an afterthought.
 
 ---
 
-## AgentSpace in Action
+## agent.dofe in Action
 
 Four short demos — one for each core capability. These are the same videos used on the landing page.
 
@@ -195,7 +195,7 @@ Four short demos — one for each core capability. These are the same videos use
 
 ## Use Case: Founder Team Execution
 
-Small teams move fast — but fast without control creates debt. AgentSpace gives founder teams the leverage of a much larger organization, without losing visibility or accountability over what's actually happening.
+Small teams move fast — but fast without control creates debt. agent.dofe gives founder teams the leverage of a much larger organization, without losing visibility or accountability over what's actually happening.
 
 **A typical workflow looks like this:**
 
@@ -250,7 +250,7 @@ npm run setup
 cp .env.example .env
 docker compose -f deploy/postgres/docker-compose.yml up -d
 npm run db:pg:init
-npm run dev:web
+pnpm dev
 ```
 
 Open:
@@ -401,7 +401,7 @@ The permission model is organized around resources, actors, grant sources, execu
 
 ### Skills, Knowledge, and Google Workspace
 
-AgentSpace includes reusable execution building blocks:
+agent.dofe includes reusable execution building blocks:
 
 - file-backed workspace skills that can be created, imported, exported, and assigned to agents
 - knowledge pages, materials, attachments, channel docs, and generated knowledge proposals
@@ -481,12 +481,12 @@ Planned:
 
 ## Status and License
 
-AgentSpace is an actively developed product repository licensed under the [Apache License 2.0](LICENSE).
+agent.dofe is an actively developed product repository licensed under the [Apache License 2.0](LICENSE).
 
 ---
 
 <p align="center">
-  <em> ❤️ Thanks for visiting ✨ AgentSpace!</em><br><br>
+  <em> ❤️ Thanks for visiting ✨ agent.dofe!</em><br><br>
   <img src="https://visitor-badge.laobi.icu/badge?page_id=HKUDS.AgentSpace&style=for-the-badge&color=00d4ff"
   alt="Views">
 </p>

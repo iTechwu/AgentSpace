@@ -42,6 +42,7 @@ import {
   type ConversationMentionCandidate,
   type ConversationThreadMessage,
 } from "@/features/chat/conversation-shell";
+import { CommunicationListActions } from "@/features/chat/communication-list-actions";
 import type { ChannelsPageData } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useWorkspaceModuleNavigation } from "@/features/dashboard/workspace-module-navigation";
@@ -113,6 +114,7 @@ interface ChannelRouteState {
   tab: ChannelWorkspaceTab | null;
   documentId: string | null;
   conversationView: "all" | "direct";
+  communicationContext: "messages" | "contacts";
 }
 
 interface ChannelRouteUpdateOptions {
@@ -626,6 +628,7 @@ export function ChannelsPageClient({
     workspaceHref,
   });
   const conversationView = routeState.conversationView;
+  const isContactDirectoryContext = routeState.communicationContext === "contacts";
   const dataSizeSnapshot = useMemo(
     () => ({
       channels: data.channels.length,
@@ -925,7 +928,7 @@ export function ChannelsPageClient({
     });
   }, [channelDocuments, documentSearch]);
   const shouldPollChannelUpdates = useMemo(() => {
-    if (!selectedChannel || !selectedConversationChannelName) {
+    if (isContactDirectoryContext || !selectedChannel || !selectedConversationChannelName) {
       return false;
     }
 
@@ -936,12 +939,13 @@ export function ChannelsPageClient({
     );
 
     return hasPendingThreadMessages || hasRunningDocumentWorkflow || hasProcessingAgentPresence;
-  }, [channelDocumentRuns, channelDocuments, selectedChannel, selectedConversationChannelName, selectedThread]);
+  }, [channelDocumentRuns, channelDocuments, isContactDirectoryContext, selectedChannel, selectedConversationChannelName, selectedThread]);
 
   useChannelRealtimeRefresh({
     workspaceId: data.workspaceId,
     channelName: selectedConversationChannelName,
     enabled:
+      !isContactDirectoryContext &&
       activeTab === "messages" &&
       Boolean(selectedConversationChannelName) &&
       !selectedChannelRequiresAccess,
@@ -1134,10 +1138,14 @@ export function ChannelsPageClient({
           channel.kind === "direct"
             ? channel.displaySubtitle ?? tx("私聊", "Direct")
             : translateMemberLabel(channel.memberLabel, tx),
-        meta: translateChannelAccessPreview(channel.accessState, tx)
-          ?? translateChannelPreview(channel.id, indexes.threadByChannelName, tx)
-          ?? translateChannelListPreview(channel.lastMessage, tx)
-          ?? tx("还没有消息", "No messages yet"),
+        meta: isContactDirectoryContext
+          ? channel.channelName
+            ? tx("已建立私聊", "Direct message available")
+            : tx("尚未开始私聊", "No direct message yet")
+          : translateChannelAccessPreview(channel.accessState, tx)
+            ?? translateChannelPreview(channel.id, indexes.threadByChannelName, tx)
+            ?? translateChannelListPreview(channel.lastMessage, tx)
+            ?? tx("还没有消息", "No messages yet"),
         avatar: channel.avatarLabel ?? "#",
         avatarId: channel.humanContactUserId ?? channel.contactId ?? channel.channelName ?? channel.id,
         avatarName: channel.displayName ?? channel.name,
@@ -1145,7 +1153,7 @@ export function ChannelsPageClient({
         dateLabel: formatCompactTimestamp(channel.updatedAt, { emptyFallback: "" }),
         unread: channel.unread,
       })),
-    [indexes.threadByChannelName, tx, visibleChannels],
+    [indexes.threadByChannelName, isContactDirectoryContext, tx, visibleChannels],
   );
 
   const messages: ConversationThreadMessage[] = useMemo(
@@ -1199,6 +1207,24 @@ export function ChannelsPageClient({
       documentId: nextTab === "documents" && documentsView === "workspace" ? selectedDocumentId : null,
     });
     measureInteraction("tab-switch");
+  }
+
+  function openSelectedDigitalConversation(): void {
+    if (!selectedChannel) {
+      return;
+    }
+    const nextSearch = new URLSearchParams({
+      view: "direct",
+      focus: buildChannelFocusValue(selectedChannel, selectedChannel.id),
+    });
+    navigateToWorkspaceModule(`/im?${nextSearch.toString()}`);
+  }
+
+  function openSelectedDigitalEmployee(): void {
+    if (!selectedChannel?.contactId) {
+      return;
+    }
+    navigateToWorkspaceModule(`/agents?mode=agent&focus=${encodeURIComponent(`agent:${selectedChannel.contactId}`)}`);
   }
 
   async function uploadChannelFiles(files: FileList | null): Promise<void> {
@@ -1260,8 +1286,8 @@ export function ChannelsPageClient({
     const confirmed = window.confirm(
       document.externalSheet
         ? tx(
-            `确定删除云文档「${document.title}」？这只会从 AgentSpace 会话里移除绑定，不会删除 Google Drive 里的原始表格。`,
-            `Delete cloud document "${document.title}"? This only removes the binding from the AgentSpace conversation; the original Google Drive sheet is not deleted.`,
+            `确定删除云文档「${document.title}」？这只会从 agent.dofe 会话里移除绑定，不会删除 Google Drive 里的原始表格。`,
+            `Delete cloud document "${document.title}"? This only removes the binding from the agent.dofe conversation; the original Google Drive sheet is not deleted.`,
           )
         : tx(
             `确定删除云文档「${document.title}」？删除后可在已删除文档中恢复。`,
@@ -1789,13 +1815,25 @@ export function ChannelsPageClient({
       ) : null}
 
       <ConversationShell
-        emptyListBody={tx("当前还没有任何会话。", "There are no conversations yet.")}
-        emptyListTitle={tx("会话为空", "No conversations")}
+        emptyListBody={
+          isContactDirectoryContext
+            ? tx("创建数字员工后，可在这里查看资料并发起私聊。", "Create a digital employee to view its profile and start a direct message here.")
+            : tx("当前还没有任何会话。", "There are no conversations yet.")
+        }
+        emptyListTitle={isContactDirectoryContext ? tx("暂无数字员工", "No digital employees") : tx("会话为空", "No conversations")}
         emptyThreadBody={emptyThreadBody}
         emptyThreadTitle={emptyThreadTitle}
         customThreadHeader={
           selectedChannel
-            ? ({ backButton }) => (
+            ? ({ backButton }) => isContactDirectoryContext ? (
+                <DigitalEmployeeDirectoryHeader
+                  backButton={backButton}
+                  channel={selectedChannel}
+                  onManage={openSelectedDigitalEmployee}
+                  onMessage={openSelectedDigitalConversation}
+                  tx={tx}
+                />
+              ) : (
                 <ChannelWorkspaceHeader
                   activeTab={activeTab}
                   backButton={backButton}
@@ -1878,47 +1916,53 @@ export function ChannelsPageClient({
         }
         items={items}
         listActions={
-          <div className="conversation-list-actions">
-            <div
-              aria-label={tx("会话类型", "Conversation type")}
-              className="container-view-switch"
-              role="tablist"
-            >
-              <button
-                aria-selected={conversationView === "all"}
-                className={`container-view-switch__item${conversationView === "all" ? " container-view-switch__item--active" : ""}`}
-                disabled={conversationView === "all"}
-                onClick={() => replaceWorkspaceModule("/im")}
-                role="tab"
-                type="button"
-              >
-                {tx("会话", "Conversations")}
-              </button>
-              <button
-                aria-selected={conversationView === "direct"}
-                className={`container-view-switch__item${conversationView === "direct" ? " container-view-switch__item--active" : ""}`}
-                disabled={conversationView === "direct"}
-                onClick={() => replaceWorkspaceModule("/im?view=direct")}
-                role="tab"
-                type="button"
-              >
-                {tx("数字联系人", "Digital contacts")}
-              </button>
-            </div>
-            <button
-              aria-label={tx("创建群组", "Create group")}
-              className="action-button action-button--compact action-button--icon"
-              onClick={() => setShowCreateChannel(true)}
-              title={tx("创建群组", "Create group")}
-              type="button"
-            >
-              <AppIcon name="plus" />
-            </button>
-          </div>
+          isContactDirectoryContext ? (
+            <CommunicationListActions
+              action={{
+                label: tx("新建数字员工", "New digital employee"),
+                onClick: () => navigateToWorkspaceModule("/agents?mode=agent&create=agent"),
+              }}
+              activeTab="digital"
+              ariaLabel={tx("联系人类型", "Contact type")}
+              tabs={[
+                {
+                  id: "people",
+                  label: tx("真人", "People"),
+                  onSelect: () => navigateToWorkspaceModule("/contacts"),
+                },
+                {
+                  id: "digital",
+                  label: tx("数字员工", "Digital employees"),
+                  onSelect: () => {},
+                },
+              ]}
+            />
+          ) : (
+            <CommunicationListActions
+              action={{
+                label: tx("创建群组", "Create group"),
+                onClick: () => setShowCreateChannel(true),
+              }}
+              activeTab={conversationView === "direct" ? "digital" : "conversations"}
+              ariaLabel={tx("消息类型", "Message type")}
+              tabs={[
+                {
+                  id: "conversations",
+                  label: tx("会话", "Conversations"),
+                  onSelect: () => replaceWorkspaceModule("/im"),
+                },
+                {
+                  id: "digital",
+                  label: tx("数字联系人", "Digital contacts"),
+                  onSelect: () => replaceWorkspaceModule("/im?view=direct"),
+                },
+              ]}
+            />
+          )
         }
         listCount={items.length}
-        listKicker={conversationView === "direct" ? tx("私聊", "Direct messages") : tx("会话", "Conversations")}
-        listTitle={conversationView === "direct" ? tx("私聊", "Direct messages") : tx("会话", "Conversations")}
+        listKicker=""
+        listTitle={isContactDirectoryContext ? tx("联系人", "Contacts") : tx("消息", "Messages")}
         mentionCandidates={mentionCandidates}
         messages={messages}
         onSelectItem={(channelId) => {
@@ -2011,7 +2055,13 @@ export function ChannelsPageClient({
             ? tx(`发送到 ${selectedChannel.displayName ?? selectedChannel.name}`, `Send to ${selectedChannel.displayName ?? selectedChannel.name}`)
             : tx("发送消息", "Send a message")
         }
-        shellClassName={conversationView === "direct" ? "contacts-shell--chatting contacts-shell--digital" : "contacts-shell--chatting"}
+        shellClassName={
+          isContactDirectoryContext
+            ? "contacts-shell--directory contacts-shell--digital"
+            : conversationView === "direct"
+              ? "contacts-shell--chatting contacts-shell--digital"
+              : "contacts-shell--chatting"
+        }
         currentUserDisplayName={currentUserDisplayName}
         draftStorageKey={onDataChanged ? `${data.workspaceId}:im:composer` : undefined}
         scrollAnchorStorageKey={onDataChanged ? `${data.workspaceId}:im:scroll-anchors` : undefined}
@@ -2034,7 +2084,16 @@ export function ChannelsPageClient({
         selectedItemId={selectedChannelId}
         customThreadContent={
           selectedChannel
-            ? selectedChannelRequiresAccess
+            ? isContactDirectoryContext
+              ? (
+                  <DigitalEmployeeDirectoryDetail
+                    channel={selectedChannel}
+                    hasConversation={Boolean(selectedConversationChannelName)}
+                    lastMessage={translateChannelListPreview(selectedChannel.lastMessage, tx)}
+                    tx={tx}
+                  />
+                )
+              : selectedChannelRequiresAccess
               ? (
                   <ChannelAccessGate
                     accessState={selectedChannel.accessState ?? "requestable"}
@@ -2183,6 +2242,92 @@ export function ChannelsPageClient({
   );
 }
 
+function DigitalEmployeeDirectoryHeader({
+  backButton,
+  channel,
+  onManage,
+  onMessage,
+  tx,
+}: {
+  backButton: React.ReactNode | null;
+  channel: ChannelRecord;
+  onManage: () => void;
+  onMessage: () => void;
+  tx: (zh: string, en: string) => string;
+}) {
+  const displayName = channel.displayName ?? channel.name;
+  const identity = channel.contactId ?? channel.displaySubtitle ?? channel.name;
+  return (
+    <header className="contacts-chat-header digital-employee-directory-header">
+      <div className="contacts-chat-header__main">
+        {backButton ? <div className="contacts-chat-header__leading">{backButton}</div> : null}
+        <GeneratedAvatar
+          className="contacts-chat-header__avatar"
+          id={identity}
+          name={displayName}
+          variant="agent"
+        />
+        <div>
+          <h3>{displayName}</h3>
+          <p>{identity}</p>
+        </div>
+      </div>
+      <div className="digital-employee-directory-header__actions">
+        <button className="action-button" onClick={onManage} type="button">
+          <AppIcon name="agents" />
+          {tx("管理", "Manage")}
+        </button>
+        <button className="primary-button" onClick={onMessage} type="button">
+          <AppIcon name="messages" />
+          {tx("发消息", "Message")}
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function DigitalEmployeeDirectoryDetail({
+  channel,
+  hasConversation,
+  lastMessage,
+  tx,
+}: {
+  channel: ChannelRecord;
+  hasConversation: boolean;
+  lastMessage?: string;
+  tx: (zh: string, en: string) => string;
+}) {
+  const displayName = channel.displayName ?? channel.name;
+  const identity = channel.contactId ?? channel.displaySubtitle ?? channel.name;
+  return (
+    <section className="digital-employee-directory-detail">
+      <div className="digital-employee-directory-detail__intro">
+        <p className="page-eyebrow">{tx("数字员工资料", "Digital employee profile")}</p>
+        <h2>{displayName}</h2>
+        <p>{tx("在联系人中查看身份与会话状态；消息内容统一在消息模块中处理。", "Review identity and conversation status here; continue the conversation in Messages.")}</p>
+      </div>
+      <dl className="digital-employee-directory-detail__facts">
+        <div>
+          <dt>{tx("类型", "Type")}</dt>
+          <dd>{tx("数字员工", "Digital employee")}</dd>
+        </div>
+        <div>
+          <dt>{tx("Agent 标识", "Agent identity")}</dt>
+          <dd>{identity}</dd>
+        </div>
+        <div>
+          <dt>{tx("私聊状态", "Direct message status")}</dt>
+          <dd>{hasConversation ? tx("已建立", "Available") : tx("尚未开始", "Not started")}</dd>
+        </div>
+        <div>
+          <dt>{tx("最近消息", "Latest message")}</dt>
+          <dd>{lastMessage ?? tx("暂无消息", "No messages")}</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
 function resolveSelectedChannelName(channel: ChannelsPageData["channels"][number] | null): string | null {
   if (!channel) {
     return null;
@@ -2254,6 +2399,7 @@ function parseChannelRouteState(routeSearch: string): ChannelRouteState {
     tab: parseChannelWorkspaceTab(searchParams.get("tab")),
     documentId,
     conversationView: searchParams.get("view") === "direct" ? "direct" : "all",
+    communicationContext: searchParams.get("context") === "contacts" ? "contacts" : "messages",
   };
 }
 

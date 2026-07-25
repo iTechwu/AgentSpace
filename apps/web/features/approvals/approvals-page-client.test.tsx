@@ -60,10 +60,10 @@ const data: ApprovalsPageData = {
       type: "channel_access",
       sourceId: "request-1",
       agentId: "user-1",
-      agentDisplayName: "Tianyu",
+      agentDisplayName: "techwu",
       channelName: "private-planning",
       status: "pending",
-      contentPreview: "Tianyu requested access to private-planning.",
+      contentPreview: "techwu requested access to private-planning.",
       createdAt: "2026-04-10T08:45:00.000Z",
     },
     {
@@ -159,7 +159,7 @@ describe("ApprovalsPageClient", () => {
       </LanguageProvider>,
     );
 
-    expect(screen.getByRole("button", { name: /Tianyu requested access to private-planning/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /techwu requested access to private-planning/i })).toBeInTheDocument();
     expect(screen.getAllByText("群访问申请")[0]).toBeInTheDocument();
   });
 

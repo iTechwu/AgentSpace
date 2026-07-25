@@ -26,7 +26,7 @@ test("creates a Feishu external channel document for a resource binding target",
     providerResourceToken: "doccnTest123",
     providerResourceUrl: "https://example.feishu.cn/docx/doccnTest123",
     title: "Launch brief",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   }, fake.dependencies);
 
@@ -50,7 +50,7 @@ test("reuses matching Feishu external channel documents and rejects mismatched t
     providerResourceToken: "shtcnTest123",
     providerResourceUrl: "https://example.feishu.cn/sheets/shtcnTest123",
     title: "Launch sheet",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   }, fake.dependencies);
 
@@ -59,7 +59,7 @@ test("reuses matching Feishu external channel documents and rejects mismatched t
     providerResourceType: "sheet",
     providerResourceToken: "shtcnTest123",
     providerResourceUrl: "https://example.feishu.cn/sheets/shtcnTest123",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   }, fake.dependencies);
 
@@ -73,7 +73,7 @@ test("reuses matching Feishu external channel documents and rejects mismatched t
       agentSpaceResourceId: nativeDocument.id,
       providerResourceType: "doc",
       providerResourceToken: "doccnOther",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
     }, fake.dependencies),
     /feishu\.resource_binding\.channel_document_mismatch/,
@@ -93,7 +93,7 @@ test("creates and reuses Feishu external data tables for sheet and base resource
       appToken: "appTest123",
       tableId: "tblTest123",
     },
-    createdBy: "Tianyu",
+    createdBy: "techwu",
   }, fake.dependencies);
 
   assert.equal(created.created, true);
@@ -117,7 +117,7 @@ test("creates and reuses Feishu external data tables for sheet and base resource
       tableId: "tblTest123",
       viewId: "vewTest123",
     },
-    createdBy: "Tianyu",
+    createdBy: "techwu",
   }, fake.dependencies);
 
   assert.equal(reused.created, false);
@@ -137,7 +137,7 @@ test("creates and reuses Feishu external data tables for sheet and base resource
       agentSpaceResourceId: mismatched.id,
       providerResourceType: "sheet",
       providerResourceToken: "shtcnTest123",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     }, fake.dependencies),
     /feishu\.resource_binding\.data_table_mismatch/,
   );
@@ -146,7 +146,7 @@ test("creates and reuses Feishu external data tables for sheet and base resource
     () => upsertFeishuExternalDataTableWithDependenciesForTests({
       providerResourceType: "doc",
       providerResourceToken: "doccnTest123",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     }, fake.dependencies),
     /feishu\.resource_binding\.unsupported_data_table_resource/,
   );
@@ -345,7 +345,7 @@ test("syncs Feishu metadata snapshots into channel documents and data tables", (
     providerResourceToken: "doccnTest123",
     providerResourceUrl: "https://example.feishu.cn/docx/doccnTest123",
     title: "Launch brief",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   }, fakeDocuments.dependencies);
   const fakeTables = createFakeDataTableSync();
@@ -465,8 +465,8 @@ function createFakeDocumentSync(): {
       currentVersionId: `${id}-version`,
       summary: "Native notes",
       lastEditorType: "human",
-      createdBy: "Tianyu",
-      updatedBy: "Tianyu",
+      createdBy: "techwu",
+      updatedBy: "techwu",
       createdAt: now,
       updatedAt: now,
     };
@@ -551,7 +551,7 @@ function createFakeDataTableSync(): {
       externalResourceToken: "shtcnTest123",
       externalSyncStatus: "ok",
       status: "active",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdAt: now,
       updatedAt: now,
       ...overrides,

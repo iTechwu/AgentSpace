@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { useLanguage, type LanguageCode } from "@/features/i18n/language-provider";
+import Image from "next/image";
+import { useState } from "react";
 import type { WorkspaceRole } from "@agent-space/db";
+import { useLanguage } from "@/features/i18n/language-provider";
+import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
 import { translateAuthError } from "./auth-error-messages";
 
-type AuthMode = "login" | "register";
-type TranslationFunction = (zh: string, en: string) => string;
 type InvitationContext = {
   token: string;
   workspaceName: string;
@@ -14,46 +14,23 @@ type InvitationContext = {
   role: WorkspaceRole;
 };
 
-interface AuthStoryCard {
-  eyebrow: string;
-  title: string;
-  body: string;
-}
-
-interface AuthStoryMetric {
+type ProductTour = {
+  id: "messages" | "employees" | "runtime" | "skills";
+  index: string;
   label: string;
-  value: string;
-}
-
-interface AuthStoryDetail {
-  label: string;
-  value: string;
-}
-
-interface LandingShowcase {
-  eyebrow: string;
   title: string;
-  body: string;
-  videoSrc: string;
+  description: string;
+  imageSrc: string;
+  imageAlt: string;
   proof: string;
-}
+};
 
-interface AuthStory {
-  heroKicker: string;
-  heroTitle: string;
-  heroLead: string;
-  signalPills: string[];
-  features: AuthStoryCard[];
-  metrics: AuthStoryMetric[];
-  panelEyebrow: string;
-  panelTitle: string;
-  panelBody: ReactNode;
-  modeGuide: string;
-  invitationTitle?: string;
-  invitationBody?: string;
-  invitationDetails?: AuthStoryDetail[];
-  ssoLabel: string;
-}
+type WorkStep = {
+  icon: AppIconName;
+  index: string;
+  title: string;
+  description: string;
+};
 
 export function AuthScreen({
   ssoStartUrl: externalSsoStartUrl,
@@ -65,568 +42,362 @@ export function AuthScreen({
   invitation?: InvitationContext;
 }) {
   const { language, setLanguage, tx } = useLanguage();
-  const [heroShowcaseIndex, setHeroShowcaseIndex] = useState(0);
-  const story = buildAuthStory({ mode: "login", invitation, tx, language });
-  const landingShowcases = buildLandingShowcases(tx);
-  const heroShowcase = landingShowcases[heroShowcaseIndex] ?? landingShowcases[0];
-  const ssoStartUrlBase = externalSsoStartUrl ?? (invitation
+  const [activeTourId, setActiveTourId] = useState<ProductTour["id"]>("messages");
+  const tours = buildProductTours(tx);
+  const activeTour = tours.find((tour) => tour.id === activeTourId) ?? tours[0];
+  const ssoStartUrl = externalSsoStartUrl ?? (invitation
     ? `/api/auth/sso/start?invitationToken=${encodeURIComponent(invitation.token)}`
     : "/api/auth/sso/start");
-  const ssoStartUrl = ssoStartUrlBase;
-
-  function showPreviousShowcase(): void {
-    setHeroShowcaseIndex((current) => (current - 1 + landingShowcases.length) % landingShowcases.length);
-  }
-
-  function showNextShowcase(): void {
-    setHeroShowcaseIndex((current) => (current + 1) % landingShowcases.length);
-  }
+  const brandVision = process.env.NEXT_PUBLIC_BRAND_VISION?.trim() || tx(
+    "成为受世界尊敬的中国企业",
+    "Become a globally respected company from China",
+  );
+  const brandMission = process.env.NEXT_PUBLIC_BRAND_MISSION?.trim() || tx(
+    "成就中国智造的全球竞争力",
+    "Strengthen the global competitiveness of intelligent manufacturing from China",
+  );
+  const primaryEntryLabel = invitation
+    ? tx("使用 Dofe SSO 进入工作区", "Open workspace with Dofe SSO")
+    : tx("使用 Dofe SSO 登录", "Continue with Dofe SSO");
 
   return (
-    <main className="auth-shell auth-shell--entry">
-      <header className="auth-topbar">
-        <div className="auth-brand" aria-label="AgentSpace">
-          <span className="auth-brand__mark">A</span>
-          <span>AgentSpace</span>
-        </div>
-        <div className="auth-topbar__actions">
-          <a className="auth-topbar__link" href="#auth-product">
-            {invitation ? tx("接受邀请", "Accept invite") : tx("进入产品", "Enter product")}
-          </a>
-          <div className="auth-language-switch">
+    <main className="public-home" id="home">
+      <header className="public-header">
+        <a className="public-brand" href="#home" aria-label={tx("返回 agent.dofe 首页", "Back to agent.dofe home")}>
+          <span className="public-brand__mark" aria-hidden="true">d</span>
+          <span>agent.dofe</span>
+        </a>
+
+        <nav className="public-header__nav" aria-label={tx("首页导航", "Homepage navigation")}>
+          <a href="#product">{tx("产品", "Product")}</a>
+          <a href="#workflow">{tx("工作方式", "How it works")}</a>
+          <a href="#roles">{tx("适用角色", "For teams")}</a>
+          <a href="#brand">{tx("关于 dofe", "About dofe")}</a>
+        </nav>
+
+        <div className="public-header__actions">
+          <div className="public-language" aria-label={tx("切换语言", "Switch language")} role="group">
             <button
-              className={`auth-language-switch__button${language === "zh" ? " auth-language-switch__button--active" : ""}`}
+              aria-pressed={language === "zh"}
+              className={language === "zh" ? "is-active" : undefined}
               onClick={() => setLanguage("zh")}
               type="button"
             >
-              中文
+              中
             </button>
             <button
-              className={`auth-language-switch__button${language === "en" ? " auth-language-switch__button--active" : ""}`}
+              aria-pressed={language === "en"}
+              className={language === "en" ? "is-active" : undefined}
               onClick={() => setLanguage("en")}
               type="button"
             >
               EN
             </button>
           </div>
+          <a className="public-button public-button--compact" href={ssoStartUrl}>
+            {invitation ? tx("接受邀请", "Accept invite") : tx("登录", "Sign in")}
+            <AppIcon name="arrowRight" />
+          </a>
         </div>
       </header>
 
-      <section className="auth-hero landing-hero" aria-labelledby="auth-hero-title">
-        <div className="auth-hero__copy">
-          <p className="auth-kicker">{story.heroKicker}</p>
-          <h1 id="auth-hero-title">{story.heroTitle}</h1>
-          <p className="auth-lead">{story.heroLead}</p>
-          <div className="auth-signal-row">
-            {story.signalPills.map((pill) => (
-              <span className="auth-signal-pill" key={pill}>
-                {pill}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <div className="auth-hero__visual landing-hero-reel">
-          <div className="landing-reel__header">
-            <div className="landing-reel__title">
-              <span>{String(heroShowcaseIndex + 1).padStart(2, "0")} / {heroShowcase.eyebrow}</span>
-              <strong>{heroShowcase.title}</strong>
-            </div>
-            <div className="landing-reel__controls" aria-label={tx("切换宣传点", "Switch highlight")}>
-              <button
-                aria-label={tx("上一个宣传点", "Previous highlight")}
-                onClick={showPreviousShowcase}
-                title={tx("上一个", "Previous")}
-                type="button"
-              >
-                ‹
-              </button>
-              <button
-                aria-label={tx("下一个宣传点", "Next highlight")}
-                onClick={showNextShowcase}
-                title={tx("下一个", "Next")}
-                type="button"
-              >
-                ›
-              </button>
-            </div>
-          </div>
-          <video
-            aria-label={heroShowcase.title}
-            autoPlay
-            className="landing-reel__video"
-            key={heroShowcase.videoSrc}
-            loop
-            muted
-            playsInline
-            preload="metadata"
-            src={heroShowcase.videoSrc}
-          />
-          <div className="landing-reel__footer">
-            <p aria-live="polite">{heroShowcase.proof}</p>
-            <div className="landing-reel__dots" aria-label={tx("宣传点进度", "Highlight progress")}>
-              {landingShowcases.map((showcase, index) => (
-                <button
-                  aria-label={tx(`切换到${showcase.eyebrow}`, `Switch to ${showcase.eyebrow}`)}
-                  aria-current={index === heroShowcaseIndex ? "true" : undefined}
-                  className={index === heroShowcaseIndex ? "landing-reel__dot landing-reel__dot--active" : "landing-reel__dot"}
-                  key={showcase.eyebrow}
-                  onClick={() => setHeroShowcaseIndex(index)}
-                  type="button"
-                >
-                  <span className="sr-only">{showcase.eyebrow}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="auth-feature-list">
-          {story.features.map((feature) => (
-            <article key={`${feature.eyebrow}-${feature.title}`}>
-              <p className="auth-feature-list__eyebrow">{feature.eyebrow}</p>
-              <strong>{feature.title}</strong>
-              <p>{feature.body}</p>
-            </article>
-          ))}
-        </div>
-
-      </section>
-
-      <section className="landing-swarm" aria-labelledby="landing-swarm-title">
-        <div className="landing-swarm__copy">
-          <p className="auth-kicker">{tx("多人多 Agent 协作", "Multi-human, multi-agent work")}</p>
-          <h2 id="landing-swarm-title">{tx("从一个 Agent，到一群 Agent。", "From one agent to a team of agents.")}</h2>
-          <p>
-            {tx(
-              "把单个助手接入 workspace，它就不再孤立工作：可以被跨团队借用，和其他 Agent 自动对接需求，在关键节点等待人类审批，再继续把工作推向交付。",
-              "Connect one assistant to the workspace and it stops working alone: it can be borrowed across teams, coordinate requests with other agents, wait for human approval at critical gates, and keep moving work toward delivery.",
-            )}
-            <br />
-            {language === "zh" ? (
-              <>把一群 agent <strong>正确地</strong>组织起来，才是真正的 agent 集群。</>
-            ) : (
-              <>Only when a group of agents is organized <strong>correctly</strong> does it become a real agent cluster.</>
-            )}
-          </p>
-        </div>
-        <div className="landing-swarm__rail" aria-hidden="true">
-          <span>{tx("借出", "Borrow")}</span>
-          <span>{tx("对接", "Coordinate")}</span>
-          <span>{tx("接力", "Handoff")}</span>
-          <span>{tx("审批", "Approve")}</span>
-        </div>
-      </section>
-
-      <section className="landing-showcases" id="auth-showcases">
-        <div className="auth-story-copy">
-          <h2>{tx("调度、能力、协作、安全，构成你的 Agent 组织操作系统。", "Scheduling, capability, collaboration, and security become your operating system for agents.")}</h2>
-          <p>
-            {tx(
-              "让最合适的 runtime 承担任务，让优秀 Agent 被整个组织复用，让复杂需求自动流转，也让访问、执行和外发始终握在人类手里。",
-              "Route work to the right runtime, make great agents reusable across the organization, let complex requests move by themselves, and keep access, execution, and outbound actions under human control.",
-            )}
-          </p>
-        </div>
-        <div className="landing-showcase-grid">
-          {landingShowcases.map((showcase, index) => (
-            <article className="landing-showcase-card" key={showcase.title}>
-              <div className="landing-showcase-card__copy">
-                <span>{String(index + 1).padStart(2, "0")} / {showcase.eyebrow}</span>
-                <h3>{showcase.title}</h3>
-                <p>{showcase.body}</p>
-                <strong>{showcase.proof}</strong>
-              </div>
-              <div className="landing-showcase-card__media">
-                <video
-                  aria-label={showcase.title}
-                  autoPlay
-                  controls
-                  loop
-                  muted
-                  playsInline
-                  preload="metadata"
-                  src={showcase.videoSrc}
-                />
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="auth-story-section landing-operating-model">
-        <div className="auth-story-copy">
-          <p className="auth-kicker">{tx("运行模型", "Operating model")}</p>
-          <h2>{tx("人类管方向与授权，Agent 管对接与执行。", "Humans own direction and authorization. Agents own coordination and execution.")}</h2>
-          <p>
-            {tx(
-              "AgentSpace 把需求、运行时、审批、权限和审计放进同一个 workspace。人类不需要手工搬运上下文，只需要决定什么能做、谁能做、做到哪里。",
-              "AgentSpace puts requirements, runtimes, approvals, permissions, and audit trails in one workspace. Humans do not shuttle context by hand; they decide what can run, who can run it, and how far it may go.",
-            )}
-          </p>
-        </div>
-        <div className="landing-control-board" aria-hidden="true">
-          <div>
-            <span>01</span>
-            <strong>{tx("调度", "Scheduling")}</strong>
-            <p>{tx("换 harness/runtime，不重建岗位和上下文。", "Swap harness/runtime without rebuilding identity or context.")}</p>
-          </div>
-          <div>
-            <span>02</span>
-            <strong>{tx("能力", "Capability")}</strong>
-            <p>{tx("Agent、runtime、harness 成为可借用、可复用的组织能力。", "Agents, runtimes, and harnesses become borrowable, reusable organizational capability.")}</p>
-          </div>
-          <div>
-            <span>03</span>
-            <strong>{tx("协作", "Collaboration")}</strong>
-            <p>{tx("真人只处理关键审批，Agent 负责需求接力。", "People handle critical approvals while agents carry the work between roles.")}</p>
-          </div>
-          <div>
-            <span>04</span>
-            <strong>{tx("安全", "Security")}</strong>
-            <p>{tx("权限、凭据、文档、外发动作都进入可见控制面。", "Permissions, credentials, documents, and outbound actions enter a visible control plane.")}</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="auth-product-entry" id="auth-product">
-        <div className="auth-product-entry__copy">
-          <p className="auth-kicker">{tx("进入产品", "Enter the product")}</p>
-          <h2>{tx("最后，进入你的工作区。", "Finally, step into your workspace.")}</h2>
-          <p>{story.panelBody}</p>
-          <div className="auth-product-entry__metrics">
-            {story.metrics.map((metric) => (
-              <article className="auth-metric-card" key={`${metric.label}-${metric.value}`}>
-                <span>{metric.label}</span>
-                <strong>{metric.value}</strong>
-              </article>
-            ))}
-          </div>
-        </div>
-
-        <section className="auth-card">
-          <div className="auth-card__intro">
-            <p className="auth-card__eyebrow">{story.panelEyebrow}</p>
-            <h2>{story.panelTitle}</h2>
-            <p>{story.modeGuide}</p>
-          </div>
-
-          {invitation ? (
-            <div className="auth-invitation-banner">
-              <strong>{story.invitationTitle}</strong>
-              <p>{story.invitationBody}</p>
-              <div className="auth-invitation-banner__grid">
-                {story.invitationDetails?.map((detail) => (
-                  <div className="auth-invitation-banner__item" key={`${detail.label}-${detail.value}`}>
-                    <span>{detail.label}</span>
-                    <strong>{detail.value}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="auth-form">
-            <div className="auth-actions auth-actions--stack">
-              <a
-                className="auth-button"
-                href={ssoStartUrl}
-              >
-                {story.ssoLabel}
+      <section className="public-hero" aria-labelledby="public-hero-title">
+        <div className="public-hero__inner">
+          <div className="public-hero__copy">
+            <p className="public-eyebrow">Do For Employee · Enterprise · Empowerment</p>
+            <h1 id="public-hero-title">agent.dofe</h1>
+            <p className="public-hero__statement">
+              {language === "zh" ? (
+                <><span className="public-nowrap">人类与数字员工</span>，共用一个工作空间。</>
+              ) : (
+                "One workspace for people and digital employees."
+              )}
+            </p>
+            <p className="public-hero__lead">
+              {tx(
+                "从一句话发起工作，到 Agent 接力执行、关键节点审批与全过程审计。让团队不再切换工具，而是持续推进结果。",
+                "Start with one request, then let agents execute, people approve critical steps, and the workspace preserve the full audit trail.",
+              )}
+            </p>
+            <div className="public-hero__actions">
+              <a className="public-button public-button--primary" href={ssoStartUrl}>
+                {primaryEntryLabel}
+                <AppIcon name="arrowRight" />
               </a>
-              {initialError ? (
-                <p className="auth-feedback" role="alert">
-                  {translateAuthError(initialError, tx)}
-                </p>
-              ) : null}
+              <a className="public-button public-button--secondary" href="#product">
+                {tx("查看真实产品", "Explore the product")}
+                <AppIcon name="chevronDown" />
+              </a>
+            </div>
+            {initialError ? (
+              <p className="public-feedback" role="alert">{translateAuthError(initialError, tx)}</p>
+            ) : null}
+            {invitation ? (
+              <div className="public-invite" aria-label={tx("工作区邀请", "Workspace invitation")}>
+                <span>{tx("工作区邀请", "Workspace invite")}</span>
+                <strong>{invitation.workspaceName}</strong>
+                <small>{invitation.email} · {invitation.role}</small>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="public-hero__product">
+            <div className="public-product-label">
+              <span><i aria-hidden="true" />{tx("当前产品界面", "Live product interface")}</span>
+              <span>{tx("协作工作区", "Collaboration workspace")}</span>
+            </div>
+            <div className="public-product-shot public-product-shot--hero">
+              <Image
+                alt={tx("agent.dofe 消息协作工作区", "agent.dofe messaging workspace")}
+                height={720}
+                loading="eager"
+                priority
+                src="/product/workspace-messages.png"
+                width={1280}
+              />
             </div>
           </div>
-        </section>
+        </div>
       </section>
+
+      <section className="public-loop" aria-label={tx("工作闭环", "Work loop")}>
+        <div className="public-loop__inner">
+          {buildWorkSteps(tx).map((step) => (
+            <article key={step.index}>
+              <span className="public-loop__index">{step.index}</span>
+              <AppIcon name={step.icon} />
+              <div>
+                <strong>{step.title}</strong>
+                <p>{step.description}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="public-section public-product" id="product" aria-labelledby="public-product-title">
+        <div className="public-section__intro">
+          <p className="public-eyebrow">{tx("真实产品导览", "Real product tour")}</p>
+          <h2 id="public-product-title">
+            {tx("不是另一个聊天框，而是一套可运行的工作系统。", "More than a chat box. A working operating system.")}
+          </h2>
+          <p>
+            {tx(
+              "以下界面均采集自当前登录工作区。每一处能力都对应一个清晰动作，并有明确的后续状态。",
+              "Every screen below is captured from the current signed-in workspace. Each capability maps to a clear action and a visible next state.",
+            )}
+          </p>
+        </div>
+
+        <div className="public-tour">
+          <div className="public-tour__tabs" role="tablist" aria-label={tx("产品页面", "Product screens")}>
+            {tours.map((tour) => (
+              <button
+                aria-controls={`tour-panel-${tour.id}`}
+                aria-selected={tour.id === activeTour.id}
+                className={tour.id === activeTour.id ? "is-active" : undefined}
+                id={`tour-tab-${tour.id}`}
+                key={tour.id}
+                onClick={() => setActiveTourId(tour.id)}
+                role="tab"
+                type="button"
+              >
+                <span>{tour.index}</span>
+                <strong>{tour.label}</strong>
+              </button>
+            ))}
+          </div>
+
+          <div
+            aria-labelledby={`tour-tab-${activeTour.id}`}
+            className="public-tour__panel"
+            id={`tour-panel-${activeTour.id}`}
+            key={activeTour.id}
+            role="tabpanel"
+          >
+            <div className="public-tour__copy">
+              <p className="public-eyebrow">{activeTour.proof}</p>
+              <h3>{activeTour.title}</h3>
+              <p>{activeTour.description}</p>
+            </div>
+            <div className="public-product-shot">
+              <Image
+                alt={activeTour.imageAlt}
+                height={720}
+                loading="eager"
+                src={activeTour.imageSrc}
+                width={1280}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="public-section public-workflow" id="workflow" aria-labelledby="public-workflow-title">
+        <div className="public-section__intro public-section__intro--light">
+          <p className="public-eyebrow">{tx("从意图到结果", "From intent to outcome")}</p>
+          <h2 id="public-workflow-title">
+            {tx("把协作、执行与治理放进同一个闭环。", "Put collaboration, execution, and governance in one loop.")}
+          </h2>
+        </div>
+        <div className="public-workflow__track">
+          {buildWorkflow(tx).map((item) => (
+            <article key={item.index}>
+              <span>{item.index}</span>
+              <h3>{item.title}</h3>
+              <p>{item.description}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="public-section public-roles" id="roles" aria-labelledby="public-roles-title">
+        <div className="public-section__intro">
+          <p className="public-eyebrow">{tx("同一个工作区，不同的清晰视角", "One workspace, clear views for every role")}</p>
+          <h2 id="public-roles-title">
+            {tx("员工专注完成工作，管理者关注进度，管理员守住边界。", "Employees deliver, managers coordinate, and admins protect the boundaries.")}
+          </h2>
+        </div>
+        <div className="public-roles__grid">
+          {buildRoleViews(tx).map((role) => (
+            <article key={role.index}>
+              <span>{role.index}</span>
+              <p>{role.audience}</p>
+              <h3>{role.title}</h3>
+              <ul>
+                {role.items.map((item) => <li key={item}><AppIcon name="checkCircle" />{item}</li>)}
+              </ul>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="public-brand-story" id="brand" aria-labelledby="public-brand-title">
+        <div className="public-brand-story__inner">
+          <div>
+            <p className="public-eyebrow">{tx("品牌理念", "Brand idea")}</p>
+            <h2 id="public-brand-title">Do For E</h2>
+            <p className="public-brand-story__tagline">Do For Employee · Do For Enterprise · Do For Empowerment</p>
+          </div>
+          <div className="public-brand-story__promise">
+            <article>
+              <span>{tx("愿景", "Vision")}</span>
+              <strong>{brandVision}</strong>
+            </article>
+            <article>
+              <span>{tx("使命", "Mission")}</span>
+              <strong>{brandMission}</strong>
+            </article>
+            <p>
+              {tx(
+                "dofe 不只是一套 AI 系统，更是为员工、为企业、为赋能而生的执行力引擎。",
+                "dofe is more than an AI system. It is an execution engine built for employees, enterprises, and empowerment.",
+              )}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="public-final" aria-labelledby="public-final-title">
+        <p className="public-eyebrow">agent.dofe</p>
+        <h2 id="public-final-title">{tx("让每一次执行，都通向结果。", "Make every execution lead to an outcome.")}</h2>
+        <p>{tx("连接团队与数字员工，从今天的真实工作开始。", "Connect your team and digital employees around real work today.")}</p>
+        <a className="public-button public-button--primary" href={ssoStartUrl}>
+          {invitation ? tx("接受邀请并进入", "Accept invite and continue") : tx("进入工作区", "Open workspace")}
+          <AppIcon name="arrowRight" />
+        </a>
+      </section>
+
+      <footer className="public-footer">
+        <span>agent.dofe</span>
+        <span>Do For Employee · Enterprise · Empowerment</span>
+      </footer>
     </main>
   );
 }
 
-function buildLandingShowcases(tx: TranslationFunction): LandingShowcase[] {
+function buildWorkSteps(tx: (zh: string, en: string) => string): WorkStep[] {
+  return [
+    { icon: "messages", index: "01", title: tx("发起", "Request"), description: tx("在消息中说清目标", "State the outcome in a message") },
+    { icon: "agents", index: "02", title: tx("协同", "Coordinate"), description: tx("数字员工自动接力", "Digital employees hand work off") },
+    { icon: "approvals", index: "03", title: tx("把关", "Approve"), description: tx("关键动作由人确认", "People confirm critical actions") },
+    { icon: "containers", index: "04", title: tx("执行", "Execute"), description: tx("Runtime 持续交付结果", "Runtimes keep delivery moving") },
+  ];
+}
+
+function buildProductTours(tx: (zh: string, en: string) => string): ProductTour[] {
   return [
     {
-      eyebrow: tx("调度", "Scheduling"),
-      title: tx("AgentRouter 让同一个 Agent 切到最佳 runtime", "AgentRouter routes the same agent to the best runtime"),
-      body: tx(
-        "保持 Agent 身份、instructions 和上下文不变，只把具体工作交给最合适的 harness/runtime。",
-        "Keep the agent identity, instructions, and context stable while the right harness/runtime takes the work.",
-      ),
-      videoSrc: "/showcase/agentrouter-showcase.mp4",
-      proof: tx("Agent 保持稳定，任务自然落到最合适的运行环境。", "The agent stays stable while each task lands in the right runtime."),
+      id: "messages",
+      index: "01",
+      label: tx("消息协作", "Messaging"),
+      title: tx("从一句话开始，把工作交给正确的人或 Agent。", "Start with one request and route it to the right person or agent."),
+      description: tx("会话、数字联系人与后续任务保持联动；不可用能力明确禁用，可用操作都会进入下一步。", "Conversations, digital contacts, and downstream tasks stay connected. Unavailable actions are disabled; available actions always lead somewhere."),
+      imageSrc: "/product/workspace-messages.png",
+      imageAlt: tx("消息协作页面截图", "Messaging workspace screenshot"),
+      proof: tx("发起与协作", "Request and collaborate"),
     },
     {
-      eyebrow: tx("能力", "Capability"),
-      title: tx("数字员工展板让 Agent 成为可借用的组织能力", "The board turns agents into borrowable organizational capability"),
-      body: tx(
-        "团队可以看见每位 Agent 的岗位、owner、技能、知识、runtime 绑定和借用状态，把个人工具变成组织能力。",
-        "Teams can see each agent's role, owner, skills, knowledge, runtime binding, and borrowing state, turning a private tool into shared capability.",
-      ),
-      videoSrc: "/showcase/digital-employee-showcase.mp4",
-      proof: tx("优秀 Agent 从个人工具变成团队随时可用的生产力。", "Great agents become shared productivity the whole team can use."),
+      id: "employees",
+      index: "02",
+      label: tx("数字员工", "Digital employees"),
+      title: tx("把 Agent 当作组织能力管理，而不是散落的工具。", "Manage agents as organizational capability, not scattered tools."),
+      description: tx("统一查看数字员工的角色、可用状态、技能与知识，并决定由谁管理、在哪里调用。", "See each digital employee's role, availability, skills, and knowledge, then control who manages and uses it."),
+      imageSrc: "/product/employee-showcase.png",
+      imageAlt: tx("数字员工展板页面截图", "Digital employee directory screenshot"),
+      proof: tx("发现与配置", "Discover and configure"),
     },
     {
-      eyebrow: tx("协作", "Collaboration"),
-      title: tx("多 Agent 自动对接需求并推进交付", "Multiple agents coordinate requests and move delivery forward"),
-      body: tx(
-        "需求进入 workspace 后，多个 Agent 分工整理证据、检查预算、准备审批材料，并在真人批准后继续执行。",
-        "Once a request enters the workspace, agents split evidence gathering, budget checks, and approval preparation, then continue after human approval.",
-      ),
-      videoSrc: "/showcase/multi-agent-war-room.mp4",
-      proof: tx("需求不再靠人手搬运，Agent 自动接力直到关键审批点。", "Requests stop depending on manual handoffs; agents carry the work to each critical approval point."),
+      id: "runtime",
+      index: "03",
+      label: tx("执行引擎", "Execution engines"),
+      title: tx("看得见每一个执行环境的状态、队列与归属。", "See the status, queue, and ownership of every execution environment."),
+      description: tx("管理员可以接入服务器、更新 Runtime、查看心跳与运行统计；普通成员只看到与工作有关的能力。", "Admins can connect servers, update runtimes, and inspect heartbeats and run statistics while members see only what their work requires."),
+      imageSrc: "/product/execution-engine.png",
+      imageAlt: tx("执行引擎管理页面截图", "Execution engine management screenshot"),
+      proof: tx("运行与治理", "Run and govern"),
     },
     {
-      eyebrow: tx("安全", "Security"),
-      title: tx("人类掌控访问、执行、外发和授权边界", "Humans control access, execution, outbound work, and authorization boundaries"),
-      body: tx(
-        "技能、知识、群文件、凭据、runtime grant、Agent 借用和外发动作都可见、可审批、可撤销、可审计。",
-        "Skills, knowledge, group files, credentials, runtime grants, agent borrowing, and outbound actions stay visible, approvable, revocable, and auditable.",
-      ),
-      videoSrc: "/showcase/permission-governance.mp4",
-      proof: tx("每一次访问、执行和外发都有边界、有记录、有控制。", "Every access, execution, and outbound action has boundaries, records, and control."),
+      id: "skills",
+      index: "04",
+      label: tx("技能与知识", "Skills and knowledge"),
+      title: tx("让能力可以复用、分配、更新，也可以被审计。", "Make capabilities reusable, assignable, updatable, and auditable."),
+      description: tx("从系统技能、本地导入到团队知识，能力资源都在工作区内被组织，并与数字员工明确绑定。", "System skills, local imports, and team knowledge stay organized in the workspace and explicitly bound to digital employees."),
+      imageSrc: "/product/skills-library.png",
+      imageAlt: tx("技能库页面截图", "Skills library screenshot"),
+      proof: tx("扩展与复用", "Extend and reuse"),
     },
   ];
 }
 
-function translateInvitationRole(
-  role: WorkspaceRole,
-  tx: TranslationFunction,
-): string {
-  if (role === "owner") {
-    return tx("所有者", "Owner");
-  }
-  if (role === "admin") {
-    return tx("管理员", "Admin");
-  }
-  return tx("成员", "Member");
+function buildWorkflow(tx: (zh: string, en: string) => string) {
+  return [
+    { index: "01", title: tx("表达意图", "Express intent"), description: tx("在熟悉的会话中描述目标、上下文和交付标准。", "Describe the outcome, context, and delivery criteria in a familiar conversation.") },
+    { index: "02", title: tx("组织接力", "Coordinate work"), description: tx("匹配数字员工、技能、知识与合适的执行引擎。", "Match digital employees with the right skills, knowledge, and execution engine.") },
+    { index: "03", title: tx("人类决策", "Human decision"), description: tx("高风险动作进入审批，责任与变更保持可见。", "Route high-risk actions to approval with ownership and changes visible.") },
+    { index: "04", title: tx("交付沉淀", "Deliver and learn"), description: tx("结果回到消息、任务与知识库，成为下一次执行的上下文。", "Return outcomes to messages, tasks, and knowledge as context for the next run.") },
+  ];
 }
 
-function buildAuthStory({
-  mode,
-  invitation,
-  tx,
-  language,
-}: {
-  mode: AuthMode;
-  invitation?: InvitationContext;
-  tx: TranslationFunction;
-  language: LanguageCode;
-}): AuthStory {
-  const projectIntroPoints: AuthStoryMetric[] = [
+function buildRoleViews(tx: (zh: string, en: string) => string) {
+  return [
     {
-      label: tx("调度", "Scheduling"),
-      value: tx("Agent 保持不变，runtime 按任务切换", "Keep the agent stable while runtime changes by task"),
+      index: "01",
+      audience: tx("员工视角", "Employee view"),
+      title: tx("少切换，多完成", "Less switching, more delivery"),
+      items: [tx("从会话直接发起工作", "Start work from a conversation"), tx("在同一处追踪进度与结果", "Track progress and outcomes in one place"), tx("按需调用团队数字员工", "Use team digital employees when needed")],
     },
     {
-      label: tx("能力", "Capability"),
-      value: tx("Agent 接入组织后可被看见、借用和复用", "Agents become visible, borrowable, reusable capability"),
+      index: "02",
+      audience: tx("管理者视角", "Manager view"),
+      title: tx("过程透明，关键可控", "Visible progress, controlled decisions"),
+      items: [tx("集中查看任务与阻塞", "See tasks and blockers centrally"), tx("审批关键动作与知识变更", "Approve critical actions and knowledge changes"), tx("管理可借用的组织能力", "Manage reusable organizational capability")],
     },
     {
-      label: tx("协作", "Collaboration"),
-      value: tx("多人多 Agent 自动对接需求并推进工作", "Multi-agent teams pick up requests and move work forward"),
-    },
-    {
-      label: tx("安全", "Security"),
-      value: tx("访问、执行、外发与授权全程可审计", "Access, execution, outbound work, and authorization stay audited"),
+      index: "03",
+      audience: tx("管理员视角", "Admin view"),
+      title: tx("边界清楚，运行可靠", "Clear boundaries, reliable execution"),
+      items: [tx("管理执行引擎与连接状态", "Manage execution engines and connections"), tx("控制权限、范围与工作区隔离", "Control permissions, scope, and isolation"), tx("保留审批与执行审计轨迹", "Preserve approval and execution audit trails")],
     },
   ];
-  const landingFeatureCards: AuthStoryCard[] = [
-    {
-      eyebrow: tx("调度", "Scheduling"),
-      title: tx("AgentRouter：同一个 Agent，调用最合适 runtime", "AgentRouter: same agent, best-fit runtime"),
-      body: tx(
-        "同一个 Agent 可以保留岗位、记忆和上下文，通过 AgentRouter 机制选择更合适的 harness/runtime 承担不同的工作。",
-        "The same agent keeps its role, memory, and context while the AgentRouter mechanism selects a better-fit harness/runtime for different work.",
-      ),
-    },
-    {
-      eyebrow: tx("能力", "Capability"),
-      title: tx("数字员工展板：在组织内展示并共享 Agent", "Digital employee board: display and share agents across the organization"),
-      body: tx(
-        "Agent、runtime、harness、技能和知识边界都能被看见、借出、复制和审批。\n但同时所有信息仍然安全可控。",
-        "Agents, runtimes, harnesses, skills, and knowledge boundaries can be seen, borrowed, copied, and approved.\nAll information still stays secure and controlled.",
-      ),
-    },
-    {
-      eyebrow: tx("协作", "Collaboration"),
-      title: tx("多 Agent 协作：Agent 对接需求，人类审批关键决策", "Multi-agent collaboration: agents coordinate, humans approve"),
-      body: tx(
-        "真人不再手工搬运需求，多个 Agent 接力整理证据、写文档、拆任务和推进执行。",
-        "People stop shuttling requirements by hand; agents gather evidence, write docs, split tasks, and move execution forward.",
-      ),
-    },
-    {
-      eyebrow: tx("安全", "Security"),
-      title: tx("权限安全：每一步都可见、可控、可追踪", "Permission security: every step visible, controlled, traceable"),
-      body: tx(
-        "外发、访问、凭据、runtime grant 和借用请求都能被审批、记录和追踪。",
-        "Outbound actions, access, credentials, runtime grants, and borrowing requests can all be approved, recorded, and traced.",
-      ),
-    },
-  ];
-  const invitationMetrics: AuthStoryMetric[] = [
-    {
-      label: tx("消息", "Messages"),
-      value: tx("群组、频道与私聊", "Groups, channels, and DMs"),
-    },
-    {
-      label: tx("任务", "Tasks"),
-      value: tx("任务看板、审批与执行项", "Boards, approvals, and execution items"),
-    },
-    {
-      label: tx("知识", "Knowledge"),
-      value: tx("文档、技能与 Agent 上下文", "Docs, skills, and agent context"),
-    },
-  ];
-
-  if (invitation) {
-    const roleLabel = translateInvitationRole(invitation.role, tx);
-    return {
-      heroKicker: tx("工作区邀请", "Workspace invitation"),
-      heroTitle: tx(
-        `加入 ${invitation.workspaceName}，在同一工作台里继续消息、任务、文档与 Agent 协作。`,
-        `Join ${invitation.workspaceName} and continue messages, tasks, docs, and agent work in one workspace.`,
-      ),
-      heroLead: tx(
-        `${invitation.workspaceName} 正在用 AgentSpace 把团队消息、任务推进、知识文档和数字员工协作收在同一个 workspace。登录后你会直接进入这个共享上下文。`,
-        `${invitation.workspaceName} uses AgentSpace to keep team conversations, task execution, docs, knowledge, and digital teammates in one workspace. After sign-in, you go straight into that shared context.`,
-      ),
-      signalPills: [
-        tx(`进入 ${invitation.workspaceName}`, `Enter ${invitation.workspaceName}`),
-        tx(`角色：${roleLabel}`, `Role: ${roleLabel}`),
-        tx("直达共享收件箱", "Direct to shared inbox"),
-        tx("继续团队协作", "Continue team execution"),
-      ],
-      features: [
-        {
-          eyebrow: tx("团队协作", "Team workflow"),
-          title: tx("进入已经在运行的协作空间", "Enter a workspace already in motion"),
-          body: tx(
-            "你加入的不只是一个账号，而是一个已经有消息流、任务板、文档和 Agent 执行轨迹的 workspace。",
-            "You are not joining an empty account. You are entering a workspace that already has conversations, tasks, docs, and agent execution history.",
-          ),
-        },
-        {
-          eyebrow: tx("身份与权限", "Access"),
-          title: tx(`你会以${roleLabel}身份进入该工作区`, `Enter the workspace with ${roleLabel} access`),
-          body: tx(
-            "系统会按邀请里的角色把你加入工作区，确保你进入的是正确的成员上下文。",
-            "We carry the invitation role forward so you enter the workspace with the right access and member context.",
-          ),
-        },
-        {
-          eyebrow: tx("登录后", "After sign-in"),
-          title: tx("直接回到共享收件箱与执行面板", "Land in the shared inbox and execution views"),
-          body: tx(
-            "登录完成后会继续处理这条邀请，把你带回团队协作正在发生的位置。",
-            "Once authentication finishes, this invitation continues and returns you to where the team is already collaborating.",
-          ),
-        },
-      ],
-      metrics: invitationMetrics,
-      panelEyebrow: tx("加入团队协作", "Join the workspace"),
-      panelTitle: mode === "register"
-        ? tx(`创建账号后加入 ${invitation.workspaceName}`, `Create an account to join ${invitation.workspaceName}`)
-        : tx(`登录后进入 ${invitation.workspaceName}`, `Sign in to join ${invitation.workspaceName}`),
-      panelBody: mode === "register"
-        ? tx(
-            "适合首次受邀成员。创建账号后，系统会继续处理这条邀请，并把你带回对应工作区。",
-            "Best for first-time invitees. After account creation, we continue this invitation and take you into the workspace.",
-          )
-        : tx(
-            "适合已有账号的成员。使用受邀邮箱登录后，系统会继续处理这条邀请，并直接进入对应工作区。",
-            "Best for members with an existing account. Sign in with the invited email and we continue this invitation into the workspace.",
-          ),
-      modeGuide: mode === "register"
-        ? tx(
-            "首次受邀成员可以直接注册；登录表单会锁定到受邀邮箱，完成后系统会自动继续加入工作区。",
-            "First-time invitees can register directly. The form stays locked to the invited email, and we join the workspace right after setup.",
-          )
-        : tx(
-            "已有账号直接登录即可；登录表单会锁定到受邀邮箱。如果这是你第一次使用，也可以切换到注册。",
-            "If you already have an account, sign in directly. The form stays locked to the invited email. If this is your first time here, switch to Register.",
-          ),
-      invitationTitle: tx("这条邀请会把你带进真实协作流", "This invitation drops you into a live collaboration flow"),
-      invitationBody: tx(
-        "加入后你会看到共享消息、任务推进、文档资料与 Agent 执行上下文，而不是一个空白工作区。",
-        "After joining, you will see shared conversations, task execution, docs, and agent context instead of a blank workspace.",
-      ),
-      invitationDetails: [
-        { label: tx("工作区", "Workspace"), value: invitation.workspaceName },
-        { label: tx("角色", "Role"), value: roleLabel },
-        { label: tx("登录后", "After sign-in"), value: tx("直接进入共享收件箱", "Open the shared inbox directly") },
-        { label: tx("受邀邮箱", "Invited email"), value: invitation.email },
-      ],
-      ssoLabel: tx("使用 Dofe SSO 进入工作区", "Continue with Dofe SSO to join workspace"),
-    };
-  }
-
-  if (mode === "register") {
-    return {
-      heroKicker: "AgentSpace",
-      heroTitle: tx(
-        "AgentSpace: Where Humans Manage Agents",
-        "AgentSpace: Where Humans Manage Agents",
-      ),
-      heroLead: tx(
-        "AgentSpace 让人类能够完全掌控 Agent，让 Agent 在 workspace 里像真实员工一样协作，同时像关键系统一样受控。一键将你的 Agent 接入整个组织，让它成为可跨团队借用、自动对接需求、调用合适 runtime 完成任务的数字员工。",
-        "AgentSpace gives humans full control over agents, lets agents collaborate inside the workspace like real employees, and keeps them governed like critical systems. Connect your agent to the organization in one step, turning it into a digital employee that can be borrowed across teams, pick up requests, and call the right runtime to get work done.",
-      ),
-      signalPills: [
-        tx("调度", "Scheduling"),
-        tx("能力", "Capability"),
-        tx("协作", "Collaboration"),
-        tx("安全", "Security"),
-      ],
-      features: landingFeatureCards,
-      metrics: projectIntroPoints,
-      panelEyebrow: tx("创建你的数字员工网络", "Create your digital workforce"),
-      panelTitle: tx("注册并开始", "Register and start"),
-      panelBody: tx(
-        "首次进入会创建默认 workspace。之后你可以共享数字员工、配置 runtime 和 harness、审批 Agent 行为，并邀请真人同事一起协作。",
-        "Your first sign-in creates a default workspace. Then you can share digital employees, configure runtimes and harnesses, approve agent actions, and invite human teammates.",
-      ),
-      modeGuide: tx(
-        "适合第一次使用；注册完成后会先创建默认工作区，再开始配置 Agent、runtime、harness 和权限规则。",
-        "Best for first-time users. Registration creates a default workspace before you configure agents, runtimes, harnesses, and permission rules.",
-      ),
-      ssoLabel: tx("使用 Dofe SSO 创建账号", "Continue with Dofe SSO to create an account"),
-    };
-  }
-
-  return {
-    heroKicker: "AgentSpace",
-    heroTitle: tx(
-      "AgentSpace: Where Humans Manage Agents",
-      "AgentSpace: Where Humans Manage Agents",
-    ),
-    heroLead: tx(
-      "AgentSpace 让人类能够完全掌控 Agent，让 Agent 在 workspace 里像真实员工一样协作，同时像关键系统一样受控。一键将你的 Agent 接入整个组织，让它成为可跨团队借用、自动对接需求、调用合适 runtime 完成任务的数字员工。",
-      "AgentSpace gives humans full control over agents, lets agents collaborate inside the workspace like real employees, and keeps them governed like critical systems. Connect your agent to the organization in one step, turning it into a digital employee that can be borrowed across teams, pick up requests, and call the right runtime to get work done.",
-    ),
-    signalPills: [
-      tx("调度", "Scheduling"),
-      tx("能力", "Capability"),
-      tx("协作", "Collaboration"),
-      tx("安全", "Security"),
-    ],
-    features: landingFeatureCards,
-    metrics: projectIntroPoints,
-    panelEyebrow: tx("回到你的数字员工网络", "Return to your digital workforce"),
-    panelTitle: tx("登录并继续", "Sign in and continue"),
-    panelBody: language === "zh" ? (
-      <>立刻注册或登录，让你的工作和组织一秒迈入<strong>原生 Agent 集群时代</strong>。</>
-    ) : (
-      <>Register or sign in now, and move your work and organization into the <strong>native agent-cluster era</strong> in one second.</>
-    ),
-    modeGuide: tx(
-      "适合已有账号的回访用户；登录后会回到你最近使用的 Agent 工作区和安全控制面板。",
-      "Best for returning users with an existing account. Sign in to reopen your recent agent workspace and security controls.",
-    ),
-    ssoLabel: tx("使用 Dofe SSO 登录", "Continue with Dofe SSO"),
-  };
 }

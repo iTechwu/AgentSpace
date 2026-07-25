@@ -74,7 +74,7 @@ const WORKSPACE_MODULE_PATHS: Record<WorkspaceModuleId, string> = {
 };
 
 const MODULE_QUERY_KEY_ORDER: Partial<Record<WorkspaceModuleId, string[]>> = {
-  im: ["view", "focus", "tab", "doc"],
+  im: ["view", "context", "focus", "tab", "doc"],
   contacts: ["view", "focus", "tab", "doc"],
   agents: ["mode", "create", "focus"],
   knowledge: ["view", "page", "document"],
@@ -108,7 +108,10 @@ export function parseWorkspaceModulePath(
   const knowledgeView = moduleId === "knowledge" && normalizedSearchParams.get("view") === "documents" ? "documents" : "knowledge";
   const settingsPath = moduleId === "settings" ? splitAppPath(appPath).slice(1) : [];
   const isHumanContactsView = moduleId === "contacts";
-  const isDigitalContactsView = moduleId === "im" && conversationView === "direct";
+  const isDigitalContactsView =
+    moduleId === "im" &&
+    conversationView === "direct" &&
+    normalizedSearchParams.get("context") === "contacts";
 
   return {
     workspaceSlug,
@@ -221,6 +224,9 @@ function splitAppPath(appPath: string): string[] {
 function shouldKeepWorkspaceModuleQueryValue(moduleId: WorkspaceModuleId, key: string, value: string): boolean {
   if (moduleId === "im" && key === "view") {
     return value === "direct";
+  }
+  if (moduleId === "im" && key === "context") {
+    return value === "contacts";
   }
   if (moduleId === "contacts" && key === "view") {
     return value === "direct" || value === "digital";

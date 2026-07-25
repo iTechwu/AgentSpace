@@ -122,12 +122,12 @@ describe("dashboard data", () => {
   it("builds shell human contacts from active workspace memberships", () => {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const owner = createUserSync({
-      displayName: `Tianyu ${suffix}`,
-      primaryEmail: `tianyu-${suffix}@example.com`,
+      displayName: `techwu ${suffix}`,
+      primaryEmail: `techwu-${suffix}@example.com`,
     });
     const member = createUserSync({
-      displayName: `Tianyu_TW ${suffix}`,
-      primaryEmail: `tianyu-tw-${suffix}@example.com`,
+      displayName: `techwu_TW ${suffix}`,
+      primaryEmail: `techwu-tw-${suffix}@example.com`,
     });
     const workspaceId = `workspace-shell-${suffix}`;
     createWorkspaceSync({
@@ -407,7 +407,7 @@ describe("dashboard data", () => {
       },
     });
 
-    const channelsPage = getChannelsPageData("Tianyu");
+    const channelsPage = getChannelsPageData("techwu");
     const launch = channelsPage.channels.find((channel) => channel.id === "launch");
 
     expect(launch?.feishu).toMatchObject({
@@ -444,13 +444,13 @@ describe("dashboard data", () => {
     writeWorkspaceStateSync({
       ...readWorkspaceStateSync(),
       humanMembers: [
-        { name: "Tianyu", role: "Founder" },
+        { name: "techwu", role: "Founder" },
         { name: "Mina", role: "Operator" },
       ],
       channels: [
         {
           name: "ops",
-          humanMemberNames: ["Tianyu", "Mina"],
+          humanMemberNames: ["techwu", "Mina"],
           humanMembers: 2,
           employeeNames: [],
         },
@@ -459,7 +459,7 @@ describe("dashboard data", () => {
         {
           id: "message-mention-mina",
           channel: "ops",
-          speaker: "Tianyu",
+          speaker: "techwu",
           role: "human",
           time: "2026-04-30T09:00:00.000Z",
           summary: "@Mina 看一下这个安排",
@@ -529,7 +529,7 @@ describe("dashboard data", () => {
         {
           id: "message-mention-mina-2",
           channel: "ops",
-          speaker: "Tianyu",
+          speaker: "techwu",
           role: "human",
           time: "2026-04-30T09:00:45.000Z",
           summary: "@Mina 再确认一下",
@@ -558,8 +558,8 @@ describe("dashboard data", () => {
 
   it("does not show unrelated direct-channel notifications to workspace owners", () => {
     const owner = createUserSync({
-      displayName: "Tianyu",
-      primaryEmail: `tianyu-direct-owner-${Date.now()}@example.com`,
+      displayName: "techwu",
+      primaryEmail: `techwu-direct-owner-${Date.now()}@example.com`,
     });
     const directMember = createUserSync({
       displayName: "Wu",
@@ -1035,7 +1035,7 @@ describe("dashboard data", () => {
       summary: "Planning agent",
     });
 
-    const channelsPage = getChannelsPageData("Tianyu");
+    const channelsPage = getChannelsPageData("techwu");
     const directContact = channelsPage.channels.find((channel) => channel.contactId === "Atlas");
 
     expect(directContact).toMatchObject({
@@ -1063,7 +1063,7 @@ describe("dashboard data", () => {
         {
           name: "planning",
           humanMembers: 1,
-          humanMemberNames: ["Tianyu"],
+          humanMemberNames: ["techwu"],
           employeeNames: ["Atlas", "Nova"],
         },
       ],
@@ -1167,11 +1167,11 @@ describe("dashboard data", () => {
     writeWorkspaceStateSync({
       ...readWorkspaceStateSync(),
       organizationName: "Northstar Labs",
-      humanMembers: [{ name: "Tianyu", role: "Founder" }],
+      humanMembers: [{ name: "techwu", role: "Founder" }],
       channels: [
         {
           name: "tour visit",
-          humanMemberNames: ["Tianyu"],
+          humanMemberNames: ["techwu"],
           humanMembers: 1,
           employeeNames: [],
         },
@@ -1182,7 +1182,7 @@ describe("dashboard data", () => {
       channelName: "tour visit",
       title: "Restricted plan",
       contentMarkdown: "hidden plan",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
       triggerType: "manual",
     });
@@ -1198,7 +1198,7 @@ describe("dashboard data", () => {
         channel.name === "tour visit"
           ? {
               ...channel,
-              humanMemberNames: ["Tianyu", "Mina"],
+              humanMemberNames: ["techwu", "Mina"],
               humanMembers: 2,
             }
           : channel,
@@ -1223,12 +1223,12 @@ describe("dashboard data", () => {
       ...readWorkspaceStateSync(),
       organizationName: "Northstar Labs",
       humanMembers: [
-        { name: "Tianyu", role: "Founder" },
+        { name: "techwu", role: "Founder" },
       ],
       channels: [
         {
           name: "tour visit",
-          humanMemberNames: ["Tianyu"],
+          humanMemberNames: ["techwu"],
           humanMembers: 1,
           employeeNames: [],
         },
@@ -1237,7 +1237,7 @@ describe("dashboard data", () => {
         {
           id: "message-1",
           channel: "tour visit",
-          speaker: "Tianyu",
+          speaker: "techwu",
           role: "human",
           time: "2026-04-18T09:00:00.000Z",
           summary: "Shared itinerary",
@@ -1251,44 +1251,44 @@ describe("dashboard data", () => {
       channelName: "tour visit",
       attachmentId: attachment.id,
       title: "Trip notes",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
     });
 
     createKnowledgePageFromSharedDocumentSync({
       sourceType: "attachment",
       sourceId: attachment.id,
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
     });
     createKnowledgePageFromSharedDocumentSync({
       sourceType: "channelDocument",
       sourceId: created.document.id,
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
     });
 
     writeWorkspaceStateSync({
       ...readWorkspaceStateSync(),
       humanMembers: [
-        { name: "Tianyu", role: "Founder" },
+        { name: "techwu", role: "Founder" },
         { name: "Mina", role: "Operator" },
       ],
       channels: [
         {
           name: "tour visit",
-          humanMemberNames: ["Tianyu", "Mina"],
+          humanMemberNames: ["techwu", "Mina"],
           humanMembers: 2,
           employeeNames: [],
         },
       ],
     });
 
-    const tianyuKnowledge = getKnowledgePageData("Tianyu");
-    const attachmentDocument = tianyuKnowledge.documentPages.find(
+    const techwuKnowledge = getKnowledgePageData("techwu");
+    const attachmentDocument = techwuKnowledge.documentPages.find(
       (document) => document.sourceType === "attachment" && document.sourceId === attachment.id,
     );
-    const sharedDocument = tianyuKnowledge.documentPages.find(
+    const sharedDocument = techwuKnowledge.documentPages.find(
       (document) => document.sourceType === "channelDocument" && document.sourceId === created.document.id,
     );
 
@@ -1297,7 +1297,7 @@ describe("dashboard data", () => {
     expect(attachmentDocument?.previewText).toBe("# Osaka Trip\n\nDay 1");
     expect(sharedDocument?.linkedKnowledgePages.map((page) => page.title)).toContain("Trip notes");
     expect(sharedDocument?.sourceAttachmentId).toBe(attachment.id);
-    expect(tianyuKnowledge.linkedDocumentCount).toBe(2);
+    expect(techwuKnowledge.linkedDocumentCount).toBe(2);
 
     const minaKnowledge = getKnowledgePageData("Mina");
     expect(
@@ -1314,19 +1314,19 @@ describe("dashboard data", () => {
       ...createAttachment("att-deleted", "shared/deleted.md", "text/markdown", "# Deleted"),
       deletedAt: "2026-05-01T00:00:00.000Z",
       deletedByUserId: "user-1",
-      deletedByDisplayName: "Tianyu",
+      deletedByDisplayName: "techwu",
     };
 
     writeWorkspaceStateSync({
       ...readWorkspaceStateSync(),
       organizationName: "Northstar Labs",
       humanMembers: [
-        { name: "Tianyu", role: "Founder" },
+        { name: "techwu", role: "Founder" },
       ],
       channels: [
         {
           name: "tour visit",
-          humanMemberNames: ["Tianyu"],
+          humanMemberNames: ["techwu"],
           humanMembers: 1,
           employeeNames: [],
         },
@@ -1335,7 +1335,7 @@ describe("dashboard data", () => {
         {
           id: "message-1",
           channel: "tour visit",
-          speaker: "Tianyu",
+          speaker: "techwu",
           role: "human",
           time: "2026-05-01T09:00:00.000Z",
           summary: "Shared files",
@@ -1345,7 +1345,7 @@ describe("dashboard data", () => {
       ],
     });
 
-    const channelsPage = getChannelsPageData("Tianyu");
+    const channelsPage = getChannelsPageData("techwu");
 
     expect(channelsPage.channelFiles.map((file) => file.id)).toEqual(["att-active"]);
   });
@@ -1357,17 +1357,17 @@ describe("dashboard data", () => {
     writeWorkspaceStateSync({
       ...readWorkspaceStateSync(),
       organizationName: "Northstar Labs",
-      humanMembers: [{ name: "Tianyu", role: "Founder" }],
+      humanMembers: [{ name: "techwu", role: "Founder" }],
       channels: [
         {
           name: "planning",
-          humanMemberNames: ["Tianyu"],
+          humanMemberNames: ["techwu"],
           humanMembers: 1,
           employeeNames: [],
         },
         {
           name: "random",
-          humanMemberNames: ["Tianyu"],
+          humanMemberNames: ["techwu"],
           humanMembers: 1,
           employeeNames: [],
         },
@@ -1376,7 +1376,7 @@ describe("dashboard data", () => {
         {
           id: "message-planning",
           channel: "planning",
-          speaker: "Tianyu",
+          speaker: "techwu",
           role: "human",
           time: "2026-05-01T09:00:00.000Z",
           summary: "Planning detail",
@@ -1386,7 +1386,7 @@ describe("dashboard data", () => {
         {
           id: "message-random",
           channel: "random",
-          speaker: "Tianyu",
+          speaker: "techwu",
           role: "human",
           time: "2026-05-01T09:01:00.000Z",
           summary: "Random summary",
@@ -1400,7 +1400,7 @@ describe("dashboard data", () => {
       channelName: "planning",
       title: "Planning doc",
       contentMarkdown: "visible detail",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
       triggerType: "manual",
     });
@@ -1408,12 +1408,12 @@ describe("dashboard data", () => {
       channelName: "random",
       title: "Random doc",
       contentMarkdown: "withheld detail",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
       triggerType: "manual",
     });
 
-    const channelsPage = getChannelsPageData("Tianyu", "default", undefined, undefined, {
+    const channelsPage = getChannelsPageData("techwu", "default", undefined, undefined, {
       detailChannelNames: ["planning"],
     });
 
@@ -1434,17 +1434,17 @@ describe("dashboard data", () => {
     writeWorkspaceStateSync({
       ...readWorkspaceStateSync(),
       organizationName: "Northstar Labs",
-      humanMembers: [{ name: "Tianyu", role: "Founder" }],
+      humanMembers: [{ name: "techwu", role: "Founder" }],
       channels: [
         {
           name: "planning",
-          humanMemberNames: ["Tianyu"],
+          humanMemberNames: ["techwu"],
           humanMembers: 1,
           employeeNames: [],
         },
         {
           name: "random",
-          humanMemberNames: ["Tianyu"],
+          humanMemberNames: ["techwu"],
           humanMembers: 1,
           employeeNames: [],
         },
@@ -1453,7 +1453,7 @@ describe("dashboard data", () => {
         {
           id: "message-planning-contract",
           channel: "planning",
-          speaker: "Tianyu",
+          speaker: "techwu",
           role: "human",
           time: "2026-05-01T09:00:00.000Z",
           summary: "Planning detail",
@@ -1463,7 +1463,7 @@ describe("dashboard data", () => {
         {
           id: "message-random-contract",
           channel: "random",
-          speaker: "Tianyu",
+          speaker: "techwu",
           role: "human",
           time: "2026-05-01T09:01:00.000Z",
           summary: "Random summary",
@@ -1477,7 +1477,7 @@ describe("dashboard data", () => {
       channelName: "planning",
       title: "Planning doc",
       contentMarkdown: "visible detail",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
       triggerType: "manual",
     });
@@ -1485,17 +1485,17 @@ describe("dashboard data", () => {
       channelName: "random",
       title: "Random doc",
       contentMarkdown: "withheld detail",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
       triggerType: "manual",
     });
 
-    const listPage = getChannelListPageData("Tianyu", "default", undefined, undefined, {
+    const listPage = getChannelListPageData("techwu", "default", undefined, undefined, {
       initialDetailChannelNames: ["planning"],
     });
     const randomDetail = getChannelDetailData({
       channelName: "random",
-      currentUserDisplayName: "Tianyu",
+      currentUserDisplayName: "techwu",
       workspaceId: "default",
     });
 
@@ -1528,11 +1528,11 @@ describe("dashboard data", () => {
     writeWorkspaceStateSync({
       ...readWorkspaceStateSync(),
       organizationName: "Northstar Labs",
-      humanMembers: [{ name: "Tianyu", role: "Founder" }],
+      humanMembers: [{ name: "techwu", role: "Founder" }],
       channels: [
         {
           name: "tour visit",
-          humanMemberNames: ["Tianyu"],
+          humanMemberNames: ["techwu"],
           humanMembers: 1,
           employeeNames: [],
         },
@@ -1541,7 +1541,7 @@ describe("dashboard data", () => {
         {
           id: "message-1",
           channel: "tour visit",
-          speaker: "Tianyu",
+          speaker: "techwu",
           role: "human",
           time: "2026-04-18T09:00:00.000Z",
           summary: "Shared orphaned file",
@@ -1554,13 +1554,13 @@ describe("dashboard data", () => {
     createKnowledgePageFromSharedDocumentSync({
       sourceType: "attachment",
       sourceId: attachment.id,
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
     });
     createChannelDocumentFromAttachmentSync({
       channelName: "tour visit",
       attachmentId: attachment.id,
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
     });
 
@@ -1569,7 +1569,7 @@ describe("dashboard data", () => {
       messages: [],
     });
 
-    const knowledgeData = getKnowledgePageData("Tianyu");
+    const knowledgeData = getKnowledgePageData("techwu");
     const preservedDocument = knowledgeData.documentPages.find(
       (document) => document.sourceType === "attachment" && document.sourceId === attachment.id,
     );

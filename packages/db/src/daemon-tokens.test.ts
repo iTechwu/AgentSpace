@@ -32,7 +32,7 @@ test("daemon api tokens can be created, validated, and revoked", () => {
   const created = createDaemonApiTokenSync({
     workspaceId: "default",
     label: "remote-build-box",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
   });
 
   assert.ok(created.token.startsWith("adt_"));
@@ -52,7 +52,7 @@ test("a daemon token binds exactly one daemon and rejects cross-workspace daemon
   const firstToken = createDaemonApiTokenSync({
     workspaceId: "default",
     label: "codex-container",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
   });
   const first = registerDaemonRuntimesSync({
     workspaceId: "default",
@@ -67,7 +67,7 @@ test("a daemon token binds exactly one daemon and rejects cross-workspace daemon
   const secondToken = createDaemonApiTokenSync({
     workspaceId: "default",
     label: "claude-container",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
   });
   assert.throws(
     () => registerDaemonRuntimesSync({

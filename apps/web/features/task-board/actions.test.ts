@@ -61,7 +61,7 @@ describe("task-board actions", () => {
       employeeName: "Atlas",
       channelName: "travel",
       actorUserId: "user-1",
-      actorDisplayName: "Tianyu",
+      actorDisplayName: "techwu",
       actorRole: "owner",
     });
     expect(mockUpdateTaskStatusSync).toHaveBeenCalledWith("task-1", "done", "workspace-1");
@@ -79,7 +79,7 @@ function buildWorkspaceContext() {
   return {
     currentUser: {
       id: "user-1",
-      displayName: "Tianyu",
+      displayName: "techwu",
     },
     currentWorkspace: {
       id: "workspace-1",

@@ -58,7 +58,7 @@ function seedWorkspace(): void {
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
-    ownerName: "Tianyu",
+    ownerName: "techwu",
     ownerRole: "Founder",
     firstChannelName: "tour visit",
   });
@@ -166,8 +166,8 @@ function addHumanToTourVisit(name: string): void {
       channel.name === "tour visit"
         ? {
             ...channel,
-            humanMemberNames: Array.from(new Set([...(channel.humanMemberNames ?? ["Tianyu"]), name])),
-            humanMembers: Math.max(channel.humanMembers, Array.from(new Set([...(channel.humanMemberNames ?? ["Tianyu"]), name])).length),
+            humanMemberNames: Array.from(new Set([...(channel.humanMemberNames ?? ["techwu"]), name])),
+            humanMembers: Math.max(channel.humanMembers, Array.from(new Set([...(channel.humanMemberNames ?? ["techwu"]), name])).length),
           }
         : channel,
     ),
@@ -223,9 +223,9 @@ test("sendContactMessageForHumanWithAttachmentsSync backfills missing legacy hum
 test("sendHumanDirectMessageSync creates a human direct channel without agent queue messages", () => {
   resetWorkspaceStateSync();
   const suffix = Math.random().toString(36).slice(2, 8);
-  const tianyu = createUserSync({
-    displayName: `Tianyu ${suffix}`,
-    primaryEmail: `tianyu-${suffix}@example.com`,
+  const techwu = createUserSync({
+    displayName: `techwu ${suffix}`,
+    primaryEmail: `techwu-${suffix}@example.com`,
   });
   const mina = createUserSync({
     displayName: `Mina ${suffix}`,
@@ -233,7 +233,7 @@ test("sendHumanDirectMessageSync creates a human direct channel without agent qu
   });
   createWorkspaceMembershipSync({
     workspaceId: DEFAULT_WORKSPACE_ID,
-    userId: tianyu.id,
+    userId: techwu.id,
     role: "owner",
   });
   createWorkspaceMembershipSync({
@@ -243,23 +243,23 @@ test("sendHumanDirectMessageSync creates a human direct channel without agent qu
   });
 
   sendHumanDirectMessageSync({
-    actorUserId: tianyu.id,
+    actorUserId: techwu.id,
     targetUserId: mina.id,
     content: "hello Mina",
   });
   sendHumanDirectMessageSync({
     actorUserId: mina.id,
-    targetUserId: tianyu.id,
-    content: "hello Tianyu",
+    targetUserId: techwu.id,
+    content: "hello techwu",
   });
 
   const state = readWorkspaceStateSync();
   const directChannels = state.channels.filter((channel) => channel.kind === "direct" && channel.employeeNames.length === 0);
   assert.equal(directChannels.length, 1);
-  assert.deepEqual(new Set(directChannels[0]?.humanMemberNames), new Set([tianyu.displayName, mina.displayName]));
+  assert.deepEqual(new Set(directChannels[0]?.humanMemberNames), new Set([techwu.displayName, mina.displayName]));
 
   const directMessages = state.messages.filter((message) => message.channel === directChannels[0]?.name);
-  assert.deepEqual(directMessages.map((message) => message.summary), ["hello Tianyu", "hello Mina"]);
+  assert.deepEqual(directMessages.map((message) => message.summary), ["hello techwu", "hello Mina"]);
   assert.equal(directMessages.some((message) => message.code === "agent.pending"), false);
   assert.equal(state.tasks.some((task) => task.channel === directChannels[0]?.name), false);
 });
@@ -268,7 +268,7 @@ test("sendChannelHumanMessageSync keeps mentions and attachments on the same sou
   seedWorkspace();
   const attachment = createAttachment("att-human", "briefs/trip-plan.md", "text/markdown");
 
-  sendChannelHumanMessageSync("tour visit", "Tianyu", "@Atlas 请结合附件继续完善这版行程。", [attachment]);
+  sendChannelHumanMessageSync("tour visit", "techwu", "@Atlas 请结合附件继续完善这版行程。", [attachment]);
 
   const humanMessage = readWorkspaceStateSync().messages.find((message) => message.role === "human");
   assert.equal(humanMessage?.attachments?.[0]?.id, attachment.id);
@@ -280,7 +280,7 @@ test("sendChannelHumanMessageSync stores untrusted external source metadata on t
 
   sendChannelHumanMessageSync(
     "tour visit",
-    "Tianyu",
+    "techwu",
     "来自飞书的一条普通消息",
     undefined,
     undefined,
@@ -320,7 +320,7 @@ test("sendChannelHumanMessageSync stores the requester user id and publishes rea
   seedWorkspace();
   const suffix = Math.random().toString(36).slice(2, 8);
   const requester = createUserSync({
-    displayName: `Tianyu ${suffix}`,
+    displayName: `techwu ${suffix}`,
     primaryEmail: `requester-${suffix}@example.com`,
   });
   createWorkspaceMembershipSync({
@@ -377,14 +377,14 @@ test("sendChannelHumanMessageSync accepts human mentions without dispatching age
       channel.name === "tour visit"
         ? {
             ...channel,
-            humanMemberNames: ["Tianyu", "Mina"],
+            humanMemberNames: ["techwu", "Mina"],
             humanMembers: 2,
           }
         : channel,
     ),
   });
 
-  sendChannelHumanMessageSync("tour visit", "Tianyu", "@Mina 看下这个安排");
+  sendChannelHumanMessageSync("tour visit", "techwu", "@Mina 看下这个安排");
 
   const humanMessage = readWorkspaceStateSync().messages.find((message) => message.role === "human");
   assert.equal(humanMessage?.mentions?.[0]?.mentionType, "human");
@@ -422,7 +422,7 @@ test("completeAgentChannelReplySync dispatches mentioned agents and records sour
     speaker: "Atlas",
     summary: "@Mina 请确认预算口径。@Nova 你先根据当前口径生成草案。",
     sourceTaskQueueId: "queue-atlas",
-    requestedByDisplayName: "Tianyu",
+    requestedByDisplayName: "techwu",
     mentionRootMessageId: "message-root",
   });
 
@@ -534,7 +534,7 @@ test("sendChannelHumanMessageSync starts auto continuation for continuous work d
   seedWorkspace();
   bindAtlasRuntime();
 
-  sendChannelHumanMessageSync("tour visit", "Tianyu", "@Atlas，从现在起连续工作12h");
+  sendChannelHumanMessageSync("tour visit", "techwu", "@Atlas，从现在起连续工作12h");
 
   const queued = listQueuedTasksSync().filter((task) => task.agentId === "Atlas");
   assert.equal(queued.length, 1);
@@ -590,7 +590,7 @@ test("sendChannelHumanMessageSync lets channel members mention enabled workspace
       channel.name === "tour visit"
         ? {
             ...channel,
-            humanMemberNames: ["Tianyu", mina.displayName],
+            humanMemberNames: ["techwu", mina.displayName],
             humanMembers: 2,
           }
         : channel,
@@ -671,7 +671,7 @@ test("sendChannelHumanMessageSync lets channel members mention enabled personal 
       channel.name === "tour visit"
         ? {
             ...channel,
-            humanMemberNames: ["Tianyu", mina.displayName],
+            humanMemberNames: ["techwu", mina.displayName],
             humanMembers: 2,
             employeeNames: [...channel.employeeNames, "Nova"],
           }
@@ -718,7 +718,7 @@ test("sendChannelHumanMessageSync rejects channel members when agent channel acc
       channel.name === "tour visit"
         ? {
             ...channel,
-            humanMemberNames: ["Tianyu", mina.displayName],
+            humanMemberNames: ["techwu", mina.displayName],
             humanMembers: 2,
           }
         : channel,
@@ -764,7 +764,7 @@ test("createTaskSync lets channel members dispatch enabled workspace agents in j
       channel.name === "tour visit"
         ? {
             ...channel,
-            humanMemberNames: ["Tianyu", mina.displayName],
+            humanMemberNames: ["techwu", mina.displayName],
             humanMembers: 2,
           }
         : channel,
@@ -840,7 +840,7 @@ test("createTaskSync lets channel members dispatch enabled personal agents in jo
       channel.name === "tour visit"
         ? {
             ...channel,
-            humanMemberNames: ["Tianyu", mina.displayName],
+            humanMemberNames: ["techwu", mina.displayName],
             humanMembers: 2,
             employeeNames: [...channel.employeeNames, "Nova"],
           }
@@ -885,7 +885,7 @@ test("createTaskSync rejects channel members when agent channel access is disabl
       channel.name === "tour visit"
         ? {
             ...channel,
-            humanMemberNames: ["Tianyu", mina.displayName],
+            humanMemberNames: ["techwu", mina.displayName],
             humanMembers: 2,
           }
         : channel,
@@ -909,7 +909,7 @@ test("createTaskSync rejects channel members when agent channel access is disabl
 test("continueAutoContinuationAfterTaskSync replies and queues the next takeover task", () => {
   seedWorkspace();
   bindAtlasRuntime();
-  sendChannelHumanMessageSync("tour visit", "Tianyu", "@Atlas，从现在起连续工作12h");
+  sendChannelHumanMessageSync("tour visit", "techwu", "@Atlas，从现在起连续工作12h");
   const firstTask = listQueuedTasksSync().find((task) => task.agentId === "Atlas");
   assert.ok(firstTask);
   const firstPayload = JSON.parse(firstTask!.inputJson) as { autoContinuation: { startedAt: string } };
@@ -943,7 +943,7 @@ test("continueAutoContinuationAfterTaskSync replies and queues the next takeover
 test("stopAutoContinuationSync stops active continuation and cancels queued follow-up", () => {
   seedWorkspace();
   bindAtlasRuntime();
-  sendChannelHumanMessageSync("tour visit", "Tianyu", "@Atlas，从现在起连续工作12h");
+  sendChannelHumanMessageSync("tour visit", "techwu", "@Atlas，从现在起连续工作12h");
   const firstTask = listQueuedTasksSync().find((task) => task.agentId === "Atlas");
   assert.ok(firstTask);
   const firstPayload = JSON.parse(firstTask!.inputJson) as { autoContinuation: { startedAt: string } };
@@ -958,7 +958,7 @@ test("stopAutoContinuationSync stops active continuation and cancels queued foll
   const stopResult = stopAutoContinuationSync({
     channelName: "tour visit",
     agentId: "Atlas",
-    requestedByDisplayName: "Tianyu",
+    requestedByDisplayName: "techwu",
   });
 
   assert.equal(stopResult.stopped, true);
@@ -982,7 +982,7 @@ test("sendChannelHumanMessageSync rejects mentions for agents outside the channe
   });
 
   assert.throws(
-    () => sendChannelHumanMessageSync("tour visit", "Tianyu", "@Nova 帮我看一下"),
+    () => sendChannelHumanMessageSync("tour visit", "techwu", "@Nova 帮我看一下"),
     /以下 Agent 不在当前群组中：@Nova。/,
   );
   assert.equal(readWorkspaceStateSync().messages.length, 0);
@@ -1000,7 +1000,7 @@ test("sendChannelHumanMessageSync rejects mentions for humans outside the channe
   });
 
   assert.throws(
-    () => sendChannelHumanMessageSync("tour visit", "Tianyu", "@Mina 帮我看一下"),
+    () => sendChannelHumanMessageSync("tour visit", "techwu", "@Mina 帮我看一下"),
     /以下成员不在当前群组中：@Mina。/,
   );
   assert.equal(readWorkspaceStateSync().messages.length, 0);
@@ -1061,13 +1061,13 @@ test("acknowledgeMessageSync stores one OK acknowledgement per actor", () => {
   const messageId = readWorkspaceStateSync().messages[0]?.id;
   assert.ok(messageId);
 
-  acknowledgeMessageSync(messageId!, undefined, "Tianyu", "user-tianyu");
-  acknowledgeMessageSync(messageId!, undefined, "Tianyu", "user-tianyu");
+  acknowledgeMessageSync(messageId!, undefined, "techwu", "user-techwu");
+  acknowledgeMessageSync(messageId!, undefined, "techwu", "user-techwu");
 
   const message = readWorkspaceStateSync().messages.find((item) => item.id === messageId);
   assert.equal(message?.acknowledgements?.length, 1);
-  assert.equal(message?.acknowledgements?.[0]?.label, "Tianyu");
-  assert.equal(message?.acknowledgements?.[0]?.userId, "user-tianyu");
+  assert.equal(message?.acknowledgements?.[0]?.label, "techwu");
+  assert.equal(message?.acknowledgements?.[0]?.userId, "user-techwu");
 });
 
 test("acknowledgeMessageSync rejects humans outside the channel when actor is provided", () => {

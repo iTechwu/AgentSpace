@@ -8,6 +8,7 @@ import { translateSystemSpeaker, translateWorkspaceMessageSummary } from "@/feat
 import { EmptyState } from "@/shared/ui/empty-state";
 import { FeedbackBanner } from "@/shared/ui/feedback-banner";
 import { GeneratedAvatar, type GeneratedAvatarVariant } from "@/shared/ui/generated-avatar";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import type {
   ConversationListItem,
@@ -583,7 +584,7 @@ export function ChatComposer({
               onClick={onInsertMentionTrigger}
               type="button"
             >
-              @
+              <AppIcon name="atSign" />
             </button>
             <button
               aria-label={tx("剪贴内容（暂未启用）", "Clip content (not available yet)")}
@@ -591,7 +592,7 @@ export function ChatComposer({
               disabled
               type="button"
             >
-              ✂
+              <AppIcon name="scissors" />
             </button>
             <div className="contacts-picker-wrap" ref={pickerRef}>
               <button
@@ -602,7 +603,7 @@ export function ChatComposer({
                 onClick={onTogglePicker}
                 type="button"
               >
-                +
+                <AppIcon name="plus" />
               </button>
               {showPicker ? (
                 <div className="contacts-picker-menu" role="menu">
@@ -679,7 +680,7 @@ export function ChatComposer({
             onClick={onSubmit}
             type="button"
           >
-            {isPending ? "…" : "➤"}
+            <AppIcon className={isPending ? "contacts-send-button__spinner" : undefined} name={isPending ? "loader" : "send"} />
           </button>
         </div>
     </div>

@@ -122,7 +122,7 @@ describe("workspace admin-guarded actions", () => {
     }, "workspace-1");
     expect(mockCreateKnowledgePageSync).toHaveBeenCalledWith({
       title: "Ops notes",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     }, "workspace-1");
     expect(mockCreateTemplateSync).toHaveBeenCalledWith({
       category: "task",
@@ -141,9 +141,9 @@ function buildWorkspaceContext(role: "owner" | "admin" | "member") {
     currentUser: {
       id: "user-1",
       organizationName: "Northstar Labs",
-      displayName: "Tianyu",
+      displayName: "techwu",
       role: "owner",
-      email: "tianyu@example.com",
+      email: "techwu@example.com",
     },
     currentWorkspace: {
       id: "workspace-1",

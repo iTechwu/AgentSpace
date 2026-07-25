@@ -49,7 +49,7 @@ function resetWorkspace() {
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
-    ownerName: "Tianyu",
+    ownerName: "techwu",
     ownerRole: "Founder",
     firstChannelName: "tour visit",
   });
@@ -78,15 +78,15 @@ function resetWorkspace() {
     origin: "seed",
   });
   createEmployeeSync({
-    name: "Tianyu's assistant",
+    name: "techwu's assistant",
     role: "Assistant",
-    remarkName: "Tianyu's assistant",
-    summary: "Tianyu's assistant",
-    fit: "Tianyu's assistant",
+    remarkName: "techwu's assistant",
+    summary: "techwu's assistant",
+    fit: "techwu's assistant",
     origin: "seed",
   });
   const state = ensureWorkspaceStateSync();
-  const employeeNames = ["Atlas", "Nova", "Test", "Tianyu's assistant"];
+  const employeeNames = ["Atlas", "Nova", "Test", "techwu's assistant"];
   state.activeEmployees = state.activeEmployees.map((employee) =>
     employeeNames.includes(employee.name)
       ? {
@@ -113,7 +113,7 @@ test("updateChannelDocumentSync saves title and content together", () => {
     channelName: "tour visit",
     title: "大阪-濑户内海行程",
     contentMarkdown: "## Day 1\n大阪",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
 
@@ -121,7 +121,7 @@ test("updateChannelDocumentSync saves title and content together", () => {
     documentId: created.document.id,
     title: "大阪-濑户内海春季行程",
     contentMarkdown: "## Day 1\n大阪\n\n## Day 2\n宇治",
-    updatedBy: "Tianyu",
+    updatedBy: "techwu",
     updatedByType: "human",
     baseVersionId: created.version.id,
     triggerType: "manual",
@@ -149,8 +149,8 @@ test("legacy channel documents normalize to native markdown documents", () => {
     currentVersionId: "legacy-version",
     summary: "",
     lastEditorType: "human",
-    createdBy: "Tianyu",
-    updatedBy: "Tianyu",
+    createdBy: "techwu",
+    updatedBy: "techwu",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   } as unknown as typeof state.channelDocuments[number]);
@@ -159,7 +159,7 @@ test("legacy channel documents normalize to native markdown documents", () => {
     documentId: "legacy-doc",
     contentMarkdown: "# Legacy",
     summary: "",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
     triggerType: "manual",
     createdAt: new Date().toISOString(),
@@ -190,7 +190,7 @@ test("createChannelDocumentSync preserves native sheet contract fields without m
     storageMode: "native",
     contentJson: sheetContent,
     summary: "数据源审计表",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
 
@@ -218,7 +218,7 @@ test("createChannelDocumentSync preserves external document binding metadata", (
     externalRevisionId: "revision-1",
     contentJson: { syncedAt: "2026-05-01T00:00:00.000Z" },
     summary: "Google Sheets 预算表",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
 
@@ -250,7 +250,7 @@ test("create and update change sets keep version and source metadata", () => {
   const updated = updateChannelDocumentSync({
     documentId: created.document.id,
     contentMarkdown: "## Day 1\n大阪\n\n## Day 2\n宇治",
-    updatedBy: "Tianyu's assistant",
+    updatedBy: "techwu's assistant",
     updatedByType: "agent",
     baseVersionId: created.version.id,
     sourceMessageId: "message-update",
@@ -280,7 +280,7 @@ test("external Google Sheet channel documents retain binding metadata and operat
     title: "竞品调研表",
     externalFileId: "google-sheet-123",
     externalUrl: "https://docs.google.com/spreadsheets/d/google-sheet-123/edit",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
 
@@ -366,7 +366,7 @@ test("external Google Doc channel documents retain binding metadata and operatio
     title: "会议纪要",
     externalFileId: "google-doc-123",
     externalUrl: "https://docs.google.com/document/d/google-doc-123/edit",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
 
@@ -407,7 +407,7 @@ test("updateChannelDocumentSync keeps the original title when a stale save confl
     channelName: "tour visit",
     title: "大阪-濑户内海行程",
     contentMarkdown: "## Day 1\n大阪",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
 
@@ -426,7 +426,7 @@ test("updateChannelDocumentSync keeps the original title when a stale save confl
         documentId: created.document.id,
         title: "大阪-濑户内海春季行程",
         contentMarkdown: "## Day 1\n大阪\n\n## Day 2\n奈良",
-        updatedBy: "Tianyu",
+        updatedBy: "techwu",
         updatedByType: "human",
         baseVersionId: created.version.id,
         triggerType: "manual",
@@ -447,7 +447,7 @@ test("markdown attachments with legacy octet-stream media type still show up as 
   const storedPath = join(attachmentsDir, "att-legacy-itinerary_detailed.md");
   writeFileSync(storedPath, "# Legacy itinerary\n\n## Day 1\n大阪\n", "utf8");
 
-  sendChannelHumanMessageSync("tour visit", "Tianyu", "请看附件", [
+  sendChannelHumanMessageSync("tour visit", "techwu", "请看附件", [
     {
       id: "att-legacy-itinerary",
       fileName: "itinerary_detailed.md",
@@ -465,7 +465,7 @@ test("markdown attachments with legacy octet-stream media type still show up as 
   const created = createChannelDocumentFromAttachmentSync({
     channelName: "tour visit",
     attachmentId: "att-legacy-itinerary",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
 
@@ -487,7 +487,7 @@ test("completeChannelDocumentRunStepSync warns when a document step finishes wit
     resetWorkspaceStateSync();
     initializeOrganizationSync({
       organizationName: "Northstar Labs",
-      ownerName: "Tianyu",
+      ownerName: "techwu",
       ownerRole: "Founder",
       firstChannelName: "tour visit",
     });
@@ -577,7 +577,7 @@ test("createChannelDocumentFromAttachmentSync rejects markdown attachments from 
     () => createChannelDocumentFromAttachmentSync({
       channelName: "tour visit",
       attachmentId: "att-secret-md",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
     }),
     /cannot access attachment/,
@@ -598,7 +598,7 @@ test("resolveChannelDocumentConflictSync marks an open conflict as resolved", ()
 
   recordChannelDocumentConflictSync({
     documentId: created.document.id,
-    actorId: "Tianyu's assistant",
+    actorId: "techwu's assistant",
     actorType: "agent",
     baseVersionId: created.version.id,
     operationsJson: JSON.stringify([{ op: "replace_document", title: created.document.title }]),
@@ -611,7 +611,7 @@ test("resolveChannelDocumentConflictSync marks an open conflict as resolved", ()
 
   resolveChannelDocumentConflictSync({
     conflictId: conflictId!,
-    resolvedBy: "Tianyu",
+    resolvedBy: "techwu",
     resolvedByType: "human",
   });
 
@@ -627,20 +627,20 @@ test("upsertChannelDocumentPresenceSync tracks and clears human presence", () =>
     channelName: "tour visit",
     title: "日本一周行程方案",
     contentMarkdown: "## Day 1\n大阪",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
     triggerType: "manual",
   });
 
   upsertChannelDocumentPresenceSync({
     documentId: created.document.id,
-    actorId: "Tianyu",
+    actorId: "techwu",
     actorType: "human",
     status: "viewing",
   });
   upsertChannelDocumentPresenceSync({
     documentId: created.document.id,
-    actorId: "Tianyu",
+    actorId: "techwu",
     actorType: "human",
     status: "editing",
   });
@@ -651,7 +651,7 @@ test("upsertChannelDocumentPresenceSync tracks and clears human presence", () =>
 
   clearChannelDocumentPresenceSync({
     documentId: created.document.id,
-    actorId: "Tianyu",
+    actorId: "techwu",
     actorType: "human",
   });
   persisted = ensureWorkspaceStateSync();
@@ -665,7 +665,7 @@ test("retryChannelDocumentConflictSync reapplies a conflicted replace_document u
     channelName: "tour visit",
     title: "日本一周行程方案",
     contentMarkdown: "## Day 1\n大阪",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
     triggerType: "manual",
   });
@@ -700,7 +700,7 @@ test("retryChannelDocumentConflictSync reapplies a conflicted replace_document u
 
   const result = retryChannelDocumentConflictSync({
     conflictId: conflictId!,
-    retriedBy: "Tianyu",
+    retriedBy: "techwu",
     retriedByType: "human",
   });
 
@@ -720,7 +720,7 @@ test("retryChannelDocumentConflictSync reapplies a conflicted block update on to
     channelName: "tour visit",
     title: "日本一周行程方案",
     contentMarkdown: "## Day 1\n大阪\n\n## Day 2\n宇治",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
     triggerType: "manual",
   });
@@ -758,7 +758,7 @@ test("retryChannelDocumentConflictSync reapplies a conflicted block update on to
 
   const retried = retryChannelDocumentConflictSync({
     conflictId: conflictId!,
-    retriedBy: "Tianyu",
+    retriedBy: "techwu",
     retriedByType: "human",
   });
 
@@ -774,23 +774,23 @@ test("channel documents seed owner/editor roles and reject viewer edits", () => 
     channelName: "tour visit",
     title: "权限测试文档",
     contentMarkdown: "## Day 1\n大阪",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
     triggerType: "manual",
   });
 
   const accesses = listChannelDocumentAccessesSync(created.document.id);
   assert.equal(accesses[0]?.role, "owner");
-  assert.equal(accesses[0]?.actorId, "Tianyu");
+  assert.equal(accesses[0]?.actorId, "techwu");
 
   assert.throws(
     () =>
       updateChannelDocumentAccessRoleSync({
         documentId: created.document.id,
-        actorId: "Tianyu",
+        actorId: "techwu",
         actorType: "human",
         role: "viewer",
-        changedBy: "Tianyu",
+        changedBy: "techwu",
         changedByType: "human",
       }),
     /at least one owner/i,
@@ -808,7 +808,7 @@ test("channel documents seed owner/editor roles and reject viewer edits", () => 
     actorId: "Nova",
     actorType: "human",
     role: "viewer",
-    changedBy: "Tianyu",
+    changedBy: "techwu",
     changedByType: "human",
   });
 
@@ -833,7 +833,7 @@ test("document collaborator add/remove operations update access records and audi
     channelName: "tour visit",
     title: "协作者测试文档",
     contentMarkdown: "## Day 1\n大阪",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
     triggerType: "manual",
   });
@@ -851,7 +851,7 @@ test("document collaborator add/remove operations update access records and audi
     actorId: "Beacon",
     actorType: "agent",
     role: "viewer",
-    addedBy: "Tianyu",
+    addedBy: "techwu",
     addedByType: "human",
   });
 
@@ -868,7 +868,7 @@ test("document collaborator add/remove operations update access records and audi
     documentId: created.document.id,
     actorId: "Beacon",
     actorType: "agent",
-    removedBy: "Tianyu",
+    removedBy: "techwu",
     removedByType: "human",
   });
 

@@ -135,8 +135,8 @@ export function FeishuUserBindingsPanel({
           <h3>{tx("飞书用户绑定", "Feishu User Bindings")}</h3>
           <p className="settings-panel-note">
             {canManageAllUsers
-              ? tx("把飞书 Open ID 映射到 AgentSpace 成员，外部消息才可以触发 Agent。", "Map Feishu Open IDs to AgentSpace members before external messages can trigger agents.")
-              : tx("绑定你自己的飞书 Open ID，之后你在飞书群里触发 Agent 时会按 AgentSpace 权限治理。", "Bind your own Feishu Open ID so messages you send in Feishu are governed by AgentSpace permissions.")}
+              ? tx("把飞书 Open ID 映射到 agent.dofe 成员，外部消息才可以触发 Agent。", "Map Feishu Open IDs to agent.dofe members before external messages can trigger agents.")
+              : tx("绑定你自己的飞书 Open ID，之后你在飞书群里触发 Agent 时会按 agent.dofe 权限治理。", "Bind your own Feishu Open ID so messages you send in Feishu are governed by agent.dofe permissions.")}
           </p>
         </div>
       </div>
@@ -173,7 +173,7 @@ export function FeishuUserBindingsPanel({
         </label>
 
         <label className="form-field">
-          <span>{tx("AgentSpace 用户", "AgentSpace User")}</span>
+          <span>{tx("agent.dofe 用户", "agent.dofe user")}</span>
           {canManageAllUsers ? (
             <select
               disabled={isPending || visibleUsers.length === 0}

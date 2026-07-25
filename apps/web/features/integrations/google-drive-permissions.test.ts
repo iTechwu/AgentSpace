@@ -92,12 +92,12 @@ describe("Google Drive permission sync", () => {
 
   it("shares external sheet files with human collaborators that have workspace emails", async () => {
     mockListWorkspaceMemberUsersSync.mockReturnValue([
-      { userId: "user-1", displayName: "Tianyu", primaryEmail: "tianyu@example.com", role: "owner" },
+      { userId: "user-1", displayName: "techwu", primaryEmail: "techwu@example.com", role: "owner" },
       { userId: "user-2", displayName: "Mina", primaryEmail: "mina@example.com", role: "member" },
       { userId: "user-3", displayName: "Alex", role: "member" },
     ]);
     mockListChannelDocumentAccessesSync.mockReturnValue([
-      { documentId: "doc-1", actorId: "Tianyu", actorType: "human", role: "owner" },
+      { documentId: "doc-1", actorId: "techwu", actorType: "human", role: "owner" },
       { documentId: "doc-1", actorId: "Mina", actorType: "human", role: "editor" },
       { documentId: "doc-1", actorId: "Alex", actorType: "human", role: "viewer" },
       { documentId: "doc-1", actorId: "Atlas", actorType: "agent", role: "editor" },
@@ -107,9 +107,9 @@ describe("Google Drive permission sync", () => {
       accessToken: "access-token",
       workspaceId: "workspace-1",
       documentId: "doc-1",
-      actorId: "Tianyu",
+      actorId: "techwu",
       actorType: "human",
-      skipEmails: ["tianyu@example.com"],
+      skipEmails: ["techwu@example.com"],
     });
 
     expect(result).toMatchObject({
@@ -129,7 +129,7 @@ describe("Google Drive permission sync", () => {
     expect(mockRecordExternalSheetOperationRunSync).toHaveBeenCalledWith({
       channelDocumentId: "doc-1",
       actorType: "human",
-      actorId: "Tianyu",
+      actorId: "techwu",
       status: "running",
       intent: "Sync Google Drive permissions for external sheet",
       operationType: "share",

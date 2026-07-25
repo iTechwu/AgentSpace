@@ -993,7 +993,7 @@ async function readGoogleDriveFileMetadataErrorMessage(response: Response): Prom
   }
   const usesDriveFileScope = GOOGLE_WORKSPACE_SCOPES.includes("https://www.googleapis.com/auth/drive.file");
   const scopeHint = usesDriveFileScope
-    ? " Current OAuth scope is drive.file; the file must be created by AgentSpace, explicitly opened/authorized through Picker, or the deployment must adopt a reviewed broader Drive scope."
+    ? " Current OAuth scope is drive.file; the file must be created by agent.dofe, explicitly opened/authorized through Picker, or the deployment must adopt a reviewed broader Drive scope."
     : "";
   return `${message} The current OAuth client/scope cannot see this file. This does not prove the Google account lacks browser access.${scopeHint}`;
 }

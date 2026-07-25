@@ -45,8 +45,8 @@ beforeEach(() => {
 
 test("direct channel reads are limited to participants and agent owners, not workspace managers", () => {
   const owner = createUserSync({
-    displayName: "Tianyu",
-    primaryEmail: "tianyu@example.com",
+    displayName: "techwu",
+    primaryEmail: "techwu@example.com",
   });
   const participant = createUserSync({
     displayName: "Wu",

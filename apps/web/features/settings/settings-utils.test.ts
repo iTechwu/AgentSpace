@@ -27,13 +27,13 @@ describe("translateSettingsActionError", () => {
       new Error("feishu.integration.credential_encryption_key_missing"),
       englishTx,
     )).toBe(
-      "AgentSpace is missing the Feishu credential encryption key. Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
+      "agent.dofe is missing the Feishu credential encryption key. Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
     );
 
     expect(translateSettingsActionError(
       new Error("feishu.integration.credential_encryption_key_invalid"),
       chineseTx,
-    )).toBe("AgentSpace 飞书凭据加密密钥无效。请使用 base64 编码的 32 字节密钥。");
+    )).toBe("agent.dofe 飞书凭据加密密钥无效。请使用 base64 编码的 32 字节密钥。");
   });
 
   it("translates Feishu setup placeholder errors", () => {
@@ -79,7 +79,7 @@ describe("translateSettingsActionError", () => {
       new Error("feishu.resource_binding.base_app_token_missing"),
       englishTx,
     )).toBe(
-      "Feishu Base table/view bindings require a Base URL that includes the app token; a raw table/view id is not enough for AgentSpace data-plane governance.",
+      "Feishu Base table/view bindings require a Base URL that includes the app token; a raw table/view id is not enough for agent.dofe data-plane governance.",
     );
 
     expect(translateSettingsActionError(
@@ -93,19 +93,19 @@ describe("translateSettingsActionError", () => {
       new Error("feishu.channel_binding.external_chat_taken"),
       englishTx,
     )).toBe(
-      "This Feishu chat is already mapped to another AgentSpace channel. Ask an admin to review the existing mapping first.",
+      "This Feishu chat is already mapped to another agent.dofe channel. Ask an admin to review the existing mapping first.",
     );
 
     expect(translateSettingsActionError(
       new Error("feishu.user_binding.external_user_taken"),
       chineseTx,
-    )).toBe("这个飞书 Open ID 已绑定到其他 AgentSpace 用户，请联系管理员处理。");
+    )).toBe("这个飞书 Open ID 已绑定到其他 agent.dofe 用户，请联系管理员处理。");
 
     expect(translateSettingsActionError(
       new Error("feishu.resource_binding.external_resource_taken"),
       englishTx,
     )).toBe(
-      "This Feishu resource is already bound to another AgentSpace resource. Ask an admin to review the existing mapping first.",
+      "This Feishu resource is already bound to another agent.dofe resource. Ask an admin to review the existing mapping first.",
     );
   });
 

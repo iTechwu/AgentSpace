@@ -9,11 +9,11 @@ const initialLanguage = configuredLanguage === "en" || configuredLanguage === "z
 
 export const metadata: Metadata = {
   title: {
-    default: "AgentSpace",
-    template: "%s | AgentSpace",
+    default: "agent.dofe",
+    template: "%s | agent.dofe",
   },
   description:
-    "AgentSpace workspace rebuilt around a Multica-inspired Inbox and Agents dashboard.",
+    "agent.dofe is a collaborative workspace where people direct and authorize while digital employees coordinate and execute.",
 };
 
 export default function RootLayout({

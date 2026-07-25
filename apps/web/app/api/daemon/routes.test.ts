@@ -102,7 +102,7 @@ beforeEach(() => {
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
-    ownerName: "Tianyu",
+    ownerName: "techwu",
     ownerRole: "Founder",
     firstChannelName: "tour visit",
   });
@@ -190,7 +190,7 @@ describe("daemon API routes", () => {
   it("serves the standalone daemon tarball to authenticated daemon tokens", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
     const packagePath = join(tempRoot, "agent-space-daemon-test.tgz");
     writeFileSync(packagePath, Buffer.alloc(2048, 1));
@@ -256,7 +256,7 @@ describe("daemon API routes", () => {
   it("rejects register requests with unsupported provider ids", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const response = await registerPOST(
@@ -279,7 +279,7 @@ describe("daemon API routes", () => {
   it("registers and heartbeats a remote daemon with daemon token auth", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -357,11 +357,11 @@ describe("daemon API routes", () => {
   it("does not let one daemon token claim or read another daemon runtime task", async () => {
     const codexToken = createDaemonApiTokenSync({
       label: "codex-container",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
     const claudeToken = createDaemonApiTokenSync({
       label: "claude-container",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
     const codexRegistration = await registerPOST(
       new Request("http://localhost/api/daemon/register", {
@@ -470,7 +470,7 @@ describe("daemon API routes", () => {
   it("registers mixed expanded providers without filtering their ids", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const response = await registerPOST(
@@ -524,7 +524,7 @@ describe("daemon API routes", () => {
   it("claims a queued task and builds an input bundle with prompt and attachment files", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -610,7 +610,7 @@ describe("daemon API routes", () => {
   it("includes only installed runtime apps and available runtime app skills in task input bundles", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
     const registerResponse = await registerPOST(
       new Request("http://localhost/api/daemon/register", {
@@ -750,7 +750,7 @@ describe("daemon API routes", () => {
   it("injects Google Workspace create-sheet capability without existing external documents", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
     const registerResponse = await registerPOST(
       new Request("http://localhost/api/daemon/register", {
@@ -830,7 +830,7 @@ describe("daemon API routes", () => {
   it("claims and completes runtime app operations through daemon routes", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -927,7 +927,7 @@ describe("daemon API routes", () => {
   it("records failed runtime app operation details through daemon routes", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
     const snapshot = registerDaemonRuntimesSync({
       daemonTokenId: daemonToken.id,
@@ -974,7 +974,7 @@ describe("daemon API routes", () => {
   it("does not hand the same queued task to concurrent claim requests", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -1044,7 +1044,7 @@ describe("daemon API routes", () => {
   it("creates and reads runtime tool approvals for daemon tasks", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -1126,7 +1126,7 @@ describe("daemon API routes", () => {
   it("requires identity before Feishu external guests can approve runtime tools", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -1233,7 +1233,7 @@ describe("daemon API routes", () => {
   it("completes a task with an output bundle and writes attachments back into workspace messages", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -1337,7 +1337,7 @@ describe("daemon API routes", () => {
   it("processes external sheet result manifests into operation runs", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -1391,7 +1391,7 @@ describe("daemon API routes", () => {
       title: "Competitors",
       externalFileId: "google-file-1",
       externalUrl: "https://docs.google.com/spreadsheets/d/google-file-1/edit",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
     });
     grantDocumentAgentAccessSync({
@@ -1487,7 +1487,7 @@ describe("daemon API routes", () => {
   it("processes Feishu lark-cli result manifests into data operation evidence", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -1642,7 +1642,7 @@ describe("daemon API routes", () => {
   it("processes agent-created Google Sheet manifests into channel documents", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -1801,7 +1801,7 @@ describe("daemon API routes", () => {
   it("rejects output bundles that try to escape the staging directory", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -1866,7 +1866,7 @@ describe("daemon API routes", () => {
   it("rejects output bundles outside runtime-output", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -1931,7 +1931,7 @@ describe("daemon API routes", () => {
   it("rejects cross-workspace task reads for daemon tokens and records an audit entry", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "default-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     if (!readWorkspaceSync("workspace-mars")) {
@@ -1939,7 +1939,7 @@ describe("daemon API routes", () => {
         id: "workspace-mars",
         slug: "workspace-mars",
         name: "Mars Workspace",
-        createdBy: "Tianyu",
+        createdBy: "techwu",
       });
     }
     resetWorkspaceStateSync("workspace-mars");
@@ -1999,7 +1999,7 @@ describe("daemon API routes", () => {
   it("keeps task state stable when start and fail are called repeatedly", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -2089,7 +2089,7 @@ describe("daemon API routes", () => {
   it("does not post daemon start notices into direct-contact conversations", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -2147,7 +2147,7 @@ describe("daemon API routes", () => {
   it("completes a remote direct-channel task and replaces the pending channel reply", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -2205,7 +2205,7 @@ describe("daemon API routes", () => {
   it("labels remote direct-channel task failures as direct conversations", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -2262,7 +2262,7 @@ describe("daemon API routes", () => {
   it("queues a Feishu outbox reply when a remote mention_chat task fails", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -2291,7 +2291,7 @@ describe("daemon API routes", () => {
     });
     bindEmployeeRuntimeSync("Atlas", runtimeId);
     addChannelEmployeesSync({ channelName: "tour visit", employeeNames: ["Atlas"] });
-    sendChannelHumanMessageSync("tour visit", "Tianyu", "@Atlas 请补全大阪行程安排。");
+    sendChannelHumanMessageSync("tour visit", "techwu", "@Atlas 请补全大阪行程安排。");
     const sourceMessage = readWorkspaceStateSync().messages.find(
       (message) =>
         message.channel === "tour visit" &&
@@ -2325,7 +2325,7 @@ describe("daemon API routes", () => {
       direction: "inbound",
       externalMessageId: "om_source",
       externalThreadId: "om_root",
-      externalSenderId: "ou_tianyu",
+      externalSenderId: "ou_techwu",
       agentSpaceMessageId: sourceMessage!.id,
       metadataJson: {},
     });
@@ -2365,7 +2365,7 @@ describe("daemon API routes", () => {
   it("completes a remote mention_chat task and replaces the pending channel reply", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
 
     const registerResponse = await registerPOST(
@@ -2416,7 +2416,7 @@ describe("daemon API routes", () => {
         : channel,
     );
     writeWorkspaceStateSync(stateWithMembership);
-    sendChannelHumanMessageSync("tour visit", "Tianyu", "@Atlas 请补全大阪行程安排。");
+    sendChannelHumanMessageSync("tour visit", "techwu", "@Atlas 请补全大阪行程安排。");
     const sourceMessage = readWorkspaceStateSync().messages.find(
       (message) =>
         message.channel === "tour visit" &&
@@ -2450,7 +2450,7 @@ describe("daemon API routes", () => {
       direction: "inbound",
       externalMessageId: "om_source",
       externalThreadId: "om_root",
-      externalSenderId: "ou_tianyu",
+      externalSenderId: "ou_techwu",
       agentSpaceMessageId: sourceMessage!.id,
       metadataJson: {},
     });

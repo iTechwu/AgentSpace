@@ -177,7 +177,7 @@ const data: ChannelsPageData = {
       id: "tour visit",
       name: "tour visit",
       memberLabel: "1 humans / 1 agents",
-      humanMemberNames: ["Tianyu"],
+      humanMemberNames: ["techwu"],
       employeeNames: ["Atlas"],
       lastMessage: "请查看附件。",
       updatedAt: "10:00",
@@ -229,7 +229,7 @@ const data: ChannelsPageData = {
       summary: "春季草稿",
       status: "active",
       updatedAt: "2026-04-10T09:00:00.000Z",
-      updatedBy: "Tianyu",
+      updatedBy: "techwu",
       lastEditorType: "human",
       contentMarkdown: "## Day 1",
       versionCount: 1,
@@ -262,6 +262,28 @@ const data: ChannelsPageData = {
       meta: "Vega",
     },
   ],
+  totalChannels: 1,
+};
+
+const digitalContactData: ChannelsPageData = {
+  ...data,
+  channels: [
+    {
+      id: "contact:Atlas",
+      name: "direct-atlas",
+      channelName: "contact:Atlas",
+      contactId: "Atlas",
+      kind: "direct",
+      directParticipantKind: "agent",
+      displayName: "Atlas",
+      displaySubtitle: "Atlas",
+      avatarLabel: "✦",
+      memberLabel: "1 humans / 1 agents",
+      memberCount: 2,
+      canManage: false,
+    },
+  ],
+  threads: [{ channelName: "contact:Atlas", messages: [] }],
   totalChannels: 1,
 };
 
@@ -320,7 +342,7 @@ describe("ChannelsPageClient", () => {
     const user = userEvent.setup();
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -330,10 +352,51 @@ describe("ChannelsPageClient", () => {
     expect(screen.getByRole("dialog", { name: "创建群组" })).toBeInTheDocument();
   });
 
+  it("keeps digital direct messages inside the Messages context", () => {
+    searchParams.set("view", "direct");
+
+    render(
+      <TestProviders>
+        <ChannelsPageClient currentUserDisplayName="techwu" data={digitalContactData} />
+      </TestProviders>,
+    );
+
+    expect(screen.getByRole("heading", { name: "消息" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "数字联系人" })).toBeDisabled();
+    expect(screen.getByPlaceholderText("发送到 Atlas")).toBeInTheDocument();
+    expect(screen.queryByText("数字员工资料")).not.toBeInTheDocument();
+  });
+
+  it("renders the digital employee directory without a duplicate chat composer", async () => {
+    const user = userEvent.setup();
+    const navigateWorkspaceModule = vi.fn(() => true);
+    searchParams.set("view", "direct");
+    searchParams.set("context", "contacts");
+
+    render(
+      <WorkspaceModuleNavigationProvider navigateWorkspaceModule={navigateWorkspaceModule}>
+        <TestProviders>
+          <ChannelsPageClient currentUserDisplayName="techwu" data={digitalContactData} />
+        </TestProviders>
+      </WorkspaceModuleNavigationProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "联系人" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "数字员工" })).toBeDisabled();
+    expect(screen.getByText("数字员工资料")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("发送到 Atlas")).not.toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: /发消息|继续对话/ })[0]!);
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-alpha/im?view=direct&focus=contact%3AAtlas");
+
+    await user.click(screen.getByRole("button", { name: "新建数字员工" }));
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith("/w/workspace-alpha/agents?mode=agent&create=agent");
+  });
+
   it("renders image previews and file links for channel attachments", () => {
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -345,7 +408,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             channels: [
@@ -414,7 +477,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -445,7 +508,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -464,7 +527,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -490,7 +553,7 @@ describe("ChannelsPageClient", () => {
 
     const { rerender } = render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -500,7 +563,7 @@ describe("ChannelsPageClient", () => {
     rerender(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             documents: data.documents.map((document) => ({
@@ -520,7 +583,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             channels: data.channels.map((channel) => ({
@@ -562,7 +625,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             threads: [
@@ -603,7 +666,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={data}
           onInvalidation={onInvalidation}
         />
@@ -630,7 +693,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             threads: [
@@ -671,7 +734,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -705,10 +768,10 @@ describe("ChannelsPageClient", () => {
           channelName: "tour visit",
           fileName: "brief.md",
           sourceMessageId: "message-1",
-          sourceSpeaker: "Tianyu",
+          sourceSpeaker: "techwu",
           sourceTime: "2026-04-30T10:00:00.000Z",
           uploaderUserId: "user-1",
-          uploaderDisplayName: "Tianyu",
+          uploaderDisplayName: "techwu",
           mediaType: "text/markdown",
           sizeBytes: 42,
           kind: "file",
@@ -721,7 +784,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={dataWithFiles} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={dataWithFiles} />
       </TestProviders>,
     );
 
@@ -745,7 +808,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -765,7 +828,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -780,7 +843,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -805,7 +868,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -830,7 +893,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -857,7 +920,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <WorkspaceModuleNavigationProvider navigateWorkspaceModule={navigateWorkspaceModule}>
-          <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+          <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
         </WorkspaceModuleNavigationProvider>
       </TestProviders>,
     );
@@ -879,7 +942,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -894,7 +957,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             mentionCandidates: [
@@ -946,7 +1009,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             channels: [
@@ -997,7 +1060,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             detailScope: ["tour visit"],
@@ -1007,7 +1070,7 @@ describe("ChannelsPageClient", () => {
                 id: "planning",
                 name: "planning",
                 memberLabel: "1 humans / 0 agents",
-                humanMemberNames: ["Tianyu"],
+                humanMemberNames: ["techwu"],
                 employeeNames: [],
                 lastMessage: "列表摘要仍然可见",
                 updatedAt: "11:00",
@@ -1038,7 +1101,7 @@ describe("ChannelsPageClient", () => {
         <WorkspaceModuleCacheProvider>
           <SeedImChannelDetailCache>
             <ChannelsPageClient
-              currentUserDisplayName="Tianyu"
+              currentUserDisplayName="techwu"
               data={{
                 ...data,
                 detailScope: ["tour visit"],
@@ -1048,7 +1111,7 @@ describe("ChannelsPageClient", () => {
                     id: "planning",
                     name: "planning",
                     memberLabel: "1 humans / 0 agents",
-                    humanMemberNames: ["Tianyu"],
+                    humanMemberNames: ["techwu"],
                     employeeNames: [],
                     lastMessage: "列表摘要仍然可见",
                     updatedAt: "11:00",
@@ -1090,7 +1153,7 @@ describe("ChannelsPageClient", () => {
               cacheApi = cache;
             }} />
             <ChannelsPageClient
-              currentUserDisplayName="Tianyu"
+              currentUserDisplayName="techwu"
               data={{
                 ...data,
                 detailScope: ["tour visit"],
@@ -1100,7 +1163,7 @@ describe("ChannelsPageClient", () => {
                     id: "planning",
                     name: "planning",
                     memberLabel: "1 humans / 0 agents",
-                    humanMemberNames: ["Tianyu"],
+                    humanMemberNames: ["techwu"],
                     employeeNames: [],
                     lastMessage: "列表摘要仍然可见",
                     updatedAt: "11:00",
@@ -1158,7 +1221,7 @@ describe("ChannelsPageClient", () => {
           <CaptureImChannelDetailCache onReady={(cache) => {
             cacheApi = cache;
           }} />
-          <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+          <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
         </WorkspaceModuleCacheProvider>
       </TestProviders>,
     );
@@ -1180,7 +1243,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             channels: [
@@ -1229,7 +1292,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             channels: [
@@ -1288,7 +1351,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -1311,7 +1374,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <WorkspaceModuleNavigationProvider navigateWorkspaceModule={navigateWorkspaceModule}>
-          <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+          <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
         </WorkspaceModuleNavigationProvider>
       </TestProviders>,
     );
@@ -1332,7 +1395,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -1357,7 +1420,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -1377,7 +1440,7 @@ describe("ChannelsPageClient", () => {
 
     render(
       <TestProviders>
-        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+        <ChannelsPageClient currentUserDisplayName="techwu" data={data} />
       </TestProviders>,
     );
 
@@ -1401,7 +1464,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             channels: [
@@ -1450,7 +1513,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             channels: [
@@ -1493,7 +1556,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             channels: [
@@ -1544,7 +1607,7 @@ describe("ChannelsPageClient", () => {
     render(
       <TestProviders>
         <ChannelsPageClient
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           data={{
             ...data,
             channels: [

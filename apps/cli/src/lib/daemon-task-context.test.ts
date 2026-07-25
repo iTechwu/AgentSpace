@@ -103,9 +103,9 @@ test("resolveAgentKnowledgePages includes shared and selected pages for the curr
   const planner = workspaceState.knowledgePages.find((page) => page.title === "Planner playbook")!;
   const legal = workspaceState.knowledgePages.find((page) => page.title === "Legal memo")!;
 
-  setKnowledgePageAssignmentModeSync(planner.id, "selected_agents", "Tianyu");
-  setKnowledgePageAssignedEmployeesSync(planner.id, ["Planner"], "Tianyu");
-  setKnowledgePageAssignmentModeSync(legal.id, "selected_agents", "Tianyu");
+  setKnowledgePageAssignmentModeSync(planner.id, "selected_agents", "techwu");
+  setKnowledgePageAssignedEmployeesSync(planner.id, ["Planner"], "techwu");
+  setKnowledgePageAssignmentModeSync(legal.id, "selected_agents", "techwu");
 
   const nextState = readWorkspaceStateSync();
   const plannerProfile = nextState.activeEmployees.find((employee: ActiveEmployee) => employee.name === "Planner");
@@ -123,7 +123,7 @@ test("materializeAgentKnowledgePages writes manifest and markdown files", () => 
       contentMarkdown: "# Planner",
       sortOrder: 0,
       tags: ["planning"],
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdAt: "2026-04-29T00:00:00.000Z",
       updatedAt: "2026-04-29T00:00:00.000Z",
       assignmentMode: "selected_agents" as const,
@@ -235,8 +235,8 @@ test("prepareDaemonTaskContext injects google-workspace-cli skill for external G
         currentVersionId: "version-1",
         summary: "Competitor research",
         lastEditorType: "human",
-        createdBy: "Tianyu",
-        updatedBy: "Tianyu",
+        createdBy: "techwu",
+        updatedBy: "techwu",
         createdAt: "2026-04-29T00:00:00.000Z",
         updatedAt: "2026-04-29T00:00:00.000Z",
       },

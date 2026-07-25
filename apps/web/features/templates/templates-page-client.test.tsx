@@ -42,7 +42,7 @@ const data: TemplatesPageData = {
       description: "标准旅行任务说明",
       configJson: "{\"priority\":\"high\"}",
       builtIn: false,
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdAt: "2026-04-10T08:00:00.000Z",
       updatedAt: "2026-04-10T09:00:00.000Z",
     },

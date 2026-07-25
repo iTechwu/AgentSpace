@@ -809,7 +809,7 @@ export async function createFeishuChannelBindingAction(
   tryRecordWorkspaceAuditEventSync({
     workspaceId: workspaceContext.currentWorkspace.id,
     title: "Feishu channel binding saved",
-    note: `${workspaceContext.currentUser.displayName} mapped AgentSpace channel "${channelName}" to a Feishu chat.`,
+    note: `${workspaceContext.currentUser.displayName} mapped agent.dofe channel "${channelName}" to a Feishu chat.`,
     code: "workspace.external_channel_binding_upserted",
     data: {
       actorType: "session_user",
@@ -923,7 +923,7 @@ export async function createFeishuUserBindingAction(
   tryRecordWorkspaceAuditEventSync({
     workspaceId: workspaceContext.currentWorkspace.id,
     title: "Feishu user binding saved",
-    note: `${workspaceContext.currentUser.displayName} mapped AgentSpace user "${userId}" to a Feishu user.`,
+    note: `${workspaceContext.currentUser.displayName} mapped agent.dofe user "${userId}" to a Feishu user.`,
     code: "workspace.external_user_binding_upserted",
     data: {
       actorType: "session_user",
@@ -1117,7 +1117,7 @@ export async function createFeishuResourceBindingAction(
   tryRecordWorkspaceAuditEventSync({
     workspaceId: workspaceContext.currentWorkspace.id,
     title: "Feishu resource binding saved",
-    note: `${workspaceContext.currentUser.displayName} mapped a Feishu ${descriptor.providerResourceType} resource to AgentSpace.`,
+    note: `${workspaceContext.currentUser.displayName} mapped a Feishu ${descriptor.providerResourceType} resource to agent.dofe.`,
     code: "workspace.external_resource_binding_upserted",
     data: {
       actorType: "session_user",

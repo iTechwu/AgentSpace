@@ -75,7 +75,7 @@ describe("workspace shell data", () => {
       ],
     });
     mockListWorkspaceMemberUsersSync.mockReturnValue([
-      { userId: "user-1", displayName: "Tianyu", role: "owner", primaryEmail: "tianyu@example.com" },
+      { userId: "user-1", displayName: "techwu", role: "owner", primaryEmail: "techwu@example.com" },
       { userId: "user-2", displayName: "Mina", role: "member", primaryEmail: "mina@example.com" },
     ]);
     mockListWorkspaceSkillsSync.mockReturnValue([{ id: "skill-1" }, { id: "skill-2" }]);
@@ -97,9 +97,9 @@ describe("workspace shell data", () => {
   });
 
   it("builds stable shell, counter shell, and the legacy full shell from the same visibility context", () => {
-    const fullShell = getWorkspaceShellData("Tianyu", "workspace-1", "user-1", "owner");
-    const stableShell = getWorkspaceShellStableData("Tianyu", "workspace-1", "user-1", "owner");
-    const counters = getWorkspaceShellCounterData("Tianyu", "workspace-1", "user-1", "owner");
+    const fullShell = getWorkspaceShellData("techwu", "workspace-1", "user-1", "owner");
+    const stableShell = getWorkspaceShellStableData("techwu", "workspace-1", "user-1", "owner");
+    const counters = getWorkspaceShellCounterData("techwu", "workspace-1", "user-1", "owner");
 
     expect(stableShell).toMatchObject({
       organizationName: "Northstar Labs",
@@ -144,10 +144,10 @@ describe("workspace shell data", () => {
   });
 
   it("uses channel scope for stable shell and counters without leaking workspace-wide contacts", () => {
-    const stableShell = getWorkspaceShellStableData("Tianyu", "workspace-1", "user-1", "member", {
+    const stableShell = getWorkspaceShellStableData("techwu", "workspace-1", "user-1", "member", {
       channelNames: ["general"],
     });
-    const counters = getWorkspaceShellCounterData("Tianyu", "workspace-1", "user-1", "member", {
+    const counters = getWorkspaceShellCounterData("techwu", "workspace-1", "user-1", "member", {
       channelNames: ["general"],
     });
 

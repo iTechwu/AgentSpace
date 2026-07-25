@@ -43,7 +43,7 @@ export async function POST(
       identityRequirement,
     });
     return Response.json({
-      error: "External guests must bind an AgentSpace identity before approving runtime-sensitive tools.",
+      error: "External guests must bind an agent.dofe identity before approving runtime-sensitive tools.",
       errorCode: "feishu.runtime_tool_external_guest_requires_identity",
       reasonCode: identityRequirement.reasonCode,
       requireIdentity: true,

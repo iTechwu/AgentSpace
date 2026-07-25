@@ -35,11 +35,11 @@ beforeEach(() => {
   writeWorkspaceStateSync({
     ...defaultState,
     organizationName: "Northstar Labs",
-    humanMembers: [{ name: "Tianyu", role: "Founder" }, { name: "Mina", role: "Operator" }],
+    humanMembers: [{ name: "techwu", role: "Founder" }, { name: "Mina", role: "Operator" }],
     channels: [
       {
         name: "north-ops",
-        humanMemberNames: ["Tianyu"],
+        humanMemberNames: ["techwu"],
         humanMembers: 1,
         employeeNames: ["Atlas"],
       },
@@ -102,8 +102,8 @@ beforeEach(() => {
         currentVersionId: "doc-visible-v1",
         summary: "visible handbook",
         lastEditorType: "human",
-        createdBy: "Tianyu",
-        updatedBy: "Tianyu",
+        createdBy: "techwu",
+        updatedBy: "techwu",
         createdAt: "2026-04-22T09:00:00.000Z",
         updatedAt: "2026-04-22T09:00:00.000Z",
       },
@@ -130,7 +130,7 @@ beforeEach(() => {
         documentId: "doc-visible",
         contentMarkdown: "travel handbook content",
         summary: "visible handbook",
-        createdBy: "Tianyu",
+        createdBy: "techwu",
         createdByType: "human",
         triggerType: "manual",
         createdAt: "2026-04-22T09:00:00.000Z",
@@ -150,7 +150,7 @@ beforeEach(() => {
       {
         id: "access-visible",
         documentId: "doc-visible",
-        actorId: "Tianyu",
+        actorId: "techwu",
         actorType: "human",
         role: "owner",
         createdAt: "2026-04-22T09:00:00.000Z",
@@ -172,11 +172,11 @@ beforeEach(() => {
   writeWorkspaceStateSync({
     ...marsState,
     organizationName: "Mars Labs",
-    humanMembers: [{ name: "Tianyu", role: "Founder" }],
+    humanMembers: [{ name: "techwu", role: "Founder" }],
     channels: [
       {
         name: "mars-ops",
-        humanMemberNames: ["Tianyu"],
+        humanMemberNames: ["techwu"],
         humanMembers: 1,
         employeeNames: ["Nova"],
       },
@@ -443,9 +443,9 @@ function buildWorkspaceContext(
     currentUser: {
       id: "user-1",
       organizationName: workspaceName,
-      displayName: "Tianyu",
+      displayName: "techwu",
       role: workspaceRole,
-      email: "tianyu@example.com",
+      email: "techwu@example.com",
     },
     currentWorkspace: {
       id: workspaceId,

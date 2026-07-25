@@ -61,7 +61,7 @@ describe("HumanContactsPageClient", () => {
         <HumanContactsPageClient
           channels={[]}
           contacts={[]}
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           threads={[]}
         />
       </LanguageProvider>,
@@ -69,7 +69,7 @@ describe("HumanContactsPageClient", () => {
 
     expect(screen.getByRole("tab", { name: "真人" })).toBeDisabled();
     await user.click(screen.getByRole("tab", { name: "数字员工" }));
-    expect(routerPushMock).toHaveBeenCalledWith("/w/workspace-alpha/im?view=direct");
+    expect(routerPushMock).toHaveBeenCalledWith("/w/workspace-alpha/im?view=direct&context=contacts");
   });
 
   it("sends a direct message to a selected workspace member", async () => {
@@ -87,7 +87,7 @@ describe("HumanContactsPageClient", () => {
               role: "Member",
             },
           ]}
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           threads={[
             {
               contactId: "user-mina",
@@ -125,7 +125,7 @@ describe("HumanContactsPageClient", () => {
               role: "Member",
             },
           ]}
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           threads={[
             {
               contactId: "user-mina",

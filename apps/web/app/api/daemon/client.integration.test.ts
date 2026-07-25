@@ -46,7 +46,7 @@ beforeEach(() => {
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
-    ownerName: "Tianyu",
+    ownerName: "techwu",
     ownerRole: "Founder",
     firstChannelName: "tour visit",
   });
@@ -71,7 +71,7 @@ describe("remote daemon client integration", () => {
   it("preserves expanded provider ids across HTTP registration", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "integration-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
     const restoreFetch = installDaemonRouteFetch();
     const client = new HttpDaemonClient("http://daemon.test", daemonToken.token, {
@@ -124,7 +124,7 @@ describe("remote daemon client integration", () => {
   it("can complete a direct-channel task through the HTTP daemon API", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "integration-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
     const restoreFetch = installDaemonRouteFetch();
     const client = new HttpDaemonClient("http://daemon.test", daemonToken.token, {
@@ -239,7 +239,7 @@ describe("remote daemon client integration", () => {
   it("can complete a manual task that updates a channel document", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "integration-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
     const restoreFetch = installDaemonRouteFetch();
     const client = new HttpDaemonClient("http://daemon.test", daemonToken.token, {
@@ -347,7 +347,7 @@ describe("remote daemon client integration", () => {
   it("can complete a mention_chat task through the HTTP daemon API", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "integration-daemon",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
     });
     const restoreFetch = installDaemonRouteFetch();
     const client = new HttpDaemonClient("http://daemon.test", daemonToken.token, {
@@ -390,7 +390,7 @@ describe("remote daemon client integration", () => {
       );
       writeWorkspaceStateSync(stateWithMembership);
 
-      sendChannelHumanMessageSync("tour visit", "Tianyu", "@Atlas 请继续补全大阪的行程安排。");
+      sendChannelHumanMessageSync("tour visit", "techwu", "@Atlas 请继续补全大阪的行程安排。");
 
       const claimed = await client.claimTask(runtimeId);
       assert.ok(claimed.task);

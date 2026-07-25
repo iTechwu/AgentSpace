@@ -26,7 +26,7 @@ beforeEach(() => {
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
-    ownerName: "Tianyu",
+    ownerName: "techwu",
     ownerRole: "Founder",
     firstChannelName: "general",
   });
@@ -40,17 +40,17 @@ describe("deleteEmployeeSync", () => {
     });
     createChannelSync({
       name: "trip-room",
-      humanMemberNames: ["Tianyu"],
+      humanMemberNames: ["techwu"],
       employeeNames: ["Planner"],
     });
     const { channelName: directChannelName } = ensureDirectChannelSync({
-      humanMemberName: "Tianyu",
+      humanMemberName: "techwu",
       employeeName: "Planner",
     });
 
     postMessageSync({
       channel: directChannelName,
-      speaker: "Tianyu",
+      speaker: "techwu",
       role: "human",
       summary: "先整理大阪行程。",
     });
@@ -58,7 +58,7 @@ describe("deleteEmployeeSync", () => {
       channelName: directChannelName,
       title: "大阪行程草案",
       contentMarkdown: "Day 1",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
     });
 

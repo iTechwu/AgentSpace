@@ -193,7 +193,7 @@ describe("channel actions", () => {
       channels: [
         {
           name: "general",
-          humanMemberNames: ["Tianyu"],
+          humanMemberNames: ["techwu"],
           humanMembers: 1,
           employeeNames: [],
         },
@@ -248,7 +248,7 @@ describe("channel actions", () => {
     mockGetGoogleWorkspaceAccessTokenForUser.mockResolvedValue({
       accessToken: "access-token",
       credential: {
-        googleEmail: "tianyu@gmail.com",
+        googleEmail: "techwu@gmail.com",
       },
     });
     mockSyncGoogleSheetDocumentDrivePermissions.mockResolvedValue({
@@ -304,7 +304,7 @@ describe("channel actions", () => {
 
     expect(mockSendChannelHumanMessageSync).toHaveBeenCalledWith(
       "general",
-      "Tianyu",
+      "techwu",
       "hello",
       [],
       undefined,
@@ -323,7 +323,7 @@ describe("channel actions", () => {
 
     expect(mockGetChannelDetailData).toHaveBeenCalledWith({
       channelName: "general",
-      currentUserDisplayName: "Tianyu",
+      currentUserDisplayName: "techwu",
       workspaceId: "workspace-1",
       currentUserId: "user-1",
       currentMembershipRole: "member",
@@ -357,7 +357,7 @@ describe("channel actions", () => {
       channelName: "general",
       attachmentId: "att-1",
       actorUserId: "user-1",
-      actorDisplayName: "Tianyu",
+      actorDisplayName: "techwu",
     });
     expect(mockRevalidateWorkspacePaths).toHaveBeenCalledWith("workspace-1", ["/im", "/inbox", "/agents", "/contacts"]);
   });
@@ -408,7 +408,7 @@ describe("channel actions", () => {
       targetUserId: "user-2",
       actor: {
         userId: "user-1",
-        displayName: "Tianyu",
+        displayName: "techwu",
         role: "admin",
       },
     });
@@ -418,7 +418,7 @@ describe("channel actions", () => {
       targetUserId: "user-3",
       actor: {
         userId: "user-1",
-        displayName: "Tianyu",
+        displayName: "techwu",
         role: "admin",
       },
     });
@@ -499,7 +499,7 @@ describe("channel actions", () => {
       targetUserId: "user-2",
       actor: {
         userId: "user-1",
-        displayName: "Tianyu",
+        displayName: "techwu",
         role: "admin",
       },
     });
@@ -527,7 +527,7 @@ describe("channel actions", () => {
       channelName: "general",
       actor: {
         userId: "user-1",
-        displayName: "Tianyu",
+        displayName: "techwu",
         role: "member",
       },
     });
@@ -570,7 +570,7 @@ describe("channel actions", () => {
       channels: [
         {
           name: "general",
-          humanMemberNames: ["Tianyu"],
+          humanMemberNames: ["techwu"],
           humanMembers: 1,
           employeeNames: [],
         },
@@ -588,7 +588,7 @@ describe("channel actions", () => {
     expect(mockAcknowledgeMessageSync).toHaveBeenCalledWith(
       "message-general",
       "workspace-1",
-      "Tianyu",
+      "techwu",
       "user-1",
     );
   });
@@ -638,16 +638,16 @@ describe("channel actions", () => {
       externalMimeType: "application/vnd.google-apps.spreadsheet",
       externalUpdatedAt: "2026-04-30T00:00:00.000Z",
       summary: "External sheet",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
     }, "workspace-1");
     expect(mockSyncGoogleSheetDocumentDrivePermissions).toHaveBeenCalledWith({
       accessToken: "access-token",
       workspaceId: "workspace-1",
       documentId: "sheet-doc-1",
-      actorId: "Tianyu",
+      actorId: "techwu",
       actorType: "human",
-      skipEmails: ["tianyu@example.com", "tianyu@gmail.com"],
+      skipEmails: ["techwu@example.com", "techwu@gmail.com"],
     });
   });
 
@@ -678,16 +678,16 @@ describe("channel actions", () => {
       externalMimeType: "application/vnd.google-apps.spreadsheet",
       externalUpdatedAt: "2026-04-30T00:00:00.000Z",
       summary: "External sheet",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdByType: "human",
     }, "workspace-1");
     expect(mockSyncGoogleSheetDocumentDrivePermissions).toHaveBeenCalledWith({
       accessToken: "access-token",
       workspaceId: "workspace-1",
       documentId: "sheet-doc-1",
-      actorId: "Tianyu",
+      actorId: "techwu",
       actorType: "human",
-      skipEmails: ["tianyu@example.com", "tianyu@gmail.com"],
+      skipEmails: ["techwu@example.com", "techwu@gmail.com"],
     });
   });
 
@@ -719,9 +719,9 @@ function buildWorkspaceContext(
     currentUser: {
       id: "user-1",
       organizationName: "Northstar Labs",
-      displayName: "Tianyu",
+      displayName: "techwu",
       role: "owner",
-      email: "tianyu@example.com",
+      email: "techwu@example.com",
     },
     currentWorkspace: {
       id: workspaceId,

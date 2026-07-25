@@ -131,7 +131,7 @@ describe("agent actions", () => {
       employeeName: "Atlas",
       channelName: "travel",
       actorUserId: "user-1",
-      actorDisplayName: "Tianyu",
+      actorDisplayName: "techwu",
       actorRole: "owner",
     });
     expect(mockCreateTaskSync).toHaveBeenCalledWith({
@@ -140,7 +140,7 @@ describe("agent actions", () => {
       assignee: "Atlas",
       priority: "high",
       requestedByUserId: "user-1",
-      requestedByDisplayName: "Tianyu",
+      requestedByDisplayName: "techwu",
     }, "workspace-1");
     expect(result.invalidation).toEqual({
       workspaceId: "workspace-1",
@@ -158,7 +158,7 @@ function buildWorkspaceContext() {
   return {
     currentUser: {
       id: "user-1",
-      displayName: "Tianyu",
+      displayName: "techwu",
     },
     currentWorkspace: {
       id: "workspace-1",

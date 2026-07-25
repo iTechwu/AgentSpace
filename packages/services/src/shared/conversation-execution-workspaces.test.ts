@@ -102,7 +102,7 @@ test("readConversationExecutionWorkspaceState falls back to legacy direct conver
   const state = createDefaultWorkspaceState();
   state.directConversations.push({
     contactId: "Atlas",
-    humanMemberName: "Tianyu",
+    humanMemberName: "techwu",
     sessionId: "legacy-session",
     workDir: "/tmp/legacy-atlas",
     updatedAt: "2026-04-28T00:00:00.000Z",

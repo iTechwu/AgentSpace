@@ -22,14 +22,14 @@ test("applyChannelDocumentBlockOperations updates a block and creates a new vers
     channelName: "tour visit",
     title: "大阪-濑户内海行程",
     contentMarkdown: "## Day 1\n大阪\n\n## Day 2\n宇治",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
   rebuildChannelDocumentBlocksForVersion({
     state,
     document,
     version,
-    actorName: "Tianyu",
+    actorName: "techwu",
   });
 
   const blocks = listChannelDocumentBlocks(state, document.id);
@@ -71,14 +71,14 @@ test("applyChannelDocumentBlockOperations records conflict for stale block revis
     channelName: "tour visit",
     title: "大阪-濑户内海行程",
     contentMarkdown: "## Day 1\n大阪",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
   rebuildChannelDocumentBlocksForVersion({
     state,
     document,
     version,
-    actorName: "Tianyu",
+    actorName: "techwu",
   });
 
   const blocks = listChannelDocumentBlocks(state, document.id);
@@ -116,7 +116,7 @@ test("applyChannelDocumentBlockOperations rejects non-markdown documents", () =>
     kind: "sheet",
     storageMode: "native",
     contentJson: { columns: [], rows: [] },
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
 

@@ -160,7 +160,7 @@ export function FeishuResourceBindingsPanel({
         <div>
           <h3>{tx("飞书数据资源", "Feishu Data Resources")}</h3>
           <p className="settings-panel-note">
-            {tx("把飞书 Docs、Sheets、Base 接到 AgentSpace 资源。", "Connect Feishu Docs, Sheets, and Base to AgentSpace resources.")}
+            {tx("把飞书 Docs、Sheets、Base 接到 agent.dofe 资源。", "Connect Feishu Docs, Sheets, and Base to agent.dofe resources.")}
           </p>
         </div>
       </div>
@@ -220,7 +220,7 @@ export function FeishuResourceBindingsPanel({
         </label>
 
         <label className="form-field">
-          <span>{tx("AgentSpace 类型", "AgentSpace Type")}</span>
+          <span>{tx("agent.dofe 类型", "agent.dofe type")}</span>
           <select
             disabled={isPending}
             onChange={(event) => setAgentSpaceResourceType(event.currentTarget.value)}
@@ -233,7 +233,7 @@ export function FeishuResourceBindingsPanel({
         </label>
 
         <label className="form-field">
-          <span>{tx("AgentSpace 资源 ID", "AgentSpace Resource ID")}</span>
+          <span>{tx("agent.dofe 资源 ID", "agent.dofe resource ID")}</span>
           <input
             autoComplete="off"
             disabled={isPending}
@@ -338,7 +338,7 @@ export function FeishuResourceBindingsPanel({
                 </div>
                 <div className="feishu-binding-card__meta">
                   <span>{tx("飞书", "Feishu")}: {binding.providerResourceReference}</span>
-                  <span>{tx("AgentSpace", "AgentSpace")}: {binding.agentSpaceResourceType}</span>
+                  <span>agent.dofe: {binding.agentSpaceResourceType}</span>
                   <span>{tx("资源 ID", "Resource ID")}: {binding.agentSpaceResourceId}</span>
                   <span>{tx("写入", "Write")}: {binding.canWrite ? tx("需审批", "Approval required") : tx("未授权", "Not allowed")}</span>
                   <span>{tx("访客读取", "Guest read")}: {binding.guestReadable ? tx("允许", "Allowed") : tx("关闭", "Off")}</span>

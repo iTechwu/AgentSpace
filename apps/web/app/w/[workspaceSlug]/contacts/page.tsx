@@ -30,6 +30,7 @@ export default async function WorkspaceContactsPage({
   if (shouldOpenDigitalContacts) {
     const nextSearch = new URLSearchParams();
     nextSearch.set("view", "direct");
+    nextSearch.set("context", "contacts");
     if (typeof focus === "string" && focus.length > 0) {
       nextSearch.set("focus", focus);
     }

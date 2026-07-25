@@ -189,7 +189,7 @@ test("simulated task output can persist a PNG attachment and write it back into 
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
-    ownerName: "Tianyu",
+    ownerName: "techwu",
     ownerRole: "Founder",
     firstChannelName: "tour visit",
   });
@@ -263,14 +263,14 @@ test("buildTaskPrompt uses user-provided identity for direct-channel chat", () =
       updatedAt: new Date().toISOString(),
     },
     {
-      assignee: "Tianyu's assistant",
-      contactId: "Tianyu's assistant",
+      assignee: "techwu's assistant",
+      contactId: "techwu's assistant",
       channelName: "direct-assistant",
       channelMessage: "你是谁？",
     },
     [],
     {
-      name: "Tianyu's assistant",
+      name: "techwu's assistant",
       role: "Agent",
       remarkName: "个人助手",
       origin: "手动创建",
@@ -339,8 +339,8 @@ test("buildTaskPrompt for channel tasks includes channel document context and up
         currentVersionId: "ver-1",
         summary: "当前版本包含任天堂博物馆安排",
         lastEditorType: "human",
-        createdBy: "Tianyu",
-        updatedBy: "Tianyu",
+        createdBy: "techwu",
+        updatedBy: "techwu",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
@@ -437,7 +437,7 @@ test("buildTaskPrompt for direct-channel chat includes workspace relationship fa
     knownEntities: [
       {
         type: "employee",
-        name: "Tianyu's assistant",
+        name: "techwu's assistant",
         role: "Assistant",
         relationship: "workspace-collaborator",
         sharedChannels: ["tour visit"],
@@ -506,7 +506,7 @@ test("buildTaskPrompt for direct-channel chat prefers unified channel prompt", (
     knownEntities: [
       {
         type: "employee",
-        name: "Tianyu's assistant",
+        name: "techwu's assistant",
         role: "Assistant",
         relationship: "workspace-collaborator",
         sharedChannels: ["direct-test"],
@@ -567,8 +567,8 @@ test("buildTaskPrompt for direct-channel chat prefers unified channel prompt", (
         currentVersionId: "ver-1",
         summary: "共享工作稿",
         lastEditorType: "human",
-        createdBy: "Tianyu",
-        updatedBy: "Tianyu",
+        createdBy: "techwu",
+        updatedBy: "techwu",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
@@ -595,7 +595,7 @@ test("daemon token subcommands create, list, and revoke tokens", async () => {
     output.length = 0;
     const createCode = await runDaemonCommand(
       "token",
-      ["create", "--label", "build-box-1", "--created-by", "Tianyu"],
+      ["create", "--label", "build-box-1", "--created-by", "techwu"],
       "json",
     );
     assert.equal(createCode, 0);

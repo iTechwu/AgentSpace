@@ -200,7 +200,7 @@ export function DaemonManagementPanel({
           </label>
           <label className="form-field">
             <span>{tx("创建人", "Created By")}</span>
-            <input defaultValue="Tianyu" name="createdBy" type="text" />
+            <input defaultValue="techwu" name="createdBy" type="text" />
           </label>
           <button className="primary-button" disabled={isPending} type="submit">
             {isPending ? tx("创建中...", "Creating...") : tx("创建新令牌", "Create Token")}

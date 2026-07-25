@@ -4,12 +4,12 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { inviteExternalContactToChannelAction, sendHumanDirectMessageAction } from "@/features/channels/actions";
 import { ConversationShell, type ConversationListItem, type ConversationThreadMessage } from "@/features/chat/conversation-shell";
+import { CommunicationListActions } from "@/features/chat/communication-list-actions";
 import type { HumanContactItem, HumanContactThread } from "@/features/contacts/human-contacts-data";
 import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/workspace-paths";
 import { useWorkspaceModuleNavigation } from "@/features/dashboard/workspace-module-navigation";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
-import { AppIcon } from "@/shared/ui/app-icon";
 import { GeneratedAvatar } from "@/shared/ui/generated-avatar";
 
 export function HumanContactsPageClient({
@@ -101,46 +101,37 @@ export function HumanContactsPageClient({
       headerActions={null}
       items={items}
       listActions={
-        <div className="conversation-list-actions">
-          <div aria-label={tx("联系人类型", "Contact type")} className="container-view-switch" role="tablist">
-            <button
-              aria-selected="true"
-              className="container-view-switch__item container-view-switch__item--active"
-              disabled
-              role="tab"
-              type="button"
-            >
-              {tx("真人", "People")}
-            </button>
-            <button
-              aria-selected="false"
-              className="container-view-switch__item"
-              onClick={() => {
-                const href = workspaceSlug ? buildWorkspacePath(workspaceSlug, "/im?view=direct") : "/im?view=direct";
+        <CommunicationListActions
+          action={{
+            label: tx("添加真人联系人", "Add person"),
+            onClick: () => setShowAddContact(true),
+          }}
+          activeTab="people"
+          ariaLabel={tx("联系人类型", "Contact type")}
+          tabs={[
+            {
+              id: "people",
+              label: tx("真人", "People"),
+              onSelect: () => {},
+            },
+            {
+              id: "digital",
+              label: tx("数字员工", "Digital employees"),
+              onSelect: () => {
+                const href = workspaceSlug
+                  ? buildWorkspacePath(workspaceSlug, "/im?view=direct&context=contacts")
+                  : "/im?view=direct&context=contacts";
                 if (!navigateWorkspaceModule(href)) {
                   router.push(href);
                 }
-              }}
-              role="tab"
-              type="button"
-            >
-              {tx("数字员工", "Digital")}
-            </button>
-          </div>
-          <button
-            aria-label={tx("添加联系人", "Add contact")}
-            className="action-button action-button--compact action-button--icon"
-            onClick={() => setShowAddContact(true)}
-            title={tx("添加联系人", "Add contact")}
-            type="button"
-          >
-            <AppIcon name="plus" />
-          </button>
-        </div>
+              },
+            },
+          ]}
+        />
       }
       listCount={contacts.length}
-      listKicker={tx("联系人", "Contacts")}
-      listTitle={tx("真人联系人", "Human contacts")}
+      listKicker=""
+      listTitle={tx("联系人", "Contacts")}
       messages={messages}
       customThreadHeader={({ backButton }) =>
         selectedContact ? (

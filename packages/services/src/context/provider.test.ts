@@ -26,7 +26,7 @@ test("buildContactAgentContextSync exposes shared channels, observed labels, and
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
-    ownerName: "Tianyu",
+    ownerName: "techwu",
     ownerRole: "Founder",
     firstChannelName: "tour visit",
   });
@@ -37,7 +37,7 @@ test("buildContactAgentContextSync exposes shared channels, observed labels, and
       {
         id: "message-3",
         channel: "tour visit",
-        speaker: "Tianyu's assistant",
+        speaker: "techwu's assistant",
         role: "agent",
         time: "15:13",
         summary: "@Test 你接着帮我看下这版动线还有没有隐藏折返。",
@@ -62,7 +62,7 @@ test("buildContactAgentContextSync exposes shared channels, observed labels, and
         status: "completed",
         mentions: [
           {
-            agentId: "Tianyu's assistant",
+            agentId: "techwu's assistant",
             label: "个人助手",
             token: "个人助手",
             mentionType: "agent",
@@ -81,7 +81,7 @@ test("buildContactAgentContextSync exposes shared channels, observed labels, and
   });
 
   const context = buildContactAgentContextSync("Test");
-  const assistant = context.knownEntities.find((entity) => entity.name === "Tianyu's assistant");
+  const assistant = context.knownEntities.find((entity) => entity.name === "techwu's assistant");
 
   assert.equal(context.self.name, "Test");
   assert.deepEqual(context.self.channels, ["tour visit"]);
@@ -96,7 +96,7 @@ test("buildContactAgentContextSync exposes shared channels, observed labels, and
 test("resolveWorkspaceContextEntitySync matches observed labels from visible history", () => {
   const entity = resolveWorkspaceContextEntitySync("Test", "个人助手");
 
-  assert.equal(entity?.name, "Tianyu's assistant");
+  assert.equal(entity?.name, "techwu's assistant");
   assert.equal(entity?.relationship, "workspace-collaborator");
 });
 
@@ -105,14 +105,14 @@ function buildBaseState() {
     ...resetWorkspaceStateSync(),
     organizationName: "Northstar Labs",
     pendingHandoffs: 0,
-    humanMembers: [{ name: "Tianyu", role: "Founder" }],
+    humanMembers: [{ name: "techwu", role: "Founder" }],
     activeEmployees: [],
     directConversations: [],
     channels: [
       {
         name: "tour visit",
         humanMembers: 1,
-        employeeNames: ["Test", "Tianyu's assistant"],
+        employeeNames: ["Test", "techwu's assistant"],
       },
     ],
     channelDocuments: [],
@@ -139,7 +139,7 @@ function buildBaseState() {
     origin: "seed",
   });
   createEmployeeSync({
-    name: "Tianyu's assistant",
+    name: "techwu's assistant",
     role: "Assistant",
     remarkName: "个人助手",
     summary: "Personal assistant",
@@ -148,7 +148,7 @@ function buildBaseState() {
   });
   const state = readWorkspaceStateSync();
   state.activeEmployees = state.activeEmployees.map((employee) =>
-    employee.name === "Test" || employee.name === "Tianyu's assistant"
+    employee.name === "Test" || employee.name === "techwu's assistant"
       ? {
           ...employee,
           channels: ["tour visit"],
@@ -159,7 +159,7 @@ function buildBaseState() {
     channel.name === "tour visit"
       ? {
           ...channel,
-          employeeNames: ["Test", "Tianyu's assistant"],
+          employeeNames: ["Test", "techwu's assistant"],
         }
       : channel,
   );

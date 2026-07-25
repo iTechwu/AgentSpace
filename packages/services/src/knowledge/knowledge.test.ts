@@ -36,13 +36,13 @@ beforeEach(() => {
     ...readWorkspaceStateSync(),
     organizationName: "Northstar Labs",
     humanMembers: [
-      { name: "Tianyu", role: "Founder" },
+      { name: "techwu", role: "Founder" },
       { name: "Mina", role: "Operator" },
     ],
     channels: [
       {
         name: "tour visit",
-        humanMemberNames: ["Tianyu", "Mina"],
+        humanMemberNames: ["techwu", "Mina"],
         humanMembers: 2,
         employeeNames: [],
       },
@@ -74,7 +74,7 @@ test("createKnowledgePageFromSharedDocumentSync imports markdown attachments and
       {
         id: "message-1",
         channel: "tour visit",
-        speaker: "Tianyu",
+        speaker: "techwu",
         role: "human",
         time: "2026-04-18T09:00:00.000Z",
         summary: "Shared itinerary",
@@ -87,7 +87,7 @@ test("createKnowledgePageFromSharedDocumentSync imports markdown attachments and
   const page = createKnowledgePageFromSharedDocumentSync({
     sourceType: "attachment",
     sourceId: attachment.id,
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
 
@@ -103,7 +103,7 @@ test("createKnowledgePageFromSharedDocumentSync imports visible shared documents
     channelName: "tour visit",
     title: "Trip notes",
     contentMarkdown: "# Shared Plan\n\nKyoto",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
     triggerType: "manual",
   });
@@ -111,7 +111,7 @@ test("createKnowledgePageFromSharedDocumentSync imports visible shared documents
   const page = createKnowledgePageFromSharedDocumentSync({
     sourceType: "channelDocument",
     sourceId: created.document.id,
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
 
@@ -133,9 +133,9 @@ test("knowledge assignments expose all-agent and selected-agent pages without le
   const planner = pages.find((page) => page.title === "Planner playbook")!;
   const legal = pages.find((page) => page.title === "Legal memo")!;
 
-  setKnowledgePageAssignmentModeSync(planner.id, "selected_agents", "Tianyu");
-  setKnowledgePageAssignedEmployeesSync(planner.id, ["Planner"], "Tianyu");
-  setKnowledgePageAssignmentModeSync(legal.id, "selected_agents", "Tianyu");
+  setKnowledgePageAssignmentModeSync(planner.id, "selected_agents", "techwu");
+  setKnowledgePageAssignedEmployeesSync(planner.id, ["Planner"], "techwu");
+  setKnowledgePageAssignmentModeSync(legal.id, "selected_agents", "techwu");
 
   assert.deepEqual(
     listEmployeeKnowledgePageIdsSync("Planner").sort(),
@@ -161,15 +161,15 @@ test("agent-side knowledge assignment only accepts selected-agent pages and clea
     /Only selected-agent knowledge pages/,
   );
 
-  setKnowledgePageAssignmentModeSync(planner.id, "selected_agents", "Tianyu");
-  setEmployeeKnowledgePageIdsSync("Planner", [planner.id], "Tianyu");
+  setKnowledgePageAssignmentModeSync(planner.id, "selected_agents", "techwu");
+  setEmployeeKnowledgePageIdsSync("Planner", [planner.id], "techwu");
   assert.equal(listKnowledgeAssignmentsByPageIdSync(planner.id).length, 1);
 
   deleteEmployeeSync("Planner");
   assert.equal(listKnowledgeAssignmentsByPageIdSync(planner.id).length, 0);
 
   createEmployeeSync({ name: "Planner" });
-  setEmployeeKnowledgePageIdsSync("Planner", [planner.id], "Tianyu");
+  setEmployeeKnowledgePageIdsSync("Planner", [planner.id], "techwu");
   deleteKnowledgePageSync(planner.id);
   assert.equal(listKnowledgeAssignmentsByPageIdSync(planner.id).length, 0);
 });

@@ -395,6 +395,26 @@ export function AgentsPageClient({
   }
 
   useEffect(() => {
+    if (mode !== "agent" || searchParams.get("create") !== "agent") {
+      return;
+    }
+
+    if (data.canCreateAgent) {
+      setShowCreateAgent(true);
+    }
+    const nextHref = workspaceHref("/agents?mode=agent");
+    if (navigateWorkspaceModule(nextHref, { replace: true })) {
+      return;
+    }
+    if (moduleSearchParams && typeof window !== "undefined") {
+      window.history.replaceState(window.history.state, "", nextHref);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+      return;
+    }
+    router.replace(nextHref, { scroll: false });
+  }, [data.canCreateAgent, mode, moduleSearchParams, navigateWorkspaceModule, router, searchParams, workspaceHref]);
+
+  useEffect(() => {
     if (mode !== "container" || searchParams.get("create") !== "server" || generatedInstallCommand || isGeneratingContainerCommand) {
       return;
     }

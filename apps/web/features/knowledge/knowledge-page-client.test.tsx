@@ -74,7 +74,7 @@ const data: KnowledgePageData = {
       contentMarkdown: "## 第一天\n大阪",
       sortOrder: 0,
       tags: ["travel"],
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       createdAt: "2026-04-10T08:00:00.000Z",
       updatedAt: "2026-04-10T09:00:00.000Z",
       assignmentMode: "all_agents",
@@ -109,7 +109,7 @@ const data: KnowledgePageData = {
       sourceType: "attachment",
       sourceId: "att-itinerary",
       title: "itinerary.md",
-      summary: "tour visit · Tianyu · text/markdown",
+      summary: "tour visit · techwu · text/markdown",
       previewText: "# Osaka Trip\n\nDay 1",
       fileName: "itinerary.md",
       mediaType: "text/markdown",
@@ -118,10 +118,10 @@ const data: KnowledgePageData = {
       isMarkdown: true,
       channelName: "tour visit",
       sourceMessageId: "message-1",
-      sourceSpeaker: "Tianyu",
+      sourceSpeaker: "techwu",
       sourceTime: "2026-04-18T09:00:00.000Z",
       updatedAt: "2026-04-18T09:00:00.000Z",
-      updatedBy: "Tianyu",
+      updatedBy: "techwu",
       status: "shared",
       linkedChannelDocuments: [],
       linkedKnowledgePages: [],
@@ -174,7 +174,7 @@ describe("KnowledgePageClient", () => {
     await user.click(screen.getByRole("button", { name: "日本行程" }));
 
     expect(await screen.findByRole("button", { name: "返回列表" })).toBeInTheDocument();
-    expect(screen.getByText((content) => content.includes("创建者") && content.includes("Tianyu"))).toBeInTheDocument();
+    expect(screen.getByText((content) => content.includes("创建者") && content.includes("techwu"))).toBeInTheDocument();
     expect(screen.getByText((content) => content.includes("## 第一天") && content.includes("大阪"))).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "返回列表" }));

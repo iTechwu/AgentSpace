@@ -27,7 +27,7 @@ test("applyChannelDocumentOperations accepts a valid relative contentPath for do
     resetWorkspaceStateSync();
     initializeOrganizationSync({
       organizationName: "Northstar Labs",
-      ownerName: "Tianyu",
+      ownerName: "techwu",
       ownerRole: "Founder",
       firstChannelName: "tour visit",
     });

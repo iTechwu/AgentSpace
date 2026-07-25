@@ -12,8 +12,9 @@ import {
 
 describe("workspace module route", () => {
   it("parses workspace module paths and derived views", () => {
-    expect(parseWorkspaceModulePath("/w/acme/im", "view=direct").isDigitalContactsView).toBe(true);
+    expect(parseWorkspaceModulePath("/w/acme/im", "view=direct").isDigitalContactsView).toBe(false);
     expect(parseWorkspaceModulePath("/w/acme/im", "view=direct").conversationView).toBe("direct");
+    expect(parseWorkspaceModulePath("/w/acme/im", "view=direct&context=contacts").isDigitalContactsView).toBe(true);
     expect(parseWorkspaceModulePath("/w/acme/im", "focus=channel%3Atour+visit&tab=documents&doc=doc-1").moduleId).toBe("im");
     expect(parseWorkspaceModulePath("/w/acme/contacts").isHumanContactsView).toBe(true);
     expect(parseWorkspaceModulePath("/w/acme/agents", "mode=container").agentsMode).toBe("container");
@@ -34,6 +35,10 @@ describe("workspace module route", () => {
     expect(normalizeWorkspaceModuleQuery("im", "view=direct&tab=files&focus=contact%3Aa").toString()).toBe(
       "view=direct&focus=contact%3Aa&tab=files",
     );
+    expect(normalizeWorkspaceModuleQuery("im", "context=contacts&view=direct&focus=contact%3Aa").toString()).toBe(
+      "view=direct&context=contacts&focus=contact%3Aa",
+    );
+    expect(normalizeWorkspaceModuleQuery("im", "context=unknown&view=direct").toString()).toBe("view=direct");
     expect(normalizeWorkspaceModuleQuery("agents", "mode=showcase&create=server&focus=agent%3Aops").toString()).toBe(
       "mode=showcase&create=server&focus=agent%3Aops",
     );

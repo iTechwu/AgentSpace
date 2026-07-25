@@ -24,7 +24,7 @@ test("rollbackChannelDocumentVersion restores a previous version", () => {
     channelName: "tour visit",
     title: "大阪-濑户内海行程",
     contentMarkdown: "## Day 1\n大阪",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
   });
   const updated = updateChannelDocument({
@@ -40,7 +40,7 @@ test("rollbackChannelDocumentVersion restores a previous version", () => {
     state,
     documentId: created.document.id,
     versionId: created.version.id,
-    updatedBy: "Tianyu",
+    updatedBy: "techwu",
     updatedByType: "human",
   });
 

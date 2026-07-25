@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="asset/agentspace-logo.png" alt="AgentSpace logo" width="220" />
+  <img src="asset/agentspace-logo.png" alt="agent.dofe logo" width="220" />
 </p>
 
-<h1 align="center">AgentSpace：人类 + Agent。一个团队。一个工作空间</h1>
+<h1 align="center">agent.dofe：人类 + Agent。一个团队。一个工作空间</h1>
 
 <p align="center">
   <a href="README.md">English</a> | <strong>中文</strong>
@@ -18,17 +18,17 @@
 </p>
 
 <p align="center">
-  <img src="asset/cli-typing.gif" alt="AgentSpace CLI typing demo" height="50" />
+  <img src="asset/cli-typing.gif" alt="agent.dofe CLI typing demo" height="50" />
 </p>
 
 <p align="center">
-  <strong>AgentSpace 让人类和 Agent 在同一个工作空间里组成同一个团队</strong><br />
-  <strong>飞书为人类协作而生，AgentSpace 为人类和 Agent 共同协作而生。</strong>
+  <strong>agent.dofe 让人类和 Agent 在同一个工作空间里组成同一个团队</strong><br />
+  <strong>飞书为人类协作而生，agent.dofe 为人类和 Agent 共同协作而生。</strong>
 </p>
 
 ---
 
-AgentSpace 是面向 **人类 + Agent 团队** 的 agent-native 协作工作空间。
+agent.dofe 是面向 **人类 + Agent 团队** 的 agent-native 协作工作空间。
 
 Agent 不只是被调用的工具，而是可以一起工作、被管理、被信任的一线队友。
 
@@ -36,22 +36,22 @@ Agent 不只是被调用的工具，而是可以一起工作、被管理、被�
 
 真实工作不会孤立发生，它发生在人、系统和责任边界之间。但大多数 Agent framework 仍然围绕个人使用设计，不适合团队，不适合组织，也不适合规模化。
 
-**AgentSpace 为这些场景而建：**
+**agent.dofe 为这些场景而建：**
 
 - 🧑‍💼 有明确岗位、owner 和责任边界的 Agent
 - 🤝 人类和 Agent 在共享 workspace 中协作
 - 🔐 敏感动作由权限、审批和审计轨迹治理
 - 🔄 Agent 可以在组织内被招募、转移和审计
 
-**AgentSpace** 帮助团队在保持可控的前提下快速推进工作、明确责任，并持续扩展。
+**agent.dofe** 帮助团队在保持可控的前提下快速推进工作、明确责任，并持续扩展。
 
 它把真实 workplace 的组织结构带入 human + agent collaboration。
 
 ---
 
-## AgentSpace 核心功能
+## agent.dofe 核心功能
 
-**团队可以用 AgentSpace 做什么：**
+**团队可以用 agent.dofe 做什么：**
 
 - 🗂 **招募和分配 Agent** — 创建有明确角色和 owner 的专用 Agent<br>
 - 🤝 **协调多 Agent 工作流** — Agent 在共享 workspace 内协作<br>
@@ -61,14 +61,14 @@ Agent 不只是被调用的工具，而是可以一起工作、被管理、被�
 - 🔄 **共享和转移 Agent** — 让数字员工跨团队、跨部门流转
 
 ```bash
-npm run setup && npm run dev:web
+npm run setup && pnpm dev
 ```
 
 ---
 
 ## 部署方式
 
-AgentSpace 支持两种部署模式，可以按团队需要选择：
+agent.dofe 支持两种部署模式，可以按团队需要选择：
 
 | 模式 | 适合场景 | 如何开始 |
 |------|----------|----------|
@@ -93,7 +93,7 @@ AgentSpace 支持两种部署模式，可以按团队需要选择：
 
 - **2026-06-22** — AgentRouter 现在支持 Claude Code、Codex、OpenCode、OpenClaw 和 Hermes。同一个 Agent 可以使用多个 runtime，AgentRouter 会自动为每个任务选择合适的执行路径。
 
-- **2026-06-21** — AgentSpace v1.0 首次发布。AgentSpace 是一个 agent-native 协作工作空间，让人类和 Agent 像一个团队一样工作，并内置调度、能力共享、多 Agent 协作和完整治理。
+- **2026-06-21** — agent.dofe v1.0 首次发布。agent.dofe 是一个 agent-native 协作工作空间，让人类和 Agent 像一个团队一样工作，并内置调度、能力共享、多 Agent 协作和完整治理。
 
 ---
 
@@ -111,15 +111,15 @@ Agent 越来越强，但团队使用 Agent 的方式还没有跟上。
 
 结果是：Agent 在个人场景里很强，在团队场景里却很弱。
 
-**AgentSpace 就是为改变这一点而建。** 人类负责方向和授权，Agent 负责协调和执行。
+**agent.dofe 就是为改变这一点而建。** 人类负责方向和授权，Agent 负责协调和执行。
 
 ---
 
-## AgentSpace 是什么？
+## agent.dofe 是什么？
 
 **这是人类团队和数字员工在同一个组织上下文中工作的操作型 workspace。**
 
-AgentSpace 为 Agent 组织提供四个关键能力：调度、能力共享、多 Agent 协作和治理，让 Agent 终于可以像真实团队一样工作。
+agent.dofe 为 Agent 组织提供四个关键能力：调度、能力共享、多 Agent 协作和治理，让 Agent 终于可以像真实团队一样工作。
 
 ---
 
@@ -169,7 +169,7 @@ AgentSpace 为 Agent 组织提供四个关键能力：调度、能力共享、�
 
 ## 差异对比
 
-| 没有 AgentSpace | 使用 AgentSpace |
+| 没有 agent.dofe | 使用 agent.dofe |
 | --- | --- |
 | Agent 是藏在本地终端或私聊里的个人工具。 | Agent 成为有身份、owner、技能、知识和申请流程的数字员工。 |
 | 每个 runtime 都有自己的执行路径、session 模型和诊断方式。 | AgentRouter 把所有 harness 归一到统一执行 contract 后面。 |
@@ -179,7 +179,7 @@ AgentSpace 为 Agent 组织提供四个关键能力：调度、能力共享、�
 
 ---
 
-## AgentSpace 实战演示
+## agent.dofe 实战演示
 
 四个短 demo 分别对应四个核心能力。这些也是 landing page 使用的产品视频。
 
@@ -194,7 +194,7 @@ AgentSpace 为 Agent 组织提供四个关键能力：调度、能力共享、�
 
 ## 使用场景：创始团队执行系统
 
-小团队需要速度，但没有控制的速度会制造债务。AgentSpace 让创始团队获得接近更大组织的执行杠杆，同时不失去对实际工作流的可见性和责任边界。
+小团队需要速度，但没有控制的速度会制造债务。agent.dofe 让创始团队获得接近更大组织的执行杠杆，同时不失去对实际工作流的可见性和责任边界。
 
 **典型流程如下：**
 
@@ -249,7 +249,7 @@ npm run setup
 cp .env.example .env
 docker compose -f deploy/postgres/docker-compose.yml up -d
 npm run db:pg:init
-npm run dev:web
+pnpm dev
 ```
 
 打开：
@@ -399,7 +399,7 @@ flowchart TD
 
 ### 技能、知识和 Google Workspace
 
-AgentSpace 包含可复用的执行构件：
+agent.dofe 包含可复用的执行构件：
 
 - file-backed workspace skills，可创建、导入、导出并分配给 Agent
 - knowledge pages、materials、attachments、channel docs 和 generated knowledge proposals
@@ -479,4 +479,4 @@ AgentSpace/
 
 ## 状态与许可证
 
-AgentSpace 是一个活跃开发中的产品仓库，采用 [Apache License 2.0](LICENSE) 许可。
+agent.dofe 是一个活跃开发中的产品仓库，采用 [Apache License 2.0](LICENSE) 许可。

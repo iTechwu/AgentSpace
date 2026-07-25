@@ -2,8 +2,10 @@ import type { SVGProps } from "react";
 
 export type AppIconName =
   | "arrowLeft"
+  | "arrowRight"
   | "agents"
   | "alertCircle"
+  | "atSign"
   | "approvals"
   | "automations"
   | "calendar"
@@ -20,6 +22,7 @@ export type AppIconName =
   | "info"
   | "knowledge"
   | "logout"
+  | "loader"
   | "market"
   | "menu"
   | "messages"
@@ -29,6 +32,8 @@ export type AppIconName =
   | "plus"
   | "refresh"
   | "search"
+  | "scissors"
+  | "send"
   | "settings"
   | "skills"
   | "tables"
@@ -71,6 +76,16 @@ function renderIcon(name: AppIconName) {
       return (
         <path
           d="m10.75 4.75-3.5 4.25 3.5 4.25M7.5 9h6"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.6"
+        />
+      );
+    case "arrowRight":
+      return (
+        <path
+          d="m7.25 4.75 3.5 4.25-3.5 4.25M10.5 9h-6"
           stroke="currentColor"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -121,6 +136,49 @@ function renderIcon(name: AppIconName) {
           strokeLinecap="round"
           strokeWidth="1.6"
         />
+      );
+    case "atSign":
+      return (
+        <>
+          <circle cx="8.25" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.6" />
+          <path
+            d="M10.75 6.5v4.15c0 1 .7 1.6 1.6 1.6 1.35 0 2.15-1.35 2.15-3.25a5.5 5.5 0 1 0-2.15 4.35"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.6"
+          />
+        </>
+      );
+    case "scissors":
+      return (
+        <>
+          <circle cx="5" cy="5.25" r="1.75" stroke="currentColor" strokeWidth="1.5" />
+          <circle cx="5" cy="12.75" r="1.75" stroke="currentColor" strokeWidth="1.5" />
+          <path
+            d="m6.6 6.05 7.15 4.45M6.6 11.95l7.15-4.45"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="1.5"
+          />
+        </>
+      );
+    case "send":
+      return (
+        <path
+          d="m3.75 9 10.5-5-3.1 10-2.1-3.15L3.75 9Zm5.3 1.85 2.35-2.3"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.6"
+        />
+      );
+    case "loader":
+      return (
+        <>
+          <path d="M9 3.25A5.75 5.75 0 0 1 14.75 9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+          <path d="M9 14.75A5.75 5.75 0 0 1 3.25 9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+        </>
       );
     case "copy":
       return (

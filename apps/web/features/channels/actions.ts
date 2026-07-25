@@ -776,7 +776,7 @@ export async function refreshExternalGoogleSheetDocumentAction(documentId: strin
     status: "running",
     intent: "Refresh Google Sheet metadata",
     operationType: "metadata_refresh",
-    requestSummary: "Read Google Drive file metadata and update AgentSpace external status.",
+    requestSummary: "Read Google Drive file metadata and update agent.dofe external status.",
   }, workspaceContext.currentWorkspace.id);
 
   try {
@@ -1190,7 +1190,7 @@ async function syncExternalGoogleSheetPermissionsForCurrentUser(input: {
       status: "failed",
       intent: "Sync Google Drive permissions for external sheet",
       operationType: "share",
-      requestSummary: "Sync Drive permissions after AgentSpace collaborator change.",
+      requestSummary: "Sync Drive permissions after agent.dofe collaborator change.",
       errorCode: error instanceof GoogleWorkspaceApiError ? error.code : error instanceof Error ? error.name : "Error",
       errorMessage: error instanceof Error ? error.message : String(error),
     }, input.workspaceId);

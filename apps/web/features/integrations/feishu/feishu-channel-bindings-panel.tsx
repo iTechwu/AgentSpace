@@ -105,7 +105,7 @@ export function FeishuChannelBindingsPanel({
         <div>
           <h3>{tx("飞书会话映射", "Feishu Chat Mappings")}</h3>
           <p className="settings-panel-note">
-            {tx("把 AgentSpace 频道或私聊连接到飞书会话。", "Connect AgentSpace channels or direct chats to Feishu chats.")}
+            {tx("把 agent.dofe 频道或私聊连接到飞书会话。", "Connect agent.dofe channels or direct chats to Feishu chats.")}
           </p>
         </div>
       </div>
@@ -125,7 +125,7 @@ export function FeishuChannelBindingsPanel({
         </label>
 
         <label className="form-field">
-          <span>{tx("AgentSpace 频道", "AgentSpace Channel")}</span>
+          <span>{tx("agent.dofe 频道", "agent.dofe channel")}</span>
           <select
             disabled={isPending || availableChannels.length === 0}
             onChange={(event) => setChannelName(event.currentTarget.value)}
@@ -263,7 +263,7 @@ function translateProvisionSource(
     case "first_message":
       return tx("首次消息", "First message");
     case "agentspace_created":
-      return tx("AgentSpace 创建", "AgentSpace created");
+      return tx("agent.dofe 创建", "Created by agent.dofe");
     case "manual":
       return tx("手动绑定", "Manual");
     default:

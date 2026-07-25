@@ -17,8 +17,8 @@ test("channel document records default to native markdown", () => {
     currentVersionId: "version-1",
     summary: "",
     lastEditorType: "human",
-    createdBy: "Tianyu",
-    updatedBy: "Tianyu",
+    createdBy: "techwu",
+    updatedBy: "techwu",
     createdAt: "2026-05-01T00:00:00.000Z",
     updatedAt: "2026-05-01T00:00:00.000Z",
     existingDocuments: [],
@@ -72,8 +72,8 @@ test("channel document normalization preserves Feishu external metadata", () => 
     currentVersionId: "version-1",
     summary: "Launch brief",
     lastEditorType: "human",
-    createdBy: "Tianyu",
-    updatedBy: "Tianyu",
+    createdBy: "techwu",
+    updatedBy: "techwu",
     createdAt: "2026-06-24T00:00:00.000Z",
     updatedAt: "2026-06-24T00:00:00.000Z",
   });
@@ -93,7 +93,7 @@ test("legacy channel document normalization falls back to native markdown", () =
     currentVersionId: "legacy-version",
     kind: "unknown",
     storageMode: "unknown",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
   });
 
   assert.ok(document);
@@ -111,7 +111,7 @@ test("channel document versions preserve structured JSON content", () => {
       rows: [{ id: "row-1", cells: { item: "Data source audit" } }],
     },
     summary: "Structured sheet",
-    createdBy: "Tianyu",
+    createdBy: "techwu",
     createdByType: "human",
     triggerType: "manual",
     createdAt: "2026-05-01T00:00:00.000Z",

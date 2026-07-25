@@ -56,8 +56,8 @@ describe("ConversationShell", () => {
           listTitle="Channels"
           mentionCandidates={[
             {
-              id: "Tianyu's assistant",
-              label: "Tianyu's assistant",
+              id: "techwu's assistant",
+              label: "techwu's assistant",
               subtitle: "Assistant",
               inChannel: true,
             },
@@ -65,7 +65,7 @@ describe("ConversationShell", () => {
           messages={[
             {
               id: "message-1",
-              speaker: "Tianyu's assistant",
+              speaker: "techwu's assistant",
               role: "agent",
               content: "我来处理一下。",
               timestamp: "10:00",
@@ -86,7 +86,7 @@ describe("ConversationShell", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "回复" }));
-    expect(screen.getByRole("textbox")).toHaveValue("@Tianyu's assistant ");
+    expect(screen.getByRole("textbox")).toHaveValue("@techwu's assistant ");
   });
 
   it("switches between list and thread on compact layouts without affecting selection", async () => {
@@ -116,7 +116,7 @@ describe("ConversationShell", () => {
           messages={[
             {
               id: "message-1",
-              speaker: "Tianyu",
+              speaker: "techwu",
               role: "human",
               content: "hello",
               timestamp: "10:00",
@@ -152,7 +152,7 @@ describe("ConversationShell", () => {
     render(
       <LanguageProvider>
         <ConversationShell
-          currentUserDisplayName="Tianyu"
+          currentUserDisplayName="techwu"
           emptyListBody="empty"
           emptyListTitle="empty"
           emptyThreadBody="empty"
@@ -172,7 +172,7 @@ describe("ConversationShell", () => {
           messages={[
             {
               id: "message-1",
-              speaker: "Tianyu",
+              speaker: "techwu",
               role: "human",
               content: "hi",
               timestamp: "10:00",
@@ -207,7 +207,7 @@ describe("ConversationShell", () => {
   it("restores a saved thread scroll anchor after the shell remounts", () => {
     const messages = Array.from({ length: 12 }, (_, index) => ({
       id: `message-${index}`,
-      speaker: index % 2 === 0 ? "Tianyu" : "Atlas",
+      speaker: index % 2 === 0 ? "techwu" : "Atlas",
       role: (index % 2 === 0 ? "human" : "agent") as "human" | "agent",
       content: `message ${index}`,
       timestamp: `10:${String(index).padStart(2, "0")}`,
@@ -288,7 +288,7 @@ describe("ConversationShell", () => {
           messages={[
             {
               id: "message-1",
-              speaker: "Tianyu",
+              speaker: "techwu",
               role: "human",
               content: "hello",
               timestamp: "10:00",
@@ -344,7 +344,7 @@ describe("ConversationShell", () => {
           messages={[
             {
               id: "message-1",
-              speaker: "Tianyu",
+              speaker: "techwu",
               role: "human",
               content: "hello",
               timestamp: "10:00",

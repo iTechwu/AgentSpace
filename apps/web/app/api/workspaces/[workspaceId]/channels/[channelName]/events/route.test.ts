@@ -112,8 +112,8 @@ function buildWorkspaceContext() {
   return {
     currentUser: {
       id: "user-1",
-      displayName: "Tianyu",
-      email: "tianyu@example.com",
+      displayName: "techwu",
+      email: "techwu@example.com",
     },
     currentWorkspace: {
       id: "workspace-1",

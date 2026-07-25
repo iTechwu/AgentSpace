@@ -598,11 +598,11 @@ test("collectSqliteMigrationSnapshotSync extracts relational rows and derived at
     db.prepare(
       `INSERT INTO users (id, display_name, avatar_url, primary_email, created_at, updated_at, last_login_at)
        VALUES (?, ?, NULL, ?, ?, ?, NULL)`,
-    ).run("user-1", "Tianyu", "tianyu@example.com", timestamp, timestamp);
+    ).run("user-1", "techwu", "techwu@example.com", timestamp, timestamp);
     db.prepare(
       `INSERT INTO auth_identity (id, user_id, provider, provider_subject, email, email_verified, profile_json, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run("identity-1", "user-1", "password", "tianyu@example.com", "tianyu@example.com", 1, "{\"passwordHash\":\"x\"}", timestamp, timestamp);
+    ).run("identity-1", "user-1", "password", "techwu@example.com", "techwu@example.com", 1, "{\"passwordHash\":\"x\"}", timestamp, timestamp);
     db.prepare(
       `INSERT INTO session (id, user_id, token_hash, expires_at, last_seen_at, created_at, ip_address, user_agent, revoked_at)
        VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
@@ -615,7 +615,7 @@ test("collectSqliteMigrationSnapshotSync extracts relational rows and derived at
     const stateJson = JSON.stringify({
       organizationName: "Northstar Labs",
       pendingHandoffs: 0,
-      humanMembers: [{ name: "Tianyu", role: "Founder" }],
+      humanMembers: [{ name: "techwu", role: "Founder" }],
       skills: [],
       activeEmployees: [],
       directConversations: [],

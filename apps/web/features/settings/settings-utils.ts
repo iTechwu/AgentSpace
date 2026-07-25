@@ -129,13 +129,13 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
       );
     case "feishu.integration.credential_encryption_key_missing":
       return tx(
-        "AgentSpace 未配置飞书凭据加密密钥。请设置 AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
-        "AgentSpace is missing the Feishu credential encryption key. Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
+        "agent.dofe 未配置飞书凭据加密密钥。请设置 AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
+        "agent.dofe is missing the Feishu credential encryption key. Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
       );
     case "feishu.integration.credential_encryption_key_invalid":
       return tx(
-        "AgentSpace 飞书凭据加密密钥无效。请使用 base64 编码的 32 字节密钥。",
-        "AgentSpace Feishu credential encryption key is invalid. Use a base64-encoded 32-byte key.",
+        "agent.dofe 飞书凭据加密密钥无效。请使用 base64 编码的 32 字节密钥。",
+        "The agent.dofe Feishu credential encryption key is invalid. Use a base64-encoded 32-byte key.",
       );
     case "feishu.integration.placeholder_value":
       return tx(
@@ -175,18 +175,18 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
       );
     case "feishu.agent_bot_binding.credential_encryption_key_missing":
       return tx(
-        "AgentSpace 未配置飞书凭据加密密钥。请设置 AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
-        "AgentSpace is missing the Feishu credential encryption key. Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
+        "agent.dofe 未配置飞书凭据加密密钥。请设置 AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
+        "agent.dofe is missing the Feishu credential encryption key. Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
       );
     case "feishu.agent_bot_binding.credential_encryption_key_invalid":
       return tx(
-        "AgentSpace 飞书凭据加密密钥无效。请使用 base64 编码的 32 字节密钥。",
-        "AgentSpace Feishu credential encryption key is invalid. Use a base64-encoded 32-byte key.",
+        "agent.dofe 飞书凭据加密密钥无效。请使用 base64 编码的 32 字节密钥。",
+        "The agent.dofe Feishu credential encryption key is invalid. Use a base64-encoded 32-byte key.",
       );
     case "feishu.credentials_missing":
       return tx("飞书 App ID 或 App Secret 不完整。", "Feishu App ID or App Secret is incomplete.");
     case "feishu.channel_binding.missing_channel":
-      return tx("请选择 AgentSpace 频道。", "Select an AgentSpace channel.");
+      return tx("请选择 agent.dofe 频道。", "Select an agent.dofe channel.");
     case "feishu.channel_binding.missing_external_chat_id":
       return tx("请填写飞书群聊 ID。", "Feishu chat ID is required.");
     case "feishu.channel_binding.placeholder_value":
@@ -195,14 +195,14 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
         "Replace Feishu channel binding placeholders with a real chat ID.",
       );
     case "feishu.channel_binding.channel_not_found":
-      return tx("未找到该 AgentSpace 频道。", "AgentSpace channel not found.");
+      return tx("未找到该 agent.dofe 频道。", "agent.dofe channel not found.");
     case "feishu.channel_binding.external_chat_taken":
       return tx(
-        "这个飞书会话已映射到其他 AgentSpace 频道，请先让管理员检查现有映射。",
-        "This Feishu chat is already mapped to another AgentSpace channel. Ask an admin to review the existing mapping first.",
+        "这个飞书会话已映射到其他 agent.dofe 频道，请先让管理员检查现有映射。",
+        "This Feishu chat is already mapped to another agent.dofe channel. Ask an admin to review the existing mapping first.",
       );
     case "feishu.user_binding.missing_user":
-      return tx("请选择 AgentSpace 用户。", "Select an AgentSpace user.");
+      return tx("请选择 agent.dofe 用户。", "Select an agent.dofe user.");
     case "feishu.user_binding.missing_external_user_id":
       return tx("请填写飞书 Open ID。", "Feishu Open ID is required.");
     case "feishu.user_binding.placeholder_value":
@@ -214,8 +214,8 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
       return tx("未找到该工作区成员。", "Workspace member not found.");
     case "feishu.user_binding.external_user_taken":
       return tx(
-        "这个飞书 Open ID 已绑定到其他 AgentSpace 用户，请联系管理员处理。",
-        "This Feishu Open ID is already bound to another AgentSpace user. Ask an admin to review it.",
+        "这个飞书 Open ID 已绑定到其他 agent.dofe 用户，请联系管理员处理。",
+        "This Feishu Open ID is already bound to another agent.dofe user. Ask an admin to review it.",
       );
     case "feishu.user_binding.not_found":
       return tx("未找到该飞书用户绑定。", "Feishu user binding not found.");
@@ -235,8 +235,8 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
       );
     case "feishu.resource_binding.base_app_token_missing":
       return tx(
-        "飞书 Base 表/视图绑定需要包含 Base app token 的链接；仅填写 table/view id 不足以支撑 AgentSpace 数据面治理。",
-        "Feishu Base table/view bindings require a Base URL that includes the app token; a raw table/view id is not enough for AgentSpace data-plane governance.",
+        "飞书 Base 表/视图绑定需要包含 Base app token 的链接；仅填写 table/view id 不足以支撑 agent.dofe 数据面治理。",
+        "Feishu Base table/view bindings require a Base URL that includes the app token; a raw table/view id is not enough for agent.dofe data-plane governance.",
       );
     case "feishu.resource_binding.base_table_id_missing":
       return tx(
@@ -244,15 +244,15 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
         "Feishu Base view bindings require both table and view context. Use the full Base view URL.",
       );
     case "feishu.resource_binding.missing_agent_space_resource_type":
-      return tx("请选择 AgentSpace 资源类型。", "Select an AgentSpace resource type.");
+      return tx("请选择 agent.dofe 资源类型。", "Select an agent.dofe resource type.");
     case "feishu.resource_binding.missing_agent_space_resource_id":
-      return tx("请填写 AgentSpace 资源 ID。", "AgentSpace resource ID is required.");
+      return tx("请填写 agent.dofe 资源 ID。", "agent.dofe resource ID is required.");
     case "feishu.resource_binding.channel_not_found":
-      return tx("未找到要关联的 AgentSpace 频道。", "Linked AgentSpace channel not found.");
+      return tx("未找到要关联的 agent.dofe 频道。", "Linked agent.dofe channel not found.");
     case "feishu.resource_binding.external_resource_taken":
       return tx(
-        "这个飞书资源已绑定到其他 AgentSpace 资源，请先让管理员检查现有映射。",
-        "This Feishu resource is already bound to another AgentSpace resource. Ask an admin to review the existing mapping first.",
+        "这个飞书资源已绑定到其他 agent.dofe 资源，请先让管理员检查现有映射。",
+        "This Feishu resource is already bound to another agent.dofe resource. Ask an admin to review the existing mapping first.",
       );
     case "feishu.resource_binding.missing_channel_document_channel":
       return tx("创建频道文档映射时请选择关联频道。", "Choose a linked channel when creating a channel document mapping.");

@@ -37,7 +37,7 @@ beforeEach(() => {
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
-    ownerName: "Tianyu",
+    ownerName: "techwu",
     ownerRole: "Founder",
     firstChannelName: "tour visit",
   });
@@ -64,7 +64,7 @@ beforeEach(() => {
     organizationName: "Northstar Labs",
     pendingHandoffs: 0,
     humanMembers: [
-      { name: "Tianyu", role: "Founder" },
+      { name: "techwu", role: "Founder" },
       { name: "Mina", role: "Operator" },
     ],
     activeEmployees: [
@@ -84,14 +84,14 @@ beforeEach(() => {
     channels: [
       {
         name: "tour visit",
-        humanMemberNames: ["Tianyu"],
+        humanMemberNames: ["techwu"],
         humanMembers: 1,
         employeeNames: [],
       },
       {
         name: "direct-atlas",
         kind: "direct",
-        humanMemberNames: ["Tianyu"],
+        humanMemberNames: ["techwu"],
         humanMembers: 1,
         employeeNames: ["Atlas"],
       },
@@ -121,7 +121,7 @@ beforeEach(() => {
         contentMarkdown: "# Orphan note",
         sortOrder: 0,
         tags: [],
-        createdBy: "Tianyu",
+        createdBy: "techwu",
         createdAt: "2026-04-22T10:00:00.000Z",
         updatedAt: "2026-04-22T10:00:00.000Z",
         sourceAttachmentId: "att-orphan-knowledge",
@@ -194,7 +194,7 @@ beforeEach(() => {
         speaker: "Atlas",
         role: "agent",
         time: "10:10",
-        summary: "不应被 Tianyu 看到。",
+        summary: "不应被 techwu 看到。",
         status: "completed",
         attachments: [
           {
@@ -229,7 +229,7 @@ beforeEach(() => {
       ...marsBaseState,
       organizationName: "Mars Labs",
       pendingHandoffs: 0,
-      humanMembers: [{ name: "Tianyu", role: "Founder" }],
+      humanMembers: [{ name: "techwu", role: "Founder" }],
       activeEmployees: [],
       channels: [],
       channelDocuments: [],
@@ -506,9 +506,9 @@ function buildWorkspaceContext(
     currentUser: {
       id: "user-1",
       organizationName: workspaceName,
-      displayName: "Tianyu",
+      displayName: "techwu",
       role: workspaceRole,
-      email: "tianyu@example.com",
+      email: "techwu@example.com",
     },
     currentWorkspace: {
       id: workspaceId,

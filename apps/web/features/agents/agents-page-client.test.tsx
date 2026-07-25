@@ -454,7 +454,7 @@ const data: AgentsPageData = {
       id: "daemon-token-1",
       label: "build-box-1",
       status: "active",
-      createdBy: "Tianyu",
+      createdBy: "techwu",
       lastUsedAt: "2026-04-10T09:00:00.000Z",
       createdAt: "2026-04-10T08:00:00.000Z",
     },
@@ -657,6 +657,16 @@ describe("AgentsPageClient", () => {
     expect(helpButton).toBeInTheDocument();
     await user.hover(helpButton);
     expect(await screen.findByText("Agent 可先创建，后续再绑定执行引擎和 skills。")).toBeInTheDocument();
+  });
+
+  it("opens the new agent flow from a directory create deep link", async () => {
+    searchParams.set("mode", "agent");
+    searchParams.set("create", "agent");
+
+    renderAgentsPage();
+
+    expect(await screen.findByRole("button", { name: "执行引擎" })).toBeInTheDocument();
+    expect(mockReplace).toHaveBeenCalledWith("/w/workspace-alpha/agents?mode=agent", { scroll: false });
   });
 
   it("shows agent knowledge assignments", async () => {
