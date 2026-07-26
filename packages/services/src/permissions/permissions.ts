@@ -13,7 +13,6 @@ import {
   listExternalMessageMappingsSync,
   listGoogleOAuthCredentialsSync,
   listRuntimeGrantsSync,
-  listWorkspaceInvitationsSync,
   listWorkspaceChannelParticipantsSync,
   listWorkspaceMemberUsersSync,
   listWorkspaceRuntimeDisplayNamesSync,
@@ -51,7 +50,6 @@ export type PermissionSubjectType =
 
 export type PermissionResourceType =
   | "workspace"
-  | "workspace_invitation"
   | "channel"
   | "channel_invitation"
   | "channel_access_request"
@@ -284,17 +282,12 @@ function buildWorkspacePermissionTree(
     status: "active",
     source: "workspace_role",
     bindings: buildWorkspaceBindings(context),
-    metadata: {
-      workspaceId: input.workspaceId,
-      joinCodeVisible: context.actor.role === "owner",
-      joinCodeUpdatedAt: workspace?.joinCodeUpdatedAt ?? null,
-    },
+    metadata: { workspaceId: input.workspaceId },
     children: [],
   };
 
   const diagnosticsByNode = groupDiagnosticsByNode(diagnostics);
   const sections = [
-    buildWorkspaceInvitationNodes(context),
     buildChannelNodes(context),
     buildAgentNodes(context),
     buildAgentAccessRequestNodes(context),
@@ -694,58 +687,12 @@ function buildWorkspaceBindings(context: PermissionBuildContext): PermissionBind
     permission: member.role,
     source: "workspace_role",
     status: "active",
-    editable: context.isManager && member.userId !== context.actor.userId,
-    updateAction: context.isManager ? "workspace_member_role" : undefined,
-    revokeAction: context.isManager && member.userId !== context.actor.userId ? "workspace_member_remove" : undefined,
+    editable: false,
     metadata: {
       userId: member.userId,
       role: member.role,
       primaryEmail: member.primaryEmail,
     },
-  }));
-}
-
-function buildWorkspaceInvitationNodes(context: PermissionBuildContext): PermissionTreeNode[] {
-  if (!context.isManager) {
-    return [];
-  }
-  return listWorkspaceInvitationsSync(context.workspaceId, {
-    statuses: ["active", "accepted", "revoked", "expired"],
-  }).map((invitation) => ({
-    id: `workspace-invitation:${invitation.id}`,
-    parentId: context.workspaceNodeId,
-    resourceType: "workspace_invitation",
-    label: invitation.email,
-    status: invitation.status === "active" ? "pending" : invitation.status === "revoked" ? "revoked" : "active",
-    source: "direct_grant",
-    metadata: {
-      invitationId: invitation.id,
-      email: invitation.email,
-      role: invitation.role,
-      status: invitation.status,
-      expiresAt: invitation.expiresAt,
-      acceptedAt: invitation.acceptedAt ?? null,
-    },
-    bindings: [
-      {
-        subjectType: "human",
-        subjectId: `email:${invitation.email}`,
-        subjectLabel: invitation.email,
-        permission: invitation.role,
-        source: "direct_grant",
-        status: invitation.status === "active" ? "pending" : invitation.status === "revoked" ? "revoked" : "active",
-        editable: invitation.status === "active",
-        revokeAction: invitation.status === "active" ? "workspace_invitation_revoke" : undefined,
-        updateAction: invitation.status !== "accepted" ? "workspace_invitation_reissue" : undefined,
-        lastChangedAt: invitation.acceptedAt ?? invitation.createdAt,
-        metadata: {
-          invitationId: invitation.id,
-          email: invitation.email,
-          role: invitation.role,
-          status: invitation.status,
-        },
-      },
-    ],
   }));
 }
 

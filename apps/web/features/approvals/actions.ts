@@ -195,7 +195,7 @@ function revalidateApprovalRoutes(workspaceSlug: string): void {
     "/inbox",
     "/agents",
     "/im",
-    "/settings/access",
+    "/settings/permissions",
     "/settings/permissions",
     "/knowledge",
   ]);

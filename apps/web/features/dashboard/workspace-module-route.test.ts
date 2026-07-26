@@ -51,7 +51,7 @@ describe("workspace module route", () => {
     expect(normalizeWorkspaceModuleQuery("inbox", "filter=bogus&focus=item-1").toString()).toBe("focus=item-1");
     expect(normalizeWorkspaceModuleQuery("skills", "create=skill&source=nav").toString()).toBe("create=skill&source=nav");
     expect(normalizeWorkspaceModuleQuery("skills", "create=bogus&source=nav").toString()).toBe("source=nav");
-    expect(normalizeWorkspaceModuleQuery("settings", "section=members&z=2&a=1").toString()).toBe("section=members&a=1&z=2");
+    expect(normalizeWorkspaceModuleQuery("settings", "section=preferences&z=2&a=1").toString()).toBe("section=preferences&a=1&z=2");
   });
 
   it.each([
@@ -71,7 +71,7 @@ describe("workspace module route", () => {
     ["automations", "/automations", ""],
     ["calendar", "/calendar", ""],
     ["templates", "/templates", ""],
-    ["settings", "/settings/members", ""],
+    ["settings", "/settings/preferences", ""],
   ] satisfies Array<[WorkspaceModuleId, string, string]>)("round-trips %s deep links into module data query state", (moduleId, path, query) => {
     const routeState = parseWorkspaceModulePath(`/w/acme${path}`, query);
 
@@ -82,16 +82,16 @@ describe("workspace module route", () => {
   it("builds workspace module hrefs that round-trip through the parser", () => {
     const href = buildWorkspaceModuleHref("acme team", {
       moduleId: "settings",
-      settingsPath: ["members"],
+      settingsPath: ["preferences"],
       query: { source: "nav" },
     });
 
-    expect(href).toBe("/w/acme%20team/settings/members?source=nav");
+    expect(href).toBe("/w/acme%20team/settings/preferences?source=nav");
 
     const parsed = parseWorkspaceModuleHref(href);
     expect(parsed.workspaceSlug).toBe("acme team");
     expect(parsed.moduleId).toBe("settings");
-    expect(parsed.settingsPath).toEqual(["members"]);
+    expect(parsed.settingsPath).toEqual(["preferences"]);
     expect(parsed.searchParams.toString()).toBe("source=nav");
   });
 

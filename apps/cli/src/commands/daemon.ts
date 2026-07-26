@@ -76,6 +76,7 @@ import {
   readWorkspaceStateSync,
   replacePendingChannelMessageSync,
   resolveAgentDocumentContextSync,
+  startFeishuWebSocketWorkerSupervisor,
   resolveCompatibleDirectChannelRecord,
   listFeishuLarkCliResourceGrantsForChannelSync,
   applyFeishuLarkCliResultManifestOperations,
@@ -85,6 +86,7 @@ import {
   updateTaskStatusSync,
   writeWorkspaceStateSync,
   type FeishuAgentStatusCardStatus,
+  type FeishuWebSocketWorkerSupervisorHandle,
 } from "@dofe-agent/services";
 import type { ActiveEmployee, MessageAttachment } from "@dofe-agent/domain/workspace";
 import type { DaemonTaskInputBundle, RuntimeToolCapability } from "@dofe-agent/domain";
@@ -270,6 +272,24 @@ async function runLocalDaemonForeground(config: DaemonConfig): Promise<number> {
   console.log(`Daemon online: ${snapshot.daemon.daemonKey}`);
   console.log(`Providers: ${snapshot.runtimes.map((runtime) => runtime.provider).join(", ")}`);
 
+  let feishuWorker: FeishuWebSocketWorkerSupervisorHandle | undefined;
+  if (config.manageFeishuWorker) {
+    try {
+      feishuWorker = await startManagedFeishuWorker({
+        workspaceId: config.workspaceId,
+        daemonKey: config.daemonKey,
+      });
+      if (feishuWorker) {
+        console.log(
+          `Feishu worker managed: ${feishuWorker.summary.startedCount}/${feishuWorker.summary.integrationCount} active binding(s).`,
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Feishu worker startup failed: ${message}`);
+    }
+  }
+
   const heartbeatTimer = setInterval(() => {
     try {
       heartbeatDaemonSync(config.daemonKey, {
@@ -308,6 +328,7 @@ async function runLocalDaemonForeground(config: DaemonConfig): Promise<number> {
     stopping = true;
     clearInterval(heartbeatTimer);
     clearInterval(taskPollTimer);
+    feishuWorker?.close();
     rmSync(pidPath, { force: true });
 
     try {
@@ -328,6 +349,22 @@ async function runLocalDaemonForeground(config: DaemonConfig): Promise<number> {
     // Keep the foreground daemon alive until it receives a signal.
   });
   return 0;
+}
+
+export async function startManagedFeishuWorker(input: {
+  workspaceId?: string;
+  daemonKey: string;
+  startWorker?: typeof startFeishuWebSocketWorkerSupervisor;
+}): Promise<FeishuWebSocketWorkerSupervisorHandle | undefined> {
+  const workspaceId = input.workspaceId?.trim();
+  if (!workspaceId) {
+    return undefined;
+  }
+  const startWorker = input.startWorker ?? startFeishuWebSocketWorkerSupervisor;
+  return startWorker({
+    workspaceId,
+    lockedBy: `daemon:${input.daemonKey}:feishu-worker`,
+  });
 }
 
 function buildLocalDaemonMetadata(config: DaemonConfig): Record<string, unknown> {
@@ -546,6 +583,7 @@ interface DaemonConfig {
   heartbeatIntervalMs: number;
   taskPollIntervalMs: number;
   taskTimeoutMs: number;
+  manageFeishuWorker: boolean;
   serverUrl?: string;
   daemonToken?: string;
 }
@@ -574,6 +612,8 @@ export function buildDaemonConfig(flags: Record<string, string | boolean>): Daem
           ?? 12 * 60 * 60 * 1000,
       ),
     ),
+    manageFeishuWorker: process.env.DOFE_AGENT_MANAGE_FEISHU_WORKER !== "0"
+      && process.env.DOFE_AGENT_MANAGE_FEISHU_WORKER !== "false",
     serverUrl: getStringFlag(flags, "server-url")?.trim(),
     daemonToken: getStringFlag(flags, "daemon-token")?.trim(),
   };

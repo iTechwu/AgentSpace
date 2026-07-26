@@ -672,6 +672,7 @@ export {
   type FeishuWebSocketWorkerDependencies,
   type FeishuWebSocketWorkerError,
   type FeishuWebSocketWorkerHandle,
+  type FeishuWebSocketWorkerSupervisorHandle,
   type FeishuWebSocketWorkerIntegrationSummary,
   type FeishuWebSocketWorkerMetrics,
   type FeishuWebSocketWorkerSession,

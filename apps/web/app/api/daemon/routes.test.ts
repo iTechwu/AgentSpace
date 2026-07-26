@@ -72,13 +72,9 @@ const {
   mockSyncGoogleSheetDocumentDrivePermissions: vi.fn(),
 }));
 
-vi.mock("@/features/integrations/google-workspace", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/features/integrations/google-workspace")>();
-  return {
-    ...actual,
-    getGoogleWorkspaceAccessTokenForAgent: mockGetGoogleWorkspaceAccessTokenForAgent,
-  };
-});
+vi.mock("@/features/integrations/google-workspace", () => ({
+  getGoogleWorkspaceAccessTokenForAgent: mockGetGoogleWorkspaceAccessTokenForAgent,
+}));
 
 vi.mock("@/features/integrations/google-drive-permissions", () => ({
   syncGoogleSheetDocumentDrivePermissions: mockSyncGoogleSheetDocumentDrivePermissions,

@@ -80,8 +80,6 @@ export type {
   // New multi-tenant types
   StoredWorkspaceRecord,
   StoredWorkspaceMembershipRecord,
-  StoredWorkspaceInvitationRecord,
-  WorkspaceInvitationStatus,
   WorkspaceRole,
   StoredUserRecord,
   StoredAuthIdentityRecord,
@@ -519,12 +517,9 @@ export {
 // Workspaces
 export {
   createWorkspaceSync,
-  ensureWorkspaceJoinCodesSync,
   hardDeleteWorkspaceSync,
   readWorkspaceSync,
-  readWorkspaceByJoinCodeSync,
   listWorkspacesSync,
-  rotateWorkspaceJoinCodeSync,
   updateWorkspaceSync,
   archiveWorkspaceSync,
   type HardDeleteWorkspaceResult,
@@ -541,17 +536,6 @@ export {
   updateWorkspaceMembershipRoleSync,
   removeWorkspaceMembershipSync,
 } from "./workspace-memberships.ts";
-export {
-  acceptWorkspaceInvitationSync,
-  countActiveWorkspaceInvitationsSync,
-  createWorkspaceInvitationSync,
-  listWorkspaceInvitationsSync,
-  readActiveWorkspaceInvitationByTokenSync,
-  readWorkspaceInvitationByTokenSync,
-  revokeWorkspaceInvitationSync,
-  type CreatedWorkspaceInvitationRecord,
-} from "./workspace-invitations.ts";
-
 // Channel access
 export {
   acceptChannelInvitationSync,

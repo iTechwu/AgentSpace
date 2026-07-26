@@ -46,15 +46,18 @@ export default async function WorkspaceSettingsPage({
   }
 
   const currentSection = resolveSettingsPath(settingsPath);
-  const legacySection = resolveLegacySettingsSection(resolvedSearchParams.section);
+  const legacySectionValue = typeof resolvedSearchParams.section === "string"
+    ? resolvedSearchParams.section
+    : undefined;
+  if (!currentSection && legacySectionValue === "account") {
+    redirect(SSO_PROFILE_URL);
+  }
+  if (!currentSection && isSsoManagedTeamSection(legacySectionValue)) {
+    redirect(SSO_TEAM_SETTINGS_URL);
+  }
+  const legacySection = resolveLegacySettingsSection(legacySectionValue);
 
   if (!currentSection && legacySection) {
-    if (legacySection === "account") {
-      redirect(SSO_PROFILE_URL);
-    }
-    if (legacySection === "workspace" || legacySection === "members" || legacySection === "access") {
-      redirect(SSO_TEAM_SETTINGS_URL);
-    }
     redirect(buildWorkspacePath(
       workspaceContext.currentWorkspace.slug,
       appendSearchParams(
@@ -125,12 +128,12 @@ function resolveSettingsPath(settingsPath?: string[]): SettingsDetailSectionId |
   return section;
 }
 
-function resolveLegacySettingsSection(value: string | string[] | undefined): SettingsDetailSectionId | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
+function resolveLegacySettingsSection(value: string | undefined): SettingsDetailSectionId | undefined {
+  return value && isSettingsDetailSectionId(value) ? value : undefined;
+}
 
-  return isSettingsDetailSectionId(value) ? value : undefined;
+function isSsoManagedTeamSection(value: string | undefined): boolean {
+  return value === "workspace" || value === "members" || value === "access";
 }
 
 function omitSearchParam(

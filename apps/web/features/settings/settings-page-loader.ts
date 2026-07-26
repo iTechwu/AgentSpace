@@ -22,8 +22,6 @@ import {
   type SettingsSectionId,
 } from "@/features/settings/settings-sections";
 import type {
-  SettingsChannelAccessRequestItem,
-  SettingsChannelInvitationItem,
   SettingsFeishuAvailableAgentItem,
   SettingsFeishuAvailableChannelItem,
   SettingsFeishuAvailableUserItem,
@@ -31,8 +29,6 @@ import type {
   SettingsFeishuIntegrationItem,
   SettingsPermissionCenterData,
   SettingsSessionItem,
-  SettingsWorkspaceInvitationItem,
-  SettingsWorkspaceMemberItem,
 } from "@/features/settings/settings-types";
 
 export interface SettingsPageData {
@@ -40,23 +36,14 @@ export interface SettingsPageData {
   currentMembershipRole: WorkspaceRole;
   currentSessionId?: string;
   currentUserDisplayName: string;
-  currentUserEmail: string;
-  currentSsoUserId: string;
   currentUserId: string;
-  currentWorkspaceName: string;
   currentWorkspaceSlug: string;
-  currentWorkspaceJoinCode?: string;
-  currentWorkspaceJoinCodeUpdatedAt?: string;
   initialSection: SettingsSectionId;
-  invitations: SettingsWorkspaceInvitationItem[];
-  channelAccessRequests: SettingsChannelAccessRequestItem[];
-  channelInvitations: SettingsChannelInvitationItem[];
   feishuAvailableAgents: SettingsFeishuAvailableAgentItem[];
   feishuAvailableChannels: SettingsFeishuAvailableChannelItem[];
   feishuAvailableUsers: SettingsFeishuAvailableUserItem[];
   feishuIntegrationCreationGuide?: SettingsFeishuIntegrationCreationGuide;
   feishuIntegrations: SettingsFeishuIntegrationItem[];
-  members: SettingsWorkspaceMemberItem[];
   permissions?: SettingsPermissionCenterData;
   sessions: SettingsSessionItem[];
 }
@@ -81,8 +68,6 @@ export async function loadSettingsPageData(input: {
   };
   currentWorkspace: {
     id: string;
-    joinCode?: string;
-    joinCodeUpdatedAt?: string;
     name: string;
     slug: string;
   };
@@ -118,17 +103,9 @@ export async function loadSettingsPageData(input: {
     currentMembershipRole: ssoDirectory.role,
     currentSessionId: input.currentSessionId,
     currentUserDisplayName: input.currentUser.displayName,
-    currentUserEmail: "",
-    currentSsoUserId: "",
     currentUserId: input.currentUser.id,
-    currentWorkspaceName: ssoDirectory.workspaceName,
     currentWorkspaceSlug: input.currentWorkspace.slug,
-    currentWorkspaceJoinCode: undefined,
-    currentWorkspaceJoinCodeUpdatedAt: undefined,
     initialSection: requestedSection,
-    invitations: [],
-    channelAccessRequests: [],
-    channelInvitations: [],
     feishuAvailableChannels: shouldLoadIntegrations && canManageIntegrations
       ? listFeishuAvailableChannels({ workspaceId })
       : [],
@@ -146,7 +123,6 @@ export async function loadSettingsPageData(input: {
         viewer: { role: ssoDirectory.role, userId: input.currentUser.id },
       })
       : [],
-    members: [],
     permissions: shouldLoadPermissions
       ? getWorkspacePermissionCenterSync({
         workspaceId,

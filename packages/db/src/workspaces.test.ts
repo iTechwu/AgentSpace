@@ -48,7 +48,6 @@ beforeEach(() => {
     DELETE FROM workspace_channel;
     DELETE FROM workspace_employee;
     DELETE FROM google_oauth_credential;
-    DELETE FROM workspace_invitation;
     DELETE FROM workspace_membership;
     DELETE FROM workspace_snapshot;
     DELETE FROM workspace;
@@ -99,7 +98,6 @@ test("hardDeleteWorkspaceSync removes all workspace-scoped records without touch
   assert.equal(readWorkspaceSync(purgeTarget.id), null);
   assert.equal(countWhere(db, "workspace_snapshot", "id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "workspace_membership", "workspace_id", purgeTarget.id), 0);
-  assert.equal(countWhere(db, "workspace_invitation", "workspace_id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "google_oauth_credential", "workspace_id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "workspace_channel", "workspace_id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "workspace_employee", "workspace_id", purgeTarget.id), 0);
@@ -216,11 +214,6 @@ function seedWorkspaceRecords(workspaceId: string, suffix: string): void {
     `INSERT INTO workspace_membership (id, workspace_id, user_id, role, status, joined_at, invited_by)
      VALUES (?, ?, ?, 'owner', 'active', ?, 'system')`,
   ).run(`membership-${suffix}`, workspaceId, `user-${suffix}`, now);
-
-  db.prepare(
-    `INSERT INTO workspace_invitation (id, workspace_id, email, role, token_hash, status, invited_by, created_at, expires_at)
-     VALUES (?, ?, ?, 'member', ?, 'active', 'system', ?, ?)`,
-  ).run(`invite-${suffix}`, workspaceId, `${suffix}@example.com`, `token-${suffix}`, now, "2030-01-01T00:00:00.000Z");
 
   db.prepare(
     `INSERT INTO google_oauth_credential (

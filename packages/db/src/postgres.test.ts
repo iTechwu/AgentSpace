@@ -91,19 +91,6 @@ test("collectSqliteMigrationSnapshotSync extracts relational rows and derived at
         invited_by TEXT
       );
 
-      CREATE TABLE workspace_invitation (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL,
-        email TEXT NOT NULL,
-        role TEXT NOT NULL,
-        token_hash TEXT NOT NULL,
-        status TEXT NOT NULL,
-        invited_by TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        expires_at TEXT NOT NULL,
-        accepted_at TEXT
-      );
-
       CREATE TABLE google_oauth_credential (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL,

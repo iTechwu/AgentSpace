@@ -7,22 +7,10 @@ const {
 }));
 
 const {
-  mockListChannelAccessRequestsSync,
-  mockListChannelInvitationsSync,
   mockListSessionsForUserSync,
-  mockListWorkspaceInvitationsSync,
-  mockListWorkspaceMemberUsersSync,
-  mockReadWorkspaceSync,
-  mockReadUserSync,
   mockReadAuthIdentityForUserSync,
 } = vi.hoisted(() => ({
-  mockListChannelAccessRequestsSync: vi.fn(),
-  mockListChannelInvitationsSync: vi.fn(),
   mockListSessionsForUserSync: vi.fn(),
-  mockListWorkspaceInvitationsSync: vi.fn(),
-  mockListWorkspaceMemberUsersSync: vi.fn(),
-  mockReadWorkspaceSync: vi.fn(),
-  mockReadUserSync: vi.fn(),
   mockReadAuthIdentityForUserSync: vi.fn(),
 }));
 
@@ -67,13 +55,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@dofe-agent/db", () => ({
-  listChannelAccessRequestsSync: mockListChannelAccessRequestsSync,
-  listChannelInvitationsSync: mockListChannelInvitationsSync,
   listSessionsForUserSync: mockListSessionsForUserSync,
-  listWorkspaceInvitationsSync: mockListWorkspaceInvitationsSync,
-  listWorkspaceMemberUsersSync: mockListWorkspaceMemberUsersSync,
-  readWorkspaceSync: mockReadWorkspaceSync,
-  readUserSync: mockReadUserSync,
   readAuthIdentityForUserSync: mockReadAuthIdentityForUserSync,
 }));
 
@@ -122,18 +104,12 @@ describe("workspace settings route", () => {
     mockGetCurrentSession.mockReset();
     mockGetWorkspaceContextForIdentifier.mockReset();
     mockGetWorkspacePermissionCenterSync.mockReset();
-    mockListChannelAccessRequestsSync.mockReset();
-    mockListChannelInvitationsSync.mockReset();
     mockListSessionsForUserSync.mockReset();
-    mockListWorkspaceInvitationsSync.mockReset();
-    mockListWorkspaceMemberUsersSync.mockReset();
     mockListFeishuAvailableAgents.mockReset();
     mockListFeishuAvailableChannels.mockReset();
     mockListFeishuAvailableUsers.mockReset();
     mockListFeishuIntegrationSettingsItems.mockReset();
     mockBuildFeishuIntegrationCreationGuide.mockReset();
-    mockReadWorkspaceSync.mockReset();
-    mockReadUserSync.mockReset();
     mockReadAuthIdentityForUserSync.mockReset();
     mockLoadSsoWorkspaceDirectory.mockReset();
 
@@ -151,16 +127,7 @@ describe("workspace settings route", () => {
         slug: "mars-labs",
       },
     });
-    mockReadWorkspaceSync.mockReturnValue({
-      id: "workspace-mars",
-      name: "Mars Labs",
-      slug: "mars-labs",
-    });
     mockListSessionsForUserSync.mockReturnValue([{ id: "session-1" }]);
-    mockListChannelAccessRequestsSync.mockReturnValue([]);
-    mockListChannelInvitationsSync.mockReturnValue([]);
-    mockListWorkspaceInvitationsSync.mockReturnValue([{ id: "invite-1" }]);
-    mockListWorkspaceMemberUsersSync.mockReturnValue([{ userId: "user-1" }]);
     mockListFeishuAvailableAgents.mockReturnValue([{ id: "Codex", name: "Codex", role: "Engineer" }]);
     mockListFeishuAvailableChannels.mockReturnValue([{ name: "general", kind: "group" }]);
     mockListFeishuAvailableUsers.mockReturnValue([{ userId: "user-1", displayName: "Mina", role: "owner" }]);
@@ -179,7 +146,6 @@ describe("workspace settings route", () => {
         },
       ],
     });
-    mockReadUserSync.mockReturnValue({ displayName: "Mina" });
     mockReadAuthIdentityForUserSync.mockReturnValue({ providerSubject: "sso-user-1" });
     mockLoadSsoWorkspaceDirectory.mockResolvedValue(buildSsoDirectory("owner"));
     mockGetWorkspacePermissionCenterSync.mockReturnValue({
@@ -200,8 +166,6 @@ describe("workspace settings route", () => {
       params: Promise.resolve({ workspaceSlug: "mars-labs" }),
       searchParams: Promise.resolve({}),
     })).rejects.toThrow("redirect:/w/mars-labs/settings/preferences");
-    expect(mockListWorkspaceMemberUsersSync).not.toHaveBeenCalled();
-    expect(mockListWorkspaceInvitationsSync).not.toHaveBeenCalled();
     expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
   });
 
@@ -220,14 +184,10 @@ describe("workspace settings route", () => {
 
     const data = getSettingsPageData(page);
     expect(data.initialSection).toBe("security");
-    expect(data.members).toEqual([]);
-    expect(data.invitations).toEqual([]);
     expect(data.sessions).toEqual([{ id: "session-1" }]);
     expect(data.feishuAvailableChannels).toEqual([]);
     expect(data.feishuAvailableUsers).toEqual([]);
     expect(data.feishuIntegrations).toEqual([]);
-    expect(mockListWorkspaceMemberUsersSync).not.toHaveBeenCalled();
-    expect(mockListWorkspaceInvitationsSync).not.toHaveBeenCalled();
     expect(mockListSessionsForUserSync).toHaveBeenCalledWith("user-1");
   });
 
@@ -269,8 +229,6 @@ describe("workspace settings route", () => {
       ],
     });
     expect(data.feishuIntegrations).toEqual([{ id: "feishu-1" }]);
-    expect(data.members).toEqual([]);
-    expect(data.invitations).toEqual([]);
     expect(data.sessions).toEqual([]);
     expect(mockListFeishuAvailableChannels).toHaveBeenCalledWith({
       workspaceId: "workspace-mars",
@@ -290,8 +248,6 @@ describe("workspace settings route", () => {
       },
     });
     expect(mockBuildFeishuIntegrationCreationGuide).toHaveBeenCalledTimes(1);
-    expect(mockListWorkspaceMemberUsersSync).not.toHaveBeenCalled();
-    expect(mockListWorkspaceInvitationsSync).not.toHaveBeenCalled();
     expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
   });
 
@@ -350,8 +306,6 @@ describe("workspace settings route", () => {
         role: "owner",
       },
     });
-    expect(mockListWorkspaceMemberUsersSync).not.toHaveBeenCalled();
-    expect(mockListWorkspaceInvitationsSync).not.toHaveBeenCalled();
     expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
   });
 

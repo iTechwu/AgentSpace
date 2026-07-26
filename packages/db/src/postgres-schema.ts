@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "25";
+export const POSTGRES_SCHEMA_VERSION = "26";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -7,7 +7,6 @@ export const POSTGRES_TABLE_NAMES = [
   "auth_identity",
   "session",
   "workspace_membership",
-  "workspace_invitation",
   "google_oauth_credential",
   "agent_google_workspace_delegation",
   "external_integration",
@@ -82,23 +81,8 @@ export function getPostgresSchemaStatements(): string[] {
         created_by TEXT NOT NULL DEFAULT '',
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL,
-        archived_at TIMESTAMPTZ,
-        join_code TEXT,
-        join_code_updated_at TIMESTAMPTZ,
-        join_code_updated_by TEXT
+        archived_at TIMESTAMPTZ
       )
-    `,
-    `
-      ALTER TABLE workspace
-        ADD COLUMN IF NOT EXISTS join_code TEXT
-    `,
-    `
-      ALTER TABLE workspace
-        ADD COLUMN IF NOT EXISTS join_code_updated_at TIMESTAMPTZ
-    `,
-    `
-      ALTER TABLE workspace
-        ADD COLUMN IF NOT EXISTS join_code_updated_by TEXT
     `,
     `
       CREATE TABLE IF NOT EXISTS users (
@@ -148,20 +132,6 @@ export function getPostgresSchemaStatements(): string[] {
         joined_at TIMESTAMPTZ NOT NULL,
         invited_by TEXT,
         UNIQUE(workspace_id, user_id)
-      )
-    `,
-    `
-      CREATE TABLE IF NOT EXISTS workspace_invitation (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-        email TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'member',
-        token_hash TEXT NOT NULL UNIQUE,
-        status TEXT NOT NULL DEFAULT 'active',
-        invited_by TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL,
-        expires_at TIMESTAMPTZ NOT NULL,
-        accepted_at TIMESTAMPTZ
       )
     `,
     `
@@ -1265,14 +1235,6 @@ export function getPostgresSchemaStatements(): string[] {
         ON workspace_membership(workspace_id)
     `,
     `
-      CREATE INDEX IF NOT EXISTS idx_workspace_invitation_workspace_status
-        ON workspace_invitation(workspace_id, status, created_at DESC)
-    `,
-    `
-      CREATE INDEX IF NOT EXISTS idx_workspace_invitation_email
-        ON workspace_invitation(workspace_id, email, status)
-    `,
-    `
       CREATE INDEX IF NOT EXISTS idx_google_oauth_credential_workspace_user
         ON google_oauth_credential(workspace_id, user_id, status)
     `,
@@ -1655,11 +1617,6 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_external_integration_event_status
         ON external_integration_event(workspace_id, provider, status, received_at ASC)
-    `,
-    `
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_join_code
-        ON workspace(join_code)
-        WHERE join_code IS NOT NULL
     `,
     `
       INSERT INTO app_metadata (key, value)

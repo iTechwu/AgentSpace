@@ -77,6 +77,8 @@ agent.dofe 支持两种部署模式，可以按团队需要选择：
 
 两种模式运行同一套产品能力：数字员工、AgentRouter 调度、workspace 权限、审批流、远程 daemon 执行和可审计产物。二者没有功能断层。
 
+需要一次性部署 PostgreSQL、Web/API 和 Claude Code、Codex daemon 时，请使用 [deploy/self-hosted](deploy/self-hosted/README.md)。其中 Claude daemon 会自动托管飞书 Bot worker，无需另行启动 worker。
+
 ---
 
 ## 最新动态
@@ -389,7 +391,7 @@ flowchart TD
 
 | 控制面 | 能力 |
 | --- | --- |
-| Workspace 成员 | owner/admin/member 角色、邀请链接、join codes、邀请历史 |
+| Workspace 成员 | 成员资格与角色由 Dofe SSO 管理，agent.dofe 只消费 SSO 目录 |
 | 频道访问 | 加入、频道邀请、访问请求、读写断言 |
 | 直接会话隐私 | 直接会话仅限参与者和相关 agent owner |
 | Agent 管理 | owner、instructions、频道可用性、技能、知识、runtime binding |

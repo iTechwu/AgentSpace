@@ -1,17 +1,11 @@
-import { randomBytes } from "node:crypto";
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
 import type { StoredWorkspaceRecord } from "./types.ts";
-
-const JOIN_CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-const JOIN_CODE_LENGTH = 8;
-const JOIN_CODE_MAX_ATTEMPTS = 20;
 
 export type HardDeleteWorkspaceResult = {
   deletedWorkspace: boolean;
   removedWorkspaceRows: number;
   removedWorkspaceSnapshotRows: number;
   removedMembershipRows: number;
-  removedInvitationRows: number;
   removedGoogleOAuthCredentialRows: number;
   removedAgentGoogleWorkspaceDelegationRows: number;
   removedChannelRows: number;
@@ -67,15 +61,12 @@ export function createWorkspaceSync(params: {
   const now = new Date().toISOString();
   const id = params.id ?? randomLikeId();
   const slug = params.slug ?? generateSlug(params.name, id);
-  const joinCode = generateUniqueWorkspaceJoinCodeSync();
-
   db.prepare(
     `INSERT INTO workspace (
-       id, slug, name, created_by, created_at, updated_at,
-       join_code, join_code_updated_at, join_code_updated_by
+       id, slug, name, created_by, created_at, updated_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, slug, params.name, params.createdBy, now, now, joinCode, now, params.createdBy);
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(id, slug, params.name, params.createdBy, now, now);
 
   return {
     id,
@@ -84,9 +75,6 @@ export function createWorkspaceSync(params: {
     createdBy: params.createdBy,
     createdAt: now,
     updatedAt: now,
-    joinCode,
-    joinCodeUpdatedAt: now,
-    joinCodeUpdatedBy: params.createdBy,
   };
 }
 
@@ -94,14 +82,12 @@ export function readWorkspaceSync(idOrSlug: string): StoredWorkspaceRecord | nul
   const db = getDatabase();
   // Try id first, then slug
   const row = (db.prepare(
-    `SELECT id, slug, name, created_by, created_at, updated_at, archived_at,
-            join_code, join_code_updated_at, join_code_updated_by
+    `SELECT id, slug, name, created_by, created_at, updated_at, archived_at
      FROM workspace
      WHERE id = ? OR slug = ?`,
   ).get(idOrSlug, idOrSlug) as {
     id: string; slug: string; name: string; created_by: string;
     created_at: string; updated_at: string; archived_at: string | null;
-    join_code: string | null; join_code_updated_at: string | null; join_code_updated_by: string | null;
   } | undefined) ?? null;
 
   if (!row) return null;
@@ -113,24 +99,19 @@ export function readWorkspaceSync(idOrSlug: string): StoredWorkspaceRecord | nul
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     archivedAt: row.archived_at ?? undefined,
-    joinCode: row.join_code ?? undefined,
-    joinCodeUpdatedAt: row.join_code_updated_at ?? undefined,
-    joinCodeUpdatedBy: row.join_code_updated_by ?? undefined,
   };
 }
 
 export function listWorkspacesSync(): StoredWorkspaceRecord[] {
   const db = getDatabase();
   const rows = db.prepare(
-    `SELECT id, slug, name, created_by, created_at, updated_at, archived_at,
-            join_code, join_code_updated_at, join_code_updated_by
+    `SELECT id, slug, name, created_by, created_at, updated_at, archived_at
      FROM workspace
      WHERE archived_at IS NULL
      ORDER BY created_at DESC`,
   ).all() as Array<{
     id: string; slug: string; name: string; created_by: string;
     created_at: string; updated_at: string; archived_at: string | null;
-    join_code: string | null; join_code_updated_at: string | null; join_code_updated_by: string | null;
   }>;
 
   return rows.map((row) => ({
@@ -141,88 +122,7 @@ export function listWorkspacesSync(): StoredWorkspaceRecord[] {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     archivedAt: row.archived_at ?? undefined,
-    joinCode: row.join_code ?? undefined,
-    joinCodeUpdatedAt: row.join_code_updated_at ?? undefined,
-    joinCodeUpdatedBy: row.join_code_updated_by ?? undefined,
   }));
-}
-
-export function readWorkspaceByJoinCodeSync(joinCode: string): StoredWorkspaceRecord | null {
-  const normalizedJoinCode = normalizeWorkspaceJoinCode(joinCode);
-  if (!normalizedJoinCode) {
-    return null;
-  }
-
-  const db = getDatabase();
-  const row = (db.prepare(
-    `SELECT id, slug, name, created_by, created_at, updated_at, archived_at,
-            join_code, join_code_updated_at, join_code_updated_by
-     FROM workspace
-     WHERE join_code = ? AND archived_at IS NULL`,
-  ).get(normalizedJoinCode) as {
-    id: string; slug: string; name: string; created_by: string;
-    created_at: string; updated_at: string; archived_at: string | null;
-    join_code: string | null; join_code_updated_at: string | null; join_code_updated_by: string | null;
-  } | undefined) ?? null;
-
-  if (!row) return null;
-  return {
-    id: row.id,
-    slug: row.slug,
-    name: row.name,
-    createdBy: row.created_by,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    archivedAt: row.archived_at ?? undefined,
-    joinCode: row.join_code ?? undefined,
-    joinCodeUpdatedAt: row.join_code_updated_at ?? undefined,
-    joinCodeUpdatedBy: row.join_code_updated_by ?? undefined,
-  };
-}
-
-export function rotateWorkspaceJoinCodeSync(input: {
-  workspaceId: string;
-  updatedBy: string;
-}): StoredWorkspaceRecord {
-  const db = getDatabase();
-  const now = new Date().toISOString();
-  const joinCode = generateUniqueWorkspaceJoinCodeSync(input.workspaceId);
-  const result = db.prepare(
-    `UPDATE workspace
-     SET join_code = ?, join_code_updated_at = ?, join_code_updated_by = ?, updated_at = ?
-     WHERE id = ? AND archived_at IS NULL`,
-  ).run(joinCode, now, input.updatedBy, now, input.workspaceId);
-
-  if (result.changes === 0) {
-    throw new Error("workspace.join_code.workspace_not_found");
-  }
-
-  const workspace = readWorkspaceSync(input.workspaceId);
-  if (!workspace) {
-    throw new Error("workspace.join_code.workspace_not_found");
-  }
-  return workspace;
-}
-
-export function ensureWorkspaceJoinCodesSync(): number {
-  const db = getDatabase();
-  const rows = db.prepare(
-    `SELECT id FROM workspace
-     WHERE archived_at IS NULL
-       AND (join_code IS NULL OR join_code = '')`,
-  ).all() as Array<{ id: string }>;
-
-  let updated = 0;
-  for (const row of rows) {
-    const now = new Date().toISOString();
-    db.prepare(
-      `UPDATE workspace
-       SET join_code = ?, join_code_updated_at = ?, join_code_updated_by = ?, updated_at = ?
-       WHERE id = ?`,
-    ).run(generateUniqueWorkspaceJoinCodeSync(row.id), now, "system", now, row.id);
-    updated += 1;
-  }
-  return updated;
 }
 
 export function updateWorkspaceSync(
@@ -251,30 +151,6 @@ export function archiveWorkspaceSync(id: string): void {
   const db = getDatabase();
   const now = new Date().toISOString();
   db.prepare(`UPDATE workspace SET archived_at = ?, updated_at = ? WHERE id = ?`).run(now, now, id);
-}
-
-function generateUniqueWorkspaceJoinCodeSync(excludeWorkspaceId?: string): string {
-  for (let attempt = 0; attempt < JOIN_CODE_MAX_ATTEMPTS; attempt += 1) {
-    const joinCode = generateWorkspaceJoinCode();
-    const existing = readWorkspaceByJoinCodeSync(joinCode);
-    if (!existing || existing.id === excludeWorkspaceId) {
-      return joinCode;
-    }
-  }
-  throw new Error("workspace.join_code.collision");
-}
-
-function generateWorkspaceJoinCode(): string {
-  const bytes = randomBytes(JOIN_CODE_LENGTH);
-  let code = "";
-  for (const byte of bytes) {
-    code += JOIN_CODE_ALPHABET[byte % JOIN_CODE_ALPHABET.length];
-  }
-  return code;
-}
-
-function normalizeWorkspaceJoinCode(joinCode: string): string {
-  return joinCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
 export function hardDeleteWorkspaceSync(id: string): HardDeleteWorkspaceResult {
@@ -416,10 +292,6 @@ export function hardDeleteWorkspaceSync(id: string): HardDeleteWorkspaceResult {
       db.prepare("DELETE FROM workspace_membership WHERE workspace_id = ?").run(id).changes,
     );
 
-    const removedInvitationRows = Number(
-      db.prepare("DELETE FROM workspace_invitation WHERE workspace_id = ?").run(id).changes,
-    );
-
     const removedAgentGoogleWorkspaceDelegationRows = Number(
       db.prepare("DELETE FROM agent_google_workspace_delegation WHERE workspace_id = ?").run(id).changes,
     );
@@ -441,7 +313,6 @@ export function hardDeleteWorkspaceSync(id: string): HardDeleteWorkspaceResult {
       removedWorkspaceRows,
       removedWorkspaceSnapshotRows,
       removedMembershipRows,
-      removedInvitationRows,
       removedGoogleOAuthCredentialRows,
       removedAgentGoogleWorkspaceDelegationRows,
       removedChannelRows,

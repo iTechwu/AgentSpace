@@ -169,9 +169,6 @@ function mockMatchMedia(matches: boolean): void {
 
 const data: ChannelsPageData = {
   workspaceId: "workspace-1",
-  googleWorkspace: {
-    status: "not_connected",
-  },
   channels: [
     {
       id: "tour visit",

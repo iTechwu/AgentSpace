@@ -38,14 +38,10 @@ import type {
 export type {
   SettingsPermissionCenterData,
   SettingsSessionItem,
-  SettingsChannelAccessRequestItem,
-  SettingsChannelInvitationItem,
   SettingsFeishuAvailableChannelItem,
   SettingsFeishuAvailableUserItem,
   SettingsFeishuIntegrationCreationGuide,
   SettingsFeishuIntegrationItem,
-  SettingsWorkspaceInvitationItem,
-  SettingsWorkspaceMemberItem,
 } from "@/features/settings/settings-types";
 
 export function SettingsPageClient({

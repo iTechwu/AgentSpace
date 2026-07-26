@@ -814,7 +814,7 @@ function BindingActions({
         </select>
       ) : null}
 
-      {binding.revokeAction && binding.revokeAction !== "workspace_member_remove" && binding.revokeAction !== "workspace_invitation_revoke" ? (
+      {binding.revokeAction ? (
         <button
           className="action-button action-button--danger"
           disabled={isPending}
@@ -1038,9 +1038,6 @@ function actorKey(actor: PermissionActorSummary | undefined): string {
 
 function revokeLabel(action: string, tx: SettingsTx): string {
   switch (action) {
-    case "workspace_member_remove":
-      return tx("移除成员", "Remove member");
-    case "workspace_invitation_revoke":
     case "channel_invitation_revoke":
       return tx("撤销邀请", "Revoke invite");
     case "channel_access_request_reject":
@@ -1063,8 +1060,6 @@ function formatResourceType(type: string, tx: SettingsTx): string {
   switch (type) {
     case "workspace":
       return tx("工作区", "Workspace");
-    case "workspace_invitation":
-      return tx("工作区邀请", "Workspace invitation");
     case "channel":
       return tx("频道", "Channel");
     case "channel_invitation":

@@ -11,22 +11,8 @@ import { SettingsPageClient } from "@/features/settings/settings-page-client";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 
 const {
-  mockPermissionsUpdateWorkspaceMemberRoleAction,
-} = vi.hoisted(() => ({
-  mockPermissionsUpdateWorkspaceMemberRoleAction: vi.fn(),
-}));
-
-const {
-  mockAddWorkspaceMemberAction,
-  mockCreateWorkspaceInvitationAction,
-  mockRemoveWorkspaceMemberAction,
-  mockReissueWorkspaceInvitationAction,
-  mockRotateWorkspaceJoinCodeAction,
   mockRevokeOtherSessionsAction,
   mockRevokeSessionAction,
-  mockRevokeWorkspaceInvitationAction,
-  mockTransferWorkspaceOwnershipAction,
-  mockUpdateCurrentUserProfileAction,
   mockCheckFeishuIntegrationHealthAction,
   mockCreateFeishuChannelBindingAction,
   mockCreateFeishuAgentBotBindingAction,
@@ -49,19 +35,9 @@ const {
   mockRotateFeishuAgentBotCredentialsAction,
   mockTestFeishuIntegrationConnectionAction,
   mockUpdateFeishuAgentBotPolicyAction,
-  mockUpdateWorkspaceProfileAction,
-  mockUpdateWorkspaceMemberRoleAction,
 } = vi.hoisted(() => ({
-  mockAddWorkspaceMemberAction: vi.fn(),
-  mockCreateWorkspaceInvitationAction: vi.fn(),
-  mockRemoveWorkspaceMemberAction: vi.fn(),
-  mockReissueWorkspaceInvitationAction: vi.fn(),
-  mockRotateWorkspaceJoinCodeAction: vi.fn(),
   mockRevokeOtherSessionsAction: vi.fn(),
   mockRevokeSessionAction: vi.fn(),
-  mockRevokeWorkspaceInvitationAction: vi.fn(),
-  mockTransferWorkspaceOwnershipAction: vi.fn(),
-  mockUpdateCurrentUserProfileAction: vi.fn(),
   mockCheckFeishuIntegrationHealthAction: vi.fn(),
   mockCreateFeishuChannelBindingAction: vi.fn(),
   mockCreateFeishuAgentBotBindingAction: vi.fn(),
@@ -84,23 +60,11 @@ const {
   mockRotateFeishuAgentBotCredentialsAction: vi.fn(),
   mockTestFeishuIntegrationConnectionAction: vi.fn(),
   mockUpdateFeishuAgentBotPolicyAction: vi.fn(),
-  mockUpdateWorkspaceProfileAction: vi.fn(),
-  mockUpdateWorkspaceMemberRoleAction: vi.fn(),
 }));
 
 vi.mock("@/features/settings/actions", () => ({
-  addWorkspaceMemberAction: mockAddWorkspaceMemberAction,
-  createWorkspaceInvitationAction: mockCreateWorkspaceInvitationAction,
-  removeWorkspaceMemberAction: mockRemoveWorkspaceMemberAction,
-  reissueWorkspaceInvitationAction: mockReissueWorkspaceInvitationAction,
-  rotateWorkspaceJoinCodeAction: mockRotateWorkspaceJoinCodeAction,
   revokeOtherSessionsAction: mockRevokeOtherSessionsAction,
   revokeSessionAction: mockRevokeSessionAction,
-  revokeWorkspaceInvitationAction: mockRevokeWorkspaceInvitationAction,
-  transferWorkspaceOwnershipAction: mockTransferWorkspaceOwnershipAction,
-  updateCurrentUserProfileAction: mockUpdateCurrentUserProfileAction,
-  updateWorkspaceProfileAction: mockUpdateWorkspaceProfileAction,
-  updateWorkspaceMemberRoleAction: mockUpdateWorkspaceMemberRoleAction,
 }));
 
 vi.mock("@/features/integrations/feishu/feishu-actions", () => ({
@@ -141,27 +105,22 @@ vi.mock("@/features/permissions/actions", () => ({
   permissionsApproveChannelAccessRequestAction: vi.fn(),
   permissionsBindAgentRuntimeAction: vi.fn(),
   permissionsCreateDaemonApiTokenAction: vi.fn(),
-  permissionsCreateWorkspaceInvitationAction: vi.fn(),
   permissionsDisconnectGoogleWorkspaceAction: vi.fn(),
   permissionsGrantRuntimeUseAction: vi.fn(),
   permissionsRejectAgentAccessRequestAction: vi.fn(),
   permissionsRejectChannelAccessRequestAction: vi.fn(),
-  permissionsReissueWorkspaceInvitationAction: vi.fn(),
   permissionsRemoveChannelDocumentCollaboratorAction: vi.fn(),
-  permissionsRemoveWorkspaceMemberAction: vi.fn(),
   permissionsRemoveWorkspaceMemberFromChannelAction: vi.fn(),
   permissionsRevokeAgentGoogleWorkspaceDelegationAction: vi.fn(),
   permissionsRevokeChannelInvitationAction: vi.fn(),
   permissionsRevokeDaemonApiTokenAction: vi.fn(),
   permissionsRevokeRuntimeUseAction: vi.fn(),
-  permissionsRevokeWorkspaceInvitationAction: vi.fn(),
   permissionsSetAgentChannelMemberAccessAction: vi.fn(),
   permissionsSetAgentKnowledgeAssignmentsAction: vi.fn(),
   permissionsSetAgentSkillAssignmentsAction: vi.fn(),
   permissionsSyncExternalGoogleSheetPermissionsAction: vi.fn(),
   permissionsUnbindAgentRuntimeAction: vi.fn(),
   permissionsUpdateChannelDocumentAccessRoleAction: vi.fn(),
-  permissionsUpdateWorkspaceMemberRoleAction: mockPermissionsUpdateWorkspaceMemberRoleAction,
 }));
 
 describe("SettingsPageClient", () => {
@@ -179,16 +138,8 @@ describe("SettingsPageClient", () => {
 
   beforeEach(() => {
     window.localStorage.clear();
-    mockAddWorkspaceMemberAction.mockReset();
-    mockCreateWorkspaceInvitationAction.mockReset();
-    mockRemoveWorkspaceMemberAction.mockReset();
-    mockReissueWorkspaceInvitationAction.mockReset();
-    mockRotateWorkspaceJoinCodeAction.mockReset();
     mockRevokeOtherSessionsAction.mockReset();
     mockRevokeSessionAction.mockReset();
-    mockRevokeWorkspaceInvitationAction.mockReset();
-    mockTransferWorkspaceOwnershipAction.mockReset();
-    mockUpdateCurrentUserProfileAction.mockReset();
     mockCheckFeishuIntegrationHealthAction.mockReset();
     mockCreateFeishuAgentBotBindingAction.mockReset();
     mockCreateFeishuChannelBindingAction.mockReset();
@@ -211,9 +162,6 @@ describe("SettingsPageClient", () => {
     mockRotateFeishuIntegrationSecretAction.mockReset();
     mockTestFeishuIntegrationConnectionAction.mockReset();
     mockUpdateFeishuAgentBotPolicyAction.mockReset();
-    mockUpdateWorkspaceProfileAction.mockReset();
-    mockUpdateWorkspaceMemberRoleAction.mockReset();
-    mockPermissionsUpdateWorkspaceMemberRoleAction.mockReset();
   });
 
   it("switches the display language with a select field", async () => {
@@ -363,8 +311,7 @@ describe("SettingsPageClient", () => {
   it("omits SSO-managed sections from owner settings navigation", () => {
     const { container } = renderSettingsPage({
       currentMembershipRole: "owner",
-      currentWorkspaceName: "Mars Labs",
-      initialSection: "account",
+      initialSection: "preferences",
     });
 
     expect(screen.queryByRole("link", { name: /设置总览/i })).not.toBeInTheDocument();
@@ -379,8 +326,7 @@ describe("SettingsPageClient", () => {
   it("omits SSO-managed sections from admin settings navigation", () => {
     renderSettingsPage({
       currentMembershipRole: "admin",
-      currentWorkspaceName: "Mars Labs",
-      initialSection: "account",
+      initialSection: "preferences",
     });
 
     expect(screen.getAllByRole("link", { name: /偏好设置/i }).length).toBeGreaterThan(0);
@@ -397,7 +343,6 @@ describe("SettingsPageClient", () => {
       currentMembershipRole: "member",
       currentUserDisplayName: "Mina",
       currentUserId: "user-1",
-      currentWorkspaceName: "Mars Labs",
       currentWorkspaceSlug: "mars-labs",
       initialSection: "preferences",
     });
@@ -418,7 +363,6 @@ describe("SettingsPageClient", () => {
       currentMembershipRole: "owner",
       currentUserDisplayName: "Mina",
       currentUserId: "user-1",
-      currentWorkspaceName: "Mars Labs",
       currentWorkspaceSlug: "mars-labs",
       initialSection: "permissions",
       permissions: {

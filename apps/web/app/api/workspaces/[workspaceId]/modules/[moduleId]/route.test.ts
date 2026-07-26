@@ -193,10 +193,10 @@ describe("workspace module route", () => {
 
   it("returns forbidden for inaccessible settings sections", async () => {
     const { SettingsSectionForbiddenError } = await import("@/features/settings/settings-page-loader");
-    mockLoadWorkspaceModuleDataWithMeta.mockRejectedValue(new SettingsSectionForbiddenError("members"));
+    mockLoadWorkspaceModuleDataWithMeta.mockRejectedValue(new SettingsSectionForbiddenError("permissions"));
 
     const response = await GET(
-      new Request("http://localhost/api/workspaces/workspace-alpha/modules/settings?section=members"),
+      new Request("http://localhost/api/workspaces/workspace-alpha/modules/settings?section=permissions"),
       { params: Promise.resolve({ workspaceId: "workspace-alpha", moduleId: "settings" }) },
     );
 

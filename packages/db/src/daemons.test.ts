@@ -192,16 +192,13 @@ function ensureWorkspaceRow(workspaceId: string, name: string): void {
        name,
        created_by,
        created_at,
-       updated_at,
-       join_code,
-       join_code_updated_at,
-       join_code_updated_by
+       updated_at
      )
-     VALUES (?, ?, ?, 'daemon-test-user', ?, ?, ?, ?, 'daemon-test-user')
+     VALUES (?, ?, ?, 'daemon-test-user', ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        name = EXCLUDED.name,
        updated_at = EXCLUDED.updated_at`,
-  ).run(workspaceId, workspaceId, name, now, now, `join-${workspaceId}`, now);
+  ).run(workspaceId, workspaceId, name, now, now);
 }
 
 function eightDaysMs(): number {

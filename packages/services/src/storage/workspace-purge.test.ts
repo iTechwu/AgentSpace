@@ -49,7 +49,6 @@ beforeEach(() => {
     DELETE FROM workspace_task;
     DELETE FROM workspace_channel;
     DELETE FROM workspace_employee;
-    DELETE FROM workspace_invitation;
     DELETE FROM workspace_membership;
     DELETE FROM workspace_snapshot;
     DELETE FROM workspace;

@@ -31,8 +31,6 @@ interface SsoDiscovery {
 
 export interface SsoOidcState {
   codeVerifier: string;
-  invitationToken?: string;
-  joinCode?: string;
   nonce: string;
   state: string;
 }
@@ -46,18 +44,13 @@ export interface SsoProfile {
   workspaceScopes: SsoWorkspaceScope[];
 }
 
-export async function createSsoAuthorizationRequest(input: {
-  invitationToken?: string;
-  joinCode?: string;
-}): Promise<{ authorizationUrl: string; state: SsoOidcState }> {
+export async function createSsoAuthorizationRequest(): Promise<{ authorizationUrl: string; state: SsoOidcState }> {
   const [config, discovery] = await Promise.all([readSsoConfig(), readSsoDiscovery()]);
   assertDiscoveryMatchesConfig(config, discovery);
 
   const codeVerifier = randomUrlSafeValue(48);
   const state: SsoOidcState = {
     codeVerifier,
-    invitationToken: normalizeContextValue(input.invitationToken, 256),
-    joinCode: normalizeContextValue(input.joinCode, 64),
     nonce: randomUrlSafeValue(24),
     state: randomUrlSafeValue(24),
   };
@@ -233,8 +226,6 @@ export function decodeSsoOidcState(value: string | undefined): SsoOidcState | nu
       state: parsed.state,
       nonce: parsed.nonce,
       codeVerifier: parsed.codeVerifier,
-      invitationToken: normalizeContextValue(parsed.invitationToken, 256),
-      joinCode: normalizeContextValue(parsed.joinCode, 64),
     };
   } catch {
     return null;

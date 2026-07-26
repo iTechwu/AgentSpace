@@ -13,15 +13,11 @@ export function AuthErrorScreen({ code }: { code?: string }) {
       body={translateAuthError(resolvedCode, tx)}
       eyebrow={tx("身份验证", "Authentication")}
       heroBody={tx(
-        "Dofe SSO、邀请和工作区加入共用同一条身份链路。出现错误时，先把问题解释清楚，再回到登录入口。",
-        "Dofe SSO, invitations, and workspace joining share one identity flow. When something fails, the UI explains the problem before returning to sign-in.",
+        "Dofe SSO 是唯一的身份入口。出现错误时，先把问题解释清楚，再回到登录入口。",
+        "Dofe SSO is the only identity entry point. When something fails, the UI explains the problem before returning to sign-in.",
       )}
       heroTitle={tx("登录流程被中断了。", "The sign-in flow was interrupted.")}
-      highlights={[
-        tx("Dofe SSO", "Dofe SSO"),
-        tx("邀请链路", "Invitation flow"),
-        tx("工作区加入", "Workspace joining"),
-      ]}
+      highlights={[tx("Dofe SSO", "Dofe SSO")]}
       primaryAction={{
         href: "/",
         label: tx("返回登录页", "Back to sign in"),

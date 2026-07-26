@@ -2,17 +2,9 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import type { WorkspaceRole } from "@dofe-agent/db";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
 import { translateAuthError } from "./auth-error-messages";
-
-type InvitationContext = {
-  token: string;
-  workspaceName: string;
-  email: string;
-  role: WorkspaceRole;
-};
 
 type ProductTour = {
   id: "messages" | "employees" | "runtime" | "skills";
@@ -35,19 +27,15 @@ type WorkStep = {
 export function AuthScreen({
   ssoStartUrl: externalSsoStartUrl,
   initialError,
-  invitation,
 }: {
   ssoStartUrl?: string;
   initialError?: string;
-  invitation?: InvitationContext;
 }) {
   const { language, setLanguage, tx } = useLanguage();
   const [activeTourId, setActiveTourId] = useState<ProductTour["id"]>("messages");
   const tours = buildProductTours(tx);
   const activeTour = tours.find((tour) => tour.id === activeTourId) ?? tours[0];
-  const ssoStartUrl = externalSsoStartUrl ?? (invitation
-    ? `/api/auth/sso/start?invitationToken=${encodeURIComponent(invitation.token)}`
-    : "/api/auth/sso/start");
+  const ssoStartUrl = externalSsoStartUrl ?? "/api/auth/sso/start";
   const brandVision = process.env.NEXT_PUBLIC_BRAND_VISION?.trim() || tx(
     "成为受世界尊敬的中国企业",
     "Become a globally respected company from China",
@@ -56,9 +44,7 @@ export function AuthScreen({
     "成就中国智造的全球竞争力",
     "Strengthen the global competitiveness of intelligent manufacturing from China",
   );
-  const primaryEntryLabel = invitation
-    ? tx("使用 Dofe SSO 进入工作区", "Open workspace with Dofe SSO")
-    : tx("使用 Dofe SSO 登录", "Continue with Dofe SSO");
+  const primaryEntryLabel = tx("使用 Dofe SSO 登录", "Continue with Dofe SSO");
 
   return (
     <main className="public-home" id="home">
@@ -95,7 +81,7 @@ export function AuthScreen({
             </button>
           </div>
           <a className="public-button public-button--compact" href={ssoStartUrl}>
-            {invitation ? tx("接受邀请", "Accept invite") : tx("登录", "Sign in")}
+            {tx("登录", "Sign in")}
             <AppIcon name="arrowRight" />
           </a>
         </div>
@@ -131,13 +117,6 @@ export function AuthScreen({
             </div>
             {initialError ? (
               <p className="public-feedback" role="alert">{translateAuthError(initialError, tx)}</p>
-            ) : null}
-            {invitation ? (
-              <div className="public-invite" aria-label={tx("工作区邀请", "Workspace invitation")}>
-                <span>{tx("工作区邀请", "Workspace invite")}</span>
-                <strong>{invitation.workspaceName}</strong>
-                <small>{invitation.email} · {invitation.role}</small>
-              </div>
             ) : null}
           </div>
 
@@ -302,8 +281,8 @@ export function AuthScreen({
         <p className="public-eyebrow">agent.dofe</p>
         <h2 id="public-final-title">{tx("让每一次执行，都通向结果。", "Make every execution lead to an outcome.")}</h2>
         <p>{tx("连接团队与数字员工，从今天的真实工作开始。", "Connect your team and digital employees around real work today.")}</p>
-        <a className="public-button public-button--primary" href={ssoStartUrl}>
-          {invitation ? tx("接受邀请并进入", "Accept invite and continue") : tx("进入工作区", "Open workspace")}
+          <a className="public-button public-button--primary" href={ssoStartUrl}>
+          {tx("进入工作区", "Open workspace")}
           <AppIcon name="arrowRight" />
         </a>
       </section>

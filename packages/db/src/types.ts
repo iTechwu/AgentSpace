@@ -9,9 +9,6 @@ export interface StoredWorkspaceRecord {
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;
-  joinCode?: string;
-  joinCodeUpdatedAt?: string;
-  joinCodeUpdatedBy?: string;
 }
 
 /** Membership tying a user to a workspace with a role */
@@ -25,21 +22,6 @@ export interface StoredWorkspaceMembershipRecord {
   status: "active" | "invited" | "removed";
   joinedAt: string;
   invitedBy?: string;
-}
-
-export type WorkspaceInvitationStatus = "active" | "accepted" | "revoked" | "expired";
-
-export interface StoredWorkspaceInvitationRecord {
-  id: string;
-  workspaceId: string;
-  email: string;
-  role: WorkspaceRole;
-  tokenHash: string;
-  status: WorkspaceInvitationStatus;
-  invitedBy: string;
-  createdAt: string;
-  expiresAt: string;
-  acceptedAt?: string;
 }
 
 /** The new user table — replaces auth_user */

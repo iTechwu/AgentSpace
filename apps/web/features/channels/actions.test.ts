@@ -148,8 +148,6 @@ import {
   requestChannelAccessAction,
   reviewInlineApprovalAction,
   saveChannelDocumentAction,
-  createGoogleSheetDocumentAction,
-  createExternalGoogleSheetDocumentAction,
   sendChannelMessageAction,
   sendHumanDirectMessageAction,
   getChannelDetailDataAction,
@@ -422,7 +420,7 @@ describe("channel actions", () => {
         role: "admin",
       },
     });
-    expect(mockRevalidateWorkspacePaths).toHaveBeenCalledWith("workspace-1", ["/im", "/settings/access"]);
+    expect(mockRevalidateWorkspacePaths).toHaveBeenCalledWith("workspace-1", ["/im", "/settings/permissions"]);
   });
 
   it("reviews inline runtime approvals as admins", async () => {
@@ -465,7 +463,7 @@ describe("channel actions", () => {
       employeeNames: ["Atlas", "Vega"],
     }, "workspace-1");
     expect(mockAddWorkspaceMemberToChannelForActorSync).not.toHaveBeenCalled();
-    expect(mockRevalidateWorkspacePaths).toHaveBeenCalledWith("workspace-1", ["/im", "/settings/access"]);
+    expect(mockRevalidateWorkspacePaths).toHaveBeenCalledWith("workspace-1", ["/im", "/settings/permissions"]);
   });
 
   it("uses the route workspace when adding members from a different selected workspace", async () => {
@@ -531,7 +529,7 @@ describe("channel actions", () => {
         role: "member",
       },
     });
-    expect(mockRevalidateWorkspacePaths).toHaveBeenCalledWith("workspace-1", ["/im", "/approvals", "/settings/access", "/inbox"]);
+    expect(mockRevalidateWorkspacePaths).toHaveBeenCalledWith("workspace-1", ["/im", "/approvals", "/settings/permissions", "/inbox"]);
   });
 
   it("rejects members deleting channels", async () => {
@@ -611,102 +609,6 @@ describe("channel actions", () => {
     })).rejects.toThrow("Forbidden.");
   });
 
-  it("creates Google Sheet channel documents through the connected workspace credential", async () => {
-    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
-
-    const result = await createGoogleSheetDocumentAction({
-      channelName: "general",
-      title: "Competitors",
-      summary: "External sheet",
-    });
-
-    expect(result).toEqual({ documentId: "sheet-doc-1" });
-    expect(mockGetGoogleWorkspaceAccessTokenForUser).toHaveBeenCalledWith({
-      workspaceId: "workspace-1",
-      userId: "user-1",
-    });
-    expect(mockCreateGoogleWorkspaceSheet).toHaveBeenCalledWith({
-      accessToken: "access-token",
-      name: "Competitors",
-      parentFolderId: "folder-1",
-    });
-    expect(mockCreateExternalGoogleSheetChannelDocumentSync).toHaveBeenCalledWith({
-      channelName: "general",
-      title: "Competitors",
-      externalFileId: "google-file-1",
-      externalUrl: "https://docs.google.com/spreadsheets/d/google-file-1/edit",
-      externalMimeType: "application/vnd.google-apps.spreadsheet",
-      externalUpdatedAt: "2026-04-30T00:00:00.000Z",
-      summary: "External sheet",
-      createdBy: "techwu",
-      createdByType: "human",
-    }, "workspace-1");
-    expect(mockSyncGoogleSheetDocumentDrivePermissions).toHaveBeenCalledWith({
-      accessToken: "access-token",
-      workspaceId: "workspace-1",
-      documentId: "sheet-doc-1",
-      actorId: "techwu",
-      actorType: "human",
-      skipEmails: ["techwu@example.com", "techwu@gmail.com"],
-    });
-  });
-
-  it("links external Google Sheet documents only after OAuth metadata visibility succeeds", async () => {
-    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
-
-    const result = await createExternalGoogleSheetDocumentAction({
-      channelName: "general",
-      title: "Shared Sheet",
-      externalUrl: "https://docs.google.com/spreadsheets/d/google-file-1/edit#gid=0",
-      summary: "External sheet",
-    });
-
-    expect(result).toEqual({ documentId: "sheet-doc-1" });
-    expect(mockGetGoogleWorkspaceAccessTokenForUser).toHaveBeenCalledWith({
-      workspaceId: "workspace-1",
-      userId: "user-1",
-    });
-    expect(mockReadGoogleDriveFileMetadata).toHaveBeenCalledWith({
-      accessToken: "access-token",
-      fileId: "google-file-1",
-    });
-    expect(mockCreateExternalGoogleSheetChannelDocumentSync).toHaveBeenCalledWith({
-      channelName: "general",
-      title: "Shared Sheet",
-      externalFileId: "google-file-1",
-      externalUrl: "https://docs.google.com/spreadsheets/d/google-file-1/edit",
-      externalMimeType: "application/vnd.google-apps.spreadsheet",
-      externalUpdatedAt: "2026-04-30T00:00:00.000Z",
-      summary: "External sheet",
-      createdBy: "techwu",
-      createdByType: "human",
-    }, "workspace-1");
-    expect(mockSyncGoogleSheetDocumentDrivePermissions).toHaveBeenCalledWith({
-      accessToken: "access-token",
-      workspaceId: "workspace-1",
-      documentId: "sheet-doc-1",
-      actorId: "techwu",
-      actorType: "human",
-      skipEmails: ["techwu@example.com", "techwu@gmail.com"],
-    });
-  });
-
-  it("rejects external Google Sheet links when the OAuth client cannot see the file", async () => {
-    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
-    mockReadGoogleDriveFileMetadata.mockRejectedValue(new Error(
-      "Google Drive file metadata read failed. The current OAuth client/scope cannot see this file.",
-    ));
-
-    await expect(createExternalGoogleSheetDocumentAction({
-      channelName: "general",
-      title: "Shared Sheet",
-      externalUrl: "https://docs.google.com/spreadsheets/d/google-file-1/edit",
-      summary: "External sheet",
-    })).rejects.toThrow("current OAuth client/scope cannot see this file");
-
-    expect(mockCreateExternalGoogleSheetChannelDocumentSync).not.toHaveBeenCalled();
-    expect(mockSyncGoogleSheetDocumentDrivePermissions).not.toHaveBeenCalled();
-  });
 });
 
 function buildWorkspaceContext(

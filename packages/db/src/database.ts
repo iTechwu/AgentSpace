@@ -544,7 +544,6 @@ function ensureRuntimeSchema(db: PostgresSyncDatabase): void {
        ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
     ).run("schema_version", POSTGRES_SCHEMA_VERSION);
     seedDefaultWorkspace(db);
-    backfillWorkspaceJoinCodes(db);
     db.exec("COMMIT");
     transactionStarted = false;
     schemaEnsuredForUrl = currentUrl;
@@ -622,38 +621,6 @@ function isRuntimeSchemaCurrent(db: PostgresSyncDatabase): boolean {
   return readMetadataValue(db, "schema_version") === POSTGRES_SCHEMA_VERSION;
 }
 
-function backfillWorkspaceJoinCodes(db: PostgresSyncDatabase): void {
-  const rows = db.prepare(
-    `SELECT id FROM workspace
-     WHERE archived_at IS NULL
-       AND (join_code IS NULL OR join_code = '')`,
-  ).all() as Array<{ id: string }>;
-
-  for (const row of rows) {
-    const now = new Date().toISOString();
-    db.prepare(
-      `UPDATE workspace
-       SET join_code = ?, join_code_updated_at = ?, join_code_updated_by = ?, updated_at = ?
-       WHERE id = ?`,
-    ).run(buildDeterministicJoinCode(row.id), now, "system", now, row.id);
-  }
-}
-
-function buildDeterministicJoinCode(seed: string): string {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let hash = 2166136261;
-  for (const char of seed) {
-    hash ^= char.charCodeAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  let code = "";
-  for (let index = 0; index < 8; index += 1) {
-    hash = Math.imul(hash ^ index, 16777619);
-    code += alphabet[Math.abs(hash) % alphabet.length];
-  }
-  return code;
-}
-
 function seedDefaultWorkspace(db: PostgresSyncDatabase): void {
   const existingWorkspace = db.prepare("SELECT 1 FROM workspace WHERE id = ? LIMIT 1").get(DEFAULT_WORKSPACE_ID);
   if (existingWorkspace) {
@@ -661,14 +628,12 @@ function seedDefaultWorkspace(db: PostgresSyncDatabase): void {
   }
 
   const now = new Date().toISOString();
-  const joinCode = "DEFAULT1";
   db.prepare(
     `INSERT INTO workspace (
-       id, slug, name, created_by, created_at, updated_at, archived_at,
-       join_code, join_code_updated_at, join_code_updated_by
+       id, slug, name, created_by, created_at, updated_at, archived_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
-  ).run(DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_ID, "Dofe Agent", "", now, now, joinCode, now, "system");
+     VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+  ).run(DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_ID, "Dofe Agent", "", now, now);
 }
 
 function createPostgresSyncDatabase(currentDatabaseUrl: string): PostgresSyncDatabase {

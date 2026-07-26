@@ -46,7 +46,7 @@ export async function acceptChannelInvitationAction(
   });
 
   await writeWorkspaceSelectionCookie(workspace.slug);
-  revalidateWorkspacePaths(workspace.slug, ["/im", "/contacts", "/settings/access"]);
+  revalidateWorkspacePaths(workspace.slug, ["/im", "/contacts", "/settings/permissions"]);
   return {
     workspaceSlug: workspace.slug,
     channelName: accepted.channelName,
@@ -81,6 +81,6 @@ export async function rejectChannelInvitationAction(invitationId: string): Promi
         targetUserId: currentUser.id,
       },
     });
-    revalidateWorkspacePaths(workspace.slug, ["/contacts", "/settings/access"]);
+    revalidateWorkspacePaths(workspace.slug, ["/contacts", "/settings/permissions"]);
   }
 }

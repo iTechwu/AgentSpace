@@ -113,35 +113,30 @@ test("keeps workspace chrome mounted during client module switches", async ({ pa
   ).toBe(true);
 });
 
-test("restores settings members section after refresh", async ({ page }) => {
-  const session = await openSeededWorkspacePage(page, "/settings/members");
+test("restores settings preferences after refresh", async ({ page }) => {
+  const session = await openSeededWorkspacePage(page, "/settings/preferences");
 
-  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/members(?:\\?.*)?$`));
-  await expect(settingsSectionLabel(page, /成员与角色|Members & roles/i)).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/preferences(?:\\?.*)?$`));
+  await expect(settingsSectionLabel(page, /偏好设置|Preferences/i)).toBeVisible();
 
   await page.reload();
-  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/members(?:\\?.*)?$`));
-  await expect(settingsSectionLabel(page, /成员与角色|Members & roles/i)).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/preferences(?:\\?.*)?$`));
+  await expect(settingsSectionLabel(page, /偏好设置|Preferences/i)).toBeVisible();
 });
 
 test("switches settings sections through the client workbench", async ({ page }) => {
-  const session = await openSeededWorkspacePage(page, "/settings/account");
-  let membersApiHits = 0;
-  let accessApiHits = 0;
+  const session = await openSeededWorkspacePage(page, "/settings/preferences");
+  let securityApiHits = 0;
 
   await page.route("**/api/workspaces/**/modules/settings**", async (route) => {
     const url = new URL(route.request().url());
     const section = url.searchParams.get("section");
-    if (section !== "members" && section !== "access") {
+    if (section !== "security") {
       await route.fallback();
       return;
     }
 
-    if (section === "members") {
-      membersApiHits += 1;
-    } else {
-      accessApiHits += 1;
-    }
+    securityApiHits += 1;
 
     await route.fulfill({
       contentType: "application/json",
@@ -151,24 +146,9 @@ test("switches settings sections through the client workbench", async ({ page })
           data: {
             currentMembershipRole: "owner",
             currentUserDisplayName: session.userDisplayName,
-            currentUserEmail: "workbench-owner@example.com",
             currentUserId: session.userId,
-            currentWorkspaceName: "E2E Workbench Workspace",
             currentWorkspaceSlug: session.workspaceSlug,
             initialSection: section,
-            invitations: [],
-            channelAccessRequests: [],
-            channelInvitations: [],
-            members: section === "members"
-              ? [
-                {
-                  userId: session.userId,
-                  displayName: "Workbench Loaded Member",
-                  primaryEmail: "workbench-owner@example.com",
-                  role: "owner",
-                },
-              ]
-              : [],
             sessions: [],
           },
         },
@@ -176,20 +156,14 @@ test("switches settings sections through the client workbench", async ({ page })
     });
   });
 
-  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/account(?:\\?.*)?$`));
-  await expect(settingsSectionLabel(page, /我的账号|My account/i)).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/preferences(?:\\?.*)?$`));
+  await expect(settingsSectionLabel(page, /偏好设置|Preferences/i)).toBeVisible();
   await expect(page.locator(".settings-page[data-hydrated='true']")).toBeVisible();
 
-  await page.getByRole("link", { name: /成员与角色|Members/i }).click();
-  await expect.poll(() => membersApiHits).toBe(1);
-  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/members(?:\\?.*)?$`));
-  await expect(settingsSectionLabel(page, /成员与角色|Members & roles/i)).toBeVisible();
-  await expect(page.getByText("Workbench Loaded Member")).toBeVisible();
-
-  await page.getByRole("link", { name: /邀请与访问|Access/i }).click();
-  await expect.poll(() => accessApiHits).toBe(1);
-  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/access(?:\\?.*)?$`));
-  await expect(settingsSectionLabel(page, /邀请与访问|Invites & access/i)).toBeVisible();
+  await page.getByRole("link", { name: /安全与会话|Security/i }).click();
+  await expect.poll(() => securityApiHits).toBe(1);
+  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/security(?:\\?.*)?$`));
+  await expect(settingsSectionLabel(page, /安全与会话|Security & sessions/i)).toBeVisible();
 });
 
 test("closes the mobile sidebar after module navigation and restores with back", async ({ page }) => {

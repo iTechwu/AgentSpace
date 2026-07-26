@@ -10,12 +10,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<NextResponse> {
-  const params = new URL(request.url).searchParams;
   try {
-    const result = await createSsoAuthorizationRequest({
-      invitationToken: params.get("invitationToken") ?? undefined,
-      joinCode: params.get("joinCode") ?? undefined,
-    });
+    const result = await createSsoAuthorizationRequest();
     const response = NextResponse.redirect(result.authorizationUrl);
     response.cookies.set(SSO_OIDC_STATE_COOKIE, encodeSsoOidcState(result.state), {
       httpOnly: true,

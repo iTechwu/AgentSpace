@@ -114,7 +114,7 @@ describe("approval actions", () => {
       "/inbox",
       "/agents",
       "/im",
-      "/settings/access",
+      "/settings/permissions",
       "/settings/permissions",
       "/knowledge",
     ]);

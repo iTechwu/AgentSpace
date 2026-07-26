@@ -124,7 +124,6 @@ const performanceData: PerformanceDashboardData = {
 
 const channelsData: ChannelsPageData = {
   workspaceId: "workspace-alpha",
-  googleWorkspace: { status: "not_connected" },
   channels: [
     {
       id: "general",
@@ -1177,11 +1176,11 @@ describe("WorkspaceFrame", () => {
   });
 
   it("switches settings sections through the workbench without remounting the settings shell", async () => {
-    pathname = "/w/workspace-alpha/settings/account";
-    window.history.replaceState(null, "", "/w/workspace-alpha/settings/account");
+    pathname = "/w/workspace-alpha/settings/preferences";
+    window.history.replaceState(null, "", "/w/workspace-alpha/settings/preferences");
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
-      if (url === "/api/workspaces/workspace-alpha/modules/settings?section=members") {
+      if (url === "/api/workspaces/workspace-alpha/modules/settings?section=security") {
         return new Response(JSON.stringify({
           data: {
             moduleId: "settings",
@@ -1192,7 +1191,7 @@ describe("WorkspaceFrame", () => {
               currentUserId: "user-1",
               currentWorkspaceName: "Alpha Workspace",
               currentWorkspaceSlug: "workspace-alpha",
-              initialSection: "members",
+              initialSection: "security",
               invitations: [],
               channelAccessRequests: [],
               channelInvitations: [],
@@ -1228,21 +1227,16 @@ describe("WorkspaceFrame", () => {
               moduleData={{
                 moduleId: "settings",
                 data: {
+                  isSsoManagedWorkspace: true,
                   currentMembershipRole: "owner",
                   currentUserDisplayName: "techwu",
-                  currentUserEmail: "techwu@example.com",
                   currentUserId: "user-1",
-                  currentWorkspaceName: "Alpha Workspace",
                   currentWorkspaceSlug: "workspace-alpha",
-                  initialSection: "account",
-                  invitations: [],
-                  channelAccessRequests: [],
-                  channelInvitations: [],
+                  initialSection: "preferences",
                   feishuAvailableChannels: [],
                   feishuAvailableUsers: [],
                   feishuAvailableAgents: [],
                   feishuIntegrations: [],
-                  members: [],
                   sessions: [],
                 },
               }}
@@ -1253,11 +1247,9 @@ describe("WorkspaceFrame", () => {
                 <SettingsPageClient
                   currentMembershipRole="owner"
                   currentUserDisplayName="techwu"
-                  currentUserEmail="techwu@example.com"
                   currentUserId="user-1"
-                  currentWorkspaceName="Alpha Workspace"
                   currentWorkspaceSlug="workspace-alpha"
-                  initialSection="account"
+                  initialSection="preferences"
                 />
               </>
             </WorkspaceInitialModuleData>
@@ -1266,24 +1258,24 @@ describe("WorkspaceFrame", () => {
       </LanguageProvider>,
     );
 
-    await userEventApi.click(screen.getByRole("link", { name: /成员与角色/ }));
+    await userEventApi.click(screen.getByRole("link", { name: /安全与会话/ }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/workspaces/workspace-alpha/modules/settings?section=members",
+        "/api/workspaces/workspace-alpha/modules/settings?section=security",
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
     await waitFor(() => {
-      expect(screen.getAllByRole("heading", { name: "成员与角色" }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole("heading", { name: "安全与会话" }).length).toBeGreaterThan(0);
     });
     expect(screen.getByTestId("settings-shell-marker")).not.toBeVisible();
-    expect(window.location.pathname).toBe("/w/workspace-alpha/settings/members");
+    expect(window.location.pathname).toBe("/w/workspace-alpha/settings/security");
   });
 
-  it("falls back to the account settings section when the current role cannot access the URL section", async () => {
-    pathname = "/w/workspace-alpha/settings/members";
-    window.history.replaceState(null, "", "/w/workspace-alpha/settings/members");
+  it("falls back to preferences when the URL names an unknown settings section", async () => {
+    pathname = "/w/workspace-alpha/settings/unknown";
+    window.history.replaceState(null, "", "/w/workspace-alpha/settings/unknown");
 
     render(
       <LanguageProvider initialLanguage="zh">
@@ -1293,21 +1285,16 @@ describe("WorkspaceFrame", () => {
               moduleData={{
                 moduleId: "settings",
                 data: {
+                  isSsoManagedWorkspace: true,
                   currentMembershipRole: "member",
                   currentUserDisplayName: "techwu",
-                  currentUserEmail: "techwu@example.com",
                   currentUserId: "user-1",
-                  currentWorkspaceName: "Alpha Workspace",
                   currentWorkspaceSlug: "workspace-alpha",
-                  initialSection: "account",
-                  invitations: [],
-                  channelAccessRequests: [],
-                  channelInvitations: [],
+                  initialSection: "preferences",
                   feishuAvailableChannels: [],
                   feishuAvailableUsers: [],
                   feishuAvailableAgents: [],
                   feishuIntegrations: [],
-                  members: [],
                   sessions: [],
                 },
               }}
@@ -1316,11 +1303,9 @@ describe("WorkspaceFrame", () => {
               <SettingsPageClient
                 currentMembershipRole="member"
                 currentUserDisplayName="techwu"
-                currentUserEmail="techwu@example.com"
                 currentUserId="user-1"
-                currentWorkspaceName="Alpha Workspace"
                 currentWorkspaceSlug="workspace-alpha"
-                initialSection="account"
+                initialSection="preferences"
               />
             </WorkspaceInitialModuleData>
           </WorkspaceFrame>
@@ -1329,17 +1314,17 @@ describe("WorkspaceFrame", () => {
     );
 
     await waitFor(() => {
-      expect(window.location.pathname).toBe("/w/workspace-alpha/settings/account");
+      expect(window.location.pathname).toBe("/w/workspace-alpha/settings/preferences");
     });
-    expect(screen.getByRole("heading", { name: "账号资料" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "偏好设置" })).toBeInTheDocument();
   });
 
-  it("falls back to the account settings section when section loading becomes forbidden", async () => {
-    pathname = "/w/workspace-alpha/settings/account";
-    window.history.replaceState(null, "", "/w/workspace-alpha/settings/account");
+  it("falls back to preferences when settings loading becomes forbidden", async () => {
+    pathname = "/w/workspace-alpha/settings/preferences";
+    window.history.replaceState(null, "", "/w/workspace-alpha/settings/preferences");
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
-      if (url === "/api/workspaces/workspace-alpha/modules/settings?section=members") {
+      if (url === "/api/workspaces/workspace-alpha/modules/settings?section=security") {
         return new Response(JSON.stringify({ error: "Forbidden." }), {
           headers: { "Content-Type": "application/json" },
           status: 403,
@@ -1358,21 +1343,16 @@ describe("WorkspaceFrame", () => {
               moduleData={{
                 moduleId: "settings",
                 data: {
+                  isSsoManagedWorkspace: true,
                   currentMembershipRole: "owner",
                   currentUserDisplayName: "techwu",
-                  currentUserEmail: "techwu@example.com",
                   currentUserId: "user-1",
-                  currentWorkspaceName: "Alpha Workspace",
                   currentWorkspaceSlug: "workspace-alpha",
-                  initialSection: "account",
-                  invitations: [],
-                  channelAccessRequests: [],
-                  channelInvitations: [],
+                  initialSection: "preferences",
                   feishuAvailableChannels: [],
                   feishuAvailableUsers: [],
                   feishuAvailableAgents: [],
                   feishuIntegrations: [],
-                  members: [],
                   sessions: [],
                 },
               }}
@@ -1381,11 +1361,9 @@ describe("WorkspaceFrame", () => {
               <SettingsPageClient
                 currentMembershipRole="owner"
                 currentUserDisplayName="techwu"
-                currentUserEmail="techwu@example.com"
                 currentUserId="user-1"
-                currentWorkspaceName="Alpha Workspace"
                 currentWorkspaceSlug="workspace-alpha"
-                initialSection="account"
+                initialSection="preferences"
               />
             </WorkspaceInitialModuleData>
           </WorkspaceFrame>
@@ -1393,18 +1371,18 @@ describe("WorkspaceFrame", () => {
       </LanguageProvider>,
     );
 
-    await userEventApi.click(screen.getByRole("link", { name: /成员与角色/ }));
+    await userEventApi.click(screen.getByRole("link", { name: /安全与会话/ }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/workspaces/workspace-alpha/modules/settings?section=members",
+        "/api/workspaces/workspace-alpha/modules/settings?section=security",
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
     await waitFor(() => {
-      expect(window.location.pathname).toBe("/w/workspace-alpha/settings/account");
+      expect(window.location.pathname).toBe("/w/workspace-alpha/settings/preferences");
     });
-    expect(screen.getByRole("heading", { name: "账号资料" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "偏好设置" })).toBeInTheDocument();
     expect(screen.queryByText("没有访问权限")).not.toBeInTheDocument();
   });
 

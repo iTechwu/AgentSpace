@@ -29,15 +29,6 @@ export function buildPublicAppUrl(path: string, appUrl?: string): string {
   }
 }
 
-export function buildSsoStartUrl(appUrl?: string, invitationToken?: string, joinCode?: string): string {
-  const searchParams = new URLSearchParams();
-  if (invitationToken?.trim()) {
-    searchParams.set("invitationToken", invitationToken.trim());
-  }
-  if (joinCode?.trim()) {
-    searchParams.set("joinCode", joinCode.trim());
-  }
-
-  const suffix = searchParams.size > 0 ? `?${searchParams.toString()}` : "";
-  return buildPublicAppUrl(`/api/auth/sso/start${suffix}`, appUrl);
+export function buildSsoStartUrl(appUrl?: string): string {
+  return buildPublicAppUrl("/api/auth/sso/start", appUrl);
 }

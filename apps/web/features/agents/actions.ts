@@ -356,7 +356,7 @@ export async function createAgentForkInvitationAction(input: {
     options: input.options,
   });
   revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
-  revalidateWorkspacePath("/settings/access", workspaceContext.currentWorkspace.slug);
+  revalidateWorkspacePath("/settings/permissions", workspaceContext.currentWorkspace.slug);
   revalidateWorkspacePath("/settings/permissions", workspaceContext.currentWorkspace.slug);
   return actionToastResult(undefined, successToast("Agent 复制邀请已发送。", "Agent copy invitation sent."));
 }
@@ -378,7 +378,7 @@ export async function acceptAgentForkInvitationAction(input: {
     runtimeId: input.runtimeId.trim(),
   });
   revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
-  revalidateWorkspacePath("/settings/access", workspaceContext.currentWorkspace.slug);
+  revalidateWorkspacePath("/settings/permissions", workspaceContext.currentWorkspace.slug);
   revalidateWorkspacePath("/settings/permissions", workspaceContext.currentWorkspace.slug);
   return actionToastResult(
     { agentName: result.agentName },
@@ -397,7 +397,7 @@ export async function revokeAgentForkInvitationAction(input: {
     actorUserId: workspaceContext.currentUser.id,
   });
   revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
-  revalidateWorkspacePath("/settings/access", workspaceContext.currentWorkspace.slug);
+  revalidateWorkspacePath("/settings/permissions", workspaceContext.currentWorkspace.slug);
   revalidateWorkspacePath("/settings/permissions", workspaceContext.currentWorkspace.slug);
   return actionToastResult(undefined, successToast("Agent 复制邀请已撤销。", "Agent copy invitation revoked."));
 }
@@ -684,7 +684,7 @@ function revalidateAgentAccessRequestRoutes(workspaceSlug: string): void {
     "/inbox",
     "/agents",
     "/approvals",
-    "/settings/access",
+    "/settings/permissions",
     "/settings/permissions",
   ]);
 }

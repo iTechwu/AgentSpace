@@ -1,15 +1,10 @@
 import type { WorkspaceRole } from "@dofe-agent/db";
-import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 
 const SETTINGS_DETAIL_SECTION_ORDER_INTERNAL = [
-  "account",
   "preferences",
   "security",
   "permissions",
   "integrations",
-  "workspace",
-  "members",
-  "access",
 ] as const;
 
 export type SettingsDetailSectionId = typeof SETTINGS_DETAIL_SECTION_ORDER_INTERNAL[number];
@@ -22,26 +17,11 @@ export const SETTINGS_SECTION_ORDER = [
   ...SETTINGS_DETAIL_SECTION_ORDER_INTERNAL,
 ] as const satisfies readonly SettingsSectionId[];
 
-const SETTINGS_SECTION_MINIMUM_ROLE: Record<SettingsSectionId, WorkspaceRole | null> = {
-  account: null,
-  preferences: null,
-  security: null,
-  permissions: null,
-  integrations: null,
-  workspace: "owner",
-  members: "admin",
-  access: "admin",
-};
-
 const SETTINGS_SECTION_PATHS: Record<SettingsSectionId, string> = {
-  account: "/settings/account",
   preferences: "/settings/preferences",
   security: "/settings/security",
   permissions: "/settings/permissions",
   integrations: "/settings/integrations",
-  workspace: "/settings/workspace",
-  members: "/settings/members",
-  access: "/settings/access",
 };
 
 export const SETTINGS_REVALIDATE_PATHS = [
@@ -53,19 +33,12 @@ export function isSettingsDetailSectionId(value: string): value is SettingsDetai
   return SETTINGS_DETAIL_SECTION_ORDER_INTERNAL.includes(value as SettingsDetailSectionId);
 }
 
-export function canAccessSettingsSection(role: WorkspaceRole, section: SettingsSectionId): boolean {
-  const minimumRole = SETTINGS_SECTION_MINIMUM_ROLE[section];
-  return minimumRole === null ? true : hasWorkspaceRole(role, minimumRole);
+export function canAccessSettingsSection(_role: WorkspaceRole, _section: SettingsSectionId): boolean {
+  return true;
 }
 
 export function getAccessibleSettingsSections(role: WorkspaceRole): SettingsSectionId[] {
-  return SETTINGS_SECTION_ORDER.filter((section) => (
-    section !== "account"
-    && section !== "workspace"
-    && section !== "members"
-    && section !== "access"
-    && canAccessSettingsSection(role, section)
-  ));
+  return SETTINGS_SECTION_ORDER.filter((section) => canAccessSettingsSection(role, section));
 }
 
 export function getSettingsSectionPath(section: SettingsSectionId): string {

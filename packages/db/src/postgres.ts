@@ -130,7 +130,6 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "auth_identity", conflictColumns: ["id"], jsonColumns: ["profile_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "session", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
   { tableName: "workspace_membership", conflictColumns: ["id"], orderBy: "joined_at ASC, id ASC" },
-  { tableName: "workspace_invitation", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
   { tableName: "google_oauth_credential", conflictColumns: ["workspace_id", "user_id"], orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_google_workspace_delegation", conflictColumns: ["workspace_id", "employee_name", "user_id"], orderBy: "created_at ASC, id ASC" },
   {

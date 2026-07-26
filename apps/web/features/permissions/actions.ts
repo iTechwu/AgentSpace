@@ -10,7 +10,6 @@ import {
   revokeDocumentAgentAccessSync,
   tryRecordWorkspaceAuditEventSync,
 } from "@dofe-agent/services";
-import type { WorkspaceRole } from "@dofe-agent/db";
 import type { ChannelDocumentAccessRole } from "@dofe-agent/domain";
 import {
   bindWorkspaceAgentRuntimeAction,
@@ -32,70 +31,19 @@ import {
 } from "@/features/channels/actions";
 import {
   createDaemonApiTokenAction,
-  createWorkspaceInvitationAction,
-  removeWorkspaceMemberAction,
-  reissueWorkspaceInvitationAction,
   revokeDaemonApiTokenAction,
-  revokeWorkspaceInvitationAction,
-  transferWorkspaceOwnershipAction,
-  updateWorkspaceMemberRoleAction,
 } from "@/features/settings/actions";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";
 
 const PERMISSION_REVALIDATE_PATHS = [
   "/settings/permissions",
-  "/settings/access",
-  "/settings/members",
+  "/settings/permissions",
   "/agents",
   "/knowledge",
   "/skills",
   "/im",
 ] as const;
-
-export async function permissionsCreateWorkspaceInvitationAction(input: {
-  email: string;
-  role: WorkspaceRole;
-}) {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  const result = await createWorkspaceInvitationAction(input);
-  revalidatePermissions(workspaceContext.currentWorkspace.slug);
-  return result;
-}
-
-export async function permissionsReissueWorkspaceInvitationAction(invitationId: string) {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  const result = await reissueWorkspaceInvitationAction(invitationId);
-  revalidatePermissions(workspaceContext.currentWorkspace.slug);
-  return result;
-}
-
-export async function permissionsRevokeWorkspaceInvitationAction(invitationId: string): Promise<void> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  await revokeWorkspaceInvitationAction(invitationId);
-  revalidatePermissions(workspaceContext.currentWorkspace.slug);
-}
-
-export async function permissionsUpdateWorkspaceMemberRoleAction(input: {
-  userId: string;
-  role: WorkspaceRole;
-}): Promise<void> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  await updateWorkspaceMemberRoleAction(input);
-  revalidatePermissions(workspaceContext.currentWorkspace.slug);
-}
-
-export async function permissionsRemoveWorkspaceMemberAction(userId: string): Promise<void> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  await removeWorkspaceMemberAction(userId);
-  revalidatePermissions(workspaceContext.currentWorkspace.slug);
-}
-
-export async function permissionsTransferWorkspaceOwnershipAction(userId: string): Promise<void> {
-  const workspaceContext = await requireCurrentWorkspaceContext();
-  await transferWorkspaceOwnershipAction(userId);
-  revalidatePermissions(workspaceContext.currentWorkspace.slug);
-}
 
 export async function permissionsApproveChannelAccessRequestAction(requestId: string): Promise<void> {
   const workspaceContext = await requireCurrentWorkspaceContext();

@@ -76,6 +76,8 @@ agent.dofe supports two deployment modes — pick whichever fits your team:
 
 Both modes run the same product — digital employees, AgentRouter scheduling, workspace permissions, approvals, remote daemon execution, and auditable outputs. No feature gaps between the two.
 
+For a complete self-hosted Docker deployment, including PostgreSQL, the web/API service, and managed Claude Code and Codex daemons, see [deploy/self-hosted](deploy/self-hosted/README.md). The Claude daemon automatically operates the Feishu Bot worker.
+
 ---
 
 ## News
@@ -391,7 +393,7 @@ The permission model is organized around resources, actors, grant sources, execu
 
 | Surface | Capability |
 | --- | --- |
-| Workspace members | owner/admin/member roles, invite links, join codes, invitation history |
+| Workspace members | membership and roles are managed by Dofe SSO; agent.dofe consumes the SSO directory |
 | Channel access | joins, channel invitations, access requests, read/write assertions |
 | Direct message privacy | direct conversations stay scoped to participants and related agent owners |
 | Agent management | owner, instructions, channel availability, skills, knowledge, runtime binding |

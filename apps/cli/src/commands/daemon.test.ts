@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before } from "node:test";
-import type { ContactAgentContext } from "@dofe-agent/services";
+import type { ContactAgentContext, FeishuWebSocketWorkerSupervisorHandle } from "@dofe-agent/services";
 import {
   initializeOrganizationSync,
   postMessageSync,
@@ -16,6 +16,7 @@ import {
   clearTaskOutputArtifacts,
   loadTaskOutputEnvelope,
   runDaemonCommand,
+  startManagedFeishuWorker,
 } from "./daemon.ts";
 
 const originalCwd = process.cwd();
@@ -36,6 +37,85 @@ test("buildDaemonConfig preserves an explicit workspace id", () => {
   const config = buildDaemonConfig({ "workspace-id": "workspace-alpha" });
 
   assert.equal(config.workspaceId, "workspace-alpha");
+  assert.equal(config.manageFeishuWorker, true);
+});
+
+test("buildDaemonConfig allows a daemon to opt out of Feishu worker management", () => {
+  const previous = process.env.DOFE_AGENT_MANAGE_FEISHU_WORKER;
+  process.env.DOFE_AGENT_MANAGE_FEISHU_WORKER = "false";
+  try {
+    assert.equal(buildDaemonConfig({}).manageFeishuWorker, false);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.DOFE_AGENT_MANAGE_FEISHU_WORKER;
+    } else {
+      process.env.DOFE_AGENT_MANAGE_FEISHU_WORKER = previous;
+    }
+  }
+});
+
+test("daemon manages the Feishu worker for its workspace", async () => {
+  let workerInput: Record<string, unknown> | undefined;
+  const worker: FeishuWebSocketWorkerSupervisorHandle = {
+    summary: {
+      workspaceId: "workspace-alpha",
+      provider: "feishu",
+      mode: "websocket_worker",
+      integrationCount: 1,
+      startedCount: 1,
+      skippedCount: 0,
+      dryRun: false,
+      integrations: [],
+      errors: [],
+    },
+    metrics: {
+      connectionReadyCount: 0,
+      connectionErrorCount: 0,
+      receivedCount: 0,
+      processedCount: 0,
+      ignoredCount: 0,
+      failedCount: 0,
+      duplicateCount: 0,
+      noticeOutboxCount: 0,
+      outboxProcessedCount: 0,
+      outboxSentCount: 0,
+      outboxFailedCount: 0,
+      errors: [],
+    },
+    close() {},
+    async refresh() { return false; },
+    async drainOutbox() {},
+    getConnectionStatuses() { return []; },
+  };
+
+  const result = await startManagedFeishuWorker({
+    workspaceId: "workspace-alpha",
+    daemonKey: "daemon-alpha",
+    async startWorker(input) {
+      workerInput = input;
+      return worker;
+    },
+  });
+
+  assert.equal(result, worker);
+  assert.deepEqual(workerInput, {
+    workspaceId: "workspace-alpha",
+    lockedBy: "daemon:daemon-alpha:feishu-worker",
+  });
+});
+
+test("daemon skips Feishu worker management without a workspace", async () => {
+  let called = false;
+  const result = await startManagedFeishuWorker({
+    daemonKey: "daemon-alpha",
+    async startWorker() {
+      called = true;
+      throw new Error("should not start");
+    },
+  });
+
+  assert.equal(result, undefined);
+  assert.equal(called, false);
 });
 
 test("loadTaskOutputEnvelope accepts relative workDir attachments", () => {

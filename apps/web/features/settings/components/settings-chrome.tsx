@@ -98,8 +98,6 @@ function SettingsNavLink({
 
 function getSettingsNavIcon(section: SettingsSectionId): AppIconName {
   switch (section) {
-    case "account":
-      return "contacts";
     case "preferences":
       return "settings";
     case "security":
@@ -108,17 +106,11 @@ function getSettingsNavIcon(section: SettingsSectionId): AppIconName {
       return "approvals";
     case "integrations":
       return "market";
-    case "workspace":
-      return "containers";
-    case "members":
-      return "groups";
-    case "access":
-      return "open";
   }
 }
 
 function isPersonalSettingsSection(section: SettingsSectionId): section is SettingsDetailSectionId {
-  return section === "account" || section === "preferences" || section === "security";
+  return section === "preferences" || section === "security";
 }
 
 export function SettingsSectionShell({

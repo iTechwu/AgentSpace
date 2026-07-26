@@ -104,7 +104,7 @@ export async function requestChannelAccessAction(channelName: string, workspaceI
     },
   });
 
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/approvals", "/settings/access", "/inbox"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/approvals", "/settings/permissions", "/inbox"]);
 }
 
 export async function getChannelDetailDataAction(input: {
@@ -151,7 +151,7 @@ export async function approveChannelAccessRequestAction(requestId: string): Prom
     },
   });
 
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/approvals", "/settings/access"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/approvals", "/settings/permissions"]);
 }
 
 export async function rejectChannelAccessRequestAction(requestId: string): Promise<void> {
@@ -168,7 +168,7 @@ export async function rejectChannelAccessRequestAction(requestId: string): Promi
     },
   });
 
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/approvals", "/settings/access"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/approvals", "/settings/permissions"]);
 }
 
 export async function reviewInlineApprovalAction(
@@ -233,7 +233,7 @@ export async function addWorkspaceMembersToChannelAction(input: {
     }, workspaceContext.currentWorkspace.id);
   }
 
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/settings/access"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/settings/permissions"]);
 }
 
 export async function inviteExternalContactToChannelAction(input: {
@@ -255,7 +255,7 @@ export async function inviteExternalContactToChannelAction(input: {
     },
   });
 
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/contacts", "/im", "/settings/access"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/contacts", "/im", "/settings/permissions"]);
   return {
     invitationId: invitation.id,
     invitePath: `/channel-invite/${encodeURIComponent(invitation.id)}`,
@@ -276,7 +276,7 @@ export async function revokeChannelInvitationAction(invitationId: string): Promi
     },
   });
 
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/contacts", "/settings/access"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/contacts", "/settings/permissions"]);
 }
 
 export async function deleteChannelAction(channelName: string): Promise<void> {

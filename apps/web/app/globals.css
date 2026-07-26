@@ -633,40 +633,6 @@ textarea:focus {
   gap: 1rem;
 }
 
-.settings-join-code-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 1rem;
-  align-items: center;
-  padding: 1rem;
-  border: 1px solid var(--console-border, rgba(36, 36, 38, 0.12));
-  border-radius: 10px;
-  background: var(--console-card, #ffffff);
-}
-
-.settings-join-code-card span,
-.settings-join-code-card small {
-  display: block;
-  color: var(--console-muted, rgba(36, 36, 38, 0.58));
-  font-size: 0.78rem;
-}
-
-.settings-join-code-card strong {
-  display: block;
-  margin: 0.22rem 0;
-  color: var(--console-text, #242426);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 1.55rem;
-  letter-spacing: 0.18em;
-}
-
-.settings-join-code-card__actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
 .auth-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

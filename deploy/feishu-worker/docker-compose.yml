@@ -1,3 +1,5 @@
+# Compatibility deployment for a standalone worker. Do not run this together
+# with a local daemon that has DOFE_AGENT_MANAGE_FEISHU_WORKER=true.
 services:
   feishu-worker:
     image: node:24-bookworm-slim
