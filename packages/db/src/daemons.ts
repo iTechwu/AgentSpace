@@ -1,5 +1,6 @@
 import { isDaemonProvider } from "@dofe-agent/domain";
 import { getDatabase, withTransaction, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
+import { assertActiveProviderAccountSync, fulfillRuntimeProvisionRequestsForDaemonTokenSync } from "./provider-accounts.ts";
 import type { DaemonConnectionRecord, AgentRuntimeRecord, RegisteredDaemonSnapshot, RuntimeRegistrationInput } from "./types.ts";
 
 // Remote daemons report every 15 seconds by default. Keep a generous grace
@@ -117,6 +118,11 @@ export function registerDaemonRuntimesSync(input: {
           ? existingRuntime.id
           : `runtime-${provider}-${randomLikeId()}`;
       const version = runtime.version?.trim() ?? "";
+      const providerAccount = assertActiveProviderAccountSync({
+        id: runtime.providerAccountId,
+        workspaceId,
+        provider: provider as RuntimeRegistrationInput["provider"],
+      });
       const deviceInfo = runtime.deviceInfo?.trim() ?? deviceName;
       const metadataJson = JSON.stringify(runtime.metadata ?? {});
 
@@ -126,6 +132,7 @@ export function registerDaemonRuntimesSync(input: {
           workspace_id,
           daemon_connection_id,
           provider,
+          provider_account_id,
           name,
           version,
           status,
@@ -135,9 +142,10 @@ export function registerDaemonRuntimesSync(input: {
           last_heartbeat_at,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?)
         ON CONFLICT(workspace_id, daemon_connection_id, provider) DO UPDATE SET
           name = excluded.name,
+          provider_account_id = excluded.provider_account_id,
           version = excluded.version,
           status = 'online',
           device_info = excluded.device_info,
@@ -151,6 +159,7 @@ export function registerDaemonRuntimesSync(input: {
         workspaceId,
         daemonId,
         provider,
+        providerAccount.id,
         runtime.name.trim(),
         version,
         deviceInfo,
@@ -160,6 +169,12 @@ export function registerDaemonRuntimesSync(input: {
         existingRuntime && typeof existingRuntime.createdAt === "string" ? existingRuntime.createdAt : now,
         now,
       );
+      fulfillRuntimeProvisionRequestsForDaemonTokenSync({
+        workspaceId,
+        daemonTokenId: input.daemonTokenId,
+        provider: provider as RuntimeRegistrationInput["provider"],
+        providerAccountId: providerAccount.id,
+      });
     }
 
     const runtimeRows = db
@@ -385,6 +400,7 @@ export function readAgentRuntimeSync(runtimeId: string): AgentRuntimeRecord | nu
         workspace_id AS workspaceId,
         daemon_connection_id AS daemonConnectionId,
         provider,
+        provider_account_id AS providerAccountId,
         name,
         version,
         status,
@@ -492,6 +508,7 @@ export function listDaemonSnapshotsSync(workspaceId?: string): RegisteredDaemonS
         workspace_id AS workspaceId,
         daemon_connection_id AS daemonConnectionId,
         provider,
+        provider_account_id AS providerAccountId,
         name,
         version,
         status,
@@ -641,6 +658,7 @@ function listDaemonRuntimesSync(daemonConnectionId: string): AgentRuntimeRecord[
         workspace_id AS workspaceId,
         daemon_connection_id AS daemonConnectionId,
         provider,
+        provider_account_id AS providerAccountId,
         name,
         version,
         status,
@@ -710,6 +728,7 @@ function mapAgentRuntimeRecord(value: Record<string, unknown>): AgentRuntimeReco
     workspaceId: value.workspaceId,
     daemonConnectionId: typeof value.daemonConnectionId === "string" ? value.daemonConnectionId : undefined,
     provider: value.provider as AgentRuntimeRecord["provider"],
+    providerAccountId: typeof value.providerAccountId === "string" ? value.providerAccountId : undefined,
     name: value.name,
     version: value.version,
     status: value.status,

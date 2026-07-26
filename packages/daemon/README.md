@@ -40,6 +40,7 @@ import { HttpDaemonClient } from "dofe-agent-daemon/daemon-client";
 - 已安装至少一种 provider CLI：`codex`、`claude`、`agy`（Antigravity）、`gemini`（legacy）、`opencode`、`openclaw`、`nanobot`、`hermes`
 - `serverUrl`
 - `daemonToken`
+- `DOFE_AGENT_PROVIDER_ACCOUNT_ID` when the workspace has a configured Provider Account; this identifies the one billing and credential profile permitted for the runtime.
 
 可选的 provider model/env 覆盖：
 
@@ -87,6 +88,8 @@ dofe-agent-daemon start \
 `--task-timeout`/`DOFE_AGENT_TASK_TIMEOUT_MS` 用于 long-horizon 任务。当前默认值是 12 小时，避免 daemon 在 20 分钟左右提前中断跨天执行。
 
 Claude Code runtime 必须由已登录 Claude Code 的用户启动。服务器场景可以用 root 启动，但要确认 `/root` 下已完成 Claude Code 登录；daemon 任务命令会以 root 权限执行。
+
+Provider Account 只保存 secret/config 的引用，不保存 API key。部署 runtime 时由节点侧密钥系统解析该引用，并仅挂载到这一 Provider 的独立 auth/config volume；不要在同一个 daemon/runtime 中切换 Provider Account。
 
 ## Provider 说明
 

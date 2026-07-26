@@ -50,6 +50,7 @@ export async function POST(request: Request): Promise<Response> {
       metadata: body.metadata,
       runtimes: body.runtimes.map((runtime) => ({
         provider: runtime.provider,
+        providerAccountId: runtime.providerAccountId?.trim() || undefined,
         name: runtime.name.trim(),
         version: runtime.version?.trim(),
         deviceInfo: runtime.deviceInfo?.trim(),
@@ -63,6 +64,12 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (code === "daemon.token_binding_mismatch" || code === "daemon.connection_token_bound") {
       return Response.json({ error: "Daemon token is already bound to a different daemon." }, { status: 403 });
+    }
+    if (code === "provider_account.required_for_runtime") {
+      return Response.json({ error: "This workspace has a configured provider account. Set DOFE_AGENT_PROVIDER_ACCOUNT_ID before registering the runtime." }, { status: 403 });
+    }
+    if (code === "provider_account.invalid_for_runtime") {
+      return Response.json({ error: "Provider account does not belong to this workspace, is inactive, or does not match the runtime provider." }, { status: 403 });
     }
     throw error;
   }

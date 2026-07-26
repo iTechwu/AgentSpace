@@ -73,6 +73,7 @@ export interface RuntimeProviderHealth {
 
 export interface DaemonRuntimeInfo {
   provider: DaemonProvider;
+  providerAccountId?: string;
   name: string;
   version?: string;
   deviceInfo?: string;

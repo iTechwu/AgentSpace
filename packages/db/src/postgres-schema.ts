@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "27";
+export const POSTGRES_SCHEMA_VERSION = "28";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -28,7 +28,9 @@ export const POSTGRES_TABLE_NAMES = [
   "workspace_task",
   "daemon_connection",
   "daemon_api_token",
+  "provider_account",
   "agent_runtime",
+  "runtime_provision_request",
   "workspace_runtime_display_name",
   "workspace_runtime_grant",
   "document_agent_access",
@@ -613,11 +615,28 @@ export function getPostgresSchemaStatements(): string[] {
         WHERE status = 'active' AND daemon_connection_id IS NOT NULL
     `,
     `
+      CREATE TABLE IF NOT EXISTS provider_account (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        name TEXT NOT NULL,
+        billing_account_id TEXT,
+        secret_ref TEXT,
+        config_ref TEXT,
+        allowed_models_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
       CREATE TABLE IF NOT EXISTS agent_runtime (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         daemon_connection_id TEXT REFERENCES daemon_connection(id) ON DELETE SET NULL,
         provider TEXT NOT NULL,
+        provider_account_id TEXT REFERENCES provider_account(id) ON DELETE RESTRICT,
         name TEXT NOT NULL,
         version TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'offline',
@@ -630,6 +649,7 @@ export function getPostgresSchemaStatements(): string[] {
         updated_at TIMESTAMPTZ NOT NULL
       )
     `,
+    `ALTER TABLE agent_runtime ADD COLUMN IF NOT EXISTS provider_account_id TEXT REFERENCES provider_account(id) ON DELETE RESTRICT`,
     `
       CREATE TABLE IF NOT EXISTS workspace_runtime_display_name (
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
@@ -1146,11 +1166,29 @@ export function getPostgresSchemaStatements(): string[] {
         task_queue_id TEXT NOT NULL REFERENCES agent_task_queue(id) ON DELETE CASCADE,
         agent_id TEXT NOT NULL,
         model_id TEXT NOT NULL,
+        provider_account_id TEXT REFERENCES provider_account(id) ON DELETE SET NULL,
         input_tokens INTEGER NOT NULL DEFAULT 0,
         output_tokens INTEGER NOT NULL DEFAULT 0,
         cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
         channel_name TEXT,
         created_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS provider_account_id TEXT REFERENCES provider_account(id) ON DELETE SET NULL`,
+    `
+      CREATE TABLE IF NOT EXISTS runtime_provision_request (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        provider_account_id TEXT NOT NULL REFERENCES provider_account(id) ON DELETE RESTRICT,
+        provider TEXT NOT NULL,
+        runtime_name TEXT NOT NULL,
+        target_server TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'requested',
+        requested_by TEXT NOT NULL,
+        approved_by TEXT,
+        daemon_token_id TEXT REFERENCES daemon_api_token(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
       )
     `,
     `
@@ -1557,6 +1595,8 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE INDEX IF NOT EXISTS idx_token_usage_agent
         ON token_usage(workspace_id, agent_id, created_at)
     `,
+    `CREATE INDEX IF NOT EXISTS idx_provider_account_workspace ON provider_account(workspace_id, provider, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_runtime_provision_request_workspace ON runtime_provision_request(workspace_id, status, created_at DESC)`,
     `
       CREATE INDEX IF NOT EXISTS idx_attachment_workspace_message
         ON attachment(workspace_id, message_id, source_message_index)

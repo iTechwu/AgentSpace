@@ -383,6 +383,7 @@ function registerLocalDaemonRuntimes(
     metadata: buildLocalDaemonMetadata(config),
     runtimes: detected.map((provider) => ({
       provider: provider.provider,
+      providerAccountId: process.env.DOFE_AGENT_PROVIDER_ACCOUNT_ID?.trim() || undefined,
       name: `${config.runtimeName} · ${provider.label}`,
       version: provider.version,
       deviceInfo: config.deviceName,
@@ -1236,6 +1237,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         taskQueueId: task.id,
         agentId: agentName,
         modelId: tokenAcc.modelId,
+        providerAccountId: runtime.providerAccountId,
         inputTokens: tokenAcc.inputTokens,
         outputTokens: tokenAcc.outputTokens,
         channelName: payload.channelName ?? payload.channel,

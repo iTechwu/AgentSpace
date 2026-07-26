@@ -138,6 +138,7 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
       metadata: readNodeMetadata(config.serverUrl, config.runtimeName),
       runtimes: detected.map((provider) => ({
         provider: provider.provider,
+        providerAccountId: process.env.DOFE_AGENT_PROVIDER_ACCOUNT_ID?.trim() || undefined,
         name: `${config.runtimeName} · ${provider.label}`,
         version: provider.version,
         deviceInfo: config.deviceName,
@@ -337,6 +338,7 @@ Environment:
   DOFE_AGENT_DAEMON_ID
   DOFE_AGENT_DEVICE_NAME
   DOFE_AGENT_RUNTIME_NAME
+  DOFE_AGENT_PROVIDER_ACCOUNT_ID
   DOFE_AGENT_DAEMON_STATE_DIR
   DOFE_AGENT_HEARTBEAT_INTERVAL
   DOFE_AGENT_TASK_POLL_INTERVAL

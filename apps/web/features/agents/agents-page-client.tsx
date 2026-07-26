@@ -943,6 +943,8 @@ export function AgentsPageClient({
                   <DaemonManagementPanel
                     daemonSnapshots={data.daemonSnapshots}
                     daemonTokens={data.daemonTokens}
+                    providerAccounts={data.providerAccounts}
+                    runtimeProvisionRequests={data.runtimeProvisionRequests}
                     pending={isPending}
                     onDeleteRuntime={(runtime) => handleDeleteRuntime(runtime.id, runtime.name)}
                   />

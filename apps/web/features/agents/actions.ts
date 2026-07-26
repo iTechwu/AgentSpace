@@ -2,11 +2,17 @@
 
 import {
   createDaemonApiTokenSync,
+  createProviderAccountSync,
+  createRuntimeProvisionRequestSync,
   deleteAgentRuntimeSync,
+  getDatabase,
   pruneOfflineDaemonsSync,
+  readRuntimeProvisionRequestSync,
   readAgentRuntimeSync,
   readEmployeeRuntimeBindingSync,
   requestAgentRuntimeProviderVerificationSync,
+  updateRuntimeProvisionRequestSync,
+  withTransaction,
   updateWorkspaceRuntimeDisplayNameSync,
 } from "@dofe-agent/db";
 import type { AgentForkOptions } from "@dofe-agent/services";
@@ -44,6 +50,7 @@ import {
   updateEmployeeInstructionsSync,
 } from "@dofe-agent/services";
 import type { TaskRecord } from "@dofe-agent/domain/workspace";
+import { isDaemonProvider, type DaemonProvider } from "@dofe-agent/domain";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-invalidation";
 import {
@@ -53,6 +60,99 @@ import {
 } from "@/shared/lib/toast-action";
 
 const OLD_OFFLINE_DAEMON_PRUNE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+export async function createProviderAccountAction(input: {
+  provider: string;
+  name: string;
+  billingAccountId?: string;
+  secretRef?: string;
+  configRef?: string;
+  allowedModels?: string[];
+}): Promise<ActionToastResult<{ id: string }>> {
+  const context = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(context, "admin");
+  if (!isDaemonProvider(input.provider)) throw new Error("Unsupported provider.");
+  const account = createProviderAccountSync({
+    workspaceId: context.currentWorkspace.id,
+    provider: input.provider,
+    name: input.name,
+    billingAccountId: input.billingAccountId,
+    secretRef: input.secretRef,
+    configRef: input.configRef,
+    allowedModels: input.allowedModels,
+    createdBy: context.currentUser.id,
+  });
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: context.currentWorkspace.id,
+    title: "Provider account created",
+    note: `${context.currentUser.displayName} created provider account "${account.name}".`,
+    code: "workspace.provider_account_created",
+    data: { actorType: "session_user", resourceType: "provider_account", resourceId: account.id, provider: account.provider },
+  });
+  revalidateWorkspaceRoutes(context.currentWorkspace.slug);
+  return actionToastResult({ id: account.id }, successToast("Provider 账户已创建。", "Provider account created."));
+}
+
+export async function requestRuntimeProvisionAction(input: {
+  providerAccountId: string;
+  provider: string;
+  runtimeName: string;
+  targetServer: string;
+}): Promise<ActionToastResult<{ id: string }>> {
+  const context = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(context, "admin");
+  if (!isDaemonProvider(input.provider)) throw new Error("Unsupported provider.");
+  const request = createRuntimeProvisionRequestSync({
+    workspaceId: context.currentWorkspace.id,
+    providerAccountId: input.providerAccountId,
+    provider: input.provider as DaemonProvider,
+    runtimeName: input.runtimeName,
+    targetServer: input.targetServer,
+    requestedBy: context.currentUser.id,
+  });
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: context.currentWorkspace.id,
+    title: "Runtime provisioning requested",
+    note: `${context.currentUser.displayName} requested ${request.provider} runtime "${request.runtimeName}" on ${request.targetServer}.`,
+    code: "workspace.runtime_provision_requested",
+    data: { actorType: "session_user", resourceType: "runtime_provision_request", resourceId: request.id, providerAccountId: request.providerAccountId },
+  });
+  revalidateWorkspaceRoutes(context.currentWorkspace.slug);
+  return actionToastResult({ id: request.id }, successToast("执行引擎供给请求已创建。", "Runtime provisioning request created."));
+}
+
+export async function approveRuntimeProvisionAction(requestId: string): Promise<ActionToastResult<{ token: string; tokenId: string }>> {
+  const context = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(context, "admin");
+  const { created, request } = withTransaction(getDatabase(), () => {
+    const pendingRequest = readRuntimeProvisionRequestSync(requestId.trim(), context.currentWorkspace.id);
+    if (!pendingRequest || pendingRequest.status !== "requested") throw new Error("Provision request is not pending.");
+    const created = createDaemonApiTokenSync({
+      workspaceId: context.currentWorkspace.id,
+      label: `provision-${requestId.trim()}`,
+      createdBy: context.currentUser.id,
+    });
+    const request = updateRuntimeProvisionRequestSync({
+      id: requestId.trim(),
+      workspaceId: context.currentWorkspace.id,
+      status: "approved",
+      expectedStatus: "requested",
+      actorUserId: context.currentUser.id,
+      daemonTokenId: created.id,
+    });
+    if (!request) throw new Error("Provision request is not pending.");
+    return { created, request };
+  });
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: context.currentWorkspace.id,
+    title: "Runtime provisioning approved",
+    note: `${context.currentUser.displayName} approved runtime "${request.runtimeName}".`,
+    code: "workspace.runtime_provision_approved",
+    data: { actorType: "session_user", resourceType: "runtime_provision_request", resourceId: request.id, daemonTokenId: created.id },
+  });
+  revalidateWorkspaceRoutes(context.currentWorkspace.slug);
+  return actionToastResult({ token: created.token, tokenId: created.id }, successToast("供给请求已批准，服务器令牌已创建。", "Provisioning request approved and server token created."));
+}
 
 export async function createWorkspaceAgentAction(input: {
   name: string;

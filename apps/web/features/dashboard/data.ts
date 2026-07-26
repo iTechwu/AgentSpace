@@ -37,6 +37,8 @@ import {
   DEFAULT_WORKSPACE_ID,
   countUsersSync,
   listDaemonApiTokensSync,
+  listProviderAccountsSync,
+  listRuntimeProvisionRequestsSync,
   listDaemonSnapshotsSync,
   listEmployeeRuntimeBindingsSync,
   listQueuedTasksSync,
@@ -128,6 +130,8 @@ const listWorkspaceRuntimeDisplayNamesCached = cache((workspaceId: string) =>
 );
 const listWorkspaceMemberUsersCached = cache((workspaceId: string) => listWorkspaceMemberUsersSync(workspaceId));
 const listDaemonApiTokensCached = cache((workspaceId: string) => listDaemonApiTokensSync(workspaceId));
+const listProviderAccountsCached = cache((workspaceId: string) => listProviderAccountsSync(workspaceId));
+const listRuntimeProvisionRequestsCached = cache((workspaceId: string) => listRuntimeProvisionRequestsSync(workspaceId));
 const listStoredSkillImportEventsCached = cache((workspaceId: string, limit: number) => listStoredSkillImportEventsSync(workspaceId, limit));
 const getCostDashboardDataCached = cache((period: BudgetPeriod, workspaceId: string) => getCostDashboardDataSync(period, workspaceId));
 const listBudgetsWithSpentCached = cache((workspaceId: string) => listBudgetsWithSpentSync(workspaceId));
@@ -911,6 +915,8 @@ export interface AgentsPageData {
   showcaseAgents: DigitalEmployeeShowcaseAgentRecord[];
   daemonSnapshots: DaemonSnapshotView[];
   daemonTokens: DaemonTokenView[];
+  providerAccounts: ProviderAccountView[];
+  runtimeProvisionRequests: RuntimeProvisionRequestView[];
   workspaceSkills: WorkspaceSkill[];
   channels: Array<{
     name: string;
@@ -953,6 +959,8 @@ export interface DaemonSnapshotView {
   runtimes: Array<{
     id: string;
     provider: string;
+    providerAccountId?: string;
+    providerAccountName?: string;
     name: string;
     displayName?: string;
     status: "online" | "offline";
@@ -960,6 +968,26 @@ export interface DaemonSnapshotView {
     lastHeartbeatAt?: string;
     version: string;
   }>;
+}
+
+export interface ProviderAccountView {
+  id: string;
+  provider: string;
+  name: string;
+  billingAccountId?: string;
+  allowedModels: string[];
+  status: "active" | "inactive" | "legacy";
+}
+
+export interface RuntimeProvisionRequestView {
+  id: string;
+  provider: string;
+  providerAccountId: string;
+  providerAccountName: string;
+  runtimeName: string;
+  targetServer: string;
+  status: "requested" | "approved" | "cancelled" | "fulfilled";
+  createdAt: string;
 }
 
 export interface ReadinessItemView {
@@ -2748,6 +2776,8 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
     showcaseAgents,
     daemonSnapshots: canManageRuntimes ? listDaemonSnapshotViews(workspaceId) : [],
     daemonTokens: canManageRuntimes ? listDaemonTokenViews(workspaceId, memberByUserId) : [],
+    providerAccounts: canManageRuntimes ? listProviderAccountViews(workspaceId) : [],
+    runtimeProvisionRequests: canManageRuntimes ? listRuntimeProvisionRequestViews(workspaceId) : [],
     workspaceSkills: workspaceSkillSummaries,
     channels: state.channels.map((channel) => ({
       name: channel.name,
@@ -3468,6 +3498,7 @@ function roleRankForAgentDocumentAccess(role: WorkspaceAgentDocumentAccessRecord
 
 export function listDaemonSnapshotViews(workspaceId = DEFAULT_WORKSPACE_ID): DaemonSnapshotView[] {
   const runtimeDisplayNames = buildRuntimeDisplayNameIndex(workspaceId);
+  const providerAccounts = new Map(listProviderAccountsCached(workspaceId).map((account) => [account.id, account]));
   return listDaemonSnapshotsCached(workspaceId).map((snapshot) => {
     const daemonMetadata = safeParseJson(snapshot.daemon.metadataJson);
     const runtimeName = typeof daemonMetadata.runtimeName === "string" && daemonMetadata.runtimeName.trim()
@@ -3484,6 +3515,8 @@ export function listDaemonSnapshotViews(workspaceId = DEFAULT_WORKSPACE_ID): Dae
       runtimes: snapshot.runtimes.map((runtime) => ({
         id: runtime.id,
         provider: runtime.provider,
+        providerAccountId: runtime.providerAccountId,
+        providerAccountName: runtime.providerAccountId ? providerAccounts.get(runtime.providerAccountId)?.name : undefined,
         name: runtime.name,
         displayName: runtimeDisplayNames.get(runtime.id),
         status: runtime.status,
@@ -3527,6 +3560,31 @@ export function listDaemonTokenViews(
     lastUsedAt: token.lastUsedAt,
     createdAt: token.createdAt,
     revokedAt: token.revokedAt,
+  }));
+}
+
+export function listProviderAccountViews(workspaceId = DEFAULT_WORKSPACE_ID): ProviderAccountView[] {
+  return listProviderAccountsCached(workspaceId).map((account) => ({
+    id: account.id,
+    provider: account.provider,
+    name: account.name,
+    billingAccountId: account.billingAccountId,
+    allowedModels: account.allowedModels,
+    status: account.status,
+  }));
+}
+
+export function listRuntimeProvisionRequestViews(workspaceId = DEFAULT_WORKSPACE_ID): RuntimeProvisionRequestView[] {
+  const accountNames = new Map(listProviderAccountsCached(workspaceId).map((account) => [account.id, account.name]));
+  return listRuntimeProvisionRequestsCached(workspaceId).map((request) => ({
+    id: request.id,
+    provider: request.provider,
+    providerAccountId: request.providerAccountId,
+    providerAccountName: accountNames.get(request.providerAccountId) ?? request.providerAccountId,
+    runtimeName: request.runtimeName,
+    targetServer: request.targetServer,
+    status: request.status,
+    createdAt: request.createdAt,
   }));
 }
 
@@ -4924,6 +4982,7 @@ export interface CostPageData {
     agentId: string;
     displayName: string;
     modelId: string;
+    providerAccountId?: string;
     totalCostUsd: number;
     totalInputTokens: number;
     totalOutputTokens: number;
@@ -4939,6 +4998,7 @@ export interface CostPageData {
     id: string;
     agentId: string;
     modelId: string;
+    providerAccountId?: string;
     inputTokens: number;
     outputTokens: number;
     costUsd: number;

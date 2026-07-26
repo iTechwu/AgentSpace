@@ -312,6 +312,7 @@ export interface AgentRuntimeRecord {
   workspaceId: string;
   daemonConnectionId?: string;
   provider: DaemonProvider;
+  providerAccountId?: string;
   name: string;
   version: string;
   status: "online" | "offline";
@@ -335,10 +336,45 @@ export interface WorkspaceRuntimeDisplayNameRecord {
 
 export interface RuntimeRegistrationInput {
   provider: DaemonProvider;
+  providerAccountId?: string;
   name: string;
   version?: string;
   deviceInfo?: string;
   metadata?: Record<string, unknown>;
+}
+
+export type ProviderAccountStatus = "active" | "inactive" | "legacy";
+
+export interface ProviderAccountRecord {
+  id: string;
+  workspaceId: string;
+  provider: DaemonProvider;
+  name: string;
+  billingAccountId?: string;
+  secretRef?: string;
+  configRef?: string;
+  allowedModels: string[];
+  status: ProviderAccountStatus;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type RuntimeProvisionRequestStatus = "requested" | "approved" | "cancelled" | "fulfilled";
+
+export interface RuntimeProvisionRequestRecord {
+  id: string;
+  workspaceId: string;
+  providerAccountId: string;
+  provider: DaemonProvider;
+  runtimeName: string;
+  targetServer: string;
+  status: RuntimeProvisionRequestStatus;
+  requestedBy: string;
+  approvedBy?: string;
+  daemonTokenId?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface RegisteredDaemonSnapshot {
@@ -940,6 +976,7 @@ export interface TokenUsageRecord {
   taskQueueId: string;
   agentId: string;
   modelId: string;
+  providerAccountId?: string;
   inputTokens: number;
   outputTokens: number;
   costUsd: number;

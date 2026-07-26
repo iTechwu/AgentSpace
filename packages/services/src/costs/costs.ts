@@ -13,6 +13,7 @@ export interface AgentCostProfile {
   agentId: string;
   displayName: string;
   modelId: string;
+  providerAccountId?: string;
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCostUsd: number;
@@ -31,6 +32,7 @@ export interface CostDashboardData {
     id: string;
     agentId: string;
     modelId: string;
+    providerAccountId?: string;
     inputTokens: number;
     outputTokens: number;
     costUsd: number;
@@ -57,6 +59,7 @@ export function getCostDashboardDataSync(
     agentId: s.agentId,
     displayName: employeeIndex.get(s.agentId) ?? s.agentId,
     modelId: s.modelId,
+    providerAccountId: s.providerAccountId,
     totalInputTokens: s.totalInputTokens,
     totalOutputTokens: s.totalOutputTokens,
     totalCostUsd: s.totalCostUsd,
@@ -80,6 +83,7 @@ export function getCostDashboardDataSync(
       id: u.id,
       agentId: u.agentId,
       modelId: u.modelId,
+      providerAccountId: u.providerAccountId,
       inputTokens: u.inputTokens,
       outputTokens: u.outputTokens,
       costUsd: u.costUsd,

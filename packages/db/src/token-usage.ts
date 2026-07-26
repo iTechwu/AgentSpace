@@ -78,6 +78,7 @@ export function recordTokenUsageSync(input: {
   taskQueueId: string;
   agentId: string;
   modelId: string;
+  providerAccountId?: string;
   inputTokens: number;
   outputTokens: number;
   channelName?: string;
@@ -91,9 +92,9 @@ export function recordTokenUsageSync(input: {
   const workspaceId = input.workspaceId ?? readWorkspaceIdForTaskQueueSync(input.taskQueueId) ?? DEFAULT_WORKSPACE_ID;
 
   db.prepare(
-    `INSERT INTO token_usage (id, workspace_id, task_queue_id, agent_id, model_id, input_tokens, output_tokens, cost_usd, channel_name, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, workspaceId, input.taskQueueId, input.agentId, input.modelId, input.inputTokens, input.outputTokens, costUsd, input.channelName ?? null, now);
+    `INSERT INTO token_usage (id, workspace_id, task_queue_id, agent_id, model_id, provider_account_id, input_tokens, output_tokens, cost_usd, channel_name, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, workspaceId, input.taskQueueId, input.agentId, input.modelId, input.providerAccountId ?? null, input.inputTokens, input.outputTokens, costUsd, input.channelName ?? null, now);
 
   return {
     id,
@@ -101,6 +102,7 @@ export function recordTokenUsageSync(input: {
     taskQueueId: input.taskQueueId,
     agentId: input.agentId,
     modelId: input.modelId,
+    providerAccountId: input.providerAccountId,
     inputTokens: input.inputTokens,
     outputTokens: input.outputTokens,
     costUsd,
@@ -113,6 +115,7 @@ export function listTokenUsageSync(filters?: {
   workspaceId?: string;
   agentId?: string;
   channelName?: string;
+  providerAccountId?: string;
   since?: string;
 }): TokenUsageRecord[] {
   const db = getDatabase();
@@ -130,6 +133,10 @@ export function listTokenUsageSync(filters?: {
     conditions.push("channel_name = ?");
     params.push(filters.channelName);
   }
+  if (filters?.providerAccountId) {
+    conditions.push("provider_account_id = ?");
+    params.push(filters.providerAccountId);
+  }
   if (filters?.since) {
     conditions.push("created_at >= ?");
     params.push(filters.since);
@@ -142,6 +149,7 @@ export function listTokenUsageSync(filters?: {
     task_queue_id: string;
     agent_id: string;
     model_id: string;
+    provider_account_id: string | null;
     input_tokens: number;
     output_tokens: number;
     cost_usd: number;
@@ -155,6 +163,7 @@ export function listTokenUsageSync(filters?: {
     taskQueueId: row.task_queue_id,
     agentId: row.agent_id,
     modelId: row.model_id,
+    providerAccountId: row.provider_account_id ?? undefined,
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
     costUsd: row.cost_usd,
@@ -196,6 +205,7 @@ export function getAgentCostSummarySync(agentId: string, since?: string, workspa
 export function getWorkspaceCostSummarySync(since?: string, workspaceId = DEFAULT_WORKSPACE_ID): Array<{
   agentId: string;
   modelId: string;
+  providerAccountId?: string;
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCostUsd: number;
@@ -210,17 +220,18 @@ export function getWorkspaceCostSummarySync(since?: string, workspaceId = DEFAUL
   }
 
   const rows = db.prepare(
-    `SELECT agent_id, model_id,
+    `SELECT agent_id, model_id, provider_account_id,
             COALESCE(SUM(input_tokens), 0) AS total_input,
             COALESCE(SUM(output_tokens), 0) AS total_output,
             COALESCE(SUM(cost_usd), 0) AS total_cost,
             COUNT(*) AS task_count
      FROM token_usage${dateFilter}
-     GROUP BY agent_id, model_id
+     GROUP BY agent_id, model_id, provider_account_id
      ORDER BY total_cost DESC`,
   ).all(...params) as Array<{
     agent_id: string;
     model_id: string;
+    provider_account_id: string | null;
     total_input: number;
     total_output: number;
     total_cost: number;
@@ -230,6 +241,7 @@ export function getWorkspaceCostSummarySync(since?: string, workspaceId = DEFAUL
   return rows.map((row) => ({
     agentId: row.agent_id,
     modelId: row.model_id,
+    providerAccountId: row.provider_account_id ?? undefined,
     totalInputTokens: row.total_input,
     totalOutputTokens: row.total_output,
     totalCostUsd: row.total_cost,

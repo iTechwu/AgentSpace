@@ -17,6 +17,10 @@ export type {
   DaemonConnectionRecord,
   AgentRuntimeRecord,
   RuntimeRegistrationInput,
+  ProviderAccountRecord,
+  ProviderAccountStatus,
+  RuntimeProvisionRequestRecord,
+  RuntimeProvisionRequestStatus,
   RegisteredDaemonSnapshot,
   EmployeeRuntimeBindingRecord,
   WorkspaceRuntimeGrantPermission,
@@ -114,6 +118,20 @@ export type {
   ExternalThreadBindingStatus,
   ExternalUserBindingRecord,
 } from "./types.ts";
+
+export {
+  assertActiveProviderAccountSync,
+  createProviderAccountSync,
+  createRuntimeProvisionRequestSync,
+  ensureLegacyProviderAccountSync,
+  fulfillRuntimeProvisionRequestsForDaemonTokenSync,
+  listProviderAccountsSync,
+  listRuntimeProvisionRequestsSync,
+  readProviderAccountSync,
+  readRuntimeProvisionRequestSync,
+  updateProviderAccountStatusSync,
+  updateRuntimeProvisionRequestSync,
+} from "./provider-accounts.ts";
 
 // Database
 export {

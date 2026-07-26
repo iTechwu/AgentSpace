@@ -155,13 +155,14 @@ function CostOverview({
         compact ? (
           <div className="costs-agent-cards">
             {data.agents.map((agent) => (
-              <article className="costs-agent-card" key={`${agent.agentId}-${agent.modelId}`}>
+              <article className="costs-agent-card" key={`${agent.agentId}-${agent.modelId}-${agent.providerAccountId ?? "legacy"}`}>
                 <div className="costs-agent-card__header">
                   <strong>{agent.displayName}</strong>
                   <span className="costs-agent-model">{agent.modelId}</span>
                 </div>
                 <div className="costs-agent-card__stats">
                   <span>{tx("任务数", "Tasks")}: {agent.taskCount}</span>
+                  {agent.providerAccountId ? <span>{tx("Provider 账户", "Provider account")}: {agent.providerAccountId}</span> : null}
                   <span>{tx("输入", "Input")}: {formatTokens(agent.totalInputTokens)}</span>
                   <span>{tx("输出", "Output")}: {formatTokens(agent.totalOutputTokens)}</span>
                   <span>{tx("总费用", "Cost")}: ${agent.totalCostUsd.toFixed(4)}</span>
@@ -175,6 +176,7 @@ function CostOverview({
             <div className="costs-agent-row costs-agent-row--header">
               <span>Agent</span>
               <span>{tx("模型", "Model")}</span>
+              <span>{tx("Provider 账户", "Provider account")}</span>
               <span>{tx("任务数", "Tasks")}</span>
               <span>{tx("输入", "Input")}</span>
               <span>{tx("输出", "Output")}</span>
@@ -182,9 +184,10 @@ function CostOverview({
               <span>{tx("均价", "Avg")}</span>
             </div>
             {data.agents.map((agent) => (
-              <div className="costs-agent-row" key={`${agent.agentId}-${agent.modelId}`}>
+              <div className="costs-agent-row" key={`${agent.agentId}-${agent.modelId}-${agent.providerAccountId ?? "legacy"}`}>
                 <span className="costs-agent-name">{agent.displayName}</span>
                 <span className="costs-agent-model">{agent.modelId}</span>
+                <span>{agent.providerAccountId ?? tx("旧账户", "Legacy account")}</span>
                 <span>{agent.taskCount}</span>
                 <span>{formatTokens(agent.totalInputTokens)}</span>
                 <span>{formatTokens(agent.totalOutputTokens)}</span>
