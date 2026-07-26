@@ -26,6 +26,29 @@ export function FeishuChannelSummaryPanel({
         </div>
       </div>
 
+      {feishu.liveMembers ? (
+        <div className="channel-feishu-summary__section">
+          <span className="channel-feishu-summary__label">{tx("飞书成员", "Feishu members")}</span>
+          <>
+            <strong>
+              {tx(
+                `${feishu.liveMembers.userCount} 位成员 · ${feishu.liveMembers.botCount} 个机器人`,
+                `${feishu.liveMembers.userCount} members · ${feishu.liveMembers.botCount} bots`,
+              )}
+            </strong>
+            {feishu.liveMembers.members.length > 0 ? (
+              <div className="channel-feishu-summary__chips">
+                {feishu.liveMembers.members.map((member, index) => (
+                  <span className="channel-feishu-summary__member-chip" key={`${member.displayName}:${index}`}>
+                    {member.displayName}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </>
+        </div>
+      ) : null}
+
       <div className="channel-feishu-summary__section">
         <span className="channel-feishu-summary__label">{tx("Agent Bots", "Agent bots")}</span>
         {feishu.connectedAgentBots.length > 0 ? (

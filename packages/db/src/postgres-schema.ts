@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "26";
+export const POSTGRES_SCHEMA_VERSION = "27";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -44,6 +44,7 @@ export const POSTGRES_TABLE_NAMES = [
   "runtime_app_skill_binding",
   "skill_import_event",
   "agent_skill",
+  "agent_skill_requirement_config",
   "knowledge_page_assignment_policy",
   "agent_knowledge_page",
   "knowledge_proposal",
@@ -867,6 +868,20 @@ export function getPostgresSchemaStatements(): string[] {
       )
     `,
     `
+      CREATE TABLE IF NOT EXISTS agent_skill_requirement_config (
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        employee_name TEXT NOT NULL,
+        skill_id TEXT NOT NULL REFERENCES skill(id) ON DELETE CASCADE,
+        config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        encrypted_secrets_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        updated_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (workspace_id, employee_name, skill_id)
+      )
+    `,
+    `
       ALTER TABLE agent_skill
       ADD COLUMN IF NOT EXISTS agent_id TEXT
     `,
@@ -1439,6 +1454,10 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_agent_skill_employee
         ON agent_skill(workspace_id, employee_name)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_agent_skill_requirement_config_employee
+        ON agent_skill_requirement_config(workspace_id, employee_name, skill_id)
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_knowledge_assignment_policy_page

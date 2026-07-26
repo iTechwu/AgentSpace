@@ -34,6 +34,8 @@ export function SkillEditor({
   }, [file.id, file.content]);
 
   const isSkillDirty = nameDraft !== skill.name || contentDraft !== file.content;
+  const dependencies = readSkillDependencies(skill.configJson);
+  const requirements = readSkillRequirements(skill.configJson);
 
   return (
     <div className="skills-editor">
@@ -75,6 +77,30 @@ export function SkillEditor({
         value={contentDraft}
       />
 
+      {dependencies.length > 0 ? (
+        <div className="skills-editor__dependencies" aria-label={tx("Skill 依赖", "Skill dependencies")}>
+          <span>{tx("依赖", "Dependencies")}</span>
+          <div>
+            {dependencies.map((dependency) => (
+              <code key={`${dependency.manager}:${dependency.name}@${dependency.version}`}>
+                {dependency.manager}:{dependency.name}{dependency.manager === "npm" ? "@" : "=="}{dependency.version}
+              </code>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {requirements.length > 0 ? (
+        <div className="skills-editor__requirements" aria-label={tx("Skill 安装要求", "Skill installation requirements")}>
+          <span>{tx("安装要求", "Install requirements")}</span>
+          <div>
+            {requirements.map((requirement) => (
+              <code key={`${requirement.kind}:${requirement.value}`}>{formatRequirement(requirement)}</code>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="skills-editor__assigned">
         <div>
           <p className="skills-editor__assigned-label">{tx("已绑定 Agents", "Assigned agents")}</p>
@@ -94,4 +120,51 @@ export function SkillEditor({
       </div>
     </div>
   );
+}
+
+function readSkillRequirements(configJson: string | undefined): Array<{ kind: string; value: string }> {
+  if (!configJson) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(configJson) as { requirements?: unknown };
+    return Array.isArray(parsed.requirements)
+      ? parsed.requirements.filter((value): value is { kind: string; value: string } => (
+        Boolean(value)
+        && typeof value === "object"
+        && !Array.isArray(value)
+        && typeof (value as { kind?: unknown }).kind === "string"
+        && typeof (value as { value?: unknown }).value === "string"
+      ))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatRequirement(requirement: { kind: string; value: string }): string {
+  return requirement.kind === "secret"
+    ? `${requirement.value}: credential center`
+    : `${requirement.kind}: ${requirement.value}`;
+}
+
+function readSkillDependencies(configJson: string | undefined): Array<{ manager: string; name: string; version: string }> {
+  if (!configJson) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(configJson) as { dependencies?: unknown };
+    return Array.isArray(parsed.dependencies)
+      ? parsed.dependencies.filter((value): value is { manager: string; name: string; version: string } => (
+        Boolean(value)
+        && typeof value === "object"
+        && !Array.isArray(value)
+        && typeof (value as { manager?: unknown }).manager === "string"
+        && typeof (value as { name?: unknown }).name === "string"
+        && typeof (value as { version?: unknown }).version === "string"
+      ))
+      : [];
+  } catch {
+    return [];
+  }
 }

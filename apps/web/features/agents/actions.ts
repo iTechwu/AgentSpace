@@ -5,6 +5,7 @@ import {
   deleteAgentRuntimeSync,
   pruneOfflineDaemonsSync,
   readAgentRuntimeSync,
+  readEmployeeRuntimeBindingSync,
   requestAgentRuntimeProviderVerificationSync,
   updateWorkspaceRuntimeDisplayNameSync,
 } from "@dofe-agent/db";
@@ -14,6 +15,7 @@ import { revalidateWorkspacePath, revalidateWorkspacePaths } from "@/features/au
 import {
   acceptAgentForkInvitationForActorSync,
   approveAgentAccessRequestForActorSync,
+  assertAgentSkillRequirementsReadySync,
   bindEmployeeRuntimeSync,
   assertCanManageEmployeeForActorSync,
   assertCanUseEmployeeInChannelForActorSync,
@@ -26,6 +28,9 @@ import {
   deleteEmployeeSync,
   grantRuntimeUseToUserForActorSync,
   isWorkspaceAdminOrOwnerSync,
+  hasGitHubSkillDependenciesSync,
+  listEmployeeSkillIdsSync,
+  queueGitHubSkillDependenciesForAgentSync,
   rejectAgentAccessRequestForActorSync,
   revokeAgentForkInvitationForActorSync,
   revokeRuntimeUseFromUserForActorSync,
@@ -35,6 +40,7 @@ import {
   setEmployeeSkillIdsSync,
   tryRecordWorkspaceAuditEventSync,
   unbindEmployeeRuntimeSync,
+  upsertAgentSkillRequirementsSync,
   updateEmployeeInstructionsSync,
 } from "@dofe-agent/services";
 import type { TaskRecord } from "@dofe-agent/domain/workspace";
@@ -167,11 +173,42 @@ export async function bindWorkspaceAgentRuntimeAction(input: {
     actorUserId: workspaceContext.currentUser.id,
   });
 
+  const skillIds = listEmployeeSkillIdsSync(input.employeeName.trim(), workspaceId);
+  const runtime = readAgentRuntimeSync(input.runtimeId.trim());
+  if (!runtime || runtime.workspaceId !== workspaceId) {
+    throw new Error("runtime.not_found");
+  }
+  assertAgentSkillRequirementsReadySync({
+    workspaceId,
+    employeeName: input.employeeName.trim(),
+    skillIds,
+    runtimeProvider: runtime.provider,
+  });
+  const hasGitHubDependencies = hasGitHubSkillDependenciesSync({ workspaceId, skillIds });
+  if (hasGitHubDependencies) {
+    assertWorkspaceRoleForContext(workspaceContext, "admin");
+  }
   bindEmployeeRuntimeSync(input.employeeName.trim(), input.runtimeId.trim(), workspaceId);
+  const dependencyQueue = hasGitHubDependencies
+    ? queueGitHubSkillDependenciesForAgentSync({
+      workspaceId,
+      employeeName: input.employeeName.trim(),
+      skillIds,
+      actorUserId: workspaceContext.currentUser.id,
+      actorDisplayName: workspaceContext.currentUser.displayName,
+    })
+    : { queued: 0, skipped: 0, waitingForRuntime: false };
   revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
   return actionToastResult(
     undefined,
-    successToast("执行引擎绑定已更新。", "Execution-engine binding updated."),
+    successToast(
+      dependencyQueue.queued > 0
+        ? `执行引擎绑定已更新，${dependencyQueue.queued} 个受控依赖安装已排队。`
+        : "执行引擎绑定已更新。",
+      dependencyQueue.queued > 0
+        ? `Execution-engine binding updated; ${dependencyQueue.queued} controlled dependency install(s) queued.`
+        : "Execution-engine binding updated.",
+    ),
     buildAgentInvalidation(workspaceId, input.employeeName.trim()),
   );
 }
@@ -278,13 +315,97 @@ export async function setWorkspaceAgentSkillAssignmentsAction(input: {
     employeeName: input.employeeName.trim(),
     actorUserId: workspaceContext.currentUser.id,
   });
+  const boundRuntime = readEmployeeRuntimeBindingSync(input.employeeName.trim(), workspaceId);
+  assertAgentSkillRequirementsReadySync({
+    workspaceId,
+    employeeName: input.employeeName.trim(),
+    skillIds: input.skillIds,
+    runtimeProvider: boundRuntime?.provider,
+  });
+  const hasGitHubDependencies = hasGitHubSkillDependenciesSync({
+    workspaceId,
+    skillIds: input.skillIds,
+  });
+  if (hasGitHubDependencies) {
+    assertWorkspaceRoleForContext(workspaceContext, "admin");
+  }
   setEmployeeSkillIdsSync(input.employeeName.trim(), input.skillIds, workspaceId);
+  const dependencyQueue = hasGitHubDependencies
+    ? queueGitHubSkillDependenciesForAgentSync({
+      workspaceId,
+      employeeName: input.employeeName.trim(),
+      skillIds: input.skillIds,
+      actorUserId: workspaceContext.currentUser.id,
+      actorDisplayName: workspaceContext.currentUser.displayName,
+    })
+    : { queued: 0, skipped: 0, waitingForRuntime: false };
   revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
   return actionToastResult(
     undefined,
-    successToast("Skills 绑定已保存。", "Skill assignments saved."),
+    successToast(
+      dependencyQueue.queued > 0
+        ? `Skills 绑定已保存，${dependencyQueue.queued} 个受控依赖安装已排队。`
+        : dependencyQueue.waitingForRuntime
+          ? "Skills 绑定已保存；将在 Agent 绑定并连接执行引擎后安装依赖。"
+        : "Skills 绑定已保存。",
+      dependencyQueue.queued > 0
+        ? `Skill assignments saved; ${dependencyQueue.queued} controlled dependency install(s) queued.`
+        : dependencyQueue.waitingForRuntime
+          ? "Skill assignments saved; dependencies will install when the agent has an online runtime."
+        : "Skill assignments saved.",
+    ),
     buildAgentInvalidation(workspaceId, input.employeeName.trim()),
   );
+}
+
+export async function installWorkspaceAgentSkillAction(input: {
+  employeeName: string;
+  skillId: string;
+  modelProvider?: string;
+  modelId?: string;
+  capabilities?: string[];
+  projectWorkDir?: string;
+  values?: Record<string, string>;
+  secrets?: Record<string, string>;
+}): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertRequired(input.employeeName, "employee name");
+  assertRequired(input.skillId, "skill id");
+  assertCanManageEmployeeForActorSync({ workspaceId, employeeName: input.employeeName.trim(), actorUserId: workspaceContext.currentUser.id });
+  upsertAgentSkillRequirementsSync({
+    workspaceId,
+    employeeName: input.employeeName.trim(),
+    skillId: input.skillId.trim(),
+    actorUserId: workspaceContext.currentUser.id,
+    modelProvider: input.modelProvider,
+    modelId: input.modelId,
+    capabilities: input.capabilities,
+    projectWorkDir: input.projectWorkDir,
+    values: input.values,
+    secrets: input.secrets,
+  });
+  const skillIds = [...new Set([...listEmployeeSkillIdsSync(input.employeeName.trim(), workspaceId), input.skillId.trim()])];
+  const boundRuntime = readEmployeeRuntimeBindingSync(input.employeeName.trim(), workspaceId);
+  assertAgentSkillRequirementsReadySync({ workspaceId, employeeName: input.employeeName.trim(), skillIds, runtimeProvider: boundRuntime?.provider });
+  setEmployeeSkillIdsSync(input.employeeName.trim(), skillIds, workspaceId);
+  const hasGitHubDependencies = hasGitHubSkillDependenciesSync({ workspaceId, skillIds });
+  const dependencyQueue = hasGitHubDependencies
+    ? queueGitHubSkillDependenciesForAgentSync({ workspaceId, employeeName: input.employeeName.trim(), skillIds, actorUserId: workspaceContext.currentUser.id, actorDisplayName: workspaceContext.currentUser.displayName })
+    : { queued: 0, skipped: 0, waitingForRuntime: false };
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId,
+    title: "Agent skill configured",
+    note: `${workspaceContext.currentUser.displayName} configured skill requirements for ${input.employeeName.trim()}.`,
+    code: "workspace.agent_skill_requirements_configured",
+    data: { actorType: "session_user", resourceType: "agent_skill_requirement", resourceId: `${input.employeeName.trim()}:${input.skillId.trim()}` },
+  });
+  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+  return actionToastResult(undefined, successToast(
+    dependencyQueue.queued > 0 ? `Skill 已安装并已排队安装 ${dependencyQueue.queued} 个依赖。` : "Skill 已为该 Agent 安装并完成配置。",
+    dependencyQueue.queued > 0 ? `Skill installed; ${dependencyQueue.queued} dependency install(s) queued.` : "Skill installed and configured for this agent.",
+  ), buildAgentInvalidation(workspaceId, input.employeeName.trim()));
 }
 
 export async function setWorkspaceAgentKnowledgeAssignmentsAction(input: {

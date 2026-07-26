@@ -92,6 +92,10 @@ export {
   type FeishuTenantAccessTokenResult,
 } from "./client.ts";
 export {
+  readFeishuChatMemberSnapshot,
+  type FeishuChatMemberSnapshot,
+} from "./chat-members.ts";
+export {
   buildEncryptedFeishuCredentials,
   readFeishuIntegrationCredentials,
   summarizeFeishuStoredCredentials,

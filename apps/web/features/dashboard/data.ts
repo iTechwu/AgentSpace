@@ -26,7 +26,13 @@ import {
   listAgentForkInvitationsForSourceAgentSync,
   listAgentAccessRequestsForActorSync,
 } from "@dofe-agent/services";
-import type { AgentAccessRequestRecord, AgentForkInvitationRecord, PerformanceDashboardData, WorkspaceNotificationRecord } from "@dofe-agent/services";
+import type {
+  AgentAccessRequestRecord,
+  AgentForkInvitationRecord,
+  FeishuChatMemberSnapshot,
+  PerformanceDashboardData,
+  WorkspaceNotificationRecord,
+} from "@dofe-agent/services";
 import {
   DEFAULT_WORKSPACE_ID,
   countUsersSync,
@@ -290,6 +296,7 @@ export interface ChannelFeishuSummaryRecord {
   externalChatType?: string;
   provisionSource?: string;
   reviewStatus?: string;
+  liveMembers?: FeishuChatMemberSnapshot;
   connectedAgentBots: Array<{
     integrationId: string;
     displayName: string;

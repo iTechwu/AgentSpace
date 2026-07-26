@@ -170,7 +170,7 @@ export async function deleteWorkspaceSkillFileAction(input: {
 export async function importWorkspaceSkillFromUrlAction(input: {
   url: string;
   conflict?: "reject" | "rename" | "replace" | "skip";
-}): Promise<ActionToastResult<{ skillId: string; renamed: boolean; replaced: boolean; skipped: boolean }>> {
+}): Promise<ActionToastResult<{ skillId: string; renamed: boolean; replaced: boolean; skipped: boolean; requiresConfiguration: boolean }>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "admin");
   assertRequired(input.url, "skill import url");
@@ -209,6 +209,7 @@ export async function importWorkspaceSkillFromUrlAction(input: {
     renamed: result.renamed,
     replaced: result.replaced,
     skipped: result.skipped,
+    requiresConfiguration: result.requiresConfiguration,
   }, toast);
 }
 

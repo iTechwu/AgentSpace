@@ -21,6 +21,7 @@ import {
   setWorkspaceAgentChannelMemberAccessAction,
   setWorkspaceAgentKnowledgeAssignmentsAction,
   setWorkspaceAgentSkillAssignmentsAction,
+  installWorkspaceAgentSkillAction,
   unbindWorkspaceAgentRuntimeAction,
   updateWorkspaceAgentInstructionsAction,
   updateWorkspaceRuntimeDisplayNameAction,
@@ -730,6 +731,15 @@ export function AgentsPageClient({
                           employeeName: selectedAgent.internalName,
                           skillIds,
                         }),
+                    )
+                  }
+                  onInstallSkill={(skillId, input) =>
+                    runAction(
+                      () => installWorkspaceAgentSkillAction({
+                        employeeName: selectedAgent.internalName,
+                        skillId,
+                        ...input,
+                      }),
                     )
                   }
                   onSetKnowledgePageIds={(knowledgePageIds) =>

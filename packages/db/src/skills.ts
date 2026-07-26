@@ -424,6 +424,7 @@ export function replaceStoredAgentSkillAssignmentsSync(
   const hasAgentIdColumn = agentSkillTableHasAgentIdColumn(db);
 
   withTransaction(db, () => {
+    db.prepare("DELETE FROM agent_skill_requirement_config WHERE workspace_id = ?").run(workspaceId);
     db.prepare("DELETE FROM agent_skill WHERE workspace_id = ?").run(workspaceId);
     for (const assignment of assignments) {
       for (const skillId of assignment.skillIds) {
@@ -462,6 +463,18 @@ export function setStoredEmployeeSkillAssignmentsSync(
   const hasAgentIdColumn = agentSkillTableHasAgentIdColumn(db);
 
   withTransaction(db, () => {
+    if (skillIds.length === 0) {
+      db.prepare(
+        `DELETE FROM agent_skill_requirement_config
+         WHERE workspace_id = ? AND employee_name = ?`,
+      ).run(workspaceId, employeeName);
+    } else {
+      const placeholders = skillIds.map(() => "?").join(", ");
+      db.prepare(
+        `DELETE FROM agent_skill_requirement_config
+         WHERE workspace_id = ? AND employee_name = ? AND skill_id NOT IN (${placeholders})`,
+      ).run(workspaceId, employeeName, ...skillIds);
+    }
     db.prepare(
       `DELETE FROM agent_skill
        WHERE workspace_id = ? AND employee_name = ?`,
@@ -495,6 +508,7 @@ export function setStoredEmployeeSkillAssignmentsSync(
 export function resetStoredWorkspaceSkillsSync(workspaceId = DEFAULT_WORKSPACE_ID): void {
   const db = getDatabase();
   withTransaction(db, () => {
+    db.prepare("DELETE FROM agent_skill_requirement_config WHERE workspace_id = ?").run(workspaceId);
     db.prepare(
       `DELETE FROM agent_skill
        WHERE workspace_id = ?`,

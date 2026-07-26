@@ -6,6 +6,7 @@ import { AppIcon } from "@/shared/ui/app-icon";
 import { DeleteAgentModal } from "@/features/agents/components/delete-agent-modal";
 import { ExecutionEngineSelect, resolveExecutionEngineValue } from "@/features/agents/components/execution-engine-select";
 import { SkillPickerModal } from "@/features/agents/components/skill-picker-modal";
+import { SkillRequirementsModal } from "@/features/skills/components/skill-requirements-modal";
 import { FeishuAgentBotAgentSettingsPanel } from "@/features/integrations/feishu/feishu-agent-bot-agent-settings-panel";
 import { GeneratedAvatar } from "@/shared/ui/generated-avatar";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
@@ -31,6 +32,10 @@ interface AgentDetailProps {
   readonly onSaveInstructions: (instructions: string) => void;
   readonly onSetChannelMemberAccess?: (access: WorkspaceAgentRecord["channelMemberAccess"]) => void;
   readonly onSetSkillIds: (skillIds: string[]) => void;
+  readonly onInstallSkill: (skillId: string, input: {
+    modelProvider?: string; modelId?: string; capabilities: string[]; projectWorkDir?: string;
+    values: Record<string, string>; secrets: Record<string, string>;
+  }) => void;
   readonly onSetKnowledgePageIds?: (pageIds: string[]) => void;
   readonly onCreateForkInvitation?: (input: {
     targetUserId: string;
@@ -60,6 +65,7 @@ export function AgentDetail({
   onSaveInstructions,
   onSetChannelMemberAccess,
   onSetSkillIds,
+  onInstallSkill,
   onSetKnowledgePageIds,
   onCreateForkInvitation,
   onRevokeForkInvitation,
@@ -69,6 +75,7 @@ export function AgentDetail({
   const [activeTab, setActiveTab] = useState<"instructions" | "skills" | "knowledge" | "documents" | "workspaces" | "settings">("instructions");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showSkillPicker, setShowSkillPicker] = useState(false);
+  const [skillToInstall, setSkillToInstall] = useState<WorkspaceSkill | null>(null);
   const [showKnowledgePicker, setShowKnowledgePicker] = useState(false);
   const [forkTargetUserId, setForkTargetUserId] = useState("");
   const [forkContextNote, setForkContextNote] = useState("");
@@ -708,8 +715,27 @@ export function AgentDetail({
           skills={availableSkills}
           onCancel={() => setShowSkillPicker(false)}
           onSelect={(skillId) => {
-            onSetSkillIds([...assignedSkillIds, skillId]);
+            const skill = availableSkills.find((item) => item.id === skillId);
+            if (skill && hasInstallRequirements(skill.configJson)) {
+              setSkillToInstall(skill);
+            } else {
+              onSetSkillIds([...assignedSkillIds, skillId]);
+            }
             setShowSkillPicker(false);
+          }}
+        />
+      ) : null}
+
+      {skillToInstall ? (
+        <SkillRequirementsModal
+          collectSecrets
+          configJson={skillToInstall.configJson}
+          pending={pending}
+          skillName={skillToInstall.name}
+          onCancel={() => setSkillToInstall(null)}
+          onConfirm={(input) => {
+            onInstallSkill(skillToInstall.id, input);
+            setSkillToInstall(null);
           }}
         />
       ) : null}
@@ -727,6 +753,15 @@ export function AgentDetail({
       ) : null}
     </div>
   );
+}
+
+function hasInstallRequirements(configJson: string | undefined): boolean {
+  try {
+    const requirements = (JSON.parse(configJson ?? "{}") as { requirements?: unknown }).requirements;
+    return Array.isArray(requirements) && requirements.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 function KnowledgePickerModal({

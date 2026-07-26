@@ -893,7 +893,7 @@ function mapRuntimeAppSkillBindingRecord(value: Record<string, unknown>): Runtim
 }
 
 function isRuntimeAppCatalogSource(value: unknown): value is RuntimeAppCatalogSource {
-  return value === "clihub_harness" || value === "clihub_public";
+  return value === "clihub_harness" || value === "clihub_public" || value === "skill_dependency";
 }
 
 function normalizeSource(value: RuntimeAppCatalogSource): RuntimeAppCatalogSource | null {

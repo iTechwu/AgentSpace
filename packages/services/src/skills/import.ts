@@ -18,6 +18,8 @@ import {
   upsertWorkspaceSkillFileSync,
 } from "./skills.ts";
 import { parseSkillMetadata } from "./skill-metadata.ts";
+import { parseSkillDependencyDeclarations } from "./dependencies.ts";
+import { parseSkillRequirementDeclarations } from "./requirements.ts";
 
 export type SkillImportConflict = "reject" | "rename" | "replace" | "skip";
 export type SkillImportSourceType = "github" | "skills.sh" | "clawhub" | "local";
@@ -30,6 +32,7 @@ export interface SkillImportResult {
   replaced: boolean;
   skipped: boolean;
   sourceType: SkillImportSourceType;
+  requiresConfiguration: boolean;
   warnings: string[];
 }
 
@@ -102,6 +105,7 @@ export async function importWorkspaceSkillFromUrl(input: {
       replaced: false,
       skipped: true,
       sourceType: imported.sourceType,
+      requiresConfiguration: parseSkillRequirementDeclarations(readImportedSkillFile(imported.files, "SKILL.md")).length > 0,
       warnings: [...imported.warnings, `Skipped existing skill "${existing.name}".`],
     };
   }
@@ -151,6 +155,7 @@ export async function importWorkspaceSkillFromUrl(input: {
     replaced: false,
     skipped: false,
     sourceType: imported.sourceType,
+    requiresConfiguration: parseSkillRequirementDeclarations(readImportedSkillFile(imported.files, "SKILL.md")).length > 0,
     warnings: imported.warnings,
   };
 }
@@ -214,6 +219,7 @@ async function replaceImportedSkill(
     replaced: true,
     skipped: false,
     sourceType: imported.sourceType,
+    requiresConfiguration: parseSkillRequirementDeclarations(readImportedSkillFile(imported.files, "SKILL.md")).length > 0,
     warnings: imported.warnings,
   };
 }
@@ -305,7 +311,15 @@ async function importGitHubSkillDefinitionFromPointer(
       files: [{ path: "SKILL.md", content: skillMd }],
       sourceType,
       sourceUrl,
-      configJson: JSON.stringify({ provider: sourceType, owner: pointer.owner, repo: pointer.repo, ref: pointer.ref, path: pointer.path }),
+      configJson: JSON.stringify({
+        provider: sourceType,
+        owner: pointer.owner,
+        repo: pointer.repo,
+        ref: pointer.ref,
+        path: pointer.path,
+        dependencies: parseSkillDependencyDeclarations(skillMd),
+        requirements: parseSkillRequirementDeclarations(skillMd),
+      }),
       warnings: [],
     };
   }
@@ -328,6 +342,8 @@ async function importGitHubSkillDefinitionFromPointer(
       ref: pointer.ref,
       path: pointer.path,
       warnings,
+      dependencies: parseSkillDependencyDeclarations(skillMd),
+      requirements: parseSkillRequirementDeclarations(skillMd),
     }),
     warnings,
   };

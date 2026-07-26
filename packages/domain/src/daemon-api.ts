@@ -39,7 +39,7 @@ export type ProviderErrorCategory =
   | "tool"
   | "protocol"
   | "unknown";
-export type RuntimeAppCatalogSource = "clihub_harness" | "clihub_public";
+export type RuntimeAppCatalogSource = "clihub_harness" | "clihub_public" | "skill_dependency";
 export type RuntimeAppInstallStrategy = "cli_hub" | "pip" | "npm" | "uv" | "bundled" | "manual";
 export type RuntimeAppOperationType = "install" | "update" | "uninstall" | "verify" | "disable" | "enable";
 export type RuntimeAppOperationStatus = "pending" | "claimed" | "running" | "succeeded" | "failed" | "cancelled";

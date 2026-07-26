@@ -9,6 +9,7 @@ import {
   createChannelAction,
   createChannelDocumentFromAttachmentAction,
   getChannelDetailDataAction,
+  getFeishuChannelMemberSnapshotAction,
   deleteChannelAttachmentAction,
   deleteChannelAction,
   exportChannelDocumentAttachmentAction,
@@ -88,6 +89,7 @@ type ChannelFileRecord = ChannelsPageData["channelFiles"][number];
 type ChannelDocumentRunRecord = ChannelsPageData["documentRuns"][number];
 type ChannelDocumentConflictRecord = ChannelsPageData["documentConflicts"][number];
 type ChannelDetailData = Pick<ChannelsPageData, "channelFiles" | "detailScope" | "documentConflicts" | "documentRuns" | "documents" | "threads">;
+type FeishuChannelMemberSnapshot = NonNullable<NonNullable<ChannelRecord["feishu"]>["liveMembers"]>;
 
 interface ChannelPageIndexes {
   channelById: Map<string, ChannelRecord>;
@@ -565,6 +567,9 @@ export function ChannelsPageClient({
   const [detailDataByChannelName, setDetailDataByChannelName] = useState<Map<string, ChannelDetailData>>(() =>
     buildInitialChannelDetailCache(data),
   );
+  const [feishuMemberSnapshotByChannelName, setFeishuMemberSnapshotByChannelName] = useState<Map<string, FeishuChannelMemberSnapshot>>(
+    () => new Map(),
+  );
   const [loadingDetailChannelName, setLoadingDetailChannelName] = useState<string | null>(null);
   const [detailLoadError, setDetailLoadError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -580,6 +585,7 @@ export function ChannelsPageClient({
   const refreshResetTimerRef = useRef<number | null>(null);
   const transitionPendingRef = useRef(false);
   const documentDraftSourceRef = useRef<string | null>(null);
+  const unavailableFeishuChannelNamesRef = useRef(new Set<string>());
   const markImChannelDetailCacheStale = useCallback((channelName?: string | null) => {
     if (!moduleCache) {
       return;
@@ -795,6 +801,12 @@ export function ChannelsPageClient({
     () => new Map(visibleChannels.map((channel) => [channel.id, channel])),
     [visibleChannels],
   );
+  const visibleFeishuGroupChannelNames = useMemo(
+    () => visibleChannels
+      .filter((channel) => channel.kind !== "direct" && Boolean(channel.feishu))
+      .map((channel) => channel.name),
+    [visibleChannels],
+  );
 
   useEffect(() => {
     if (!selectedChannelId || !visibleChannelById.has(selectedChannelId)) {
@@ -823,6 +835,13 @@ export function ChannelsPageClient({
 
   const selectedChannel = selectedChannelId ? visibleChannelById.get(selectedChannelId) ?? null : null;
   const selectedConversationChannelName = resolveSelectedChannelName(selectedChannel);
+  const selectedFeishuMemberSnapshot = selectedChannel?.feishu
+    ? feishuMemberSnapshotByChannelName.get(selectedChannel.name) ?? undefined
+    : undefined;
+  const selectedChannelWithLiveFeishuMembers = useMemo(
+    () => applyLiveFeishuMemberSnapshot(selectedChannel, selectedFeishuMemberSnapshot),
+    [selectedChannel, selectedFeishuMemberSnapshot],
+  );
   const refreshChannelData = useCallback((options?: { allowWhileInputActive?: boolean }) => {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") {
       return;
@@ -854,6 +873,58 @@ export function ChannelsPageClient({
     selectedChannel?.kind !== "direct"
     && selectedChannel?.accessState !== undefined
     && selectedChannel.accessState !== "accessible";
+
+  useEffect(() => {
+    const pendingChannelNames = visibleFeishuGroupChannelNames.filter(
+      (channelName) =>
+        !feishuMemberSnapshotByChannelName.has(channelName) &&
+        !unavailableFeishuChannelNamesRef.current.has(channelName),
+    );
+    if (pendingChannelNames.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void Promise.all(
+      pendingChannelNames.map(async (channelName) => ({
+        channelName,
+        snapshot: await getFeishuChannelMemberSnapshotAction({
+          channelName,
+          workspaceId: data.workspaceId,
+        }).catch(() => null),
+      })),
+    ).then((results) => {
+      if (cancelled) {
+        return;
+      }
+      const successfulResults = results.filter(
+        (result): result is { channelName: string; snapshot: FeishuChannelMemberSnapshot } => Boolean(result.snapshot),
+      );
+      for (const result of results) {
+        if (!result.snapshot) {
+          unavailableFeishuChannelNamesRef.current.add(result.channelName);
+        }
+      }
+      if (successfulResults.length === 0) {
+        return;
+      }
+      setFeishuMemberSnapshotByChannelName((current) => {
+        const next = new Map(current);
+        for (const result of successfulResults) {
+          next.set(result.channelName, result.snapshot);
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    data.workspaceId,
+    feishuMemberSnapshotByChannelName,
+    visibleFeishuGroupChannelNames,
+  ]);
   const selectedThread = selectedChannel ? indexes.threadByChannelName.get(selectedChannel.id) ?? null : null;
   const channelDocuments = selectedConversationChannelName
     ? indexes.documentsByChannelName.get(selectedConversationChannelName) ?? EMPTY_CHANNEL_DOCUMENTS
@@ -1126,29 +1197,35 @@ export function ChannelsPageClient({
 
   const items: ConversationListItem[] = useMemo(
     () =>
-      visibleChannels.map((channel) => ({
-        id: channel.id,
-        title: channel.displayName ?? channel.name,
-        subtitle:
-          channel.kind === "direct"
-            ? channel.displaySubtitle ?? tx("私聊", "Direct")
-            : translateMemberLabel(channel.memberLabel, tx),
-        meta: isContactDirectoryContext
-          ? channel.channelName
-            ? tx("已建立私聊", "Direct message available")
-            : tx("尚未开始私聊", "No direct message yet")
-          : translateChannelAccessPreview(channel.accessState, tx)
-            ?? translateChannelPreview(channel.id, indexes.threadByChannelName, tx)
-            ?? translateChannelListPreview(channel.lastMessage, tx)
-            ?? tx("还没有消息", "No messages yet"),
-        avatar: channel.avatarLabel ?? "#",
-        avatarId: channel.humanContactUserId ?? channel.contactId ?? channel.channelName ?? channel.id,
-        avatarName: channel.displayName ?? channel.name,
-        avatarVariant: channel.directParticipantKind === "human" ? "human" : channel.kind === "direct" ? "agent" : "channel",
-        dateLabel: formatCompactTimestamp(channel.updatedAt, { emptyFallback: "" }),
-        unread: channel.unread,
-      })),
-    [indexes.threadByChannelName, isContactDirectoryContext, tx, visibleChannels],
+      visibleChannels.map((channel) => {
+        const presentationChannel = applyLiveFeishuMemberSnapshot(
+          channel,
+          channel.feishu ? feishuMemberSnapshotByChannelName.get(channel.name) ?? undefined : undefined,
+        );
+        return {
+          id: channel.id,
+          title: presentationChannel?.displayName ?? channel.displayName ?? channel.name,
+          subtitle:
+            channel.kind === "direct"
+              ? channel.displaySubtitle ?? tx("私聊", "Direct")
+              : translateMemberLabel(presentationChannel?.memberLabel ?? channel.memberLabel, tx),
+          meta: isContactDirectoryContext
+            ? channel.channelName
+              ? tx("已建立私聊", "Direct message available")
+              : tx("尚未开始私聊", "No direct message yet")
+            : translateChannelAccessPreview(channel.accessState, tx)
+              ?? translateChannelPreview(channel.id, indexes.threadByChannelName, tx)
+              ?? translateChannelListPreview(channel.lastMessage, tx)
+              ?? tx("还没有消息", "No messages yet"),
+          avatar: channel.avatarLabel ?? "#",
+          avatarId: channel.humanContactUserId ?? channel.contactId ?? channel.channelName ?? channel.id,
+          avatarName: presentationChannel?.displayName ?? channel.displayName ?? channel.name,
+          avatarVariant: channel.directParticipantKind === "human" ? "human" : channel.kind === "direct" ? "agent" : "channel",
+          dateLabel: formatCompactTimestamp(channel.updatedAt, { emptyFallback: "" }),
+          unread: channel.unread,
+        };
+      }),
+    [feishuMemberSnapshotByChannelName, indexes.threadByChannelName, isContactDirectoryContext, tx, visibleChannels],
   );
 
   const messages: ConversationThreadMessage[] = useMemo(
@@ -1749,7 +1826,8 @@ export function ChannelsPageClient({
                   activeTab={activeTab}
                   backButton={backButton}
                   contentTabsEnabled={Boolean(selectedConversationChannelName)}
-                  memberCount={selectedChannel.memberCount ?? estimateChannelMemberCount(selectedChannel.memberLabel)}
+                  memberCount={selectedChannelWithLiveFeishuMembers?.memberCount ?? estimateChannelMemberCount(selectedChannel.memberLabel)}
+                  liveFeishuMembers={selectedChannelWithLiveFeishuMembers?.feishu?.liveMembers}
                   onCreateAnnouncement={() => {
                     setShowHeaderMenu(false);
                     openFreshDocumentWorkspace(tx("群公告", "Announcement"));
@@ -1813,7 +1891,7 @@ export function ChannelsPageClient({
                   }}
                   onSwitchTab={switchChannelTab}
                   pending={isPending}
-                  selectedChannel={selectedChannel}
+                  selectedChannel={selectedChannelWithLiveFeishuMembers ?? selectedChannel}
                   showCreateMenu={showCreateMenu}
                   showHeaderMenu={showHeaderMenu}
                   createMenuRef={createMenuRef}
@@ -1978,14 +2056,14 @@ export function ChannelsPageClient({
         selectedHeader={
           selectedChannel
             ? {
-                title: selectedChannel.displayName ?? selectedChannel.name,
+                title: selectedChannelWithLiveFeishuMembers?.displayName ?? selectedChannel.displayName ?? selectedChannel.name,
                 subtitle:
                   selectedChannel.kind === "direct"
                     ? selectedChannel.displaySubtitle ?? tx("私聊", "Direct")
-                    : translateMemberLabel(selectedChannel.memberLabel, tx),
+                    : translateMemberLabel((selectedChannelWithLiveFeishuMembers ?? selectedChannel).memberLabel, tx),
                 avatar: selectedChannel.avatarLabel ?? "群",
                 avatarId: selectedChannel.humanContactUserId ?? selectedChannel.contactId ?? selectedChannel.channelName ?? selectedChannel.id,
-                avatarName: selectedChannel.displayName ?? selectedChannel.name,
+                avatarName: selectedChannelWithLiveFeishuMembers?.displayName ?? selectedChannel.displayName ?? selectedChannel.name,
                 avatarVariant: selectedChannel.directParticipantKind === "human" ? "human" : selectedChannel.kind === "direct" ? "agent" : "channel",
               }
             : null
@@ -2442,6 +2520,34 @@ function estimateChannelMemberCount(memberLabel: string): number {
   return counts.slice(0, 2).reduce((sum, value) => sum + value, 0);
 }
 
+function applyLiveFeishuMemberSnapshot(
+  channel: ChannelRecord | null,
+  snapshot: FeishuChannelMemberSnapshot | undefined,
+): ChannelRecord | null {
+  if (!channel || !channel.feishu) {
+    return channel;
+  }
+
+  const displayName = snapshot?.chatName || channel.feishu.externalChatName?.trim() || channel.displayName;
+  if (!snapshot && displayName === channel.displayName) {
+    return channel;
+  }
+
+  return {
+    ...channel,
+    displayName,
+    ...(snapshot ? {
+      memberCount: snapshot.userCount + snapshot.botCount,
+      memberLabel: `${snapshot.userCount} humans / ${snapshot.botCount} bots`,
+    } : {}),
+    feishu: {
+      ...channel.feishu,
+      ...(snapshot?.chatName ? { externalChatName: snapshot.chatName } : {}),
+      ...(snapshot ? { liveMembers: snapshot } : {}),
+    },
+  };
+}
+
 function formatChannelWorkspaceTime(value?: string): string {
   return formatCompactTimestamp(value, { emptyFallback: "—" });
 }
@@ -2558,6 +2664,7 @@ function ChannelWorkspaceHeader({
   contentTabsEnabled,
   createMenuRef,
   headerMenuRef,
+  liveFeishuMembers,
   memberCount,
   onCreateAnnouncement,
   onCreateDocument,
@@ -2586,6 +2693,7 @@ function ChannelWorkspaceHeader({
   contentTabsEnabled: boolean;
   createMenuRef: React.RefObject<HTMLDivElement | null>;
   headerMenuRef: React.RefObject<HTMLDivElement | null>;
+  liveFeishuMembers?: FeishuChannelMemberSnapshot;
   memberCount: number;
   onCreateAnnouncement: () => void;
   onCreateDocument: () => void;
@@ -2643,10 +2751,29 @@ function ChannelWorkspaceHeader({
                   )}
                 </HoverTooltip>
               ) : null}
-              <span className="channel-workspace-header__members">
-                <PeopleOutlineIcon />
-                {memberCount}
-              </span>
+              {liveFeishuMembers ? (
+                <>
+                  <span
+                    aria-label={tx(`${liveFeishuMembers.userCount} 位成员`, `${liveFeishuMembers.userCount} members`)}
+                    className="channel-workspace-header__members"
+                  >
+                    <AppIcon name="groups" />
+                    {liveFeishuMembers.userCount}
+                  </span>
+                  <span
+                    aria-label={tx(`${liveFeishuMembers.botCount} 个机器人`, `${liveFeishuMembers.botCount} bots`)}
+                    className="channel-workspace-header__members"
+                  >
+                    <AppIcon name="agents" />
+                    {liveFeishuMembers.botCount}
+                  </span>
+                </>
+              ) : (
+                <span className="channel-workspace-header__members">
+                  <AppIcon name="groups" />
+                  {memberCount}
+                </span>
+              )}
               <span className="channel-workspace-header__badge">{isDirect ? tx("私聊", "Direct") : tx("全员", "All")}</span>
             </div>
             {selectedChannel.displaySubtitle ? (
@@ -3404,16 +3531,6 @@ function SheetIcon() {
     <svg aria-hidden="true" fill="none" viewBox="0 0 20 20">
       <rect fill="currentColor" height="14" rx="2.5" width="14" x="3" y="3" />
       <path d="M7 3V17M13 3V17M3 8H17M3 13H17" stroke="#fff" strokeWidth="1.2" />
-    </svg>
-  );
-}
-
-function PeopleOutlineIcon() {
-  return (
-    <svg aria-hidden="true" fill="none" viewBox="0 0 20 20">
-      <circle cx="7" cy="7" r="2.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M3.5 14.8C4 12.8 5.3 11.7 7 11.7C8.7 11.7 10 12.8 10.5 14.8" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
-      <circle cx="13.5" cy="8" r="2" stroke="currentColor" strokeWidth="1.6" />
     </svg>
   );
 }

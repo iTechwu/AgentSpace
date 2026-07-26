@@ -18,6 +18,7 @@ type JsonColumnName =
   | "metadata_json"
   | "config_json"
   | "encrypted_credentials_json"
+  | "encrypted_secrets_json"
   | "capabilities_json"
   | "scopes_json"
   | "permissions_json"
@@ -221,6 +222,7 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "runtime_app_skill_binding", conflictColumns: ["workspace_id", "runtime_app_id", "skill_id"], orderBy: "created_at ASC, workspace_id ASC, runtime_app_id ASC, skill_id ASC" },
   { tableName: "skill_import_event", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "imported_at ASC, id ASC" },
   { tableName: "agent_skill", conflictColumns: ["workspace_id", "employee_name", "skill_id"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC, skill_id ASC" },
+  { tableName: "agent_skill_requirement_config", conflictColumns: ["workspace_id", "employee_name", "skill_id"], jsonColumns: ["config_json", "encrypted_secrets_json"], optionalWhenMissing: true, orderBy: "created_at ASC, workspace_id ASC, employee_name ASC, skill_id ASC" },
   { tableName: "knowledge_page_assignment_policy", conflictColumns: ["workspace_id", "knowledge_page_id"], orderBy: "updated_at ASC, workspace_id ASC, knowledge_page_id ASC" },
   { tableName: "agent_knowledge_page", conflictColumns: ["workspace_id", "employee_name", "knowledge_page_id"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC, knowledge_page_id ASC" },
   { tableName: "agent_router_session", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },

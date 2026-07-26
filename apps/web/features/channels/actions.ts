@@ -46,7 +46,14 @@ import {
   upsertChannelDocumentPresenceSync,
   updateChannelDocumentSync,
   reviewApprovalSync,
+  FEISHU_PROVIDER_ID,
+  readFeishuChatMemberSnapshot,
+  readFeishuIntegrationCredentials,
 } from "@dofe-agent/services";
+import {
+  listExternalChannelBindingsSync,
+  listExternalIntegrationsSync,
+} from "@dofe-agent/db";
 import { persistFormAttachments } from "@/features/chat/attachment-actions";
 import {
   actionToastResult,
@@ -135,6 +142,59 @@ export async function getChannelDetailDataAction(input: {
     currentUserId: workspaceContext.currentUser.id,
     currentMembershipRole: workspaceContext.currentMembership.role,
   });
+}
+
+export async function getFeishuChannelMemberSnapshotAction(input: {
+  channelName: string;
+  workspaceId?: string;
+}): Promise<Awaited<ReturnType<typeof readFeishuChatMemberSnapshot>> | null> {
+  const workspaceContext = await requireActionWorkspaceContext(input.workspaceId);
+  const channelName = input.channelName.trim();
+  assertRequired(channelName, "channel name");
+  if (
+    !canReadChannelForActorSync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      channelName,
+      actor: {
+        userId: workspaceContext.currentUser.id,
+        displayName: workspaceContext.currentUser.displayName,
+        role: workspaceContext.currentMembership.role,
+      },
+    })
+  ) {
+    throw new Error("Forbidden.");
+  }
+
+  const integrations = listExternalIntegrationsSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    provider: FEISHU_PROVIDER_ID,
+  }).filter((integration) => integration.status === "active");
+  for (const integration of integrations) {
+    const binding = listExternalChannelBindingsSync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      integrationId: integration.id,
+      status: "active",
+    }).find((candidate) => candidate.channelName === channelName);
+    if (!binding || !integration.appId) {
+      continue;
+    }
+    try {
+      const credentials = readFeishuIntegrationCredentials(integration);
+      if (!credentials.appSecret) {
+        continue;
+      }
+      return await readFeishuChatMemberSnapshot({
+        appId: integration.appId,
+        appSecret: credentials.appSecret,
+        chatId: binding.externalChatId,
+      });
+    } catch {
+      // Live membership is optional. Keep the local channel summary on any permission or API failure.
+      return null;
+    }
+  }
+
+  return null;
 }
 
 export async function approveChannelAccessRequestAction(requestId: string): Promise<void> {

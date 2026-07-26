@@ -128,6 +128,15 @@ const data: SkillsPageData = {
       isBuiltin: false,
       sourceType: "github",
       sourceUrl: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
+      configJson: JSON.stringify({
+        requirements: [
+          { kind: "provider", value: "codex" },
+          { kind: "capability", value: "tool_use" },
+          { kind: "project", value: "repository" },
+          { kind: "config", value: "API_BASE_URL" },
+          { kind: "secret", value: "OPENAI_API_KEY" },
+        ],
+      }),
       description: "Research helper",
       createdAt: "2026-04-10T10:00:00.000Z",
       updatedAt: "2026-04-10T11:00:00.000Z",
@@ -347,6 +356,28 @@ describe("SkillsPageClient", () => {
     });
   });
 
+  it("imports a GitHub skill from the create-skill modal", async () => {
+    const user = userEvent.setup();
+
+    renderSkillsPage();
+
+    await user.click(screen.getByRole("button", { name: /添加技能|Add skill/i }));
+    await user.click(screen.getByRole("tab", { name: /GitHub 导入|GitHub Import/i }));
+    await user.type(
+      screen.getByRole("textbox", { name: "GitHub URL" }),
+      "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
+    );
+    await user.selectOptions(screen.getByRole("combobox"), "replace");
+    await user.click(screen.getByRole("button", { name: /从 GitHub 导入|Import from GitHub/i }));
+
+    await waitFor(() => {
+      expect(mockImportWorkspaceSkillFromUrlAction).toHaveBeenCalledWith({
+        url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
+        conflict: "replace",
+      });
+    });
+  });
+
   it("renders builtin skills as read-only in the editor", async () => {
     const user = userEvent.setup();
 
@@ -383,4 +414,5 @@ describe("SkillsPageClient", () => {
     expect(screen.queryByRole("button", { name: /批量导出/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /批量重新导入/i })).not.toBeInTheDocument();
   });
+
 });

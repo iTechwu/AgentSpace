@@ -84,6 +84,7 @@ const {
   createChannelActionMock,
   deleteChannelAttachmentActionMock,
   getChannelDetailDataActionMock,
+  getFeishuChannelMemberSnapshotActionMock,
   renameChannelActionMock,
   sendChannelMessageActionMock,
   sendContactMessageActionMock,
@@ -104,6 +105,7 @@ const {
     channelFiles: [],
     detailScope: [channelName],
   })),
+  getFeishuChannelMemberSnapshotActionMock: vi.fn(async () => null),
   renameChannelActionMock: vi.fn(async () => {}),
   sendChannelMessageActionMock: vi.fn<(formData: FormData) => Promise<void>>(async () => {}),
   sendContactMessageActionMock: vi.fn<(formData: FormData) => Promise<void>>(async () => {}),
@@ -132,6 +134,7 @@ vi.mock("@/features/channels/actions", () => ({
   createExternalGoogleSheetDocumentAction: vi.fn(async () => ({ documentId: "sheet-1" })),
   createChannelDocumentFromAttachmentAction: vi.fn(async () => ({ documentId: "doc-1" })),
   getChannelDetailDataAction: getChannelDetailDataActionMock,
+  getFeishuChannelMemberSnapshotAction: getFeishuChannelMemberSnapshotActionMock,
   deleteChannelAttachmentAction: deleteChannelAttachmentActionMock,
   deleteChannelAction: vi.fn(async () => {}),
   exportChannelDocumentAttachmentAction: vi.fn(async () => {}),
@@ -329,6 +332,8 @@ describe("ChannelsPageClient", () => {
     createChannelActionMock.mockClear();
     deleteChannelAttachmentActionMock.mockClear();
     getChannelDetailDataActionMock.mockClear();
+    getFeishuChannelMemberSnapshotActionMock.mockReset();
+    getFeishuChannelMemberSnapshotActionMock.mockResolvedValue(null);
     renameChannelActionMock.mockClear();
     sendChannelMessageActionMock.mockClear();
     sendContactMessageActionMock.mockClear();
@@ -457,6 +462,53 @@ describe("ChannelsPageClient", () => {
     expect(within(feishuSummary).getByText("Launch Doc")).toBeInTheDocument();
     expect(within(feishuSummary).getByText(/Guest readable/)).toBeInTheDocument();
     expect(within(feishuSummary).getByText(/写入需审批/)).toBeInTheDocument();
+    expect(within(feishuSummary).queryByText(/暂无可读取的成员信息/)).not.toBeInTheDocument();
+  });
+
+  it("uses live Feishu member details when the integration is permitted to read them", async () => {
+    getFeishuChannelMemberSnapshotActionMock.mockResolvedValue({
+      chatName: "Launch Room",
+      userCount: 1,
+      botCount: 2,
+      members: [{ displayName: "吴敏" }],
+    });
+
+    render(
+      <TestProviders>
+        <ChannelsPageClient
+          currentUserDisplayName="techwu"
+          data={{
+            ...data,
+            channels: [{
+              ...data.channels[0]!,
+              feishu: {
+                bindingCount: 1,
+                externalChatName: "Launch Room",
+                connectedAgentBots: [],
+                resourceBindings: [],
+              },
+            }],
+          }}
+        />
+      </TestProviders>,
+    );
+
+    await waitFor(() => {
+      expect(getFeishuChannelMemberSnapshotActionMock).toHaveBeenCalledWith({
+        channelName: "tour visit",
+        workspaceId: "workspace-1",
+      });
+    });
+    await waitFor(() => {
+      const feishuSummary = screen.getByLabelText(/飞书群聊绑定|Feishu group binding/);
+      expect(within(feishuSummary).getByText("1 位成员 · 2 个机器人")).toBeInTheDocument();
+      expect(within(feishuSummary).getByText("吴敏")).toBeInTheDocument();
+      expect(screen.getByLabelText("1 位成员")).toBeInTheDocument();
+      expect(screen.getByLabelText("2 个机器人")).toBeInTheDocument();
+    });
+    expect(screen.getAllByText("Launch Room").length).toBeGreaterThan(0);
+    expect(screen.getByText("Atlas: 请查看附件。")).toBeInTheDocument();
+    expect(screen.queryByText("1 humans / 2 bots")).not.toBeInTheDocument();
   });
 
   it("subscribes to channel realtime events and debounces refreshes without clearing the draft", async () => {

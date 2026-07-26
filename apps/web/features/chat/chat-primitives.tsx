@@ -49,8 +49,7 @@ export const ConversationListRow = memo(function ConversationListRow({
             {item.unread ? <i className="unread-dot" /> : null}
           </span>
         </div>
-        <p>{item.subtitle}</p>
-        <div className="contact-row__meta">{item.meta}</div>
+        <p className="contact-row__preview">{item.meta || item.subtitle}</p>
       </div>
     </button>
   );

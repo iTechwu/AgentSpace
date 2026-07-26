@@ -60,6 +60,30 @@ export {
   setEmployeeSkillIdsSync,
   listEmployeeSkillIdsByAgentIdMapSync,
 } from "./employees/employees.ts";
+export {
+  hasGitHubSkillDependenciesSync,
+  queueGitHubSkillDependenciesForAgentSync,
+} from "./skills/dependency-install.ts";
+export type { SkillDependencyDeclaration } from "./skills/dependencies.ts";
+export {
+  buildSkillRequirementRuntimeContext,
+  getSkillRequirementBlockers,
+  normalizeSkillRequirementConfiguration,
+  parseSkillRequirementDeclarations,
+  readSkillRequirementConfiguration,
+  readSkillRequirementDeclarations,
+  serializeSkillRequirementConfiguration,
+} from "./skills/requirements.ts";
+export type {
+  SkillRequirementConfiguration,
+  SkillRequirementDeclaration,
+  SkillRequirementKind,
+} from "./skills/requirements.ts";
+export {
+  assertAgentSkillRequirementsReadySync,
+  readAgentSkillRequirementConfigurationSync,
+  upsertAgentSkillRequirementsSync,
+} from "./skills/agent-skill-requirements.ts";
 
 // Runtime access
 export {
@@ -530,6 +554,7 @@ export {
   processFeishuWebSocketEvent,
   queueFeishuAgentStatusCardOutboxSync,
   queueFeishuChannelAutoProvisionConfirmationOutboxSync,
+  readFeishuChatMemberSnapshot,
   queueFeishuChannelReplyOutboxSync,
   queueFeishuOutboundMessageSync,
   recordFeishuCardActionCallbackIgnoredSync,
@@ -643,6 +668,7 @@ export {
   type FeishuCardActionCallbackResult,
   type FeishuChannelAutoProvisionPolicy,
   type FeishuChannelAutoProvisionResult,
+  type FeishuChatMemberSnapshot,
   type FeishuChatDescriptor,
   type FeishuExternalGuestActor,
   type FeishuExternalGuestDecision,

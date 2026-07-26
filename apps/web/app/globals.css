@@ -1577,8 +1577,7 @@ textarea:focus {
 }
 
 .contact-row__title span,
-.contact-row__content p,
-.contact-row__meta,
+.contact-row__preview,
 .contacts-chat-header p {
   color: var(--muted);
 }
@@ -1594,15 +1593,13 @@ textarea:focus {
   flex: none;
 }
 
-.contact-row__content p {
+.contact-row__preview {
   margin: 0.2rem 0 0;
   font-size: 0.88rem;
-}
-
-.contact-row__meta {
-  margin-top: 0.35rem;
-  font-size: 0.82rem;
   line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .contacts-chat-header__main {
@@ -4267,6 +4264,64 @@ textarea:focus {
   color: #1d1d1f;
   font: 0.92rem/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   resize: vertical;
+}
+
+.skills-editor__dependencies {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.skills-editor__dependencies > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.skills-editor__dependencies > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.skills-editor__dependencies code {
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  background: rgba(36, 36, 38, 0.07);
+  color: var(--text);
+  font-size: 0.76rem;
+}
+
+.skills-editor__requirements {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.skills-editor__requirements > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.skills-editor__requirements > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.skills-editor__requirements code {
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  background: rgba(36, 36, 38, 0.07);
+  color: var(--text);
+  font-size: 0.76rem;
 }
 
 .skills-page .meta-strip {
@@ -7356,6 +7411,10 @@ textarea:focus {
   overflow: hidden;
 }
 
+.modal-card--skill-requirements {
+  width: min(680px, 100%);
+}
+
 .modal-card--agent-create {
   display: flex;
   flex-direction: column;
@@ -7446,7 +7505,7 @@ textarea:focus {
 
 .agent-create-mode {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.35rem;
   padding: 0.25rem;
   border: 1px solid rgba(71, 56, 42, 0.1);
@@ -7476,6 +7535,87 @@ textarea:focus {
 
 .agent-create-mode__button--active:hover {
   color: #ffffff;
+}
+
+.skill-github-import {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 42rem);
+}
+
+.skill-requirements-modal__body {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.skill-requirements-modal__section {
+  display: grid;
+  gap: 0.75rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.skill-requirements-modal__section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.skill-requirements-modal__section h4,
+.skill-requirements-modal__section p {
+  margin: 0;
+}
+
+.skill-requirements-modal__section h4 {
+  font-size: 0.92rem;
+}
+
+.skill-requirements-modal__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.skill-requirements-modal__note,
+.skill-requirements-modal__section--blocked ul {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.skill-requirements-modal__capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.9rem;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.skill-requirements-modal__capabilities > span {
+  font-weight: 700;
+}
+
+.skill-requirements-modal__capabilities label {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  color: var(--text);
+}
+
+.skill-requirements-modal__section--blocked {
+  padding: 0.85rem 0.95rem;
+  border-left: 3px solid #c78b2c;
+  background: rgba(199, 139, 44, 0.1);
+}
+
+.skill-requirements-modal__section--blocked ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+@media (max-width: 640px) {
+  .skill-requirements-modal__grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .agent-template-market,
@@ -16486,7 +16626,7 @@ textarea:focus {
 
 .channel-feishu-summary {
   display: grid;
-  grid-template-columns: minmax(13rem, 1.4fr) minmax(10rem, 1fr) minmax(10rem, 1fr);
+  grid-template-columns: minmax(13rem, 1.4fr) minmax(10rem, 1fr) minmax(10rem, 1fr) minmax(10rem, 1fr);
   gap: 0.65rem;
   margin: 0 1.25rem 0.75rem;
   padding: 0.7rem 0.8rem;
@@ -16531,7 +16671,8 @@ textarea:focus {
 }
 
 .channel-feishu-summary__bot-chip,
-.channel-feishu-summary__resource-chip {
+.channel-feishu-summary__resource-chip,
+.channel-feishu-summary__member-chip {
   display: inline-grid;
   gap: 0.12rem;
   min-width: min(100%, 12rem);
@@ -16560,6 +16701,12 @@ textarea:focus {
 
 .channel-feishu-summary__resource-chip small {
   color: rgba(0, 0, 0, 0.48);
+}
+
+.channel-feishu-summary__member-chip {
+  color: #163a3b;
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
 .channel-workspace-header__icon-button {
@@ -17938,10 +18085,9 @@ textarea:focus {
 
   .workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contact-row__title strong,
   .workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contact-row__title span,
-  .workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contact-row__content p,
-  .workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contact-row__meta {
+  .workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contact-row__preview {
     min-width: 0;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contact-row__title strong,
@@ -17958,12 +18104,13 @@ textarea:focus {
     overflow-wrap: normal;
   }
 
-  .workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contact-row__content p,
-  .workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contact-row__meta {
+  .workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contact-row__preview {
     display: block;
     margin: 0;
     line-height: 1.35;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .workspace-main--conversation .inbox-row__title,

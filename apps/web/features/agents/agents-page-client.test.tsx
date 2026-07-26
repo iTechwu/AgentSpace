@@ -51,6 +51,7 @@ vi.mock("@/features/agents/actions", () => ({
   createAgentAccessRequestAction: vi.fn(async () => ({ data: undefined })),
   createAgentForkInvitationAction: vi.fn(async () => ({ data: undefined })),
   createWorkspaceAgentAction: vi.fn(async () => {}),
+  installWorkspaceAgentSkillAction: vi.fn(async () => ({ data: undefined })),
   createWorkspaceTaskAction: vi.fn(async () => {}),
   deleteWorkspaceAgentAction: vi.fn(async () => {}),
   deleteWorkspaceRuntimeAction: vi.fn(async () => {}),

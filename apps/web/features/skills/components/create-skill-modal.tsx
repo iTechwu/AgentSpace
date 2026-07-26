@@ -10,6 +10,10 @@ interface CreateSkillModalProps {
   readonly onCancel: () => void;
   readonly onConfirm: (input: { name: string; description: string }) => void;
   readonly onImportPreset?: (input: { url: string; conflict: "rename" }) => void;
+  readonly onImportGitHub?: (input: {
+    url: string;
+    conflict: "reject" | "rename" | "replace" | "skip";
+  }) => void;
 }
 
 export function CreateSkillModal({
@@ -17,10 +21,11 @@ export function CreateSkillModal({
   onCancel,
   onConfirm,
   onImportPreset,
+  onImportGitHub,
 }: CreateSkillModalProps) {
   const { tx } = useLanguage();
   const { surfaceRef, handleBackdropMouseDown, labelId, descriptionId } = useDialogSurface<HTMLFormElement>(onCancel);
-  const [mode, setMode] = useState<"preset" | "blank">("preset");
+  const [mode, setMode] = useState<"preset" | "github" | "blank">("preset");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<"all" | "finance" | "product" | "design">("all");
   const [draft, setDraft] = useState({ name: "", description: "" });
@@ -61,6 +66,13 @@ export function CreateSkillModal({
             return;
           }
           const formData = new FormData(event.currentTarget);
+          if (mode === "github") {
+            onImportGitHub?.({
+              url: getField(formData, "githubUrl"),
+              conflict: getField(formData, "conflict") as "reject" | "rename" | "replace" | "skip",
+            });
+            return;
+          }
           onConfirm({
             name: getField(formData, "name"),
             description: getField(formData, "description"),
@@ -70,7 +82,7 @@ export function CreateSkillModal({
         <div className="modal-card__header">
           <div>
             <h3 id={labelId}>{tx("创建 Skill", "Create skill")}</h3>
-            <p id={descriptionId}>{tx("从预设市场导入，或创建一个空白 Skill。", "Import from the preset marketplace, or create a blank skill.")}</p>
+            <p id={descriptionId}>{tx("从预设市场或 GitHub 导入，也可以创建一个空白 Skill。", "Import from the preset marketplace or GitHub, or create a blank skill.")}</p>
           </div>
           <button className="modal-close" onClick={onCancel} type="button">
             <AppIcon name="close" />
@@ -86,6 +98,15 @@ export function CreateSkillModal({
               type="button"
             >
               {tx("预设市场", "Preset marketplace")}
+            </button>
+            <button
+              aria-selected={mode === "github"}
+              className={`agent-create-mode__button${mode === "github" ? " agent-create-mode__button--active" : ""}`}
+              onClick={() => setMode("github")}
+              role="tab"
+              type="button"
+            >
+              GitHub {tx("导入", "Import")}
             </button>
             <button
               aria-selected={mode === "blank"}
@@ -172,6 +193,32 @@ export function CreateSkillModal({
                 </div>
               ) : null}
             </div>
+          ) : mode === "github" ? (
+            <div className="skill-github-import" aria-label={tx("从 GitHub 导入 Skill", "Import skill from GitHub")}>
+              <label className="form-field">
+                <span>GitHub URL</span>
+                <input
+                  aria-label="GitHub URL"
+                  autoFocus
+                  name="githubUrl"
+                  placeholder="https://github.com/owner/repository/tree/main/skills/my-skill"
+                  required
+                  type="url"
+                />
+                <small className="form-field__hint">
+                  {tx("粘贴包含 SKILL.md 的 GitHub tree、blob 或 raw 链接。", "Paste a GitHub tree, blob, or raw link that contains SKILL.md.")}
+                </small>
+              </label>
+              <label className="form-field">
+                <span>{tx("冲突策略", "Conflict strategy")}</span>
+                <select defaultValue="rename" name="conflict">
+                  <option value="reject">{tx("拒绝导入", "Reject import")}</option>
+                  <option value="rename">{tx("自动重命名", "Rename imported skill")}</option>
+                  <option value="replace">{tx("替换现有 Skill", "Replace existing skill")}</option>
+                  <option value="skip">{tx("已存在则跳过", "Skip existing skill")}</option>
+                </select>
+              </label>
+            </div>
           ) : (
             <>
               <label className="form-field">
@@ -202,7 +249,11 @@ export function CreateSkillModal({
           <button className="modal-secondary-button" onClick={onCancel} type="button">
             {tx("取消", "Cancel")}
           </button>
-          {mode === "blank" ? (
+          {mode === "github" ? (
+            <button className="primary-button" disabled={pending || !onImportGitHub} type="submit">
+              {pending ? tx("导入中...", "Importing...") : tx("从 GitHub 导入", "Import from GitHub")}
+            </button>
+          ) : mode === "blank" ? (
             <button className="primary-button" disabled={pending} type="submit">
               {pending ? tx("创建中...", "Creating...") : tx("创建", "Create")}
             </button>

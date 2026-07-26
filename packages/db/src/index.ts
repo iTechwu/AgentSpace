@@ -3,6 +3,7 @@ export type {
   StoredSkillRecord,
   StoredSkillFileRecord,
   StoredAgentSkillRecord,
+  StoredAgentSkillRequirementConfigRecord,
   StoredKnowledgeAssignmentPolicyRecord,
   StoredAgentKnowledgePageRecord,
   StoredSkillImportEventRecord,
@@ -300,6 +301,12 @@ export {
   readEmployeeRuntimeBindingSync,
   listEmployeeRuntimeBindingsSync,
 } from "./employee-bindings.ts";
+
+export {
+  readAgentSkillRequirementConfigSync,
+  upsertAgentSkillRequirementConfigSync,
+  deleteAgentSkillRequirementConfigSync,
+} from "./agent-skill-requirement-configs.ts";
 
 // Agent fork invitations
 export {

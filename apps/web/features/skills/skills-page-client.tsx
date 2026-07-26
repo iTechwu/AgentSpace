@@ -240,6 +240,16 @@ export function SkillsPageClient({
               },
             )
           }
+          onImportGitHub={(input) =>
+            runAction(
+              () => importWorkspaceSkillFromUrlAction(input),
+              (result) => {
+                setSelectedSkillId(result.skillId);
+                setShowCreateSkill(false);
+                clearCreateSkillQuery();
+              },
+            )
+          }
         />
       ) : null}
 
@@ -258,6 +268,7 @@ export function SkillsPageClient({
           }
         />
       ) : null}
+
 
       <div
         className={`skills-studio${isCompactLayout ? " skills-studio--compact" : ""}`}

@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import type { DaemonProvider } from "@dofe-agent/domain";
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { normalizeSkillFilePath } from "../shared/helpers.ts";
+import { buildSkillRequirementRuntimeContext } from "./requirements.ts";
 
 const PROVIDER_NATIVE_SKILL_ROOT_SEGMENTS: Partial<Record<DaemonProvider, readonly string[]>> = {
   claude: [".claude", "skills"],
@@ -60,6 +61,11 @@ function writeSkillsToRoot(skills: WorkspaceSkill[], rootDir: string): void {
       const targetPath = join(skillDir, relativePath);
       mkdirSync(dirname(targetPath), { recursive: true });
       writeFileSync(targetPath, file.content, "utf8");
+    }
+
+    const requirementContext = buildSkillRequirementRuntimeContext(skill.configJson);
+    if (requirementContext) {
+      writeFileSync(join(skillDir, "skill.config.json"), `${JSON.stringify(requirementContext, null, 2)}\n`, "utf8");
     }
   }
 }

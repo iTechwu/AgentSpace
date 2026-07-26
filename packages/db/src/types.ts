@@ -625,7 +625,7 @@ export interface StoredAgentForkSnapshotRecord {
   createdAt: string;
 }
 
-export type RuntimeAppCatalogSource = "clihub_harness" | "clihub_public";
+export type RuntimeAppCatalogSource = "clihub_harness" | "clihub_public" | "skill_dependency";
 export type RuntimeAppInstallStrategy = "cli_hub" | "pip" | "npm" | "uv" | "bundled" | "manual";
 export type RuntimeInstalledAppStatus = "installed" | "installing" | "failed" | "disabled" | "missing";
 export type RuntimeAppOperationType = "install" | "update" | "uninstall" | "verify" | "disable" | "enable";
@@ -726,6 +726,18 @@ export interface StoredAgentSkillRecord {
   employeeName: string;
   skillId: string;
   createdAt: string;
+}
+
+export interface StoredAgentSkillRequirementConfigRecord {
+  workspaceId: string;
+  employeeName: string;
+  skillId: string;
+  configJson: string;
+  encryptedSecretsJson: string;
+  createdByUserId?: string;
+  updatedByUserId?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface StoredKnowledgeAssignmentPolicyRecord {

@@ -76,3 +76,27 @@ test("materializeWorkspaceSkillsForProvider falls back to compatibility-only pat
     rmSync(workDir, { recursive: true, force: true });
   }
 });
+
+test("materializeWorkspaceSkillsForProvider writes configured requirements without secret values", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-skill-injection-"));
+  try {
+    const skill = createSkill();
+    skill.configJson = JSON.stringify({
+      requirements: [
+        { kind: "project", value: "repository" },
+        { kind: "secret", value: "API_KEY" },
+      ],
+      requirementConfiguration: {
+        projectWorkDir: "/workspace/repository",
+        values: {},
+      },
+    });
+    const result = materializeWorkspaceSkillsForProvider({ skills: [skill], workDir, provider: "codex" });
+    const config = readFileSync(join(result.nativeDir!, "research-pack-123456", "skill.config.json"), "utf8");
+    assert.match(config, /\/workspace\/repository/);
+    assert.match(config, /credential_center_required/);
+    assert.equal(config.includes("not-stored"), false);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
