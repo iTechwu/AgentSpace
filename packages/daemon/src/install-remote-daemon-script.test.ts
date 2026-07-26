@@ -148,6 +148,8 @@ test("install script prints installed daemon version in bootstrap summary", () =
       "--server-url", "https://dofe-agent.example",
       "--daemon-token", "adt_test",
       "--daemon-id", "daemon-test",
+      "--provider-account-id", "provider-account-team-a",
+      "--runtime-provider", "claude",
       "--base-dir", baseDir,
       "--path", `${providerBinDir}:${process.env.PATH ?? ""}`,
     ], {
@@ -163,6 +165,9 @@ test("install script prints installed daemon version in bootstrap summary", () =
     assert.match(result.stdout, /Version:\n  9\.8\.7-test/);
     assert.equal(existsSync(envFile), true);
     assert.equal(existsSync(launcherPath), true);
+    const generatedEnv = readFileSync(envFile, "utf8");
+    assert.match(generatedEnv, /DOFE_AGENT_PROVIDER_ACCOUNT_ID=provider-account-team-a/);
+    assert.match(generatedEnv, /DOFE_AGENT_RUNTIME_PROVIDER=claude/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

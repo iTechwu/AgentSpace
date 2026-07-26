@@ -121,7 +121,12 @@ export async function requestRuntimeProvisionAction(input: {
   return actionToastResult({ id: request.id }, successToast("执行引擎供给请求已创建。", "Runtime provisioning request created."));
 }
 
-export async function approveRuntimeProvisionAction(requestId: string): Promise<ActionToastResult<{ token: string; tokenId: string }>> {
+export async function approveRuntimeProvisionAction(requestId: string): Promise<ActionToastResult<{
+  token: string;
+  tokenId: string;
+  providerAccountId: string;
+  provider: DaemonProvider;
+}>> {
   const context = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(context, "admin");
   const { created, request } = withTransaction(getDatabase(), () => {
@@ -151,7 +156,7 @@ export async function approveRuntimeProvisionAction(requestId: string): Promise<
     data: { actorType: "session_user", resourceType: "runtime_provision_request", resourceId: request.id, daemonTokenId: created.id },
   });
   revalidateWorkspaceRoutes(context.currentWorkspace.slug);
-  return actionToastResult({ token: created.token, tokenId: created.id }, successToast("供给请求已批准，服务器令牌已创建。", "Provisioning request approved and server token created."));
+  return actionToastResult({ token: created.token, tokenId: created.id, providerAccountId: request.providerAccountId, provider: request.provider }, successToast("供给请求已批准，服务器令牌已创建。", "Provisioning request approved and server token created."));
 }
 
 export async function createWorkspaceAgentAction(input: {

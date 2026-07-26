@@ -44,6 +44,7 @@ export function DaemonManagementPanel({
     id: string;
     label: string;
     token: string;
+    installCommand?: string;
   } | null>(null);
 
   return (
@@ -97,7 +98,7 @@ export function DaemonManagementPanel({
           <label className="form-field"><span>{tx("目标服务器", "Target server")}</span><input name="targetServer" required type="text" /></label>
           <button className="primary-button" disabled={isPending || providerAccounts.every((account) => account.status !== "active")} type="submit">{tx("提交供给请求", "Request runtime")}</button>
         </form>
-        {runtimeProvisionRequests.length > 0 ? <div className="settings-token-list">{runtimeProvisionRequests.map((request) => <article className="settings-token-card" key={request.id}><strong>{request.runtimeName}</strong><p>{request.providerAccountName} · {request.targetServer}</p><p>{request.status}</p>{request.status === "approved" ? <p><code>DOFE_AGENT_PROVIDER_ACCOUNT_ID={request.providerAccountId}</code></p> : null}{request.status === "requested" ? <button className="primary-button" disabled={isPending} onClick={() => startTransition(async () => { await runToastAction({ action: () => approveRuntimeProvisionAction(request.id), onSuccess: async (result) => { setCreatedToken({ id: result.tokenId, label: `provision-${request.id}`, token: result.token }); router.refresh(); }, pushToast, tx, fallbackError: { zh: "批准供给请求失败。", en: "Failed to approve provisioning request." } }); })} type="button">{tx("批准并创建令牌", "Approve and create token")}</button> : null}</article>)}</div> : null}
+        {runtimeProvisionRequests.length > 0 ? <div className="settings-token-list">{runtimeProvisionRequests.map((request) => <article className="settings-token-card" key={request.id}><strong>{request.runtimeName}</strong><p>{request.providerAccountName} · {request.targetServer}</p><p>{request.status}</p>{request.status === "approved" ? <p><code>DOFE_AGENT_PROVIDER_ACCOUNT_ID={request.providerAccountId}</code></p> : null}{request.status === "requested" ? <button className="primary-button" disabled={isPending} onClick={() => startTransition(async () => { await runToastAction({ action: () => approveRuntimeProvisionAction(request.id), onSuccess: async (result) => { setCreatedToken({ id: result.tokenId, label: `provision-${request.id}`, token: result.token, installCommand: buildProvisionInstallCommand(window.location.origin, result.token, result.providerAccountId, result.provider) }); router.refresh(); }, pushToast, tx, fallbackError: { zh: "批准供给请求失败。", en: "Failed to approve provisioning request." } }); })} type="button">{tx("批准并创建令牌", "Approve and create token")}</button> : null}</article>)}</div> : null}
       </div>
 
       <div className="subsection">
@@ -252,6 +253,7 @@ export function DaemonManagementPanel({
             <strong>{tx("新令牌已创建", "New Token Created")}</strong>
             <p>{tx("这个值只会展示一次，请立即复制给远程服务器。", "This value is only shown once. Copy it now for the remote server.")}</p>
             <code>{createdToken.token}</code>
+            {createdToken.installCommand ? <code>{createdToken.installCommand}</code> : null}
           </div>
         ) : null}
 
@@ -310,6 +312,10 @@ export function DaemonManagementPanel({
       </div>
     </>
   );
+}
+
+function buildProvisionInstallCommand(origin: string, daemonToken: string, providerAccountId: string, provider: string): string {
+  return `bash <(curl -fsSL ${origin}/api/daemon/install-script) --daemon-token ${JSON.stringify(daemonToken)} --provider-account-id ${JSON.stringify(providerAccountId)} --runtime-provider ${JSON.stringify(provider)}`;
 }
 
 function formatProviderHealth(

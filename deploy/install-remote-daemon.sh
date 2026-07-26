@@ -10,6 +10,8 @@ PACKAGE_URL=""
 SERVER_URL="$DEFAULT_SERVER_URL"
 DAEMON_TOKEN=""
 DAEMON_ID=""
+PROVIDER_ACCOUNT_ID=""
+RUNTIME_PROVIDER=""
 DEVICE_NAME="$(hostname -s 2>/dev/null || hostname || echo remote-daemon)"
 RUNTIME_NAME="Remote Agent"
 BASE_DIR="${DOFE_AGENT_DAEMON_HOME:-$HOME/.dofe-agent-daemon}"
@@ -23,6 +25,8 @@ UPDATE_EXISTING="false"
 SERVER_URL_SET="false"
 DAEMON_TOKEN_SET="false"
 DAEMON_ID_SET="false"
+PROVIDER_ACCOUNT_ID_SET="false"
+RUNTIME_PROVIDER_SET="false"
 DEVICE_NAME_SET="false"
 RUNTIME_NAME_SET="false"
 STATE_DIR_SET="false"
@@ -57,6 +61,8 @@ Usage:
 
 Required:
   --daemon-token <token>   required unless --update-existing can read daemon.env
+  --provider-account-id <id>  required when the workspace has a configured Provider Account
+  --runtime-provider <id>     restrict this runtime to one provider CLI
 
 Defaults:
   --server-url <url>       default: baked into install-script when served from Server A
@@ -223,6 +229,16 @@ while [[ $# -gt 0 ]]; do
       DAEMON_ID_SET="true"
       shift 2
       ;;
+    --provider-account-id)
+      PROVIDER_ACCOUNT_ID="${2:-}"
+      PROVIDER_ACCOUNT_ID_SET="true"
+      shift 2
+      ;;
+    --runtime-provider)
+      RUNTIME_PROVIDER="${2:-}"
+      RUNTIME_PROVIDER_SET="true"
+      shift 2
+      ;;
     --device-name)
       DEVICE_NAME="${2:-}"
       DEVICE_NAME_SET="true"
@@ -299,6 +315,12 @@ if [[ "$UPDATE_EXISTING" == "true" ]]; then
   fi
   if [[ "$DAEMON_ID_SET" != "true" && -n "${DOFE_AGENT_DAEMON_ID:-}" ]]; then
     DAEMON_ID="$DOFE_AGENT_DAEMON_ID"
+  fi
+  if [[ "$PROVIDER_ACCOUNT_ID_SET" != "true" && -n "${DOFE_AGENT_PROVIDER_ACCOUNT_ID:-}" ]]; then
+    PROVIDER_ACCOUNT_ID="$DOFE_AGENT_PROVIDER_ACCOUNT_ID"
+  fi
+  if [[ "$RUNTIME_PROVIDER_SET" != "true" && -n "${DOFE_AGENT_RUNTIME_PROVIDER:-}" ]]; then
+    RUNTIME_PROVIDER="$DOFE_AGENT_RUNTIME_PROVIDER"
   fi
   if [[ "$DEVICE_NAME_SET" != "true" && -n "${DOFE_AGENT_DEVICE_NAME:-}" ]]; then
     DEVICE_NAME="$DOFE_AGENT_DEVICE_NAME"
@@ -400,6 +422,8 @@ PATH=$(printf '%q' "$PROVIDER_PATH")
 DOFE_AGENT_SERVER_URL=$(printf '%q' "$SERVER_URL")
 DOFE_AGENT_DAEMON_TOKEN=$(printf '%q' "$DAEMON_TOKEN")
 DOFE_AGENT_DAEMON_ID=$(printf '%q' "$DAEMON_ID")
+DOFE_AGENT_PROVIDER_ACCOUNT_ID=$(printf '%q' "$PROVIDER_ACCOUNT_ID")
+DOFE_AGENT_RUNTIME_PROVIDER=$(printf '%q' "$RUNTIME_PROVIDER")
 DOFE_AGENT_DEVICE_NAME=$(printf '%q' "$DEVICE_NAME")
 DOFE_AGENT_RUNTIME_NAME=$(printf '%q' "$RUNTIME_NAME")
 DOFE_AGENT_DAEMON_STATE_DIR=$(printf '%q' "$STATE_DIR")
