@@ -93,6 +93,7 @@ export {
 } from "./client.ts";
 export {
   readFeishuChatMemberSnapshot,
+  resolveFeishuChatMemberDisplayName,
   type FeishuChatMemberSnapshot,
 } from "./chat-members.ts";
 export {

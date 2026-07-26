@@ -18,6 +18,7 @@ export type AppIconName =
   | "costs"
   | "download"
   | "edit"
+  | "feishu"
   | "groups"
   | "info"
   | "knowledge"
@@ -148,6 +149,13 @@ function renderIcon(name: AppIconName) {
             strokeLinejoin="round"
             strokeWidth="1.6"
           />
+        </>
+      );
+    case "feishu":
+      return (
+        <>
+          <circle cx="9" cy="9" r="5.5" fill="currentColor" opacity="0.15" />
+          <path d="M6.4 7.25c.55-1.3 1.5-2.15 2.6-2.15s2.05.85 2.6 2.15M6.1 10.1c.65 1.55 1.7 2.55 2.9 2.55s2.25-1 2.9-2.55M5.6 8.85h6.8" stroke="currentColor" strokeLinecap="round" strokeWidth="1.35" />
         </>
       );
     case "scissors":

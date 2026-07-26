@@ -2557,6 +2557,25 @@ textarea:focus {
   margin-bottom: 0.42rem;
 }
 
+.inbox-bubble__meta strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.inbox-bubble__provider-icon {
+  display: inline-flex;
+  width: 0.9rem;
+  height: 0.9rem;
+  flex: none;
+  color: #3370ff;
+}
+
+.inbox-bubble__provider-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
 .inbox-bubble p {
   margin: 0;
   line-height: 1.6;

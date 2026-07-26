@@ -16,6 +16,7 @@ import {
   isFeishuUrlVerificationPayload,
   processFeishuCardActionCallback,
   processFeishuInboundEvent,
+  resolveFeishuChatMemberDisplayName,
   recordFeishuCardActionCallbackIgnoredSync,
   recordFeishuCallbackRejectedSync,
   resolveFeishuCallbackAppId,
@@ -160,6 +161,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         workspaceId,
         appId: integration.appId ?? "",
         appSecret: credentials.appSecret,
+        baseUrl: process.env.DOFE_AGENT_FEISHU_API_BASE_URL,
+      }),
+      resolveExternalSenderDisplayName: ({ externalChatId, externalSenderId }) => resolveFeishuChatMemberDisplayName({
+        appId: integration.appId ?? "",
+        appSecret: credentials.appSecret,
+        chatId: externalChatId,
+        externalUserId: externalSenderId,
         baseUrl: process.env.DOFE_AGENT_FEISHU_API_BASE_URL,
       }),
     });

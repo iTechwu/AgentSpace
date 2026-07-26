@@ -1034,6 +1034,9 @@ function formatUserFacingTaskFailure(errorText: string): string {
   if (/This command requires approval/i.test(trimmed)) {
     return "运行时需要命令审批，但当前会话无法交互审批。";
   }
+  if (/unexpected argument ['"]--sandbox['"]|exec resume[\s\S]*--sandbox/i.test(trimmed)) {
+    return "绑定执行引擎上的 Codex CLI 不支持当前会话续接参数；已阻止跨引擎改派，请更新执行引擎后重试。";
+  }
   const withoutDiagnosticBlock = trimmed.replace(/\s*\((?:code|exitCode|timedOut|events|resultEvent|textEvent|toolEvent|parseErrors|nonJsonLines|stdoutTail|stderrTail|sessionId)=[\s\S]*\)\s*$/i, "").trim();
   const compact = withoutDiagnosticBlock || trimmed;
   return compact.length > 180 ? `${compact.slice(0, 177)}...` : compact;

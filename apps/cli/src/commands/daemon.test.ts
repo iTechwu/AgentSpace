@@ -14,6 +14,7 @@ import {
   buildTaskPrompt,
   buildDaemonConfig,
   clearTaskOutputArtifacts,
+  isMissingDaemonRegistrationError,
   loadTaskOutputEnvelope,
   runDaemonCommand,
   startManagedFeishuWorker,
@@ -38,6 +39,17 @@ test("buildDaemonConfig preserves an explicit workspace id", () => {
 
   assert.equal(config.workspaceId, "workspace-alpha");
   assert.equal(config.manageFeishuWorker, true);
+});
+
+test("identifies the missing daemon registration error used for heartbeat recovery", () => {
+  assert.equal(
+    isMissingDaemonRegistrationError(new Error('Daemon "daemon-alpha" does not exist.'), "daemon-alpha"),
+    true,
+  );
+  assert.equal(
+    isMissingDaemonRegistrationError(new Error("database unavailable"), "daemon-alpha"),
+    false,
+  );
 });
 
 test("buildDaemonConfig allows a daemon to opt out of Feishu worker management", () => {

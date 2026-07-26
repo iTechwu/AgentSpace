@@ -79,12 +79,26 @@ test("resolvePostgresDatabaseUrl prefers the explicit test database URL", () => 
   assert.equal(url, "postgres://localhost/dofe_agent_test");
 });
 
+test("resolvePostgresDatabaseUrl ignores a test database URL outside test processes", () => {
+  const url = resolvePostgresDatabaseUrl({
+    env: {
+      NODE_ENV: "development",
+      DOFE_AGENT_TEST_DATABASE_URL: "postgres://localhost/dofe_agent_test",
+      DOFE_AGENT_PG_URL: "postgres://localhost/dofe_agent",
+    },
+  });
+
+  assert.equal(url, "postgres://localhost/dofe_agent");
+});
+
 test("resolvePostgresDatabaseUrl refuses non-test databases during tests", () => {
   assert.throws(
     () =>
       resolvePostgresDatabaseUrl({
         env: {
           NODE_TEST_CONTEXT: "child-v8",
+          DOFE_AGENT_TEST_DATABASE_URL: "",
+          DOFE_AGENT_PG_TEST_URL: "",
           DOFE_AGENT_PG_URL: "postgres://localhost/dofe_agent",
         },
       }),
@@ -96,6 +110,8 @@ test("resolvePostgresDatabaseUrl allows an explicit production-test override", (
   const url = resolvePostgresDatabaseUrl({
     env: {
       NODE_TEST_CONTEXT: "child-v8",
+      DOFE_AGENT_TEST_DATABASE_URL: "",
+      DOFE_AGENT_PG_TEST_URL: "",
       DOFE_AGENT_ALLOW_PRODUCTION_TEST_DB: "1",
       DOFE_AGENT_PG_URL: "postgres://localhost/dofe_agent",
     },

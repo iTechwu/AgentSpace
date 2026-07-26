@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { createSessionForSsoLogin } from "@/features/auth/server-auth";
+import { createSessionForSsoLogin, writeSsoLoginSessionCookies } from "@/features/auth/server-auth";
 import {
   buildSsoCallbackRedirectUrl,
   decodeSsoOidcState,
@@ -29,8 +29,9 @@ export async function GET(request: Request): Promise<NextResponse> {
     if (providerError) throw new Error(providerError === "access_denied" ? "auth.sso_access_denied" : "auth.sso_authorization_failed");
     if (!code || !returnedState || !state) throw new Error("auth.sso_state_invalid");
     const result = await exchangeSsoAuthorizationCode({ code, expectedState: state, returnedState });
-    await createSessionForSsoLogin({ ...result.profile, idToken: result.idToken });
+    const login = await createSessionForSsoLogin({ ...result.profile, idToken: result.idToken });
     const response = NextResponse.redirect(buildSsoCallbackRedirectUrl("/", request.url));
+    writeSsoLoginSessionCookies(response, login.session);
     response.cookies.set(SSO_OIDC_STATE_COOKIE, "", { httpOnly: true, maxAge: 0, path: "/auth/callback", sameSite: "lax", secure: process.env.NODE_ENV === "production" });
     return response;
   } catch (error) {

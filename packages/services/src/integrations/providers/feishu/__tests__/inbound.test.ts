@@ -52,6 +52,10 @@ const databaseTestOptions = process.env.DOFE_AGENT_FEISHU_INBOUND_DB_TESTS === "
   ? {}
   : { skip: "Set DOFE_AGENT_FEISHU_INBOUND_DB_TESTS=1 with a test Postgres URL to run Feishu inbound DB integration tests." };
 
+function isFeishuExternalGuestDisplayName(value: string | undefined): boolean {
+  return Boolean(value?.startsWith(`${FEISHU_EXTERNAL_GUEST_DISPLAY_NAME} #`));
+}
+
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
@@ -1195,7 +1199,7 @@ test("unbound Feishu users can dispatch as a governed external guest on agent bo
   assert.equal(channel?.humanMemberNames?.includes(FEISHU_EXTERNAL_GUEST_DISPLAY_NAME), false);
   const humanMessage = state.messages.find((message) =>
     message.channel === "general" &&
-    message.speaker === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME &&
+    isFeishuExternalGuestDisplayName(message.speaker) &&
     message.summary === "@Atlas help with this error"
   );
   assert.ok(humanMessage);
@@ -1203,7 +1207,7 @@ test("unbound Feishu users can dispatch as a governed external guest on agent bo
   const [queuedTask] = listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID });
   assert.equal(queuedTask?.agentId, "Atlas");
   assert.equal(queuedTask?.requestedByUserId, undefined);
-  assert.equal(queuedTask?.requestedByDisplayName, FEISHU_EXTERNAL_GUEST_DISPLAY_NAME);
+  assert.equal(queuedTask?.requestedByDisplayName, humanMessage.speaker);
   assert.ok(queuedTask);
   const queuedPayload = JSON.parse(queuedTask.inputJson) as {
     externalInput?: {
@@ -1289,7 +1293,7 @@ test("external guest reply_on_mention policy allows same thread follow-ups witho
   const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
   const followUpMessage = state.messages.find((message) =>
     message.channel === "general" &&
-    message.speaker === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME &&
+    isFeishuExternalGuestDisplayName(message.speaker) &&
     message.summary === "@Atlas include the stack trace"
   );
   assert.ok(followUpMessage);
@@ -1563,13 +1567,13 @@ test("agent bot reply_all policy dispatches unmentioned unbound Feishu users to 
   assert.equal(channel?.humanMemberNames?.includes(FEISHU_EXTERNAL_GUEST_DISPLAY_NAME), false);
   const humanMessage = state.messages.find((message) =>
     message.channel === "general" &&
-    message.speaker === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME &&
+    isFeishuExternalGuestDisplayName(message.speaker) &&
     message.summary === "@Atlas help with this error"
   );
   assert.ok(humanMessage);
   const [queuedTask] = listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID });
   assert.equal(queuedTask?.agentId, "Atlas");
-  assert.equal(queuedTask?.requestedByDisplayName, FEISHU_EXTERNAL_GUEST_DISPLAY_NAME);
+  assert.equal(queuedTask?.requestedByDisplayName, humanMessage.speaker);
 
   const mapping = readExternalMessageMappingByExternalMessageSync({
     workspaceId: DEFAULT_WORKSPACE_ID,

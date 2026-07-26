@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   readFeishuChatMemberSnapshot,
+  resolveFeishuChatMemberDisplayName,
   type FeishuApiClient,
 } from "../index.ts";
 
@@ -100,4 +101,30 @@ test("readFeishuChatMemberSnapshot rejects incomplete Feishu member responses", 
     }),
     /member counts/,
   );
+});
+
+test("resolveFeishuChatMemberDisplayName matches the callback sender id to a permitted group member", async () => {
+  const displayName = await resolveFeishuChatMemberDisplayName({
+    appId: "cli_test",
+    appSecret: "secret",
+    chatId: "oc_group",
+    externalUserId: "ou_mina",
+    fetchImpl: (async () => new Response(JSON.stringify({
+      code: 0,
+      tenant_access_token: "tenant-token",
+    }), { status: 200 })) as typeof fetch,
+    clientFactory: () => ({
+      async request() {
+        return {
+          code: 0,
+          data: {
+            has_more: false,
+            items: [{ member_id: "ou_mina", name: "Mina" }],
+          },
+        };
+      },
+    }),
+  });
+
+  assert.equal(displayName, "Mina");
 });

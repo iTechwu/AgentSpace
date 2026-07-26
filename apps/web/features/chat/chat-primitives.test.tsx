@@ -75,7 +75,7 @@ describe("ConversationMessageBubble", () => {
 
   it("renders human and agent mentions with mention type metadata", () => {
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <ConversationMessageBubble
           message={{
             id: "message-1",
@@ -111,12 +111,33 @@ describe("ConversationMessageBubble", () => {
     expect(screen.getByText("@Nova")).toHaveAttribute("title", "Agent mention: Nova");
   });
 
+  it("marks Feishu messages with their source icon", () => {
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <ConversationMessageBubble
+          message={{
+            id: "message-feishu",
+            speaker: "Mina",
+            role: "human",
+            content: "请帮我处理这个问题",
+            data: { external_provider: "feishu" },
+            timestamp: "10:00",
+            status: "completed",
+          }}
+          isOwn={false}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("img", { name: "来自飞书" })).toBeInTheDocument();
+  });
+
   it("renders inline runtime approval actions", async () => {
     const user = userEvent.setup();
     const onReviewApproval = vi.fn(async () => {});
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <ConversationMessageBubble
           message={{
             id: "message-approval",

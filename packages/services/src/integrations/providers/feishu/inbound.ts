@@ -74,8 +74,8 @@ import {
 } from "./channel-auto-provisioning.ts";
 import {
   buildFeishuExternalGuestActor,
-  ensureFeishuExternalGuestChannelActorSync,
   evaluateFeishuExternalGuestPolicy,
+  resolveFeishuExternalGuestDisplayName,
   type FeishuExternalGuestDecision,
   type FeishuExternalGuestActor,
 } from "./external-guests.ts";
@@ -109,6 +109,10 @@ export interface ProcessFeishuInboundEventInput {
   payload: Record<string, unknown>;
   queueNotices?: boolean;
   attachmentDownloader?: FeishuInboundAttachmentDownloader;
+  resolveExternalSenderDisplayName?: (input: {
+    externalChatId: string;
+    externalSenderId: string;
+  }) => Promise<string | undefined>;
 }
 
 interface FeishuInboundPreparedDispatch {
@@ -172,23 +176,25 @@ export async function processFeishuInboundEvent(
     return prepared.result;
   }
 
+  const dispatch = await resolveFeishuInboundDispatchDisplayName(input, prepared.dispatch);
+
   let attachments: MessageAttachment[];
   try {
     attachments = await resolveFeishuInboundAttachments({
-      context: input.context,
-      message: prepared.dispatch.message,
+      context: dispatch.context,
+      message: dispatch.message,
       attachmentDownloader: input.attachmentDownloader,
     });
   } catch (error) {
     return finishFailedDispatch({
-      ...prepared.dispatch,
+      ...dispatch,
       reasonCode: "feishu_attachment_download_failed",
       error,
     });
   }
 
   return dispatchPreparedFeishuInboundEventSync({
-    ...prepared.dispatch,
+    ...dispatch,
     attachments,
   });
 }
@@ -556,10 +562,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           }),
         };
       }
-      const displayName = ensureFeishuExternalGuestChannelActorSync({
-        workspaceId: input.context.workspaceId,
-        channelName: channelBinding.channelName,
-      });
+      const displayName = resolveFeishuExternalGuestDisplayName(externalGuestActor);
       createFeishuInboundMapping({
         context: input.context,
         message,
@@ -833,6 +836,36 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       displayName,
     },
   };
+}
+
+async function resolveFeishuInboundDispatchDisplayName(
+  input: ProcessFeishuInboundEventInput,
+  dispatch: FeishuInboundPreparedDispatch,
+): Promise<FeishuInboundPreparedDispatch> {
+  if (dispatch.actorType !== "external_guest" || !dispatch.externalGuestActor || !input.resolveExternalSenderDisplayName) {
+    return dispatch;
+  }
+
+  try {
+    const displayName = await input.resolveExternalSenderDisplayName({
+      externalChatId: dispatch.message.externalChatId,
+      externalSenderId: dispatch.message.externalSenderId ?? "",
+    });
+    if (!displayName?.trim()) {
+      return dispatch;
+    }
+    return {
+      ...dispatch,
+      displayName: displayName.trim(),
+      externalGuestActor: {
+        ...dispatch.externalGuestActor,
+        providerDisplayName: displayName.trim(),
+      },
+    };
+  } catch {
+    // A missing contact scope must not block governed external message delivery.
+    return dispatch;
+  }
 }
 
 function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDispatch & {

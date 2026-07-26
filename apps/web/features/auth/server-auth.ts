@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
+import type { NextResponse } from "next/server";
 import {
   createAuthIdentitySync,
   createSessionSync,
@@ -24,6 +25,11 @@ import { clearWorkspaceSelectionCookie, writeWorkspaceSelectionCookie } from "./
 const AUTH_COOKIE_NAME = "dofe_agent_session";
 const SSO_ID_TOKEN_COOKIE_NAME = "dofe_agent_sso_id_token";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+
+interface SsoLoginSession {
+  idToken: string;
+  sessionToken: string;
+}
 
 export interface AuthUser {
   id: string;
@@ -53,7 +59,7 @@ export async function createSessionForSsoLogin(input: {
   idToken: string;
   subject: string;
   workspaceScopes: SsoWorkspaceScope[];
-}): Promise<{ isNewUser: boolean; user: AuthUser }> {
+}): Promise<{ isNewUser: boolean; session: SsoLoginSession; user: AuthUser }> {
   if (input.workspaceScopes.length === 0) {
     throw new Error("auth.sso_no_workspace");
   }
@@ -97,13 +103,25 @@ export async function createSessionForSsoLogin(input: {
     const workspace = readWorkspaceSync(ssoWorkspaces[0].id);
     if (workspace) await writeWorkspaceSelectionCookie(workspace.slug);
   }
-  await setSessionCookieForUser(updatedUser.id, input.idToken);
+  const session = await createSsoLoginSession(updatedUser.id, input.idToken);
   tryRecordUserWorkspaceAuditEventSync(updatedUser.id, {
     title: "Dofe SSO login succeeded",
     note: `${updatedUser.displayName} signed in through Dofe SSO.`,
     code: "auth.sso_login_succeeded",
   });
-  return { isNewUser, user: toPublicUser(updatedUser) };
+  return { isNewUser, session, user: toPublicUser(updatedUser) };
+}
+
+export function writeSsoLoginSessionCookies(response: NextResponse, session: SsoLoginSession): void {
+  const options = {
+    httpOnly: true,
+    maxAge: SESSION_MAX_AGE_SECONDS,
+    path: "/",
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+  };
+  response.cookies.set(AUTH_COOKIE_NAME, session.sessionToken, options);
+  response.cookies.set(SSO_ID_TOKEN_COOKIE_NAME, session.idToken, options);
 }
 
 export async function readCurrentSsoIdToken(): Promise<string | undefined> {
@@ -142,7 +160,7 @@ function readSessionBySessionToken(token: string): StoredSessionRecord | null {
   return readSessionByTokenHashSync(tokenHash);
 }
 
-async function setSessionCookieForUser(userId: string, idToken: string): Promise<void> {
+async function createSsoLoginSession(userId: string, idToken: string): Promise<SsoLoginSession> {
   const token = `sess-${randomBytes(24).toString("hex")}`;
   const headerStore = await headers();
   createSessionSync({
@@ -152,16 +170,7 @@ async function setSessionCookieForUser(userId: string, idToken: string): Promise
     ipAddress: extractIpAddress(headerStore.get("x-forwarded-for")),
     userAgent: headerStore.get("user-agent")?.trim() || undefined,
   });
-  const cookieStore = await cookies();
-  const options = {
-    httpOnly: true,
-    maxAge: SESSION_MAX_AGE_SECONDS,
-    path: "/",
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax" as const,
-  };
-  cookieStore.set(AUTH_COOKIE_NAME, token, options);
-  cookieStore.set(SSO_ID_TOKEN_COOKIE_NAME, idToken, options);
+  return { idToken, sessionToken: token };
 }
 
 function clearAuthCookie(cookieStore: Awaited<ReturnType<typeof cookies>>, name: string): void {

@@ -16,6 +16,11 @@ export interface FeishuChatMemberSnapshot {
   }>;
 }
 
+interface FeishuChatMember {
+  displayName: string;
+  memberIds: string[];
+}
+
 export async function readFeishuChatMemberSnapshot(input: {
   appId: string;
   appSecret: string;
@@ -29,23 +34,7 @@ export async function readFeishuChatMemberSnapshot(input: {
     throw new Error("Feishu chat id is required.");
   }
 
-  const token = await fetchFeishuTenantAccessToken({
-    appId: input.appId,
-    appSecret: input.appSecret,
-    baseUrl: input.baseUrl,
-    fetchImpl: input.fetchImpl,
-  });
-  const client = input.clientFactory
-    ? input.clientFactory(token.tenantAccessToken)
-    : createFeishuApiClient({
-      credentials: {
-        appId: input.appId,
-        appSecret: input.appSecret,
-        tenantAccessToken: token.tenantAccessToken,
-      },
-      baseUrl: input.baseUrl,
-      fetchImpl: input.fetchImpl,
-    });
+  const client = await createFeishuChatMemberClient(input);
   const encodedChatId = encodeURIComponent(chatId);
   const chat = await readFeishuChat(client, encodedChatId);
   const members = await readFeishuChatMembers(client, encodedChatId);
@@ -54,8 +43,28 @@ export async function readFeishuChatMemberSnapshot(input: {
     chatName: chat.chatName,
     userCount: chat.userCount,
     botCount: chat.botCount,
-    members,
+    members: members.map(({ displayName }) => ({ displayName })),
   };
+}
+
+export async function resolveFeishuChatMemberDisplayName(input: {
+  appId: string;
+  appSecret: string;
+  chatId: string;
+  externalUserId: string;
+  baseUrl?: string;
+  fetchImpl?: typeof fetch;
+  clientFactory?: (tenantAccessToken: string) => FeishuApiClient;
+}): Promise<string | undefined> {
+  const chatId = input.chatId.trim();
+  const externalUserId = input.externalUserId.trim();
+  if (!chatId || !externalUserId) {
+    return undefined;
+  }
+
+  const client = await createFeishuChatMemberClient(input);
+  const members = await readFeishuChatMembers(client, encodeURIComponent(chatId));
+  return members.find((member) => member.memberIds.includes(externalUserId))?.displayName;
 }
 
 async function readFeishuChat(client: FeishuApiClient, encodedChatId: string): Promise<{
@@ -81,9 +90,35 @@ async function readFeishuChat(client: FeishuApiClient, encodedChatId: string): P
   };
 }
 
-async function readFeishuChatMembers(client: FeishuApiClient, encodedChatId: string): Promise<FeishuChatMemberSnapshot["members"]> {
+async function createFeishuChatMemberClient(input: {
+  appId: string;
+  appSecret: string;
+  baseUrl?: string;
+  fetchImpl?: typeof fetch;
+  clientFactory?: (tenantAccessToken: string) => FeishuApiClient;
+}): Promise<FeishuApiClient> {
+  const token = await fetchFeishuTenantAccessToken({
+    appId: input.appId,
+    appSecret: input.appSecret,
+    baseUrl: input.baseUrl,
+    fetchImpl: input.fetchImpl,
+  });
+  return input.clientFactory
+    ? input.clientFactory(token.tenantAccessToken)
+    : createFeishuApiClient({
+      credentials: {
+        appId: input.appId,
+        appSecret: input.appSecret,
+        tenantAccessToken: token.tenantAccessToken,
+      },
+      baseUrl: input.baseUrl,
+      fetchImpl: input.fetchImpl,
+    });
+}
+
+async function readFeishuChatMembers(client: FeishuApiClient, encodedChatId: string): Promise<FeishuChatMember[]> {
   const memberKeys = new Set<string>();
-  const members: FeishuChatMemberSnapshot["members"] = [];
+  const members: FeishuChatMember[] = [];
   let pageToken: string | undefined;
 
   for (let page = 0; page < FEISHU_CHAT_MEMBERS_MAX_PAGES; page += 1) {
@@ -100,13 +135,16 @@ async function readFeishuChatMembers(client: FeishuApiClient, encodedChatId: str
     const items = Array.isArray(data?.items) ? data.items : [];
     for (const item of items) {
       const member = asRecord(item);
-      const memberKey = asString(member?.member_id) ?? asString(member?.open_id) ?? asString(member?.user_id);
+      const memberIds = [member?.member_id, member?.open_id, member?.user_id, member?.union_id]
+        .map(asString)
+        .filter((value): value is string => Boolean(value));
       const displayName = asString(member?.name);
+      const memberKey = memberIds[0];
       if (!memberKey || !displayName || memberKeys.has(memberKey)) {
         continue;
       }
       memberKeys.add(memberKey);
-      members.push({ displayName });
+      members.push({ displayName, memberIds });
     }
 
     if (!data?.has_more) {

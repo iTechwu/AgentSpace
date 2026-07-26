@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildFeishuExternalGuestActor,
   evaluateFeishuExternalGuestIdentityRequirement,
   readFeishuExternalParticipantPolicy,
+  resolveFeishuExternalGuestDisplayName,
   type FeishuExternalParticipantPolicy,
 } from "../external-guests.ts";
 
@@ -93,4 +95,19 @@ test("external guest policy preserves explicit empty identity requirements", () 
     policy,
     action: "private_resources",
   }).decision, "allow");
+});
+
+test("external guest fallback uses a non-reversible identifier instead of a generic guest label", () => {
+  const actor = buildFeishuExternalGuestActor({
+    workspaceId: "workspace-1",
+    externalUserId: "ou_external_user",
+    sourceChatId: "oc_group",
+    permissionProfile: "channel_context_only",
+  });
+
+  assert.match(resolveFeishuExternalGuestDisplayName(actor), /^Feishu user #[a-f0-9]{8}$/);
+  assert.equal(resolveFeishuExternalGuestDisplayName({
+    ...actor,
+    providerDisplayName: "Mina",
+  }), "Mina");
 });

@@ -25,6 +25,7 @@ import {
   type FeishuInboundProcessResult,
 } from "./inbound.ts";
 import { drainFeishuOutboxMessages, type FeishuOutboxDrainResult } from "./outbound.ts";
+import { resolveFeishuChatMemberDisplayName } from "./chat-members.ts";
 
 export interface FeishuWebSocketWorkerSummary {
   workspaceId: string;
@@ -580,6 +581,13 @@ export async function processFeishuWebSocketEvent(input: {
         workspaceId: input.context.workspaceId,
         appId: input.appId,
         appSecret: input.appSecret,
+        baseUrl: input.baseUrl,
+      }),
+      resolveExternalSenderDisplayName: ({ externalChatId, externalSenderId }) => resolveFeishuChatMemberDisplayName({
+        appId: input.appId,
+        appSecret: input.appSecret,
+        chatId: externalChatId,
+        externalUserId: externalSenderId,
         baseUrl: input.baseUrl,
       }),
     });

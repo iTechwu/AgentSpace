@@ -53,7 +53,7 @@ export interface FeishuExternalGuestActor {
   requireIdentityFor: FeishuExternalGuestRestrictedAction[];
 }
 
-export const FEISHU_EXTERNAL_GUEST_DISPLAY_NAME = "Feishu Guest";
+export const FEISHU_EXTERNAL_GUEST_DISPLAY_NAME = "Feishu user";
 
 export function evaluateFeishuExternalGuestPolicy(input: {
   integration: ExternalIntegrationRecord;
@@ -155,6 +155,14 @@ export function ensureFeishuExternalGuestChannelActorSync(_input: {
   channelName: string;
 }): string {
   return FEISHU_EXTERNAL_GUEST_DISPLAY_NAME;
+}
+
+export function resolveFeishuExternalGuestDisplayName(input: Pick<FeishuExternalGuestActor, "providerDisplayName" | "providerUserRefHash">): string {
+  const displayName = input.providerDisplayName.trim();
+  if (displayName && displayName !== FEISHU_EXTERNAL_GUEST_DISPLAY_NAME) {
+    return displayName;
+  }
+  return `${FEISHU_EXTERNAL_GUEST_DISPLAY_NAME} #${input.providerUserRefHash.slice(0, 8)}`;
 }
 
 export function buildFeishuExternalGuestActor(input: {

@@ -8,12 +8,15 @@ export interface PostgresConnectionInput {
 export function resolvePostgresDatabaseUrl(input?: PostgresConnectionInput): string {
   const rawEnv = input?.env ?? process.env;
   const env = input?.env ? readEffectiveRuntimeEnv({ env: input.env, repositoryOverridesEnv: false }) : readEffectiveRuntimeEnv();
+  const testDatabaseUrl = isTestProcess(env)
+    ? rawEnv.DOFE_AGENT_TEST_DATABASE_URL?.trim()
+      || rawEnv.DOFE_AGENT_PG_TEST_URL?.trim()
+      || env.DOFE_AGENT_TEST_DATABASE_URL?.trim()
+      || env.DOFE_AGENT_PG_TEST_URL?.trim()
+    : undefined;
   const databaseUrl =
     input?.databaseUrl?.trim()
-    || rawEnv.DOFE_AGENT_TEST_DATABASE_URL?.trim()
-    || rawEnv.DOFE_AGENT_PG_TEST_URL?.trim()
-    || env.DOFE_AGENT_TEST_DATABASE_URL?.trim()
-    || env.DOFE_AGENT_PG_TEST_URL?.trim()
+    || testDatabaseUrl
     || rawEnv.SELF_HOSTED_DATABASE_URL?.trim()
     || rawEnv.DOFE_AGENT_PG_URL?.trim()
     || rawEnv.DATABASE_URL?.trim()
@@ -80,7 +83,7 @@ function isTestProcess(env: NodeJS.ProcessEnv): boolean {
     || env.VITEST
     || env.JEST_WORKER_ID
     || env.NODE_ENV === "test"
-    || process.argv.some((arg) => arg === "--test" || arg.startsWith("--test-")),
+    || (env === process.env && process.argv.some((arg) => arg === "--test" || arg.startsWith("--test-"))),
   );
 }
 

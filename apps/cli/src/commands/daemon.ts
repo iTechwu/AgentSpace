@@ -249,25 +249,8 @@ async function runLocalDaemonForeground(config: DaemonConfig): Promise<number> {
     return 1;
   }
 
-  const snapshot = registerDaemonRuntimesSync({
-    daemonKey: config.daemonKey,
-    deviceName: config.deviceName,
-    workspaceId: config.workspaceId,
-    metadata: buildLocalDaemonMetadata(config),
-    runtimes: detected.map((provider) => ({
-      provider: provider.provider,
-      name: `${config.runtimeName} · ${provider.label}`,
-      version: provider.version,
-      deviceInfo: config.deviceName,
-      metadata: buildProviderRuntimeMetadata({
-        provider: provider.provider,
-        metadata: {
-          executablePath: provider.executablePath,
-          mode: "local",
-        },
-      }),
-    })),
-  });
+  const registerLocalRuntimes = () => registerLocalDaemonRuntimes(config, detected);
+  const snapshot = registerLocalRuntimes();
 
   console.log(`Daemon online: ${snapshot.daemon.daemonKey}`);
   console.log(`Providers: ${snapshot.runtimes.map((runtime) => runtime.provider).join(", ")}`);
@@ -298,6 +281,17 @@ async function runLocalDaemonForeground(config: DaemonConfig): Promise<number> {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (isMissingDaemonRegistrationError(error, config.daemonKey)) {
+        try {
+          registerLocalRuntimes();
+          console.log(`Daemon re-registered: ${config.daemonKey}`);
+          return;
+        } catch (recoveryError) {
+          const recoveryMessage = recoveryError instanceof Error ? recoveryError.message : String(recoveryError);
+          console.error(`Daemon re-registration failed: ${recoveryMessage}`);
+          return;
+        }
+      }
       console.error(`Heartbeat failed: ${message}`);
     }
   }, config.heartbeatIntervalMs);
@@ -376,6 +370,35 @@ function buildLocalDaemonMetadata(config: DaemonConfig): Record<string, unknown>
     platform,
     arch,
   };
+}
+
+function registerLocalDaemonRuntimes(
+  config: DaemonConfig,
+  detected: SharedDetectedProvider[],
+) {
+  return registerDaemonRuntimesSync({
+    daemonKey: config.daemonKey,
+    deviceName: config.deviceName,
+    workspaceId: config.workspaceId,
+    metadata: buildLocalDaemonMetadata(config),
+    runtimes: detected.map((provider) => ({
+      provider: provider.provider,
+      name: `${config.runtimeName} · ${provider.label}`,
+      version: provider.version,
+      deviceInfo: config.deviceName,
+      metadata: buildProviderRuntimeMetadata({
+        provider: provider.provider,
+        metadata: {
+          executablePath: provider.executablePath,
+          mode: "local",
+        },
+      }),
+    })),
+  });
+}
+
+export function isMissingDaemonRegistrationError(error: unknown, daemonKey: string): boolean {
+  return error instanceof Error && error.message === `Daemon "${daemonKey}" does not exist.`;
 }
 
 async function runRemoteDaemonForeground(config: DaemonConfig): Promise<number> {

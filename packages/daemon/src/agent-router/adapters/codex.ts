@@ -66,7 +66,7 @@ async function buildCodexLaunch(input: AgentRouterRunRequest): Promise<HarnessLa
   if (input.model) {
     baseArgs.push("--model", input.model);
   }
-  if (input.mode) {
+  if (input.mode && !input.sessionId) {
     baseArgs.push("--sandbox", input.mode);
   }
   const args = input.sessionId

@@ -292,8 +292,8 @@ test("runProviderTask resumes Codex sessions when sessionId is provided", async 
     assert.equal(args.includes("session-prev"), true);
     assert.equal(args.includes("--cd"), false);
     assert.equal(args.includes("--model"), false);
-    assert.equal(args.includes("--sandbox"), true);
-    assert.equal(args.includes("workspace-write"), true);
+    assert.equal(args.includes("--sandbox"), false);
+    assert.equal(args.includes("workspace-write"), false);
     assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
   } finally {
     rmSync(workDir, { recursive: true, force: true });

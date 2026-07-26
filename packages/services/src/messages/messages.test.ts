@@ -194,6 +194,13 @@ test("failure summaries hide provider diagnostics in user-visible chat text", ()
 
   assert.match(approvalSummary, /当前会话无法交互审批/);
   assert.doesNotMatch(approvalSummary, /gws sheets spreadsheets/);
+
+  const codexResumeSummary = formatTaskFailureSummary({
+    title: "继续会话",
+    errorText: "Codex CLI exited with code 2. (stderrTail=\"error: unexpected argument '--sandbox' found\")",
+  });
+  assert.match(codexResumeSummary, /不支持当前会话续接参数/);
+  assert.doesNotMatch(codexResumeSummary, /exited with code 2|stderrTail/);
 });
 
 test("sendContactMessageSync creates a direct conversation channel", () => {

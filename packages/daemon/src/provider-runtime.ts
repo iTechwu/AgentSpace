@@ -731,7 +731,7 @@ async function runCodexProviderTaskAttempt(
   const baseArgs = ["--json", "--skip-git-repo-check", "-o", outputFile];
   const sandboxArgs = ["--sandbox", process.env.DOFE_AGENT_CODEX_SANDBOX?.trim() || "workspace-write"];
   const providerArgs = sessionId
-    ? ["exec", "resume", ...baseArgs, ...sandboxArgs, sessionId, prompt]
+    ? ["exec", "resume", ...baseArgs, sessionId, prompt]
     : ["exec", ...baseArgs, ...sandboxArgs, "--cd", workDir, prompt];
   const sandbox = await connectSandbox({
     runtimeId: runtime.id,

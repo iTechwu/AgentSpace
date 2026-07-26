@@ -128,6 +128,7 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
   const isError = message.status === "error";
   const isProcessMessage = message.kind === "process";
   const speakerLabel = translateSystemSpeaker(message.speaker, tx);
+  const isFeishuMessage = message.data?.external_provider === "feishu";
   const replyToSpeakerLabel = replyToMessage ? translateSystemSpeaker(replyToMessage.speaker, tx) : "";
   const approvalAction = buildRuntimeApprovalAction(message, tx);
   const canReviewApproval = Boolean(
@@ -191,6 +192,11 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
         <div className="inbox-bubble__meta">
           <strong>
             {own ? ownSpeakerLabel ?? tx("你", "You") : isError ? `${speakerLabel} · ${tx("错误", "Error")}` : speakerLabel}
+            {isFeishuMessage ? (
+              <span aria-label={tx("来自飞书", "From Feishu")} className="inbox-bubble__provider-icon" role="img">
+                <AppIcon name="feishu" />
+              </span>
+            ) : null}
             {message.pinned ? <span className="inbox-bubble__pin-badge">{tx("已置顶", "Pinned")}</span> : null}
           </strong>
           <span>{isPendingMessage ? tx("思考中", "Thinking") : renderMessageTimestamp(message.timestamp)}</span>

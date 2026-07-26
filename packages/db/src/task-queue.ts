@@ -15,7 +15,6 @@ import {
   upsertAgentRouterProviderSessionSync,
 } from "./agent-router-sessions.ts";
 import { readAgentRuntimeSync } from "./daemons.ts";
-import { canUserUseRuntimeSync } from "./runtime-grants.ts";
 
 export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord | null {
   const db = getDatabase();
@@ -246,24 +245,10 @@ export function claimNextQueuedTaskForRuntimeSync(runtimeId: string, workspaceId
   const db = getDatabase();
   const now = new Date().toISOString();
   let claimedId: string | null = null;
-  let fallbackReason: string | undefined;
 
   db.exec("BEGIN");
   try {
-    let row = selectQueuedTaskForRuntime(db, runtimeId, workspaceId);
-    if (!row) {
-      const fallback = selectFallbackQueuedTaskForRuntime(db, runtimeId, workspaceId);
-      if (fallback) {
-        row = fallback.row;
-        fallbackReason = fallback.reason;
-        db.prepare(
-          `UPDATE agent_task_queue
-           SET runtime_id = ?,
-               updated_at = ?
-           WHERE id = ? AND status = 'queued'`,
-        ).run(runtimeId, now, row.id);
-      }
-    }
+    const row = selectQueuedTaskForRuntime(db, runtimeId, workspaceId);
 
     if (row && typeof row.id === "string") {
       db.prepare(
@@ -295,40 +280,32 @@ export function claimNextQueuedTaskForRuntimeSync(runtimeId: string, workspaceId
           providerSessionId: providerSession?.providerSessionId,
           status: "claimed",
           metadata: {
-            routingMode: providerSession ? "same_provider_resume" : fallbackReason ? "cold_rebuild_fallback" : "cold_rebuild",
-            fallbackReason,
-            previousRuntimeId: fallbackReason ? readStringFromTaskInput(task.inputJson, "__previousRuntimeId") : undefined,
+            routingMode: providerSession ? "same_provider_resume" : "cold_rebuild",
           },
         })
       : null;
     recordRouterLifecycleEvent(task, {
       attemptId: attempt?.id,
-      type: fallbackReason ? "runtime_fallback_selected" : "runtime_selected",
+      type: "runtime_selected",
       actorType: "system",
       runtimeId: task.runtimeId,
       provider: runtime?.provider,
-      summary: fallbackReason
-        ? `Task was reassigned to runtime ${task.runtimeId}: ${fallbackReason}.`
-        : `Task was assigned to runtime ${task.runtimeId}.`,
+      summary: `Task was assigned to runtime ${task.runtimeId}.`,
       data: {
         attemptId: attempt?.id,
         providerSessionId: providerSession?.providerSessionId,
-        routingMode: providerSession ? "same_provider_resume" : fallbackReason ? "cold_rebuild_fallback" : "cold_rebuild",
-        fallbackReason,
+        routingMode: providerSession ? "same_provider_resume" : "cold_rebuild",
       },
     });
     recordQueueLifecycleEvent(task, {
       type: "assigned",
       title: "Runtime claimed the task",
-      summary: fallbackReason
-        ? `${task.agentId} fell back to runtime ${task.runtimeId}.`
-        : `${task.agentId} is assigned to runtime ${task.runtimeId}.`,
+      summary: `${task.agentId} is assigned to runtime ${task.runtimeId}.`,
       status: "running",
       data: {
         claimedAt: task.claimedAt,
         attemptId: attempt?.id,
-        routingMode: providerSession ? "same_provider_resume" : fallbackReason ? "cold_rebuild_fallback" : "cold_rebuild",
-        fallbackReason,
+        routingMode: providerSession ? "same_provider_resume" : "cold_rebuild",
         providerSessionId: providerSession?.providerSessionId,
       },
     });
@@ -849,93 +826,6 @@ function selectQueuedTaskForRuntime(
     .get(...(typeof workspaceId === "string" ? [runtimeId, workspaceId] : [runtimeId])) as Record<string, unknown> | undefined;
 }
 
-function selectFallbackQueuedTaskForRuntime(
-  db: ReturnType<typeof getDatabase>,
-  runtimeId: string,
-  workspaceId?: string,
-): { row: Record<string, unknown>; reason: string } | null {
-  const runtime = readAgentRuntimeSync(runtimeId);
-  if (!runtime || runtime.status !== "online") {
-    return null;
-  }
-  const rows = db.prepare(
-    `SELECT
-       q.id,
-       q.runtime_id AS runtimeId,
-       q.workspace_id AS workspaceId,
-       q.requested_by_user_id AS requestedByUserId,
-       r.status AS selectedRuntimeStatus,
-       r.provider AS selectedProvider
-     FROM agent_task_queue q
-     JOIN agent_runtime r ON r.id = q.runtime_id
-     WHERE q.status = 'queued'
-       AND q.runtime_id <> ?
-       ${typeof workspaceId === "string" ? "AND q.workspace_id = ?" : ""}
-     ORDER BY q.priority DESC, q.created_at ASC
-     LIMIT 20`,
-  ).all(...(typeof workspaceId === "string" ? [runtimeId, workspaceId] : [runtimeId])) as Array<Record<string, unknown>>;
-
-  for (const row of rows) {
-    if (row.workspaceId !== runtime.workspaceId) {
-      continue;
-    }
-    if (row.selectedRuntimeStatus === "online") {
-      continue;
-    }
-    const requesterUserId = typeof row.requestedByUserId === "string" ? row.requestedByUserId : undefined;
-    if (requesterUserId && !canUserUseRuntimeSync(runtime.workspaceId, runtime.id, requesterUserId)) {
-      continue;
-    }
-    const selectedProvider = typeof row.selectedProvider === "string" ? row.selectedProvider : undefined;
-    if (
-      selectedProvider &&
-      runtime.provider !== selectedProvider &&
-      existsUsableOnlineRuntimeForProvider({
-        db,
-        workspaceId: runtime.workspaceId,
-        provider: selectedProvider,
-        requesterUserId,
-      })
-    ) {
-      continue;
-    }
-    return {
-      row,
-      reason:
-        selectedProvider && runtime.provider !== selectedProvider
-          ? `preferred runtime ${String(row.runtimeId)} is offline and no usable ${selectedProvider} runtime is online`
-          : requesterUserId
-            ? `preferred runtime ${String(row.runtimeId)} is offline and requester can use ${runtime.id}`
-            : `preferred runtime ${String(row.runtimeId)} is offline`,
-    };
-  }
-
-  return null;
-}
-
-function existsUsableOnlineRuntimeForProvider(input: {
-  db: ReturnType<typeof getDatabase>;
-  workspaceId: string;
-  provider: string;
-  requesterUserId?: string;
-}): boolean {
-  const rows = input.db.prepare(
-    `SELECT id
-     FROM agent_runtime
-     WHERE workspace_id = ?
-       AND provider = ?
-       AND status = 'online'`,
-  ).all(input.workspaceId, input.provider) as Array<Record<string, unknown>>;
-
-  if (!input.requesterUserId) {
-    return rows.length > 0;
-  }
-
-  return rows.some((row) =>
-    typeof row.id === "string" &&
-    canUserUseRuntimeSync(input.workspaceId, row.id, input.requesterUserId!),
-  );
-}
 
 function isBlockedFailure(input: {
   errorText: string;

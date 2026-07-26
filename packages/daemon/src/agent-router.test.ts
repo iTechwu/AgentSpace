@@ -349,6 +349,7 @@ test("runAgentRouter normalizes Codex JSON events, output file, and resume launc
       prompt: "continue codex",
       cwd: workDir,
       sessionId: "codex-prev",
+      mode: "workspace-write",
       env: { CODEX_ARGS_PATH: argsPath },
       timeoutMs: 1_000,
     }, {
@@ -362,6 +363,7 @@ test("runAgentRouter normalizes Codex JSON events, output file, and resume launc
     assert.deepEqual(args.slice(0, 2), ["exec", "resume"]);
     assert.equal(args.includes("codex-prev"), true);
     assert.equal(args.includes("--cd"), false);
+    assert.equal(args.includes("--sandbox"), false);
     assert.equal(events.some((event) => event.type === "tool_started" && event.tool === "exec_command"), true);
     assert.equal(events.some((event) => event.type === "tool_output" && event.tool === "exec_command"), true);
   } finally {

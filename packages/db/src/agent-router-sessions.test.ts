@@ -218,6 +218,32 @@ test("records attempts, events, and context snapshots for router sessions", () =
     .some((event) => event.type === "task.completed"));
 });
 
+test("does not reassign a bound agent task when another runtime is online", () => {
+  const { workspaceId, runtimeId: boundRuntimeId } = seedWorkspaceRuntime("router-bound-runtime");
+  const alternateRuntime = registerDaemonRuntimesSync({
+    workspaceId,
+    daemonKey: `${workspaceId}-alternate-daemon`,
+    deviceName: `${workspaceId} alternate daemon`,
+    runtimes: [{ provider: "codex", name: "Alternate Codex Runtime" }],
+  }).runtimes[0];
+  assert.ok(alternateRuntime?.id);
+
+  const queued = enqueueNativeTaskSync({
+    workspaceId,
+    assignee: "Atlas",
+    title: "Stay on the bound runtime",
+    channel: "ops",
+    priority: "medium",
+  });
+  assert.ok(queued);
+  getDatabase().prepare("UPDATE agent_runtime SET status = 'offline' WHERE id = ?").run(boundRuntimeId);
+
+  assert.equal(claimNextQueuedTaskForRuntimeSync(alternateRuntime.id, workspaceId), null);
+  const persisted = readQueuedTaskSync(queued.id);
+  assert.equal(persisted?.status, "queued");
+  assert.equal(persisted?.runtimeId, boundRuntimeId);
+});
+
 test("resetWorkspaceExecutionStateSync clears router execution rows", () => {
   const { workspaceId, runtimeId } = seedWorkspaceRuntime("router-reset");
   const taskId = seedQueue(workspaceId, runtimeId, "router-reset-session", "queue-reset");

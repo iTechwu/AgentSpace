@@ -555,6 +555,7 @@ export {
   queueFeishuAgentStatusCardOutboxSync,
   queueFeishuChannelAutoProvisionConfirmationOutboxSync,
   readFeishuChatMemberSnapshot,
+  resolveFeishuChatMemberDisplayName,
   queueFeishuChannelReplyOutboxSync,
   queueFeishuOutboundMessageSync,
   recordFeishuCardActionCallbackIgnoredSync,
