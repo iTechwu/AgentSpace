@@ -26,12 +26,12 @@ export function SkillPickerModal({
   const { surfaceRef, handleBackdropMouseDown, labelId } = useDialogSurface<HTMLDivElement>(onCancel);
   return (
     <div className="modal-backdrop" onMouseDown={handleBackdropMouseDown} role="presentation">
-      <div aria-labelledby={labelId} aria-modal="true" className="modal-card modal-card--compact" ref={surfaceRef} role="dialog" tabIndex={-1}>
+      <div aria-labelledby={labelId} aria-modal="true" className="modal-card modal-card--compact modal-card--skill-picker" ref={surfaceRef} role="dialog" tabIndex={-1}>
         <div className="modal-card__header">
           <div>
             <h3 id={labelId}>{tx("添加 Skill", "Add skill")}</h3>
           </div>
-          <button className="modal-close" onClick={onCancel} type="button">
+          <button aria-label={tx("关闭添加 Skill", "Close add skill")} className="modal-close" onClick={onCancel} type="button">
             <AppIcon name="close" />
           </button>
         </div>

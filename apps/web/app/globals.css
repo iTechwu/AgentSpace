@@ -7422,6 +7422,24 @@ textarea:focus {
   width: min(520px, 100%);
 }
 
+.modal-card--skill-picker {
+  display: flex;
+  flex-direction: column;
+  max-height: min(860px, calc(100dvh - 3rem));
+}
+
+.modal-card--skill-picker .modal-card__header,
+.modal-card--skill-picker .modal-card__footer {
+  flex: 0 0 auto;
+}
+
+.modal-card--skill-picker .modal-card__body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
 .modal-card--skill-create {
   display: flex;
   flex-direction: column;

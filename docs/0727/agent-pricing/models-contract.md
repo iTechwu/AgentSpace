@@ -1,0 +1,157 @@
+# 面向受管 Runtime 的 models.dofe.ai 契约优化
+
+状态：建议实现。本文描述为了支持 AgentSpace 受管 Runtime，需要在 `../models.dofe.ai` 中补齐的内部服务能力与数据契约。
+
+## 1. 当前能力与不足
+
+`models.dofe.ai` 已具备下列可复用能力：
+
+- API Key 与租户、团队的关联；
+- 按 Key、团队策略与协议过滤的 `/v1/models`；
+- OpenAI、Anthropic、Gemini 协议入口；
+- 余额、用量日志、账单统计与供应商路由；
+- `models-sdk` 的内部模型、员工 Key、余额、用量查询能力。
+
+现有 `employeeKeys` 面向 AI员工身份，创建参数主要是 `employeeId`、`ssoTeamId` 与名称。受管 Runtime 需要明确的 `runtimeId`、协议、生命周期和凭据状态，因此不应把 Runtime Key 隐式伪装成员工 Key。
+
+## 2. 新增领域对象
+
+建议引入 `RuntimeCredential`，由模型服务拥有并签发：
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` | Runtime 凭据稳定标识。 |
+| `tenantId` | 账单与隔离主体。 |
+| `teamId` | 团队隔离主体。 |
+| `runtimeId` | AgentSpace Runtime 的外部引用。 |
+| `runtimeType` | 例如 `claude-code`、`codex`、`openclaw`。 |
+| `protocols` | 允许的协议集合，如 `openai`、`anthropic`、`gemini`。 |
+| `allowedModels` | 可调用模型白名单；空时遵循团队策略。 |
+| `defaultModel` | Runtime 默认模型建议值。 |
+| `status` | `active`、`rotating`、`revoked`、`expired`。 |
+| `keyFingerprint` | 用于审计和排障，不泄露明文。 |
+| `expiresAt` | 可选到期时间。 |
+| `rotationVersion` | 原子轮换版本。 |
+| `metadata` | 非敏感来源、创建任务等关联信息。 |
+
+明文 Key 只在创建或轮换响应中返回一次，之后不可再次读取。
+
+## 3. 建议的内部 API
+
+以下接口仅面向经过服务间认证的 AgentSpace 控制面；不得直接暴露给浏览器或 Runtime 容器。
+
+### 3.1 创建 Runtime 凭据
+
+`POST /internal/runtime-credentials`
+
+请求：
+
+```json
+{
+  "tenantId": "tenant_123",
+  "teamId": "team_123",
+  "runtimeId": "runtime_123",
+  "runtimeType": "claude-code",
+  "protocols": ["anthropic"],
+  "allowedModels": ["claude-sonnet"],
+  "defaultModel": "claude-sonnet",
+  "idempotencyKey": "runtime_123:create:v1"
+}
+```
+
+响应：
+
+```json
+{
+  "credential": {
+    "id": "rtc_123",
+    "tenantId": "tenant_123",
+    "teamId": "team_123",
+    "runtimeId": "runtime_123",
+    "status": "active",
+    "keyFingerprint": "sha256:...",
+    "rotationVersion": 1,
+    "expiresAt": null
+  },
+  "secret": {
+    "apiKey": "仅本次返回的明文 Key"
+  }
+}
+```
+
+### 3.2 查询 Runtime 可用模型
+
+`GET /internal/runtime-credentials/:id/models?protocol=anthropic`
+
+返回结果必须同时应用：租户 / 团队权限、Key 白名单、模型可用性、协议兼容性、供应商可用性及余额 / 风控策略。AgentSpace 不应在本地复制过滤逻辑。
+
+### 3.3 轮换凭据
+
+`POST /internal/runtime-credentials/:id/rotate`
+
+请求必须包含幂等键和轮换原因，例如 `expired`、`compromised`、`manual`、`gateway-rejected`。响应返回新的明文 Key 和新的 `rotationVersion`。旧 Key 的宽限期应由模型服务统一管理，并记录撤销时间。
+
+### 3.4 撤销凭据
+
+`POST /internal/runtime-credentials/:id/revoke`
+
+撤销后网关必须拒绝该 Key；AgentSpace 负责停止或隔离引用该凭据的 Runtime，并同步展示不可用状态。
+
+### 3.5 查询凭据状态
+
+`GET /internal/runtime-credentials/:id`
+
+仅返回安全元数据，不返回 API Key。用于 AgentSpace 恢复任务、节点健康检查和审计展示。
+
+## 4. 用量关联与对账契约
+
+模型网关应接受或生成以下可检索的关联字段：
+
+```json
+{
+  "runtimeCredentialId": "rtc_123",
+  "runtimeId": "runtime_123",
+  "employeeId": "employee_123",
+  "conversationId": "conversation_123",
+  "requestId": "request_123"
+}
+```
+
+其中 `runtimeCredentialId` 可以由 Key 映射获得；`employeeId`、`conversationId`、`requestId` 可通过受信任请求头、签名的 metadata 或 AgentSpace 代理链路传递。模型服务必须验证这些字段的来源，不能接受任意客户端伪造。
+
+建议增加以下查询能力：
+
+| 接口 / 事件 | 用途 |
+| --- | --- |
+| `GET /internal/usage?runtimeCredentialId=...` | Runtime Key 实际消耗。 |
+| `GET /internal/usage?employeeId=...` | AI员工归因用量与金额。 |
+| `GET /internal/usage?conversationId=...` | 会话级排障与归因。 |
+| 用量 Webhook / 事件流 | 近实时更新 AgentSpace 成本视图。 |
+| 对账快照 | 用于修正本地估算与不可变账单事实对齐。 |
+
+每条返回记录应至少包含模型、协议、输入 / 输出 / 缓存 Token、实际金额、币种、计费状态、请求时间、网关用量 ID 及关联字段。若金额尚未最终结算，应显式标记 `estimated` 或 `pending_reconciliation`。
+
+## 5. 安全与治理要求
+
+1. 使用服务间身份认证、最小权限和审计，而不是将管理端 API Key 下发到 AgentSpace 节点。
+2. 创建、轮换、撤销接口必须支持幂等键，防止安装任务重试生成重复 Key。
+3. 单个 `runtimeId` 的活跃凭据数量需要策略约束；默认允许一个当前 Key 和一个轮换宽限 Key。
+4. 模型服务应记录调用方服务身份、操作者、关联任务 ID、原因与 Key 指纹。
+5. 轮换、撤销、余额不足、模型禁用等状态变化应允许 AgentSpace 订阅或主动拉取。
+6. 禁止在内部 API 响应日志、异常堆栈、分析事件中记录明文 Key。
+
+## 6. 迁移路径
+
+1. 在模型服务中建立 `RuntimeCredential` 模型与内部接口，不修改现有用户 API Key 语义。
+2. 扩展 `models-sdk`，增加类型安全的 Runtime Credential 客户端。
+3. AgentSpace 先在新建受管 Runtime 上启用新契约；已有本地 Provider 保持只读兼容，标记为待迁移。
+4. 为既有受管 Runtime 补发 Runtime Key，并将旧 `providerAccountId` 引用迁移到 `runtimeCredentialId`、`secretRef`、`configRef`。
+5. 通过双写或对账任务验证 Runtime Key 用量与 AgentSpace 归因数据一致后，再逐步停用旧凭据路径。
+
+## 7. 验收标准
+
+1. AgentSpace 可以按幂等请求创建、轮换、撤销 Runtime 凭据。
+2. 明文 Key 不会出现在 AgentSpace 数据库、浏览器、任务详情或审计日志中。
+3. `GET /internal/runtime-credentials/:id/models` 的模型结果与网关实际可调用模型一致。
+4. 模型网关可以按租户、团队、Runtime Key 产出真实账单，并可关联至 AI员工与会话。
+5. 失效 Key 的自动恢复只发生一次受控轮换，不会在业务拒绝场景中形成循环。
