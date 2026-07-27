@@ -117,11 +117,17 @@ export async function probeManagedGateway(
   if (!apiKey || !baseUrl) {
     throw new Error("managed_runtime.gateway_health_credentials_missing");
   }
-  const endpoint = new URL("/v1/models", baseUrl).toString();
+  const modelPath = provider === "gemini"
+    ? "v1beta/models"
+    : provider === "claude"
+      ? "v1/models"
+      : "models";
+  const endpoint = `${baseUrl.replace(/\/$/, "")}/${modelPath}`;
   const response = await request(endpoint, {
     headers: {
       authorization: `Bearer ${apiKey}`,
       ...(provider === "claude" ? { "x-api-key": apiKey } : {}),
+      ...(provider === "gemini" ? { "x-goog-api-key": apiKey } : {}),
     },
   });
   if (!response.ok) {

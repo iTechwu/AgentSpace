@@ -840,6 +840,12 @@ function WorkspaceFrameContent({
             </section>
           ) : null}
 
+          {canManageRuntimes && !isChannelScopedGuest ? (
+            <section className="workspace-sidebar__group">
+              <SidebarSectionLink href={workspaceHref("/audit")} icon="approvals" label={tx("审计日志", "Audit Log")} active={logicalPathname === "/audit"} showArrow={false} />
+            </section>
+          ) : null}
+
           {visibility.tables && !isChannelScopedGuest ? (
             <section className="workspace-sidebar__group" data-onboarding-target="tables">
               <SidebarSectionLink

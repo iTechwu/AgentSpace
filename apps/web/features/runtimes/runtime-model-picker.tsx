@@ -19,9 +19,11 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
   const [items, setItems] = useState<RuntimeModelCatalogItem[]>([]);
   const [configured, setConfigured] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     setError(null);
+    setQuery("");
     startTransition(async () => {
       try {
         const result = await listProtocolFilteredRuntimeModelsAction(provider);
@@ -35,8 +37,18 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
   }, [provider]);
 
   const selected = items.find((item) => item.alias === value || item.model === value);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredItems = items.filter((item) =>
+    !normalizedQuery
+    || item.alias === value
+    || [item.alias, item.displayName, item.model, item.protocol].some((field) => field?.toLowerCase().includes(normalizedQuery)),
+  );
   return (
     <div className="space-y-2">
+      <label className="text-sm">
+        <span className="mb-1 block text-neutral-500">Search models</span>
+        <input type="search" className="w-full rounded border px-2 py-1" value={query} disabled={pending || !configured} onChange={(event) => setQuery(event.target.value)} placeholder="Name, alias, or protocol" />
+      </label>
       <label className="text-sm">
         <span className="mb-1 block text-neutral-500">Default model</span>
         <select
@@ -46,9 +58,9 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
           onChange={(event) => onChange(event.target.value)}
         >
           <option value="">{pending ? "Loading models…" : "Inherit system fallback"}</option>
-          {items.map((item) => (
+          {filteredItems.map((item) => (
             <option key={item.alias} value={item.alias} disabled={!item.isAvailable}>
-              {item.displayName ?? item.alias}{item.isAvailable ? "" : ` - ${item.unavailableReason ?? "Unavailable"}`}
+              {formatModelOption(item)}
             </option>
           ))}
         </select>
@@ -94,6 +106,20 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
     </div>
   );
+}
+
+function formatModelOption(item: RuntimeModelCatalogItem): string {
+  const capabilities = [
+    item.protocol,
+    item.contextLength ? `${formatTokens(item.contextLength)} context` : undefined,
+    item.supportsFunctionCalling ? "tools" : undefined,
+    item.supportsVision ? "vision" : undefined,
+    item.inputPrice != null || item.outputPrice != null
+      ? `$${formatPrice(item.inputPrice)}/$${formatPrice(item.outputPrice)} per 1M`
+      : undefined,
+  ].filter(Boolean).join(" · ");
+  const availability = item.isAvailable ? "available" : item.unavailableReason ?? "Unavailable";
+  return `${item.displayName ?? item.alias} · ${capabilities} · ${availability}`;
 }
 
 function formatTokens(value: number): string {

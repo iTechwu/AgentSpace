@@ -977,6 +977,7 @@ export {
   requestManagedRuntimeProvisioningSync,
   resumePendingRuntimeCredentialRecoveriesAsync,
   resolveManagedRuntimeScopeSync,
+  resumeManagedRuntimeCleanupRequestsSync,
   resumePendingProvisioningTasksSync,
   retryRuntimeProvisioningTaskSync,
   rotateManagedRuntimeCredentialSync,

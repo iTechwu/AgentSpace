@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import { ManagedRuntimeList } from "@/features/runtimes/managed-runtime-list";
@@ -19,6 +19,12 @@ it("exposes manual credential rotation only when a runtime needs attention", asy
           managedCredentialId: "rtc-ready-1234567890",
           status: "online",
           provisioningState: "managed",
+          protocols: ["openai"],
+          defaultModel: "gpt-5",
+          assignedEmployeeCount: 3,
+          lastHeartbeatAt: "2026-07-28T01:00:00.000Z",
+          periodActualCostUsd: 1.25,
+          unallocatedCostUsd: 0,
         },
         {
           id: "runtime-attention",
@@ -27,14 +33,36 @@ it("exposes manual credential rotation only when a runtime needs attention", asy
           managedCredentialId: "rtc-attention-1234567890",
           status: "offline",
           provisioningState: "needs_attention",
+          protocols: ["anthropic"],
+          defaultModel: "claude-sonnet",
+          assignedEmployeeCount: 1,
+          periodActualCostUsd: 2.5,
+          unallocatedCostUsd: 0.2,
         },
       ]}
     />,
   );
 
-  expect(screen.getByText("Available")).toBeInTheDocument();
-  expect(screen.getByText("Needs attention")).toBeInTheDocument();
+  const table = screen.getByRole("table", { name: "Managed runtimes" });
+  expect(within(table).getByText("Available")).toBeInTheDocument();
+  expect(within(table).getByText("Needs attention")).toBeInTheDocument();
+  expect(within(table).getByText("gpt-5")).toBeInTheDocument();
+  expect(within(table).getByText("$0.2000 unallocated")).toBeInTheDocument();
   const rotateButton = screen.getByRole("button", { name: "Rotate key" });
   await user.click(rotateButton);
   expect(onRotate).toHaveBeenCalledWith("runtime-attention");
+});
+
+it("filters runtimes by provider, status, model, and cost attribution", async () => {
+  const user = userEvent.setup();
+  render(<ManagedRuntimeList pending={false} onRotate={vi.fn()} runtimes={[
+    { id: "r1", name: "Codex", provider: "codex", managedCredentialId: "c1", status: "online", provisioningState: "managed", protocols: ["openai"], defaultModel: "gpt-5", assignedEmployeeCount: 2, periodActualCostUsd: 1, unallocatedCostUsd: 0 },
+    { id: "r2", name: "Claude", provider: "claude", managedCredentialId: "c2", status: "offline", provisioningState: "needs_attention", protocols: ["anthropic"], defaultModel: "sonnet", assignedEmployeeCount: 0, periodActualCostUsd: 2, unallocatedCostUsd: 0.5 },
+  ]} />);
+  await user.selectOptions(screen.getByLabelText("Provider"), "claude");
+  const table = screen.getByRole("table", { name: "Managed runtimes" });
+  expect(within(table).getByText("Claude")).toBeInTheDocument();
+  expect(within(table).queryByText("Codex")).not.toBeInTheDocument();
+  await user.selectOptions(screen.getByLabelText("Cost attribution"), "allocated");
+  expect(screen.getByText("No runtimes match these filters.")).toBeInTheDocument();
 });

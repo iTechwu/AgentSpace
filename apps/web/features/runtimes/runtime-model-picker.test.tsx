@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import { RuntimeModelPicker } from "@/features/runtimes/runtime-model-picker";
 import { listProtocolFilteredRuntimeModelsAction } from "@/features/runtimes/actions";
@@ -7,7 +8,7 @@ vi.mock("@/features/runtimes/actions", () => ({
   listProtocolFilteredRuntimeModelsAction: vi.fn(),
 }));
 
-it("shows unavailable protocol-compatible models with their reason", async () => {
+it("searches models and shows unavailable protocol-compatible models with their reason", async () => {
   vi.mocked(listProtocolFilteredRuntimeModelsAction).mockResolvedValue({
     configured: true,
     list: [
@@ -29,6 +30,9 @@ it("shows unavailable protocol-compatible models with their reason", async () =>
 
   render(<RuntimeModelPicker provider="codex" value="" onChange={vi.fn()} />);
 
-  expect(await screen.findByRole("option", { name: "available-model" })).toBeEnabled();
-  expect(screen.getByRole("option", { name: "disabled-model - Disabled by team policy" })).toBeDisabled();
+  expect(await screen.findByRole("option", { name: /available-model.*openai.*available/i })).toBeEnabled();
+  expect(screen.getByRole("option", { name: /disabled-model.*Disabled by team policy/i })).toBeDisabled();
+  await userEvent.type(screen.getByLabelText("Search models"), "disabled");
+  expect(screen.queryByRole("option", { name: /available-model/i })).not.toBeInTheDocument();
+  expect(screen.getByRole("option", { name: /disabled-model/i })).toBeInTheDocument();
 });

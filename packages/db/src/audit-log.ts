@@ -53,7 +53,19 @@ export function readAuditLogSync(
 
 export function listAuditLogsSync(
   workspaceId = DEFAULT_WORKSPACE_ID,
-  options?: { source?: AuditLogSource; code?: string; limit?: number },
+  options?: {
+    source?: AuditLogSource;
+    code?: string;
+    actorId?: string;
+    employeeId?: string;
+    runtimeId?: string;
+    sessionId?: string;
+    taskId?: string;
+    modelId?: string;
+    createdFrom?: string;
+    createdTo?: string;
+    limit?: number;
+  },
 ): AuditLogRecord[] {
   const limit = Math.min(Math.max(options?.limit ?? 100, 1), 500);
   const clauses = ["workspace_id = ?"];
@@ -65,6 +77,39 @@ export function listAuditLogsSync(
   if (options?.code) {
     clauses.push("code = ?");
     params.push(options.code);
+  }
+  const jsonFilters: Array<[string, string | undefined]> = [
+    ["runtimeId", options?.runtimeId],
+    ["taskId", options?.taskId],
+  ];
+  for (const [key, value] of jsonFilters) {
+    if (!value) continue;
+    clauses.push(`data_json ->> '${key}' = ?`);
+    params.push(value);
+  }
+  if (options?.actorId) {
+    clauses.push("COALESCE(data_json ->> 'actorId', data_json ->> 'requestedByUserId') = ?");
+    params.push(options.actorId);
+  }
+  if (options?.employeeId) {
+    clauses.push("COALESCE(data_json ->> 'employeeId', data_json ->> 'agentId', data_json ->> 'employeeName') = ?");
+    params.push(options.employeeId);
+  }
+  if (options?.sessionId) {
+    clauses.push("COALESCE(data_json ->> 'sessionId', data_json ->> 'routerSessionId') = ?");
+    params.push(options.sessionId);
+  }
+  if (options?.modelId) {
+    clauses.push("COALESCE(data_json ->> 'modelId', data_json ->> 'model', data_json ->> 'defaultModel') = ?");
+    params.push(options.modelId);
+  }
+  if (options?.createdFrom) {
+    clauses.push("created_at >= ?");
+    params.push(options.createdFrom);
+  }
+  if (options?.createdTo) {
+    clauses.push("created_at <= ?");
+    params.push(options.createdTo);
   }
   params.push(limit);
   const rows = getDatabase().prepare(

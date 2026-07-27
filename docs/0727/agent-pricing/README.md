@@ -1,6 +1,6 @@
 # AI员工 Runtime、模型与计费总体架构
 
-状态：方案设计已完成，`models.dofe.ai` Phase 1（RuntimeCredential 与受管 Runtime 内部契约）已实施。本文件定义的受管 Runtime 设计仅在 `remote` 模式生效；`local` 模式保持既有实现不变。
+状态：AgentSpace 仓库实施已于 2026-07-28 完成审查闭环，真实 `models.dofe.ai` 测试租户、网关和容器环境的 staging E2E 仍待验收。本文件定义的受管 Runtime 设计仅在 `remote` 模式生效；`local` 模式保持既有实现不变。
 
 本文将 AgentSpace 中的 AI员工、Runtime、`models.dofe.ai` 网关与计费责任划分为可独立演进的边界。目标是在不依赖用户手工部署或配置 CLI Provider 的前提下，既能复用本机已有服务，又能在服务器上支持按团队隔离模型凭据、模型目录、账单归属与审计证据。
 

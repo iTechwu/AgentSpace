@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CostsPageClient } from "@/features/costs/costs-page-client";
-import { upsertBudgetAction } from "@/features/costs/actions";
+import { getTeamBillingBalanceAction, upsertBudgetAction } from "@/features/costs/actions";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 import type { BudgetPageData, CostPageData } from "@/features/dashboard/data";
 
@@ -18,6 +18,7 @@ vi.mock("@/features/costs/actions", () => ({
   upsertBudgetAction: vi.fn(async () => {}),
   toggleBudgetAction: vi.fn(async () => {}),
   deleteBudgetAction: vi.fn(async () => {}),
+  getTeamBillingBalanceAction: vi.fn(async () => ({ balance: "100.00", reservedBalance: "10.00", availableBalance: "90.00", currency: "USD", status: "active" })),
 }));
 
 function mockMatchMedia(matches: boolean): void {
@@ -86,9 +87,10 @@ describe("CostsPageClient", () => {
     mockMatchMedia(false);
     routerRefresh.mockClear();
     vi.mocked(upsertBudgetAction).mockClear();
+    vi.mocked(getTeamBillingBalanceAction).mockClear();
   });
 
-  it("renders cost overview as cards instead of a table on compact layouts", () => {
+  it("renders cost overview as cards instead of a table on compact layouts", async () => {
     mockMatchMedia(true);
 
     render(
@@ -101,6 +103,13 @@ describe("CostsPageClient", () => {
     expect(screen.getByText("Atlas")).toBeInTheDocument();
     expect(screen.getAllByText("gpt-5")).toHaveLength(2);
     expect(screen.getByText("$0.1234")).toBeInTheDocument();
+    await screen.findByText("100.00 USD");
+  });
+
+  it("shows the actual team billing balance returned by models", async () => {
+    render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
+    expect(await screen.findByText("100.00 USD")).toBeInTheDocument();
+    expect(screen.getByText("Available: 90.00 USD")).toBeInTheDocument();
   });
 
   it("refreshes module data instead of the route after saving budgets in the workbench", async () => {

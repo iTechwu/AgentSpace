@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { upsertBudgetAction, toggleBudgetAction, deleteBudgetAction, reconcileWorkspaceUsageAction } from "@/features/costs/actions";
+import { getTeamBillingBalanceAction, upsertBudgetAction, toggleBudgetAction, deleteBudgetAction, reconcileWorkspaceUsageAction, type TeamBillingBalance } from "@/features/costs/actions";
 import type { CostPageData, BudgetPageData, BudgetPageItem } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import type { BudgetAction, BudgetPeriod, BudgetScope } from "@dofe-agent/db";
@@ -26,6 +26,15 @@ export function CostsPageClient({
   const [showAddBudget, setShowAddBudget] = useState(false);
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [teamBalance, setTeamBalance] = useState<TeamBillingBalance | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void getTeamBillingBalanceAction().then((balance) => {
+      if (active) setTeamBalance(balance);
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -71,7 +80,7 @@ export function CostsPageClient({
       </div>
 
       {tab === "costs" ? (
-        <CostOverview compact={isCompactLayout} data={costs} tx={tx} />
+        <CostOverview compact={isCompactLayout} data={costs} teamBalance={teamBalance} tx={tx} />
       ) : (
         <BudgetManager
           budgets={budgets}
@@ -107,10 +116,12 @@ export function CostsPageClient({
 function CostOverview({
   compact,
   data,
+  teamBalance,
   tx,
 }: {
   compact: boolean;
   data: CostPageData;
+  teamBalance: TeamBillingBalance | null;
   tx: (zh: string, en: string) => string;
 }) {
   const router = useRouter();
@@ -149,6 +160,11 @@ function CostOverview({
       </div>
 
       <div className="costs-summary-cards">
+        <div className="costs-summary-card">
+          <span className="costs-summary-card__label">{tx("团队实际余额", "Team balance")}</span>
+          <span className="costs-summary-card__value">{teamBalance ? `${teamBalance.balance} ${teamBalance.currency}` : tx("暂不可用", "Unavailable")}</span>
+          {teamBalance ? <span className="costs-summary-card__label">{tx("可用", "Available")}: {teamBalance.availableBalance} {teamBalance.currency}</span> : null}
+        </div>
         <div className="costs-summary-card">
           <span className="costs-summary-card__label">{tx("估算费用", "Estimated")}</span>
           <span className="costs-summary-card__value">${data.estimatedCostUsd.toFixed(4)}</span>

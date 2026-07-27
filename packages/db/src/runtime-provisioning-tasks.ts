@@ -1,5 +1,6 @@
 import type { DaemonProvider } from "@dofe-agent/domain";
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
+import { DEFAULT_DAEMON_HEARTBEAT_STALE_MS } from "./daemon-constants.ts";
 import type {
   RuntimeProvisioningTaskCleanupStatus,
   RuntimeProvisioningTaskEventRecord,
@@ -9,6 +10,52 @@ import type {
   RuntimeProvisioningTaskStageStatus,
   RuntimeProvisioningTaskStatus,
 } from "./types.ts";
+
+const DEFAULT_TASK_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_STAGE_TIMEOUT_MS = 10 * 60 * 1000;
+
+function resolveStageTimeoutMs(
+  stage: RuntimeProvisioningTaskStage,
+  timeoutsJson?: string,
+): number {
+  if (!timeoutsJson) {
+    return DEFAULT_STAGE_TIMEOUT_MS;
+  }
+  try {
+    const parsed = JSON.parse(timeoutsJson) as Record<string, unknown>;
+    const value = parsed[stage];
+    if (typeof value === "number" && value > 0 && Number.isFinite(value)) {
+      return value;
+    }
+  } catch {
+    // fall through
+  }
+  return DEFAULT_STAGE_TIMEOUT_MS;
+}
+
+function resolveTaskTimeoutMs(timeoutsJson?: string, taskTimeoutMs?: number): number {
+  if (typeof taskTimeoutMs === "number" && taskTimeoutMs > 0 && Number.isFinite(taskTimeoutMs)) {
+    return taskTimeoutMs;
+  }
+  if (!timeoutsJson) {
+    return DEFAULT_TASK_TIMEOUT_MS;
+  }
+  try {
+    const parsed = JSON.parse(timeoutsJson) as Record<string, unknown>;
+    const value = parsed.task;
+    if (typeof value === "number" && value > 0 && Number.isFinite(value)) {
+      return value;
+    }
+  } catch {
+    // fall through
+  }
+  return DEFAULT_TASK_TIMEOUT_MS;
+}
+
+function computeRetryAfterMs(retryCount: number, baseMs = 15_000, maxMs = 5 * 60 * 1000): number {
+  const jitter = Math.random() * 0.4 + 0.8;
+  return Math.min(maxMs, baseMs * 2 ** retryCount) * jitter;
+}
 
 export interface CreateRuntimeProvisioningTaskInput {
   workspaceId?: string;
@@ -91,8 +138,8 @@ export function createRuntimeProvisioningTaskSync(
        source_runtime_id, runtime_type, protocols_json, requested_name, requested_model,
        allowed_models_json, target_server,
        stage, stage_status, progress_percent, retry_count, max_retries,
-       cleanup_status, status, timeouts_json, started_at, created_at, updated_at
-     ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', 0, 0, ?, 'pending', 'queued', ?, NULL, ?, ?)`,
+       cleanup_status, status, timeouts_json, task_timeout_ms, next_retry_at, started_at, created_at, updated_at
+     ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', 0, 0, ?, 'pending', 'queued', ?, ?, NULL, NULL, ?, ?)`,
   ).run(
     id,
     workspaceId,
@@ -107,6 +154,7 @@ export function createRuntimeProvisioningTaskSync(
     optional(input.targetServer),
     input.maxRetries ?? 3,
     JSON.stringify(input.timeouts ?? {}),
+    DEFAULT_TASK_TIMEOUT_MS,
     now,
     now,
   );
@@ -211,8 +259,29 @@ export function markRuntimeProvisioningTaskFailedSync(input: {
   stage: RuntimeProvisioningTaskStage;
   errorCode?: string;
   errorMessage: string;
+  allowRetry?: boolean;
+  retryAfterMs?: number;
+  metadata?: Record<string, unknown>;
 }): RuntimeProvisioningTaskRecord | null {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const task = readRuntimeProvisioningTaskSync(input.id, workspaceId);
+  if (!task) {
+    return null;
+  }
+
+  const allowRetry = input.allowRetry !== false;
+  const hasRetriesRemaining = task.retryCount < task.maxRetries;
+  if (allowRetry && hasRetriesRemaining) {
+    return scheduleRuntimeProvisioningTaskRetrySync({
+      id: input.id,
+      workspaceId,
+      stage: input.stage,
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage,
+      retryAfterMs: input.retryAfterMs,
+    });
+  }
+
   const db = getDatabase();
   withTransaction(db, () => {
     const now = new Date().toISOString();
@@ -238,7 +307,53 @@ export function markRuntimeProvisioningTaskFailedSync(input: {
       title: `Stage ${input.stage} failed`,
       summary: input.errorMessage,
       severity: "error",
-      data: input.errorCode ? { errorCode: input.errorCode } : undefined,
+      data: {
+        ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+        ...(input.metadata ?? {}),
+      },
+    });
+  });
+  return readRuntimeProvisioningTaskSync(input.id, workspaceId);
+}
+
+export function scheduleRuntimeProvisioningTaskRetrySync(input: {
+  id: string;
+  workspaceId?: string;
+  stage: RuntimeProvisioningTaskStage;
+  errorCode?: string;
+  errorMessage: string;
+  retryAfterMs?: number;
+}): RuntimeProvisioningTaskRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const db = getDatabase();
+  const retryAfterMs = input.retryAfterMs ?? computeRetryAfterMs(0);
+  const nextRetryAt = new Date(Date.now() + retryAfterMs).toISOString();
+  withTransaction(db, () => {
+    const now = new Date().toISOString();
+    db.prepare(
+      `UPDATE runtime_provisioning_task
+       SET stage = ?, stage_status = 'failed', status = 'retrying',
+           last_error_code = ?, last_error_message = ?,
+           next_retry_at = ?, completed_at = NULL, updated_at = ?
+       WHERE id = ? AND workspace_id = ?`,
+    ).run(
+      input.stage,
+      optional(input.errorCode),
+      input.errorMessage,
+      nextRetryAt,
+      now,
+      input.id,
+      workspaceId,
+    );
+    appendRuntimeProvisioningEventRowSync(db, {
+      taskId: input.id,
+      stage: input.stage,
+      status: "pending",
+      progressPercent: readProgressSync(db, input.id),
+      title: "Retry scheduled",
+      summary: `Retry at ${nextRetryAt}`,
+      severity: "warning",
+      data: { errorCode: input.errorCode, nextRetryAt },
     });
   });
   return readRuntimeProvisioningTaskSync(input.id, workspaceId);
@@ -291,8 +406,9 @@ export function resetRuntimeProvisioningTaskForRetrySync(input: {
        SET stage = 'pending', stage_status = 'pending', progress_percent = 0,
            retry_count = retry_count + 1, status = 'queued',
            last_error_code = NULL, last_error_message = NULL,
-           completed_at = NULL, updated_at = ?
-       WHERE id = ? AND workspace_id = ? AND status = 'failed'`,
+           daemon_connection_id = NULL, stage_started_at = NULL,
+           next_retry_at = NULL, completed_at = NULL, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND status IN ('failed', 'retrying')`,
     ).run(now, input.id, workspaceId);
     appendRuntimeProvisioningEventRowSync(db, {
       taskId: input.id,
@@ -313,8 +429,8 @@ export function markRuntimeProvisioningTaskCancellingSync(input: {
   const now = new Date().toISOString();
   getDatabase().prepare(
     `UPDATE runtime_provisioning_task
-     SET status = 'cancelled', cleanup_status = 'running', updated_at = ?
-     WHERE id = ? AND workspace_id = ? AND status IN ('queued', 'running', 'failed')`,
+     SET status = 'cancelling', cleanup_status = 'running', next_retry_at = NULL, updated_at = ?
+     WHERE id = ? AND workspace_id = ? AND status IN ('queued', 'running', 'failed', 'retrying')`,
   ).run(now, input.id, workspaceId);
   return readRuntimeProvisioningTaskSync(input.id, workspaceId);
 }
@@ -387,8 +503,6 @@ const NODE_PROVISIONING_STAGES: RuntimeProvisioningTaskStage[] = [
   "health_check",
 ];
 
-const DEFAULT_STAGE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
-
 export interface ClaimManagedProvisioningStageInput {
   daemonConnectionId: string;
   workspaceId?: string;
@@ -403,12 +517,23 @@ export function claimManagedProvisioningStageSync(
 
   return withTransaction(db, () => {
     const daemon = db.prepare(
-      "SELECT workspace_id AS workspaceId, device_name AS deviceName, metadata_json AS metadataJson FROM daemon_connection WHERE id = ?",
-    ).get(input.daemonConnectionId) as { workspaceId?: unknown; deviceName?: unknown; metadataJson?: unknown } | undefined;
+      `SELECT workspace_id AS workspaceId, device_name AS deviceName, status AS "daemonStatus",
+              last_heartbeat_at AS lastHeartbeatAt, metadata_json AS metadataJson
+       FROM daemon_connection WHERE id = ?`,
+    ).get(input.daemonConnectionId) as {
+      workspaceId?: unknown;
+      deviceName?: unknown;
+      daemonStatus?: unknown;
+      lastHeartbeatAt?: unknown;
+      metadataJson?: unknown;
+    } | undefined;
     if (
       !daemon ||
       typeof daemon.workspaceId !== "string" ||
       typeof daemon.deviceName !== "string" ||
+      daemon.daemonStatus !== "online" ||
+      typeof daemon.lastHeartbeatAt !== "string" ||
+      new Date(daemon.lastHeartbeatAt).getTime() < Date.now() - DEFAULT_DAEMON_HEARTBEAT_STALE_MS ||
       !isManagedNodeMetadata(daemon.metadataJson)
     ) {
       return null;
@@ -418,7 +543,6 @@ export function claimManagedProvisioningStageSync(
       return null;
     }
     const deviceName = input.deviceName ?? daemon.deviceName;
-    const deadline = new Date(Date.now() - DEFAULT_STAGE_TIMEOUT_MS).toISOString();
     const targetServerClause = deviceName
       ? "AND (target_server IS NULL OR target_server = ?)"
       : "AND target_server IS NULL";
@@ -426,7 +550,6 @@ export function claimManagedProvisioningStageSync(
       workspaceId,
       NODE_PROVISIONING_STAGES,
       input.daemonConnectionId,
-      deadline,
     ];
     if (deviceName) params.push(deviceName);
 
@@ -438,7 +561,6 @@ export function claimManagedProvisioningStageSync(
            AND stage = ANY(?)
            AND stage_status = 'pending'
            AND (daemon_connection_id IS NULL OR daemon_connection_id = ?)
-           AND (stage_started_at IS NULL OR stage_started_at < ?)
            ${targetServerClause}
          ORDER BY created_at ASC
          LIMIT 1`,
@@ -446,7 +568,6 @@ export function claimManagedProvisioningStageSync(
       .get(...params) as RawRuntimeProvisioningTask | undefined;
 
     if (!row) return null;
-
     db.prepare(
       `UPDATE runtime_provisioning_task
        SET daemon_connection_id = ?,
@@ -479,6 +600,10 @@ export function completeManagedProvisioningStageSync(input: {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const db = getDatabase();
   return withTransaction(db, () => {
+    const task = readRuntimeProvisioningTaskSync(input.taskId, workspaceId);
+    if (!task || task.status === "cancelling" || task.status === "cancelled" || task.status === "succeeded" || task.status === "failed") {
+      return task;
+    }
     const now = new Date().toISOString();
     if (input.nextStage) {
       db.prepare(
@@ -514,55 +639,188 @@ export function failManagedProvisioningStageSync(input: {
   errorMessage: string;
   metadata?: Record<string, unknown>;
 }): RuntimeProvisioningTaskRecord | null {
-  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  const db = getDatabase();
-  return withTransaction(db, () => {
-    const now = new Date().toISOString();
-    db.prepare(
-      `UPDATE runtime_provisioning_task
-       SET stage_status = 'failed', status = 'failed',
-           last_error_code = ?, last_error_message = ?,
-           completed_at = ?, updated_at = ?
-       WHERE id = ? AND workspace_id = ?`,
-    ).run(
-      optional(input.errorCode),
-      input.errorMessage,
-      now,
-      now,
-      input.taskId,
-      workspaceId,
-    );
-    appendRuntimeProvisioningEventRowSync(db, {
-      taskId: input.taskId,
-      stage: input.stage,
-      status: "failed",
-      progressPercent: readProgressSync(db, input.taskId),
-      title: `Stage ${input.stage} failed`,
-      summary: input.errorMessage,
-      severity: "error",
-      data: input.metadata,
-    });
-    return readRuntimeProvisioningTaskSync(input.taskId, workspaceId);
+  return markRuntimeProvisioningTaskFailedSync({
+    id: input.taskId,
+    workspaceId: input.workspaceId,
+    stage: input.stage,
+    errorCode: input.errorCode,
+    errorMessage: input.errorMessage,
+    metadata: input.metadata,
   });
 }
 
-export function resetStalledManagedProvisioningStagesSync(timeoutMs = DEFAULT_STAGE_TIMEOUT_MS): number {
+export function readRuntimeProvisioningTaskStatusSync(
+  id: string,
+  workspaceId?: string,
+): RuntimeProvisioningTaskStatus | null {
+  const row = (workspaceId
+    ? getDatabase().prepare(
+        "SELECT status FROM runtime_provisioning_task WHERE id = ? AND workspace_id = ?",
+      ).get(id, workspaceId)
+    : getDatabase().prepare(
+        "SELECT status FROM runtime_provisioning_task WHERE id = ?",
+      ).get(id)) as { status?: RuntimeProvisioningTaskStatus } | undefined;
+  return row?.status ?? null;
+}
+
+export function listRetryingRuntimeProvisioningTasksReadySync(
+  workspaceId?: string,
+): RuntimeProvisioningTaskRecord[] {
+  const now = new Date().toISOString();
+  const rows = (typeof workspaceId === "string"
+    ? getDatabase().prepare(
+        `SELECT * FROM runtime_provisioning_task
+         WHERE workspace_id = ? AND status = 'retrying' AND next_retry_at <= ?
+         ORDER BY next_retry_at ASC`,
+      ).all(workspaceId, now)
+    : getDatabase().prepare(
+        `SELECT * FROM runtime_provisioning_task
+         WHERE status = 'retrying' AND next_retry_at <= ?
+         ORDER BY next_retry_at ASC`,
+      ).all(now)) as RawRuntimeProvisioningTask[];
+  return rows.map(mapRuntimeProvisioningTask);
+}
+
+export function listRunningProvisioningTasksTimedOutSync(
+  workspaceId?: string,
+): RuntimeProvisioningTaskRecord[] {
+  const rows = (typeof workspaceId === "string"
+    ? getDatabase().prepare(
+        `SELECT * FROM runtime_provisioning_task
+         WHERE workspace_id = ? AND status = 'running'
+           AND started_at IS NOT NULL`,
+      ).all(workspaceId)
+    : getDatabase().prepare(
+        `SELECT * FROM runtime_provisioning_task
+         WHERE status = 'running'
+           AND started_at IS NOT NULL`,
+      ).all()) as RawRuntimeProvisioningTask[];
+  const now = Date.now();
+  return rows.filter((row) => {
+    const timeoutMs = resolveTaskTimeoutMs(row.timeouts_json, row.task_timeout_ms);
+    const startedAt = new Date(row.started_at!).getTime();
+    return now - startedAt > timeoutMs;
+  }).map(mapRuntimeProvisioningTask);
+}
+
+export function listRunningNodeStagesForTimeoutSync(
+  workspaceId?: string,
+): RuntimeProvisioningTaskRecord[] {
+  const rows = (typeof workspaceId === "string"
+    ? getDatabase().prepare(
+        `SELECT * FROM runtime_provisioning_task
+         WHERE workspace_id = ? AND status = 'running'
+           AND stage = ANY(?)
+           AND stage_status = 'running'
+           AND stage_started_at IS NOT NULL`,
+      ).all(workspaceId, NODE_PROVISIONING_STAGES)
+    : getDatabase().prepare(
+        `SELECT * FROM runtime_provisioning_task
+         WHERE status = 'running'
+           AND stage = ANY(?)
+           AND stage_status = 'running'
+           AND stage_started_at IS NOT NULL`,
+      ).all(NODE_PROVISIONING_STAGES)) as RawRuntimeProvisioningTask[];
+  const now = Date.now();
+  return rows.filter((row) => {
+    const timeoutMs = resolveStageTimeoutMs(row.stage, row.timeouts_json);
+    const startedAt = row.stage_started_at ? new Date(row.stage_started_at).getTime() : Number.NaN;
+    return Number.isFinite(startedAt) && now - startedAt > timeoutMs;
+  }).map(mapRuntimeProvisioningTask);
+}
+
+export function timeoutRunningNodeStagesSync(): {
+  timedOut: number;
+  retried: number;
+  failed: number;
+} {
+  const tasks = listRunningNodeStagesForTimeoutSync();
+  let retried = 0;
+  let failed = 0;
+  for (const task of tasks) {
+    const next = failManagedProvisioningStageSync({
+      taskId: task.id,
+      stage: task.stage,
+      workspaceId: task.workspaceId,
+      errorCode: "provisioning.stage_timeout",
+      errorMessage: `Stage ${task.stage} timed out after ${resolveStageTimeoutMs(task.stage, task.timeoutsJson)}ms`,
+    });
+    if (!next) {
+      continue;
+    }
+    if (next.status === "retrying") {
+      retried += 1;
+    } else if (next.status === "failed") {
+      failed += 1;
+    }
+  }
+  return { timedOut: tasks.length, retried, failed };
+}
+
+export function requeueProvisioningStagesForOfflineDaemonSync(
+  daemonConnectionId: string,
+): { reclaimed: number; retried: number; failed: number } {
   const db = getDatabase();
-  const deadline = new Date(Date.now() - timeoutMs).toISOString();
-  const result = db
+  const now = new Date().toISOString();
+  const rows = db
     .prepare(
+      `SELECT * FROM runtime_provisioning_task
+       WHERE daemon_connection_id = ?
+         AND status IN ('running', 'retrying')
+         AND stage = ANY(?)
+         AND stage_status = 'running'`,
+    )
+    .all(daemonConnectionId, NODE_PROVISIONING_STAGES) as RawRuntimeProvisioningTask[];
+
+  let reclaimed = 0;
+  let retried = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    db.prepare(
       `UPDATE runtime_provisioning_task
        SET stage_status = 'pending',
            daemon_connection_id = NULL,
            stage_started_at = NULL,
            updated_at = ?
-       WHERE status = 'running'
-         AND stage = ANY(?)
-         AND stage_status = 'running'
-         AND stage_started_at < ?`,
-    )
-    .run(new Date().toISOString(), JSON.stringify(NODE_PROVISIONING_STAGES), deadline);
-  return result.changes ?? 0;
+       WHERE id = ? AND workspace_id = ?`,
+    ).run(now, row.id, row.workspace_id);
+    appendRuntimeProvisioningEventRowSync(db, {
+      taskId: row.id,
+      stage: row.stage,
+      status: "pending",
+      progressPercent: readProgressSync(db, row.id),
+      title: "Daemon offline: stage reclaimed",
+      summary: `Stage ${row.stage} reclaimed because daemon ${daemonConnectionId} went offline`,
+      severity: "warning",
+      data: { daemonConnectionId, stage: row.stage },
+    });
+    reclaimed += 1;
+
+    const hasRetriesRemaining = row.retry_count < row.max_retries;
+    if (hasRetriesRemaining) {
+      scheduleRuntimeProvisioningTaskRetrySync({
+        id: row.id,
+        workspaceId: row.workspace_id,
+        stage: row.stage,
+        errorCode: "provisioning.daemon_offline",
+        errorMessage: `Daemon ${daemonConnectionId} went offline; retry scheduled`,
+      });
+      retried += 1;
+    } else {
+      markRuntimeProvisioningTaskFailedSync({
+        id: row.id,
+        workspaceId: row.workspace_id,
+        stage: row.stage,
+        errorCode: "provisioning.daemon_offline",
+        errorMessage: `Daemon ${daemonConnectionId} went offline and no retries remain`,
+        allowRetry: false,
+      });
+      failed += 1;
+    }
+  }
+
+  return { reclaimed, retried, failed };
 }
 
 export function readRuntimeProvisioningTaskForDaemonSync(
@@ -639,6 +897,8 @@ type RawRuntimeProvisioningTask = {
   stage_started_at: string | null;
   status: RuntimeProvisioningTaskStatus;
   timeouts_json: string;
+  task_timeout_ms: number;
+  next_retry_at: string | null;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -690,6 +950,8 @@ function mapRuntimeProvisioningTask(
     stageStartedAt: row.stage_started_at ?? undefined,
     status: row.status,
     timeoutsJson: row.timeouts_json,
+    taskTimeoutMs: row.task_timeout_ms,
+    nextRetryAt: row.next_retry_at ?? undefined,
     startedAt: row.started_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
     createdAt: row.created_at,

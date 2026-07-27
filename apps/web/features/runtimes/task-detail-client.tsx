@@ -21,12 +21,19 @@ export function RuntimeTaskDetailClient({
 }) {
   const [detail, setDetail] = useState(initialDetail);
   const [pending, startTransition] = useTransition();
+  const [clock, setClock] = useState(() => Date.now());
   const stopRef = useRef(false);
 
   const isTerminal =
     detail.task.status === "succeeded" ||
     detail.task.status === "failed" ||
     detail.task.status === "cancelled";
+
+  useEffect(() => {
+    if (isTerminal) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isTerminal]);
 
   useEffect(() => {
     if (isTerminal) return;
@@ -72,7 +79,7 @@ export function RuntimeTaskDetailClient({
           <p className="font-mono text-xs text-neutral-400">{task.id}</p>
         </div>
         <div className="flex gap-2">
-          {task.status === "failed" ? (
+          {task.status === "failed" || task.status === "retrying" ? (
             <button
               type="button"
               className="rounded border px-2 py-1 text-xs disabled:opacity-50"
@@ -86,7 +93,7 @@ export function RuntimeTaskDetailClient({
               Retry (retry {task.retryCount + 1}/{task.maxRetries})
             </button>
           ) : null}
-          {task.status === "running" || task.status === "queued" ? (
+          {task.status === "running" || task.status === "queued" || task.status === "retrying" || task.status === "failed" ? (
             <button
               type="button"
               className="rounded border px-2 py-1 text-xs disabled:opacity-50"
@@ -104,6 +111,11 @@ export function RuntimeTaskDetailClient({
       </header>
 
       <div className="rounded-lg border p-4">
+        <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-neutral-500">
+          <span>requested: {new Date(task.createdAt).toLocaleString()}</span>
+          <span>elapsed: {formatElapsed(task.startedAt ?? task.createdAt, task.completedAt, clock)}</span>
+          <span>safe cancellation: {task.runtimeCredentialId ? "cleanup required" : "yes"}</span>
+        </div>
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium">{task.stage}</span>
           <span>{task.progressPercent}%</span>
@@ -118,6 +130,9 @@ export function RuntimeTaskDetailClient({
           <span>status: {task.status}</span>
           {task.runtimeCredentialId ? (
             <span>credential: {task.runtimeCredentialId.slice(0, 12)}…</span>
+          ) : null}
+          {task.nextRetryAt ? (
+            <span>next retry: {new Date(task.nextRetryAt).toLocaleString()}</span>
           ) : null}
           {task.retryCount > 0 ? <span>retries: {task.retryCount}</span> : null}
           {task.lastErrorMessage ? (
@@ -165,4 +180,11 @@ export function RuntimeTaskDetailClient({
       </div>
     </section>
   );
+}
+
+function formatElapsed(start: string, completedAt: string | undefined, now: number): string {
+  const durationSeconds = Math.max(0, Math.floor(((completedAt ? new Date(completedAt).getTime() : now) - new Date(start).getTime()) / 1000));
+  const minutes = Math.floor(durationSeconds / 60);
+  const seconds = durationSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }

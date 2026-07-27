@@ -420,6 +420,8 @@ export type RuntimeProvisioningTaskStatus =
   | "running"
   | "succeeded"
   | "failed"
+  | "retrying"
+  | "cancelling"
   | "cancelled";
 
 /** Stage enum is forward-compatible with the docs/0727 spec. `pull_image` and
@@ -486,6 +488,10 @@ export interface RuntimeProvisioningTaskRecord {
   status: RuntimeProvisioningTaskStatus;
   /** Per-stage timeouts in ms, keyed by stage. */
   timeoutsJson?: string;
+  /** Overall task timeout in ms. */
+  taskTimeoutMs?: number;
+  /** When a retrying task should be rescheduled. */
+  nextRetryAt?: string;
   startedAt?: string;
   completedAt?: string;
   createdAt: string;
@@ -537,6 +543,12 @@ export interface ManagedRuntimeCleanupRequestRecord {
   daemonConnectionId: string;
   runtimeType: DaemonProvider;
   status: ManagedRuntimeCleanupRequestStatus;
+  attemptCount: number;
+  maxAttempts: number;
+  nextAttemptAt?: string;
+  claimedAt?: string;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
   requestedAt: string;
   completedAt?: string;
   resultJson?: string;

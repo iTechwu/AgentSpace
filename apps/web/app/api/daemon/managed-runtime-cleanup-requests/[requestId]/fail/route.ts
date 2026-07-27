@@ -1,4 +1,4 @@
-import { completeManagedRuntimeCleanupRequestSync, readManagedRuntimeCleanupRequestSync } from "@dofe-agent/db";
+import { failManagedRuntimeCleanupRequestSync, readManagedRuntimeCleanupRequestSync } from "@dofe-agent/db";
 import { requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -25,18 +25,22 @@ export async function POST(
     return Response.json({ error: "Cleanup request is not assigned to this daemon." }, { status: 403 });
   }
 
-  const body = (await request.json()) as { result?: Record<string, unknown> } | undefined;
+  const body = (await request.json()) as { errorCode?: string; errorMessage?: string } | undefined;
 
-  const completed = completeManagedRuntimeCleanupRequestSync(requestId, "succeeded", body?.result);
-  if (!completed) {
+  const updated = failManagedRuntimeCleanupRequestSync(
+    requestId,
+    body?.errorCode,
+    body?.errorMessage ?? "Cleanup failed on the node.",
+  );
+  if (!updated) {
     return Response.json({ error: "Cleanup request not found." }, { status: 404 });
   }
-  if (completed.status !== "succeeded") {
-    return Response.json(
-      { error: `Cleanup request is ${completed.status}, not running.` },
-      { status: 409 },
-    );
-  }
 
-  return Response.json({ requestId, status: "succeeded" });
+  return Response.json({
+    requestId,
+    status: updated.status,
+    attemptCount: updated.attemptCount,
+    maxAttempts: updated.maxAttempts,
+    nextAttemptAt: updated.nextAttemptAt,
+  });
 }

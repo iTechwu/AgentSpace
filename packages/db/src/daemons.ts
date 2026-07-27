@@ -1,11 +1,14 @@
 import { isDaemonProvider, type DaemonProvider } from "@dofe-agent/domain";
 import { getDatabase, withTransaction, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import { assertActiveProviderAccountSync, fulfillRuntimeProvisionRequestsForDaemonTokenSync } from "./provider-accounts.ts";
+import { requeueProvisioningStagesForOfflineDaemonSync } from "./runtime-provisioning-tasks.ts";
+import { requeueCleanupRequestsForOfflineDaemonSync } from "./managed-runtime-cleanup.ts";
+import { DEFAULT_DAEMON_HEARTBEAT_STALE_MS } from "./daemon-constants.ts";
 import type { DaemonConnectionRecord, AgentRuntimeRecord, RegisteredDaemonSnapshot, RuntimeRegistrationInput } from "./types.ts";
 
 // Remote daemons report every 15 seconds by default. Keep a generous grace
 // period so a missed heartbeat does not leave an unreachable server selectable.
-export const DEFAULT_DAEMON_HEARTBEAT_STALE_MS = 60_000;
+export { DEFAULT_DAEMON_HEARTBEAT_STALE_MS } from "./daemon-constants.ts";
 
 export function registerDaemonRuntimesSync(input: {
   daemonKey: string;
@@ -374,6 +377,9 @@ export function markDaemonOfflineSync(daemonKey: string, options?: { lastError?:
            updated_at = ?
        WHERE daemon_connection_id = ?`,
     ).run(options?.lastError ?? null, now, daemon.id);
+
+    requeueProvisioningStagesForOfflineDaemonSync(daemon.id);
+    requeueCleanupRequestsForOfflineDaemonSync(daemon.id);
   });
 
   return readDaemonSnapshotSync(daemonKey);
@@ -735,6 +741,9 @@ export function markStaleDaemonsOfflineSync(options?: {
              updated_at = ?
          WHERE daemon_connection_id = ?`,
       ).run(updatedAt, daemon.id);
+
+      requeueProvisioningStagesForOfflineDaemonSync(daemon.id);
+      requeueCleanupRequestsForOfflineDaemonSync(daemon.id);
     }
   });
 

@@ -3,6 +3,7 @@ import {
   listManagedRuntimeTasksSync,
   resolveAgentRuntimeMode,
 } from "@dofe-agent/services";
+import { listDaemonSnapshotsSync } from "@dofe-agent/db";
 import { notFound } from "next/navigation";
 import { getWorkspacePageContext } from "../_lib/workspace-page-context";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
@@ -34,6 +35,12 @@ export default async function WorkspaceRuntimesPage({
         actorUserId: workspaceContext.currentUser.id,
       })
     : [];
+  const targetServers = isAdmin
+    ? listDaemonSnapshotsSync(workspaceContext.currentWorkspace.id).map(({ daemon }) => ({
+        deviceName: daemon.deviceName,
+        status: daemon.status,
+      }))
+    : [];
 
   return (
     <RuntimesPageClient
@@ -41,6 +48,7 @@ export default async function WorkspaceRuntimesPage({
       isAdmin={isAdmin}
       initialTasks={tasks}
       initialRuntimes={runtimes}
+      targetServers={targetServers}
     />
   );
 }

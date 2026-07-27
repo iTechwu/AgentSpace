@@ -209,6 +209,13 @@ export class HttpDaemonClient {
     );
   }
 
+  async failManagedRuntimeCleanupRequest(requestId: string, body: { errorCode?: string; errorMessage?: string }): Promise<void> {
+    await this.postJson(
+      `/api/daemon/managed-runtime-cleanup-requests/${encodeURIComponent(requestId)}/fail`,
+      body,
+    );
+  }
+
   async deregister(daemonKey: string, lastError?: string): Promise<void> {
     await this.postJson("/api/daemon/deregister", {
       daemonKey,

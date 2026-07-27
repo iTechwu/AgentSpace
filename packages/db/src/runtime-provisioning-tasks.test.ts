@@ -7,12 +7,15 @@ import {
   advanceRuntimeProvisioningTaskStageSync,
   appendRuntimeProvisioningEventSync,
   claimManagedProvisioningStageSync,
+  completeManagedRuntimeCleanupRequestSync,
   completeRuntimeProvisioningCancellationSync,
   createRuntimeProvisioningTaskSync,
   listAuditLogsSync,
+  listPendingManagedRuntimeCleanupRequestsForDaemonSync,
   listRuntimeProvisioningTaskEventsSync,
   listRuntimeProvisioningTasksSync,
   markRuntimeProvisioningTaskCancellingSync,
+  markManagedRuntimeCleanupRequestRunningSync,
   markRuntimeProvisioningTaskFailedSync,
   markRuntimeProvisioningTaskReadySync,
   readAgentRuntimeSync,
@@ -21,6 +24,8 @@ import {
   readWorkspaceSsoBindingSync,
   recordAuditLogSync,
   registerDaemonRuntimesSync,
+  requestManagedRuntimeCleanupSync,
+  failManagedRuntimeCleanupRequestSync,
   resetRuntimeProvisioningTaskForRetrySync,
   updateAgentRuntimeManagedFieldsSync,
   upsertWorkspaceSsoBindingSync,
@@ -42,6 +47,7 @@ beforeEach(() => {
   const db = getDatabase();
   db.exec("DELETE FROM runtime_provisioning_task_event");
   db.exec("DELETE FROM runtime_provisioning_task");
+  db.exec("DELETE FROM managed_runtime_cleanup_request");
   db.exec("DELETE FROM audit_log");
   db.exec("DELETE FROM workspace_sso_binding");
   db.exec("DELETE FROM agent_runtime");
@@ -138,7 +144,7 @@ test("mark failed locates the stage, retry resets and bumps retry count", () => 
     errorCode: "node_offline",
     errorMessage: "target server did not register",
   });
-  assert.equal(failed?.status, "failed");
+  assert.equal(failed?.status, "retrying");
   assert.equal(failed?.stage, "prepare_node");
   assert.equal(failed?.lastErrorCode, "node_offline");
   assert.equal(failed?.lastErrorMessage, "target server did not register");
@@ -166,7 +172,7 @@ test("cancel flow marks cancelling then completes cancellation", () => {
     runtimeCredentialId: "rtc-3",
   });
   const cancelling = markRuntimeProvisioningTaskCancellingSync({ id: task.id, workspaceId: WORKSPACE });
-  assert.equal(cancelling?.status, "cancelled");
+  assert.equal(cancelling?.status, "cancelling");
   assert.equal(cancelling?.cleanupStatus, "running");
 
   const done = completeRuntimeProvisioningCancellationSync({
@@ -245,6 +251,20 @@ test("audit log records and lists immutable rows", () => {
   assert.ok(!JSON.stringify(rows).toLowerCase().includes("sk-"));
 });
 
+test("audit log supports runtime, actor, employee, session, task, model, and time filters", () => {
+  recordAuditLogSync({
+    workspaceId: WORKSPACE,
+    title: "Execution completed",
+    note: "done",
+    code: "execution.completed",
+    data: { actorId: "owner-1", employeeId: "atlas", runtimeId: "runtime-1", sessionId: "session-1", taskId: "task-1", modelId: "gpt-5" },
+  });
+  recordAuditLogSync({ workspaceId: WORKSPACE, title: "Other", note: "other", code: "execution.failed", data: { runtimeId: "runtime-2" } });
+
+  const filters = { actorId: "owner-1", employeeId: "atlas", runtimeId: "runtime-1", sessionId: "session-1", taskId: "task-1", modelId: "gpt-5", createdFrom: "2020-01-01T00:00:00.000Z", createdTo: "2030-01-01T00:00:00.000Z" };
+  assert.deepEqual(listAuditLogsSync(WORKSPACE, filters).map((row) => row.code), ["execution.completed"]);
+});
+
 test("appendRuntimeProvisioningEventSync writes an extra readable event", () => {
   const task = createRuntimeProvisioningTaskSync({
     workspaceId: WORKSPACE,
@@ -307,6 +327,56 @@ test("managed nodes claim provisioning tasks within their authenticated workspac
   assert.equal(claimed?.id, task.id);
   assert.equal(claimed?.daemonConnectionId, snapshot.daemon.id);
   assert.equal(claimed?.stageStatus, "running");
+});
+
+test("managed cleanup retries are not claimable before their backoff expires", () => {
+  const snapshot = registerDaemonRuntimesSync({ daemonKey: "cleanup-node", deviceName: "cleanup-node", workspaceId: WORKSPACE, runtimes: [{ provider: "codex", name: "Cleanup Codex" }] });
+  const request = requestManagedRuntimeCleanupSync({ workspaceId: WORKSPACE, runtimeId: snapshot.runtimes[0]!.id, daemonConnectionId: snapshot.daemon.id, runtimeType: "codex" });
+  assert.equal(request.attemptCount, 0);
+  assert.equal(listPendingManagedRuntimeCleanupRequestsForDaemonSync(snapshot.daemon.id).length, 1);
+  assert.equal(markManagedRuntimeCleanupRequestRunningSync(request.id)?.status, "running");
+  assert.equal(markManagedRuntimeCleanupRequestRunningSync(request.id), null);
+  const retrying = failManagedRuntimeCleanupRequestSync(request.id, "cleanup.failed", "temporary failure");
+  assert.equal(retrying?.status, "pending");
+  assert.equal(retrying?.attemptCount, 1);
+  assert.ok(retrying?.nextAttemptAt);
+  assert.equal(listPendingManagedRuntimeCleanupRequestsForDaemonSync(snapshot.daemon.id).length, 0);
+
+  const duplicateFailure = failManagedRuntimeCleanupRequestSync(request.id, "cleanup.duplicate", "duplicate callback");
+  assert.equal(duplicateFailure?.attemptCount, 1);
+  assert.equal(duplicateFailure?.lastErrorCode, "cleanup.failed");
+
+  const lateSuccess = completeManagedRuntimeCleanupRequestSync(request.id, "succeeded", { removed: true });
+  assert.equal(lateSuccess?.status, "pending");
+  assert.equal(lateSuccess?.resultJson, undefined);
+});
+
+test("managed cleanup fails after its configured maximum number of attempts", () => {
+  const snapshot = registerDaemonRuntimesSync({ daemonKey: "cleanup-limit-node", deviceName: "cleanup-limit-node", workspaceId: WORKSPACE, runtimes: [{ provider: "codex", name: "Cleanup Codex" }] });
+  const request = requestManagedRuntimeCleanupSync({ workspaceId: WORKSPACE, runtimeId: snapshot.runtimes[0]!.id, daemonConnectionId: snapshot.daemon.id, runtimeType: "codex" });
+  const db = getDatabase();
+
+  for (let attempt = 1; attempt <= request.maxAttempts; attempt += 1) {
+    db.prepare("UPDATE managed_runtime_cleanup_request SET status = 'pending', next_attempt_at = NULL WHERE id = ?").run(request.id);
+    assert.equal(markManagedRuntimeCleanupRequestRunningSync(request.id)?.status, "running");
+    const failed = failManagedRuntimeCleanupRequestSync(request.id, "cleanup.failed", `failure ${attempt}`);
+    assert.equal(failed?.attemptCount, attempt);
+    assert.equal(failed?.status, attempt === request.maxAttempts ? "failed" : "pending");
+  }
+});
+
+test("managed cleanup completion is idempotent after a successful claim", () => {
+  const snapshot = registerDaemonRuntimesSync({ daemonKey: "cleanup-success-node", deviceName: "cleanup-success-node", workspaceId: WORKSPACE, runtimes: [{ provider: "codex", name: "Cleanup Codex" }] });
+  const request = requestManagedRuntimeCleanupSync({ workspaceId: WORKSPACE, runtimeId: snapshot.runtimes[0]!.id, daemonConnectionId: snapshot.daemon.id, runtimeType: "codex" });
+  assert.equal(markManagedRuntimeCleanupRequestRunningSync(request.id)?.status, "running");
+
+  const completed = completeManagedRuntimeCleanupRequestSync(request.id, "succeeded", { removed: true });
+  assert.equal(completed?.status, "succeeded");
+  assert.deepEqual(JSON.parse(completed?.resultJson ?? "{}"), { removed: true });
+
+  const duplicate = completeManagedRuntimeCleanupRequestSync(request.id, "succeeded", { removed: false });
+  assert.equal(duplicate?.status, "succeeded");
+  assert.deepEqual(JSON.parse(duplicate?.resultJson ?? "{}"), { removed: true });
 });
 
 function ensureWorkspace(): void {

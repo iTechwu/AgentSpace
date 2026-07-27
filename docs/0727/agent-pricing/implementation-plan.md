@@ -2,6 +2,21 @@
 
 状态：**AgentSpace 仓库实施完成，等待 staging 联调验收**。该计划以可验证的契约和安全边界为先。`DOFE_AGENT_RUNTIME_MODE` 是部署级开关：未设置或为 `local` 时保持既有路径不变，只有 `remote`（服务器模式）才进入 `models.dofe.ai` 受管流程。
 
+## 2026-07-28 审查闭环
+
+本轮按照 2026-07-27 深度审查逐项复核并补齐以下仓库内交付：
+
+1. Runtime 列表完整展示类型、协议、默认模型、已分配 AI员工、节点心跳、周期实际成本和状态，并提供 Provider、状态、模型与成本归因过滤；团队范围由工作区路由天然限定。
+2. 创建向导从已注册 daemon 中选择目标服务器，默认自动放置且禁止选择离线节点；模型选择器支持搜索，并展示协议、上下文、能力、价格及不可用原因。
+3. 任务详情展示请求时间、动态耗时、阶段进度、日志、重试与取消后果；任务和节点阶段具备超时、指数退避、离线重领与重启恢复。
+4. OpenAI、Anthropic、Gemini 健康检查使用各自协议路径和认证头；永久配置错误不会自动重试，瞬时节点或网络错误进入受控重试。
+5. 清理请求具备原子领取、超时回收、最多三次尝试、退避和 daemon 成功/失败回调；进入任务重试时不会提前清理 Runtime。
+6. 成本页读取 models 的团队真实余额并区分总额、预留、可用、实际、估算、已对账和未分配费用；Runtime 列表同步呈现周期实际及未分配成本。
+7. 团队 Owner/Admin 可访问工作区审计页，并按来源、操作者、AI员工、Runtime、会话、任务、模型和时间范围过滤；平台审计仍保持独立权限与真实操作者视图。
+8. PostgreSQL schema 升级至 v34，补齐任务/清理恢复字段、索引迁移顺序及历史 `token_usage.task_queue_id` 可空迁移，并纳入专项门禁。
+
+仓库内门禁为 `npm run test:agent-pricing`、`npm run typecheck` 与 `npm run lint:web`。未完成项不在代码仓库内：仍需真实 `models.dofe.ai` 测试租户、网关和容器环境执行 staging E2E、网络出口策略验证及正式账单核对。
+
 ## 阶段 0：确认契约与安全基线
 
 目标：在开发前冻结跨项目责任边界。
@@ -100,8 +115,10 @@
   - `apps/web/app/api/daemon/provisioning-tasks/[taskId]/stages/[stage]/fail/route.ts`
   - `apps/web/app/api/daemon/runtimes/[runtimeId]/credential-bundle/route.ts`
   - `apps/web/app/api/daemon/managed-runtime-cleanup-requests/[requestId]/complete/route.ts`
+  - `apps/web/app/api/daemon/managed-runtime-cleanup-requests/[requestId]/fail/route.ts`
   - `apps/web/app/api/daemon/heartbeat/route.ts`
   - `apps/web/app/api/daemon/register/route.ts`
+  - `apps/web/app/api/cron/runtime-provisioning/route.ts`
 
 验收：节点日志、容器 inspect、数据库和前端均无明文 Key；不同团队的服务器 Runtime 无法挂载彼此凭据；local 回归测试证明既有本地配置未被本阶段修改。
 

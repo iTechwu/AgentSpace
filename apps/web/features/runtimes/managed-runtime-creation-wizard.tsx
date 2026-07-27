@@ -11,8 +11,10 @@ import type { ManagedRuntimeCreationPreflightResult } from "@dofe-agent/services
 
 export function ManagedRuntimeCreationWizard({
   onCreated,
+  targetServers = [],
 }: {
   onCreated: (taskId: string) => void;
+  targetServers?: Array<{ deviceName: string; status: "online" | "offline" }>;
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [provider, setProvider] = useState<DaemonProvider>(DAEMON_PROVIDER_IDS[0] ?? "claude");
@@ -115,15 +117,21 @@ export function ManagedRuntimeCreationWizard({
           </label>
           <label className="text-sm">
             <span className="mb-1 block text-neutral-500">Target server</span>
-            <input
+            <select
               className="w-full rounded border px-2 py-1"
               value={targetServer}
               onChange={(event) => {
                 setTargetServer(event.target.value);
                 invalidatePreflight();
               }}
-              placeholder="Automatic placement"
-            />
+            >
+              <option value="">Automatic placement</option>
+              {targetServers.map((server) => (
+                <option key={server.deviceName} value={server.deviceName} disabled={server.status !== "online"}>
+                  {server.deviceName}{server.status === "online" ? "" : " (offline)"}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
       ) : null}

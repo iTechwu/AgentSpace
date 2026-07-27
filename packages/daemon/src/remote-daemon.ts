@@ -1058,23 +1058,22 @@ async function executeManagedCleanupRequests(
     console.log(`Managed cleanup: ${request.runtimeId}`);
     try {
       const result = await executor.executeCleanup(request.runtimeId, request.commands);
-      await client.completeManagedRuntimeCleanupRequest(request.requestId, {
-        result: {
-          success: result.success,
+      if (result.success) {
+        await client.completeManagedRuntimeCleanupRequest(request.requestId, {
+          result: { success: true, safeStdoutTail: result.safeStdoutTail, safeStderrTail: result.safeStderrTail },
+        });
+      } else {
+        await client.failManagedRuntimeCleanupRequest(request.requestId, {
           errorCode: result.errorCode,
           errorMessage: result.errorMessage,
-          safeStdoutTail: result.safeStdoutTail,
-          safeStderrTail: result.safeStderrTail,
-        },
-      });
+        });
+      }
       if (result.success) {
         managedRuntimes.delete(request.runtimeId);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await client.completeManagedRuntimeCleanupRequest(request.requestId, {
-        result: { success: false, errorMessage: message },
-      });
+      await client.failManagedRuntimeCleanupRequest(request.requestId, { errorMessage: message });
     }
   }
 }

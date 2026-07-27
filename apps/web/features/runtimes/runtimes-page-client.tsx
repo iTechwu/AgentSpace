@@ -21,11 +21,13 @@ export function RuntimesPageClient({
   isAdmin,
   initialTasks,
   initialRuntimes,
+  targetServers,
 }: {
   workspaceSlug: string;
   isAdmin: boolean;
   initialTasks: PublicRuntimeProvisioningTaskRecord[];
   initialRuntimes: ManagedRuntimeListItem[];
+  targetServers: Array<{ deviceName: string; status: "online" | "offline" }>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -56,6 +58,7 @@ export function RuntimesPageClient({
       </header>
 
       <ManagedRuntimeCreationWizard
+        targetServers={targetServers}
         onCreated={(taskId) => router.push(buildWorkspacePath(workspaceSlug, `/runtimes/${taskId}`))}
       />
 
@@ -97,7 +100,7 @@ export function RuntimesPageClient({
                   </span>
                 ) : null}
                 <div className="ml-auto flex gap-2">
-                  {task.status === "failed" ? (
+                  {task.status === "failed" || task.status === "retrying" ? (
                     <ActionButton
                       disabled={pending}
                       onClick={() =>
@@ -110,7 +113,7 @@ export function RuntimesPageClient({
                       Retry
                     </ActionButton>
                   ) : null}
-                  {task.status === "running" || task.status === "queued" ? (
+                  {task.status === "running" || task.status === "queued" || task.status === "retrying" || task.status === "failed" ? (
                     <ActionButton
                       disabled={pending}
                       onClick={() =>
@@ -174,6 +177,8 @@ function StatusBadge({ status }: { status: PublicRuntimeProvisioningTaskRecord["
   const tone: Record<PublicRuntimeProvisioningTaskRecord["status"], string> = {
     queued: "bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200",
     running: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200",
+    retrying: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200",
+    cancelling: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200",
     succeeded: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200",
     failed: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200",
     cancelled: "bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200",

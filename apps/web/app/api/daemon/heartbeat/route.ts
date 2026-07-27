@@ -1,4 +1,4 @@
-import { heartbeatDaemonSync, listPendingManagedRuntimeCleanupRequestsForDaemonSync } from "@dofe-agent/db";
+import { heartbeatDaemonSync, listPendingManagedRuntimeCleanupRequestsForDaemonSync, markManagedRuntimeCleanupRequestRunningSync } from "@dofe-agent/db";
 import type { HeartbeatDaemonRequest, HeartbeatDaemonResponse } from "@dofe-agent/domain";
 import { buildManagedCleanupCommands, resumePendingRuntimeCredentialRecoveriesAsync } from "@dofe-agent/services";
 import { readDaemonConnectionForDaemon, requireDaemonAuth } from "../_lib/auth";
@@ -35,13 +35,21 @@ export async function POST(request: Request): Promise<Response> {
       : undefined,
   });
 
-  const cleanupRequests = listPendingManagedRuntimeCleanupRequestsForDaemonSync(daemon.id).map((req) => ({
-    requestId: req.id,
-    workspaceId: req.workspaceId,
-    runtimeId: req.runtimeId,
-    runtimeType: req.runtimeType,
-    commands: buildManagedCleanupCommands(req.runtimeType, req.runtimeId),
-  }));
+  const cleanupRequests = listPendingManagedRuntimeCleanupRequestsForDaemonSync(daemon.id)
+    .map((req) => {
+      const claimed = markManagedRuntimeCleanupRequestRunningSync(req.id);
+      if (!claimed) {
+        return null;
+      }
+      return {
+        requestId: req.id,
+        workspaceId: req.workspaceId,
+        runtimeId: req.runtimeId,
+        runtimeType: req.runtimeType,
+        commands: buildManagedCleanupCommands(req.runtimeType, req.runtimeId),
+      };
+    })
+    .filter((request): request is NonNullable<typeof request> => request !== null);
 
   await resumePendingRuntimeCredentialRecoveriesAsync({
     workspaceId: auth.workspaceId,

@@ -1,12 +1,42 @@
 "use server";
 
 import { deleteBudgetSync, toggleBudgetSync, tryRecordWorkspaceAuditEventSync, upsertBudgetSync } from "@dofe-agent/services";
-import { readBudgetByIdSync, type BudgetAction, type BudgetPeriod, type BudgetScope } from "@dofe-agent/db";
+import { readBudgetByIdSync, readWorkspaceSsoBindingSync, type BudgetAction, type BudgetPeriod, type BudgetScope } from "@dofe-agent/db";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePath } from "@/features/auth/workspace-revalidation";
 import { listManagedRuntimesForWorkspaceSync, syncRuntimeCredentialUsageAsync } from "@dofe-agent/services";
 import { resolveAgentRuntimeMode } from "@dofe-agent/services";
+import { getModelsInternalClient, isModelsInternalConfigured } from "@dofe-agent/services";
+
+export interface TeamBillingBalance {
+  balance: string;
+  reservedBalance: string;
+  availableBalance: string;
+  currency: string;
+  status: string;
+}
+
+export async function getTeamBillingBalanceAction(): Promise<TeamBillingBalance | null> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  if (resolveAgentRuntimeMode() !== "remote" || !isModelsInternalConfigured()) return null;
+  const binding = readWorkspaceSsoBindingSync(workspaceContext.currentWorkspace.id);
+  if (!binding?.teamId) return null;
+  try {
+    const response = await getModelsInternalClient().billing.balanceByTeam({ params: { teamId: binding.teamId } });
+    const balance = response as TeamBillingBalance;
+    return {
+      balance: balance.balance,
+      reservedBalance: balance.reservedBalance,
+      availableBalance: balance.availableBalance,
+      currency: balance.currency,
+      status: balance.status,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function upsertBudgetAction(input: {
   scope: BudgetScope;

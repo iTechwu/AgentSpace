@@ -22,9 +22,17 @@ import {
   deleteAgentRuntimeSync,
   failManagedProvisioningStageSync,
   getDatabase,
+  getMonthStartIso,
+  listEmployeeRuntimeBindingsSync,
+  listRuntimeCostSummariesSync,
   listRuntimeProvisioningTaskEventsSync,
+  listTokenUsageSync,
   listDueRuntimeCredentialRecoveryTasksSync,
   listRuntimeProvisioningTasksSync,
+  listRetryingRuntimeProvisioningTasksReadySync,
+  listRunningProvisioningTasksTimedOutSync,
+  markDaemonOfflineSync,
+  markStaleDaemonsOfflineSync,
   markRuntimeProvisioningTaskCancellingSync,
   markRuntimeProvisioningTaskFailedSync,
   markRuntimeProvisioningTaskReadySync,
@@ -39,8 +47,8 @@ import {
   recordAuditLogSync,
   requestManagedRuntimeCleanupSync,
   resetRuntimeProvisioningTaskForRetrySync,
-  resetStalledManagedProvisioningStagesSync,
   startRuntimeCredentialRecoveryAttemptSync,
+  timeoutRunningNodeStagesSync,
   updateAgentRuntimeManagedFieldsSync,
   type AgentRuntimeRecord,
   type RuntimeProvisioningTaskRecord,
@@ -69,6 +77,17 @@ import type {
 } from "@dofe/models-sdk";
 
 const MANAGED_RUNTIME_NAME_PREFIX = "Managed";
+
+const DEFAULT_TASK_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_STAGE_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_CLEANUP_TIMEOUT_MS = 10 * 60 * 1000;
+const RETRY_BACKOFF_BASE_MS = 15_000;
+const RETRY_BACKOFF_MAX_MS = 5 * 60 * 1000;
+
+function computeRetryBackoffMs(retryCount: number): number {
+  const jitter = Math.random() * 0.4 + 0.8;
+  return Math.min(RETRY_BACKOFF_MAX_MS, RETRY_BACKOFF_BASE_MS * 2 ** retryCount) * jitter;
+}
 
 // ─── Role + scope resolution ────────────────────────────────────────────────
 
@@ -219,7 +238,7 @@ export function retryRuntimeProvisioningTaskSync(
   if (!task) {
     throw new Error("managed_runtime.task_not_found");
   }
-  if (task.status !== "failed") {
+  if (task.status !== "failed" && task.status !== "retrying") {
     throw new Error("managed_runtime.only_failed_tasks_can_retry");
   }
   if (task.retryCount >= task.maxRetries) {
@@ -323,7 +342,8 @@ export function listManagedRuntimesForWorkspaceSync(
   const db = getDatabase();
   const rows = db.prepare(
     `SELECT id, name, provider, managed_credential_id AS managedCredentialId, status,
-            provisioning_state AS provisioningState
+            provisioning_state AS provisioningState, protocols_json AS protocolsJson,
+            default_model AS defaultModel, last_heartbeat_at AS lastHeartbeatAt
      FROM agent_runtime
      WHERE workspace_id = ? AND managed_credential_id IS NOT NULL
      ORDER BY created_at DESC`,
@@ -334,7 +354,26 @@ export function listManagedRuntimesForWorkspaceSync(
     managedCredentialId: string;
     status: string;
     provisioningState?: string;
+    protocolsJson?: string;
+    defaultModel?: string;
+    lastHeartbeatAt?: string;
   }>;
+  const bindingCountByRuntime = new Map<string, number>();
+  for (const binding of listEmployeeRuntimeBindingsSync(input.workspaceId)) {
+    bindingCountByRuntime.set(binding.runtimeId, (bindingCountByRuntime.get(binding.runtimeId) ?? 0) + 1);
+  }
+  const actualCostByRuntime = new Map(
+    listRuntimeCostSummariesSync(getMonthStartIso(), input.workspaceId)
+      .map((summary) => [summary.runtimeId, summary.totalActualCostUsd]),
+  );
+  const unallocatedCostByCredential = new Map<string, number>();
+  for (const usage of listTokenUsageSync({ workspaceId: input.workspaceId, since: getMonthStartIso() })) {
+    if (usage.billingStatus !== "unallocated" || !usage.runtimeCredentialId) continue;
+    unallocatedCostByCredential.set(
+      usage.runtimeCredentialId,
+      (unallocatedCostByCredential.get(usage.runtimeCredentialId) ?? 0) + (usage.actualCostUsd ?? 0),
+    );
+  }
   return rows
     .filter((row) => isDaemonProvider(row.provider))
     .map((row) => ({
@@ -344,6 +383,12 @@ export function listManagedRuntimesForWorkspaceSync(
       managedCredentialId: row.managedCredentialId,
       status: row.status === "online" ? "online" : "offline",
       provisioningState: normalizeManagedRuntimeLifecycleState(row.provisioningState),
+      protocols: parseStringArray(row.protocolsJson),
+      defaultModel: row.defaultModel,
+      assignedEmployeeCount: bindingCountByRuntime.get(row.id) ?? 0,
+      lastHeartbeatAt: row.lastHeartbeatAt,
+      periodActualCostUsd: actualCostByRuntime.get(row.id) ?? 0,
+      unallocatedCostUsd: unallocatedCostByCredential.get(row.managedCredentialId) ?? 0,
     }));
 }
 
@@ -354,6 +399,22 @@ export interface ManagedRuntimeListItem {
   managedCredentialId: string;
   status: "online" | "offline";
   provisioningState: "managed" | "credential_recovering" | "needs_attention" | "legacy";
+  protocols: string[];
+  defaultModel?: string;
+  assignedEmployeeCount: number;
+  lastHeartbeatAt?: string;
+  periodActualCostUsd: number;
+  unallocatedCostUsd: number;
+}
+
+function parseStringArray(value: string | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 function normalizeManagedRuntimeLifecycleState(value: string | undefined): ManagedRuntimeListItem["provisioningState"] {
@@ -1030,7 +1091,10 @@ export async function runProvisioningPipeline(
   const vault = options.vault ?? getRuntimeCredentialVault();
 
   const task = readRuntimeProvisioningTaskSync(taskId, workspaceId);
-  if (!task || task.status === "succeeded" || task.status === "cancelled") {
+  if (!task || task.status === "succeeded" || task.status === "cancelled" || task.status === "cancelling") {
+    return;
+  }
+  if (task.status === "retrying" && task.nextRetryAt && task.nextRetryAt > new Date().toISOString()) {
     return;
   }
 
@@ -1221,13 +1285,51 @@ export function finalizeManagedRuntimeProvisioningSync(input: {
  * Re-drive tasks left running by a process restart or an offline node. Safe to
  * call periodically; finished/cancelled tasks are skipped.
  */
-export async function resumePendingProvisioningTasksSync(workspaceId?: string): Promise<void> {
+export async function resumePendingProvisioningTasksSync(workspaceId?: string): Promise<{
+  timedOutNodeStages: number;
+  timedOutNodeStagesRetried: number;
+  timedOutNodeStagesFailed: number;
+  timedOutTasks: number;
+  resetRetries: number;
+  driven: number;
+}> {
   assertRemoteRuntimeMode();
-  resetStalledManagedProvisioningStagesSync();
+  markStaleDaemonsOfflineSync({ workspaceId });
+
+  const {
+    timedOut: timedOutNodeStages,
+    retried: timedOutNodeStagesRetried,
+    failed: timedOutNodeStagesFailed,
+  } = timeoutRunningNodeStagesSync();
+
+  const timedOutTasks = listRunningProvisioningTasksTimedOutSync(workspaceId);
+  for (const task of timedOutTasks) {
+    markRuntimeProvisioningTaskFailedSync({
+      id: task.id,
+      workspaceId: task.workspaceId,
+      stage: task.stage,
+      errorCode: "provisioning.task_timeout",
+      errorMessage: `Task timed out after ${task.taskTimeoutMs ?? DEFAULT_TASK_TIMEOUT_MS}ms`,
+    });
+  }
+
+  const readyRetries = listRetryingRuntimeProvisioningTasksReadySync(workspaceId);
+  for (const task of readyRetries) {
+    resetRuntimeProvisioningTaskForRetrySync({
+      id: task.id,
+      workspaceId: task.workspaceId,
+    });
+  }
+
   const tasks = listRuntimeProvisioningTasksSync(workspaceId, {
-    statuses: ["queued", "running"],
+    statuses: ["queued", "running", "retrying"],
   });
+  let driven = 0;
   for (const task of tasks) {
+    if (task.status === "retrying" && task.nextRetryAt && task.nextRetryAt > new Date().toISOString()) {
+      continue;
+    }
+    driven += 1;
     await runProvisioningPipeline(task.id, task.workspaceId).catch((error) => {
       markRuntimeProvisioningTaskFailedSync({
         id: task.id,
@@ -1238,6 +1340,33 @@ export async function resumePendingProvisioningTasksSync(workspaceId?: string): 
       });
     });
   }
+
+  return {
+    timedOutNodeStages,
+    timedOutNodeStagesRetried,
+    timedOutNodeStagesFailed,
+    timedOutTasks: timedOutTasks.length,
+    resetRetries: readyRetries.length,
+    driven,
+  };
+}
+
+export async function resumeManagedRuntimeCleanupRequestsSync(): Promise<{
+  staleFailed: number;
+}> {
+  assertRemoteRuntimeMode();
+  const { failManagedRuntimeCleanupRequestSync, listStaleManagedRuntimeCleanupRequestsSync } = await import(
+    "@dofe-agent/db"
+  );
+  const stale = listStaleManagedRuntimeCleanupRequestsSync(DEFAULT_CLEANUP_TIMEOUT_MS);
+  for (const request of stale) {
+    failManagedRuntimeCleanupRequestSync(
+      request.id,
+      "cleanup.timeout",
+      `Cleanup request timed out after ${DEFAULT_CLEANUP_TIMEOUT_MS}ms`,
+    );
+  }
+  return { staleFailed: stale.length };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -1288,7 +1417,18 @@ function failTask(
     stage,
     errorCode: error instanceof Error ? error.name : "pipeline_error",
     errorMessage: error instanceof Error ? error.message : String(error),
+    allowRetry: isRetryableProvisioningError(error),
   });
+}
+
+function isRetryableProvisioningError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return ![
+    "managed_runtime.balance_preflight_rejected",
+    "managed_runtime.no_compatible_models",
+    "managed_runtime.model_unavailable",
+    "managed_runtime.models_not_configured",
+  ].some((code) => message.includes(code));
 }
 
 async function compensateProvisioning(

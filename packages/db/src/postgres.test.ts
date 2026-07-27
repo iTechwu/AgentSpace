@@ -17,6 +17,7 @@ test("postgres schema includes the expected core and derived tables", () => {
   assert.match(statements, /ALTER TABLE legacy_workspace RENAME TO workspace_snapshot/);
   assert.match(statements, /CREATE TABLE IF NOT EXISTS attachment/);
   assert.match(statements, /CREATE TABLE IF NOT EXISTS audit_log/);
+  assert.match(statements, /ALTER TABLE token_usage ALTER COLUMN task_queue_id DROP NOT NULL/);
   assert.match(statements, /workspace_snapshot_ledger/);
   assert.match(statements, /CREATE UNIQUE INDEX IF NOT EXISTS idx_external_integration_provider_app_tenant/);
   assert.match(statements, /ON external_integration\(workspace_id, provider, app_id, COALESCE\(tenant_key, ''\)\)/);
@@ -25,6 +26,25 @@ test("postgres schema includes the expected core and derived tables", () => {
   assert.match(statements, /ALTER TABLE external_message_mapping\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
   assert.match(statements, /ALTER TABLE external_message_outbox\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
   assert.match(statements, /ALTER TABLE external_thread_binding\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
+});
+
+test("postgres schema adds cleanup retry columns before creating dependent indexes", () => {
+  const statements = getPostgresSchemaStatements();
+  const nextAttemptColumn = statements.findIndex((statement) =>
+    statement.includes("ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ"),
+  );
+  const claimedAtColumn = statements.findIndex((statement) =>
+    statement.includes("ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ"),
+  );
+  const dueIndex = statements.findIndex((statement) =>
+    statement.includes("idx_managed_runtime_cleanup_request_due"),
+  );
+  const timeoutIndex = statements.findIndex((statement) =>
+    statement.includes("idx_managed_runtime_cleanup_request_running_timeout"),
+  );
+
+  assert.ok(nextAttemptColumn >= 0 && nextAttemptColumn < dueIndex);
+  assert.ok(claimedAtColumn >= 0 && claimedAtColumn < timeoutIndex);
 });
 
 test("collectSqliteMigrationSnapshotSync extracts relational rows and derived attachments/audit logs", () => {

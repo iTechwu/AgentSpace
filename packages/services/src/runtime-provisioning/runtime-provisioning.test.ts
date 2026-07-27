@@ -4,11 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import {
+  bindEmployeeRuntimeSync,
   completeManagedProvisioningStageSync,
   getDatabase,
+  insertUnallocatedTokenUsageSync,
   listRuntimeProvisioningTaskEventsSync,
   readAgentRuntimeSync,
   readRuntimeProvisioningTaskSync,
+  recordTokenUsageSync,
   upsertWorkspaceSsoBindingSync,
   upsertWorkspaceMembershipSync,
 } from "@dofe-agent/db";
@@ -20,6 +23,7 @@ import {
   getRuntimeProvisioningTaskDetailSync,
   handleManagedRuntimeProviderFailureAsync,
   listManagedRuntimeTasksSync,
+  listManagedRuntimesForWorkspaceSync,
   preflightManagedRuntimeCreationAsync,
   requestManagedRuntimeProvisioningSync,
   resumePendingRuntimeCredentialRecoveriesAsync,
@@ -176,6 +180,10 @@ beforeEach(() => {
   const db = getDatabase();
   db.exec("DELETE FROM runtime_provisioning_task_event");
   db.exec("DELETE FROM runtime_provisioning_task");
+  db.exec("DELETE FROM token_usage");
+  db.exec("DELETE FROM agent_task_queue");
+  db.exec("DELETE FROM agent_router_session");
+  db.exec("DELETE FROM employee_runtime_binding");
   db.exec("DELETE FROM audit_log");
   db.exec("DELETE FROM workspace_sso_binding");
   db.exec("DELETE FROM agent_runtime");
@@ -202,7 +210,7 @@ async function awaitTaskTerminal(taskId: string, workspaceId = TEAM_WS, timeoutM
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const task = readRuntimeProvisioningTaskSync(taskId, workspaceId);
-    if (task && (task.status === "succeeded" || task.status === "failed" || task.status === "cancelled")) {
+    if (task && (task.status === "succeeded" || task.status === "failed" || task.status === "cancelled" || task.status === "retrying")) {
       return task;
     }
     if (task?.stageStatus === "pending" && task.runtimeId && isNodeProvisioningStage(task.stage)) {
@@ -355,6 +363,22 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
   assert.equal("configRef" in publicTask, false);
   assert.equal(JSON.stringify(publicDetail).includes("vault://"), false);
   assert.equal(publicDetail.task.credentialConfigured, true);
+
+  bindEmployeeRuntimeSync({ workspaceId: TEAM_WS, employeeName: "atlas", runtimeId: runtime!.id });
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO agent_task_queue (id, workspace_id, agent_id, runtime_id, status, input_json, queued_at, created_at, updated_at)
+     VALUES ('queue-runtime-list', ?, 'atlas', ?, 'completed', '{}'::jsonb, ?, ?, ?)`,
+  ).run(TEAM_WS, runtime!.id, now, now, now);
+  recordTokenUsageSync({ workspaceId: TEAM_WS, taskQueueId: "queue-runtime-list", agentId: "atlas", modelId: "claude-sonnet", inputTokens: 10, outputTokens: 5, actualCostUsd: 1.25, billingStatus: "reconciled" });
+  insertUnallocatedTokenUsageSync({ workspaceId: TEAM_WS, agentId: "atlas", modelId: "claude-sonnet", runtimeCredentialId: runtime!.managedCredentialId!, gatewayRequestId: "gateway-unallocated", actualCostUsd: 0.5, currency: "USD" });
+
+  const managed = listManagedRuntimesForWorkspaceSync({ workspaceId: TEAM_WS, actorUserId: OWNER })[0]!;
+  assert.deepEqual(managed.protocols, ["anthropic"]);
+  assert.equal(managed.defaultModel, "claude-sonnet");
+  assert.equal(managed.assignedEmployeeCount, 1);
+  assert.equal(managed.periodActualCostUsd, 1.25);
+  assert.equal(managed.unallocatedCostUsd, 0.5);
 });
 
 test("model catalog preflight blocks incompatible models before credential creation", async () => {
@@ -414,8 +438,8 @@ test("credential stage failure is located and retryable without re-issuing endle
     provider: "claude",
     idempotencyKey: "fail-key",
   });
-  const failed = await awaitTaskTerminal(task.id);
-  assert.equal(failed.status, "failed");
+  const failed = await awaitTaskRetryingOrTerminal(task.id);
+  assert.equal(failed.status, "retrying");
   assert.equal(failed.stage, "request_credential");
   assert.match(failed.lastErrorMessage ?? "", /models.create_failed/);
   assert.equal(activeClient.createCalls, 1);
@@ -432,6 +456,22 @@ test("credential stage failure is located and retryable without re-issuing endle
   const final = await awaitTaskTerminal(task.id);
   assert.equal(final.status, "succeeded");
 });
+
+async function awaitTaskRetryingOrTerminal(
+  taskId: string,
+  workspaceId = TEAM_WS,
+  timeoutMs = 2000,
+): Promise<NonNullable<ReturnType<typeof readRuntimeProvisioningTaskSync>>> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const task = readRuntimeProvisioningTaskSync(taskId, workspaceId);
+    if (task && (task.status === "retrying" || task.status === "failed" || task.status === "cancelled" || task.status === "succeeded")) {
+      return task;
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error(`task ${taskId} did not become retrying or terminal within ${timeoutMs}ms`);
+}
 
 test("cancel runs compensation: revokes credential with scope and removes the runtime", async () => {
   const task = requestManagedRuntimeProvisioningSync({

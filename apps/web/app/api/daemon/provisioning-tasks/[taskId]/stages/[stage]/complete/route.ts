@@ -46,6 +46,10 @@ export async function POST(
     return Response.json({ error: `Task is at stage ${task.stage}, not ${stage}.` }, { status: 409 });
   }
 
+  if (task.status === "cancelling" || task.status === "cancelled" || task.status === "succeeded" || task.status === "failed") {
+    return Response.json({ taskId, stage, status: task.status, task });
+  }
+
   const nextStage = NEXT_STAGE[stage as RuntimeProvisioningTaskStage];
   const updated = completeManagedProvisioningStageSync({
     taskId,
@@ -53,7 +57,7 @@ export async function POST(
     nextStage,
   });
 
-  if (task.stage === "health_check" && task.runtimeId) {
+  if (task.stage === "health_check" && task.runtimeId && updated?.status === "succeeded") {
     finalizeManagedRuntimeProvisioningSync({
       taskId,
       workspaceId: task.workspaceId,

@@ -33,9 +33,10 @@ beforeEach(() => {
 it("creates a runtime only after completing the three-step preflight", async () => {
   const user = userEvent.setup();
   const onCreated = vi.fn();
-  render(<ManagedRuntimeCreationWizard onCreated={onCreated} />);
+  render(<ManagedRuntimeCreationWizard onCreated={onCreated} targetServers={[{ deviceName: "runner-a", status: "online" }]} />);
 
   await user.type(screen.getByLabelText("Runtime name"), "Research Runtime");
+  await user.selectOptions(screen.getByLabelText("Target server"), "runner-a");
   await user.click(screen.getByRole("button", { name: "Continue" }));
   expect(screen.getByText("Compatible model catalog")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Review" }));
@@ -51,6 +52,7 @@ it("creates a runtime only after completing the three-step preflight", async () 
   expect(createManagedRuntimeAction).toHaveBeenCalledWith(expect.objectContaining({
     provider: "claude",
     name: "Research Runtime",
+    targetServer: "runner-a",
   }));
   expect(onCreated).toHaveBeenCalledWith("task-created");
 });

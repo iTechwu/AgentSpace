@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createManagedProvisioningExecutor, probeManagedGateway } from "./managed-runtime-provisioning.ts";
 
-test("managed gateway health probe authenticates against the protocol-neutral model directory", async () => {
+test("managed gateway health probe preserves the configured protocol path", async () => {
   let observedUrl = "";
   let observedHeaders: Record<string, string> | undefined;
 
@@ -25,6 +25,44 @@ test("managed gateway health probe authenticates against the protocol-neutral mo
 
   assert.equal(observedUrl, "https://models.example/v1/models");
   assert.equal(observedHeaders?.authorization, "Bearer runtime-secret");
+});
+
+test("managed gateway health probe uses provider-specific model endpoints", async () => {
+  const observed: Array<{ provider: string; url: string; headers: Record<string, string> }> = [];
+  const cases = [
+    {
+      provider: "claude" as const,
+      environment: {
+        ANTHROPIC_API_KEY: "claude-secret",
+        ANTHROPIC_BASE_URL: "https://models.example/anthropic",
+      },
+      expectedUrl: "https://models.example/anthropic/v1/models",
+    },
+    {
+      provider: "gemini" as const,
+      environment: {
+        GEMINI_API_KEY: "gemini-secret",
+        GEMINI_BASE_URL: "https://models.example/gemini",
+      },
+      expectedUrl: "https://models.example/gemini/v1beta/models",
+    },
+  ];
+
+  for (const item of cases) {
+    await probeManagedGateway(
+      { accountId: item.provider, profileDir: "/tmp/profile", environment: item.environment as unknown as Record<string, string> },
+      item.provider,
+      async (url, init) => {
+        observed.push({ provider: item.provider, url, headers: init.headers });
+        return { ok: true, status: 200 };
+      },
+    );
+  }
+
+  assert.equal(observed[0]?.url, cases[0].expectedUrl);
+  assert.equal(observed[0]?.headers["x-api-key"], "claude-secret");
+  assert.equal(observed[1]?.url, cases[1].expectedUrl);
+  assert.equal(observed[1]?.headers["x-goog-api-key"], "gemini-secret");
 });
 
 test("managed gateway health probe rejects an unauthenticated gateway response", async () => {

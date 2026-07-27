@@ -35,16 +35,20 @@ export async function POST(
     return Response.json({ error: `Task is at stage ${task.stage}, not ${stage}.` }, { status: 409 });
   }
 
+  if (task.status === "cancelling" || task.status === "cancelled" || task.status === "succeeded" || task.status === "failed") {
+    return Response.json({ taskId, stage, status: task.status, task });
+  }
+
   const body = (await request.json()) as { errorCode?: string; errorMessage?: string };
 
-  failManagedProvisioningStageSync({
+  const updated = failManagedProvisioningStageSync({
     taskId,
     stage: task.stage,
     errorCode: body.errorCode,
     errorMessage: body.errorMessage ?? "Stage failed on the node.",
   });
 
-  if (task.runtimeId) {
+  if (task.runtimeId && updated?.status === "failed") {
     const runtime = readAgentRuntimeSync(task.runtimeId);
     if (runtime?.daemonConnectionId) {
       requestManagedRuntimeCleanupSync({
@@ -56,5 +60,5 @@ export async function POST(
     }
   }
 
-  return Response.json({ taskId, stage, status: "failed" });
+  return Response.json({ taskId, stage, status: updated?.status ?? "failed", task: updated });
 }

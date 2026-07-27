@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "32";
+export const POSTGRES_SCHEMA_VERSION = "35";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -1231,6 +1231,7 @@ export function getPostgresSchemaStatements(): string[] {
     `
       ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS runtime_credential_id TEXT
     `,
+    `ALTER TABLE token_usage ALTER COLUMN task_queue_id DROP NOT NULL`,
     `
       ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS router_session_id TEXT
     `,
@@ -1389,8 +1390,12 @@ export function getPostgresSchemaStatements(): string[] {
         runtime_credential_id TEXT,
         secret_ref TEXT,
         config_ref TEXT,
+        daemon_connection_id TEXT REFERENCES daemon_connection(id) ON DELETE SET NULL,
+        stage_started_at TIMESTAMPTZ,
         status TEXT NOT NULL DEFAULT 'queued',
         timeouts_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        task_timeout_ms INTEGER NOT NULL DEFAULT 1800000,
+        next_retry_at TIMESTAMPTZ,
         started_at TIMESTAMPTZ,
         completed_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL,
@@ -1416,6 +1421,20 @@ export function getPostgresSchemaStatements(): string[] {
     `ALTER TABLE runtime_provisioning_task ADD COLUMN IF NOT EXISTS stage_started_at TIMESTAMPTZ`,
     `ALTER TABLE runtime_provisioning_task ADD COLUMN IF NOT EXISTS requested_name TEXT`,
     `ALTER TABLE runtime_provisioning_task ADD COLUMN IF NOT EXISTS allowed_models_json JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    `ALTER TABLE runtime_provisioning_task ADD COLUMN IF NOT EXISTS task_timeout_ms INTEGER NOT NULL DEFAULT 1800000`,
+    `ALTER TABLE runtime_provisioning_task ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ`,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_provisioning_task_retry
+        ON runtime_provisioning_task(status, next_retry_at)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_provisioning_task_daemon_running
+        ON runtime_provisioning_task(daemon_connection_id, status, stage_status)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_provisioning_task_stage_timeout
+        ON runtime_provisioning_task(status, stage_status, stage_started_at)
+    `,
     `
       CREATE TABLE IF NOT EXISTS runtime_credential_recovery_task (
         id TEXT PRIMARY KEY,
@@ -1445,6 +1464,12 @@ export function getPostgresSchemaStatements(): string[] {
         daemon_connection_id TEXT NOT NULL REFERENCES daemon_connection(id) ON DELETE CASCADE,
         runtime_type TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending',
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 3,
+        next_attempt_at TIMESTAMPTZ,
+        claimed_at TIMESTAMPTZ,
+        last_error_code TEXT,
+        last_error_message TEXT,
         requested_at TIMESTAMPTZ NOT NULL,
         completed_at TIMESTAMPTZ,
         result_json JSONB,
@@ -1455,6 +1480,20 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_managed_runtime_cleanup_request_daemon_status
         ON managed_runtime_cleanup_request(daemon_connection_id, status, requested_at)
+    `,
+    `ALTER TABLE managed_runtime_cleanup_request ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE managed_runtime_cleanup_request ADD COLUMN IF NOT EXISTS max_attempts INTEGER NOT NULL DEFAULT 3`,
+    `ALTER TABLE managed_runtime_cleanup_request ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ`,
+    `ALTER TABLE managed_runtime_cleanup_request ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ`,
+    `ALTER TABLE managed_runtime_cleanup_request ADD COLUMN IF NOT EXISTS last_error_code TEXT`,
+    `ALTER TABLE managed_runtime_cleanup_request ADD COLUMN IF NOT EXISTS last_error_message TEXT`,
+    `
+      CREATE INDEX IF NOT EXISTS idx_managed_runtime_cleanup_request_due
+        ON managed_runtime_cleanup_request(status, next_attempt_at)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_managed_runtime_cleanup_request_running_timeout
+        ON managed_runtime_cleanup_request(status, claimed_at)
     `,
     `
       CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_slug
