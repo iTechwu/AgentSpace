@@ -757,7 +757,7 @@ function formatMentionCandidateScope(
   if (candidate.kind === "human") {
     return candidate.inChannel ? tx("群成员", "Member") : tx("其他成员", "Other member");
   }
-  return candidate.inChannel ? tx("Agent", "Agent") : tx("其他 Agent", "Other agent");
+  return candidate.inChannel ? tx("AI员工", "AI employee") : tx("其他 AI员工", "Other AI employee");
 }
 
 function getMentionKey(mention: MessageMention): string {

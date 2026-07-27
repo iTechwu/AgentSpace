@@ -87,7 +87,7 @@ export function DigitalEmployeeShowcase({
           <h2>{tx("数字员工展板", "Digital employee showcase")}</h2>
         </div>
         <div className="digital-employee-showcase__stats" aria-label={tx("展板摘要", "Showcase summary")}>
-          <span>{tx(`${agents.length} 个 Agent`, `${agents.length} agents`)}</span>
+          <span>{tx(`${agents.length} 个 AI员工`, `${agents.length} AI employees`)}</span>
           <span>{tx(`${requestableCount} 个可申请`, `${requestableCount} requestable`)}</span>
           <span>{tx(`${channelUsableCount} 个可频道调用`, `${channelUsableCount} channel-ready`)}</span>
           <span>{tx(`${pendingReviewCount} 个待处理`, `${pendingReviewCount} to review`)}</span>

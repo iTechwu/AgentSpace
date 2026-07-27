@@ -442,7 +442,7 @@ function NodeOperationPanel({
                   startTransition,
                   setFeedback,
                   tx,
-                  success: tx("Agent 群成员调用权限已保存。", "Agent channel access saved."),
+                  success: tx("AI员工 群成员调用权限已保存。", "AI employee channel access saved."),
                   action: () => permissionsSetAgentChannelMemberAccessAction({
                     employeeName,
                     channelMemberAccess: event.currentTarget.value as "enabled" | "disabled",
@@ -466,7 +466,7 @@ function NodeOperationPanel({
                     startTransition,
                     setFeedback,
                     tx,
-                    success: tx("Agent runtime 已绑定。", "Agent runtime bound."),
+                    success: tx("AI员工 Runtime 已绑定。", "AI employee runtime bound."),
                     action: () => permissionsBindAgentRuntimeAction({ employeeName, runtimeId: nextRuntimeId }),
                   });
                 }}
@@ -532,7 +532,7 @@ function NodeOperationPanel({
             <span>{tx("Actor 类型", "Actor type")}</span>
             <select onChange={(event) => setDocumentActorType(event.currentTarget.value as "human" | "agent")} value={documentActorType}>
               <option value="human">{tx("成员", "Human")}</option>
-              <option value="agent">Agent</option>
+              <option value="agent">AI员工</option>
             </select>
           </label>
           <label className="form-field">
@@ -578,7 +578,7 @@ function NodeOperationPanel({
           {documentActorType === "agent" ? (
             <>
               <label className="form-field">
-                <span>{tx("Agent 显式权限", "Agent grant")}</span>
+                <span>{tx("AI员工 显式权限", "AI employee grant")}</span>
                 <select onChange={(event) => setAgentDocumentRole(event.currentTarget.value as AgentDocumentRole)} value={agentDocumentRole}>
                   <option value="viewer">viewer</option>
                   <option value="editor">editor</option>
@@ -592,7 +592,7 @@ function NodeOperationPanel({
                   startTransition,
                   setFeedback,
                   tx,
-                  success: tx("Agent 文档权限已授予。", "Agent document access granted."),
+                  success: tx("AI员工 文档权限已授予。", "AI employee document access granted."),
                   action: () => permissionsGrantDocumentAgentAccessAction({
                     documentId,
                     agentName: documentActorId,
@@ -601,7 +601,7 @@ function NodeOperationPanel({
                 })}
                 type="button"
               >
-                {tx("授予 Agent 权限", "Grant agent access")}
+                {tx("授予 AI员工 权限", "Grant AI employee access")}
               </button>
             </>
           ) : null}
@@ -759,7 +759,7 @@ function BindingActions({
             startTransition,
             setFeedback,
             tx,
-            success: tx("Agent 权限申请已批准。", "Agent access request approved."),
+            success: tx("AI员工 权限申请已批准。", "AI employee access request approved."),
             action: () => permissionsApproveAgentAccessRequestAction(requestId),
           })}
           type="button"
@@ -800,7 +800,7 @@ function BindingActions({
             startTransition,
             setFeedback,
             tx,
-            success: tx("Agent 文档权限已更新。", "Agent document access updated."),
+            success: tx("AI员工 文档权限已更新。", "AI employee document access updated."),
             action: () => permissionsGrantDocumentAgentAccessAction({
               documentId,
               agentName: actorId,
@@ -1067,11 +1067,11 @@ function formatResourceType(type: string, tx: SettingsTx): string {
     case "channel_access_request":
       return tx("访问申请", "Access request");
     case "agent":
-      return "Agent";
+      return "AI员工";
     case "agent_fork_invitation":
-      return tx("Agent 复制邀请", "Agent copy invitation");
+      return tx("AI员工 复制邀请", "AI employee copy invitation");
     case "agent_access_request":
-      return tx("Agent 权限申请", "Agent access request");
+      return tx("AI员工 权限申请", "AI employee access request");
     case "runtime":
       return "Runtime";
     case "daemon":
@@ -1100,7 +1100,7 @@ function formatSubjectType(type: string, tx: SettingsTx): string {
     case "human":
       return tx("真人", "Human");
     case "agent":
-      return "Agent";
+      return tx("AI员工", "AI employee");
     case "daemon_token":
       return "Daemon token";
     case "oauth_credential":
@@ -1146,9 +1146,9 @@ function formatSource(source: string, tx: SettingsTx): string {
     case "runtime_grant":
       return "Runtime grant";
     case "agent_owner":
-      return "Agent owner";
+      return tx("AI员工 负责人", "AI employee owner");
     case "agent_fork":
-      return tx("Agent 复制", "Agent copy");
+      return tx("AI员工 复制", "AI employee copy");
     case "agent_channel_member_access":
       return tx("频道成员调用", "Channel member access");
     case "knowledge_assignment":

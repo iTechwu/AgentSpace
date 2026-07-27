@@ -465,7 +465,7 @@ export function AgentsPageClient({
   const showDetailPane = !isCompactLayout || mobilePane === "detail";
   const detailTitle =
     mode === "agent"
-      ? selectedAgent?.name ?? tx("Agent 详情", "Agent details")
+      ? selectedAgent?.name ?? tx("AI员工 详情", "AI employee details")
       : mode === "showcase"
         ? tx("数字员工展板", "Digital employee showcase")
       : isDaemonManagementSelected
@@ -558,7 +558,7 @@ export function AgentsPageClient({
               <div className="panel-header">
                 <div className="agents-pane__header-main">
                   <div className="agents-pane__title-row">
-                    <h3>{data.canManageAllAgents ? tx("全部 Agent", "All agents") : tx("我的 Agent", "My agents")}</h3>
+                    <h3>{data.canManageAllAgents ? tx("全部 AI员工", "All AI employees") : tx("我的 AI员工", "My AI employees")}</h3>
                     <div className="agents-pane__create-actions">
                       <button
                         className={`action-button${showCreateAgent ? " action-button--active" : ""}`}
@@ -566,17 +566,17 @@ export function AgentsPageClient({
                         onClick={() => setShowCreateAgent((value) => !value)}
                         type="button"
                       >
-                        {tx("新建 Agent", "New agent")}
+                        {tx("新建 AI员工", "New AI employee")}
                       </button>
                       <InlineHelpTooltip
-                        label={tx("新建 Agent 说明", "New agent help")}
+                        label={tx("新建 AI员工 说明", "New AI employee help")}
                         tooltip={tx(
                           data.canManageAllAgents
-                            ? "Agent 可先创建，后续再绑定执行引擎和 skills。"
-                            : "需要管理员先分配执行引擎，之后你可以创建并管理自己的 Agent。",
+                            ? "AI员工 可先创建，后续再绑定执行引擎和 skills。"
+                            : "需要管理员先分配执行引擎，之后你可以创建并管理自己的 AI员工。",
                           data.canManageAllAgents
-                            ? "Create an agent first, then bind its execution engine and skills."
-                            : "An admin must assign an execution engine before you can create and manage your own agent.",
+                            ? "Create an AI employee first, then bind its execution engine and skills."
+                            : "An admin must assign an execution engine before you can create and manage your own AI employee.",
                         )}
                       />
                     </div>
@@ -587,7 +587,7 @@ export function AgentsPageClient({
 
               <div className="agents-contact-header">
                 <strong>{tx("组织内联系人", "Directory")}</strong>
-                <span>{tx("Agent 目录", "Agent directory")}</span>
+                <span>{tx("AI员工 目录", "AI employee directory")}</span>
               </div>
 
               {pendingForkInvitations.length > 0 ? (
@@ -655,7 +655,7 @@ export function AgentsPageClient({
                     ) : null}
                   </>
                 ) : (
-                  <EmptyState body={tx("当前还没有任何 Agent。", "There are no agents yet.")} title={tx("没有 Agent", "No agents")} />
+                  <EmptyState body={tx("当前还没有任何 AI员工。", "There are no AI employees yet.")} title={tx("没有 AI员工", "No AI employees")} />
                 )}
               </div>
             </aside>
@@ -686,7 +686,7 @@ export function AgentsPageClient({
                 </button>
                 <div className="agents-detail-pane__mobile-copy">
                   <strong>{detailTitle}</strong>
-                    <span>{tx("Agent 详情", "Agent details")}</span>
+                    <span>{tx("AI员工 详情", "Agent details")}</span>
                   </div>
                 </div>
               ) : null}
@@ -805,7 +805,7 @@ export function AgentsPageClient({
                   onFeishuAgentBotUpdated={() => refreshWorkspaceModule(onDataChanged, router)}
                 />
               ) : (
-                <EmptyState body={tx("先选择一个 Agent，查看它的绑定、任务和工作区域。", "Select an agent to view bindings, tasks, and work areas.")} title={tx("未选择 Agent", "No agent selected")} />
+                <EmptyState body={tx("先选择一个 AI员工，查看它的绑定、任务和工作区域。", "Select an AI employee to view bindings, tasks, and work areas.")} title={tx("未选择 AI员工", "No AI employee selected")} />
               )}
             </section>
           ) : null}
@@ -1218,9 +1218,9 @@ function AgentForkInvitationInbox({
   readonly onDraftChange: (invitationId: string, draft: Partial<{ agentName: string; runtimeId: string }>) => void;
 }) {
   return (
-    <section className="agent-fork-inbox" aria-label={tx("待接受的 Agent 复制邀请", "Pending agent copy invitations")}>
+    <section className="agent-fork-inbox" aria-label={tx("待接受的 AI员工 复制邀请", "Pending AI employee copy invitations")}>
       <div className="agent-fork-inbox__header">
-        <strong>{tx("待接受的 Agent 复制邀请", "Pending agent copies")}</strong>
+        <strong>{tx("待接受的 AI员工 复制邀请", "Pending AI employee copies")}</strong>
         <span>{invitations.length}</span>
       </div>
       <div className="agent-fork-inbox__list">
@@ -1240,7 +1240,7 @@ function AgentForkInvitationInbox({
                 <small>{formatForkScope(invitation, tx)}</small>
               </div>
               <label className="agent-fork-inbox__field">
-                <span>{tx("新 Agent 名称", "New agent name")}</span>
+                <span>{tx("新 AI员工 名称", "New AI employee name")}</span>
                 <input
                   disabled={pending}
                   onChange={(event) => onDraftChange(invitation.id, { agentName: event.currentTarget.value })}

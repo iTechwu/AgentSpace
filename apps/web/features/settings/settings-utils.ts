@@ -75,7 +75,7 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
         "Replace Feishu setup placeholders with real values from the developer console.",
       );
     case "feishu.agent_bot_binding.missing_agent_id":
-      return tx("请选择要绑定的 Agent。", "Select an agent to bind.");
+      return tx("请选择要绑定的 AI员工。", "Select an AI employee to bind.");
     case "feishu.agent_bot_binding.missing_app_id":
       return tx("请填写飞书 Bot 的 App ID。", "Feishu bot App ID is required.");
     case "feishu.agent_bot_binding.missing_app_secret":
@@ -90,16 +90,16 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
       return tx("请选择有效的飞书 Bot 外部访客策略。", "Select a valid Feishu bot external guest policy.");
     case "feishu.agent_bot_binding.duplicate_agent":
       return tx(
-        "这个 Agent 已经有一个启用中的飞书 Bot。",
-        "This agent already has an active Feishu bot.",
+        "这个 AI员工 已经有一个启用中的飞书 Bot。",
+        "This AI employee already has an active Feishu bot.",
       );
     case "feishu.agent_bot_binding.duplicate_app_tenant":
       return tx(
-        "这个飞书 App ID 和 Tenant Key 已经绑定到其他 Agent。",
-        "This Feishu App ID and Tenant Key are already bound to another agent.",
+        "这个飞书 App ID 和 Tenant Key 已经绑定到其他 AI员工。",
+        "This Feishu App ID and Tenant Key are already bound to another AI employee.",
       );
     case "feishu.agent_bot_binding.not_found":
-      return tx("未找到该 Agent 的飞书 Bot 绑定。", "Feishu bot binding for this agent was not found.");
+      return tx("未找到该 AI员工 的飞书 Bot 绑定。", "Feishu bot binding for this AI employee was not found.");
     case "feishu.agent_bot_binding.placeholder_value":
       return tx(
         "请将飞书 Bot 配置里的模板占位值替换为开放平台中的真实值。",

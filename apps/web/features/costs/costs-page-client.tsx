@@ -126,7 +126,6 @@ function CostOverview({
         router.refresh();
       } catch (err) {
         setLastResult({ reconciledCount: -1, unallocatedCount: -1 });
-        // eslint-disable-next-line no-console
         console.error("Reconciliation failed", err);
       }
     });
@@ -191,7 +190,7 @@ function CostOverview({
         ) : null}
       </div>
 
-      <h3>{tx("Agent 费用明细", "Agent Cost Breakdown")}</h3>
+      <h3>{tx("AI员工 费用明细", "AI employee Cost Breakdown")}</h3>
       {data.agents.length > 0 ? (
         compact ? (
           <div className="costs-agent-cards">
@@ -215,7 +214,7 @@ function CostOverview({
         ) : (
           <div className="costs-agent-table">
             <div className="costs-agent-row costs-agent-row--header">
-              <span>Agent</span>
+              <span>AI员工</span>
               <span>{tx("模型", "Model")}</span>
               <span>{tx("Provider 账户", "Provider account")}</span>
               <span>{tx("任务数", "Tasks")}</span>
@@ -346,16 +345,16 @@ function BudgetManager({
               setScopeId(newScope === "workspace" ? "global" : "");
             }}>
               <option value="workspace">{tx("全局", "Workspace")}</option>
-              <option value="agent">Agent</option>
+              <option value="agent">AI员工</option>
               <option value="channel">{tx("群组", "Group")}</option>
             </select>
           </div>
 
           {scope === "agent" ? (
             <div className="budget-form__row">
-              <label>Agent</label>
+              <label>AI员工</label>
               <select value={scopeId} onChange={(e) => setScopeId(e.target.value)}>
-                <option value="">{tx("选择 Agent", "Select Agent")}</option>
+                <option value="">{tx("选择 AI员工", "Select AI employee")}</option>
                 {budgets.agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
             </div>
@@ -445,7 +444,7 @@ function BudgetCard({
   const scopeLabel = budget.scope === "workspace"
     ? tx("全局", "Workspace")
     : budget.scope === "agent"
-      ? `Agent: ${budget.scopeId}`
+      ? `AI员工: ${budget.scopeId}`
       : `#${budget.scopeId}`;
 
   return (

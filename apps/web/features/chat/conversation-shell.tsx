@@ -432,7 +432,7 @@ export function ConversationShell({
       return;
     }
     if (mentionCandidates.length === 0) {
-      setFeedback(tx("当前没有可 @ 的成员或 Agent。", "There are no members or agents available to mention."));
+      setFeedback(tx("当前没有可 @ 的成员或 AI员工。", "There are no members or AI employees available to mention."));
       return;
     }
 

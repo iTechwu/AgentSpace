@@ -177,14 +177,14 @@ export function AgentDetail({
           ) : null}
           {canManage ? (
             <button className="action-button action-button--danger" disabled={pending} onClick={() => setShowDeleteConfirm(true)} type="button">
-              {tx("删除 Agent", "Delete Agent")}
+              {tx("删除 AI员工", "Delete AI employee")}
             </button>
           ) : null}
         </div>
       </div>
 
       <div className="agent-resume-layout">
-        <nav aria-label={tx("Agent 简历章节", "Agent resume sections")} className="agent-tabs agent-tabs--resume">
+        <nav aria-label={tx("AI员工 简历章节", "AI employee resume sections")} className="agent-tabs agent-tabs--resume">
           {[
             { key: "instructions", label: "Instructions", meta: tx("执行前注入", "Run context") },
             { key: "skills", label: "Skills", meta: tx(`${record.skills.length} 个技能`, `${record.skills.length} skills`) },
@@ -255,7 +255,7 @@ export function AgentDetail({
                     <article className="skill-assignment-card knowledge-assignment-card" key={page.id}>
                       <div className="skill-assignment-card__copy">
                         <strong>{page.title}</strong>
-                        <p>{tx("全员共享知识，当前 Agent 自动继承。", "Shared with all agents and inherited automatically.")}</p>
+                        <p>{tx("全员共享知识，当前 AI员工 自动继承。", "Shared with all AI employees and inherited automatically.")}</p>
                         <span>{page.tags.length > 0 ? page.tags.join(", ") : tx("无标签", "No tags")}</span>
                       </div>
                       <span className="tag-pill">{tx("全员共享", "Shared")}</span>
@@ -487,8 +487,8 @@ export function AgentDetail({
                   <strong>{tx("允许已加入同一群的成员调用", "Allow members in joined channels")}</strong>
                   <p>
                     {tx(
-                      "开启后，群成员可以 @ 这个 Agent 或给它派发该群任务。",
-                      "When enabled, channel members can mention this agent or assign it channel tasks.",
+                      "开启后，群成员可以 @ 这个 AI员工 或给它派发该群任务。",
+                      "When enabled, channel members can mention this AI employee or assign it channel tasks.",
                     )}
                   </p>
                 </span>
@@ -589,7 +589,7 @@ export function AgentDetail({
                     <textarea
                       disabled={pending}
                       onChange={(event) => setForkContextNote(event.currentTarget.value)}
-                      placeholder={tx("给同事说明这个 Agent 适合怎么用", "Tell your teammate how this agent should be used")}
+                      placeholder={tx("给同事说明这个 AI员工 适合怎么用", "Tell your teammate how this AI employee should be used")}
                       rows={3}
                       value={forkContextNote}
                     />

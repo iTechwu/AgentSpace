@@ -279,7 +279,7 @@ export function InboxPageClient({
               ))
             ) : (
               <EmptyState
-                body={tx("当前筛选下没有条目。换一个过滤器，或者先去 Agents 页面创建 Agent / 启动容器。", "No items match this filter. Try another filter, or create an agent and start a container first.")}
+                body={tx("当前筛选下没有条目。换一个过滤器，或者先去 Agents 页面创建 AI员工 / 启动容器。", "No items match this filter. Try another filter, or create an AI employee and start a container first.")}
                 title={tx("收件箱为空", "Inbox is empty")}
               />
             )}
@@ -680,7 +680,7 @@ function translateExecutionEventTitle(
   if (event.type === "context_loaded") return tx("上下文已加载", "Context loaded");
   if (event.type === "artifact_detected") return tx("检测到产物", "Artifacts detected");
   if (event.type === "approval_requested") return tx("等待审批", "Approval requested");
-  if (event.type === "message_posted") return tx("Agent 回复已生成", "Agent response captured");
+  if (event.type === "message_posted") return tx("AI员工 回复已生成", "AI employee response captured");
   if (event.type === "completed") return tx("任务已完成", "Task completed");
   if (event.type === "blocked") return tx("任务被阻塞", "Task blocked");
   if (event.type === "failed") return tx("任务失败", "Task failed");

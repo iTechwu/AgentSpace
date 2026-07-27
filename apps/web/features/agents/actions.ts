@@ -220,10 +220,10 @@ export async function createWorkspaceAgentAction(input: {
     undefined,
     template
       ? successToast(
-          matchedSkillCount > 0 ? `Agent 已从模板创建，并绑定 ${matchedSkillCount} 个预置技能。` : "Agent 已从模板创建。",
-          matchedSkillCount > 0 ? `Agent created from template with ${matchedSkillCount} preloaded skill(s).` : "Agent created from template.",
+          matchedSkillCount > 0 ? `AI员工 已从模板创建，并绑定 ${matchedSkillCount} 个预置技能。` : "AI员工 已从模板创建。",
+          matchedSkillCount > 0 ? `AI employee created from template with ${matchedSkillCount} preloaded skill(s).` : "AI employee created from template.",
         )
-      : successToast("Agent 已创建。", "Agent created."),
+      : successToast("AI员工 已创建。", "AI employee created."),
     buildAgentInvalidation(workspaceId, agentName),
   );
 }
@@ -388,7 +388,7 @@ export async function deleteWorkspaceAgentAction(employeeName: string): Promise<
   revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
   return actionToastResult(
     undefined,
-    successToast("Agent 已删除。", "Agent deleted."),
+    successToast("AI员工 已删除。", "AI employee deleted."),
     buildAgentInvalidation(workspaceId, employeeName.trim()),
   );
 }
@@ -533,7 +533,7 @@ export async function setWorkspaceAgentSkillAssignmentsAction(input: {
       dependencyQueue.queued > 0
         ? `Skills 绑定已保存，${dependencyQueue.queued} 个受控依赖安装已排队。`
         : dependencyQueue.waitingForRuntime
-          ? "Skills 绑定已保存；将在 Agent 绑定并连接执行引擎后安装依赖。"
+          ? "Skills 绑定已保存；将在 AI员工 绑定并连接执行引擎后安装依赖。"
         : "Skills 绑定已保存。",
       dependencyQueue.queued > 0
         ? `Skill assignments saved; ${dependencyQueue.queued} controlled dependency install(s) queued.`
@@ -583,14 +583,14 @@ export async function installWorkspaceAgentSkillAction(input: {
     : { queued: 0, skipped: 0, waitingForRuntime: false };
   tryRecordWorkspaceAuditEventSync({
     workspaceId,
-    title: "Agent skill configured",
+    title: "AI employee skill configured",
     note: `${workspaceContext.currentUser.displayName} configured skill requirements for ${input.employeeName.trim()}.`,
     code: "workspace.agent_skill_requirements_configured",
     data: { actorType: "session_user", resourceType: "agent_skill_requirement", resourceId: `${input.employeeName.trim()}:${input.skillId.trim()}` },
   });
   revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
   return actionToastResult(undefined, successToast(
-    dependencyQueue.queued > 0 ? `Skill 已安装并已排队安装 ${dependencyQueue.queued} 个依赖。` : "Skill 已为该 Agent 安装并完成配置。",
+    dependencyQueue.queued > 0 ? `Skill 已安装并已排队安装 ${dependencyQueue.queued} 个依赖。` : "Skill 已为该 AI员工 安装并完成配置。",
     dependencyQueue.queued > 0 ? `Skill installed; ${dependencyQueue.queued} dependency install(s) queued.` : "Skill installed and configured for this agent.",
   ), buildAgentInvalidation(workspaceId, input.employeeName.trim()));
 }
@@ -666,7 +666,7 @@ export async function createAgentForkInvitationAction(input: {
   revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
   revalidateWorkspacePath("/settings/permissions", workspaceContext.currentWorkspace.slug);
   revalidateWorkspacePath("/settings/permissions", workspaceContext.currentWorkspace.slug);
-  return actionToastResult(undefined, successToast("Agent 复制邀请已发送。", "Agent copy invitation sent."));
+  return actionToastResult(undefined, successToast("AI员工 复制邀请已发送。", "AI employee copy invitation sent."));
 }
 
 export async function acceptAgentForkInvitationAction(input: {
@@ -690,7 +690,7 @@ export async function acceptAgentForkInvitationAction(input: {
   revalidateWorkspacePath("/settings/permissions", workspaceContext.currentWorkspace.slug);
   return actionToastResult(
     { agentName: result.agentName },
-    successToast("Agent 副本已创建。", "Agent copy created."),
+    successToast("AI员工 副本已创建。", "AI employee copy created."),
   );
 }
 
@@ -707,7 +707,7 @@ export async function revokeAgentForkInvitationAction(input: {
   revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
   revalidateWorkspacePath("/settings/permissions", workspaceContext.currentWorkspace.slug);
   revalidateWorkspacePath("/settings/permissions", workspaceContext.currentWorkspace.slug);
-  return actionToastResult(undefined, successToast("Agent 复制邀请已撤销。", "Agent copy invitation revoked."));
+  return actionToastResult(undefined, successToast("AI员工 复制邀请已撤销。", "AI employee copy invitation revoked."));
 }
 
 export async function createAgentAccessRequestAction(input: {

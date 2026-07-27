@@ -2572,7 +2572,7 @@ function buildNotificationInboxItems(
     id: `notification:${notification.id}`,
     kind: "notification",
     title: notification.title,
-    subtitle: notification.recipientType === "agent" ? `Agent · ${notification.recipientId}` : "Notification",
+    subtitle: notification.recipientType === "agent" ? `AI员工 · ${notification.recipientId}` : "Notification",
     meta: notification.channelName ? `#${notification.channelName}` : formatNotificationResourceType(notification.resourceType),
     timestamp: formatAbsoluteDateTime(notification.createdAt),
     unread: notification.status === "unread",
@@ -3325,7 +3325,7 @@ function buildShowcaseUsageHints(input: {
 }
 
 function suggestForkAgentName(sourceAgentDisplayName: string, targetDisplayName?: string): string {
-  const source = sourceAgentDisplayName.trim() || "Agent";
+  const source = sourceAgentDisplayName.trim() || "AI员工";
   const target = targetDisplayName?.trim();
   if (target) {
     return `${target} ${source}`.slice(0, 80);

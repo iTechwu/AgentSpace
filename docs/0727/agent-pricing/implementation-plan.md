@@ -101,12 +101,19 @@
 目标：同时提供账务准确性和 AI员工归因可解释性。
 
 1. 仅为服务器模式接入模型服务的余额、Key 用量、用量日志和对账快照；local 保持既有成本展示，不追加 models 账单或状态。
-2. 记录 AI员工、Runtime、会话、模型、Token 与网关用量 ID 的关联。
-3. 提供租户 / 团队、Runtime Key、Runtime、AI员工、会话维度的成本视图。
-4. 用明确状态呈现“真实扣费”“估算”“待对账”“已对账”。
-5. 将用户可见的“Agent”文案系统化迁移为“AI员工”，保留内部兼容层并完成埋点与审计字段迁移。
-6. 建立异常告警：余额不足、凭据轮换失败、成本归因缺失、对账差异、跨团队访问尝试。
-7. 对平台超管的跨团队介入记录完整的平台侧审计；团队侧审计仅显示“平台运维”，
+2. ✅ 记录 AI员工、Runtime、会话、模型、Token 与网关用量 ID 的关联。
+   - `token_usage` 已扩展 `runtime_credential_id`、`gateway_request_id`、`router_session_id`、`billing_status`、`actual_cost_usd`、`currency`、`reconciled_at`。
+   - 实现文件：`packages/db/src/postgres-schema.ts`、`packages/db/src/types.ts`、`packages/db/src/token-usage.ts`。
+3. ⏳ 提供租户 / 团队、Runtime Key、Runtime、AI员工、会话维度的成本视图（骨架待细化）。
+4. ✅ 用明确状态呈现“真实扣费 / 估算 / 已对账 / 未分配”。
+   - `token_usage.billing_status` 为 `estimated | reconciled | unallocated`。
+   - `packages/services/src/models/usage-sync.ts` 按 `runtimeCredentialId` 拉取 models `usage.tenantLogs`，匹配本地记录后标记 `reconciled`，未匹配则插入 `unallocated`。
+   - `packages/services/src/costs/costs.ts` 的 `CostDashboardData` 暴露 `estimatedCostUsd`、`reconciledCostUsd`、`unallocatedCostUsd`、`totalActualCostUsd`、`lastReconciledAt`。
+   - `apps/web/features/costs/costs-page-client.tsx` 展示三种状态金额、对账按钮与最近用量状态标签。
+   - `apps/web/features/costs/actions.ts` 提供 `reconcileWorkspaceUsageAction`，Owner/Admin 可对账。
+5. ⏳ 将用户可见的“Agent”文案系统化迁移为“AI员工”，保留内部兼容层并完成埋点与审计字段迁移。
+6. ⏳ 建立异常告警：余额不足、凭据轮换失败、成本归因缺失、对账差异、跨团队访问尝试。
+7. ⏳ 对平台超管的跨团队介入记录完整的平台侧审计；团队侧审计仅显示“平台运维”，
    不暴露超管账号，也不将其作为团队成员返回。
 
 验收：团队账单可与模型服务核对；任意 AI员工成本记录都能追溯到模型调用关联；界面没有将估算金额误标记为最终扣费。

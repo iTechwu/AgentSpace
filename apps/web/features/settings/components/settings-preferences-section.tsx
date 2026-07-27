@@ -54,7 +54,7 @@ export function SettingsPreferencesSection({
           <div>
             <h3>{tx("新手引导", "Onboarding")}</h3>
             <p className="settings-panel-note">
-              {tx("重新运行 Agent 搭建向导：绑定 Runtime、创建 Agent、配置说明和能力来源，再完成第一条对话。", "Replay the agent setup guide: bind a Runtime, create an agent, configure instructions and capabilities, then complete the first conversation.")}
+              {tx("重新运行 AI员工 搭建向导：绑定 Runtime、创建 AI员工、配置说明和能力来源，再完成第一条对话。", "Replay the AI employee setup guide: bind a Runtime, create an AI employee, configure instructions and capabilities, then complete the first conversation.")}
             </p>
           </div>
           <button
@@ -102,7 +102,7 @@ function buildSidebarSectionOptions(tx: SettingsTx): Array<{
     { id: "taskBoard", label: tx("项目看板", "Task Board") },
     { id: "channels", label: tx("消息", "Messages") },
     { id: "contacts", label: tx("联系人", "Contacts") },
-    { id: "employeeManagement", label: tx("员工管理", "Agent Management") },
+    { id: "employeeManagement", label: tx("员工管理", "AI Employee Management") },
     { id: "skills", label: tx("技能库", "Skills") },
     { id: "market", label: tx("应用市场", "Runtime App Market") },
     { id: "containers", label: tx("执行引擎管理", "Execution Engine Management") },

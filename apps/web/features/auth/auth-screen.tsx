@@ -101,8 +101,8 @@ export function AuthScreen({
             </p>
             <p className="public-hero__lead">
               {tx(
-                "从一句话发起工作，到 Agent 接力执行、关键节点审批与全过程审计。让团队不再切换工具，而是持续推进结果。",
-                "Start with one request, then let agents execute, people approve critical steps, and the workspace preserve the full audit trail.",
+                "从一句话发起工作，到 AI员工 接力执行、关键节点审批与全过程审计。让团队不再切换工具，而是持续推进结果。",
+                "Start with one request, then let AI employees execute, people approve critical steps, and the workspace preserve the full audit trail.",
               )}
             </p>
             <div className="public-hero__actions">
@@ -310,7 +310,7 @@ function buildProductTours(tx: (zh: string, en: string) => string): ProductTour[
       id: "messages",
       index: "01",
       label: tx("消息协作", "Messaging"),
-      title: tx("从一句话开始，把工作交给正确的人或 Agent。", "Start with one request and route it to the right person or agent."),
+      title: tx("从一句话开始，把工作交给正确的人或 AI员工。", "Start with one request and route it to the right person or AI employee."),
       description: tx("会话、数字联系人与后续任务保持联动；不可用能力明确禁用，可用操作都会进入下一步。", "Conversations, digital contacts, and downstream tasks stay connected. Unavailable actions are disabled; available actions always lead somewhere."),
       imageSrc: "/product/workspace-messages.png",
       imageAlt: tx("消息协作页面截图", "Messaging workspace screenshot"),
@@ -320,7 +320,7 @@ function buildProductTours(tx: (zh: string, en: string) => string): ProductTour[
       id: "employees",
       index: "02",
       label: tx("数字员工", "Digital employees"),
-      title: tx("把 Agent 当作组织能力管理，而不是散落的工具。", "Manage agents as organizational capability, not scattered tools."),
+      title: tx("把 AI员工 当作组织能力管理，而不是散落的工具。", "Manage AI employees as organizational capability, not scattered tools."),
       description: tx("统一查看数字员工的角色、可用状态、技能与知识，并决定由谁管理、在哪里调用。", "See each digital employee's role, availability, skills, and knowledge, then control who manages and uses it."),
       imageSrc: "/product/employee-showcase.png",
       imageAlt: tx("数字员工展板页面截图", "Digital employee directory screenshot"),

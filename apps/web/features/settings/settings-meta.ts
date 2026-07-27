@@ -44,7 +44,7 @@ export function getSettingsSectionMeta(
     case "permissions":
       return {
         cardDescription: tx("用资源树和 Actor 视角统一检查工作区授权、继承和外部委托。", "Use resource and actor views to inspect workspace grants, inheritance, and external delegations together."),
-        description: tx("统一查看成员、频道、Agent、Runtime、文档和外部授权的权限来源。", "Review permission sources across members, channels, agents, runtimes, documents, and external authorization."),
+        description: tx("统一查看成员、频道、AI员工、Runtime、文档和外部授权的权限来源。", "Review permission sources across members, channels, AI employees, runtimes, documents, and external authorization."),
         groupLabel: tx("权限中心", "Permissions center"),
         navLabel: tx("权限中心", "Permissions"),
         pageTitle: tx("设置", "Settings"),

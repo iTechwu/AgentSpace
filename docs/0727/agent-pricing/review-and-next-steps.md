@@ -2,7 +2,7 @@
 
 审查日期：2026-07-27  
 审查范围：`docs/0727/agent-pricing` 三份文档 + AgentSpace 当前分支业务代码  
-结论：**尚未全面实施**。Phase 1（models.dofe.ai 侧 RuntimeCredential）已完成；Phase 2（AgentSpace 控制面）已落地主要路径；Phase 3（节点侧受管安装）基本未实施；Phase 4（模型配置与会话体验）核心路径已通，但缺少可操作的模型错误状态；Phase 5（成本对账与术语迁移）未实施。
+结论：**尚未全面实施，但 Step 2 成本对账骨架已完成**。Phase 1（models.dofe.ai 侧 RuntimeCredential）已完成；Phase 2（AgentSpace 控制面）已落地主要路径；Phase 3（节点侧受管安装）基本未实施；Phase 4（模型配置与会话体验）核心路径已通；Phase 5（成本对账与术语迁移）对账骨架已落地，余额/Key 用量、多维度视图、文案迁移、告警仍待实施。
 
 ---
 
@@ -72,9 +72,9 @@
 | 要求 | 状态 | 证据 |
 | --- | --- | --- |
 | `token_usage` 记录 `runtimeCredentialId`、`routerSessionId` | ✅ 已实施 schema + 写入 | `apps/cli/src/commands/daemon.ts:1275-1276`；schema 已加列 |
-| 余额 / Key 用量 / 用量日志接入 | ❌ 未实施 | 无 `usage-sync.ts`；`packages/services/src/models/` 只有 `model-resolution.ts` 与 `client.ts` |
-| 成本状态：真实扣费 / 估算 / 待对账 / 已对账 | ❌ 未实施 | `CostPageData`（`apps/web/features/dashboard/data.ts:4927`）仍为本地估算结构；无 `billing_status`、`actual_cost_usd`、`reconciled_at` 等字段 |
-| AI员工 / Runtime / 会话维度成本视图 | ❌ 未实施 | 成本页仍为 `token_usage` 聚合，未调用 models 内部 usage API |
+| 余额 / Key 用量 / 用量日志接入 | ⚠️ 部分实施 | `packages/services/src/models/usage-sync.ts` 已接入 `usage.tenantLogs` 并按 `runtimeCredentialId` 对账；余额 / Key 用量卡片尚未实施 |
+| 成本状态：真实扣费 / 估算 / 待对账 / 已对账 | ✅ 已实施骨架 | `token_usage` 增加 `billing_status`、`actual_cost_usd`、`currency`、`reconciled_at`；`CostDashboardData`/`CostPageData` 暴露 `estimatedCostUsd`/`reconciledCostUsd`/`unallocatedCostUsd`/`totalActualCostUsd`；成本页展示三种状态并支持“与 models 对账” |
+| AI员工 / Runtime / 会话维度成本视图 | ❌ 未实施 | 成本页仍为 `token_usage` 聚合，未按 Runtime / 会话拆分 |
 | “Agent” 文案迁移为 “AI员工” | ❌ 未实施 | 大量 UI 仍显示 “Agent”，如 `create-agent-modal.tsx:223` “Agent 已创建”、`agents-page-client.tsx` 多处 |
 | 异常告警（余额不足、轮换失败、对账差异等） | ❌ 未实施 | 未见 |
 | 平台超管审计隔离 | ❌ 未实施 | 平台侧审计未在本仓库落地 |
@@ -103,14 +103,15 @@
 - ✅ `apps/web/features/chat/model-command.ts`：支持 `/model reset` 清除覆盖。
 - ⏳ 创建 Runtime 向导中的余额预检与模型可用性前置校验仍待实施（需在前端提交前调用 `billing.preflight`）。
 
-### Step 2 — Phase 5 成本对账骨架（中耦合，依赖 models 内部 usage API）
+### Step 2 — Phase 5 成本对账骨架（已实施骨架）
 
 目标：让成本页能区分“估算 / 已对账 / 未分配”。
 
-- 扩展 `token_usage`：增加 `billing_status`、`gateway_request_id`、`actual_cost_usd`、`currency`、`reconciled_at`。
-- 新增 `packages/services/src/models/usage-sync.ts`：按 `runtimeCredentialId` 拉取 models 用量日志，匹配本地记录并标记 `reconciled`，未匹配插入 `unallocated`。
-- 在 Runtime 详情 / AI员工详情 / 成本中心展示三种状态金额。
-- 更新 `implementation-plan.md` Phase 5 为部分完成。
+- ✅ 扩展 `token_usage`：增加 `billing_status`、`gateway_request_id`、`actual_cost_usd`、`currency`、`reconciled_at`。
+- ✅ 新增 `packages/services/src/models/usage-sync.ts`：按 `runtimeCredentialId` 拉取 models 用量日志，匹配本地记录并标记 `reconciled`，未匹配插入 `unallocated`。
+- ✅ 在 `CostPageData` / 成本中心展示三种状态金额与“与 models 对账”按钮。
+- ✅ 更新 `implementation-plan.md` Phase 5 为部分完成。
+- ⏳ 仍待细化：按 Runtime / AI员工 / 会话维度拆分视图；接入 models `billing.balanceByTeam` 展示团队余额。
 
 ### Step 3 — “Agent” → “AI员工” 文案迁移（低技术风险，需回归测试）
 
@@ -133,15 +134,18 @@
 
 ## 5. 本次立即实施项
 
-选择 **Step 1 — Phase 4 模型错误状态** 作为立即实施项：
+选择 **Step 2 — Phase 5 成本对账骨架** 作为立即实施项：
 
-- 改动面小，不依赖 models 侧新接口。
-- 直接提升当前已落地功能（聊天顶部模型选择器、Runtime 创建向导）的可用性。
-- 对应 `implementation-plan.md` 中唯一一个 Phase 4 仍标记为 ⏳ 的条目。
+- 改动不依赖 models 侧新接口，使用已存在的 `usage.tenantLogs`。
+- 直接提升成本页可信度，区分估算与真实扣费。
+- 对应 `implementation-plan.md` Phase 5 的核心验收项。
 
 实施范围：
-1. `packages/services/src/chat/model-override.ts`：把校验异常归类为可读错误码。
-2. `apps/web/features/channels/actions.ts`：`setChatModelOverrideAction` 返回结构化结果或抛出带错误码的异常。
-3. `apps/web/features/chat/chat-model-selector.tsx`：展示错误提示与可用模型建议。
-4. `apps/web/features/runtimes/actions.ts` / `runtimes-page-client.tsx`：创建 Runtime 前做余额预检与模型可用性校验，给出明确提示。
-5. 更新 `docs/0727/agent-pricing/implementation-plan.md` 与 `00-产品需求与交付规格.md` 对应状态。
+1. ✅ `packages/db/src/token-usage.ts`：新增 `findTokenUsageByGatewayRequestIdSync`、`markTokenUsageReconciledSync`、`insertUnallocatedTokenUsageSync`、`getWorkspaceBillingSummarySync`。
+2. ✅ `packages/services/src/models/usage-sync.ts`：按 `runtimeCredentialId` 拉取 models 用量日志并实现对账。
+3. ✅ `packages/services/src/costs/costs.ts` / `apps/web/features/dashboard/data.ts`：`CostDashboardData`/`CostPageData` 增加 `estimatedCostUsd`/`reconciledCostUsd`/`unallocatedCostUsd`/`totalActualCostUsd`/`lastReconciledAt`。
+4. ✅ `apps/web/features/costs/actions.ts`：新增 `reconcileWorkspaceUsageAction`。
+5. ✅ `apps/web/features/costs/costs-page-client.tsx`：展示三种成本状态、对账按钮、最近用量状态标签。
+6. ✅ 更新 `docs/0727/agent-pricing/implementation-plan.md` 与 `review-and-next-steps.md` 对应状态。
+
+下一步推荐：**Step 3 “Agent” → “AI员工” 文案迁移** 或 **Step 4 Phase 3 节点侧受管安装**。

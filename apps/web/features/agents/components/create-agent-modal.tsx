@@ -160,7 +160,7 @@ export function CreateAgentModal({
           </div>
 
           {createMode === "template" ? (
-            <div className="agent-template-market" aria-label={tx("Agent 模板市场", "Agent template marketplace")}>
+            <div className="agent-template-market" aria-label={tx("AI员工 模板市场", "AI employee template marketplace")}>
               <div className="agent-template-market__toolbar">
                 <div className="agent-template-market__tabs" aria-label={tx("模板范围", "Template scope")} role="tablist">
                   {([
@@ -184,7 +184,7 @@ export function CreateAgentModal({
                 <label className="agent-template-market__search">
                   <AppIcon name="search" />
                   <input
-                    aria-label={tx("搜索 Agent 模板", "Search agent templates")}
+                    aria-label={tx("搜索 AI员工 模板", "Search AI employee templates")}
                     onChange={(event) => setTemplateQuery(event.target.value)}
                     placeholder={tx("搜索模板名称、能力或标签", "Search template name, capability, or tag")}
                     type="search"
@@ -209,7 +209,7 @@ export function CreateAgentModal({
                       <span className="agent-template-card__copy">
                         <span className="agent-template-card__category">{translateTemplateCategory(template.category, tx)}</span>
                         <strong>{template.displayName}</strong>
-                        <small>{tx(`Agent 模板 · ${template.defaultTitle}`, `Agent template · ${template.defaultTitle}`)}</small>
+                        <small>{tx(`AI员工 模板 · ${template.defaultTitle}`, `AI employee template · ${template.defaultTitle}`)}</small>
                       </span>
                       <p>{template.shortDescription}</p>
                       <span className="agent-template-card__footer">
@@ -222,7 +222,7 @@ export function CreateAgentModal({
               </div>
               {filteredTemplates.length === 0 ? (
                 <div className="agent-template-market__empty">
-                  {tx("没有匹配的 Agent 模板。", "No matching agent templates.")}
+                  {tx("没有匹配的 AI员工 模板。", "No matching agent templates.")}
                 </div>
               ) : null}
             </div>
@@ -234,7 +234,7 @@ export function CreateAgentModal({
               autoFocus
               name="name"
               onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-              placeholder="e.g. Deep Research Agent"
+              placeholder="e.g. Deep Research AI Employee"
               type="text"
               value={draft.name}
             />
