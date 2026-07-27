@@ -19,7 +19,6 @@ test("local attachment storage writes, reads, and deletes bytes", async () => {
       localRoot: join(tempRoot, "data", "workspaces"),
       maxUploadBytes: 1024,
       signedUrlTtlSeconds: 300,
-      enableLocalFallback: true,
     });
     const contentBytes = Buffer.from("storage bytes", "utf8");
 

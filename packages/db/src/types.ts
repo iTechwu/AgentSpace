@@ -1119,7 +1119,7 @@ export interface ModelPricingRecord {
 export interface TokenUsageRecord {
   id: string;
   workspaceId: string;
-  taskQueueId: string;
+  taskQueueId?: string;
   agentId: string;
   modelId: string;
   providerAccountId?: string;
@@ -1128,6 +1128,11 @@ export interface TokenUsageRecord {
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  billingStatus?: "estimated" | "reconciled" | "unallocated";
+  gatewayRequestId?: string;
+  actualCostUsd?: number;
+  currency?: string;
+  reconciledAt?: string;
   channelName?: string;
   createdAt: string;
 }

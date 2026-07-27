@@ -449,6 +449,9 @@ export interface PipelineRunOptions {
 
 /** Minimal structural type over the SDK client surface the pipeline uses. */
 export interface ModelsClientLike {
+  billing: {
+    preflight(args: { body: { teamId: string; estimatedCharge: number } }): Promise<{ allowed: boolean }>;
+  };
   runtimeCredentials: {
     create(args: { body: Record<string, unknown> }): Promise<ModelsCreateResult>;
     get(args: { params: { id: string }; query: { tenantId: string; teamId: string } }): Promise<ModelsInternalRuntimeCredential>;
@@ -494,6 +497,12 @@ export async function runProvisioningPipeline(
   if (!task.runtimeCredentialId) {
     try {
       advanceStage(taskId, workspaceId, "request_credential", "running", 10);
+      const preflight = await client.billing.preflight({
+        body: { teamId: scope.teamId, estimatedCharge: 0 },
+      });
+      if (!preflight.allowed) {
+        throw new Error("managed_runtime.balance_preflight_rejected");
+      }
       const result = await client.runtimeCredentials.create({
         body: {
           tenantId: scope.tenantId,

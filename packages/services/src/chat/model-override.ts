@@ -200,6 +200,29 @@ export function setSessionModelOverrideForChatCommandSync(
 }
 
 /**
+ * Structured validation error for `/model` overrides.
+ *
+ * `code` is machine-readable so the UI can show an actionable message.
+ */
+export class ChatModelOverrideValidationError extends Error {
+  readonly code:
+    | "model_required"
+    | "no_bound_runtime"
+    | "not_a_managed_runtime"
+    | "model_unavailable"
+    | "remote_mode_required";
+
+  constructor(
+    code: ChatModelOverrideValidationError["code"],
+    message: string,
+  ) {
+    super(message);
+    this.name = "ChatModelOverrideValidationError";
+    this.code = code;
+  }
+}
+
+/**
  * Validate a requested override against the selected AI employee's bound
  * Runtime before a caller writes it to the router session.
  */
@@ -208,15 +231,45 @@ export async function validateSessionModelOverrideForChatCommandAsync(
 ): Promise<{ agentName: string; modelId: string }> {
   const requestedModelId = input.modelId?.trim();
   if (!requestedModelId || requestedModelId.toLowerCase() === "clear") {
-    throw new Error("model_command.model_required");
+    throw new ChatModelOverrideValidationError("model_required", "A model id is required.");
   }
   const resolution = ensureChatRouterSessionIdSync(input);
-  const validated = await validateModelOverrideForBoundEmployeeAsync({
-    workspaceId: resolution.workspaceId,
-    employeeName: resolution.agentName,
-    modelId: requestedModelId,
-  });
-  return { agentName: resolution.agentName, modelId: validated.modelId };
+  try {
+    const validated = await validateModelOverrideForBoundEmployeeAsync({
+      workspaceId: resolution.workspaceId,
+      employeeName: resolution.agentName,
+      modelId: requestedModelId,
+    });
+    return { agentName: resolution.agentName, modelId: validated.modelId };
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "model_resolution.remote_mode_required") {
+        throw new ChatModelOverrideValidationError(
+          "remote_mode_required",
+          "Model overrides are only available in remote mode.",
+        );
+      }
+      if (error.message === "model_resolution.no_bound_runtime") {
+        throw new ChatModelOverrideValidationError(
+          "no_bound_runtime",
+          `AI employee "${resolution.agentName}" is not bound to a Runtime.`,
+        );
+      }
+      if (error.message === "model_resolution.not_a_managed_runtime") {
+        throw new ChatModelOverrideValidationError(
+          "not_a_managed_runtime",
+          `The bound Runtime for "${resolution.agentName}" is not a managed runtime.`,
+        );
+      }
+      if (error.message === "model_resolution.model_unavailable") {
+        throw new ChatModelOverrideValidationError(
+          "model_unavailable",
+          `Model "${requestedModelId}" is not available for the bound Runtime.`,
+        );
+      }
+    }
+    throw error;
+  }
 }
 
 /**

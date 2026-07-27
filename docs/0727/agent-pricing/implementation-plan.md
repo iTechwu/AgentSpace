@@ -88,7 +88,11 @@
    - 聊天顶部直接私聊会话显示当前生效模型和来源标签。
    - Owner/Admin 可从协议过滤的模型目录中选择会话覆盖模型；选择“继承默认”清除覆盖。
    - 实现文件：`apps/web/features/chat/chat-model-selector.tsx`、`apps/web/features/channels/actions.ts`、`packages/services/src/chat/model-override.ts`。
-5. ⏳ 对不兼容、不可用、余额不足、无权限模型提供可操作的错误状态。
+5. ✅ 对不兼容、不可用、余额不足、无权限模型提供可操作的错误状态。
+   - `validateSessionModelOverrideForChatCommandAsync` 将 models 返回的异常归类为可读错误码（`model_unavailable` / `no_bound_runtime` / `not_a_managed_runtime` / `remote_mode_required`）。
+   - `setChatModelOverrideAction` 返回结构化结果，`ChatModelSelector` 在顶部显示错误标签与原因，而不是仅抛通用异常。
+   - `/model reset` 与 `/model clear` 均被识别为清除会话覆盖。
+   - 实现文件：`packages/services/src/chat/model-override.ts`、`apps/web/features/channels/actions.ts`、`apps/web/features/chat/chat-model-selector.tsx`、`apps/web/features/chat/model-command.ts`。
 
 验收：同一 Runtime 下的两个会话可以使用不同模型而不互相影响；不兼容协议的模型无法被选择或调用。
 

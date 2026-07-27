@@ -1204,7 +1204,7 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE TABLE IF NOT EXISTS token_usage (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-        task_queue_id TEXT NOT NULL REFERENCES agent_task_queue(id) ON DELETE CASCADE,
+        task_queue_id TEXT REFERENCES agent_task_queue(id) ON DELETE SET NULL,
         agent_id TEXT NOT NULL,
         model_id TEXT NOT NULL,
         provider_account_id TEXT REFERENCES provider_account(id) ON DELETE SET NULL,
@@ -1213,6 +1213,11 @@ export function getPostgresSchemaStatements(): string[] {
         input_tokens INTEGER NOT NULL DEFAULT 0,
         output_tokens INTEGER NOT NULL DEFAULT 0,
         cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+        billing_status TEXT NOT NULL DEFAULT 'estimated',
+        gateway_request_id TEXT,
+        actual_cost_usd DOUBLE PRECISION,
+        currency TEXT,
+        reconciled_at TIMESTAMPTZ,
         channel_name TEXT,
         created_at TIMESTAMPTZ NOT NULL
       )
@@ -1224,6 +1229,21 @@ export function getPostgresSchemaStatements(): string[] {
       ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS router_session_id TEXT
     `,
     `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS provider_account_id TEXT REFERENCES provider_account(id) ON DELETE SET NULL`,
+    `
+      ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS billing_status TEXT NOT NULL DEFAULT 'estimated'
+    `,
+    `
+      ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS gateway_request_id TEXT
+    `,
+    `
+      ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS actual_cost_usd DOUBLE PRECISION
+    `,
+    `
+      ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS currency TEXT
+    `,
+    `
+      ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ
+    `,
     `
       CREATE TABLE IF NOT EXISTS runtime_provision_request (
         id TEXT PRIMARY KEY,
@@ -1723,6 +1743,19 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_token_usage_agent
         ON token_usage(workspace_id, agent_id, created_at)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_token_usage_runtime_credential
+        ON token_usage(workspace_id, runtime_credential_id, created_at)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_token_usage_billing_status
+        ON token_usage(workspace_id, billing_status, created_at)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_token_usage_gateway_request
+        ON token_usage(gateway_request_id)
+        WHERE gateway_request_id IS NOT NULL
     `,
     `CREATE INDEX IF NOT EXISTS idx_provider_account_workspace ON provider_account(workspace_id, provider, status)`,
     `CREATE INDEX IF NOT EXISTS idx_runtime_provision_request_workspace ON runtime_provision_request(workspace_id, status, created_at DESC)`,

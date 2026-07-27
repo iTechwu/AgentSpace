@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS build
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS build
 
 WORKDIR /srv/DofeAgent
 
@@ -20,14 +20,13 @@ ENV NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
 RUN npm --prefix packages/daemon run build \
   && npm --prefix apps/web run build
 
-FROM node:24-bookworm-slim AS runtime
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS runtime
 
 WORKDIR /srv/DofeAgent
 
 ENV NODE_ENV=production \
     SELF_HOSTED_ATTACHMENT_LOCAL_ROOT=/var/lib/dofe-agent/workspaces \
-    ATTACHMENT_LOCAL_ROOT=/var/lib/dofe-agent/workspaces \
-    ATTACHMENT_ENABLE_LOCAL_FALLBACK=true
+    ATTACHMENT_LOCAL_ROOT=/var/lib/dofe-agent/workspaces
 
 COPY --from=build /srv/DofeAgent /srv/DofeAgent
 

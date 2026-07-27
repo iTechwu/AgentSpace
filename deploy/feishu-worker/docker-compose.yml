@@ -2,7 +2,7 @@
 # with a local daemon that has DOFE_AGENT_MANAGE_FEISHU_WORKER=true.
 services:
   feishu-worker:
-    image: node:24-bookworm-slim
+    image: uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
     restart: unless-stopped
     working_dir: /srv/DofeAgent
     command: ["npm", "run", "cli", "--", "integrations", "feishu", "worker"]

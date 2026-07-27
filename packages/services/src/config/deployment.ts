@@ -18,7 +18,6 @@ export interface AttachmentRuntimeConfig {
   localRoot?: string;
   maxUploadBytes: number;
   signedUrlTtlSeconds: number;
-  enableLocalFallback: boolean;
   tos?: {
     bucket: string;
     endpoint: string;
@@ -49,51 +48,36 @@ export function resolveAttachmentRuntimeConfig(env: NodeJS.ProcessEnv = process.
   const effectiveEnv = readEffectiveRuntimeEnv({ env, repositoryOverridesEnv: env === process.env });
   const maxUploadBytes = readPositiveInteger(effectiveEnv.ATTACHMENT_MAX_UPLOAD_BYTES, 50 * 1024 * 1024);
   const signedUrlTtlSeconds = readPositiveInteger(effectiveEnv.ATTACHMENT_SIGNED_URL_TTL_SECONDS, 300);
-  const enableLocalFallback = effectiveEnv.ATTACHMENT_ENABLE_LOCAL_FALLBACK !== "false";
   const requestedProvider = effectiveEnv.ATTACHMENT_STORAGE_PROVIDER?.trim().toLowerCase();
   if (requestedProvider && requestedProvider !== "local" && requestedProvider !== "tos") {
     throw new Error("ATTACHMENT_STORAGE_PROVIDER must be either local or tos.");
   }
-  const hasTosConfig = ["TOS_BUCKET", "TOS_REGION", "TOS_ACCESS_KEY", "TOS_SECRET_KEY"].some((name) => Boolean(firstEnvValue(effectiveEnv, [name])));
-
-  if (requestedProvider === "local" || !hasTosConfig) {
+  if (requestedProvider === "local") {
     return {
       provider: "local",
       localRoot: firstEnvValue(effectiveEnv, ["ATTACHMENT_LOCAL_ROOT", "SELF_HOSTED_ATTACHMENT_LOCAL_ROOT"]),
       maxUploadBytes,
       signedUrlTtlSeconds,
-      enableLocalFallback,
     };
   }
 
-  if (requestedProvider === "tos" || hasTosConfig) {
-    const publicEndpoint = normalizeTosEndpoint(requireFirstEnvValue(effectiveEnv, ["TOS_ENDPOINT", "TOS_S3_ENDPOINT"]));
-    const useInternalEndpoint = effectiveEnv.TOS_USE_INTERNAL_ENDPOINT === "true";
-    const internalEndpoint = firstEnvValue(effectiveEnv, ["TOS_INTERNAL_ENDPOINT", "TOS_INTERNAL_S3_ENDPOINT"]);
-    return {
-      provider: "tos",
-      localRoot: firstEnvValue(effectiveEnv, ["ATTACHMENT_LOCAL_ROOT", "SELF_HOSTED_ATTACHMENT_LOCAL_ROOT"]),
-      maxUploadBytes,
-      signedUrlTtlSeconds,
-      enableLocalFallback,
-      tos: {
-        bucket: requireFirstEnvValue(effectiveEnv, ["TOS_BUCKET"]),
-        endpoint: useInternalEndpoint && internalEndpoint ? internalEndpoint : publicEndpoint,
-        publicEndpoint,
-        bucketDomain: firstEnvValue(effectiveEnv, ["TOS_BUCKET_DOMAIN"]),
-        region: requireFirstEnvValue(effectiveEnv, ["TOS_REGION"]),
-        accessKeyId: requireFirstEnvValue(effectiveEnv, ["TOS_ACCESS_KEY"]),
-        secretAccessKey: requireFirstEnvValue(effectiveEnv, ["TOS_SECRET_KEY"]),
-      },
-    };
-  }
-
+  const publicEndpoint = normalizeTosEndpoint(requireFirstEnvValue(effectiveEnv, ["TOS_ENDPOINT", "TOS_S3_ENDPOINT"]));
+  const useInternalEndpoint = effectiveEnv.TOS_USE_INTERNAL_ENDPOINT === "true";
+  const internalEndpoint = firstEnvValue(effectiveEnv, ["TOS_INTERNAL_ENDPOINT", "TOS_INTERNAL_S3_ENDPOINT"]);
   return {
-    provider: "local",
+    provider: "tos",
     localRoot: firstEnvValue(effectiveEnv, ["ATTACHMENT_LOCAL_ROOT", "SELF_HOSTED_ATTACHMENT_LOCAL_ROOT"]),
     maxUploadBytes,
     signedUrlTtlSeconds,
-    enableLocalFallback,
+    tos: {
+      bucket: requireFirstEnvValue(effectiveEnv, ["TOS_BUCKET"]),
+      endpoint: useInternalEndpoint && internalEndpoint ? internalEndpoint : publicEndpoint,
+      publicEndpoint,
+      bucketDomain: firstEnvValue(effectiveEnv, ["TOS_BUCKET_DOMAIN"]),
+      region: requireFirstEnvValue(effectiveEnv, ["TOS_REGION"]),
+      accessKeyId: requireFirstEnvValue(effectiveEnv, ["TOS_ACCESS_KEY"]),
+      secretAccessKey: requireFirstEnvValue(effectiveEnv, ["TOS_SECRET_KEY"]),
+    },
   };
 }
 

@@ -75,12 +75,16 @@ export function computeCostUsd(inputTokens: number, outputTokens: number, pricin
 }
 
 export function recordTokenUsageSync(input: {
-  taskQueueId: string;
+  taskQueueId?: string;
   agentId: string;
   modelId: string;
   providerAccountId?: string;
   runtimeCredentialId?: string;
   routerSessionId?: string;
+  gatewayRequestId?: string;
+  actualCostUsd?: number;
+  currency?: string;
+  billingStatus?: "estimated" | "reconciled" | "unallocated";
   inputTokens: number;
   outputTokens: number;
   channelName?: string;
@@ -91,12 +95,35 @@ export function recordTokenUsageSync(input: {
   const now = new Date().toISOString();
   const pricing = readModelPricingSync(input.modelId);
   const costUsd = pricing ? computeCostUsd(input.inputTokens, input.outputTokens, pricing) : 0;
-  const workspaceId = input.workspaceId ?? readWorkspaceIdForTaskQueueSync(input.taskQueueId) ?? DEFAULT_WORKSPACE_ID;
+  const workspaceId = input.workspaceId ?? (input.taskQueueId ? readWorkspaceIdForTaskQueueSync(input.taskQueueId) : null) ?? DEFAULT_WORKSPACE_ID;
+  const billingStatus = input.billingStatus ?? "estimated";
 
   db.prepare(
-    `INSERT INTO token_usage (id, workspace_id, task_queue_id, agent_id, model_id, provider_account_id, runtime_credential_id, router_session_id, input_tokens, output_tokens, cost_usd, channel_name, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, workspaceId, input.taskQueueId, input.agentId, input.modelId, input.providerAccountId ?? null, input.runtimeCredentialId ?? null, input.routerSessionId ?? null, input.inputTokens, input.outputTokens, costUsd, input.channelName ?? null, now);
+    `INSERT INTO token_usage (
+      id, workspace_id, task_queue_id, agent_id, model_id, provider_account_id,
+      runtime_credential_id, router_session_id, gateway_request_id, input_tokens,
+      output_tokens, cost_usd, actual_cost_usd, currency, billing_status,
+      channel_name, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    workspaceId,
+    input.taskQueueId ?? null,
+    input.agentId,
+    input.modelId,
+    input.providerAccountId ?? null,
+    input.runtimeCredentialId ?? null,
+    input.routerSessionId ?? null,
+    input.gatewayRequestId ?? null,
+    input.inputTokens,
+    input.outputTokens,
+    costUsd,
+    input.actualCostUsd ?? null,
+    input.currency ?? null,
+    billingStatus,
+    input.channelName ?? null,
+    now,
+  );
 
   return {
     id,
@@ -107,6 +134,10 @@ export function recordTokenUsageSync(input: {
     providerAccountId: input.providerAccountId,
     runtimeCredentialId: input.runtimeCredentialId,
     routerSessionId: input.routerSessionId,
+    gatewayRequestId: input.gatewayRequestId,
+    actualCostUsd: input.actualCostUsd,
+    currency: input.currency,
+    billingStatus,
     inputTokens: input.inputTokens,
     outputTokens: input.outputTokens,
     costUsd,
@@ -156,9 +187,13 @@ export function listTokenUsageSync(filters?: {
     provider_account_id: string | null;
     runtime_credential_id: string | null;
     router_session_id: string | null;
+    gateway_request_id: string | null;
     input_tokens: number;
     output_tokens: number;
     cost_usd: number;
+    actual_cost_usd: number | null;
+    currency: string | null;
+    billing_status: string | null;
     channel_name: string | null;
     created_at: string;
   }>;
@@ -172,12 +207,21 @@ export function listTokenUsageSync(filters?: {
     providerAccountId: row.provider_account_id ?? undefined,
     runtimeCredentialId: row.runtime_credential_id ?? undefined,
     routerSessionId: row.router_session_id ?? undefined,
+    gatewayRequestId: row.gateway_request_id ?? undefined,
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
     costUsd: row.cost_usd,
+    actualCostUsd: row.actual_cost_usd ?? undefined,
+    currency: row.currency ?? undefined,
+    billingStatus: reconcileStatus(row.billing_status),
     channelName: row.channel_name ?? undefined,
     createdAt: row.created_at,
   }));
+}
+
+function reconcileStatus(value: string | null): TokenUsageRecord["billingStatus"] {
+  if (value === "reconciled" || value === "unallocated") return value;
+  return "estimated";
 }
 
 export function getAgentCostSummarySync(agentId: string, since?: string, workspaceId = DEFAULT_WORKSPACE_ID): {
@@ -255,6 +299,103 @@ export function getWorkspaceCostSummarySync(since?: string, workspaceId = DEFAUL
     totalCostUsd: row.total_cost,
     taskCount: row.task_count,
   }));
+}
+
+export function findTokenUsageByGatewayRequestIdSync(
+  gatewayRequestId: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): TokenUsageRecord | null {
+  const db = getDatabase();
+  const row = db.prepare(
+    `SELECT * FROM token_usage WHERE workspace_id = ? AND gateway_request_id = ?`,
+  ).get(workspaceId, gatewayRequestId) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return mapTokenUsageRow(row);
+}
+
+export function markTokenUsageReconciledSync(
+  id: string,
+  input: {
+    actualCostUsd: number;
+    currency: string;
+    gatewayRequestId?: string;
+  },
+): TokenUsageRecord | null {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE token_usage
+     SET billing_status = 'reconciled',
+         actual_cost_usd = ?,
+         currency = ?,
+         gateway_request_id = COALESCE(?, gateway_request_id),
+         reconciled_at = ?
+     WHERE id = ?`,
+  ).run(input.actualCostUsd, input.currency, input.gatewayRequestId ?? null, now, id);
+  const row = db.prepare("SELECT * FROM token_usage WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  return row ? mapTokenUsageRow(row) : null;
+}
+
+export function insertUnallocatedTokenUsageSync(input: {
+  workspaceId: string;
+  agentId: string;
+  modelId: string;
+  runtimeCredentialId: string;
+  gatewayRequestId: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  actualCostUsd: number;
+  currency: string;
+  channelName?: string;
+  createdAt?: string;
+}): TokenUsageRecord {
+  const db = getDatabase();
+  const id = randomLikeId();
+  const now = input.createdAt ?? new Date().toISOString();
+  db.prepare(
+    `INSERT INTO token_usage (
+      id, workspace_id, task_queue_id, agent_id, model_id,
+      runtime_credential_id, gateway_request_id, input_tokens, output_tokens,
+      cost_usd, actual_cost_usd, currency, billing_status, channel_name, created_at
+     ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'unallocated', ?, ?)`,
+  ).run(
+    id,
+    input.workspaceId,
+    input.agentId,
+    input.modelId,
+    input.runtimeCredentialId,
+    input.gatewayRequestId,
+    input.inputTokens ?? 0,
+    input.outputTokens ?? 0,
+    input.actualCostUsd,
+    input.currency,
+    input.channelName ?? null,
+    now,
+  );
+  const row = db.prepare("SELECT * FROM token_usage WHERE id = ?").get(id) as Record<string, unknown>;
+  return mapTokenUsageRow(row);
+}
+
+function mapTokenUsageRow(row: Record<string, unknown>): TokenUsageRecord {
+  return {
+    id: String(row.id),
+    workspaceId: String(row.workspace_id),
+    taskQueueId: typeof row.task_queue_id === "string" ? row.task_queue_id : undefined,
+    agentId: String(row.agent_id),
+    modelId: String(row.model_id),
+    providerAccountId: typeof row.provider_account_id === "string" ? row.provider_account_id : undefined,
+    runtimeCredentialId: typeof row.runtime_credential_id === "string" ? row.runtime_credential_id : undefined,
+    routerSessionId: typeof row.router_session_id === "string" ? row.router_session_id : undefined,
+    gatewayRequestId: typeof row.gateway_request_id === "string" ? row.gateway_request_id : undefined,
+    inputTokens: Number(row.input_tokens) || 0,
+    outputTokens: Number(row.output_tokens) || 0,
+    costUsd: Number(row.cost_usd) || 0,
+    actualCostUsd: typeof row.actual_cost_usd === "number" ? row.actual_cost_usd : undefined,
+    currency: typeof row.currency === "string" ? row.currency : undefined,
+    billingStatus: reconcileStatus(String(row.billing_status)),
+    channelName: typeof row.channel_name === "string" ? row.channel_name : undefined,
+    createdAt: String(row.created_at),
+  };
 }
 
 function readWorkspaceIdForTaskQueueSync(taskQueueId: string): string | null {

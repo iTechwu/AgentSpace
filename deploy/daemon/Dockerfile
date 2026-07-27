@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS daemon-build
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS daemon-build
 
 WORKDIR /workspace
 
@@ -13,7 +13,7 @@ RUN npm --prefix apps/cli ci --ignore-scripts \
   && mkdir -p /opt/daemon-package \
   && npm --prefix packages/daemon pack --ignore-scripts --pack-destination /opt/daemon-package
 
-FROM node:24-bookworm-slim
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
 
 ARG PROVIDER_INSTALL_COMMAND
 

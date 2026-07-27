@@ -288,6 +288,7 @@ export {
   validateSessionModelOverrideForChatCommandAsync,
   readSessionModelOverrideForChatSync,
   resolveChatModelOverrideAsync,
+  ChatModelOverrideValidationError,
   type SetSessionModelOverrideForChatInput,
   type SetSessionModelOverrideForChatResult,
   type ResolveChatModelOverrideInput,

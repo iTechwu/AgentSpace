@@ -15,5 +15,8 @@ export function parseModelCommand(content: string): ParsedModelCommand | null {
   }
   const modelId = match.groups?.modelId?.trim();
   const remainingContent = trimmed.slice(match[0].length).trimStart();
+  if (modelId?.toLowerCase() === "clear" || modelId?.toLowerCase() === "reset") {
+    return { modelId: undefined, remainingContent };
+  }
   return { modelId, remainingContent };
 }

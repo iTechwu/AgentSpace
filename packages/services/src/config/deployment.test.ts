@@ -96,7 +96,24 @@ test("local storage can be explicitly selected for isolated environments", () =>
     SELF_HOSTED_ATTACHMENT_LOCAL_ROOT: "/tmp/dofe-agent-local-attachments",
   });
   assert.equal(attachments.provider, "local");
-  assert.equal(attachments.localRoot, "/tmp/dofe-agent-local-attachments");
+});
+
+test("incomplete TOS configuration is rejected instead of falling back to local storage", () => {
+  const originalCwd = process.cwd();
+  const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-incomplete-tos-"));
+  try {
+    mkdirSync(join(tempRoot, "apps", "web"), { recursive: true });
+    writeFileSync(join(tempRoot, "Target.md"), "# test\n");
+    writeFileSync(join(tempRoot, ".env"), "TOS_BUCKET=dofe-agent\n", "utf8");
+    process.chdir(join(tempRoot, "apps", "web"));
+    assert.throws(
+      () => resolveAttachmentRuntimeConfig({}),
+      /Missing required environment variable: TOS_ENDPOINT or TOS_S3_ENDPOINT/,
+    );
+  } finally {
+    process.chdir(originalCwd);
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("invalid attachment storage provider is rejected", () => {

@@ -35,19 +35,27 @@ const originalRuntimeMode = process.env.DOFE_AGENT_RUNTIME_MODE;
 
 function createMockClient(behavior: {
   failCreate?: boolean;
+  preflightAllowed?: boolean;
   failRotate?: boolean;
   credentialId?: string;
   nextCredentialId?: string;
   plaintext?: string;
   nextPlaintext?: string;
-}): ModelsClientLike & { createCalls: number; revokeCalls: number; rotateCalls: number; getCalls: number; lastRevokeBody?: unknown; lastRotateBody?: unknown } {
+}): ModelsClientLike & { createCalls: number; preflightCalls: number; revokeCalls: number; rotateCalls: number; getCalls: number; lastRevokeBody?: unknown; lastRotateBody?: unknown } {
   let createCalls = 0;
+  let preflightCalls = 0;
   let revokeCalls = 0;
   let rotateCalls = 0;
   let getCalls = 0;
   let lastRevokeBody: unknown;
   let lastRotateBody: unknown;
   return {
+    billing: {
+      async preflight() {
+        preflightCalls += 1;
+        return { allowed: behavior.preflightAllowed ?? true };
+      },
+    },
     runtimeCredentials: {
       async create({ body }) {
         createCalls += 1;
@@ -108,6 +116,9 @@ function createMockClient(behavior: {
     },
     get createCalls() {
       return createCalls;
+    },
+    get preflightCalls() {
+      return preflightCalls;
     },
     get revokeCalls() {
       return revokeCalls;
@@ -217,6 +228,25 @@ test("tenant-only workspace (no teamId) is rejected", () => {
       }),
     /team_scoped_workspace_required/,
   );
+});
+
+test("balance preflight rejects provisioning before a Runtime credential is created", async () => {
+  activeClient = createMockClient({ preflightAllowed: false });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "balance-denied-key",
+  });
+  const failed = await awaitTaskTerminal(task.id);
+
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.stage, "request_credential");
+  assert.match(failed.lastErrorMessage ?? "", /managed_runtime.balance_preflight_rejected/);
+  assert.equal(activeClient.preflightCalls, 1);
+  assert.equal(activeClient.createCalls, 0);
 });
 
 test("happy path: pipeline reaches ready and binds a managed credential", async () => {

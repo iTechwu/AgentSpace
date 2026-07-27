@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import {
   getChatModelOverrideAction,
@@ -49,39 +49,54 @@ export function ChatModelSelector({
   const [info, setInfo] = useState<ModelOverrideInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<{ code: string; message: string } | null>(null);
 
-  const loadInfo = async () => {
+  const fetchInfo = useCallback(() => {
+    let cancelled = false;
     setLoading(true);
-    try {
-      const result = await getChatModelOverrideAction({
-        contactId,
-        channelName,
-        content,
+    getChatModelOverrideAction({
+      contactId,
+      channelName,
+      content,
+    })
+      .then((result) => {
+        if (!cancelled) {
+          setInfo(result);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
       });
-      setInfo(result);
-    } finally {
-      setLoading(false);
-    }
-  };
+    return () => {
+      cancelled = true;
+    };
+  }, [contactId, channelName, content]);
 
   useEffect(() => {
-    loadInfo();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contactId, channelName, content]);
+    return fetchInfo();
+  }, [fetchInfo]);
 
   const activeModel = info?.effectiveModel ?? info?.sessionOverride;
   const sessionValue = info?.sessionOverride?.modelId ?? "";
 
   const handleChange = (value: string) => {
     if (!info) return;
+    setError(null);
     startTransition(async () => {
-      await setChatModelOverrideAction({
+      const result = await setChatModelOverrideAction({
         contactId,
         channelName,
         content,
         modelId: value || undefined,
       });
-      await loadInfo();
+      if (!result.ok) {
+        setError({ code: result.code, message: result.message });
+      } else {
+        setError(null);
+        fetchInfo();
+      }
     });
   };
 
@@ -115,6 +130,11 @@ export function ChatModelSelector({
           value={sessionValue}
           onChange={handleChange}
         />
+      ) : null}
+      {error ? (
+        <span className="chat-model-selector__error" title={error.message}>
+          {errorLabel(error.code, tx)}
+        </span>
       ) : null}
     </div>
   );
@@ -185,5 +205,25 @@ function sourceLabel(
       return tx("协议兜底", "Protocol fallback");
     default:
       return tx("未配置", "Not set");
+  }
+}
+
+function errorLabel(
+  code: string,
+  tx: (zh: string, en: string) => string,
+): string {
+  switch (code) {
+    case "model_unavailable":
+      return tx("该模型不可用", "Model unavailable");
+    case "no_bound_runtime":
+      return tx("AI员工未绑定 Runtime", "No bound runtime");
+    case "not_a_managed_runtime":
+      return tx("绑定 Runtime 非受管", "Not a managed runtime");
+    case "remote_mode_required":
+      return tx("仅 remote 模式可用", "Remote mode required");
+    case "model_required":
+      return tx("需要模型 ID", "Model id required");
+    default:
+      return tx("设置失败", "Failed to set model");
   }
 }
