@@ -321,6 +321,24 @@ export interface AgentRuntimeRecord {
   connectedAt?: string;
   lastHeartbeatAt?: string;
   lastError?: string;
+  /**
+   * Managed-runtime lifecycle marker. `managed` = provisioned through a
+   * RuntimeProvisioningTask with a models.dofe.ai RuntimeCredential;
+   * `legacy` = backed by a provider_account. Null for rows created before
+   * the managed-runtime phase.
+   */
+  provisioningState?: "managed" | "legacy" | null;
+  /** models.dofe.ai RuntimeCredential id (opaque). */
+  managedCredentialId?: string;
+  /** Opaque vault references; plaintext keys are never stored. */
+  credentialSecretRef?: string;
+  credentialConfigRef?: string;
+  /** Protocol capability of the managed runtime (e.g. anthropic / openai / gemini). */
+  protocols?: string[];
+  /** Runtime-level default model suggestion. */
+  defaultModel?: string;
+  provisioningTaskId?: string;
+  managedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -375,6 +393,131 @@ export interface RuntimeProvisionRequestRecord {
   daemonTokenId?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// ─── Managed Runtime provisioning (Phase 2) ────────────────────────────────
+
+/** Persisted SSO tenant/team binding for a workspace, used to resolve the
+ *  models.dofe.ai tenantId/teamId when provisioning managed runtimes. */
+export type WorkspaceSsoBindingSource = "team" | "tenant";
+
+export interface WorkspaceSsoBindingRecord {
+  workspaceId: string;
+  tenantId: string;
+  tenantSlug?: string;
+  tenantName: string;
+  /** Present for team-scoped workspaces; null for tenant-only scopes. */
+  teamId?: string;
+  teamSlug?: string;
+  teamName?: string;
+  source: WorkspaceSsoBindingSource;
+  syncedAt: string;
+}
+
+export type RuntimeProvisioningTaskStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+/** Stage enum is forward-compatible with the docs/0727 spec. `pull_image` and
+ *  `install_cli` are recorded as `skipped` in Phase 2 (node-side install is
+ *  Phase 3); the rest are driven by the provisioning orchestrator. */
+export type RuntimeProvisioningTaskStage =
+  | "pending"
+  | "request_credential"
+  | "prepare_node"
+  | "pull_image"
+  | "install_cli"
+  | "write_credential"
+  | "health_check"
+  | "ready";
+
+export type RuntimeProvisioningTaskStageStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped";
+
+export type RuntimeProvisioningTaskCleanupStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped";
+
+export interface RuntimeProvisioningTaskRecord {
+  id: string;
+  workspaceId: string;
+  /** Filled once the agent_runtime row is created at prepare_node. */
+  runtimeId?: string;
+  requestedByUserId: string;
+  /** Unique per (workspace, key); re-submitting returns the same task. */
+  idempotencyKey: string;
+  /** For reuse/retry lineage. */
+  sourceRuntimeId?: string;
+  runtimeType: DaemonProvider;
+  protocols: string[];
+  requestedModel?: string;
+  targetServer?: string;
+  stage: RuntimeProvisioningTaskStage;
+  stageStatus: RuntimeProvisioningTaskStageStatus;
+  progressPercent: number;
+  retryCount: number;
+  maxRetries: number;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
+  cleanupStatus: RuntimeProvisioningTaskCleanupStatus;
+  cleanupResultJson?: string;
+  /** models.dofe.ai RuntimeCredential id (opaque), set at request_credential. */
+  runtimeCredentialId?: string;
+  /** Opaque vault references; plaintext keys are never stored. */
+  secretRef?: string;
+  configRef?: string;
+  status: RuntimeProvisioningTaskStatus;
+  /** Per-stage timeouts in ms, keyed by stage. */
+  timeoutsJson?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type RuntimeProvisioningTaskEventSeverity = "info" | "warning" | "error";
+
+export interface RuntimeProvisioningTaskEventRecord {
+  id: string;
+  taskId: string;
+  stage: RuntimeProvisioningTaskStage;
+  status: RuntimeProvisioningTaskStageStatus;
+  progressPercent: number;
+  title: string;
+  summary?: string;
+  severity: RuntimeProvisioningTaskEventSeverity;
+  dataJson?: string;
+  createdAt: string;
+}
+
+// ─── Immutable audit log ────────────────────────────────────────────────────
+
+export type AuditLogSource =
+  | "workspace_snapshot_ledger"
+  | "runtime_credential"
+  | "runtime_lifecycle"
+  | "runtime_model";
+
+export interface AuditLogRecord {
+  id: string;
+  workspaceId: string;
+  title: string;
+  note: string;
+  code?: string;
+  dataJson: string;
+  source: AuditLogSource;
+  sourceIndex: number;
+  createdAt: string;
 }
 
 export interface RegisteredDaemonSnapshot {

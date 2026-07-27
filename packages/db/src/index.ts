@@ -21,6 +21,17 @@ export type {
   ProviderAccountStatus,
   RuntimeProvisionRequestRecord,
   RuntimeProvisionRequestStatus,
+  WorkspaceSsoBindingRecord,
+  WorkspaceSsoBindingSource,
+  RuntimeProvisioningTaskRecord,
+  RuntimeProvisioningTaskStatus,
+  RuntimeProvisioningTaskStage,
+  RuntimeProvisioningTaskStageStatus,
+  RuntimeProvisioningTaskCleanupStatus,
+  RuntimeProvisioningTaskEventRecord,
+  RuntimeProvisioningTaskEventSeverity,
+  AuditLogRecord,
+  AuditLogSource,
   RegisteredDaemonSnapshot,
   EmployeeRuntimeBindingRecord,
   WorkspaceRuntimeGrantPermission,
@@ -132,6 +143,38 @@ export {
   updateProviderAccountStatusSync,
   updateRuntimeProvisionRequestSync,
 } from "./provider-accounts.ts";
+
+// Managed-runtime SSO tenant/team bindings + provisioning tasks + audit log (Phase 2)
+export {
+  readWorkspaceSsoBindingSync,
+  upsertWorkspaceSsoBindingSync,
+  type UpsertWorkspaceSsoBindingInput,
+} from "./workspace-sso-binding.ts";
+export {
+  advanceRuntimeProvisioningTaskStageSync,
+  appendRuntimeProvisioningEventSync,
+  completeRuntimeProvisioningCancellationSync,
+  createRuntimeProvisioningTaskSync,
+  listRuntimeProvisioningTaskEventsSync,
+  listRuntimeProvisioningTasksSync,
+  markRuntimeProvisioningTaskCancellingSync,
+  markRuntimeProvisioningTaskFailedSync,
+  markRuntimeProvisioningTaskReadySync,
+  readRuntimeProvisioningTaskByIdempotencyKeySync,
+  readRuntimeProvisioningTaskSync,
+  resetRuntimeProvisioningTaskForRetrySync,
+  stageIsSkippedInPhase2,
+  stageOrder,
+  type AdvanceRuntimeProvisioningStageInput,
+  type AppendRuntimeProvisioningEventInput,
+  type CreateRuntimeProvisioningTaskInput,
+} from "./runtime-provisioning-tasks.ts";
+export {
+  listAuditLogsSync,
+  readAuditLogSync,
+  recordAuditLogSync,
+  type RecordAuditLogInput,
+} from "./audit-log.ts";
 
 // Database
 export {
@@ -291,9 +334,13 @@ export {
   readAgentRuntimeSync,
   requestAgentRuntimeProviderVerificationSync,
   deleteAgentRuntimeSync,
+  updateAgentRuntimeManagedFieldsSync,
+  createManagedAgentRuntimeSync,
   readDaemonSnapshotSync,
   listDaemonSnapshotsSync,
   pruneOfflineDaemonsSync,
+  type UpdateAgentRuntimeManagedFieldsInput,
+  type CreateManagedAgentRuntimeInput,
 } from "./daemons.ts";
 
 // Runtime display names

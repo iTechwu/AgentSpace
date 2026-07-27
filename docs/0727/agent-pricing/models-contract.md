@@ -60,7 +60,11 @@
   "protocols": ["anthropic"],
   "allowedModels": ["claude-sonnet"],
   "defaultModel": "claude-sonnet",
-  "idempotencyKey": "runtime_123:create:v1"
+  "idempotencyKey": "runtime_123:create:v1",
+  "audit": {
+    "actorId": "user_123",
+    "taskId": "runtime_task_123"
+  }
 }
 ```
 
@@ -90,16 +94,26 @@
 `secretIssued: false`，不重新返回或解密旧 Key；AgentSpace 必须在首次响应时将
 明文写入 `secretRef`，而不能依赖重试恢复明文。
 
+`idempotencyKey` 为创建、轮换和撤销请求的必填字段。模型服务只持久化其按操作、
+租户、团队和 Runtime 作用域计算的哈希，不能记录原始值。
+
 ### 3.2 查询 Runtime 可用模型
 
-`GET /internal/runtime-credentials/:id/models?protocol=anthropic`
+`GET /internal/runtime-credentials/:id/models?tenantId=...&teamId=...&protocol=anthropic`
 
 - ts-rest 契约：`packages/contracts/src/api/internal.contract.ts` 中的 `runtimeCredentials.models`
 - Zod schema：`packages/contracts/src/schemas/runtime-credential.schema.ts` — `RuntimeCredentialModelsQuerySchema`、`RuntimeCredentialModelsResponseSchema`
 - 实现：`apps/api/src/modules/internal-api/internal-api.service.ts` 的 `getRuntimeCredentialModels`
 - models-sdk：`packages/models-sdk/src/internal-types.ts` — `ModelsInternalRuntimeCredentialModelsQuery`、`ModelsInternalRuntimeCredentialModelsResponse`
 
+读取状态、查询模型、轮换和撤销均必须携带目标凭据的 `tenantId` 与 `teamId`。模型
+服务以 `id + tenantId + teamId` 查找凭据；不匹配时返回与不存在相同的 404，避免跨团队
+枚举。AgentSpace 仍须在调用前按当前操作者的团队权限完成授权，模型服务不信任 Runtime
+数据面请求来决定控制面权限。
+
 返回结果必须同时应用：租户 / 团队权限、Key 白名单、模型可用性、协议兼容性、供应商可用性及余额 / 风控策略。AgentSpace 不应在本地复制过滤逻辑。
+凭据为 `revoked`、`expired`，或其 `rotating` 宽限期已结束时，该接口返回空目录；这与
+网关拒绝实际调用的行为保持一致。
 
 ### 3.3 轮换凭据
 
@@ -110,7 +124,7 @@
 - 实现：`apps/api/libs/domain/runtime-credential/runtime-credential.service.ts` 的 `rotate`
 - models-sdk：`packages/models-sdk/src/internal-types.ts` — `ModelsInternalRotateRuntimeCredentialRequest`
 
-请求必须包含幂等键和轮换原因，例如 `expired`、`compromised`、`manual`、`gateway-rejected`。首次成功轮换响应返回新的明文 Key、`secretIssued: true` 和新的 `rotationVersion`；同一幂等键的重放只返回安全元数据与 `secretIssued: false`。旧 Key 的宽限期应由模型服务统一管理，并记录撤销时间。
+请求必须包含 `tenantId`、`teamId`、幂等键和轮换原因，例如 `expired`、`compromised`、`manual`、`gateway-rejected`。首次成功轮换响应返回新的明文 Key、`secretIssued: true` 和新的 `rotationVersion`；同一幂等键的重放只返回安全元数据与 `secretIssued: false`。旧 Key 的宽限期应由模型服务统一管理，宽限期结束时标记为 `expired` 并记录 `revokedAt`。
 
 ### 3.4 撤销凭据
 
@@ -121,7 +135,7 @@
 - 实现：`apps/api/libs/domain/runtime-credential/runtime-credential.service.ts` 的 `revoke`
 - models-sdk：`packages/models-sdk/src/internal-types.ts` — `ModelsInternalRevokeRuntimeCredentialRequest`
 
-撤销后网关必须拒绝该 Key；AgentSpace 负责停止或隔离引用该凭据的 Runtime，并同步展示不可用状态。
+撤销请求必须包含 `tenantId`、`teamId` 和幂等键，例如 `runtime_123:revoke:v1`；同一凭据已处于 `revoked` 状态时重放不得重复修改底层 Key。撤销后网关必须拒绝该 Key；AgentSpace 负责停止或隔离引用该凭据的 Runtime，并同步展示不可用状态。
 
 ### 3.5 查询凭据状态
 
@@ -132,7 +146,7 @@
 - 实现：`apps/api/libs/domain/runtime-credential/runtime-credential.service.ts` 的 `getStatus`
 - models-sdk：`packages/models-sdk/src/internal-types.ts` — `ModelsInternalRuntimeCredential`
 
-仅返回安全元数据，不返回 API Key。用于 AgentSpace 恢复任务、节点健康检查和审计展示。
+请求通过 `tenantId`、`teamId` 作用域后仅返回安全元数据，不返回 API Key。用于 AgentSpace 恢复任务、节点健康检查和审计展示。
 
 ## 4. 用量关联与对账契约
 
@@ -177,10 +191,10 @@ runtimeCredentialId + "\n" + runtimeId + "\n" + employeeId + "\n" + conversation
 
 ## 5. 安全与治理要求
 
-1. 使用服务间身份认证、最小权限和审计，而不是将管理端 API Key 下发到 AgentSpace 节点。当前通过 `InternalAuthGuard` + `MODELS_RUNTIME_CREDENTIAL_SERVICE_NAMES` 限制可调用服务名。
+1. 使用服务间身份认证、租户 / 团队作用域、最小权限和审计，而不是将管理端 API Key 下发到 AgentSpace 节点。当前通过 `InternalAuthGuard` + `MODELS_RUNTIME_CREDENTIAL_SERVICE_NAMES` 限制可调用服务名；凭据 ID 的控制面读取和变更必须同时匹配 `tenantId`、`teamId`。
 2. 创建、轮换、撤销接口必须支持幂等键，防止安装任务重试生成重复 Key。
 3. 单个 `runtimeId` 的活跃凭据数量需要策略约束；默认允许一个当前 Key 和一个轮换宽限 Key。
-4. 模型服务应记录调用方服务身份、操作者、关联任务 ID、原因与 Key 指纹。
+4. 模型服务应记录调用方服务身份、操作者、关联任务 ID、原因与 Key 指纹。内部认证提供调用服务身份；`create`、`rotate`、`revoke` 请求可选传递受 AgentSpace 控制面验证后的 `audit.actorId`、`audit.taskId`，模型服务将其写入凭据元数据和结构化日志，不能以 Runtime 数据面请求头作为审计主体。
 5. 轮换、撤销、余额不足、模型禁用等状态变化应允许 AgentSpace 订阅或主动拉取。
 6. 禁止在内部 API 响应日志、异常堆栈、分析事件中记录明文 Key。
 7. 访问控制环境变量：`MODELS_RUNTIME_CREDENTIAL_MANAGEMENT=true` 开启管理 API；`MODELS_RUNTIME_CREDENTIAL_SERVICE_NAMES=agents-dofe-ai` 限定调用方服务名。

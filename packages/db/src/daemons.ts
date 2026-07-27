@@ -1,4 +1,4 @@
-import { isDaemonProvider } from "@dofe-agent/domain";
+import { isDaemonProvider, type DaemonProvider } from "@dofe-agent/domain";
 import { getDatabase, withTransaction, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import { assertActiveProviderAccountSync, fulfillRuntimeProvisionRequestsForDaemonTokenSync } from "./provider-accounts.ts";
 import type { DaemonConnectionRecord, AgentRuntimeRecord, RegisteredDaemonSnapshot, RuntimeRegistrationInput } from "./types.ts";
@@ -409,6 +409,15 @@ export function readAgentRuntimeSync(runtimeId: string): AgentRuntimeRecord | nu
         connected_at AS connectedAt,
         last_heartbeat_at AS lastHeartbeatAt,
         last_error AS lastError,
+        runtime_type,
+        protocols_json,
+        default_model,
+        provisioning_state,
+        managed_credential_id,
+        credential_secret_ref,
+        credential_config_ref,
+        provisioning_task_id,
+        managed_at,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM agent_runtime
@@ -417,6 +426,125 @@ export function readAgentRuntimeSync(runtimeId: string): AgentRuntimeRecord | nu
     .get(runtimeId) as Record<string, unknown> | undefined;
 
   return row ? mapAgentRuntimeRecord(row) : null;
+}
+
+export interface UpdateAgentRuntimeManagedFieldsInput {
+  runtimeId: string;
+  workspaceId?: string;
+  provisioningState?: "managed" | "legacy";
+  managedCredentialId?: string;
+  credentialSecretRef?: string;
+  credentialConfigRef?: string;
+  protocols?: string[];
+  defaultModel?: string;
+  provisioningTaskId?: string;
+}
+
+export interface CreateManagedAgentRuntimeInput {
+  /** Pre-generated id (also used as the models.dofe.ai RuntimeCredential runtimeId). */
+  id: string;
+  workspaceId: string;
+  provider: DaemonProvider;
+  name: string;
+  protocols: string[];
+  defaultModel?: string;
+  managedCredentialId: string;
+  credentialSecretRef?: string;
+  credentialConfigRef?: string;
+  provisioningTaskId: string;
+}
+
+/**
+ * Create a managed agent_runtime row (offline, no daemon connection, no
+ * provider_account). Driven by the provisioning orchestrator's prepare_node
+ * stage. The daemon later connects and brings it online (Phase 3 reconciles
+ * the install); for Phase 2 the row is the durable managed-runtime record.
+ */
+export function createManagedAgentRuntimeSync(
+  input: CreateManagedAgentRuntimeInput,
+): AgentRuntimeRecord {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO agent_runtime (
+       id, workspace_id, daemon_connection_id, provider, provider_account_id,
+       name, version, status, device_info, metadata_json,
+       runtime_type, protocols_json, default_model, provisioning_state,
+       managed_credential_id, credential_secret_ref, credential_config_ref,
+       provisioning_task_id, managed_at, created_at, updated_at
+     ) VALUES (?, ?, NULL, ?, NULL, ?, '', 'offline', '', '{}'::jsonb,
+       ?, ?, ?, 'managed', ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.id,
+    input.workspaceId,
+    input.provider,
+    input.name.trim(),
+    input.provider,
+    JSON.stringify(input.protocols),
+    input.defaultModel?.trim() || null,
+    input.managedCredentialId,
+    input.credentialSecretRef ?? null,
+    input.credentialConfigRef ?? null,
+    input.provisioningTaskId,
+    now,
+    now,
+    now,
+  );
+  return readAgentRuntimeSync(input.id)!;
+}
+
+/**
+ * Update the managed-runtime columns on an existing agent_runtime row. Used by
+ * the provisioning orchestrator (write_credential / ready / stop / delete).
+ * Only writes the supplied fields; plaintext keys are never stored.
+ */
+export function updateAgentRuntimeManagedFieldsSync(
+  input: UpdateAgentRuntimeManagedFieldsInput,
+): AgentRuntimeRecord | null {
+  const db = getDatabase();
+  const sets: string[] = ["updated_at = ?"];
+  const params: unknown[] = [new Date().toISOString()];
+  if (input.provisioningState) {
+    sets.push("provisioning_state = ?");
+    params.push(input.provisioningState);
+  }
+  if (input.managedCredentialId !== undefined) {
+    sets.push("managed_credential_id = ?");
+    params.push(input.managedCredentialId || null);
+  }
+  if (input.credentialSecretRef !== undefined) {
+    sets.push("credential_secret_ref = ?");
+    params.push(input.credentialSecretRef || null);
+  }
+  if (input.credentialConfigRef !== undefined) {
+    sets.push("credential_config_ref = ?");
+    params.push(input.credentialConfigRef || null);
+  }
+  if (input.protocols) {
+    sets.push("protocols_json = ?");
+    params.push(JSON.stringify(input.protocols));
+  }
+  if (input.defaultModel !== undefined) {
+    sets.push("default_model = ?");
+    params.push(input.defaultModel || null);
+  }
+  if (input.provisioningTaskId !== undefined) {
+    sets.push("provisioning_task_id = ?");
+    params.push(input.provisioningTaskId || null);
+  }
+  if (input.provisioningState === "managed") {
+    sets.push("managed_at = COALESCE(managed_at, ?)");
+    params.push(new Date().toISOString());
+  }
+
+  params.push(input.runtimeId);
+  if (input.workspaceId) {
+    params.push(input.workspaceId);
+  }
+  db.prepare(
+    `UPDATE agent_runtime SET ${sets.join(", ")} WHERE id = ?${input.workspaceId ? " AND workspace_id = ?" : ""}`,
+  ).run(...params);
+  return readAgentRuntimeSync(input.runtimeId);
 }
 
 export function requestAgentRuntimeProviderVerificationSync(input: {
@@ -737,7 +865,30 @@ function mapAgentRuntimeRecord(value: Record<string, unknown>): AgentRuntimeReco
     connectedAt: typeof value.connectedAt === "string" ? value.connectedAt : undefined,
     lastHeartbeatAt: typeof value.lastHeartbeatAt === "string" ? value.lastHeartbeatAt : undefined,
     lastError: typeof value.lastError === "string" ? value.lastError : undefined,
+    // Managed-runtime fields (Phase 2). Optional and absent on legacy reads.
+    provisioningState: typeof value.provisioningState === "string"
+      ? (value.provisioningState as AgentRuntimeRecord["provisioningState"])
+      : undefined,
+    managedCredentialId: typeof value.managedCredentialId === "string" ? value.managedCredentialId : undefined,
+    credentialSecretRef: typeof value.credentialSecretRef === "string" ? value.credentialSecretRef : undefined,
+    credentialConfigRef: typeof value.credentialConfigRef === "string" ? value.credentialConfigRef : undefined,
+    protocols: parseProtocolsValue(value.protocolsJson),
+    defaultModel: typeof value.defaultModel === "string" ? value.defaultModel : undefined,
+    provisioningTaskId: typeof value.provisioningTaskId === "string" ? value.provisioningTaskId : undefined,
+    managedAt: typeof value.managedAt === "string" ? value.managedAt : undefined,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };
+}
+
+function parseProtocolsValue(value: unknown): string[] | undefined {
+  if (typeof value !== "string") return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }

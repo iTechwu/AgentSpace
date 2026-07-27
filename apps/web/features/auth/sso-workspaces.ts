@@ -7,6 +7,7 @@ import {
   removeWorkspaceMembershipSync,
   updateWorkspaceMembershipRoleSync,
   updateWorkspaceSync,
+  upsertWorkspaceSsoBindingSync,
   type WorkspaceRole,
 } from "@dofe-agent/db";
 import { createDefaultWorkspaceState } from "@dofe-agent/domain/workspace";
@@ -174,6 +175,19 @@ export function syncSsoWorkspacesForUserSync(input: {
     } else {
       createWorkspaceMembershipSync({ workspaceId: scope.id, userId: input.userId, role: scope.role });
     }
+
+    // Persist the SSO tenant/team scope so managed-runtime provisioning can
+    // resolve the models.dofe.ai tenantId/teamId without re-hitting the IdP.
+    upsertWorkspaceSsoBindingSync({
+      workspaceId: scope.id,
+      tenantId: scope.tenantId,
+      tenantSlug: scope.tenantSlug,
+      tenantName: scope.tenantName,
+      teamId: scope.teamId,
+      teamSlug: scope.teamSlug,
+      teamName: scope.teamName,
+      source: scope.teamId ? "team" : "tenant",
+    });
   }
 
   return [...input.scopes];

@@ -908,3 +908,41 @@ export {
   applyChannelDocumentBlockOperations,
   type ChannelDocumentOperation,
 } from "./documents/operations.ts";
+
+// models.dofe.ai internal client (managed RuntimeCredential provisioning)
+export {
+  buildModelsInternalAuthorization,
+  getModelsInternalClient,
+  isModelsInternalConfigured,
+  resetModelsInternalClientForTests,
+  resolveModelsInternalConfig,
+  type ModelsInternalConfig,
+} from "./models/client.ts";
+
+// Managed runtime provisioning (Phase 2)
+export {
+  cancelRuntimeProvisioningTaskSync,
+  deleteManagedRuntimeSync,
+  getManagedRuntimeCredentialStatusSync,
+  getRuntimeProvisioningTaskDetailSync,
+  listManagedRuntimeTasksSync,
+  requestManagedRuntimeProvisioningSync,
+  resolveManagedRuntimeScopeSync,
+  resumePendingProvisioningTasksSync,
+  retryRuntimeProvisioningTaskSync,
+  rotateManagedRuntimeCredentialSync,
+  runProvisioningPipeline,
+  stopManagedRuntimeSync,
+  type GetManagedRuntimeCredentialStatusInput,
+  type ManagedRuntimeActor,
+  type RequestManagedRuntimeInput,
+  type RotateManagedRuntimeCredentialInput,
+  type RuntimeProvisioningTaskDetail,
+  type StopManagedRuntimeInput,
+} from "./runtime-provisioning/runtime-provisioning.ts";
+export {
+  getRuntimeCredentialVault,
+  resetRuntimeCredentialVaultForTests,
+  setRuntimeCredentialVault,
+  type RuntimeCredentialVault,
+} from "./runtime-provisioning/credential-vault.ts";

@@ -29,3 +29,24 @@ export function isDaemonProvider(value: string): value is DaemonProvider {
 export function formatDaemonProviderLabel(provider: string): string {
   return isDaemonProvider(provider) ? DAEMON_PROVIDER_LABELS[provider] : provider;
 }
+
+/**
+ * Default model-gateway protocol each runtime type speaks. Drives the
+ * `protocols` capability stamped onto a managed RuntimeCredential and used to
+ * filter the model catalog shown in the create-runtime wizard. Phase 2 keeps a
+ * single primary protocol per provider; Phase 3 may widen this.
+ */
+export const DAEMON_PROVIDER_PROTOCOLS: Record<DaemonProvider, string[]> = {
+  claude: ["anthropic"],
+  codex: ["openai"],
+  antigravity: ["openai"],
+  gemini: ["gemini"],
+  opencode: ["openai"],
+  openclaw: ["openai"],
+  nanobot: ["openai"],
+  hermes: ["openai"],
+};
+
+export function resolveProviderProtocols(provider: DaemonProvider): string[] {
+  return DAEMON_PROVIDER_PROTOCOLS[provider] ?? [];
+}
