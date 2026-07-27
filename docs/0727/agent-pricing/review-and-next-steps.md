@@ -1,6 +1,6 @@
 # 深度审查：agent-pricing 实施状态与下一步计划
 
-> **2026-07-28 实施闭环更新：** 下文保留为实施前审查快照，不再代表当前代码状态。第二轮复审又闭环了 Runtime 归因 HMAC、延迟取消/清理、人工轮换幂等、managed-node 安装与重启、自托管恢复调度和 Runtime 详情。当前权威状态见 [implementation-plan.md](./implementation-plan.md) 与 [本轮复审记录](./todo/AGENT_PRICING_REAUDIT_2026-07-28.md)；真实 models、网关、容器和网络出口隔离仍需 staging 验收。
+> **2026-07-28 实施闭环更新：** 下文保留为实施前审查快照，不再代表当前代码状态。第二轮复审又闭环了 Runtime 归因 HMAC、延迟取消/清理、人工轮换幂等、managed-node 安装与重启、自托管恢复调度和 Runtime 详情。当前权威状态见 [implementation-plan.md](./implementation-plan.md) 与 [本轮复审记录](./implementation-review-2026-07-28.md)；真实 models、网关、容器和网络出口隔离仍需 staging 验收。
 
 审查日期：2026-07-27  
 审查范围：`docs/0727/agent-pricing` 三份文档 + AgentSpace 当前分支业务代码  

@@ -2,7 +2,7 @@
 
 状态：**AgentSpace 仓库实施完成，等待 staging 联调验收**。该计划以可验证的契约和安全边界为先。`DOFE_AGENT_RUNTIME_MODE` 是部署级开关：未设置或为 `local` 时保持既有路径不变，只有 `remote`（服务器模式）才进入 `models.dofe.ai` 受管流程。
 
-2026-07-28 的第二轮实施复审进一步闭环了 Runtime 归因 HMAC、取消与清理的持久生命周期、人工轮换操作幂等、managed-node 安装/重启、自托管恢复调度和 Runtime 详情入口。发现、修复与剩余外部门槛见 [todo/AGENT_PRICING_REAUDIT_2026-07-28.md](./todo/AGENT_PRICING_REAUDIT_2026-07-28.md)。
+2026-07-28 的第二轮实施复审进一步闭环了 Runtime 归因 HMAC、取消与清理的持久生命周期、人工轮换操作幂等、managed-node 安装/重启、自托管恢复调度和 Runtime 详情入口。发现、修复与剩余外部门槛见 [implementation-review-2026-07-28.md](./implementation-review-2026-07-28.md)。
 
 ## 2026-07-28 审查闭环
 
