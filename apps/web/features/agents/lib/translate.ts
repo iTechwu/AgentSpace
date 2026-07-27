@@ -62,8 +62,17 @@ export function translateContainerDescription(value: string, tx: TranslateFn): s
   if (value === "容器已在线，可承载多个 agent 的独立工作区域。") {
     return tx("容器已在线，可承载多个 agent 的独立工作区域。", "The container is online and can host independent work areas for multiple agents.");
   }
+  if (value === "The container is online and can host independent work areas for multiple agents.") {
+    return tx("容器已在线，可承载多个 Agent 的独立工作区域。", value);
+  }
   if (value === "容器当前离线。") {
     return tx("容器当前离线。", "The container is currently offline.");
+  }
+  if (value === "The container is currently offline.") {
+    return tx("执行引擎当前离线。", value);
+  }
+  if (value && /[A-Za-z]/.test(value)) {
+    return tx("执行引擎已接入，可为多个 Agent 提供独立的任务执行环境。", value);
   }
   return value;
 }

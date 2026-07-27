@@ -52,6 +52,13 @@ import { AppIcon } from "@/shared/ui/app-icon";
 import { PaneResizeHandle } from "@/shared/ui/pane-resize-handle";
 
 type Mode = "agent" | "showcase" | "container";
+type RuntimeHostMode = "docker" | "local" | "remote";
+type RuntimeServerGroup = {
+  id: string;
+  label: string;
+  mode: RuntimeHostMode;
+  containers: AgentsPageData["containers"];
+};
 const DAEMON_MANAGEMENT_SELECTION = "__daemon-management__";
 const AGENTS_REFRESH_POLL_MS = 3000;
 type GeneratedInstallCommandMode = "connect" | "update";
@@ -98,6 +105,7 @@ export function AgentsPageClient({
     daemonTokenId: string;
     mode: GeneratedInstallCommandMode;
   } | null>(null);
+  const [expandedRuntimeServerIds, setExpandedRuntimeServerIds] = useState<Set<string>>(() => new Set());
   const [forkAcceptDrafts, setForkAcceptDrafts] = useState<Record<string, { agentName: string; runtimeId: string }>>({});
   const [providerVerificationPendingRuntimeIds, setProviderVerificationPendingRuntimeIds] = useState<Set<string>>(() => new Set());
   const [isCompactLayout, setIsCompactLayout] = useState(false);
@@ -143,6 +151,11 @@ export function AgentsPageClient({
   }, []);
 
   const allAgents = useMemo(() => data.agents, [data.agents]);
+  const runtimeServerGroups = useMemo(() => groupContainersByServer(data.containers), [data.containers]);
+  const serverCount = useMemo(
+    () => runtimeServerGroups.length || countDaemonServers(data.daemonSnapshots),
+    [data.daemonSnapshots, runtimeServerGroups],
+  );
   const boundAgents = useMemo(() => allAgents.filter((agent) => Boolean(agent.boundContainerId)), [allAgents]);
   const unboundAgents = useMemo(() => allAgents.filter((agent) => !agent.boundContainerId), [allAgents]);
   const isDaemonManagementSelected = selectedContainerId === DAEMON_MANAGEMENT_SELECTION;
@@ -289,6 +302,18 @@ export function AgentsPageClient({
     if (isCompactLayout) {
       setMobilePane("detail");
     }
+  }
+
+  function toggleRuntimeServerGroup(groupId: string): void {
+    setExpandedRuntimeServerIds((current) => {
+      const next = new Set(current);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
   }
 
   function handleDeleteRuntime(runtimeId: string, runtimeName: string): void {
@@ -821,9 +846,14 @@ export function AgentsPageClient({
           {showListPane ? (
             <aside className="page-panel agents-pane">
               <div className="panel-header agents-pane__list-header agents-pane__list-header--container">
-                <h3 className="agents-pane__container-title">{tx("在线执行引擎", "Online execution engines")}</h3>
+                <div className="agents-pane__container-heading">
+                  <h3 className="agents-pane__container-title">{tx("在线执行引擎", "Online execution engines")}</h3>
+                  <div className="agents-pane__container-summary" aria-label={tx(`${serverCount} 台服务器，${data.daemonTokens.length} 个令牌`, `${serverCount} servers, ${data.daemonTokens.length} tokens`)}>
+                    <span><strong>{serverCount}</strong>{tx("服务器", "servers")}</span>
+                    <span><strong>{data.daemonTokens.length}</strong>{tx("令牌", "tokens")}</span>
+                  </div>
+                </div>
                 <div className="agents-pane__container-actions">
-                  <span className="panel-note agents-pane__container-count">{data.containerCount}</span>
                   {data.canConnectRuntimes ? (
                     <>
                       <button
@@ -859,48 +889,79 @@ export function AgentsPageClient({
                     type="button"
                   >
                     <div className="agents-container-row__title">
-                      <strong>{tx("服务器管理", "Server Management")}</strong>
-                      <span className="agents-container-row__count">
-                        {tx(`${data.daemonSnapshots.length} 台`, `${data.daemonSnapshots.length} servers`)}
-                      </span>
-                    </div>
-                    <p>{tx("远程服务器与接入令牌", "Remote servers and access tokens")}</p>
-                    <div className="agents-container-row__meta">
-                      <span>{tx(`${data.daemonTokens.length} 个令牌`, `${data.daemonTokens.length} tokens`)}</span>
+                      <div className="agents-container-row__copy">
+                        <strong>{tx("服务器管理", "Server Management")}</strong>
+                        <span className="agents-container-row__management-copy">{tx("查看接入状态、运行时与令牌", "Review connections, runtimes, and tokens")}</span>
+                      </div>
+                      <div className="agents-container-row__management-stats" aria-label={tx(`${serverCount} 台服务器，${data.daemonTokens.length} 个令牌`, `${serverCount} servers, ${data.daemonTokens.length} tokens`)}>
+                        <span><strong>{serverCount}</strong>{tx("服务器", "servers")}</span>
+                        <span><strong>{data.daemonTokens.length}</strong>{tx("令牌", "tokens")}</span>
+                      </div>
                     </div>
                   </button>
                 ) : null}
 
                 {data.containers.length > 0 ? (
-                  data.containers.map((container) => (
-                    <button
-                      aria-pressed={selectedContainerId === container.runtimeId}
-                      className={`agents-container-row${selectedContainerId === container.runtimeId ? " agents-container-row--active" : ""}`}
-                      key={container.id}
-                      onClick={() => handleSelectContainer(container.runtimeId)}
-                      type="button"
-                    >
-                      <div className="agents-container-row__title">
-                        <div className="agents-container-row__copy">
-                          <strong>{container.name}</strong>
-                          <div className="agents-container-row__remark">
-                            <span>
-                              {container.displayName
-                                ? tx(`备注名：${container.displayName}`, `Remark: ${container.displayName}`)
-                                : tx("未设置备注名", "No remark name")}
-                            </span>
+                  runtimeServerGroups.map((group) => (
+                    <section className="agents-runtime-server-group" key={group.id} aria-labelledby={`runtime-server-${group.id}`}>
+                      <button
+                        aria-controls={`runtime-server-runtimes-${group.id}`}
+                        aria-expanded={expandedRuntimeServerIds.has(group.id)}
+                        aria-label={expandedRuntimeServerIds.has(group.id)
+                          ? tx(`收起 ${group.label} 的执行引擎`, `Collapse execution engines on ${group.label}`)
+                          : tx(`展开 ${group.label} 的执行引擎`, `Expand execution engines on ${group.label}`)}
+                        className="agents-runtime-server-group__header"
+                        onClick={() => toggleRuntimeServerGroup(group.id)}
+                        type="button"
+                      >
+                        <div className="agents-runtime-server-group__identity">
+                          <span className={`agents-runtime-server-group__icon agents-runtime-server-group__icon--${group.mode}`}>
+                            <AppIcon name="containers" />
+                          </span>
+                          <div>
+                            <strong id={`runtime-server-${group.id}`}>{group.label}</strong>
+                            <span>{formatRuntimeHostMode(group.mode, tx)}</span>
                           </div>
                         </div>
-                        <div className="agents-container-row__state-actions">
-                          <span className={`status-chip status-chip--${toneForStatus(container.status)}`}>{translateManagementStatus(container.statusLabel, tx)}</span>
+                        <span className="agents-runtime-server-group__count">
+                          {tx(`${group.containers.length} 个引擎`, `${group.containers.length} engines`)}
+                        </span>
+                      </button>
+                      {expandedRuntimeServerIds.has(group.id) ? (
+                        <div className="agents-runtime-server-group__runtimes" id={`runtime-server-runtimes-${group.id}`}>
+                          {group.containers.map((container) => (
+                            <button
+                              aria-label={tx(`${container.name}，${formatDaemonProviderLabel(container.provider)}`, `${container.name}, ${formatDaemonProviderLabel(container.provider)}`)}
+                              aria-pressed={selectedContainerId === container.runtimeId}
+                              className={`agents-container-row agents-container-row--runtime${selectedContainerId === container.runtimeId ? " agents-container-row--active" : ""}`}
+                              key={container.id}
+                              onClick={() => handleSelectContainer(container.runtimeId)}
+                              type="button"
+                            >
+                              <div className="agents-container-row__title">
+                                <div className="agents-container-row__copy">
+                                  <strong>{formatDaemonProviderLabel(container.provider)}</strong>
+                                  <div className="agents-container-row__remark">
+                                    <span>
+                                      {container.displayName
+                                        ? tx(`备注名：${container.displayName}`, `Remark: ${container.displayName}`)
+                                        : container.subtitle}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="agents-container-row__state-actions">
+                                  <span className={`status-chip status-chip--${toneForStatus(container.status)}`}>{translateManagementStatus(container.statusLabel, tx)}</span>
+                                </div>
+                              </div>
+                              <div className="agents-container-row__meta">
+                                <span>{container.displayName ? container.name : tx("未设置备注名", "No remark name")}</span>
+                                <span>{tx(`${container.queueCounts.running} 运行中`, `${container.queueCounts.running} running`)}</span>
+                              </div>
+                            </button>
+                          ))}
                         </div>
-                      </div>
-                      <p>{container.subtitle}</p>
-                      <div className="agents-container-row__meta">
-                        <span>{formatDaemonProviderLabel(container.provider)}</span>
-                        <span>{tx(`${container.queueCounts.running} 运行中`, `${container.queueCounts.running} running`)}</span>
-                      </div>
-                    </button>
+                      ) : null}
+                    </section>
                   ))
                 ) : (
                   <EmptyState body={tx("当前没有在线执行引擎。先接入一台服务器。", "There are no online execution engines. Connect a server first.")} title={tx("执行引擎为空", "No execution engines")} />
@@ -1037,6 +1098,95 @@ function buildUpdateRuntimeCommand(input: {
 
 function shellDoubleQuote(value: string): string {
   return `"${value.replace(/["\\$`]/g, (match) => `\\${match}`)}"`;
+}
+
+function groupContainersByServer(containers: AgentsPageData["containers"]): RuntimeServerGroup[] {
+  const groups = new Map<string, RuntimeServerGroup>();
+
+  for (const container of containers) {
+    const mode = resolveRuntimeHostMode(container);
+    const label = resolveRuntimeServerLabel(container, mode);
+    const id = `${mode}-${label.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "unknown"}`;
+    const group = groups.get(id);
+
+    if (group) {
+      group.containers.push(container);
+      continue;
+    }
+
+    groups.set(id, {
+      id,
+      label,
+      mode,
+      containers: [container],
+    });
+  }
+
+  return [...groups.values()];
+}
+
+function countDaemonServers(daemons: AgentsPageData["daemonSnapshots"]): number {
+  return new Set(daemons.map((daemon) => {
+    const mode = resolveRuntimeHostMode(daemon);
+    return `${mode}:${resolveRuntimeServerLabel(daemon, mode).toLocaleLowerCase()}`;
+  })).size;
+}
+
+function resolveRuntimeHostMode(runtime: {
+  daemonKey: string;
+  deviceName: string;
+  daemonMode?: "local" | "remote";
+  mode?: "local" | "remote";
+  serverUrl?: string;
+}): RuntimeHostMode {
+  const identity = `${runtime.daemonKey} ${runtime.deviceName} ${runtime.serverUrl ?? ""}`.toLocaleLowerCase();
+
+  if (/(^|[-_\s])(?:docker|container)(?:[-_\s]|$)/.test(identity)) {
+    return "docker";
+  }
+
+  return runtime.daemonMode === "remote" || runtime.mode === "remote" ? "remote" : "local";
+}
+
+function resolveRuntimeServerLabel(
+  runtime: {
+    daemonKey: string;
+    deviceName: string;
+    serverUrl?: string;
+  },
+  mode: RuntimeHostMode,
+): string {
+  const daemonKeyAddress = runtime.daemonKey.match(/(?:^|[-_])((?:\d{1,3}[-.]){3}\d{1,3})(?:[-_]|$)/)?.[1];
+  if (daemonKeyAddress) {
+    return daemonKeyAddress.replace(/-/g, ".");
+  }
+
+  const deviceName = runtime.deviceName.trim();
+  if (deviceName) {
+    const withoutProvider = deviceName.replace(/\s+(?:claude(?:\s+code)?|codex|openclaw|opencode|hermes(?:\s+agent)?)$/i, "").trim();
+    return withoutProvider || deviceName;
+  }
+
+  if (mode === "remote" && runtime.serverUrl) {
+    try {
+      return new URL(runtime.serverUrl).host;
+    } catch {
+      // A malformed server URL should not prevent the runtime list from rendering.
+    }
+  }
+
+  return runtime.daemonKey || "Unknown server";
+}
+
+function formatRuntimeHostMode(mode: RuntimeHostMode, tx: (zh: string, en: string) => string): string {
+  switch (mode) {
+    case "docker":
+      return tx("Docker 容器", "Docker container");
+    case "remote":
+      return tx("远程服务器", "Remote server");
+    default:
+      return tx("本地运行时", "Local runtime");
+  }
 }
 
 function AgentForkInvitationInbox({

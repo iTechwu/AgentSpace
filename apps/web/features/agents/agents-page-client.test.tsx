@@ -1248,8 +1248,62 @@ describe("AgentsPageClient", () => {
     expect(await screen.findByText("接入服务器后会自动上报可用执行引擎。")).toBeInTheDocument();
   });
 
-  it("lets regular members view execution engines assigned to them", () => {
+  it("localizes execution engine details and gives provider identity a dedicated layout", () => {
     searchParams.set("mode", "container");
+
+    renderAgentsPage();
+
+    expect(screen.getByText("执行提供方")).toBeInTheDocument();
+    expect(screen.getByText("运行服务器")).toBeInTheDocument();
+    expect(screen.getByText("版本：1.0.0")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "已安装应用" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "更新执行引擎" })).toBeInTheDocument();
+    expect(screen.getByText("执行引擎已接入，可为多个 Agent 提供独立的任务执行环境。")).toBeInTheDocument();
+  });
+
+  it("groups execution engines by server and presents server and token counts together", async () => {
+    searchParams.set("mode", "container");
+    const user = userEvent.setup();
+    const remoteCodex = {
+      ...data.containers[0]!,
+      id: "remote-codex",
+      name: "172.30.30.11 Codex Runtime",
+      runtimeId: "remote-codex-runtime",
+      daemonKey: "remote-172-30-30-11-codex",
+      deviceName: "172.30.30.11 Codex",
+      daemonMode: "remote" as const,
+    };
+    const remoteClaude = {
+      ...remoteCodex,
+      id: "remote-claude",
+      name: "172.30.30.11 Claude Runtime",
+      runtimeId: "remote-claude-runtime",
+      daemonKey: "remote-172-30-30-11-claude",
+      deviceName: "172.30.30.11 Claude",
+      provider: "claude-code",
+    };
+
+    renderAgentsPage({
+      ...data,
+      containers: [data.containers[0]!, remoteCodex, remoteClaude],
+      containerCount: 3,
+    });
+
+    expect(screen.getByText("172.30.30.11")).toBeInTheDocument();
+    expect(screen.getByText("远程服务器")).toBeInTheDocument();
+    expect(screen.getByText("2 个引擎")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("2 台服务器，1 个令牌")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /172\.30\.30\.11 Codex Runtime/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "展开 172.30.30.11 的执行引擎" }));
+
+    expect(screen.getByRole("button", { name: /172\.30\.30\.11 Codex Runtime/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /172\.30\.30\.11 Claude Runtime/ })).toBeInTheDocument();
+  });
+
+  it("lets regular members view execution engines assigned to them", async () => {
+    searchParams.set("mode", "container");
+    const user = userEvent.setup();
 
     renderAgentsPage({
       ...data,
@@ -1271,6 +1325,7 @@ describe("AgentsPageClient", () => {
     });
 
     expect(screen.getByRole("heading", { name: "在线执行引擎" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "展开 MacBook 的执行引擎" }));
     expect(screen.getByRole("button", { name: /Local Runtime/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "接入服务器" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /服务器管理/ })).not.toBeInTheDocument();
@@ -1294,6 +1349,9 @@ describe("AgentsPageClient", () => {
       containerCount: 2,
     });
 
+    await user.click(screen.getByRole("button", { name: "展开 MacBook 的执行引擎" }));
+    await user.click(screen.getByRole("button", { name: "展开 Cloud Host 的执行引擎" }));
+
     const localRuntimeButton = screen.getByRole("button", { name: /^Local Runtime/ });
     const cloudRuntimeButton = screen.getByRole("button", { name: /^Cloud Runtime/ });
     expect(screen.getByRole("heading", { name: "Local Runtime" })).toBeInTheDocument();
@@ -1303,7 +1361,7 @@ describe("AgentsPageClient", () => {
     await user.click(cloudRuntimeButton);
 
     expect(screen.getByRole("heading", { name: "Cloud Runtime" })).toBeInTheDocument();
-    expect(screen.getByText("daemon-2")).toBeInTheDocument();
+    expect(screen.getByText("服务器标识：daemon-2")).toBeInTheDocument();
     expect(localRuntimeButton).toHaveAttribute("aria-pressed", "false");
     expect(cloudRuntimeButton).toHaveAttribute("aria-pressed", "true");
   });
@@ -1412,7 +1470,7 @@ describe("AgentsPageClient", () => {
 
     renderAgentsPage();
 
-    await user.click(screen.getByRole("button", { name: "更新 Runtime" }));
+    await user.click(screen.getByRole("button", { name: "更新执行引擎" }));
 
     expect(createContainerInstallTokenAction).toHaveBeenCalledTimes(1);
     const generatingButton = screen.getByRole("button", { name: "生成中..." });
@@ -1421,7 +1479,7 @@ describe("AgentsPageClient", () => {
 
     resolveInstallToken?.({ id: "daemon-token-1", label: "container", token: "adt_test" });
 
-    expect(await screen.findByRole("heading", { name: "更新 Runtime" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "更新执行引擎" })).toBeInTheDocument();
     expect(screen.getByDisplayValue(/bash <\(curl -fsSL http:\/\/localhost(?::3000)?\/api\/daemon\/install-script\)/)).toBeInTheDocument();
     expect(screen.getByDisplayValue(/--update-existing/)).toBeInTheDocument();
     expect(screen.getByDisplayValue(/--server-url "http:\/\/localhost(?::3000)?"/)).toBeInTheDocument();

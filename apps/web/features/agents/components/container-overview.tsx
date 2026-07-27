@@ -105,7 +105,7 @@ export function ContainerOverview({
               type="button"
             >
               <AppIcon name="refresh" />
-              <span>{updating ? tx("生成中...", "Generating...") : tx("更新 Runtime", "Update runtime")}</span>
+              <span>{updating ? tx("生成中...", "Generating...") : tx("更新执行引擎", "Update execution engine")}</span>
             </button>
           ) : null}
           {onDeleteRuntime ? (
@@ -167,18 +167,27 @@ export function ContainerOverview({
         </form>
       ) : null}
 
-      <div className="detail-meta">
-        <MetaCard label="Provider" value={formatDaemonProviderLabel(container.provider)} />
-        <MetaCard label={tx("服务器", "Server")} value={container.daemonKey} />
+      <section className="runtime-overview-identity" aria-label={tx("执行引擎身份", "Execution engine identity")}>
+        <div>
+          <span>{tx("执行提供方", "Execution provider")}</span>
+          <strong>{formatDaemonProviderLabel(container.provider)}</strong>
+        </div>
+        <div>
+          <span>{tx("运行服务器", "Runtime server")}</span>
+          <strong>{container.deviceName}</strong>
+          <small>{tx(`服务器标识：${container.daemonKey}`, `Server ID: ${container.daemonKey}`)}</small>
+        </div>
+      </section>
+
+      <div className="detail-meta detail-meta--runtime-stats">
         <MetaCard label={tx("执行中工作区", "Running work areas")} value={String(container.queueCounts.running)} />
         <MetaCard label={tx("排队中", "Queued")} value={String(container.queueCounts.queued)} />
         <MetaCard label={tx("失败 / 完成", "Failed / Completed")} value={`${container.queueCounts.failed} / ${container.queueCounts.completed}`} />
       </div>
 
       <div className="meta-strip">
-        <span>Device: {container.deviceName}</span>
-        <span>{`Version: ${container.version ?? tx("未返回", "Unavailable")}`}</span>
-        <span>{`Heartbeat: ${container.lastHeartbeatAt ?? tx("未收到", "Not received")}`}</span>
+        <span>{tx(`版本：${container.version ?? "未返回"}`, `Version: ${container.version ?? "Unavailable"}`)}</span>
+        <span>{tx(`最近心跳：${container.lastHeartbeatAt ?? "未收到"}`, `Last heartbeat: ${container.lastHeartbeatAt ?? "Not received"}`)}</span>
       </div>
 
       <div className="detail-copy">
@@ -187,7 +196,7 @@ export function ContainerOverview({
 
       <section className="runtime-apps-panel">
         <div className="runtime-execution-panel__header">
-          <h4>{tx("Installed Apps", "Installed Apps")}</h4>
+          <h4>{tx("已安装应用", "Installed apps")}</h4>
           <span className="panel-note">{container.installedApps.length}</span>
         </div>
         {container.cliHubReadiness ? (
@@ -208,22 +217,22 @@ export function ContainerOverview({
                   <span>{app.entryPoint || app.name}</span>
                 </div>
                 <span className={`status-chip status-chip--${app.status === "installed" ? "positive" : app.status === "failed" ? "danger" : "neutral"}`}>
-                  {app.enabled ? app.status : "disabled"}
+                  {translateRuntimeAppStatus(app.enabled ? app.status : "disabled", tx)}
                 </span>
                 {app.lastError ? <p>{app.lastError}</p> : null}
               </article>
             ))}
           </div>
         ) : (
-          <p className="panel-note">{tx("还没有安装 runtime app。", "No runtime apps installed yet.")}</p>
+          <p className="panel-note">{tx("还没有安装运行时应用。", "No runtime apps installed yet.")}</p>
         )}
         {container.recentAppOperations.length > 0 ? (
           <div className="runtime-app-operation-list">
             {container.recentAppOperations.map((operation) => (
               <div className="runtime-app-operation" key={operation.id}>
-                <span>{operation.operation}</span>
+                <span>{translateRuntimeAppOperation(operation.operation, tx)}</span>
                 <strong>{operation.appName}</strong>
-                <span>{operation.status}</span>
+                <span>{translateRuntimeAppStatus(operation.status, tx)}</span>
               </div>
             ))}
           </div>
@@ -251,7 +260,7 @@ export function ContainerOverview({
                     <span>{execution.assignee}</span>
                     {execution.channel ? <span>#{execution.channel}</span> : null}
                     <span>{tx(`${execution.messageCount} 条消息`, `${execution.messageCount} messages`)}</span>
-                    {execution.router ? <span>{`Router: ${execution.router.routerSessionId}`}</span> : null}
+                    {execution.router ? <span>{tx(`路由会话：${execution.router.routerSessionId}`, `Router session: ${execution.router.routerSessionId}`)}</span> : null}
                     {execution.router ? <span>{tx(`${execution.router.attempts.length} 次尝试`, `${execution.router.attempts.length} attempts`)}</span> : null}
                   </div>
                   {latest ? (
@@ -299,6 +308,22 @@ function translateQueueStatus(status: string, tx: (zh: string, en: string) => st
   if (status === "failed") return tx("失败", "Failed");
   if (status === "cancelled") return tx("已取消", "Cancelled");
   return status;
+}
+
+function translateRuntimeAppStatus(status: string, tx: (zh: string, en: string) => string): string {
+  if (status === "installed") return tx("已安装", "Installed");
+  if (status === "installing") return tx("安装中", "Installing");
+  if (status === "failed") return tx("失败", "Failed");
+  if (status === "disabled") return tx("已停用", "Disabled");
+  return status;
+}
+
+function translateRuntimeAppOperation(operation: string, tx: (zh: string, en: string) => string): string {
+  if (operation === "install") return tx("安装", "Install");
+  if (operation === "update") return tx("更新", "Update");
+  if (operation === "uninstall") return tx("卸载", "Uninstall");
+  if (operation === "refresh") return tx("刷新", "Refresh");
+  return operation;
 }
 
 function translateExecutionEventTitle(

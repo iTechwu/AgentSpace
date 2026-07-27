@@ -23988,7 +23988,7 @@ button[aria-disabled="true"] svg {
 }
 
 .workspace-account__entry {
-  min-height: 40px;
+  min-height: 48px;
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
   align-items: center;
@@ -24026,6 +24026,11 @@ button[aria-disabled="true"] svg {
 .workspace-account__meta span {
   font-size: 11px;
   line-height: 16px;
+}
+
+.workspace-account .workspace-account__role {
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .workspace-account form {
@@ -25324,5 +25329,286 @@ button[aria-disabled="true"] svg {
 
   .landing-brand-more summary svg {
     transition: none;
+  }
+}
+
+/* Execution engines are grouped by the physical host that reports them. */
+.agents-pane__container-heading {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 0.25rem;
+}
+
+.agents-pane__container-heading .agents-pane__container-title {
+  min-height: auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.agents-pane__container-summary,
+.agents-container-row__management-stats {
+  display: inline-flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-strong);
+  font-size: 11px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.agents-pane__container-summary span,
+.agents-container-row__management-stats span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 26px;
+  padding: 0 0.45rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.agents-pane__container-summary span + span,
+.agents-container-row__management-stats span + span {
+  border-left: 1px solid var(--line);
+}
+
+.agents-pane__container-summary strong,
+.agents-container-row__management-stats strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.agents-container-row--management {
+  min-height: 68px;
+}
+
+.agents-container-row--management .agents-container-row__title {
+  align-items: center;
+}
+
+.agents-container-row__management-copy {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-runtime-server-group {
+  border-bottom: 1px solid var(--line);
+}
+
+.agents-runtime-server-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 54px;
+  gap: 0.75rem;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  padding: 0.65rem 0.75rem 0.55rem;
+  background: var(--panel);
+}
+
+.agents-runtime-server-group__header:hover {
+  background: var(--panel-strong);
+}
+
+.agents-runtime-server-group__header:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.agents-runtime-server-group__identity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.55rem;
+}
+
+.agents-runtime-server-group__icon {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-strong);
+  color: var(--muted);
+}
+
+.agents-runtime-server-group__icon--local {
+  color: var(--accent-hover);
+}
+
+.agents-runtime-server-group__icon--remote {
+  color: #2563a7;
+}
+
+.agents-runtime-server-group__icon--docker {
+  color: #0e7490;
+}
+
+.agents-runtime-server-group__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.agents-runtime-server-group__identity > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.agents-runtime-server-group__identity strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-runtime-server-group__identity span:not(.agents-runtime-server-group__icon) {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.agents-runtime-server-group__count {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.agents-runtime-server-group__runtimes {
+  border-top: 1px solid var(--line);
+}
+
+.agents-container-row--runtime {
+  min-height: 62px;
+  padding: 0.65rem 0.75rem 0.65rem 2.95rem;
+}
+
+.agents-container-row--runtime .agents-container-row__remark {
+  margin-top: 0.1rem;
+}
+
+.agents-container-row--runtime .agents-container-row__meta {
+  margin-top: 0.3rem;
+}
+
+.agents-detail-pane .runtime-overview-identity {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.8fr);
+  overflow: hidden;
+  margin-top: 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+}
+
+.runtime-overview-identity > div {
+  min-width: 0;
+  padding: 0.85rem 1rem;
+}
+
+.runtime-overview-identity > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.runtime-overview-identity span,
+.runtime-overview-identity small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.runtime-overview-identity strong {
+  display: block;
+  min-width: 0;
+  margin-top: 0.25rem;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 26px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-overview-identity small {
+  margin-top: 0.2rem;
+  overflow: hidden;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-detail-pane .detail-meta.detail-meta--runtime-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 860px) {
+  .agents-detail-pane .runtime-overview-identity {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-overview-identity > div + div {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .agents-detail-pane .detail-meta.detail-meta--runtime-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .agents-pane__list-header--container {
+    align-items: start;
+  }
+
+  .agents-pane__container-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .agents-pane__container-heading .agents-pane__container-title {
+    min-height: auto;
+  }
+
+  .agents-pane__container-actions {
+    min-height: 34px;
+  }
+
+  .agents-pane__container-help {
+    display: none;
+  }
+
+  .agents-container-row__management-copy {
+    max-width: 140px;
+  }
+
+  .agents-container-row__management-stats span {
+    padding: 0 0.35rem;
   }
 }

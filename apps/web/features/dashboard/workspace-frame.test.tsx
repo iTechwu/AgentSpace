@@ -254,6 +254,7 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByRole("heading", { name: "数字员工" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "能力资源" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /通知/ })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText("超级管理员")).toBeInTheDocument();
   });
 
   it("collapses the desktop sidebar and persists the preference", async () => {
@@ -1531,6 +1532,7 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByRole("link", { name: /执行引擎管理/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /执行引擎管理/ })).toHaveAttribute("href", "/w/workspace-alpha/agents?mode=container");
     expect(screen.queryByRole("link", { name: /添加服务器/ })).not.toBeInTheDocument();
+    expect(screen.getByText("成员")).toBeInTheDocument();
   });
 
   it("uses an explicit agent-mode link when leaving execution engine management", () => {

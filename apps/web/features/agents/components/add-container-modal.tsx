@@ -149,7 +149,7 @@ export function AddContainerModal({
         <div className="modal-card__header">
           <div>
             <div className="agents-pane__title-row">
-              <h3 id={labelId}>{isUpdate ? tx("更新 Runtime", "Update runtime") : tx("接入服务器", "Connect server")}</h3>
+              <h3 id={labelId}>{isUpdate ? tx("更新执行引擎", "Update execution engine") : tx("接入服务器", "Connect server")}</h3>
             </div>
             <p className="agent-command-modal__subtitle">
               {isUpdate

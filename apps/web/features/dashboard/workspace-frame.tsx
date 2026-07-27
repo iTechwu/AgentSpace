@@ -144,6 +144,7 @@ function WorkspaceFrameContent({
   const canConnectRuntimes = currentMembershipRole === "owner" || currentMembershipRole === "admin" || currentMembershipRole === "member";
   const canViewRuntimes = canConnectRuntimes || canManageRuntimes || shell.directMessages.length > 0;
   const isChannelScopedGuest = accessScope === "channel";
+  const accountRoleLabel = formatWorkspaceAccountRole(currentMembershipRole, tx);
   const { counters, refreshCounters } = useWorkspaceShellCounters({
     initialShell: shell,
     workspaceSlug: currentWorkspace.slug,
@@ -908,7 +909,7 @@ function WorkspaceFrameContent({
               />
               <div className="workspace-account__meta">
                 <strong>{user.displayName}</strong>
-                <span>{tx("群访客", "Channel guest")}</span>
+                <span className="workspace-account__role">{tx("群访客", "Channel guest")}</span>
               </div>
             </div>
             ) : (
@@ -932,7 +933,7 @@ function WorkspaceFrameContent({
               />
               <div className="workspace-account__meta">
                 <strong>{user.displayName}</strong>
-                <span>{tx("打开设置", "Open settings")}</span>
+                <span className="workspace-account__role">{accountRoleLabel}</span>
               </div>
             </Link>
             )}
@@ -1097,6 +1098,20 @@ function buildWorkspaceOnboardingSteps({
       title: tx("5. 完成一条对话", "5. Complete a Conversation"),
     },
   ];
+}
+
+function formatWorkspaceAccountRole(
+  role: WorkspaceRole,
+  tx: (zh: string, en: string) => string,
+): string {
+  switch (role) {
+    case "owner":
+      return tx("超级管理员", "Workspace owner");
+    case "admin":
+      return tx("管理员", "Administrator");
+    default:
+      return tx("成员", "Member");
+  }
 }
 
 function SidebarGroupLabel({ label }: { label: string }) {
