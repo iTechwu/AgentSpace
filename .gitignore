@@ -36,3 +36,5 @@ GOOGLE_WORKSPACE_SETUP.md
 POSTGRESQL_SETUP.md
 scripts/loadtest/
 scripts/record
+# Added by code-review-graph
+.code-review-graph/

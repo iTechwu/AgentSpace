@@ -1,6 +1,6 @@
 # 面向受管 Runtime 的 models.dofe.ai 契约优化
 
-状态：建议实现。本文描述为了支持 AgentSpace 受管 Runtime，需要在 `../models.dofe.ai` 中补齐的内部服务能力与数据契约。
+状态：**已实施（Phase 1）**。本文描述为了支持 AgentSpace 受管 Runtime，在 `../models.dofe.ai` 中补齐的内部服务能力与数据契约。实现代码见 [models.dofe.ai 仓库](https://github.com/dofe-ai/models.dofe.ai) 的 `apps/api/libs/domain/runtime-credential/`、`apps/api/src/modules/internal-api/`、`packages/contracts/src/schemas/runtime-credential.schema.ts` 与 `packages/models-sdk/src/internal.ts`。
 
 ## 1. 当前能力与不足
 
@@ -44,6 +44,11 @@
 
 `POST /internal/runtime-credentials`
 
+- ts-rest 契约：`packages/contracts/src/api/internal.contract.ts` 中的 `runtimeCredentials.create`
+- Zod schema：`packages/contracts/src/schemas/runtime-credential.schema.ts` — `CreateRuntimeCredentialRequestSchema`、`CreateRuntimeCredentialResponseSchema`
+- 实现：`apps/api/libs/domain/runtime-credential/runtime-credential.service.ts` 的 `ensure`
+- models-sdk：`packages/models-sdk/src/internal-types.ts` — `ModelsInternalCreateRuntimeCredentialRequest`、`ModelsInternalRuntimeCredentialSecret`、`ModelsInternalCreateRuntimeCredentialResponse`
+
 请求：
 
 ```json
@@ -75,13 +80,24 @@
   },
   "secret": {
     "apiKey": "仅本次返回的明文 Key"
-  }
+  },
+  "secretIssued": true
 }
 ```
+
+`secret` 只会在首次成功创建或首次成功轮换时返回，且此时 `secretIssued` 为
+`true`。同一作用域内的幂等重放只返回 `credential` 与
+`secretIssued: false`，不重新返回或解密旧 Key；AgentSpace 必须在首次响应时将
+明文写入 `secretRef`，而不能依赖重试恢复明文。
 
 ### 3.2 查询 Runtime 可用模型
 
 `GET /internal/runtime-credentials/:id/models?protocol=anthropic`
+
+- ts-rest 契约：`packages/contracts/src/api/internal.contract.ts` 中的 `runtimeCredentials.models`
+- Zod schema：`packages/contracts/src/schemas/runtime-credential.schema.ts` — `RuntimeCredentialModelsQuerySchema`、`RuntimeCredentialModelsResponseSchema`
+- 实现：`apps/api/src/modules/internal-api/internal-api.service.ts` 的 `getRuntimeCredentialModels`
+- models-sdk：`packages/models-sdk/src/internal-types.ts` — `ModelsInternalRuntimeCredentialModelsQuery`、`ModelsInternalRuntimeCredentialModelsResponse`
 
 返回结果必须同时应用：租户 / 团队权限、Key 白名单、模型可用性、协议兼容性、供应商可用性及余额 / 风控策略。AgentSpace 不应在本地复制过滤逻辑。
 
@@ -89,17 +105,32 @@
 
 `POST /internal/runtime-credentials/:id/rotate`
 
-请求必须包含幂等键和轮换原因，例如 `expired`、`compromised`、`manual`、`gateway-rejected`。响应返回新的明文 Key 和新的 `rotationVersion`。旧 Key 的宽限期应由模型服务统一管理，并记录撤销时间。
+- ts-rest 契约：`packages/contracts/src/api/internal.contract.ts` 中的 `runtimeCredentials.rotate`
+- Zod schema：`packages/contracts/src/schemas/runtime-credential.schema.ts` — `RotateRuntimeCredentialRequestSchema`
+- 实现：`apps/api/libs/domain/runtime-credential/runtime-credential.service.ts` 的 `rotate`
+- models-sdk：`packages/models-sdk/src/internal-types.ts` — `ModelsInternalRotateRuntimeCredentialRequest`
+
+请求必须包含幂等键和轮换原因，例如 `expired`、`compromised`、`manual`、`gateway-rejected`。首次成功轮换响应返回新的明文 Key、`secretIssued: true` 和新的 `rotationVersion`；同一幂等键的重放只返回安全元数据与 `secretIssued: false`。旧 Key 的宽限期应由模型服务统一管理，并记录撤销时间。
 
 ### 3.4 撤销凭据
 
 `POST /internal/runtime-credentials/:id/revoke`
+
+- ts-rest 契约：`packages/contracts/src/api/internal.contract.ts` 中的 `runtimeCredentials.revoke`
+- Zod schema：`packages/contracts/src/schemas/runtime-credential.schema.ts` — `RevokeRuntimeCredentialRequestSchema`
+- 实现：`apps/api/libs/domain/runtime-credential/runtime-credential.service.ts` 的 `revoke`
+- models-sdk：`packages/models-sdk/src/internal-types.ts` — `ModelsInternalRevokeRuntimeCredentialRequest`
 
 撤销后网关必须拒绝该 Key；AgentSpace 负责停止或隔离引用该凭据的 Runtime，并同步展示不可用状态。
 
 ### 3.5 查询凭据状态
 
 `GET /internal/runtime-credentials/:id`
+
+- ts-rest 契约：`packages/contracts/src/api/internal.contract.ts` 中的 `runtimeCredentials.get`
+- Zod schema：`packages/contracts/src/schemas/runtime-credential.schema.ts` — `RuntimeCredentialResponseSchema`
+- 实现：`apps/api/libs/domain/runtime-credential/runtime-credential.service.ts` 的 `getStatus`
+- models-sdk：`packages/models-sdk/src/internal-types.ts` — `ModelsInternalRuntimeCredential`
 
 仅返回安全元数据，不返回 API Key。用于 AgentSpace 恢复任务、节点健康检查和审计展示。
 
@@ -117,28 +148,42 @@
 }
 ```
 
-其中 `runtimeCredentialId` 可以由 Key 映射获得；`employeeId`、`conversationId`、`requestId` 可通过受信任请求头、签名的 metadata 或 AgentSpace 代理链路传递。模型服务必须验证这些字段的来源，不能接受任意客户端伪造。
+其中 `runtimeCredentialId` 可以由 Key 映射获得。运行时传递 `employeeId`、`conversationId` 时，必须使用 Runtime Key 对以下 UTF-8 内容计算 `HMAC-SHA256`：
+
+```text
+runtimeCredentialId + "\n" + runtimeId + "\n" + employeeId + "\n" + conversationId + "\n" + unixTimestampSeconds
+```
+
+请求头为 `x-dofe-employee-id`、`x-dofe-conversation-id`、`x-dofe-attribution-timestamp` 和 `x-dofe-attribution-signature`。ID 仅接受 128 字符以内的字母、数字、`.`、`_`、`:`、`-`；时间戳有效期为五分钟。缺少归因字段不影响正常调用；若已提供但签名、格式或时效校验失败，模型服务仍按该 Runtime Key 计费，但不得写入 `employeeId` 或 `conversationId`，并记录安全告警。`requestId` 由网关生成或从受信任的 AgentSpace 服务链路传入，不能把任意 Runtime 请求头当作账务归因事实。
+
+当前实现：
+
+- 代理入口在 API Key 校验后，若 `keyOwnerType === 'runtime'`，调用 `RuntimeCredentialDomainService.findByApiKeyId` 反查凭据。
+- 状态非 `active/rotating`、轮换宽限期已过期、或请求协议不在 `credential.protocols` 内时直接返回 401；过期 rotating 凭据会被自动标记为 `expired` 并撤销底层 Key。
+- 归因字段仅在上述签名通过后从请求头提取，与 `runtimeCredentialId`、`runtimeId` 一起写入 `GatewayUsageLog`；签名失败会被拒绝归因而不会污染 AI员工账单。
+- 实现位置：`apps/api/libs/domain/proxy-core/proxy-core.service.ts`（Runtime 校验与 `logUsage`）与 `apps/api/libs/domain/proxy-core/runtime-attribution.helper.ts`（签名与时效验证）。
 
 建议增加以下查询能力：
 
-| 接口 / 事件 | 用途 |
-| --- | --- |
-| `GET /internal/usage?runtimeCredentialId=...` | Runtime Key 实际消耗。 |
-| `GET /internal/usage?employeeId=...` | AI员工归因用量与金额。 |
-| `GET /internal/usage?conversationId=...` | 会话级排障与归因。 |
-| 用量 Webhook / 事件流 | 近实时更新 AgentSpace 成本视图。 |
-| 对账快照 | 用于修正本地估算与不可变账单事实对齐。 |
+| 接口 / 事件 | 用途 | 实现 |
+| --- | --- | --- |
+| `GET /internal/usage?runtimeCredentialId=...` | Runtime Key 实际消耗。 | `internal.contract.ts` 已扩展 `InternalTenantUsageQuerySchema` 与 `InternalDateRangeQuerySchema`，支持 `runtimeCredentialId`、`runtimeId`、`employeeId`、`conversationId` 过滤。 |
+| `GET /internal/usage?employeeId=...` | AI员工归因用量与金额。 | 同上。 |
+| `GET /internal/usage?conversationId=...` | 会话级排障与归因。 | 同上。 |
+| 用量 Webhook / 事件流 | 近实时更新 AgentSpace 成本视图。 | 本期未实现，保留扩展点。 |
+| 对账快照 | 用于修正本地估算与不可变账单事实对齐。 | 本期未实现，保留扩展点。 |
 
 每条返回记录应至少包含模型、协议、输入 / 输出 / 缓存 Token、实际金额、币种、计费状态、请求时间、网关用量 ID 及关联字段。若金额尚未最终结算，应显式标记 `estimated` 或 `pending_reconciliation`。
 
 ## 5. 安全与治理要求
 
-1. 使用服务间身份认证、最小权限和审计，而不是将管理端 API Key 下发到 AgentSpace 节点。
+1. 使用服务间身份认证、最小权限和审计，而不是将管理端 API Key 下发到 AgentSpace 节点。当前通过 `InternalAuthGuard` + `MODELS_RUNTIME_CREDENTIAL_SERVICE_NAMES` 限制可调用服务名。
 2. 创建、轮换、撤销接口必须支持幂等键，防止安装任务重试生成重复 Key。
 3. 单个 `runtimeId` 的活跃凭据数量需要策略约束；默认允许一个当前 Key 和一个轮换宽限 Key。
 4. 模型服务应记录调用方服务身份、操作者、关联任务 ID、原因与 Key 指纹。
 5. 轮换、撤销、余额不足、模型禁用等状态变化应允许 AgentSpace 订阅或主动拉取。
 6. 禁止在内部 API 响应日志、异常堆栈、分析事件中记录明文 Key。
+7. 访问控制环境变量：`MODELS_RUNTIME_CREDENTIAL_MANAGEMENT=true` 开启管理 API；`MODELS_RUNTIME_CREDENTIAL_SERVICE_NAMES=agents-dofe-ai` 限定调用方服务名。
 
 ## 6. 迁移路径
 

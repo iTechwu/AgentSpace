@@ -21,14 +21,25 @@
 
 ## 阶段 1：models.dofe.ai 的 Runtime 凭据能力
 
+状态：**已完成**。
+
 目标：让模型服务能够为受管 Runtime 签发可隔离、可轮换、可审计的凭据。
 
-1. 新增 `RuntimeCredential` 数据模型及其状态机。
-2. 新增创建、查询、轮换、撤销凭据的内部 API。
-3. 增加按 Runtime 凭据与协议过滤模型目录的内部 API。
-4. 将 Runtime 凭据映射到现有 API Key、团队、租户、允许模型与网关策略。
-5. 向用量记录写入 Runtime、AI员工、会话和请求关联字段。
-6. 扩展 `models-sdk`，为 AgentSpace 提供稳定的类型化调用方式。
+1. ✅ 新增 `RuntimeCredential` 数据模型及其状态机。
+2. ✅ 新增创建、查询、轮换、撤销凭据的内部 API。
+3. ✅ 增加按 Runtime 凭据与协议过滤模型目录的内部 API。
+4. ✅ 将 Runtime 凭据映射到现有 API Key、团队、租户、允许模型与网关策略。
+5. ✅ 向用量记录写入 Runtime、AI员工、会话和请求关联字段。
+6. ✅ 扩展 `models-sdk`，为 AgentSpace 提供稳定的类型化调用方式。
+
+实现文件：
+
+- Prisma schema：`apps/api/prisma/schema.prisma`（`RuntimeCredential`、`RuntimeCredentialStatus`、`GatewayUsageLog` 归因字段、`GatewayUserApiKey` 反向关系）
+- 领域服务：`apps/api/libs/domain/runtime-credential/`
+- 内部 API：`apps/api/src/modules/internal-api/internal-api.controller.ts`、`internal-api.service.ts`
+- 代理校验：`apps/api/libs/domain/proxy-core/proxy-core.service.ts`、`runtime-attribution.helper.ts`
+- 契约/SDK：`packages/contracts/src/schemas/runtime-credential.schema.ts`、`packages/contracts/src/api/internal.contract.ts`、`packages/models-sdk/src/internal-types.ts`、`packages/models-sdk/src/internal.ts`
+- 测试：`apps/api/libs/domain/runtime-credential/runtime-credential.service.spec.ts`、`apps/api/libs/domain/proxy-core/proxy-core.runtime-attribution.spec.ts`、`apps/api/src/modules/internal-api/internal-api.controller.http.spec.ts`
 
 验收：重复创建请求只产生一个有效凭据；轮换不泄露明文 Key；撤销后网关拒绝旧 Key；模型目录与实际调用权限一致。
 
