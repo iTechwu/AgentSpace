@@ -2607,7 +2607,7 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
   const currentMembershipRole = options.currentMembershipRole;
   const canManageAllAgents = !currentUserId || isWorkspaceManagerRole(currentMembershipRole);
   const canManageRuntimes = canManageAllAgents;
-  const canConnectRuntimes = canManageRuntimes || currentMembershipRole === "member";
+  const canConnectRuntimes = canManageRuntimes;
   const state = readWorkspaceStateCached(workspaceId);
   const workspaceSkills = listWorkspaceSkillsCached(workspaceId);
   const workspaceSkillSummaries = shouldUseLoadtestDashboardPayloadLimits()
@@ -2667,18 +2667,7 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
     }))
     .sort(compareContainers);
   const activeContainers = allContainers.filter((container) => container.status === "linked");
-  const grantedRuntimeIdsForCurrentUser = new Set(
-    currentUserId
-      ? activeRuntimeGrants
-          .filter((grant) => grant.userId === currentUserId)
-          .map((grant) => grant.runtimeId)
-      : [],
-  );
-  const visibleContainers = canManageRuntimes
-    ? activeContainers
-    : activeContainers
-        .filter((container) => grantedRuntimeIdsForCurrentUser.has(container.runtimeId))
-        .map((container) => redactContainerForMember(container, state, currentUserId));
+  const visibleContainers = canManageRuntimes ? activeContainers : [];
   const containerIndex = new Map(allContainers.map((container) => [container.runtimeId, container]));
   const bindingIndex = new Map(bindings.map((binding) => [binding.employeeName, binding]));
   const allWorkspaceAgentRecords = state.activeEmployees
@@ -2702,12 +2691,12 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
       feishuAgentBot: feishuAgentBotByAgentId.get(agent.internalName),
       feishuAgentBotSetupReference,
       canManageFeishuAgentBot: canManageAllAgents,
-      canManage: canManageAllAgents || (typeof currentUserId === "string" && agent.ownerUserId === currentUserId),
-      canManageChannelMemberAccess: canManageAllAgents || (typeof currentUserId === "string" && agent.ownerUserId === currentUserId),
+      canManage: canManageAllAgents,
+      canManageChannelMemberAccess: canManageAllAgents,
     }))
     .sort(compareAgents);
   const workspaceAgents = allWorkspaceAgentRecords
-    .filter((agent) => canManageAllAgents || agent.ownerUserId === currentUserId)
+    .filter(() => canManageAllAgents)
     .map((agent) => {
       const forkInvitations = currentUserId && agent.canManage
         ? listAgentForkInvitationsForSourceAgentSync({
@@ -2726,7 +2715,6 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
         forkInvitations,
       };
     })
-    .map((agent) => canManageAllAgents ? agent : redactWorkspaceAgentForMember(agent))
     .sort(compareAgents);
   const agentsBoundToActiveContainers = workspaceAgents.filter(
     (agent) => agent.boundContainerId && visibleContainers.some((container) => container.runtimeId === agent.boundContainerId),
@@ -2792,7 +2780,7 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
     canConnectRuntimes,
     canManageRuntimes,
     canManageAllAgents,
-    canCreateAgent: canManageAllAgents || containerOptions.length > 0,
+    canCreateAgent: canManageAllAgents,
     totalAgents: workspaceAgents.length,
     containerCount: visibleContainers.length,
     boundAgentCount: agentsBoundToActiveContainers.length,
@@ -3004,49 +2992,6 @@ function mapWorkspaceMemberForRuntimeGrant(member: WorkspaceMemberUserRecord): R
     displayName: member.displayName,
     primaryEmail: member.primaryEmail,
     role: member.role,
-  };
-}
-
-function redactContainerForMember(
-  container: ContainerRecord,
-  state: DofeAgentState,
-  currentUserId: string | undefined,
-): ContainerRecord {
-  const ownedEmployeeNames = new Set(
-    state.activeEmployees
-      .filter((employee) => employee.ownerUserId === currentUserId)
-      .map((employee) => employee.name),
-  );
-  return {
-    ...container,
-    subtitle: `${formatDaemonProviderLabel(container.provider)} · ${container.name}`,
-    daemonKey: "",
-    serverUrl: undefined,
-    executablePath: undefined,
-    daemonPid: undefined,
-    boundEmployees: container.boundEmployees.filter((employeeName) => ownedEmployeeNames.has(employeeName)),
-    agentCount: container.boundEmployees.filter((employeeName) => ownedEmployeeNames.has(employeeName)).length,
-    recentExecutions: container.recentExecutions
-      .filter((execution) => ownedEmployeeNames.has(execution.assignee))
-      .map((execution) => ({
-        ...execution,
-        sessionId: undefined,
-        workDir: undefined,
-        workDirHostLabel: undefined,
-      })),
-    canManageGrants: false,
-  };
-}
-
-function redactWorkspaceAgentForMember(agent: WorkspaceAgentRecord): WorkspaceAgentRecord {
-  return {
-    ...agent,
-    workAreas: agent.workAreas.map((area) => ({
-      ...area,
-      sessionId: undefined,
-      workDir: undefined,
-      workDirHostLabel: undefined,
-    })),
   };
 }
 

@@ -26,11 +26,14 @@ const {
   mockReviewApprovalSync,
   mockResolveChannelHumanMemberNames,
   mockResolveWorkspaceAccessForIdentifierSync,
+  mockResolveAgentRuntimeMode,
+  mockSetSessionModelOverrideForChatCommandSync,
   mockSameValue,
   mockSendChannelHumanMessageSync,
   mockSendHumanDirectMessageSync,
   mockSyncGoogleSheetDocumentDrivePermissions,
   mockUnpinMessageSync,
+  mockValidateSessionModelOverrideForChatCommandAsync,
 } = vi.hoisted(() => ({
   mockAddChannelEmployeesSync: vi.fn(),
   mockAddWorkspaceMemberToChannelForActorSync: vi.fn(),
@@ -57,11 +60,14 @@ const {
   mockReviewApprovalSync: vi.fn(),
   mockResolveChannelHumanMemberNames: vi.fn(),
   mockResolveWorkspaceAccessForIdentifierSync: vi.fn(),
+  mockResolveAgentRuntimeMode: vi.fn(),
+  mockSetSessionModelOverrideForChatCommandSync: vi.fn(),
   mockSameValue: vi.fn((left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase()),
   mockSendChannelHumanMessageSync: vi.fn(),
   mockSendHumanDirectMessageSync: vi.fn(),
   mockSyncGoogleSheetDocumentDrivePermissions: vi.fn(),
   mockUnpinMessageSync: vi.fn(),
+  mockValidateSessionModelOverrideForChatCommandAsync: vi.fn(),
 }));
 
 vi.mock("@dofe-agent/services", () => ({
@@ -81,7 +87,9 @@ vi.mock("@dofe-agent/services", () => ({
   unpinMessageSync: mockUnpinMessageSync,
   readWorkspaceStateSync: mockReadWorkspaceStateSync,
   resolveChannelHumanMemberNames: mockResolveChannelHumanMemberNames,
+  resolveAgentRuntimeMode: mockResolveAgentRuntimeMode,
   sameValue: mockSameValue,
+  setSessionModelOverrideForChatCommandSync: mockSetSessionModelOverrideForChatCommandSync,
   addChannelDocumentCollaboratorSync: vi.fn(),
   archiveChannelDocumentSync: vi.fn(),
   restoreChannelDocumentSync: vi.fn(),
@@ -105,6 +113,7 @@ vi.mock("@dofe-agent/services", () => ({
   sendContactMessageForHumanWithAttachmentsSync: vi.fn(),
   upsertChannelDocumentPresenceSync: vi.fn(),
   updateChannelDocumentSync: vi.fn(),
+  validateSessionModelOverrideForChatCommandAsync: mockValidateSessionModelOverrideForChatCommandAsync,
 }));
 
 vi.mock("@/features/auth/server-workspace", () => ({
@@ -180,13 +189,21 @@ describe("channel actions", () => {
     mockReviewApprovalSync.mockReset();
     mockResolveChannelHumanMemberNames.mockReset();
     mockResolveWorkspaceAccessForIdentifierSync.mockReset();
+    mockResolveAgentRuntimeMode.mockReset();
+    mockSetSessionModelOverrideForChatCommandSync.mockReset();
     mockSameValue.mockClear();
     mockSendChannelHumanMessageSync.mockReset();
     mockSendHumanDirectMessageSync.mockReset();
     mockSyncGoogleSheetDocumentDrivePermissions.mockReset();
     mockUnpinMessageSync.mockReset();
+    mockValidateSessionModelOverrideForChatCommandAsync.mockReset();
 
     mockPersistFormAttachments.mockResolvedValue([]);
+    mockResolveAgentRuntimeMode.mockReturnValue("remote");
+    mockValidateSessionModelOverrideForChatCommandAsync.mockResolvedValue({
+      agentName: "Atlas",
+      modelId: "catalog-model",
+    });
     mockReadWorkspaceStateSync.mockReturnValue({
       channels: [
         {
@@ -309,6 +326,38 @@ describe("channel actions", () => {
       "workspace-1",
       "user-1",
     );
+  });
+
+  it("validates an admin /model command before persisting its session override", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin"));
+    const formData = new FormData();
+    formData.set("channelName", "general");
+    formData.set("content", "/model provider-native-model @Atlas");
+
+    await sendChannelMessageAction(formData);
+
+    expect(mockValidateSessionModelOverrideForChatCommandAsync).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      channelName: "general",
+      humanMemberName: "techwu",
+      content: "@Atlas",
+      modelId: "provider-native-model",
+    });
+    expect(mockSetSessionModelOverrideForChatCommandSync).toHaveBeenCalledWith(expect.objectContaining({
+      modelId: "catalog-model",
+    }));
+    expect(mockSendChannelHumanMessageSync).not.toHaveBeenCalled();
+  });
+
+  it("rejects a member /model command before it can mutate a session", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
+    const formData = new FormData();
+    formData.set("channelName", "general");
+    formData.set("content", "/model provider-native-model @Atlas");
+
+    await expect(sendChannelMessageAction(formData)).rejects.toThrow("Forbidden.");
+    expect(mockValidateSessionModelOverrideForChatCommandAsync).not.toHaveBeenCalled();
+    expect(mockSetSessionModelOverrideForChatCommandSync).not.toHaveBeenCalled();
   });
 
   it("loads channel detail data only after channel read access is confirmed", async () => {

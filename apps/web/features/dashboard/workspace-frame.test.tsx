@@ -1515,7 +1515,7 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByRole("link", { name: /消息/ })).toHaveClass("workspace-sidebar__section-link--active");
   });
 
-  it("lets regular members open execution engine management while keeping add actions in the page", () => {
+  it("hides execution engine management from regular members", () => {
     const memberShell: WorkspaceShellData = {
       ...shell,
       directMessages: [],
@@ -1529,8 +1529,7 @@ describe("WorkspaceFrame", () => {
       </LanguageProvider>,
     );
 
-    expect(screen.getByRole("link", { name: /执行引擎管理/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /执行引擎管理/ })).toHaveAttribute("href", "/w/workspace-alpha/agents?mode=container");
+    expect(screen.queryByRole("link", { name: /执行引擎管理/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /添加服务器/ })).not.toBeInTheDocument();
     expect(screen.getByText("成员")).toBeInTheDocument();
   });

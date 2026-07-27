@@ -140,8 +140,6 @@ export function RuntimeTaskDetailClient({
             <dd>{(runtime.protocols ?? []).join(", ") || "—"}</dd>
             <dt className="text-neutral-500">Default model</dt>
             <dd>{runtime.defaultModel ?? "—"}</dd>
-            <dt className="text-neutral-500">Secret ref</dt>
-            <dd className="font-mono">{runtime.credentialSecretRef ?? "—"}</dd>
           </dl>
         </div>
       ) : null}

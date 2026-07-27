@@ -1,4 +1,4 @@
-import { getRuntimeProvisioningTaskDetailSync } from "@dofe-agent/services";
+import { getRuntimeProvisioningTaskDetailSync, resolveAgentRuntimeMode } from "@dofe-agent/services";
 import { notFound } from "next/navigation";
 import { getWorkspacePageContext } from "../../_lib/workspace-page-context";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
@@ -12,6 +12,9 @@ export default async function RuntimeTaskDetailPage({
   params: Promise<{ workspaceSlug: string; taskId: string }>;
 }) {
   const { workspaceSlug, taskId } = await params;
+  if (resolveAgentRuntimeMode() !== "remote") {
+    notFound();
+  }
   const workspaceContext = await getWorkspacePageContext(workspaceSlug);
   const isAdmin = hasWorkspaceRole(workspaceContext.currentMembership.role, "admin");
   if (!isAdmin) {

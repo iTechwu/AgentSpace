@@ -39,6 +39,7 @@ import {
   type ConversationThreadMessage,
 } from "@/features/chat/conversation-shell";
 import { CommunicationListActions } from "@/features/chat/communication-list-actions";
+import { ChatModelSelector } from "@/features/chat/chat-model-selector";
 import type { ChannelsPageData } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useWorkspaceModuleNavigation } from "@/features/dashboard/workspace-module-navigation";
@@ -2787,6 +2788,12 @@ function ChannelWorkspaceHeader({
             <HeaderIconButton label={tx("编辑备注", "Edit remark")} onClick={onOpenContactRemark}>
               <EditIcon />
             </HeaderIconButton>
+          ) : null}
+          {isDirect && selectedChannel.contactId ? (
+            <ChatModelSelector
+              canManage={selectedChannel.canManage !== false}
+              contactId={selectedChannel.contactId}
+            />
           ) : null}
           <HeaderIconButton label={tx("搜索", "Search")} onClick={onSearchAction}>
             <SearchIcon />

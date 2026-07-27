@@ -31,6 +31,7 @@ const TEAM_WS = "team-workspace";
 const TENANT_WS = "tenant-workspace";
 const OWNER = "owner-user";
 const MEMBER = "member-user";
+const originalRuntimeMode = process.env.DOFE_AGENT_RUNTIME_MODE;
 
 function createMockClient(behavior: {
   failCreate?: boolean;
@@ -132,6 +133,7 @@ before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   process.chdir(tempRoot);
+  process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
 });
 
 beforeEach(() => {
@@ -151,7 +153,14 @@ beforeEach(() => {
   resetRuntimeCredentialVaultForTests();
 });
 
-after(() => process.chdir(originalCwd));
+after(() => {
+  process.chdir(originalCwd);
+  if (originalRuntimeMode === undefined) {
+    delete process.env.DOFE_AGENT_RUNTIME_MODE;
+  } else {
+    process.env.DOFE_AGENT_RUNTIME_MODE = originalRuntimeMode;
+  }
+});
 
 async function awaitTaskTerminal(taskId: string, workspaceId = TEAM_WS, timeoutMs = 2000): Promise<NonNullable<ReturnType<typeof readRuntimeProvisioningTaskSync>>> {
   const deadline = Date.now() + timeoutMs;
@@ -176,6 +185,25 @@ test("non-admin member cannot request a managed runtime", () => {
       }),
     /owners and admins/,
   );
+});
+
+test("local mode rejects managed provisioning before it calls models", () => {
+  delete process.env.DOFE_AGENT_RUNTIME_MODE;
+  try {
+    assert.throws(
+      () =>
+        requestManagedRuntimeProvisioningSync({
+          workspaceId: TEAM_WS,
+          actorUserId: OWNER,
+          provider: "claude",
+          idempotencyKey: "local-mode-key",
+        }),
+      /managed_runtime\.remote_mode_required/,
+    );
+    assert.equal(activeClient.createCalls, 0);
+  } finally {
+    process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+  }
 });
 
 test("tenant-only workspace (no teamId) is rejected", () => {

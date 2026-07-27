@@ -34,6 +34,7 @@ import {
 } from "@dofe-agent/db";
 import { resolveProviderProtocols, type DaemonProvider } from "@dofe-agent/domain";
 import { getModelsInternalClient } from "../models/client.ts";
+import { resolveAgentRuntimeMode } from "../config/deployment.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
 import {
@@ -63,6 +64,12 @@ function assertCanManageManagedRuntimes(input: ManagedRuntimeActor): void {
     })
   ) {
     throw new Error("Only workspace owners and admins can manage managed runtimes.");
+  }
+}
+
+function assertRemoteRuntimeMode(): void {
+  if (resolveAgentRuntimeMode() !== "remote") {
+    throw new Error("managed_runtime.remote_mode_required");
   }
 }
 
@@ -99,6 +106,7 @@ export interface RequestManagedRuntimeInput extends ManagedRuntimeActor {
 export function requestManagedRuntimeProvisioningSync(
   input: RequestManagedRuntimeInput,
 ): RuntimeProvisioningTaskRecord {
+  assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   resolveManagedRuntimeScopeSync(input.workspaceId);
   const protocols = input.protocols?.length
@@ -150,6 +158,7 @@ export interface RuntimeProvisioningTaskDetail {
 export function getRuntimeProvisioningTaskDetailSync(input: ManagedRuntimeActor & {
   taskId: string;
 }): RuntimeProvisioningTaskDetail {
+  assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   const task = readRuntimeProvisioningTaskSync(input.taskId, input.workspaceId);
   if (!task) {
@@ -163,6 +172,7 @@ export function getRuntimeProvisioningTaskDetailSync(input: ManagedRuntimeActor 
 export function retryRuntimeProvisioningTaskSync(
   input: ManagedRuntimeActor & { taskId: string },
 ): RuntimeProvisioningTaskRecord {
+  assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   const task = readRuntimeProvisioningTaskSync(input.taskId, input.workspaceId);
   if (!task) {
@@ -203,6 +213,7 @@ export function retryRuntimeProvisioningTaskSync(
 export async function cancelRuntimeProvisioningTaskSync(
   input: ManagedRuntimeActor & { taskId: string; reason?: string },
 ): Promise<RuntimeProvisioningTaskRecord> {
+  assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   const task = readRuntimeProvisioningTaskSync(input.taskId, input.workspaceId);
   if (!task) {
@@ -237,6 +248,7 @@ export async function cancelRuntimeProvisioningTaskSync(
 export function listManagedRuntimeTasksSync(
   input: ManagedRuntimeActor,
 ): RuntimeProvisioningTaskRecord[] {
+  assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   return listRuntimeProvisioningTasksSync(input.workspaceId);
 }
@@ -249,6 +261,7 @@ export interface RotateManagedRuntimeCredentialInput extends ManagedRuntimeActor
 export async function rotateManagedRuntimeCredentialSync(
   input: RotateManagedRuntimeCredentialInput,
 ): Promise<AgentRuntimeRecord> {
+  assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   const runtime = readAgentRuntimeSync(input.runtimeId);
   if (!runtime || runtime.workspaceId !== input.workspaceId) {
@@ -315,6 +328,7 @@ export interface GetManagedRuntimeCredentialStatusInput extends ManagedRuntimeAc
 export async function getManagedRuntimeCredentialStatusSync(
   input: GetManagedRuntimeCredentialStatusInput,
 ): Promise<ModelsInternalRuntimeCredential | null> {
+  assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   const runtime = readAgentRuntimeSync(input.runtimeId);
   if (!runtime || runtime.workspaceId !== input.workspaceId) {
@@ -351,6 +365,7 @@ export interface StopManagedRuntimeInput extends ManagedRuntimeActor {
 }
 
 export async function stopManagedRuntimeSync(input: StopManagedRuntimeInput): Promise<AgentRuntimeRecord> {
+  assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   const runtime = readAgentRuntimeSync(input.runtimeId);
   if (!runtime || runtime.workspaceId !== input.workspaceId) {
@@ -390,6 +405,7 @@ export async function stopManagedRuntimeSync(input: StopManagedRuntimeInput): Pr
 }
 
 export async function deleteManagedRuntimeSync(input: StopManagedRuntimeInput): Promise<void> {
+  assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   const runtime = readAgentRuntimeSync(input.runtimeId);
   if (!runtime || runtime.workspaceId !== input.workspaceId) {
@@ -461,6 +477,7 @@ export async function runProvisioningPipeline(
   workspaceId: string,
   options: PipelineRunOptions = {},
 ): Promise<void> {
+  assertRemoteRuntimeMode();
   const client = options.modelsClient ?? clientProvider();
   const vault = options.vault ?? getRuntimeCredentialVault();
 
@@ -599,6 +616,7 @@ export async function runProvisioningPipeline(
  * call periodically; finished/cancelled tasks are skipped.
  */
 export async function resumePendingProvisioningTasksSync(workspaceId?: string): Promise<void> {
+  assertRemoteRuntimeMode();
   const tasks = listRuntimeProvisioningTasksSync(workspaceId, {
     statuses: ["queued", "running"],
   });

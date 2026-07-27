@@ -2,7 +2,6 @@ import { cache } from "react";
 import {
   DEFAULT_WORKSPACE_ID,
   listDaemonSnapshotsSync,
-  listRuntimeGrantsSync,
   listWorkspaceMemberUsersSync,
 } from "@dofe-agent/db";
 import type { WorkspaceRole } from "@dofe-agent/db";
@@ -19,7 +18,6 @@ import { getPendingApprovalCount } from "@/features/approvals/approval-queue-dat
 const readWorkspaceStateCached = cache((workspaceId: string) => readWorkspaceStateSnapshotSync(workspaceId));
 const listWorkspaceSkillsCached = cache((workspaceId: string) => listWorkspaceSkillsSync(workspaceId));
 const listDaemonSnapshotsCached = cache((workspaceId: string) => listDaemonSnapshotsSync(workspaceId));
-const listRuntimeGrantsCached = cache((workspaceId: string) => listRuntimeGrantsSync(workspaceId));
 const listWorkspaceMemberUsersCached = cache((workspaceId: string) => listWorkspaceMemberUsersSync(workspaceId));
 
 type WorkspaceMemberUser = ReturnType<typeof listWorkspaceMemberUsersSync>[number];
@@ -231,13 +229,6 @@ function buildWorkspaceShellContext(
   const channelScoped = channelScope !== null;
   const workspaceMemberUsers = channelScoped ? [] : listWorkspaceMemberUsersCached(workspaceId);
   const canSeeAllAgents = !currentUserId || isWorkspaceManagerRole(currentMembershipRole);
-  const grantedRuntimeIdsForCurrentUser = new Set(
-    currentUserId && !canSeeAllAgents
-      ? listRuntimeGrantsCached(workspaceId)
-          .filter((grant) => grant.status === "active" && grant.userId === currentUserId)
-          .map((grant) => grant.runtimeId)
-      : [],
-  );
   const activeRuntimes = listDaemonSnapshotsCached(workspaceId).flatMap((snapshot) =>
     snapshot.runtimes
       .filter((runtime) => runtime.status === "online")
@@ -251,7 +242,7 @@ function buildWorkspaceShellContext(
     ? []
     : canSeeAllAgents
       ? activeRuntimes
-      : activeRuntimes.filter((runtime) => grantedRuntimeIdsForCurrentUser.has(runtime.id));
+      : [];
   const groupChannels = state.channels.filter((channel) => (
     !isDirectChannelRecord(channel)
     && (!channelScope || channelScope.has(channel.name))

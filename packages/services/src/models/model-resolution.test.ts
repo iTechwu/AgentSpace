@@ -18,6 +18,7 @@ import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/sta
 import {
   resolveEffectiveModelForTaskAsync,
   resolveEffectiveModelForBoundEmployeeAsync,
+  validateModelOverrideForBoundEmployeeAsync,
   type ResolveEffectiveModelInput,
 } from "./model-resolution.ts";
 import { getModelsInternalClient, resetModelsInternalClientForTests } from "./client.ts";
@@ -29,6 +30,7 @@ const OWNER = "owner-user";
 const RUNTIME_ID = "runtime-managed-1";
 const CREDENTIAL_ID = "rtc-1";
 const EMPLOYEE_NAME = "researcher";
+const originalRuntimeMode = process.env.DOFE_AGENT_RUNTIME_MODE;
 
 function mockModelsClient(availableModels: Array<{ alias: string; model?: string; id?: string; isAvailable?: boolean; isEnabled?: boolean }>) {
   const client = getModelsInternalClient();
@@ -133,6 +135,7 @@ before(() => {
   process.env.MODELS_BASE_URL = "http://models.test";
   process.env.MODELS_SERVICE_NAME = "agent-space-test";
   process.env.MODELS_INTERNAL_API_SECRET = "test-secret";
+  process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
 });
 
 beforeEach(() => {
@@ -160,6 +163,11 @@ after(() => {
   delete process.env.MODELS_BASE_URL;
   delete process.env.MODELS_SERVICE_NAME;
   delete process.env.MODELS_INTERNAL_API_SECRET;
+  if (originalRuntimeMode === undefined) {
+    delete process.env.DOFE_AGENT_RUNTIME_MODE;
+  } else {
+    process.env.DOFE_AGENT_RUNTIME_MODE = originalRuntimeMode;
+  }
 });
 
 async function resolve(input: Omit<ResolveEffectiveModelInput, "workspaceId" | "runtimeId">) {
@@ -233,22 +241,16 @@ test("protocol fallback is used as last resort", async () => {
   assert.equal(result.source, "protocol_fallback");
 });
 
-test("invalid session override falls back to employee default and emits audit", async () => {
+test("invalid session override is rejected instead of silently changing the selected model", async () => {
   mockModelsClient([{ alias: "general" }]);
   createManagedRuntime("general");
   createEmployee("general");
   const routerSessionId = createRouterSession("unknown-model");
 
-  const result = await resolve({ employeeName: EMPLOYEE_NAME, routerSessionId });
-
-  assert.equal(result.modelId, "general");
-  assert.equal(result.source, "employee_default");
-  const db = getDatabase();
-  const audit = db.prepare("SELECT * FROM audit_log WHERE code = ? ORDER BY created_at DESC LIMIT 1").get("model.resolution_fallback") as
-    | { title: string; data_json: string }
-    | undefined;
-  assert.ok(audit);
-  assert.ok(audit!.title.includes("fallback"));
+  await assert.rejects(
+    resolve({ employeeName: EMPLOYEE_NAME, routerSessionId }),
+    /model_resolution.session_override_unavailable/,
+  );
 });
 
 test("unmanaged runtime is rejected", async () => {
@@ -297,4 +299,34 @@ test("resolveEffectiveModelForBoundEmployeeAsync uses the bound runtime", async 
 
   assert.equal(result.modelId, "bound-model");
   assert.equal(result.source, "runtime_default");
+});
+
+test("chat overrides are validated against the enabled bound Runtime catalog", async () => {
+  mockModelsClient([
+    { alias: "available", model: "provider-model" },
+    { alias: "disabled", isEnabled: false },
+  ]);
+  createManagedRuntime();
+  createEmployee();
+  bindEmployeeRuntimeSync({
+    workspaceId: WORKSPACE_ID,
+    employeeName: EMPLOYEE_NAME,
+    runtimeId: RUNTIME_ID,
+  });
+
+  const accepted = await validateModelOverrideForBoundEmployeeAsync({
+    workspaceId: WORKSPACE_ID,
+    employeeName: EMPLOYEE_NAME,
+    modelId: "provider-model",
+  });
+  assert.equal(accepted.modelId, "available");
+
+  await assert.rejects(
+    validateModelOverrideForBoundEmployeeAsync({
+      workspaceId: WORKSPACE_ID,
+      employeeName: EMPLOYEE_NAME,
+      modelId: "disabled",
+    }),
+    /model_resolution.model_unavailable/,
+  );
 });

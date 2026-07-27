@@ -3,7 +3,24 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { resolveDofeAgentRuntimeConfig, resolveAttachmentRuntimeConfig } from "./deployment.ts";
+import {
+  resolveAgentRuntimeMode,
+  resolveDofeAgentRuntimeConfig,
+  resolveAttachmentRuntimeConfig,
+} from "./deployment.ts";
+
+test("runtime mode defaults to local and only accepts remote explicitly", () => {
+  assert.equal(resolveAgentRuntimeMode({}), "local");
+  assert.equal(resolveAgentRuntimeMode({ DOFE_AGENT_RUNTIME_MODE: "remote" }), "remote");
+  assert.equal(resolveAgentRuntimeMode({ DOFE_AGENT_RUNTIME_MODE: " LOCAL " }), "local");
+});
+
+test("runtime mode rejects unsupported deployment values", () => {
+  assert.throws(
+    () => resolveAgentRuntimeMode({ DOFE_AGENT_RUNTIME_MODE: "server" }),
+    /DOFE_AGENT_RUNTIME_MODE must be either local or remote/,
+  );
+});
 
 test("runtime config reads PostgreSQL and TOS configuration from repository .env", () => {
   const originalCwd = process.cwd();

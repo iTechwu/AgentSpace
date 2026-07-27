@@ -7,9 +7,9 @@ import {
   deleteManagedRuntimeSync,
   getManagedRuntimeCredentialStatusSync,
   getRuntimeProvisioningTaskDetailSync,
-  getRuntimeCredentialVault,
   listManagedRuntimeTasksSync,
   requestManagedRuntimeProvisioningSync,
+  resolveAgentRuntimeMode,
   resolveManagedRuntimeScopeSync,
   retryRuntimeProvisioningTaskSync,
   rotateManagedRuntimeCredentialSync,
@@ -32,12 +32,10 @@ function requireAdminActor() {
   });
 }
 
-function requireWorkspaceActor() {
-  return requireCurrentWorkspaceContext().then((ctx) => ({
-    workspaceId: ctx.currentWorkspace.id,
-    actorUserId: ctx.currentUser.id,
-    slug: ctx.currentWorkspace.slug,
-  }));
+function assertRemoteManagedRuntimeMode(): void {
+  if (resolveAgentRuntimeMode() !== "remote") {
+    throw new Error("managed_runtime.remote_mode_required");
+  }
 }
 
 export async function createManagedRuntimeAction(input: {
@@ -48,6 +46,7 @@ export async function createManagedRuntimeAction(input: {
   targetServer?: string;
   name?: string;
 }): Promise<{ taskId: string }> {
+  assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId, slug } = await requireAdminActor();
   const task = requestManagedRuntimeProvisioningSync({
     workspaceId,
@@ -64,16 +63,19 @@ export async function createManagedRuntimeAction(input: {
 }
 
 export async function getProvisioningTaskAction(taskId: string) {
+  assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId } = await requireAdminActor();
   return getRuntimeProvisioningTaskDetailSync({ workspaceId, actorUserId, taskId });
 }
 
 export async function listManagedRuntimeTasksAction() {
+  assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId } = await requireAdminActor();
   return listManagedRuntimeTasksSync({ workspaceId, actorUserId });
 }
 
 export async function retryProvisioningAction(taskId: string) {
+  assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId, slug } = await requireAdminActor();
   const task = retryRuntimeProvisioningTaskSync({ workspaceId, actorUserId, taskId });
   revalidateWorkspacePath(`/runtimes/${task.id}`, slug);
@@ -81,18 +83,21 @@ export async function retryProvisioningAction(taskId: string) {
 }
 
 export async function cancelProvisioningAction(taskId: string, reason?: string) {
+  assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId, slug } = await requireAdminActor();
   await cancelRuntimeProvisioningTaskSync({ workspaceId, actorUserId, taskId, reason });
   revalidateWorkspacePath("/runtimes", slug);
 }
 
 export async function stopManagedRuntimeAction(runtimeId: string, reason?: string) {
+  assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId, slug } = await requireAdminActor();
   await stopManagedRuntimeSync({ workspaceId, actorUserId, runtimeId, reason });
   revalidateWorkspacePath("/runtimes", slug);
 }
 
 export async function deleteManagedRuntimeAction(runtimeId: string, reason?: string) {
+  assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId, slug } = await requireAdminActor();
   await deleteManagedRuntimeSync({ workspaceId, actorUserId, runtimeId, reason });
   revalidateWorkspacePath("/runtimes", slug);
@@ -102,6 +107,7 @@ export async function rotateManagedRuntimeCredentialAction(
   runtimeId: string,
   reason?: "manual" | "expired" | "compromised" | "gateway-rejected",
 ) {
+  assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId, slug } = await requireAdminActor();
   await rotateManagedRuntimeCredentialSync({
     workspaceId,
@@ -113,6 +119,7 @@ export async function rotateManagedRuntimeCredentialAction(
 }
 
 export async function getManagedRuntimeCredentialStatusAction(runtimeId: string) {
+  assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId } = await requireAdminActor();
   return getManagedRuntimeCredentialStatusSync({ workspaceId, actorUserId, runtimeId });
 }
@@ -135,7 +142,8 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
   list: RuntimeModelCatalogItem[];
   configured: boolean;
 }> {
-  const { workspaceId } = await requireWorkspaceActor();
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId } = await requireAdminActor();
   if (!isModelsInternalConfigured()) {
     return { list: [], configured: false };
   }
@@ -183,6 +191,7 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
  * not the create wizard (no credential exists yet pre-provisioning).
  */
 export async function getManagedRuntimeModelsAction(runtimeId: string) {
+  assertRemoteManagedRuntimeMode();
   const { workspaceId } = await requireAdminActor();
   const runtime = readAgentRuntimeSync(runtimeId);
   if (!runtime || runtime.workspaceId !== workspaceId || !runtime.managedCredentialId) {
@@ -201,22 +210,19 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
 }
 
 /**
- * Phase 3 node-side mount consumes the plaintext from the vault via this ref.
- * Exposed for the runtime detail diagnostics view (admin only); the plaintext
- * itself is never returned.
+ * Runtime diagnostics intentionally expose no storage locator or secret data.
  */
 export async function getManagedRuntimeDiagnosticAction(runtimeId: string) {
+  assertRemoteManagedRuntimeMode();
   const { workspaceId } = await requireAdminActor();
   const runtime = readAgentRuntimeSync(runtimeId);
   if (!runtime || runtime.workspaceId !== workspaceId) {
     throw new Error("managed_runtime.runtime_not_found");
   }
-  const vault = getRuntimeCredentialVault();
   return {
     provisioningState: runtime.provisioningState ?? null,
     managedCredentialId: runtime.managedCredentialId ?? null,
-    secretRef: runtime.credentialSecretRef ?? null,
-    secretHeld: runtime.credentialSecretRef ? vault.retrieve(runtime.credentialSecretRef) !== undefined : false,
+    credentialConfigured: Boolean(runtime.credentialSecretRef),
     protocols: runtime.protocols ?? [],
     defaultModel: runtime.defaultModel ?? null,
   };

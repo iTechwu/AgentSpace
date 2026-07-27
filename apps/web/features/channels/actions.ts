@@ -49,12 +49,17 @@ import {
   FEISHU_PROVIDER_ID,
   readFeishuChatMemberSnapshot,
   readFeishuIntegrationCredentials,
+  setSessionModelOverrideForChatCommandSync,
+  validateSessionModelOverrideForChatCommandAsync,
+  resolveAgentRuntimeMode,
+  resolveChatModelOverrideAsync,
 } from "@dofe-agent/services";
 import {
   listExternalChannelBindingsSync,
   listExternalIntegrationsSync,
 } from "@dofe-agent/db";
 import { persistFormAttachments } from "@/features/chat/attachment-actions";
+import { parseModelCommand } from "@/features/chat/model-command";
 import {
   actionToastResult,
   successToast,
@@ -391,6 +396,27 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
   }
   assertChannelAccess(workspaceContext, channelName);
 
+  const modelCommand = parseModelCommand(content);
+  if (modelCommand) {
+    assertWorkspaceRoleForContext(workspaceContext, "admin");
+    const modelId = await validateRequestedChatModelOverride({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      channelName: channelName.trim(),
+      humanMemberName: workspaceContext.currentUser.displayName.trim() || "你",
+      content: modelCommand.remainingContent,
+      modelId: modelCommand.modelId,
+    });
+    setSessionModelOverrideForChatCommandSync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      channelName: channelName.trim(),
+      humanMemberName: workspaceContext.currentUser.displayName.trim() || "你",
+      content: modelCommand.remainingContent,
+      modelId,
+    });
+    revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents"]);
+    return;
+  }
+
   sendChannelHumanMessageSync(
     channelName.trim(),
     workspaceContext.currentUser.displayName.trim() || "你",
@@ -431,6 +457,27 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
   const attachments = await persistFormAttachments(formData, "attachments", workspaceContext.currentWorkspace.id);
   const humanMemberName = workspaceContext.currentUser.displayName.trim() || "你";
 
+  const modelCommand = parseModelCommand(content);
+  if (modelCommand) {
+    assertWorkspaceRoleForContext(workspaceContext, "admin");
+    const modelId = await validateRequestedChatModelOverride({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      contactId: contactId.trim(),
+      humanMemberName,
+      content: modelCommand.remainingContent,
+      modelId: modelCommand.modelId,
+    });
+    setSessionModelOverrideForChatCommandSync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      contactId: contactId.trim(),
+      humanMemberName,
+      content: modelCommand.remainingContent,
+      modelId,
+    });
+    revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents"]);
+    return;
+  }
+
   sendContactMessageForHumanWithAttachmentsSync(
     humanMemberName,
     contactId.trim(),
@@ -441,6 +488,73 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
   );
 
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents"]);
+}
+
+export async function getChatModelOverrideAction(input: {
+  contactId?: string;
+  channelName?: string;
+  content?: string;
+}): Promise<Awaited<ReturnType<typeof resolveChatModelOverrideAsync>> | null> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  if (resolveAgentRuntimeMode() !== "remote") {
+    return null;
+  }
+
+  return resolveChatModelOverrideAsync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    humanMemberName: workspaceContext.currentUser.displayName.trim() || "你",
+    contactId: input.contactId?.trim(),
+    channelName: input.channelName?.trim(),
+    content: input.content?.trim(),
+  });
+}
+
+export async function setChatModelOverrideAction(input: {
+  contactId?: string;
+  channelName?: string;
+  content?: string;
+  modelId?: string;
+}): Promise<void> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  const modelId = await validateRequestedChatModelOverride({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    humanMemberName: workspaceContext.currentUser.displayName.trim() || "你",
+    contactId: input.contactId?.trim(),
+    channelName: input.channelName?.trim(),
+    content: input.content?.trim() ?? "",
+    modelId: input.modelId?.trim(),
+  });
+
+  setSessionModelOverrideForChatCommandSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    humanMemberName: workspaceContext.currentUser.displayName.trim() || "你",
+    contactId: input.contactId?.trim(),
+    channelName: input.channelName?.trim(),
+    content: input.content?.trim() ?? "",
+    modelId,
+  });
+
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents"]);
+}
+
+async function validateRequestedChatModelOverride(input: {
+  workspaceId: string;
+  humanMemberName: string;
+  content: string;
+  channelName?: string;
+  contactId?: string;
+  modelId?: string;
+}): Promise<string | undefined> {
+  if (resolveAgentRuntimeMode() !== "remote") {
+    throw new Error("model_resolution.remote_mode_required");
+  }
+  const requestedModelId = input.modelId?.trim();
+  if (!requestedModelId || requestedModelId.toLowerCase() === "clear") {
+    return undefined;
+  }
+  const validated = await validateSessionModelOverrideForChatCommandAsync(input);
+  return validated.modelId;
 }
 
 export async function sendHumanDirectMessageAction(formData: FormData): Promise<void> {

@@ -1,0 +1,189 @@
+"use client";
+
+import { useEffect, useState, useTransition } from "react";
+import { useLanguage } from "@/features/i18n/language-provider";
+import {
+  getChatModelOverrideAction,
+  setChatModelOverrideAction,
+} from "@/features/channels/actions";
+import {
+  listProtocolFilteredRuntimeModelsAction,
+  type RuntimeModelCatalogItem,
+} from "@/features/runtimes/actions";
+import type { DaemonProvider } from "@dofe-agent/domain";
+
+export interface ChatModelSelectorProps {
+  /** Direct-contact agent id. */
+  contactId?: string;
+  /** Group channel name (requires `content` with a single agent mention). */
+  channelName?: string;
+  /** Message content used to pick the agent in a group channel. */
+  content?: string;
+  /** Whether the current user is allowed to change the session override. */
+  canManage: boolean;
+}
+
+interface ModelOverrideInfo {
+  routerSessionId: string;
+  agentName: string;
+  sessionOverride?: { modelId: string; source: string };
+  effectiveModel?: {
+    modelId: string;
+    source:
+      | "session_override"
+      | "employee_default"
+      | "runtime_default"
+      | "team_policy_default"
+      | "protocol_fallback";
+  };
+  provider?: DaemonProvider;
+}
+
+export function ChatModelSelector({
+  contactId,
+  channelName,
+  content,
+  canManage,
+}: ChatModelSelectorProps) {
+  const { tx } = useLanguage();
+  const [info, setInfo] = useState<ModelOverrideInfo | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  const loadInfo = async () => {
+    setLoading(true);
+    try {
+      const result = await getChatModelOverrideAction({
+        contactId,
+        channelName,
+        content,
+      });
+      setInfo(result);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadInfo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contactId, channelName, content]);
+
+  const activeModel = info?.effectiveModel ?? info?.sessionOverride;
+  const sessionValue = info?.sessionOverride?.modelId ?? "";
+
+  const handleChange = (value: string) => {
+    if (!info) return;
+    startTransition(async () => {
+      await setChatModelOverrideAction({
+        contactId,
+        channelName,
+        content,
+        modelId: value || undefined,
+      });
+      await loadInfo();
+    });
+  };
+
+  if (!info || loading) {
+    return (
+      <span className="chat-model-selector chat-model-selector--loading">
+        {tx("加载模型…", "Loading model…")}
+      </span>
+    );
+  }
+
+  return (
+    <div className="chat-model-selector" title={sourceLabel(activeModel?.source, tx)}>
+      <span className="chat-model-selector__label">{tx("模型", "Model")}</span>
+      {activeModel ? (
+        <span className="chat-model-selector__value">
+          {activeModel.modelId}
+          <span className="chat-model-selector__source">
+            {sourceLabel(activeModel.source, tx)}
+          </span>
+        </span>
+      ) : (
+        <span className="chat-model-selector__value chat-model-selector__value--empty">
+          {tx("未配置", "Not set")}
+        </span>
+      )}
+      {canManage && info.provider ? (
+        <CompactModelPicker
+          pending={pending}
+          provider={info.provider}
+          value={sessionValue}
+          onChange={handleChange}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function CompactModelPicker({
+  provider,
+  value,
+  onChange,
+  pending,
+}: {
+  provider: DaemonProvider;
+  value: string;
+  onChange: (value: string) => void;
+  pending: boolean;
+}) {
+  const { tx } = useLanguage();
+  const [items, setItems] = useState<RuntimeModelCatalogItem[]>([]);
+  const [configured, setConfigured] = useState(true);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    listProtocolFilteredRuntimeModelsAction(provider)
+      .then((result) => {
+        setConfigured(result.configured);
+        setItems(result.list.filter((item) => item.isAvailable));
+      })
+      .catch(() => {
+        setConfigured(false);
+        setItems([]);
+      })
+      .finally(() => setLoading(false));
+  }, [provider]);
+
+  return (
+    <select
+      className="chat-model-selector__select"
+      disabled={pending || loading || !configured}
+      onChange={(event) => onChange(event.target.value)}
+      value={value}
+    >
+      <option value="">{tx("继承默认", "Inherit default")}</option>
+      {items.map((item) => (
+        <option key={item.alias} value={item.alias}>
+          {item.displayName ?? item.alias}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function sourceLabel(
+  source: string | undefined,
+  tx: (zh: string, en: string) => string,
+): string {
+  switch (source) {
+    case "session_override":
+    case "manual":
+      return tx("会话覆盖", "Session override");
+    case "employee_default":
+      return tx("AI员工默认", "Employee default");
+    case "runtime_default":
+      return tx("Runtime 默认", "Runtime default");
+    case "team_policy_default":
+      return tx("团队策略", "Team policy");
+    case "protocol_fallback":
+      return tx("协议兜底", "Protocol fallback");
+    default:
+      return tx("未配置", "Not set");
+  }
+}

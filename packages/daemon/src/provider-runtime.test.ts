@@ -300,6 +300,77 @@ test("runProviderTask resumes Codex sessions when sessionId is provided", async 
   }
 });
 
+test("concurrent provider tasks keep model selection scoped to each invocation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-codex-model-isolation-"));
+  const binPath = join(root, "codex");
+  const firstWorkDir = join(root, "first");
+  const secondWorkDir = join(root, "second");
+  const firstArgsPath = join(root, "first-args.txt");
+  const secondArgsPath = join(root, "second-args.txt");
+  const originalModel = process.env.CODEX_MODEL;
+  mkdirSync(firstWorkDir, { recursive: true });
+  mkdirSync(secondWorkDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      ": > \"$CODEX_ARGS_PATH\"",
+      "for arg in \"$@\"; do",
+      "  printf '%s\\n' \"$arg\" >> \"$CODEX_ARGS_PATH\"",
+      "done",
+      "previous_arg=\"\"",
+      "for arg in \"$@\"; do",
+      "  if [ \"$previous_arg\" = \"-o\" ]; then printf '%s' 'model isolated' > \"$arg\"; fi",
+      "  previous_arg=\"$arg\"",
+      "done",
+      "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"session-model\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+  process.env.CODEX_MODEL = "parent-default";
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-codex-model-isolation",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Codex",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    await Promise.all([
+      runProviderTask(runtime, "first prompt", firstWorkDir, {
+        contextEnv: { CODEX_ARGS_PATH: firstArgsPath },
+        modelId: "model-first",
+        taskTimeoutMs: 1_000,
+      }),
+      runProviderTask(runtime, "second prompt", secondWorkDir, {
+        contextEnv: { CODEX_ARGS_PATH: secondArgsPath },
+        modelId: "model-second",
+        taskTimeoutMs: 1_000,
+      }),
+    ]);
+
+    const firstArgs = readFileSync(firstArgsPath, "utf8");
+    const secondArgs = readFileSync(secondArgsPath, "utf8");
+    assert.match(firstArgs, /--model\nmodel-first/);
+    assert.doesNotMatch(firstArgs, /model-second/);
+    assert.match(secondArgs, /--model\nmodel-second/);
+    assert.doesNotMatch(secondArgs, /model-first/);
+    assert.equal(process.env.CODEX_MODEL, "parent-default");
+  } finally {
+    if (originalModel === undefined) {
+      delete process.env.CODEX_MODEL;
+    } else {
+      process.env.CODEX_MODEL = originalModel;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("runProviderTask adds daemon bin directory to provider PATH", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-codex-provider-path-"));
   const providerBinDir = join(workDir, "provider-bin");

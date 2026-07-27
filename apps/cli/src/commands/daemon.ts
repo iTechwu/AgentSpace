@@ -853,6 +853,7 @@ interface ProviderTaskEvent {
 
 interface ProviderTaskOptions {
   sessionId?: string;
+  modelId?: string;
   contextEnv?: Record<string, string>;
   taskTimeoutMs?: number;
   runtimeToolCapabilities?: RuntimeToolCapability[];
@@ -1531,33 +1532,10 @@ async function runProviderTaskWithModel(
   modelId: string | undefined,
   options: ProviderTaskOptions = {},
 ): Promise<{ output: string; sessionId?: string }> {
-  const envVar = modelId ? providerModelEnvVar(runtime.provider) : undefined;
-  if (!envVar) {
-    return runProviderTask(runtime, prompt, workDir, options);
-  }
-  const previous = process.env[envVar];
-  process.env[envVar] = modelId;
-  try {
-    return await runProviderTask(runtime, prompt, workDir, options);
-  } finally {
-    if (previous === undefined) {
-      delete process.env[envVar];
-    } else {
-      process.env[envVar] = previous;
-    }
-  }
-}
-
-function providerModelEnvVar(provider: AgentRuntimeRecord["provider"]): string | undefined {
-  if (provider === "claude") return "CLAUDE_MODEL";
-  if (provider === "codex") return "CODEX_MODEL";
-  if (provider === "gemini") return "GEMINI_MODEL";
-  if (provider === "opencode") return "OPENCODE_MODEL";
-  if (provider === "openclaw") return "OPENCLAW_MODEL";
-  if (provider === "nanobot") return "NANOBOT_MODEL";
-  if (provider === "antigravity") return "ANTIGRAVITY_MODEL";
-  if (provider === "hermes") return "HERMES_MODEL";
-  return undefined;
+  return runProviderTask(runtime, prompt, workDir, {
+    ...options,
+    modelId,
+  });
 }
 
 function resolveModelId(runtime: AgentRuntimeRecord): string | undefined {

@@ -6,6 +6,7 @@ import {
   readStoredEmployeeSync,
 } from "@dofe-agent/db";
 import { getModelsInternalClient } from "./client.ts";
+import { resolveAgentRuntimeMode } from "../config/deployment.ts";
 import { resolveManagedRuntimeScopeSync } from "../runtime-provisioning/runtime-provisioning.ts";
 import { recordAuditLogSync } from "@dofe-agent/db";
 import { ensureWorkspaceStateSync } from "../shared/state-io.ts";
@@ -53,6 +54,9 @@ interface ResolutionContext {
 export async function resolveEffectiveModelForTaskAsync(
   input: ResolveEffectiveModelInput,
 ): Promise<EffectiveModelResolution> {
+  if (resolveAgentRuntimeMode() !== "remote") {
+    throw new Error("model_resolution.remote_mode_required");
+  }
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const runtime = readAgentRuntimeSync(input.runtimeId);
   if (!runtime || runtime.workspaceId !== workspaceId) {
@@ -100,6 +104,9 @@ export async function resolveEffectiveModelForTaskAsync(
         validated: true,
       };
     }
+    if (candidate.source === "session_override") {
+      throw new Error("model_resolution.session_override_unavailable");
+    }
     recordModelFallbackWarning(ctx, candidate.modelId, candidate.source);
   }
 
@@ -121,9 +128,11 @@ function isModelAvailable(
 ): boolean {
   return availableModels.some(
     (model) =>
-      model.alias === modelId ||
-      model.model === modelId ||
-      model.id === modelId,
+      model.isAvailable &&
+      model.isEnabled !== false &&
+      (model.alias === modelId ||
+        model.model === modelId ||
+        model.id === modelId),
   );
 }
 
@@ -178,4 +187,47 @@ export async function resolveEffectiveModelForBoundEmployeeAsync(
     runtimeId: binding.runtimeId,
     routerSessionId: input.routerSessionId,
   });
+}
+
+/**
+ * Verify a requested chat override before it is persisted. Returning the
+ * catalog alias keeps stored overrides stable even when a caller supplied a
+ * provider-native model or catalog record id.
+ */
+export async function validateModelOverrideForBoundEmployeeAsync(input: {
+  workspaceId?: string;
+  employeeName: string;
+  modelId: string;
+}): Promise<{ modelId: string; runtimeCredentialId: string }> {
+  if (resolveAgentRuntimeMode() !== "remote") {
+    throw new Error("model_resolution.remote_mode_required");
+  }
+
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const binding = readEmployeeRuntimeBindingSync(input.employeeName, workspaceId);
+  if (!binding) {
+    throw new Error("model_resolution.no_bound_runtime");
+  }
+  const runtime = readAgentRuntimeSync(binding.runtimeId);
+  if (!runtime || runtime.workspaceId !== workspaceId || !runtime.managedCredentialId) {
+    throw new Error("model_resolution.not_a_managed_runtime");
+  }
+
+  const scope = resolveManagedRuntimeScopeSync(workspaceId);
+  const response = await getModelsInternalClient().runtimeCredentials.models({
+    params: { id: runtime.managedCredentialId },
+    query: { tenantId: scope.tenantId, teamId: scope.teamId },
+  });
+  const requestedModel = input.modelId.trim();
+  const model = response.list.find(
+    (candidate) =>
+      candidate.isAvailable &&
+      candidate.isEnabled !== false &&
+      (candidate.alias === requestedModel || candidate.model === requestedModel || candidate.id === requestedModel),
+  );
+  if (!model?.alias) {
+    throw new Error("model_resolution.model_unavailable");
+  }
+
+  return { modelId: model.alias, runtimeCredentialId: runtime.managedCredentialId };
 }

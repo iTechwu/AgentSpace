@@ -141,7 +141,7 @@ function WorkspaceFrameContent({
   const isHumanContactsView = routeState.isHumanContactsView;
   const isDigitalContactsView = routeState.isDigitalContactsView;
   const canManageRuntimes = currentMembershipRole === "owner" || currentMembershipRole === "admin";
-  const canConnectRuntimes = currentMembershipRole === "owner" || currentMembershipRole === "admin" || currentMembershipRole === "member";
+  const canConnectRuntimes = canManageRuntimes;
   const canViewRuntimes = canConnectRuntimes || canManageRuntimes || shell.directMessages.length > 0;
   const isChannelScopedGuest = accessScope === "channel";
   const accountRoleLabel = formatWorkspaceAccountRole(currentMembershipRole, tx);

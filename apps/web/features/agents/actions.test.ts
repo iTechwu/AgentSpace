@@ -147,6 +147,17 @@ describe("agent actions", () => {
     });
   });
 
+  it("rejects members from creating an AI employee even when a runtime is supplied", async () => {
+    mockIsWorkspaceAdminOrOwnerSync.mockReturnValue(false);
+
+    await expect(createWorkspaceAgentAction({
+      name: "Atlas",
+      runtimeId: "runtime-granted-to-member",
+    })).rejects.toThrow("Only workspace owners and admins can manage AI employees.");
+
+    expect(mockCreateEmployeeSync).not.toHaveBeenCalled();
+  });
+
   it("returns an invalidation hint when creating a task", async () => {
     const result = await createWorkspaceTaskAction({
       title: "Plan Osaka",

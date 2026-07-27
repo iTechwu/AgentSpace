@@ -282,6 +282,18 @@ export {
   acknowledgeMessageSync,
 } from "./messages/messages.ts";
 
+// Chat model override
+export {
+  setSessionModelOverrideForChatCommandSync,
+  validateSessionModelOverrideForChatCommandAsync,
+  readSessionModelOverrideForChatSync,
+  resolveChatModelOverrideAsync,
+  type SetSessionModelOverrideForChatInput,
+  type SetSessionModelOverrideForChatResult,
+  type ResolveChatModelOverrideInput,
+  type ChatModelOverrideInfo,
+} from "./chat/model-override.ts";
+
 // Realtime
 export {
   publishChannelMessageCreatedEvent,
@@ -911,6 +923,10 @@ export {
 } from "./documents/operations.ts";
 
 // models.dofe.ai internal client (managed RuntimeCredential provisioning)
+export {
+  resolveAgentRuntimeMode,
+  type AgentRuntimeMode,
+} from "./config/deployment.ts";
 export {
   buildModelsInternalAuthorization,
   getModelsInternalClient,

@@ -1,5 +1,18 @@
 import { readEffectiveRuntimeEnv } from "@dofe-agent/db";
 
+export type AgentRuntimeMode = "local" | "remote";
+
+/**
+ * Deployment-level runtime mode. This is deliberately independent from any
+ * Runtime record: local instances must never enter managed models flows.
+ */
+export function resolveAgentRuntimeMode(env: NodeJS.ProcessEnv = process.env): AgentRuntimeMode {
+  const value = env.DOFE_AGENT_RUNTIME_MODE?.trim().toLowerCase();
+  if (!value || value === "local") return "local";
+  if (value === "remote") return "remote";
+  throw new Error("DOFE_AGENT_RUNTIME_MODE must be either local or remote.");
+}
+
 export interface AttachmentRuntimeConfig {
   provider: "local" | "tos";
   localRoot?: string;

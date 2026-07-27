@@ -70,6 +70,8 @@ export interface ProviderApprovalDecision {
 
 export interface ProviderTaskOptions {
   sessionId?: string;
+  /** Explicit task-scoped model selection; never mutate process.env for this. */
+  modelId?: string;
   contextEnv?: Record<string, string>;
   taskTimeoutMs?: number;
   onEvent?: (event: ProviderTaskEvent) => void;
@@ -251,7 +253,7 @@ async function runAgentRouterProviderTask(
     prompt,
     cwd: workDir,
     executablePath: runtime.metadata.executablePath,
-    model: resolveModelId(runtime),
+    model: options.modelId ?? resolveModelId(runtime),
     mode: resolveAgentRouterMode(runtime),
     sessionId,
     env: contextEnv,
@@ -1650,7 +1652,7 @@ async function runGeminiProviderTask(
 ): Promise<{ output: string; sessionId?: string }> {
   clearTaskOutputArtifacts(workDir);
   const outputFile = join(workDir, "last-message.txt");
-  const model = process.env.GEMINI_MODEL || "gemini-2.0-flash-lite";
+  const model = (options.modelId ?? process.env.GEMINI_MODEL) || "gemini-2.0-flash-lite";
   const providerArgs = ["--model", model, "--sandbox", "-y", prompt];
   const sandbox = await connectSandbox({
     runtimeId: runtime.id,

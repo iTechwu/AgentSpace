@@ -184,8 +184,8 @@ export async function createWorkspaceAgentAction(input: {
   const agentName = input.name.trim() || template?.defaultAgentName || "";
   assertRequired(agentName, "agent name");
 
-  if (!canManageWorkspaceAgents && !runtimeId) {
-    throw new Error("请先选择管理员分配给你的执行引擎。");
+  if (!canManageWorkspaceAgents) {
+    throw new Error("Only workspace owners and admins can manage AI employees.");
   }
   if (runtimeId) {
     assertCanUseRuntimeForActorSync({
@@ -205,7 +205,7 @@ export async function createWorkspaceAgentAction(input: {
     fit: template?.fit,
     traits: template?.traits,
     skillIds: resolvedTemplate?.skillIds,
-    ownerUserId: canManageWorkspaceAgents ? undefined : actorUserId,
+    ownerUserId: undefined,
     defaultModel: input.defaultModel?.trim() || undefined,
     active: true,
   }, workspaceId);

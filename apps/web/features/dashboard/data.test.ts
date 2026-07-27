@@ -5,7 +5,6 @@ import { basename, join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
-  completeQueuedTaskSync,
   createDaemonApiTokenSync,
   createExternalIntegrationSync,
   createUserSync,
@@ -13,7 +12,6 @@ import {
   createWorkspaceMembershipSync,
   enqueueNativeTaskSync,
   getDatabase,
-  listQueuedTasksSync,
   readWorkspaceStateRecordSync,
   readWorkspaceSync,
   recordTokenUsageSync,
@@ -29,7 +27,6 @@ import {
   createChannelDocumentFromAttachmentSync,
   createChannelDocumentSync,
   createEmployeeSync,
-  createTaskSync,
   createKnowledgePageFromSharedDocumentSync,
   createWorkspaceSkillSync,
   grantRuntimeUseToUserForActorSync,
@@ -742,7 +739,7 @@ describe("dashboard data", () => {
       .toBe("owner-visible direct note");
   });
 
-  it("limits runtime-granted member views to owned agents plus channel-enabled agents and redacts execution diagnostics", () => {
+  it("hides AI employee and runtime management data from members even when a legacy grant exists", () => {
     const owner = createUserSync({
       displayName: "Owner",
       primaryEmail: `owner-${Date.now()}@example.com`,
@@ -803,60 +800,6 @@ describe("dashboard data", () => {
       userId: member.id,
       actorUserId: owner.id,
     });
-    bindEmployeeRuntimeSync("Mina Agent", runtime!.id);
-
-    createTaskSync({
-      title: "Workspace-only task",
-      channel: "runtime-sharing-ops",
-      assignee: "Workspace Agent",
-      priority: "medium",
-    });
-    createTaskSync({
-      title: "Restricted workspace task",
-      channel: "runtime-sharing-ops",
-      assignee: "Restricted Agent",
-      priority: "medium",
-    });
-    createTaskSync({
-      title: "Owner shared task",
-      channel: "runtime-sharing-ops",
-      assignee: "Owner Shared Agent",
-      priority: "medium",
-    });
-    const stateAfterMemberTask = createTaskSync({
-      title: "Member-owned task",
-      channel: "runtime-sharing-ops",
-      assignee: "Mina Agent",
-      priority: "medium",
-      requestedByUserId: member.id,
-      requestedByDisplayName: "Mina",
-    });
-    const memberTask = stateAfterMemberTask.tasks.find((task) => task.title === "Member-owned task");
-    expect(memberTask?.id).toBeTruthy();
-    const queued = listQueuedTasksSync({ workspaceId: "default" }).find((task) => task.issueId === memberTask!.id);
-    expect(queued?.id).toBeTruthy();
-    completeQueuedTaskSync({
-      taskId: queued!.id,
-      sessionId: "sess-member-runtime",
-      workDir: "/tmp/member-runtime-workdir",
-    });
-
-    writeWorkspaceStateSync({
-      ...readWorkspaceStateSync(),
-      conversationExecutionWorkspaces: [
-        {
-          conversationKey: "channel:runtime-sharing-ops",
-          conversationKind: "group",
-          channelName: "runtime-sharing-ops",
-          agentId: "Mina Agent",
-          updatedAt: "2026-04-29T00:00:00.000Z",
-          lastTaskQueueId: queued!.id,
-          sessionId: "sess-member-runtime",
-          workDir: "/tmp/member-runtime-workdir",
-        },
-      ],
-    });
-
     const ownerAgentsPage = getAgentsPageData({
       workspaceId: "default",
       currentUserId: owner.id,
@@ -871,7 +814,6 @@ describe("dashboard data", () => {
       "Restricted Agent",
       "Workspace Agent",
     ]);
-    expect(ownerAgentsPage.agents.find((agent) => agent.internalName === "Mina Agent")?.workAreas[0]?.workDir).toBe("/tmp/member-runtime-workdir");
 
     const memberAgentsPage = getAgentsPageData({
       workspaceId: "default",
@@ -879,22 +821,11 @@ describe("dashboard data", () => {
       currentMembershipRole: "member",
     });
     expect(memberAgentsPage.canManageRuntimes).toBe(false);
-    expect(memberAgentsPage.canConnectRuntimes).toBe(true);
+    expect(memberAgentsPage.canConnectRuntimes).toBe(false);
     expect(memberAgentsPage.daemonSnapshots).toEqual([]);
     expect(memberAgentsPage.daemonTokens).toEqual([]);
-    expect(memberAgentsPage.containerOptions).toMatchObject([
-      {
-        id: runtime!.id,
-        daemonKey: "",
-      },
-    ]);
-    expect(memberAgentsPage.agents.map((agent) => agent.internalName)).toEqual(["Mina Agent"]);
-    const memberAgent = memberAgentsPage.agents[0];
-    expect(memberAgent?.ownerDisplayName).toBe("Mina");
-    expect(memberAgent?.canManageChannelMemberAccess).toBe(true);
-    expect(memberAgent?.workAreas[0]?.sessionId).toBeUndefined();
-    expect(memberAgent?.workAreas[0]?.workDir).toBeUndefined();
-    expect(memberAgent?.workAreas[0]?.workDirHostLabel).toBeUndefined();
+    expect(memberAgentsPage.containerOptions).toEqual([]);
+    expect(memberAgentsPage.agents).toEqual([]);
 
     const memberChannelsPage = getChannelsPageData("Mina", "default", member.id, "member");
     expect(
@@ -904,33 +835,9 @@ describe("dashboard data", () => {
         .sort(),
     ).toEqual(["Mina Agent", "Owner Shared Agent", "Workspace Agent"]);
 
-    const memberInbox = getInboxPageData("default", {
-      id: member.id,
-      displayName: "Mina",
-      role: "member",
-    });
-    expect(memberInbox.items.some((item) => item.title === "Workspace-only task")).toBe(true);
-    expect(memberInbox.items.some((item) => item.title === "Owner shared task")).toBe(true);
-    expect(memberInbox.items.some((item) => item.title === "Restricted workspace task")).toBe(false);
-    const memberTaskItem = memberInbox.items.find((item) => item.title === "Member-owned task");
-    expect(memberTaskItem?.execution?.sessionId).toBeUndefined();
-    expect(memberTaskItem?.execution?.workDir).toBeUndefined();
-    expect(memberTaskItem?.execution?.workDirHostLabel).toBeUndefined();
-
     const memberShell = getWorkspaceShellData("Mina", "default", member.id, "member");
-    expect(memberShell.directMessages.map((item) => item.id)).toEqual([runtime!.id]);
-    expect(memberShell.remoteAgentCount).toBe(1);
-
-    const memberTaskBoard = getTaskBoardPageData("status", "default", {
-      id: member.id,
-      displayName: "Mina",
-      role: "member",
-    });
-    expect(memberTaskBoard.tasks.map((task) => task.title).sort()).toEqual([
-      "Member-owned task",
-      "Owner shared task",
-      "Workspace-only task",
-    ]);
+    expect(memberShell.directMessages).toEqual([]);
+    expect(memberShell.remoteAgentCount).toBe(0);
   });
 
   it("filters cost summaries and budgets by workspace", () => {

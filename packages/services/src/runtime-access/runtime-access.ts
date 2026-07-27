@@ -222,14 +222,7 @@ export function canManageEmployeeForActorSync(input: {
   actorUserId?: string;
 }): boolean {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  if (isWorkspaceAdminOrOwnerSync({ workspaceId, userId: input.actorUserId })) {
-    return true;
-  }
-  if (!input.actorUserId) {
-    return false;
-  }
-  const employee = readStoredEmployeeSync(input.employeeName, workspaceId);
-  return employee?.ownerUserId === input.actorUserId;
+  return isWorkspaceAdminOrOwnerSync({ workspaceId, userId: input.actorUserId });
 }
 
 export function assertCanManageEmployeeForActorSync(input: {
@@ -238,7 +231,7 @@ export function assertCanManageEmployeeForActorSync(input: {
   actorUserId?: string;
 }): void {
   if (!canManageEmployeeForActorSync(input)) {
-    throw new Error("This agent is not managed by the current user.");
+    throw new Error("Only workspace owners and admins can manage AI employees.");
   }
 }
 

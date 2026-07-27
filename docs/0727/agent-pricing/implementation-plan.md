@@ -77,11 +77,18 @@
 
 目标：让用户获得可预测的模型选择行为。
 
-1. 仅在 `remote` 部署中创建受管 Runtime，并按类型和协议展示 models 目录及 Runtime 默认模型；local 保持既有页面与模型行为。
-2. 创建 AI员工时支持选择其专属默认模型，展示与 Runtime 默认模型的差异。
-3. 在会话中实现 `/model`，仅持久化到当前会话。
-4. 在聊天界面清晰展示当前生效模型及其来源：会话、AI员工、Runtime 或团队策略。
-5. 对不兼容、不可用、余额不足、无权限模型提供可操作的错误状态。
+1. ✅ 仅在 `remote` 部署中创建受管 Runtime，并按类型和协议展示 models 目录及 Runtime 默认模型；local 保持既有页面与模型行为。
+2. ✅ 创建 AI员工时支持选择其专属默认模型，展示与 Runtime 默认模型的差异。
+3. ✅ 在会话中实现 `/model`，仅持久化到当前会话。
+   - 命令格式：`/model <modelId>` 设置覆盖，`/model clear` 或 `/model` 清除覆盖。
+   - 群聊中必须 @ 一名 AI员工，以确定其会话；私聊数字员工时无需 @。
+   - 仅 `Owner/Admin` 可执行；服务端通过 `assertWorkspaceRoleForContext` 校验。
+   - 底层调用 `setSessionModelOverrideForChatCommandSync`，解析或创建 `agent_router_session` 后写入 `model_override`。
+4. ✅ 在聊天界面清晰展示当前生效模型及其来源：会话、AI员工、Runtime 或团队策略。
+   - 聊天顶部直接私聊会话显示当前生效模型和来源标签。
+   - Owner/Admin 可从协议过滤的模型目录中选择会话覆盖模型；选择“继承默认”清除覆盖。
+   - 实现文件：`apps/web/features/chat/chat-model-selector.tsx`、`apps/web/features/channels/actions.ts`、`packages/services/src/chat/model-override.ts`。
+5. ⏳ 对不兼容、不可用、余额不足、无权限模型提供可操作的错误状态。
 
 验收：同一 Runtime 下的两个会话可以使用不同模型而不互相影响；不兼容协议的模型无法被选择或调用。
 
