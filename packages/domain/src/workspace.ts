@@ -146,6 +146,7 @@ export interface ActiveEmployee {
   remarkName?: string;
   ownerUserId?: string;
   channelMemberAccess?: AgentChannelMemberAccess;
+  defaultModel?: string;
   origin: string;
   summary: string;
   traits: string[];
@@ -537,6 +538,7 @@ export interface DofeAgentState {
   scheduledTasks: ScheduledTask[];
   templates: Template[];
   ledger: LedgerItem[];
+  runtimePolicy?: { defaultModel?: string };
 }
 
 export type WorkspaceEventType =

@@ -564,6 +564,9 @@ export interface AgentRouterSessionRecord {
   title?: string;
   summary?: string;
   memorySummary?: string;
+  modelOverride?: string;
+  modelOverrideSource?: string;
+  modelOverrideSetAt?: string;
   createdAt: string;
   updatedAt: string;
   closedAt?: string;
@@ -1120,6 +1123,8 @@ export interface TokenUsageRecord {
   agentId: string;
   modelId: string;
   providerAccountId?: string;
+  runtimeCredentialId?: string;
+  routerSessionId?: string;
   inputTokens: number;
   outputTokens: number;
   costUsd: number;

@@ -5,6 +5,8 @@ import { EmptyState } from "@/shared/ui/empty-state";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { DeleteAgentModal } from "@/features/agents/components/delete-agent-modal";
 import { ExecutionEngineSelect, resolveExecutionEngineValue } from "@/features/agents/components/execution-engine-select";
+import { RuntimeModelPicker } from "@/features/runtimes/runtime-model-picker";
+import { isDaemonProvider } from "@dofe-agent/domain";
 import { SkillPickerModal } from "@/features/agents/components/skill-picker-modal";
 import { SkillRequirementsModal } from "@/features/skills/components/skill-requirements-modal";
 import { FeishuAgentBotAgentSettingsPanel } from "@/features/integrations/feishu/feishu-agent-bot-agent-settings-panel";
@@ -30,6 +32,7 @@ interface AgentDetailProps {
   readonly onVerifyProvider?: () => void;
   readonly onDeleteAgent: () => void;
   readonly onSaveInstructions: (instructions: string) => void;
+  readonly onSaveDefaultModel?: (defaultModel: string | undefined) => void;
   readonly onSetChannelMemberAccess?: (access: WorkspaceAgentRecord["channelMemberAccess"]) => void;
   readonly onSetSkillIds: (skillIds: string[]) => void;
   readonly onInstallSkill: (skillId: string, input: {
@@ -63,6 +66,7 @@ export function AgentDetail({
   onVerifyProvider,
   onDeleteAgent,
   onSaveInstructions,
+  onSaveDefaultModel,
   onSetChannelMemberAccess,
   onSetSkillIds,
   onInstallSkill,
@@ -80,6 +84,7 @@ export function AgentDetail({
   const [forkTargetUserId, setForkTargetUserId] = useState("");
   const [forkContextNote, setForkContextNote] = useState("");
   const [instructionDraft, setInstructionDraft] = useState(record.instructions ?? "");
+  const [defaultModelDraft, setDefaultModelDraft] = useState(record.defaultModel ?? "");
   const [selectedRuntimeId, setSelectedRuntimeId] = useState(() =>
     resolveExecutionEngineValue(record.boundContainerId, containerOptions),
   );
@@ -87,6 +92,10 @@ export function AgentDetail({
   useEffect(() => {
     setInstructionDraft(record.instructions ?? "");
   }, [record.id, record.instructions]);
+
+  useEffect(() => {
+    setDefaultModelDraft(record.defaultModel ?? "");
+  }, [record.id, record.defaultModel]);
 
   useEffect(() => {
     setSelectedRuntimeId(resolveExecutionEngineValue(record.boundContainerId, containerOptions));
@@ -496,6 +505,52 @@ export function AgentDetail({
                 </span>
               </label>
             </section>
+
+            {onSaveDefaultModel ? (
+              <section className="form-panel form-panel--nested">
+                <div className="panel-header">
+                  <div>
+                    <h3>{tx("默认模型", "Default model")}</h3>
+                  </div>
+                </div>
+                <div className="form-field form-field--full">
+                  {record.boundProvider && isDaemonProvider(record.boundProvider) ? (
+                    <RuntimeModelPicker
+                      provider={record.boundProvider}
+                      value={defaultModelDraft}
+                      onChange={setDefaultModelDraft}
+                    />
+                  ) : (
+                    <label className="form-field">
+                      <span>{tx("默认模型", "Default model")}</span>
+                      <input
+                        disabled={pending || !canManage}
+                        onChange={(event) => setDefaultModelDraft(event.currentTarget.value)}
+                        placeholder={tx("继承 Runtime 默认模型", "Inherit runtime default model")}
+                        type="text"
+                        value={defaultModelDraft}
+                      />
+                    </label>
+                  )}
+                  <p className="form-help">
+                    {tx(
+                      "留空表示继承 Runtime 默认模型；设置后将覆盖 Runtime 与团队策略默认模型。",
+                      "Leave blank to inherit the runtime default; when set, this overrides runtime and team policy defaults.",
+                    )}
+                  </p>
+                </div>
+                <div className="detail-actions">
+                  <button
+                    className="primary-button"
+                    disabled={pending || !canManage || defaultModelDraft === (record.defaultModel ?? "")}
+                    onClick={() => onSaveDefaultModel(defaultModelDraft.trim() || undefined)}
+                    type="button"
+                  >
+                    {tx("保存默认模型", "Save default model")}
+                  </button>
+                </div>
+              </section>
+            ) : null}
 
             {canManage && onCreateForkInvitation ? (
               <section className="form-panel form-panel--nested agent-fork-panel">

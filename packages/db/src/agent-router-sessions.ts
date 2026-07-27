@@ -164,6 +164,9 @@ export function readAgentRouterSessionSync(id: string): AgentRouterSessionRecord
       title,
       summary,
       memory_summary AS memorySummary,
+      model_override AS modelOverride,
+      model_override_source AS modelOverrideSource,
+      model_override_set_at AS modelOverrideSetAt,
       created_at AS createdAt,
       updated_at AS updatedAt,
       closed_at AS closedAt
@@ -204,6 +207,9 @@ export function listAgentRouterSessionsSync(options: {
       title,
       summary,
       memory_summary AS memorySummary,
+      model_override AS modelOverride,
+      model_override_source AS modelOverrideSource,
+      model_override_set_at AS modelOverrideSetAt,
       created_at AS createdAt,
       updated_at AS updatedAt,
       closed_at AS closedAt
@@ -231,6 +237,44 @@ export function updateAgentRouterSessionMemorySync(input: {
   const session = readAgentRouterSessionSync(input.routerSessionId);
   if (!session) {
     throw new Error(`Router session "${input.routerSessionId}" does not exist.`);
+  }
+  return session;
+}
+
+export function setAgentRouterSessionModelOverrideSync(input: {
+  routerSessionId: string;
+  modelOverride: string;
+  source?: string;
+}): AgentRouterSessionRecord {
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `UPDATE agent_router_session
+     SET model_override = ?,
+         model_override_source = ?,
+         model_override_set_at = ?,
+         updated_at = ?
+     WHERE id = ?`,
+  ).run(input.modelOverride, input.source ?? "manual", now, now, input.routerSessionId);
+  const session = readAgentRouterSessionSync(input.routerSessionId);
+  if (!session) {
+    throw new Error(`Router session "${input.routerSessionId}" does not exist.`);
+  }
+  return session;
+}
+
+export function clearAgentRouterSessionModelOverrideSync(routerSessionId: string): AgentRouterSessionRecord {
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `UPDATE agent_router_session
+     SET model_override = NULL,
+         model_override_source = NULL,
+         model_override_set_at = NULL,
+         updated_at = ?
+     WHERE id = ?`,
+  ).run(now, routerSessionId);
+  const session = readAgentRouterSessionSync(routerSessionId);
+  if (!session) {
+    throw new Error(`Router session "${routerSessionId}" does not exist.`);
   }
   return session;
 }
@@ -875,6 +919,9 @@ function mapAgentRouterSessionRecord(value: Record<string, unknown>): AgentRoute
     title: typeof value.title === "string" ? value.title : undefined,
     summary: typeof value.summary === "string" ? value.summary : undefined,
     memorySummary: typeof value.memorySummary === "string" ? value.memorySummary : undefined,
+    modelOverride: typeof value.modelOverride === "string" ? value.modelOverride : undefined,
+    modelOverrideSource: typeof value.modelOverrideSource === "string" ? value.modelOverrideSource : undefined,
+    modelOverrideSetAt: typeof value.modelOverrideSetAt === "string" ? value.modelOverrideSetAt : undefined,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     closedAt: typeof value.closedAt === "string" ? value.closedAt : undefined,

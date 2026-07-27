@@ -10,6 +10,8 @@ import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import type { AgentsPageData } from "@/features/dashboard/data";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { ExecutionEngineSelect, resolveExecutionEngineValue } from "@/features/agents/components/execution-engine-select";
+import { RuntimeModelPicker } from "@/features/runtimes/runtime-model-picker";
+import { isDaemonProvider } from "@dofe-agent/domain";
 
 interface CreateAgentModalProps {
   readonly containerOptions: AgentsPageData["containerOptions"];
@@ -26,6 +28,7 @@ interface CreateAgentModalProps {
     summary: string;
     instructions: string;
     containerId: string;
+    defaultModel?: string;
     templateId?: AgentTemplateId;
   }) => void;
 }
@@ -114,6 +117,7 @@ export function CreateAgentModal({
             summary: draft.summary,
             instructions: draft.instructions,
             containerId,
+            defaultModel: draft.defaultModel || undefined,
             templateId: createMode === "template" ? selectedTemplate.id : undefined,
           });
           event.currentTarget.reset();
@@ -317,6 +321,34 @@ export function CreateAgentModal({
               <p className="form-help">{emptyRuntimeMessage ?? tx("请联系管理员分配执行引擎。", "Ask an admin to assign an execution engine.")}</p>
             ) : null}
           </div>
+          {(() => {
+            const selectedContainer = containerOptions.find((option) => option.id === containerId);
+            const provider = selectedContainer?.provider && isDaemonProvider(selectedContainer.provider)
+              ? selectedContainer.provider
+              : undefined;
+            return provider ? (
+              <div className="form-field">
+                <RuntimeModelPicker
+                  provider={provider}
+                  value={draft.defaultModel}
+                  onChange={(value) => setDraft((current) => ({ ...current, defaultModel: value }))}
+                />
+              </div>
+            ) : (
+              <div className="form-field">
+                <label className="form-field">
+                  <span>{tx("默认模型", "Default model")}</span>
+                  <input
+                    name="defaultModel"
+                    onChange={(event) => setDraft((current) => ({ ...current, defaultModel: event.target.value }))}
+                    placeholder={tx("继承 Runtime 默认模型", "Inherit runtime default model")}
+                    type="text"
+                    value={draft.defaultModel}
+                  />
+                </label>
+              </div>
+            );
+          })()}
         </div>
 
         <div className="modal-card__footer">
@@ -349,12 +381,14 @@ function createDraftFromTemplate(template: SystemAgentTemplatePreset): {
   remarkName: string;
   summary: string;
   instructions: string;
+  defaultModel: string;
 } {
   return {
     name: template.defaultAgentName,
     remarkName: template.defaultRemarkName,
     summary: template.summary,
     instructions: template.instructions,
+    defaultModel: "",
   };
 }
 
@@ -363,12 +397,14 @@ function createBlankDraft(): {
   remarkName: string;
   summary: string;
   instructions: string;
+  defaultModel: string;
 } {
   return {
     name: "",
     remarkName: "",
     summary: "",
     instructions: "",
+    defaultModel: "",
   };
 }
 

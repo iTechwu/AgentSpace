@@ -420,6 +420,8 @@ export {
   recordAgentRouterEventSync,
   resolveRouterSessionForTaskSync,
   resolveTaskRouterConversationIdentity,
+  setAgentRouterSessionModelOverrideSync,
+  clearAgentRouterSessionModelOverrideSync,
   updateAgentRouterSessionMemorySync,
   updateAgentTaskAttemptSync,
   upsertAgentRouterProviderSessionSync,

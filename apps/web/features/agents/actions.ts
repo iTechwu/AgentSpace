@@ -9,8 +9,11 @@ import {
   pruneOfflineDaemonsSync,
   readRuntimeProvisionRequestSync,
   readAgentRuntimeSync,
+  readAgentRouterSessionSync,
   readEmployeeRuntimeBindingSync,
   requestAgentRuntimeProviderVerificationSync,
+  setAgentRouterSessionModelOverrideSync,
+  clearAgentRouterSessionModelOverrideSync,
   updateRuntimeProvisionRequestSync,
   withTransaction,
   updateWorkspaceRuntimeDisplayNameSync,
@@ -47,6 +50,7 @@ import {
   tryRecordWorkspaceAuditEventSync,
   unbindEmployeeRuntimeSync,
   upsertAgentSkillRequirementsSync,
+  updateEmployeeDefaultModelSync,
   updateEmployeeInstructionsSync,
 } from "@dofe-agent/services";
 import type { TaskRecord } from "@dofe-agent/domain/workspace";
@@ -165,6 +169,7 @@ export async function createWorkspaceAgentAction(input: {
   summary?: string;
   instructions?: string;
   runtimeId?: string;
+  defaultModel?: string;
   templateId?: string;
 }): Promise<ActionToastResult<void>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
@@ -201,6 +206,7 @@ export async function createWorkspaceAgentAction(input: {
     traits: template?.traits,
     skillIds: resolvedTemplate?.skillIds,
     ownerUserId: canManageWorkspaceAgents ? undefined : actorUserId,
+    defaultModel: input.defaultModel?.trim() || undefined,
     active: true,
   }, workspaceId);
 
@@ -384,6 +390,82 @@ export async function deleteWorkspaceAgentAction(employeeName: string): Promise<
     undefined,
     successToast("Agent 已删除。", "Agent deleted."),
     buildAgentInvalidation(workspaceId, employeeName.trim()),
+  );
+}
+
+export async function updateWorkspaceAgentDefaultModelAction(input: {
+  employeeName: string;
+  defaultModel?: string;
+}): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  assertRequired(input.employeeName, "employee name");
+  assertCanManageEmployeeForActorSync({
+    workspaceId,
+    employeeName: input.employeeName.trim(),
+    actorUserId: workspaceContext.currentUser.id,
+  });
+  updateEmployeeDefaultModelSync(
+    input.employeeName.trim(),
+    input.defaultModel?.trim() || undefined,
+    workspaceId,
+  );
+  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+  return actionToastResult(
+    undefined,
+    successToast("AI员工默认模型已保存。", "AI employee default model saved."),
+    buildAgentInvalidation(workspaceId, input.employeeName.trim()),
+  );
+}
+
+export async function setSessionModelOverrideAction(input: {
+  routerSessionId: string;
+  modelId?: string;
+}): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  assertRequired(input.routerSessionId, "router session id");
+  if (!isWorkspaceAdminOrOwnerSync({ workspaceId, userId: workspaceContext.currentUser.id })) {
+    throw new Error("Only workspace admins can set a session model override.");
+  }
+
+  const session = readAgentRouterSessionSync(input.routerSessionId.trim());
+  if (!session || session.workspaceId !== workspaceId) {
+    throw new Error("session.not_found");
+  }
+
+  if (input.modelId?.trim()) {
+    setAgentRouterSessionModelOverrideSync({
+      routerSessionId: session.id,
+      modelOverride: input.modelId.trim(),
+      source: "manual",
+    });
+  } else {
+    clearAgentRouterSessionModelOverrideSync(session.id);
+  }
+
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId,
+    title: input.modelId?.trim() ? "Session model override set" : "Session model override cleared",
+    note: `${workspaceContext.currentUser.displayName} ${input.modelId?.trim() ? `set session model to "${input.modelId.trim()}"` : "cleared the session model override"} for ${session.agentId}.`,
+    code: input.modelId?.trim() ? "session.model_overridden" : "session.model_override_cleared",
+    data: {
+      actorType: "session_user",
+      resourceType: "router_session",
+      resourceId: session.id,
+      agentId: session.agentId,
+      modelId: input.modelId?.trim(),
+    },
+  });
+
+  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+  return actionToastResult(
+    undefined,
+    successToast(
+      input.modelId?.trim() ? "会话模型覆盖已设置。" : "会话模型覆盖已清除。",
+      input.modelId?.trim() ? "Session model override set." : "Session model override cleared.",
+    ),
+    buildAgentInvalidation(workspaceId, session.agentId),
   );
 }
 

@@ -751,6 +751,7 @@ export interface WorkspaceAgentRecord extends ManagementRecordBase {
   boundProvider?: string;
   boundProviderHealth?: RuntimeProviderHealth;
   boundAt?: string;
+  defaultModel?: string;
   workAreas: AgentWorkAreaRecord[];
   instructions?: string;
   knowledge?: WorkspaceAgentKnowledgeRecord;
@@ -4047,6 +4048,7 @@ function buildWorkspaceAgentRecord(
     boundProvider: binding?.provider,
     boundProviderHealth: runtime?.providerHealth,
     boundAt: binding?.boundAt,
+    defaultModel: employee.defaultModel,
     workAreas,
     instructions: employee.instructions,
     knowledge,

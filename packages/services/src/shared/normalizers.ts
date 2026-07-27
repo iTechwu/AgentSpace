@@ -141,6 +141,10 @@ export function normalizeWorkspaceState(state: Partial<DofeAgentState>): DofeAge
     scheduledTasks: Array.isArray(state.scheduledTasks) ? state.scheduledTasks : fallback.scheduledTasks,
     templates: Array.isArray(state.templates) ? state.templates : fallback.templates,
     ledger: normalizeLedgerItems(state.ledger, fallback.ledger),
+    runtimePolicy:
+      state.runtimePolicy && typeof state.runtimePolicy === "object"
+        ? { defaultModel: normalizeOptionalString((state.runtimePolicy as { defaultModel?: unknown }).defaultModel) }
+        : undefined,
   };
 }
 
@@ -575,6 +579,7 @@ function normalizeActiveEmployee(employee: unknown, skillPool: WorkspaceSkill[])
         ? candidate.ownerUserId
         : undefined,
     channelMemberAccess: normalizeEmployeeChannelMemberAccess(candidate),
+    defaultModel: typeof candidate.defaultModel === "string" ? candidate.defaultModel : undefined,
     origin: candidate.origin,
     summary: candidate.summary,
     traits: Array.isArray(candidate.traits) ? candidate.traits.filter((item): item is string => typeof item === "string") : [],

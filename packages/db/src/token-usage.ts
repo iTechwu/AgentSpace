@@ -79,6 +79,8 @@ export function recordTokenUsageSync(input: {
   agentId: string;
   modelId: string;
   providerAccountId?: string;
+  runtimeCredentialId?: string;
+  routerSessionId?: string;
   inputTokens: number;
   outputTokens: number;
   channelName?: string;
@@ -92,9 +94,9 @@ export function recordTokenUsageSync(input: {
   const workspaceId = input.workspaceId ?? readWorkspaceIdForTaskQueueSync(input.taskQueueId) ?? DEFAULT_WORKSPACE_ID;
 
   db.prepare(
-    `INSERT INTO token_usage (id, workspace_id, task_queue_id, agent_id, model_id, provider_account_id, input_tokens, output_tokens, cost_usd, channel_name, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, workspaceId, input.taskQueueId, input.agentId, input.modelId, input.providerAccountId ?? null, input.inputTokens, input.outputTokens, costUsd, input.channelName ?? null, now);
+    `INSERT INTO token_usage (id, workspace_id, task_queue_id, agent_id, model_id, provider_account_id, runtime_credential_id, router_session_id, input_tokens, output_tokens, cost_usd, channel_name, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, workspaceId, input.taskQueueId, input.agentId, input.modelId, input.providerAccountId ?? null, input.runtimeCredentialId ?? null, input.routerSessionId ?? null, input.inputTokens, input.outputTokens, costUsd, input.channelName ?? null, now);
 
   return {
     id,
@@ -103,6 +105,8 @@ export function recordTokenUsageSync(input: {
     agentId: input.agentId,
     modelId: input.modelId,
     providerAccountId: input.providerAccountId,
+    runtimeCredentialId: input.runtimeCredentialId,
+    routerSessionId: input.routerSessionId,
     inputTokens: input.inputTokens,
     outputTokens: input.outputTokens,
     costUsd,
@@ -150,6 +154,8 @@ export function listTokenUsageSync(filters?: {
     agent_id: string;
     model_id: string;
     provider_account_id: string | null;
+    runtime_credential_id: string | null;
+    router_session_id: string | null;
     input_tokens: number;
     output_tokens: number;
     cost_usd: number;
@@ -164,6 +170,8 @@ export function listTokenUsageSync(filters?: {
     agentId: row.agent_id,
     modelId: row.model_id,
     providerAccountId: row.provider_account_id ?? undefined,
+    runtimeCredentialId: row.runtime_credential_id ?? undefined,
+    routerSessionId: row.router_session_id ?? undefined,
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
     costUsd: row.cost_usd,

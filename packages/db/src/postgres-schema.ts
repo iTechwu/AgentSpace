@@ -524,11 +524,16 @@ export function getPostgresSchemaStatements(): string[] {
         instructions TEXT NOT NULL DEFAULT '',
         owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
         channel_member_access TEXT NOT NULL DEFAULT 'disabled',
+        default_model TEXT,
         version INTEGER NOT NULL DEFAULT 1,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL,
         PRIMARY KEY (workspace_id, name)
       )
+    `,
+    `
+      ALTER TABLE workspace_employee
+        ADD COLUMN IF NOT EXISTS default_model TEXT
     `,
     `
       CREATE TABLE IF NOT EXISTS agent_fork_invitation (
@@ -1057,11 +1062,26 @@ export function getPostgresSchemaStatements(): string[] {
         title TEXT,
         summary TEXT,
         memory_summary TEXT,
+        model_override TEXT,
+        model_override_source TEXT,
+        model_override_set_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL,
         closed_at TIMESTAMPTZ,
         UNIQUE(workspace_id, agent_id, conversation_key)
       )
+    `,
+    `
+      ALTER TABLE agent_router_session
+        ADD COLUMN IF NOT EXISTS model_override TEXT
+    `,
+    `
+      ALTER TABLE agent_router_session
+        ADD COLUMN IF NOT EXISTS model_override_source TEXT
+    `,
+    `
+      ALTER TABLE agent_router_session
+        ADD COLUMN IF NOT EXISTS model_override_set_at TIMESTAMPTZ
     `,
     `
       CREATE TABLE IF NOT EXISTS agent_router_provider_session (
@@ -1188,12 +1208,20 @@ export function getPostgresSchemaStatements(): string[] {
         agent_id TEXT NOT NULL,
         model_id TEXT NOT NULL,
         provider_account_id TEXT REFERENCES provider_account(id) ON DELETE SET NULL,
+        runtime_credential_id TEXT,
+        router_session_id TEXT,
         input_tokens INTEGER NOT NULL DEFAULT 0,
         output_tokens INTEGER NOT NULL DEFAULT 0,
         cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
         channel_name TEXT,
         created_at TIMESTAMPTZ NOT NULL
       )
+    `,
+    `
+      ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS runtime_credential_id TEXT
+    `,
+    `
+      ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS router_session_id TEXT
     `,
     `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS provider_account_id TEXT REFERENCES provider_account(id) ON DELETE SET NULL`,
     `

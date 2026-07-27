@@ -23,6 +23,7 @@ import {
   setWorkspaceAgentSkillAssignmentsAction,
   installWorkspaceAgentSkillAction,
   unbindWorkspaceAgentRuntimeAction,
+  updateWorkspaceAgentDefaultModelAction,
   updateWorkspaceAgentInstructionsAction,
   updateWorkspaceRuntimeDisplayNameAction,
   verifyWorkspaceAgentRuntimeProviderAction,
@@ -495,6 +496,7 @@ export function AgentsPageClient({
                   summary: input.summary,
                   instructions: input.instructions,
                   runtimeId: input.containerId || undefined,
+                  defaultModel: input.defaultModel,
                   templateId: input.templateId,
                 }),
               () => setShowCreateAgent(false),
@@ -737,6 +739,15 @@ export function AgentsPageClient({
                         updateWorkspaceAgentInstructionsAction({
                           employeeName: selectedAgent.internalName,
                           instructions,
+                        }),
+                    )
+                  }
+                  onSaveDefaultModel={(defaultModel) =>
+                    runAction(
+                      () =>
+                        updateWorkspaceAgentDefaultModelAction({
+                          employeeName: selectedAgent.internalName,
+                          defaultModel,
                         }),
                     )
                   }

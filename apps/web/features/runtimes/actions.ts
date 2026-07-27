@@ -32,6 +32,14 @@ function requireAdminActor() {
   });
 }
 
+function requireWorkspaceActor() {
+  return requireCurrentWorkspaceContext().then((ctx) => ({
+    workspaceId: ctx.currentWorkspace.id,
+    actorUserId: ctx.currentUser.id,
+    slug: ctx.currentWorkspace.slug,
+  }));
+}
+
 export async function createManagedRuntimeAction(input: {
   provider: DaemonProvider;
   defaultModel?: string;
@@ -127,7 +135,7 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
   list: RuntimeModelCatalogItem[];
   configured: boolean;
 }> {
-  const { workspaceId } = await requireAdminActor();
+  const { workspaceId } = await requireWorkspaceActor();
   if (!isModelsInternalConfigured()) {
     return { list: [], configured: false };
   }

@@ -16,6 +16,7 @@ export function listStoredEmployeesSync(workspaceId = DEFAULT_WORKSPACE_ID): Act
       status,
       instructions,
       channel_member_access AS channelMemberAccess,
+      default_model AS defaultModel,
       created_at AS createdAt,
       updated_at AS updatedAt
      FROM workspace_employee
@@ -49,10 +50,11 @@ export function createStoredEmployeeSync(employee: ActiveEmployee, workspaceId =
       status,
       instructions,
       channel_member_access,
+      default_model,
       version,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
   ).run(
     workspaceId,
     employee.name,
@@ -66,6 +68,7 @@ export function createStoredEmployeeSync(employee: ActiveEmployee, workspaceId =
     employee.status,
     employee.instructions ?? "",
     employee.channelMemberAccess ?? (employee.ownerUserId ? "disabled" : "enabled"),
+    employee.defaultModel ?? null,
     now,
     now,
   );
@@ -88,6 +91,7 @@ export function updateStoredEmployeeSync(employeeName: string, next: ActiveEmplo
          status = ?,
          instructions = ?,
          channel_member_access = ?,
+         default_model = ?,
          version = version + 1,
          updated_at = ?
      WHERE workspace_id = ? AND name = ?`,
@@ -102,6 +106,7 @@ export function updateStoredEmployeeSync(employeeName: string, next: ActiveEmplo
     next.status,
     next.instructions ?? "",
     next.channelMemberAccess ?? (next.ownerUserId ? "disabled" : "enabled"),
+    next.defaultModel ?? null,
     now,
     workspaceId,
     employeeName,
@@ -152,6 +157,7 @@ function mapStoredEmployeeRecord(row: Record<string, unknown>): ActiveEmployee |
     summary: row.summary,
     traits: parseStringArray(typeof row.traitsJson === "string" ? row.traitsJson : "[]"),
     fit: row.fit,
+    defaultModel: typeof row.defaultModel === "string" ? row.defaultModel : undefined,
     skillIds: [],
     channels: [],
     status: row.status === "active" ? "active" : "active",

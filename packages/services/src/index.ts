@@ -52,6 +52,7 @@ export {
   bindEmployeeRuntimeSync,
   unbindEmployeeRuntimeSync,
   deleteEmployeeSync,
+  updateEmployeeDefaultModelSync,
   updateEmployeeInstructionsSync,
   updateEmployeeRemarkNameSync,
   setEmployeeChannelMemberAccessSync,
@@ -918,6 +919,12 @@ export {
   resolveModelsInternalConfig,
   type ModelsInternalConfig,
 } from "./models/client.ts";
+export {
+  resolveEffectiveModelForBoundEmployeeAsync,
+  resolveEffectiveModelForTaskAsync,
+  type EffectiveModelResolution,
+  type ResolveEffectiveModelInput,
+} from "./models/model-resolution.ts";
 
 // Managed runtime provisioning (Phase 2)
 export {

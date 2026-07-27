@@ -219,6 +219,28 @@ export function updateEmployeeInstructionsSync(employeeName: string, instruction
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
+export function updateEmployeeDefaultModelSync(
+  employeeName: string,
+  defaultModel: string | undefined,
+  workspaceId?: string,
+): DofeAgentState {
+  const state = ensureWorkspaceStateSync(workspaceId);
+  const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
+  if (!employee) {
+    throw new Error(`Active employee "${employeeName}" does not exist.`);
+  }
+
+  const previous = employee.defaultModel;
+  employee.defaultModel = defaultModel?.trim() || undefined;
+  updateStoredEmployeeSync(employeeName, employee, workspaceId);
+  state.ledger.unshift({
+    title: "AI employee default model updated",
+    note: `${employee.remarkName ?? employee.name} default model changed from ${previous ?? "inherit"} to ${employee.defaultModel ?? "inherit"}.`,
+  });
+
+  return writeWorkspaceStateSync(state, workspaceId);
+}
+
 export function updateEmployeeRemarkNameSync(employeeName: string, remarkName: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
@@ -250,6 +272,7 @@ export function createEmployeeSync(input: {
   skillIds?: string[];
   ownerUserId?: string;
   channelMemberAccess?: AgentChannelMemberAccess;
+  defaultModel?: string;
 }, workspaceId?: string): DofeAgentState {
   const workspaceSkills = listWorkspaceSkillsSync(workspaceId);
   const state = ensureWorkspaceStateSync(workspaceId);
@@ -264,6 +287,7 @@ export function createEmployeeSync(input: {
     remarkName: input.remarkName?.trim() || input.name,
     ownerUserId: input.ownerUserId?.trim() || undefined,
     channelMemberAccess: input.channelMemberAccess ?? (input.ownerUserId?.trim() ? "disabled" : "enabled"),
+    defaultModel: input.defaultModel?.trim() || undefined,
     origin: input.origin ?? "manual",
     summary: input.summary ?? `${input.name} joined the workspace directly.`,
     traits: input.traits ?? [],

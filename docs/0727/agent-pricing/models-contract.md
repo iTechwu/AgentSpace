@@ -1,8 +1,18 @@
 # 面向受管 Runtime 的 models.dofe.ai 契约优化
 
-状态：**已实施（Phase 1）**。本文描述为了支持 AgentSpace 受管 Runtime，在 `../models.dofe.ai` 中补齐的内部服务能力与数据契约。实现代码见 [models.dofe.ai 仓库](https://github.com/dofe-ai/models.dofe.ai) 的 `apps/api/libs/domain/runtime-credential/`、`apps/api/src/modules/internal-api/`、`packages/contracts/src/schemas/runtime-credential.schema.ts` 与 `packages/models-sdk/src/internal.ts`。
+状态：**已实施（Phase 1）**。本文描述为了支持 AgentSpace `DOFE_AGENT_RUNTIME_MODE=remote`（服务器模式）受管 Runtime，在 `../models.dofe.ai` 中补齐的内部服务能力与数据契约。`local` 是默认模式，保持既有本地行为，不属于本契约的调用方、资源或迁移对象。实现代码见 [models.dofe.ai 仓库](https://github.com/dofe-ai/models.dofe.ai) 的 `apps/api/libs/domain/runtime-credential/`、`apps/api/src/modules/internal-api/`、`packages/contracts/src/schemas/runtime-credential.schema.ts` 与 `packages/models-sdk/src/internal.ts`。
 
 ## 1. 当前能力与不足
+
+### 1.1 模式边界
+
+AgentSpace 仅在实例启动配置为 `DOFE_AGENT_RUNTIME_MODE=remote` 后调用本文接口。该配置
+是部署级开关，不是 Runtime 字段；models 不负责识别、保存或推断本地连接。下列规则不可例外：
+
+- `local` 不调用 Runtime Credential、内部模型目录、用量查询、余额预检或轮换/撤销接口；
+- models 不为本地 Runtime 签发占位 API Key，也不接收伪造的本地 `runtimeId` 用于计费；
+- 未设置该变量时必须按 `local` 处理；`remote` 是服务器模式的正式配置值；不得接受或写入 `server` 作为替代值；
+- 服务器模式缺失 `MODELS_BASE_URL`、服务身份或内部密钥时必须在创建前失败，不能改走本地服务。
 
 `models.dofe.ai` 已具备下列可复用能力：
 
@@ -14,7 +24,7 @@
 
 现有 `employeeKeys` 面向 AI员工身份，创建参数主要是 `employeeId`、`ssoTeamId` 与名称。受管 Runtime 需要明确的 `runtimeId`、协议、生命周期和凭据状态，因此不应把 Runtime Key 隐式伪装成员工 Key。
 
-## 2. 新增领域对象
+## 2. 新增领域对象（仅服务器模式）
 
 建议引入 `RuntimeCredential`，由模型服务拥有并签发：
 
@@ -38,7 +48,7 @@
 
 ## 3. 建议的内部 API
 
-以下接口仅面向经过服务间认证的 AgentSpace 控制面；不得直接暴露给浏览器或 Runtime 容器。
+以下接口仅面向经过服务间认证的 AgentSpace 控制面；不得直接暴露给浏览器或 Runtime 容器。所有接口的前置条件都是目标 Runtime 已处于 `remote`（服务器）模式。
 
 ### 3.1 创建 Runtime 凭据
 
@@ -148,7 +158,7 @@
 
 请求通过 `tenantId`、`teamId` 作用域后仅返回安全元数据，不返回 API Key。用于 AgentSpace 恢复任务、节点健康检查和审计展示。
 
-## 4. 用量关联与对账契约
+## 4. 用量关联与对账契约（仅服务器模式）
 
 模型网关应接受或生成以下可检索的关联字段：
 
@@ -203,13 +213,13 @@ runtimeCredentialId + "\n" + runtimeId + "\n" + employeeId + "\n" + conversation
 
 1. 在模型服务中建立 `RuntimeCredential` 模型与内部接口，不修改现有用户 API Key 语义。
 2. 扩展 `models-sdk`，增加类型安全的 Runtime Credential 客户端。
-3. AgentSpace 先在新建受管 Runtime 上启用新契约；已有本地 Provider 保持只读兼容，标记为待迁移。
-4. 为既有受管 Runtime 补发 Runtime Key，并将旧 `providerAccountId` 引用迁移到 `runtimeCredentialId`、`secretRef`、`configRef`。
-5. 通过双写或对账任务验证 Runtime Key 用量与 AgentSpace 归因数据一致后，再逐步停用旧凭据路径。
+3. 不为既有本地 Runtime 增加模式字段或迁移数据；在 `local` 部署中继续使用原有连接、凭据和错误处理。
+4. 仅在显式切换部署配置到 `remote` 后，为需要受管化的 Runtime 创建或补发 Runtime Key，并将旧 `providerAccountId` 引用迁移到 `runtimeCredentialId`、`secretRef`、`configRef`。
+6. 通过双写或对账任务验证服务器 Runtime Key 用量与 AgentSpace 归因数据一致后，再逐步停用旧凭据路径。
 
 ## 7. 验收标准
 
-1. AgentSpace 可以按幂等请求创建、轮换、撤销 Runtime 凭据。
+1. 仅当部署配置为 `remote` 时，AgentSpace 才会按幂等请求创建、轮换、撤销 Runtime 凭据；`local` 部署对这些接口零调用。
 2. 明文 Key 不会出现在 AgentSpace 数据库、浏览器、任务详情或审计日志中。
 3. `GET /internal/runtime-credentials/:id/models` 的模型结果与网关实际可调用模型一致。
 4. 模型网关可以按租户、团队、Runtime Key 产出真实账单，并可关联至 AI员工与会话。
