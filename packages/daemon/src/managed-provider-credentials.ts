@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { chmodSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as pathResolve } from "node:path";
 import type { DaemonProvider } from "@dofe-agent/domain";
@@ -48,6 +49,47 @@ const PROVIDER_ENVIRONMENT_KEYS: Record<DaemonProvider, string[]> = {
   hermes: ["OPENAI_API_KEY", "OPENAI_BASE_URL", "HERMES_API_KEY"],
 };
 
+const PROVIDER_BASE_URL_KEYS: Record<DaemonProvider, string> = {
+  claude: "ANTHROPIC_BASE_URL",
+  codex: "OPENAI_BASE_URL",
+  antigravity: "OPENAI_BASE_URL",
+  gemini: "GEMINI_BASE_URL",
+  opencode: "OPENAI_BASE_URL",
+  openclaw: "OPENAI_BASE_URL",
+  nanobot: "OPENAI_BASE_URL",
+  hermes: "OPENAI_BASE_URL",
+};
+
+const ATTRIBUTION_ENVIRONMENT_KEYS = [
+  "DOFE_AGENT_RUNTIME_CREDENTIAL_ID",
+  "DOFE_AGENT_RUNTIME_ID",
+  "DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID",
+  "DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID",
+] as const;
+
+const ATTRIBUTION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+
+export function buildManagedRuntimeAttributionHeaders(input: {
+  runtimeKey: string;
+  runtimeCredentialId: string;
+  runtimeId: string;
+  employeeId: string;
+  conversationId: string;
+  timestampSeconds: number;
+}): Record<string, string> {
+  if (!ATTRIBUTION_ID_PATTERN.test(input.employeeId) || !ATTRIBUTION_ID_PATTERN.test(input.conversationId)) {
+    throw new Error("managed_runtime.invalid_attribution_id");
+  }
+  const timestamp = String(input.timestampSeconds);
+  const content = [input.runtimeCredentialId, input.runtimeId, input.employeeId, input.conversationId, timestamp].join("\n");
+  return {
+    "x-dofe-employee-id": input.employeeId,
+    "x-dofe-conversation-id": input.conversationId,
+    "x-dofe-attribution-timestamp": timestamp,
+    "x-dofe-attribution-signature": createHmac("sha256", input.runtimeKey).update(content, "utf8").digest("hex"),
+  };
+}
+
 export function getManagedProviderCredentialEnvironmentKey(provider: DaemonProvider): string {
   const key = PROVIDER_ENVIRONMENT_KEYS[provider].find((candidate) => candidate.endsWith("_API_KEY"));
   if (!key) {
@@ -93,6 +135,10 @@ export function createManagedCredentialResolver(
       files: bundle.files,
     };
     const profile = writeCredentialProfile(profileDir, document);
+    writeFileSync(join(profile.profileDir, "attribution-proxy.mjs"), buildAttributionProxySource(), {
+      encoding: "utf8",
+      mode: 0o644,
+    });
     const managedProfile: ProviderCredentialProfile = {
       accountId: runtimeId,
       profileDir: profile.profileDir,
@@ -128,22 +174,92 @@ export function createManagedCredentialResolver(
 function buildDockerProviderLauncher(profileDir: string, runtimeId: string, provider: DaemonProvider): string {
   const imageTag = process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest";
   const image = `dofe/agent-runtime-${provider}:${imageTag}`;
-  const environmentArgs = PROVIDER_ENVIRONMENT_KEYS[provider]
+  const environmentArgs = [...PROVIDER_ENVIRONMENT_KEYS[provider], ...ATTRIBUTION_ENVIRONMENT_KEYS]
     .map((key) => `  --env ${key} \\\n`)
     .join("");
   return [
     "#!/bin/sh",
     "set -eu",
     "exec docker run --rm --init \\",
+    "  --read-only \\",
+    "  --tmpfs /tmp:rw,nosuid,nodev,noexec \\",
+    "  --security-opt no-new-privileges \\",
+    "  --cap-drop ALL \\",
     `  --name ${shellQuote(`dofe-runtime-${normalizeRuntimeId(runtimeId)}`)} \\`,
     "  --mount \\\"type=bind,src=$(pwd),dst=/workspace\\\" \\",
     `  --mount ${shellQuote(`type=bind,src=${profileDir},dst=/dofe-profile`)} \\`,
     "  --workdir /workspace \\",
     "  --env HOME=/dofe-profile \\",
     environmentArgs.trimEnd(),
-    `  ${shellQuote(image)} ${shellQuote(PROVIDER_EXECUTABLES[provider])} \"$@\"`,
+    `  ${shellQuote(image)} node /dofe-profile/attribution-proxy.mjs ${shellQuote(PROVIDER_BASE_URL_KEYS[provider])} ${shellQuote(getManagedProviderCredentialEnvironmentKey(provider))} ${shellQuote(PROVIDER_EXECUTABLES[provider])} \"$@\"`,
     "",
   ].join("\n");
+}
+
+function buildAttributionProxySource(): string {
+  return `import { createHmac } from "node:crypto";
+import { spawn } from "node:child_process";
+import http from "node:http";
+import https from "node:https";
+
+const [baseUrlKey, runtimeKeyName, executable, ...args] = process.argv.slice(2);
+const upstreamBaseUrl = process.env[baseUrlKey];
+const runtimeKey = process.env[runtimeKeyName];
+if (!upstreamBaseUrl || !runtimeKey || !executable) {
+  console.error("managed_runtime.attribution_proxy_configuration_missing");
+  process.exit(1);
+}
+
+const upstream = new URL(upstreamBaseUrl);
+const basePath = upstream.pathname.replace(/\\\/$/, "");
+const idPattern = /^[A-Za-z0-9._:-]{1,128}$/;
+const server = http.createServer((request, response) => {
+  let requestPath = request.url || "/";
+  if (basePath && requestPath !== basePath && !requestPath.startsWith(basePath + "/")) {
+    requestPath = basePath + (requestPath.startsWith("/") ? requestPath : "/" + requestPath);
+  }
+  const target = new URL(requestPath, upstream.origin);
+  const headers = { ...request.headers, host: target.host };
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase().startsWith("x-dofe-")) delete headers[key];
+  }
+
+  const credentialId = process.env.DOFE_AGENT_RUNTIME_CREDENTIAL_ID || "";
+  const runtimeId = process.env.DOFE_AGENT_RUNTIME_ID || "";
+  const employeeId = process.env.DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID || "";
+  const conversationId = process.env.DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID || "";
+  if (credentialId && runtimeId && idPattern.test(employeeId) && idPattern.test(conversationId)) {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const content = [credentialId, runtimeId, employeeId, conversationId, timestamp].join("\\n");
+    headers["x-dofe-employee-id"] = employeeId;
+    headers["x-dofe-conversation-id"] = conversationId;
+    headers["x-dofe-attribution-timestamp"] = timestamp;
+    headers["x-dofe-attribution-signature"] = createHmac("sha256", runtimeKey).update(content, "utf8").digest("hex");
+  }
+
+  const transport = target.protocol === "https:" ? https : http;
+  const proxyRequest = transport.request(target, { method: request.method, headers }, (proxyResponse) => {
+    response.writeHead(proxyResponse.statusCode || 502, proxyResponse.headers);
+    proxyResponse.pipe(response);
+  });
+  proxyRequest.on("error", () => {
+    if (!response.headersSent) response.writeHead(502);
+    response.end("Gateway request failed");
+  });
+  request.pipe(proxyRequest);
+});
+
+server.listen(0, "127.0.0.1", () => {
+  const address = server.address();
+  if (!address || typeof address === "string") process.exit(1);
+  process.env[baseUrlKey] = "http://127.0.0.1:" + address.port + basePath;
+  const child = spawn(executable, args, { stdio: "inherit", env: process.env });
+  for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));
+  child.on("exit", (code, signal) => {
+    server.close(() => process.exit(code ?? (signal ? 1 : 0)));
+  });
+});
+`;
 }
 
 function shellQuote(value: string): string {

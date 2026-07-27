@@ -11,7 +11,7 @@ cp deploy/self-hosted/.env.example deploy/self-hosted/.env
 docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml up --build -d
 ```
 
-The first run initializes the external database schema before the web service and daemons start. Inspect all long-running components with:
+The first run initializes the external database schema before the web service and daemons start. The `runtime-maintenance` service periodically resumes durable provisioning and cleanup work through the authenticated internal cron route. Inspect all long-running components with:
 
 ```bash
 docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml ps

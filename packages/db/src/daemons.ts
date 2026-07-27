@@ -439,6 +439,44 @@ export function readAgentRuntimeSync(runtimeId: string): AgentRuntimeRecord | nu
   return row ? mapAgentRuntimeRecord(row) : null;
 }
 
+export function listManagedAgentRuntimesSync(workspaceId: string): AgentRuntimeRecord[] {
+  const rows = getDatabase()
+    .prepare(
+      `SELECT
+        id,
+        workspace_id AS workspaceId,
+        daemon_connection_id AS daemonConnectionId,
+        provider,
+        provider_account_id AS providerAccountId,
+        name,
+        version,
+        status,
+        device_info AS deviceInfo,
+        metadata_json AS metadataJson,
+        connected_at AS connectedAt,
+        last_heartbeat_at AS lastHeartbeatAt,
+        last_error AS lastError,
+        protocols_json,
+        default_model,
+        provisioning_state,
+        managed_credential_id,
+        credential_secret_ref,
+        credential_config_ref,
+        provisioning_task_id,
+        managed_at,
+        created_at AS createdAt,
+        updated_at AS updatedAt
+       FROM agent_runtime
+       WHERE workspace_id = ? AND managed_credential_id IS NOT NULL
+       ORDER BY created_at DESC`,
+    )
+    .all(workspaceId) as Array<Record<string, unknown>>;
+
+  return rows
+    .map((row) => mapAgentRuntimeRecord(row))
+    .filter((row): row is AgentRuntimeRecord => row !== null);
+}
+
 export interface UpdateAgentRuntimeManagedFieldsInput {
   runtimeId: string;
   workspaceId?: string;

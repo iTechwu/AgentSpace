@@ -430,7 +430,7 @@ export function markRuntimeProvisioningTaskCancellingSync(input: {
   getDatabase().prepare(
     `UPDATE runtime_provisioning_task
      SET status = 'cancelling', cleanup_status = 'running', next_retry_at = NULL, updated_at = ?
-     WHERE id = ? AND workspace_id = ? AND status IN ('queued', 'running', 'failed', 'retrying')`,
+     WHERE id = ? AND workspace_id = ? AND status IN ('queued', 'running', 'failed', 'retrying', 'succeeded')`,
   ).run(now, input.id, workspaceId);
   return readRuntimeProvisioningTaskSync(input.id, workspaceId);
 }

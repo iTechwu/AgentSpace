@@ -542,6 +542,8 @@ export interface ManagedRuntimeCleanupRequestRecord {
   runtimeId: string;
   daemonConnectionId: string;
   runtimeType: DaemonProvider;
+  provisioningTaskId?: string;
+  deleteRuntimeOnSuccess: boolean;
   status: ManagedRuntimeCleanupRequestStatus;
   attemptCount: number;
   maxAttempts: number;

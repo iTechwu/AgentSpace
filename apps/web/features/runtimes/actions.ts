@@ -3,9 +3,9 @@
 import { readAgentRuntimeSync } from "@dofe-agent/db";
 import { DAEMON_PROVIDER_PROTOCOLS } from "@dofe-agent/domain";
 import {
-  cancelRuntimeProvisioningTaskSync,
-  deleteManagedRuntimeSync,
-  getManagedRuntimeCredentialStatusSync,
+  cancelRuntimeProvisioningTaskAsync,
+  deleteManagedRuntimeAsync,
+  getManagedRuntimeCredentialStatusAsync,
   getRuntimeProvisioningTaskDetailSync,
   listManagedRuntimeTasksSync,
   preflightManagedRuntimeCreationAsync,
@@ -13,8 +13,8 @@ import {
   resolveAgentRuntimeMode,
   resolveManagedRuntimeScopeSync,
   retryRuntimeProvisioningTaskSync,
-  rotateManagedRuntimeCredentialSync,
-  stopManagedRuntimeSync,
+  rotateManagedRuntimeCredentialAsync,
+  stopManagedRuntimeAsync,
 } from "@dofe-agent/services";
 import { getModelsInternalClient, isModelsInternalConfigured } from "@dofe-agent/services";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
@@ -107,21 +107,21 @@ export async function retryProvisioningAction(taskId: string) {
 export async function cancelProvisioningAction(taskId: string, reason?: string) {
   assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId, slug } = await requireAdminActor();
-  await cancelRuntimeProvisioningTaskSync({ workspaceId, actorUserId, taskId, reason });
+  await cancelRuntimeProvisioningTaskAsync({ workspaceId, actorUserId, taskId, reason });
   revalidateWorkspacePath("/runtimes", slug);
 }
 
 export async function stopManagedRuntimeAction(runtimeId: string, reason?: string) {
   assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId, slug } = await requireAdminActor();
-  await stopManagedRuntimeSync({ workspaceId, actorUserId, runtimeId, reason });
+  await stopManagedRuntimeAsync({ workspaceId, actorUserId, runtimeId, reason });
   revalidateWorkspacePath("/runtimes", slug);
 }
 
 export async function deleteManagedRuntimeAction(runtimeId: string, reason?: string) {
   assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId, slug } = await requireAdminActor();
-  await deleteManagedRuntimeSync({ workspaceId, actorUserId, runtimeId, reason });
+  await deleteManagedRuntimeAsync({ workspaceId, actorUserId, runtimeId, reason });
   revalidateWorkspacePath("/runtimes", slug);
 }
 
@@ -131,7 +131,7 @@ export async function rotateManagedRuntimeCredentialAction(
 ) {
   assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId, slug } = await requireAdminActor();
-  await rotateManagedRuntimeCredentialSync({
+  await rotateManagedRuntimeCredentialAsync({
     workspaceId,
     actorUserId,
     runtimeId,
@@ -143,7 +143,7 @@ export async function rotateManagedRuntimeCredentialAction(
 export async function getManagedRuntimeCredentialStatusAction(runtimeId: string) {
   assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId } = await requireAdminActor();
-  return getManagedRuntimeCredentialStatusSync({ workspaceId, actorUserId, runtimeId });
+  return getManagedRuntimeCredentialStatusAsync({ workspaceId, actorUserId, runtimeId });
 }
 
 export interface RuntimeModelCatalogItem {

@@ -66,11 +66,6 @@ interface ManagedRuntimeEntry {
   status: "online" | "offline";
 }
 
-export interface RemoteDaemonRelaunchCommand {
-  command: string;
-  args: string[];
-}
-
 interface DaemonStatusSummary {
   running: boolean;
   pid: number | "";
@@ -405,7 +400,7 @@ export function printRemoteDaemonHelp(): void {
   console.log(`dofe-agent-daemon
 
 Usage:
-  dofe-agent-daemon start [--foreground] [--server-url <url>] [--daemon-token <token>] [--daemon-id <id>] [--device-name <name>] [--runtime-name <label>] [--heartbeat-interval <ms>] [--poll-interval <ms>] [--task-timeout <ms>] [--state-dir <dir>]
+  dofe-agent-daemon start [--foreground] [--managed-node] [--server-url <url>] [--daemon-token <token>] [--daemon-id <id>] [--device-name <name>] [--runtime-name <label>] [--heartbeat-interval <ms>] [--poll-interval <ms>] [--task-timeout <ms>] [--state-dir <dir>]
   dofe-agent-daemon stop [--state-dir <dir>]
   dofe-agent-daemon status [--json] [--state-dir <dir>]
   dofe-agent-daemon logs [--lines <n>] [--follow] [--state-dir <dir>]
@@ -416,6 +411,7 @@ Environment:
   DOFE_AGENT_DAEMON_ID
   DOFE_AGENT_DEVICE_NAME
   DOFE_AGENT_RUNTIME_NAME
+  DOFE_AGENT_MANAGED_NODE
   DOFE_AGENT_PROVIDER_ACCOUNT_ID
   DOFE_AGENT_DAEMON_STATE_DIR
   DOFE_AGENT_HEARTBEAT_INTERVAL
@@ -508,6 +504,9 @@ export function buildRemoteDaemonRelaunchCommand(
   }
   if (config.daemonToken) {
     args.push("--daemon-token", config.daemonToken);
+  }
+  if (config.managedNode) {
+    args.push("--managed-node");
   }
 
   return {
@@ -740,6 +739,9 @@ async function executeRemoteTask(
 
     const managedProfile = await resolveManagedCredentialProfile(runtime, credentialResolver);
     const managedCredentialEnv = managedProfile?.environment ?? {};
+    const managedCredentialId = typeof runtime.metadata.managedCredentialId === "string"
+      ? runtime.metadata.managedCredentialId
+      : undefined;
     const taskRuntime = managedProfile && credentialResolver
       ? {
           ...runtime,
@@ -762,6 +764,12 @@ async function executeRemoteTask(
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
           DOFE_AGENT_CONTEXT_AGENT_NAME: readRemoteTaskAgentName(task),
           DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
+          ...(managedCredentialId ? {
+            DOFE_AGENT_RUNTIME_CREDENTIAL_ID: managedCredentialId,
+            DOFE_AGENT_RUNTIME_ID: runtime.id,
+            DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID: task.agentId,
+            DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID: task.routerSessionId ?? task.id,
+          } : {}),
         },
         runtimeApps: bundle.metadata.runtimeApps?.apps ?? [],
         runtimeToolCapabilities: bundle.metadata.runtimeToolCapabilities?.capabilities ?? [],

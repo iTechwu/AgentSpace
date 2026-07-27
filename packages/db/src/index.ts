@@ -370,6 +370,7 @@ export {
   markStaleDaemonsOfflineSync,
   readDaemonConnectionSync,
   readAgentRuntimeSync,
+  listManagedAgentRuntimesSync,
   requestAgentRuntimeProviderVerificationSync,
   deleteAgentRuntimeSync,
   updateAgentRuntimeManagedFieldsSync,

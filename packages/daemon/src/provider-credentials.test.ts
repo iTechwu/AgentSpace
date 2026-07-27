@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { applyProviderCredentialProfile, resolveProviderCredentialProfile } from "./provider-credentials.ts";
-import { createManagedCredentialResolver } from "./managed-provider-credentials.ts";
+import { buildManagedRuntimeAttributionHeaders, createManagedCredentialResolver } from "./managed-provider-credentials.ts";
 
 test("resolves account-scoped provider files and environment without exposing references", () => {
   const root = mkdtempSync(join(tmpdir(), "dofe-agent-provider-credentials-"));
@@ -148,11 +148,45 @@ test("managed credential launchers run the provider inside its dedicated image",
     assert.match(launcher, /dofe\/agent-runtime-codex:latest/);
     assert.match(launcher, /--env OPENAI_API_KEY/);
     assert.match(launcher, /--env OPENAI_BASE_URL/);
+    assert.match(launcher, /--env DOFE_AGENT_RUNTIME_CREDENTIAL_ID/);
+    assert.match(launcher, /--env DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID/);
+    assert.match(launcher, /--read-only/);
+    assert.match(launcher, /--security-opt no-new-privileges/);
+    assert.match(launcher, /--cap-drop ALL/);
+    assert.match(launcher, /attribution-proxy\.mjs/);
+    const proxy = readFileSync(join(root, "managed-runtimes", "runtime-codex", "current", "attribution-proxy.mjs"), "utf8");
+    assert.match(proxy, /x-dofe-attribution-signature/);
+    assert.match(proxy, /startsWith\("x-dofe-"\)/);
     assert.doesNotMatch(launcher, /runtime-only-key/);
   } finally {
     resolver.cleanup("runtime-codex");
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("managed runtime attribution follows the models HMAC contract", () => {
+  const headers = buildManagedRuntimeAttributionHeaders({
+    runtimeKey: "runtime-key",
+    runtimeCredentialId: "credential-1",
+    runtimeId: "runtime-1",
+    employeeId: "employee-1",
+    conversationId: "conversation-1",
+    timestampSeconds: 1_800_000_000,
+  });
+  assert.deepEqual(headers, {
+    "x-dofe-employee-id": "employee-1",
+    "x-dofe-conversation-id": "conversation-1",
+    "x-dofe-attribution-timestamp": "1800000000",
+    "x-dofe-attribution-signature": "c32f43facc0776838604d8bfbb3f95bf04c93c47af895a16e6ca9407bd3490db",
+  });
+  assert.throws(() => buildManagedRuntimeAttributionHeaders({
+    runtimeKey: "runtime-key",
+    runtimeCredentialId: "credential-1",
+    runtimeId: "runtime-1",
+    employeeId: "not allowed",
+    conversationId: "conversation-1",
+    timestampSeconds: 1_800_000_000,
+  }), /invalid_attribution_id/);
 });
 
 function writeJson(path: string, value: unknown): void {

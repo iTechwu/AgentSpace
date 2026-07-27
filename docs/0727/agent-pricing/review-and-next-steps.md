@@ -1,6 +1,6 @@
 # 深度审查：agent-pricing 实施状态与下一步计划
 
-> **2026-07-27 实施闭环更新：** 下文保留为实施前审查快照，不再代表当前代码状态。审查列出的模式隔离、节点安装与原子凭据挂载、服务端模型/余额预检、浏览器引用脱敏、受控凭据恢复、成本多维视图、告警、平台超管审计隔离和三步向导均已落地。当前权威状态与验证入口见 [implementation-plan.md](./implementation-plan.md)；剩余发布门槛是使用真实 models 测试租户、网关与容器环境完成 staging E2E。
+> **2026-07-28 实施闭环更新：** 下文保留为实施前审查快照，不再代表当前代码状态。第二轮复审又闭环了 Runtime 归因 HMAC、延迟取消/清理、人工轮换幂等、managed-node 安装与重启、自托管恢复调度和 Runtime 详情。当前权威状态见 [implementation-plan.md](./implementation-plan.md) 与 [本轮复审记录](./todo/AGENT_PRICING_REAUDIT_2026-07-28.md)；真实 models、网关、容器和网络出口隔离仍需 staging 验收。
 
 审查日期：2026-07-27  
 审查范围：`docs/0727/agent-pricing` 三份文档 + AgentSpace 当前分支业务代码  
@@ -42,11 +42,11 @@
 | `agent_runtime` 受管字段 | ✅ 已实施 | `packages/db/src/postgres-schema.ts` 含 `managed_credential_id`、`credential_secret_ref`、`credential_config_ref`、`protocols_json`、`default_model`、`provisioning_state` 等 |
 | `RuntimeProvisioningTask` 及事件 | ✅ 已实施 | `packages/db/src/runtime-provisioning-tasks.ts`；`packages/services/src/runtime-provisioning/runtime-provisioning.ts` |
 | 创建 / 取消 / 重试 / 停止 / 删除 Runtime | ✅ 已实施 | `packages/services/src/runtime-provisioning/runtime-provisioning.ts:106-437` |
-| 凭据轮换与状态查询 | ✅ 已实施 | `rotateManagedRuntimeCredentialSync`、`getManagedRuntimeCredentialStatusSync` |
+| 凭据轮换与状态查询 | ✅ 已实施 | `rotateManagedRuntimeCredentialAsync`、`getManagedRuntimeCredentialStatusAsync` |
 | 创建前检查 `remote` 模式与 SSO team 范围 | ✅ 已实施 | `assertRemoteRuntimeMode`、`resolveManagedRuntimeScopeSync` |
 | Owner/Admin 统一校验 | ✅ 已实施 | `assertCanManageManagedRuntimes` 调用 `isWorkspaceAdminOrOwnerSync` |
 | 选择已有 Runtime / 复用 | ⚠️ 部分实施 | 存在 `bindEmployeeRuntimeSync` 与 Runtime 授权（`runtime-access`），但 UI 缺少“从 AI员工表单浏览并选择已有 Runtime”的显式复用入口；创建向导未展示可复用 Runtime 列表 |
-| 任务离线恢复 | ✅ 已实施 | `resumePendingProvisioningTasksSync` |
+| 任务离线恢复 | ✅ 已实施 | `resumePendingProvisioningTasksAsync` |
 
 ### Phase 3：节点侧凭据解析与受管安装
 

@@ -1,4 +1,4 @@
-import { resumeManagedRuntimeCleanupRequestsSync, resumePendingProvisioningTasksSync } from "@dofe-agent/services";
+import { resumeManagedRuntimeCleanupRequestsAsync, resumePendingProvisioningTasksAsync } from "@dofe-agent/services";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,8 +14,8 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const provisioning = await resumePendingProvisioningTasksSync();
-  const cleanup = await resumeManagedRuntimeCleanupRequestsSync();
+  const provisioning = await resumePendingProvisioningTasksAsync();
+  const cleanup = await resumeManagedRuntimeCleanupRequestsAsync();
 
   return Response.json({
     ok: true,

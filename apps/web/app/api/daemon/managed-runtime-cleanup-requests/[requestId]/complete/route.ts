@@ -1,4 +1,5 @@
-import { completeManagedRuntimeCleanupRequestSync, readManagedRuntimeCleanupRequestSync } from "@dofe-agent/db";
+import { readManagedRuntimeCleanupRequestSync } from "@dofe-agent/db";
+import { completeManagedRuntimeCleanupSync } from "@dofe-agent/services";
 import { requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -27,7 +28,7 @@ export async function POST(
 
   const body = (await request.json()) as { result?: Record<string, unknown> } | undefined;
 
-  const completed = completeManagedRuntimeCleanupRequestSync(requestId, "succeeded", body?.result);
+  const completed = completeManagedRuntimeCleanupSync(requestId, body?.result);
   if (!completed) {
     return Response.json({ error: "Cleanup request not found." }, { status: 404 });
   }

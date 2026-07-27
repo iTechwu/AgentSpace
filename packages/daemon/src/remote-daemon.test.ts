@@ -157,6 +157,20 @@ test("buildRemoteDaemonRelaunchCommand preserves strip-types only for source Typ
   ]);
 });
 
+test("buildRemoteDaemonRelaunchCommand preserves managed-node mode", () => {
+  const config = buildRemoteDaemonConfig({
+    "state-dir": "/srv/daemon-state",
+    "daemon-id": "managed-node-1",
+    "managed-node": true,
+  });
+  const command = buildRemoteDaemonRelaunchCommand(config, {
+    argv: ["node", "/opt/dofe-agent/bin/dofe-agent-daemon.js"],
+    execPath: "/usr/bin/node",
+  });
+  assert.equal(config.managedNode, true);
+  assert.equal(command.args.includes("--managed-node"), true);
+});
+
 test("resolveRemoteTaskProviderSessionId reads channel session from task payload", () => {
   assert.equal(
     resolveRemoteTaskProviderSessionId(JSON.stringify({ channelSessionId: " session-1 " })),

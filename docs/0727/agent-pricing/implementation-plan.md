@@ -2,6 +2,8 @@
 
 状态：**AgentSpace 仓库实施完成，等待 staging 联调验收**。该计划以可验证的契约和安全边界为先。`DOFE_AGENT_RUNTIME_MODE` 是部署级开关：未设置或为 `local` 时保持既有路径不变，只有 `remote`（服务器模式）才进入 `models.dofe.ai` 受管流程。
 
+2026-07-28 的第二轮实施复审进一步闭环了 Runtime 归因 HMAC、取消与清理的持久生命周期、人工轮换操作幂等、managed-node 安装/重启、自托管恢复调度和 Runtime 详情入口。发现、修复与剩余外部门槛见 [todo/AGENT_PRICING_REAUDIT_2026-07-28.md](./todo/AGENT_PRICING_REAUDIT_2026-07-28.md)。
+
 ## 2026-07-28 审查闭环
 
 本轮按照 2026-07-27 深度审查逐项复核并补齐以下仓库内交付：
@@ -168,7 +170,7 @@
    - 保留内部标识、路由、类型名、第三方协议名（如 `DofeAgent`、`agentId`、`mention_agent` 值）不变。
 6. ✅ 建立异常告警：余额不足、凭据轮换失败、成本归因缺失、对账差异、跨团队访问尝试。
    - 余额不足：`packages/services/src/runtime-provisioning/runtime-provisioning.ts` 在 billing preflight 拒绝时发送 `billing.insufficient_balance` 通知。
-   - 凭据轮换失败：`rotateManagedRuntimeCredentialSync` 在 models 未返回新 secret 时发送 `runtime.credential_rotation_failed` 通知。
+   - 凭据轮换失败：`rotateManagedRuntimeCredentialAsync` 在 models 未返回新 secret 时发送 `runtime.credential_rotation_failed` 通知。
    - 成本归因缺失 / 对账差异：`syncRuntimeCredentialUsageAsync` 发现未匹配费用时发送 `usage.reconciliation_discrepancy` 通知。
    - 预算超支：`packages/services/src/budgets/budgets.ts` 在 `checkBudgetSync` 超出限额时发送 `budget.exceeded` 通知。
    - 跨团队访问尝试：已有 SSO 团队范围校验与 models 侧拒绝，触发时会记录审计事件；通知可基于同一机制扩展。
@@ -202,6 +204,9 @@
 4. ✅ 心跳接管进程中断的恢复任务，包括最后一次租约过期后的熔断，以及“Runtime 已更新、任务未落盘”窗口的成功对账。
 5. ✅ Runtime 页面使用三步向导（执行环境、模型策略、确认），服务端在签发 Key 前重新校验协议模型目录和余额；浏览器响应不包含 `secretRef` / `configRef`。
 6. ✅ Runtime 列表展示恢复状态，并在 `needs_attention` 时提供人工轮换入口。
+7. ✅ Runtime 详情页展示安全凭据 ID、协议、模型、AI员工数、心跳、实际成本和未分配成本，不返回 secret/vault 引用。
+8. ✅ 自托管 `runtime-maintenance` worker 使用 `CRON_SECRET` 周期恢复 provisioning 和 cleanup；local 模式不执行受管恢复。
+9. ✅ 受管节点通过容器内代理按 models 契约生成 HMAC 归因头，并剥离调用方自带的 `x-dofe-*` 头；完整出口隔离仍由 staging 网络策略验收。
 
 ## 测试矩阵
 

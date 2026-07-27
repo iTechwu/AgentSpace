@@ -8,18 +8,22 @@ import {
   completeManagedProvisioningStageSync,
   getDatabase,
   insertUnallocatedTokenUsageSync,
+  listPendingManagedRuntimeCleanupRequestsForDaemonSync,
   listRuntimeProvisioningTaskEventsSync,
   readAgentRuntimeSync,
   readRuntimeProvisioningTaskSync,
+  markManagedRuntimeCleanupRequestRunningSync,
+  registerDaemonRuntimesSync,
   recordTokenUsageSync,
   upsertWorkspaceSsoBindingSync,
   upsertWorkspaceMembershipSync,
 } from "@dofe-agent/db";
 import {
-  cancelRuntimeProvisioningTaskSync,
-  deleteManagedRuntimeSync,
+  cancelRuntimeProvisioningTaskAsync,
+  completeManagedRuntimeCleanupSync,
+  deleteManagedRuntimeAsync,
   finalizeManagedRuntimeProvisioningSync,
-  getManagedRuntimeCredentialStatusSync,
+  getManagedRuntimeCredentialStatusAsync,
   getRuntimeProvisioningTaskDetailSync,
   handleManagedRuntimeProviderFailureAsync,
   listManagedRuntimeTasksSync,
@@ -28,10 +32,10 @@ import {
   requestManagedRuntimeProvisioningSync,
   resumePendingRuntimeCredentialRecoveriesAsync,
   retryRuntimeProvisioningTaskSync,
-  rotateManagedRuntimeCredentialSync,
+  rotateManagedRuntimeCredentialAsync,
   runProvisioningPipeline,
   setProvisioningModelsClientProviderForTests,
-  stopManagedRuntimeSync,
+  stopManagedRuntimeAsync,
   type ModelsClientLike,
 } from "./runtime-provisioning.ts";
 import { resetRuntimeCredentialVaultForTests, getRuntimeCredentialVault } from "./credential-vault.ts";
@@ -178,6 +182,7 @@ before(() => {
 
 beforeEach(() => {
   const db = getDatabase();
+  db.exec("DELETE FROM managed_runtime_cleanup_request");
   db.exec("DELETE FROM runtime_provisioning_task_event");
   db.exec("DELETE FROM runtime_provisioning_task");
   db.exec("DELETE FROM token_usage");
@@ -187,6 +192,7 @@ beforeEach(() => {
   db.exec("DELETE FROM audit_log");
   db.exec("DELETE FROM workspace_sso_binding");
   db.exec("DELETE FROM agent_runtime");
+  db.exec("DELETE FROM daemon_connection");
   db.exec("DELETE FROM workspace_snapshot");
   db.exec("DELETE FROM workspace_membership");
   db.exec("DELETE FROM workspace");
@@ -484,7 +490,7 @@ test("cancel runs compensation: revokes credential with scope and removes the ru
   assert.equal(provisioned.status, "succeeded");
   const runtimeId = provisioned.runtimeId!;
 
-  const cancelled = await cancelRuntimeProvisioningTaskSync({
+  const cancelled = await cancelRuntimeProvisioningTaskAsync({
     workspaceId: TEAM_WS,
     actorUserId: OWNER,
     taskId: task.id,
@@ -495,6 +501,41 @@ test("cancel runs compensation: revokes credential with scope and removes the ru
   assert.deepEqual((activeClient.lastRevokeBody as Record<string, string> | undefined)?.tenantId, "tenant-1");
   assert.deepEqual((activeClient.lastRevokeBody as Record<string, string> | undefined)?.teamId, "team-1");
   // Runtime row removed by compensation.
+  assert.equal(readAgentRuntimeSync(runtimeId), null);
+});
+
+test("cancel waits for durable node cleanup before deleting an issued runtime", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "cancel-node-cleanup-key",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtimeId = provisioned.runtimeId!;
+  const daemon = registerDaemonRuntimesSync({
+    workspaceId: TEAM_WS,
+    daemonKey: "managed-cleanup-node",
+    deviceName: "managed-cleanup-node",
+    runtimes: [{ provider: "codex", name: "Managed cleanup node control runtime" }],
+  }).daemon;
+  getDatabase().prepare("UPDATE agent_runtime SET daemon_connection_id = ? WHERE id = ?").run(daemon.id, runtimeId);
+
+  const cancelling = await cancelRuntimeProvisioningTaskAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    taskId: task.id,
+    reason: "user_cancelled",
+  });
+  assert.equal(cancelling.status, "cancelling");
+  assert.ok(readAgentRuntimeSync(runtimeId));
+
+  const cleanup = listPendingManagedRuntimeCleanupRequestsForDaemonSync(daemon.id)[0]!;
+  assert.equal(cleanup.provisioningTaskId, task.id);
+  assert.equal(cleanup.deleteRuntimeOnSuccess, true);
+  assert.equal(markManagedRuntimeCleanupRequestRunningSync(cleanup.id)?.status, "running");
+  assert.equal(completeManagedRuntimeCleanupSync(cleanup.id, { removed: true })?.status, "succeeded");
+  assert.equal(readRuntimeProvisioningTaskSync(task.id, TEAM_WS)?.status, "cancelled");
   assert.equal(readAgentRuntimeSync(runtimeId), null);
 });
 
@@ -519,16 +560,21 @@ test("rotate issues a new credential and forgets the old vault entry", async () 
   });
   setProvisioningModelsClientProviderForTests(() => activeClient);
 
-  const rotated = await rotateManagedRuntimeCredentialSync({
+  const rotated = await rotateManagedRuntimeCredentialAsync({
     workspaceId: TEAM_WS,
     actorUserId: OWNER,
     runtimeId,
     reason: "manual",
+    operationId: "manual-rotation-1",
   });
   assert.equal(rotated.managedCredentialId, "rtc-mock-rotated");
   assert.equal(activeClient.rotateCalls, 1);
   assert.deepEqual((activeClient.lastRotateBody as Record<string, string> | undefined)?.tenantId, "tenant-1");
   assert.deepEqual((activeClient.lastRotateBody as Record<string, string> | undefined)?.teamId, "team-1");
+  assert.equal(
+    (activeClient.lastRotateBody as Record<string, string> | undefined)?.idempotencyKey,
+    "rotate:rtc-mock-1:manual:manual-rotation-1",
+  );
   assert.equal(getRuntimeCredentialVault().retrieve(oldSecretRef), undefined);
   assert.equal(getRuntimeCredentialVault().retrieve(rotated.credentialSecretRef!), "sk-runtime-plaintext-rotated");
 });
@@ -547,7 +593,7 @@ test("rotate without a returned secret fails without updating the runtime", asyn
 
   await assert.rejects(
     () =>
-      rotateManagedRuntimeCredentialSync({
+      rotateManagedRuntimeCredentialAsync({
         workspaceId: TEAM_WS,
         actorUserId: OWNER,
         runtimeId,
@@ -566,7 +612,7 @@ test("get credential status returns upstream metadata without plaintext", async 
     idempotencyKey: "status-key",
   });
   const provisioned = await awaitTaskTerminal(task.id);
-  const status = await getManagedRuntimeCredentialStatusSync({
+  const status = await getManagedRuntimeCredentialStatusAsync({
     workspaceId: TEAM_WS,
     actorUserId: OWNER,
     runtimeId: provisioned.runtimeId!,
@@ -587,7 +633,7 @@ test("stop and delete pass tenant/team scope to revoke", async () => {
   const runtimeId = provisioned.runtimeId!;
   const runtimeBeforeStop = readAgentRuntimeSync(runtimeId)!;
 
-  await stopManagedRuntimeSync({ workspaceId: TEAM_WS, actorUserId: OWNER, runtimeId, reason: "ui_stop" });
+  await stopManagedRuntimeAsync({ workspaceId: TEAM_WS, actorUserId: OWNER, runtimeId, reason: "ui_stop" });
   assert.equal(getRuntimeCredentialVault().retrieve(runtimeBeforeStop.credentialSecretRef!), undefined);
   assert.equal(activeClient.revokeCalls, 1);
   assert.deepEqual((activeClient.lastRevokeBody as Record<string, string> | undefined)?.tenantId, "tenant-1");
@@ -598,7 +644,7 @@ test("stop and delete pass tenant/team scope to revoke", async () => {
     "UPDATE agent_runtime SET provisioning_state = 'managed', managed_credential_id = 'rtc-mock-1', credential_secret_ref = 'vault://runtime-credential/rtc-mock-1' WHERE id = ?",
   ).run(runtimeId);
 
-  await deleteManagedRuntimeSync({ workspaceId: TEAM_WS, actorUserId: OWNER, runtimeId, reason: "ui_delete" });
+  await deleteManagedRuntimeAsync({ workspaceId: TEAM_WS, actorUserId: OWNER, runtimeId, reason: "ui_delete" });
   assert.equal(activeClient.revokeCalls, 2);
   assert.deepEqual((activeClient.lastRevokeBody as Record<string, string> | undefined)?.tenantId, "tenant-1");
   assert.deepEqual((activeClient.lastRevokeBody as Record<string, string> | undefined)?.teamId, "team-1");
@@ -616,7 +662,7 @@ test("non-admin cannot rotate, stop or delete a managed runtime", async () => {
 
   await assert.rejects(
     () =>
-      rotateManagedRuntimeCredentialSync({
+      rotateManagedRuntimeCredentialAsync({
         workspaceId: TEAM_WS,
         actorUserId: MEMBER,
         runtimeId,
@@ -624,11 +670,11 @@ test("non-admin cannot rotate, stop or delete a managed runtime", async () => {
     /owners and admins/,
   );
   await assert.rejects(
-    () => stopManagedRuntimeSync({ workspaceId: TEAM_WS, actorUserId: MEMBER, runtimeId }),
+    () => stopManagedRuntimeAsync({ workspaceId: TEAM_WS, actorUserId: MEMBER, runtimeId }),
     /owners and admins/,
   );
   await assert.rejects(
-    () => deleteManagedRuntimeSync({ workspaceId: TEAM_WS, actorUserId: MEMBER, runtimeId }),
+    () => deleteManagedRuntimeAsync({ workspaceId: TEAM_WS, actorUserId: MEMBER, runtimeId }),
     /owners and admins/,
   );
 });
@@ -764,7 +810,7 @@ test("credential recovery observes cooldown and opens the circuit after three fa
     nextCredentialId: "rtc-manually-recovered",
   });
   setProvisioningModelsClientProviderForTests(() => activeClient);
-  const manuallyRecovered = await rotateManagedRuntimeCredentialSync({
+  const manuallyRecovered = await rotateManagedRuntimeCredentialAsync({
     workspaceId: TEAM_WS,
     actorUserId: OWNER,
     runtimeId: runtime.id,

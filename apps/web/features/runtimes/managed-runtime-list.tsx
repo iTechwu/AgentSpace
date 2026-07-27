@@ -1,15 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { DAEMON_PROVIDER_IDS, formatDaemonProviderLabel } from "@dofe-agent/domain";
 import type { ManagedRuntimeListItem } from "@dofe-agent/services";
+import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 
 export function ManagedRuntimeList({
   runtimes,
+  workspaceSlug,
   pending,
   onRotate,
 }: {
   runtimes: ManagedRuntimeListItem[];
+  workspaceSlug?: string;
   pending: boolean;
   onRotate: (runtimeId: string) => void;
 }) {
@@ -68,7 +72,14 @@ export function ManagedRuntimeList({
         const presentation = presentRuntimeState(runtime);
         return (
           <tr key={runtime.id}>
-            <td className="p-3 font-medium">{runtime.name}</td>
+            <td className="p-3 font-medium">{workspaceSlug ? (
+              <Link
+                className="underline-offset-2 hover:underline"
+                href={buildWorkspacePath(workspaceSlug, `/runtimes/runtime/${runtime.id}`)}
+              >
+                {runtime.name}
+              </Link>
+            ) : runtime.name}</td>
             <td className="p-3"><span className="block">{formatDaemonProviderLabel(runtime.provider)}</span><span className="text-xs text-neutral-500">{runtime.protocols.join(", ") || "—"}</span></td>
             <td className="p-3"><span className={`rounded px-2 py-0.5 text-xs font-medium ${presentation.tone}`}>{presentation.label}</span><span className="mt-1 block max-w-48 text-xs text-neutral-500">{presentation.detail}</span></td>
             <td className="p-3">{runtime.defaultModel || "System fallback"}</td>

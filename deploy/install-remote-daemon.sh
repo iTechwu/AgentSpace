@@ -16,6 +16,7 @@ PROVIDER_CREDENTIAL_ROOT=""
 PROVIDER_CREDENTIAL_MAP_REF=""
 DEVICE_NAME="$(hostname -s 2>/dev/null || hostname || echo remote-daemon)"
 RUNTIME_NAME="Remote Agent"
+MANAGED_NODE="false"
 BASE_DIR="${DOFE_AGENT_DAEMON_HOME:-$HOME/.dofe-agent-daemon}"
 STATE_DIR="${DOFE_AGENT_DAEMON_STATE_DIR:-$BASE_DIR}"
 INSTALL_ROOT="${DOFE_AGENT_DAEMON_INSTALL_ROOT:-$BASE_DIR/runtime}"
@@ -33,6 +34,7 @@ PROVIDER_CREDENTIAL_ROOT_SET="false"
 PROVIDER_CREDENTIAL_MAP_REF_SET="false"
 DEVICE_NAME_SET="false"
 RUNTIME_NAME_SET="false"
+MANAGED_NODE_SET="false"
 STATE_DIR_SET="false"
 INSTALL_ROOT_SET="false"
 ENV_FILE_SET="false"
@@ -85,6 +87,7 @@ Package source:
   or rely on the default package URL baked into the install script
 
 Optional:
+  --managed-node           run Docker-backed managed Runtimes; no host Provider CLI login required
   --device-name <name>     default: hostname
   --runtime-name <label>   default: Remote Agent
   --base-dir <dir>         default: ~/.dofe-agent-daemon
@@ -98,6 +101,7 @@ Optional:
   --help
 
 Notes:
+  - Managed nodes require Docker access for the installing user.
   - Run this script as a user that has access to codex / claude / agy / gemini / opencode / openclaw / nanobot / hermes.
   - Root is supported for server installs, but Claude Code must be logged in for /root and task commands run with root privileges.
   - Feishu document and data operations are enabled through a bound Feishu Bot and resource bindings in the web application.
@@ -265,6 +269,11 @@ while [[ $# -gt 0 ]]; do
       RUNTIME_NAME_SET="true"
       shift 2
       ;;
+    --managed-node)
+      MANAGED_NODE="true"
+      MANAGED_NODE_SET="true"
+      shift
+      ;;
     --base-dir)
       BASE_DIR="${2:-}"
       if [[ "$STATE_DIR_SET" != "true" ]]; then STATE_DIR="$BASE_DIR"; fi
@@ -350,6 +359,9 @@ if [[ "$UPDATE_EXISTING" == "true" ]]; then
   if [[ "$RUNTIME_NAME_SET" != "true" && -n "${DOFE_AGENT_RUNTIME_NAME:-}" ]]; then
     RUNTIME_NAME="$DOFE_AGENT_RUNTIME_NAME"
   fi
+  if [[ "$MANAGED_NODE_SET" != "true" && ( "${DOFE_AGENT_MANAGED_NODE:-}" == "true" || "${DOFE_AGENT_MANAGED_NODE:-}" == "1" ) ]]; then
+    MANAGED_NODE="true"
+  fi
   if [[ "$STATE_DIR_SET" != "true" && -n "${DOFE_AGENT_DAEMON_STATE_DIR:-}" ]]; then
     STATE_DIR="$DOFE_AGENT_DAEMON_STATE_DIR"
   fi
@@ -386,6 +398,9 @@ fi
 require_command npm
 require_command mktemp
 require_command install
+if [[ "$MANAGED_NODE" == "true" ]]; then
+  require_command docker
+fi
 
 if [[ -n "$PACKAGE_URL" ]]; then
   if command -v curl >/dev/null 2>&1; then
@@ -427,15 +442,28 @@ DAEMON_VERSION="${DAEMON_VERSION//$'\n'/ }"
 DAEMON_VERSION="${DAEMON_VERSION:-unknown}"
 log "Installed dofe-agent-daemon version: $DAEMON_VERSION"
 DOFE_AGENT_CLI_PATH="${INSTALL_ROOT%/}/bin/dofe-agent"
-[[ -x "$DOFE_AGENT_CLI_PATH" ]] || fail "Installed dofe-agent CLI not found at $DOFE_AGENT_CLI_PATH"
+if [[ "$MANAGED_NODE" != "true" ]]; then
+  [[ -x "$DOFE_AGENT_CLI_PATH" ]] || fail "Installed dofe-agent CLI not found at $DOFE_AGENT_CLI_PATH"
+fi
 INSTALL_BIN_DIR="${INSTALL_ROOT%/}/bin"
 if [[ ":$PROVIDER_PATH:" != *":$INSTALL_BIN_DIR:"* ]]; then
   PROVIDER_PATH="$INSTALL_BIN_DIR:$PROVIDER_PATH"
 fi
 
-log "Checking runtime output readiness"
-verify_dofe_agent_output_cli
-verify_bwrap_cli
+DOFE_AGENT_OUTPUT_CLI_PATH=""
+BWRAP_AVAILABLE="false"
+BWRAP_SUPPORTS_PERMS="false"
+BWRAP_CLI_PATH=""
+BWRAP_VERSION=""
+BWRAP_ERROR=""
+if [[ "$MANAGED_NODE" == "true" ]]; then
+  log "Checking managed-node Docker readiness"
+  docker version >/dev/null 2>&1 || fail "docker version failed; the installing user must be able to run managed Runtime containers"
+else
+  log "Checking runtime output readiness"
+  verify_dofe_agent_output_cli
+  verify_bwrap_cli
+fi
 
 TMP_ENV_FILE="$(mktemp /tmp/dofe-agent-daemon-env.XXXXXX)"
 cat >"$TMP_ENV_FILE" <<EOF
@@ -450,6 +478,7 @@ DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT=$(printf '%q' "$PROVIDER_CREDENTIAL_ROOT")
 DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF=$(printf '%q' "$PROVIDER_CREDENTIAL_MAP_REF")
 DOFE_AGENT_DEVICE_NAME=$(printf '%q' "$DEVICE_NAME")
 DOFE_AGENT_RUNTIME_NAME=$(printf '%q' "$RUNTIME_NAME")
+DOFE_AGENT_MANAGED_NODE=$(printf '%q' "$MANAGED_NODE")
 DOFE_AGENT_DAEMON_STATE_DIR=$(printf '%q' "$STATE_DIR")
 DOFE_AGENT_DAEMON_INSTALL_ROOT=$(printf '%q' "$INSTALL_ROOT")
 DOFE_AGENT_DAEMON_BIN=$(printf '%q' "$BIN_PATH")
@@ -484,7 +513,11 @@ else
 fi
 
 STATUS_JSON="$("$BIN_PATH" status --json --state-dir "$STATE_DIR" 2>/dev/null || true)"
-READINESS_JSON="{\"dofeAgentOutput\":{\"available\":true,\"path\":\"$(json_escape "$DOFE_AGENT_OUTPUT_CLI_PATH")\"},\"bwrap\":{\"available\":$BWRAP_AVAILABLE,\"path\":\"$(json_escape "$BWRAP_CLI_PATH")\",\"version\":\"$(json_escape "$BWRAP_VERSION")\",\"supportsPerms\":$BWRAP_SUPPORTS_PERMS,\"error\":\"$(json_escape "$BWRAP_ERROR")\"}}"
+if [[ "$MANAGED_NODE" == "true" ]]; then
+  READINESS_JSON="{\"managedNode\":true,\"docker\":{\"available\":true}}"
+else
+  READINESS_JSON="{\"managedNode\":false,\"dofeAgentOutput\":{\"available\":true,\"path\":\"$(json_escape "$DOFE_AGENT_OUTPUT_CLI_PATH")\"},\"bwrap\":{\"available\":$BWRAP_AVAILABLE,\"path\":\"$(json_escape "$BWRAP_CLI_PATH")\",\"version\":\"$(json_escape "$BWRAP_VERSION")\",\"supportsPerms\":$BWRAP_SUPPORTS_PERMS,\"error\":\"$(json_escape "$BWRAP_ERROR")\"}}"
+fi
 
 cat <<EOF
 

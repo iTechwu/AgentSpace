@@ -1,4 +1,5 @@
-import { failManagedRuntimeCleanupRequestSync, readManagedRuntimeCleanupRequestSync } from "@dofe-agent/db";
+import { readManagedRuntimeCleanupRequestSync } from "@dofe-agent/db";
+import { failManagedRuntimeCleanupSync } from "@dofe-agent/services";
 import { requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -27,7 +28,7 @@ export async function POST(
 
   const body = (await request.json()) as { errorCode?: string; errorMessage?: string } | undefined;
 
-  const updated = failManagedRuntimeCleanupRequestSync(
+  const updated = failManagedRuntimeCleanupSync(
     requestId,
     body?.errorCode,
     body?.errorMessage ?? "Cleanup failed on the node.",

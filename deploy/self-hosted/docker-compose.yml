@@ -34,6 +34,23 @@ services:
     init: true
     restart: unless-stopped
 
+  runtime-maintenance:
+    build:
+      context: ../..
+      dockerfile: deploy/self-hosted/Dockerfile
+      target: runtime
+      args:
+        NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:?Set NEXT_SERVER_ACTIONS_ENCRYPTION_KEY in .env}
+    command: ["node", "deploy/self-hosted/runtime-maintenance.mjs"]
+    env_file: ${DOFE_AGENT_ENV_FILE:-./.env}
+    environment:
+      DOFE_AGENT_INTERNAL_URL: http://web:1455
+    depends_on:
+      web:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
   daemon-claude:
     build:
       context: ../..

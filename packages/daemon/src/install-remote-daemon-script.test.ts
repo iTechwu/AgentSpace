@@ -10,6 +10,15 @@ import test from "node:test";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const installerPath = join(repoRoot, "deploy", "install-remote-daemon.sh");
 
+test("install script exposes managed-node mode and remains valid bash", () => {
+  const syntax = spawnSync("bash", ["-n", installerPath], { encoding: "utf8" });
+  assert.equal(syntax.status, 0, syntax.stderr);
+  const help = spawnSync("bash", [installerPath, "--help"], { encoding: "utf8" });
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /--managed-node/);
+  assert.match(help.stdout, /require Docker/i);
+});
+
 test("install script readiness hook passes when dofe-agent output and bwrap are compatible", () => {
   const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-install-bin-"));
   try {
@@ -172,6 +181,56 @@ test("install script prints installed daemon version in bootstrap summary", () =
     assert.match(generatedEnv, /DOFE_AGENT_RUNTIME_PROVIDER=claude/);
     assert.match(generatedEnv, /DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT=\/run\/dofe-agent-provider/);
     assert.match(generatedEnv, /DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF=file:\/\/\/run\/dofe-agent-provider\/provider-accounts\.json/);
+    assert.match(generatedEnv, /DOFE_AGENT_MANAGED_NODE=false/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("managed-node install requires Docker but not a host provider CLI", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-install-managed-node-"));
+  const packagePath = join(tempRoot, "dofe-agent-daemon-test.tgz");
+  const toolDir = join(tempRoot, "tools");
+  const baseDir = join(tempRoot, "state");
+  try {
+    mkdirSync(toolDir, { recursive: true });
+    writeFileSync(packagePath, "not-a-real-tarball", "utf8");
+    writeExecutable(toolDir, "docker", "#!/bin/sh\nexit 0\n");
+    writeExecutable(toolDir, "npm", [
+      "#!/bin/sh",
+      "prefix=''",
+      "while [ $# -gt 0 ]; do",
+      "  if [ \"$1\" = \"--prefix\" ]; then prefix=\"$2\"; shift 2; continue; fi",
+      "  shift",
+      "done",
+      "mkdir -p \"$prefix/bin\"",
+      "cat > \"$prefix/bin/dofe-agent-daemon\" <<'DAEMON'",
+      "#!/bin/sh",
+      "if [ \"$1\" = \"--version\" ]; then echo managed-test; exit 0; fi",
+      "if [ \"$1\" = \"status\" ]; then echo '{\"running\":false}'; exit 0; fi",
+      "exit 0",
+      "DAEMON",
+      "chmod +x \"$prefix/bin/dofe-agent-daemon\"",
+      "",
+    ].join("\n"));
+
+    const result = spawnSync("bash", [
+      installerPath,
+      "--managed-node",
+      "--no-start",
+      "--package", packagePath,
+      "--server-url", "https://dofe-agent.example",
+      "--daemon-token", "adt_test",
+      "--base-dir", baseDir,
+    ], {
+      env: { ...process.env, PATH: `${toolDir}:${process.env.PATH ?? ""}` },
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(readFileSync(join(baseDir, "daemon.env"), "utf8"), /DOFE_AGENT_MANAGED_NODE=true/);
+    assert.match(result.stdout, /managed-node Docker readiness/i);
+    assert.doesNotMatch(result.stderr, /dofe-agent CLI was not found/i);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

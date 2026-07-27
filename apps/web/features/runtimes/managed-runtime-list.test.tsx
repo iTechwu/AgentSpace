@@ -11,6 +11,7 @@ it("exposes manual credential rotation only when a runtime needs attention", asy
     <ManagedRuntimeList
       pending={false}
       onRotate={onRotate}
+      workspaceSlug="acme"
       runtimes={[
         {
           id: "runtime-ready",
@@ -44,6 +45,10 @@ it("exposes manual credential rotation only when a runtime needs attention", asy
   );
 
   const table = screen.getByRole("table", { name: "Managed runtimes" });
+  expect(screen.getByRole("link", { name: "Ready Codex" })).toHaveAttribute(
+    "href",
+    "/w/acme/runtimes/runtime/runtime-ready",
+  );
   expect(within(table).getByText("Available")).toBeInTheDocument();
   expect(within(table).getByText("Needs attention")).toBeInTheDocument();
   expect(within(table).getByText("gpt-5")).toBeInTheDocument();

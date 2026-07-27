@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "35";
+export const POSTGRES_SCHEMA_VERSION = "36";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -1460,9 +1460,11 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE TABLE IF NOT EXISTS managed_runtime_cleanup_request (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-        runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL,
         daemon_connection_id TEXT NOT NULL REFERENCES daemon_connection(id) ON DELETE CASCADE,
         runtime_type TEXT NOT NULL,
+        provisioning_task_id TEXT REFERENCES runtime_provisioning_task(id) ON DELETE SET NULL,
+        delete_runtime_on_success BOOLEAN NOT NULL DEFAULT FALSE,
         status TEXT NOT NULL DEFAULT 'pending',
         attempt_count INTEGER NOT NULL DEFAULT 0,
         max_attempts INTEGER NOT NULL DEFAULT 3,
@@ -1487,6 +1489,9 @@ export function getPostgresSchemaStatements(): string[] {
     `ALTER TABLE managed_runtime_cleanup_request ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ`,
     `ALTER TABLE managed_runtime_cleanup_request ADD COLUMN IF NOT EXISTS last_error_code TEXT`,
     `ALTER TABLE managed_runtime_cleanup_request ADD COLUMN IF NOT EXISTS last_error_message TEXT`,
+    `ALTER TABLE managed_runtime_cleanup_request ADD COLUMN IF NOT EXISTS provisioning_task_id TEXT REFERENCES runtime_provisioning_task(id) ON DELETE SET NULL`,
+    `ALTER TABLE managed_runtime_cleanup_request ADD COLUMN IF NOT EXISTS delete_runtime_on_success BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE managed_runtime_cleanup_request DROP CONSTRAINT IF EXISTS managed_runtime_cleanup_request_runtime_id_fkey`,
     `
       CREATE INDEX IF NOT EXISTS idx_managed_runtime_cleanup_request_due
         ON managed_runtime_cleanup_request(status, next_attempt_at)

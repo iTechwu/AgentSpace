@@ -66,6 +66,7 @@ export function RuntimesPageClient({
         <h2 className="mb-3 text-sm font-medium">Runtimes</h2>
         <ManagedRuntimeList
           runtimes={initialRuntimes}
+          workspaceSlug={workspaceSlug}
           pending={pending}
           onRotate={(runtimeId) =>
             startTransition(async () => {

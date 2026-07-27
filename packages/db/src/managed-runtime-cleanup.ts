@@ -10,6 +10,8 @@ export interface RequestManagedRuntimeCleanupInput {
   workspaceId?: string;
   daemonConnectionId: string;
   runtimeType: DaemonProvider;
+  provisioningTaskId?: string;
+  deleteRuntimeOnSuccess?: boolean;
 }
 
 export function requestManagedRuntimeCleanupSync(
@@ -23,14 +25,17 @@ export function requestManagedRuntimeCleanupSync(
   db.prepare(
     `INSERT INTO managed_runtime_cleanup_request (
        id, workspace_id, runtime_id, daemon_connection_id, runtime_type,
+       provisioning_task_id, delete_runtime_on_success,
        status, attempt_count, max_attempts, next_attempt_at, requested_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, 'pending', 0, 3, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, 3, ?, ?, ?, ?)`,
   ).run(
     id,
     workspaceId,
     input.runtimeId,
     input.daemonConnectionId,
     input.runtimeType,
+    input.provisioningTaskId ?? null,
+    input.deleteRuntimeOnSuccess ? 1 : 0,
     now,
     now,
     now,
@@ -202,6 +207,8 @@ type RawManagedRuntimeCleanupRequest = {
   runtime_id: string;
   daemon_connection_id: string;
   runtime_type: string;
+  provisioning_task_id: string | null;
+  delete_runtime_on_success: number | boolean;
   status: ManagedRuntimeCleanupRequestStatus;
   attempt_count: number;
   max_attempts: number;
@@ -225,6 +232,8 @@ function mapManagedRuntimeCleanupRequest(
     runtimeId: row.runtime_id,
     daemonConnectionId: row.daemon_connection_id,
     runtimeType: row.runtime_type as DaemonProvider,
+    provisioningTaskId: row.provisioning_task_id ?? undefined,
+    deleteRuntimeOnSuccess: row.delete_runtime_on_success === true || row.delete_runtime_on_success === 1,
     status: row.status,
     attemptCount: row.attempt_count,
     maxAttempts: row.max_attempts,

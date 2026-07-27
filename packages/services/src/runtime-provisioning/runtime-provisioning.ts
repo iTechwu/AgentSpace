@@ -15,15 +15,16 @@ import {
   appendRuntimeProvisioningEventSync,
   claimManagedProvisioningStageSync,
   completeManagedProvisioningStageSync,
+  completeManagedRuntimeCleanupRequestSync as completeManagedRuntimeCleanupRequestRecordSync,
   completeRuntimeProvisioningCancellationSync,
   createRuntimeCredentialRecoveryTaskSync,
   createManagedAgentRuntimeSync,
   createRuntimeProvisioningTaskSync,
   deleteAgentRuntimeSync,
   failManagedProvisioningStageSync,
-  getDatabase,
   getMonthStartIso,
   listEmployeeRuntimeBindingsSync,
+  listManagedAgentRuntimesSync,
   listRuntimeCostSummariesSync,
   listRuntimeProvisioningTaskEventsSync,
   listTokenUsageSync,
@@ -40,11 +41,13 @@ import {
   markRuntimeCredentialRecoverySucceededSync,
   requeueStaleRuntimeCredentialRecoveryTasksSync,
   readAgentRuntimeSync,
+  readManagedRuntimeCleanupRequestSync,
   readRuntimeCredentialRecoveryTaskByIdempotencyKeySync,
   readRuntimeProvisioningTaskSync,
   readRuntimeCredentialRecoveryTaskSync,
   readWorkspaceSsoBindingSync,
   recordAuditLogSync,
+  failManagedRuntimeCleanupRequestSync as failManagedRuntimeCleanupRequestRecordSync,
   requestManagedRuntimeCleanupSync,
   resetRuntimeProvisioningTaskForRetrySync,
   startRuntimeCredentialRecoveryAttemptSync,
@@ -270,7 +273,7 @@ export function retryRuntimeProvisioningTaskSync(
   return reset;
 }
 
-export async function cancelRuntimeProvisioningTaskSync(
+export async function cancelRuntimeProvisioningTaskAsync(
   input: ManagedRuntimeActor & { taskId: string; reason?: string },
 ): Promise<RuntimeProvisioningTaskRecord> {
   assertRemoteRuntimeMode();
@@ -278,6 +281,9 @@ export async function cancelRuntimeProvisioningTaskSync(
   const task = readRuntimeProvisioningTaskSync(input.taskId, input.workspaceId);
   if (!task) {
     throw new Error("managed_runtime.task_not_found");
+  }
+  if (task.status === "cancelling" || task.status === "cancelled") {
+    return task;
   }
   const cancelling = markRuntimeProvisioningTaskCancellingSync({
     id: task.id,
@@ -287,8 +293,12 @@ export async function cancelRuntimeProvisioningTaskSync(
     return task;
   }
 
-  // Compensation: revoke the credential if one was issued, drop the runtime row.
+  // A node-owned runtime remains in cancelling until its durable cleanup request
+  // reaches a terminal state. This prevents runtime deletion from erasing work.
   const cleanup = await compensateProvisioning(task);
+  if (cleanup.pending) {
+    return readRuntimeProvisioningTaskSync(task.id, input.workspaceId) ?? cancelling;
+  }
   const finalized = completeRuntimeProvisioningCancellationSync({
     id: task.id,
     workspaceId: input.workspaceId,
@@ -339,25 +349,7 @@ export function listManagedRuntimesForWorkspaceSync(
 ): ManagedRuntimeListItem[] {
   assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
-  const db = getDatabase();
-  const rows = db.prepare(
-    `SELECT id, name, provider, managed_credential_id AS managedCredentialId, status,
-            provisioning_state AS provisioningState, protocols_json AS protocolsJson,
-            default_model AS defaultModel, last_heartbeat_at AS lastHeartbeatAt
-     FROM agent_runtime
-     WHERE workspace_id = ? AND managed_credential_id IS NOT NULL
-     ORDER BY created_at DESC`,
-  ).all(input.workspaceId) as Array<{
-    id: string;
-    name: string;
-    provider: string;
-    managedCredentialId: string;
-    status: string;
-    provisioningState?: string;
-    protocolsJson?: string;
-    defaultModel?: string;
-    lastHeartbeatAt?: string;
-  }>;
+  const rows = listManagedAgentRuntimesSync(input.workspaceId);
   const bindingCountByRuntime = new Map<string, number>();
   for (const binding of listEmployeeRuntimeBindingsSync(input.workspaceId)) {
     bindingCountByRuntime.set(binding.runtimeId, (bindingCountByRuntime.get(binding.runtimeId) ?? 0) + 1);
@@ -375,20 +367,19 @@ export function listManagedRuntimesForWorkspaceSync(
     );
   }
   return rows
-    .filter((row) => isDaemonProvider(row.provider))
     .map((row) => ({
       id: row.id,
       name: row.name,
-      provider: row.provider as DaemonProvider,
-      managedCredentialId: row.managedCredentialId,
+      provider: row.provider,
+      managedCredentialId: row.managedCredentialId!,
       status: row.status === "online" ? "online" : "offline",
       provisioningState: normalizeManagedRuntimeLifecycleState(row.provisioningState),
-      protocols: parseStringArray(row.protocolsJson),
+      protocols: row.protocols ?? [],
       defaultModel: row.defaultModel,
       assignedEmployeeCount: bindingCountByRuntime.get(row.id) ?? 0,
       lastHeartbeatAt: row.lastHeartbeatAt,
       periodActualCostUsd: actualCostByRuntime.get(row.id) ?? 0,
-      unallocatedCostUsd: unallocatedCostByCredential.get(row.managedCredentialId) ?? 0,
+      unallocatedCostUsd: unallocatedCostByCredential.get(row.managedCredentialId!) ?? 0,
     }));
 }
 
@@ -407,17 +398,7 @@ export interface ManagedRuntimeListItem {
   unallocatedCostUsd: number;
 }
 
-function parseStringArray(value: string | undefined): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function normalizeManagedRuntimeLifecycleState(value: string | undefined): ManagedRuntimeListItem["provisioningState"] {
+function normalizeManagedRuntimeLifecycleState(value: string | null | undefined): ManagedRuntimeListItem["provisioningState"] {
   if (value === "credential_recovering" || value === "needs_attention" || value === "legacy") return value;
   return "managed";
 }
@@ -425,9 +406,10 @@ function normalizeManagedRuntimeLifecycleState(value: string | undefined): Manag
 export interface RotateManagedRuntimeCredentialInput extends ManagedRuntimeActor {
   runtimeId: string;
   reason?: ModelsInternalRotateRuntimeCredentialRequest["reason"];
+  operationId?: string;
 }
 
-export async function rotateManagedRuntimeCredentialSync(
+export async function rotateManagedRuntimeCredentialAsync(
   input: RotateManagedRuntimeCredentialInput,
 ): Promise<AgentRuntimeRecord> {
   assertRemoteRuntimeMode();
@@ -446,12 +428,13 @@ export async function rotateManagedRuntimeCredentialSync(
   const client = clientProvider();
   const credentialId = runtime.managedCredentialId;
   const reason = input.reason ?? "manual";
+  const operationId = input.operationId?.trim() || crypto.randomUUID();
   const result = await client.runtimeCredentials.rotate({
     params: { id: credentialId },
     body: {
       tenantId: scope.tenantId,
       teamId: scope.teamId,
-      idempotencyKey: `rotate:${credentialId}:${reason}`,
+      idempotencyKey: `rotate:${credentialId}:${reason}:${operationId}`,
       reason,
       audit: { actorId: input.actorUserId },
     },
@@ -487,7 +470,7 @@ export async function rotateManagedRuntimeCredentialSync(
     managedCredentialId: result.credential.id,
     credentialSecretRef: newSecret.secretRef,
   });
-  if (oldSecretRef) {
+  if (oldSecretRef && oldSecretRef !== newSecret.secretRef) {
     vault.forget(oldSecretRef, credentialScope);
   }
   recordAuditLogSync({
@@ -502,6 +485,7 @@ export async function rotateManagedRuntimeCredentialSync(
       newCredentialId: result.credential.id,
       newKeyFingerprint: result.credential.keyFingerprint ?? "",
       reason,
+      operationId,
       actorId: input.actorUserId,
     },
   });
@@ -827,7 +811,7 @@ export interface GetManagedRuntimeCredentialStatusInput extends ManagedRuntimeAc
   runtimeId: string;
 }
 
-export async function getManagedRuntimeCredentialStatusSync(
+export async function getManagedRuntimeCredentialStatusAsync(
   input: GetManagedRuntimeCredentialStatusInput,
 ): Promise<ModelsInternalRuntimeCredential | null> {
   assertRemoteRuntimeMode();
@@ -866,7 +850,7 @@ export interface StopManagedRuntimeInput extends ManagedRuntimeActor {
   reason?: string;
 }
 
-export async function stopManagedRuntimeSync(input: StopManagedRuntimeInput): Promise<AgentRuntimeRecord> {
+export async function stopManagedRuntimeAsync(input: StopManagedRuntimeInput): Promise<AgentRuntimeRecord> {
   assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   const runtime = readAgentRuntimeSync(input.runtimeId);
@@ -921,7 +905,7 @@ export async function stopManagedRuntimeSync(input: StopManagedRuntimeInput): Pr
   return updated ?? runtime;
 }
 
-export async function deleteManagedRuntimeSync(input: StopManagedRuntimeInput): Promise<void> {
+export async function deleteManagedRuntimeAsync(input: StopManagedRuntimeInput): Promise<void> {
   assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   const runtime = readAgentRuntimeSync(input.runtimeId);
@@ -955,17 +939,83 @@ export async function deleteManagedRuntimeSync(input: StopManagedRuntimeInput): 
       workspaceId: input.workspaceId,
       daemonConnectionId: runtime.daemonConnectionId,
       runtimeType: runtime.provider,
+      deleteRuntimeOnSuccess: true,
     });
+    updateAgentRuntimeManagedFieldsSync({
+      runtimeId: runtime.id,
+      workspaceId: input.workspaceId,
+      status: "offline",
+    });
+  } else {
+    deleteAgentRuntimeSync({ runtimeId: runtime.id, workspaceId: input.workspaceId });
   }
   recordAuditLogSync({
     workspaceId: input.workspaceId,
-    title: "Managed runtime deleted",
-    note: `Runtime ${runtime.id} deleted`,
-    code: "runtime.deleted",
+    title: runtime.daemonConnectionId ? "Managed runtime deletion scheduled" : "Managed runtime deleted",
+    note: runtime.daemonConnectionId
+      ? `Runtime ${runtime.id} will be deleted after node cleanup succeeds`
+      : `Runtime ${runtime.id} deleted`,
+    code: runtime.daemonConnectionId ? "runtime.delete_scheduled" : "runtime.deleted",
     source: "runtime_lifecycle",
     data: { runtimeId: runtime.id, actorId: input.actorUserId },
   });
-  deleteAgentRuntimeSync({ runtimeId: runtime.id, workspaceId: input.workspaceId });
+}
+
+export function completeManagedRuntimeCleanupSync(
+  requestId: string,
+  result?: Record<string, unknown>,
+) {
+  const request = readManagedRuntimeCleanupRequestSync(requestId);
+  if (!request) return null;
+  const completed = completeManagedRuntimeCleanupRequestRecordSync(requestId, "succeeded", result);
+  if (!completed || completed.status !== "succeeded") return completed;
+
+  let cleanupStatus: "succeeded" | "failed" = "succeeded";
+  const cleanupResult: Record<string, unknown> = { ...(result ?? {}) };
+  if (completed.deleteRuntimeOnSuccess) {
+    try {
+      deleteAgentRuntimeSync({ runtimeId: completed.runtimeId, workspaceId: completed.workspaceId });
+      cleanupResult.removedRuntimeId = completed.runtimeId;
+    } catch (error) {
+      cleanupStatus = "failed";
+      cleanupResult.runtimeDeleteError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  const linkedTask = completed.provisioningTaskId
+    ? readRuntimeProvisioningTaskSync(completed.provisioningTaskId, completed.workspaceId)
+    : null;
+  if (completed.provisioningTaskId && linkedTask?.status === "cancelling") {
+    completeRuntimeProvisioningCancellationSync({
+      id: completed.provisioningTaskId,
+      workspaceId: completed.workspaceId,
+      cleanupStatus,
+      cleanupResult,
+    });
+  }
+  return completed;
+}
+
+export function failManagedRuntimeCleanupSync(
+  requestId: string,
+  errorCode?: string,
+  errorMessage?: string,
+) {
+  const failed = failManagedRuntimeCleanupRequestRecordSync(requestId, errorCode, errorMessage);
+  const linkedTask = failed?.provisioningTaskId
+    ? readRuntimeProvisioningTaskSync(failed.provisioningTaskId, failed.workspaceId)
+    : null;
+  if (failed?.status === "failed" && failed.provisioningTaskId && linkedTask?.status === "cancelling") {
+    completeRuntimeProvisioningCancellationSync({
+      id: failed.provisioningTaskId,
+      workspaceId: failed.workspaceId,
+      cleanupStatus: "failed",
+      cleanupResult: {
+        errorCode: failed.lastErrorCode,
+        errorMessage: failed.lastErrorMessage,
+      },
+    });
+  }
+  return failed;
 }
 
 // ─── Pipeline driver ─────────────────────────────────────────────────────────
@@ -1211,7 +1261,7 @@ export async function runProvisioningPipeline(
 
   // Stage: pull_image / install_cli / write_credential / health_check are driven
   // by the managed node. The server advances to pull_image pending and then waits
-  // for daemon stage reports. resumePendingProvisioningTasksSync re-enters here
+  // for daemon stage reports. resumePendingProvisioningTasksAsync re-enters here
   // once a node stage has been reported succeeded.
   if (
     task.stage === "pull_image" ||
@@ -1285,7 +1335,7 @@ export function finalizeManagedRuntimeProvisioningSync(input: {
  * Re-drive tasks left running by a process restart or an offline node. Safe to
  * call periodically; finished/cancelled tasks are skipped.
  */
-export async function resumePendingProvisioningTasksSync(workspaceId?: string): Promise<{
+export async function resumePendingProvisioningTasksAsync(workspaceId?: string): Promise<{
   timedOutNodeStages: number;
   timedOutNodeStagesRetried: number;
   timedOutNodeStagesFailed: number;
@@ -1351,16 +1401,16 @@ export async function resumePendingProvisioningTasksSync(workspaceId?: string): 
   };
 }
 
-export async function resumeManagedRuntimeCleanupRequestsSync(): Promise<{
+export async function resumeManagedRuntimeCleanupRequestsAsync(): Promise<{
   staleFailed: number;
 }> {
   assertRemoteRuntimeMode();
-  const { failManagedRuntimeCleanupRequestSync, listStaleManagedRuntimeCleanupRequestsSync } = await import(
+  const { listStaleManagedRuntimeCleanupRequestsSync } = await import(
     "@dofe-agent/db"
   );
   const stale = listStaleManagedRuntimeCleanupRequestsSync(DEFAULT_CLEANUP_TIMEOUT_MS);
   for (const request of stale) {
-    failManagedRuntimeCleanupRequestSync(
+    failManagedRuntimeCleanupSync(
       request.id,
       "cleanup.timeout",
       `Cleanup request timed out after ${DEFAULT_CLEANUP_TIMEOUT_MS}ms`,
@@ -1433,9 +1483,10 @@ function isRetryableProvisioningError(error: unknown): boolean {
 
 async function compensateProvisioning(
   task: RuntimeProvisioningTaskRecord,
-): Promise<{ ok: boolean; detail: Record<string, unknown> }> {
+): Promise<{ ok: boolean; pending: boolean; detail: Record<string, unknown> }> {
   const detail: Record<string, unknown> = {};
   let ok = true;
+  let pending = false;
   if (task.runtimeCredentialId) {
     try {
       const scope = resolveManagedRuntimeScopeSync(task.workspaceId);
@@ -1462,22 +1513,27 @@ async function compensateProvisioning(
           workspaceId: task.workspaceId,
           daemonConnectionId: runtime.daemonConnectionId,
           runtimeType: runtime.provider,
+          provisioningTaskId: task.id,
+          deleteRuntimeOnSuccess: true,
         });
         detail.cleanupRequested = true;
+        pending = true;
       } catch (error) {
         ok = false;
         detail.cleanupRequestError = error instanceof Error ? error.message : String(error);
       }
     }
-    try {
-      deleteAgentRuntimeSync({ runtimeId: task.runtimeId, workspaceId: task.workspaceId });
-      detail.removedRuntimeId = task.runtimeId;
-    } catch (error) {
-      ok = false;
-      detail.runtimeCleanupError = error instanceof Error ? error.message : String(error);
+    if (!pending) {
+      try {
+        deleteAgentRuntimeSync({ runtimeId: task.runtimeId, workspaceId: task.workspaceId });
+        detail.removedRuntimeId = task.runtimeId;
+      } catch (error) {
+        ok = false;
+        detail.runtimeCleanupError = error instanceof Error ? error.message : String(error);
+      }
     }
   }
-  return { ok, detail };
+  return { ok, pending: pending && ok, detail };
 }
 
 async function assertManagedRuntimeModelSelectionAsync(input: {
