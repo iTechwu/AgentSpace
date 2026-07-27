@@ -141,7 +141,7 @@ export function SkillRequirementsModal({
                 </div>
               ) : null}
               <small className="form-field__hint">
-                {tx("绑定 Agent 时会校验 Provider；模型标识仅保存为当前 Agent 的此 Skill 配置，实际模型切换由执行引擎支持。", "Provider compatibility is checked when binding an agent. The model identifier is saved only for this agent's skill configuration; model switching depends on the execution engine.")}
+                {tx("绑定 AI员工 时会校验 Provider；模型标识仅保存为当前 AI员工 的此 Skill 配置，实际模型切换由执行引擎支持。", "Provider compatibility is checked when binding an AI employee. The model identifier is saved only for this AI employee's skill configuration; model switching depends on the execution engine.")}
               </small>
             </section>
           ) : null}
@@ -159,7 +159,7 @@ export function SkillRequirementsModal({
                   value={projectWorkDir}
                 />
                 <small className="form-field__hint">
-                  {tx("此路径仅保存为当前 Agent 的此 Skill 配置；服务端不会访问或执行。", "This path is saved only for this agent's skill configuration; the server will not access or execute it.")}
+                  {tx("此路径仅保存为当前 AI员工 的此 Skill 配置；服务端不会访问或执行。", "This path is saved only for this AI employee's skill configuration; the server will not access or execute it.")}
                 </small>
               </label>
             </section>
@@ -189,7 +189,7 @@ export function SkillRequirementsModal({
             <section className="skill-requirements-modal__section skill-requirements-modal__section--blocked">
               <h4>{tx("凭据", "Credentials")}</h4>
               <p>{collectSecrets
-                ? tx("仅为当前 Agent 加密保存；保存后不会再次显示原文。", "Encrypted only for this agent. The plaintext is never shown again after saving.")
+                ? tx("仅为当前 AI员工 加密保存；保存后不会再次显示原文。", "Encrypted only for this AI employee. The plaintext is never shown again after saving.")
                 : tx("以下项不会从 GitHub 导入，也不会保存在 Skill 配置中。", "These values are not imported from GitHub and are never stored in skill configuration.")}
               </p>
               {collectSecrets ? secretRequirements.map((requirement) => (

@@ -711,7 +711,7 @@ export function ChannelDocumentsPanel({
                     {collaborator.isCurrentUser ? ` · ${tx("你", "You")}` : ""}
                   </strong>
                   <span>
-                    {collaborator.actorType === "human" ? tx("人类成员", "Human") : tx("Agent", "Agent")} ·{" "}
+                    {collaborator.actorType === "human" ? tx("人类成员", "Human") : tx("AI员工", "AI employee")} ·{" "}
                     {formatDocumentRoleLabel(collaborator.role, tx)}
                   </span>
                   {canManageDocument ? (

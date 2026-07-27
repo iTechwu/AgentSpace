@@ -426,7 +426,7 @@ describe("WorkspaceFrame", () => {
     resolveFetch?.(moduleResponse());
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Agent 绩效看板" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "AI员工 绩效看板" })).toBeInTheDocument();
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/workspaces/workspace-alpha/modules/performance",
@@ -602,7 +602,7 @@ describe("WorkspaceFrame", () => {
     await userEventApi.click(performanceLink);
 
     expect(routerPushMock).not.toHaveBeenCalled();
-    expect(screen.getByRole("heading", { name: "Agent 绩效看板" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "AI员工 绩效看板" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(window.location.pathname).toBe("/w/workspace-alpha/performance");
   });
@@ -895,7 +895,7 @@ describe("WorkspaceFrame", () => {
       </LanguageProvider>,
     );
 
-    expect(screen.getByRole("heading", { name: "Agent 绩效看板" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "AI员工 绩效看板" })).toBeInTheDocument();
 
     await userEventApi.click(screen.getByRole("link", { name: /通知/ }));
     await waitFor(() => {
@@ -907,7 +907,7 @@ describe("WorkspaceFrame", () => {
 
     await userEventApi.click(screen.getByRole("link", { name: /绩效看板/ }));
 
-    expect(screen.getByRole("heading", { name: "Agent 绩效看板" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "AI员工 绩效看板" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalledWith(
       "/api/workspaces/workspace-alpha/modules/performance",
@@ -1275,6 +1275,7 @@ describe("WorkspaceFrame", () => {
   });
 
   it("falls back to preferences when the URL names an unknown settings section", async () => {
+    window.localStorage.setItem(buildWorkspaceOnboardingStorageKey(user.id, workspaces[0].id), "done");
     pathname = "/w/workspace-alpha/settings/unknown";
     window.history.replaceState(null, "", "/w/workspace-alpha/settings/unknown");
 
@@ -1400,7 +1401,7 @@ describe("WorkspaceFrame", () => {
 
     expect(await screen.findByRole("dialog", { name: "新手引导" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "1. 绑定 Runtime" })).toBeInTheDocument();
-    expect(screen.getByText(/没有它，Agent 只能被配置，不能开始工作/)).toBeInTheDocument();
+    expect(screen.getByText(/没有它，AI员工 只能被配置，不能开始工作/)).toBeInTheDocument();
 
     await userEventApi.click(screen.getByRole("button", { name: "跳过" }));
 
@@ -1426,8 +1427,8 @@ describe("WorkspaceFrame", () => {
     expect(routerPushMock).toHaveBeenCalledWith("/w/workspace-alpha/agents?mode=container&create=server");
 
     await userEventApi.click(screen.getByRole("button", { name: "下一步" }));
-    expect(screen.getByRole("heading", { name: "2. 从 Runtime 到 Agent" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "创建或绑定 Agent" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "2. 从 Runtime 到 AI员工" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建或绑定 AI员工" })).toBeInTheDocument();
 
     await userEventApi.click(screen.getByRole("button", { name: "下一步" }));
     expect(screen.getByRole("heading", { name: "3. 配置工作说明" })).toBeInTheDocument();

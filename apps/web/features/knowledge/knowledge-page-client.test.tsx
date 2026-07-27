@@ -199,7 +199,7 @@ describe("KnowledgePageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "沉淀为知识页面" }));
     expect(await screen.findByRole("heading", { name: "沉淀为知识页面" })).toBeInTheDocument();
-    await user.click(screen.getByLabelText("指定 Agent"));
+    await user.click(screen.getByLabelText("指定 AI员工"));
     await user.click(screen.getByLabelText("Planner"));
     await user.click(screen.getByRole("button", { name: "创建知识页面" }));
 

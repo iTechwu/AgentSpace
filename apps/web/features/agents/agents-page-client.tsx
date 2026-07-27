@@ -686,7 +686,7 @@ export function AgentsPageClient({
                 </button>
                 <div className="agents-detail-pane__mobile-copy">
                   <strong>{detailTitle}</strong>
-                    <span>{tx("AI员工 详情", "Agent details")}</span>
+                    <span>{tx("AI员工 详情", "AI employee details")}</span>
                   </div>
                 </div>
               ) : null}

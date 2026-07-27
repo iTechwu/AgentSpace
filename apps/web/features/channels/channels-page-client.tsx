@@ -2300,7 +2300,7 @@ function DigitalEmployeeDirectoryDetail({
           <dd>{tx("数字员工", "Digital employee")}</dd>
         </div>
         <div>
-          <dt>{tx("Agent 标识", "Agent identity")}</dt>
+          <dt>{tx("AI员工 标识", "AI employee identity")}</dt>
           <dd>{identity}</dd>
         </div>
         <div>
@@ -3012,7 +3012,7 @@ function AddChannelMembersModal({
             <input
               autoFocus
               onChange={(event) => setQuery(event.currentTarget.value)}
-              placeholder={tx("搜索成员、邮箱或 Agent", "Search members, email, or agents")}
+              placeholder={tx("搜索成员、邮箱或 AI员工", "Search members, email, or AI employees")}
               type="search"
               value={query}
             />

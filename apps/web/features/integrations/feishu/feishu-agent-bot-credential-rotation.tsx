@@ -123,7 +123,7 @@ export function FeishuAgentBotCredentialRotation({
                     encryptKey: optionalText(encryptKey),
                   });
                   clearFields();
-                  setFeedback(tx("Agent 飞书 Bot 凭据已轮换。", "Agent Feishu bot credentials rotated."));
+                  setFeedback(tx("AI员工 飞书 Bot 凭据已轮换。", "AI employee Feishu bot credentials rotated."));
                   onUpdated(updated);
                 } catch (error) {
                   setFeedback(translateSettingsActionError(error, tx));

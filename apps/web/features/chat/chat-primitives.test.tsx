@@ -107,8 +107,8 @@ describe("ConversationMessageBubble", () => {
 
     expect(screen.getByText("@Mina")).toHaveAttribute("data-mention-type", "human");
     expect(screen.getByText("@Nova")).toHaveAttribute("data-mention-type", "agent");
-    expect(screen.getByText("@Mina")).toHaveAttribute("title", "Human mention: Mina");
-    expect(screen.getByText("@Nova")).toHaveAttribute("title", "Agent mention: Nova");
+    expect(screen.getByText("@Mina")).toHaveAttribute("title", "人类提及：Mina");
+    expect(screen.getByText("@Nova")).toHaveAttribute("title", "AI员工提及：Nova");
   });
 
   it("marks Feishu messages with their source icon", () => {

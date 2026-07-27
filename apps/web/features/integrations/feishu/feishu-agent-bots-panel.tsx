@@ -120,8 +120,8 @@ export function FeishuAgentBotsPanel({
         {!firstUnboundAgentId ? (
           <p className="settings-panel-note">
             {agentOptions.length === 0
-              ? tx("请先在 AI员工 管理中创建 AI员工，再为它绑定飞书 Bot。", "Create an agent in Agent Management before binding a Feishu bot.")
-              : tx("当前所有 Agent 都已经绑定启用中的飞书 Bot。", "Every agent already has an active Feishu bot binding.")}
+              ? tx("请先在 AI员工 管理中创建 AI员工，再为它绑定飞书 Bot。", "Create an AI employee in AI Employee Management before binding a Feishu bot.")
+              : tx("当前所有 AI员工 都已经绑定启用中的飞书 Bot。", "Every AI employee already has an active Feishu bot binding.")}
           </p>
         ) : null}
 
@@ -348,7 +348,7 @@ export function FeishuAgentBotsPanel({
                   setVerificationToken("");
                   setEncryptKey("");
                   setConnectionSummary(null);
-                  setFeedback(tx("AI员工 飞书 Bot 已绑定。", "Agent Feishu bot bound."));
+                  setFeedback(tx("AI员工 飞书 Bot 已绑定。", "AI employee Feishu bot bound."));
                   onUpdated(created);
                 } catch (error) {
                   setFeedback(translateSettingsActionError(error, tx));
@@ -364,13 +364,13 @@ export function FeishuAgentBotsPanel({
 
       <div className="feishu-binding-list">
         {agentBots.length === 0 ? (
-          <p className="settings-panel-note">{tx("暂无 AI员工 飞书 Bot。", "No agent Feishu bots yet.")}</p>
+          <p className="settings-panel-note">{tx("暂无 AI员工 飞书 Bot。", "No AI employee Feishu bots yet.")}</p>
         ) : agentBots.map((integration) => (
             <article className="feishu-binding-card" key={integration.id}>
               <div>
                 <strong>{integration.displayName}</strong>
                 <div className="feishu-binding-card__meta">
-                  <span>{tx("Agent", "Agent")}: {integration.agentId}</span>
+                  <span>{tx("AI员工", "AI employee")}: {integration.agentId}</span>
                   <span>{tx("连接方式", "Transport")}: {integration.transportMode}</span>
                   <span>{tx("状态", "Status")}: {integration.status}</span>
                   {integration.appId ? <span>App ID: {integration.appId}</span> : null}
@@ -454,7 +454,7 @@ export function FeishuAgentBotsPanel({
                     startTransition(async () => {
                       try {
                         const updated = await disableFeishuAgentBotBindingAction(integration.id);
-                        setFeedback(tx("AI员工 飞书 Bot 已停用。", "Agent Feishu bot disabled."));
+                        setFeedback(tx("AI员工 飞书 Bot 已停用。", "AI employee Feishu bot disabled."));
                         onUpdated(updated);
                       } catch (error) {
                         setFeedback(translateSettingsActionError(error, tx));
@@ -734,7 +734,7 @@ export function FeishuAgentBotPolicyEditor({
                   },
                 });
                 applyPolicyState(updated);
-                setFeedback(tx("AI员工 飞书 Bot 治理策略已更新。", "Agent Feishu bot governance policy updated."));
+                setFeedback(tx("AI员工 飞书 Bot 治理策略已更新。", "AI employee Feishu bot governance policy updated."));
                 onUpdated(updated);
               } catch (error) {
                 setFeedback(translateSettingsActionError(error, tx));

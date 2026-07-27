@@ -2,7 +2,7 @@
 
 审查日期：2026-07-27  
 审查范围：`docs/0727/agent-pricing` 三份文档 + AgentSpace 当前分支业务代码  
-结论：**尚未全面实施，但 Step 2 成本对账骨架已完成**。Phase 1（models.dofe.ai 侧 RuntimeCredential）已完成；Phase 2（AgentSpace 控制面）已落地主要路径；Phase 3（节点侧受管安装）基本未实施；Phase 4（模型配置与会话体验）核心路径已通；Phase 5（成本对账与术语迁移）对账骨架已落地，余额/Key 用量、多维度视图、文案迁移、告警仍待实施。
+结论：**尚未全面实施，但 Step 2 成本对账骨架与 Step 3 “Agent”→“AI员工”文案迁移已完成**。Phase 1（models.dofe.ai 侧 RuntimeCredential）已完成；Phase 2（AgentSpace 控制面）已落地主要路径；Phase 3（节点侧受管安装）基本未实施；Phase 4（模型配置与会话体验）核心路径已通；Phase 5（成本对账、文案迁移）已完成骨架与文案，余额/Key 用量、多维度视图、告警仍待实施。
 
 ---
 
@@ -75,7 +75,7 @@
 | 余额 / Key 用量 / 用量日志接入 | ⚠️ 部分实施 | `packages/services/src/models/usage-sync.ts` 已接入 `usage.tenantLogs` 并按 `runtimeCredentialId` 对账；余额 / Key 用量卡片尚未实施 |
 | 成本状态：真实扣费 / 估算 / 待对账 / 已对账 | ✅ 已实施骨架 | `token_usage` 增加 `billing_status`、`actual_cost_usd`、`currency`、`reconciled_at`；`CostDashboardData`/`CostPageData` 暴露 `estimatedCostUsd`/`reconciledCostUsd`/`unallocatedCostUsd`/`totalActualCostUsd`；成本页展示三种状态并支持“与 models 对账” |
 | AI员工 / Runtime / 会话维度成本视图 | ❌ 未实施 | 成本页仍为 `token_usage` 聚合，未按 Runtime / 会话拆分 |
-| “Agent” 文案迁移为 “AI员工” | ❌ 未实施 | 大量 UI 仍显示 “Agent”，如 `create-agent-modal.tsx:223` “Agent 已创建”、`agents-page-client.tsx` 多处 |
+| “Agent” 文案迁移为 “AI员工” | ✅ 已实施 | 已遍历 `apps/web/features` 面向用户的标签、Toast、空状态、选项和测试断言；内部标识、路由、类型名、第三方协议名保留 |
 | 异常告警（余额不足、轮换失败、对账差异等） | ❌ 未实施 | 未见 |
 | 平台超管审计隔离 | ❌ 未实施 | 平台侧审计未在本仓库落地 |
 
@@ -113,13 +113,13 @@
 - ✅ 更新 `implementation-plan.md` Phase 5 为部分完成。
 - ⏳ 仍待细化：按 Runtime / AI员工 / 会话维度拆分视图；接入 models `billing.balanceByTeam` 展示团队余额。
 
-### Step 3 — “Agent” → “AI员工” 文案迁移（低技术风险，需回归测试）
+### Step 3 — “Agent” → “AI员工” 文案迁移（已实施）
 
 目标：通过用户可见文案验收。
 
-- 搜索 `apps/web` 中面向用户的 “Agent” 文案（排除内部标识、代码名、第三方协议名）。
-- 替换为 “AI员工” / “AI Employee”，保留内部兼容层。
-- 更新 `implementation-plan.md` Phase 5 文案迁移项。
+- ✅ 搜索 `apps/web/features` 中面向用户的 “Agent” 文案（标签、占位符、Toast、空状态、选项、测试断言）。
+- ✅ 替换为 “AI员工” / “AI employee”，保留内部标识、路由、类型名、第三方协议名。
+- ✅ 更新 `implementation-plan.md` Phase 5 文案迁移项。
 
 ### Step 4 — Phase 3 节点侧受管安装（高耦合，需与 daemon/ops 协同）
 
@@ -134,18 +134,15 @@
 
 ## 5. 本次立即实施项
 
-选择 **Step 2 — Phase 5 成本对账骨架** 作为立即实施项：
+选择 **Step 3 — “Agent” → “AI员工” 文案迁移** 作为立即实施项：
 
-- 改动不依赖 models 侧新接口，使用已存在的 `usage.tenantLogs`。
-- 直接提升成本页可信度，区分估算与真实扣费。
-- 对应 `implementation-plan.md` Phase 5 的核心验收项。
+- 改动面小，不依赖 models 侧新接口。
+- 直接对应 `implementation-plan.md` Phase 5 文案迁移验收项。
 
 实施范围：
-1. ✅ `packages/db/src/token-usage.ts`：新增 `findTokenUsageByGatewayRequestIdSync`、`markTokenUsageReconciledSync`、`insertUnallocatedTokenUsageSync`、`getWorkspaceBillingSummarySync`。
-2. ✅ `packages/services/src/models/usage-sync.ts`：按 `runtimeCredentialId` 拉取 models 用量日志并实现对账。
-3. ✅ `packages/services/src/costs/costs.ts` / `apps/web/features/dashboard/data.ts`：`CostDashboardData`/`CostPageData` 增加 `estimatedCostUsd`/`reconciledCostUsd`/`unallocatedCostUsd`/`totalActualCostUsd`/`lastReconciledAt`。
-4. ✅ `apps/web/features/costs/actions.ts`：新增 `reconcileWorkspaceUsageAction`。
-5. ✅ `apps/web/features/costs/costs-page-client.tsx`：展示三种成本状态、对账按钮、最近用量状态标签。
-6. ✅ 更新 `docs/0727/agent-pricing/implementation-plan.md` 与 `review-and-next-steps.md` 对应状态。
+1. ✅ 遍历 `apps/web/features` 中面向用户的 “Agent” 文案（agents、costs、chat、inbox、auth、settings、permissions、dashboard、org-chart、knowledge、task-board、skills、automations、approvals、performance、i18n 等）。
+2. ✅ 统一替换为 “AI员工 / AI employee”，保留内部标识、路由、类型名、第三方协议名（如 `DofeAgent`、`agentId`、`mention_agent` 值）。
+3. ✅ 同步更新相关测试断言中的文案期望。
+4. ✅ 更新 `docs/0727/agent-pricing/implementation-plan.md` 与 `review-and-next-steps.md` 对应状态。
 
-下一步推荐：**Step 3 “Agent” → “AI员工” 文案迁移** 或 **Step 4 Phase 3 节点侧受管安装**。
+下一步推荐：**Step 4 — Phase 3 节点侧受管安装**（需与 daemon/ops 协同）。

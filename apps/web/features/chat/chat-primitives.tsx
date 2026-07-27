@@ -208,7 +208,7 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
             <span />
           </div>
         ) : (
-          <p>{renderMessageContent(translateWorkspaceMessageSummary(message, tx), message.mentions)}</p>
+          <p>{renderMessageContent(translateWorkspaceMessageSummary(message, tx), message.mentions, tx)}</p>
         )}
         {approvalAction ? (
           <div className={`runtime-approval-card runtime-approval-card--${approvalAction.status}`}>
@@ -696,7 +696,7 @@ export function ChatEmptyState({ title, body }: { title: string; body: string })
   return <EmptyState body={body} title={title} />;
 }
 
-function renderMessageContent(content: string, mentions: MessageMention[] | undefined): React.ReactNode {
+function renderMessageContent(content: string, mentions: MessageMention[] | undefined, tx: (zh: string, en: string) => string): React.ReactNode {
   if (!mentions || mentions.length === 0) {
     return content;
   }
@@ -739,7 +739,7 @@ function renderMessageContent(content: string, mentions: MessageMention[] | unde
         className="message-mention"
         data-mention-type={nextMatch.mention.mentionType}
         key={`${getMentionKey(nextMatch.mention)}-${nextMatch.index}`}
-        title={formatMentionTitle(nextMatch.mention)}
+        title={formatMentionTitle(nextMatch.mention, tx)}
       >
         {content.slice(nextMatch.index, nextMatch.index + nextMatch.mention.token.length + 1)}
       </span>,
@@ -764,10 +764,10 @@ function getMentionKey(mention: MessageMention): string {
   return mention.mentionType === "human" ? mention.humanId : mention.agentId;
 }
 
-function formatMentionTitle(mention: MessageMention): string {
+function formatMentionTitle(mention: MessageMention, tx: (zh: string, en: string) => string): string {
   return mention.mentionType === "human"
-    ? `Human mention: ${mention.label}`
-    : `Agent mention: ${mention.label}`;
+    ? tx(`人类提及：${mention.label}`, `Human mention: ${mention.label}`)
+    : tx(`AI员工提及：${mention.label}`, `AI employee mention: ${mention.label}`);
 }
 
 function documentLinkForMessage(message: ConversationThreadMessage): string | null {

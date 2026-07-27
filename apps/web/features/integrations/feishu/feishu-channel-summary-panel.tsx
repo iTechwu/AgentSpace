@@ -50,7 +50,7 @@ export function FeishuChannelSummaryPanel({
       ) : null}
 
       <div className="channel-feishu-summary__section">
-        <span className="channel-feishu-summary__label">{tx("Agent Bots", "Agent bots")}</span>
+        <span className="channel-feishu-summary__label">{tx("AI员工 Bots", "AI employee bots")}</span>
         {feishu.connectedAgentBots.length > 0 ? (
           <div className="channel-feishu-summary__chips">
             {feishu.connectedAgentBots.map((bot) => (

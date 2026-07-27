@@ -130,7 +130,7 @@ function formatGovernanceActor(run: FeishuOperationRunWithIntegration, tx: Setti
   }
   if (context.actorType === "agent") {
     return [
-      tx("Agent", "Agent"),
+      tx("AI员工", "AI employee"),
       context.agentId ?? run.actorId,
     ].filter(Boolean).join(" · ");
   }

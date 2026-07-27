@@ -30,7 +30,7 @@ const TRIGGER_TYPES: Array<{ value: AutomationTriggerType; label: string; labelE
 const ACTION_TYPES: Array<{ value: AutomationActionType; label: string; labelEn: string }> = [
   { value: "send_message", label: "发送消息", labelEn: "Send Message" },
   { value: "create_task", label: "创建任务", labelEn: "Create Task" },
-  { value: "mention_agent", label: "@Agent", labelEn: "@Agent" },
+  { value: "mention_agent", label: "@AI员工", labelEn: "@AI employee" },
   { value: "update_table", label: "更新数据表", labelEn: "Update Table" },
   { value: "webhook", label: "Webhook", labelEn: "Webhook" },
 ];
@@ -232,7 +232,7 @@ export function AutomationsPageClient({ data, onDataChanged }: { data: Automatio
                 </div>
               </div>
               <p className="automations-card__description">
-                {tx("群消息里按顺序 @ 多个 Agent 时，识别“然后”等顺序词并启动串行协作。", "Starts sequential collaboration when a channel message mentions multiple agents with markers such as then.")}
+                {tx("群消息里按顺序 @ 多个 AI员工 时，识别“然后”等顺序词并启动串行协作。", "Starts sequential collaboration when a channel message mentions multiple AI employees with markers such as then.")}
               </p>
               <div className="automations-card__flow">
                 <span className="automations-card__trigger">{tx("群消息提及", "Channel mention")}</span>
@@ -263,7 +263,7 @@ export function AutomationsPageClient({ data, onDataChanged }: { data: Automatio
                 </div>
               </div>
               <p className="automations-card__description">
-                {tx("群消息 @ 单个 Agent 并要求连续工作、持续工作或自动接管到某个时间时，持续排队下一轮任务直到截止。", "Keeps queueing follow-up work until a deadline when a channel message asks one agent to keep working or take over.")}
+                {tx("群消息 @ 单个 AI员工 并要求连续工作、持续工作或自动接管到某个时间时，持续排队下一轮任务直到截止。", "Keeps queueing follow-up work until a deadline when a channel message asks one AI employee to keep working or take over.")}
               </p>
               <div className="automations-card__flow">
                 <span className="automations-card__trigger">{tx("群消息提及", "Channel mention")}</span>
@@ -371,7 +371,7 @@ export function AutomationsPageClient({ data, onDataChanged }: { data: Automatio
               <span>{tx("内置规则", "Built-in rule")}</span>
             </div>
             <p>
-              {tx("这条规则由群聊消息解析器触发。命中后会创建串行群文档协作流程，并按顺序调度相关 Agent。", "This rule is triggered by the channel message parser. When matched, it creates a sequential channel-document workflow and dispatches agents in order.")}
+              {tx("这条规则由群聊消息解析器触发。命中后会创建串行群文档协作流程，并按顺序调度相关 AI员工。", "This rule is triggered by the channel message parser. When matched, it creates a sequential channel-document workflow and dispatches AI employees in order.")}
             </p>
             <div className="automations-run-list">
               {data.documentRuns.length === 0 ? (
@@ -416,7 +416,7 @@ export function AutomationsPageClient({ data, onDataChanged }: { data: Automatio
               <span>{tx("内置规则", "Built-in rule")}</span>
             </div>
             <p>
-              {tx("这条规则由群聊消息解析器触发。命中后会在当前会话执行空间里保持自动续跑状态，每轮任务完成后继续调度同一个 Agent，直到截止时间。", "This rule is triggered by the channel message parser. It keeps an auto-continuation state in the conversation workspace and dispatches the same agent after each task until the deadline.")}
+              {tx("这条规则由群聊消息解析器触发。命中后会在当前会话执行空间里保持自动续跑状态，每轮任务完成后继续调度同一个 AI员工，直到截止时间。", "This rule is triggered by the channel message parser. It keeps an auto-continuation state in the conversation workspace and dispatches the same AI employee after each task until the deadline.")}
             </p>
             <div className="automations-run-list">
               {data.autoContinuationRuns.length === 0 ? (

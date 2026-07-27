@@ -111,7 +111,9 @@
    - `packages/services/src/costs/costs.ts` 的 `CostDashboardData` 暴露 `estimatedCostUsd`、`reconciledCostUsd`、`unallocatedCostUsd`、`totalActualCostUsd`、`lastReconciledAt`。
    - `apps/web/features/costs/costs-page-client.tsx` 展示三种状态金额、对账按钮与最近用量状态标签。
    - `apps/web/features/costs/actions.ts` 提供 `reconcileWorkspaceUsageAction`，Owner/Admin 可对账。
-5. ⏳ 将用户可见的“Agent”文案系统化迁移为“AI员工”，保留内部兼容层并完成埋点与审计字段迁移。
+5. ✅ 将用户可见的“Agent”文案系统化迁移为“AI员工”，保留内部兼容层并完成埋点与审计字段迁移。
+   - 已遍历 `apps/web/features` 中面向用户的标签、占位符、Toast、空状态、选项和测试断言，统一替换为 “AI员工 / AI employee”。
+   - 保留内部标识、路由、类型名、第三方协议名（如 `DofeAgent`、`agentId`、`mention_agent` 值）不变。
 6. ⏳ 建立异常告警：余额不足、凭据轮换失败、成本归因缺失、对账差异、跨团队访问尝试。
 7. ⏳ 对平台超管的跨团队介入记录完整的平台侧审计；团队侧审计仅显示“平台运维”，
    不暴露超管账号，也不将其作为团队成员返回。

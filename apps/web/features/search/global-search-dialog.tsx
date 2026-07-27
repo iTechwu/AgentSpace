@@ -65,7 +65,7 @@ const TYPE_LABELS: Record<string, { zh: string; en: string }> = {
   message: { zh: "消息", en: "Messages" },
   document: { zh: "文档", en: "Documents" },
   task: { zh: "任务", en: "Tasks" },
-  agent: { zh: "Agent", en: "Agents" },
+  agent: { zh: "AI员工", en: "AI Employees" },
   skill: { zh: "技能", en: "Skills" },
   knowledge: { zh: "知识库", en: "Knowledge" },
 };
@@ -211,7 +211,7 @@ export function GlobalSearchDialog({
             aria-label={tx("搜索工作区内容", "Search workspace content")}
             className="search-dialog__input"
             onChange={(e) => handleQueryChange(e.currentTarget.value)}
-            placeholder={tx("搜索消息、文档、任务、Agent...", "Search messages, documents, tasks, agents...")}
+            placeholder={tx("搜索消息、文档、任务、AI员工...", "Search messages, documents, tasks, AI employees...")}
             ref={inputRef}
             type="text"
             value={query}

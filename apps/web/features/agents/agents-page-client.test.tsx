@@ -647,7 +647,7 @@ describe("AgentsPageClient", () => {
     await user.click(screen.getByRole("button", { name: /Planner/i }));
 
     expect(await screen.findByRole("button", { name: "返回列表" })).toBeInTheDocument();
-    expect(screen.getByText("Agent 详情")).toBeInTheDocument();
+    expect(screen.getByText("AI员工 详情")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存 Instructions" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Workspaces" }));
@@ -667,11 +667,11 @@ describe("AgentsPageClient", () => {
 
     renderAgentsPage();
 
-    const helpButton = screen.getByRole("button", { name: "新建 Agent 说明" });
-    expect(screen.getByRole("button", { name: "新建 Agent" })).toBeInTheDocument();
+    const helpButton = screen.getByRole("button", { name: "新建 AI员工 说明" });
+    expect(screen.getByRole("button", { name: "新建 AI员工" })).toBeInTheDocument();
     expect(helpButton).toBeInTheDocument();
     await user.hover(helpButton);
-    expect(await screen.findByText("Agent 可先创建，后续再绑定执行引擎和 skills。")).toBeInTheDocument();
+    expect(await screen.findByText("AI员工 可先创建，后续再绑定执行引擎和 skills。")).toBeInTheDocument();
   });
 
   it("opens the new agent flow from a directory create deep link", async () => {
@@ -1156,7 +1156,7 @@ describe("AgentsPageClient", () => {
 
     renderAgentsPage(dataWithEngines);
 
-    await user.click(screen.getByRole("button", { name: "新建 Agent" }));
+    await user.click(screen.getByRole("button", { name: "新建 AI员工" }));
     expect(screen.getByRole("button", { name: "执行引擎" })).toBeInTheDocument();
     expect(screen.getByText("MacBook")).toBeInTheDocument();
 
@@ -1188,7 +1188,7 @@ describe("AgentsPageClient", () => {
 
     renderAgentsPage(dataWithPreloadedSkill);
 
-    await user.click(screen.getByRole("button", { name: "新建 Agent" }));
+    await user.click(screen.getByRole("button", { name: "新建 AI员工" }));
 
     expect(screen.getByRole("button", { name: /财务分析 Agent/ })).toBeInTheDocument();
     expect(screen.getByText("已准备 1/1 个预置技能")).toBeInTheDocument();
@@ -1226,7 +1226,7 @@ describe("AgentsPageClient", () => {
 
     renderAgentsPage(data, { onDataChanged, onInvalidation });
 
-    await user.click(screen.getByRole("button", { name: "新建 Agent" }));
+    await user.click(screen.getByRole("button", { name: "新建 AI员工" }));
     await user.click(screen.getAllByRole("button", { name: "从模板创建" }).at(-1)!);
 
     await waitFor(() => expect(createWorkspaceAgentAction).toHaveBeenCalled());
@@ -1258,7 +1258,7 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("版本：1.0.0")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "已安装应用" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "更新执行引擎" })).toBeInTheDocument();
-    expect(screen.getByText("执行引擎已接入，可为多个 Agent 提供独立的任务执行环境。")).toBeInTheDocument();
+    expect(screen.getByText("执行引擎已接入，可为多个 AI员工 提供独立的任务执行环境。")).toBeInTheDocument();
   });
 
   it("groups execution engines by server and presents server and token counts together", async () => {

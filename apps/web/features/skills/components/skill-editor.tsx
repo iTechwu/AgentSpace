@@ -103,8 +103,8 @@ export function SkillEditor({
 
       <div className="skills-editor__assigned">
         <div>
-          <p className="skills-editor__assigned-label">{tx("已绑定 Agents", "Assigned agents")}</p>
-          <strong>{tx(`${assignedAgentCount} 个 Agent 正在使用这份 skill`, `${assignedAgentCount} agents are using this skill`)}</strong>
+          <p className="skills-editor__assigned-label">{tx("已绑定 AI员工", "Assigned AI employees")}</p>
+          <strong>{tx(`${assignedAgentCount} 个 AI员工 正在使用这份 skill`, `${assignedAgentCount} AI employees are using this skill`)}</strong>
         </div>
         <div className="skills-editor__assigned-list">
           {assignedAgents.length > 0 ? (
@@ -114,7 +114,7 @@ export function SkillEditor({
               </span>
             ))
           ) : (
-            <span className="skills-editor__assigned-pill skills-editor__assigned-pill--muted">{tx("还没有 Agent 绑定", "No agents assigned yet")}</span>
+            <span className="skills-editor__assigned-pill skills-editor__assigned-pill--muted">{tx("还没有 AI员工 绑定", "No AI employees assigned yet")}</span>
           )}
         </div>
       </div>

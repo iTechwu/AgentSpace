@@ -83,7 +83,7 @@ export function EstimationCard({
             <table className="estimation-table">
               <thead>
                 <tr>
-                  <th>{tx("Agent", "Agent")}</th>
+                  <th>{tx("AI员工", "AI employee")}</th>
                   <th className="estimation-table__num">{tx("预估费用", "Est. Cost")}</th>
                   <th className="estimation-table__num">{tx("完成率", "Rate")}</th>
                   <th className="estimation-table__num">{tx("信心", "Conf.")}</th>
@@ -114,7 +114,7 @@ export function EstimationCard({
               </tbody>
             </table>
           ) : (
-            <p className="estimation-card__empty">{tx("没有候选 Agent。", "No candidate agents.")}</p>
+            <p className="estimation-card__empty">{tx("没有候选 AI员工。", "No candidate AI employees.")}</p>
           )}
         </div>
       ) : null}

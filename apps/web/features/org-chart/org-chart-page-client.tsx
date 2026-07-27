@@ -19,7 +19,7 @@ export function OrgChartPageClient({ data }: { data: OrgChartPageData }) {
         <h2>{tx("组织架构", "Organization")}</h2>
         <div className="org-chart-stats">
           <span>{tx(`${data.totalHumans} 人类`, `${data.totalHumans} humans`)}</span>
-          <span>{tx(`${data.totalAgents} Agents`, `${data.totalAgents} agents`)}</span>
+          <span>{tx(`${data.totalAgents} AI员工`, `${data.totalAgents} AI employees`)}</span>
         </div>
         <div className="org-chart-view-toggle">
           <button
@@ -56,15 +56,15 @@ export function OrgChartPageClient({ data }: { data: OrgChartPageData }) {
             </div>
           </div>
           <div className="org-chart-group">
-            <h3 className="org-chart-group__title">Agents</h3>
+            <h3 className="org-chart-group__title">AI员工</h3>
             <div className="org-chart-group__cards">
               {data.agents.length > 0 ? (
                 data.agents.map((node) => <OrgCard key={node.id} node={node} tx={tx} />)
               ) : (
                 <EmptyState
-                  body={tx("这个工作区还没有 Agent 出现在组织架构里。", "There are no agents in this workspace org chart yet.")}
-                  eyebrow="Agents"
-                  title={tx("暂无 Agent", "No agents")}
+                  body={tx("这个工作区还没有 AI员工 出现在组织架构里。", "There are no AI employees in this workspace org chart yet.")}
+                  eyebrow="AI员工"
+                  title={tx("暂无 AI员工", "No AI employees")}
                 />
               )}
             </div>

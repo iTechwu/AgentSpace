@@ -91,7 +91,7 @@ export function FeishuHealthPanel({
                             <span>{tx("下次重试", "Next Retry")}: {item.nextAttemptAt}</span>
                           ) : null}
                           {item.agentId ? (
-                            <span>{tx("Agent", "Agent")}: {item.agentId}</span>
+                            <span>{tx("AI员工", "AI employee")}: {item.agentId}</span>
                           ) : null}
                           {item.botBindingId ? (
                             <span>{tx("Bot 绑定", "Bot binding")}: {item.botBindingId}</span>
@@ -352,7 +352,7 @@ function FeishuSetupGuide({
     ...(guide.commands.bindSecondAgentBot
       ? [{
         key: "bind-second-agent-bot",
-        label: tx("绑定第二个 Agent Bot", "Bind Second Agent Bot"),
+        label: tx("绑定第二个 AI员工 Bot", "Bind Second AI Employee Bot"),
         note: tx(
           "先在 scripts/feishu/.env 填入第二个飞书 app 凭据，再运行此命令创建第二个 Bot 绑定；通过 Phase 6 前置检查前，最终 evidence --require all 会保持 blocked。",
           "Fill the second Feishu app credentials in scripts/feishu/.env first, then run this command to create the second bot binding; final evidence --require all stays blocked until it is Phase 6-ready.",
@@ -380,14 +380,14 @@ function FeishuSetupGuide({
     ...(guide.commands.agentChannelAccessDisable
       ? [{
         key: "agent-channel-access-disable",
-        label: tx("禁用 Agent 频道访问", "Disable Agent Channel Access"),
+        label: tx("禁用 AI员工 频道访问", "Disable AI Employee Channel Access"),
         value: guide.commands.agentChannelAccessDisable,
       }]
       : []),
     ...(guide.commands.agentChannelAccessRestore
       ? [{
         key: "agent-channel-access-restore",
-        label: tx("恢复 Agent 频道访问", "Restore Agent Channel Access"),
+        label: tx("恢复 AI员工 频道访问", "Restore AI Employee Channel Access"),
         value: guide.commands.agentChannelAccessRestore,
       }]
       : []),
@@ -795,7 +795,7 @@ function translateEvidenceGateLabel(
     case "bot_reply":
       return tx("Bot 回复证据", "Bot Reply Evidence");
     case "native_agent_bot":
-      return tx("原生 Agent Bot 证据", "Native Agent Bot Evidence");
+      return tx("原生 AI员工 Bot 证据", "Native AI Employee Bot Evidence");
     case "guest_policy":
       return tx("外部访客策略证据", "External Guest Policy Evidence");
     case "worker_restart":

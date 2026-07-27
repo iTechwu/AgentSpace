@@ -134,6 +134,7 @@ vi.mock("@/features/channels/actions", () => ({
   createExternalGoogleSheetDocumentAction: vi.fn(async () => ({ documentId: "sheet-1" })),
   createChannelDocumentFromAttachmentAction: vi.fn(async () => ({ documentId: "doc-1" })),
   getChannelDetailDataAction: getChannelDetailDataActionMock,
+  getChatModelOverrideAction: vi.fn(async () => ({ modelOverride: null })),
   getFeishuChannelMemberSnapshotAction: getFeishuChannelMemberSnapshotActionMock,
   deleteChannelAttachmentAction: deleteChannelAttachmentActionMock,
   deleteChannelAction: vi.fn(async () => {}),
@@ -152,6 +153,7 @@ vi.mock("@/features/channels/actions", () => ({
   saveChannelDocumentAction: vi.fn(async () => ({ documentId: "doc-1" })),
   sendChannelMessageAction: sendChannelMessageActionMock,
   sendContactMessageAction: sendContactMessageActionMock,
+  setChatModelOverrideAction: vi.fn(async () => ({ ok: true })),
 }));
 
 function mockMatchMedia(matches: boolean): void {

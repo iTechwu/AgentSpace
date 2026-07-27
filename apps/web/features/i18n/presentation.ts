@@ -39,14 +39,14 @@ export function translateAgentStatus(value: string | undefined, tx: TxFn): strin
 }
 
 export function translateKnowledgeAssignmentMode(value: string | undefined, tx: TxFn): string {
-  if (value === "all_agents") return tx("全员共享", "All agents");
-  if (value === "selected_agents") return tx("指定 Agent", "Selected agents");
+  if (value === "all_agents") return tx("全员共享", "All AI employees");
+  if (value === "selected_agents") return tx("指定 AI员工", "Selected AI employees");
   return value ?? "";
 }
 
 export function translateContainerDescription(value: string | undefined, tx: TxFn): string {
-  if (value === "容器已在线，可承载多个 agent 的独立工作区域。") {
-    return tx("容器已在线，可承载多个 agent 的独立工作区域。", "The container is online and can host independent work areas for multiple agents.");
+  if (value === "容器已在线，可承载多个 AI员工 的独立工作区域。") {
+    return tx("容器已在线，可承载多个 AI员工 的独立工作区域。", "The container is online and can host independent work areas for multiple AI employees.");
   }
   if (value === "容器当前离线。") {
     return tx("容器当前离线。", "The container is currently offline.");
@@ -74,11 +74,11 @@ export function translateSystemSpeaker(value: string | undefined, tx: TxFn): str
 
 export function translateMemberLabel(value: string | undefined, tx: TxFn): string {
   if (!value) return "";
-  const match = value.match(/^(\d+)\s+人类\s+\/\s+(\d+)\s+agent$/);
+  const match = value.match(/^(\d+)\s+人类\s+\/\s+(\d+)\s+(?:agent|AI员工)$/);
   if (!match) {
     return value;
   }
-  return tx(`${match[1]} 人类 / ${match[2]} agent`, `${match[1]} humans / ${match[2]} agents`);
+  return tx(`${match[1]} 人类 / ${match[2]} AI员工`, `${match[1]} humans / ${match[2]} AI employees`);
 }
 
 export function translateWorkspaceMessageSummary(
@@ -99,19 +99,19 @@ export function translateWorkspaceMessageSummary(
 
   switch (code) {
     case "runtime.bound":
-      return tx(`${data.employee_name ?? "Agent"} 已绑定到执行引擎：${data.runtime_name ?? "执行引擎"}。`, `${data.employee_name ?? "Agent"} is now bound to execution engine ${data.runtime_name ?? "execution engine"}.`);
+      return tx(`${data.employee_name ?? "AI员工"} 已绑定到执行引擎：${data.runtime_name ?? "执行引擎"}。`, `${data.employee_name ?? "AI employee"} is now bound to execution engine ${data.runtime_name ?? "execution engine"}.`);
     case "runtime.unbound":
-      return tx(`${data.employee_name ?? "Agent"} 已解除执行引擎绑定。`, `${data.employee_name ?? "Agent"} was unbound from the execution engine.`);
+      return tx(`${data.employee_name ?? "AI员工"} 已解除执行引擎绑定。`, `${data.employee_name ?? "AI employee"} was unbound from the execution engine.`);
     case "agent.deleted":
-      return tx(`${data.employee_name ?? "Agent"} 已删除，相关执行引擎绑定与工作区域已清理。`, `${data.employee_name ?? "Agent"} was deleted together with its execution-engine binding and work area records.`);
+      return tx(`${data.employee_name ?? "AI员工"} 已删除，相关执行引擎绑定与工作区域已清理。`, `${data.employee_name ?? "AI employee"} was deleted together with its execution-engine binding and work area records.`);
     case "channel.created_notice":
       return tx(`新群组 ${data.channel_name ?? "group"} 已创建，可立即接入数字员工与协作流。`, `Group ${data.channel_name ?? "group"} was created and is ready for collaboration.`);
     case "channel.renamed_notice":
       return tx(`群组 ${data.previous_name ?? "group"} 已重命名为 ${data.next_name ?? "group"}。`, `Group ${data.previous_name ?? "group"} was renamed to ${data.next_name ?? "group"}.`);
     case "mention.unavailable":
-      return tx(`${data.agent_names ?? "Agent"} 当前没有绑定可执行引擎，无法响应这次 @。`, `${data.agent_names ?? "Agent"} does not have an executable execution engine bound and cannot respond to this mention.`);
+      return tx(`${data.agent_names ?? "AI员工"} 当前没有绑定可执行引擎，无法响应这次 @。`, `${data.agent_names ?? "AI employee"} does not have an executable execution engine bound and cannot respond to this mention.`);
     case "task.assigned_notice":
-      return tx(`新任务已分派给 ${data.assignee ?? "Agent"}：${data.task_title ?? "task"}。`, `A new task was assigned to ${data.assignee ?? "Agent"}: ${data.task_title ?? "task"}.`);
+      return tx(`新任务已分派给 ${data.assignee ?? "AI员工"}：${data.task_title ?? "task"}。`, `A new task was assigned to ${data.assignee ?? "AI employee"}: ${data.task_title ?? "task"}.`);
     case "task.queued_notice":
       return tx(`任务 ${data.task_title ?? "task"} 已进入执行队列，目标执行引擎：${data.runtime_name ?? "执行引擎"}。`, `Task ${data.task_title ?? "task"} entered the execution queue for engine ${data.runtime_name ?? "execution engine"}.`);
     case "task.status_notice":
@@ -138,18 +138,18 @@ export function translateWorkspaceMessageSummary(
       );
     case "channel_document.step_completed_notice":
       return tx(
-        `${data.agent_label ?? "Agent"} 已完成当前文档步骤。`,
-        `${data.agent_label ?? "Agent"} completed the current document step.`,
+        `${data.agent_label ?? "AI员工"} 已完成当前文档步骤。`,
+        `${data.agent_label ?? "AI employee"} completed the current document step.`,
       );
     case "channel_document.step_completed_without_update_notice":
       return tx(
-        `${data.agent_label ?? "Agent"} 已结束当前步骤，但没有写入新的群文档版本。`,
-        `${data.agent_label ?? "Agent"} finished the step without writing a new document version.`,
+        `${data.agent_label ?? "AI员工"} 已结束当前步骤，但没有写入新的群文档版本。`,
+        `${data.agent_label ?? "AI employee"} finished the step without writing a new document version.`,
       );
     case "channel_document.step_queued_notice":
       return tx(
-        `流程已推进到 ${data.agent_label ?? "Agent"}。`,
-        `The workflow moved to ${data.agent_label ?? "Agent"}.`,
+        `流程已推进到 ${data.agent_label ?? "AI员工"}。`,
+        `The workflow moved to ${data.agent_label ?? "AI employee"}.`,
       );
     case "channel_document.run_completed_notice":
       return tx("群文档协作流程已完成。", "The document workflow has completed.");
@@ -160,8 +160,8 @@ export function translateWorkspaceMessageSummary(
       );
     case "channel_document.run_failed_notice":
       return tx(
-        `群文档协作流程在 ${data.agent_label ?? "Agent"} 处失败。`,
-        `The document workflow failed at ${data.agent_label ?? "Agent"}.`,
+        `群文档协作流程在 ${data.agent_label ?? "AI员工"} 处失败。`,
+        `The document workflow failed at ${data.agent_label ?? "AI employee"}.`,
       );
     case "channel_document.plan_ambiguous_notice":
       return tx(
@@ -200,13 +200,13 @@ export function translateWorkspaceMessageSummary(
       );
     case "auto_continuation.started_notice":
       return tx(
-        `已开启自动续跑：${data.agent_name ?? "Agent"} 将持续工作到 ${formatNoticeDateTime(data.until)}。`,
-        `Auto continuation started: ${data.agent_name ?? "Agent"} will keep working until ${formatNoticeDateTime(data.until)}.`,
+        `已开启自动续跑：${data.agent_name ?? "AI员工"} 将持续工作到 ${formatNoticeDateTime(data.until)}。`,
+        `Auto continuation started: ${data.agent_name ?? "AI employee"} will keep working until ${formatNoticeDateTime(data.until)}.`,
       );
     case "auto_continuation.stopped_notice":
       return tx(
-        `已停止自动续跑：${data.agent_name ?? "Agent"} 不会再自动排队下一轮任务。`,
-        `Auto continuation stopped: ${data.agent_name ?? "Agent"} will not queue another follow-up task.`,
+        `已停止自动续跑：${data.agent_name ?? "AI员工"} 不会再自动排队下一轮任务。`,
+        `Auto continuation stopped: ${data.agent_name ?? "AI employee"} will not queue another follow-up task.`,
       );
     case "contact.unavailable":
       return tx(`${data.contact_name ?? "Contact"} 当前没有绑定可执行容器，无法处理这条私聊消息。`, `${data.contact_name ?? "Contact"} does not have an executable container bound and cannot process this direct message.`);
@@ -215,18 +215,18 @@ export function translateWorkspaceMessageSummary(
         const toolName = data.tool_name ?? tx("工具", "tool");
         const preview = data.content_preview ? `：${data.content_preview}` : "";
         if (data.approval_status === "approved") {
-          return tx(`${data.agent_id ?? "Agent"} 的 ${toolName} 调用已批准${preview}`, `${data.agent_id ?? "Agent"}'s ${toolName} call was approved${preview}`);
+          return tx(`${data.agent_id ?? "AI员工"} 的 ${toolName} 调用已批准${preview}`, `${data.agent_id ?? "AI employee"}'s ${toolName} call was approved${preview}`);
         }
         if (data.approval_status === "rejected") {
-          return tx(`${data.agent_id ?? "Agent"} 的 ${toolName} 调用已驳回${preview}`, `${data.agent_id ?? "Agent"}'s ${toolName} call was rejected${preview}`);
+          return tx(`${data.agent_id ?? "AI员工"} 的 ${toolName} 调用已驳回${preview}`, `${data.agent_id ?? "AI employee"}'s ${toolName} call was rejected${preview}`);
         }
-        return tx(`${data.agent_id ?? "Agent"} 请求审批 ${toolName} 调用${preview}`, `${data.agent_id ?? "Agent"} requested approval for a ${toolName} call${preview}`);
+        return tx(`${data.agent_id ?? "AI员工"} 请求审批 ${toolName} 调用${preview}`, `${data.agent_id ?? "AI employee"} requested approval for a ${toolName} call${preview}`);
       }
-      return tx(`${data.agent_id ?? "Agent"} 提交了一条审批。`, `${data.agent_id ?? "Agent"} submitted an approval.`);
+      return tx(`${data.agent_id ?? "AI员工"} 提交了一条审批。`, `${data.agent_id ?? "AI employee"} submitted an approval.`);
     case "approval.approved":
-      return tx(`${data.agent_id ?? "Agent"} 的审批已批准。`, `${data.agent_id ?? "Agent"}'s approval was approved.`);
+      return tx(`${data.agent_id ?? "AI员工"} 的审批已批准。`, `${data.agent_id ?? "AI employee"}'s approval was approved.`);
     case "approval.rejected":
-      return tx(`${data.agent_id ?? "Agent"} 的审批已驳回。`, `${data.agent_id ?? "Agent"}'s approval was rejected.`);
+      return tx(`${data.agent_id ?? "AI员工"} 的审批已驳回。`, `${data.agent_id ?? "AI employee"}'s approval was rejected.`);
     case "agent.pending":
       return tx("思考中", "Thinking");
     default:
@@ -241,9 +241,9 @@ export function translateLedgerTitle(entry: LedgerItem, tx: TxFn): string {
     case "runtime.unbound":
       return tx("Runtime 解绑", "Runtime unbound");
     case "agent.deleted":
-      return tx("Agent 删除", "Agent deleted");
+      return tx("AI员工 删除", "AI employee deleted");
     case "agent.instructions_updated":
-      return tx("Agent 指令更新", "Agent instructions updated");
+      return tx("AI员工 指令更新", "AI employee instructions updated");
     case "skill.created":
       return tx("Skill 创建", "Skill created");
     case "skill.updated":
@@ -257,13 +257,13 @@ export function translateLedgerTitle(entry: LedgerItem, tx: TxFn): string {
     case "skill.file_deleted":
       return tx("Skill 文件删除", "Skill file deleted");
     case "agent.skills_updated":
-      return tx("Agent Skills 绑定更新", "Agent skill assignments updated");
+      return tx("AI员工 Skills 绑定更新", "AI employee skill assignments updated");
     case "knowledge.assignment_mode_updated":
       return tx("知识分配范围更新", "Knowledge assignment scope updated");
     case "knowledge.page_agents_updated":
-      return tx("知识页 Agent 绑定更新", "Knowledge page agent assignments updated");
+      return tx("知识页 AI员工 绑定更新", "Knowledge page AI employee assignments updated");
     case "agent.knowledge_updated":
-      return tx("Agent 知识绑定更新", "Agent knowledge assignments updated");
+      return tx("AI员工 知识绑定更新", "AI employee knowledge assignments updated");
     case "contact.queued":
       return tx("联系人私聊入队", "Direct message queued");
     case "channel.created":
@@ -332,19 +332,19 @@ export function translateLedgerBody(entry: LedgerItem, tx: TxFn): string {
   const data = entry.data ?? {};
   switch (entry.code) {
     case "runtime.bound":
-      return tx(`${data.employee_name ?? "Agent"} 已绑定到 ${data.runtime_name ?? "执行引擎"}。`, `${data.employee_name ?? "Agent"} is now bound to ${data.runtime_name ?? "execution engine"}.`);
+      return tx(`${data.employee_name ?? "AI员工"} 已绑定到 ${data.runtime_name ?? "执行引擎"}。`, `${data.employee_name ?? "AI employee"} is now bound to ${data.runtime_name ?? "execution engine"}.`);
     case "runtime.unbound":
-      return tx(`${data.employee_name ?? "Agent"} 已解绑执行引擎。`, `${data.employee_name ?? "Agent"} was unbound from the execution engine.`);
+      return tx(`${data.employee_name ?? "AI员工"} 已解绑执行引擎。`, `${data.employee_name ?? "AI employee"} was unbound from the execution engine.`);
     case "agent.deleted":
-      return tx(`${data.employee_name ?? "Agent"} 已从组织中移除，并清理绑定、任务和工作区域。`, `${data.employee_name ?? "Agent"} was removed from the workspace along with bindings, tasks, and work areas.`);
+      return tx(`${data.employee_name ?? "AI员工"} 已从组织中移除，并清理绑定、任务和工作区域。`, `${data.employee_name ?? "AI employee"} was removed from the workspace along with bindings, tasks, and work areas.`);
     case "agent.instructions_updated":
-      return tx(`${data.employee_name ?? "Agent"} 的 instructions 已更新。`, `${data.employee_name ?? "Agent"} instructions were updated.`);
+      return tx(`${data.employee_name ?? "AI员工"} 的 instructions 已更新。`, `${data.employee_name ?? "AI employee"} instructions were updated.`);
     case "skill.created":
       return tx(`${data.skill_name ?? "Skill"} 已加入工作区技能库。`, `${data.skill_name ?? "Skill"} was added to the workspace library.`);
     case "skill.updated":
       return tx(`${data.skill_name ?? "Skill"} 的元信息已更新。`, `${data.skill_name ?? "Skill"} metadata was updated.`);
     case "skill.deleted":
-      return tx(`${data.skill_name ?? "Skill"} 已从工作区技能库移除，并解除所有 agent 绑定。`, `${data.skill_name ?? "Skill"} was removed from the workspace library and all agent assignments were cleared.`);
+      return tx(`${data.skill_name ?? "Skill"} 已从工作区技能库移除，并解除所有 AI员工 绑定。`, `${data.skill_name ?? "Skill"} was removed from the workspace library and all AI employee assignments were cleared.`);
     case "skill.file_updated":
       return tx(`${data.skill_name ?? "Skill"} 的 ${data.file_path ?? "file"} 已更新。`, `${data.skill_name ?? "Skill"} file ${data.file_path ?? "file"} was updated.`);
     case "skill.file_created":
@@ -352,7 +352,7 @@ export function translateLedgerBody(entry: LedgerItem, tx: TxFn): string {
     case "skill.file_deleted":
       return tx(`${data.skill_name ?? "Skill"} 的 ${data.file_path ?? "file"} 已删除。`, `${data.skill_name ?? "Skill"} file ${data.file_path ?? "file"} was deleted.`);
     case "agent.skills_updated":
-      return tx(`${data.employee_name ?? "Agent"} 的 skills 绑定已更新，共 ${data.skill_count ?? "0"} 项。`, `${data.employee_name ?? "Agent"} skill assignments were updated with ${data.skill_count ?? "0"} item(s).`);
+      return tx(`${data.employee_name ?? "AI员工"} 的 skills 绑定已更新，共 ${data.skill_count ?? "0"} 项。`, `${data.employee_name ?? "AI employee"} skill assignments were updated with ${data.skill_count ?? "0"} item(s).`);
     case "knowledge.assignment_mode_updated":
       return tx(
         `知识页 ${data.knowledge_page_id ?? "page"} 的分配范围已更新为 ${translateKnowledgeAssignmentMode(data.assignment_mode, tx)}。`,
@@ -360,18 +360,18 @@ export function translateLedgerBody(entry: LedgerItem, tx: TxFn): string {
       );
     case "knowledge.page_agents_updated":
       return tx(
-        `知识页 ${data.knowledge_page_id ?? "page"} 已绑定 ${data.agent_count ?? "0"} 个 Agent。`,
-        `Knowledge page ${data.knowledge_page_id ?? "page"} was assigned to ${data.agent_count ?? "0"} agent(s).`,
+        `知识页 ${data.knowledge_page_id ?? "page"} 已绑定 ${data.agent_count ?? "0"} 个 AI员工。`,
+        `Knowledge page ${data.knowledge_page_id ?? "page"} was assigned to ${data.agent_count ?? "0"} AI employee(s).`,
       );
     case "agent.knowledge_updated":
       return tx(
-        `${data.employee_name ?? "Agent"} 的知识绑定已更新，共 ${data.knowledge_page_count ?? "0"} 篇。`,
-        `${data.employee_name ?? "Agent"} knowledge assignments were updated with ${data.knowledge_page_count ?? "0"} page(s).`,
+        `${data.employee_name ?? "AI员工"} 的知识绑定已更新，共 ${data.knowledge_page_count ?? "0"} 篇。`,
+        `${data.employee_name ?? "AI employee"} knowledge assignments were updated with ${data.knowledge_page_count ?? "0"} page(s).`,
       );
     case "contact.queued":
-      return tx(`你向 ${data.contact_name ?? "contact"} 发起了一条私聊，已转交 Agent 执行。`, `You sent a direct message to ${data.contact_name ?? "contact"}, and it was queued for an agent.`);
+      return tx(`你向 ${data.contact_name ?? "contact"} 发起了一条私聊，已转交 AI员工 执行。`, `You sent a direct message to ${data.contact_name ?? "contact"}, and it was queued for an AI employee.`);
     case "channel.created":
-      return tx(`已创建群组 ${data.channel_name ?? "group"}，成员 ${data.human_count ?? "0"} 名人类 / ${data.agent_count ?? "0"} 名 agent。`, `Group ${data.channel_name ?? "group"} was created with ${data.human_count ?? "0"} human member(s) and ${data.agent_count ?? "0"} agent(s).`);
+      return tx(`已创建群组 ${data.channel_name ?? "group"}，成员 ${data.human_count ?? "0"} 名人类 / ${data.agent_count ?? "0"} 名 AI员工。`, `Group ${data.channel_name ?? "group"} was created with ${data.human_count ?? "0"} human member(s) and ${data.agent_count ?? "0"} AI employee(s).`);
     case "channel.deleted":
       return tx(`群组 ${data.channel_name ?? "group"} 已删除，并清理相关消息、任务和成员绑定。`, `Group ${data.channel_name ?? "group"} was deleted along with related messages, tasks, and memberships.`);
     case "channel.renamed":
@@ -383,15 +383,15 @@ export function translateLedgerBody(entry: LedgerItem, tx: TxFn): string {
     case "material.parsed":
       return tx(`文件 ${data.source ?? "file"} 已完成首轮解析，可进入切片或员工生成流程。`, `File ${data.source ?? "file"} was parsed and is ready for downstream slicing or generation.`);
     case "channel.message":
-      return tx(`${data.speaker ?? "Someone"} 在 ${data.channel_name ?? "channel"} 发送了一条普通消息，未触发任何 Agent。`, `${data.speaker ?? "Someone"} sent a regular message in ${data.channel_name ?? "channel"} without triggering any agent.`);
+      return tx(`${data.speaker ?? "Someone"} 在 ${data.channel_name ?? "channel"} 发送了一条普通消息，未触发任何 AI员工。`, `${data.speaker ?? "Someone"} sent a regular message in ${data.channel_name ?? "channel"} without triggering any AI employee.`);
     case "channel.mention_dispatched":
-      return tx(`${data.speaker ?? "Someone"} 在 ${data.channel_name ?? "channel"} 定向 @了 ${data.mentions ?? "agents"}，已分发给 ${data.queued_count ?? "0"} 个 Agent。`, `${data.speaker ?? "Someone"} directly mentioned ${data.mentions ?? "agents"} in ${data.channel_name ?? "channel"}, dispatching ${data.queued_count ?? "0"} agent(s).`);
+      return tx(`${data.speaker ?? "Someone"} 在 ${data.channel_name ?? "channel"} 定向 @了 ${data.mentions ?? "AI员工"}，已分发给 ${data.queued_count ?? "0"} 个 AI员工。`, `${data.speaker ?? "Someone"} directly mentioned ${data.mentions ?? "AI employees"} in ${data.channel_name ?? "channel"}, dispatching ${data.queued_count ?? "0"} AI employee(s).`);
     case "channel.mention_unavailable":
-      return tx(`${data.speaker ?? "Someone"} 在 ${data.channel_name ?? "channel"} @了 ${data.mentions ?? "agents"}，但目标 Agent 当前不可执行。`, `${data.speaker ?? "Someone"} mentioned ${data.mentions ?? "agents"} in ${data.channel_name ?? "channel"}, but the target agent is not executable right now.`);
+      return tx(`${data.speaker ?? "Someone"} 在 ${data.channel_name ?? "channel"} @了 ${data.mentions ?? "AI员工"}，但目标 AI员工 当前不可执行。`, `${data.speaker ?? "Someone"} mentioned ${data.mentions ?? "AI employees"} in ${data.channel_name ?? "channel"}, but the target AI employee is not executable right now.`);
     case "employee.created":
-      return tx(`${data.employee_name ?? "Agent"} 已直接入组，等待后续手动加入群组。`, `${data.employee_name ?? "Agent"} joined the workspace directly and is waiting to be added to groups.`);
+      return tx(`${data.employee_name ?? "AI员工"} 已直接入组，等待后续手动加入群组。`, `${data.employee_name ?? "AI employee"} joined the workspace directly and is waiting to be added to groups.`);
     case "task.created":
-      return tx(`${data.assignee ?? "Agent"} 已在 ${data.channel_name ?? "channel"} 接收任务：${data.task_title ?? "task"}。`, `${data.assignee ?? "Agent"} received task ${data.task_title ?? "task"} in ${data.channel_name ?? "channel"}.`);
+      return tx(`${data.assignee ?? "AI员工"} 已在 ${data.channel_name ?? "channel"} 接收任务：${data.task_title ?? "task"}。`, `${data.assignee ?? "AI employee"} received task ${data.task_title ?? "task"} in ${data.channel_name ?? "channel"}.`);
     case "task.queued":
       return tx(`${data.task_title ?? "Task"} 已进入执行队列，等待 ${data.runtime_name ?? "执行引擎"} 执行。`, `${data.task_title ?? "Task"} entered the execution queue and is waiting for ${data.runtime_name ?? "execution engine"} to execute it.`);
     case "task.status_updated":
@@ -415,8 +415,8 @@ export function translateLedgerBody(entry: LedgerItem, tx: TxFn): string {
       );
     case "channel_document.run_ambiguous":
       return tx(
-        `群组 ${data.channel_name ?? "group"} 的多 agent 协作顺序不明确，系统要求用户改写指令。`,
-        `The multi-agent collaboration order in ${data.channel_name ?? "group"} was ambiguous, so the system asked the user to rewrite the instruction.`,
+        `群组 ${data.channel_name ?? "group"} 的多 AI员工 协作顺序不明确，系统要求用户改写指令。`,
+        `The multi-AI employee collaboration order in ${data.channel_name ?? "group"} was ambiguous, so the system asked the user to rewrite the instruction.`,
       );
     case "channel_document.conflict":
       return tx(

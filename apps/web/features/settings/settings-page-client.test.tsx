@@ -203,7 +203,7 @@ describe("SettingsPageClient", () => {
 
     renderSettingsPage({ initialSection: "preferences" });
 
-    expect(screen.getByText(/重新运行 Agent 搭建向导/)).toBeInTheDocument();
+    expect(screen.getByText(/重新运行 AI员工 搭建向导/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "重看新手引导" }));
 
@@ -617,7 +617,7 @@ describe("SettingsPageClient", () => {
       });
     });
 
-    const channelSelect = screen.getByRole("combobox", { name: "DofeAgent 频道" });
+    const channelSelect = screen.getByRole("combobox", { name: "agent.dofe 频道" });
     await waitFor(() => {
       expect(channelSelect).toBeEnabled();
     });
@@ -647,7 +647,7 @@ describe("SettingsPageClient", () => {
     expect(within(resourceScopeHint).getByText("drive:drive")).toBeInTheDocument();
     expect(resourceScopeHint).toHaveTextContent("推荐类型");
     expect(resourceScopeHint).toHaveTextContent("频道文档");
-    const dofeAgentTypeSelect = screen.getByRole("combobox", { name: "DofeAgent 类型" });
+    const dofeAgentTypeSelect = screen.getByRole("combobox", { name: "agent.dofe 类型" });
     expect(dofeAgentTypeSelect).toHaveValue("channel_document");
     await user.selectOptions(resourceTypeSelect, "base_table");
     await waitFor(() => {
@@ -723,7 +723,7 @@ describe("SettingsPageClient", () => {
       initialSection: "integrations",
     });
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Agent" }), "Codex");
+    await user.selectOptions(screen.getByRole("combobox", { name: "AI员工" }), "Codex");
     await user.type(screen.getAllByLabelText("App ID")[0], "cli_codex_bot");
     await user.type(screen.getAllByLabelText("App Secret")[0], "secret_codex_bot");
     await user.click(screen.getByRole("button", { name: "绑定 Bot" }));
@@ -755,7 +755,7 @@ describe("SettingsPageClient", () => {
         },
       });
     });
-    expect(await screen.findByText("Agent 飞书 Bot 已绑定。")).toBeInTheDocument();
+    expect(await screen.findByText("AI员工 飞书 Bot 已绑定。")).toBeInTheDocument();
     const governance = screen.getByLabelText("飞书 Bot 治理策略");
     expect(governance).toHaveTextContent("未绑定用户: @Bot 时回复");
     expect(governance).toHaveTextContent("访客权限: 当前 Channel 上下文");
@@ -778,8 +778,8 @@ describe("SettingsPageClient", () => {
       initialSection: "integrations",
     });
 
-    const panel = screen.getByRole("region", { name: "Agent 飞书 Bot" });
-    expect(within(panel).getByRole("combobox", { name: "Agent" })).toBeVisible();
+    const panel = screen.getByRole("region", { name: "AI员工 飞书 Bot" });
+    expect(within(panel).getByRole("combobox", { name: "AI员工" })).toBeVisible();
     expect(within(panel).getByLabelText("App ID")).toBeVisible();
     expect(within(panel).getByLabelText("App Secret")).toBeVisible();
     expect(within(panel).getByRole("button", { name: "绑定 Bot" })).toBeVisible();
@@ -810,14 +810,14 @@ describe("SettingsPageClient", () => {
       initialSection: "integrations",
     });
 
-    const panel = screen.getByRole("region", { name: "Agent 飞书 Bot" });
-    const agentSelect = within(panel).getByRole("combobox", { name: "Agent" });
+    const panel = screen.getByRole("region", { name: "AI员工 飞书 Bot" });
+    const agentSelect = within(panel).getByRole("combobox", { name: "AI员工" });
 
     expect(agentSelect).toBeDisabled();
     expect(agentSelect).toHaveValue("");
-    expect(within(panel).queryByRole("textbox", { name: "Agent" })).not.toBeInTheDocument();
-    expect(within(panel).getByText("暂无可绑定 Agent")).toBeInTheDocument();
-    expect(within(panel).getByText("请先在 Agent 管理中创建 Agent，再为它绑定飞书 Bot。")).toBeInTheDocument();
+    expect(within(panel).queryByRole("textbox", { name: "AI员工" })).not.toBeInTheDocument();
+    expect(within(panel).getByText("暂无可绑定 AI员工")).toBeInTheDocument();
+    expect(within(panel).getByText("请先在 AI员工 管理中创建 AI员工，再为它绑定飞书 Bot。")).toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "绑定 Bot" })).toBeDisabled();
   });
 
@@ -843,7 +843,7 @@ describe("SettingsPageClient", () => {
       initialSection: "integrations",
     });
 
-    const panel = screen.getByRole("region", { name: "Agent 飞书 Bot" });
+    const panel = screen.getByRole("region", { name: "AI员工 飞书 Bot" });
     await user.type(within(panel).getByLabelText("App ID"), "cli_codex_bot");
     await user.type(within(panel).getByLabelText("App Secret"), "secret_codex_bot");
     await user.click(within(panel).getByRole("button", { name: "测试连接" }));
@@ -916,7 +916,7 @@ describe("SettingsPageClient", () => {
       initialSection: "integrations",
     });
 
-    const panel = screen.getByRole("region", { name: "Agent 飞书 Bot" });
+    const panel = screen.getByRole("region", { name: "AI员工 飞书 Bot" });
     const card = within(panel).getByText("Codex Feishu Bot").closest("article");
     expect(card).not.toBeNull();
     const cardView = within(card as HTMLElement);
@@ -951,7 +951,7 @@ describe("SettingsPageClient", () => {
         },
       });
     });
-    expect(await screen.findByText("Agent 飞书 Bot 治理策略已更新。")).toBeInTheDocument();
+    expect(await screen.findByText("AI员工 飞书 Bot 治理策略已更新。")).toBeInTheDocument();
     expect(screen.getByLabelText("飞书 Bot 治理策略")).toHaveTextContent("未绑定用户: 忽略");
     expect(screen.getByLabelText("飞书 Bot 治理策略")).toHaveTextContent("访客权限: 无");
     expect(screen.getByLabelText("飞书 Bot 治理策略")).toHaveTextContent("机器人进群: 关闭");
@@ -978,10 +978,10 @@ describe("SettingsPageClient", () => {
     expect(within(readiness).getByText("出站队列")).toBeInTheDocument();
     const evidenceGates = screen.getByLabelText("飞书证据门禁");
     expect(within(evidenceGates).getByText("Bot 回复证据")).toBeInTheDocument();
-    expect(within(evidenceGates).getByText("原生 Agent Bot 证据")).toBeInTheDocument();
+    expect(within(evidenceGates).getByText("原生 AI员工 Bot 证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("数据面证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("失败可见证据")).toBeInTheDocument();
-    expect(within(evidenceGates).getByText("24 小时 DofeAgent 本地证据")).toBeInTheDocument();
+    expect(within(evidenceGates).getByText("24 小时 agent.dofe 本地证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("24 小时 OpenAPI 证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("24 小时 Bot 进群 Payload 证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("processed_inbound_with_safe_summary + sent_agent_bot_reply_outbox_with_safe_context + same_agent_bot_correlated_reply_mapping")).toBeInTheDocument();
@@ -1005,15 +1005,15 @@ describe("SettingsPageClient", () => {
     expect(screen.getByText(
       "dofe-agent integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent Codex --strict --require bot --json",
     )).toBeInTheDocument();
-    expect(screen.getByText("绑定第二个 Agent Bot")).toBeInTheDocument();
+    expect(screen.getByText("绑定第二个 AI员工 Bot")).toBeInTheDocument();
     expect(screen.getByText(
       "dofe-agent integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
     )).toBeInTheDocument();
-    expect(screen.getByText("禁用 Agent 频道访问")).toBeInTheDocument();
+    expect(screen.getByText("禁用 AI员工 频道访问")).toBeInTheDocument();
     expect(screen.getByText(
       "dofe-agent integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access disabled --json",
     )).toBeInTheDocument();
-    expect(screen.getByText("恢复 Agent 频道访问")).toBeInTheDocument();
+    expect(screen.getByText("恢复 AI员工 频道访问")).toBeInTheDocument();
     expect(screen.getByText(
       "dofe-agent integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access enabled --json",
     )).toBeInTheDocument();
@@ -1212,7 +1212,7 @@ describe("SettingsPageClient", () => {
     await user.click(screen.getByRole("button", { name: "创建集成" }));
 
     expect(await screen.findByText(
-      "DofeAgent 未配置飞书凭据加密密钥。请设置 DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
+      "agent.dofe 未配置飞书凭据加密密钥。请设置 DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
     )).toBeInTheDocument();
     expect(mockCreateFeishuIntegrationAction).toHaveBeenCalledWith(expect.objectContaining({
       appId: "cli_launch",
@@ -1271,7 +1271,7 @@ describe("SettingsPageClient", () => {
     expect(screen.queryByText("飞书会话映射")).toBeNull();
     expect(screen.queryByText("飞书资源映射")).toBeNull();
     expect(screen.queryByText("飞书数据操作记录")).toBeNull();
-    expect(screen.getByRole("textbox", { name: "DofeAgent 用户" })).toHaveValue("Mina (mina@example.com)");
+    expect(screen.getByRole("textbox", { name: "agent.dofe 用户" })).toHaveValue("Mina (mina@example.com)");
 
     await user.type(screen.getByRole("textbox", { name: "飞书 Open ID" }), "ou_mina");
     await user.click(screen.getByRole("button", { name: "保存用户绑定" }));
@@ -1433,7 +1433,7 @@ describe("SettingsPageClient", () => {
     expect(screen.getByText("待重试")).toBeInTheDocument();
     expect(screen.getByText(/尝试: 2/)).toBeInTheDocument();
     expect(screen.getByText(/下次重试: 2026-06-24T00:01:00.000Z/)).toBeInTheDocument();
-    expect(screen.getByText(/Agent: Codex/)).toBeInTheDocument();
+    expect(screen.getByText(/AI员工: Codex/)).toBeInTheDocument();
     expect(screen.getByText(/Bot 绑定: agent-bot-codex/)).toBeInTheDocument();
     expect(screen.getByText(/飞书会话: chat b2295ba0/)).toBeInTheDocument();
     expect(screen.getByText("feishu.outbound.network_unreachable: fetch failed ECONNRESET")).toBeInTheDocument();

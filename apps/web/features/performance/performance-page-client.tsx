@@ -31,7 +31,7 @@ export function PerformancePageClient({ data }: { data: PerformanceDashboardData
 
   return (
     <div className={`performance-page${isCompactLayout ? " performance-page--compact" : ""}`}>
-      <h1 className="performance-page__title">{tx("Agent 绩效看板", "Agent Performance")}</h1>
+      <h1 className="performance-page__title">{tx("AI员工 绩效看板", "AI Employee Performance")}</h1>
 
       <div className="performance-summary">
         <SummaryCard
@@ -91,7 +91,7 @@ export function PerformancePageClient({ data }: { data: PerformanceDashboardData
             <table className="performance-table">
               <thead>
                 <tr>
-                  <th>{tx("Agent", "Agent")}</th>
+                  <th>{tx("AI员工", "AI employee")}</th>
                   <th className="performance-table__num">{tx("总任务", "Tasks")}</th>
                   <th className="performance-table__num">{tx("完成", "Done")}</th>
                   <th className="performance-table__num">{tx("失败", "Failed")}</th>

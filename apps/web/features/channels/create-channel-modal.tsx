@@ -106,7 +106,7 @@ export function CreateChannelModal({
                     setQuery(event.currentTarget.value);
                     setPage(0);
                   }}
-                  placeholder={tx("搜索联系人或 Agent", "Search contacts or agents")}
+                  placeholder={tx("搜索联系人或 AI员工", "Search contacts or AI employees")}
                   type="search"
                   value={query}
                 />

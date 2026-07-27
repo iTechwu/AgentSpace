@@ -197,7 +197,7 @@ export function FeishuChannelBindingsPanel({
               {binding.reviewStatus ? (
                 <span>{tx("审核", "Review")}: {translateReviewStatus(binding.reviewStatus, tx)}</span>
               ) : null}
-              {binding.agentId ? <span>{tx("Agent", "Agent")}: {binding.agentId}</span> : null}
+              {binding.agentId ? <span>{tx("AI员工", "AI employee")}: {binding.agentId}</span> : null}
               <span>{tx("状态", "Status")}: {binding.status}</span>
               <span>{tx("同步", "Sync")}: {binding.syncMode}</span>
             </div>

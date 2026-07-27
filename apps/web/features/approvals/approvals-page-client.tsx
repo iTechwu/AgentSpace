@@ -378,7 +378,7 @@ function translateApprovalType(tx: (zh: string, en: string) => string, type: str
     external_data_operation: ["外部数据操作", "External Data Operation"],
     channel_access: ["群访问申请", "Channel Access"],
     document_permission: ["文档权限申请", "Document Permission"],
-    agent_access: ["Agent 权限申请", "Agent Access"],
+    agent_access: ["AI员工 权限申请", "AI Employee Access"],
     knowledge_proposal: ["知识候选", "Knowledge Proposal"],
   };
   const [zh, en] = map[type] ?? [type, type];
@@ -403,10 +403,10 @@ function KnowledgeProposalDetail({
     return null;
   }
   const assignment = detail.assignmentMode === "all_agents"
-    ? tx("全部 Agent", "All agents")
+    ? tx("全部 AI员工", "All AI employees")
     : detail.assignedEmployeeNames && detail.assignedEmployeeNames.length > 0
       ? detail.assignedEmployeeNames.join(", ")
-      : tx("指定 Agent", "Selected agents");
+      : tx("指定 AI员工", "Selected AI employees");
   const displayedTitle = editable ? draft.title : detail.title;
   const displayedMarkdown = editable ? draft.markdown : detail.markdown;
   const displayedAssignmentMode = editable ? draft.assignmentMode : detail.assignmentMode;
@@ -423,8 +423,8 @@ function KnowledgeProposalDetail({
     <div className="approvals-knowledge-detail">
       {displayedAssignmentMode === "all_agents" ? (
         <div className="approvals-knowledge-detail__risk">
-          <strong>{tx("影响全部 Agent", "Affects all agents")}</strong>
-          <span>{tx("批准后，这篇知识会进入所有 Agent 后续任务上下文。", "After approval, this knowledge enters every agent's future task context.")}</span>
+          <strong>{tx("影响全部 AI员工", "Affects all AI employees")}</strong>
+          <span>{tx("批准后，这篇知识会进入所有 AI员工 后续任务上下文。", "After approval, this knowledge enters every AI employee's future task context.")}</span>
         </div>
       ) : null}
       <div className="approvals-knowledge-detail__grid">
@@ -442,8 +442,8 @@ function KnowledgeProposalDetail({
             {displayedAssignmentMode === detail.assignmentMode
               ? assignment
               : displayedAssignmentMode === "all_agents"
-                ? tx("全部 Agent", "All agents")
-                : displayedAssignedEmployees.join(", ") || tx("指定 Agent", "Selected agents")}
+                ? tx("全部 AI员工", "All AI employees")
+                : displayedAssignedEmployees.join(", ") || tx("指定 AI员工", "Selected AI employees")}
           </strong>
         </div>
         {detail.targetKnowledgePageTitle || detail.targetKnowledgePageId ? (
@@ -492,13 +492,13 @@ function KnowledgeProposalDetail({
                 assignmentMode: event.currentTarget.value === "all_agents" ? "all_agents" : "selected_agents",
               })}
             >
-              <option value="selected_agents">{tx("指定 Agent", "Selected agents")}</option>
-              <option value="all_agents">{tx("全部 Agent", "All agents")}</option>
+              <option value="selected_agents">{tx("指定 AI员工", "Selected AI employees")}</option>
+              <option value="all_agents">{tx("全部 AI员工", "All AI employees")}</option>
             </select>
           </label>
           {draft.assignmentMode === "selected_agents" ? (
             <label>
-              <span className="approvals-detail__label">{tx("指定 Agent", "Assigned agents")}</span>
+              <span className="approvals-detail__label">{tx("指定 AI员工", "Assigned agents")}</span>
               <input
                 placeholder={tx("用逗号分隔", "Comma separated")}
                 value={draft.assignedEmployeesText}

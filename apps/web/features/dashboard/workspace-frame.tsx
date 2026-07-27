@@ -212,7 +212,7 @@ function WorkspaceFrameContent({
                 ? tx("执行引擎管理", "Execution Engine Management")
                 : mode === "showcase"
                   ? tx("数字员工展板", "Digital Employee Showcase")
-                  : tx("员工管理", "Agent Management")
+                  : tx("员工管理", "AI Employee Management")
                 : logicalPathname === "/knowledge"
                   ? knowledgeView === "documents"
                     ? tx("文档页面", "Document pages")
@@ -456,7 +456,7 @@ function WorkspaceFrameContent({
 
     const requestedSection = routeState.settingsPath[0] ?? DEFAULT_SETTINGS_SECTION;
     if (
-      isSettingsDetailSectionId(requestedSection) &&
+      !isSettingsDetailSectionId(requestedSection) ||
       !canAccessSettingsSection(currentMembershipRole, requestedSection)
     ) {
       fallbackToDefaultSettingsSection();
@@ -706,7 +706,7 @@ function WorkspaceFrameContent({
               <SidebarSectionLink
                 href={workspaceHref("/agents?mode=agent")}
                 icon="agents"
-                label={tx("员工管理", "Agent Management")}
+                label={tx("员工管理", "AI Employee Management")}
                 count={counters.agentCount}
                 active={logicalPathname === "/agents" && mode === "agent"}
                 onClick={handleWorkspaceModuleLinkClick}
@@ -1026,8 +1026,8 @@ function buildWorkspaceOnboardingSteps({
   const runtimeStep: WorkspaceOnboardingStep = visibility.containers && canViewRuntimes
     ? {
         body: tx(
-          "先接入 Runtime。Runtime 是 Agent 真正执行任务的环境；没有它，Agent 只能被配置，不能开始工作。",
-          "Start by connecting a Runtime. A Runtime is the execution environment that actually runs agent work; without it, agents can be configured but cannot work.",
+          "先接入 Runtime。Runtime 是 AI员工 真正执行任务的环境；没有它，AI员工 只能被配置，不能开始工作。",
+          "Start by connecting a Runtime. A Runtime is the execution environment that actually runs AI employee work; without it, AI employees can be configured but cannot work.",
         ),
         href: buildWorkspacePath(currentWorkspaceSlug, "/agents?mode=container&create=server"),
         icon: "containers",
@@ -1038,8 +1038,8 @@ function buildWorkspaceOnboardingSteps({
       }
     : {
         body: tx(
-          "第一步需要可用 Runtime。当前账号看不到执行引擎入口，请联系工作区管理员绑定 Runtime 后再继续搭建 Agent。",
-          "The first step needs an available Runtime. This account cannot see the execution engine entry, so ask a workspace admin to bind a Runtime before building an agent.",
+          "第一步需要可用 Runtime。当前账号看不到执行引擎入口，请联系工作区管理员绑定 Runtime 后再继续搭建 AI员工。",
+          "The first step needs an available Runtime. This account cannot see the execution engine entry, so ask a workspace admin to bind a Runtime before building an AI employee.",
         ),
         icon: "containers",
         id: "bind-runtime",
@@ -1051,20 +1051,20 @@ function buildWorkspaceOnboardingSteps({
     runtimeStep,
     {
       body: tx(
-        "Runtime 在线后，再创建或绑定 Agent。Runtime 负责执行，Agent 是数字员工身份；两者绑定后才是一名可工作的 Agent。",
-        "After the Runtime is online, create or bind an agent. The Runtime executes work, while the agent is the digital employee identity; together they become a working agent.",
+        "Runtime 在线后，再创建或绑定 AI员工。Runtime 负责执行，AI员工 是数字员工身份；两者绑定后才是一名可工作的 AI员工。",
+        "After the Runtime is online, create or bind an AI employee. The Runtime executes work, while the AI employee is the digital employee identity; together they become a working AI employee.",
       ),
       href: buildWorkspacePath(currentWorkspaceSlug, "/agents?mode=agent"),
       icon: "agents",
       id: "runtime-to-agent",
-      primaryActionLabel: tx("创建或绑定 Agent", "Create or bind agent"),
+      primaryActionLabel: tx("创建或绑定 AI员工", "Create or bind AI employee"),
       target: "agents",
-      title: tx("2. 从 Runtime 到 Agent", "2. Runtime to Agent"),
+      title: tx("2. 从 Runtime 到 AI员工", "2. Runtime to AI Employee"),
     },
     {
       body: tx(
-        "为 Agent 写清工作说明：负责什么、不要做什么、结果按什么格式交付。这里决定它的行为边界。",
-        "Write the agent's working instructions: what it owns, what it should avoid, and how results should be delivered. This defines its behavior.",
+        "为 AI员工 写清工作说明：负责什么、不要做什么、结果按什么格式交付。这里决定它的行为边界。",
+        "Write the AI employee's working instructions: what it owns, what it should avoid, and how results should be delivered. This defines its behavior.",
       ),
       href: buildWorkspacePath(currentWorkspaceSlug, "/agents?mode=agent"),
       icon: "taskBoard",
@@ -1075,7 +1075,7 @@ function buildWorkspaceOnboardingSteps({
     },
     {
       body: tx(
-        "给 Agent 配置能力来源：技能决定它会用哪些工具，知识决定它能读取哪些长期上下文，群组和文档决定它在哪里协作。",
+        "给 AI员工 配置能力来源：技能决定它会用哪些工具，知识决定它能读取哪些长期上下文，群组和文档决定它在哪里协作。",
         "Configure capability sources: skills define the tools it can use, knowledge defines long-lived context, and groups or documents define where it collaborates.",
       ),
       href: buildWorkspacePath(currentWorkspaceSlug, "/skills"),
@@ -1087,8 +1087,8 @@ function buildWorkspaceOnboardingSteps({
     },
     {
       body: tx(
-        "最后完成一条真实对话。在消息里 @Agent 发一个明确任务，观察执行状态、结果、通知和必要审批。",
-        "Finish with a real conversation. Mention the agent in Messages with a concrete task, then watch execution status, results, notifications, and approvals if needed.",
+        "最后完成一条真实对话。在消息里 @AI员工 发一个明确任务，观察执行状态、结果、通知和必要审批。",
+        "Finish with a real conversation. Mention the AI employee in Messages with a concrete task, then watch execution status, results, notifications, and approvals if needed.",
       ),
       href: buildWorkspacePath(currentWorkspaceSlug, "/im"),
       icon: "groups",

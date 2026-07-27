@@ -180,8 +180,8 @@ export function SkillsPageClient({
           </div>
           <span>
             {skill.isBuiltin
-              ? tx(`系统技能 · ${assignmentCountBySkill.get(skill.id) ?? 0} 个 Agent 绑定`, `System skill · ${assignmentCountBySkill.get(skill.id) ?? 0} agents assigned`)
-              : tx(`${assignmentCountBySkill.get(skill.id) ?? 0} 个 Agent 绑定`, `${assignmentCountBySkill.get(skill.id) ?? 0} agents assigned`)}
+              ? tx(`系统技能 · ${assignmentCountBySkill.get(skill.id) ?? 0} 个 AI员工 绑定`, `System skill · ${assignmentCountBySkill.get(skill.id) ?? 0} AI employees assigned`)
+              : tx(`${assignmentCountBySkill.get(skill.id) ?? 0} 个 AI员工 绑定`, `${assignmentCountBySkill.get(skill.id) ?? 0} AI employees assigned`)}
           </span>
         </div>
       </button>

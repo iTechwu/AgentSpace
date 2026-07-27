@@ -43,9 +43,9 @@ describe("AuthScreen", () => {
   it("responds when the user switches the real product tour", () => {
     render(<LanguageProvider initialLanguage="zh"><AuthScreen /></LanguageProvider>);
 
-    expect(screen.getByRole("heading", { level: 3, name: "从一句话开始，把工作交给正确的人或 Agent。" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "从一句话开始，把工作交给正确的人或 AI员工。" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "02数字员工" }));
-    expect(screen.getByRole("heading", { level: 3, name: "把 Agent 当作组织能力管理，而不是散落的工具。" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "把 AI员工 当作组织能力管理，而不是散落的工具。" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "数字员工展板页面截图" })).toHaveAttribute("src", expect.stringContaining("employee-showcase.png"));
   });
 });

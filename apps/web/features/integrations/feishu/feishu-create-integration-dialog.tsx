@@ -58,7 +58,7 @@ export function FeishuCreateIntegrationDialog({
       <details className="feishu-advanced-settings">
         <summary>
           <span>{tx("高级：工作区级飞书集成", "Advanced: Workspace-Level Feishu Integration")}</span>
-          <small>{tx("用于统一 data plane、EventCallback 和手动联调；日常接入优先使用上方 Agent Bot。", "For shared data plane, EventCallback, and manual smoke setup; use Agent Bot above for day-one setup.")}</small>
+          <small>{tx("用于统一 data plane、EventCallback 和手动联调；日常接入优先使用上方 AI员工 Bot。", "For shared data plane, EventCallback, and manual smoke setup; use AI employee bot above for day-one setup.")}</small>
         </summary>
 
         <div className="feishu-advanced-settings__body">
@@ -66,7 +66,7 @@ export function FeishuCreateIntegrationDialog({
             <div>
               <h3>{tx("创建工作区级飞书集成", "Create Workspace-Level Feishu Integration")}</h3>
               <p className="settings-panel-note">
-                {tx("工作区级集成用于治理总览、共享 data plane 和高级联调；普通飞书聊天入口请先绑定 Agent 飞书 Bot。", "Workspace-level integrations are for governance overview, shared data plane, and advanced smoke setup. Bind Agent Feishu Bots first for chat entry points.")}
+                {tx("工作区级集成用于治理总览、共享 data plane 和高级联调；普通飞书聊天入口请先绑定 AI员工 飞书 Bot。", "Workspace-level integrations are for governance overview, shared data plane, and advanced smoke setup. Bind AI employee Feishu Bots first for chat entry points.")}
               </p>
             </div>
           </div>

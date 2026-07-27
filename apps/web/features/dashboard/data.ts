@@ -3787,7 +3787,7 @@ function buildChannelInboxItems(
       channelKind: channelView.kind,
       timestamp: formatAbsoluteDateTime(latestMessage.time),
       unread: hasUnreadMentionForViewer(channelMessages, mentionUnreadViewer),
-      statusLabel: latestMessage.role === "agent" ? "Agent" : "Human",
+      statusLabel: latestMessage.role === "agent" ? "AI员工" : "Human",
       statusTone: latestMessage.role === "agent" ? "positive" : "neutral",
       body: latestMessage.summary,
       attachments: latestMessage.attachments,

@@ -72,7 +72,7 @@ export function FeishuAgentBotAgentSettingsPanel({
     setAppSecret("");
     setVerificationToken("");
     setEncryptKey("");
-    setFeedback(tx("Agent 飞书 Bot 已绑定，工作区已启用。", "Agent Feishu bot bound and workspace enabled."));
+    setFeedback(tx("AI员工 飞书 Bot 已绑定，工作区已启用。", "AI employee Feishu bot bound and workspace enabled."));
     onUpdated?.(created);
   };
 
@@ -163,7 +163,7 @@ export function FeishuAgentBotAgentSettingsPanel({
             <details className="feishu-advanced-settings feishu-agent-settings-panel__commands">
               <summary>
                 <span>{tx("健康检查与联调命令", "Health and Smoke Commands")}</span>
-                <small>{tx("按这个 Agent 的飞书 Bot 运行，不需要手查 integration id", "Run against this agent bot without looking up the integration id")}</small>
+                <small>{tx("按这个 AI员工 的飞书 Bot 运行，不需要手查 integration id", "Run against this AI employee bot without looking up the integration id")}</small>
               </summary>
               <div className="feishu-agent-settings-panel__command-list">
                 <FeishuAgentSettingsCommand
@@ -176,7 +176,7 @@ export function FeishuAgentBotAgentSettingsPanel({
                 />
                 {currentIntegration.setupGuide.commands.bindSecondAgentBot ? (
                   <FeishuAgentSettingsCommand
-                    label={tx("绑定第二个 Agent Bot", "Bind second Agent bot")}
+                    label={tx("绑定第二个 AI员工 Bot", "Bind second AI employee bot")}
                     note={tx(
                       "先在 scripts/feishu/.env 填入第二个飞书 app 凭据，再运行此命令创建第二个 Bot 绑定；通过 Phase 6 前置检查前，最终 evidence --require all 会保持 blocked。",
                       "Fill the second Feishu app credentials in scripts/feishu/.env first, then run this command to create the second bot binding; final evidence --require all stays blocked until it is Phase 6-ready.",
@@ -272,7 +272,7 @@ export function FeishuAgentBotAgentSettingsPanel({
             isPending={isPending || !canManage}
             key={currentIntegration.id}
             onUpdated={(updated) => {
-              setFeedback(tx("Agent 飞书 Bot 治理策略已更新。", "Agent Feishu bot governance policy updated."));
+              setFeedback(tx("AI员工 飞书 Bot 治理策略已更新。", "AI employee Feishu bot governance policy updated."));
               handleUpdated(updated);
             }}
             setFeedback={setFeedback}
@@ -297,7 +297,7 @@ export function FeishuAgentBotAgentSettingsPanel({
                 startTransition(async () => {
                   try {
                     const updated = await disableFeishuAgentBotBindingAction(currentIntegration.id);
-                    setFeedback(tx("Agent 飞书 Bot 已停用。", "Agent Feishu bot disabled."));
+                    setFeedback(tx("AI员工 飞书 Bot 已停用。", "AI employee Feishu bot disabled."));
                     handleUpdated(updated);
                   } catch (error) {
                     setFeedback(translateSettingsActionError(error, tx));
@@ -514,7 +514,7 @@ export function FeishuAgentBotAgentSettingsPanel({
 
       {!canManage ? (
         <p className="settings-panel-note">
-          {tx("只有 workspace 管理员可以绑定或修改 Agent 飞书 Bot。", "Only workspace admins can bind or modify agent Feishu bots.")}
+          {tx("只有 workspace 管理员可以绑定或修改 AI员工 飞书 Bot。", "Only workspace admins can bind or modify AI employee Feishu bots.")}
         </p>
       ) : null}
       {feedback ? <p className="settings-panel-note">{feedback}</p> : null}
@@ -595,8 +595,8 @@ function FeishuAgentBotOnboarding({
       </ol>
       <p>
         {tx(
-          "绑定后会立即启用此 Agent 的飞书工作区数据平面；机器人进群或被 @ 时会自动建立对应 Channel。",
-          "Binding immediately enables this agent's Feishu workspace data plane and automatically provisions a Channel when the bot is added or mentioned.",
+          "绑定后会立即启用此 AI员工 的飞书工作区数据平面；机器人进群或被 @ 时会自动建立对应 Channel。",
+          "Binding immediately enables this AI employee's Feishu workspace data plane and automatically provisions a Channel when the bot is added or mentioned.",
         )}
       </p>
     </section>

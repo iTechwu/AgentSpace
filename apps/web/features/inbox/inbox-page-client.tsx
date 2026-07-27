@@ -279,7 +279,7 @@ export function InboxPageClient({
               ))
             ) : (
               <EmptyState
-                body={tx("当前筛选下没有条目。换一个过滤器，或者先去 Agents 页面创建 AI员工 / 启动容器。", "No items match this filter. Try another filter, or create an AI employee and start a container first.")}
+                body={tx("当前筛选下没有条目。换一个过滤器，或者先去 AI员工 页面创建 AI员工 / 启动容器。", "No items match this filter. Try another filter, or create an AI employee and start a container first.")}
                 title={tx("收件箱为空", "Inbox is empty")}
               />
             )}

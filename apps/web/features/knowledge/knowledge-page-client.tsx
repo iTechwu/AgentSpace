@@ -468,7 +468,7 @@ export function KnowledgePageClient({
             </button>
           </div>
         )}
-        description={tx("沉淀团队可复用的信息，并明确每一页的共享范围与负责 Agent。", "Capture reusable team knowledge and make each page's sharing scope and assigned agents explicit.")}
+        description={tx("沉淀团队可复用的信息，并明确每一页的共享范围与负责 AI员工。", "Capture reusable team knowledge and make each page's sharing scope and assigned AI employees explicit.")}
         eyebrow={tx("资源", "Resources")}
         meta={(
           <>
@@ -522,14 +522,14 @@ export function KnowledgePageClient({
                 >
                   <option value="all">{tx("全部范围", "All scopes")}</option>
                   <option value="all_agents">{tx("全员共享", "Shared")}</option>
-                  <option value="selected_agents">{tx("指定 Agent", "Selected agents")}</option>
+                  <option value="selected_agents">{tx("指定 AI员工", "Selected AI employees")}</option>
                 </select>
                 <select
                   className="knowledge-documents__select"
                   onChange={(event) => setKnowledgeAgentFilter(event.target.value)}
                   value={knowledgeAgentFilter}
                 >
-                  <option value="all">{tx("全部 Agent", "All agents")}</option>
+                  <option value="all">{tx("全部 AI员工", "All AI employees")}</option>
                   {agentOptions.map((agent) => (
                     <option key={agent.employeeName} value={agent.employeeName}>
                       {agent.name}
@@ -771,7 +771,7 @@ export function KnowledgePageClient({
                     <div className="knowledge-viewer__meta knowledge-viewer__meta--source">
                       {tx("来源", "Source")}:{" "}
                       {[
-                        selected.sourceAgentName ? tx(`Agent ${selected.sourceAgentName}`, `Agent ${selected.sourceAgentName}`) : "",
+                        selected.sourceAgentName ? tx(`AI员工 ${selected.sourceAgentName}`, `AI employee ${selected.sourceAgentName}`) : "",
                         selected.sourceTaskQueueId ? tx(`任务 ${selected.sourceTaskQueueId}`, `Task ${selected.sourceTaskQueueId}`) : "",
                         selected.sourceKnowledgeProposalId ? tx(`审批候选 ${selected.sourceKnowledgeProposalId}`, `Proposal ${selected.sourceKnowledgeProposalId}`) : "",
                         selected.sourceApprovalId ? tx(`审批 ${selected.sourceApprovalId}`, `Approval ${selected.sourceApprovalId}`) : "",
@@ -976,11 +976,11 @@ function KnowledgeAssignmentPanel({
             <AppIcon name="agents" />
           </span>
           <div>
-            <strong>{tx("Agent 分配", "Agent assignment")}</strong>
+            <strong>{tx("AI员工 分配", "AI employee assignment")}</strong>
             <span>
               {mode === "all_agents"
-                ? tx(`${agents.length} 个 Agent 可用`, `${agents.length} agents can use this`)
-                : tx(`${selectedEmployeeNames.length} 个 Agent 已选择`, `${selectedEmployeeNames.length} selected agents`)}
+                ? tx(`${agents.length} 个 AI员工 可用`, `${agents.length} AI employees can use this`)
+                : tx(`${selectedEmployeeNames.length} 个 AI员工 已选择`, `${selectedEmployeeNames.length} selected AI employees`)}
             </span>
           </div>
         </div>
@@ -1038,12 +1038,12 @@ function KnowledgeAssignmentDraftControls({
           </span>
           <span className="knowledge-assignment-option__copy">
             <strong>{tx("全员共享", "Shared with all agents")}</strong>
-            <small>{tx("所有 Agent 自动继承这篇知识", "Every agent inherits this page")}</small>
+            <small>{tx("所有 AI员工 自动继承这篇知识", "Every AI employee inherits this page")}</small>
           </span>
         </label>
         <label className={mode === "selected_agents" ? "knowledge-assignment-option knowledge-assignment-option--active" : "knowledge-assignment-option"}>
           <input
-            aria-label={tx("指定 Agent", "Selected agents")}
+            aria-label={tx("指定 AI员工", "Selected AI employees")}
             checked={mode === "selected_agents"}
             className="knowledge-assignment-option__input"
             onChange={() => onModeChange("selected_agents")}
@@ -1053,8 +1053,8 @@ function KnowledgeAssignmentDraftControls({
             <AppIcon name={mode === "selected_agents" ? "checkCircle" : "agents"} />
           </span>
           <span className="knowledge-assignment-option__copy">
-            <strong>{tx("指定 Agent", "Selected agents")}</strong>
-            <small>{tx("只加入选中 Agent 的知识范围", "Only selected agents can use it")}</small>
+            <strong>{tx("指定 AI员工", "Selected AI employees")}</strong>
+            <small>{tx("只加入选中 AI员工 的知识范围", "Only selected AI employees can use it")}</small>
           </span>
         </label>
       </div>
@@ -1075,13 +1075,13 @@ function KnowledgeAssignmentDraftControls({
             ))
           ) : (
             <div className="knowledge-assignment-card__note">
-              {tx("当前没有可分配 Agent。", "No agents are available for assignment.")}
+              {tx("当前没有可分配 AI员工。", "No AI employees are available for assignment.")}
             </div>
           )}
         </div>
       ) : (
         <div className="knowledge-assignment-card__note">
-          {tx("这篇知识会进入所有 Agent 的默认知识范围。", "This page is included in every agent's default knowledge scope.")}
+          {tx("这篇知识会进入所有 AI员工 的默认知识范围。", "This page is included in every AI employee's default knowledge scope.")}
         </div>
       )}
     </>
