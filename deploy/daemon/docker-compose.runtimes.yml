@@ -10,6 +10,7 @@ services:
     volumes:
       - codex-auth:/home/dofe-agent
       - codex-state:/var/lib/dofe-agent-daemon
+      - ${CODEX_PROVIDER_CREDENTIAL_DIR:-./credentials/codex}:/run/dofe-agent-provider:ro
     read_only: true
     tmpfs: [/tmp]
     security_opt: [no-new-privileges:true]
@@ -27,6 +28,7 @@ services:
     volumes:
       - claude-auth:/home/dofe-agent
       - claude-state:/var/lib/dofe-agent-daemon
+      - ${CLAUDE_PROVIDER_CREDENTIAL_DIR:-./credentials/claude}:/run/dofe-agent-provider:ro
     read_only: true
     tmpfs: [/tmp]
     security_opt: [no-new-privileges:true]
@@ -44,6 +46,7 @@ services:
     volumes:
       - openclaw-auth:/home/dofe-agent
       - openclaw-state:/var/lib/dofe-agent-daemon
+      - ${OPENCLAW_PROVIDER_CREDENTIAL_DIR:-./credentials/openclaw}:/run/dofe-agent-provider:ro
     read_only: true
     tmpfs: [/tmp]
     security_opt: [no-new-privileges:true]
@@ -61,6 +64,7 @@ services:
     volumes:
       - hermes-auth:/home/dofe-agent
       - hermes-state:/var/lib/dofe-agent-daemon
+      - ${HERMES_PROVIDER_CREDENTIAL_DIR:-./credentials/hermes}:/run/dofe-agent-provider:ro
     read_only: true
     tmpfs: [/tmp]
     security_opt: [no-new-privileges:true]

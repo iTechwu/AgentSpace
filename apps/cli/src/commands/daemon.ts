@@ -22,7 +22,9 @@ import {
   buildDocumentRuntimeToolCapabilities,
   normalizeProviderTaskErrorCategory,
   buildProviderRuntimeMetadata,
+  applyProviderCredentialProfile,
   readProviderTaskFailureMetadata,
+  resolveProviderCredentialProfile,
   resolveModelId as resolveSharedModelId,
   runProviderTask as runSharedProviderTask,
   runRemoteDaemonForeground as runStandaloneRemoteDaemonForeground,
@@ -236,6 +238,18 @@ async function runDaemonForeground(config: DaemonConfig): Promise<number> {
 }
 
 async function runLocalDaemonForeground(config: DaemonConfig): Promise<number> {
+  try {
+    const credentialProfile = resolveProviderCredentialProfile({ stateDir: ensureDaemonStateDir() });
+    if (credentialProfile) {
+      applyProviderCredentialProfile(credentialProfile);
+      console.log(`Provider credential profile ready: ${credentialProfile.accountId}`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Provider credential profile setup failed: ${message}`);
+    return 1;
+  }
+
   const pidPath = getDaemonPidFilePath();
   writeFileSync(pidPath, `${process.pid}\n`, "utf8");
   process.env.DOFE_AGENT_TASK_TIMEOUT_MS = String(config.taskTimeoutMs);

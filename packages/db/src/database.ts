@@ -234,6 +234,7 @@ const NORMALIZED_ROW_KEY_ALIASES = new Map([
   ["optionsjson", "optionsJson"],
   ["primaryemail", "primaryEmail"],
   ["profilejson", "profileJson"],
+  ["provideraccountid", "providerAccountId"],
   ["providersubject", "providerSubject"],
   ["providersessionid", "providerSessionId"],
   ["queuedat", "queuedAt"],

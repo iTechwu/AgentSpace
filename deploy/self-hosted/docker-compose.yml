@@ -50,6 +50,8 @@ services:
       DOFE_AGENT_DEVICE_NAME: ${DOFE_AGENT_CLAUDE_DEVICE_NAME:-DofeAgent Docker Claude}
       DOFE_AGENT_RUNTIME_NAME: ${DOFE_AGENT_CLAUDE_RUNTIME_NAME:-DofeAgent Docker Claude Runtime}
       DOFE_AGENT_PROVIDER_ACCOUNT_ID: ${DOFE_AGENT_CLAUDE_PROVIDER_ACCOUNT_ID:-}
+      DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT: /run/dofe-agent-provider
+      DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF: file:///run/dofe-agent-provider/provider-accounts.json
       DOFE_AGENT_MANAGE_FEISHU_WORKER: "true"
     depends_on:
       db-init:
@@ -58,6 +60,7 @@ services:
       - claude-home:/home/node
       - daemon-claude-data:/srv/DofeAgent/data
       - workspace-attachments:/var/lib/dofe-agent/workspaces
+      - ${DOFE_AGENT_CLAUDE_PROVIDER_CREDENTIAL_DIR:-./credentials/claude}:/run/dofe-agent-provider:ro
     init: true
     restart: unless-stopped
 
@@ -75,6 +78,8 @@ services:
       DOFE_AGENT_DEVICE_NAME: ${DOFE_AGENT_CODEX_DEVICE_NAME:-DofeAgent Docker Codex}
       DOFE_AGENT_RUNTIME_NAME: ${DOFE_AGENT_CODEX_RUNTIME_NAME:-DofeAgent Docker Codex Runtime}
       DOFE_AGENT_PROVIDER_ACCOUNT_ID: ${DOFE_AGENT_CODEX_PROVIDER_ACCOUNT_ID:-}
+      DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT: /run/dofe-agent-provider
+      DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF: file:///run/dofe-agent-provider/provider-accounts.json
       DOFE_AGENT_MANAGE_FEISHU_WORKER: "false"
     depends_on:
       db-init:
@@ -83,6 +88,7 @@ services:
       - codex-home:/home/node
       - daemon-codex-data:/srv/DofeAgent/data
       - workspace-attachments:/var/lib/dofe-agent/workspaces
+      - ${DOFE_AGENT_CODEX_PROVIDER_CREDENTIAL_DIR:-./credentials/codex}:/run/dofe-agent-provider:ro
     init: true
     restart: unless-stopped
 

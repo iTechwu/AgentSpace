@@ -20,12 +20,22 @@ docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-c
 
 ## Provider authentication
 
-Each daemon owns a separate persistent home volume. Authenticate Claude Code in `daemon-claude` and Codex in `daemon-codex` using the provider-approved flow for your organization. Do not share provider credentials between the two services.
+Each daemon mounts a distinct read-only credential directory and builds a private provider profile below its own daemon-state volume. Create `config.json` and/or `secret.json` in the directories configured by `DOFE_AGENT_CLAUDE_PROVIDER_CREDENTIAL_DIR` and `DOFE_AGENT_CODEX_PROVIDER_CREDENTIAL_DIR`. The corresponding `file://` references in `.env` are passed through the Provider Account approval flow and resolved only within that daemon's container.
 
-```bash
-docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml exec daemon-claude claude login
-docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml exec daemon-codex codex login
+```json
+{
+  "version": 1,
+  "environment": {
+    "ANTHROPIC_BASE_URL": "https://provider-gateway.example",
+    "ANTHROPIC_API_KEY": "replace-with-node-local-secret"
+  },
+  "files": {
+    ".claude.json": "{...}"
+  }
+}
 ```
+
+Use `config.json` for non-sensitive endpoint/model settings and `secret.json` for API keys or provider auth files. `secret.json` overrides duplicate entries in `config.json`. Do not use `docker compose exec ... login` for this deployment model: that writes to the service home volume, whereas the daemon intentionally runs the provider with its account-specific profile.
 
 `daemon-claude` is deliberately the only service with `DOFE_AGENT_MANAGE_FEISHU_WORKER=true`. If you add more daemon services, leave that setting false unless you move Feishu ownership to the new service. This prevents duplicate long connections and duplicate event delivery.
 

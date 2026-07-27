@@ -35,6 +35,7 @@ import {
 } from "./state.ts";
 import { parseTaskInputJson, resolveConversationThreadId } from "./task-context.ts";
 import { executeRuntimeAppPlan, parseRuntimeAppInstallPlan, tailAndRedact } from "./runtime-apps.ts";
+import { applyProviderCredentialProfile, resolveProviderCredentialProfile } from "./provider-credentials.ts";
 
 export interface RemoteDaemonConfig {
   stateDir: string;
@@ -110,6 +111,18 @@ export async function runRemoteDaemonCommand(subcommand: string | undefined, arg
 export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Promise<number> {
   if (!config.serverUrl || !config.daemonToken) {
     console.error("Remote daemon mode requires --server-url and --daemon-token.");
+    return 1;
+  }
+
+  try {
+    const credentialProfile = resolveProviderCredentialProfile({ stateDir: config.stateDir });
+    if (credentialProfile) {
+      applyProviderCredentialProfile(credentialProfile);
+      console.log(`Provider credential profile ready: ${credentialProfile.accountId}`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Provider credential profile setup failed: ${message}`);
     return 1;
   }
 

@@ -108,13 +108,18 @@ https://<server-a-domain>/agents?mode=container
 ```bash
 bash <(curl -fsSL https://<server-a-domain>/api/daemon/install-script) \
   --daemon-token "adt_xxx" \
-  --daemon-id "daemon-xxxxx"
+  --daemon-id "daemon-xxxxx" \
+  --provider-account-id "provider-account_xxx" \
+  --runtime-provider "claude" \
+  --provider-credential-root "/etc/dofe-agent-provider" \
+  --provider-credential-map-ref "file:///etc/dofe-agent-provider/provider-accounts.json"
 ```
 
 注意：
 
-- 用计划承载 provider runtime 的用户执行；如果使用 root，需确认 `/root` 下已登录对应 provider，且任务命令会以 root 权限执行
-- 当前执行用户必须已经登录了对应的 `codex` / `claude` / `agy` / `gemini` / `opencode` / `openclaw` / `nanobot` / `hermes`
+- 用计划承载 provider runtime 的用户执行；如果使用 root，认证文件必须属于 root 的 runtime profile，且任务命令会以 root 权限执行
+- 对于 Provider Account，先把 `config.json` 和 `secret.json` 写到 Server B 的专属凭据目录；每个文件是节点本地 JSON，`environment` 保存 BASE URL/API key，`files` 保存 provider 认证文件。不要在同一目录中放其他团队的凭据
+- 未配置 Provider Account 时，当前执行用户仍可通过 provider CLI 的常规登录流程完成认证
 
 执行完成后，建议立刻看状态：
 

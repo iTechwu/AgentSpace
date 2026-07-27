@@ -12,6 +12,8 @@ DAEMON_TOKEN=""
 DAEMON_ID=""
 PROVIDER_ACCOUNT_ID=""
 RUNTIME_PROVIDER=""
+PROVIDER_CREDENTIAL_ROOT=""
+PROVIDER_CREDENTIAL_MAP_REF=""
 DEVICE_NAME="$(hostname -s 2>/dev/null || hostname || echo remote-daemon)"
 RUNTIME_NAME="Remote Agent"
 BASE_DIR="${DOFE_AGENT_DAEMON_HOME:-$HOME/.dofe-agent-daemon}"
@@ -27,6 +29,8 @@ DAEMON_TOKEN_SET="false"
 DAEMON_ID_SET="false"
 PROVIDER_ACCOUNT_ID_SET="false"
 RUNTIME_PROVIDER_SET="false"
+PROVIDER_CREDENTIAL_ROOT_SET="false"
+PROVIDER_CREDENTIAL_MAP_REF_SET="false"
 DEVICE_NAME_SET="false"
 RUNTIME_NAME_SET="false"
 STATE_DIR_SET="false"
@@ -63,6 +67,8 @@ Required:
   --daemon-token <token>   required unless --update-existing can read daemon.env
   --provider-account-id <id>  required when the workspace has a configured Provider Account
   --runtime-provider <id>     restrict this runtime to one provider CLI
+  --provider-credential-root <path> node-local credential directory
+  --provider-credential-map-ref <uri> node-local file:// account-to-reference map
 
 Defaults:
   --server-url <url>       default: baked into install-script when served from Server A
@@ -239,6 +245,16 @@ while [[ $# -gt 0 ]]; do
       RUNTIME_PROVIDER_SET="true"
       shift 2
       ;;
+    --provider-credential-root)
+      PROVIDER_CREDENTIAL_ROOT="${2:-}"
+      PROVIDER_CREDENTIAL_ROOT_SET="true"
+      shift 2
+      ;;
+    --provider-credential-map-ref)
+      PROVIDER_CREDENTIAL_MAP_REF="${2:-}"
+      PROVIDER_CREDENTIAL_MAP_REF_SET="true"
+      shift 2
+      ;;
     --device-name)
       DEVICE_NAME="${2:-}"
       DEVICE_NAME_SET="true"
@@ -321,6 +337,12 @@ if [[ "$UPDATE_EXISTING" == "true" ]]; then
   fi
   if [[ "$RUNTIME_PROVIDER_SET" != "true" && -n "${DOFE_AGENT_RUNTIME_PROVIDER:-}" ]]; then
     RUNTIME_PROVIDER="$DOFE_AGENT_RUNTIME_PROVIDER"
+  fi
+  if [[ "$PROVIDER_CREDENTIAL_ROOT_SET" != "true" && -n "${DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT:-}" ]]; then
+    PROVIDER_CREDENTIAL_ROOT="$DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT"
+  fi
+  if [[ "$PROVIDER_CREDENTIAL_MAP_REF_SET" != "true" && -n "${DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF:-}" ]]; then
+    PROVIDER_CREDENTIAL_MAP_REF="$DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF"
   fi
   if [[ "$DEVICE_NAME_SET" != "true" && -n "${DOFE_AGENT_DEVICE_NAME:-}" ]]; then
     DEVICE_NAME="$DOFE_AGENT_DEVICE_NAME"
@@ -424,6 +446,8 @@ DOFE_AGENT_DAEMON_TOKEN=$(printf '%q' "$DAEMON_TOKEN")
 DOFE_AGENT_DAEMON_ID=$(printf '%q' "$DAEMON_ID")
 DOFE_AGENT_PROVIDER_ACCOUNT_ID=$(printf '%q' "$PROVIDER_ACCOUNT_ID")
 DOFE_AGENT_RUNTIME_PROVIDER=$(printf '%q' "$RUNTIME_PROVIDER")
+DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT=$(printf '%q' "$PROVIDER_CREDENTIAL_ROOT")
+DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF=$(printf '%q' "$PROVIDER_CREDENTIAL_MAP_REF")
 DOFE_AGENT_DEVICE_NAME=$(printf '%q' "$DEVICE_NAME")
 DOFE_AGENT_RUNTIME_NAME=$(printf '%q' "$RUNTIME_NAME")
 DOFE_AGENT_DAEMON_STATE_DIR=$(printf '%q' "$STATE_DIR")

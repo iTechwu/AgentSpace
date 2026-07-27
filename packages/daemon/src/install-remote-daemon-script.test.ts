@@ -150,6 +150,8 @@ test("install script prints installed daemon version in bootstrap summary", () =
       "--daemon-id", "daemon-test",
       "--provider-account-id", "provider-account-team-a",
       "--runtime-provider", "claude",
+      "--provider-credential-root", "/run/dofe-agent-provider",
+      "--provider-credential-map-ref", "file:///run/dofe-agent-provider/provider-accounts.json",
       "--base-dir", baseDir,
       "--path", `${providerBinDir}:${process.env.PATH ?? ""}`,
     ], {
@@ -168,6 +170,8 @@ test("install script prints installed daemon version in bootstrap summary", () =
     const generatedEnv = readFileSync(envFile, "utf8");
     assert.match(generatedEnv, /DOFE_AGENT_PROVIDER_ACCOUNT_ID=provider-account-team-a/);
     assert.match(generatedEnv, /DOFE_AGENT_RUNTIME_PROVIDER=claude/);
+    assert.match(generatedEnv, /DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT=\/run\/dofe-agent-provider/);
+    assert.match(generatedEnv, /DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF=file:\/\/\/run\/dofe-agent-provider\/provider-accounts\.json/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

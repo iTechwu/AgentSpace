@@ -87,9 +87,11 @@ dofe-agent-daemon start \
 
 `--task-timeout`/`DOFE_AGENT_TASK_TIMEOUT_MS` 用于 long-horizon 任务。当前默认值是 12 小时，避免 daemon 在 20 分钟左右提前中断跨天执行。
 
-Claude Code runtime 必须由已登录 Claude Code 的用户启动。服务器场景可以用 root 启动，但要确认 `/root` 下已完成 Claude Code 登录；daemon 任务命令会以 root 权限执行。
+Claude Code runtime 可以由已登录 Claude Code 的用户启动，也可以通过 Provider Account 的节点本地凭据文件提供认证。服务器场景若用 root 启动，认证文件必须属于 root 的 runtime profile；daemon 任务命令会以 root 权限执行。
 
 Provider Account 只保存 secret/config 的引用，不保存 API key。部署 runtime 时由节点侧密钥系统解析该引用，并仅挂载到这一 Provider 的独立 auth/config volume；不要在同一个 daemon/runtime 中切换 Provider Account。
+
+当前内置 resolver 支持节点本地 `file://` 引用。引用文件是 JSON：`environment` 用于 Provider 的 BASE URL、API key 等环境变量，`files` 用于认证或 profile 文件。daemon 会把文件写到 `${DOFE_AGENT_DAEMON_STATE_DIR}/provider-accounts/<account-id>` 并将该目录作为 provider 子进程的 `HOME`，从而避免不同团队共用 Claude/OpenClaw/Codex 的认证目录。
 
 ## Provider 说明
 

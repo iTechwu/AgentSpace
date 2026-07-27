@@ -73,8 +73,8 @@ export function DaemonManagementPanel({
           <label className="form-field"><span>Provider</span><select defaultValue="claude" name="provider"><option value="claude">Claude Code</option><option value="codex">Codex</option><option value="gemini">Gemini CLI</option><option value="antigravity">Antigravity CLI</option><option value="openclaw">OpenClaw</option><option value="opencode">OpenCode</option><option value="nanobot">NanoBot</option><option value="hermes">Hermes</option></select></label>
           <label className="form-field"><span>{tx("账户名称", "Account name")}</span><input name="name" required type="text" /></label>
           <label className="form-field"><span>{tx("账单账户标识", "Billing account ID")}</span><input name="billingAccountId" type="text" /></label>
-          <label className="form-field"><span>{tx("密钥引用", "Secret reference")}</span><input name="secretRef" placeholder="vault://..." type="text" /></label>
-          <label className="form-field"><span>{tx("配置引用", "Config reference")}</span><input name="configRef" placeholder="config://..." type="text" /></label>
+          <label className="form-field"><span>{tx("密钥引用", "Secret reference")}</span><input name="secretRef" placeholder="file:///run/dofe-agent-provider/secret.json" type="text" /></label>
+          <label className="form-field"><span>{tx("配置引用", "Config reference")}</span><input name="configRef" placeholder="file:///run/dofe-agent-provider/config.json" type="text" /></label>
           <label className="form-field"><span>{tx("允许模型", "Allowed models")}</span><input name="allowedModels" placeholder="model-a, model-b" type="text" /></label>
           <button className="primary-button" disabled={isPending} type="submit">{tx("创建账户", "Create account")}</button>
         </form>
@@ -98,7 +98,7 @@ export function DaemonManagementPanel({
           <label className="form-field"><span>{tx("目标服务器", "Target server")}</span><input name="targetServer" required type="text" /></label>
           <button className="primary-button" disabled={isPending || providerAccounts.every((account) => account.status !== "active")} type="submit">{tx("提交供给请求", "Request runtime")}</button>
         </form>
-        {runtimeProvisionRequests.length > 0 ? <div className="settings-token-list">{runtimeProvisionRequests.map((request) => <article className="settings-token-card" key={request.id}><strong>{request.runtimeName}</strong><p>{request.providerAccountName} · {request.targetServer}</p><p>{request.status}</p>{request.status === "approved" ? <p><code>DOFE_AGENT_PROVIDER_ACCOUNT_ID={request.providerAccountId}</code></p> : null}{request.status === "requested" ? <button className="primary-button" disabled={isPending} onClick={() => startTransition(async () => { await runToastAction({ action: () => approveRuntimeProvisionAction(request.id), onSuccess: async (result) => { setCreatedToken({ id: result.tokenId, label: `provision-${request.id}`, token: result.token, installCommand: buildProvisionInstallCommand(window.location.origin, result.token, result.providerAccountId, result.provider) }); router.refresh(); }, pushToast, tx, fallbackError: { zh: "批准供给请求失败。", en: "Failed to approve provisioning request." } }); })} type="button">{tx("批准并创建令牌", "Approve and create token")}</button> : null}</article>)}</div> : null}
+        {runtimeProvisionRequests.length > 0 ? <div className="settings-token-list">{runtimeProvisionRequests.map((request) => <article className="settings-token-card" key={request.id}><strong>{request.runtimeName}</strong><p>{request.providerAccountName} · {request.targetServer}</p><p>{request.status}</p>{request.status === "approved" ? <p><code>DOFE_AGENT_PROVIDER_ACCOUNT_ID={request.providerAccountId}</code></p> : null}{request.status === "requested" ? <button className="primary-button" disabled={isPending} onClick={() => startTransition(async () => { await runToastAction({ action: () => approveRuntimeProvisionAction(request.id), onSuccess: async (result) => { setCreatedToken({ id: result.tokenId, label: `provision-${request.id}`, token: result.token, installCommand: buildProvisionInstallCommand(window.location.origin, result) }); router.refresh(); }, pushToast, tx, fallbackError: { zh: "批准供给请求失败。", en: "Failed to approve provisioning request." } }); })} type="button">{tx("批准并创建令牌", "Approve and create token")}</button> : null}</article>)}</div> : null}
       </div>
 
       <div className="subsection">
@@ -314,8 +314,17 @@ export function DaemonManagementPanel({
   );
 }
 
-function buildProvisionInstallCommand(origin: string, daemonToken: string, providerAccountId: string, provider: string): string {
-  return `bash <(curl -fsSL ${origin}/api/daemon/install-script) --daemon-token ${JSON.stringify(daemonToken)} --provider-account-id ${JSON.stringify(providerAccountId)} --runtime-provider ${JSON.stringify(provider)}`;
+function buildProvisionInstallCommand(origin: string, input: {
+  token: string;
+  providerAccountId: string;
+  provider: string;
+}): string {
+  const args = [
+    `--daemon-token ${JSON.stringify(input.token)}`,
+    `--provider-account-id ${JSON.stringify(input.providerAccountId)}`,
+    `--runtime-provider ${JSON.stringify(input.provider)}`,
+  ];
+  return `bash <(curl -fsSL ${origin}/api/daemon/install-script) ${args.join(" ")}`;
 }
 
 function formatProviderHealth(
