@@ -805,6 +805,15 @@ function listDaemonRuntimesSync(daemonConnectionId: string): AgentRuntimeRecord[
         connected_at AS connectedAt,
         last_heartbeat_at AS lastHeartbeatAt,
         last_error AS lastError,
+        runtime_type,
+        protocols_json,
+        default_model,
+        provisioning_state,
+        managed_credential_id,
+        credential_secret_ref,
+        credential_config_ref,
+        provisioning_task_id,
+        managed_at,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM agent_runtime

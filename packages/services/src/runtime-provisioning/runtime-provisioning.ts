@@ -318,7 +318,8 @@ export async function rotateManagedRuntimeCredentialSync(
   }
   const vault = getRuntimeCredentialVault();
   const oldSecretRef = runtime.credentialSecretRef;
-  const newSecret = vault.store(result.credential.id, result.secret.apiKey);
+  const credentialScope = { tenantId: scope.tenantId, teamId: scope.teamId, runtimeId: runtime.id };
+  const newSecret = vault.store(result.credential.id, result.secret.apiKey, credentialScope);
   updateAgentRuntimeManagedFieldsSync({
     runtimeId: runtime.id,
     workspaceId: input.workspaceId,
@@ -326,7 +327,7 @@ export async function rotateManagedRuntimeCredentialSync(
     credentialSecretRef: newSecret.secretRef,
   });
   if (oldSecretRef) {
-    vault.forget(oldSecretRef);
+    vault.forget(oldSecretRef, credentialScope);
   }
   recordAuditLogSync({
     workspaceId: input.workspaceId,
@@ -400,8 +401,8 @@ export async function stopManagedRuntimeSync(input: StopManagedRuntimeInput): Pr
   if (runtime.provisioningState !== "managed") {
     throw new Error("managed_runtime.not_a_managed_runtime");
   }
+  const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
   if (runtime.managedCredentialId) {
-    const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
     await safeRevokeCredential({
       credentialId: runtime.managedCredentialId,
       tenantId: scope.tenantId,
@@ -409,6 +410,13 @@ export async function stopManagedRuntimeSync(input: StopManagedRuntimeInput): Pr
       reason: input.reason ?? "stopped",
       idempotencyKey: `revoke:${runtime.managedCredentialId}:${input.reason ?? "stopped"}`,
       audit: { actorId: input.actorUserId },
+    });
+  }
+  if (runtime.credentialSecretRef) {
+    getRuntimeCredentialVault().forget(runtime.credentialSecretRef, {
+      tenantId: scope.tenantId,
+      teamId: scope.teamId,
+      runtimeId: runtime.id,
     });
   }
   if (runtime.daemonConnectionId) {
@@ -448,8 +456,8 @@ export async function deleteManagedRuntimeSync(input: StopManagedRuntimeInput): 
   if (runtime.provisioningState !== "managed") {
     throw new Error("managed_runtime.not_a_managed_runtime");
   }
+  const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
   if (runtime.managedCredentialId) {
-    const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
     await safeRevokeCredential({
       credentialId: runtime.managedCredentialId,
       tenantId: scope.tenantId,
@@ -457,6 +465,13 @@ export async function deleteManagedRuntimeSync(input: StopManagedRuntimeInput): 
       reason: input.reason ?? "deleted",
       idempotencyKey: `revoke:${runtime.managedCredentialId}:${input.reason ?? "deleted"}`,
       audit: { actorId: input.actorUserId },
+    });
+  }
+  if (runtime.credentialSecretRef) {
+    getRuntimeCredentialVault().forget(runtime.credentialSecretRef, {
+      tenantId: scope.tenantId,
+      teamId: scope.teamId,
+      runtimeId: runtime.id,
     });
   }
   if (runtime.daemonConnectionId) {
@@ -560,7 +575,11 @@ export async function runProvisioningPipeline(
       });
       let secretRef: string | undefined;
       if (result.secretIssued && result.secret?.apiKey) {
-        secretRef = vault.store(result.credential.id, result.secret.apiKey).secretRef;
+        secretRef = vault.store(result.credential.id, result.secret.apiKey, {
+          tenantId: scope.tenantId,
+          teamId: scope.teamId,
+          runtimeId,
+        }).secretRef;
       } else if (task.secretRef) {
         secretRef = task.secretRef;
       }

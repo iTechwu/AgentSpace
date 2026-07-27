@@ -393,13 +393,28 @@ export interface ClaimManagedProvisioningStageInput {
 export function claimManagedProvisioningStageSync(
   input: ClaimManagedProvisioningStageInput,
 ): RuntimeProvisioningTaskRecord | null {
-  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const db = getDatabase();
   const now = new Date().toISOString();
 
   return withTransaction(db, () => {
+    const daemon = db.prepare(
+      "SELECT workspace_id AS workspaceId, device_name AS deviceName, metadata_json AS metadataJson FROM daemon_connection WHERE id = ?",
+    ).get(input.daemonConnectionId) as { workspaceId?: unknown; deviceName?: unknown; metadataJson?: unknown } | undefined;
+    if (
+      !daemon ||
+      typeof daemon.workspaceId !== "string" ||
+      typeof daemon.deviceName !== "string" ||
+      !isManagedNodeMetadata(daemon.metadataJson)
+    ) {
+      return null;
+    }
+    const workspaceId = input.workspaceId ?? daemon.workspaceId;
+    if (workspaceId !== daemon.workspaceId) {
+      return null;
+    }
+    const deviceName = input.deviceName ?? daemon.deviceName;
     const deadline = new Date(Date.now() - DEFAULT_STAGE_TIMEOUT_MS).toISOString();
-    const targetServerClause = input.deviceName
+    const targetServerClause = deviceName
       ? "AND (target_server IS NULL OR target_server = ?)"
       : "AND target_server IS NULL";
     const params: unknown[] = [
@@ -407,9 +422,8 @@ export function claimManagedProvisioningStageSync(
       NODE_PROVISIONING_STAGES,
       input.daemonConnectionId,
       deadline,
-      input.daemonConnectionId,
     ];
-    if (input.deviceName) params.push(input.deviceName);
+    if (deviceName) params.push(deviceName);
 
     const row = db
       .prepare(
@@ -713,4 +727,21 @@ function normalizeProtocols(values: unknown[]): string[] {
       ).map((value) => value.trim()),
     ),
   ];
+}
+
+function isManagedNodeMetadata(value: unknown): boolean {
+  if (typeof value !== "string") {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Boolean(
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      (parsed as Record<string, unknown>).managedNode === true,
+    );
+  } catch {
+    return false;
+  }
 }

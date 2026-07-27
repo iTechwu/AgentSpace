@@ -2022,6 +2022,52 @@ test("runProviderTask keeps OpenClaw execution on AgentRouter launch shape", asy
   }
 });
 
+test("managed runtimes do not inherit host provider credentials", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-managed-env-"));
+  const binPath = join(workDir, "codex");
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "output_path=''",
+      "previous_arg=''",
+      "for arg in \"$@\"; do",
+      "  if [ \"$previous_arg\" = '-o' ]; then output_path=\"$arg\"; fi",
+      "  previous_arg=\"$arg\"",
+      "done",
+      "printf '[%s]' \"${OPENAI_API_KEY-unset}\" > \"$output_path\"",
+      "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"managed-session\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+  process.env.OPENAI_API_KEY = "host-only-key";
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-managed-env",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Managed Codex",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+      managedCredentialId: "credential-managed-env",
+    },
+  };
+
+  try {
+    const result = await runProviderTask(runtime, "verify isolation", workDir, { taskTimeoutMs: 1_000 });
+    assert.equal(result.output, "[]");
+  } finally {
+    if (originalOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalOpenAiKey;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 function createOpenClawRuntime(binPath: string): ProviderRuntimeRecord {
   return {
     id: "runtime-openclaw-test",

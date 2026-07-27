@@ -978,9 +978,12 @@ export {
   requestManagedRuntimeCleanupSync,
 } from "@dofe-agent/db";
 export {
+  createRuntimeCredentialVaultFromEnvironment,
+  EncryptedFileRuntimeCredentialVault,
   getRuntimeCredentialVault,
   resetRuntimeCredentialVaultForTests,
   setRuntimeCredentialVault,
+  type RuntimeCredentialScope,
   type RuntimeCredentialVault,
 } from "./runtime-provisioning/credential-vault.ts";
 export {

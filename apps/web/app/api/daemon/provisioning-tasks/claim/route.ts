@@ -22,7 +22,10 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "Daemon token is not bound to a connection." }, { status: 403 });
   }
 
-  const task = claimManagedProvisioningStageSync({ daemonConnectionId });
+  const task = claimManagedProvisioningStageSync({
+    daemonConnectionId,
+    workspaceId: auth.workspaceId,
+  });
   if (!task) {
     return Response.json({ task: null });
   }
@@ -37,13 +40,17 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const context = buildManagedProvisioningCommandContext(runtime);
-  const commands = buildManagedProvisioningStageCommands(runtime.provider, task.stage, context);
+  const nodeStage = task.stage as "pull_image" | "install_cli" | "health_check" | "cleanup";
+  const commands = task.stage === "write_credential"
+    ? []
+    : buildManagedProvisioningStageCommands(runtime.provider, nodeStage, context);
 
   return Response.json({
     task: {
       taskId: task.id,
       workspaceId: task.workspaceId,
       runtimeId: task.runtimeId,
+      runtimeType: runtime.provider,
       runtimeCredentialId: task.runtimeCredentialId,
       stage: task.stage,
       commands,

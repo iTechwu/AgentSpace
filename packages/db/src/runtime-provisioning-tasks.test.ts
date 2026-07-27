@@ -6,6 +6,7 @@ import test, { after, before, beforeEach } from "node:test";
 import {
   advanceRuntimeProvisioningTaskStageSync,
   appendRuntimeProvisioningEventSync,
+  claimManagedProvisioningStageSync,
   completeRuntimeProvisioningCancellationSync,
   createRuntimeProvisioningTaskSync,
   listAuditLogsSync,
@@ -262,6 +263,50 @@ test("appendRuntimeProvisioningEventSync writes an extra readable event", () => 
   });
   const events = listRuntimeProvisioningTaskEventsSync(task.id);
   assert.ok(events.some((event) => event.title === "Applying gateway config" && event.progressPercent === 60));
+});
+
+test("managed nodes claim provisioning tasks within their authenticated workspace", () => {
+  const regularNode = registerDaemonRuntimesSync({
+    daemonKey: "regular-node-claim",
+    deviceName: "regular-node-claim",
+    workspaceId: WORKSPACE,
+    runtimes: [{ provider: "codex", name: "Local Codex" }],
+  });
+  const snapshot = registerDaemonRuntimesSync({
+    daemonKey: "managed-node-claim",
+    deviceName: "managed-node-claim",
+    workspaceId: WORKSPACE,
+    metadata: { managedNode: true },
+    runtimes: [],
+  });
+  const task = createRuntimeProvisioningTaskSync({
+    workspaceId: WORKSPACE,
+    requestedByUserId: USER,
+    idempotencyKey: "claim-task",
+    runtimeType: "codex",
+    protocols: ["openai"],
+  });
+  advanceRuntimeProvisioningTaskStageSync({
+    id: task.id,
+    workspaceId: WORKSPACE,
+    stage: "pull_image",
+    status: "pending",
+    progressPercent: 50,
+  });
+
+  assert.equal(claimManagedProvisioningStageSync({
+    daemonConnectionId: regularNode.daemon.id,
+    workspaceId: WORKSPACE,
+  }), null);
+
+  const claimed = claimManagedProvisioningStageSync({
+    daemonConnectionId: snapshot.daemon.id,
+    workspaceId: WORKSPACE,
+  });
+
+  assert.equal(claimed?.id, task.id);
+  assert.equal(claimed?.daemonConnectionId, snapshot.daemon.id);
+  assert.equal(claimed?.stageStatus, "running");
 });
 
 function ensureWorkspace(): void {

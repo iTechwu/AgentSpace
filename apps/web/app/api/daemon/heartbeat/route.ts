@@ -50,13 +50,20 @@ export async function POST(request: Request): Promise<Response> {
       workspaceId: snapshot.daemon.workspaceId,
       lastHeartbeatAt: snapshot.daemon.lastHeartbeatAt,
     },
-    runtimes: snapshot.runtimes.map((runtime) => ({
-      id: runtime.id,
-      provider: runtime.provider,
-      status: runtime.status,
-      lastHeartbeatAt: runtime.lastHeartbeatAt,
-      metadata: safeParseRecord(runtime.metadataJson),
-    })),
+    runtimes: snapshot.runtimes.map((runtime) => {
+      const metadata = safeParseRecord(runtime.metadataJson) ?? {};
+      return {
+        id: runtime.id,
+        provider: runtime.provider,
+        status: runtime.status,
+        lastHeartbeatAt: runtime.lastHeartbeatAt,
+        metadata: {
+          ...metadata,
+          ...(runtime.managedCredentialId ? { managedCredentialId: runtime.managedCredentialId } : {}),
+          ...(runtime.provisioningState ? { provisioningState: runtime.provisioningState } : {}),
+        },
+      };
+    }),
     managedRuntimeCleanupRequests: cleanupRequests,
   };
 

@@ -4,7 +4,7 @@ import {
   readRuntimeProvisioningTaskSync,
 } from "@dofe-agent/services";
 import type { RuntimeProvisioningTaskStage } from "@dofe-agent/db";
-import { requireDaemonAuth } from "../../../_lib/auth";
+import { requireDaemonAuth } from "../../../../../_lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -428,6 +428,7 @@ async function runRemoteDaemonForeground(config: DaemonConfig): Promise<number> 
     taskTimeoutMs: config.taskTimeoutMs,
     serverUrl: config.serverUrl,
     daemonToken: config.daemonToken,
+    managedNode: false,
   });
 }
 

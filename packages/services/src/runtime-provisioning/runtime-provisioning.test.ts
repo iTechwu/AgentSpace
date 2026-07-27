@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import {
+  completeManagedProvisioningStageSync,
   getDatabase,
   listRuntimeProvisioningTaskEventsSync,
   readAgentRuntimeSync,
@@ -14,6 +15,7 @@ import {
 import {
   cancelRuntimeProvisioningTaskSync,
   deleteManagedRuntimeSync,
+  finalizeManagedRuntimeProvisioningSync,
   getManagedRuntimeCredentialStatusSync,
   requestManagedRuntimeProvisioningSync,
   retryRuntimeProvisioningTaskSync,
@@ -180,9 +182,37 @@ async function awaitTaskTerminal(taskId: string, workspaceId = TEAM_WS, timeoutM
     if (task && (task.status === "succeeded" || task.status === "failed" || task.status === "cancelled")) {
       return task;
     }
+    if (task?.stageStatus === "pending" && task.runtimeId && isNodeProvisioningStage(task.stage)) {
+      const nextStage = nextNodeProvisioningStage(task.stage);
+      completeManagedProvisioningStageSync({
+        taskId: task.id,
+        workspaceId,
+        stage: task.stage,
+        nextStage,
+      });
+      if (task.stage === "health_check") {
+        finalizeManagedRuntimeProvisioningSync({
+          taskId: task.id,
+          workspaceId,
+          runtimeId: task.runtimeId,
+        });
+      }
+      continue;
+    }
     await new Promise((resolve) => setImmediate(resolve));
   }
   throw new Error(`task ${taskId} did not reach a terminal state within ${timeoutMs}ms`);
+}
+
+function isNodeProvisioningStage(stage: string): stage is "pull_image" | "install_cli" | "write_credential" | "health_check" {
+  return stage === "pull_image" || stage === "install_cli" || stage === "write_credential" || stage === "health_check";
+}
+
+function nextNodeProvisioningStage(stage: "pull_image" | "install_cli" | "write_credential" | "health_check") {
+  if (stage === "pull_image") return "install_cli";
+  if (stage === "install_cli") return "write_credential";
+  if (stage === "write_credential") return "health_check";
+  return undefined;
 }
 
 test("non-admin member cannot request a managed runtime", () => {
@@ -442,8 +472,10 @@ test("stop and delete pass tenant/team scope to revoke", async () => {
   });
   const provisioned = await awaitTaskTerminal(task.id);
   const runtimeId = provisioned.runtimeId!;
+  const runtimeBeforeStop = readAgentRuntimeSync(runtimeId)!;
 
   await stopManagedRuntimeSync({ workspaceId: TEAM_WS, actorUserId: OWNER, runtimeId, reason: "ui_stop" });
+  assert.equal(getRuntimeCredentialVault().retrieve(runtimeBeforeStop.credentialSecretRef!), undefined);
   assert.equal(activeClient.revokeCalls, 1);
   assert.deepEqual((activeClient.lastRevokeBody as Record<string, string> | undefined)?.tenantId, "tenant-1");
   assert.deepEqual((activeClient.lastRevokeBody as Record<string, string> | undefined)?.teamId, "team-1");

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { applyProviderCredentialProfile, resolveProviderCredentialProfile } from "./provider-credentials.ts";
+import { createManagedCredentialResolver } from "./managed-provider-credentials.ts";
 
 test("resolves account-scoped provider files and environment without exposing references", () => {
   const root = mkdtempSync(join(tmpdir(), "dofe-agent-provider-credentials-"));
@@ -86,6 +87,64 @@ test("rejects credential references outside the runtime credential root", () => 
       },
     }), /must stay within/);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("managed credentials are atomically refreshed when their credential generation changes", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-managed-credentials-"));
+  const bundles = [
+    {
+      version: 1 as const,
+      credentialId: "credential-first",
+      environment: { OPENAI_API_KEY: "first-key", OPENAI_BASE_URL: "http://model.local.dofe.ai/v1" },
+      files: {},
+    },
+    {
+      version: 1 as const,
+      credentialId: "credential-second",
+      environment: { OPENAI_API_KEY: "second-key", OPENAI_BASE_URL: "http://model.local.dofe.ai/v1" },
+      files: {},
+    },
+  ];
+  let fetches = 0;
+  const resolver = createManagedCredentialResolver(root, async () => bundles[fetches++]!);
+
+  try {
+    const first = await resolver.resolve("runtime-1", "credential-first");
+    const second = await resolver.resolve("runtime-1", "credential-second");
+
+    assert.equal(first?.environment.OPENAI_API_KEY, "first-key");
+    assert.equal(second?.environment.OPENAI_API_KEY, "second-key");
+    assert.equal(fetches, 2);
+  } finally {
+    resolver.cleanup("runtime-1");
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("managed credential launchers run the provider inside its dedicated image", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-managed-launcher-"));
+  const resolver = createManagedCredentialResolver(root, async () => ({
+    version: 1,
+    credentialId: "credential-codex",
+    environment: { OPENAI_API_KEY: "runtime-only-key", OPENAI_BASE_URL: "http://model.local.dofe.ai/v1" },
+    files: {},
+  }));
+
+  try {
+    await resolver.resolve("runtime-codex", "credential-codex");
+    const launcherPath = resolver.getExecutablePath("runtime-codex", "codex");
+    const launcher = readFileSync(launcherPath, "utf8");
+
+    assert.match(launcher, /docker run --rm --init/);
+    assert.match(launcher, /--name 'dofe-runtime-runtime-codex'/);
+    assert.match(launcher, /dofe\/agent-runtime-codex:latest/);
+    assert.match(launcher, /--env OPENAI_API_KEY/);
+    assert.match(launcher, /--env OPENAI_BASE_URL/);
+    assert.doesNotMatch(launcher, /runtime-only-key/);
+  } finally {
+    resolver.cleanup("runtime-codex");
     rmSync(root, { recursive: true, force: true });
   }
 });

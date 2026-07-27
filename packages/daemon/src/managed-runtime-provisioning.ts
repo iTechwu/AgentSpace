@@ -5,7 +5,11 @@ import type {
   ManagedProvisioningStage,
   ManagedProvisioningTask,
 } from "./daemon-api.ts";
-import type { ManagedCredentialResolver } from "./managed-provider-credentials.ts";
+import {
+  getManagedProviderCredentialEnvironmentKey,
+  type ManagedCredentialResolver,
+} from "./managed-provider-credentials.ts";
+import type { ProviderCredentialProfile } from "./provider-credentials.ts";
 import { buildRedactions, redactText } from "./agent-router/utils.ts";
 
 const ALLOWED_COMMAND_EXECUTABLES = new Set([
@@ -37,6 +41,7 @@ export interface ManagedProvisioningResult {
 
 export interface ManagedProvisioningExecutor {
   execute(task: ManagedProvisioningTask): Promise<ManagedProvisioningResult>;
+  credentialResolver: ManagedCredentialResolver;
   executeCleanup(
     runtimeId: string,
     commands: ManagedProvisioningCommand[],
@@ -52,12 +57,29 @@ export function createManagedProvisioningExecutor(
   async function execute(task: ManagedProvisioningTask): Promise<ManagedProvisioningResult> {
     if (task.stage === "write_credential") {
       try {
-        await credentialResolver.resolve(task.runtimeId);
+        await credentialResolver.resolve(task.runtimeId, task.runtimeCredentialId);
+        credentialResolver.getExecutablePath(task.runtimeId, task.runtimeType);
         return { success: true };
       } catch (error) {
         return {
           success: false,
           errorCode: "managed_runtime.write_credential_failed",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+
+    if (task.stage === "health_check") {
+      try {
+        const profile = await credentialResolver.resolve(task.runtimeId, task.runtimeCredentialId);
+        if (!profile) {
+          throw new Error("managed_runtime.credential_profile_missing");
+        }
+        await probeManagedGateway(profile, task.runtimeType);
+      } catch (error) {
+        return {
+          success: false,
+          errorCode: "managed_runtime.gateway_health_check_failed",
           errorMessage: error instanceof Error ? error.message : String(error),
         };
       }
@@ -77,7 +99,32 @@ export function createManagedProvisioningExecutor(
     return result;
   }
 
-  return { execute, executeCleanup };
+  return { execute, executeCleanup, credentialResolver };
+}
+
+export async function probeManagedGateway(
+  profile: ProviderCredentialProfile,
+  provider: ManagedProvisioningTask["runtimeType"],
+  request: (url: string, init: { headers: Record<string, string> }) => Promise<{ ok: boolean; status: number }> =
+    async (url, init) => fetch(url, init),
+): Promise<void> {
+  const credentialKey = getManagedProviderCredentialEnvironmentKey(provider);
+  const apiKey = profile.environment[credentialKey];
+  const baseUrl = Object.entries(profile.environment)
+    .find(([key]) => key.endsWith("_BASE_URL"))?.[1];
+  if (!apiKey || !baseUrl) {
+    throw new Error("managed_runtime.gateway_health_credentials_missing");
+  }
+  const endpoint = new URL("/v1/models", baseUrl).toString();
+  const response = await request(endpoint, {
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      ...(provider === "claude" ? { "x-api-key": apiKey } : {}),
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`managed_runtime.gateway_health_http_${response.status}`);
+  }
 }
 
 async function runCommandSequence(

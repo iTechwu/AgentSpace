@@ -30,6 +30,8 @@ export interface ProviderRuntimeRecord {
   metadata: {
     executablePath: string;
     mode: "local" | "remote";
+    managedCredentialId?: string;
+    provisioningState?: string;
     providerHealth?: Record<string, unknown>;
     providerVerificationRequestedAt?: string;
     openClawProfile?: string;
@@ -1899,6 +1901,15 @@ function truncateToolOutput(value: string): string {
 
 function buildProviderEnv(runtime: ProviderRuntimeRecord, extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
+  if (runtime.metadata.managedCredentialId) {
+    // A managed Runtime must never inherit host provider credentials. Its
+    // task-scoped credential bundle below is the only source of model auth.
+    for (const key of MANAGED_PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS) {
+      // Agent Router builds a fresh base from process.env. An explicit empty
+      // value survives that second merge and prevents it restoring host keys.
+      env[key] = "";
+    }
+  }
   const currentPath = extra?.PATH ?? env.PATH ?? "";
   env.PATH = ensureProviderPath(currentPath, runtime);
   if (extra) {
@@ -1911,6 +1922,22 @@ function buildProviderEnv(runtime: ProviderRuntimeRecord, extra?: NodeJS.Process
   }
   return env;
 }
+
+const MANAGED_PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS = [
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_AUTH_TOKEN",
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "CODEX_API_KEY",
+  "GEMINI_API_KEY",
+  "GEMINI_BASE_URL",
+  "GOOGLE_API_KEY",
+  "OPENCODE_API_KEY",
+  "OPENCLAW_API_KEY",
+  "NANOBOT_API_KEY",
+  "HERMES_API_KEY",
+];
 
 // Builds value-based redaction patterns for every secret-named entry in the
 // provider env, mirroring the agent-router path (see buildRedactions). Used to

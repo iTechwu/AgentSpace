@@ -121,6 +121,8 @@ export interface ManagedProvisioningCommand {
 
 export interface ManagedCredentialBundleDocument {
   version: 1;
+  /** Opaque credential generation identifier used to invalidate node caches. */
+  credentialId: string;
   environment: Record<string, string>;
   files: Record<string, string>;
 }
@@ -136,6 +138,7 @@ export interface ManagedProvisioningTask {
   taskId: string;
   workspaceId: string;
   runtimeId: string;
+  runtimeType: DaemonProvider;
   runtimeCredentialId: string;
   stage: ManagedProvisioningStage;
   commands: ManagedProvisioningCommand[];

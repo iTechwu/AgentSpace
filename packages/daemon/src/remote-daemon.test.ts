@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   buildRemoteDaemonConfig,
   buildRemoteDaemonRelaunchCommand,
+  buildRemoteRuntimeHeartbeatMetadata,
   classifyRemoteLoopError,
+  reconcileRemoteRuntimesWithHeartbeat,
   resolveRemoteTaskProviderSessionId,
 } from "./remote-daemon.ts";
 import { DaemonAuthError, DaemonResourceGoneError } from "./daemon-client.ts";
@@ -177,4 +179,97 @@ test("classifyRemoteLoopError routes auth failures to shutdown and 404 to skip-r
   assert.equal(classifyRemoteLoopError(new Error("connect ECONNREFUSED 127.0.0.1:5432")), "log");
   assert.equal(classifyRemoteLoopError(new Error("temporary failure")), "log");
   assert.equal(classifyRemoteLoopError("string error"), "log");
+});
+
+test("reconcileRemoteRuntimesWithHeartbeat adds managed runtimes from heartbeat", () => {
+  const existing = [{
+    id: "runtime-local-1",
+    workspaceId: "ws-1",
+    provider: "codex" as const,
+    name: "Local Codex",
+    version: "1.0.0",
+    status: "online" as const,
+    deviceInfo: "gpu-box",
+    metadata: {
+      executablePath: "/usr/bin/codex",
+      mode: "remote" as const,
+    },
+  }];
+
+  const heartbeat = {
+    daemon: {
+      daemonKey: "daemon-1",
+      status: "online" as const,
+      workspaceId: "ws-1",
+    },
+    runtimes: [
+      {
+        id: "runtime-local-1",
+        provider: "codex" as const,
+        status: "online" as const,
+        metadata: { executablePath: "/usr/bin/codex" },
+      },
+      {
+        id: "runtime-managed-1",
+        provider: "claude" as const,
+        status: "online" as const,
+        metadata: {
+          managedCredentialId: "cred-managed-1",
+          provisioningState: "managed",
+        },
+      },
+    ],
+    managedRuntimeCleanupRequests: [],
+  };
+
+  const result = reconcileRemoteRuntimesWithHeartbeat(existing, heartbeat, "ws-1", "managed-node");
+
+  assert.equal(result.length, 2);
+  const managed = result.find((runtime) => runtime.id === "runtime-managed-1");
+  assert.ok(managed);
+  assert.equal(managed?.provider, "claude");
+  assert.equal(managed?.workspaceId, "ws-1");
+  assert.equal(managed?.metadata.managedCredentialId, "cred-managed-1");
+  assert.equal(managed?.metadata.provisioningState, "managed");
+  assert.equal(managed?.metadata.mode, "remote");
+});
+
+test("heartbeat publishes newly healthy managed runtimes for server-side scheduling", () => {
+  const records = buildRemoteRuntimeHeartbeatMetadata([], new Map([
+    ["runtime-managed-1", {
+      id: "runtime-managed-1",
+      provider: "codex",
+      runtimeCredentialId: "credential-1",
+      executablePath: "/var/lib/dofe/managed-runtimes/runtime-managed-1/run-provider",
+      status: "online",
+    }],
+  ]));
+
+  assert.deepEqual(records, [{
+    id: "runtime-managed-1",
+    provider: "codex",
+    metadata: {
+      executablePath: "/var/lib/dofe/managed-runtimes/runtime-managed-1/run-provider",
+      mode: "remote",
+      managedCredentialId: "credential-1",
+      provisioningState: "managed",
+    },
+  }]);
+});
+
+test("heartbeat stops publishing a managed runtime after successful cleanup", () => {
+  const managedRuntimes = new Map([[
+    "runtime-managed-1",
+    {
+      id: "runtime-managed-1",
+      provider: "codex" as const,
+      runtimeCredentialId: "credential-1",
+      executablePath: "/var/lib/dofe/managed-runtimes/runtime-managed-1/run-provider",
+      status: "online" as const,
+    },
+  ]]);
+
+  managedRuntimes.delete("runtime-managed-1");
+
+  assert.deepEqual(buildRemoteRuntimeHeartbeatMetadata([], managedRuntimes), []);
 });

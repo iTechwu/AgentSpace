@@ -15,7 +15,7 @@ const BLOCKED_ENVIRONMENT_KEYS = new Set([
 const PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS = [
   "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
   "OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_API_KEY",
-  "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENCODE_API_KEY",
+  "GEMINI_API_KEY", "GEMINI_BASE_URL", "GOOGLE_API_KEY", "OPENCODE_API_KEY",
   "OPENCLAW_API_KEY", "NANOBOT_API_KEY", "HERMES_API_KEY",
 ];
 
@@ -30,7 +30,9 @@ export function writeCredentialProfile(
   document: CredentialDocument,
 ): { profileDir: string; environment: Record<string, string> } {
   const nextProfileDir = `${profileDir}.next-${process.pid}`;
+  const previousProfileDir = `${profileDir}.previous-${process.pid}`;
   rmSync(nextProfileDir, { recursive: true, force: true });
+  rmSync(previousProfileDir, { recursive: true, force: true });
   mkdirSync(nextProfileDir, { recursive: true, mode: 0o700 });
   chmodSync(nextProfileDir, 0o700);
   for (const [relativePath, content] of Object.entries(document.files)) {
@@ -39,8 +41,11 @@ export function writeCredentialProfile(
     writeFileSync(destination, content, { encoding: "utf8", mode: 0o600 });
     chmodSync(destination, 0o600);
   }
-  rmSync(profileDir, { recursive: true, force: true });
+  if (existsSync(profileDir)) {
+    renameSync(profileDir, previousProfileDir);
+  }
   renameSync(nextProfileDir, profileDir);
+  rmSync(previousProfileDir, { recursive: true, force: true });
   return {
     profileDir,
     environment: {

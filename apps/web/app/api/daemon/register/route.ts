@@ -21,7 +21,8 @@ export async function POST(request: Request): Promise<Response> {
   if (!body.daemonKey || !body.deviceName || (!isManagedNode && (!Array.isArray(body.runtimes) || body.runtimes.length === 0))) {
     return Response.json({ error: "daemonKey, deviceName, and runtimes[] are required." }, { status: 400 });
   }
-  if (body.runtimes?.some((runtime) => !runtime?.provider || !isDaemonProvider(runtime.provider))) {
+  const runtimes = body.runtimes ?? [];
+  if (runtimes.some((runtime) => !runtime?.provider || !isDaemonProvider(runtime.provider))) {
     return Response.json({ error: "runtimes[].provider contains an unsupported provider id." }, { status: 400 });
   }
   if (body.workspaceId && body.workspaceId !== auth.workspaceId) {
@@ -49,7 +50,7 @@ export async function POST(request: Request): Promise<Response> {
       workspaceId: auth.workspaceId,
       daemonTokenId: auth.token.id,
       metadata: body.metadata,
-      runtimes: body.runtimes.map((runtime) => ({
+      runtimes: runtimes.map((runtime) => ({
         provider: runtime.provider,
         providerAccountId: runtime.providerAccountId?.trim() || undefined,
         name: runtime.name.trim(),

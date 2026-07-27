@@ -45,10 +45,10 @@ export function getManagedRuntimeCredentialEnvKey(provider: DaemonProvider): str
 }
 
 const PROVIDER_GATEWAY_BASE_URLS: Record<DaemonProvider, string> = {
-  claude: "{{gatewayBaseUrl}}/v1",
+  claude: "{{gatewayBaseUrl}}/anthropic",
   codex: "{{gatewayBaseUrl}}/v1",
   antigravity: "{{gatewayBaseUrl}}/v1",
-  gemini: "{{gatewayBaseUrl}}/v1",
+  gemini: "{{gatewayBaseUrl}}/gemini",
   opencode: "{{gatewayBaseUrl}}/v1",
   openclaw: "{{gatewayBaseUrl}}/v1",
   nanobot: "{{gatewayBaseUrl}}/v1",
@@ -116,6 +116,7 @@ export function buildManagedProvisioningStageCommands(
 
 export interface ManagedCredentialBundleDocument {
   version: 1;
+  credentialId: string;
   environment: Record<string, string>;
   files: Record<string, string>;
 }
@@ -129,18 +130,36 @@ export function buildManagedCredentialBundleDocument(
   if (!envKey) {
     throw new Error(`managed_runtime.no_credential_env_key:${runtimeType}`);
   }
-  const gatewayBaseUrl = PROVIDER_GATEWAY_BASE_URLS[runtimeType].replace(
-    "{{gatewayBaseUrl}}",
-    resolveGatewayBaseUrl(),
-  );
+  const gatewayBaseUrl = resolveProtocolGatewayBaseUrl(runtimeType, resolveGatewayBaseUrl());
   return {
     version: 1,
+    credentialId: runtime.managedCredentialId ?? "",
     environment: {
       [envKey]: plaintextApiKey,
-      [`${envKey.replace(/_API_KEY$/, "_BASE_URL")}`]: gatewayBaseUrl,
+      [getGatewayBaseUrlEnvironmentKey(runtimeType, envKey)]: gatewayBaseUrl,
     },
     files: {},
   };
+}
+
+function getGatewayBaseUrlEnvironmentKey(provider: DaemonProvider, credentialEnvKey: string): string {
+  if (provider === "gemini") {
+    return "GEMINI_BASE_URL";
+  }
+  return credentialEnvKey.replace(/_API_KEY$/, "_BASE_URL");
+}
+
+function resolveProtocolGatewayBaseUrl(provider: DaemonProvider, gatewayBaseUrl: string): string {
+  const template = PROVIDER_GATEWAY_BASE_URLS[provider];
+  if (provider !== "gemini") {
+    return template.replace("{{gatewayBaseUrl}}", gatewayBaseUrl.replace(/\/$/, ""));
+  }
+  const url = new URL(gatewayBaseUrl);
+  url.protocol = "https:";
+  url.pathname = "/gemini";
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
 }
 
 function substitutePlaceholders(value: string, context: ManagedProvisioningCommandContext): string {
@@ -188,14 +207,10 @@ function buildDockerTemplate(
       // Phase 3 treats the pulled image as the runtime; no host CLI install is required.
       cmd("sh", "-c", "echo 'Runtime image ready'"),
     ],
+    // The node executes the authenticated /v1/models probe in memory so the
+    // Runtime Key never appears in a command line or container inspection.
     healthCheckCommands: [
-      cmd(
-        "curl",
-        "-fsS",
-        "--max-time",
-        "10",
-        "{{gatewayBaseUrl}}/health",
-      ),
+      cmd("docker", "image", "inspect", `dofe/agent-runtime-${imageName}:{{imageTag}}`),
     ],
     cleanupCommands: [
       cmd(
@@ -208,7 +223,7 @@ function buildDockerTemplate(
         "-c",
         "docker volume rm dofe-runtime-vol-{{runtimeId}} 2>/dev/null || true",
       ),
-      cmd("rm", "-rf", "{{managedProfileDir}}"),
+      cmd("rm", "-rf", "{{managedProfileDir}}/{{runtimeId}}"),
     ],
   };
 }
@@ -218,10 +233,14 @@ export function buildManagedCleanupCommands(
   runtimeId: string,
 ): ManagedProvisioningCommand[] {
   const context: ManagedProvisioningCommandContext = {
-    runtimeId,
+    runtimeId: normalizeManagedRuntimePathSegment(runtimeId),
     runtimeCredentialId: "cleanup",
     gatewayBaseUrl: resolveGatewayBaseUrl(),
     imageTag: process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() ?? "latest",
   };
   return buildManagedProvisioningStageCommands(runtimeType, "cleanup", context);
+}
+
+function normalizeManagedRuntimePathSegment(runtimeId: string): string {
+  return runtimeId.replace(/[^a-zA-Z0-9_-]/g, "_");
 }

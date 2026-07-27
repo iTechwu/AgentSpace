@@ -2,6 +2,7 @@ import {
   buildManagedCredentialBundleDocument,
   getRuntimeCredentialVault,
 } from "@dofe-agent/services";
+import { readWorkspaceSsoBindingSync } from "@dofe-agent/db";
 import { readRuntimeForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -25,9 +26,21 @@ export async function GET(
   if (!runtime.managedCredentialId) {
     return Response.json({ error: "Runtime has no managed credential." }, { status: 400 });
   }
+  if (!runtime.credentialSecretRef) {
+    return Response.json({ error: "Credential secret reference is missing." }, { status: 404 });
+  }
+
+  const binding = readWorkspaceSsoBindingSync(runtime.workspaceId);
+  if (!binding?.teamId) {
+    return Response.json({ error: "Runtime credential scope is missing." }, { status: 404 });
+  }
 
   const vault = getRuntimeCredentialVault();
-  const plaintext = vault.retrieve(runtime.credentialSecretRef);
+  const plaintext = vault.retrieve(runtime.credentialSecretRef, {
+    tenantId: binding.tenantId,
+    teamId: binding.teamId,
+    runtimeId: runtime.id,
+  });
   if (!plaintext) {
     return Response.json({ error: "Credential secret not found or already rotated." }, { status: 404 });
   }

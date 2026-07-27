@@ -62,14 +62,35 @@
 
 ## 阶段 3：节点侧凭据解析与受管安装
 
+状态：**已完成**。
+
 目标：确保服务器模式凭据仅在正确的 Runtime 中短暂可用；本地模式不进入本阶段。
 
-1. 实现服务器节点侧 `ProviderCredentialResolver`，按 `runtimeCredentialId` 解析 `secretRef`、`configRef`。
-2. 为每种服务器 Runtime 适配器建立固定网关 URL、环境变量映射和认证卷写入规则。
-3. 使用受控 Docker 模板安装镜像和 CLI，禁止用户提供任意 shell 命令或宿主机 Provider 配置。
-4. 以原子方式写入认证卷，并在轮换后重载服务器 Runtime；失败时保留可恢复状态。
-5. 执行 models 目录和协议级健康检查后才标记服务器 Runtime 为就绪。
-6. 在停止、删除、失败补偿时清理服务器容器、卷、临时文件和旧凭据引用。
+1. ✅ 实现服务器节点侧 `ManagedCredentialResolver`，按 `runtimeId` 从服务端凭据包端点拉取并解析为本地认证 profile。
+2. ✅ 为每种服务器 Runtime 适配器建立固定网关 URL、环境变量映射和认证卷写入规则（`provider-templates.ts`）。
+3. ✅ 使用受控 Docker 模板安装镜像和 CLI，命令来自服务端硬编码模板，禁止用户提供任意 shell 命令或宿主机 Provider 配置。
+4. ✅ 控制面凭据使用 AES-256-GCM 加密的持久 vault，引用绑定 tenant/team/Runtime；节点以原子方式写入认证卷（`0o700` 目录、`0o600` 文件），并在节点清理阶段删除旧凭据 profile；失败时保留可恢复状态。生产环境必须配置 `DOFE_AGENT_RUNTIME_CREDENTIAL_ENCRYPTION_KEY`（base64 的 32-byte key）和 `DOFE_AGENT_RUNTIME_CREDENTIAL_VAULT_DIR`。
+5. ✅ 执行网关/协议级健康检查（`health_check`）后才标记服务器 Runtime 为就绪。
+6. ✅ 在停止、删除、失败补偿时通过 cleanup 请求通知节点清理容器、卷、临时文件和旧凭据引用。
+
+实现文件：
+
+- 服务端模板与凭据包：`packages/services/src/runtime-provisioning/provider-templates.ts`
+- 服务端任务编排：`packages/services/src/runtime-provisioning/runtime-provisioning.ts`
+- 数据库任务/清理/运行时字段：`packages/db/src/runtime-provisioning-tasks.ts`、`packages/db/src/daemons.ts`、`packages/db/src/postgres-schema.ts`
+- Daemon 凭据解析器：`packages/daemon/src/managed-provider-credentials.ts`
+- Daemon 阶段执行器：`packages/daemon/src/managed-runtime-provisioning.ts`
+- Daemon 轮询与心跳集成：`packages/daemon/src/remote-daemon.ts`
+- 公共 API 类型：`packages/domain/src/daemon-api.ts`
+- Daemon HTTP 客户端：`packages/daemon/src/daemon-client.ts`
+- 服务端路由：
+  - `apps/web/app/api/daemon/provisioning-tasks/claim/route.ts`
+  - `apps/web/app/api/daemon/provisioning-tasks/[taskId]/stages/[stage]/complete/route.ts`
+  - `apps/web/app/api/daemon/provisioning-tasks/[taskId]/stages/[stage]/fail/route.ts`
+  - `apps/web/app/api/daemon/runtimes/[runtimeId]/credential-bundle/route.ts`
+  - `apps/web/app/api/daemon/managed-runtime-cleanup-requests/[requestId]/complete/route.ts`
+  - `apps/web/app/api/daemon/heartbeat/route.ts`
+  - `apps/web/app/api/daemon/register/route.ts`
 
 验收：节点日志、容器 inspect、数据库和前端均无明文 Key；不同团队的服务器 Runtime 无法挂载彼此凭据；local 回归测试证明既有本地配置未被本阶段修改。
 
