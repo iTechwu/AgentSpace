@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import { getDaemonChannelWorkDirPath, getDaemonTaskWorkDirPath } from "@dofe-agent/db";
 import { getStringFlag, parseArgs } from "./args.ts";
-import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, RegisterDaemonResponse } from "./daemon-api.ts";
+import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, RegisterDaemonResponse } from "./daemon-api.ts";
 import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputBundle } from "./bundle.ts";
 import { DaemonAuthError, DaemonResourceGoneError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
@@ -36,6 +36,8 @@ import {
 import { parseTaskInputJson, resolveConversationThreadId } from "./task-context.ts";
 import { executeRuntimeAppPlan, parseRuntimeAppInstallPlan, tailAndRedact } from "./runtime-apps.ts";
 import { applyProviderCredentialProfile, resolveProviderCredentialProfile } from "./provider-credentials.ts";
+import { createManagedCredentialResolver } from "./managed-provider-credentials.ts";
+import { createManagedProvisioningExecutor } from "./managed-runtime-provisioning.ts";
 
 export interface RemoteDaemonConfig {
   stateDir: string;
@@ -47,6 +49,19 @@ export interface RemoteDaemonConfig {
   taskTimeoutMs: number;
   serverUrl?: string;
   daemonToken?: string;
+  managedNode: boolean;
+}
+
+export interface RemoteDaemonRelaunchCommand {
+  command: string;
+  args: string[];
+}
+
+interface ManagedRuntimeEntry {
+  id: string;
+  provider: string;
+  runtimeCredentialId: string;
+  status: "online" | "offline";
 }
 
 export interface RemoteDaemonRelaunchCommand {
@@ -114,23 +129,25 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
     return 1;
   }
 
-  try {
-    const credentialProfile = resolveProviderCredentialProfile({ stateDir: config.stateDir });
-    if (credentialProfile) {
-      applyProviderCredentialProfile(credentialProfile);
-      console.log(`Provider credential profile ready: ${credentialProfile.accountId}`);
+  if (!config.managedNode) {
+    try {
+      const credentialProfile = resolveProviderCredentialProfile({ stateDir: config.stateDir });
+      if (credentialProfile) {
+        applyProviderCredentialProfile(credentialProfile);
+        console.log(`Provider credential profile ready: ${credentialProfile.accountId}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Provider credential profile setup failed: ${message}`);
+      return 1;
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Provider credential profile setup failed: ${message}`);
-    return 1;
   }
 
   const pidPath = getDaemonPidFilePath(config.stateDir);
   writeFileSync(pidPath, `${process.pid}\n`, "utf8");
 
   const detected = detectProviders();
-  if (detected.length === 0) {
+  if (!config.managedNode && detected.length === 0) {
     rmSync(pidPath, { force: true });
     const configuredProvider = process.env.DOFE_AGENT_RUNTIME_PROVIDER?.trim();
     const providerScope = configuredProvider
@@ -148,21 +165,23 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
     registered = await client.register({
       daemonKey: config.daemonKey,
       deviceName: config.deviceName,
-      metadata: readNodeMetadata(config.serverUrl, config.runtimeName),
-      runtimes: detected.map((provider) => ({
-        provider: provider.provider,
-        providerAccountId: process.env.DOFE_AGENT_PROVIDER_ACCOUNT_ID?.trim() || undefined,
-        name: `${config.runtimeName} · ${provider.label}`,
-        version: provider.version,
-        deviceInfo: config.deviceName,
-        metadata: buildProviderRuntimeMetadata({
-          provider: provider.provider,
-          metadata: {
-            executablePath: provider.executablePath,
-            mode: "remote",
-          },
-        }),
-      })),
+      metadata: readNodeMetadata(config.serverUrl, config.runtimeName, undefined, config.managedNode),
+      runtimes: config.managedNode
+        ? []
+        : detected.map((provider) => ({
+            provider: provider.provider,
+            providerAccountId: process.env.DOFE_AGENT_PROVIDER_ACCOUNT_ID?.trim() || undefined,
+            name: `${config.runtimeName} · ${provider.label}`,
+            version: provider.version,
+            deviceInfo: config.deviceName,
+            metadata: buildProviderRuntimeMetadata({
+              provider: provider.provider,
+              metadata: {
+                executablePath: provider.executablePath,
+                mode: "remote",
+              },
+            }),
+          })),
     });
   } catch (error) {
     rmSync(pidPath, { force: true });
@@ -174,29 +193,46 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
   }
 
   let runtimes = buildRemoteRuntimeRecords(config, registered, detected);
-  if (runtimes.length === 0) {
+  if (!config.managedNode && runtimes.length === 0) {
     rmSync(pidPath, { force: true });
     console.error("Remote daemon registration returned no runnable runtimes.");
     return 1;
   }
 
   console.log(`Remote daemon online: ${config.daemonKey}`);
-  console.log(`Providers: ${runtimes.map((runtime) => runtime.provider).join(", ")}`);
+  if (!config.managedNode) {
+    console.log(`Providers: ${runtimes.map((runtime) => runtime.provider).join(", ")}`);
+  } else {
+    console.log("Managed node: no local provider CLIs required.");
+  }
+
+  const managedRuntimes = new Map<string, ManagedRuntimeEntry>();
+  const credentialResolver = createManagedCredentialResolver(config.stateDir, (runtimeId) =>
+    client.getManagedCredentialBundle(runtimeId)
+  );
+  const provisioningExecutor = createManagedProvisioningExecutor(config.stateDir, credentialResolver);
 
   const activeRuntimes = new Set<string>();
   const heartbeatTimer = setInterval(() => {
     void (async () => {
       try {
+        const metadata = readNodeMetadata(
+          config.serverUrl ?? "",
+          config.runtimeName,
+          runtimes,
+          config.managedNode,
+        );
+        const managedRuntimeMetadata = buildManagedRuntimeHeartbeatMetadata(managedRuntimes);
         const heartbeat = await client.sendHeartbeatWithMetadata(
           config.daemonKey,
-          readNodeMetadata(config.serverUrl ?? "", config.runtimeName, runtimes),
+          { ...metadata, managedRuntimes: managedRuntimeMetadata },
           buildRemoteRuntimeHeartbeatMetadata(runtimes),
         );
         runtimes = reconcileRemoteRuntimesWithHeartbeat(runtimes, heartbeat);
-        if (runtimes.some(hasPendingProviderVerification)) {
+        if (!config.managedNode && runtimes.some(hasPendingProviderVerification)) {
           const verificationHeartbeat = await client.sendHeartbeatWithMetadata(
             config.daemonKey,
-            readNodeMetadata(config.serverUrl ?? "", config.runtimeName, runtimes),
+            metadata,
             buildRemoteRuntimeHeartbeatMetadata(runtimes),
           );
           runtimes = reconcileRemoteRuntimesWithHeartbeat(runtimes, verificationHeartbeat);
@@ -206,6 +242,7 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
             activeRuntimes.delete(runtimeId);
           }
         }
+        await executeManagedCleanupRequests(client, provisioningExecutor, heartbeat.managedRuntimeCleanupRequests);
       } catch (error) {
         if (classifyRemoteLoopError(error) === "shutdown") {
           fatalShutdown(DAEMON_AUTH_REJECTED_MESSAGE);
@@ -237,6 +274,28 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
       });
   }, config.taskPollIntervalMs);
 
+  let managedProvisioningPolling = false;
+  const managedProvisioningPollTimer = config.managedNode
+    ? setInterval(() => {
+        if (managedProvisioningPolling) {
+          return;
+        }
+        managedProvisioningPolling = true;
+        void pollManagedProvisioningTasks(client, provisioningExecutor, managedRuntimes)
+          .catch((error) => {
+            if (classifyRemoteLoopError(error) === "shutdown") {
+              fatalShutdown(DAEMON_AUTH_REJECTED_MESSAGE);
+              return;
+            }
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(`Managed provisioning polling failed: ${message}`);
+          })
+          .finally(() => {
+            managedProvisioningPolling = false;
+          });
+      }, config.taskPollIntervalMs)
+    : undefined;
+
   let stopping = false;
   const shutdown = (signal: NodeJS.Signals): void => {
     if (stopping) {
@@ -246,6 +305,9 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
     void (async () => {
       clearInterval(heartbeatTimer);
       clearInterval(taskPollTimer);
+      if (managedProvisioningPollTimer) {
+        clearInterval(managedProvisioningPollTimer);
+      }
       rmSync(pidPath, { force: true });
       try {
         await client.deregister(config.daemonKey);
@@ -333,6 +395,7 @@ export function buildRemoteDaemonConfig(
     ),
     serverUrl: getStringFlag(flags, "server-url")?.trim() || environment.DOFE_AGENT_SERVER_URL?.trim(),
     daemonToken: getStringFlag(flags, "daemon-token")?.trim() || environment.DOFE_AGENT_DAEMON_TOKEN?.trim(),
+    managedNode: parsed.flags["managed-node"] === true || environment.DOFE_AGENT_MANAGED_NODE === "1" || environment.DOFE_AGENT_MANAGED_NODE === "true",
   };
 }
 
@@ -861,6 +924,84 @@ async function waitForRuntimeApproval(
     }
     await sleep(1_000);
   }
+}
+
+async function pollManagedProvisioningTasks(
+  client: HttpDaemonClient,
+  executor: ReturnType<typeof createManagedProvisioningExecutor>,
+  managedRuntimes: Map<string, ManagedRuntimeEntry>,
+): Promise<void> {
+  const claimed = await client.claimManagedProvisioningTask();
+  if (!claimed.task) {
+    return;
+  }
+  const task = claimed.task;
+  console.log(`Managed provisioning: ${task.stage} for ${task.runtimeId}`);
+  try {
+    const result = await executor.execute(task);
+    if (!result.success) {
+      await client.failManagedProvisioningStage(task.taskId, task.stage, {
+        runtimeId: task.runtimeId,
+        errorCode: result.errorCode ?? "managed_runtime.stage_failed",
+        errorMessage: result.errorMessage ?? "Unknown stage failure",
+      });
+      return;
+    }
+    await client.completeManagedProvisioningStage(task.taskId, task.stage, { runtimeId: task.runtimeId });
+    if (task.stage === "health_check") {
+      managedRuntimes.set(task.runtimeId, {
+        id: task.runtimeId,
+        provider: task.runtimeType,
+        runtimeCredentialId: task.runtimeCredentialId,
+        status: "online",
+      });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await client.failManagedProvisioningStage(task.taskId, task.stage, {
+      runtimeId: task.runtimeId,
+      errorCode: "managed_runtime.unhandled_error",
+      errorMessage: message,
+    });
+  }
+}
+
+async function executeManagedCleanupRequests(
+  client: HttpDaemonClient,
+  executor: ReturnType<typeof createManagedProvisioningExecutor>,
+  requests: ManagedRuntimeCleanupRequest[],
+): Promise<void> {
+  for (const request of requests) {
+    console.log(`Managed cleanup: ${request.runtimeId}`);
+    try {
+      const result = await executor.executeCleanup(request.runtimeId, request.commands);
+      await client.completeManagedRuntimeCleanupRequest(request.requestId, {
+        result: {
+          success: result.success,
+          errorCode: result.errorCode,
+          errorMessage: result.errorMessage,
+          safeStdoutTail: result.safeStdoutTail,
+          safeStderrTail: result.safeStderrTail,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await client.completeManagedRuntimeCleanupRequest(request.requestId, {
+        result: { success: false, errorMessage: message },
+      });
+    }
+  }
+}
+
+function buildManagedRuntimeHeartbeatMetadata(
+  managedRuntimes: Map<string, ManagedRuntimeEntry>,
+): Array<{ id: string; provider: string; status: string; managedCredentialId: string }> {
+  return Array.from(managedRuntimes.values()).map((runtime) => ({
+    id: runtime.id,
+    provider: runtime.provider,
+    status: runtime.status,
+    managedCredentialId: runtime.runtimeCredentialId,
+  }));
 }
 
 function sleep(ms: number): Promise<void> {

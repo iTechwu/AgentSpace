@@ -1,5 +1,6 @@
-import { heartbeatDaemonSync } from "@dofe-agent/db";
+import { heartbeatDaemonSync, listPendingManagedRuntimeCleanupRequestsForDaemonSync } from "@dofe-agent/db";
 import type { HeartbeatDaemonRequest, HeartbeatDaemonResponse } from "@dofe-agent/domain";
+import { buildManagedCleanupCommands } from "@dofe-agent/services";
 import { readDaemonConnectionForDaemon, requireDaemonAuth } from "../_lib/auth";
 
 export const runtime = "nodejs";
@@ -33,6 +34,15 @@ export async function POST(request: Request): Promise<Response> {
           }))
       : undefined,
   });
+
+  const cleanupRequests = listPendingManagedRuntimeCleanupRequestsForDaemonSync(daemon.id).map((req) => ({
+    requestId: req.id,
+    workspaceId: req.workspaceId,
+    runtimeId: req.runtimeId,
+    runtimeType: req.runtimeType,
+    commands: buildManagedCleanupCommands(req.runtimeType, req.runtimeId),
+  }));
+
   const response: HeartbeatDaemonResponse = {
     daemon: {
       daemonKey: snapshot.daemon.daemonKey,
@@ -47,6 +57,7 @@ export async function POST(request: Request): Promise<Response> {
       lastHeartbeatAt: runtime.lastHeartbeatAt,
       metadata: safeParseRecord(runtime.metadataJson),
     })),
+    managedRuntimeCleanupRequests: cleanupRequests,
   };
 
   return Response.json(response);

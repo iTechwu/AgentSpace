@@ -36,6 +36,14 @@ const PROVIDER_CREDENTIAL_ENV_KEYS: Record<DaemonProvider, string> = {
   hermes: "OPENAI_API_KEY",
 };
 
+export function getManagedRuntimeCredentialEnvKey(provider: DaemonProvider): string {
+  const key = PROVIDER_CREDENTIAL_ENV_KEYS[provider];
+  if (!key) {
+    throw new Error(`managed_runtime.no_credential_env_key:${provider}`);
+  }
+  return key;
+}
+
 const PROVIDER_GATEWAY_BASE_URLS: Record<DaemonProvider, string> = {
   claude: "{{gatewayBaseUrl}}/v1",
   codex: "{{gatewayBaseUrl}}/v1",
@@ -205,6 +213,15 @@ function buildDockerTemplate(
   };
 }
 
-export function getManagedRuntimeCredentialEnvKey(provider: DaemonProvider): string {
-  return PROVIDER_CREDENTIAL_ENV_KEYS[provider];
+export function buildManagedCleanupCommands(
+  runtimeType: DaemonProvider,
+  runtimeId: string,
+): ManagedProvisioningCommand[] {
+  const context: ManagedProvisioningCommandContext = {
+    runtimeId,
+    runtimeCredentialId: "cleanup",
+    gatewayBaseUrl: resolveGatewayBaseUrl(),
+    imageTag: process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() ?? "latest",
+  };
+  return buildManagedProvisioningStageCommands(runtimeType, "cleanup", context);
 }

@@ -25,6 +25,36 @@ export interface ProviderCredentialProfile {
   environment: Record<string, string>;
 }
 
+export function writeCredentialProfile(
+  profileDir: string,
+  document: CredentialDocument,
+): { profileDir: string; environment: Record<string, string> } {
+  const nextProfileDir = `${profileDir}.next-${process.pid}`;
+  rmSync(nextProfileDir, { recursive: true, force: true });
+  mkdirSync(nextProfileDir, { recursive: true, mode: 0o700 });
+  chmodSync(nextProfileDir, 0o700);
+  for (const [relativePath, content] of Object.entries(document.files)) {
+    const destination = resolveProfileFilePath(nextProfileDir, relativePath);
+    mkdirSync(resolve(destination, ".."), { recursive: true, mode: 0o700 });
+    writeFileSync(destination, content, { encoding: "utf8", mode: 0o600 });
+    chmodSync(destination, 0o600);
+  }
+  rmSync(profileDir, { recursive: true, force: true });
+  renameSync(nextProfileDir, profileDir);
+  return {
+    profileDir,
+    environment: {
+      ...document.environment,
+      DOFE_AGENT_PROVIDER_PROFILE_DIR: profileDir,
+      HOME: profileDir,
+    },
+  };
+}
+
+export function cleanupCredentialProfile(profileDir: string): void {
+  rmSync(profileDir, { recursive: true, force: true });
+}
+
 export class ProviderCredentialResolver {
   private readonly stateDir: string;
 
@@ -46,27 +76,12 @@ export class ProviderCredentialResolver {
     const config = references.configRef ? readCredentialDocument(references.configRef, credentialRoot) : emptyDocument();
     const secret = references.secretRef ? readCredentialDocument(references.secretRef, credentialRoot) : emptyDocument();
     const document = mergeDocuments(config, secret);
-    const nextProfileDir = `${profileDir}.next-${process.pid}`;
-    rmSync(nextProfileDir, { recursive: true, force: true });
-    mkdirSync(nextProfileDir, { recursive: true, mode: 0o700 });
-    chmodSync(nextProfileDir, 0o700);
-    for (const [relativePath, content] of Object.entries(document.files)) {
-      const destination = resolveProfileFilePath(nextProfileDir, relativePath);
-      mkdirSync(resolve(destination, ".."), { recursive: true, mode: 0o700 });
-      writeFileSync(destination, content, { encoding: "utf8", mode: 0o600 });
-      chmodSync(destination, 0o600);
-    }
-    rmSync(profileDir, { recursive: true, force: true });
-    renameSync(nextProfileDir, profileDir);
+    const { environment: profileEnv } = writeCredentialProfile(profileDir, document);
 
     return {
       accountId,
       profileDir,
-      environment: {
-        ...document.environment,
-        DOFE_AGENT_PROVIDER_PROFILE_DIR: profileDir,
-        HOME: profileDir,
-      },
+      environment: profileEnv,
     };
   }
 }
@@ -108,10 +123,13 @@ function readCredentialMap(reference: string, credentialRoot: string, accountId:
   } catch {
     throw new Error(`Provider credential map must contain JSON: ${reference}`);
   }
-  if (!isRecord(parsed) || !isRecord(parsed.accounts) || !isRecord(parsed.accounts[accountId])) {
+  if (!isRecord(parsed) || !isRecord(parsed.accounts)) {
     throw new Error(`Provider account ${accountId} has no credential mapping on this node.`);
   }
   const account = parsed.accounts[accountId];
+  if (!isRecord(account)) {
+    throw new Error(`Provider account ${accountId} has no credential mapping on this node.`);
+  }
   const configRef = typeof account.configRef === "string" ? account.configRef : undefined;
   const secretRef = typeof account.secretRef === "string" ? account.secretRef : undefined;
   if (!configRef && !secretRef) throw new Error(`Provider account ${accountId} has no config or secret reference on this node.`);

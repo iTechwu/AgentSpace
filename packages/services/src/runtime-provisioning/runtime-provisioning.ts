@@ -20,6 +20,7 @@ import {
   createRuntimeProvisioningTaskSync,
   deleteAgentRuntimeSync,
   failManagedProvisioningStageSync,
+  getDatabase,
   listRuntimeProvisioningTaskEventsSync,
   listRuntimeProvisioningTasksSync,
   markRuntimeProvisioningTaskCancellingSync,

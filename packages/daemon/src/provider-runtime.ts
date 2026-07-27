@@ -819,9 +819,10 @@ export function resolveModelId(runtime: ProviderRuntimeRecord): string | undefin
   return providerDefinition?.defaultModelId;
 }
 
-export function readNodeMetadata(serverUrl: string, runtimeName: string, runtimes: ProviderRuntimeRecord[] = []): Record<string, unknown> {
+export function readNodeMetadata(serverUrl: string, runtimeName: string, runtimes: ProviderRuntimeRecord[] = [], managedNode?: boolean): Record<string, unknown> {
   return {
-    mode: "remote",
+    mode: managedNode ? "managed" : "remote",
+    managedNode: managedNode ?? false,
     pid: String(process.pid),
     runtimeName,
     nodeVersion,

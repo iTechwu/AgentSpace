@@ -1,6 +1,7 @@
 export type {
   ClaimManagedProvisioningTaskResponse,
   ClaimRuntimeAppOperationResponse,
+  ClaimTaskResponse,
   ClaimedRuntimeAppOperation,
   ClaimedDaemonTask,
   CompleteManagedProvisioningStageRequest,

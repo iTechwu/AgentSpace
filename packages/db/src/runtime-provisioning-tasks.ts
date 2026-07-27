@@ -398,6 +398,7 @@ export function claimManagedProvisioningStageSync(
   const now = new Date().toISOString();
 
   return withTransaction(db, () => {
+    const deadline = new Date(Date.now() - DEFAULT_STAGE_TIMEOUT_MS).toISOString();
     const targetServerClause = input.deviceName
       ? "AND (target_server IS NULL OR target_server = ?)"
       : "AND target_server IS NULL";
@@ -405,6 +406,7 @@ export function claimManagedProvisioningStageSync(
       workspaceId,
       NODE_PROVISIONING_STAGES,
       input.daemonConnectionId,
+      deadline,
       input.daemonConnectionId,
     ];
     if (input.deviceName) params.push(input.deviceName);

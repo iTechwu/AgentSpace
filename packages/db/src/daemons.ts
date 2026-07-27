@@ -21,13 +21,14 @@ export function registerDaemonRuntimesSync(input: {
   const daemonKey = input.daemonKey.trim();
   const deviceName = input.deviceName.trim();
 
+  const managedNode = input.metadata?.managedNode === true;
   if (!daemonKey) {
     throw new Error("daemonKey is required.");
   }
   if (!deviceName) {
     throw new Error("deviceName is required.");
   }
-  if (input.runtimes.length === 0) {
+  if (!managedNode && input.runtimes.length === 0) {
     throw new Error("At least one runtime is required.");
   }
 
@@ -118,11 +119,13 @@ export function registerDaemonRuntimesSync(input: {
           ? existingRuntime.id
           : `runtime-${provider}-${randomLikeId()}`;
       const version = runtime.version?.trim() ?? "";
-      const providerAccount = assertActiveProviderAccountSync({
-        id: runtime.providerAccountId,
-        workspaceId,
-        provider: provider as RuntimeRegistrationInput["provider"],
-      });
+      const providerAccount = managedNode
+        ? null
+        : assertActiveProviderAccountSync({
+            id: runtime.providerAccountId,
+            workspaceId,
+            provider: provider as RuntimeRegistrationInput["provider"],
+          });
       const deviceInfo = runtime.deviceInfo?.trim() ?? deviceName;
       const metadataJson = JSON.stringify(runtime.metadata ?? {});
 
@@ -159,7 +162,7 @@ export function registerDaemonRuntimesSync(input: {
         workspaceId,
         daemonId,
         provider,
-        providerAccount.id,
+        providerAccount?.id ?? null,
         runtime.name.trim(),
         version,
         deviceInfo,
@@ -169,12 +172,14 @@ export function registerDaemonRuntimesSync(input: {
         existingRuntime && typeof existingRuntime.createdAt === "string" ? existingRuntime.createdAt : now,
         now,
       );
-      fulfillRuntimeProvisionRequestsForDaemonTokenSync({
-        workspaceId,
-        daemonTokenId: input.daemonTokenId,
-        provider: provider as RuntimeRegistrationInput["provider"],
-        providerAccountId: providerAccount.id,
-      });
+      if (!managedNode && providerAccount) {
+        fulfillRuntimeProvisionRequestsForDaemonTokenSync({
+          workspaceId,
+          daemonTokenId: input.daemonTokenId,
+          provider: provider as RuntimeRegistrationInput["provider"],
+          providerAccountId: providerAccount.id,
+        });
+      }
     }
 
     const runtimeRows = db
@@ -438,6 +443,7 @@ export interface UpdateAgentRuntimeManagedFieldsInput {
   protocols?: string[];
   defaultModel?: string;
   provisioningTaskId?: string;
+  status?: "online" | "offline";
 }
 
 export interface CreateManagedAgentRuntimeInput {
@@ -507,6 +513,10 @@ export function updateAgentRuntimeManagedFieldsSync(
   if (input.provisioningState) {
     sets.push("provisioning_state = ?");
     params.push(input.provisioningState);
+  }
+  if (input.status) {
+    sets.push("status = ?");
+    params.push(input.status);
   }
   if (input.managedCredentialId !== undefined) {
     sets.push("managed_credential_id = ?");

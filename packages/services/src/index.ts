@@ -948,10 +948,11 @@ export {
   type SyncRuntimeCredentialUsageResult,
 } from "./models/usage-sync.ts";
 
-// Managed runtime provisioning (Phase 2)
+// Managed runtime provisioning (Phase 2/3)
 export {
   cancelRuntimeProvisioningTaskSync,
   deleteManagedRuntimeSync,
+  finalizeManagedRuntimeProvisioningSync,
   getManagedRuntimeCredentialStatusSync,
   getRuntimeProvisioningTaskDetailSync,
   listManagedRuntimeTasksSync,
@@ -971,8 +972,25 @@ export {
   type StopManagedRuntimeInput,
 } from "./runtime-provisioning/runtime-provisioning.ts";
 export {
+  completeManagedProvisioningStageSync,
+  failManagedProvisioningStageSync,
+  readRuntimeProvisioningTaskSync,
+  requestManagedRuntimeCleanupSync,
+} from "@dofe-agent/db";
+export {
   getRuntimeCredentialVault,
   resetRuntimeCredentialVaultForTests,
   setRuntimeCredentialVault,
   type RuntimeCredentialVault,
 } from "./runtime-provisioning/credential-vault.ts";
+export {
+  buildManagedCleanupCommands,
+  buildManagedCredentialBundleDocument,
+  buildManagedProvisioningCommandContext,
+  buildManagedProvisioningStageCommands,
+  getManagedRuntimeCredentialEnvKey,
+  type ManagedCredentialBundleDocument,
+  type ManagedProvisioningCommand,
+  type ManagedProvisioningCommandContext,
+  type ManagedRuntimeProviderTemplate,
+} from "./runtime-provisioning/provider-templates.ts";

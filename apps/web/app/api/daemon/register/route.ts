@@ -17,10 +17,11 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const body = (await request.json()) as Partial<RegisterDaemonRequest>;
-  if (!body.daemonKey || !body.deviceName || !Array.isArray(body.runtimes) || body.runtimes.length === 0) {
+  const isManagedNode = body.metadata?.managedNode === true;
+  if (!body.daemonKey || !body.deviceName || (!isManagedNode && (!Array.isArray(body.runtimes) || body.runtimes.length === 0))) {
     return Response.json({ error: "daemonKey, deviceName, and runtimes[] are required." }, { status: 400 });
   }
-  if (body.runtimes.some((runtime) => !runtime?.provider || !isDaemonProvider(runtime.provider))) {
+  if (body.runtimes?.some((runtime) => !runtime?.provider || !isDaemonProvider(runtime.provider))) {
     return Response.json({ error: "runtimes[].provider contains an unsupported provider id." }, { status: 400 });
   }
   if (body.workspaceId && body.workspaceId !== auth.workspaceId) {
