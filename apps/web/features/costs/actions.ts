@@ -5,6 +5,8 @@ import { readBudgetByIdSync, type BudgetAction, type BudgetPeriod, type BudgetSc
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePath } from "@/features/auth/workspace-revalidation";
+import { listManagedRuntimesForWorkspaceSync, syncRuntimeCredentialUsageAsync } from "@dofe-agent/services";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services";
 
 export async function upsertBudgetAction(input: {
   scope: BudgetScope;
@@ -79,4 +81,55 @@ export async function deleteBudgetAction(id: string): Promise<void> {
     },
   });
   revalidateWorkspacePath("/costs", workspaceContext.currentWorkspace.slug);
+}
+
+export async function reconcileWorkspaceUsageAction(): Promise<{
+  reconciledCount: number;
+  unallocatedCount: number;
+  skippedCount: number;
+  totalRemoteCount: number;
+}> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  if (resolveAgentRuntimeMode() !== "remote") {
+    throw new Error("costs.remote_mode_required");
+  }
+
+  const runtimes = listManagedRuntimesForWorkspaceSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+  });
+
+  const totals = {
+    reconciledCount: 0,
+    unallocatedCount: 0,
+    skippedCount: 0,
+    totalRemoteCount: 0,
+  };
+
+  for (const runtime of runtimes) {
+    const result = await syncRuntimeCredentialUsageAsync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      runtimeId: runtime.id,
+    });
+    totals.reconciledCount += result.reconciledCount;
+    totals.unallocatedCount += result.unallocatedCount;
+    totals.skippedCount += result.skippedCount;
+    totals.totalRemoteCount += result.totalRemoteCount;
+  }
+
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    title: "Workspace usage reconciled",
+    note: `Reconciled ${totals.reconciledCount}, unallocated ${totals.unallocatedCount}, skipped ${totals.skippedCount} of ${totals.totalRemoteCount} remote entries.`,
+    code: "workspace.usage_reconciled",
+    data: {
+      actorType: "session_user",
+      resourceType: "workspace",
+      ...totals,
+    },
+  });
+
+  revalidateWorkspacePath("/costs", workspaceContext.currentWorkspace.slug);
+  return totals;
 }

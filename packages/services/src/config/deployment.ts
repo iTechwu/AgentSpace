@@ -15,9 +15,6 @@ export function resolveAgentRuntimeMode(env: NodeJS.ProcessEnv = process.env): A
 
 export interface AttachmentRuntimeConfig {
   provider: "local" | "tos";
-  localRoot?: string;
-  maxUploadBytes: number;
-  signedUrlTtlSeconds: number;
   tos?: {
     bucket: string;
     endpoint: string;
@@ -46,8 +43,6 @@ export function resolveDofeAgentRuntimeConfig(env: NodeJS.ProcessEnv = process.e
 
 export function resolveAttachmentRuntimeConfig(env: NodeJS.ProcessEnv = process.env): AttachmentRuntimeConfig {
   const effectiveEnv = readEffectiveRuntimeEnv({ env, repositoryOverridesEnv: env === process.env });
-  const maxUploadBytes = readPositiveInteger(effectiveEnv.ATTACHMENT_MAX_UPLOAD_BYTES, 50 * 1024 * 1024);
-  const signedUrlTtlSeconds = readPositiveInteger(effectiveEnv.ATTACHMENT_SIGNED_URL_TTL_SECONDS, 300);
   const requestedProvider = effectiveEnv.ATTACHMENT_STORAGE_PROVIDER?.trim().toLowerCase();
   if (requestedProvider && requestedProvider !== "local" && requestedProvider !== "tos") {
     throw new Error("ATTACHMENT_STORAGE_PROVIDER must be either local or tos.");
@@ -55,9 +50,6 @@ export function resolveAttachmentRuntimeConfig(env: NodeJS.ProcessEnv = process.
   if (requestedProvider === "local") {
     return {
       provider: "local",
-      localRoot: firstEnvValue(effectiveEnv, ["ATTACHMENT_LOCAL_ROOT", "SELF_HOSTED_ATTACHMENT_LOCAL_ROOT"]),
-      maxUploadBytes,
-      signedUrlTtlSeconds,
     };
   }
 
@@ -66,9 +58,6 @@ export function resolveAttachmentRuntimeConfig(env: NodeJS.ProcessEnv = process.
   const internalEndpoint = firstEnvValue(effectiveEnv, ["TOS_INTERNAL_ENDPOINT", "TOS_INTERNAL_S3_ENDPOINT"]);
   return {
     provider: "tos",
-    localRoot: firstEnvValue(effectiveEnv, ["ATTACHMENT_LOCAL_ROOT", "SELF_HOSTED_ATTACHMENT_LOCAL_ROOT"]),
-    maxUploadBytes,
-    signedUrlTtlSeconds,
     tos: {
       bucket: requireFirstEnvValue(effectiveEnv, ["TOS_BUCKET"]),
       endpoint: useInternalEndpoint && internalEndpoint ? internalEndpoint : publicEndpoint,
@@ -93,11 +82,6 @@ function firstEnvValue(env: NodeJS.ProcessEnv, names: string[]): string | undefi
     if (value) return value;
   }
   return undefined;
-}
-
-function readPositiveInteger(value: string | undefined, fallback: number): number {
-  const parsed = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function normalizeTosEndpoint(value: string): string {

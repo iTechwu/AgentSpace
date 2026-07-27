@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { upsertBudgetAction, toggleBudgetAction, deleteBudgetAction } from "@/features/costs/actions";
+import { upsertBudgetAction, toggleBudgetAction, deleteBudgetAction, reconcileWorkspaceUsageAction } from "@/features/costs/actions";
 import type { CostPageData, BudgetPageData, BudgetPageItem } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import type { BudgetAction, BudgetPeriod, BudgetScope } from "@dofe-agent/db";
@@ -113,7 +113,25 @@ function CostOverview({
   data: CostPageData;
   tx: (zh: string, en: string) => string;
 }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [lastResult, setLastResult] = useState<{ reconciledCount: number; unallocatedCount: number } | null>(null);
   const averagePerTask = data.totalTasks > 0 ? data.totalCostUsd / data.totalTasks : 0;
+
+  function handleReconcile(): void {
+    startTransition(async () => {
+      try {
+        const result = await reconcileWorkspaceUsageAction();
+        setLastResult({ reconciledCount: result.reconciledCount, unallocatedCount: result.unallocatedCount });
+        router.refresh();
+      } catch (err) {
+        setLastResult({ reconciledCount: -1, unallocatedCount: -1 });
+        // eslint-disable-next-line no-console
+        console.error("Reconciliation failed", err);
+      }
+    });
+  }
+
   return (
     <div className="costs-overview">
       <div className="costs-insight-band" role="list">
@@ -133,21 +151,44 @@ function CostOverview({
 
       <div className="costs-summary-cards">
         <div className="costs-summary-card">
-          <span className="costs-summary-card__label">{tx("总费用", "Total Cost")}</span>
-          <span className="costs-summary-card__value">${data.totalCostUsd.toFixed(4)}</span>
+          <span className="costs-summary-card__label">{tx("估算费用", "Estimated")}</span>
+          <span className="costs-summary-card__value">${data.estimatedCostUsd.toFixed(4)}</span>
         </div>
         <div className="costs-summary-card">
-          <span className="costs-summary-card__label">{tx("总任务数", "Total Tasks")}</span>
-          <span className="costs-summary-card__value">{data.totalTasks}</span>
+          <span className="costs-summary-card__label">{tx("已对账", "Reconciled")}</span>
+          <span className="costs-summary-card__value">${data.reconciledCostUsd.toFixed(4)}</span>
         </div>
         <div className="costs-summary-card">
-          <span className="costs-summary-card__label">{tx("输入 Tokens", "Input Tokens")}</span>
-          <span className="costs-summary-card__value">{formatTokens(data.totalInputTokens)}</span>
+          <span className="costs-summary-card__label">{tx("未分配", "Unallocated")}</span>
+          <span className="costs-summary-card__value">${data.unallocatedCostUsd.toFixed(4)}</span>
         </div>
         <div className="costs-summary-card">
-          <span className="costs-summary-card__label">{tx("输出 Tokens", "Output Tokens")}</span>
-          <span className="costs-summary-card__value">{formatTokens(data.totalOutputTokens)}</span>
+          <span className="costs-summary-card__label">{tx("实际扣费", "Actual Charged")}</span>
+          <span className="costs-summary-card__value">${data.totalActualCostUsd.toFixed(4)}</span>
         </div>
+      </div>
+
+      <div className="costs-reconcile-bar">
+        <button
+          className="costs-reconcile-btn"
+          type="button"
+          disabled={isPending}
+          onClick={handleReconcile}
+        >
+          {isPending ? tx("对账中...", "Reconciling...") : tx("与 models 对账", "Reconcile with models")}
+        </button>
+        {data.lastReconciledAt ? (
+          <span className="costs-reconcile-meta">
+            {tx("上次对账:", "Last reconciled:")} {formatCompactTimestamp(data.lastReconciledAt, { emptyFallback: data.lastReconciledAt })}
+          </span>
+        ) : null}
+        {lastResult ? (
+          <span className="costs-reconcile-meta">
+            {lastResult.reconciledCount === -1
+              ? tx("对账失败", "Reconciliation failed")
+              : tx(`已对账 ${lastResult.reconciledCount} 条，未分配 ${lastResult.unallocatedCount} 条`, `Reconciled ${lastResult.reconciledCount}, unallocated ${lastResult.unallocatedCount}`)}
+          </span>
+        ) : null}
       </div>
 
       <h3>{tx("Agent 费用明细", "Agent Cost Breakdown")}</h3>
@@ -211,10 +252,11 @@ function CostOverview({
                   <div className="costs-recent-card__header">
                     <strong>{usage.agentId}</strong>
                     <span className="costs-recent-model">{usage.modelId}</span>
+                    <BillingStatusBadge status={usage.billingStatus} tx={tx} />
                   </div>
                   <div className="costs-recent-card__stats">
                     <span>{formatTokens(usage.inputTokens)} / {formatTokens(usage.outputTokens)}</span>
-                    <span>${usage.costUsd.toFixed(4)}</span>
+                    <span>${usage.costUsd.toFixed(4)}{usage.actualCostUsd != null ? ` → $${usage.actualCostUsd.toFixed(4)}` : ""}</span>
                   </div>
                   <div className="costs-recent-time">{formatCompactTimestamp(usage.createdAt, { emptyFallback: usage.createdAt })}</div>
                 </article>
@@ -227,7 +269,8 @@ function CostOverview({
                   <span className="costs-recent-agent">{usage.agentId}</span>
                   <span className="costs-recent-model">{usage.modelId}</span>
                   <span>{formatTokens(usage.inputTokens)} / {formatTokens(usage.outputTokens)}</span>
-                  <span>${usage.costUsd.toFixed(4)}</span>
+                  <span>${usage.costUsd.toFixed(4)}{usage.actualCostUsd != null ? ` → $${usage.actualCostUsd.toFixed(4)}` : ""}</span>
+                  <BillingStatusBadge status={usage.billingStatus} tx={tx} />
                   <span className="costs-recent-time">{formatCompactTimestamp(usage.createdAt, { emptyFallback: usage.createdAt })}</span>
                 </div>
               ))}
@@ -237,6 +280,22 @@ function CostOverview({
       ) : null}
     </div>
   );
+}
+
+function BillingStatusBadge({
+  status,
+  tx,
+}: {
+  status: string;
+  tx: (zh: string, en: string) => string;
+}) {
+  const label = status === "reconciled"
+    ? tx("已对账", "Reconciled")
+    : status === "unallocated"
+      ? tx("未分配", "Unallocated")
+      : tx("估算", "Estimated");
+  const className = `costs-status costs-status--${status}`;
+  return <span className={className}>{label}</span>;
 }
 
 function BudgetManager({

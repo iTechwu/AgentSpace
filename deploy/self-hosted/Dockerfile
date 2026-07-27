@@ -24,14 +24,12 @@ FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS runtime
 
 WORKDIR /srv/DofeAgent
 
-ENV NODE_ENV=production \
-    SELF_HOSTED_ATTACHMENT_LOCAL_ROOT=/var/lib/dofe-agent/workspaces \
-    ATTACHMENT_LOCAL_ROOT=/var/lib/dofe-agent/workspaces
+ENV NODE_ENV=production
 
 COPY --from=build /srv/DofeAgent /srv/DofeAgent
 
-RUN mkdir -p /var/lib/dofe-agent/workspaces /srv/DofeAgent/data \
-  && chown -R node:node /var/lib/dofe-agent /srv/DofeAgent
+RUN mkdir -p /srv/DofeAgent/data \
+  && chown -R node:node /srv/DofeAgent
 
 USER node
 

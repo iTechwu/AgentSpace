@@ -25,8 +25,6 @@ services:
         condition: service_completed_successfully
     ports:
       - "${DOFE_AGENT_HTTP_PORT:-1455}:1455"
-    volumes:
-      - workspace-attachments:/var/lib/dofe-agent/workspaces
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:1455/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
       interval: 10s
@@ -59,7 +57,6 @@ services:
     volumes:
       - claude-home:/home/node
       - daemon-claude-data:/srv/DofeAgent/data
-      - workspace-attachments:/var/lib/dofe-agent/workspaces
       - ${DOFE_AGENT_CLAUDE_PROVIDER_CREDENTIAL_DIR:-./credentials/claude}:/run/dofe-agent-provider:ro
     init: true
     restart: unless-stopped
@@ -87,13 +84,11 @@ services:
     volumes:
       - codex-home:/home/node
       - daemon-codex-data:/srv/DofeAgent/data
-      - workspace-attachments:/var/lib/dofe-agent/workspaces
       - ${DOFE_AGENT_CODEX_PROVIDER_CREDENTIAL_DIR:-./credentials/codex}:/run/dofe-agent-provider:ro
     init: true
     restart: unless-stopped
 
 volumes:
-  workspace-attachments:
   claude-home:
   codex-home:
   daemon-claude-data:

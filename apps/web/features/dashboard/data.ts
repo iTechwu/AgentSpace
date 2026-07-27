@@ -4940,6 +4940,11 @@ export interface CostPageData {
   totalTasks: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  estimatedCostUsd: number;
+  reconciledCostUsd: number;
+  unallocatedCostUsd: number;
+  totalActualCostUsd: number;
+  lastReconciledAt?: string;
   models: Array<{ modelId: string; displayName: string; inputPer1M: number; outputPer1M: number }>;
   recentUsage: Array<{
     id: string;
@@ -4949,6 +4954,8 @@ export interface CostPageData {
     inputTokens: number;
     outputTokens: number;
     costUsd: number;
+    actualCostUsd?: number;
+    billingStatus: string;
     channelName?: string;
     createdAt: string;
   }>;

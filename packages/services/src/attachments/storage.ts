@@ -9,6 +9,8 @@ import {
   resolveAttachmentRuntimeConfig,
 } from "../config/deployment.ts";
 
+const TOS_SIGNED_URL_TTL_SECONDS = 300;
+
 export interface StoredAttachmentObject {
   provider: "local" | "tos";
   bucket?: string;
@@ -148,7 +150,6 @@ class LocalAttachmentStorageClient implements AttachmentStorageClient {
 
 class TosAttachmentStorageClient implements AttachmentStorageClient {
   private readonly config: NonNullable<AttachmentRuntimeConfig["tos"]>;
-  private readonly signedUrlTtlSeconds: number;
   private readonly client: TosClient;
 
   constructor(config: AttachmentRuntimeConfig) {
@@ -156,7 +157,6 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
       throw new Error("TOS attachment storage requires TOS_BUCKET, TOS_REGION, TOS_ACCESS_KEY, TOS_SECRET_KEY, and TOS_ENDPOINT.");
     }
     this.config = config.tos;
-    this.signedUrlTtlSeconds = config.signedUrlTtlSeconds;
     this.client = new TosClient({
       accessKeyId: this.config.accessKeyId,
       accessKeySecret: this.config.secretAccessKey,
@@ -330,7 +330,7 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
       bucket: this.config.bucket,
       key,
       method: method as "GET" | "PUT",
-      expires: Math.min(Math.max(this.signedUrlTtlSeconds, 1), 604800),
+      expires: TOS_SIGNED_URL_TTL_SECONDS,
       alternativeEndpoint: toEndpointHost(this.config.bucketDomain ?? `${this.config.bucket}.${toEndpointHost(this.config.publicEndpoint)}`),
       isCustomDomain: true,
     });

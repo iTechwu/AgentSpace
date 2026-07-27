@@ -26,6 +26,7 @@ import {
   readRuntimeProvisioningTaskSync,
   readWorkspaceSsoBindingSync,
   recordAuditLogSync,
+  getDatabase,
   resetRuntimeProvisioningTaskForRetrySync,
   updateAgentRuntimeManagedFieldsSync,
   type AgentRuntimeRecord,
@@ -251,6 +252,21 @@ export function listManagedRuntimeTasksSync(
   assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   return listRuntimeProvisioningTasksSync(input.workspaceId);
+}
+
+export function listManagedRuntimesForWorkspaceSync(
+  input: ManagedRuntimeActor,
+): Array<{ id: string; managedCredentialId: string }> {
+  assertRemoteRuntimeMode();
+  assertCanManageManagedRuntimes(input);
+  const db = getDatabase();
+  const rows = db.prepare(
+    `SELECT id, managed_credential_id AS managedCredentialId
+     FROM agent_runtime
+     WHERE workspace_id = ? AND managed_credential_id IS NOT NULL
+     ORDER BY created_at DESC`,
+  ).all(input.workspaceId) as Array<{ id: string; managedCredentialId: string }>;
+  return rows;
 }
 
 export interface RotateManagedRuntimeCredentialInput extends ManagedRuntimeActor {

@@ -3,6 +3,7 @@ import {
   listTokenUsageSync,
   getAgentCostSummarySync,
   getWorkspaceCostSummarySync,
+  getWorkspaceBillingSummarySync,
   listModelPricingSync,
   getMonthStartIso,
 } from "@dofe-agent/db";
@@ -27,6 +28,11 @@ export interface CostDashboardData {
   totalTasks: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  estimatedCostUsd: number;
+  reconciledCostUsd: number;
+  unallocatedCostUsd: number;
+  totalActualCostUsd: number;
+  lastReconciledAt?: string;
   models: Array<{ modelId: string; displayName: string; inputPer1M: number; outputPer1M: number }>;
   recentUsage: Array<{
     id: string;
@@ -36,6 +42,8 @@ export interface CostDashboardData {
     inputTokens: number;
     outputTokens: number;
     costUsd: number;
+    actualCostUsd?: number;
+    billingStatus: string;
     channelName?: string;
     createdAt: string;
   }>;
@@ -54,6 +62,7 @@ export function getCostDashboardDataSync(
   const summaries = getWorkspaceCostSummarySync(since, workspaceId);
   const models = listModelPricingSync();
   const recentUsage = listTokenUsageSync({ since, workspaceId }).slice(0, 50);
+  const billing = getWorkspaceBillingSummarySync(since, workspaceId);
 
   const agents: AgentCostProfile[] = summaries.map((s: (typeof summaries)[number]) => ({
     agentId: s.agentId,
@@ -73,6 +82,11 @@ export function getCostDashboardDataSync(
     totalTasks: agents.reduce((sum, a) => sum + a.taskCount, 0),
     totalInputTokens: agents.reduce((sum, a) => sum + a.totalInputTokens, 0),
     totalOutputTokens: agents.reduce((sum, a) => sum + a.totalOutputTokens, 0),
+    estimatedCostUsd: billing.estimatedCostUsd,
+    reconciledCostUsd: billing.reconciledCostUsd,
+    unallocatedCostUsd: billing.unallocatedCostUsd,
+    totalActualCostUsd: billing.totalActualCostUsd,
+    lastReconciledAt: billing.lastReconciledAt,
     models: models.map((m: (typeof models)[number]) => ({
       modelId: m.modelId,
       displayName: m.displayName,
@@ -87,6 +101,8 @@ export function getCostDashboardDataSync(
       inputTokens: u.inputTokens,
       outputTokens: u.outputTokens,
       costUsd: u.costUsd,
+      actualCostUsd: u.actualCostUsd,
+      billingStatus: u.billingStatus ?? "estimated",
       channelName: u.channelName,
       createdAt: u.createdAt,
     })),

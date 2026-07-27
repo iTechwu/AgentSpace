@@ -224,6 +224,66 @@ function reconcileStatus(value: string | null): TokenUsageRecord["billingStatus"
   return "estimated";
 }
 
+export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEFAULT_WORKSPACE_ID): {
+  estimatedCostUsd: number;
+  reconciledCostUsd: number;
+  unallocatedCostUsd: number;
+  totalActualCostUsd: number;
+  lastReconciledAt?: string;
+} {
+  const db = getDatabase();
+  const params: string[] = [workspaceId];
+  let dateFilter = "WHERE workspace_id = ?";
+  if (since) {
+    dateFilter += " AND created_at >= ?";
+    params.push(since);
+  }
+
+  const rows = db.prepare(
+    `SELECT billing_status,
+            COALESCE(SUM(actual_cost_usd), 0) AS total_actual,
+            COALESCE(SUM(cost_usd), 0) AS total_estimated,
+            MAX(reconciled_at) AS last_reconciled
+     FROM token_usage ${dateFilter}
+     GROUP BY billing_status`,
+  ).all(...params) as Array<{
+    billing_status: string | null;
+    total_actual: number;
+    total_estimated: number;
+    last_reconciled: string | null;
+  }>;
+
+  let estimatedCostUsd = 0;
+  let reconciledCostUsd = 0;
+  let unallocatedCostUsd = 0;
+  let totalActualCostUsd = 0;
+  let lastReconciledAt: string | undefined;
+
+  for (const row of rows) {
+    const status = reconcileStatus(row.billing_status);
+    if (status === "estimated") {
+      estimatedCostUsd += row.total_estimated;
+    } else if (status === "reconciled") {
+      reconciledCostUsd += row.total_actual;
+      totalActualCostUsd += row.total_actual;
+    } else if (status === "unallocated") {
+      unallocatedCostUsd += row.total_actual;
+      totalActualCostUsd += row.total_actual;
+    }
+    if (row.last_reconciled && (!lastReconciledAt || row.last_reconciled > lastReconciledAt)) {
+      lastReconciledAt = row.last_reconciled;
+    }
+  }
+
+  return {
+    estimatedCostUsd,
+    reconciledCostUsd,
+    unallocatedCostUsd,
+    totalActualCostUsd,
+    lastReconciledAt,
+  };
+}
+
 export function getAgentCostSummarySync(agentId: string, since?: string, workspaceId = DEFAULT_WORKSPACE_ID): {
   totalInputTokens: number;
   totalOutputTokens: number;

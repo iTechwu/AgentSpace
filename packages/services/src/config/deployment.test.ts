@@ -93,7 +93,6 @@ test("legacy TOS S3 endpoint aliases are normalized for the TOS SDK", () => {
 test("local storage can be explicitly selected for isolated environments", () => {
   const attachments = resolveAttachmentRuntimeConfig({
     ATTACHMENT_STORAGE_PROVIDER: "local",
-    SELF_HOSTED_ATTACHMENT_LOCAL_ROOT: "/tmp/dofe-agent-local-attachments",
   });
   assert.equal(attachments.provider, "local");
 });

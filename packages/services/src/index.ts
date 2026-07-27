@@ -942,6 +942,11 @@ export {
   type EffectiveModelResolution,
   type ResolveEffectiveModelInput,
 } from "./models/model-resolution.ts";
+export {
+  syncRuntimeCredentialUsageAsync,
+  type SyncRuntimeCredentialUsageInput,
+  type SyncRuntimeCredentialUsageResult,
+} from "./models/usage-sync.ts";
 
 // Managed runtime provisioning (Phase 2)
 export {
@@ -950,6 +955,7 @@ export {
   getManagedRuntimeCredentialStatusSync,
   getRuntimeProvisioningTaskDetailSync,
   listManagedRuntimeTasksSync,
+  listManagedRuntimesForWorkspaceSync,
   requestManagedRuntimeProvisioningSync,
   resolveManagedRuntimeScopeSync,
   resumePendingProvisioningTasksSync,

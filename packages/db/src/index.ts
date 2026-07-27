@@ -573,6 +573,10 @@ export {
   listTokenUsageSync,
   getAgentCostSummarySync,
   getWorkspaceCostSummarySync,
+  getWorkspaceBillingSummarySync,
+  findTokenUsageByGatewayRequestIdSync,
+  markTokenUsageReconciledSync,
+  insertUnallocatedTokenUsageSync,
 } from "./token-usage.ts";
 
 // Budgets
