@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "29";
+export const POSTGRES_SCHEMA_VERSION = "30";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -67,6 +67,7 @@ export const POSTGRES_TABLE_NAMES = [
   "workspace_sso_binding",
   "runtime_provisioning_task",
   "runtime_provisioning_task_event",
+  "managed_runtime_cleanup_request",
 ] as const;
 
 export type PostgresTableName = (typeof POSTGRES_TABLE_NAMES)[number];
@@ -1403,6 +1404,27 @@ export function getPostgresSchemaStatements(): string[] {
         data_json JSONB,
         created_at TIMESTAMPTZ NOT NULL
       )
+    `,
+    `ALTER TABLE runtime_provisioning_task ADD COLUMN IF NOT EXISTS daemon_connection_id TEXT REFERENCES daemon_connection(id) ON DELETE SET NULL`,
+    `ALTER TABLE runtime_provisioning_task ADD COLUMN IF NOT EXISTS stage_started_at TIMESTAMPTZ`,
+    `
+      CREATE TABLE IF NOT EXISTS managed_runtime_cleanup_request (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
+        daemon_connection_id TEXT NOT NULL REFERENCES daemon_connection(id) ON DELETE CASCADE,
+        runtime_type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        requested_at TIMESTAMPTZ NOT NULL,
+        completed_at TIMESTAMPTZ,
+        result_json JSONB,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_managed_runtime_cleanup_request_daemon_status
+        ON managed_runtime_cleanup_request(daemon_connection_id, status, requested_at)
     `,
     `
       CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_slug

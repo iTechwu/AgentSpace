@@ -33,6 +33,8 @@ export interface AdvanceRuntimeProvisioningStageInput {
   runtimeCredentialId?: string;
   secretRef?: string;
   configRef?: string;
+  daemonConnectionId?: string;
+  stageStartedAt?: string;
 }
 
 export interface AppendRuntimeProvisioningEventInput {
@@ -168,6 +170,8 @@ export function advanceRuntimeProvisioningTaskStageSync(
            runtime_credential_id = COALESCE(?, runtime_credential_id),
            secret_ref = COALESCE(?, secret_ref),
            config_ref = COALESCE(?, config_ref),
+           daemon_connection_id = COALESCE(?, daemon_connection_id),
+           stage_started_at = COALESCE(?, stage_started_at),
            status = 'running', started_at = COALESCE(started_at, ?), updated_at = ?
        WHERE id = ? AND workspace_id = ?`,
     ).run(
@@ -178,6 +182,8 @@ export function advanceRuntimeProvisioningTaskStageSync(
       optional(input.runtimeCredentialId),
       optional(input.secretRef),
       optional(input.configRef),
+      optional(input.daemonConnectionId),
+      optional(input.stageStartedAt),
       now,
       now,
       input.id,
@@ -369,6 +375,187 @@ export function stageOrder(stage: RuntimeProvisioningTaskStage): number {
   return ORDERED_STAGES.indexOf(stage);
 }
 
+const NODE_PROVISIONING_STAGES: RuntimeProvisioningTaskStage[] = [
+  "pull_image",
+  "install_cli",
+  "write_credential",
+  "health_check",
+];
+
+const DEFAULT_STAGE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
+export interface ClaimManagedProvisioningStageInput {
+  daemonConnectionId: string;
+  workspaceId?: string;
+  deviceName?: string;
+}
+
+export function claimManagedProvisioningStageSync(
+  input: ClaimManagedProvisioningStageInput,
+): RuntimeProvisioningTaskRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const db = getDatabase();
+  const now = new Date().toISOString();
+
+  return withTransaction(db, () => {
+    const targetServerClause = input.deviceName
+      ? "AND (target_server IS NULL OR target_server = ?)"
+      : "AND target_server IS NULL";
+    const params: unknown[] = [
+      workspaceId,
+      NODE_PROVISIONING_STAGES,
+      input.daemonConnectionId,
+      input.daemonConnectionId,
+    ];
+    if (input.deviceName) params.push(input.deviceName);
+
+    const row = db
+      .prepare(
+        `SELECT * FROM runtime_provisioning_task
+         WHERE workspace_id = ?
+           AND status = 'running'
+           AND stage = ANY(?)
+           AND stage_status = 'pending'
+           AND (daemon_connection_id IS NULL OR daemon_connection_id = ?)
+           AND (stage_started_at IS NULL OR stage_started_at < ?)
+           ${targetServerClause}
+         ORDER BY created_at ASC
+         LIMIT 1`,
+      )
+      .get(...params) as RawRuntimeProvisioningTask | undefined;
+
+    if (!row) return null;
+
+    db.prepare(
+      `UPDATE runtime_provisioning_task
+       SET daemon_connection_id = ?,
+           stage_status = 'running',
+           stage_started_at = ?,
+           updated_at = ?
+       WHERE id = ? AND workspace_id = ?`,
+    ).run(input.daemonConnectionId, now, now, row.id, workspaceId);
+
+    if (row.runtime_id) {
+      db.prepare(
+        `UPDATE agent_runtime
+         SET daemon_connection_id = ?,
+             updated_at = ?
+         WHERE id = ? AND workspace_id = ?`,
+      ).run(input.daemonConnectionId, now, row.runtime_id, workspaceId);
+    }
+
+    return readRuntimeProvisioningTaskSync(row.id, workspaceId);
+  });
+}
+
+export function completeManagedProvisioningStageSync(input: {
+  taskId: string;
+  stage: RuntimeProvisioningTaskStage;
+  workspaceId?: string;
+  nextStage?: RuntimeProvisioningTaskStage;
+  metadata?: Record<string, unknown>;
+}): RuntimeProvisioningTaskRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const db = getDatabase();
+  return withTransaction(db, () => {
+    const now = new Date().toISOString();
+    if (input.nextStage) {
+      db.prepare(
+        `UPDATE runtime_provisioning_task
+         SET stage = ?, stage_status = 'pending', progress_percent = progress_percent + 5,
+             stage_started_at = NULL, updated_at = ?
+         WHERE id = ? AND workspace_id = ?`,
+      ).run(input.nextStage, now, input.taskId, workspaceId);
+    } else {
+      db.prepare(
+        `UPDATE runtime_provisioning_task
+         SET stage_status = 'succeeded', updated_at = ?
+         WHERE id = ? AND workspace_id = ?`,
+      ).run(now, input.taskId, workspaceId);
+    }
+    appendRuntimeProvisioningEventRowSync(db, {
+      taskId: input.taskId,
+      stage: input.stage,
+      status: "succeeded",
+      progressPercent: readProgressSync(db, input.taskId),
+      title: `Stage ${input.stage} succeeded`,
+      data: input.metadata,
+    });
+    return readRuntimeProvisioningTaskSync(input.taskId, workspaceId);
+  });
+}
+
+export function failManagedProvisioningStageSync(input: {
+  taskId: string;
+  stage: RuntimeProvisioningTaskStage;
+  workspaceId?: string;
+  errorCode?: string;
+  errorMessage: string;
+  metadata?: Record<string, unknown>;
+}): RuntimeProvisioningTaskRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const db = getDatabase();
+  return withTransaction(db, () => {
+    const now = new Date().toISOString();
+    db.prepare(
+      `UPDATE runtime_provisioning_task
+       SET stage_status = 'failed', status = 'failed',
+           last_error_code = ?, last_error_message = ?,
+           completed_at = ?, updated_at = ?
+       WHERE id = ? AND workspace_id = ?`,
+    ).run(
+      optional(input.errorCode),
+      input.errorMessage,
+      now,
+      now,
+      input.taskId,
+      workspaceId,
+    );
+    appendRuntimeProvisioningEventRowSync(db, {
+      taskId: input.taskId,
+      stage: input.stage,
+      status: "failed",
+      progressPercent: readProgressSync(db, input.taskId),
+      title: `Stage ${input.stage} failed`,
+      summary: input.errorMessage,
+      severity: "error",
+      data: input.metadata,
+    });
+    return readRuntimeProvisioningTaskSync(input.taskId, workspaceId);
+  });
+}
+
+export function resetStalledManagedProvisioningStagesSync(timeoutMs = DEFAULT_STAGE_TIMEOUT_MS): number {
+  const db = getDatabase();
+  const deadline = new Date(Date.now() - timeoutMs).toISOString();
+  const result = db
+    .prepare(
+      `UPDATE runtime_provisioning_task
+       SET stage_status = 'pending',
+           daemon_connection_id = NULL,
+           stage_started_at = NULL,
+           updated_at = ?
+       WHERE status = 'running'
+         AND stage = ANY(?)
+         AND stage_status = 'running'
+         AND stage_started_at < ?`,
+    )
+    .run(new Date().toISOString(), JSON.stringify(NODE_PROVISIONING_STAGES), deadline);
+  return result.changes ?? 0;
+}
+
+export function readRuntimeProvisioningTaskForDaemonSync(
+  taskId: string,
+  daemonConnectionId: string,
+): RuntimeProvisioningTaskRecord | null {
+  const row = getDatabase()
+    .prepare(
+      "SELECT * FROM runtime_provisioning_task WHERE id = ? AND daemon_connection_id = ?",
+    )
+    .get(taskId, daemonConnectionId) as RawRuntimeProvisioningTask | undefined;
+  return row ? mapRuntimeProvisioningTask(row) : null;
+}
+
 function appendRuntimeProvisioningEventRowSync(
   db: ReturnType<typeof getDatabase>,
   input: AppendRuntimeProvisioningEventInput,
@@ -425,6 +612,8 @@ type RawRuntimeProvisioningTask = {
   runtime_credential_id: string | null;
   secret_ref: string | null;
   config_ref: string | null;
+  daemon_connection_id: string | null;
+  stage_started_at: string | null;
   status: RuntimeProvisioningTaskStatus;
   timeouts_json: string;
   started_at: string | null;
@@ -472,6 +661,8 @@ function mapRuntimeProvisioningTask(
     runtimeCredentialId: row.runtime_credential_id ?? undefined,
     secretRef: row.secret_ref ?? undefined,
     configRef: row.config_ref ?? undefined,
+    daemonConnectionId: row.daemon_connection_id ?? undefined,
+    stageStartedAt: row.stage_started_at ?? undefined,
     status: row.status,
     timeoutsJson: row.timeouts_json,
     startedAt: row.started_at ?? undefined,

@@ -1,0 +1,210 @@
+import type { DaemonProvider } from "@dofe-agent/domain";
+import type { AgentRuntimeRecord } from "@dofe-agent/db";
+
+export interface ManagedProvisioningCommand {
+  executable: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+export interface ManagedProvisioningCommandContext {
+  runtimeId: string;
+  runtimeCredentialId: string;
+  gatewayBaseUrl: string;
+  imageTag: string;
+}
+
+const ALLOWED_COMMAND_EXECUTABLES = new Set([
+  "docker",
+  "sh",
+  "bash",
+  "rm",
+  "mkdir",
+  "chmod",
+  "curl",
+  "command",
+]);
+
+const PROVIDER_CREDENTIAL_ENV_KEYS: Record<DaemonProvider, string> = {
+  claude: "ANTHROPIC_API_KEY",
+  codex: "OPENAI_API_KEY",
+  antigravity: "OPENAI_API_KEY",
+  gemini: "GEMINI_API_KEY",
+  opencode: "OPENAI_API_KEY",
+  openclaw: "OPENAI_API_KEY",
+  nanobot: "OPENAI_API_KEY",
+  hermes: "OPENAI_API_KEY",
+};
+
+const PROVIDER_GATEWAY_BASE_URLS: Record<DaemonProvider, string> = {
+  claude: "{{gatewayBaseUrl}}/v1",
+  codex: "{{gatewayBaseUrl}}/v1",
+  antigravity: "{{gatewayBaseUrl}}/v1",
+  gemini: "{{gatewayBaseUrl}}/v1",
+  opencode: "{{gatewayBaseUrl}}/v1",
+  openclaw: "{{gatewayBaseUrl}}/v1",
+  nanobot: "{{gatewayBaseUrl}}/v1",
+  hermes: "{{gatewayBaseUrl}}/v1",
+};
+
+export interface ManagedRuntimeProviderTemplate {
+  runtimeType: DaemonProvider;
+  credentialEnvKey: string;
+  pullImageCommands: ManagedProvisioningCommand[];
+  installCliCommands: ManagedProvisioningCommand[];
+  healthCheckCommands: ManagedProvisioningCommand[];
+  cleanupCommands: ManagedProvisioningCommand[];
+}
+
+function resolveGatewayBaseUrl(): string {
+  const base = (process.env.MODELS_BASE_URL ?? "").trim();
+  if (!base) {
+    throw new Error("managed_runtime.models_base_url_missing");
+  }
+  return base;
+}
+
+export function buildManagedProvisioningCommandContext(
+  runtime: AgentRuntimeRecord,
+): ManagedProvisioningCommandContext {
+  if (!runtime.managedCredentialId) {
+    throw new Error("managed_runtime.credential_id_missing");
+  }
+  return {
+    runtimeId: runtime.id,
+    runtimeCredentialId: runtime.managedCredentialId,
+    gatewayBaseUrl: resolveGatewayBaseUrl(),
+    imageTag: process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() ?? "latest",
+  };
+}
+
+export function buildManagedProvisioningStageCommands(
+  runtimeType: DaemonProvider,
+  stage: "pull_image" | "install_cli" | "health_check" | "cleanup",
+  context: ManagedProvisioningCommandContext,
+): ManagedProvisioningCommand[] {
+  const template = MANAGED_RUNTIME_TEMPLATES[runtimeType];
+  if (!template) {
+    throw new Error(`managed_runtime.no_template_for_provider:${runtimeType}`);
+  }
+  const raw =
+    stage === "pull_image"
+      ? template.pullImageCommands
+      : stage === "install_cli"
+        ? template.installCliCommands
+        : stage === "health_check"
+          ? template.healthCheckCommands
+          : template.cleanupCommands;
+  return raw.map((cmd) => ({
+    executable: cmd.executable,
+    args: cmd.args.map((arg) => substitutePlaceholders(arg, context)),
+    env: cmd.env
+      ? Object.fromEntries(
+          Object.entries(cmd.env).map(([k, v]) => [k, substitutePlaceholders(v, context)]),
+        )
+      : undefined,
+  }));
+}
+
+export interface ManagedCredentialBundleDocument {
+  version: 1;
+  environment: Record<string, string>;
+  files: Record<string, string>;
+}
+
+export function buildManagedCredentialBundleDocument(
+  runtime: AgentRuntimeRecord,
+  plaintextApiKey: string,
+): ManagedCredentialBundleDocument {
+  const runtimeType = runtime.provider;
+  const envKey = PROVIDER_CREDENTIAL_ENV_KEYS[runtimeType];
+  if (!envKey) {
+    throw new Error(`managed_runtime.no_credential_env_key:${runtimeType}`);
+  }
+  const gatewayBaseUrl = PROVIDER_GATEWAY_BASE_URLS[runtimeType].replace(
+    "{{gatewayBaseUrl}}",
+    resolveGatewayBaseUrl(),
+  );
+  return {
+    version: 1,
+    environment: {
+      [envKey]: plaintextApiKey,
+      [`${envKey.replace(/_API_KEY$/, "_BASE_URL")}`]: gatewayBaseUrl,
+    },
+    files: {},
+  };
+}
+
+function substitutePlaceholders(value: string, context: ManagedProvisioningCommandContext): string {
+  return value
+    .replace(/\{\{runtimeId\}\}/g, context.runtimeId)
+    .replace(/\{\{runtimeCredentialId\}\}/g, context.runtimeCredentialId)
+    .replace(/\{\{gatewayBaseUrl\}\}/g, context.gatewayBaseUrl)
+    .replace(/\{\{imageTag\}\}/g, context.imageTag);
+}
+
+function cmd(executable: string, ...args: string[]): ManagedProvisioningCommand {
+  if (!ALLOWED_COMMAND_EXECUTABLES.has(executable)) {
+    throw new Error(`managed_runtime.disallowed_executable:${executable}`);
+  }
+  return { executable, args };
+}
+
+export const MANAGED_RUNTIME_TEMPLATES: Record<DaemonProvider, ManagedRuntimeProviderTemplate> = {
+  claude: buildDockerTemplate("claude", "claude"),
+  codex: buildDockerTemplate("codex", "codex"),
+  antigravity: buildDockerTemplate("antigravity", "antigravity"),
+  gemini: buildDockerTemplate("gemini", "gemini"),
+  opencode: buildDockerTemplate("opencode", "opencode"),
+  openclaw: buildDockerTemplate("openclaw", "openclaw"),
+  nanobot: buildDockerTemplate("nanobot", "nanobot"),
+  hermes: buildDockerTemplate("hermes", "hermes"),
+};
+
+function buildDockerTemplate(
+  provider: DaemonProvider,
+  imageName: string,
+): ManagedRuntimeProviderTemplate {
+  return {
+    runtimeType: provider,
+    credentialEnvKey: PROVIDER_CREDENTIAL_ENV_KEYS[provider],
+    pullImageCommands: [
+      cmd(
+        "docker",
+        "pull",
+        `--quiet`,
+        `dofe/agent-runtime-${imageName}:{{imageTag}}`,
+      ),
+    ],
+    installCliCommands: [
+      // Phase 3 treats the pulled image as the runtime; no host CLI install is required.
+      cmd("sh", "-c", "echo 'Runtime image ready'"),
+    ],
+    healthCheckCommands: [
+      cmd(
+        "curl",
+        "-fsS",
+        "--max-time",
+        "10",
+        "{{gatewayBaseUrl}}/health",
+      ),
+    ],
+    cleanupCommands: [
+      cmd(
+        "sh",
+        "-c",
+        "docker rm -f dofe-runtime-{{runtimeId}} 2>/dev/null || true",
+      ),
+      cmd(
+        "sh",
+        "-c",
+        "docker volume rm dofe-runtime-vol-{{runtimeId}} 2>/dev/null || true",
+      ),
+      cmd("rm", "-rf", "{{managedProfileDir}}"),
+    ],
+  };
+}
+
+export function getManagedRuntimeCredentialEnvKey(provider: DaemonProvider): string {
+  return PROVIDER_CREDENTIAL_ENV_KEYS[provider];
+}

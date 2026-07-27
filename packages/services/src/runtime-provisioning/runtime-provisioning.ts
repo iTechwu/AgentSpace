@@ -13,10 +13,13 @@
 import {
   advanceRuntimeProvisioningTaskStageSync,
   appendRuntimeProvisioningEventSync,
+  claimManagedProvisioningStageSync,
+  completeManagedProvisioningStageSync,
   completeRuntimeProvisioningCancellationSync,
   createManagedAgentRuntimeSync,
   createRuntimeProvisioningTaskSync,
   deleteAgentRuntimeSync,
+  failManagedProvisioningStageSync,
   listRuntimeProvisioningTaskEventsSync,
   listRuntimeProvisioningTasksSync,
   markRuntimeProvisioningTaskCancellingSync,
@@ -26,8 +29,9 @@ import {
   readRuntimeProvisioningTaskSync,
   readWorkspaceSsoBindingSync,
   recordAuditLogSync,
-  getDatabase,
+  requestManagedRuntimeCleanupSync,
   resetRuntimeProvisioningTaskForRetrySync,
+  resetStalledManagedProvisioningStagesSync,
   updateAgentRuntimeManagedFieldsSync,
   type AgentRuntimeRecord,
   type RuntimeProvisioningTaskRecord,
@@ -42,6 +46,11 @@ import {
   getRuntimeCredentialVault,
   type RuntimeCredentialVault,
 } from "./credential-vault.ts";
+import {
+  buildManagedProvisioningCommandContext,
+  buildManagedProvisioningStageCommands,
+  type ManagedProvisioningCommand,
+} from "./provider-templates.ts";
 import type {
   ModelsInternalRuntimeCredential,
   ModelsInternalRotateRuntimeCredentialRequest,
@@ -401,6 +410,14 @@ export async function stopManagedRuntimeSync(input: StopManagedRuntimeInput): Pr
       audit: { actorId: input.actorUserId },
     });
   }
+  if (runtime.daemonConnectionId) {
+    requestManagedRuntimeCleanupSync({
+      runtimeId: runtime.id,
+      workspaceId: input.workspaceId,
+      daemonConnectionId: runtime.daemonConnectionId,
+      runtimeType: runtime.provider,
+    });
+  }
   const updated = updateAgentRuntimeManagedFieldsSync({
     runtimeId: runtime.id,
     workspaceId: input.workspaceId,
@@ -439,6 +456,14 @@ export async function deleteManagedRuntimeSync(input: StopManagedRuntimeInput): 
       reason: input.reason ?? "deleted",
       idempotencyKey: `revoke:${runtime.managedCredentialId}:${input.reason ?? "deleted"}`,
       audit: { actorId: input.actorUserId },
+    });
+  }
+  if (runtime.daemonConnectionId) {
+    requestManagedRuntimeCleanupSync({
+      runtimeId: runtime.id,
+      workspaceId: input.workspaceId,
+      daemonConnectionId: runtime.daemonConnectionId,
+      runtimeType: runtime.provider,
     });
   }
   recordAuditLogSync({
@@ -586,54 +611,84 @@ export async function runProvisioningPipeline(
     }
   }
 
-  // Stages: pull_image / install_cli — deferred to Phase 3 (node-side install).
-  recordSkipped(taskId, "pull_image", 55);
-  recordSkipped(taskId, "install_cli", 60);
-
-  // Stage: write_credential (idempotent re-stamp of gateway config refs)
-  try {
-    advanceStage(taskId, workspaceId, "write_credential", "running", 70);
-    updateAgentRuntimeManagedFieldsSync({
+  // After prepare_node, move into the node-driven stage pipeline.
+  if (task.stage === "prepare_node" || task.stage === "pending") {
+    advanceStage(taskId, workspaceId, "pull_image", "pending", 50, {
       runtimeId: runtime.id,
-      workspaceId,
-      managedCredentialId: task.runtimeCredentialId!,
-      credentialSecretRef: task.secretRef,
-      defaultModel: task.requestedModel,
-      protocols: task.protocols,
     });
-    advanceStage(taskId, workspaceId, "write_credential", "succeeded", 80);
-  } catch (error) {
-    return failTask(taskId, workspaceId, "write_credential", error);
+    return;
   }
 
-  // Stage: health_check (Phase 2: verify managed row + credential bound.
-  // Online-gating via daemon heartbeat is tightened when the Phase 3 reconcile
-  // lands; for now a bound managed runtime is considered provisioned.)
-  try {
-    advanceStage(taskId, workspaceId, "health_check", "running", 90);
-    const verified = readAgentRuntimeSync(runtime.id);
-    if (!verified?.managedCredentialId) {
-      throw new Error("managed_runtime.credential_not_bound");
+  // Stage: pull_image / install_cli / write_credential / health_check are driven
+  // by the managed node. The server advances to pull_image pending and then waits
+  // for daemon stage reports. resumePendingProvisioningTasksSync re-enters here
+  // once a node stage has been reported succeeded.
+  if (
+    task.stage === "pull_image" ||
+    task.stage === "install_cli" ||
+    task.stage === "write_credential" ||
+    task.stage === "health_check"
+  ) {
+    if (task.stageStatus !== "succeeded") {
+      // Nothing the server can do until the node reports back.
+      return;
     }
-    advanceStage(taskId, workspaceId, "health_check", "succeeded", 95);
-  } catch (error) {
-    return failTask(taskId, workspaceId, "health_check", error);
+  }
+
+  // Stage: write_credential is a no-op server-side in Phase 3; the node writes
+  // the credential profile. If we reach this point, the node has already
+  // reported it succeeded, so we only need to advance to health_check pending.
+  if (task.stage === "write_credential") {
+    advanceStage(taskId, workspaceId, "health_check", "pending", 85);
+    return;
+  }
+
+  // Stage: health_check (node-level gateway/protocol check)
+  if (task.stage === "health_check") {
+    finalizeManagedRuntimeProvisioningSync({ taskId, workspaceId, runtimeId: runtime.id });
+    return;
+  }
+
+  // Stage: pull_image / install_cli should not be reached here unless the node
+  // already reported them succeeded. Advance to the next stage.
+  if (task.stage === "pull_image") {
+    advanceStage(taskId, workspaceId, "install_cli", "pending", 60);
+    return;
+  }
+  if (task.stage === "install_cli") {
+    advanceStage(taskId, workspaceId, "write_credential", "pending", 75);
+    return;
   }
 
   // Stage: ready
-  markRuntimeProvisioningTaskReadySync({ id: taskId, workspaceId, runtimeId: runtime.id });
+  finalizeManagedRuntimeProvisioningSync({ taskId, workspaceId, runtimeId: runtime.id });
+}
+
+export function finalizeManagedRuntimeProvisioningSync(input: {
+  taskId: string;
+  workspaceId: string;
+  runtimeId: string;
+}): RuntimeProvisioningTaskRecord | null {
+  markRuntimeProvisioningTaskReadySync({
+    id: input.taskId,
+    workspaceId: input.workspaceId,
+    runtimeId: input.runtimeId,
+  });
   updateAgentRuntimeManagedFieldsSync({
-    runtimeId: runtime.id,
-    workspaceId,
+    runtimeId: input.runtimeId,
+    workspaceId: input.workspaceId,
     provisioningState: "managed",
+    status: "online",
   });
+  const task = readRuntimeProvisioningTaskSync(input.taskId, input.workspaceId);
   tryRecordWorkspaceAuditEventSync({
-    workspaceId,
+    workspaceId: input.workspaceId,
     title: "Managed runtime ready",
-    note: `Runtime ${runtime.id} (${task.runtimeType}) is provisioned`,
+    note: `Runtime ${input.runtimeId} is provisioned`,
     code: "runtime.created",
-    data: { runtimeId: runtime.id, runtimeCredentialId: task.runtimeCredentialId ?? "" },
+    data: { runtimeId: input.runtimeId, runtimeCredentialId: task?.runtimeCredentialId ?? "" },
   });
+  return task;
 }
 
 /**
@@ -642,6 +697,7 @@ export async function runProvisioningPipeline(
  */
 export async function resumePendingProvisioningTasksSync(workspaceId?: string): Promise<void> {
   assertRemoteRuntimeMode();
+  resetStalledManagedProvisioningStagesSync();
   const tasks = listRuntimeProvisioningTasksSync(workspaceId, {
     statuses: ["queued", "running"],
   });
@@ -732,6 +788,21 @@ async function compensateProvisioning(
     }
   }
   if (task.runtimeId) {
+    const runtime = readAgentRuntimeSync(task.runtimeId);
+    if (runtime?.daemonConnectionId) {
+      try {
+        requestManagedRuntimeCleanupSync({
+          runtimeId: runtime.id,
+          workspaceId: task.workspaceId,
+          daemonConnectionId: runtime.daemonConnectionId,
+          runtimeType: runtime.provider,
+        });
+        detail.cleanupRequested = true;
+      } catch (error) {
+        ok = false;
+        detail.cleanupRequestError = error instanceof Error ? error.message : String(error);
+      }
+    }
     try {
       deleteAgentRuntimeSync({ runtimeId: task.runtimeId, workspaceId: task.workspaceId });
       detail.removedRuntimeId = task.runtimeId;

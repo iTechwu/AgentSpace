@@ -1,17 +1,24 @@
 import type {
+  ClaimManagedProvisioningTaskResponse,
+  ClaimRuntimeAppOperationResponse,
   ClaimTaskResponse,
+  CompleteManagedProvisioningStageRequest,
+  CompleteManagedProvisioningStageResponse,
+  CompleteManagedRuntimeCleanupRequest,
+  CompleteRuntimeAppOperationRequest,
   CompleteTaskRequest,
   CreateRuntimeApprovalRequest,
   CreateRuntimeApprovalResponse,
   DaemonTaskInputBundle,
   DaemonTaskOutputBundle,
-  FailTaskRequest,
-  ClaimRuntimeAppOperationResponse,
-  CompleteRuntimeAppOperationRequest,
+  FailManagedProvisioningStageRequest,
+  FailManagedProvisioningStageResponse,
   FailRuntimeAppOperationRequest,
+  FailTaskRequest,
   GetRuntimeApprovalResponse,
   HeartbeatDaemonResponse,
   HeartbeatDaemonRequest,
+  ManagedCredentialBundleDocument,
   RegisterDaemonRequest,
   RegisterDaemonResponse,
   ReportTaskMessagesRequest,
@@ -19,19 +26,26 @@ import type {
 } from "./daemon-api.ts";
 
 export type {
+  ClaimManagedProvisioningTaskResponse,
+  ClaimRuntimeAppOperationResponse,
   ClaimTaskResponse,
+  CompleteManagedProvisioningStageRequest,
+  CompleteManagedProvisioningStageResponse,
+  CompleteManagedRuntimeCleanupRequest,
+  CompleteRuntimeAppOperationRequest,
   CompleteTaskRequest,
   CreateRuntimeApprovalRequest,
   CreateRuntimeApprovalResponse,
   DaemonTaskInputBundle,
   DaemonTaskOutputBundle,
-  FailTaskRequest,
-  ClaimRuntimeAppOperationResponse,
-  CompleteRuntimeAppOperationRequest,
+  FailManagedProvisioningStageRequest,
+  FailManagedProvisioningStageResponse,
   FailRuntimeAppOperationRequest,
+  FailTaskRequest,
   GetRuntimeApprovalResponse,
   HeartbeatDaemonResponse,
   HeartbeatDaemonRequest,
+  ManagedCredentialBundleDocument,
   RegisterDaemonRequest,
   RegisterDaemonResponse,
   ReportTaskMessagesRequest,
@@ -156,6 +170,43 @@ export class HttpDaemonClient {
 
   async failTask(taskId: string, body: FailTaskRequest): Promise<void> {
     await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/fail`, body);
+  }
+
+  async claimManagedProvisioningTask(): Promise<ClaimManagedProvisioningTaskResponse> {
+    return this.postJson("/api/daemon/provisioning-tasks/claim", {}, { retryable: true });
+  }
+
+  async getManagedCredentialBundle(runtimeId: string): Promise<ManagedCredentialBundleDocument> {
+    return this.getJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/credential-bundle`, { retryable: true });
+  }
+
+  async completeManagedProvisioningStage(
+    taskId: string,
+    stage: string,
+    body: CompleteManagedProvisioningStageRequest,
+  ): Promise<CompleteManagedProvisioningStageResponse> {
+    return this.postJson(
+      `/api/daemon/provisioning-tasks/${encodeURIComponent(taskId)}/stages/${encodeURIComponent(stage)}/complete`,
+      body,
+    );
+  }
+
+  async failManagedProvisioningStage(
+    taskId: string,
+    stage: string,
+    body: FailManagedProvisioningStageRequest,
+  ): Promise<FailManagedProvisioningStageResponse> {
+    return this.postJson(
+      `/api/daemon/provisioning-tasks/${encodeURIComponent(taskId)}/stages/${encodeURIComponent(stage)}/fail`,
+      body,
+    );
+  }
+
+  async completeManagedRuntimeCleanupRequest(requestId: string, body: CompleteManagedRuntimeCleanupRequest): Promise<void> {
+    await this.postJson(
+      `/api/daemon/managed-runtime-cleanup-requests/${encodeURIComponent(requestId)}/complete`,
+      body,
+    );
   }
 
   async deregister(daemonKey: string, lastError?: string): Promise<void> {

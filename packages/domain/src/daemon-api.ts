@@ -113,6 +113,72 @@ export interface HeartbeatDaemonRequest {
   }>;
 }
 
+export interface ManagedProvisioningCommand {
+  executable: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+export interface ManagedCredentialBundleDocument {
+  version: 1;
+  environment: Record<string, string>;
+  files: Record<string, string>;
+}
+
+export type ManagedProvisioningStage =
+  | "pull_image"
+  | "install_cli"
+  | "write_credential"
+  | "health_check"
+  | "cleanup";
+
+export interface ManagedProvisioningTask {
+  taskId: string;
+  workspaceId: string;
+  runtimeId: string;
+  runtimeCredentialId: string;
+  stage: ManagedProvisioningStage;
+  commands: ManagedProvisioningCommand[];
+}
+
+export interface ClaimManagedProvisioningTaskResponse {
+  task: ManagedProvisioningTask | null;
+}
+
+export interface CompleteManagedProvisioningStageRequest {
+  runtimeId: string;
+}
+
+export interface CompleteManagedProvisioningStageResponse {
+  taskId: string;
+  stage: ManagedProvisioningStage;
+  status: "succeeded";
+}
+
+export interface FailManagedProvisioningStageRequest {
+  runtimeId: string;
+  errorCode: string;
+  errorMessage: string;
+}
+
+export interface FailManagedProvisioningStageResponse {
+  taskId: string;
+  stage: ManagedProvisioningStage;
+  status: "failed";
+}
+
+export interface ManagedRuntimeCleanupRequest {
+  requestId: string;
+  workspaceId: string;
+  runtimeId: string;
+  runtimeType: DaemonProvider;
+  commands: ManagedProvisioningCommand[];
+}
+
+export interface CompleteManagedRuntimeCleanupRequest {
+  result?: Record<string, unknown>;
+}
+
 export interface HeartbeatDaemonResponse {
   daemon: {
     daemonKey: string;
@@ -127,6 +193,7 @@ export interface HeartbeatDaemonResponse {
     lastHeartbeatAt?: string;
     metadata?: Record<string, unknown>;
   }>;
+  managedRuntimeCleanupRequests: ManagedRuntimeCleanupRequest[];
 }
 
 export interface ClaimedDaemonTask {

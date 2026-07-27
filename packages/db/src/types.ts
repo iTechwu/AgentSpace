@@ -476,6 +476,10 @@ export interface RuntimeProvisioningTaskRecord {
   /** Opaque vault references; plaintext keys are never stored. */
   secretRef?: string;
   configRef?: string;
+  /** Daemon connection that has claimed the current node-side stage. */
+  daemonConnectionId?: string;
+  /** When the current stage was claimed / started running on a node. */
+  stageStartedAt?: string;
   status: RuntimeProvisioningTaskStatus;
   /** Per-stage timeouts in ms, keyed by stage. */
   timeoutsJson?: string;
@@ -498,6 +502,22 @@ export interface RuntimeProvisioningTaskEventRecord {
   severity: RuntimeProvisioningTaskEventSeverity;
   dataJson?: string;
   createdAt: string;
+}
+
+export type ManagedRuntimeCleanupRequestStatus = "pending" | "running" | "succeeded" | "failed";
+
+export interface ManagedRuntimeCleanupRequestRecord {
+  id: string;
+  workspaceId: string;
+  runtimeId: string;
+  daemonConnectionId: string;
+  runtimeType: DaemonProvider;
+  status: ManagedRuntimeCleanupRequestStatus;
+  requestedAt: string;
+  completedAt?: string;
+  resultJson?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ─── Immutable audit log ────────────────────────────────────────────────────
