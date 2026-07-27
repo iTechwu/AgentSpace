@@ -51,10 +51,13 @@ test("user auth persists users, SSO identities, and sessions", () => {
   const user = createUserSync({
     displayName: "Mina",
     primaryEmail: "mina@example.com",
+    isAdmin: true,
   });
   assert.equal(countUsersSync(), 1);
   assert.equal(readUserSync(user.id)?.displayName, "Mina");
+  assert.equal(readUserSync(user.id)?.isAdmin, true);
   assert.equal(readUserByEmailSync("MINA@example.com")?.id, user.id);
+  assert.equal(readUserByEmailSync("MINA@example.com")?.isAdmin, true);
 
   const identity = createAuthIdentitySync({
     userId: user.id,

@@ -284,12 +284,10 @@ export function extractGatewayRequestId(event: Record<string, unknown>): string 
   return readStringAtPaths(event, [
     ["gateway_request_id"],
     ["gatewayRequestId"],
-    ["id"],
     ["request_id"],
     ["requestId"],
     ["result", "gateway_request_id"],
     ["result", "gatewayRequestId"],
-    ["result", "id"],
     ["result", "request_id"],
     ["result", "requestId"],
     ["meta", "gateway_request_id"],

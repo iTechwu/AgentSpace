@@ -3505,14 +3505,6 @@ export function listDaemonSnapshotViews(workspaceId = DEFAULT_WORKSPACE_ID): Dae
   });
 }
 
-function readOptionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function readOptionalBoolean(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
-}
-
 function buildRuntimeDisplayNameIndex(workspaceId: string): Map<string, string> {
   return new Map(
     listWorkspaceRuntimeDisplayNamesCached(workspaceId)

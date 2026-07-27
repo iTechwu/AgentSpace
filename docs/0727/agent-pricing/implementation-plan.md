@@ -1,6 +1,6 @@
 # 受管 Runtime 与 AI员工计费实施计划
 
-状态：分阶段实施提案。该计划以可验证的契约和安全边界为先，避免在 Runtime 安装流程中引入不可逆的凭据与计费债务。`DOFE_AGENT_RUNTIME_MODE` 是部署级开关：未设置或为 `local` 时保持既有路径不变，只有 `remote`（服务器模式）才进入 `models.dofe.ai` 受管流程。
+状态：**AgentSpace 仓库实施完成，等待 staging 联调验收**。该计划以可验证的契约和安全边界为先。`DOFE_AGENT_RUNTIME_MODE` 是部署级开关：未设置或为 `local` 时保持既有路径不变，只有 `remote`（服务器模式）才进入 `models.dofe.ai` 受管流程。
 
 ## 阶段 0：确认契约与安全基线
 
@@ -47,7 +47,7 @@
 
 ## 阶段 2：AgentSpace 的 Runtime 数据与任务模型
 
-状态：**部分完成**。目标：将 Runtime 安装变成可恢复的异步工作流。
+状态：**已完成**。目标：将 Runtime 安装变成可恢复的异步工作流。
 
 1. ✅ 仅为受管 Runtime 增加类型、协议能力、默认模型、团队归属和凭据引用字段；`runtimeCredentialId`、`secretRef`、`configRef` 只由 `remote` 部署写入。
 2. ✅ 在受管创建和复用入口先检查部署模式：`local` 继续调用既有本地路径，不进入任何新增分支；`remote` 才校验 SSO 团队范围与 models 内部配置。两条路径均不得相互回退。
@@ -56,7 +56,7 @@
 5. ✅ 在 API 中区分“创建新 Runtime”“选择已有 Runtime”“重试安装”“停止 / 删除 Runtime”。
    - 已有 managed runtime 可作为执行引擎在创建 AI员工时被选择；绑定通过 `bindEmployeeRuntimeSync` 复用已有 runtime，不再创建新 credential。
    - `sourceRuntimeId` 字段已支持在 `requestManagedRuntimeProvisioningSync` 中复用凭据与模型配置（当前仅在服务端保留入口，UI 复用通过选择已有 runtime 实现）。
-6. ⏳ 设计任务状态迁移、超时、取消、补偿和节点离线恢复策略（基础重试与清理已完成，完整状态机待细化）。
+6. ✅ 已实现任务状态迁移、超时租约、取消、补偿和节点离线恢复；创建参数持久化，重试与进程重启不会丢失 Runtime 名称或模型约束。
 7. ✅ 在服务端对 Runtime、模型、成本、审计和 AI员工操作统一校验 Owner/Admin；
    Member 不返回可操作入口，且服务端必须拒绝绕过前端的请求。
 
@@ -79,7 +79,7 @@
 1. ✅ 实现服务器节点侧 `ManagedCredentialResolver`，按 `runtimeId` 从服务端凭据包端点拉取并解析为本地认证 profile。
 2. ✅ 为每种服务器 Runtime 适配器建立固定网关 URL、环境变量映射和认证卷写入规则（`provider-templates.ts`）。
 3. ✅ 使用受控 Docker 模板安装镜像和 CLI，命令来自服务端硬编码模板，禁止用户提供任意 shell 命令或宿主机 Provider 配置。
-4. ✅ 控制面凭据使用 AES-256-GCM 加密的持久 vault，引用绑定 tenant/team/Runtime；节点以原子方式写入认证卷（`0o700` 目录、`0o600` 文件），并在节点清理阶段删除旧凭据 profile；失败时保留可恢复状态。生产环境必须配置 `DOFE_AGENT_RUNTIME_CREDENTIAL_ENCRYPTION_KEY`（base64 的 32-byte key）和 `DOFE_AGENT_RUNTIME_CREDENTIAL_VAULT_DIR`。
+4. ✅ 控制面凭据使用 AES-256-GCM 加密的持久 vault，引用绑定 tenant/team/Runtime；节点使用版本化目录和原子切换的 `current` 链接写入认证卷（`0o700` 目录、`0o600` 文件），成功切换后才删除旧代，清理失败时保留凭据和可恢复状态。生产环境必须配置 `DOFE_AGENT_RUNTIME_CREDENTIAL_ENCRYPTION_KEY`（base64 的 32-byte key）和 `DOFE_AGENT_RUNTIME_CREDENTIAL_VAULT_DIR`。
 5. ✅ 执行网关/协议级健康检查（`health_check`）后才标记服务器 Runtime 为就绪。
 6. ✅ 在停止、删除、失败补偿时通过 cleanup 请求通知节点清理容器、卷、临时文件和旧凭据引用。
 
@@ -157,8 +157,9 @@
    - 跨团队访问尝试：已有 SSO 团队范围校验与 models 侧拒绝，触发时会记录审计事件；通知可基于同一机制扩展。
 7. ✅ 对平台超管的跨团队介入记录完整的平台侧审计；团队侧审计仅显示“平台运维”，
    不暴露超管账号，也不将其作为团队成员返回。
-   - 平台超管由 SSO `userInfo.isAdmin = true` 标识，持久化到 `users.is_admin`，并在 `AuthUser.isPlatformAdmin` 中暴露。
-   - 新增 `platform_admin` 审计来源与 `/platform/audit` 看板，仅平台超管可访问。
+   - 平台超管由 SSO `authoritativeUser.isAdmin = true` 标识，持久化到 `users.is_admin`，并在 `AuthUser.isPlatformAdmin` 中暴露。
+   - 超管登录不写入任何团队成员关系；访问团队时使用内存中的合成 Admin 权限，历史 SSO 成员关系会被清理。
+   - 新增独立 `platform-audit` 审计账本与 `/platform/audit` 看板，仅平台超管可访问并保留真实操作者和目标团队。
    - `tryRecordWorkspaceAuditEventSync` 检测到操作者为平台超管时，将团队侧审计事件的执行者替换为“平台运维”并移除用户 ID / 邮箱等敏感字段。
    - `listWorkspaceMemberUsersSync`、`countWorkspaceMembersSync` 与 `transferWorkspaceOwnershipSync` 均排除平台超管。
 
@@ -174,6 +175,17 @@
 
 验收：团队账单可与模型服务核对；任意 AI员工成本记录都能追溯到模型调用关联；界面没有将估算金额误标记为最终扣费。
 
+## 阶段 6：受控恢复与远程创建体验
+
+状态：**已完成**。
+
+1. ✅ Daemon 只把结构化 `provider.auth_invalid` 上报给恢复流程；模型不可用、余额、策略和限流错误不会触发轮换。
+2. ✅ `runtime_credential_recovery_task` 持久化幂等键、尝试次数、冷却时间和租约；最多重试三次，重复 401 只创建一个任务。
+3. ✅ 恢复中和人工处理态暂停任务调度；成功后恢复 `managed/online`，耗尽重试后进入 `needs_attention/offline` 并通知团队管理员。
+4. ✅ 心跳接管进程中断的恢复任务，包括最后一次租约过期后的熔断，以及“Runtime 已更新、任务未落盘”窗口的成功对账。
+5. ✅ Runtime 页面使用三步向导（执行环境、模型策略、确认），服务端在签发 Key 前重新校验协议模型目录和余额；浏览器响应不包含 `secretRef` / `configRef`。
+6. ✅ Runtime 列表展示恢复状态，并在 `needs_attention` 时提供人工轮换入口。
+
 ## 测试矩阵
 
 | 范围 | 关键测试 |
@@ -183,6 +195,8 @@
 | 节点执行器 | remote 密钥挂载、原子轮换、容器清理、节点重启恢复、无明文日志。 |
 | 端到端 | local 既有工作流回归；remote 新建 Runtime、创建 AI员工、会话 `/model`、真实用量回传、对账修正。 |
 | 安全 | 租户越权、团队越权、Member 绕过、超管不写入成员关系且不出现在转移/分配结果、Key 泄露扫描、重放请求、伪造归因字段、审计完整性。 |
+
+仓库内功能域门禁：`npm run test:agent-pricing`。该命令让 Node 测试文件分别运行，避免共享 PostgreSQL 测试数据互相污染，并单独执行 Runtime、成本和 SSO Web 测试。完整 staging 验收仍需真实 `models.dofe.ai` 测试租户、网关和容器运行环境。
 
 ## 发布与迁移策略
 

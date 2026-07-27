@@ -27,16 +27,14 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
         const result = await listProtocolFilteredRuntimeModelsAction(provider);
         setConfigured(result.configured);
         setItems(result.list);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+      } catch {
+        setError("Model catalog could not be loaded.");
         setItems([]);
       }
     });
   }, [provider]);
 
   const selected = items.find((item) => item.alias === value || item.model === value);
-  const compatibleItems = items.filter((item) => item.isAvailable);
-
   return (
     <div className="space-y-2">
       <label className="text-sm">
@@ -48,9 +46,9 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
           onChange={(event) => onChange(event.target.value)}
         >
           <option value="">{pending ? "Loading models…" : "Inherit system fallback"}</option>
-          {compatibleItems.map((item) => (
-            <option key={item.alias} value={item.alias}>
-              {item.displayName ?? item.alias}
+          {items.map((item) => (
+            <option key={item.alias} value={item.alias} disabled={!item.isAvailable}>
+              {item.displayName ?? item.alias}{item.isAvailable ? "" : ` - ${item.unavailableReason ?? "Unavailable"}`}
             </option>
           ))}
         </select>

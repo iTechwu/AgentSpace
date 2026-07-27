@@ -219,6 +219,33 @@ describe("server workspace context", () => {
       expect(resolution.workspaces.map((workspace) => workspace.id)).toEqual(["sso-team-allowed"]);
     }
   });
+
+  it("grants a platform administrator workspace access without a stored membership", () => {
+    const user: AuthUser = {
+      id: "platform-admin-1",
+      organizationName: "",
+      displayName: "Operations user",
+      role: "member",
+      email: "operations@example.com",
+      isPlatformAdmin: true,
+    };
+    seedUser(user);
+    createWorkspaceSync({
+      id: "sso-team-platform-target",
+      slug: "platform-target",
+      name: "Platform Target",
+      createdBy: "workspace-owner",
+    });
+
+    const resolution = resolveWorkspaceAccessForIdentifierSync(user, "platform-target");
+
+    expect(resolution.status).toBe("ok");
+    if (resolution.status === "ok") {
+      expect(resolution.context.currentMembership.role).toBe("admin");
+      expect(resolution.context.currentMembership.id).toContain("platform-admin-scope");
+    }
+    expect(listUserWorkspacesSync(user.id)).toEqual([]);
+  });
 });
 
 function seedUser(user: AuthUser): void {

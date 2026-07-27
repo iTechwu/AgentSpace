@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/features/auth/server-auth";
-import { DEFAULT_WORKSPACE_ID, listAuditLogsSync } from "@dofe-agent/db";
+import { listAuditLogsSync } from "@dofe-agent/db";
+import { PLATFORM_AUDIT_WORKSPACE_ID } from "@dofe-agent/services";
 
 export const metadata: Metadata = {
   title: "平台审计",
@@ -16,7 +17,7 @@ export default async function PlatformAuditPage(): Promise<ReactNode> {
     redirect("/");
   }
 
-  const logs = listAuditLogsSync(DEFAULT_WORKSPACE_ID, {
+  const logs = listAuditLogsSync(PLATFORM_AUDIT_WORKSPACE_ID, {
     source: "platform_admin",
     limit: 500,
   });

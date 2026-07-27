@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { ManagedRuntimeCreationWizard } from "@/features/runtimes/managed-runtime-creation-wizard";
 import {
   createManagedRuntimeAction,
@@ -19,6 +19,16 @@ vi.mock("@/features/runtimes/actions", () => ({
 vi.mock("@/features/runtimes/runtime-model-picker", () => ({
   RuntimeModelPicker: () => <p>Compatible model catalog</p>,
 }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(createManagedRuntimeAction).mockResolvedValue({ taskId: "task-created" });
+  vi.mocked(preflightManagedRuntimeAction).mockResolvedValue({
+    allowed: true,
+    availableBalance: "42.00",
+    currency: "USD",
+  });
+});
 
 it("creates a runtime only after completing the three-step preflight", async () => {
   const user = userEvent.setup();
@@ -43,4 +53,34 @@ it("creates a runtime only after completing the three-step preflight", async () 
     name: "Research Runtime",
   }));
   expect(onCreated).toHaveBeenCalledWith("task-created");
+});
+
+it("uses a new idempotency key after a failed request is reconfigured", async () => {
+  const user = userEvent.setup();
+  vi.mocked(createManagedRuntimeAction)
+    .mockRejectedValueOnce(new Error("temporary failure"))
+    .mockResolvedValueOnce({ taskId: "task-retried" });
+  render(<ManagedRuntimeCreationWizard onCreated={vi.fn()} />);
+
+  await user.type(screen.getByLabelText("Runtime name"), "Initial Runtime");
+  await user.click(screen.getByRole("button", { name: "Continue" }));
+  await user.click(screen.getByRole("button", { name: "Review" }));
+  await screen.findByText("Preflight passed");
+  await user.click(screen.getByRole("button", { name: "Create runtime" }));
+  await screen.findByRole("alert");
+
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  await user.clear(screen.getByLabelText("Runtime name"));
+  await user.type(screen.getByLabelText("Runtime name"), "Updated Runtime");
+  await user.click(screen.getByRole("button", { name: "Continue" }));
+  await user.click(screen.getByRole("button", { name: "Review" }));
+  await screen.findByText("Preflight passed");
+  await user.click(screen.getByRole("button", { name: "Create runtime" }));
+
+  const firstKey = vi.mocked(createManagedRuntimeAction).mock.calls[0]?.[0].idempotencyKey;
+  const secondKey = vi.mocked(createManagedRuntimeAction).mock.calls[1]?.[0].idempotencyKey;
+  expect(firstKey).toMatch(/^ui:claude:/);
+  expect(secondKey).toMatch(/^ui:claude:/);
+  expect(secondKey).not.toBe(firstKey);
 });

@@ -46,7 +46,6 @@ import {
   getInboxPageData,
   getKnowledgePageData,
   getSkillsPageData,
-  getTaskBoardPageData,
 } from "./data.ts";
 import { getWorkspaceShellData } from "./workspace-shell-data";
 

@@ -1,4 +1,3 @@
-import type { WorkspaceRole } from "@dofe-agent/db";
 import type {
   FeishuAvailableAgentItem,
   FeishuAvailableChannelItem,

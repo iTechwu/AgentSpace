@@ -466,6 +466,51 @@ export type ManagedRuntimeProviderFailureResult =
   | { status: "in_progress" | "cooldown" | "retry_scheduled" | "needs_attention"; task: RuntimeCredentialRecoveryTaskRecord }
   | { status: "recovered"; task: RuntimeCredentialRecoveryTaskRecord; runtime: AgentRuntimeRecord };
 
+function transitionCredentialRecoveryToNeedsAttentionSync(input: {
+  workspaceId: string;
+  runtime: AgentRuntimeRecord;
+  task: RuntimeCredentialRecoveryTaskRecord;
+}): ManagedRuntimeProviderFailureResult {
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId: input.runtime.id,
+    workspaceId: input.workspaceId,
+    provisioningState: "needs_attention",
+    status: "offline",
+  });
+  notifyWorkspaceAdminsSync({
+    workspaceId: input.workspaceId,
+    title: "Runtime credential recovery needs attention",
+    body: `Automatic credential recovery failed ${input.task.attemptCount} times for runtime "${input.runtime.name}". Check models availability and contact platform operations.`,
+    type: "runtime.credential_recovery_failed",
+    severity: "critical",
+    resourceType: "runtime",
+    resourceId: input.runtime.id,
+    actionHref: "/runtimes",
+    dedupeKey: `runtime.credential_recovery_failed:${input.workspaceId}:${input.runtime.id}:${input.task.credentialId}`,
+    metadata: {
+      runtimeId: input.runtime.id,
+      runtimeCredentialId: input.task.credentialId,
+      recoveryTaskId: input.task.id,
+      attemptCount: input.task.attemptCount,
+    },
+  });
+  recordAuditLogSync({
+    workspaceId: input.workspaceId,
+    title: "Runtime credential recovery failed",
+    note: `Automatic recovery exhausted for runtime ${input.runtime.id}`,
+    code: "runtime_credential.recovery_failed",
+    source: "runtime_credential",
+    data: {
+      runtimeId: input.runtime.id,
+      runtimeCredentialId: input.task.credentialId,
+      recoveryTaskId: input.task.id,
+      attemptCount: input.task.attemptCount,
+      maxAttempts: input.task.maxAttempts,
+    },
+  });
+  return { status: "needs_attention", task: input.task };
+}
+
 /**
  * Trusted daemon boundary for automatic credential recovery. Only the
  * structured auth-invalid code can enter this workflow; billing, policy,
@@ -641,37 +686,17 @@ export async function handleManagedRuntimeProviderFailureAsync(
     }) ?? task;
     const terminal = failed.status === "failed";
     if (terminal) {
-      updateAgentRuntimeManagedFieldsSync({
-        runtimeId: runtime.id,
+      return transitionCredentialRecoveryToNeedsAttentionSync({
         workspaceId: input.workspaceId,
-        provisioningState: "needs_attention",
-        status: "offline",
-      });
-      notifyWorkspaceAdminsSync({
-        workspaceId: input.workspaceId,
-        title: "Runtime credential recovery needs attention",
-        body: `Automatic credential recovery failed ${failed.attemptCount} times for runtime "${runtime.name}". Check models availability and contact platform operations.`,
-        type: "runtime.credential_recovery_failed",
-        severity: "critical",
-        resourceType: "runtime",
-        resourceId: runtime.id,
-        actionHref: "/runtimes",
-        dedupeKey: `runtime.credential_recovery_failed:${input.workspaceId}:${runtime.id}:${input.reportedCredentialId}`,
-        metadata: {
-          runtimeId: runtime.id,
-          runtimeCredentialId: input.reportedCredentialId,
-          recoveryTaskId: task.id,
-          attemptCount: failed.attemptCount,
-        },
+        runtime,
+        task: failed,
       });
     }
     recordAuditLogSync({
       workspaceId: input.workspaceId,
-      title: terminal ? "Runtime credential recovery failed" : "Runtime credential recovery retry scheduled",
-      note: terminal
-        ? `Automatic recovery exhausted for runtime ${runtime.id}`
-        : `Automatic recovery retry ${failed.attemptCount}/${failed.maxAttempts} scheduled for runtime ${runtime.id}`,
-      code: terminal ? "runtime_credential.recovery_failed" : "runtime_credential.recovery_retry_scheduled",
+      title: "Runtime credential recovery retry scheduled",
+      note: `Automatic recovery retry ${failed.attemptCount}/${failed.maxAttempts} scheduled for runtime ${runtime.id}`,
+      code: "runtime_credential.recovery_retry_scheduled",
       source: "runtime_credential",
       data: {
         runtimeId: runtime.id,
@@ -682,7 +707,7 @@ export async function handleManagedRuntimeProviderFailureAsync(
         cooldownUntil: failed.cooldownUntil,
       },
     });
-    return { status: terminal ? "needs_attention" : "retry_scheduled", task: failed };
+    return { status: "retry_scheduled", task: failed };
   }
 }
 
@@ -692,16 +717,38 @@ export async function resumePendingRuntimeCredentialRecoveriesAsync(input: {
 }): Promise<ManagedRuntimeProviderFailureResult[]> {
   assertRemoteRuntimeMode();
   const now = input.now ?? new Date();
-  requeueStaleRuntimeCredentialRecoveryTasksSync({
+  const expired = requeueStaleRuntimeCredentialRecoveryTasksSync({
     workspaceId: input.workspaceId,
     staleBefore: new Date(now.getTime() - CREDENTIAL_RECOVERY_LEASE_MS).toISOString(),
     now: now.toISOString(),
   });
+  const results: ManagedRuntimeProviderFailureResult[] = [];
+  for (const task of expired.filter((candidate) => candidate.status === "failed")) {
+    const runtime = readAgentRuntimeSync(task.runtimeId);
+    if (!runtime || runtime.workspaceId !== input.workspaceId) continue;
+    if (
+      runtime.provisioningState === "managed" &&
+      runtime.managedCredentialId &&
+      runtime.managedCredentialId !== task.credentialId
+    ) {
+      const succeeded = markRuntimeCredentialRecoverySucceededSync({
+        id: task.id,
+        workspaceId: input.workspaceId,
+        now: now.toISOString(),
+      }) ?? task;
+      results.push({ status: "recovered", task: succeeded, runtime });
+      continue;
+    }
+    results.push(transitionCredentialRecoveryToNeedsAttentionSync({
+      workspaceId: input.workspaceId,
+      runtime,
+      task,
+    }));
+  }
   const due = listDueRuntimeCredentialRecoveryTasksSync({
     workspaceId: input.workspaceId,
     now: now.toISOString(),
   });
-  const results: ManagedRuntimeProviderFailureResult[] = [];
   for (const task of due) {
     results.push(await handleManagedRuntimeProviderFailureAsync({
       workspaceId: task.workspaceId,

@@ -357,7 +357,3 @@ function sha256Base64Url(value: string): string {
 function buildSsoPlaceholderEmail(subject: string): string {
   return `sso-${sha256Base64Url(subject).slice(0, 40).toLowerCase()}@users.dofe.invalid`;
 }
-
-function normalizeContextValue(value: unknown, maxLength: number): string | undefined {
-  return typeof value === "string" && value.trim() && value.trim().length <= maxLength ? value.trim() : undefined;
-}

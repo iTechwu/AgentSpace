@@ -47,7 +47,7 @@ export function readUserSync(userId: string): StoredUserRecord | null {
       display_name AS displayName,
       avatar_url AS avatarUrl,
       primary_email AS primaryEmail,
-      is_admin AS isAdmin,
+      is_admin AS "isAdmin",
       created_at AS createdAt,
       updated_at AS updatedAt,
       last_login_at AS lastLoginAt
@@ -71,7 +71,7 @@ export function readUserByEmailSync(email: string): StoredUserRecord | null {
       display_name AS displayName,
       avatar_url AS avatarUrl,
       primary_email AS primaryEmail,
-      is_admin AS isAdmin,
+      is_admin AS "isAdmin",
       created_at AS createdAt,
       updated_at AS updatedAt,
       last_login_at AS lastLoginAt
@@ -425,7 +425,13 @@ function mapStoredUserRecord(value: Record<string, unknown>): StoredUserRecord |
     displayName: value.displayName,
     avatarUrl: typeof value.avatarUrl === "string" ? value.avatarUrl : undefined,
     primaryEmail: typeof value.primaryEmail === "string" ? value.primaryEmail : undefined,
-    isAdmin: value.isAdmin === true || value.isAdmin === 1,
+    isAdmin:
+      value.isAdmin === true ||
+      value.isAdmin === 1 ||
+      value.isadmin === true ||
+      value.isadmin === 1 ||
+      value.is_admin === true ||
+      value.is_admin === 1,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     lastLoginAt: typeof value.lastLoginAt === "string" ? value.lastLoginAt : undefined,

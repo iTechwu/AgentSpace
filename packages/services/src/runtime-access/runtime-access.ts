@@ -2,6 +2,7 @@ import {
   DEFAULT_WORKSPACE_ID,
   canUserUseRuntimeSync,
   grantRuntimeUseToUserSync,
+  isPlatformAdminUserSync,
   listRuntimeGrantsForUserSync,
   listRuntimeGrantsSync,
   readAgentRuntimeSync,
@@ -29,6 +30,9 @@ export function isWorkspaceAdminOrOwnerSync(input: {
 }): boolean {
   if (!input.userId) {
     return false;
+  }
+  if (isPlatformAdminUserSync(input.userId)) {
+    return true;
   }
   const membership = readWorkspaceMembershipSync(input.workspaceId ?? DEFAULT_WORKSPACE_ID, input.userId);
   return membership?.role === "owner" || membership?.role === "admin";

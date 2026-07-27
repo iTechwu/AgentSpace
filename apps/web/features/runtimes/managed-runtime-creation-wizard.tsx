@@ -27,6 +27,7 @@ export function ManagedRuntimeCreationWizard({
   function invalidatePreflight() {
     setPreflight(null);
     setError(null);
+    idempotencyKey.current = null;
   }
 
   function continueToConfirmation() {
@@ -48,7 +49,7 @@ export function ManagedRuntimeCreationWizard({
   function createRuntime() {
     if (!preflight?.allowed) return;
     setError(null);
-    idempotencyKey.current ??= `ui:${provider}:${Date.now()}`;
+    idempotencyKey.current ??= `ui:${provider}:${crypto.randomUUID()}`;
     startTransition(async () => {
       try {
         const result = await createManagedRuntimeAction({

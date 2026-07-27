@@ -1,5 +1,7 @@
 # 深度审查：agent-pricing 实施状态与下一步计划
 
+> **2026-07-27 实施闭环更新：** 下文保留为实施前审查快照，不再代表当前代码状态。审查列出的模式隔离、节点安装与原子凭据挂载、服务端模型/余额预检、浏览器引用脱敏、受控凭据恢复、成本多维视图、告警、平台超管审计隔离和三步向导均已落地。当前权威状态与验证入口见 [implementation-plan.md](./implementation-plan.md)；剩余发布门槛是使用真实 models 测试租户、网关与容器环境完成 staging E2E。
+
 审查日期：2026-07-27  
 审查范围：`docs/0727/agent-pricing` 三份文档 + AgentSpace 当前分支业务代码  
 结论：**尚未全面实施，但 Step 2 成本对账骨架与 Step 3 “Agent”→“AI员工”文案迁移已完成**。Phase 1（models.dofe.ai 侧 RuntimeCredential）已完成；Phase 2（AgentSpace 控制面）已落地主要路径；Phase 3（节点侧受管安装）基本未实施；Phase 4（模型配置与会话体验）核心路径已通；Phase 5（成本对账、文案迁移）已完成骨架与文案，余额/Key 用量、多维度视图、告警仍待实施。

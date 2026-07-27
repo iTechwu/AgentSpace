@@ -95,10 +95,10 @@ export function requeueStaleRuntimeCredentialRecoveryTasksSync(input: {
   workspaceId?: string;
   staleBefore: string;
   now?: string;
-}): number {
+}): RuntimeCredentialRecoveryTaskRecord[] {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = input.now ?? new Date().toISOString();
-  return getDatabase().prepare(
+  const rows = getDatabase().prepare(
     `UPDATE runtime_credential_recovery_task
      SET status = CASE WHEN attempt_count >= max_attempts THEN 'failed' ELSE 'queued' END,
          cooldown_until = CASE WHEN attempt_count >= max_attempts THEN NULL ELSE ?::timestamptz END,
@@ -106,8 +106,10 @@ export function requeueStaleRuntimeCredentialRecoveryTasksSync(input: {
          last_error_message = 'The previous credential recovery attempt did not finish.',
          completed_at = CASE WHEN attempt_count >= max_attempts THEN ?::timestamptz ELSE NULL END,
          updated_at = ?
-     WHERE workspace_id = ? AND status = 'running' AND updated_at <= ?::timestamptz`,
-  ).run(now, now, now, workspaceId, input.staleBefore).changes;
+     WHERE workspace_id = ? AND status = 'running' AND updated_at <= ?::timestamptz
+     RETURNING *`,
+  ).all(now, now, now, workspaceId, input.staleBefore) as RawRecoveryTask[];
+  return rows.map(mapRecoveryTask);
 }
 
 export function startRuntimeCredentialRecoveryAttemptSync(input: {
@@ -140,7 +142,7 @@ export function markRuntimeCredentialRecoverySucceededSync(input: {
      SET status = 'succeeded', cooldown_until = NULL,
          last_error_code = NULL, last_error_message = NULL,
          completed_at = ?, updated_at = ?
-     WHERE id = ? AND workspace_id = ? AND status IN ('queued', 'running')`,
+     WHERE id = ? AND workspace_id = ? AND status IN ('queued', 'running', 'failed')`,
   ).run(now, now, input.id, workspaceId);
   return readRuntimeCredentialRecoveryTaskSync(input.id, workspaceId);
 }

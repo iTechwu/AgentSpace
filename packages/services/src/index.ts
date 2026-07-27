@@ -11,6 +11,7 @@ export {
 } from "./shared/state-io.ts";
 export {
   recordPlatformAuditEventSync,
+  PLATFORM_AUDIT_WORKSPACE_ID,
   recordWorkspaceAuditEventSync,
   tryRecordPlatformAuditEventSync,
   tryRecordWorkspaceAuditEventSync,

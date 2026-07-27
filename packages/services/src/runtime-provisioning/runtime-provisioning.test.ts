@@ -38,6 +38,7 @@ const TEAM_WS = "team-workspace";
 const TENANT_WS = "tenant-workspace";
 const OWNER = "owner-user";
 const MEMBER = "member-user";
+const PLATFORM_ADMIN = "platform-admin-user";
 const originalRuntimeMode = process.env.DOFE_AGENT_RUNTIME_MODE;
 
 function createMockClient(behavior: {
@@ -248,6 +249,19 @@ test("non-admin member cannot request a managed runtime", () => {
       }),
     /owners and admins/,
   );
+});
+
+test("platform administrator can provision without a team membership", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: PLATFORM_ADMIN,
+    provider: "claude",
+    idempotencyKey: "platform-admin-runtime-key",
+  });
+
+  const final = await awaitTaskTerminal(task.id);
+  assert.equal(final.status, "succeeded");
+  assert.ok(final.runtimeId);
 });
 
 test("local mode rejects managed provisioning before it calls models", () => {
@@ -755,13 +769,52 @@ test("heartbeat reclaims an expired credential recovery lease after restart", as
   assert.equal(activeClient.rotateCalls, 2);
 });
 
+test("heartbeat opens the circuit when the final recovery lease expires", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "recovery-final-expired-lease-key",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtime = readAgentRuntimeSync(provisioned.runtimeId!)!;
+  activeClient = createMockClient({ failRotate: true, credentialId: runtime.managedCredentialId });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  await handleManagedRuntimeProviderFailureAsync({
+    workspaceId: TEAM_WS,
+    runtimeId: runtime.id,
+    sourceTaskId: "failed-task-final-expired-lease",
+    reportedCredentialId: runtime.managedCredentialId!,
+    errorCode: "provider.auth_invalid",
+    now: new Date("2026-07-27T00:00:00.000Z"),
+  });
+  getDatabase().prepare(
+    `UPDATE runtime_credential_recovery_task
+     SET status = 'running', attempt_count = max_attempts,
+         cooldown_until = NULL, updated_at = '2026-07-27T00:01:00.000Z'
+     WHERE runtime_id = ?`,
+  ).run(runtime.id);
+
+  const resumed = await resumePendingRuntimeCredentialRecoveriesAsync({
+    workspaceId: TEAM_WS,
+    now: new Date("2026-07-27T00:10:00.000Z"),
+  });
+
+  assert.equal(resumed[0]?.status, "needs_attention");
+  assert.equal(activeClient.rotateCalls, 1);
+  assert.equal(readAgentRuntimeSync(runtime.id)?.provisioningState, "needs_attention");
+  assert.equal(readAgentRuntimeSync(runtime.id)?.status, "offline");
+});
+
 function seed(): void {
   const db = getDatabase();
   const now = new Date().toISOString();
-  for (const user of [OWNER, MEMBER]) {
+  for (const user of [OWNER, MEMBER, PLATFORM_ADMIN]) {
     db.prepare(
-      "INSERT INTO users (id, display_name, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING",
-    ).run(user, user, now, now);
+      `INSERT INTO users (id, display_name, is_admin, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET is_admin = excluded.is_admin`,
+    ).run(user, user, user === PLATFORM_ADMIN ? 1 : 0, now, now);
   }
   for (const ws of [TEAM_WS, TENANT_WS]) {
     db.prepare(
