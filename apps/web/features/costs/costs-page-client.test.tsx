@@ -49,10 +49,17 @@ const costs: CostPageData = {
       avgCostPerTask: 0.0411,
     },
   ],
+  runtimes: [],
+  runtimeCredentials: [],
+  sessions: [],
   totalCostUsd: 0.1234,
   totalTasks: 3,
   totalInputTokens: 12345,
   totalOutputTokens: 6789,
+  estimatedCostUsd: 0.1234,
+  reconciledCostUsd: 0,
+  unallocatedCostUsd: 0,
+  totalActualCostUsd: 0,
   models: [],
   recentUsage: [
     {
@@ -62,6 +69,7 @@ const costs: CostPageData = {
       inputTokens: 1000,
       outputTokens: 500,
       costUsd: 0.01,
+      billingStatus: "estimated",
       createdAt: "2026-04-10T08:00:00.000Z",
     },
   ],
@@ -105,9 +113,9 @@ describe("CostsPageClient", () => {
       </LanguageProvider>,
     );
 
-    await user.click(screen.getByRole("button", { name: "预算管理" }));
-    await user.click(screen.getByRole("button", { name: "+ 添加预算" }));
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "Budgets" }));
+    await user.click(screen.getByRole("button", { name: "+ Add Budget" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(upsertBudgetAction).toHaveBeenCalledWith({
       action: "warn",

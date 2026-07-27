@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "30";
+export const POSTGRES_SCHEMA_VERSION = "32";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -67,6 +67,7 @@ export const POSTGRES_TABLE_NAMES = [
   "workspace_sso_binding",
   "runtime_provisioning_task",
   "runtime_provisioning_task_event",
+  "runtime_credential_recovery_task",
   "managed_runtime_cleanup_request",
 ] as const;
 
@@ -97,10 +98,14 @@ export function getPostgresSchemaStatements(): string[] {
         display_name TEXT NOT NULL,
         avatar_url TEXT,
         primary_email TEXT,
+        is_admin INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL,
         last_login_at TIMESTAMPTZ
       )
+    `,
+    `
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin INTEGER NOT NULL DEFAULT 0
     `,
     `
       CREATE TABLE IF NOT EXISTS auth_identity (
@@ -1368,7 +1373,9 @@ export function getPostgresSchemaStatements(): string[] {
         source_runtime_id TEXT,
         runtime_type TEXT NOT NULL,
         protocols_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        requested_name TEXT,
         requested_model TEXT,
+        allowed_models_json JSONB NOT NULL DEFAULT '[]'::jsonb,
         target_server TEXT,
         stage TEXT NOT NULL DEFAULT 'pending',
         stage_status TEXT NOT NULL DEFAULT 'pending',
@@ -1407,6 +1414,29 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `ALTER TABLE runtime_provisioning_task ADD COLUMN IF NOT EXISTS daemon_connection_id TEXT REFERENCES daemon_connection(id) ON DELETE SET NULL`,
     `ALTER TABLE runtime_provisioning_task ADD COLUMN IF NOT EXISTS stage_started_at TIMESTAMPTZ`,
+    `ALTER TABLE runtime_provisioning_task ADD COLUMN IF NOT EXISTS requested_name TEXT`,
+    `ALTER TABLE runtime_provisioning_task ADD COLUMN IF NOT EXISTS allowed_models_json JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    `
+      CREATE TABLE IF NOT EXISTS runtime_credential_recovery_task (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
+        source_task_id TEXT NOT NULL,
+        credential_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'queued',
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 3,
+        cooldown_until TIMESTAMPTZ,
+        last_error_code TEXT,
+        last_error_message TEXT,
+        started_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, idempotency_key)
+      )
+    `,
     `
       CREATE TABLE IF NOT EXISTS managed_runtime_cleanup_request (
         id TEXT PRIMARY KEY,
@@ -1559,6 +1589,10 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_runtime_provisioning_task_event_task
         ON runtime_provisioning_task_event(task_id, created_at ASC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_credential_recovery_runtime_status
+        ON runtime_credential_recovery_task(runtime_id, status, created_at DESC)
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_daemon_api_token_workspace

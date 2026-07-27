@@ -58,7 +58,7 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
 
       {!configured ? (
         <p className="text-xs text-amber-600">
-          Model catalog is not configured. Free-text input is allowed, but the model may be rejected by the gateway.
+          Model catalog is not configured. Runtime creation is unavailable until it is connected.
         </p>
       ) : null}
 

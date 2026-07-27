@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -112,10 +112,16 @@ test("managed credentials are atomically refreshed when their credential generat
 
   try {
     const first = await resolver.resolve("runtime-1", "credential-first");
+    const stableProfilePath = first?.profileDir;
+    const stableLauncherPath = resolver.getExecutablePath("runtime-1", "codex");
     const second = await resolver.resolve("runtime-1", "credential-second");
 
     assert.equal(first?.environment.OPENAI_API_KEY, "first-key");
     assert.equal(second?.environment.OPENAI_API_KEY, "second-key");
+    assert.equal(second?.profileDir, stableProfilePath);
+    assert.equal(lstatSync(second!.profileDir).isSymbolicLink(), true);
+    assert.equal(existsSync(stableLauncherPath), true);
+    assert.match(readFileSync(stableLauncherPath, "utf8"), /managed-runtimes\/runtime-1\/current/);
     assert.equal(fetches, 2);
   } finally {
     resolver.cleanup("runtime-1");

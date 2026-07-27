@@ -95,7 +95,9 @@ export function createManagedProvisioningExecutor(
   ): Promise<ManagedProvisioningResult> {
     const substituted = substituteManagedProfileDir(commands, managedProfileDir);
     const result = await runCommandSequence(runtimeId, "cleanup", substituted);
-    credentialResolver.cleanup(runtimeId);
+    if (result.success) {
+      credentialResolver.cleanup(runtimeId);
+    }
     return result;
   }
 

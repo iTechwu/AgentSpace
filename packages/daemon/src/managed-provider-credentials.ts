@@ -1,5 +1,5 @@
 import { chmodSync, writeFileSync } from "node:fs";
-import { join, resolve as pathResolve } from "node:path";
+import { dirname, join, resolve as pathResolve } from "node:path";
 import type { DaemonProvider } from "@dofe-agent/domain";
 import type { ManagedCredentialBundleDocument } from "./daemon-api.ts";
 import { cleanupCredentialProfile, writeCredentialProfile, type ProviderCredentialProfile } from "./provider-credentials.ts";
@@ -109,8 +109,11 @@ export function createManagedCredentialResolver(
   }
 
   function getExecutablePath(runtimeId: string, provider: DaemonProvider): string {
-    const profileDir = pathResolve(stateDir, "managed-runtimes", normalizeRuntimeId(runtimeId));
-    const launcherPath = join(profileDir, "run-provider");
+    const profileDir = cache.get(runtimeId)?.profile.profileDir;
+    if (!profileDir) {
+      throw new Error(`managed_runtime.credential_profile_missing:${runtimeId}`);
+    }
+    const launcherPath = join(dirname(profileDir), "run-provider");
     writeFileSync(launcherPath, buildDockerProviderLauncher(profileDir, runtimeId, provider), {
       encoding: "utf8",
       mode: 0o700,

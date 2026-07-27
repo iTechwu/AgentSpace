@@ -1,36 +1,34 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   cancelProvisioningAction,
-  createManagedRuntimeAction,
   deleteManagedRuntimeAction,
   retryProvisioningAction,
   rotateManagedRuntimeCredentialAction,
   stopManagedRuntimeAction,
 } from "@/features/runtimes/actions";
-import { RuntimeModelPicker } from "@/features/runtimes/runtime-model-picker";
+import { ManagedRuntimeList } from "@/features/runtimes/managed-runtime-list";
+import { ManagedRuntimeCreationWizard } from "@/features/runtimes/managed-runtime-creation-wizard";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
-import { DAEMON_PROVIDER_IDS, formatDaemonProviderLabel } from "@dofe-agent/domain";
-import type { RuntimeProvisioningTaskRecord } from "@dofe-agent/db";
+import { formatDaemonProviderLabel } from "@dofe-agent/domain";
+import type { ManagedRuntimeListItem, PublicRuntimeProvisioningTaskRecord } from "@dofe-agent/services";
 
 export function RuntimesPageClient({
   workspaceSlug,
   isAdmin,
   initialTasks,
+  initialRuntimes,
 }: {
   workspaceSlug: string;
   isAdmin: boolean;
-  initialTasks: RuntimeProvisioningTaskRecord[];
+  initialTasks: PublicRuntimeProvisioningTaskRecord[];
+  initialRuntimes: ManagedRuntimeListItem[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [provider, setProvider] = useState<string>(DAEMON_PROVIDER_IDS[0] ?? "claude");
-  const [defaultModel, setDefaultModel] = useState("");
-  const [targetServer, setTargetServer] = useState("");
-  const [error, setError] = useState<string | null>(null);
 
   if (!isAdmin) {
     return (
@@ -47,25 +45,6 @@ export function RuntimesPageClient({
     startTransition(() => router.refresh());
   }
 
-  function handleCreate() {
-    setError(null);
-    const idempotencyKey = `ui:${provider}:${Date.now()}`;
-    startTransition(async () => {
-      try {
-        const { taskId } = await createManagedRuntimeAction({
-          provider: provider as (typeof DAEMON_PROVIDER_IDS)[number],
-          defaultModel: defaultModel.trim() || undefined,
-          allowedModels: defaultModel.trim() ? [defaultModel.trim()] : undefined,
-          targetServer: targetServer.trim() || undefined,
-          idempotencyKey,
-        });
-        router.push(buildWorkspacePath(workspaceSlug, `/runtimes/${taskId}`));
-      } catch (createError) {
-        setError(createError instanceof Error ? createError.message : String(createError));
-      }
-    });
-  }
-
   return (
     <section className="mx-auto max-w-4xl space-y-8 p-6">
       <header>
@@ -76,50 +55,22 @@ export function RuntimesPageClient({
         </p>
       </header>
 
-      <div className="rounded-lg border p-4">
-        <h2 className="mb-3 text-sm font-medium">Create managed runtime</h2>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <label className="text-sm">
-            <span className="mb-1 block text-neutral-500">Runtime type</span>
-            <select
-              className="w-full rounded border px-2 py-1"
-              value={provider}
-              onChange={(event) => setProvider(event.target.value)}
-            >
-              {DAEMON_PROVIDER_IDS.map((id) => (
-                <option key={id} value={id}>
-                  {formatDaemonProviderLabel(id)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm">
-            <span className="mb-1 block text-neutral-500">Default model</span>
-            <RuntimeModelPicker
-              provider={provider as (typeof DAEMON_PROVIDER_IDS)[number]}
-              value={defaultModel}
-              onChange={setDefaultModel}
-            />
-          </label>
-          <label className="text-sm">
-            <span className="mb-1 block text-neutral-500">Target server (optional)</span>
-            <input
-              className="w-full rounded border px-2 py-1"
-              value={targetServer}
-              onChange={(event) => setTargetServer(event.target.value)}
-              placeholder="research-runner-01"
-            />
-          </label>
-        </div>
-        {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
-        <button
-          type="button"
-          className="mt-3 rounded bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
-          disabled={pending}
-          onClick={handleCreate}
-        >
-          {pending ? "Creating…" : "Create runtime"}
-        </button>
+      <ManagedRuntimeCreationWizard
+        onCreated={(taskId) => router.push(buildWorkspacePath(workspaceSlug, `/runtimes/${taskId}`))}
+      />
+
+      <div>
+        <h2 className="mb-3 text-sm font-medium">Runtimes</h2>
+        <ManagedRuntimeList
+          runtimes={initialRuntimes}
+          pending={pending}
+          onRotate={(runtimeId) =>
+            startTransition(async () => {
+              await rotateManagedRuntimeCredentialAction(runtimeId, "manual");
+              refresh();
+            })
+          }
+        />
       </div>
 
       <div>
@@ -219,8 +170,8 @@ export function RuntimesPageClient({
   );
 }
 
-function StatusBadge({ status }: { status: RuntimeProvisioningTaskRecord["status"] }) {
-  const tone: Record<RuntimeProvisioningTaskRecord["status"], string> = {
+function StatusBadge({ status }: { status: PublicRuntimeProvisioningTaskRecord["status"] }) {
+  const tone: Record<PublicRuntimeProvisioningTaskRecord["status"], string> = {
     queued: "bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200",
     running: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200",
     succeeded: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200",

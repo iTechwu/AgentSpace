@@ -802,6 +802,7 @@ interface TokenAccumulator {
   inputTokens: number;
   outputTokens: number;
   modelId?: string;
+  gatewayRequestId?: string;
 }
 
 function enqueueFeishuReplyOutboxBestEffort(input: {
@@ -953,6 +954,7 @@ async function executeRemoteQueuedTask(
     );
     await client.failTask(task.id, {
       errorText: message,
+      runtimeCredentialId: runtime.managedCredentialId,
       errorCode: providerError?.code,
       errorCategory: normalizeProviderTaskErrorCategory(providerError?.category),
       provider: providerError?.provider,
@@ -1105,9 +1107,12 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
             output: event.output,
           });
           if (event.type === "usage" && event.inputJson) {
-            const u = event.inputJson as { input_tokens?: number; output_tokens?: number };
+            const u = event.inputJson as { input_tokens?: number; output_tokens?: number; gateway_request_id?: string };
             tokenAcc.inputTokens += u.input_tokens ?? 0;
             tokenAcc.outputTokens += u.output_tokens ?? 0;
+            if (u.gateway_request_id && !tokenAcc.gatewayRequestId) {
+              tokenAcc.gatewayRequestId = u.gateway_request_id;
+            }
           }
         },
       },
@@ -1275,6 +1280,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         providerAccountId: runtime.providerAccountId,
         runtimeCredentialId,
         routerSessionId: task.routerSessionId,
+        gatewayRequestId: tokenAcc.gatewayRequestId,
         inputTokens: tokenAcc.inputTokens,
         outputTokens: tokenAcc.outputTokens,
         channelName: payload.channelName ?? payload.channel,

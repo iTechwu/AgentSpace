@@ -241,6 +241,60 @@ function CostOverview({
         <div className="costs-empty">{tx("暂无用量数据", "No usage data yet")}</div>
       )}
 
+      {data.runtimes.length > 0 ? (
+        <CostDimensionTable
+          title={tx("Runtime 费用明细", "Runtime Cost Breakdown")}
+          rows={data.runtimes.map((runtime) => ({
+            id: runtime.runtimeId,
+            label: runtime.displayName ?? runtime.runtimeId,
+            taskCount: runtime.taskCount,
+            totalInputTokens: runtime.totalInputTokens,
+            totalOutputTokens: runtime.totalOutputTokens,
+            totalCostUsd: runtime.totalCostUsd,
+            totalActualCostUsd: runtime.totalActualCostUsd,
+            avgCostPerTask: runtime.avgCostPerTask,
+          }))}
+          compact={compact}
+          tx={tx}
+        />
+      ) : null}
+
+      {data.runtimeCredentials.length > 0 ? (
+        <CostDimensionTable
+          title={tx("Runtime Key 费用明细", "Runtime Key Cost Breakdown")}
+          rows={data.runtimeCredentials.map((credential) => ({
+            id: credential.runtimeCredentialId,
+            label: credential.runtimeCredentialId,
+            taskCount: credential.taskCount,
+            totalInputTokens: credential.totalInputTokens,
+            totalOutputTokens: credential.totalOutputTokens,
+            totalCostUsd: credential.totalCostUsd,
+            totalActualCostUsd: credential.totalActualCostUsd,
+            avgCostPerTask: credential.avgCostPerTask,
+          }))}
+          compact={compact}
+          tx={tx}
+        />
+      ) : null}
+
+      {data.sessions.length > 0 ? (
+        <CostDimensionTable
+          title={tx("会话费用明细", "Session Cost Breakdown")}
+          rows={data.sessions.map((session) => ({
+            id: session.routerSessionId,
+            label: session.routerSessionId,
+            taskCount: session.taskCount,
+            totalInputTokens: session.totalInputTokens,
+            totalOutputTokens: session.totalOutputTokens,
+            totalCostUsd: session.totalCostUsd,
+            totalActualCostUsd: session.totalActualCostUsd,
+            avgCostPerTask: session.avgCostPerTask,
+          }))}
+          compact={compact}
+          tx={tx}
+        />
+      ) : null}
+
       {data.recentUsage.length > 0 ? (
         <>
           <h3>{tx("最近用量", "Recent Usage")}</h3>
@@ -278,6 +332,72 @@ function CostOverview({
         </>
       ) : null}
     </div>
+  );
+}
+
+function CostDimensionTable({
+  title,
+  rows,
+  compact,
+  tx,
+}: {
+  title: string;
+  rows: Array<{
+    id: string;
+    label: string;
+    taskCount: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalCostUsd: number;
+    totalActualCostUsd: number;
+    avgCostPerTask: number;
+  }>;
+  compact: boolean;
+  tx: (zh: string, en: string) => string;
+}) {
+  return (
+    <>
+      <h3>{title}</h3>
+      {compact ? (
+        <div className="costs-agent-cards">
+          {rows.map((row) => (
+            <article className="costs-agent-card" key={row.id}>
+              <div className="costs-agent-card__header">
+                <strong>{row.label}</strong>
+              </div>
+              <div className="costs-agent-card__stats">
+                <span>{tx("任务数", "Tasks")}: {row.taskCount}</span>
+                <span>{tx("输入", "Input")}: {formatTokens(row.totalInputTokens)}</span>
+                <span>{tx("输出", "Output")}: {formatTokens(row.totalOutputTokens)}</span>
+                <span>{tx("总费用", "Cost")}: ${row.totalCostUsd.toFixed(4)}{row.totalActualCostUsd > 0 ? ` → $${row.totalActualCostUsd.toFixed(4)}` : ""}</span>
+                <span>{tx("均价", "Avg")}: ${row.avgCostPerTask.toFixed(4)}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="costs-agent-table">
+          <div className="costs-agent-row costs-agent-row--header">
+            <span>{tx("名称", "Name")}</span>
+            <span>{tx("任务数", "Tasks")}</span>
+            <span>{tx("输入", "Input")}</span>
+            <span>{tx("输出", "Output")}</span>
+            <span>{tx("总费用", "Cost")}</span>
+            <span>{tx("均价", "Avg")}</span>
+          </div>
+          {rows.map((row) => (
+            <div className="costs-agent-row" key={row.id}>
+              <span className="costs-agent-name" title={row.id}>{row.label}</span>
+              <span>{row.taskCount}</span>
+              <span>{formatTokens(row.totalInputTokens)}</span>
+              <span>{formatTokens(row.totalOutputTokens)}</span>
+              <span>${row.totalCostUsd.toFixed(4)}{row.totalActualCostUsd > 0 ? ` → $${row.totalActualCostUsd.toFixed(4)}` : ""}</span>
+              <span>${row.avgCostPerTask.toFixed(4)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 

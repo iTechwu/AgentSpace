@@ -1,5 +1,6 @@
 import { getDatabase, withTransaction } from "./database.ts";
 import { randomLikeId } from "./database.ts";
+import { isPlatformAdminUserSync } from "./user-auth.ts";
 import type { StoredWorkspaceMembershipRecord, WorkspaceRole } from "./types.ts";
 
 export function createWorkspaceMembershipSync(params: {
@@ -140,6 +141,9 @@ export function transferWorkspaceOwnershipSync(
   currentOwnerUserId: string,
   nextOwnerUserId: string,
 ): void {
+  if (isPlatformAdminUserSync(nextOwnerUserId)) {
+    throw new Error("workspace.members.transfer_target_is_platform_admin");
+  }
   const db = getDatabase();
   withTransaction(db, () => {
     const demote = db.prepare(

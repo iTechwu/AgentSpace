@@ -17,7 +17,12 @@ import {
   deleteManagedRuntimeSync,
   finalizeManagedRuntimeProvisioningSync,
   getManagedRuntimeCredentialStatusSync,
+  getRuntimeProvisioningTaskDetailSync,
+  handleManagedRuntimeProviderFailureAsync,
+  listManagedRuntimeTasksSync,
+  preflightManagedRuntimeCreationAsync,
   requestManagedRuntimeProvisioningSync,
+  resumePendingRuntimeCredentialRecoveriesAsync,
   retryRuntimeProvisioningTaskSync,
   rotateManagedRuntimeCredentialSync,
   runProvisioningPipeline,
@@ -43,6 +48,7 @@ function createMockClient(behavior: {
   nextCredentialId?: string;
   plaintext?: string;
   nextPlaintext?: string;
+  modelList?: unknown[];
 }): ModelsClientLike & { createCalls: number; preflightCalls: number; revokeCalls: number; rotateCalls: number; getCalls: number; lastRevokeBody?: unknown; lastRotateBody?: unknown } {
   let createCalls = 0;
   let preflightCalls = 0;
@@ -52,6 +58,22 @@ function createMockClient(behavior: {
   let lastRevokeBody: unknown;
   let lastRotateBody: unknown;
   return {
+    models: {
+      async list() {
+        return {
+          list: behavior.modelList ?? [
+            {
+              id: "model-test",
+              alias: "claude-sonnet",
+              model: "claude-sonnet",
+              supportedProtocols: ["anthropic", "openai", "gemini"],
+              isEnabled: true,
+              isDeprecated: false,
+            },
+          ],
+        };
+      },
+    },
     billing: {
       async preflight() {
         preflightCalls += 1;
@@ -308,6 +330,43 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
   assert.ok(!allRows.includes("sk-runtime-plaintext"));
   // The vault DOES hold the plaintext for the Phase 3 node-side mount.
   assert.equal(getRuntimeCredentialVault().retrieve(runtime!.credentialSecretRef!), "sk-runtime-plaintext");
+
+  const publicTask = listManagedRuntimeTasksSync({ workspaceId: TEAM_WS, actorUserId: OWNER })[0]!;
+  const publicDetail = getRuntimeProvisioningTaskDetailSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    taskId: task.id,
+  });
+  assert.equal("secretRef" in publicTask, false);
+  assert.equal("configRef" in publicTask, false);
+  assert.equal(JSON.stringify(publicDetail).includes("vault://"), false);
+  assert.equal(publicDetail.task.credentialConfigured, true);
+});
+
+test("model catalog preflight blocks incompatible models before credential creation", async () => {
+  activeClient = createMockClient({ modelList: [] });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const preflight = await preflightManagedRuntimeCreationAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    defaultModel: "claude-sonnet",
+  });
+  assert.equal(preflight.allowed, false);
+  assert.equal(preflight.code, "managed_runtime.no_compatible_models");
+
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    defaultModel: "claude-sonnet",
+    idempotencyKey: "no-compatible-model-key",
+  });
+  const failed = await awaitTaskTerminal(task.id);
+  assert.equal(failed.status, "failed");
+  assert.match(failed.lastErrorMessage ?? "", /managed_runtime.no_compatible_models/);
+  assert.equal(activeClient.createCalls, 0);
 });
 
 test("idempotency: same key returns the same task and creates the credential once", async () => {
@@ -537,6 +596,163 @@ test("resume re-drives a task left running (simulated restart)", async () => {
   await runProvisioningPipeline(task.id, TEAM_WS);
   const final = readRuntimeProvisioningTaskSync(task.id, TEAM_WS);
   assert.equal(final?.status, "succeeded");
+});
+
+test("credential-invalid gateway failure rotates once and restores the managed runtime", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "recovery-success-key",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtimeBefore = readAgentRuntimeSync(provisioned.runtimeId!)!;
+  activeClient = createMockClient({
+    credentialId: runtimeBefore.managedCredentialId,
+    nextCredentialId: "rtc-recovered",
+    nextPlaintext: "sk-runtime-recovered",
+  });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const recovered = await handleManagedRuntimeProviderFailureAsync({
+    workspaceId: TEAM_WS,
+    runtimeId: runtimeBefore.id,
+    sourceTaskId: "failed-task-1",
+    reportedCredentialId: runtimeBefore.managedCredentialId!,
+    errorCode: "provider.auth_invalid",
+    now: new Date("2026-07-27T00:00:00.000Z"),
+  });
+
+  assert.equal(recovered.status, "recovered");
+  assert.equal(activeClient.rotateCalls, 1);
+  assert.equal(readAgentRuntimeSync(runtimeBefore.id)?.managedCredentialId, "rtc-recovered");
+  assert.equal(readAgentRuntimeSync(runtimeBefore.id)?.provisioningState, "managed");
+
+  const replay = await handleManagedRuntimeProviderFailureAsync({
+    workspaceId: TEAM_WS,
+    runtimeId: runtimeBefore.id,
+    sourceTaskId: "failed-task-1",
+    reportedCredentialId: runtimeBefore.managedCredentialId!,
+    errorCode: "provider.auth_invalid",
+    now: new Date("2026-07-27T00:02:00.000Z"),
+  });
+  assert.equal(replay.status, "ignored");
+  assert.equal(activeClient.rotateCalls, 1);
+});
+
+test("model availability failures never rotate a managed runtime credential", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "codex",
+    idempotencyKey: "recovery-model-key",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtime = readAgentRuntimeSync(provisioned.runtimeId!)!;
+
+  const result = await handleManagedRuntimeProviderFailureAsync({
+    workspaceId: TEAM_WS,
+    runtimeId: runtime.id,
+    sourceTaskId: "failed-task-model",
+    reportedCredentialId: runtime.managedCredentialId!,
+    errorCode: "provider.model_unavailable",
+    now: new Date("2026-07-27T00:00:00.000Z"),
+  });
+
+  assert.equal(result.status, "ignored");
+  assert.equal(activeClient.rotateCalls, 0);
+  assert.equal(readAgentRuntimeSync(runtime.id)?.provisioningState, "managed");
+});
+
+test("credential recovery observes cooldown and opens the circuit after three failures", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "gemini",
+    idempotencyKey: "recovery-failure-key",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtime = readAgentRuntimeSync(provisioned.runtimeId!)!;
+  activeClient = createMockClient({ failRotate: true, credentialId: runtime.managedCredentialId });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+  const failure = {
+    workspaceId: TEAM_WS,
+    runtimeId: runtime.id,
+    sourceTaskId: "failed-task-auth",
+    reportedCredentialId: runtime.managedCredentialId!,
+    errorCode: "provider.auth_invalid" as const,
+  };
+
+  assert.equal((await handleManagedRuntimeProviderFailureAsync({
+    ...failure,
+    now: new Date("2026-07-27T00:00:00.000Z"),
+  })).status, "retry_scheduled");
+  assert.deepEqual(await resumePendingRuntimeCredentialRecoveriesAsync({
+    workspaceId: TEAM_WS,
+    now: new Date("2026-07-27T00:00:30.000Z"),
+  }), []);
+  assert.equal(activeClient.rotateCalls, 1);
+  assert.equal((await resumePendingRuntimeCredentialRecoveriesAsync({
+    workspaceId: TEAM_WS,
+    now: new Date("2026-07-27T00:01:01.000Z"),
+  }))[0]?.status, "retry_scheduled");
+  assert.equal((await resumePendingRuntimeCredentialRecoveriesAsync({
+    workspaceId: TEAM_WS,
+    now: new Date("2026-07-27T00:02:02.000Z"),
+  }))[0]?.status, "needs_attention");
+
+  assert.equal(activeClient.rotateCalls, 3);
+  assert.equal(readAgentRuntimeSync(runtime.id)?.provisioningState, "needs_attention");
+  assert.equal(readAgentRuntimeSync(runtime.id)?.status, "offline");
+
+  activeClient = createMockClient({
+    credentialId: runtime.managedCredentialId,
+    nextCredentialId: "rtc-manually-recovered",
+  });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+  const manuallyRecovered = await rotateManagedRuntimeCredentialSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    runtimeId: runtime.id,
+    reason: "manual",
+  });
+  assert.equal(manuallyRecovered.provisioningState, "managed");
+  assert.equal(manuallyRecovered.status, "online");
+});
+
+test("heartbeat reclaims an expired credential recovery lease after restart", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "recovery-expired-lease-key",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtime = readAgentRuntimeSync(provisioned.runtimeId!)!;
+  activeClient = createMockClient({ failRotate: true, credentialId: runtime.managedCredentialId });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  await handleManagedRuntimeProviderFailureAsync({
+    workspaceId: TEAM_WS,
+    runtimeId: runtime.id,
+    sourceTaskId: "failed-task-expired-lease",
+    reportedCredentialId: runtime.managedCredentialId!,
+    errorCode: "provider.auth_invalid",
+    now: new Date("2026-07-27T00:00:00.000Z"),
+  });
+  getDatabase().prepare(
+    `UPDATE runtime_credential_recovery_task
+     SET status = 'running', cooldown_until = NULL, updated_at = '2026-07-27T00:01:00.000Z'
+     WHERE runtime_id = ?`,
+  ).run(runtime.id);
+
+  const resumed = await resumePendingRuntimeCredentialRecoveriesAsync({
+    workspaceId: TEAM_WS,
+    now: new Date("2026-07-27T00:10:00.000Z"),
+  });
+
+  assert.equal(resumed[0]?.status, "retry_scheduled");
+  assert.equal(activeClient.rotateCalls, 2);
 });
 
 function seed(): void {

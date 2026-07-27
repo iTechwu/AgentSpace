@@ -505,13 +505,20 @@ function mapAgentRouterEvent(event: AgentRouterEvent): ProviderTaskEvent[] {
     }];
   }
   if (event.type === "tool_output" && event.tool === "usage" && event.metadata && typeof event.metadata === "object") {
-    const usage = event.metadata as { input_tokens?: unknown; output_tokens?: unknown };
+    const usage = event.metadata as { input_tokens?: unknown; output_tokens?: unknown; gateway_request_id?: unknown };
     const inputTokens = typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
     const outputTokens = typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
+    const gatewayRequestId = typeof usage.gateway_request_id === "string" && usage.gateway_request_id.trim()
+      ? usage.gateway_request_id.trim()
+      : undefined;
     return [{
       type: "usage",
       content: `tokens: in=${inputTokens} out=${outputTokens}`,
-      inputJson: { input_tokens: inputTokens, output_tokens: outputTokens },
+      inputJson: {
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        gateway_request_id: gatewayRequestId,
+      },
     }];
   }
   if (event.type === "tool_output") {

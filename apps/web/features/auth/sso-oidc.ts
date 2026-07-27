@@ -40,6 +40,7 @@ export interface SsoProfile {
   displayName: string;
   email: string;
   emailVerified: boolean;
+  isAdmin?: boolean;
   subject: string;
   workspaceScopes: SsoWorkspaceScope[];
 }
@@ -149,6 +150,7 @@ export function buildSsoProfile(input: {
   authoritativeUser: {
     avatarUrl?: string | null;
     email?: string | null;
+    isAdmin?: boolean;
     nickname?: string | null;
   };
   subject: string;
@@ -166,12 +168,14 @@ export function buildSsoProfile(input: {
     || readOptionalString(input.userInfo, "name")
     || (verifiedEmail ? email.split("@", 1)[0] : undefined)
     || "Dofe user";
+  const isAdmin = input.authoritativeUser.isAdmin === true || input.userInfo.isAdmin === true;
 
   return {
     avatarUrl: input.authoritativeUser.avatarUrl?.trim() || readOptionalString(input.userInfo, "picture"),
     displayName,
     email,
     emailVerified: Boolean(verifiedEmail),
+    isAdmin,
     subject: input.subject,
     workspaceScopes: input.workspaceScopes ?? [],
   };

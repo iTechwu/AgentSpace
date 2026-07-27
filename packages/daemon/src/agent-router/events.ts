@@ -1,5 +1,5 @@
 import type { AgentRouterEvent } from "./types.ts";
-import { extractSessionId, extractText, extractUsage, readNumberAtPaths, readStringAtPaths, readValueAtPaths } from "./utils.ts";
+import { extractSessionId, extractText, extractUsage, extractGatewayRequestId, readNumberAtPaths, readStringAtPaths, readValueAtPaths } from "./utils.ts";
 
 export function mapClaudeNativeEvent(event: Record<string, unknown>): AgentRouterEvent[] {
   const type = typeof event.type === "string" ? event.type : "";
@@ -14,6 +14,7 @@ export function mapClaudeNativeEvent(event: Record<string, unknown>): AgentRoute
         metadata: {
           input_tokens: usage.input_tokens ?? usage.inputTokens,
           output_tokens: usage.output_tokens ?? usage.outputTokens,
+          gateway_request_id: extractGatewayRequestId(event),
         },
       });
     }
@@ -191,6 +192,7 @@ export function mapOpenClawNativeEvent(event: Record<string, unknown>): AgentRou
       metadata: {
         input_tokens: usage.inputTokens,
         output_tokens: usage.outputTokens,
+        gateway_request_id: extractGatewayRequestId(event),
       },
     });
   }
@@ -238,6 +240,7 @@ export function mapOpenCodeNativeEvent(event: Record<string, unknown>): AgentRou
       metadata: {
         input_tokens: usage.inputTokens,
         output_tokens: usage.outputTokens,
+        gateway_request_id: extractGatewayRequestId(event),
       },
     });
   }

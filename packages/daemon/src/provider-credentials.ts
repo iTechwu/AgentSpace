@@ -1,5 +1,6 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { basename, join, relative, resolve } from "node:path";
 
 const PROFILE_VERSION = 1;
 const BLOCKED_ENVIRONMENT_KEYS = new Set([
@@ -29,29 +30,37 @@ export function writeCredentialProfile(
   profileDir: string,
   document: CredentialDocument,
 ): { profileDir: string; environment: Record<string, string> } {
-  const nextProfileDir = `${profileDir}.next-${process.pid}`;
-  const previousProfileDir = `${profileDir}.previous-${process.pid}`;
-  rmSync(nextProfileDir, { recursive: true, force: true });
-  rmSync(previousProfileDir, { recursive: true, force: true });
-  mkdirSync(nextProfileDir, { recursive: true, mode: 0o700 });
-  chmodSync(nextProfileDir, 0o700);
+  mkdirSync(profileDir, { recursive: true, mode: 0o700 });
+  chmodSync(profileDir, 0o700);
+  const generationDir = join(profileDir, `.generation-${randomUUID()}`);
+  const currentLink = join(profileDir, "current");
+  const nextLink = join(profileDir, `.current-next-${randomUUID()}`);
+  mkdirSync(generationDir, { recursive: true, mode: 0o700 });
+  chmodSync(generationDir, 0o700);
   for (const [relativePath, content] of Object.entries(document.files)) {
-    const destination = resolveProfileFilePath(nextProfileDir, relativePath);
+    const destination = resolveProfileFilePath(generationDir, relativePath);
     mkdirSync(resolve(destination, ".."), { recursive: true, mode: 0o700 });
     writeFileSync(destination, content, { encoding: "utf8", mode: 0o600 });
     chmodSync(destination, 0o600);
   }
-  if (existsSync(profileDir)) {
-    renameSync(profileDir, previousProfileDir);
+
+  let previousGeneration: string | undefined;
+  try {
+    previousGeneration = resolve(profileDir, readlinkSync(currentLink));
+  } catch {
+    previousGeneration = undefined;
   }
-  renameSync(nextProfileDir, profileDir);
-  rmSync(previousProfileDir, { recursive: true, force: true });
+  symlinkSync(basename(generationDir), nextLink, "dir");
+  renameSync(nextLink, currentLink);
+  if (previousGeneration && previousGeneration !== generationDir) {
+    rmSync(previousGeneration, { recursive: true, force: true });
+  }
   return {
-    profileDir,
+    profileDir: currentLink,
     environment: {
       ...document.environment,
-      DOFE_AGENT_PROVIDER_PROFILE_DIR: profileDir,
-      HOME: profileDir,
+      DOFE_AGENT_PROVIDER_PROFILE_DIR: currentLink,
+      HOME: currentLink,
     },
   };
 }
@@ -81,11 +90,11 @@ export class ProviderCredentialResolver {
     const config = references.configRef ? readCredentialDocument(references.configRef, credentialRoot) : emptyDocument();
     const secret = references.secretRef ? readCredentialDocument(references.secretRef, credentialRoot) : emptyDocument();
     const document = mergeDocuments(config, secret);
-    const { environment: profileEnv } = writeCredentialProfile(profileDir, document);
+    const { profileDir: activeProfileDir, environment: profileEnv } = writeCredentialProfile(profileDir, document);
 
     return {
       accountId,
-      profileDir,
+      profileDir: activeProfileDir,
       environment: profileEnv,
     };
   }

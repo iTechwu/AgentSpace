@@ -25,6 +25,8 @@ import {
   listAgentForkInvitationsForActorSync,
   listAgentForkInvitationsForSourceAgentSync,
   listAgentAccessRequestsForActorSync,
+  listManagedRuntimesForWorkspaceSync,
+  resolveAgentRuntimeMode,
 } from "@dofe-agent/services";
 import type {
   AgentAccessRequestRecord,
@@ -32,6 +34,9 @@ import type {
   FeishuChatMemberSnapshot,
   PerformanceDashboardData,
   WorkspaceNotificationRecord,
+  RuntimeCostProfile,
+  RuntimeCredentialCostProfile,
+  SessionCostProfile,
 } from "@dofe-agent/services";
 import {
   DEFAULT_WORKSPACE_ID,
@@ -2729,6 +2734,28 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
     daemonKey: canManageRuntimes ? container.daemonKey : "",
     mode: container.daemonMode,
   }));
+  const managedRuntimeOptionIds = new Set(containerOptions.map((option) => option.id));
+  if (canManageRuntimes && currentUserId && resolveAgentRuntimeMode() === "remote") {
+    for (const managedRuntime of listManagedRuntimesForWorkspaceSync({ workspaceId, actorUserId: currentUserId })) {
+      if (managedRuntimeOptionIds.has(managedRuntime.id)) {
+        continue;
+      }
+      containerOptions.push({
+        id: managedRuntime.id,
+        label: managedRuntime.name,
+        provider: managedRuntime.provider,
+        status: managedRuntime.status === "online" ? "online" as const : "offline" as const,
+        providerHealth: normalizeRuntimeProviderHealth({
+          runtimeStatus: managedRuntime.status,
+          runtimeMetadata: {},
+        }),
+        serverName: "Managed",
+        daemonKey: "",
+        mode: "remote" as const,
+      });
+      managedRuntimeOptionIds.add(managedRuntime.id);
+    }
+  }
   const pendingForkInvitations = currentUserId
     ? listAgentForkInvitationsForActorSync({
         workspaceId,
@@ -4936,6 +4963,9 @@ export interface CostPageData {
     taskCount: number;
     avgCostPerTask: number;
   }>;
+  runtimes: RuntimeCostProfile[];
+  runtimeCredentials: RuntimeCredentialCostProfile[];
+  sessions: SessionCostProfile[];
   totalCostUsd: number;
   totalTasks: number;
   totalInputTokens: number;

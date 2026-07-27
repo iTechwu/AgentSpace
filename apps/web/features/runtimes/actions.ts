@@ -8,6 +8,7 @@ import {
   getManagedRuntimeCredentialStatusSync,
   getRuntimeProvisioningTaskDetailSync,
   listManagedRuntimeTasksSync,
+  preflightManagedRuntimeCreationAsync,
   requestManagedRuntimeProvisioningSync,
   resolveAgentRuntimeMode,
   resolveManagedRuntimeScopeSync,
@@ -60,6 +61,27 @@ export async function createManagedRuntimeAction(input: {
   });
   revalidateWorkspacePath("/runtimes", slug);
   return { taskId: task.id };
+}
+
+export async function preflightManagedRuntimeAction(input: {
+  provider: DaemonProvider;
+  defaultModel?: string;
+}) {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId, actorUserId } = await requireAdminActor();
+  if (!isModelsInternalConfigured()) {
+    return {
+      allowed: false,
+      code: "managed_runtime.models_not_configured",
+      message: "The models service is not configured for this deployment.",
+    };
+  }
+  return preflightManagedRuntimeCreationAsync({
+    workspaceId,
+    actorUserId,
+    provider: input.provider,
+    defaultModel: input.defaultModel,
+  });
 }
 
 export async function getProvisioningTaskAction(taskId: string) {

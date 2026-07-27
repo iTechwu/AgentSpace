@@ -13,6 +13,7 @@ import {
   listTaskExecutionEventsSync,
   registerDaemonRuntimesSync,
   startQueuedTaskSync,
+  updateAgentRuntimeManagedFieldsSync,
 } from "./index.ts";
 import { getDatabase } from "./database.ts";
 
@@ -44,6 +45,12 @@ beforeEach(() => {
   db.exec("DELETE FROM employee_runtime_binding");
   db.exec("DELETE FROM agent_runtime");
   db.exec("DELETE FROM daemon_connection");
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+     VALUES ('default', 'default', 'Dofe Agent', '', ?, ?)
+     ON CONFLICT (id) DO NOTHING`,
+  ).run(now, now);
 });
 
 test("records lifecycle, tool, message, and artifact execution events", () => {
@@ -120,6 +127,31 @@ test("records actionable provider failures as blocked events with structured met
   const data = JSON.parse(failure!.dataJson) as { errorCode?: string; provider?: string };
   assert.equal(data.errorCode, "provider.profile_missing");
   assert.equal(data.provider, "openclaw");
+});
+
+test("managed runtimes pause task claims while credential recovery needs work", () => {
+  const runtimeId = createRuntimeAndBinding();
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId,
+    provisioningState: "credential_recovering",
+    managedCredentialId: "rtc-recovering",
+    status: "offline",
+  });
+  const queued = enqueueNativeTaskSync({
+    assignee: "Atlas",
+    title: "Wait for credential recovery",
+    channel: "general",
+    priority: "high",
+  });
+  assert.ok(queued);
+
+  assert.equal(claimNextQueuedTaskForRuntimeSync(runtimeId), null);
+
+  updateAgentRuntimeManagedFieldsSync({ runtimeId, provisioningState: "needs_attention" });
+  assert.equal(claimNextQueuedTaskForRuntimeSync(runtimeId), null);
+
+  updateAgentRuntimeManagedFieldsSync({ runtimeId, provisioningState: "managed", status: "online" });
+  assert.equal(claimNextQueuedTaskForRuntimeSync(runtimeId)?.id, queued.id);
 });
 
 test.after(() => {

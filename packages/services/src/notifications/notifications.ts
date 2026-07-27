@@ -3,12 +3,15 @@ import {
   countUnreadWorkspaceNotificationsSync,
   createWorkspaceNotificationSync,
   createWorkspaceNotificationsSync,
+  listWorkspaceMemberUsersSync,
   listWorkspaceNotificationsForRecipientSync,
   markWorkspaceNotificationReadSync,
   type CreateWorkspaceNotificationInput,
   type WorkspaceNotificationRecipient,
   type WorkspaceNotificationRecord,
   type WorkspaceNotificationRecipientType,
+  type WorkspaceNotificationResourceType,
+  type WorkspaceNotificationSeverity,
   type WorkspaceNotificationStatus,
 } from "@dofe-agent/db";
 import { postMessageSync } from "../messages/messages.ts";
@@ -20,6 +23,8 @@ export type {
   WorkspaceNotificationRecipient,
   WorkspaceNotificationRecord,
   WorkspaceNotificationRecipientType,
+  WorkspaceNotificationResourceType,
+  WorkspaceNotificationSeverity,
   WorkspaceNotificationStatus,
 };
 
@@ -105,4 +110,43 @@ function compactStringRecord(input: Record<string, string | undefined>): Record<
     }
   }
   return output;
+}
+
+export function notifyWorkspaceAdminsSync(input: {
+  workspaceId: string;
+  title: string;
+  body: string;
+  type: string;
+  severity: WorkspaceNotificationSeverity;
+  resourceType?: WorkspaceNotificationResourceType;
+  resourceId?: string;
+  actionHref?: string;
+  dedupeKey?: string;
+  metadata?: Record<string, unknown>;
+}): WorkspaceNotificationRecord[] {
+  const admins = listWorkspaceMemberUsersSync(input.workspaceId).filter(
+    (member) => member.role === "owner" || member.role === "admin",
+  );
+  if (admins.length === 0) {
+    return [];
+  }
+
+  return createNotificationsSync(
+    admins.map((admin) => ({
+      workspaceId: input.workspaceId,
+      recipientType: "human" as const,
+      recipientId: admin.userId,
+      actorType: "system" as const,
+      actorId: "system",
+      type: input.type,
+      title: input.title,
+      body: input.body,
+      severity: input.severity,
+      resourceType: input.resourceType ?? "workspace",
+      resourceId: input.resourceId,
+      actionHref: input.actionHref,
+      dedupeKey: input.dedupeKey,
+      metadata: input.metadata,
+    })),
+  );
 }

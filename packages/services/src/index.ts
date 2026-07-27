@@ -10,7 +10,9 @@ export {
   resetWorkspaceStateSync,
 } from "./shared/state-io.ts";
 export {
+  recordPlatformAuditEventSync,
   recordWorkspaceAuditEventSync,
+  tryRecordPlatformAuditEventSync,
   tryRecordWorkspaceAuditEventSync,
 } from "./shared/audit.ts";
 export {
@@ -20,11 +22,14 @@ export {
   createNotificationsSync,
   listNotificationsForRecipientSync,
   markNotificationReadSync,
+  notifyWorkspaceAdminsSync,
   postNotificationChannelMessageSync,
   type CreateWorkspaceNotificationInput,
   type WorkspaceNotificationRecipient,
   type WorkspaceNotificationRecipientType,
   type WorkspaceNotificationRecord,
+  type WorkspaceNotificationResourceType,
+  type WorkspaceNotificationSeverity,
   type WorkspaceNotificationStatus,
 } from "./notifications/notifications.ts";
 export {
@@ -758,8 +763,17 @@ export {
 export {
   getCostDashboardDataSync,
   getAgentCostProfileSync,
+  getRuntimeCostProfileSync,
+  listRuntimeCostProfilesSync,
+  getRuntimeCredentialCostProfileSync,
+  listRuntimeCredentialCostProfilesSync,
+  getSessionCostProfileSync,
+  listSessionCostProfilesSync,
   type AgentCostProfile,
   type CostDashboardData,
+  type RuntimeCostProfile,
+  type RuntimeCredentialCostProfile,
+  type SessionCostProfile,
 } from "./costs/costs.ts";
 
 // Budgets
@@ -954,10 +968,13 @@ export {
   deleteManagedRuntimeSync,
   finalizeManagedRuntimeProvisioningSync,
   getManagedRuntimeCredentialStatusSync,
+  handleManagedRuntimeProviderFailureAsync,
   getRuntimeProvisioningTaskDetailSync,
   listManagedRuntimeTasksSync,
   listManagedRuntimesForWorkspaceSync,
+  preflightManagedRuntimeCreationAsync,
   requestManagedRuntimeProvisioningSync,
+  resumePendingRuntimeCredentialRecoveriesAsync,
   resolveManagedRuntimeScopeSync,
   resumePendingProvisioningTasksSync,
   retryRuntimeProvisioningTaskSync,
@@ -965,7 +982,13 @@ export {
   runProvisioningPipeline,
   stopManagedRuntimeSync,
   type GetManagedRuntimeCredentialStatusInput,
+  type HandleManagedRuntimeProviderFailureInput,
+  type ManagedRuntimeProviderFailureResult,
+  type ManagedRuntimeListItem,
+  type ManagedRuntimeCreationPreflightResult,
   type ManagedRuntimeActor,
+  type PublicManagedRuntimeRecord,
+  type PublicRuntimeProvisioningTaskRecord,
   type RequestManagedRuntimeInput,
   type RotateManagedRuntimeCredentialInput,
   type RuntimeProvisioningTaskDetail,

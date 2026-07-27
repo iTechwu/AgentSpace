@@ -18,14 +18,23 @@ export function createUserSync(input: {
   displayName: string;
   primaryEmail?: string;
   avatarUrl?: string;
+  isAdmin?: boolean;
 }): StoredUserRecord {
   const db = getDatabase();
   const now = new Date().toISOString();
   const id = `user-${randomLikeId()}`;
   db.prepare(
-    `INSERT INTO users (id, display_name, avatar_url, primary_email, created_at, updated_at, last_login_at)
-     VALUES (?, ?, ?, ?, ?, ?, NULL)`,
-  ).run(id, input.displayName.trim(), input.avatarUrl ?? null, normalizeEmail(input.primaryEmail) ?? null, now, now);
+    `INSERT INTO users (id, display_name, avatar_url, primary_email, is_admin, created_at, updated_at, last_login_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+  ).run(
+    id,
+    input.displayName.trim(),
+    input.avatarUrl ?? null,
+    normalizeEmail(input.primaryEmail) ?? null,
+    input.isAdmin === true ? 1 : 0,
+    now,
+    now,
+  );
 
   return readUserSync(id)!;
 }
@@ -38,6 +47,7 @@ export function readUserSync(userId: string): StoredUserRecord | null {
       display_name AS displayName,
       avatar_url AS avatarUrl,
       primary_email AS primaryEmail,
+      is_admin AS isAdmin,
       created_at AS createdAt,
       updated_at AS updatedAt,
       last_login_at AS lastLoginAt
@@ -61,6 +71,7 @@ export function readUserByEmailSync(email: string): StoredUserRecord | null {
       display_name AS displayName,
       avatar_url AS avatarUrl,
       primary_email AS primaryEmail,
+      is_admin AS isAdmin,
       created_at AS createdAt,
       updated_at AS updatedAt,
       last_login_at AS lastLoginAt
@@ -178,11 +189,12 @@ export function updateUserSync(input: {
   displayName?: string;
   primaryEmail?: string;
   avatarUrl?: string;
+  isAdmin?: boolean;
 }): StoredUserRecord | null {
   const db = getDatabase();
   const now = new Date().toISOString();
   const sets: string[] = ["updated_at = ?"];
-  const values: Array<string | null> = [now];
+  const values: Array<string | number | null> = [now];
 
   if (input.displayName !== undefined) {
     sets.push("display_name = ?");
@@ -195,6 +207,10 @@ export function updateUserSync(input: {
   if (input.avatarUrl !== undefined) {
     sets.push("avatar_url = ?");
     values.push(input.avatarUrl.trim() || null);
+  }
+  if (input.isAdmin !== undefined) {
+    sets.push("is_admin = ?");
+    values.push(input.isAdmin === true ? 1 : 0);
   }
 
   values.push(input.userId);
@@ -348,7 +364,7 @@ export function listWorkspaceMemberUsersSync(workspaceId: string): WorkspaceMemb
       wm.role
      FROM workspace_membership wm
      JOIN users u ON u.id = wm.user_id
-     WHERE wm.workspace_id = ? AND wm.status = 'active'
+     WHERE wm.workspace_id = ? AND wm.status = 'active' AND u.is_admin = 0
      ORDER BY wm.joined_at ASC`,
   ).all(workspaceId) as Array<Record<string, unknown>>;
 
@@ -361,11 +377,17 @@ export function countWorkspaceMembersSync(workspaceId: string): number {
   const db = getDatabase();
   const row = db.prepare(
     `SELECT COUNT(*) AS count
-     FROM workspace_membership
-     WHERE workspace_id = ? AND status = 'active'`,
+     FROM workspace_membership wm
+     JOIN users u ON u.id = wm.user_id
+     WHERE wm.workspace_id = ? AND wm.status = 'active' AND u.is_admin = 0`,
   ).get(workspaceId) as { count?: number } | undefined;
 
   return typeof row?.count === "number" ? row.count : 0;
+}
+
+export function isPlatformAdminUserSync(userId: string): boolean {
+  const user = readUserSync(userId);
+  return user?.isAdmin === true;
 }
 
 function readAuthIdentitySync(identityId: string): StoredAuthIdentityRecord | null {
@@ -403,6 +425,7 @@ function mapStoredUserRecord(value: Record<string, unknown>): StoredUserRecord |
     displayName: value.displayName,
     avatarUrl: typeof value.avatarUrl === "string" ? value.avatarUrl : undefined,
     primaryEmail: typeof value.primaryEmail === "string" ? value.primaryEmail : undefined,
+    isAdmin: value.isAdmin === true || value.isAdmin === 1,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     lastLoginAt: typeof value.lastLoginAt === "string" ? value.lastLoginAt : undefined,

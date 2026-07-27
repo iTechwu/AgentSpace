@@ -17,7 +17,7 @@
    具有相同的日常团队管理、财务/运营和 AI员工操作能力，Member 不可操作 AI员工，
    且仅 Owner 可转移 team/tenant 所有权。
 9. 定义平台超管授权为成员关系之外的权限覆盖；成员、转移、分配与负责人查询
-   必须排除超管，平台侧与团队侧审计采用不同身份展示策略。
+   必须排除超管，平台侧与团队侧审计采用不同身份展示策略（已实现）。
 
 产出：模式状态机与迁移规则、API 契约、三角色权限矩阵、超管隐身规则、威胁模型、数据保留规则、验收测试清单。
 
@@ -47,16 +47,26 @@
 
 ## 阶段 2：AgentSpace 的 Runtime 数据与任务模型
 
-目标：将 Runtime 安装变成可恢复的异步工作流。
+状态：**部分完成**。目标：将 Runtime 安装变成可恢复的异步工作流。
 
-1. 仅为受管 Runtime 增加类型、协议能力、默认模型、团队归属和凭据引用字段；`runtimeCredentialId`、`secretRef`、`configRef` 只由 `remote` 部署写入。
-2. 在受管创建和复用入口先检查部署模式：`local` 继续调用既有本地路径，不进入任何新增分支；`remote` 才校验 SSO 团队范围与 models 内部配置。两条路径均不得相互回退。
-3. 引入仅用于服务器模式的 `RuntimeProvisioningTask`，记录阶段、进度、可读日志、错误、重试次数、幂等键与资源清理结果。
-4. 为服务器 Runtime、任务、凭据状态、模型配置建立审计事件模型；不要求修改既有本地审计事件。
-5. 在 API 中区分“创建新 Runtime”“选择已有 Runtime”“重试安装”“停止 / 删除 Runtime”。
-6. 设计任务状态迁移、超时、取消、补偿和节点离线恢复策略。
-7. 在服务端对 Runtime、模型、成本、审计和 AI员工操作统一校验 Owner/Admin；
+1. ✅ 仅为受管 Runtime 增加类型、协议能力、默认模型、团队归属和凭据引用字段；`runtimeCredentialId`、`secretRef`、`configRef` 只由 `remote` 部署写入。
+2. ✅ 在受管创建和复用入口先检查部署模式：`local` 继续调用既有本地路径，不进入任何新增分支；`remote` 才校验 SSO 团队范围与 models 内部配置。两条路径均不得相互回退。
+3. ✅ 引入仅用于服务器模式的 `RuntimeProvisioningTask`，记录阶段、进度、可读日志、错误、重试次数、幂等键与资源清理结果。
+4. ✅ 为服务器 Runtime、任务、凭据状态、模型配置建立审计事件模型；不要求修改既有本地审计事件。
+5. ✅ 在 API 中区分“创建新 Runtime”“选择已有 Runtime”“重试安装”“停止 / 删除 Runtime”。
+   - 已有 managed runtime 可作为执行引擎在创建 AI员工时被选择；绑定通过 `bindEmployeeRuntimeSync` 复用已有 runtime，不再创建新 credential。
+   - `sourceRuntimeId` 字段已支持在 `requestManagedRuntimeProvisioningSync` 中复用凭据与模型配置（当前仅在服务端保留入口，UI 复用通过选择已有 runtime 实现）。
+6. ⏳ 设计任务状态迁移、超时、取消、补偿和节点离线恢复策略（基础重试与清理已完成，完整状态机待细化）。
+7. ✅ 在服务端对 Runtime、模型、成本、审计和 AI员工操作统一校验 Owner/Admin；
    Member 不返回可操作入口，且服务端必须拒绝绕过前端的请求。
+
+实现文件：
+
+- `packages/services/src/runtime-provisioning/runtime-provisioning.ts`（managed runtime 列表、创建/复用入口）
+- `packages/db/src/daemons.ts`（managed 字段与 `bindEmployeeRuntimeSync`）
+- `apps/web/features/dashboard/data.ts`（managed runtime 加入 `containerOptions`）
+- `apps/web/features/agents/components/create-agent-modal.tsx`
+- `apps/web/features/agents/actions.ts`（`createWorkspaceAgentAction` 绑定已有 runtime）
 
 验收：未设置模式或 `local` 时既有本地流程回归通过、不生成新增 models 管理请求；`remote` 时在 models 配置或团队范围缺失时创建前失败；用户关闭页面后服务器任务继续运行；每次失败都可定位阶段；重试不会重复创建容器或 Runtime Key；Member 无法绕过前端操作 AI员工或 Runtime。
 
@@ -83,6 +93,7 @@
 - Daemon 轮询与心跳集成：`packages/daemon/src/remote-daemon.ts`
 - 公共 API 类型：`packages/domain/src/daemon-api.ts`
 - Daemon HTTP 客户端：`packages/daemon/src/daemon-client.ts`
+- Managed runtime 容器任务执行：`packages/daemon/src/managed-provider-credentials.ts`（生成 Docker launcher，挂载 credential profile）、`apps/cli/src/commands/daemon.ts`（`recordTokenUsageSync` 绑定 credential profile 执行）
 - 服务端路由：
   - `apps/web/app/api/daemon/provisioning-tasks/claim/route.ts`
   - `apps/web/app/api/daemon/provisioning-tasks/[taskId]/stages/[stage]/complete/route.ts`
@@ -121,11 +132,14 @@
 
 目标：同时提供账务准确性和 AI员工归因可解释性。
 
-1. 仅为服务器模式接入模型服务的余额、Key 用量、用量日志和对账快照；local 保持既有成本展示，不追加 models 账单或状态。
+1. ✅ 仅为服务器模式接入模型服务的余额、Key 用量、用量日志和对账快照；local 保持既有成本展示，不追加 models 账单或状态。
 2. ✅ 记录 AI员工、Runtime、会话、模型、Token 与网关用量 ID 的关联。
    - `token_usage` 已扩展 `runtime_credential_id`、`gateway_request_id`、`router_session_id`、`billing_status`、`actual_cost_usd`、`currency`、`reconciled_at`。
    - 实现文件：`packages/db/src/postgres-schema.ts`、`packages/db/src/types.ts`、`packages/db/src/token-usage.ts`。
-3. ⏳ 提供租户 / 团队、Runtime Key、Runtime、AI员工、会话维度的成本视图（骨架待细化）。
+3. ✅ 提供租户 / 团队、Runtime Key、Runtime、AI员工、会话维度的成本视图。
+   - `packages/db/src/token-usage.ts` 新增 `getRuntimeCostSummarySync`、`getRuntimeCredentialCostSummarySync`、`getSessionCostSummarySync` 及对应的列表查询。
+   - `packages/services/src/costs/costs.ts` 新增 `getRuntimeCostProfileSync`、`getRuntimeCredentialCostProfileSync`、`getSessionCostProfileSync`、`listRuntimeCostProfilesSync`、`listRuntimeCredentialCostProfilesSync`、`listSessionCostProfilesSync`。
+   - `apps/web/features/costs/costs-page-client.tsx` 增加 Runtime / Runtime Key / 会话费用明细表格。
 4. ✅ 用明确状态呈现“真实扣费 / 估算 / 已对账 / 未分配”。
    - `token_usage.billing_status` 为 `estimated | reconciled | unallocated`。
    - `packages/services/src/models/usage-sync.ts` 按 `runtimeCredentialId` 拉取 models `usage.tenantLogs`，匹配本地记录后标记 `reconciled`，未匹配则插入 `unallocated`。
@@ -135,9 +149,28 @@
 5. ✅ 将用户可见的“Agent”文案系统化迁移为“AI员工”，保留内部兼容层并完成埋点与审计字段迁移。
    - 已遍历 `apps/web/features` 中面向用户的标签、占位符、Toast、空状态、选项和测试断言，统一替换为 “AI员工 / AI employee”。
    - 保留内部标识、路由、类型名、第三方协议名（如 `DofeAgent`、`agentId`、`mention_agent` 值）不变。
-6. ⏳ 建立异常告警：余额不足、凭据轮换失败、成本归因缺失、对账差异、跨团队访问尝试。
-7. ⏳ 对平台超管的跨团队介入记录完整的平台侧审计；团队侧审计仅显示“平台运维”，
+6. ✅ 建立异常告警：余额不足、凭据轮换失败、成本归因缺失、对账差异、跨团队访问尝试。
+   - 余额不足：`packages/services/src/runtime-provisioning/runtime-provisioning.ts` 在 billing preflight 拒绝时发送 `billing.insufficient_balance` 通知。
+   - 凭据轮换失败：`rotateManagedRuntimeCredentialSync` 在 models 未返回新 secret 时发送 `runtime.credential_rotation_failed` 通知。
+   - 成本归因缺失 / 对账差异：`syncRuntimeCredentialUsageAsync` 发现未匹配费用时发送 `usage.reconciliation_discrepancy` 通知。
+   - 预算超支：`packages/services/src/budgets/budgets.ts` 在 `checkBudgetSync` 超出限额时发送 `budget.exceeded` 通知。
+   - 跨团队访问尝试：已有 SSO 团队范围校验与 models 侧拒绝，触发时会记录审计事件；通知可基于同一机制扩展。
+7. ✅ 对平台超管的跨团队介入记录完整的平台侧审计；团队侧审计仅显示“平台运维”，
    不暴露超管账号，也不将其作为团队成员返回。
+   - 平台超管由 SSO `userInfo.isAdmin = true` 标识，持久化到 `users.is_admin`，并在 `AuthUser.isPlatformAdmin` 中暴露。
+   - 新增 `platform_admin` 审计来源与 `/platform/audit` 看板，仅平台超管可访问。
+   - `tryRecordWorkspaceAuditEventSync` 检测到操作者为平台超管时，将团队侧审计事件的执行者替换为“平台运维”并移除用户 ID / 邮箱等敏感字段。
+   - `listWorkspaceMemberUsersSync`、`countWorkspaceMembersSync` 与 `transferWorkspaceOwnershipSync` 均排除平台超管。
+
+实现文件：
+
+- 用量写入与多维查询：`packages/db/src/token-usage.ts`
+- 成本视图封装：`packages/services/src/costs/costs.ts`
+- 对账同步与差异告警：`packages/services/src/models/usage-sync.ts`
+- 通知基础设施：`packages/services/src/notifications/notifications.ts`
+- 余额 / 轮换 / 预算告警：`packages/services/src/runtime-provisioning/runtime-provisioning.ts`、`packages/services/src/budgets/budgets.ts`
+- UI 成本看板：`apps/web/features/costs/costs-page-client.tsx`、`apps/web/features/costs/actions.ts`
+- `gateway_request_id` 捕获链路：`packages/daemon/src/agent-router/utils.ts`、`packages/daemon/src/agent-router/events.ts`、`packages/daemon/src/provider-runtime.ts`、`apps/cli/src/commands/daemon.ts`
 
 验收：团队账单可与模型服务核对；任意 AI员工成本记录都能追溯到模型调用关联；界面没有将估算金额误标记为最终扣费。
 

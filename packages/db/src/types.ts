@@ -30,6 +30,7 @@ export interface StoredUserRecord {
   displayName: string;
   avatarUrl?: string;
   primaryEmail?: string;
+  isAdmin?: boolean;
   createdAt: string;
   updatedAt: string;
   lastLoginAt?: string;
@@ -327,7 +328,7 @@ export interface AgentRuntimeRecord {
    * `legacy` = backed by a provider_account. Null for rows created before
    * the managed-runtime phase.
    */
-  provisioningState?: "managed" | "legacy" | null;
+  provisioningState?: "managed" | "legacy" | "credential_recovering" | "needs_attention" | null;
   /** models.dofe.ai RuntimeCredential id (opaque). */
   managedCredentialId?: string;
   /** Opaque vault references; plaintext keys are never stored. */
@@ -460,7 +461,9 @@ export interface RuntimeProvisioningTaskRecord {
   sourceRuntimeId?: string;
   runtimeType: DaemonProvider;
   protocols: string[];
+  requestedName?: string;
   requestedModel?: string;
+  allowedModels: string[];
   targetServer?: string;
   stage: RuntimeProvisioningTaskStage;
   stageStatus: RuntimeProvisioningTaskStageStatus;
@@ -504,6 +507,27 @@ export interface RuntimeProvisioningTaskEventRecord {
   createdAt: string;
 }
 
+export type RuntimeCredentialRecoveryTaskStatus = "queued" | "running" | "succeeded" | "failed";
+
+export interface RuntimeCredentialRecoveryTaskRecord {
+  id: string;
+  workspaceId: string;
+  runtimeId: string;
+  sourceTaskId: string;
+  credentialId: string;
+  idempotencyKey: string;
+  status: RuntimeCredentialRecoveryTaskStatus;
+  attemptCount: number;
+  maxAttempts: number;
+  cooldownUntil?: string;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type ManagedRuntimeCleanupRequestStatus = "pending" | "running" | "succeeded" | "failed";
 
 export interface ManagedRuntimeCleanupRequestRecord {
@@ -526,7 +550,8 @@ export type AuditLogSource =
   | "workspace_snapshot_ledger"
   | "runtime_credential"
   | "runtime_lifecycle"
-  | "runtime_model";
+  | "runtime_model"
+  | "platform_admin";
 
 export interface AuditLogRecord {
   id: string;

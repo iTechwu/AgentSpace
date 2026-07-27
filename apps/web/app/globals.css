@@ -25630,3 +25630,73 @@ button[aria-disabled="true"] svg {
     padding: 0 0.35rem;
   }
 }
+
+.platform-audit-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+.platform-audit-header {
+  margin-bottom: 1.5rem;
+}
+
+.platform-audit-header h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.6rem;
+}
+
+.platform-audit-header p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.platform-audit-table-wrap {
+  background: var(--panel);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  overflow: auto;
+}
+
+.platform-audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.platform-audit-table th,
+.platform-audit-table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.platform-audit-table th {
+  background: var(--panel-strong);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.platform-audit-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.platform-audit-data {
+  margin: 0;
+  max-width: 360px;
+  max-height: 120px;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.platform-audit-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--muted);
+}

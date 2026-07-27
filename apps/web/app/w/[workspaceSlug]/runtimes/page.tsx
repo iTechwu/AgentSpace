@@ -1,4 +1,8 @@
-import { listManagedRuntimeTasksSync, resolveAgentRuntimeMode } from "@dofe-agent/services";
+import {
+  listManagedRuntimesForWorkspaceSync,
+  listManagedRuntimeTasksSync,
+  resolveAgentRuntimeMode,
+} from "@dofe-agent/services";
 import { notFound } from "next/navigation";
 import { getWorkspacePageContext } from "../_lib/workspace-page-context";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
@@ -24,12 +28,19 @@ export default async function WorkspaceRuntimesPage({
         actorUserId: workspaceContext.currentUser.id,
       })
     : [];
+  const runtimes = isAdmin
+    ? listManagedRuntimesForWorkspaceSync({
+        workspaceId: workspaceContext.currentWorkspace.id,
+        actorUserId: workspaceContext.currentUser.id,
+      })
+    : [];
 
   return (
     <RuntimesPageClient
       workspaceSlug={workspaceContext.currentWorkspace.slug}
       isAdmin={isAdmin}
       initialTasks={tasks}
+      initialRuntimes={runtimes}
     />
   );
 }

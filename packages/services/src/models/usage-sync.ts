@@ -9,6 +9,7 @@ import type { ModelsInternalUsageLogEntry } from "@dofe/models-sdk";
 import { resolveAgentRuntimeMode } from "../config/deployment.ts";
 import { getModelsInternalClient } from "./client.ts";
 import { resolveManagedRuntimeScopeSync } from "../runtime-provisioning/runtime-provisioning.ts";
+import { notifyWorkspaceAdminsSync } from "../notifications/notifications.ts";
 
 export interface SyncRuntimeCredentialUsageInput {
   workspaceId: string;
@@ -119,6 +120,26 @@ export async function syncRuntimeCredentialUsageAsync(
       ...result,
     },
   });
+
+  if (result.unallocatedCount > 0) {
+    const today = new Date().toISOString().slice(0, 10);
+    notifyWorkspaceAdminsSync({
+      workspaceId: input.workspaceId,
+      title: "Usage reconciliation discrepancy detected",
+      body: `Reconciliation found ${result.unallocatedCount} unallocated charge(s) for runtime "${runtime.name ?? runtime.id}". Review the cost overview to investigate missing attribution.`,
+      type: "usage.reconciliation_discrepancy",
+      severity: "warning",
+      resourceType: "workspace",
+      resourceId: runtime.id,
+      actionHref: "/costs",
+      dedupeKey: `usage.reconciliation_discrepancy:${input.workspaceId}:${runtime.id}:${today}`,
+      metadata: {
+        unallocatedCount: result.unallocatedCount,
+        runtimeId: runtime.id,
+        runtimeCredentialId: runtime.managedCredentialId,
+      },
+    });
+  }
 
   return result;
 }

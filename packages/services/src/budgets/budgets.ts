@@ -9,6 +9,7 @@ import {
   getMonthStartIso,
 } from "@dofe-agent/db";
 import type { BudgetAction, BudgetPeriod, BudgetRecord, BudgetScope } from "@dofe-agent/db";
+import { notifyWorkspaceAdminsSync } from "../notifications/notifications.ts";
 
 export type BudgetCheckResult =
   | { status: "ok" }
@@ -26,6 +27,24 @@ export function checkBudgetSync(scope: BudgetScope, scopeId: string, workspaceId
   const percentUsed = budget.limitUsd > 0 ? spentUsd / budget.limitUsd : 0;
 
   if (spentUsd >= budget.limitUsd) {
+    const today = new Date().toISOString().slice(0, 10);
+    notifyWorkspaceAdminsSync({
+      workspaceId,
+      title: "Budget exceeded",
+      body: `${budget.scope} budget "${budget.scopeId}" has reached $${spentUsd.toFixed(4)} of $${budget.limitUsd.toFixed(4)} limit. Action: ${budget.action}.`,
+      type: "budget.exceeded",
+      severity: "critical",
+      resourceType: "workspace",
+      resourceId: budget.scopeId,
+      dedupeKey: `budget.exceeded:${workspaceId}:${budget.scope}:${budget.scopeId}:${today}`,
+      metadata: {
+        budgetScope: budget.scope,
+        budgetScopeId: budget.scopeId,
+        limitUsd: budget.limitUsd,
+        spentUsd,
+        action: budget.action,
+      },
+    });
     return { status: "exceeded", budget, spentUsd, percentUsed, action: budget.action };
   }
 

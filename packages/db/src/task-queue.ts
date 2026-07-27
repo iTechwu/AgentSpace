@@ -816,11 +816,13 @@ function selectQueuedTaskForRuntime(
 ): Record<string, unknown> | undefined {
   return db
     .prepare(
-      `SELECT id
-       FROM agent_task_queue
-       WHERE runtime_id = ? AND status = 'queued'
-       ${typeof workspaceId === "string" ? "AND workspace_id = ?" : ""}
-       ORDER BY priority DESC, created_at ASC
+      `SELECT queue.id
+       FROM agent_task_queue queue
+       JOIN agent_runtime runtime ON runtime.id = queue.runtime_id
+       WHERE queue.runtime_id = ? AND queue.status = 'queued'
+         AND (runtime.managed_credential_id IS NULL OR runtime.provisioning_state = 'managed')
+       ${typeof workspaceId === "string" ? "AND queue.workspace_id = ?" : ""}
+       ORDER BY queue.priority DESC, queue.created_at ASC
        LIMIT 1`,
     )
     .get(...(typeof workspaceId === "string" ? [runtimeId, workspaceId] : [runtimeId])) as Record<string, unknown> | undefined;

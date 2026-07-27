@@ -230,6 +230,7 @@ export interface ReportTaskMessagesRequest {
 
 export interface FailTaskRequest {
   errorText: string;
+  runtimeCredentialId?: string;
   errorCode?: ProviderErrorCode;
   errorCategory?: ProviderErrorCategory;
   provider?: DaemonProvider;

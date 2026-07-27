@@ -6,6 +6,7 @@ import {
   failChannelDocumentRunStepSync,
   formatConversationFailureSummary,
   formatTaskFailureSummary,
+  handleManagedRuntimeProviderFailureAsync,
   postMessageSync,
   queueFeishuChannelReplyOutboxSync,
   readWorkspaceStateSync,
@@ -181,12 +182,23 @@ export async function POST(
     workDir: body.workDir,
   });
 
+  const recovery = body.runtimeCredentialId
+    ? await handleManagedRuntimeProviderFailureAsync({
+        workspaceId: task.workspaceId,
+        runtimeId: task.runtimeId,
+        sourceTaskId: task.id,
+        reportedCredentialId: body.runtimeCredentialId,
+        errorCode: body.errorCode,
+      }).catch(() => undefined)
+    : undefined;
+
   return Response.json({
     task: {
       id: task.id,
       status: "failed",
       errorText: body.errorText.trim(),
     },
+    recovery: recovery ? { status: recovery.status } : undefined,
   });
 }
 

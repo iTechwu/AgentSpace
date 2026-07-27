@@ -1,6 +1,6 @@
 import { heartbeatDaemonSync, listPendingManagedRuntimeCleanupRequestsForDaemonSync } from "@dofe-agent/db";
 import type { HeartbeatDaemonRequest, HeartbeatDaemonResponse } from "@dofe-agent/domain";
-import { buildManagedCleanupCommands } from "@dofe-agent/services";
+import { buildManagedCleanupCommands, resumePendingRuntimeCredentialRecoveriesAsync } from "@dofe-agent/services";
 import { readDaemonConnectionForDaemon, requireDaemonAuth } from "../_lib/auth";
 
 export const runtime = "nodejs";
@@ -42,6 +42,10 @@ export async function POST(request: Request): Promise<Response> {
     runtimeType: req.runtimeType,
     commands: buildManagedCleanupCommands(req.runtimeType, req.runtimeId),
   }));
+
+  await resumePendingRuntimeCredentialRecoveriesAsync({
+    workspaceId: auth.workspaceId,
+  }).catch(() => []);
 
   const response: HeartbeatDaemonResponse = {
     daemon: {

@@ -131,6 +131,32 @@ describe("SSO workspace synchronization", () => {
     expect(listUserWorkspacesSync("user-1")).toEqual([]);
   });
 
+  it("syncs platform workspace scope without materializing a team membership", () => {
+    const scopes = buildSsoWorkspaceScopes({
+      preferredTenantId: "tenant-platform",
+      teams: [{
+        teamId: "team-platform",
+        teamSlug: "operations",
+        teamName: "Operations",
+        tenantId: "tenant-platform",
+        tenantSlug: "platform",
+        tenantName: "Platform",
+        role: "ADMIN",
+      }],
+      tenants: [],
+    });
+
+    syncSsoWorkspacesForUserSync({
+      displayName: "Platform operator",
+      materializeMemberships: false,
+      scopes,
+      userId: "user-1",
+    });
+
+    expect(readWorkspaceSync(scopes[0]!.id)?.name).toBe("Platform / Operations");
+    expect(listUserWorkspacesSync("user-1")).toEqual([]);
+  });
+
   it("uses tenant and team names for a non-ASCII SSO workspace URL", () => {
     const scopes = buildSsoWorkspaceScopes({
       teams: [{

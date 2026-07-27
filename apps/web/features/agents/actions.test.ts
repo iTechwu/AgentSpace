@@ -210,7 +210,7 @@ describe("agent actions", () => {
       actorUserId: "user-1",
       actorDisplayName: "techwu",
     });
-    expect(result.toast.en).toContain("2 controlled dependency install(s) queued");
+    expect(result.toast?.en).toContain("2 controlled dependency install(s) queued");
   });
 
   it("stores requirements for the target agent before assigning the skill", async () => {
@@ -244,7 +244,7 @@ describe("agent actions", () => {
       runtimeProvider: undefined,
     });
     expect(mockSetEmployeeSkillIdsSync).toHaveBeenCalledWith("Atlas", ["skill-image"], "workspace-1");
-    expect(result.toast.en).toContain("installed and configured for this agent");
+    expect(result.toast?.en).toContain("installed and configured for this agent");
   });
 });
 

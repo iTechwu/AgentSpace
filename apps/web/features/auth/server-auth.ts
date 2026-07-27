@@ -18,7 +18,7 @@ import {
   type StoredSessionRecord,
   type StoredUserRecord,
 } from "@dofe-agent/db";
-import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { tryRecordPlatformAuditEventSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { syncSsoWorkspacesForUserSync, type SsoWorkspaceScope } from "./sso-workspaces";
 import { clearWorkspaceSelectionCookie, writeWorkspaceSelectionCookie } from "./workspace-selection";
 
@@ -37,6 +37,7 @@ export interface AuthUser {
   displayName: string;
   role: string;
   email: string;
+  isPlatformAdmin: boolean;
 }
 
 export const getCurrentUser = cache(async function getCurrentUser(): Promise<AuthUser | null> {
@@ -57,6 +58,7 @@ export async function createSessionForSsoLogin(input: {
   email: string;
   emailVerified: boolean;
   idToken: string;
+  isAdmin?: boolean;
   subject: string;
   workspaceScopes: SsoWorkspaceScope[];
 }): Promise<{ isNewUser: boolean; session: SsoLoginSession; user: AuthUser }> {
@@ -75,6 +77,7 @@ export async function createSessionForSsoLogin(input: {
         displayName: input.displayName,
         primaryEmail: input.email,
         avatarUrl: input.avatarUrl,
+        isAdmin: input.isAdmin,
       });
       isNewUser = true;
     }
@@ -93,9 +96,11 @@ export async function createSessionForSsoLogin(input: {
     displayName: input.displayName,
     primaryEmail: input.email,
     avatarUrl: input.avatarUrl,
+    isAdmin: input.isAdmin,
   }) ?? user;
   const ssoWorkspaces = syncSsoWorkspacesForUserSync({
     displayName: updatedUser.displayName,
+    materializeMemberships: updatedUser.isAdmin !== true,
     scopes: input.workspaceScopes,
     userId: updatedUser.id,
   });
@@ -104,11 +109,20 @@ export async function createSessionForSsoLogin(input: {
     if (workspace) await writeWorkspaceSelectionCookie(workspace.slug);
   }
   const session = await createSsoLoginSession(updatedUser.id, input.idToken);
-  tryRecordUserWorkspaceAuditEventSync(updatedUser.id, {
-    title: "Dofe SSO login succeeded",
-    note: `${updatedUser.displayName} signed in through Dofe SSO.`,
-    code: "auth.sso_login_succeeded",
-  });
+  if (updatedUser.isAdmin) {
+    tryRecordPlatformAuditEventSync({
+      title: "Platform administrator login succeeded",
+      note: `${updatedUser.displayName} signed in through Dofe SSO.`,
+      code: "auth.sso_platform_admin_login_succeeded",
+      data: { actorUserId: updatedUser.id },
+    });
+  } else {
+    tryRecordUserWorkspaceAuditEventSync(updatedUser.id, {
+      title: "Dofe SSO login succeeded",
+      note: `${updatedUser.displayName} signed in through Dofe SSO.`,
+      code: "auth.sso_login_succeeded",
+    });
+  }
   return { isNewUser, session, user: toPublicUser(updatedUser) };
 }
 
@@ -192,6 +206,7 @@ function toPublicUser(user: StoredUserRecord): AuthUser {
     displayName: user.displayName,
     role: membership?.role ?? "member",
     email: user.primaryEmail ?? "",
+    isPlatformAdmin: user.isAdmin === true,
   };
 }
 

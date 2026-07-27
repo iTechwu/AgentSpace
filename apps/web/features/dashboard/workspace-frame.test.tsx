@@ -71,6 +71,7 @@ const user: AuthUser = {
   displayName: "techwu",
   role: "admin",
   email: "techwu@example.com",
+  isPlatformAdmin: false,
 };
 
 const shell: WorkspaceShellData = {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { probeManagedGateway } from "./managed-runtime-provisioning.ts";
+import { createManagedProvisioningExecutor, probeManagedGateway } from "./managed-runtime-provisioning.ts";
 
 test("managed gateway health probe authenticates against the protocol-neutral model directory", async () => {
   let observedUrl = "";
@@ -43,4 +43,26 @@ test("managed gateway health probe rejects an unauthenticated gateway response",
     ),
     /managed_runtime\.gateway_health_http_401/,
   );
+});
+
+test("failed managed cleanup preserves the credential profile for retry", async () => {
+  let cleanupCalls = 0;
+  const executor = createManagedProvisioningExecutor("/tmp/managed-runtime-test", {
+    async resolve() {
+      return null;
+    },
+    getExecutablePath() {
+      return "/tmp/run-provider";
+    },
+    cleanup() {
+      cleanupCalls += 1;
+    },
+  });
+
+  const result = await executor.executeCleanup("runtime-1", [
+    { executable: "sh", args: ["-c", "exit 1"] },
+  ]);
+
+  assert.equal(result.success, false);
+  assert.equal(cleanupCalls, 0);
 });

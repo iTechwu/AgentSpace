@@ -1,6 +1,7 @@
 import {
   listChannelParticipantsForUserSync,
   listUserWorkspacesSync,
+  listWorkspacesSync,
   readWorkspaceSync,
   type StoredWorkspaceMembershipRecord,
   type StoredWorkspaceRecord,
@@ -216,6 +217,18 @@ function sortWorkspacesByPreferredIdentifiers(
 }
 
 function ensureWorkspaceMembershipsSync(currentUser: AuthUser): StoredWorkspaceMembershipRecord[] {
+  if (currentUser.isPlatformAdmin) {
+    return listWorkspacesSync()
+      .filter((workspace) => workspace.id.startsWith("sso-"))
+      .map((workspace) => ({
+        id: `platform-admin-scope-${workspace.id}-${currentUser.id}`,
+        workspaceId: workspace.id,
+        userId: currentUser.id,
+        role: "admin",
+        status: "active",
+        joinedAt: new Date(0).toISOString(),
+      }));
+  }
   const memberships = listUserWorkspacesSync(currentUser.id)
     .filter((membership) => membership.workspaceId.startsWith("sso-"));
   if (memberships.length > 0) {

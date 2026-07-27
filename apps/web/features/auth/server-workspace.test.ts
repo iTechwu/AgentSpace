@@ -37,6 +37,7 @@ describe("server workspace context", () => {
       displayName: "techwu",
       role: "Founder",
       email: "techwu@example.com",
+      isPlatformAdmin: false,
     };
     seedUser(user);
 
@@ -50,6 +51,7 @@ describe("server workspace context", () => {
       displayName: "Alex",
       role: "Member",
       email: "alex@example.com",
+      isPlatformAdmin: false,
     };
     seedUser(user);
 
@@ -80,6 +82,7 @@ describe("server workspace context", () => {
       displayName: "Mina",
       role: "Owner",
       email: "mina@example.com",
+      isPlatformAdmin: false,
     };
     seedUser(user);
 
@@ -121,6 +124,7 @@ describe("server workspace context", () => {
       displayName: "Mina",
       role: "Owner",
       email: "mina-2@example.com",
+      isPlatformAdmin: false,
     };
     seedUser(user);
 
@@ -169,6 +173,7 @@ describe("server workspace context", () => {
       displayName: "Mina",
       role: "Owner",
       email: "mina@example.com",
+      isPlatformAdmin: false,
     };
     seedUser(user);
     createSsoWorkspace(user.id, "sso-team-existing");
@@ -185,6 +190,7 @@ describe("server workspace context", () => {
       displayName: "Mina",
       role: "Owner",
       email: "mina@example.com",
+      isPlatformAdmin: false,
     };
     seedUser(user);
 

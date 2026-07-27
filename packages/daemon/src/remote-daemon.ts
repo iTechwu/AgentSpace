@@ -799,6 +799,7 @@ async function executeRemoteTask(
     const providerError = failureMetadata?.providerError;
     await client.failTask(task.id, {
       errorText: message,
+      runtimeCredentialId: runtime.metadata.managedCredentialId,
       errorCode: providerError?.code,
       errorCategory: normalizeProviderTaskErrorCategory(providerError?.category),
       provider: providerError?.provider,

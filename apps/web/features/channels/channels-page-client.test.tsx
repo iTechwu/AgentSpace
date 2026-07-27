@@ -105,7 +105,7 @@ const {
     channelFiles: [],
     detailScope: [channelName],
   })),
-  getFeishuChannelMemberSnapshotActionMock: vi.fn(async () => null),
+  getFeishuChannelMemberSnapshotActionMock: vi.fn(async () => null as unknown as { chatName: string; userCount: number; botCount: number; members: Array<{ displayName: string }> } | null),
   renameChannelActionMock: vi.fn(async () => {}),
   sendChannelMessageActionMock: vi.fn<(formData: FormData) => Promise<void>>(async () => {}),
   sendContactMessageActionMock: vi.fn<(formData: FormData) => Promise<void>>(async () => {}),

@@ -17,7 +17,9 @@ export interface CreateRuntimeProvisioningTaskInput {
   sourceRuntimeId?: string;
   runtimeType: DaemonProvider;
   protocols: string[];
+  requestedName?: string;
   requestedModel?: string;
+  allowedModels?: string[];
   targetServer?: string;
   maxRetries?: number;
   timeouts?: Partial<Record<RuntimeProvisioningTaskStage, number>>;
@@ -86,10 +88,11 @@ export function createRuntimeProvisioningTaskSync(
   getDatabase().prepare(
     `INSERT INTO runtime_provisioning_task (
        id, workspace_id, runtime_id, requested_by_user_id, idempotency_key,
-       source_runtime_id, runtime_type, protocols_json, requested_model, target_server,
+       source_runtime_id, runtime_type, protocols_json, requested_name, requested_model,
+       allowed_models_json, target_server,
        stage, stage_status, progress_percent, retry_count, max_retries,
        cleanup_status, status, timeouts_json, started_at, created_at, updated_at
-     ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', 0, 0, ?, 'pending', 'queued', ?, NULL, ?, ?)`,
+     ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', 0, 0, ?, 'pending', 'queued', ?, NULL, ?, ?)`,
   ).run(
     id,
     workspaceId,
@@ -98,7 +101,9 @@ export function createRuntimeProvisioningTaskSync(
     optional(input.sourceRuntimeId),
     input.runtimeType,
     JSON.stringify(normalizeProtocols(input.protocols)),
+    optional(input.requestedName),
     optional(input.requestedModel),
+    JSON.stringify(normalizeModels(input.allowedModels ?? [])),
     optional(input.targetServer),
     input.maxRetries ?? 3,
     JSON.stringify(input.timeouts ?? {}),
@@ -614,7 +619,9 @@ type RawRuntimeProvisioningTask = {
   source_runtime_id: string | null;
   runtime_type: string;
   protocols_json: string;
+  requested_name: string | null;
   requested_model: string | null;
+  allowed_models_json: string;
   target_server: string | null;
   stage: RuntimeProvisioningTaskStage;
   stage_status: RuntimeProvisioningTaskStageStatus;
@@ -663,7 +670,9 @@ function mapRuntimeProvisioningTask(
     sourceRuntimeId: row.source_runtime_id ?? undefined,
     runtimeType: row.runtime_type as DaemonProvider,
     protocols: normalizeProtocols(parseJsonArray(row.protocols_json)),
+    requestedName: row.requested_name ?? undefined,
     requestedModel: row.requested_model ?? undefined,
+    allowedModels: normalizeModels(parseJsonArray(row.allowed_models_json)),
     targetServer: row.target_server ?? undefined,
     stage: row.stage,
     stageStatus: row.stage_status,
@@ -727,6 +736,10 @@ function normalizeProtocols(values: unknown[]): string[] {
       ).map((value) => value.trim()),
     ),
   ];
+}
+
+function normalizeModels(values: unknown[]): string[] {
+  return normalizeProtocols(values);
 }
 
 function isManagedNodeMetadata(value: unknown): boolean {

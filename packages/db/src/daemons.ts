@@ -436,7 +436,7 @@ export function readAgentRuntimeSync(runtimeId: string): AgentRuntimeRecord | nu
 export interface UpdateAgentRuntimeManagedFieldsInput {
   runtimeId: string;
   workspaceId?: string;
-  provisioningState?: "managed" | "legacy";
+  provisioningState?: "managed" | "legacy" | "credential_recovering" | "needs_attention";
   managedCredentialId?: string;
   credentialSecretRef?: string;
   credentialConfigRef?: string;

@@ -361,6 +361,287 @@ export function getWorkspaceCostSummarySync(since?: string, workspaceId = DEFAUL
   }));
 }
 
+export function getRuntimeCostSummarySync(
+  runtimeId: string,
+  since?: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): {
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: number;
+  totalActualCostUsd: number;
+  taskCount: number;
+} {
+  const db = getDatabase();
+  const params: string[] = [workspaceId, runtimeId];
+  let dateFilter = "";
+  if (since) {
+    dateFilter = " AND t.created_at >= ?";
+    params.push(since);
+  }
+
+  const row = db.prepare(
+    `SELECT COALESCE(SUM(t.input_tokens), 0) AS total_input,
+            COALESCE(SUM(t.output_tokens), 0) AS total_output,
+            COALESCE(SUM(t.cost_usd), 0) AS total_cost,
+            COALESCE(SUM(t.actual_cost_usd), 0) AS total_actual,
+            COUNT(*) AS task_count
+     FROM token_usage t
+     JOIN agent_task_queue q ON q.id = t.task_queue_id AND q.workspace_id = t.workspace_id
+     WHERE t.workspace_id = ? AND q.runtime_id = ?${dateFilter}`,
+  ).get(...params) as {
+    total_input: number;
+    total_output: number;
+    total_cost: number;
+    total_actual: number;
+    task_count: number;
+  };
+
+  return {
+    totalInputTokens: row.total_input,
+    totalOutputTokens: row.total_output,
+    totalCostUsd: row.total_cost,
+    totalActualCostUsd: row.total_actual,
+    taskCount: row.task_count,
+  };
+}
+
+export function listRuntimeCostSummariesSync(
+  since?: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): Array<{
+  runtimeId: string;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: number;
+  totalActualCostUsd: number;
+  taskCount: number;
+}> {
+  const db = getDatabase();
+  const params: string[] = [workspaceId];
+  let dateFilter = "";
+  if (since) {
+    dateFilter = " AND t.created_at >= ?";
+    params.push(since);
+  }
+
+  const rows = db.prepare(
+    `SELECT q.runtime_id,
+            COALESCE(SUM(t.input_tokens), 0) AS total_input,
+            COALESCE(SUM(t.output_tokens), 0) AS total_output,
+            COALESCE(SUM(t.cost_usd), 0) AS total_cost,
+            COALESCE(SUM(t.actual_cost_usd), 0) AS total_actual,
+            COUNT(*) AS task_count
+     FROM token_usage t
+     JOIN agent_task_queue q ON q.id = t.task_queue_id AND q.workspace_id = t.workspace_id
+     WHERE t.workspace_id = ?${dateFilter}
+     GROUP BY q.runtime_id
+     ORDER BY total_cost DESC`,
+  ).all(...params) as Array<{
+    runtime_id: string;
+    total_input: number;
+    total_output: number;
+    total_cost: number;
+    total_actual: number;
+    task_count: number;
+  }>;
+
+  return rows.map((row) => ({
+    runtimeId: row.runtime_id,
+    totalInputTokens: row.total_input,
+    totalOutputTokens: row.total_output,
+    totalCostUsd: row.total_cost,
+    totalActualCostUsd: row.total_actual,
+    taskCount: row.task_count,
+  }));
+}
+
+export function getRuntimeCredentialCostSummarySync(
+  runtimeCredentialId: string,
+  since?: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): {
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: number;
+  totalActualCostUsd: number;
+  taskCount: number;
+} {
+  const db = getDatabase();
+  const params: string[] = [workspaceId, runtimeCredentialId];
+  let dateFilter = "";
+  if (since) {
+    dateFilter = " AND created_at >= ?";
+    params.push(since);
+  }
+
+  const row = db.prepare(
+    `SELECT COALESCE(SUM(input_tokens), 0) AS total_input,
+            COALESCE(SUM(output_tokens), 0) AS total_output,
+            COALESCE(SUM(cost_usd), 0) AS total_cost,
+            COALESCE(SUM(actual_cost_usd), 0) AS total_actual,
+            COUNT(*) AS task_count
+     FROM token_usage
+     WHERE workspace_id = ? AND runtime_credential_id = ?${dateFilter}`,
+  ).get(...params) as {
+    total_input: number;
+    total_output: number;
+    total_cost: number;
+    total_actual: number;
+    task_count: number;
+  };
+
+  return {
+    totalInputTokens: row.total_input,
+    totalOutputTokens: row.total_output,
+    totalCostUsd: row.total_cost,
+    totalActualCostUsd: row.total_actual,
+    taskCount: row.task_count,
+  };
+}
+
+export function listRuntimeCredentialCostSummariesSync(
+  since?: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): Array<{
+  runtimeCredentialId: string;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: number;
+  totalActualCostUsd: number;
+  taskCount: number;
+}> {
+  const db = getDatabase();
+  const params: string[] = [workspaceId];
+  let dateFilter = "";
+  if (since) {
+    dateFilter = " AND created_at >= ?";
+    params.push(since);
+  }
+
+  const rows = db.prepare(
+    `SELECT runtime_credential_id,
+            COALESCE(SUM(input_tokens), 0) AS total_input,
+            COALESCE(SUM(output_tokens), 0) AS total_output,
+            COALESCE(SUM(cost_usd), 0) AS total_cost,
+            COALESCE(SUM(actual_cost_usd), 0) AS total_actual,
+            COUNT(*) AS task_count
+     FROM token_usage
+     WHERE workspace_id = ? AND runtime_credential_id IS NOT NULL${dateFilter}
+     GROUP BY runtime_credential_id
+     ORDER BY total_cost DESC`,
+  ).all(...params) as Array<{
+    runtime_credential_id: string;
+    total_input: number;
+    total_output: number;
+    total_cost: number;
+    total_actual: number;
+    task_count: number;
+  }>;
+
+  return rows.map((row) => ({
+    runtimeCredentialId: row.runtime_credential_id,
+    totalInputTokens: row.total_input,
+    totalOutputTokens: row.total_output,
+    totalCostUsd: row.total_cost,
+    totalActualCostUsd: row.total_actual,
+    taskCount: row.task_count,
+  }));
+}
+
+export function getSessionCostSummarySync(
+  routerSessionId: string,
+  since?: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): {
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: number;
+  totalActualCostUsd: number;
+  taskCount: number;
+} {
+  const db = getDatabase();
+  const params: string[] = [workspaceId, routerSessionId];
+  let dateFilter = "";
+  if (since) {
+    dateFilter = " AND created_at >= ?";
+    params.push(since);
+  }
+
+  const row = db.prepare(
+    `SELECT COALESCE(SUM(input_tokens), 0) AS total_input,
+            COALESCE(SUM(output_tokens), 0) AS total_output,
+            COALESCE(SUM(cost_usd), 0) AS total_cost,
+            COALESCE(SUM(actual_cost_usd), 0) AS total_actual,
+            COUNT(*) AS task_count
+     FROM token_usage
+     WHERE workspace_id = ? AND router_session_id = ?${dateFilter}`,
+  ).get(...params) as {
+    total_input: number;
+    total_output: number;
+    total_cost: number;
+    total_actual: number;
+    task_count: number;
+  };
+
+  return {
+    totalInputTokens: row.total_input,
+    totalOutputTokens: row.total_output,
+    totalCostUsd: row.total_cost,
+    totalActualCostUsd: row.total_actual,
+    taskCount: row.task_count,
+  };
+}
+
+export function listSessionCostSummariesSync(
+  since?: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): Array<{
+  routerSessionId: string;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: number;
+  totalActualCostUsd: number;
+  taskCount: number;
+}> {
+  const db = getDatabase();
+  const params: string[] = [workspaceId];
+  let dateFilter = "";
+  if (since) {
+    dateFilter = " AND created_at >= ?";
+    params.push(since);
+  }
+
+  const rows = db.prepare(
+    `SELECT router_session_id,
+            COALESCE(SUM(input_tokens), 0) AS total_input,
+            COALESCE(SUM(output_tokens), 0) AS total_output,
+            COALESCE(SUM(cost_usd), 0) AS total_cost,
+            COALESCE(SUM(actual_cost_usd), 0) AS total_actual,
+            COUNT(*) AS task_count
+     FROM token_usage
+     WHERE workspace_id = ? AND router_session_id IS NOT NULL${dateFilter}
+     GROUP BY router_session_id
+     ORDER BY total_cost DESC`,
+  ).all(...params) as Array<{
+    router_session_id: string;
+    total_input: number;
+    total_output: number;
+    total_cost: number;
+    total_actual: number;
+    task_count: number;
+  }>;
+
+  return rows.map((row) => ({
+    routerSessionId: row.router_session_id,
+    totalInputTokens: row.total_input,
+    totalOutputTokens: row.total_output,
+    totalCostUsd: row.total_cost,
+    totalActualCostUsd: row.total_actual,
+    taskCount: row.task_count,
+  }));
+}
+
 export function findTokenUsageByGatewayRequestIdSync(
   gatewayRequestId: string,
   workspaceId = DEFAULT_WORKSPACE_ID,

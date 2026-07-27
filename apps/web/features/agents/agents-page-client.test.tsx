@@ -474,6 +474,8 @@ const data: AgentsPageData = {
       createdAt: "2026-04-10T08:00:00.000Z",
     },
   ],
+  providerAccounts: [],
+  runtimeProvisionRequests: [],
   workspaceSkills: [],
   workspaceMembers: [],
   pendingForkInvitations: [],
@@ -1575,6 +1577,7 @@ describe("AgentDetail", () => {
           onSaveInstructions={vi.fn()}
           onSetKnowledgePageIds={onSetKnowledgePageIds}
           onSetSkillIds={vi.fn()}
+          onInstallSkill={vi.fn()}
           onUnbindContainer={vi.fn()}
         />
       </LanguageProvider>,

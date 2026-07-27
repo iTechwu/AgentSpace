@@ -131,12 +131,17 @@ export function buildSsoAdminWorkspaceScopes(input: {
 
 export function syncSsoWorkspacesForUserSync(input: {
   displayName: string;
+  materializeMemberships?: boolean;
   scopes: readonly SsoWorkspaceScope[];
   userId: string;
 }): SsoWorkspaceScope[] {
+  const materializeMemberships = input.materializeMemberships !== false;
   const activeScopeIds = new Set(input.scopes.map((scope) => scope.id));
   for (const membership of listUserWorkspacesSync(input.userId)) {
-    if (membership.workspaceId.startsWith("sso-") && !activeScopeIds.has(membership.workspaceId)) {
+    if (
+      membership.workspaceId.startsWith("sso-") &&
+      (!materializeMemberships || !activeScopeIds.has(membership.workspaceId))
+    ) {
       removeWorkspaceMembershipSync(membership.workspaceId, input.userId);
     }
   }
@@ -152,7 +157,9 @@ export function syncSsoWorkspacesForUserSync(input: {
       });
       const state = createDefaultWorkspaceState();
       state.organizationName = scope.name;
-      state.humanMembers = [{ name: input.displayName, role: workspaceRoleLabel(scope.role) }];
+      state.humanMembers = materializeMemberships
+        ? [{ name: input.displayName, role: workspaceRoleLabel(scope.role) }]
+        : [];
       state.channels = [];
       writeWorkspaceStateSync(state, scope.id);
     } else {
@@ -169,11 +176,13 @@ export function syncSsoWorkspacesForUserSync(input: {
       }
     }
 
-    const membership = listUserWorkspacesSync(input.userId).find((item) => item.workspaceId === scope.id);
-    if (membership) {
-      updateWorkspaceMembershipRoleSync(scope.id, input.userId, scope.role);
-    } else {
-      createWorkspaceMembershipSync({ workspaceId: scope.id, userId: input.userId, role: scope.role });
+    if (materializeMemberships) {
+      const membership = listUserWorkspacesSync(input.userId).find((item) => item.workspaceId === scope.id);
+      if (membership) {
+        updateWorkspaceMembershipRoleSync(scope.id, input.userId, scope.role);
+      } else {
+        createWorkspaceMembershipSync({ workspaceId: scope.id, userId: input.userId, role: scope.role });
+      }
     }
 
     // Persist the SSO tenant/team scope so managed-runtime provisioning can

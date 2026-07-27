@@ -16,33 +16,43 @@ import {
   claimManagedProvisioningStageSync,
   completeManagedProvisioningStageSync,
   completeRuntimeProvisioningCancellationSync,
+  createRuntimeCredentialRecoveryTaskSync,
   createManagedAgentRuntimeSync,
   createRuntimeProvisioningTaskSync,
   deleteAgentRuntimeSync,
   failManagedProvisioningStageSync,
   getDatabase,
   listRuntimeProvisioningTaskEventsSync,
+  listDueRuntimeCredentialRecoveryTasksSync,
   listRuntimeProvisioningTasksSync,
   markRuntimeProvisioningTaskCancellingSync,
   markRuntimeProvisioningTaskFailedSync,
   markRuntimeProvisioningTaskReadySync,
+  markRuntimeCredentialRecoveryFailedSync,
+  markRuntimeCredentialRecoverySucceededSync,
+  requeueStaleRuntimeCredentialRecoveryTasksSync,
   readAgentRuntimeSync,
+  readRuntimeCredentialRecoveryTaskByIdempotencyKeySync,
   readRuntimeProvisioningTaskSync,
+  readRuntimeCredentialRecoveryTaskSync,
   readWorkspaceSsoBindingSync,
   recordAuditLogSync,
   requestManagedRuntimeCleanupSync,
   resetRuntimeProvisioningTaskForRetrySync,
   resetStalledManagedProvisioningStagesSync,
+  startRuntimeCredentialRecoveryAttemptSync,
   updateAgentRuntimeManagedFieldsSync,
   type AgentRuntimeRecord,
   type RuntimeProvisioningTaskRecord,
+  type RuntimeCredentialRecoveryTaskRecord,
   type WorkspaceSsoBindingRecord,
 } from "@dofe-agent/db";
-import { resolveProviderProtocols, type DaemonProvider } from "@dofe-agent/domain";
+import { isDaemonProvider, resolveProviderProtocols, type DaemonProvider } from "@dofe-agent/domain";
 import { getModelsInternalClient } from "../models/client.ts";
 import { resolveAgentRuntimeMode } from "../config/deployment.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
+import { notifyWorkspaceAdminsSync } from "../notifications/notifications.ts";
 import {
   getRuntimeCredentialVault,
   type RuntimeCredentialVault,
@@ -130,7 +140,9 @@ export function requestManagedRuntimeProvisioningSync(
     idempotencyKey: input.idempotencyKey,
     runtimeType: input.provider,
     protocols,
+    requestedName: input.name,
     requestedModel: input.defaultModel,
+    allowedModels: input.allowedModels,
     targetServer: input.targetServer,
   });
 
@@ -160,10 +172,24 @@ export function requestManagedRuntimeProvisioningSync(
   return task;
 }
 
+export type PublicRuntimeProvisioningTaskRecord = Omit<
+  RuntimeProvisioningTaskRecord,
+  "secretRef" | "configRef"
+> & { credentialConfigured: boolean };
+
+export interface PublicManagedRuntimeRecord {
+  id: string;
+  status: AgentRuntimeRecord["status"];
+  provisioningState: AgentRuntimeRecord["provisioningState"];
+  protocols: string[];
+  defaultModel?: string;
+  credentialConfigured: boolean;
+}
+
 export interface RuntimeProvisioningTaskDetail {
-  task: RuntimeProvisioningTaskRecord;
+  task: PublicRuntimeProvisioningTaskRecord;
   events: ReturnType<typeof listRuntimeProvisioningTaskEventsSync>;
-  runtime?: AgentRuntimeRecord;
+  runtime?: PublicManagedRuntimeRecord;
 }
 
 export function getRuntimeProvisioningTaskDetailSync(input: ManagedRuntimeActor & {
@@ -177,7 +203,11 @@ export function getRuntimeProvisioningTaskDetailSync(input: ManagedRuntimeActor 
   }
   const events = listRuntimeProvisioningTaskEventsSync(task.id);
   const runtime = task.runtimeId ? readAgentRuntimeSync(task.runtimeId) ?? undefined : undefined;
-  return { task, events, runtime };
+  return {
+    task: toPublicRuntimeProvisioningTask(task),
+    events,
+    runtime: runtime ? toPublicManagedRuntime(runtime) : undefined,
+  };
 }
 
 export function retryRuntimeProvisioningTaskSync(
@@ -258,25 +288,77 @@ export async function cancelRuntimeProvisioningTaskSync(
 
 export function listManagedRuntimeTasksSync(
   input: ManagedRuntimeActor,
-): RuntimeProvisioningTaskRecord[] {
+): PublicRuntimeProvisioningTaskRecord[] {
   assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
-  return listRuntimeProvisioningTasksSync(input.workspaceId);
+  return listRuntimeProvisioningTasksSync(input.workspaceId).map(toPublicRuntimeProvisioningTask);
+}
+
+function toPublicRuntimeProvisioningTask(
+  task: RuntimeProvisioningTaskRecord,
+): PublicRuntimeProvisioningTaskRecord {
+  const { secretRef, configRef, ...safeTask } = task;
+  return {
+    ...safeTask,
+    credentialConfigured: Boolean(secretRef || configRef),
+  };
+}
+
+function toPublicManagedRuntime(runtime: AgentRuntimeRecord): PublicManagedRuntimeRecord {
+  return {
+    id: runtime.id,
+    status: runtime.status,
+    provisioningState: runtime.provisioningState,
+    protocols: runtime.protocols ?? [],
+    defaultModel: runtime.defaultModel,
+    credentialConfigured: Boolean(runtime.credentialSecretRef || runtime.credentialConfigRef),
+  };
 }
 
 export function listManagedRuntimesForWorkspaceSync(
   input: ManagedRuntimeActor,
-): Array<{ id: string; managedCredentialId: string }> {
+): ManagedRuntimeListItem[] {
   assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
   const db = getDatabase();
   const rows = db.prepare(
-    `SELECT id, managed_credential_id AS managedCredentialId
+    `SELECT id, name, provider, managed_credential_id AS managedCredentialId, status,
+            provisioning_state AS provisioningState
      FROM agent_runtime
      WHERE workspace_id = ? AND managed_credential_id IS NOT NULL
      ORDER BY created_at DESC`,
-  ).all(input.workspaceId) as Array<{ id: string; managedCredentialId: string }>;
-  return rows;
+  ).all(input.workspaceId) as Array<{
+    id: string;
+    name: string;
+    provider: string;
+    managedCredentialId: string;
+    status: string;
+    provisioningState?: string;
+  }>;
+  return rows
+    .filter((row) => isDaemonProvider(row.provider))
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      provider: row.provider as DaemonProvider,
+      managedCredentialId: row.managedCredentialId,
+      status: row.status === "online" ? "online" : "offline",
+      provisioningState: normalizeManagedRuntimeLifecycleState(row.provisioningState),
+    }));
+}
+
+export interface ManagedRuntimeListItem {
+  id: string;
+  name: string;
+  provider: DaemonProvider;
+  managedCredentialId: string;
+  status: "online" | "offline";
+  provisioningState: "managed" | "credential_recovering" | "needs_attention" | "legacy";
+}
+
+function normalizeManagedRuntimeLifecycleState(value: string | undefined): ManagedRuntimeListItem["provisioningState"] {
+  if (value === "credential_recovering" || value === "needs_attention" || value === "legacy") return value;
+  return "managed";
 }
 
 export interface RotateManagedRuntimeCredentialInput extends ManagedRuntimeActor {
@@ -293,7 +375,7 @@ export async function rotateManagedRuntimeCredentialSync(
   if (!runtime || runtime.workspaceId !== input.workspaceId) {
     throw new Error("managed_runtime.runtime_not_found");
   }
-  if (runtime.provisioningState !== "managed") {
+  if (runtime.provisioningState !== "managed" && runtime.provisioningState !== "needs_attention") {
     throw new Error("managed_runtime.not_a_managed_runtime");
   }
   if (!runtime.managedCredentialId) {
@@ -314,6 +396,22 @@ export async function rotateManagedRuntimeCredentialSync(
     },
   });
   if (!result.secretIssued || !result.secret?.apiKey) {
+    const today = new Date().toISOString().slice(0, 10);
+    notifyWorkspaceAdminsSync({
+      workspaceId: input.workspaceId,
+      title: "Runtime credential rotation failed",
+      body: `Credential rotation for ${runtime.provider} runtime "${runtime.name ?? runtime.id}" failed: the model service did not issue a new secret.`,
+      type: "runtime.credential_rotation_failed",
+      severity: "critical",
+      resourceType: "workspace",
+      resourceId: runtime.id,
+      dedupeKey: `runtime.credential_rotation_failed:${input.workspaceId}:${runtime.id}:${today}`,
+      metadata: {
+        runtimeId: runtime.id,
+        runtimeCredentialId: credentialId,
+        runtimeType: runtime.provider,
+      },
+    });
     throw new Error("managed_runtime.rotate_no_secret");
   }
   const vault = getRuntimeCredentialVault();
@@ -323,6 +421,8 @@ export async function rotateManagedRuntimeCredentialSync(
   updateAgentRuntimeManagedFieldsSync({
     runtimeId: runtime.id,
     workspaceId: input.workspaceId,
+    provisioningState: "managed",
+    status: "online",
     managedCredentialId: result.credential.id,
     credentialSecretRef: newSecret.secretRef,
   });
@@ -346,6 +446,273 @@ export async function rotateManagedRuntimeCredentialSync(
   });
   const updated = readAgentRuntimeSync(runtime.id);
   return updated ?? runtime;
+}
+
+const CREDENTIAL_RECOVERY_MAX_ATTEMPTS = 3;
+const CREDENTIAL_RECOVERY_COOLDOWN_MS = 60_000;
+const CREDENTIAL_RECOVERY_LEASE_MS = 5 * 60_000;
+
+export interface HandleManagedRuntimeProviderFailureInput {
+  workspaceId: string;
+  runtimeId: string;
+  sourceTaskId: string;
+  reportedCredentialId: string;
+  errorCode?: string;
+  now?: Date;
+}
+
+export type ManagedRuntimeProviderFailureResult =
+  | { status: "ignored"; reason: "not_credential_invalid" | "runtime_not_managed" | "stale_credential" }
+  | { status: "in_progress" | "cooldown" | "retry_scheduled" | "needs_attention"; task: RuntimeCredentialRecoveryTaskRecord }
+  | { status: "recovered"; task: RuntimeCredentialRecoveryTaskRecord; runtime: AgentRuntimeRecord };
+
+/**
+ * Trusted daemon boundary for automatic credential recovery. Only the
+ * structured auth-invalid code can enter this workflow; billing, policy,
+ * model and rate-limit failures are deliberately excluded.
+ */
+export async function handleManagedRuntimeProviderFailureAsync(
+  input: HandleManagedRuntimeProviderFailureInput,
+): Promise<ManagedRuntimeProviderFailureResult> {
+  if (input.errorCode !== "provider.auth_invalid") {
+    return { status: "ignored", reason: "not_credential_invalid" };
+  }
+  assertRemoteRuntimeMode();
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (
+    !runtime ||
+    runtime.workspaceId !== input.workspaceId ||
+    !runtime.managedCredentialId ||
+    (runtime.provisioningState !== "managed" && runtime.provisioningState !== "credential_recovering")
+  ) {
+    return { status: "ignored", reason: "runtime_not_managed" };
+  }
+  if (runtime.managedCredentialId !== input.reportedCredentialId) {
+    const completedTask = readRuntimeCredentialRecoveryTaskByIdempotencyKeySync(
+      input.workspaceId,
+      `credential-recovery:${runtime.id}:${input.reportedCredentialId}`,
+    );
+    if (completedTask && (completedTask.status === "queued" || completedTask.status === "running")) {
+      markRuntimeCredentialRecoverySucceededSync({
+        id: completedTask.id,
+        workspaceId: input.workspaceId,
+        now: (input.now ?? new Date()).toISOString(),
+      });
+    }
+    return { status: "ignored", reason: "stale_credential" };
+  }
+
+  const now = input.now ?? new Date();
+  const nowIso = now.toISOString();
+  const idempotencyKey = `credential-recovery:${runtime.id}:${input.reportedCredentialId}`;
+  let task = createRuntimeCredentialRecoveryTaskSync({
+    workspaceId: input.workspaceId,
+    runtimeId: runtime.id,
+    sourceTaskId: input.sourceTaskId,
+    credentialId: input.reportedCredentialId,
+    idempotencyKey,
+    maxAttempts: CREDENTIAL_RECOVERY_MAX_ATTEMPTS,
+    now: nowIso,
+  });
+  if (task.status === "succeeded") {
+    return { status: "ignored", reason: "stale_credential" };
+  }
+  if (task.status === "failed") {
+    return { status: "needs_attention", task };
+  }
+  if (task.status === "running") {
+    return { status: "in_progress", task };
+  }
+  if (task.cooldownUntil && task.cooldownUntil > nowIso) {
+    return { status: "cooldown", task };
+  }
+
+  const started = startRuntimeCredentialRecoveryAttemptSync({
+    id: task.id,
+    workspaceId: input.workspaceId,
+    now: nowIso,
+  });
+  if (!started) {
+    task = readRuntimeCredentialRecoveryTaskSync(task.id, input.workspaceId) ?? task;
+    return { status: task.status === "running" ? "in_progress" : "cooldown", task };
+  }
+  task = started;
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId: runtime.id,
+    workspaceId: input.workspaceId,
+    provisioningState: "credential_recovering",
+    status: "offline",
+  });
+  try {
+    if (task.attemptCount === 1) {
+      recordAuditLogSync({
+        workspaceId: input.workspaceId,
+        title: "Runtime credential recovery started",
+        note: `Automatic recovery started for runtime ${runtime.id}`,
+        code: "runtime_credential.recovery_started",
+        source: "runtime_credential",
+        data: {
+          runtimeId: runtime.id,
+          runtimeCredentialId: input.reportedCredentialId,
+          sourceTaskId: input.sourceTaskId,
+          recoveryTaskId: task.id,
+        },
+      });
+    }
+    const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
+    const result = await clientProvider().runtimeCredentials.rotate({
+      params: { id: input.reportedCredentialId },
+      body: {
+        tenantId: scope.tenantId,
+        teamId: scope.teamId,
+        idempotencyKey: task.idempotencyKey,
+        reason: "gateway-rejected",
+        audit: { taskId: task.id },
+      },
+    });
+    if (!result.secretIssued || !result.secret?.apiKey) {
+      throw new Error("managed_runtime.recovery_no_secret");
+    }
+    const vault = getRuntimeCredentialVault();
+    const oldSecretRef = runtime.credentialSecretRef;
+    const credentialScope = {
+      tenantId: scope.tenantId,
+      teamId: scope.teamId,
+      runtimeId: runtime.id,
+    };
+    const newSecret = vault.store(result.credential.id, result.secret.apiKey, credentialScope);
+    const updated = updateAgentRuntimeManagedFieldsSync({
+      runtimeId: runtime.id,
+      workspaceId: input.workspaceId,
+      provisioningState: "managed",
+      status: "online",
+      managedCredentialId: result.credential.id,
+      credentialSecretRef: newSecret.secretRef,
+    });
+    if (!updated) {
+      vault.forget(newSecret.secretRef, credentialScope);
+      throw new Error("managed_runtime.recovery_runtime_update_failed");
+    }
+    if (oldSecretRef) {
+      vault.forget(oldSecretRef, credentialScope);
+    }
+    const succeeded = markRuntimeCredentialRecoverySucceededSync({
+      id: task.id,
+      workspaceId: input.workspaceId,
+      now: nowIso,
+    }) ?? task;
+    recordAuditLogSync({
+      workspaceId: input.workspaceId,
+      title: "Runtime credential recovered",
+      note: `Automatic recovery completed for runtime ${runtime.id}`,
+      code: "runtime_credential.recovered",
+      source: "runtime_credential",
+      data: {
+        runtimeId: runtime.id,
+        previousCredentialId: input.reportedCredentialId,
+        newCredentialId: result.credential.id,
+        recoveryTaskId: task.id,
+        attemptCount: task.attemptCount,
+      },
+    });
+    return { status: "recovered", task: succeeded, runtime: updated };
+  } catch {
+    const currentRuntime = readAgentRuntimeSync(runtime.id);
+    if (
+      currentRuntime?.provisioningState === "managed" &&
+      currentRuntime.managedCredentialId &&
+      currentRuntime.managedCredentialId !== input.reportedCredentialId
+    ) {
+      const succeeded = markRuntimeCredentialRecoverySucceededSync({
+        id: task.id,
+        workspaceId: input.workspaceId,
+        now: nowIso,
+      }) ?? task;
+      return { status: "recovered", task: succeeded, runtime: currentRuntime };
+    }
+    const cooldownUntil = new Date(now.getTime() + CREDENTIAL_RECOVERY_COOLDOWN_MS).toISOString();
+    const failed = markRuntimeCredentialRecoveryFailedSync({
+      id: task.id,
+      workspaceId: input.workspaceId,
+      errorCode: "managed_runtime.credential_recovery_failed",
+      errorMessage: "The model service did not complete credential recovery.",
+      cooldownUntil,
+      now: nowIso,
+    }) ?? task;
+    const terminal = failed.status === "failed";
+    if (terminal) {
+      updateAgentRuntimeManagedFieldsSync({
+        runtimeId: runtime.id,
+        workspaceId: input.workspaceId,
+        provisioningState: "needs_attention",
+        status: "offline",
+      });
+      notifyWorkspaceAdminsSync({
+        workspaceId: input.workspaceId,
+        title: "Runtime credential recovery needs attention",
+        body: `Automatic credential recovery failed ${failed.attemptCount} times for runtime "${runtime.name}". Check models availability and contact platform operations.`,
+        type: "runtime.credential_recovery_failed",
+        severity: "critical",
+        resourceType: "runtime",
+        resourceId: runtime.id,
+        actionHref: "/runtimes",
+        dedupeKey: `runtime.credential_recovery_failed:${input.workspaceId}:${runtime.id}:${input.reportedCredentialId}`,
+        metadata: {
+          runtimeId: runtime.id,
+          runtimeCredentialId: input.reportedCredentialId,
+          recoveryTaskId: task.id,
+          attemptCount: failed.attemptCount,
+        },
+      });
+    }
+    recordAuditLogSync({
+      workspaceId: input.workspaceId,
+      title: terminal ? "Runtime credential recovery failed" : "Runtime credential recovery retry scheduled",
+      note: terminal
+        ? `Automatic recovery exhausted for runtime ${runtime.id}`
+        : `Automatic recovery retry ${failed.attemptCount}/${failed.maxAttempts} scheduled for runtime ${runtime.id}`,
+      code: terminal ? "runtime_credential.recovery_failed" : "runtime_credential.recovery_retry_scheduled",
+      source: "runtime_credential",
+      data: {
+        runtimeId: runtime.id,
+        runtimeCredentialId: input.reportedCredentialId,
+        recoveryTaskId: task.id,
+        attemptCount: failed.attemptCount,
+        maxAttempts: failed.maxAttempts,
+        cooldownUntil: failed.cooldownUntil,
+      },
+    });
+    return { status: terminal ? "needs_attention" : "retry_scheduled", task: failed };
+  }
+}
+
+export async function resumePendingRuntimeCredentialRecoveriesAsync(input: {
+  workspaceId: string;
+  now?: Date;
+}): Promise<ManagedRuntimeProviderFailureResult[]> {
+  assertRemoteRuntimeMode();
+  const now = input.now ?? new Date();
+  requeueStaleRuntimeCredentialRecoveryTasksSync({
+    workspaceId: input.workspaceId,
+    staleBefore: new Date(now.getTime() - CREDENTIAL_RECOVERY_LEASE_MS).toISOString(),
+    now: now.toISOString(),
+  });
+  const due = listDueRuntimeCredentialRecoveryTasksSync({
+    workspaceId: input.workspaceId,
+    now: now.toISOString(),
+  });
+  const results: ManagedRuntimeProviderFailureResult[] = [];
+  for (const task of due) {
+    results.push(await handleManagedRuntimeProviderFailureAsync({
+      workspaceId: task.workspaceId,
+      runtimeId: task.runtimeId,
+      sourceTaskId: task.sourceTaskId,
+      reportedCredentialId: task.credentialId,
+      errorCode: "provider.auth_invalid",
+      now,
+    }));
+  }
+  return results;
 }
 
 export interface GetManagedRuntimeCredentialStatusInput extends ManagedRuntimeActor {
@@ -506,8 +873,18 @@ export interface PipelineRunOptions {
 
 /** Minimal structural type over the SDK client surface the pipeline uses. */
 export interface ModelsClientLike {
+  models: {
+    list(args: { query: { tenantId: string } }): Promise<{ list: unknown[] }>;
+  };
   billing: {
-    preflight(args: { body: { teamId: string; estimatedCharge: number } }): Promise<{ allowed: boolean }>;
+    preflight(args: { body: { teamId: string; estimatedCharge: number } }): Promise<{
+      allowed: boolean;
+      availableBalance?: string | number | null;
+      estimatedCharge?: string | number | null;
+      currency?: string;
+      code?: string;
+      message?: string;
+    }>;
   };
   runtimeCredentials: {
     create(args: { body: Record<string, unknown> }): Promise<ModelsCreateResult>;
@@ -532,6 +909,70 @@ export function setProvisioningModelsClientProviderForTests(provider: () => Mode
   clientProvider = provider;
 }
 
+export interface ManagedRuntimeCreationPreflightResult {
+  allowed: boolean;
+  availableBalance?: string;
+  estimatedCharge?: string;
+  currency?: string;
+  code?: string;
+  message?: string;
+}
+
+export async function preflightManagedRuntimeCreationAsync(
+  input: ManagedRuntimeActor & {
+    provider: DaemonProvider;
+    defaultModel?: string;
+    estimatedCharge?: number;
+  },
+): Promise<ManagedRuntimeCreationPreflightResult> {
+  assertRemoteRuntimeMode();
+  assertCanManageManagedRuntimes(input);
+  const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
+  try {
+    await assertManagedRuntimeModelSelectionAsync({
+      client: clientProvider(),
+      tenantId: scope.tenantId,
+      protocols: resolveProviderProtocols(input.provider),
+      requestedModel: input.defaultModel,
+    });
+  } catch (error) {
+    return {
+      allowed: false,
+      code: error instanceof Error ? error.message : "managed_runtime.model_catalog_unavailable",
+      message: formatManagedRuntimePreflightError(error),
+    };
+  }
+  const result = await clientProvider().billing.preflight({
+    body: {
+      teamId: scope.teamId,
+      estimatedCharge: input.estimatedCharge ?? 0,
+    },
+  });
+  return {
+    allowed: result.allowed,
+    availableBalance: normalizeBillingAmount(result.availableBalance),
+    estimatedCharge: normalizeBillingAmount(result.estimatedCharge),
+    currency: result.currency,
+    code: result.code,
+    message: result.message,
+  };
+}
+
+function normalizeBillingAmount(value: string | number | null | undefined): string | undefined {
+  return value == null ? undefined : String(value);
+}
+
+function formatManagedRuntimePreflightError(error: unknown): string {
+  const code = error instanceof Error ? error.message : String(error);
+  if (code === "managed_runtime.no_compatible_models") {
+    return "No available model supports this runtime protocol.";
+  }
+  if (code === "managed_runtime.model_unavailable") {
+    return "The selected model is unavailable or incompatible with this runtime.";
+  }
+  return "The model catalog could not be verified.";
+}
+
 export async function runProvisioningPipeline(
   taskId: string,
   workspaceId: string,
@@ -548,16 +989,34 @@ export async function runProvisioningPipeline(
 
   const scope = resolveManagedRuntimeScopeSync(workspaceId);
   const runtimeId = task.runtimeId ?? `runtime-managed-${generateId()}`;
-  const allowedModels = options.allowedModels ?? [];
+  const allowedModels = task.allowedModels.length > 0 ? task.allowedModels : options.allowedModels ?? [];
 
   // Stage: request_credential (idempotent — skip if already issued)
   if (!task.runtimeCredentialId) {
     try {
       advanceStage(taskId, workspaceId, "request_credential", "running", 10);
+      await assertManagedRuntimeModelSelectionAsync({
+        client,
+        tenantId: scope.tenantId,
+        protocols: task.protocols,
+        requestedModel: task.requestedModel,
+      });
       const preflight = await client.billing.preflight({
         body: { teamId: scope.teamId, estimatedCharge: 0 },
       });
       if (!preflight.allowed) {
+        const today = new Date().toISOString().slice(0, 10);
+        notifyWorkspaceAdminsSync({
+          workspaceId,
+          title: "Insufficient balance for managed runtime",
+          body: `Provisioning ${task.runtimeType} runtime "${runtimeId}" was rejected because the team balance is insufficient. Add credits or lower usage before retrying.`,
+          type: "billing.insufficient_balance",
+          severity: "critical",
+          resourceType: "workspace",
+          resourceId: runtimeId,
+          dedupeKey: `billing.insufficient_balance:${workspaceId}:${today}`,
+          metadata: { runtimeId, runtimeType: task.runtimeType, teamId: scope.teamId },
+        });
         throw new Error("managed_runtime.balance_preflight_rejected");
       }
       const result = await client.runtimeCredentials.create({
@@ -616,7 +1075,7 @@ export async function runProvisioningPipeline(
         id: runtimeId,
         workspaceId,
         provider: task.runtimeType,
-        name: options.name ?? `${MANAGED_RUNTIME_NAME_PREFIX} ${task.runtimeType}`,
+        name: task.requestedName ?? options.name ?? `${MANAGED_RUNTIME_NAME_PREFIX} ${task.runtimeType}`,
         protocols: task.protocols,
         defaultModel: task.requestedModel,
         managedCredentialId: task.runtimeCredentialId!,
@@ -832,6 +1291,38 @@ async function compensateProvisioning(
     }
   }
   return { ok, detail };
+}
+
+async function assertManagedRuntimeModelSelectionAsync(input: {
+  client: ModelsClientLike;
+  tenantId: string;
+  protocols: string[];
+  requestedModel?: string;
+}): Promise<void> {
+  const response = await input.client.models.list({ query: { tenantId: input.tenantId } });
+  const available = response.list.filter((item) => {
+    const model = item as {
+      supportedProtocols?: string[];
+      isEnabled?: boolean;
+      isDeprecated?: boolean;
+    };
+    return (
+      model.isEnabled !== false &&
+      model.isDeprecated !== true &&
+      (model.supportedProtocols ?? []).some((protocol) => input.protocols.includes(protocol))
+    );
+  });
+  if (available.length === 0) {
+    throw new Error("managed_runtime.no_compatible_models");
+  }
+  if (!input.requestedModel) return;
+  const selected = available.some((item) => {
+    const model = item as { alias?: string; id?: string; model?: string };
+    return [model.alias, model.id, model.model].includes(input.requestedModel);
+  });
+  if (!selected) {
+    throw new Error("managed_runtime.model_unavailable");
+  }
 }
 
 async function safeRevokeCredential(input: {

@@ -280,6 +280,26 @@ export function extractUsage(event: Record<string, unknown>): { inputTokens: num
   return { inputTokens, outputTokens };
 }
 
+export function extractGatewayRequestId(event: Record<string, unknown>): string | undefined {
+  return readStringAtPaths(event, [
+    ["gateway_request_id"],
+    ["gatewayRequestId"],
+    ["id"],
+    ["request_id"],
+    ["requestId"],
+    ["result", "gateway_request_id"],
+    ["result", "gatewayRequestId"],
+    ["result", "id"],
+    ["result", "request_id"],
+    ["result", "requestId"],
+    ["meta", "gateway_request_id"],
+    ["meta", "gatewayRequestId"],
+    ["meta", "requestId"],
+    ["usage", "gateway_request_id"],
+    ["usage", "gatewayRequestId"],
+  ]);
+}
+
 export function appendLine(current: string, next: string): string {
   return current ? `${current}\n${next}` : next;
 }
