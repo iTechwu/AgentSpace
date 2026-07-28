@@ -210,8 +210,8 @@ test("managed gateway usage parser ignores auxiliary and failed responses and re
   assert.equal(extractManagedGatewayUsage({ data: [{ id: "model-1" }] }), undefined);
   assert.deepEqual(extractManagedGatewayUsage({
     type: "response.completed",
-    response: { usage: { input_tokens: 120, output_tokens: 45 } },
-  }), { inputTokens: 120, outputTokens: 45 });
+    response: { usage: { input_tokens: 120, output_tokens: 45, cached_tokens: 32 } },
+  }), { inputTokens: 120, outputTokens: 45, cacheTokens: 32 });
   assert.deepEqual(extractManagedGatewayUsage({
     type: "message_delta",
     usage: { output_tokens: 18 },

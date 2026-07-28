@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "37";
+export const POSTGRES_SCHEMA_VERSION = "38";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -1221,8 +1221,14 @@ export function getPostgresSchemaStatements(): string[] {
         cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
         billing_status TEXT NOT NULL DEFAULT 'estimated',
         gateway_request_id TEXT,
+        gateway_usage_id TEXT,
+        protocol TEXT,
         actual_cost_usd DOUBLE PRECISION,
         currency TEXT,
+        cache_tokens INTEGER NOT NULL DEFAULT 0,
+        request_started_at TIMESTAMPTZ,
+        request_ended_at TIMESTAMPTZ,
+        source_updated_at TIMESTAMPTZ,
         reconciled_at TIMESTAMPTZ,
         channel_name TEXT,
         created_at TIMESTAMPTZ NOT NULL
@@ -1248,6 +1254,12 @@ export function getPostgresSchemaStatements(): string[] {
     `
       ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS currency TEXT
     `,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS gateway_usage_id TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS protocol TEXT`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS cache_tokens INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS request_started_at TIMESTAMPTZ`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS request_ended_at TIMESTAMPTZ`,
+    `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS source_updated_at TIMESTAMPTZ`,
     `
       ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ
     `,

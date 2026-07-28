@@ -1,5 +1,5 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId } from "./database.ts";
-import type { ModelPricingRecord, TokenUsageRecord } from "./types.ts";
+import type { ModelPricingRecord, TokenUsageBillingStatus, TokenUsageRecord } from "./types.ts";
 
 const DEFAULT_PRICING: Array<{ modelId: string; displayName: string; inputPer1M: number; outputPer1M: number }> = [
   { modelId: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5", inputPer1M: 0.80, outputPer1M: 4.00 },
@@ -82,11 +82,17 @@ export function recordTokenUsageSync(input: {
   runtimeCredentialId?: string;
   routerSessionId?: string;
   gatewayRequestId?: string;
+  gatewayUsageId?: string;
+  protocol?: string;
   actualCostUsd?: number;
   currency?: string;
-  billingStatus?: "estimated" | "reconciled" | "unallocated";
+  billingStatus?: TokenUsageBillingStatus;
   inputTokens: number;
   outputTokens: number;
+  cacheTokens?: number;
+  requestStartedAt?: string;
+  requestEndedAt?: string;
+  sourceUpdatedAt?: string;
   channelName?: string;
   workspaceId?: string;
 }): TokenUsageRecord {
@@ -101,10 +107,11 @@ export function recordTokenUsageSync(input: {
   const insertResult = db.prepare(
     `INSERT INTO token_usage (
       id, workspace_id, task_queue_id, agent_id, model_id, provider_account_id,
-      runtime_credential_id, router_session_id, gateway_request_id, input_tokens,
-      output_tokens, cost_usd, actual_cost_usd, currency, billing_status,
+      runtime_credential_id, router_session_id, gateway_request_id, gateway_usage_id,
+      protocol, input_tokens, output_tokens, cache_tokens, cost_usd, actual_cost_usd,
+      currency, billing_status, request_started_at, request_ended_at, source_updated_at,
       channel_name, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (workspace_id, gateway_request_id)
        WHERE gateway_request_id IS NOT NULL
        DO NOTHING`,
@@ -118,12 +125,18 @@ export function recordTokenUsageSync(input: {
     input.runtimeCredentialId ?? null,
     input.routerSessionId ?? null,
     input.gatewayRequestId ?? null,
+    input.gatewayUsageId ?? null,
+    input.protocol ?? null,
     input.inputTokens,
     input.outputTokens,
+    input.cacheTokens ?? 0,
     costUsd,
     input.actualCostUsd ?? null,
     input.currency ?? null,
     billingStatus,
+    input.requestStartedAt ?? null,
+    input.requestEndedAt ?? null,
+    input.sourceUpdatedAt ?? null,
     input.channelName ?? null,
     now,
   );
@@ -176,13 +189,19 @@ export function recordTokenUsageSync(input: {
     runtimeCredentialId: input.runtimeCredentialId,
     routerSessionId: input.routerSessionId,
     gatewayRequestId: input.gatewayRequestId,
+    gatewayUsageId: input.gatewayUsageId,
+    protocol: input.protocol,
     actualCostUsd: input.actualCostUsd,
     currency: input.currency,
     billingStatus,
     inputTokens: input.inputTokens,
     outputTokens: input.outputTokens,
+    cacheTokens: input.cacheTokens ?? 0,
     costUsd,
     channelName: input.channelName,
+    requestStartedAt: input.requestStartedAt,
+    requestEndedAt: input.requestEndedAt,
+    sourceUpdatedAt: input.sourceUpdatedAt,
     createdAt: now,
   };
 }
@@ -229,12 +248,18 @@ export function listTokenUsageSync(filters?: {
     runtime_credential_id: string | null;
     router_session_id: string | null;
     gateway_request_id: string | null;
+    gateway_usage_id: string | null;
+    protocol: string | null;
     input_tokens: number;
     output_tokens: number;
+    cache_tokens: number;
     cost_usd: number;
     actual_cost_usd: number | null;
     currency: string | null;
     billing_status: string | null;
+    request_started_at: string | null;
+    request_ended_at: string | null;
+    source_updated_at: string | null;
     channel_name: string | null;
     created_at: string;
   }>;
@@ -249,24 +274,31 @@ export function listTokenUsageSync(filters?: {
     runtimeCredentialId: row.runtime_credential_id ?? undefined,
     routerSessionId: row.router_session_id ?? undefined,
     gatewayRequestId: row.gateway_request_id ?? undefined,
+    gatewayUsageId: row.gateway_usage_id ?? undefined,
+    protocol: row.protocol ?? undefined,
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
+    cacheTokens: row.cache_tokens,
     costUsd: row.cost_usd,
     actualCostUsd: row.actual_cost_usd ?? undefined,
     currency: row.currency ?? undefined,
     billingStatus: reconcileStatus(row.billing_status),
+    requestStartedAt: row.request_started_at ?? undefined,
+    requestEndedAt: row.request_ended_at ?? undefined,
+    sourceUpdatedAt: row.source_updated_at ?? undefined,
     channelName: row.channel_name ?? undefined,
     createdAt: row.created_at,
   }));
 }
 
 function reconcileStatus(value: string | null): TokenUsageRecord["billingStatus"] {
-  if (value === "reconciled" || value === "unallocated") return value;
+  if (value === "pending_reconciliation" || value === "reconciled" || value === "unallocated") return value;
   return "estimated";
 }
 
 export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEFAULT_WORKSPACE_ID): {
   estimatedCostUsd: number;
+  pendingReconciliationCostUsd: number;
   reconciledCostUsd: number;
   unallocatedCostUsd: number;
   totalActualCostUsd: number;
@@ -295,6 +327,7 @@ export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEF
   }>;
 
   let estimatedCostUsd = 0;
+  let pendingReconciliationCostUsd = 0;
   let reconciledCostUsd = 0;
   let unallocatedCostUsd = 0;
   let totalActualCostUsd = 0;
@@ -304,6 +337,8 @@ export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEF
     const status = reconcileStatus(row.billing_status);
     if (status === "estimated") {
       estimatedCostUsd += row.total_estimated;
+    } else if (status === "pending_reconciliation") {
+      pendingReconciliationCostUsd += row.total_actual || row.total_estimated;
     } else if (status === "reconciled") {
       reconciledCostUsd += row.total_actual;
       totalActualCostUsd += row.total_actual;
@@ -318,6 +353,7 @@ export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEF
 
   return {
     estimatedCostUsd,
+    pendingReconciliationCostUsd,
     reconciledCostUsd,
     unallocatedCostUsd,
     totalActualCostUsd,
@@ -701,9 +737,16 @@ export function markTokenUsageReconciledSync(
     actualCostUsd: number;
     currency: string;
     gatewayRequestId?: string;
+    gatewayUsageId?: string;
+    protocol?: string;
     modelId: string;
     inputTokens: number;
     outputTokens: number;
+    cacheTokens?: number;
+    requestStartedAt?: string;
+    requestEndedAt?: string;
+    sourceUpdatedAt?: string;
+    billingStatus?: "pending_reconciliation" | "reconciled" | "unallocated";
   },
 ): TokenUsageRecord | null {
   const db = getDatabase();
@@ -712,25 +755,38 @@ export function markTokenUsageReconciledSync(
   const costUsd = pricing ? computeCostUsd(input.inputTokens, input.outputTokens, pricing) : 0;
   db.prepare(
     `UPDATE token_usage
-     SET billing_status = 'reconciled',
+     SET billing_status = ?,
          actual_cost_usd = ?,
          currency = ?,
          gateway_request_id = COALESCE(?, gateway_request_id),
+         gateway_usage_id = COALESCE(?, gateway_usage_id),
+         protocol = COALESCE(?, protocol),
          model_id = ?,
          input_tokens = ?,
          output_tokens = ?,
+         cache_tokens = ?,
          cost_usd = ?,
+         request_started_at = COALESCE(?, request_started_at),
+         request_ended_at = COALESCE(?, request_ended_at),
+         source_updated_at = COALESCE(?, source_updated_at),
          reconciled_at = ?
      WHERE id = ?`,
   ).run(
+    input.billingStatus ?? "reconciled",
     input.actualCostUsd,
     input.currency,
     input.gatewayRequestId ?? null,
+    input.gatewayUsageId ?? null,
+    input.protocol ?? null,
     input.modelId,
     input.inputTokens,
     input.outputTokens,
+    input.cacheTokens ?? 0,
     costUsd,
-    now,
+    input.requestStartedAt ?? null,
+    input.requestEndedAt ?? null,
+    input.sourceUpdatedAt ?? null,
+    input.billingStatus === "pending_reconciliation" ? null : now,
     id,
   );
   const row = db.prepare("SELECT * FROM token_usage WHERE id = ?").get(id) as Record<string, unknown> | undefined;
@@ -743,12 +799,19 @@ interface InsertUnallocatedTokenUsageInput {
   modelId: string;
   runtimeCredentialId: string;
   gatewayRequestId: string;
+  gatewayUsageId?: string;
+  protocol?: string;
   inputTokens?: number;
   outputTokens?: number;
+  cacheTokens?: number;
   actualCostUsd: number;
   currency: string;
   channelName?: string;
   createdAt?: string;
+  requestStartedAt?: string;
+  requestEndedAt?: string;
+  sourceUpdatedAt?: string;
+  billingStatus?: "pending_reconciliation" | "unallocated";
 }
 
 export function insertUnallocatedTokenUsageIfAbsentSync(
@@ -760,9 +823,10 @@ export function insertUnallocatedTokenUsageIfAbsentSync(
   const insertResult = db.prepare(
     `INSERT INTO token_usage (
       id, workspace_id, task_queue_id, agent_id, model_id,
-      runtime_credential_id, gateway_request_id, input_tokens, output_tokens,
-      cost_usd, actual_cost_usd, currency, billing_status, channel_name, created_at
-     ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'unallocated', ?, ?)
+      runtime_credential_id, gateway_request_id, gateway_usage_id, protocol,
+      input_tokens, output_tokens, cache_tokens, cost_usd, actual_cost_usd, currency,
+      billing_status, request_started_at, request_ended_at, source_updated_at, channel_name, created_at
+     ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (workspace_id, gateway_request_id)
        WHERE gateway_request_id IS NOT NULL
        DO NOTHING`,
@@ -773,10 +837,17 @@ export function insertUnallocatedTokenUsageIfAbsentSync(
     input.modelId,
     input.runtimeCredentialId,
     input.gatewayRequestId,
+    input.gatewayUsageId ?? null,
+    input.protocol ?? null,
     input.inputTokens ?? 0,
     input.outputTokens ?? 0,
+    input.cacheTokens ?? 0,
     input.actualCostUsd,
     input.currency,
+    input.billingStatus ?? "unallocated",
+    input.requestStartedAt ?? null,
+    input.requestEndedAt ?? null,
+    input.sourceUpdatedAt ?? null,
     input.channelName ?? null,
     now,
   );
@@ -809,12 +880,18 @@ function mapTokenUsageRow(row: Record<string, unknown>): TokenUsageRecord {
     runtimeCredentialId: typeof row.runtime_credential_id === "string" ? row.runtime_credential_id : undefined,
     routerSessionId: typeof row.router_session_id === "string" ? row.router_session_id : undefined,
     gatewayRequestId: typeof row.gateway_request_id === "string" ? row.gateway_request_id : undefined,
+    gatewayUsageId: typeof row.gateway_usage_id === "string" ? row.gateway_usage_id : undefined,
+    protocol: typeof row.protocol === "string" ? row.protocol : undefined,
     inputTokens: Number(row.input_tokens) || 0,
     outputTokens: Number(row.output_tokens) || 0,
+    cacheTokens: Number(row.cache_tokens) || 0,
     costUsd: Number(row.cost_usd) || 0,
     actualCostUsd: typeof row.actual_cost_usd === "number" ? row.actual_cost_usd : undefined,
     currency: typeof row.currency === "string" ? row.currency : undefined,
     billingStatus: reconcileStatus(String(row.billing_status)),
+    requestStartedAt: typeof row.request_started_at === "string" ? row.request_started_at : undefined,
+    requestEndedAt: typeof row.request_ended_at === "string" ? row.request_ended_at : undefined,
+    sourceUpdatedAt: typeof row.source_updated_at === "string" ? row.source_updated_at : undefined,
     channelName: typeof row.channel_name === "string" ? row.channel_name : undefined,
     createdAt: String(row.created_at),
   };

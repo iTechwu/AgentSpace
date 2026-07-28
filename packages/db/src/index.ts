@@ -92,6 +92,7 @@ export type {
   EnqueueTaskInput,
   ModelPricingRecord,
   TokenUsageRecord,
+  TokenUsageBillingStatus,
   BudgetScope,
   BudgetPeriod,
   BudgetAction,

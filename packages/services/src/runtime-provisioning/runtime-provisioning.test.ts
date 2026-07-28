@@ -412,7 +412,7 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
     currency: "USD",
     timestamp: now,
   }, reconciliation);
-  assert.equal(reconciliation.skippedCount, 1);
+  assert.equal(reconciliation.skippedCount, 0);
   const unallocatedUsage = findTokenUsageByGatewayRequestIdSync("gateway-unallocated", TEAM_WS);
   assert.equal(unallocatedUsage?.billingStatus, "unallocated");
   const duplicateUsage = recordTokenUsageSync({
@@ -429,7 +429,7 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
   assert.equal(duplicateUsage.billingStatus, "reconciled");
   assert.equal(duplicateUsage.actualCostUsd, 0.5);
   assert.equal(duplicateUsage.taskQueueId, "queue-runtime-list");
-  assert.equal(duplicateUsage.modelId, "gateway-canonical-model");
+  assert.equal(duplicateUsage.modelId, "claude-sonnet");
   assert.equal(duplicateUsage.inputTokens, 77);
   assert.equal(duplicateUsage.outputTokens, 22);
   assert.throws(() => recordTokenUsageSync({
@@ -500,6 +500,79 @@ test("model catalog preflight blocks incompatible models before credential creat
   assert.equal(failed.status, "failed");
   assert.match(failed.lastErrorMessage ?? "", /managed_runtime.no_compatible_models/);
   assert.equal(activeClient.createCalls, 0);
+});
+
+test("usage reconciliation keeps provisional billing pending until models finalizes it", () => {
+  recordTokenUsageSync({
+    workspaceId: TEAM_WS,
+    agentId: "atlas",
+    modelId: "local-model-alias",
+    runtimeCredentialId: "rtc-pending",
+    gatewayRequestId: "gateway-pending",
+    inputTokens: 3,
+    outputTokens: 1,
+  });
+  const pendingResult = { reconciledCount: 0, unallocatedCount: 0, skippedCount: 0, totalRemoteCount: 1 };
+
+  reconcileRuntimeCredentialUsageEntrySync(TEAM_WS, "rtc-pending", {
+    id: "usage-pending",
+    requestId: "gateway-pending",
+    model: "gateway-canonical-model",
+    protocol: "anthropic",
+    billingStatus: "pending_reconciliation",
+    inputTokens: 8,
+    outputTokens: 3,
+    cacheTokens: 2,
+    totalCost: 0.15,
+    currency: "USD",
+    timestamp: "2026-07-28T01:00:00.000Z",
+    startedAt: "2026-07-28T00:59:58.000Z",
+    endedAt: "2026-07-28T01:00:00.000Z",
+  } as never, pendingResult);
+
+  const pendingUsage = findTokenUsageByGatewayRequestIdSync("gateway-pending", TEAM_WS);
+  assert.equal(pendingUsage?.billingStatus, "pending_reconciliation");
+  assert.equal(pendingUsage?.actualCostUsd, 0.15);
+  assert.equal(pendingUsage?.gatewayUsageId, "usage-pending");
+  assert.equal(pendingUsage?.protocol, "anthropic");
+  assert.equal(pendingUsage?.cacheTokens, 2);
+  assert.equal(pendingUsage?.requestStartedAt, "2026-07-28T00:59:58.000Z");
+  assert.equal(pendingUsage?.requestEndedAt, "2026-07-28T01:00:00.000Z");
+
+  const finalResult = { reconciledCount: 0, unallocatedCount: 0, skippedCount: 0, totalRemoteCount: 1 };
+  reconcileRuntimeCredentialUsageEntrySync(TEAM_WS, "rtc-pending", {
+    id: "usage-pending",
+    requestId: "gateway-pending",
+    model: "gateway-canonical-model",
+    protocol: "anthropic",
+    billingStatus: "reconciled",
+    inputTokens: 10,
+    outputTokens: 4,
+    totalCost: 0.2,
+    currency: "USD",
+    timestamp: "2026-07-28T01:00:00.000Z",
+  } as never, finalResult);
+
+  const finalizedUsage = findTokenUsageByGatewayRequestIdSync("gateway-pending", TEAM_WS);
+  assert.equal(finalizedUsage?.billingStatus, "unallocated");
+  assert.equal(finalizedUsage?.actualCostUsd, 0.2);
+  assert.equal(finalizedUsage?.inputTokens, 10);
+  assert.equal(finalizedUsage?.outputTokens, 4);
+
+  reconcileRuntimeCredentialUsageEntrySync(TEAM_WS, "rtc-pending", {
+    id: "usage-unmatched-pending",
+    requestId: "gateway-unmatched-pending",
+    model: "gateway-canonical-model",
+    protocol: "anthropic",
+    billingStatus: "estimated",
+    totalCost: 0.05,
+    currency: "USD",
+    timestamp: "2026-07-28T01:02:00.000Z",
+  } as never, finalResult);
+  assert.equal(
+    findTokenUsageByGatewayRequestIdSync("gateway-unmatched-pending", TEAM_WS)?.billingStatus,
+    "pending_reconciliation",
+  );
 });
 
 test("idempotency: same key returns the same task and creates the credential once", async () => {

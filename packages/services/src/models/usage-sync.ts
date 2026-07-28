@@ -22,10 +22,18 @@ export interface SyncRuntimeCredentialUsageInput {
 export interface SyncRuntimeCredentialUsageResult {
   reconciledCount: number;
   unallocatedCount: number;
+  pendingCount?: number;
   skippedCount: number;
   totalRemoteCount: number;
   lastRemoteTimestamp?: string;
 }
+
+type ReconciliationUsageLogEntry = ModelsInternalUsageLogEntry & {
+  cacheTokens?: number | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  updatedAt?: string | null;
+};
 
 /**
  * Pull usage logs from models.dofe.ai for a single RuntimeCredential and
@@ -73,6 +81,7 @@ export async function syncRuntimeCredentialUsageAsync(
   const result: SyncRuntimeCredentialUsageResult = {
     reconciledCount: 0,
     unallocatedCount: 0,
+    pendingCount: 0,
     skippedCount: 0,
     totalRemoteCount: 0,
   };
@@ -147,7 +156,7 @@ export async function syncRuntimeCredentialUsageAsync(
 export function reconcileRuntimeCredentialUsageEntrySync(
   workspaceId: string,
   runtimeCredentialId: string,
-  entry: ModelsInternalUsageLogEntry,
+  entry: ReconciliationUsageLogEntry,
   result: SyncRuntimeCredentialUsageResult,
 ): void {
   const gatewayRequestId = entry.requestId;
@@ -164,7 +173,14 @@ export function reconcileRuntimeCredentialUsageEntrySync(
     ) {
       throw new Error("usage_sync.gateway_request_runtime_credential_mismatch");
     }
-    if (existing.billingStatus === "reconciled" || existing.billingStatus === "unallocated") {
+    const remoteStatus = resolveRemoteBillingStatus(entry.billingStatus, Boolean(existing.taskQueueId));
+    if (
+      existing.billingStatus === remoteStatus
+      && existing.actualCostUsd === parseCost(entry.totalCost)
+      && existing.modelId === (entry.model.trim() || existing.modelId)
+      && existing.inputTokens === normalizeRemoteTokenCount(entry.inputTokens, existing.inputTokens)
+      && existing.outputTokens === normalizeRemoteTokenCount(entry.outputTokens, existing.outputTokens)
+    ) {
       result.skippedCount += 1;
       return;
     }
@@ -172,28 +188,59 @@ export function reconcileRuntimeCredentialUsageEntrySync(
       actualCostUsd: parseCost(entry.totalCost),
       currency: entry.currency,
       gatewayRequestId,
+      gatewayUsageId: entry.id,
+      protocol: entry.protocol,
       modelId: entry.model.trim() || existing.modelId,
       inputTokens: normalizeRemoteTokenCount(entry.inputTokens, existing.inputTokens),
       outputTokens: normalizeRemoteTokenCount(entry.outputTokens, existing.outputTokens),
+      cacheTokens: normalizeRemoteTokenCount(entry.cacheTokens, existing.cacheTokens),
+      requestStartedAt: entry.startedAt ?? entry.timestamp,
+      requestEndedAt: entry.endedAt ?? entry.timestamp,
+      sourceUpdatedAt: entry.updatedAt ?? entry.timestamp,
+      billingStatus: remoteStatus,
     });
-    result.reconciledCount += 1;
+    if (remoteStatus === "pending_reconciliation") result.pendingCount = (result.pendingCount ?? 0) + 1;
+    else result.reconciledCount += 1;
     return;
   }
 
+  const remoteStatus = resolveRemoteBillingStatus(entry.billingStatus, false) === "pending_reconciliation"
+    ? "pending_reconciliation"
+    : "unallocated";
   const inserted = insertUnallocatedTokenUsageIfAbsentSync({
     workspaceId,
     agentId: entry.employeeId ?? entry.runtimeId ?? "unknown",
     modelId: entry.model,
     runtimeCredentialId,
     gatewayRequestId,
+    gatewayUsageId: entry.id,
+    protocol: entry.protocol,
     inputTokens: entry.inputTokens ?? undefined,
     outputTokens: entry.outputTokens ?? undefined,
+    cacheTokens: entry.cacheTokens ?? undefined,
     actualCostUsd: parseCost(entry.totalCost),
     currency: entry.currency,
     createdAt: entry.timestamp,
+    requestStartedAt: entry.startedAt ?? entry.timestamp,
+    requestEndedAt: entry.endedAt ?? entry.timestamp,
+    sourceUpdatedAt: entry.updatedAt ?? entry.timestamp,
+    billingStatus: remoteStatus,
   });
-  if (inserted.inserted) result.unallocatedCount += 1;
+  if (inserted.inserted && remoteStatus === "pending_reconciliation") {
+    result.pendingCount = (result.pendingCount ?? 0) + 1;
+  } else if (inserted.inserted) result.unallocatedCount += 1;
   else result.skippedCount += 1;
+}
+
+function resolveRemoteBillingStatus(
+  value: string | null | undefined,
+  hasLocalTask: boolean,
+): "pending_reconciliation" | "reconciled" | "unallocated" {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "estimated" || normalized === "pending" || normalized === "pending_reconciliation") {
+    return "pending_reconciliation";
+  }
+  return hasLocalTask ? "reconciled" : "unallocated";
 }
 
 function parseCost(value: number | string | null | undefined): number {

@@ -1175,6 +1175,8 @@ export interface ModelPricingRecord {
   updatedAt: string;
 }
 
+export type TokenUsageBillingStatus = "estimated" | "pending_reconciliation" | "reconciled" | "unallocated";
+
 export interface TokenUsageRecord {
   id: string;
   workspaceId: string;
@@ -1184,14 +1186,20 @@ export interface TokenUsageRecord {
   providerAccountId?: string;
   runtimeCredentialId?: string;
   routerSessionId?: string;
+  gatewayUsageId?: string;
+  protocol?: string;
   inputTokens: number;
   outputTokens: number;
+  cacheTokens: number;
   costUsd: number;
-  billingStatus?: "estimated" | "reconciled" | "unallocated";
+  billingStatus?: TokenUsageBillingStatus;
   gatewayRequestId?: string;
   actualCostUsd?: number;
   currency?: string;
   reconciledAt?: string;
+  requestStartedAt?: string;
+  requestEndedAt?: string;
+  sourceUpdatedAt?: string;
   channelName?: string;
   createdAt: string;
 }
