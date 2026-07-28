@@ -171,6 +171,8 @@ test("managed credential launchers run the provider inside its dedicated image",
     assert.match(proxy, /process\.env\[runtimeKeyName\] = runtimeKey/);
     assert.match(proxy, /DOFE_AGENT_GATEWAY_REQUEST_LOG/);
     assert.match(proxy, /x-request-id/);
+    assert.match(proxy, /statusCode >= 200/);
+    assert.match(proxy, /capturedUsage/);
     execFileSync(process.execPath, ["--check", proxyPath]);
     assert.doesNotMatch(launcher, /runtime-only-key/);
   } finally {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildManagedContainerHealthCheckCommand,
+  buildManagedProviderLauncherHealthCheckCommand,
   createManagedProvisioningExecutor,
   probeManagedGateway,
 } from "./managed-runtime-provisioning.ts";
@@ -21,6 +22,23 @@ test("managed health check runs from the provider container with a read-only cre
   assert.ok(command.args.includes("type=bind,src=/srv/managed/runtime-1/current,dst=/dofe-profile,readonly"));
   assert.ok(command.args.includes("https://model.example/v1/models"));
   assert.equal(command.args.join(" ").includes("must-not-appear"), false);
+});
+
+test("managed readiness starts the generated launcher, attribution proxy, and provider CLI", () => {
+  const command = buildManagedProviderLauncherHealthCheckCommand({
+    accountId: "runtime-1",
+    profileDir: "/srv/managed/runtime-1/current",
+    environment: {
+      OPENAI_API_KEY: "must-not-appear-in-args",
+      OPENAI_BASE_URL: "https://model.example/v1",
+    },
+  }, "/srv/managed/runtime-1/run-codex");
+
+  assert.equal(command.executable, "sh");
+  assert.deepEqual(command.args, ["/srv/managed/runtime-1/run-codex", "--version"]);
+  assert.equal(command.args.join(" ").includes("must-not-appear-in-args"), false);
+  assert.equal(command.env?.OPENAI_BASE_URL, "https://model.example/v1");
+  assert.equal(command.env?.OPENAI_API_KEY, undefined);
 });
 
 test("managed gateway health probe preserves the configured protocol path", async () => {

@@ -1859,13 +1859,52 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `
       WITH ranked AS (
+        SELECT id, workspace_id, gateway_request_id, runtime_credential_id,
+          ROW_NUMBER() OVER (
+            PARTITION BY workspace_id, gateway_request_id
+            ORDER BY
+              CASE
+                WHEN task_queue_id IS NOT NULL THEN 0
+                WHEN billing_status = 'reconciled' THEN 1
+                WHEN billing_status = 'estimated' THEN 2
+                ELSE 3
+              END,
+              created_at,
+              id
+          ) AS duplicate_rank
+        FROM token_usage
+        WHERE gateway_request_id IS NOT NULL
+      ),
+      keepers AS (
+        SELECT workspace_id, gateway_request_id, runtime_credential_id
+        FROM ranked
+        WHERE duplicate_rank = 1
+      ),
+      conflicts AS (
+        SELECT ranked.id
+        FROM ranked
+        JOIN keepers
+          ON keepers.workspace_id = ranked.workspace_id
+         AND keepers.gateway_request_id = ranked.gateway_request_id
+        WHERE ranked.duplicate_rank > 1
+          AND ranked.runtime_credential_id IS NOT NULL
+          AND keepers.runtime_credential_id IS NOT NULL
+          AND ranked.runtime_credential_id <> keepers.runtime_credential_id
+      )
+      UPDATE token_usage AS conflicting
+      SET gateway_request_id = NULL
+      FROM conflicts
+      WHERE conflicting.id = conflicts.id
+    `,
+    `
+      WITH ranked AS (
         SELECT id, workspace_id, gateway_request_id,
           ROW_NUMBER() OVER (
             PARTITION BY workspace_id, gateway_request_id
             ORDER BY
               CASE
-                WHEN billing_status = 'reconciled' THEN 0
-                WHEN task_queue_id IS NOT NULL THEN 1
+                WHEN task_queue_id IS NOT NULL THEN 0
+                WHEN billing_status = 'reconciled' THEN 1
                 WHEN billing_status = 'estimated' THEN 2
                 ELSE 3
               END,
@@ -1883,7 +1922,8 @@ export function getPostgresSchemaStatements(): string[] {
       ),
       actuals AS (
         SELECT DISTINCT ON (workspace_id, gateway_request_id)
-          workspace_id, gateway_request_id, actual_cost_usd, currency, reconciled_at
+          workspace_id, gateway_request_id, runtime_credential_id, model_id,
+          input_tokens, output_tokens, actual_cost_usd, currency, reconciled_at
         FROM token_usage
         WHERE gateway_request_id IS NOT NULL AND actual_cost_usd IS NOT NULL
         ORDER BY workspace_id, gateway_request_id,
@@ -1894,6 +1934,16 @@ export function getPostgresSchemaStatements(): string[] {
       UPDATE token_usage AS keeper
       SET actual_cost_usd = COALESCE(actuals.actual_cost_usd, keeper.actual_cost_usd),
           currency = COALESCE(actuals.currency, keeper.currency),
+          runtime_credential_id = COALESCE(keeper.runtime_credential_id, actuals.runtime_credential_id),
+          model_id = actuals.model_id,
+          input_tokens = CASE
+            WHEN actuals.input_tokens + actuals.output_tokens > 0 THEN actuals.input_tokens
+            ELSE keeper.input_tokens
+          END,
+          output_tokens = CASE
+            WHEN actuals.input_tokens + actuals.output_tokens > 0 THEN actuals.output_tokens
+            ELSE keeper.output_tokens
+          END,
           billing_status = CASE WHEN actuals.actual_cost_usd IS NOT NULL THEN 'reconciled' ELSE keeper.billing_status END,
           reconciled_at = CASE
             WHEN actuals.actual_cost_usd IS NOT NULL THEN COALESCE(actuals.reconciled_at, keeper.reconciled_at, NOW())
@@ -1904,6 +1954,11 @@ export function getPostgresSchemaStatements(): string[] {
         ON actuals.workspace_id = keepers.workspace_id
        AND actuals.gateway_request_id = keepers.gateway_request_id
       WHERE keeper.id = keepers.id
+       AND (
+         actuals.runtime_credential_id IS NULL
+         OR keeper.runtime_credential_id IS NULL
+         OR actuals.runtime_credential_id = keeper.runtime_credential_id
+       )
     `,
     `
       DELETE FROM token_usage
@@ -1915,8 +1970,8 @@ export function getPostgresSchemaStatements(): string[] {
               PARTITION BY workspace_id, gateway_request_id
               ORDER BY
                 CASE
-                  WHEN billing_status = 'reconciled' THEN 0
-                  WHEN task_queue_id IS NOT NULL THEN 1
+                  WHEN task_queue_id IS NOT NULL THEN 0
+                  WHEN billing_status = 'reconciled' THEN 1
                   WHEN billing_status = 'estimated' THEN 2
                   ELSE 3
                 END,

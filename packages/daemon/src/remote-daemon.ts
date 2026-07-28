@@ -107,15 +107,30 @@ interface RemoteTaskUsageEntry {
   outputTokens: number;
 }
 
-export function attachRemoteGatewayRequestIds(
-  usages: RemoteTaskUsageEntry[],
-  gatewayRequestIds: string[],
+interface RemoteGatewayUsageEntry {
+  requestId: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export function mergeRemoteGatewayUsages(
+  providerUsages: RemoteTaskUsageEntry[],
+  gatewayUsages: RemoteGatewayUsageEntry[],
+  context: Pick<RemoteTaskUsageEntry, "modelId" | "runtimeCredentialId" | "routerSessionId">,
 ): RemoteTaskUsageEntry[] {
-  let requestIndex = 0;
-  return usages.map((usage) => {
-    const capturedRequestId = gatewayRequestIds[requestIndex++];
-    return usage.gatewayRequestId ? usage : { ...usage, gatewayRequestId: capturedRequestId };
-  });
+  const usagesByRequestId = new Map<string, RemoteTaskUsageEntry>();
+  for (const usage of providerUsages) {
+    if (usage.gatewayRequestId) usagesByRequestId.set(usage.gatewayRequestId, usage);
+  }
+  for (const usage of gatewayUsages) {
+    usagesByRequestId.set(usage.requestId, {
+      ...context,
+      gatewayRequestId: usage.requestId,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    });
+  }
+  return [...usagesByRequestId.values()];
 }
 
 /** Shared, actionable message used wherever the daemon's token is rejected. */
@@ -829,7 +844,13 @@ async function executeRemoteTask(
       },
     );
 
-    usages = attachRemoteGatewayRequestIds(usages, readRemoteGatewayRequestIds(gatewayRequestLogPath));
+    if (effectiveModelId && managedCredentialId) {
+      usages = mergeRemoteGatewayUsages(usages, readRemoteGatewayUsages(gatewayRequestLogPath), {
+        modelId: effectiveModelId,
+        runtimeCredentialId: managedCredentialId,
+        routerSessionId: task.routerSessionId,
+      });
+    }
     rmSync(gatewayRequestLogPath, { force: true });
 
     const preparedSkillImports = prepareSkillImportOperationArtifacts(workDir);
@@ -877,16 +898,19 @@ function readFiniteNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-function readRemoteGatewayRequestIds(path: string): string[] {
+function readRemoteGatewayUsages(path: string): RemoteGatewayUsageEntry[] {
   if (!existsSync(path)) return [];
   return readFileSync(path, "utf8")
     .split("\n")
     .flatMap((line) => {
       if (!line.trim()) return [];
       try {
-        const value = JSON.parse(line) as { requestId?: unknown };
-        return typeof value.requestId === "string" && value.requestId.trim()
-          ? [value.requestId.trim()]
+        const value = JSON.parse(line) as { requestId?: unknown; inputTokens?: unknown; outputTokens?: unknown };
+        const requestId = typeof value.requestId === "string" ? value.requestId.trim() : "";
+        const inputTokens = readFiniteNumber(value.inputTokens);
+        const outputTokens = readFiniteNumber(value.outputTokens);
+        return requestId && (inputTokens > 0 || outputTokens > 0)
+          ? [{ requestId, inputTokens, outputTokens }]
           : [];
       } catch {
         return [];

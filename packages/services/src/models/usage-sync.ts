@@ -158,6 +158,12 @@ export function reconcileRuntimeCredentialUsageEntrySync(
 
   const existing = findTokenUsageByGatewayRequestIdSync(gatewayRequestId, workspaceId);
   if (existing) {
+    if (
+      existing.runtimeCredentialId
+      && existing.runtimeCredentialId !== runtimeCredentialId
+    ) {
+      throw new Error("usage_sync.gateway_request_runtime_credential_mismatch");
+    }
     if (existing.billingStatus === "reconciled" || existing.billingStatus === "unallocated") {
       result.skippedCount += 1;
       return;
@@ -166,6 +172,9 @@ export function reconcileRuntimeCredentialUsageEntrySync(
       actualCostUsd: parseCost(entry.totalCost),
       currency: entry.currency,
       gatewayRequestId,
+      modelId: entry.model.trim() || existing.modelId,
+      inputTokens: normalizeRemoteTokenCount(entry.inputTokens, existing.inputTokens),
+      outputTokens: normalizeRemoteTokenCount(entry.outputTokens, existing.outputTokens),
     });
     result.reconciledCount += 1;
     return;
@@ -192,4 +201,8 @@ function parseCost(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeRemoteTokenCount(value: number | null | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }

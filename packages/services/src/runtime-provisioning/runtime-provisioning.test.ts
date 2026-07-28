@@ -443,11 +443,36 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
     outputTokens: 5,
   }), /runtime_credential_mismatch/);
 
+  recordTokenUsageSync({
+    workspaceId: TEAM_WS,
+    taskQueueId: "queue-runtime-list",
+    agentId: "atlas",
+    modelId: "local-model-alias",
+    runtimeCredentialId: runtime!.managedCredentialId!,
+    gatewayRequestId: "gateway-reconciled",
+    inputTokens: 3,
+    outputTokens: 1,
+  });
+  reconcileRuntimeCredentialUsageEntrySync(TEAM_WS, runtime!.managedCredentialId!, {
+    requestId: "gateway-reconciled",
+    model: "gateway-canonical-model",
+    inputTokens: 88,
+    outputTokens: 33,
+    totalCost: 0.25,
+    currency: "USD",
+    timestamp: now,
+  }, reconciliation);
+  const reconciledUsage = findTokenUsageByGatewayRequestIdSync("gateway-reconciled", TEAM_WS);
+  assert.equal(reconciledUsage?.modelId, "gateway-canonical-model");
+  assert.equal(reconciledUsage?.inputTokens, 88);
+  assert.equal(reconciledUsage?.outputTokens, 33);
+  assert.equal(reconciledUsage?.actualCostUsd, 0.25);
+
   const managed = listManagedRuntimesForWorkspaceSync({ workspaceId: TEAM_WS, actorUserId: OWNER })[0]!;
   assert.deepEqual(managed.protocols, ["anthropic"]);
   assert.equal(managed.defaultModel, "claude-sonnet");
   assert.equal(managed.assignedEmployeeCount, 1);
-  assert.equal(managed.periodActualCostUsd, 1.75);
+  assert.equal(managed.periodActualCostUsd, 2);
   assert.equal(managed.unallocatedCostUsd, 0);
 });
 

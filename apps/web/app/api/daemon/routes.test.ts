@@ -54,7 +54,7 @@ import { POST as heartbeatPOST } from "./heartbeat/route";
 import { GET as installScriptGET } from "./install-script/route";
 import { GET as packageGET } from "./package/route";
 import { POST as claimPOST } from "./runtimes/[runtimeId]/tasks/claim/route";
-import { POST as completePOST } from "./tasks/[taskId]/complete/route";
+import { persistManagedTaskUsagesBestEffort, POST as completePOST } from "./tasks/[taskId]/complete/route";
 import { POST as failPOST } from "./tasks/[taskId]/fail/route";
 import { GET as inputBundleGET } from "./tasks/[taskId]/input-bundle/route";
 import { POST as outputBundlePOST } from "./tasks/[taskId]/output-bundle/route";
@@ -163,6 +163,30 @@ function daemonHeaders(token: string): HeadersInit {
 }
 
 describe("daemon API routes", () => {
+  it("keeps task completion successful when usage persistence needs reconciliation", () => {
+    const errors: unknown[] = [];
+    const persisted = persistManagedTaskUsagesBestEffort({
+      usages: [{
+        modelId: "gpt-5",
+        runtimeCredentialId: "credential-1",
+        gatewayRequestId: "gateway-1",
+        inputTokens: 10,
+        outputTokens: 2,
+      }],
+      workspaceId: "workspace-1",
+      taskId: "task-1",
+      agentId: "agent-1",
+      runtimeCredentialId: "credential-1",
+      recordUsage: () => {
+        throw new Error("database unavailable");
+      },
+      onError: (error) => errors.push(error),
+    });
+
+    expect(persisted).toBe(false);
+    expect(errors).toHaveLength(1);
+  });
+
   it("serves a hosted install script with baked server defaults", async () => {
     const response = await installScriptGET(
       new Request("http://localhost/api/daemon/install-script"),

@@ -130,31 +130,34 @@ export function recordTokenUsageSync(input: {
 
   if (insertResult.changes === 0 && input.gatewayRequestId) {
     const existing = findTokenUsageByGatewayRequestIdSync(input.gatewayRequestId, workspaceId);
-    if (existing?.billingStatus === "unallocated") {
+    if (
+      existing?.runtimeCredentialId && input.runtimeCredentialId
+      && existing.runtimeCredentialId !== input.runtimeCredentialId
+    ) {
+      throw new Error("token_usage.gateway_request_runtime_credential_mismatch");
+    }
+    if (
+      existing && input.taskQueueId && !existing.taskQueueId
+      && (existing.billingStatus === "unallocated" || existing.billingStatus === "reconciled")
+    ) {
       db.prepare(
         `UPDATE token_usage
-         SET task_queue_id = COALESCE(?, task_queue_id),
+         SET task_queue_id = ?,
              agent_id = ?,
-             model_id = ?,
              provider_account_id = COALESCE(?, provider_account_id),
-             runtime_credential_id = COALESCE(?, runtime_credential_id),
+             runtime_credential_id = COALESCE(runtime_credential_id, ?),
              router_session_id = COALESCE(?, router_session_id),
-             input_tokens = ?,
-             output_tokens = ?,
-             cost_usd = ?,
-             billing_status = 'reconciled',
-             reconciled_at = ?
-         WHERE id = ? AND billing_status = 'unallocated'`,
+             channel_name = COALESCE(?, channel_name),
+             billing_status = CASE WHEN actual_cost_usd IS NOT NULL THEN 'reconciled' ELSE billing_status END,
+             reconciled_at = CASE WHEN actual_cost_usd IS NOT NULL THEN COALESCE(reconciled_at, ?) ELSE reconciled_at END
+         WHERE id = ? AND task_queue_id IS NULL`,
       ).run(
-        input.taskQueueId ?? null,
+        input.taskQueueId,
         input.agentId,
-        input.modelId,
         input.providerAccountId ?? null,
         input.runtimeCredentialId ?? null,
         input.routerSessionId ?? null,
-        input.inputTokens,
-        input.outputTokens,
-        costUsd,
+        input.channelName ?? null,
         now,
         existing.id,
       );
@@ -698,19 +701,38 @@ export function markTokenUsageReconciledSync(
     actualCostUsd: number;
     currency: string;
     gatewayRequestId?: string;
+    modelId: string;
+    inputTokens: number;
+    outputTokens: number;
   },
 ): TokenUsageRecord | null {
   const db = getDatabase();
   const now = new Date().toISOString();
+  const pricing = readModelPricingSync(input.modelId);
+  const costUsd = pricing ? computeCostUsd(input.inputTokens, input.outputTokens, pricing) : 0;
   db.prepare(
     `UPDATE token_usage
      SET billing_status = 'reconciled',
          actual_cost_usd = ?,
          currency = ?,
          gateway_request_id = COALESCE(?, gateway_request_id),
+         model_id = ?,
+         input_tokens = ?,
+         output_tokens = ?,
+         cost_usd = ?,
          reconciled_at = ?
      WHERE id = ?`,
-  ).run(input.actualCostUsd, input.currency, input.gatewayRequestId ?? null, now, id);
+  ).run(
+    input.actualCostUsd,
+    input.currency,
+    input.gatewayRequestId ?? null,
+    input.modelId,
+    input.inputTokens,
+    input.outputTokens,
+    costUsd,
+    now,
+    id,
+  );
   const row = db.prepare("SELECT * FROM token_usage WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   return row ? mapTokenUsageRow(row) : null;
 }
@@ -762,7 +784,14 @@ export function insertUnallocatedTokenUsageIfAbsentSync(
     ? db.prepare("SELECT * FROM token_usage WHERE id = ?").get(id) as Record<string, unknown>
     : db.prepare("SELECT * FROM token_usage WHERE workspace_id = ? AND gateway_request_id = ?")
         .get(input.workspaceId, input.gatewayRequestId) as Record<string, unknown>;
-  return { record: mapTokenUsageRow(row), inserted: insertResult.changes > 0 };
+  const record = mapTokenUsageRow(row);
+  if (
+    !insertResult.changes && record.runtimeCredentialId
+    && record.runtimeCredentialId !== input.runtimeCredentialId
+  ) {
+    throw new Error("token_usage.gateway_request_runtime_credential_mismatch");
+  }
+  return { record, inserted: insertResult.changes > 0 };
 }
 
 export function insertUnallocatedTokenUsageSync(input: InsertUnallocatedTokenUsageInput): TokenUsageRecord {

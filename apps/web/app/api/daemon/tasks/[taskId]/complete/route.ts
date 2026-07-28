@@ -49,6 +49,55 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type CompleteTaskUsage = NonNullable<CompleteTaskRequest["usages"]>[number];
+
+export function persistManagedTaskUsagesBestEffort(input: {
+  usages: CompleteTaskUsage[];
+  workspaceId: string;
+  taskId: string;
+  agentId: string;
+  routerSessionId?: string;
+  runtimeCredentialId?: string;
+  recordUsage?: typeof recordTokenUsageSync;
+  onError?: (error: unknown) => void;
+}): boolean {
+  const recordUsage = input.recordUsage ?? recordTokenUsageSync;
+  let allPersisted = true;
+  for (const usage of input.usages) {
+    if (!(
+      input.runtimeCredentialId &&
+      usage.runtimeCredentialId === input.runtimeCredentialId &&
+      usage.modelId?.trim() &&
+      Number.isFinite(usage.inputTokens) &&
+      Number.isFinite(usage.outputTokens) &&
+      usage.inputTokens >= 0 &&
+      usage.outputTokens >= 0 &&
+      (usage.inputTokens > 0 || usage.outputTokens > 0)
+    )) continue;
+    try {
+      recordUsage({
+        workspaceId: input.workspaceId,
+        taskQueueId: input.taskId,
+        agentId: input.agentId,
+        modelId: usage.modelId.trim(),
+        runtimeCredentialId: usage.runtimeCredentialId,
+        routerSessionId: input.routerSessionId,
+        gatewayRequestId: usage.gatewayRequestId,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+      });
+    } catch (error) {
+      allPersisted = false;
+      try {
+        input.onError?.(error);
+      } catch {
+        // Completion must remain successful even if warning persistence also fails.
+      }
+    }
+  }
+  return allPersisted;
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ taskId: string }> },
@@ -391,29 +440,23 @@ export async function POST(
     });
 
     const usages = [...(Array.isArray(body.usages) ? body.usages : []), ...(body.usage ? [body.usage] : [])];
-    for (const usage of usages) {
-      if (!(
-        runtime.managedCredentialId &&
-        usage.runtimeCredentialId === runtime.managedCredentialId &&
-        usage.modelId?.trim() &&
-        Number.isFinite(usage.inputTokens) &&
-        Number.isFinite(usage.outputTokens) &&
-        usage.inputTokens >= 0 &&
-        usage.outputTokens >= 0 &&
-        (usage.inputTokens > 0 || usage.outputTokens > 0)
-      )) continue;
-      recordTokenUsageSync({
-        workspaceId: task.workspaceId,
-        taskQueueId: task.id,
-        agentId: task.agentId,
-        modelId: usage.modelId.trim(),
-        runtimeCredentialId: usage.runtimeCredentialId,
-        routerSessionId: task.routerSessionId,
-        gatewayRequestId: usage.gatewayRequestId,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-      });
-    }
+    persistManagedTaskUsagesBestEffort({
+      usages,
+      workspaceId: task.workspaceId,
+      taskId: task.id,
+      agentId: task.agentId,
+      routerSessionId: task.routerSessionId,
+      runtimeCredentialId: runtime.managedCredentialId,
+      onError: (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Failed to persist managed usage for completed task ${task.id}: ${message}`);
+        appendTaskMessageSync({
+          taskId: task.id,
+          type: "status",
+          content: "Usage attribution is pending reconciliation.",
+        });
+      },
+    });
 
     return Response.json({
       task: {

@@ -70,6 +70,56 @@ const ATTRIBUTION_ENVIRONMENT_KEYS = [
 
 const ATTRIBUTION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 
+export interface ManagedGatewayUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+const MANAGED_GATEWAY_USAGE_EXTRACTOR_SOURCE = String.raw`
+function extractGatewayUsage(value) {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  const inputKeys = ["input_tokens", "inputTokens", "prompt_tokens", "promptTokens", "promptTokenCount"];
+  const outputKeys = ["output_tokens", "outputTokens", "completion_tokens", "completionTokens", "candidatesTokenCount"];
+
+  function readToken(record, keys) {
+    for (const key of keys) {
+      const token = record[key];
+      if (typeof token === "number" && Number.isFinite(token) && token >= 0) return token;
+    }
+    return 0;
+  }
+
+  function visit(current, parentKey) {
+    if (Array.isArray(current)) {
+      for (const entry of current) visit(entry, parentKey);
+      return;
+    }
+    if (!current || typeof current !== "object") return;
+    const record = current;
+    const hasInput = inputKeys.some((key) => Object.prototype.hasOwnProperty.call(record, key));
+    const hasOutput = outputKeys.some((key) => Object.prototype.hasOwnProperty.call(record, key));
+    const isUsageObject = /usage/i.test(parentKey || "") || (hasInput && hasOutput);
+    if (isUsageObject) {
+      inputTokens = Math.max(inputTokens, readToken(record, inputKeys));
+      outputTokens = Math.max(outputTokens, readToken(record, outputKeys));
+    }
+    for (const [key, nested] of Object.entries(record)) visit(nested, key);
+  }
+
+  visit(value, "");
+  return inputTokens > 0 || outputTokens > 0 ? { inputTokens, outputTokens } : undefined;
+}`;
+
+let managedGatewayUsageExtractor: ((value: unknown) => ManagedGatewayUsage | undefined) | undefined;
+
+export function extractManagedGatewayUsage(value: unknown): ManagedGatewayUsage | undefined {
+  managedGatewayUsageExtractor ??= Function(
+    `"use strict"; ${MANAGED_GATEWAY_USAGE_EXTRACTOR_SOURCE}; return extractGatewayUsage;`,
+  )() as (input: unknown) => ManagedGatewayUsage | undefined;
+  return managedGatewayUsageExtractor(value);
+}
+
 export function buildManagedRuntimeAttributionHeaders(input: {
   runtimeKey: string;
   runtimeCredentialId: string;
@@ -217,6 +267,9 @@ import { spawn } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import http from "node:http";
 import https from "node:https";
+import { StringDecoder } from "node:string_decoder";
+
+${MANAGED_GATEWAY_USAGE_EXTRACTOR_SOURCE}
 
 const [baseUrlKey, runtimeKeyName, runtimeKeyPath, executable, ...args] = process.argv.slice(2);
 const upstreamBaseUrl = process.env[baseUrlKey];
@@ -239,6 +292,7 @@ const server = http.createServer((request, response) => {
   for (const key of Object.keys(headers)) {
     if (key.toLowerCase().startsWith("x-dofe-")) delete headers[key];
   }
+  headers["accept-encoding"] = "identity";
 
   const credentialId = process.env.DOFE_AGENT_RUNTIME_CREDENTIAL_ID || "";
   const runtimeId = process.env.DOFE_AGENT_RUNTIME_ID || "";
@@ -260,11 +314,54 @@ const server = http.createServer((request, response) => {
       ?? proxyResponse.headers["request-id"];
     const requestId = Array.isArray(requestIdHeader) ? requestIdHeader[0] : requestIdHeader;
     const requestLog = process.env.DOFE_AGENT_GATEWAY_REQUEST_LOG;
-    if (requestLog && requestId && /^[A-Za-z0-9._:-]{1,256}$/.test(requestId)) {
-      appendFileSync(requestLog, JSON.stringify({ requestId }) + "\\n", { encoding: "utf8", mode: 0o600 });
-    }
     response.writeHead(proxyResponse.statusCode || 502, proxyResponse.headers);
-    proxyResponse.pipe(response);
+    let responseBody = "";
+    let responseBodyTooLarge = false;
+    let pendingLine = "";
+    let capturedUsage;
+    const decoder = new StringDecoder("utf8");
+    const captureUsage = (value) => {
+      const usage = extractGatewayUsage(value);
+      if (!usage) return;
+      capturedUsage = {
+        inputTokens: Math.max(capturedUsage?.inputTokens || 0, usage.inputTokens),
+        outputTokens: Math.max(capturedUsage?.outputTokens || 0, usage.outputTokens),
+      };
+    };
+    const captureEventLine = (line) => {
+      const candidate = line.startsWith("data:") ? line.slice(5).trim() : "";
+      if (!candidate || candidate === "[DONE]") return;
+      try { captureUsage(JSON.parse(candidate)); } catch {}
+    };
+    proxyResponse.on("data", (chunk) => {
+      const text = decoder.write(chunk);
+      if (!responseBodyTooLarge) {
+        if (responseBody.length + text.length <= 8 * 1024 * 1024) responseBody += text;
+        else responseBodyTooLarge = true;
+      }
+      pendingLine += text;
+      const lines = pendingLine.split(/\\r?\\n/);
+      pendingLine = lines.pop() || "";
+      for (const line of lines) captureEventLine(line);
+      response.write(chunk);
+    });
+    proxyResponse.on("end", () => {
+      const finalText = decoder.end();
+      pendingLine += finalText;
+      if (!responseBodyTooLarge) responseBody += finalText;
+      captureEventLine(pendingLine);
+      if (!responseBodyTooLarge) {
+        try { captureUsage(JSON.parse(responseBody)); } catch {}
+      }
+      const statusCode = proxyResponse.statusCode || 502;
+      if (
+        requestLog && requestId && /^[A-Za-z0-9._:-]{1,256}$/.test(requestId)
+        && statusCode >= 200 && statusCode < 300 && capturedUsage
+      ) {
+        appendFileSync(requestLog, JSON.stringify({ requestId, ...capturedUsage }) + "\\n", { encoding: "utf8", mode: 0o600 });
+      }
+      response.end();
+    });
   });
   proxyRequest.on("error", () => {
     if (!response.headersSent) response.writeHead(502);

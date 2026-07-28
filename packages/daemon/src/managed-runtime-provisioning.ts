@@ -77,6 +77,10 @@ export function createManagedProvisioningExecutor(
         }
         const probeResult = await runCommandSequence(task.runtimeId, task.stage, [
           buildManagedContainerHealthCheckCommand(profile, task.runtimeType),
+          buildManagedProviderLauncherHealthCheckCommand(
+            profile,
+            credentialResolver.getExecutablePath(task.runtimeId, task.runtimeType),
+          ),
         ]);
         if (!probeResult.success) {
           throw new Error(probeResult.errorMessage ?? "managed_runtime.container_gateway_health_failed");
@@ -170,6 +174,19 @@ export function buildManagedContainerHealthCheckCommand(
       `dofe/agent-runtime-${provider}:${imageTag}`,
       "-e", script, endpoint, provider,
     ],
+  };
+}
+
+export function buildManagedProviderLauncherHealthCheckCommand(
+  profile: ProviderCredentialProfile,
+  launcherPath: string,
+): ManagedProvisioningCommand {
+  return {
+    executable: "sh",
+    args: [launcherPath, "--version"],
+    env: Object.fromEntries(
+      Object.entries(profile.environment).filter(([key]) => key.endsWith("_BASE_URL")),
+    ),
   };
 }
 
