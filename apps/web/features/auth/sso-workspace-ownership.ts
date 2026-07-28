@@ -1,4 +1,8 @@
 import { readAuthIdentityForUserSync, readWorkspaceSsoBindingSync } from "@dofe-agent/db";
+import type {
+  UpdateTeamMemberRoleRequest,
+  UpdateTenantMemberRoleRequest,
+} from "@dofe/sso-node";
 import { getSsoInternalClient } from "./sso-internal-client";
 
 /**
@@ -14,16 +18,8 @@ import { getSsoInternalClient } from "./sso-internal-client";
  * demote failure leaves two owners (over-permissive, never ownerless, converges on retry).
  *
  * `actorUserId`/`reason` attribute the change on the IdP audit log to the real SSO
- * actor. The published SDK request type is `{ role }`; the SDK client forwards the
- * body verbatim (no validation/stripping) and sso.dofe.ai accepts these optional
- * fields, so we extend the request locally via `AttributedRoleUpdate`.
+ * actor (the SDK forwards them verbatim and sso.dofe.ai records them).
  */
-type AttributedRoleUpdate = {
-  role: "OWNER" | "ADMIN" | "MEMBER";
-  actorUserId?: string;
-  reason?: string;
-};
-
 export async function transferSsoWorkspaceOwnership(input: {
   workspaceId: string;
   currentOwnerUserId: string;
@@ -39,19 +35,19 @@ export async function transferSsoWorkspaceOwnership(input: {
   }
 
   const client = getSsoInternalClient();
-  const promote: AttributedRoleUpdate = {
-    role: "OWNER",
-    actorUserId: actorSubject,
-    reason: "ownership_transfer",
-  };
-  const demote: AttributedRoleUpdate = {
-    role: "ADMIN",
-    actorUserId: actorSubject,
-    reason: "ownership_transfer",
-  };
 
   if (binding.source === "team") {
     if (!binding.teamId) throw new Error("workspace.sso_binding_missing");
+    const promote: UpdateTeamMemberRoleRequest = {
+      role: "OWNER",
+      actorUserId: actorSubject,
+      reason: "ownership_transfer",
+    };
+    const demote: UpdateTeamMemberRoleRequest = {
+      role: "ADMIN",
+      actorUserId: actorSubject,
+      reason: "ownership_transfer",
+    };
     // Promote first so the team is never ownerless.
     await client.teams.updateMemberRole(binding.teamId, nextSubject, promote);
     await client.teams.updateMemberRole(binding.teamId, actorSubject, demote);
@@ -59,6 +55,16 @@ export async function transferSsoWorkspaceOwnership(input: {
   }
 
   // Tenant-scoped workspace: transfer tenant ownership.
+  const promote: UpdateTenantMemberRoleRequest = {
+    role: "OWNER",
+    actorUserId: actorSubject,
+    reason: "ownership_transfer",
+  };
+  const demote: UpdateTenantMemberRoleRequest = {
+    role: "ADMIN",
+    actorUserId: actorSubject,
+    reason: "ownership_transfer",
+  };
   await client.tenants.updateMemberRole(binding.tenantId, nextSubject, promote);
   await client.tenants.updateMemberRole(binding.tenantId, actorSubject, demote);
 }

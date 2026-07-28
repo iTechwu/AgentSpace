@@ -20,7 +20,7 @@
   "dependencies": {
     "@dofe-agent/domain": "file:../../packages/domain",
     "@dofe-agent/services": "file:../../packages/services",
-    "@dofe/sso-node": "^0.1.73",
+    "@dofe/sso-node": "^0.1.75",
     "dofe-agent-daemon": "file:../../packages/daemon",
     "next": "^16.1.6",
     "react": "^19.2.0",
