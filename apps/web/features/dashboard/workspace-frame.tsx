@@ -38,6 +38,7 @@ import {
   measureWorkspaceModuleNavigationActive,
 } from "@/features/dashboard/workspace-navigation-performance";
 import { GlobalSearchDialog } from "@/features/search/global-search-dialog";
+import { getRuntimeManagementPath } from "@/features/runtimes/runtime-navigation";
 import {
   canAccessSettingsSection,
   DEFAULT_SETTINGS_SECTION,
@@ -46,6 +47,7 @@ import {
 } from "@/features/settings/settings-sections";
 import type { AuthUser } from "@/features/auth/server-auth";
 import type { StoredWorkspaceRecord, WorkspaceRole } from "@dofe-agent/db";
+import type { AgentRuntimeMode } from "@dofe-agent/services";
 import type { WorkspaceShellData } from "@/features/dashboard/workspace-shell-data";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
@@ -60,6 +62,7 @@ export function WorkspaceFrame({
   shell,
   workspaces,
   currentMembershipRole,
+  runtimeMode = "local",
   children,
   channelNames,
 }: {
@@ -70,6 +73,7 @@ export function WorkspaceFrame({
   shell: WorkspaceShellData;
   workspaces: StoredWorkspaceRecord[];
   currentMembershipRole: WorkspaceRole;
+  runtimeMode?: AgentRuntimeMode;
   children: React.ReactNode;
 }) {
   const cacheScope = useMemo(
@@ -91,6 +95,7 @@ export function WorkspaceFrame({
           accessScope={accessScope}
           currentMembershipRole={currentMembershipRole}
           currentWorkspace={currentWorkspace}
+          runtimeMode={runtimeMode}
           shell={shell}
           user={user}
           workspaces={workspaces}
@@ -109,6 +114,7 @@ function WorkspaceFrameContent({
   shell,
   workspaces,
   currentMembershipRole,
+  runtimeMode,
   children,
 }: {
   accessScope: "workspace" | "channel";
@@ -117,6 +123,7 @@ function WorkspaceFrameContent({
   shell: WorkspaceShellData;
   workspaces: StoredWorkspaceRecord[];
   currentMembershipRole: WorkspaceRole;
+  runtimeMode: AgentRuntimeMode;
   children: React.ReactNode;
 }) {
   const { tx } = useLanguage();
@@ -231,12 +238,15 @@ function WorkspaceFrameContent({
                               ? tx("定时任务", "Schedules")
                               : logicalPathname === "/templates"
                                 ? tx("模板库", "Template Library")
-                : logicalPathname === "/skills"
-                  ? tx("技能库", "Skills")
-                  : isSettingsPath
-                    ? tx("设置", "Settings")
-                    : tx("工作台", "Workspace");
+                                : logicalPathname.startsWith("/runtimes")
+                                  ? tx("执行引擎管理", "Execution Engine Management")
+                                  : logicalPathname === "/skills"
+                                    ? tx("技能库", "Skills")
+                                    : isSettingsPath
+                                      ? tx("设置", "Settings")
+                                      : tx("工作台", "Workspace");
   const workspaceHref = (path: string): string => buildWorkspacePath(currentWorkspace.slug, path);
+  const runtimeManagementPath = getRuntimeManagementPath(runtimeMode);
   const sidebarSignals = [
     {
       active: logicalPathname === "/task/board",
@@ -276,10 +286,11 @@ function WorkspaceFrameContent({
       canViewRuntimes,
       currentWorkspaceSlug: currentWorkspace.slug,
       isChannelScopedGuest,
+      runtimeMode,
       tx,
       visibility,
     }),
-    [canViewRuntimes, currentWorkspace.slug, isChannelScopedGuest, tx, visibility],
+    [canViewRuntimes, currentWorkspace.slug, isChannelScopedGuest, runtimeMode, tx, visibility],
   );
   const handleOnboardingActiveChange = useCallback((active: boolean) => {
     if (active) {
@@ -734,11 +745,13 @@ function WorkspaceFrameContent({
           {visibility.containers && canViewRuntimes && !isChannelScopedGuest ? (
             <section className="workspace-sidebar__group" data-onboarding-target="containers">
               <SidebarSectionLink
-                href={workspaceHref("/agents?mode=container")}
+                href={workspaceHref(runtimeManagementPath)}
                 icon="containers"
                 label={tx("执行引擎管理", "Execution Engine Management")}
                 count={counters.runtimeCount}
-                active={logicalPathname === "/agents" && mode === "container"}
+                active={runtimeMode === "remote"
+                  ? logicalPathname.startsWith("/runtimes")
+                  : logicalPathname === "/agents" && mode === "container"}
                 onClick={handleWorkspaceModuleLinkClick}
                 onPrefetch={handleWorkspaceModuleLinkPrefetch}
                 showArrow={false}
@@ -1029,12 +1042,14 @@ function buildWorkspaceOnboardingSteps({
   canViewRuntimes,
   currentWorkspaceSlug,
   isChannelScopedGuest,
+  runtimeMode,
   tx,
   visibility,
 }: {
   canViewRuntimes: boolean;
   currentWorkspaceSlug: string;
   isChannelScopedGuest: boolean;
+  runtimeMode: AgentRuntimeMode;
   tx: (zh: string, en: string) => string;
   visibility: SidebarVisibilityState;
 }): WorkspaceOnboardingStep[] {
@@ -1044,16 +1059,30 @@ function buildWorkspaceOnboardingSteps({
 
   const runtimeStep: WorkspaceOnboardingStep = visibility.containers && canViewRuntimes
     ? {
-        body: tx(
-          "先接入 Runtime。Runtime 是 AI员工 真正执行任务的环境；没有它，AI员工 只能被配置，不能开始工作。",
-          "Start by connecting a Runtime. A Runtime is the execution environment that actually runs AI employee work; without it, AI employees can be configured but cannot work.",
+        body: runtimeMode === "remote"
+          ? tx(
+              "先创建托管 Runtime。系统会完成部署、凭证配置和健康检查；Runtime 就绪后，AI员工 才能开始工作。",
+              "Create a managed Runtime first. The system handles provisioning, credentials, and health checks before AI employees can start work.",
+            )
+          : tx(
+              "先接入 Runtime。Runtime 是 AI员工 真正执行任务的环境；没有它，AI员工 只能被配置，不能开始工作。",
+              "Start by connecting a Runtime. A Runtime is the execution environment that actually runs AI employee work; without it, AI employees can be configured but cannot work.",
+            ),
+        href: buildWorkspacePath(
+          currentWorkspaceSlug,
+          runtimeMode === "remote"
+            ? getRuntimeManagementPath(runtimeMode)
+            : "/agents?mode=container&create=server",
         ),
-        href: buildWorkspacePath(currentWorkspaceSlug, "/agents?mode=container&create=server"),
         icon: "containers",
         id: "bind-runtime",
-        primaryActionLabel: tx("去绑定 Runtime", "Bind Runtime"),
+        primaryActionLabel: runtimeMode === "remote"
+          ? tx("创建 Runtime", "Create Runtime")
+          : tx("去绑定 Runtime", "Bind Runtime"),
         target: "containers",
-        title: tx("1. 绑定 Runtime", "1. Bind Runtime"),
+        title: runtimeMode === "remote"
+          ? tx("1. 创建 Runtime", "1. Create Runtime")
+          : tx("1. 绑定 Runtime", "1. Bind Runtime"),
       }
     : {
         body: tx(

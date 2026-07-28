@@ -181,6 +181,19 @@ describe("workspace settings route", () => {
     expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
   });
 
+  it("normalizes an encoded workspace slug before resolving settings access", async () => {
+    await expect(WorkspaceSettingsPage({
+      params: Promise.resolve({
+        workspaceSlug: "yootun-all-%E4%BC%98%E6%83%A0%E8%B1%9A-%E5%85%A8%E4%BD%93-87e967",
+      }),
+      searchParams: Promise.resolve({}),
+    })).rejects.toThrow("redirect:/w/mars-labs/settings/preferences");
+
+    expect(mockGetWorkspaceContextForIdentifier).toHaveBeenCalledWith(
+      "yootun-all-优惠豚-全体-87e967",
+    );
+  });
+
   it("drops legacy section query params when redirecting the settings home", async () => {
     await expect(WorkspaceSettingsPage({
       params: Promise.resolve({ workspaceSlug: "mars-labs" }),

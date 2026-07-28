@@ -1,6 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openSeededWorkspacePage, seedChannelScopedGuestSession } from "./helpers";
 
+const runtimeMode = process.env.DOFE_AGENT_RUNTIME_MODE?.trim().toLowerCase() === "remote"
+  ? "remote"
+  : "local";
+
 test("preserves the IM composer draft across workbench module switches", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/im");
   const draft = `draft-${Date.now().toString(36)}`;
@@ -24,39 +28,56 @@ test("preserves the IM composer draft across workbench module switches", async (
   await expect(composer).toHaveValue(draft);
 });
 
-test("keeps agents mode query and active content through navigation and refresh", async ({ page }) => {
+test("keeps runtime management destination and active content through navigation and refresh", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/agents?mode=container");
+  const runtimePath = runtimeMode === "remote" ? "/runtimes" : "/agents?mode=container";
+  const runtimeHeading = runtimeMode === "remote"
+    ? /创建托管执行引擎|Create managed runtime/i
+    : /在线执行引擎|Online execution engines/i;
 
-  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/agents\\?mode=container$`));
-  await expect(page.getByRole("heading", { name: /在线执行引擎|Online execution engines/i })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}${escapeRegExp(runtimePath)}$`));
+  await expect(page.getByRole("heading", { name: runtimeHeading })).toBeVisible();
 
   await page.getByRole("link", { name: /员工管理|Agent Management/i }).click();
   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/agents\\?mode=agent$`));
   await expect(page.getByRole("heading", { name: /全部 AI员工|All AI employees/i })).toBeVisible();
 
   await page.goBack();
-  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/agents\\?mode=container$`));
-  await expect(page.getByRole("heading", { name: /在线执行引擎|Online execution engines/i })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}${escapeRegExp(runtimePath)}$`));
+  await expect(page.getByRole("heading", { name: runtimeHeading })).toBeVisible();
 
   await page.reload();
-  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/agents\\?mode=container$`));
-  await expect(page.getByRole("heading", { name: /在线执行引擎|Online execution engines/i })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}${escapeRegExp(runtimePath)}$`));
+  await expect(page.getByRole("heading", { name: runtimeHeading })).toBeVisible();
 });
 
-test("opens the server connection guide from execution engine management", async ({ page }) => {
+test("opens the deployment-appropriate execution engine management experience", async ({ page }) => {
   const clientErrors: string[] = [];
   page.on("pageerror", (error) => clientErrors.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") clientErrors.push(message.text());
   });
 
-  await openSeededWorkspacePage(page, "/agents?mode=container");
+  const session = await openSeededWorkspacePage(page, "/agents?mode=agent");
+  const runtimeLink = page.getByRole("link", { name: /执行引擎管理|Execution Engine Management/i });
+  const expectedPath = runtimeMode === "remote" ? "/runtimes" : "/agents?mode=container";
+  await expect(runtimeLink).toHaveAttribute("href", `/w/${session.workspaceSlug}${expectedPath}`);
+  await runtimeLink.click();
 
-  await page.locator("button.agents-pane__container-button").click();
-  await expect(
-    page.getByRole("dialog").getByRole("heading", { name: /接入服务器|Connect server/i }),
-    `Client errors: ${clientErrors.join("\n") || "none"}`,
-  ).toBeVisible();
+  if (runtimeMode === "remote") {
+    await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/runtimes$`));
+    await expect(
+      page.getByRole("heading", { name: /创建托管执行引擎|Create managed runtime/i }),
+      `Client errors: ${clientErrors.join("\n") || "none"}`,
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: /接入服务器|Connect server/i })).toHaveCount(0);
+  } else {
+    await page.locator("button.agents-pane__container-button").click();
+    await expect(
+      page.getByRole("dialog").getByRole("heading", { name: /接入服务器|Connect server/i }),
+      `Client errors: ${clientErrors.join("\n") || "none"}`,
+    ).toBeVisible();
+  }
 });
 
 test("keeps the final active module after rapid desktop switching", async ({ page }) => {

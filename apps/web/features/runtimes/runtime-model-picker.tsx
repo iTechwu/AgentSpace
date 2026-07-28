@@ -95,7 +95,7 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
             </p>
           ) : null}
           {!selected.isAvailable ? (
-            <p className="runtime-model-picker__error">{selected.unavailableReason ?? tx("不可用", "Unavailable")}</p>
+            <p className="runtime-model-picker__error">{translateUnavailableReason(selected.unavailableReason, tx)}</p>
           ) : null}
         </div>
       ) : value ? (
@@ -119,11 +119,23 @@ function formatModelOption(item: RuntimeModelCatalogItem, tx: (zh: string, en: s
     item.supportsFunctionCalling ? tx("工具调用", "tools") : undefined,
     item.supportsVision ? tx("视觉", "vision") : undefined,
     item.inputPrice != null || item.outputPrice != null
-      ? `$${formatPrice(item.inputPrice)}/$${formatPrice(item.outputPrice)} per 1M`
+      ? `$${formatPrice(item.inputPrice)}/$${formatPrice(item.outputPrice)} ${tx("每百万", "per 1M")}`
       : undefined,
   ].filter(Boolean).join(" · ");
-  const availability = item.isAvailable ? tx("可用", "available") : item.unavailableReason ?? tx("不可用", "Unavailable");
+  const availability = item.isAvailable ? tx("可用", "available") : translateUnavailableReason(item.unavailableReason, tx);
   return `${item.displayName ?? item.alias} · ${capabilities} · ${availability}`;
+}
+
+function translateUnavailableReason(reason: string | undefined, tx: (zh: string, en: string) => string): string {
+  if (!reason) return tx("不可用", "Unavailable");
+  const protocolMatch = reason.match(/^Runtime protocol \((.+)\) not supported$/);
+  if (protocolMatch?.[1]) {
+    return tx(`不支持执行引擎协议（${protocolMatch[1]}）`, reason);
+  }
+  if (reason === "Disabled by team policy") {
+    return tx("已被团队策略禁用", reason);
+  }
+  return reason;
 }
 
 function formatTokens(value: number): string {

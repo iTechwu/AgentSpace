@@ -4,6 +4,7 @@ import { WorkspaceAccessScreen } from "@/features/auth/workspace-access-screen";
 import { WorkspaceFrame } from "@/features/dashboard/workspace-frame";
 import { getWorkspaceShellData } from "@/features/dashboard/workspace-shell-data";
 import { normalizeWorkspaceSlugParam } from "./_lib/workspace-slug";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,7 @@ export default async function WorkspaceSlugLayout({
       accessScope={workspaceContext.accessScope}
       channelNames={workspaceContext.channelNames}
       currentWorkspace={workspaceContext.currentWorkspace}
+      runtimeMode={resolveAgentRuntimeMode()}
       shell={getWorkspaceShellData(
         workspaceContext.currentUser.displayName,
         workspaceContext.currentWorkspace.id,

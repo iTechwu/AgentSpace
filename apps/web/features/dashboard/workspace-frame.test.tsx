@@ -239,7 +239,10 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByRole("link", { name: /消息/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /联系人/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /员工管理/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /执行引擎管理/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /执行引擎管理/ })).toHaveAttribute(
+      "href",
+      "/w/workspace-alpha/agents?mode=container",
+    );
     expect(screen.getByRole("link", { name: /技能库/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /知识库/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /应用市场/ })).toBeInTheDocument();
@@ -256,6 +259,37 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByRole("heading", { name: "能力资源" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /通知/ })).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("超级管理员")).toBeInTheDocument();
+  });
+
+  it("routes remote deployments to managed runtime creation and marks the destination active", async () => {
+    pathname = "/w/workspace-alpha/runtimes";
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <WorkspaceFrame
+            currentMembershipRole="owner"
+            currentWorkspace={workspaces[0]}
+            runtimeMode="remote"
+            shell={shell}
+            user={user}
+            workspaces={workspaces}
+          >
+            <div>Managed runtime content</div>
+          </WorkspaceFrame>
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("link", { name: /执行引擎管理/ })).toHaveAttribute(
+      "href",
+      "/w/workspace-alpha/runtimes",
+    );
+    expect(screen.getByRole("link", { name: /执行引擎管理/ })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText("Managed runtime content")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "新手引导" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "1. 创建 Runtime" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建 Runtime" })).toBeInTheDocument();
   });
 
   it("collapses the desktop sidebar and persists the preference", async () => {

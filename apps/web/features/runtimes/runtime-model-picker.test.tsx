@@ -10,6 +10,11 @@ function render(ui: ReactNode) {
   return testingRender(<LanguageProvider initialLanguage="en">{ui}</LanguageProvider>);
 }
 
+function renderChinese(ui: ReactNode) {
+  window.localStorage.clear();
+  return testingRender(<LanguageProvider initialLanguage="zh">{ui}</LanguageProvider>);
+}
+
 vi.mock("@/features/runtimes/actions", () => ({
   listProtocolFilteredRuntimeModelsAction: vi.fn(),
 }));
@@ -41,4 +46,23 @@ it("searches models and shows unavailable protocol-compatible models with their 
   await userEvent.type(screen.getByLabelText("Search models"), "disabled");
   expect(screen.queryByRole("option", { name: /available-model/i })).not.toBeInTheDocument();
   expect(screen.getByRole("option", { name: /disabled-model/i })).toBeInTheDocument();
+});
+
+it("localizes known model availability reasons in Chinese", async () => {
+  vi.mocked(listProtocolFilteredRuntimeModelsAction).mockResolvedValue({
+    configured: true,
+    list: [
+      {
+        alias: "incompatible-model",
+        model: "incompatible-model",
+        protocol: "openai",
+        isAvailable: false,
+        unavailableReason: "Runtime protocol (anthropic) not supported",
+      },
+    ],
+  });
+
+  renderChinese(<RuntimeModelPicker provider="claude" value="" onChange={vi.fn()} />);
+
+  expect(await screen.findByRole("option", { name: /不支持执行引擎协议（anthropic）/ })).toBeDisabled();
 });

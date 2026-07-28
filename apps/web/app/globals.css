@@ -23651,6 +23651,16 @@ button[aria-disabled="true"] svg {
   .workbench-page-header__meta span {
     padding-inline: 0.5rem;
   }
+
+  .knowledge-page .workbench-page-header__aside {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .knowledge-page .workbench-page-header__actions,
+  .knowledge-page .container-view-switch {
+    width: 100%;
+  }
 }
 
 /* Keep the mobile sidebar close affordance above the shared responsive rules. */

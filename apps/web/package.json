@@ -23,6 +23,7 @@
     "@dofe/sso-node": "^0.1.75",
     "dofe-agent-daemon": "file:../../packages/daemon",
     "next": "^16.1.6",
+    "pg": "^8.20.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

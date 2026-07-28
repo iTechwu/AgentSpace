@@ -14,6 +14,7 @@ import {
   isSettingsDetailSectionId,
   type SettingsDetailSectionId,
 } from "@/features/settings/settings-sections";
+import { normalizeWorkspaceSlugParam } from "../../_lib/workspace-slug";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,8 @@ export default async function WorkspaceSettingsPage({
   params: Promise<{ workspaceSlug: string; settingsPath?: string[] }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { workspaceSlug, settingsPath } = await params;
+  const { workspaceSlug: routeWorkspaceSlug, settingsPath } = await params;
+  const workspaceSlug = normalizeWorkspaceSlugParam(routeWorkspaceSlug);
   const resolvedSearchParams = (await searchParams) ?? {};
   const workspaceContext = await getWorkspaceContextForIdentifier(workspaceSlug);
   if (!workspaceContext) {

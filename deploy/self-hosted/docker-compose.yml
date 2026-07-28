@@ -19,6 +19,7 @@ services:
         NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:?Set NEXT_SERVER_ACTIONS_ENCRYPTION_KEY in .env}
     env_file: ${DOFE_AGENT_ENV_FILE:-./.env}
     environment:
+      CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET in .env}
       NODE_ENV: production
     depends_on:
       db-init:
@@ -44,6 +45,7 @@ services:
     command: ["node", "deploy/self-hosted/runtime-maintenance.mjs"]
     env_file: ${DOFE_AGENT_ENV_FILE:-./.env}
     environment:
+      CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET in .env}
       DOFE_AGENT_INTERNAL_URL: http://web:1455
     depends_on:
       web:
