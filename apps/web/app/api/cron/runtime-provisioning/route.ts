@@ -1,4 +1,9 @@
-import { resumeManagedRuntimeCleanupRequestsAsync, resumePendingProvisioningTasksAsync } from "@dofe-agent/services";
+import {
+  drainTokenUsageRetriesSync,
+  reconcileAllManagedRuntimeUsageAsync,
+  resumeManagedRuntimeCleanupRequestsAsync,
+  resumePendingProvisioningTasksAsync,
+} from "@dofe-agent/services";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,10 +21,14 @@ export async function GET(request: Request): Promise<Response> {
 
   const provisioning = await resumePendingProvisioningTasksAsync();
   const cleanup = await resumeManagedRuntimeCleanupRequestsAsync();
+  const usageRetries = drainTokenUsageRetriesSync();
+  const usageReconciliation = await reconcileAllManagedRuntimeUsageAsync();
 
   return Response.json({
     ok: true,
     provisioning,
     cleanup,
+    usageRetries,
+    usageReconciliation,
   });
 }

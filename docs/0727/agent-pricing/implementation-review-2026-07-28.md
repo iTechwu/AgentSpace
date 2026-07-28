@@ -15,6 +15,11 @@
 | Runtime 列表没有详情入口 | 无法从列表进入单个 Runtime 核对凭据 ID、成本和绑定状态 | 新增 workspace 范围、Owner/Admin 限制的只读 Runtime 详情路由，只展示安全元数据。 |
 | service 层直接查询 `agent_runtime`，异步 API 使用 `Sync` 后缀 | 数据访问边界和接口语义不一致 | 原始查询移入 `packages/db`；Promise API 统一改为 `Async` 后缀；移除重复接口声明。 |
 | 受管容器缺少基础 Docker hardening | 容器默认权限面过宽 | 增加只读根文件系统、受限 `/tmp`、`no-new-privileges` 和 capability drop。 |
+| 远端计费状态被提前终结 | pending 金额可能被误标为正式结算且无法继续修正 | 增加 `pending_reconciliation` 状态并按远端最终状态重复更新。 |
+| 用量归因字段不完整 | 缓存计费、协议和调用时段无法审计 | schema 38 增加网关用量 ID、协议、缓存 Token、调用时段与来源更新时间。 |
+| 用量写入与对账依赖请求内成功和人工全量操作 | 短暂数据库失败会丢失任务关联，历史全量扫描无法扩展 | 增加持久化重试队列、按 Runtime Credential 游标自动对账和 24 小时回看窗口。 |
+| Ready 检查未经过归因代理 | HMAC 或代理转发异常可能在创建时漏检 | 健康阶段新增经本地归因代理访问非计费模型目录的检查，并保留 CLI 可执行性检查。 |
+| 受管容器未强制指定隔离网络 | 容器可能使用默认出口直连 Provider | 强制配置非默认 Docker 网络，并提供 `npm run verify:managed-runtime-egress` staging 门禁。 |
 
 ## 仓库验证
 

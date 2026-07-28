@@ -2,6 +2,7 @@ import {
   appendTaskMessageSync,
   completeQueuedTaskSync,
   failQueuedTaskSync,
+  enqueueTokenUsageRetrySync,
   readAgentRuntimeSync,
   recordTokenUsageSync,
 } from "@dofe-agent/db";
@@ -59,9 +60,11 @@ export function persistManagedTaskUsagesBestEffort(input: {
   routerSessionId?: string;
   runtimeCredentialId?: string;
   recordUsage?: typeof recordTokenUsageSync;
+  enqueueRetry?: typeof enqueueTokenUsageRetrySync;
   onError?: (error: unknown) => void;
 }): boolean {
   const recordUsage = input.recordUsage ?? recordTokenUsageSync;
+  const enqueueRetry = input.enqueueRetry ?? enqueueTokenUsageRetrySync;
   let allPersisted = true;
   for (const usage of input.usages) {
     if (!(
@@ -74,8 +77,7 @@ export function persistManagedTaskUsagesBestEffort(input: {
       usage.outputTokens >= 0 &&
       (usage.inputTokens > 0 || usage.outputTokens > 0)
     )) continue;
-    try {
-      recordUsage({
+    const usageRecord = {
         workspaceId: input.workspaceId,
         taskQueueId: input.taskId,
         agentId: input.agentId,
@@ -83,11 +85,27 @@ export function persistManagedTaskUsagesBestEffort(input: {
         runtimeCredentialId: usage.runtimeCredentialId,
         routerSessionId: input.routerSessionId,
         gatewayRequestId: usage.gatewayRequestId,
+        gatewayUsageId: usage.gatewayUsageId,
+        protocol: usage.protocol,
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
-      });
+        cacheTokens: usage.cacheTokens,
+        requestStartedAt: usage.requestStartedAt,
+        requestEndedAt: usage.requestEndedAt,
+      };
+    try {
+      recordUsage(usageRecord);
     } catch (error) {
       allPersisted = false;
+      try {
+        enqueueRetry(usageRecord, error);
+      } catch (retryError) {
+        try {
+          input.onError?.(retryError);
+        } catch {
+          // Completion remains successful even if retry diagnostics fail.
+        }
+      }
       try {
         input.onError?.(error);
       } catch {

@@ -376,28 +376,28 @@ export interface DaemonTaskOutputBundle {
   files: DaemonBundleFile[];
 }
 
+export interface DaemonTaskUsage {
+  modelId: string;
+  runtimeCredentialId: string;
+  routerSessionId?: string;
+  gatewayRequestId?: string;
+  gatewayUsageId?: string;
+  protocol?: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheTokens?: number;
+  requestStartedAt?: string;
+  requestEndedAt?: string;
+}
+
 export interface CompleteTaskRequest {
   outputText?: string;
   sessionId?: string;
   routerSessionId?: string;
   workDir?: string;
   outputBundle?: DaemonTaskOutputBundle;
-  usage?: {
-    modelId: string;
-    runtimeCredentialId: string;
-    routerSessionId?: string;
-    gatewayRequestId?: string;
-    inputTokens: number;
-    outputTokens: number;
-  };
-  usages?: Array<{
-    modelId: string;
-    runtimeCredentialId: string;
-    routerSessionId?: string;
-    gatewayRequestId?: string;
-    inputTokens: number;
-    outputTokens: number;
-  }>;
+  usage?: DaemonTaskUsage;
+  usages?: DaemonTaskUsage[];
 }
 
 export interface RuntimeApprovalRequest {

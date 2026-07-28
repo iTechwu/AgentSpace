@@ -17,12 +17,17 @@ export interface TeamBillingBalance {
   status: string;
 }
 
-export async function getTeamBillingBalanceAction(): Promise<TeamBillingBalance | null> {
+export type TeamBillingBalanceResult = TeamBillingBalance | {
+  errorCode: "remote_mode_required" | "models_not_configured" | "team_scope_missing" | "upstream_unavailable";
+};
+
+export async function getTeamBillingBalanceAction(): Promise<TeamBillingBalanceResult> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "admin");
-  if (resolveAgentRuntimeMode() !== "remote" || !isModelsInternalConfigured()) return null;
+  if (resolveAgentRuntimeMode() !== "remote") return { errorCode: "remote_mode_required" };
+  if (!isModelsInternalConfigured()) return { errorCode: "models_not_configured" };
   const binding = readWorkspaceSsoBindingSync(workspaceContext.currentWorkspace.id);
-  if (!binding?.teamId) return null;
+  if (!binding?.teamId) return { errorCode: "team_scope_missing" };
   try {
     const response = await getModelsInternalClient().billing.balanceByTeam({ params: { teamId: binding.teamId } });
     const balance = response as TeamBillingBalance;
@@ -34,7 +39,7 @@ export async function getTeamBillingBalanceAction(): Promise<TeamBillingBalance 
       status: balance.status,
     };
   } catch {
-    return null;
+    return { errorCode: "upstream_unavailable" };
   }
 }
 
@@ -116,6 +121,7 @@ export async function deleteBudgetAction(id: string): Promise<void> {
 export async function reconcileWorkspaceUsageAction(): Promise<{
   reconciledCount: number;
   unallocatedCount: number;
+  pendingCount: number;
   skippedCount: number;
   totalRemoteCount: number;
 }> {
@@ -133,6 +139,7 @@ export async function reconcileWorkspaceUsageAction(): Promise<{
   const totals = {
     reconciledCount: 0,
     unallocatedCount: 0,
+    pendingCount: 0,
     skippedCount: 0,
     totalRemoteCount: 0,
   };
@@ -144,6 +151,7 @@ export async function reconcileWorkspaceUsageAction(): Promise<{
     });
     totals.reconciledCount += result.reconciledCount;
     totals.unallocatedCount += result.unallocatedCount;
+    totals.pendingCount += result.pendingCount ?? 0;
     totals.skippedCount += result.skippedCount;
     totals.totalRemoteCount += result.totalRemoteCount;
   }
@@ -151,7 +159,7 @@ export async function reconcileWorkspaceUsageAction(): Promise<{
   tryRecordWorkspaceAuditEventSync({
     workspaceId: workspaceContext.currentWorkspace.id,
     title: "Workspace usage reconciled",
-    note: `Reconciled ${totals.reconciledCount}, unallocated ${totals.unallocatedCount}, skipped ${totals.skippedCount} of ${totals.totalRemoteCount} remote entries.`,
+    note: `Reconciled ${totals.reconciledCount}, pending ${totals.pendingCount}, unallocated ${totals.unallocatedCount}, skipped ${totals.skippedCount} of ${totals.totalRemoteCount} remote entries.`,
     code: "workspace.usage_reconciled",
     data: {
       actorType: "session_user",

@@ -61,6 +61,8 @@ export const POSTGRES_TABLE_NAMES = [
   "task_message",
   "model_pricing",
   "token_usage",
+  "token_usage_retry",
+  "token_usage_reconciliation_cursor",
   "budget",
   "attachment",
   "audit_log",
@@ -1235,6 +1237,31 @@ export function getPostgresSchemaStatements(): string[] {
       )
     `,
     `
+      CREATE TABLE IF NOT EXISTS token_usage_retry (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        task_queue_id TEXT NOT NULL REFERENCES agent_task_queue(id) ON DELETE CASCADE,
+        idempotency_key TEXT NOT NULL,
+        payload_json JSONB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TIMESTAMPTZ NOT NULL,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, idempotency_key)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS token_usage_reconciliation_cursor (
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        runtime_credential_id TEXT NOT NULL,
+        last_remote_timestamp TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY(workspace_id, runtime_credential_id)
+      )
+    `,
+    `
       ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS runtime_credential_id TEXT
     `,
     `ALTER TABLE token_usage ALTER COLUMN task_queue_id DROP NOT NULL`,
@@ -2074,6 +2101,10 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_external_message_outbox_due
         ON external_message_outbox(status, next_attempt_at, created_at ASC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_token_usage_retry_due
+        ON token_usage_retry(status, next_attempt_at, created_at ASC)
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_external_data_operation_run_resource_created

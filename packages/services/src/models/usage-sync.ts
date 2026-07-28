@@ -1,8 +1,11 @@
 import {
   findTokenUsageByGatewayRequestIdSync,
   insertUnallocatedTokenUsageIfAbsentSync,
+  listAllManagedAgentRuntimesSync,
   markTokenUsageReconciledSync,
+  readTokenUsageReconciliationCursorSync,
   recordAuditLogSync,
+  upsertTokenUsageReconciliationCursorSync,
 } from "@dofe-agent/db";
 import { readAgentRuntimeSync } from "@dofe-agent/db";
 import type { ModelsInternalUsageLogEntry } from "@dofe/models-sdk";
@@ -34,6 +37,54 @@ type ReconciliationUsageLogEntry = ModelsInternalUsageLogEntry & {
   endedAt?: string | null;
   updatedAt?: string | null;
 };
+
+export interface ReconcileAllManagedRuntimeUsageResult {
+  runtimeCount: number;
+  failedRuntimeCount: number;
+  reconciledCount: number;
+  pendingCount: number;
+  unallocatedCount: number;
+}
+
+export async function reconcileAllManagedRuntimeUsageAsync(): Promise<ReconcileAllManagedRuntimeUsageResult> {
+  const totals: ReconcileAllManagedRuntimeUsageResult = {
+    runtimeCount: 0,
+    failedRuntimeCount: 0,
+    reconciledCount: 0,
+    pendingCount: 0,
+    unallocatedCount: 0,
+  };
+  if (resolveAgentRuntimeMode() !== "remote") return totals;
+
+  for (const runtime of listAllManagedAgentRuntimesSync()) {
+    if (!runtime.managedCredentialId) continue;
+    totals.runtimeCount += 1;
+    const cursor = readTokenUsageReconciliationCursorSync(runtime.workspaceId, runtime.managedCredentialId);
+    const since = cursor
+      ? new Date(new Date(cursor).getTime() - 24 * 60 * 60 * 1_000).toISOString()
+      : undefined;
+    try {
+      const result = await syncRuntimeCredentialUsageAsync({
+        workspaceId: runtime.workspaceId,
+        runtimeId: runtime.id,
+        since,
+      });
+      totals.reconciledCount += result.reconciledCount;
+      totals.pendingCount += result.pendingCount ?? 0;
+      totals.unallocatedCount += result.unallocatedCount;
+      if (result.lastRemoteTimestamp) {
+        upsertTokenUsageReconciliationCursorSync(
+          runtime.workspaceId,
+          runtime.managedCredentialId,
+          result.lastRemoteTimestamp,
+        );
+      }
+    } catch {
+      totals.failedRuntimeCount += 1;
+    }
+  }
+  return totals;
+}
 
 /**
  * Pull usage logs from models.dofe.ai for a single RuntimeCredential and

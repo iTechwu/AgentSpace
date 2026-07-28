@@ -39,6 +39,7 @@ export interface CostDashboardData {
   totalInputTokens: number;
   totalOutputTokens: number;
   estimatedCostUsd: number;
+  pendingReconciliationCostUsd: number;
   reconciledCostUsd: number;
   unallocatedCostUsd: number;
   totalActualCostUsd: number;
@@ -51,9 +52,18 @@ export interface CostDashboardData {
     providerAccountId?: string;
     inputTokens: number;
     outputTokens: number;
+    cacheTokens: number;
     costUsd: number;
     actualCostUsd?: number;
     billingStatus: string;
+    currency?: string;
+    protocol?: string;
+    gatewayRequestId?: string;
+    gatewayUsageId?: string;
+    reconciledAt?: string;
+    sourceUpdatedAt?: string;
+    requestStartedAt?: string;
+    requestEndedAt?: string;
     channelName?: string;
     createdAt: string;
   }>;
@@ -99,6 +109,7 @@ export function getCostDashboardDataSync(
     totalInputTokens: agents.reduce((sum, a) => sum + a.totalInputTokens, 0),
     totalOutputTokens: agents.reduce((sum, a) => sum + a.totalOutputTokens, 0),
     estimatedCostUsd: billing.estimatedCostUsd,
+    pendingReconciliationCostUsd: billing.pendingReconciliationCostUsd,
     reconciledCostUsd: billing.reconciledCostUsd,
     unallocatedCostUsd: billing.unallocatedCostUsd,
     totalActualCostUsd: billing.totalActualCostUsd,
@@ -116,9 +127,18 @@ export function getCostDashboardDataSync(
       providerAccountId: u.providerAccountId,
       inputTokens: u.inputTokens,
       outputTokens: u.outputTokens,
+      cacheTokens: u.cacheTokens,
       costUsd: u.costUsd,
       actualCostUsd: u.actualCostUsd,
       billingStatus: u.billingStatus ?? "estimated",
+      currency: u.currency,
+      protocol: u.protocol,
+      gatewayRequestId: u.gatewayRequestId,
+      gatewayUsageId: u.gatewayUsageId,
+      reconciledAt: u.reconciledAt,
+      sourceUpdatedAt: u.sourceUpdatedAt,
+      requestStartedAt: u.requestStartedAt,
+      requestEndedAt: u.requestEndedAt,
       channelName: u.channelName,
       createdAt: u.createdAt,
     })),

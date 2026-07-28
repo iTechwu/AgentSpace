@@ -2,7 +2,7 @@ import { chmodSync, createReadStream, existsSync, mkdirSync, readFileSync, rmSyn
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import { getDaemonChannelWorkDirPath, getDaemonTaskWorkDirPath } from "@dofe-agent/db";
-import { isDaemonProvider, type DaemonProvider } from "@dofe-agent/domain";
+import { isDaemonProvider, resolveProviderProtocols, type DaemonProvider } from "@dofe-agent/domain";
 import { getStringFlag, parseArgs } from "./args.ts";
 import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, RegisterDaemonResponse } from "./daemon-api.ts";
 import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputBundle } from "./bundle.ts";
@@ -103,14 +103,24 @@ interface RemoteTaskUsageEntry {
   runtimeCredentialId: string;
   routerSessionId?: string;
   gatewayRequestId?: string;
+  gatewayUsageId?: string;
+  protocol?: string;
   inputTokens: number;
   outputTokens: number;
+  cacheTokens?: number;
+  requestStartedAt?: string;
+  requestEndedAt?: string;
 }
 
 interface RemoteGatewayUsageEntry {
   requestId: string;
+  gatewayUsageId?: string;
   inputTokens: number;
   outputTokens: number;
+  cacheTokens?: number;
+  protocol?: string;
+  requestStartedAt?: string;
+  requestEndedAt?: string;
 }
 
 export function mergeRemoteGatewayUsages(
@@ -126,8 +136,13 @@ export function mergeRemoteGatewayUsages(
     usagesByRequestId.set(usage.requestId, {
       ...context,
       gatewayRequestId: usage.requestId,
+      gatewayUsageId: usage.gatewayUsageId,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
+      cacheTokens: usage.cacheTokens,
+      protocol: usage.protocol,
+      requestStartedAt: usage.requestStartedAt,
+      requestEndedAt: usage.requestEndedAt,
     });
   }
   return [...usagesByRequestId.values()];
@@ -814,6 +829,7 @@ async function executeRemoteTask(
             DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID: task.agentId,
             DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID: task.routerSessionId ?? task.id,
             DOFE_AGENT_GATEWAY_REQUEST_LOG: "/workspace/.dofe-gateway-requests.jsonl",
+            DOFE_AGENT_GATEWAY_PROTOCOL: resolveProviderProtocols(runtime.provider)[0] ?? "",
           } : {}),
         },
         runtimeApps: bundle.metadata.runtimeApps?.apps ?? [],
@@ -905,12 +921,31 @@ function readRemoteGatewayUsages(path: string): RemoteGatewayUsageEntry[] {
     .flatMap((line) => {
       if (!line.trim()) return [];
       try {
-        const value = JSON.parse(line) as { requestId?: unknown; inputTokens?: unknown; outputTokens?: unknown };
+        const value = JSON.parse(line) as {
+          requestId?: unknown;
+          gatewayUsageId?: unknown;
+          protocol?: unknown;
+          inputTokens?: unknown;
+          outputTokens?: unknown;
+          cacheTokens?: unknown;
+          requestStartedAt?: unknown;
+          requestEndedAt?: unknown;
+        };
         const requestId = typeof value.requestId === "string" ? value.requestId.trim() : "";
         const inputTokens = readFiniteNumber(value.inputTokens);
         const outputTokens = readFiniteNumber(value.outputTokens);
+        const cacheTokens = readFiniteNumber(value.cacheTokens);
         return requestId && (inputTokens > 0 || outputTokens > 0)
-          ? [{ requestId, inputTokens, outputTokens }]
+          ? [{
+              requestId,
+              gatewayUsageId: typeof value.gatewayUsageId === "string" ? value.gatewayUsageId : undefined,
+              inputTokens,
+              outputTokens,
+              cacheTokens,
+              protocol: typeof value.protocol === "string" ? value.protocol : undefined,
+              requestStartedAt: typeof value.requestStartedAt === "string" ? value.requestStartedAt : undefined,
+              requestEndedAt: typeof value.requestEndedAt === "string" ? value.requestEndedAt : undefined,
+            }]
           : [];
       } catch {
         return [];

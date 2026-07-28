@@ -66,6 +66,9 @@ const ATTRIBUTION_ENVIRONMENT_KEYS = [
   "DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID",
   "DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID",
   "DOFE_AGENT_GATEWAY_REQUEST_LOG",
+  "DOFE_AGENT_GATEWAY_PROTOCOL",
+  "DOFE_AGENT_MANAGED_PROXY_HEALTHCHECK",
+  "DOFE_AGENT_GATEWAY_HEALTHCHECK_PATH",
 ] as const;
 
 const ATTRIBUTION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -73,14 +76,17 @@ const ATTRIBUTION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 export interface ManagedGatewayUsage {
   inputTokens: number;
   outputTokens: number;
+  cacheTokens?: number;
 }
 
 const MANAGED_GATEWAY_USAGE_EXTRACTOR_SOURCE = String.raw`
 function extractGatewayUsage(value) {
   let inputTokens = 0;
-  let outputTokens = 0;
-  const inputKeys = ["input_tokens", "inputTokens", "prompt_tokens", "promptTokens", "promptTokenCount"];
-  const outputKeys = ["output_tokens", "outputTokens", "completion_tokens", "completionTokens", "candidatesTokenCount"];
+	let outputTokens = 0;
+	let cacheTokens = 0;
+	const inputKeys = ["input_tokens", "inputTokens", "prompt_tokens", "promptTokens", "promptTokenCount"];
+	const outputKeys = ["output_tokens", "outputTokens", "completion_tokens", "completionTokens", "candidatesTokenCount"];
+	const cacheKeys = ["cached_tokens", "cache_tokens", "cacheTokens", "cachedInputTokens", "cache_read_input_tokens", "cache_creation_input_tokens"];
 
   function readToken(record, keys) {
     for (const key of keys) {
@@ -102,13 +108,16 @@ function extractGatewayUsage(value) {
     const isUsageObject = /usage/i.test(parentKey || "") || (hasInput && hasOutput);
     if (isUsageObject) {
       inputTokens = Math.max(inputTokens, readToken(record, inputKeys));
-      outputTokens = Math.max(outputTokens, readToken(record, outputKeys));
+		outputTokens = Math.max(outputTokens, readToken(record, outputKeys));
+		cacheTokens = Math.max(cacheTokens, readToken(record, cacheKeys));
     }
     for (const [key, nested] of Object.entries(record)) visit(nested, key);
   }
 
   visit(value, "");
-  return inputTokens > 0 || outputTokens > 0 ? { inputTokens, outputTokens } : undefined;
+	return inputTokens > 0 || outputTokens > 0
+		? { inputTokens, outputTokens, ...(cacheTokens > 0 ? { cacheTokens } : {}) }
+		: undefined;
 }`;
 
 let managedGatewayUsageExtractor: ((value: unknown) => ManagedGatewayUsage | undefined) | undefined;
@@ -237,6 +246,7 @@ function buildDockerProviderLauncher(profileDir: string, runtimeId: string, prov
   const imageTag = process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest";
   const image = `dofe/agent-runtime-${provider}:${imageTag}`;
   const runtimeHomeDir = join(dirname(profileDir), "home");
+  const dockerNetwork = resolveManagedRuntimeDockerNetwork();
   const environmentArgs = [PROVIDER_BASE_URL_KEYS[provider], ...ATTRIBUTION_ENVIRONMENT_KEYS]
     .map((key) => `  --env ${key} \\\n`)
     .join("");
@@ -248,6 +258,7 @@ function buildDockerProviderLauncher(profileDir: string, runtimeId: string, prov
     "  --tmpfs /tmp:rw,nosuid,nodev,noexec \\",
     "  --security-opt no-new-privileges \\",
     "  --cap-drop ALL \\",
+    `  --network ${shellQuote(dockerNetwork)} \\`,
     "  --user \"$(id -u):$(id -g)\" \\",
     `  --name ${shellQuote(`dofe-runtime-${normalizeRuntimeId(runtimeId)}`)} \\`,
     "  --mount \\\"type=bind,src=$(pwd),dst=/workspace\\\" \\",
@@ -259,6 +270,20 @@ function buildDockerProviderLauncher(profileDir: string, runtimeId: string, prov
     `  ${shellQuote(image)} node /dofe-profile/attribution-proxy.mjs ${shellQuote(PROVIDER_BASE_URL_KEYS[provider])} ${shellQuote(getManagedProviderCredentialEnvironmentKey(provider))} /dofe-profile/runtime-key ${shellQuote(PROVIDER_EXECUTABLES[provider])} \"$@\"`,
     "",
   ].join("\n");
+}
+
+export function resolveManagedRuntimeDockerNetwork(
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  const network = environment.MANAGED_RUNTIME_DOCKER_NETWORK?.trim();
+  if (!network) throw new Error("managed_runtime.docker_network_required");
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(network)) {
+    throw new Error("managed_runtime.docker_network_invalid");
+  }
+  if (["bridge", "default", "host", "none"].includes(network.toLowerCase())) {
+    throw new Error("managed_runtime.docker_network_not_isolated");
+  }
+  return network;
 }
 
 function buildAttributionProxySource(): string {
@@ -283,6 +308,7 @@ const upstream = new URL(upstreamBaseUrl);
 const basePath = upstream.pathname.replace(/\\\/$/, "");
 const idPattern = /^[A-Za-z0-9._:-]{1,128}$/;
 const server = http.createServer((request, response) => {
+	const requestStartedAt = new Date().toISOString();
   let requestPath = request.url || "/";
   if (basePath && requestPath !== basePath && !requestPath.startsWith(basePath + "/")) {
     requestPath = basePath + (requestPath.startsWith("/") ? requestPath : "/" + requestPath);
@@ -313,6 +339,8 @@ const server = http.createServer((request, response) => {
       ?? proxyResponse.headers["x-request-id"]
       ?? proxyResponse.headers["request-id"];
     const requestId = Array.isArray(requestIdHeader) ? requestIdHeader[0] : requestIdHeader;
+	const usageIdHeader = proxyResponse.headers["x-dofe-usage-id"] ?? proxyResponse.headers["x-usage-id"];
+	const gatewayUsageId = Array.isArray(usageIdHeader) ? usageIdHeader[0] : usageIdHeader;
     const requestLog = process.env.DOFE_AGENT_GATEWAY_REQUEST_LOG;
     response.writeHead(proxyResponse.statusCode || 502, proxyResponse.headers);
     let responseBody = "";
@@ -326,6 +354,7 @@ const server = http.createServer((request, response) => {
       capturedUsage = {
         inputTokens: Math.max(capturedUsage?.inputTokens || 0, usage.inputTokens),
         outputTokens: Math.max(capturedUsage?.outputTokens || 0, usage.outputTokens),
+		cacheTokens: Math.max(capturedUsage?.cacheTokens || 0, usage.cacheTokens || 0),
       };
     };
     const captureEventLine = (line) => {
@@ -358,7 +387,14 @@ const server = http.createServer((request, response) => {
         requestLog && requestId && /^[A-Za-z0-9._:-]{1,256}$/.test(requestId)
         && statusCode >= 200 && statusCode < 300 && capturedUsage
       ) {
-        appendFileSync(requestLog, JSON.stringify({ requestId, ...capturedUsage }) + "\\n", { encoding: "utf8", mode: 0o600 });
+		appendFileSync(requestLog, JSON.stringify({
+			requestId,
+			gatewayUsageId: typeof gatewayUsageId === "string" ? gatewayUsageId : undefined,
+			protocol: process.env.DOFE_AGENT_GATEWAY_PROTOCOL || undefined,
+			requestStartedAt,
+			requestEndedAt: new Date().toISOString(),
+			...capturedUsage,
+		}) + "\\n", { encoding: "utf8", mode: 0o600 });
       }
       response.end();
     });
@@ -373,8 +409,26 @@ const server = http.createServer((request, response) => {
 server.listen(0, "127.0.0.1", () => {
   const address = server.address();
   if (!address || typeof address === "string") process.exit(1);
-  process.env[baseUrlKey] = "http://127.0.0.1:" + address.port + basePath;
+  const localBaseUrl = "http://127.0.0.1:" + address.port + basePath;
+  process.env[baseUrlKey] = localBaseUrl;
   process.env[runtimeKeyName] = runtimeKey;
+  if (process.env.DOFE_AGENT_MANAGED_PROXY_HEALTHCHECK === "1") {
+    const healthPath = process.env.DOFE_AGENT_GATEWAY_HEALTHCHECK_PATH || "/models";
+    const headers = {
+      authorization: "Bearer " + runtimeKey,
+      "x-api-key": runtimeKey,
+      "x-goog-api-key": runtimeKey,
+    };
+    fetch(localBaseUrl + healthPath, { headers }).then(async (response) => {
+      await response.arrayBuffer();
+      if (!response.ok) throw new Error("gateway_http_" + response.status);
+      server.close(() => process.exit(0));
+    }).catch((error) => {
+      console.error(error.message);
+      server.close(() => process.exit(1));
+    });
+    return;
+  }
   const child = spawn(executable, args, { stdio: "inherit", env: process.env });
   for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));
   child.on("exit", (code, signal) => {

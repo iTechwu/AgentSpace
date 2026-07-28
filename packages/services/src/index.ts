@@ -959,9 +959,15 @@ export {
 } from "./models/model-resolution.ts";
 export {
   syncRuntimeCredentialUsageAsync,
+  reconcileAllManagedRuntimeUsageAsync,
+  type ReconcileAllManagedRuntimeUsageResult,
   type SyncRuntimeCredentialUsageInput,
   type SyncRuntimeCredentialUsageResult,
 } from "./models/usage-sync.ts";
+export {
+  drainTokenUsageRetriesSync,
+  type DrainTokenUsageRetriesResult,
+} from "./models/usage-retry.ts";
 
 // Managed runtime provisioning (Phase 2/3)
 export {

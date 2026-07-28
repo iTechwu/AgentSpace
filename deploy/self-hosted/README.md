@@ -18,6 +18,18 @@ docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-c
 docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-compose.yml logs -f daemon-claude daemon-codex web
 ```
 
+## Managed Runtime network gate
+
+Remote managed nodes require `MANAGED_RUNTIME_DOCKER_NETWORK`. Create that network with infrastructure-level DNS and egress policy that permits the models gateway but denies direct Provider endpoints. The daemon rejects missing configuration and Docker's permissive `host`, `bridge`, and `default` networks.
+
+Run the release gate from each managed node after applying the policy:
+
+```bash
+npm run verify:managed-runtime-egress
+```
+
+The check must reach `MODELS_GATEWAY_BASE_URL` and must fail to reach every URL in `MANAGED_RUNTIME_BLOCKED_EGRESS_URLS`. Keep production in `local` mode until this command and the real billing reconciliation exercise both pass in staging.
+
 ## Provider authentication
 
 Each daemon mounts a distinct read-only credential directory and builds a private provider profile below its own daemon-state volume. Create `config.json` and/or `secret.json` in the directories configured by `DOFE_AGENT_CLAUDE_PROVIDER_CREDENTIAL_DIR` and `DOFE_AGENT_CODEX_PROVIDER_CREDENTIAL_DIR`. The corresponding `file://` references in `.env` are passed through the Provider Account approval flow and resolved only within that daemon's container.

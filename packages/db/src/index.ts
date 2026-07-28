@@ -372,6 +372,7 @@ export {
   readDaemonConnectionSync,
   readAgentRuntimeSync,
   listManagedAgentRuntimesSync,
+  listAllManagedAgentRuntimesSync,
   requestAgentRuntimeProviderVerificationSync,
   deleteAgentRuntimeSync,
   updateAgentRuntimeManagedFieldsSync,
@@ -624,6 +625,14 @@ export {
   markTokenUsageReconciledSync,
   insertUnallocatedTokenUsageSync,
   insertUnallocatedTokenUsageIfAbsentSync,
+  enqueueTokenUsageRetrySync,
+  listDueTokenUsageRetriesSync,
+  completeTokenUsageRetrySync,
+  failTokenUsageRetrySync,
+  readTokenUsageReconciliationCursorSync,
+  upsertTokenUsageReconciliationCursorSync,
+  type RecordTokenUsageInput,
+  type TokenUsageRetryRecord,
 } from "./token-usage.ts";
 
 // Budgets

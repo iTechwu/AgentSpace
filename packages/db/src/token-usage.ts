@@ -74,7 +74,7 @@ export function computeCostUsd(inputTokens: number, outputTokens: number, pricin
   return (inputTokens / 1_000_000) * pricing.inputPer1M + (outputTokens / 1_000_000) * pricing.outputPer1M;
 }
 
-export function recordTokenUsageSync(input: {
+export interface RecordTokenUsageInput {
   taskQueueId?: string;
   agentId: string;
   modelId: string;
@@ -95,7 +95,9 @@ export function recordTokenUsageSync(input: {
   sourceUpdatedAt?: string;
   channelName?: string;
   workspaceId?: string;
-}): TokenUsageRecord {
+}
+
+export function recordTokenUsageSync(input: RecordTokenUsageInput): TokenUsageRecord {
   const db = getDatabase();
   const id = randomLikeId();
   const now = new Date().toISOString();
@@ -260,6 +262,7 @@ export function listTokenUsageSync(filters?: {
     request_started_at: string | null;
     request_ended_at: string | null;
     source_updated_at: string | null;
+    reconciled_at: string | null;
     channel_name: string | null;
     created_at: string;
   }>;
@@ -286,6 +289,7 @@ export function listTokenUsageSync(filters?: {
     requestStartedAt: row.request_started_at ?? undefined,
     requestEndedAt: row.request_ended_at ?? undefined,
     sourceUpdatedAt: row.source_updated_at ?? undefined,
+    reconciledAt: row.reconciled_at ?? undefined,
     channelName: row.channel_name ?? undefined,
     createdAt: row.created_at,
   }));
@@ -892,9 +896,116 @@ function mapTokenUsageRow(row: Record<string, unknown>): TokenUsageRecord {
     requestStartedAt: typeof row.request_started_at === "string" ? row.request_started_at : undefined,
     requestEndedAt: typeof row.request_ended_at === "string" ? row.request_ended_at : undefined,
     sourceUpdatedAt: typeof row.source_updated_at === "string" ? row.source_updated_at : undefined,
+    reconciledAt: typeof row.reconciled_at === "string" ? row.reconciled_at : undefined,
     channelName: typeof row.channel_name === "string" ? row.channel_name : undefined,
     createdAt: String(row.created_at),
   };
+}
+
+export interface TokenUsageRetryRecord {
+  id: string;
+  payload: RecordTokenUsageInput;
+  attempts: number;
+}
+
+export function enqueueTokenUsageRetrySync(input: RecordTokenUsageInput, error: unknown): void {
+  if (!input.workspaceId || !input.taskQueueId) {
+    throw new Error("token_usage_retry.workspace_and_task_required");
+  }
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const correlation = input.gatewayRequestId
+    ?? input.gatewayUsageId
+    ?? `${input.modelId}:${input.requestStartedAt ?? "unknown"}:${input.inputTokens}:${input.outputTokens}`;
+  const idempotencyKey = `${input.taskQueueId}:${correlation}`;
+  const message = error instanceof Error ? error.message : String(error);
+  db.prepare(
+    `INSERT INTO token_usage_retry (
+      id, workspace_id, task_queue_id, idempotency_key, payload_json,
+      status, attempts, next_attempt_at, last_error, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?::jsonb, 'pending', 0, ?, ?, ?, ?)
+     ON CONFLICT (workspace_id, idempotency_key) DO UPDATE SET
+       payload_json = EXCLUDED.payload_json,
+       status = 'pending',
+       next_attempt_at = EXCLUDED.next_attempt_at,
+       last_error = EXCLUDED.last_error,
+       updated_at = EXCLUDED.updated_at`,
+  ).run(
+    randomLikeId(),
+    input.workspaceId,
+    input.taskQueueId,
+    idempotencyKey,
+    JSON.stringify(input),
+    now,
+    message.slice(0, 1_000),
+    now,
+    now,
+  );
+}
+
+export function listDueTokenUsageRetriesSync(limit = 100): TokenUsageRetryRecord[] {
+  const rows = getDatabase().prepare(
+    `SELECT id, payload_json, attempts
+     FROM token_usage_retry
+     WHERE status = 'pending' AND next_attempt_at <= ?
+     ORDER BY created_at ASC
+     LIMIT ?`,
+  ).all(new Date().toISOString(), Math.min(Math.max(limit, 1), 500)) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    id: String(row.id),
+    payload: parseUsageRetryPayload(row.payload_json),
+    attempts: Number(row.attempts) || 0,
+  }));
+}
+
+export function completeTokenUsageRetrySync(id: string): void {
+  getDatabase().prepare("DELETE FROM token_usage_retry WHERE id = ?").run(id);
+}
+
+export function failTokenUsageRetrySync(id: string, attempts: number, error: unknown): void {
+  const nextAttempts = attempts + 1;
+  const delayMs = Math.min(60 * 60 * 1_000, 5_000 * (2 ** Math.min(nextAttempts, 8)));
+  const message = error instanceof Error ? error.message : String(error);
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `UPDATE token_usage_retry
+     SET attempts = ?, next_attempt_at = ?, last_error = ?, updated_at = ?
+     WHERE id = ?`,
+  ).run(nextAttempts, new Date(Date.now() + delayMs).toISOString(), message.slice(0, 1_000), now, id);
+}
+
+export function readTokenUsageReconciliationCursorSync(
+  workspaceId: string,
+  runtimeCredentialId: string,
+): string | undefined {
+  const row = getDatabase().prepare(
+    `SELECT last_remote_timestamp
+     FROM token_usage_reconciliation_cursor
+     WHERE workspace_id = ? AND runtime_credential_id = ?`,
+  ).get(workspaceId, runtimeCredentialId) as { last_remote_timestamp?: string } | undefined;
+  return row?.last_remote_timestamp;
+}
+
+export function upsertTokenUsageReconciliationCursorSync(
+  workspaceId: string,
+  runtimeCredentialId: string,
+  lastRemoteTimestamp: string,
+): void {
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO token_usage_reconciliation_cursor (
+      workspace_id, runtime_credential_id, last_remote_timestamp, updated_at
+     ) VALUES (?, ?, ?, ?)
+     ON CONFLICT (workspace_id, runtime_credential_id) DO UPDATE SET
+       last_remote_timestamp = EXCLUDED.last_remote_timestamp,
+       updated_at = EXCLUDED.updated_at`,
+  ).run(workspaceId, runtimeCredentialId, lastRemoteTimestamp, now);
+}
+
+function parseUsageRetryPayload(value: unknown): RecordTokenUsageInput {
+  const parsed = typeof value === "string" ? JSON.parse(value) : value;
+  if (!parsed || typeof parsed !== "object") throw new Error("token_usage_retry.invalid_payload");
+  return parsed as RecordTokenUsageInput;
 }
 
 function readWorkspaceIdForTaskQueueSync(taskQueueId: string): string | null {

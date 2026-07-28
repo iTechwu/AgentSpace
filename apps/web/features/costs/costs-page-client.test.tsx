@@ -58,6 +58,7 @@ const costs: CostPageData = {
   totalInputTokens: 12345,
   totalOutputTokens: 6789,
   estimatedCostUsd: 0.1234,
+  pendingReconciliationCostUsd: 0.02,
   reconciledCostUsd: 0,
   unallocatedCostUsd: 0,
   totalActualCostUsd: 0,
@@ -69,8 +70,12 @@ const costs: CostPageData = {
       modelId: "gpt-5",
       inputTokens: 1000,
       outputTokens: 500,
+      cacheTokens: 0,
       costUsd: 0.01,
-      billingStatus: "estimated",
+      billingStatus: "pending_reconciliation",
+      actualCostUsd: 0.02,
+      currency: "EUR",
+      sourceUpdatedAt: "2026-04-10T08:05:00.000Z",
       createdAt: "2026-04-10T08:00:00.000Z",
     },
   ],
@@ -88,6 +93,7 @@ describe("CostsPageClient", () => {
     routerRefresh.mockClear();
     vi.mocked(upsertBudgetAction).mockClear();
     vi.mocked(getTeamBillingBalanceAction).mockClear();
+    vi.mocked(getTeamBillingBalanceAction).mockResolvedValue({ balance: "100.00", reservedBalance: "10.00", availableBalance: "90.00", currency: "USD", status: "active" });
   });
 
   it("renders cost overview as cards instead of a table on compact layouts", async () => {
@@ -110,6 +116,22 @@ describe("CostsPageClient", () => {
     render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
     expect(await screen.findByText("100.00 USD")).toBeInTheDocument();
     expect(screen.getByText("Available: 90.00 USD")).toBeInTheDocument();
+  });
+
+  it("shows pending usage with its billing currency and update state", async () => {
+    render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
+
+    await screen.findByText("100.00 USD");
+    expect(screen.getAllByText("Pending reconciliation").length).toBeGreaterThan(0);
+    expect(screen.getByText(/0\.0100.*0\.0200 EUR/)).toBeInTheDocument();
+    expect(screen.getByText(/Updated/)).toBeInTheDocument();
+  });
+
+  it("shows an actionable reason when models billing is unavailable", async () => {
+    vi.mocked(getTeamBillingBalanceAction).mockResolvedValue({ errorCode: "upstream_unavailable" } as never);
+    render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
+
+    await screen.findByText("Models billing service unavailable");
   });
 
   it("refreshes module data instead of the route after saving budgets in the workbench", async () => {

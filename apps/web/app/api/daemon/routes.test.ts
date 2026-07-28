@@ -165,6 +165,7 @@ function daemonHeaders(token: string): HeadersInit {
 describe("daemon API routes", () => {
   it("keeps task completion successful when usage persistence needs reconciliation", () => {
     const errors: unknown[] = [];
+    const retries: unknown[] = [];
     const persisted = persistManagedTaskUsagesBestEffort({
       usages: [{
         modelId: "gpt-5",
@@ -180,11 +181,17 @@ describe("daemon API routes", () => {
       recordUsage: () => {
         throw new Error("database unavailable");
       },
+      enqueueRetry: (retry) => retries.push(retry),
       onError: (error) => errors.push(error),
     });
 
     expect(persisted).toBe(false);
     expect(errors).toHaveLength(1);
+    expect(retries).toHaveLength(1);
+    expect(retries[0]).toMatchObject({
+      taskQueueId: "task-1",
+      gatewayRequestId: "gateway-1",
+    });
   });
 
   it("serves a hosted install script with baked server defaults", async () => {

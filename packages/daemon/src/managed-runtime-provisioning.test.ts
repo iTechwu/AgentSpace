@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildManagedContainerHealthCheckCommand,
+  buildManagedAttributionProxyHealthCheckCommand,
   buildManagedProviderLauncherHealthCheckCommand,
   createManagedProvisioningExecutor,
   probeManagedGateway,
 } from "./managed-runtime-provisioning.ts";
+
+process.env.MANAGED_RUNTIME_DOCKER_NETWORK = "dofe-models-egress";
 
 test("managed health check runs from the provider container with a read-only credential mount", () => {
   const command = buildManagedContainerHealthCheckCommand({
@@ -19,6 +22,7 @@ test("managed health check runs from the provider container with a read-only cre
 
   assert.equal(command.executable, "docker");
   assert.ok(command.args.includes("dofe/agent-runtime-codex:latest"));
+  assert.ok(command.args.includes("dofe-models-egress"));
   assert.ok(command.args.includes("type=bind,src=/srv/managed/runtime-1/current,dst=/dofe-profile,readonly"));
   assert.ok(command.args.includes("https://model.example/v1/models"));
   assert.equal(command.args.join(" ").includes("must-not-appear"), false);
@@ -39,6 +43,22 @@ test("managed readiness starts the generated launcher, attribution proxy, and pr
   assert.equal(command.args.join(" ").includes("must-not-appear-in-args"), false);
   assert.equal(command.env?.OPENAI_BASE_URL, "https://model.example/v1");
   assert.equal(command.env?.OPENAI_API_KEY, undefined);
+});
+
+test("managed readiness probes the gateway through the attribution proxy", () => {
+  const command = buildManagedAttributionProxyHealthCheckCommand({
+    accountId: "runtime-1",
+    profileDir: "/srv/managed/runtime-1/current",
+    environment: { OPENAI_BASE_URL: "https://model.example/v1" },
+  }, "/srv/managed/runtime-1/run-codex", {
+    runtimeId: "runtime-1",
+    runtimeCredentialId: "credential-1",
+    provider: "codex",
+  });
+
+  assert.equal(command.env?.DOFE_AGENT_MANAGED_PROXY_HEALTHCHECK, "1");
+  assert.equal(command.env?.DOFE_AGENT_RUNTIME_CREDENTIAL_ID, "credential-1");
+  assert.equal(command.env?.DOFE_AGENT_GATEWAY_HEALTHCHECK_PATH, "/models");
 });
 
 test("managed gateway health probe preserves the configured protocol path", async () => {

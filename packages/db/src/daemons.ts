@@ -477,6 +477,13 @@ export function listManagedAgentRuntimesSync(workspaceId: string): AgentRuntimeR
     .filter((row): row is AgentRuntimeRecord => row !== null);
 }
 
+export function listAllManagedAgentRuntimesSync(): AgentRuntimeRecord[] {
+  const workspaceIds = getDatabase().prepare(
+    `SELECT DISTINCT workspace_id FROM agent_runtime WHERE managed_credential_id IS NOT NULL`,
+  ).all() as Array<{ workspace_id: string }>;
+  return workspaceIds.flatMap((row) => listManagedAgentRuntimesSync(row.workspace_id));
+}
+
 export interface UpdateAgentRuntimeManagedFieldsInput {
   runtimeId: string;
   workspaceId?: string;

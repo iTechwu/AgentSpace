@@ -9,7 +9,10 @@ import {
   buildManagedRuntimeAttributionHeaders,
   createManagedCredentialResolver,
   extractManagedGatewayUsage,
+  resolveManagedRuntimeDockerNetwork,
 } from "./managed-provider-credentials.ts";
+
+process.env.MANAGED_RUNTIME_DOCKER_NETWORK = "dofe-models-egress";
 
 test("resolves account-scoped provider files and environment without exposing references", () => {
   const root = mkdtempSync(join(tmpdir(), "dofe-agent-provider-credentials-"));
@@ -216,6 +219,15 @@ test("managed gateway usage parser ignores auxiliary and failed responses and re
     type: "message_delta",
     usage: { output_tokens: 18 },
   }), { inputTokens: 0, outputTokens: 18 });
+});
+
+test("managed runtime network configuration fails closed for permissive Docker networks", () => {
+  assert.equal(resolveManagedRuntimeDockerNetwork({ MANAGED_RUNTIME_DOCKER_NETWORK: "models-egress" }), "models-egress");
+  assert.throws(() => resolveManagedRuntimeDockerNetwork({}), /docker_network_required/);
+  assert.throws(
+    () => resolveManagedRuntimeDockerNetwork({ MANAGED_RUNTIME_DOCKER_NETWORK: "host" }),
+    /docker_network_not_isolated/,
+  );
 });
 
 function writeJson(path: string, value: unknown): void {

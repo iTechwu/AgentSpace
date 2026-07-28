@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { getTeamBillingBalanceAction, upsertBudgetAction, toggleBudgetAction, deleteBudgetAction, reconcileWorkspaceUsageAction, type TeamBillingBalance } from "@/features/costs/actions";
+import { getTeamBillingBalanceAction, upsertBudgetAction, toggleBudgetAction, deleteBudgetAction, reconcileWorkspaceUsageAction, type TeamBillingBalanceResult } from "@/features/costs/actions";
 import type { CostPageData, BudgetPageData, BudgetPageItem } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import type { BudgetAction, BudgetPeriod, BudgetScope } from "@dofe-agent/db";
@@ -26,7 +26,7 @@ export function CostsPageClient({
   const [showAddBudget, setShowAddBudget] = useState(false);
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [isPending, startTransition] = useTransition();
-  const [teamBalance, setTeamBalance] = useState<TeamBillingBalance | null>(null);
+  const [teamBalance, setTeamBalance] = useState<TeamBillingBalanceResult | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -121,13 +121,14 @@ function CostOverview({
 }: {
   compact: boolean;
   data: CostPageData;
-  teamBalance: TeamBillingBalance | null;
+  teamBalance: TeamBillingBalanceResult | null;
   tx: (zh: string, en: string) => string;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [lastResult, setLastResult] = useState<{ reconciledCount: number; unallocatedCount: number } | null>(null);
   const averagePerTask = data.totalTasks > 0 ? data.totalCostUsd / data.totalTasks : 0;
+  const availableTeamBalance = teamBalance && !("errorCode" in teamBalance) ? teamBalance : null;
 
   function handleReconcile(): void {
     startTransition(async () => {
@@ -162,12 +163,20 @@ function CostOverview({
       <div className="costs-summary-cards">
         <div className="costs-summary-card">
           <span className="costs-summary-card__label">{tx("团队实际余额", "Team balance")}</span>
-          <span className="costs-summary-card__value">{teamBalance ? `${teamBalance.balance} ${teamBalance.currency}` : tx("暂不可用", "Unavailable")}</span>
-          {teamBalance ? <span className="costs-summary-card__label">{tx("可用", "Available")}: {teamBalance.availableBalance} {teamBalance.currency}</span> : null}
+          <span className="costs-summary-card__value">{availableTeamBalance ? `${availableTeamBalance.balance} ${availableTeamBalance.currency}` : tx("暂不可用", "Unavailable")}</span>
+          {availableTeamBalance ? (
+            <span className="costs-summary-card__label">{tx("可用", "Available")}: {availableTeamBalance.availableBalance} {availableTeamBalance.currency}</span>
+          ) : teamBalance && "errorCode" in teamBalance ? (
+            <span className="costs-summary-card__label">{formatBalanceError(teamBalance.errorCode, tx)}</span>
+          ) : null}
         </div>
         <div className="costs-summary-card">
           <span className="costs-summary-card__label">{tx("估算费用", "Estimated")}</span>
           <span className="costs-summary-card__value">${data.estimatedCostUsd.toFixed(4)}</span>
+        </div>
+        <div className="costs-summary-card">
+          <span className="costs-summary-card__label">{tx("待对账", "Pending reconciliation")}</span>
+          <span className="costs-summary-card__value">${data.pendingReconciliationCostUsd.toFixed(4)} USD</span>
         </div>
         <div className="costs-summary-card">
           <span className="costs-summary-card__label">{tx("已对账", "Reconciled")}</span>
@@ -324,10 +333,12 @@ function CostOverview({
                     <BillingStatusBadge status={usage.billingStatus} tx={tx} />
                   </div>
                   <div className="costs-recent-card__stats">
-                    <span>{formatTokens(usage.inputTokens)} / {formatTokens(usage.outputTokens)}</span>
-                    <span>${usage.costUsd.toFixed(4)}{usage.actualCostUsd != null ? ` → $${usage.actualCostUsd.toFixed(4)}` : ""}</span>
+                    <span>{formatUsageTokens(usage)}</span>
+                    <span>{formatUsageCost(usage)}</span>
                   </div>
-                  <div className="costs-recent-time">{formatCompactTimestamp(usage.createdAt, { emptyFallback: usage.createdAt })}</div>
+                  <div className="costs-recent-time">
+                    {tx("更新时间", "Updated")}: {formatCompactTimestamp(usage.sourceUpdatedAt ?? usage.reconciledAt ?? usage.createdAt, { emptyFallback: usage.createdAt })}
+                  </div>
                 </article>
               ))}
             </div>
@@ -337,10 +348,12 @@ function CostOverview({
                 <div className="costs-recent-item" key={usage.id}>
                   <span className="costs-recent-agent">{usage.agentId}</span>
                   <span className="costs-recent-model">{usage.modelId}</span>
-                  <span>{formatTokens(usage.inputTokens)} / {formatTokens(usage.outputTokens)}</span>
-                  <span>${usage.costUsd.toFixed(4)}{usage.actualCostUsd != null ? ` → $${usage.actualCostUsd.toFixed(4)}` : ""}</span>
+                  <span>{formatUsageTokens(usage)}</span>
+                  <span>{formatUsageCost(usage)}</span>
                   <BillingStatusBadge status={usage.billingStatus} tx={tx} />
-                  <span className="costs-recent-time">{formatCompactTimestamp(usage.createdAt, { emptyFallback: usage.createdAt })}</span>
+                  <span className="costs-recent-time">
+                    {tx("更新时间", "Updated")}: {formatCompactTimestamp(usage.sourceUpdatedAt ?? usage.reconciledAt ?? usage.createdAt, { emptyFallback: usage.createdAt })}
+                  </span>
                 </div>
               ))}
             </div>
@@ -428,9 +441,33 @@ function BillingStatusBadge({
     ? tx("已对账", "Reconciled")
     : status === "unallocated"
       ? tx("未分配", "Unallocated")
-      : tx("估算", "Estimated");
+      : status === "pending_reconciliation"
+        ? tx("待对账", "Pending reconciliation")
+        : tx("估算", "Estimated");
   const className = `costs-status costs-status--${status}`;
   return <span className={className}>{label}</span>;
+}
+
+function formatUsageTokens(usage: CostPageData["recentUsage"][number]): string {
+  const cache = usage.cacheTokens > 0 ? ` / ${formatTokens(usage.cacheTokens)} cache` : "";
+  return `${formatTokens(usage.inputTokens)} / ${formatTokens(usage.outputTokens)}${cache}`;
+}
+
+function formatUsageCost(usage: CostPageData["recentUsage"][number]): string {
+  const estimated = `${usage.costUsd.toFixed(4)} USD`;
+  return usage.actualCostUsd == null
+    ? estimated
+    : `${estimated} → ${usage.actualCostUsd.toFixed(4)} ${usage.currency ?? "USD"}`;
+}
+
+function formatBalanceError(
+  code: Extract<TeamBillingBalanceResult, { errorCode: string }>["errorCode"],
+  tx: (zh: string, en: string) => string,
+): string {
+  if (code === "remote_mode_required") return tx("仅服务器模式提供 models 余额", "Models balance is available in remote mode only");
+  if (code === "models_not_configured") return tx("models 服务尚未配置", "Models billing is not configured");
+  if (code === "team_scope_missing") return tx("工作区尚未绑定 models 团队", "Workspace is not linked to a models team");
+  return tx("models 账单服务不可用", "Models billing service unavailable");
 }
 
 function BudgetManager({

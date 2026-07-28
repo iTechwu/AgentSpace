@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const services = vi.hoisted(() => ({
   resumePendingProvisioningTasksAsync: vi.fn(),
   resumeManagedRuntimeCleanupRequestsAsync: vi.fn(),
+  drainTokenUsageRetriesSync: vi.fn(),
+  reconcileAllManagedRuntimeUsageAsync: vi.fn(),
 }));
 
 vi.mock("@dofe-agent/services", () => services);
@@ -15,6 +17,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   services.resumePendingProvisioningTasksAsync.mockResolvedValue({ driven: 2 });
   services.resumeManagedRuntimeCleanupRequestsAsync.mockResolvedValue({ staleFailed: 1 });
+  services.drainTokenUsageRetriesSync.mockReturnValue({ processedCount: 1, completedCount: 1, failedCount: 0 });
+  services.reconcileAllManagedRuntimeUsageAsync.mockResolvedValue({ runtimeCount: 2, failedRuntimeCount: 0, reconciledCount: 3, pendingCount: 1, unallocatedCount: 0 });
 });
 
 afterEach(() => {
@@ -48,8 +52,12 @@ describe("runtime provisioning maintenance route", () => {
       ok: true,
       provisioning: { driven: 2 },
       cleanup: { staleFailed: 1 },
+      usageRetries: { processedCount: 1, completedCount: 1, failedCount: 0 },
+      usageReconciliation: { runtimeCount: 2, failedRuntimeCount: 0, reconciledCount: 3, pendingCount: 1, unallocatedCount: 0 },
     });
     expect(services.resumePendingProvisioningTasksAsync).toHaveBeenCalledOnce();
     expect(services.resumeManagedRuntimeCleanupRequestsAsync).toHaveBeenCalledOnce();
+    expect(services.drainTokenUsageRetriesSync).toHaveBeenCalledOnce();
+    expect(services.reconcileAllManagedRuntimeUsageAsync).toHaveBeenCalledOnce();
   });
 });

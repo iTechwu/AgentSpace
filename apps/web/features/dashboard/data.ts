@@ -4963,6 +4963,7 @@ export interface CostPageData {
   totalInputTokens: number;
   totalOutputTokens: number;
   estimatedCostUsd: number;
+  pendingReconciliationCostUsd: number;
   reconciledCostUsd: number;
   unallocatedCostUsd: number;
   totalActualCostUsd: number;
@@ -4975,9 +4976,18 @@ export interface CostPageData {
     providerAccountId?: string;
     inputTokens: number;
     outputTokens: number;
+    cacheTokens: number;
     costUsd: number;
     actualCostUsd?: number;
     billingStatus: string;
+    currency?: string;
+    protocol?: string;
+    gatewayRequestId?: string;
+    gatewayUsageId?: string;
+    reconciledAt?: string;
+    sourceUpdatedAt?: string;
+    requestStartedAt?: string;
+    requestEndedAt?: string;
     channelName?: string;
     createdAt: string;
   }>;

@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
+import { resolveProviderProtocols } from "@dofe-agent/domain";
 import type {
   ManagedProvisioningCommand,
   ManagedProvisioningStage,
@@ -7,6 +8,7 @@ import type {
 } from "./daemon-api.ts";
 import {
   getManagedProviderCredentialEnvironmentKey,
+  resolveManagedRuntimeDockerNetwork,
   type ManagedCredentialResolver,
 } from "./managed-provider-credentials.ts";
 import type { ProviderCredentialProfile } from "./provider-credentials.ts";
@@ -77,6 +79,15 @@ export function createManagedProvisioningExecutor(
         }
         const probeResult = await runCommandSequence(task.runtimeId, task.stage, [
           buildManagedContainerHealthCheckCommand(profile, task.runtimeType),
+          buildManagedAttributionProxyHealthCheckCommand(
+            profile,
+            credentialResolver.getExecutablePath(task.runtimeId, task.runtimeType),
+            {
+              runtimeId: task.runtimeId,
+              runtimeCredentialId: task.runtimeCredentialId,
+              provider: task.runtimeType,
+            },
+          ),
           buildManagedProviderLauncherHealthCheckCommand(
             profile,
             credentialResolver.getExecutablePath(task.runtimeId, task.runtimeType),
@@ -168,6 +179,7 @@ export function buildManagedContainerHealthCheckCommand(
       "--tmpfs", "/tmp:rw,nosuid,nodev,noexec",
       "--security-opt", "no-new-privileges",
       "--cap-drop", "ALL",
+      "--network", resolveManagedRuntimeDockerNetwork(),
       "--user", user,
       "--mount", `type=bind,src=${profile.profileDir},dst=/dofe-profile,readonly`,
       "--entrypoint", "node",
@@ -187,6 +199,36 @@ export function buildManagedProviderLauncherHealthCheckCommand(
     env: Object.fromEntries(
       Object.entries(profile.environment).filter(([key]) => key.endsWith("_BASE_URL")),
     ),
+  };
+}
+
+export function buildManagedAttributionProxyHealthCheckCommand(
+  profile: ProviderCredentialProfile,
+  launcherPath: string,
+  input: {
+    runtimeId: string;
+    runtimeCredentialId: string;
+    provider: ManagedProvisioningTask["runtimeType"];
+  },
+): ManagedProvisioningCommand {
+  const modelPath = input.provider === "gemini"
+    ? "/v1beta/models"
+    : input.provider === "claude"
+      ? "/v1/models"
+      : "/models";
+  return {
+    executable: "sh",
+    args: [launcherPath, "--version"],
+    env: {
+      ...Object.fromEntries(Object.entries(profile.environment).filter(([key]) => key.endsWith("_BASE_URL"))),
+      DOFE_AGENT_MANAGED_PROXY_HEALTHCHECK: "1",
+      DOFE_AGENT_GATEWAY_HEALTHCHECK_PATH: modelPath,
+      DOFE_AGENT_RUNTIME_CREDENTIAL_ID: input.runtimeCredentialId,
+      DOFE_AGENT_RUNTIME_ID: input.runtimeId,
+      DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID: "healthcheck",
+      DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID: "healthcheck",
+      DOFE_AGENT_GATEWAY_PROTOCOL: resolveProviderProtocols(input.provider)[0] ?? "",
+    },
   };
 }
 
