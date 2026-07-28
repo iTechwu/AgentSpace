@@ -57,7 +57,7 @@ export interface MessageAttachment {
   sizeBytes: number;
   kind: "image" | "file";
   storedPath: string;
-  storageProvider?: "local" | "tos" | "s3";
+  storageProvider?: "tos";
   storageBucket?: string;
   storageRegion?: string;
   storageEndpoint?: string;

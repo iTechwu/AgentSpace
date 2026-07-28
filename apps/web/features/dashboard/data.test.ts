@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
@@ -32,9 +32,11 @@ import {
   grantRuntimeUseToUserForActorSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
+  setAttachmentStorageClientForTests,
   setEmployeeSkillIdsSync,
   writeWorkspaceStateSync,
 } from "@dofe-agent/services";
+import { createTestTosAttachmentStorage } from "@/test-utils/tos-attachment-storage";
 import {
   getAgentsPageData,
   getAutomationsPageData,
@@ -51,8 +53,10 @@ import { getWorkspaceShellData } from "./workspace-shell-data";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-dashboard-data-"));
+const testTos = createTestTosAttachmentStorage();
 
 beforeAll(() => {
+  setAttachmentStorageClientForTests(testTos.client);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   process.chdir(tempRoot);
@@ -68,6 +72,7 @@ beforeEach(() => {
   clearWorkspaceScopedTestRows();
   resetWorkspaceStateSync();
   resetWorkspaceStateSync("workspace-mars");
+  testTos.clear();
 });
 
 function ensureTestWorkspace(id: string, slug: string, name: string): void {
@@ -100,17 +105,21 @@ function clearWorkspaceScopedTestRows(): void {
 }
 
 function createAttachment(id: string, fileName: string, mediaType: string, content: string): MessageAttachment {
-  const attachmentsDir = join(tempRoot, "data", "workspaces", "default", "attachments");
-  mkdirSync(attachmentsDir, { recursive: true });
-  const storedPath = join(attachmentsDir, `${id}-${basename(fileName.replace(/\\/g, "/"))}`);
-  writeFileSync(storedPath, content, "utf8");
+  const storedFileName = fileName.replace(/\\/g, "/").split("/").pop() ?? "attachment.bin";
+  const storageKey = `workspaces/default/attachments/${id}/${storedFileName}`;
+  testTos.seed(storageKey, content);
   return {
     id,
     fileName,
     mediaType,
     sizeBytes: Buffer.byteLength(content),
     kind: mediaType.startsWith("image/") ? "image" : "file",
-    storedPath,
+    storedPath: `tos://test-bucket/${storageKey}`,
+    storageProvider: "tos",
+    storageBucket: "test-bucket",
+    storageRegion: "cn-beijing",
+    storageEndpoint: "https://tos-cn-beijing.volces.com",
+    storageKey,
   };
 }
 

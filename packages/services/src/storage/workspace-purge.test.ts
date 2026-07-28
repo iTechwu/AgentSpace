@@ -9,15 +9,52 @@ import {
   getDaemonWorkspaceExecutionRootDir,
   getLocalDaemonStateDirPath,
   getWorkspaceDataDirPath,
+  replaceStoredAttachmentsSync,
   readWorkspaceSync,
   writeWorkspaceStateRecordSync,
 } from "@dofe-agent/db";
+import {
+  persistWorkspaceAttachmentFromBytesSync,
+  setAttachmentStorageClientForTests,
+  type AttachmentStorageClient,
+} from "../index.ts";
 import { purgeWorkspaceStorageSync } from "./workspace-purge.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-workspace-purge-"));
+const tosObjects = new Map<string, Uint8Array>();
+const testTosStorage: AttachmentStorageClient = {
+  async putObject(input) { return this.putObjectSync(input); },
+  putObjectSync(input) {
+    const key = `workspaces/${input.workspaceId}/attachments/${input.attachmentId}/${input.fileName}`;
+    const bytes = new Uint8Array(input.contentBytes);
+    tosObjects.set(key, bytes);
+    return {
+      provider: "tos",
+      bucket: "test-bucket",
+      region: "cn-beijing",
+      endpoint: "https://tos-cn-beijing.volces.com",
+      key,
+      storedPath: `tos://test-bucket/${key}`,
+      sizeBytes: bytes.byteLength,
+      sha256: "test-sha256",
+    };
+  },
+  async getObject(input) { return this.getObjectSync(input); },
+  getObjectSync(input) {
+    const bytes = tosObjects.get(input.storageKey ?? "");
+    if (!bytes) throw new Error(`NoSuchKey: ${input.storageKey ?? ""}`);
+    return new Uint8Array(bytes);
+  },
+  async headObject() { return null; },
+  async deleteObject(input) { tosObjects.delete(input.storageKey ?? ""); },
+  deleteObjectSync(input) { tosObjects.delete(input.storageKey ?? ""); },
+  async createReadUrl() { return null; },
+};
 
 before(() => {
+  process.env.NODE_ENV = "test";
+  setAttachmentStorageClientForTests(testTosStorage);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   process.chdir(tempRoot);
@@ -26,6 +63,7 @@ before(() => {
 beforeEach(() => {
   const db = getDatabase();
   db.exec(`
+    DELETE FROM attachment;
     DELETE FROM task_message;
     DELETE FROM task_execution_event;
     DELETE FROM token_usage;
@@ -73,21 +111,19 @@ test("purgeWorkspaceStorageSync removes workspace db rows, workspace files, and 
 
   seedWorkspaceRecords(purgeTarget.id, "purge");
   seedWorkspaceRecords(survivor.id, "keep");
+  const purgeAttachment = seedWorkspaceAttachment(purgeTarget.id, "purge.txt", "purge me");
+  const survivorAttachment = seedWorkspaceAttachment(survivor.id, "keep.txt", "keep me");
 
   const purgeWorkspaceDir = getWorkspaceDataDirPath(purgeTarget.id);
   const purgeDaemonDir = getDaemonWorkspaceExecutionRootDir(getLocalDaemonStateDirPath(), purgeTarget.id);
   const survivorWorkspaceDir = getWorkspaceDataDirPath(survivor.id);
   const survivorDaemonDir = getDaemonWorkspaceExecutionRootDir(getLocalDaemonStateDirPath(), survivor.id);
 
-  mkdirSync(join(purgeWorkspaceDir, "attachments"), { recursive: true });
-  writeFileSync(join(purgeWorkspaceDir, "attachments", "artifact.txt"), "purge me", "utf8");
   mkdirSync(join(purgeWorkspaceDir, "channel-history"), { recursive: true });
   writeFileSync(join(purgeWorkspaceDir, "channel-history", "general.md"), "# Purge", "utf8");
   mkdirSync(join(purgeDaemonDir, "workdirs", "queue-purge"), { recursive: true });
   writeFileSync(join(purgeDaemonDir, "workdirs", "queue-purge", "agent-output.json"), "{}", "utf8");
 
-  mkdirSync(join(survivorWorkspaceDir, "attachments"), { recursive: true });
-  writeFileSync(join(survivorWorkspaceDir, "attachments", "artifact.txt"), "keep me", "utf8");
   mkdirSync(join(survivorDaemonDir, "workdirs", "queue-keep"), { recursive: true });
   writeFileSync(join(survivorDaemonDir, "workdirs", "queue-keep", "agent-output.json"), "{}", "utf8");
 
@@ -95,6 +131,9 @@ test("purgeWorkspaceStorageSync removes workspace db rows, workspace files, and 
 
   assert.equal(result.workspaceId, purgeTarget.id);
   assert.equal(result.db.deletedWorkspace, true);
+  assert.equal(result.removedAttachmentObjectCount, 1);
+  assert.equal(tosObjects.has(purgeAttachment.storageKey ?? ""), false);
+  assert.equal(tosObjects.has(survivorAttachment.storageKey ?? ""), true);
   assert.equal(result.db.removedAgentRouterSessionRows, 1);
   assert.equal(result.db.removedAgentRouterProviderSessionRows, 1);
   assert.equal(result.db.removedAgentTaskAttemptRows, 1);
@@ -120,9 +159,31 @@ test("purgeWorkspaceStorageSync removes workspace db rows, workspace files, and 
 });
 
 test.after(() => {
+  setAttachmentStorageClientForTests(undefined);
   process.chdir(originalCwd);
   rmSync(tempRoot, { recursive: true, force: true });
 });
+
+function seedWorkspaceAttachment(workspaceId: string, fileName: string, content: string) {
+  const attachment = persistWorkspaceAttachmentFromBytesSync({
+    workspaceId,
+    fileName,
+    mediaType: "text/plain",
+    contentBytes: Buffer.from(content, "utf8"),
+  });
+  replaceStoredAttachmentsSync({
+    messages: [{
+      id: `message-${workspaceId}`,
+      speaker: "Atlas",
+      role: "agent",
+      time: "2026-01-01T00:00:00.000Z",
+      summary: fileName,
+      status: "completed",
+      attachments: [attachment],
+    }],
+  }, workspaceId);
+  return attachment;
+}
 
 function seedWorkspaceRecords(workspaceId: string, suffix: string): void {
   const db = getDatabase();

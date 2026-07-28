@@ -836,7 +836,7 @@ function buildAttachmentRow(
     kind: attachment.kind,
     size_bytes: attachment.sizeBytes,
     stored_path: attachment.storedPath,
-    storage_provider: attachment.storageProvider ?? "local",
+    storage_provider: attachment.storageProvider ?? "tos",
     storage_bucket: attachment.storageBucket ?? null,
     storage_region: attachment.storageRegion ?? null,
     storage_endpoint: attachment.storageEndpoint ?? null,

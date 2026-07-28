@@ -72,7 +72,6 @@ import {
   markChannelDocumentRunStepRunningSync,
   persistWorkspaceAttachmentFromFileSync,
   postMessageSync,
-  pruneOrphanWorkspaceAttachmentsSync,
   queueFeishuAgentStatusCardOutboxSync,
   queueFeishuChannelReplyOutboxSync,
   readWorkspaceStateSync,
@@ -1511,7 +1510,6 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
   } finally {
     try {
       clearTaskOutputArtifacts(workDir);
-      pruneOrphanWorkspaceAttachmentsSync(task.workspaceId);
     } catch (cleanupError) {
       appendTaskMessageSync({
         taskId: task.id,

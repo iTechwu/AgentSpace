@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   createDaemonApiTokenSync,
   enqueueNativeTaskSync,
@@ -19,7 +19,9 @@ import {
   sendChannelHumanMessageSync,
   sendContactMessageSync,
   writeWorkspaceStateSync,
+  setAttachmentStorageClientForTests,
 } from "@dofe-agent/services";
+import { createTestTosAttachmentStorage } from "@/test-utils/tos-attachment-storage";
 import { HttpDaemonClient } from "dofe-agent-daemon/daemon-client";
 import { POST as registerPOST } from "./register/route";
 import { POST as heartbeatPOST } from "./heartbeat/route";
@@ -34,15 +36,21 @@ import { POST as completePOST } from "./tasks/[taskId]/complete/route";
 
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-remote-daemon-integration-"));
 const repositoryRoot = resolve(process.cwd(), "../..");
+const testTos = createTestTosAttachmentStorage();
 
 beforeAll(() => {
+  setAttachmentStorageClientForTests(testTos.client);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   symlinkSync(join(repositoryRoot, "packages"), join(tempRoot, "packages"), "dir");
   process.chdir(tempRoot);
 });
 
+afterAll(() => {
+});
+
 beforeEach(() => {
+  testTos.clear();
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",

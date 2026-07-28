@@ -8,7 +8,6 @@ export {
 export {
   getWorkspaceStateFilePath,
   getWorkspaceDatabaseFilePath,
-  getWorkspaceAttachmentsDirPath,
   ensureWorkspaceStateSync,
   readWorkspaceStateSnapshotSync,
   readWorkspaceStateSync,
@@ -415,14 +414,17 @@ export {
 // Attachments
 export {
   deleteChannelAttachmentSync,
+  deleteUnreferencedWorkspaceAttachmentsSync,
   deleteWorkspaceAttachmentsSync,
   persistWorkspaceAttachmentFromBytesSync,
   persistWorkspaceAttachmentFromFileSync,
-  pruneOrphanWorkspaceAttachmentsSync,
+  readWorkspaceAttachmentBytesSync,
   type DeleteChannelAttachmentResult,
 } from "./attachments/attachments.ts";
 export {
   createAttachmentStorageClient,
+  setAttachmentStorageClientForTests,
+  type AttachmentStorageClient,
   type AttachmentStorageReadInput,
   type AttachmentStorageObjectMetadata,
   type AttachmentStoragePutInput,

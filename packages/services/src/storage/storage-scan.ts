@@ -174,7 +174,6 @@ function scanLegacyStorageRoots(
   pushIssue: (issue: StorageScanIssue) => void,
 ): number {
   const legacyRoots = [
-    join(getDataDirPath(), "attachments"),
     join(getDataDirPath(), "channel-history"),
     join(getDataDirPath(), "daemon-remote-staging"),
     join(getLocalDaemonStateDirPath(), "workdirs"),

@@ -14,7 +14,6 @@ import {
   type ExternalMessageOutboxRecord,
 } from "@dofe-agent/db";
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
-import { readFileSync } from "node:fs";
 import {
   IntegrationProviderError,
   createIntegrationProviderError,
@@ -1267,11 +1266,11 @@ export async function uploadFeishuOutboundAttachment(input: {
 async function readFeishuOutboundAttachmentBytes(
   attachment: FeishuOutboundAttachmentRef,
 ): Promise<Uint8Array> {
-  if (!attachment.storageProvider || attachment.storageProvider === "local") {
-    return readFileSync(attachment.storedPath);
+  if (!attachment.storageKey) {
+    throw new Error(`Feishu attachment "${attachment.id}" is missing its TOS object key.`);
   }
   return createAttachmentStorageClient().getObject({
-    storageProvider: attachment.storageProvider,
+    storageProvider: "tos",
     storageBucket: attachment.storageBucket,
     storageRegion: attachment.storageRegion,
     storageEndpoint: attachment.storageEndpoint,

@@ -9,9 +9,11 @@ const {
 const {
   mockListSessionsForUserSync,
   mockReadAuthIdentityForUserSync,
+  mockReadWorkspaceSync,
 } = vi.hoisted(() => ({
   mockListSessionsForUserSync: vi.fn(),
   mockReadAuthIdentityForUserSync: vi.fn(),
+  mockReadWorkspaceSync: vi.fn(),
 }));
 
 const { mockLoadSsoWorkspaceDirectory } = vi.hoisted(() => ({
@@ -57,6 +59,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@dofe-agent/db", () => ({
   listSessionsForUserSync: mockListSessionsForUserSync,
   readAuthIdentityForUserSync: mockReadAuthIdentityForUserSync,
+  readWorkspaceSync: mockReadWorkspaceSync,
 }));
 
 vi.mock("@/features/auth/sso-directory", () => ({
@@ -111,6 +114,7 @@ describe("workspace settings route", () => {
     mockListFeishuIntegrationSettingsItems.mockReset();
     mockBuildFeishuIntegrationCreationGuide.mockReset();
     mockReadAuthIdentityForUserSync.mockReset();
+    mockReadWorkspaceSync.mockReset();
     mockLoadSsoWorkspaceDirectory.mockReset();
 
     mockGetCurrentSession.mockResolvedValue({ id: "session-1" });
@@ -147,6 +151,14 @@ describe("workspace settings route", () => {
       ],
     });
     mockReadAuthIdentityForUserSync.mockReturnValue({ providerSubject: "sso-user-1" });
+    mockReadWorkspaceSync.mockReturnValue({
+      id: "workspace-mars",
+      name: "Mars Labs",
+      slug: "mars-labs",
+      createdBy: "user-1",
+      createdAt: "2026-04-22T00:00:00.000Z",
+      updatedAt: "2026-04-22T00:00:00.000Z",
+    });
     mockLoadSsoWorkspaceDirectory.mockResolvedValue(buildSsoDirectory("owner"));
     mockGetWorkspacePermissionCenterSync.mockReturnValue({
       tree: [],

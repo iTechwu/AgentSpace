@@ -23,6 +23,7 @@ const baseDocument: ChannelDocumentRecord = {
   versions: [
     {
       id: "ver-2",
+      contentMarkdown: "## Day 1\n大阪",
       summary: "最新草稿",
       createdAt: "2026-04-07T09:30:00.000Z",
       createdBy: "techwu",

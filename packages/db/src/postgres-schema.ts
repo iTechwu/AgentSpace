@@ -1419,7 +1419,7 @@ export function getPostgresSchemaStatements(): string[] {
         kind TEXT NOT NULL,
         size_bytes BIGINT NOT NULL DEFAULT 0,
         stored_path TEXT NOT NULL,
-        storage_provider TEXT NOT NULL DEFAULT 'local',
+        storage_provider TEXT NOT NULL DEFAULT 'tos',
         storage_bucket TEXT,
         storage_region TEXT,
         storage_endpoint TEXT,
@@ -1435,7 +1435,7 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `
       ALTER TABLE attachment
-        ADD COLUMN IF NOT EXISTS storage_provider TEXT NOT NULL DEFAULT 'local'
+        ADD COLUMN IF NOT EXISTS storage_provider TEXT NOT NULL DEFAULT 'tos'
     `,
     `
       ALTER TABLE attachment
@@ -1460,6 +1460,30 @@ export function getPostgresSchemaStatements(): string[] {
     `
       ALTER TABLE attachment
         ADD COLUMN IF NOT EXISTS sha256 TEXT
+    `,
+    `
+      DELETE FROM attachment
+      WHERE storage_provider <> 'tos' OR storage_key IS NULL
+    `,
+    `
+      ALTER TABLE attachment
+        ALTER COLUMN storage_provider SET DEFAULT 'tos',
+        ALTER COLUMN storage_key SET NOT NULL
+    `,
+    `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'attachment_storage_provider_tos_check'
+        ) THEN
+          ALTER TABLE attachment
+            ADD CONSTRAINT attachment_storage_provider_tos_check
+            CHECK (storage_provider = 'tos');
+        END IF;
+      END
+      $$
     `,
     `
       CREATE TABLE IF NOT EXISTS audit_log (

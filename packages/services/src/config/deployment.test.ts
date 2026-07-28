@@ -106,11 +106,11 @@ test("legacy TOS S3 endpoint aliases are normalized for the TOS SDK", () => {
   assert.equal(attachments.tos?.endpoint, "https://tos-cn-beijing.volces.com");
 });
 
-test("local storage can be explicitly selected for isolated environments", () => {
-  const attachments = resolveAttachmentRuntimeConfig({
-    ATTACHMENT_STORAGE_PROVIDER: "local",
-  });
-  assert.equal(attachments.provider, "local");
+test("local attachment storage is rejected", () => {
+  assert.throws(
+    () => resolveAttachmentRuntimeConfig({ ATTACHMENT_STORAGE_PROVIDER: "local" }),
+    /must be tos; local attachment storage is not supported/,
+  );
 });
 
 test("incomplete TOS configuration is rejected instead of falling back to local storage", () => {
@@ -134,6 +134,6 @@ test("incomplete TOS configuration is rejected instead of falling back to local 
 test("invalid attachment storage provider is rejected", () => {
   assert.throws(
     () => resolveAttachmentRuntimeConfig({ ATTACHMENT_STORAGE_PROVIDER: "r2" }),
-    /ATTACHMENT_STORAGE_PROVIDER must be either local or tos/,
+    /ATTACHMENT_STORAGE_PROVIDER must be tos/,
   );
 });

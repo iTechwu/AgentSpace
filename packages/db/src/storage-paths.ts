@@ -11,10 +11,6 @@ export function getSystemWorkspaceDataDirPath(): string {
   return getWorkspaceDataDirPath(SYSTEM_WORKSPACE_ID);
 }
 
-export function getWorkspaceAttachmentsDirPath(workspaceId = DEFAULT_WORKSPACE_ID): string {
-  return ensureDirectory(join(getWorkspaceDataDirPath(workspaceId), "attachments"));
-}
-
 export function getWorkspaceChannelHistoryDirPath(workspaceId = DEFAULT_WORKSPACE_ID): string {
   return ensureDirectory(join(getWorkspaceDataDirPath(workspaceId), "channel-history"));
 }

@@ -8,9 +8,9 @@ import {
   getDataDirPath,
   getDatabaseConnectionLabel,
   getLocalDaemonStateDirPath,
-  getWorkspaceAttachmentsDirPath as getWorkspaceAttachmentsDirPathFromDb,
   getWorkspaceDataDirPath,
   listStoredWorkspaceSkillsSync,
+  listStoredAttachmentsSync,
   resetStoredKnowledgeAssignmentsSync,
   resetStoredWorkspaceSkillsSync,
   replaceStoredAgentSkillAssignmentsSync,
@@ -30,6 +30,7 @@ import {
   type DofeAgentState,
 } from "@dofe-agent/domain/workspace";
 import { ensureChannelDocumentAccessSeeds } from "../documents/access.ts";
+import { createAttachmentStorageClient } from "../attachments/storage.ts";
 import { normalizeWorkspaceState } from "./normalizers.ts";
 
 export function getWorkspaceStateFilePath(): string {
@@ -38,10 +39,6 @@ export function getWorkspaceStateFilePath(): string {
 
 export function getWorkspaceDatabaseFilePath(): string {
   return getDatabaseConnectionLabel();
-}
-
-export function getWorkspaceAttachmentsDirPath(workspaceId = DEFAULT_WORKSPACE_ID): string {
-  return getWorkspaceAttachmentsDirPathFromDb(workspaceId);
 }
 
 export function ensureWorkspaceStateSync(workspaceId = DEFAULT_WORKSPACE_ID): DofeAgentState {
@@ -100,6 +97,7 @@ function persistCoreWorkspaceStorage(
 
 export function resetWorkspaceStateSync(workspaceId = DEFAULT_WORKSPACE_ID): DofeAgentState {
   ensureWorkspaceRecordForStateSync(workspaceId);
+  deleteWorkspaceAttachmentObjectsSync(workspaceId);
   resetWorkspaceExecutionStateSync(workspaceId);
   resetStoredWorkspaceSkillsSync(workspaceId);
   resetStoredKnowledgeAssignmentsSync(workspaceId);
@@ -107,6 +105,31 @@ export function resetWorkspaceStateSync(workspaceId = DEFAULT_WORKSPACE_ID): Dof
   return writeWorkspaceStateSync(createDefaultWorkspaceState(), workspaceId, {
     skipVersionCheck: true,
   });
+}
+
+function deleteWorkspaceAttachmentObjectsSync(workspaceId: string): void {
+  const uniqueObjects = new Map<string, ReturnType<typeof listStoredAttachmentsSync>[number]>();
+  for (const attachment of listStoredAttachmentsSync(workspaceId)) {
+    if (!attachment.storageKey) {
+      throw new Error(`Attachment object key is missing for "${attachment.storedPath}".`);
+    }
+    uniqueObjects.set(`${attachment.storageBucket ?? ""}:${attachment.storageKey}`, attachment);
+  }
+  if (uniqueObjects.size === 0) {
+    return;
+  }
+
+  const storage = createAttachmentStorageClient();
+  for (const attachment of uniqueObjects.values()) {
+    storage.deleteObjectSync({
+      storageProvider: "tos",
+      storageBucket: attachment.storageBucket,
+      storageRegion: attachment.storageRegion,
+      storageEndpoint: attachment.storageEndpoint,
+      storageKey: attachment.storageKey,
+      storedPath: attachment.storedPath,
+    });
+  }
 }
 
 function clearWorkspaceStorageArtifactsSync(workspaceId: string): void {
@@ -121,7 +144,6 @@ function clearWorkspaceStorageArtifactsSync(workspaceId: string): void {
   }
 
   const dataDir = getDataDirPath();
-  rmSync(join(dataDir, "attachments"), { recursive: true, force: true });
   rmSync(join(dataDir, "channel-history"), { recursive: true, force: true });
   rmSync(join(dataDir, "daemon-remote-staging"), { recursive: true, force: true });
   rmSync(join(getLocalDaemonStateDirPath(), "workdirs"), { recursive: true, force: true });

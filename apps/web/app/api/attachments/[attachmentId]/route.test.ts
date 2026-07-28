@@ -8,8 +8,10 @@ import {
   initializeOrganizationSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
+  setAttachmentStorageClientForTests,
   writeWorkspaceStateSync,
 } from "@dofe-agent/services";
+import { createTestTosAttachmentStorage } from "@/test-utils/tos-attachment-storage";
 const { mockGetCurrentWorkspaceContext } = vi.hoisted(() => ({
   mockGetCurrentWorkspaceContext: vi.fn(),
 }));
@@ -22,14 +24,17 @@ import { GET } from "./route";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-attachments-route-"));
+const testTos = createTestTosAttachmentStorage();
 
 beforeAll(() => {
+  setAttachmentStorageClientForTests(testTos.client);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data", "workspaces", "default", "attachments"), { recursive: true });
   process.chdir(tempRoot);
 });
 
 beforeEach(() => {
+  testTos.clear();
   mockGetCurrentWorkspaceContext.mockReset();
   mockGetCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext());
   ensureTestWorkspace("default", "Northstar Labs");
@@ -42,22 +47,18 @@ beforeEach(() => {
     firstChannelName: "tour visit",
   });
 
-  const imageStoredPath = join(tempRoot, "data", "workspaces", "default", "attachments", "att-image-preview.png");
-  const fileStoredPath = join(tempRoot, "data", "workspaces", "default", "attachments", "att-file-summary.pdf");
-  const unicodeStoredPath = join(tempRoot, "data", "workspaces", "default", "attachments", "att-file-unicode.md");
-  const orphanKnowledgeStoredPath = join(
-    tempRoot,
-    "data",
-    "workspaces",
-    "default",
-    "attachments",
-    "att-orphan-knowledge-orphan-note.md",
-  );
-  mkdirSync(join(tempRoot, "data", "workspaces", "default", "attachments"), { recursive: true });
-  writeFileSync(imageStoredPath, "image-bytes", "utf8");
-  writeFileSync(fileStoredPath, "pdf-bytes", "utf8");
-  writeFileSync(unicodeStoredPath, "unicode-bytes", "utf8");
-  writeFileSync(orphanKnowledgeStoredPath, "orphan-knowledge-bytes", "utf8");
+  const imageStorageKey = "workspaces/default/attachments/att-image/preview.png";
+  const fileStorageKey = "workspaces/default/attachments/att-file/summary.pdf";
+  const unicodeStorageKey = "workspaces/default/attachments/att-file-unicode/note.md";
+  const orphanKnowledgeStorageKey = "workspaces/default/attachments/att-orphan-knowledge/orphan-note.md";
+  const imageStoredPath = `tos://test-bucket/${imageStorageKey}`;
+  const fileStoredPath = `tos://test-bucket/${fileStorageKey}`;
+  const unicodeStoredPath = `tos://test-bucket/${unicodeStorageKey}`;
+  const orphanKnowledgeStoredPath = `tos://test-bucket/${orphanKnowledgeStorageKey}`;
+  testTos.seed(imageStorageKey, "image-bytes");
+  testTos.seed(fileStorageKey, "pdf-bytes");
+  testTos.seed(unicodeStorageKey, "unicode-bytes");
+  testTos.seed(orphanKnowledgeStorageKey, "orphan-knowledge-bytes");
 
   writeWorkspaceStateSync({
     ...readWorkspaceStateSync(),
@@ -158,6 +159,8 @@ beforeEach(() => {
             sizeBytes: "image-bytes".length,
             kind: "image",
             storedPath: imageStoredPath,
+            storageProvider: "tos",
+            storageKey: imageStorageKey,
           },
           {
             id: "att-file-unicode",
@@ -166,6 +169,8 @@ beforeEach(() => {
             sizeBytes: "unicode-bytes".length,
             kind: "file",
             storedPath: unicodeStoredPath,
+            storageProvider: "tos",
+            storageKey: unicodeStorageKey,
           },
         ],
       },
@@ -185,6 +190,8 @@ beforeEach(() => {
             sizeBytes: "pdf-bytes".length,
             kind: "file",
             storedPath: fileStoredPath,
+            storageProvider: "tos",
+            storageKey: fileStorageKey,
           },
         ],
       },
@@ -204,6 +211,8 @@ beforeEach(() => {
             sizeBytes: "pdf-bytes".length,
             kind: "file",
             storedPath: fileStoredPath,
+            storageProvider: "tos",
+            storageKey: fileStorageKey,
           },
         ],
       },
@@ -214,16 +223,9 @@ beforeEach(() => {
   }, "default", { skipVersionCheck: true });
 
   const marsBaseState = resetWorkspaceStateSync("workspace-mars");
-  const workspaceSpecificPath = join(
-    tempRoot,
-    "data",
-    "workspaces",
-    "workspace-mars",
-    "attachments",
-    "att-workspace-scope.txt",
-  );
-  mkdirSync(join(tempRoot, "data", "workspaces", "workspace-mars", "attachments"), { recursive: true });
-  writeFileSync(workspaceSpecificPath, "workspace-bytes", "utf8");
+  const workspaceSpecificKey = "workspaces/workspace-mars/attachments/att-workspace/scope.txt";
+  const workspaceSpecificPath = `tos://test-bucket/${workspaceSpecificKey}`;
+  testTos.seed(workspaceSpecificKey, "workspace-bytes");
   writeWorkspaceStateSync(
     {
       ...marsBaseState,
@@ -258,6 +260,8 @@ beforeEach(() => {
               sizeBytes: "workspace-bytes".length,
               kind: "file",
               storedPath: workspaceSpecificPath,
+              storageProvider: "tos",
+              storageKey: workspaceSpecificKey,
             },
           ],
         },
@@ -356,7 +360,7 @@ describe("attachments route", () => {
     expect(await response.text()).toBe("");
   });
 
-  it("returns 404 instead of throwing when a local attachment file is missing", async () => {
+  it("returns 404 instead of throwing when a TOS attachment object is missing", async () => {
     const state = readWorkspaceStateSync();
     writeWorkspaceStateSync({
       ...state,
@@ -368,24 +372,26 @@ describe("attachments route", () => {
           speaker: "Atlas",
           role: "agent",
           time: "10:08",
-          summary: "Missing local attachment.",
+          summary: "Missing TOS attachment.",
           status: "completed",
           attachments: [
             {
-              id: "att-missing-local",
+              id: "att-missing-tos",
               fileName: "missing.txt",
               mediaType: "text/plain",
               sizeBytes: 42,
               kind: "file",
-              storedPath: join(tempRoot, "data", "workspaces", "default", "attachments", "does-not-exist.txt"),
+              storedPath: "tos://test-bucket/workspaces/default/attachments/att-missing-tos/missing.txt",
+              storageProvider: "tos",
+              storageKey: "workspaces/default/attachments/att-missing-tos/missing.txt",
             },
           ],
         },
       ],
     }, "default", { skipVersionCheck: true });
 
-    const response = await GET(new Request("http://localhost/api/attachments/att-missing-local"), {
-      params: Promise.resolve({ attachmentId: "att-missing-local" }),
+    const response = await GET(new Request("http://localhost/api/attachments/att-missing-tos"), {
+      params: Promise.resolve({ attachmentId: "att-missing-tos" }),
     });
 
     expect(response.status).toBe(404);

@@ -12,7 +12,9 @@ function createAttachment(overrides: Partial<MessageAttachment>): MessageAttachm
     mediaType: "image/png",
     sizeBytes: 2048,
     kind: "image",
-    storedPath: "/tmp/preview.png",
+    storedPath: "tos://test-bucket/workspaces/default/attachments/att-1/preview.png",
+    storageProvider: "tos",
+    storageKey: "workspaces/default/attachments/att-1/preview.png",
     ...overrides,
   };
 }

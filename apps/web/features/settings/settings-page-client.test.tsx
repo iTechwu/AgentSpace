@@ -1724,12 +1724,16 @@ describe("SettingsPageClient", () => {
       expect(mockPauseFeishuChannelBindingAction).toHaveBeenCalledWith({ bindingId: "channel-binding-1" });
     });
     await user.click(within(channelCard!).getByRole("button", { name: "撤销" }));
-    expect(mockRevokeFeishuChannelBindingAction).toHaveBeenCalledWith({ bindingId: "channel-binding-1" });
+    await waitFor(() => {
+      expect(mockRevokeFeishuChannelBindingAction).toHaveBeenCalledWith({ bindingId: "channel-binding-1" });
+    });
 
     const userCard = screen.getByText("Mina").closest("article");
     expect(userCard).toBeTruthy();
     await user.click(within(userCard!).getByRole("button", { name: "撤销" }));
-    expect(mockRevokeFeishuUserBindingAction).toHaveBeenCalledWith({ bindingId: "user-binding-1" });
+    await waitFor(() => {
+      expect(mockRevokeFeishuUserBindingAction).toHaveBeenCalledWith({ bindingId: "user-binding-1" });
+    });
 
     const resourceCard = screen.getByText("Launch Sheet").closest("article");
     expect(resourceCard).toBeTruthy();

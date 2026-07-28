@@ -124,31 +124,31 @@ describe("CostsPageClient", () => {
   it("shows the actual team billing balance returned by models", async () => {
     render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
     expect(await screen.findByText("100.00 USD")).toBeInTheDocument();
-    expect(screen.getByText("Available: 90.00 USD")).toBeInTheDocument();
+    expect(screen.getByText("可用: 90.00 USD")).toBeInTheDocument();
   });
 
   it("shows pending usage with its billing currency and update state", async () => {
     render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
 
     await screen.findByText("100.00 USD");
-    expect(screen.getAllByText("Pending reconciliation").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("待对账").length).toBeGreaterThan(0);
     expect(screen.getByText("0.0200 EUR")).toBeInTheDocument();
     expect(screen.getByText(/0\.0100.*0\.0200 EUR/)).toBeInTheDocument();
-    expect(screen.getByText(/Updated/)).toBeInTheDocument();
+    expect(screen.getByText(/更新时间/)).toBeInTheDocument();
   });
 
   it("shows an actionable reason when models billing is unavailable", async () => {
     vi.mocked(getTeamBillingBalanceAction).mockResolvedValue({ errorCode: "upstream_unavailable" } as never);
     render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
 
-    await screen.findByText("Models billing service unavailable");
+    await screen.findByText("models 账单服务不可用");
   });
 
   it("shows an actionable reason when the balance action rejects", async () => {
     vi.mocked(getTeamBillingBalanceAction).mockRejectedValue(new Error("network unavailable"));
     render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
 
-    await screen.findByText("Models billing service unavailable");
+    await screen.findByText("models 账单服务不可用");
   });
 
   it("refreshes module data instead of the route after saving budgets in the workbench", async () => {
@@ -161,9 +161,9 @@ describe("CostsPageClient", () => {
       </LanguageProvider>,
     );
 
-    await user.click(screen.getByRole("button", { name: "Budgets" }));
-    await user.click(screen.getByRole("button", { name: "+ Add Budget" }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "预算管理" }));
+    await user.click(screen.getByRole("button", { name: "+ 添加预算" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
 
     expect(upsertBudgetAction).toHaveBeenCalledWith({
       action: "warn",

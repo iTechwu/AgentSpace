@@ -9,7 +9,7 @@ import {
   renameStoredTasksChannelSync,
   updateStoredChannelSync,
 } from "@dofe-agent/db";
-import { pruneOrphanWorkspaceAttachmentsSync } from "../attachments/attachments.ts";
+import { deleteUnreferencedWorkspaceAttachmentsSync } from "../attachments/attachments.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { createOpaqueId, sameValue, uniqueNames } from "../shared/helpers.ts";
 import { pushWorkspaceMessageIfChannel, renameChannelHistoryFile, removeChannelHistoryFile } from "../shared/messaging.ts";
@@ -374,6 +374,9 @@ export function deleteChannelSync(channelName: string, workspaceId?: string): Do
   if (!channel) {
     throw new Error(`Channel "${channelName}" does not exist.`);
   }
+  const removedAttachments = state.messages
+    .filter((message) => sameValue(message.channel ?? "", channelName))
+    .flatMap((message) => message.attachments ?? []);
 
   deleteStoredChannelSync(channelName, workspaceId);
   deleteStoredTasksForChannelSync(channelName, workspaceId);
@@ -384,7 +387,7 @@ export function deleteChannelSync(channelName: string, workspaceId?: string): Do
   });
 
   const written = writeWorkspaceStateSync(state, workspaceId);
-  pruneOrphanWorkspaceAttachmentsSync(workspaceId ?? DEFAULT_WORKSPACE_ID);
+  deleteUnreferencedWorkspaceAttachmentsSync(removedAttachments, written);
   return written;
 }
 

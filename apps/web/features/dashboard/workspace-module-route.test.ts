@@ -132,7 +132,7 @@ describe("workspace module route", () => {
 
 function expectedDataQuery(moduleId: WorkspaceModuleId, query: string): string {
   if (moduleId === "settings") {
-    return "section=members";
+    return "section=preferences";
   }
   return normalizeWorkspaceModuleQuery(moduleId, query).toString();
 }

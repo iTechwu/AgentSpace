@@ -285,6 +285,7 @@ describe("Feishu event route", () => {
       },
       payload,
       attachmentDownloader: mockAttachmentDownloader,
+      resolveExternalSenderDisplayName: expect.any(Function),
     });
   });
 
@@ -360,6 +361,7 @@ describe("Feishu event route", () => {
       },
       payload,
       attachmentDownloader: mockAttachmentDownloader,
+      resolveExternalSenderDisplayName: expect.any(Function),
     });
     expect(mockCreateFeishuInboundAttachmentDownloader).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
@@ -584,6 +586,7 @@ describe("Feishu event route", () => {
         event: {},
       },
       attachmentDownloader: mockAttachmentDownloader,
+      resolveExternalSenderDisplayName: expect.any(Function),
     });
     expect(mockDrainFeishuOutboxMessages).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
@@ -750,6 +753,7 @@ describe("Feishu event route", () => {
       },
       payload: decryptedPayload,
       attachmentDownloader: mockAttachmentDownloader,
+      resolveExternalSenderDisplayName: expect.any(Function),
     });
   });
 

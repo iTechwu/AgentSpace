@@ -535,7 +535,6 @@ test("DofeAgent replies with attachments queue text and attachment outbox items"
       fileName: "chart.png",
       mediaType: "image/png",
       kind: "image",
-      storedPath: "/tmp/chart.png",
       storageUrl: "https://storage.example/signed-chart.png?X-Amz-Signature=secret",
     })],
     dofeAgentMessageId: "dofe-agent-agent-reply-1",
@@ -564,8 +563,12 @@ test("DofeAgent replies with attachments queue text and attachment outbox items"
     mediaType: "image/png",
     sizeBytes: 5,
     kind: "image",
-    storedPath: "/tmp/chart.png",
-    storageProvider: "local",
+    storedPath: "tos://test-bucket/workspaces/test/attachments/att-chart/chart.png",
+    storageProvider: "tos",
+    storageBucket: "test-bucket",
+    storageRegion: "cn-beijing",
+    storageEndpoint: "https://tos-cn-beijing.volces.com",
+    storageKey: "workspaces/test/attachments/att-chart/chart.png",
   });
   assert.equal(queuedOutbox[1]?.payloadJson.includes("signed-chart.png"), false);
   assert.equal(queuedOutbox[1]?.payloadJson.includes("X-Amz-Signature"), false);
@@ -576,17 +579,21 @@ function createAttachment(input: {
   fileName: string;
   mediaType: string;
   kind: MessageAttachment["kind"];
-  storedPath: string;
   storageUrl?: string;
 }): MessageAttachment {
+  const storageKey = `workspaces/test/attachments/${input.id}/${input.fileName}`;
   return {
     id: input.id,
     fileName: input.fileName,
     mediaType: input.mediaType,
     sizeBytes: 5,
     kind: input.kind,
-    storedPath: input.storedPath,
-    storageProvider: "local",
+    storedPath: `tos://test-bucket/${storageKey}`,
+    storageProvider: "tos",
+    storageBucket: "test-bucket",
+    storageRegion: "cn-beijing",
+    storageEndpoint: "https://tos-cn-beijing.volces.com",
+    storageKey,
     storageUrl: input.storageUrl,
   };
 }

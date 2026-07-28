@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,7 +44,9 @@ import {
   setEmployeeSkillIdsSync,
   unbindEmployeeRuntimeSync,
   writeWorkspaceStateSync,
+  setAttachmentStorageClientForTests,
 } from "@dofe-agent/services";
+import { createTestTosAttachmentStorage } from "@/test-utils/tos-attachment-storage";
 import { POST as registerPOST } from "./register/route";
 import { POST as heartbeatPOST } from "./heartbeat/route";
 import { GET as installScriptGET } from "./install-script/route";
@@ -65,8 +67,10 @@ import { POST as appOperationFailPOST } from "./runtime-app-operations/[operatio
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-routes-"));
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
+const testTos = createTestTosAttachmentStorage();
 
 beforeAll(() => {
+  setAttachmentStorageClientForTests(testTos.client);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   const packagesLink = join(tempRoot, "packages");
@@ -76,7 +80,11 @@ beforeAll(() => {
   process.chdir(tempRoot);
 });
 
+afterAll(() => {
+});
+
 beforeEach(() => {
+  testTos.clear();
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
@@ -114,7 +122,6 @@ beforeEach(() => {
   db.exec("DELETE FROM external_integration_event");
   db.exec("DELETE FROM external_integration");
   vi.unstubAllEnvs();
-  vi.stubEnv("ATTACHMENT_STORAGE_PROVIDER", "local");
 });
 
 function daemonHeaders(token: string): HeadersInit {

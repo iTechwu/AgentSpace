@@ -1,5 +1,3 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import type {
   DofeAgentState,
   ChannelRecord,
@@ -10,6 +8,7 @@ import type {
 } from "@dofe-agent/domain/workspace";
 import { sameValue, sanitizeAttachmentFileName } from "../shared/helpers.ts";
 import { resolveChannelHumanMemberNames } from "../channels/channels.ts";
+import { readWorkspaceAttachmentBytesSync } from "../attachments/attachments.ts";
 
 export function findWorkspaceAttachmentById(
   state: DofeAgentState,
@@ -54,19 +53,15 @@ export function assertCanAccessWorkspaceAttachment(
 export function createAttachmentFromChannelDocumentVersion(input: {
   document: ChannelDocument;
   version: ChannelDocumentVersion;
-  persistAttachment: (input: { sourcePath: string; fileName?: string; mediaType?: string }) => MessageAttachment;
-  tempDirPath: string;
+  persistAttachment: (input: { contentBytes: Uint8Array; fileName: string; mediaType: string }) => MessageAttachment;
 }): MessageAttachment {
   const isMarkdown = input.document.kind === "markdown";
   const fileName = sanitizeAttachmentFileName(`${input.document.slug || input.document.title}.${isMarkdown ? "md" : "json"}`);
-  const tempPath = join(input.tempDirPath, `${input.version.id}-${fileName}`);
-  mkdirSync(input.tempDirPath, { recursive: true });
   const content = isMarkdown
     ? input.version.contentMarkdown
     : JSON.stringify(input.version.contentJson ?? { contentMarkdown: input.version.contentMarkdown }, null, 2);
-  writeFileSync(tempPath, content, "utf8");
   return input.persistAttachment({
-    sourcePath: tempPath,
+    contentBytes: Buffer.from(content, "utf8"),
     fileName,
     mediaType: isMarkdown ? "text/markdown" : "application/json",
   });
@@ -75,10 +70,7 @@ export function createAttachmentFromChannelDocumentVersion(input: {
 export function readMarkdownAttachmentContent(
   attachment: MessageAttachment,
 ): string {
-  if (!existsSync(attachment.storedPath)) {
-    throw new Error(`Attachment "${attachment.fileName}" does not exist on disk.`);
-  }
-  return readFileSync(attachment.storedPath, "utf8");
+  return Buffer.from(readWorkspaceAttachmentBytesSync(attachment)).toString("utf8");
 }
 
 function canHumanActorAccessChannel(

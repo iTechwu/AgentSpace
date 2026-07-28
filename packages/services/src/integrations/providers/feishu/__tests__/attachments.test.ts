@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import test, { before } from "node:test";
+import test from "node:test";
 import type { ExternalMessageEnvelope, IntegrationRuntimeContext } from "../../../core/index.ts";
+import {
+  setAttachmentStorageClientForTests,
+  type AttachmentStorageClient,
+} from "../../../../attachments/storage.ts";
 import { FEISHU_PROVIDER_ID } from "../constants.ts";
 import {
   buildFeishuMessageResourceRequest,
@@ -12,17 +13,62 @@ import {
   resolveFeishuInboundAttachmentDescriptor,
 } from "../attachments.ts";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-attachments-"));
+const tosObjects = new Map<string, Uint8Array>();
+const testTosStorage: AttachmentStorageClient = {
+  async putObject(input) {
+    return this.putObjectSync(input);
+  },
+  putObjectSync(input) {
+    const key = `workspaces/${input.workspaceId}/attachments/${input.attachmentId}/${input.fileName}`;
+    const bytes = new Uint8Array(input.contentBytes);
+    tosObjects.set(key, bytes);
+    return {
+      provider: "tos",
+      bucket: "test-bucket",
+      region: "cn-beijing",
+      endpoint: "https://tos-cn-beijing.volces.com",
+      key,
+      storedPath: `tos://test-bucket/${key}`,
+      sizeBytes: bytes.byteLength,
+      sha256: "test-sha256",
+    };
+  },
+  async getObject(input) {
+    return this.getObjectSync(input);
+  },
+  getObjectSync(input) {
+    const bytes = tosObjects.get(input.storageKey ?? "");
+    if (!bytes) {
+      throw new Error(`NoSuchKey: ${input.storageKey ?? ""}`);
+    }
+    return new Uint8Array(bytes);
+  },
+  async headObject() {
+    return null;
+  },
+  async deleteObject(input) {
+    tosObjects.delete(input.storageKey ?? "");
+  },
+  deleteObjectSync(input) {
+    tosObjects.delete(input.storageKey ?? "");
+  },
+  async createReadUrl() {
+    return null;
+  },
+};
 const context: IntegrationRuntimeContext = {
   workspaceId: "default",
   integrationId: "external-integration-feishu",
   provider: FEISHU_PROVIDER_ID,
 };
 
-before(() => {
-  writeFileSync(join(tempRoot, "Target.md"), "# test\n");
-  mkdirSync(join(tempRoot, "data"), { recursive: true });
-  process.chdir(tempRoot);
+test.before(() => {
+  process.env.NODE_ENV = "test";
+  setAttachmentStorageClientForTests(testTosStorage);
+});
+
+test.after(() => {
+  setAttachmentStorageClientForTests(undefined);
 });
 
 test("buildFeishuMessageResourceRequest targets the Feishu message resource endpoint", () => {
@@ -94,8 +140,9 @@ test("createFeishuInboundAttachmentDownloader downloads and persists a Feishu fi
   assert.equal(attachment.mediaType, "application/pdf");
   assert.equal(attachment.kind, "file");
   assert.equal(attachment.sizeBytes, Buffer.byteLength("hello attachment"));
-  assert.ok(existsSync(attachment.storedPath));
-  assert.equal(readFileSync(attachment.storedPath, "utf8"), "hello attachment");
+  assert.equal(attachment.storageProvider, "tos");
+  assert.match(attachment.storedPath, /^tos:\/\/test-bucket\//);
+  assert.equal(Buffer.from(tosObjects.get(attachment.storageKey ?? "") ?? []).toString("utf8"), "hello attachment");
   assert.equal(requests.length, 2);
 });
 

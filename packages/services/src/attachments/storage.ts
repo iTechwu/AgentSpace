@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { Readable } from "node:stream";
 import { TosClient } from "@volcengine/tos-sdk";
@@ -12,7 +10,7 @@ import {
 const TOS_SIGNED_URL_TTL_SECONDS = 300;
 
 export interface StoredAttachmentObject {
-  provider: "local" | "tos";
+  provider: "tos";
   bucket?: string;
   region?: string;
   endpoint?: string;
@@ -28,7 +26,6 @@ export interface AttachmentStoragePutInput {
   attachmentId: string;
   fileName: string;
   contentBytes: Uint8Array;
-  localPath: string;
   mediaType?: string;
 }
 
@@ -42,7 +39,7 @@ export interface AttachmentStorageReadInput {
 }
 
 export interface AttachmentStorageObjectMetadata {
-  provider: "local" | "tos";
+  provider: "tos";
   bucket?: string;
   region?: string;
   endpoint?: string;
@@ -58,17 +55,27 @@ export interface AttachmentStorageClient {
   putObject(input: AttachmentStoragePutInput): Promise<StoredAttachmentObject>;
   putObjectSync(input: AttachmentStoragePutInput): StoredAttachmentObject;
   getObject(input: AttachmentStorageReadInput): Promise<Uint8Array>;
+  getObjectSync(input: AttachmentStorageReadInput): Uint8Array;
   headObject(input: AttachmentStorageReadInput): Promise<AttachmentStorageObjectMetadata | null>;
   deleteObject(input: AttachmentStorageReadInput): Promise<void>;
   deleteObjectSync(input: AttachmentStorageReadInput): void;
   createReadUrl(input: AttachmentStorageReadInput): Promise<string | null>;
 }
 
-export function createAttachmentStorageClient(config = resolveAttachmentRuntimeConfig()): AttachmentStorageClient {
-  if (config.provider === "tos") {
-    return new TosAttachmentStorageClient(config);
+let testStorageClient: AttachmentStorageClient | undefined;
+
+export function createAttachmentStorageClient(config?: AttachmentRuntimeConfig): AttachmentStorageClient {
+  if (testStorageClient) {
+    return testStorageClient;
   }
-  return new LocalAttachmentStorageClient();
+  return new TosAttachmentStorageClient(config ?? resolveAttachmentRuntimeConfig());
+}
+
+export function setAttachmentStorageClientForTests(client: AttachmentStorageClient | undefined): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("Attachment storage overrides are only available in tests.");
+  }
+  testStorageClient = client;
 }
 
 export function buildAttachmentStorageKey(input: {
@@ -95,67 +102,11 @@ export function sha256Hex(contentBytes: Uint8Array): string {
   return createHash("sha256").update(contentBytes).digest("hex");
 }
 
-class LocalAttachmentStorageClient implements AttachmentStorageClient {
-  async putObject(input: AttachmentStoragePutInput): Promise<StoredAttachmentObject> {
-    return this.putObjectSync(input);
-  }
-
-  putObjectSync(input: AttachmentStoragePutInput): StoredAttachmentObject {
-    mkdirSync(dirname(input.localPath), { recursive: true });
-    writeFileSync(input.localPath, input.contentBytes);
-    return {
-      provider: "local",
-      storedPath: input.localPath,
-      sizeBytes: input.contentBytes.byteLength,
-      sha256: sha256Hex(input.contentBytes),
-    };
-  }
-
-  async getObject(input: AttachmentStorageReadInput): Promise<Uint8Array> {
-    return readFileSync(input.storedPath);
-  }
-
-  async headObject(input: AttachmentStorageReadInput): Promise<AttachmentStorageObjectMetadata | null> {
-    try {
-      const stat = statSync(input.storedPath);
-      if (!stat.isFile()) {
-        return null;
-      }
-      return {
-        provider: "local",
-        storedPath: input.storedPath,
-        sizeBytes: stat.size,
-        lastModified: stat.mtime.toISOString(),
-      };
-    } catch (error) {
-      if (isMissingFileError(error)) {
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  async deleteObject(input: AttachmentStorageReadInput): Promise<void> {
-    this.deleteObjectSync(input);
-  }
-
-  deleteObjectSync(input: AttachmentStorageReadInput): void {
-    rmSync(input.storedPath, { force: true });
-  }
-
-  async createReadUrl(_input: AttachmentStorageReadInput): Promise<string | null> {
-    return null;
-  }
-}
-
 class TosAttachmentStorageClient implements AttachmentStorageClient {
-  private readonly config: NonNullable<AttachmentRuntimeConfig["tos"]>;
+  private readonly config: AttachmentRuntimeConfig["tos"];
   private readonly client: TosClient;
 
   constructor(config: AttachmentRuntimeConfig) {
-    if (!config.tos) {
-      throw new Error("TOS attachment storage requires TOS_BUCKET, TOS_REGION, TOS_ACCESS_KEY, TOS_SECRET_KEY, and TOS_ENDPOINT.");
-    }
     this.config = config.tos;
     this.client = new TosClient({
       accessKeyId: this.config.accessKeyId,
@@ -238,6 +189,26 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
       throw new Error("TOS returned an unexpected object response.");
     }
     return new Uint8Array(response.data.content);
+  }
+
+  getObjectSync(input: AttachmentStorageReadInput): Uint8Array {
+    const key = input.storageKey?.trim();
+    if (!key) {
+      throw new Error("Missing object storage key.");
+    }
+    const result = spawnSync("curl", ["--fail", "-sS", this.createPresignedUrl(key, "GET")], {
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.status !== 0) {
+      const output = Buffer.isBuffer(result.stderr)
+        ? result.stderr.toString("utf8")
+        : String(result.stderr ?? "");
+      throw new Error(`TOS read failed: ${output.trim() || `curl exited with status ${result.status}`}`);
+    }
+    return new Uint8Array(Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? ""));
   }
 
   async headObject(input: AttachmentStorageReadInput): Promise<AttachmentStorageObjectMetadata | null> {
@@ -335,10 +306,6 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
       isCustomDomain: true,
     });
   }
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 function parseContentLength(value: string | null): number | undefined {

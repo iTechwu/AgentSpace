@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import test from "node:test";
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
+import {
+  setAttachmentStorageClientForTests,
+  type AttachmentStorageClient,
+} from "../../../../attachments/storage.ts";
 import { createIntegrationProviderError } from "../../../core/index.ts";
 import type { FeishuApiClient, FeishuApiRequest, FeishuMultipartUploadRequest } from "../client.ts";
 import {
@@ -32,7 +33,42 @@ import {
   splitFeishuTextMessageChunks,
 } from "../outbound.ts";
 
-const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-feishu-outbound-pure-"));
+const tosObjects = new Map<string, Uint8Array>();
+const testTosStorage: AttachmentStorageClient = {
+  async putObject() {
+    throw new Error("Unexpected TOS upload in Feishu outbound test.");
+  },
+  putObjectSync() {
+    throw new Error("Unexpected TOS upload in Feishu outbound test.");
+  },
+  async getObject(input) {
+    return this.getObjectSync(input);
+  },
+  getObjectSync(input) {
+    const bytes = tosObjects.get(input.storageKey ?? "");
+    if (!bytes) {
+      throw new Error(`NoSuchKey: ${input.storageKey ?? ""}`);
+    }
+    return new Uint8Array(bytes);
+  },
+  async headObject() {
+    return null;
+  },
+  async deleteObject() {},
+  deleteObjectSync() {},
+  async createReadUrl() {
+    return null;
+  },
+};
+
+test.before(() => {
+  process.env.NODE_ENV = "test";
+  setAttachmentStorageClientForTests(testTosStorage);
+});
+
+test.after(() => {
+  setAttachmentStorageClientForTests(undefined);
+});
 
 test("buildFeishuMessageCreateRequest moves receive id type into query", () => {
   const request = buildFeishuMessageCreateRequest({
@@ -128,7 +164,6 @@ test("buildFeishuAttachmentOutboundMessage stores only attachment metadata for d
       fileName: "chart.png",
       mediaType: "image/png",
       kind: "image",
-      storedPath: "/tmp/chart.png",
       storageUrl: "https://storage.example/signed-chart.png?X-Amz-Signature=secret",
     }),
   });
@@ -146,12 +181,12 @@ test("buildFeishuAttachmentOutboundMessage stores only attachment metadata for d
       mediaType: "image/png",
       sizeBytes: 5,
       kind: "image",
-      storedPath: "/tmp/chart.png",
-      storageProvider: "local",
-      storageBucket: undefined,
-      storageRegion: undefined,
-      storageEndpoint: undefined,
-      storageKey: undefined,
+      storedPath: "tos://test-bucket/workspaces/test/attachments/att-chart/chart.png",
+      storageProvider: "tos",
+      storageBucket: "test-bucket",
+      storageRegion: "cn-beijing",
+      storageEndpoint: "https://tos-cn-beijing.volces.com",
+      storageKey: "workspaces/test/attachments/att-chart/chart.png",
       sha256: undefined,
     },
   });
@@ -578,7 +613,6 @@ test("sendFeishuOutboxPayload returns Feishu message id from API response", asyn
 });
 
 test("sendFeishuOutboxPayload uploads image attachments before sending image messages", async () => {
-  const storedPath = writeTempAttachmentFile("chart.png", "image-bytes");
   const payload = buildFeishuAttachmentOutboundMessage({
     targetExternalChatId: "oc_general",
     targetExternalThreadId: "om_source_1",
@@ -587,7 +621,7 @@ test("sendFeishuOutboxPayload uploads image attachments before sending image mes
       fileName: "chart.png",
       mediaType: "image/png",
       kind: "image",
-      storedPath,
+      content: "image-bytes",
       sizeBytes: Buffer.byteLength("image-bytes"),
     }),
   }).payload;
@@ -657,7 +691,6 @@ test("sendFeishuOutboxPayload uploads image attachments before sending image mes
 });
 
 test("sendFeishuOutboxPayload uploads unsupported image media as file messages", async () => {
-  const storedPath = writeTempAttachmentFile("diagram.svg", "<svg />");
   const payload = buildFeishuAttachmentOutboundMessage({
     targetExternalChatId: "oc_general",
     attachment: createAttachment({
@@ -665,7 +698,7 @@ test("sendFeishuOutboxPayload uploads unsupported image media as file messages",
       fileName: "diagram.svg",
       mediaType: "image/svg+xml",
       kind: "image",
-      storedPath,
+      content: "<svg />",
       sizeBytes: Buffer.byteLength("<svg />"),
     }),
   }).payload;
@@ -852,26 +885,26 @@ function createAttachment(input: {
   fileName: string;
   mediaType: string;
   kind: MessageAttachment["kind"];
-  storedPath: string;
   sizeBytes?: number;
   storageUrl?: string;
+  content?: string;
 }): MessageAttachment {
+  const storageKey = `workspaces/test/attachments/${input.id}/${input.fileName}`;
+  if (input.content !== undefined) {
+    tosObjects.set(storageKey, Buffer.from(input.content, "utf8"));
+  }
   return {
     id: input.id,
     fileName: input.fileName,
     mediaType: input.mediaType,
     sizeBytes: input.sizeBytes ?? 5,
     kind: input.kind,
-    storedPath: input.storedPath,
-    storageProvider: "local",
+    storedPath: `tos://test-bucket/${storageKey}`,
+    storageProvider: "tos",
+    storageBucket: "test-bucket",
+    storageRegion: "cn-beijing",
+    storageEndpoint: "https://tos-cn-beijing.volces.com",
+    storageKey,
     storageUrl: input.storageUrl,
   };
-}
-
-function writeTempAttachmentFile(fileName: string, content: string): string {
-  const dir = join(tempRoot, "attachments");
-  mkdirSync(dir, { recursive: true });
-  const storedPath = join(dir, fileName);
-  writeFileSync(storedPath, content, "utf8");
-  return storedPath;
 }

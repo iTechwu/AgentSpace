@@ -1,10 +1,10 @@
-import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename } from "node:path";
 import { type DofeAgentState, type MessageAttachment, type WorkspaceMessage } from "@dofe-agent/domain/workspace";
 import { DEFAULT_WORKSPACE_ID, readUserSync, readWorkspaceMembershipSync } from "@dofe-agent/db";
 import type { WorkspaceRole } from "@dofe-agent/db";
 import { canReadChannelForActorSync, isWorkspaceAdminOrOwnerRole } from "../channel-access/channel-access.ts";
-import { getWorkspaceAttachmentsDirPath, readWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
+import { readWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { createOpaqueId, sanitizeAttachmentFileName, resolveAttachmentMediaType, inferAttachmentKind, sameValue } from "../shared/helpers.ts";
 import { createAttachmentStorageClient } from "./storage.ts";
 
@@ -71,21 +71,39 @@ export function persistWorkspaceAttachmentFromBytesSync(input: {
 export function deleteWorkspaceAttachmentsSync(
   attachments: Array<Pick<MessageAttachment, "storedPath" | "storageProvider" | "storageBucket" | "storageRegion" | "storageEndpoint" | "storageKey">>,
 ): void {
+  if (attachments.length === 0) {
+    return;
+  }
   const storage = createAttachmentStorageClient();
   for (const attachment of attachments) {
-    if ((attachment.storageProvider === "tos" || attachment.storageProvider === "s3") && attachment.storageKey) {
-      storage.deleteObjectSync({
-        storageProvider: attachment.storageProvider,
-        storageBucket: attachment.storageBucket,
-        storageRegion: attachment.storageRegion,
-        storageEndpoint: attachment.storageEndpoint,
-        storageKey: attachment.storageKey,
-        storedPath: attachment.storedPath,
-      });
-      continue;
+    if (!attachment.storageKey) {
+      throw new Error(`Attachment object key is missing for "${attachment.storedPath}".`);
     }
-    rmSync(attachment.storedPath, { force: true });
+    storage.deleteObjectSync({
+      storageProvider: "tos",
+      storageBucket: attachment.storageBucket,
+      storageRegion: attachment.storageRegion,
+      storageEndpoint: attachment.storageEndpoint,
+      storageKey: attachment.storageKey,
+      storedPath: attachment.storedPath,
+    });
   }
+}
+
+export function readWorkspaceAttachmentBytesSync(
+  attachment: Pick<MessageAttachment, "storedPath" | "storageBucket" | "storageRegion" | "storageEndpoint" | "storageKey">,
+): Uint8Array {
+  if (!attachment.storageKey) {
+    throw new Error(`Attachment object key is missing for "${attachment.storedPath}".`);
+  }
+  return createAttachmentStorageClient().getObjectSync({
+    storageProvider: "tos",
+    storageBucket: attachment.storageBucket,
+    storageRegion: attachment.storageRegion,
+    storageEndpoint: attachment.storageEndpoint,
+    storageKey: attachment.storageKey,
+    storedPath: attachment.storedPath,
+  });
 }
 
 export function deleteChannelAttachmentSync(input: {
@@ -155,9 +173,6 @@ export function deleteChannelAttachmentSync(input: {
     deletedByUserId: actorUserId,
     deletedByDisplayName: actorDisplayName || readUserSync(actorUserId)?.displayName,
   };
-  const storedPath = match.attachment.storedPath;
-  const existedBefore = existsSync(storedPath);
-
   state.messages = state.messages.map((message) => {
     if (message.id !== match.message.id) {
       return message;
@@ -182,52 +197,27 @@ export function deleteChannelAttachmentSync(input: {
   });
 
   const nextState = writeWorkspaceStateSync(state, workspaceId);
-  pruneOrphanWorkspaceAttachmentsSync(workspaceId);
+  const retainedBecauseReferenced = isAttachmentStillReferenced(nextState, match.attachment);
+  if (!retainedBecauseReferenced) {
+    deleteWorkspaceAttachmentsSync([match.attachment]);
+  }
 
-  const physicalFileDeleted = existedBefore && !existsSync(storedPath);
   return {
     state: nextState,
     attachmentId,
     removedFromMessage: true,
-    physicalFileDeleted,
-    retainedBecauseReferenced: !physicalFileDeleted && isAttachmentStillReferenced(nextState, match.attachment),
+    physicalFileDeleted: !retainedBecauseReferenced,
+    retainedBecauseReferenced,
   };
 }
 
-export function pruneOrphanWorkspaceAttachmentsSync(): {
-  scannedCount: number;
-  deletedCount: number;
-}
-export function pruneOrphanWorkspaceAttachmentsSync(workspaceId: string): {
-  scannedCount: number;
-  deletedCount: number;
-}
-export function pruneOrphanWorkspaceAttachmentsSync(workspaceId = DEFAULT_WORKSPACE_ID): {
-  scannedCount: number;
-  deletedCount: number;
-} {
-  const attachmentsDir = getWorkspaceAttachmentsDirPath(workspaceId);
-  const referencedPaths = collectReferencedAttachmentPaths(readWorkspaceStateSync(workspaceId));
-  let scannedCount = 0;
-  let deletedCount = 0;
-
-  for (const entry of readdirSync(attachmentsDir)) {
-    const candidatePath = join(attachmentsDir, entry);
-    if (!statSync(candidatePath).isFile()) {
-      continue;
-    }
-    scannedCount += 1;
-    if (referencedPaths.has(resolve(candidatePath))) {
-      continue;
-    }
-    rmSync(candidatePath, { force: true });
-    deletedCount += 1;
-  }
-
-  return {
-    scannedCount,
-    deletedCount,
-  };
+export function deleteUnreferencedWorkspaceAttachmentsSync(
+  attachments: MessageAttachment[],
+  state: DofeAgentState,
+): number {
+  const unreferenced = attachments.filter((attachment) => !isAttachmentStillReferenced(state, attachment));
+  deleteWorkspaceAttachmentsSync(unreferenced);
+  return unreferenced.length;
 }
 
 function persistWorkspaceAttachmentSync(input: PersistWorkspaceAttachmentInput): MessageAttachment {
@@ -236,7 +226,6 @@ function persistWorkspaceAttachmentSync(input: PersistWorkspaceAttachmentInput):
   const fileName = normalizeAttachmentDisplayName(input.fileName);
   const mediaType = resolveAttachmentMediaType(fileName, input.mediaType);
   const storedFileName = basename(sanitizeAttachmentFileName(fileName));
-  const storedPath = join(getWorkspaceAttachmentsDirPath(workspaceId), `${id}-${storedFileName}`);
 
   const storage = createAttachmentStorageClient();
   const stored = storage.putObjectSync({
@@ -244,7 +233,6 @@ function persistWorkspaceAttachmentSync(input: PersistWorkspaceAttachmentInput):
     attachmentId: id,
     fileName: storedFileName,
     contentBytes: input.contentBytes,
-    localPath: storedPath,
     mediaType,
   });
 
@@ -275,33 +263,6 @@ function normalizeAttachmentDisplayName(value: string): string {
     .join("/");
 
   return normalized || "attachment.bin";
-}
-
-function collectReferencedAttachmentPaths(state: DofeAgentState): Set<string> {
-  const result = new Set<string>();
-
-  for (const message of state.messages) {
-    for (const attachment of message.attachments ?? []) {
-      if (attachment.deletedAt) {
-        continue;
-      }
-      result.add(resolve(attachment.storedPath));
-    }
-  }
-
-  for (const page of state.knowledgePages) {
-    if (page.sourceAttachmentStoredPath) {
-      result.add(resolve(page.sourceAttachmentStoredPath));
-    }
-  }
-
-  for (const version of state.channelDocumentVersions) {
-    if (version.sourceAttachmentStoredPath) {
-      result.add(resolve(version.sourceAttachmentStoredPath));
-    }
-  }
-
-  return result;
 }
 
 function findChannelAttachment(
@@ -341,14 +302,14 @@ function canActorDeleteAttachment(input: {
 }
 
 function isAttachmentStillReferenced(state: DofeAgentState, deletedAttachment: MessageAttachment): boolean {
-  const deletedPath = resolve(deletedAttachment.storedPath);
+  const deletedPath = deletedAttachment.storedPath;
 
   for (const message of state.messages) {
     for (const attachment of message.attachments ?? []) {
       if (attachment.deletedAt) {
         continue;
       }
-      if (attachment.id === deletedAttachment.id || resolve(attachment.storedPath) === deletedPath) {
+      if (attachment.id === deletedAttachment.id || attachment.storedPath === deletedPath) {
         return true;
       }
     }
@@ -357,7 +318,7 @@ function isAttachmentStillReferenced(state: DofeAgentState, deletedAttachment: M
   for (const page of state.knowledgePages) {
     if (
       page.sourceAttachmentId === deletedAttachment.id ||
-      (page.sourceAttachmentStoredPath ? resolve(page.sourceAttachmentStoredPath) === deletedPath : false)
+      page.sourceAttachmentStoredPath === deletedPath
     ) {
       return true;
     }
@@ -366,7 +327,7 @@ function isAttachmentStillReferenced(state: DofeAgentState, deletedAttachment: M
   for (const version of state.channelDocumentVersions) {
     if (
       version.sourceAttachmentId === deletedAttachment.id ||
-      (version.sourceAttachmentStoredPath ? resolve(version.sourceAttachmentStoredPath) === deletedPath : false)
+      version.sourceAttachmentStoredPath === deletedPath
     ) {
       return true;
     }

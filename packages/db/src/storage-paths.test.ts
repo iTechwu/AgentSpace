@@ -9,7 +9,6 @@ import {
   getDaemonTaskWorkDirPath,
   getLocalDaemonStateDirPath,
   getSystemWorkspaceDataDirPath,
-  getWorkspaceAttachmentsDirPath,
   getWorkspaceChannelHistoryDirPath,
   getWorkspaceDaemonRemoteStagingDirPath,
 } from "./index.ts";
@@ -25,10 +24,6 @@ before(() => {
 
 test("workspace storage helpers resolve workspace-scoped persistent paths", () => {
   assert.equal(getSystemWorkspaceDataDirPath(), join(tempRoot, "data", "workspaces", "__system__"));
-
-  const attachmentsDir = getWorkspaceAttachmentsDirPath("workspace-mars");
-  assert.equal(attachmentsDir, join(tempRoot, "data", "workspaces", "workspace-mars", "attachments"));
-  assert.equal(existsSync(attachmentsDir), true);
 
   const historyDir = getWorkspaceChannelHistoryDirPath("workspace-mars");
   assert.equal(historyDir, join(tempRoot, "data", "workspaces", "workspace-mars", "channel-history"));

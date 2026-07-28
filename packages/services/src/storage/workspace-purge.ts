@@ -5,14 +5,17 @@ import {
   getDaemonWorkspaceExecutionRootDir,
   getLocalDaemonStateDirPath,
   hardDeleteWorkspaceSync,
+  listStoredAttachmentsSync,
   type HardDeleteWorkspaceResult,
 } from "@dofe-agent/db";
+import { deleteWorkspaceAttachmentsSync } from "../attachments/attachments.ts";
 
 export type PurgeWorkspaceStorageResult = {
   workspaceId: string;
   db: HardDeleteWorkspaceResult;
   removedWorkspaceDataDir: boolean;
   removedDaemonExecutionRootDir: boolean;
+  removedAttachmentObjectCount: number;
 };
 
 export function purgeWorkspaceStorageSync(
@@ -28,7 +31,9 @@ export function purgeWorkspaceStorageSync(
   );
   const removedWorkspaceDataDir = existsSync(workspaceDataDirPath);
   const removedDaemonExecutionRootDir = existsSync(daemonExecutionRootDirPath);
+  const attachments = listStoredAttachmentsSync(workspaceId);
 
+  deleteWorkspaceAttachmentsSync(attachments);
   const db = hardDeleteWorkspaceSync(workspaceId);
   rmSync(workspaceDataDirPath, { recursive: true, force: true });
   rmSync(daemonExecutionRootDirPath, { recursive: true, force: true });
@@ -38,5 +43,6 @@ export function purgeWorkspaceStorageSync(
     db,
     removedWorkspaceDataDir,
     removedDaemonExecutionRootDir,
+    removedAttachmentObjectCount: attachments.length,
   };
 }

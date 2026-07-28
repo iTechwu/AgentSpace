@@ -290,7 +290,7 @@ describe("Feishu actions", () => {
     }));
     expect(mockTryRecordWorkspaceAuditEventSync).toHaveBeenCalledWith(expect.objectContaining({
       code: "workspace.external_user_binding_upserted",
-      note: "Member One mapped DofeAgent user \"user-1\" to a Feishu user.",
+      note: "Member One mapped agent.dofe user \"user-1\" to a Feishu user.",
       data: expect.objectContaining({
         resourceId: "binding-1",
         provider: "feishu",
@@ -340,7 +340,7 @@ describe("Feishu actions", () => {
     }));
     expect(mockTryRecordWorkspaceAuditEventSync).toHaveBeenCalledWith(expect.objectContaining({
       code: "workspace.external_channel_binding_upserted",
-      note: "Member One mapped DofeAgent channel \"general\" to a Feishu chat.",
+      note: "Member One mapped agent.dofe channel \"general\" to a Feishu chat.",
       data: expect.objectContaining({
         resourceId: "channel-binding-1",
         provider: "feishu",
@@ -763,7 +763,7 @@ describe("Feishu actions", () => {
     expect(mockUpsertFeishuExternalDataTableSync).not.toHaveBeenCalled();
     expect(mockTryRecordWorkspaceAuditEventSync).toHaveBeenCalledWith(expect.objectContaining({
       code: "workspace.external_resource_binding_upserted",
-      note: "Member One mapped a Feishu doc resource to DofeAgent.",
+      note: "Member One mapped a Feishu doc resource to agent.dofe.",
       data: expect.objectContaining({
         provider: "feishu",
         resourceId: "resource-binding-1",

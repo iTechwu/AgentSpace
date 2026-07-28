@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before, beforeEach } from "node:test";
@@ -14,6 +14,8 @@ import {
   getLocalDaemonStateDirPath,
   getWorkspaceChannelHistoryDirPath,
   getWorkspaceDaemonRemoteStagingDirPath,
+  hardDeleteWorkspaceSync,
+  readWorkspaceSync,
   registerDaemonRuntimesSync,
   replaceStoredChannelsSync,
   replaceStoredEmployeesSync,
@@ -23,6 +25,7 @@ import { scanStorageArtifactsSync } from "./storage-scan.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-storage-scan-"));
+const canonicalTempRoot = realpathSync(tempRoot);
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -31,6 +34,11 @@ before(() => {
 
 beforeEach(() => {
   resetDatabaseForTests();
+  for (const workspaceId of ["workspace-mars", "workspace-archive"]) {
+    if (readWorkspaceSync(workspaceId)) {
+      hardDeleteWorkspaceSync(workspaceId);
+    }
+  }
   rmSync(join(tempRoot, "data"), { recursive: true, force: true });
   mkdirSync(join(tempRoot, "data"), { recursive: true });
 });
@@ -148,7 +156,6 @@ test("scanStorageArtifactsSync reports orphan workspace, channel history, daemon
 
   mkdirSync(join(tempRoot, "data", "workspaces", "workspace-orphan"), { recursive: true });
   mkdirSync(join(getLocalDaemonStateDirPath(), "workspaces", "workspace-orphan"), { recursive: true });
-  mkdirSync(join(tempRoot, "data", "attachments"), { recursive: true });
   mkdirSync(join(tempRoot, "data", "channel-history"), { recursive: true });
   mkdirSync(join(tempRoot, "data", "daemon-remote-staging"), { recursive: true });
   mkdirSync(join(getLocalDaemonStateDirPath(), "workdirs"), { recursive: true });
@@ -159,22 +166,16 @@ test("scanStorageArtifactsSync reports orphan workspace, channel history, daemon
   assert.equal(result.issueCounts["orphan-channel-history"], 1);
   assert.equal(result.issueCounts["orphan-remote-staging"], 1);
   assert.equal(result.issueCounts["orphan-daemon-workdir"], 5);
-  assert.equal(result.issueCounts["legacy-storage-root"], 4);
+  assert.equal(result.issueCounts["legacy-storage-root"], 3);
   assert.equal(result.scannedCount > 0, true);
   assert.deepEqual(
     result.issues.map((issue) => ({
       kind: issue.kind,
       reason: issue.reason,
-      path: issue.path.replace(`${tempRoot}/`, ""),
+      path: issue.path.replace(`${canonicalTempRoot}/`, ""),
       workspaceId: issue.workspaceId,
     })),
     [
-      {
-        kind: "legacy-storage-root",
-        reason: "legacy_path",
-        path: "data/attachments",
-        workspaceId: undefined,
-      },
       {
         kind: "legacy-storage-root",
         reason: "legacy_path",

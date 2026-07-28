@@ -3,12 +3,13 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before } from "node:test";
-import type { ContactAgentContext, FeishuWebSocketWorkerSupervisorHandle } from "@dofe-agent/services";
+import type { AttachmentStorageClient, ContactAgentContext, FeishuWebSocketWorkerSupervisorHandle } from "@dofe-agent/services";
 import {
   initializeOrganizationSync,
   postMessageSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
+  setAttachmentStorageClientForTests,
 } from "@dofe-agent/services";
 import {
   buildTaskPrompt,
@@ -23,8 +24,43 @@ import {
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-test-"));
+const tosObjects = new Map<string, Uint8Array>();
+const testTosStorage: AttachmentStorageClient = {
+  async putObject(input) {
+    return this.putObjectSync(input);
+  },
+  putObjectSync(input) {
+    const key = `workspaces/${input.workspaceId}/attachments/${input.attachmentId}/${input.fileName}`;
+    const bytes = new Uint8Array(input.contentBytes);
+    tosObjects.set(key, bytes);
+    return {
+      provider: "tos",
+      bucket: "test-bucket",
+      region: "cn-beijing",
+      endpoint: "https://tos-cn-beijing.volces.com",
+      key,
+      storedPath: `tos://test-bucket/${key}`,
+      sizeBytes: bytes.byteLength,
+      sha256: "test-sha256",
+    };
+  },
+  async getObject(input) {
+    return this.getObjectSync(input);
+  },
+  getObjectSync(input) {
+    const bytes = tosObjects.get(input.storageKey ?? "");
+    if (!bytes) throw new Error(`NoSuchKey: ${input.storageKey ?? ""}`);
+    return new Uint8Array(bytes);
+  },
+  async headObject() { return null; },
+  async deleteObject(input) { tosObjects.delete(input.storageKey ?? ""); },
+  deleteObjectSync(input) { tosObjects.delete(input.storageKey ?? ""); },
+  async createReadUrl() { return null; },
+};
 
 before(() => {
+  process.env.NODE_ENV = "test";
+  setAttachmentStorageClientForTests(testTosStorage);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   const packagesLink = join(tempRoot, "packages");
@@ -152,15 +188,12 @@ test("loadTaskOutputEnvelope accepts relative workDir attachments", () => {
   assert.equal(result.attachments.length, 1);
   assert.equal(result.attachments[0]?.fileName, "chart.png");
   assert.equal(result.attachments[0]?.mediaType, "image/png");
-  assert.ok(result.attachments[0]?.storedPath ? existsSync(result.attachments[0].storedPath) : false);
-
-  for (const attachment of result.attachments) {
-    rmSync(attachment.storedPath, { force: true });
-  }
+  assert.match(result.attachments[0]?.storedPath ?? "", /^tos:\/\/test-bucket\//);
+  assert.equal(Buffer.from(tosObjects.get(result.attachments[0]?.storageKey ?? "") ?? []).toString("utf8"), "fake-image-content");
   rmSync(workDir, { recursive: true, force: true });
 });
 
-test("loadTaskOutputEnvelope stores output attachments inside the owning workspace directory", () => {
+test("loadTaskOutputEnvelope stores output attachments under the owning TOS workspace prefix", () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-"));
   const artifactPath = join(workDir, "runtime-output", "artifacts", "workspace-chart.png");
   const manifestPath = join(workDir, "runtime-output", "agent-output.json");
@@ -182,12 +215,8 @@ test("loadTaskOutputEnvelope stores output attachments inside the owning workspa
   assert.equal(result.attachments.length, 1);
   assert.match(
     result.attachments[0]?.storedPath ?? "",
-    /data\/workspaces\/workspace-mars\/attachments\/att-.*workspace-chart\.png$/,
+    /^tos:\/\/test-bucket\/workspaces\/workspace-mars\/attachments\/att-.*\/workspace-chart\.png$/,
   );
-
-  for (const attachment of result.attachments) {
-    rmSync(attachment.storedPath, { force: true });
-  }
   rmSync(workDir, { recursive: true, force: true });
 });
 
@@ -278,9 +307,6 @@ test("loadTaskOutputEnvelope enforces a total attachment size limit", () => {
   assert.equal(result.attachments.length, 2);
   assert.ok(result.warnings.some((warning) => warning.includes("总大小超过限制")));
 
-  for (const attachment of result.attachments) {
-    rmSync(attachment.storedPath, { force: true });
-  }
   rmSync(workDir, { recursive: true, force: true });
 });
 
@@ -319,11 +345,7 @@ test("simulated task output can persist a PNG attachment and write it back into 
   const state = readWorkspaceStateSync();
   assert.equal(state.messages[0]?.summary, "图表已生成。");
   assert.equal(state.messages[0]?.attachments?.[0]?.fileName, "chart.png");
-  assert.ok(state.messages[0]?.attachments?.[0]?.storedPath ? existsSync(state.messages[0].attachments[0].storedPath) : false);
-
-  for (const attachment of result.attachments) {
-    rmSync(attachment.storedPath, { force: true });
-  }
+  assert.match(state.messages[0]?.attachments?.[0]?.storedPath ?? "", /^tos:\/\/test-bucket\//);
   rmSync(workDir, { recursive: true, force: true });
 });
 
@@ -725,6 +747,7 @@ test("daemon token subcommands create, list, and revoke tokens", async () => {
 });
 
 test.after(() => {
+  setAttachmentStorageClientForTests(undefined);
   process.chdir(originalCwd);
   rmSync(tempRoot, { recursive: true, force: true });
 });

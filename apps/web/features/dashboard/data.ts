@@ -1,5 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { basename } from "node:path";
 import { cache } from "react";
 import {
   buildLegacyAgentIdForEmployeeName,
@@ -27,6 +26,7 @@ import {
   listAgentAccessRequestsForActorSync,
   listManagedRuntimesForWorkspaceSync,
   resolveAgentRuntimeMode,
+  readWorkspaceAttachmentBytesSync,
 } from "@dofe-agent/services";
 import type {
   AgentAccessRequestRecord,
@@ -361,6 +361,7 @@ export type ChannelDetailPageData = Pick<
 
 export interface ChannelDocumentVersionRecord {
   id: string;
+  contentMarkdown: string;
   summary: string;
   createdAt: string;
   createdBy: string;
@@ -1390,6 +1391,7 @@ function buildChannelWorkspaceArtifacts(
         conflictCount: openConflictsByDocumentId.get(document.id)?.length ?? 0,
         versions: versions.map((version) => ({
           id: version.id,
+          contentMarkdown: version.contentMarkdown,
           summary: version.summary,
           createdAt: version.createdAt,
           createdBy: version.createdBy,
@@ -1500,7 +1502,7 @@ function buildChannelWorkspaceArtifacts(
         sourceTime: message.time,
         uploaderUserId: message.role === "human" ? message.speakerUserId : undefined,
         uploaderDisplayName: message.role === "human" ? message.speaker : undefined,
-        previewText: mediaType === "text/markdown" ? readMarkdownDocumentPreviewText(attachment.storedPath) : mediaType,
+        previewText: mediaType === "text/markdown" ? readMarkdownAttachmentPreviewText(attachment) : mediaType,
         mediaType,
         sizeBytes: attachment.sizeBytes,
         kind: inferAttachmentKind(mediaType),
@@ -1585,7 +1587,7 @@ function buildAttachmentReferenceIndex(state: DofeAgentState): AttachmentReferen
       ids.add(page.sourceAttachmentId);
     }
     if (page.sourceAttachmentStoredPath) {
-      storedPaths.add(resolve(page.sourceAttachmentStoredPath));
+      storedPaths.add(page.sourceAttachmentStoredPath);
     }
   }
 
@@ -1594,7 +1596,7 @@ function buildAttachmentReferenceIndex(state: DofeAgentState): AttachmentReferen
       ids.add(version.sourceAttachmentId);
     }
     if (version.sourceAttachmentStoredPath) {
-      storedPaths.add(resolve(version.sourceAttachmentStoredPath));
+      storedPaths.add(version.sourceAttachmentStoredPath);
     }
   }
 
@@ -1606,8 +1608,7 @@ function isAttachmentReferencedByKnowledgeOrDocument(
   attachment: MessageAttachment,
   referenceIndex = buildAttachmentReferenceIndex(state),
 ): boolean {
-  const storedPath = resolve(attachment.storedPath);
-  return referenceIndex.ids.has(attachment.id) || referenceIndex.storedPaths.has(storedPath);
+  return referenceIndex.ids.has(attachment.id) || referenceIndex.storedPaths.has(attachment.storedPath);
 }
 
 function getVisibleWorkspaceChannelNames(
@@ -1739,6 +1740,7 @@ function buildKnowledgeDocumentPageRecords(
     documentPageMap.set(key, buildSyntheticAttachmentRecord({
       attachmentId: page.sourceAttachmentId,
       storedPath: page.sourceAttachmentStoredPath,
+      contentMarkdown: page.contentMarkdown,
       updatedAt: page.updatedAt,
       updatedBy: page.createdBy,
       linkedKnowledgePages: linkIndex.get(key) ?? [],
@@ -1777,6 +1779,7 @@ function buildKnowledgeDocumentPageRecords(
       documentPageMap.set(key, buildSyntheticAttachmentRecord({
         attachmentId: version.sourceAttachmentId,
         storedPath: version.sourceAttachmentStoredPath,
+        contentMarkdown: version.contentMarkdown,
         channelName: document.channelName,
         updatedAt: version.createdAt,
         updatedBy: version.createdBy,
@@ -1798,6 +1801,7 @@ function buildKnowledgeDocumentPageRecords(
 function buildSyntheticAttachmentRecord(input: {
   attachmentId: string;
   storedPath: string;
+  contentMarkdown: string;
   channelName?: string;
   updatedAt: string;
   updatedBy: string;
@@ -1806,7 +1810,7 @@ function buildSyntheticAttachmentRecord(input: {
 }): KnowledgeDocumentPageRecord {
   const fileName = deriveAttachmentFileName(input.attachmentId, input.storedPath);
   const mediaType = resolveAttachmentMediaType(fileName);
-  const sizeBytes = existsSync(input.storedPath) ? statSync(input.storedPath).size : 0;
+  const sizeBytes = Buffer.byteLength(input.contentMarkdown, "utf8");
 
   return {
     id: `attachment:${input.attachmentId}`,
@@ -1814,7 +1818,7 @@ function buildSyntheticAttachmentRecord(input: {
     sourceId: input.attachmentId,
     title: fileName,
     summary: input.channelName ? `Preserved attachment · #${input.channelName}` : "Preserved attachment",
-    previewText: mediaType === "text/markdown" ? readMarkdownDocumentPreviewText(input.storedPath) : mediaType,
+    previewText: mediaType === "text/markdown" ? input.contentMarkdown.trim() : mediaType,
     fileName,
     mediaType,
     sizeBytes,
@@ -1835,13 +1839,9 @@ function deriveAttachmentFileName(attachmentId: string, storedPath: string): str
   return storedName.startsWith(prefix) ? storedName.slice(prefix.length) : storedName;
 }
 
-function readMarkdownDocumentPreviewText(storedPath: string): string {
-  if (!existsSync(storedPath)) {
-    return "";
-  }
-
+function readMarkdownAttachmentPreviewText(attachment: MessageAttachment): string {
   try {
-    return readFileSync(storedPath, "utf8").trim();
+    return Buffer.from(readWorkspaceAttachmentBytesSync(attachment)).toString("utf8").trim();
   } catch {
     return "";
   }

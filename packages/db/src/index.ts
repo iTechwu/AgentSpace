@@ -248,13 +248,13 @@ export {
   getDaemonWorkspaceExecutionRootDir,
   getLocalDaemonStateDirPath,
   getSystemWorkspaceDataDirPath,
-  getWorkspaceAttachmentsDirPath,
   getWorkspaceChannelHistoryDirPath,
   getWorkspaceDaemonRemoteStagingDirPath,
   sanitizeStoragePathSegment,
   SYSTEM_WORKSPACE_ID,
 } from "./storage-paths.ts";
 export {
+  listStoredAttachmentsSync,
   readStoredAttachmentSync,
   replaceStoredAttachmentsSync,
   type StoredAttachmentRecord,

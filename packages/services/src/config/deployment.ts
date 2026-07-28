@@ -33,8 +33,8 @@ export function resolveModelsGatewayBaseUrl(env: NodeJS.ProcessEnv = process.env
 }
 
 export interface AttachmentRuntimeConfig {
-  provider: "local" | "tos";
-  tos?: {
+  provider: "tos";
+  tos: {
     bucket: string;
     endpoint: string;
     publicEndpoint: string;
@@ -63,13 +63,8 @@ export function resolveDofeAgentRuntimeConfig(env: NodeJS.ProcessEnv = process.e
 export function resolveAttachmentRuntimeConfig(env: NodeJS.ProcessEnv = process.env): AttachmentRuntimeConfig {
   const effectiveEnv = readEffectiveRuntimeEnv({ env, repositoryOverridesEnv: env === process.env });
   const requestedProvider = effectiveEnv.ATTACHMENT_STORAGE_PROVIDER?.trim().toLowerCase();
-  if (requestedProvider && requestedProvider !== "local" && requestedProvider !== "tos") {
-    throw new Error("ATTACHMENT_STORAGE_PROVIDER must be either local or tos.");
-  }
-  if (requestedProvider === "local") {
-    return {
-      provider: "local",
-    };
+  if (requestedProvider && requestedProvider !== "tos") {
+    throw new Error("ATTACHMENT_STORAGE_PROVIDER must be tos; local attachment storage is not supported.");
   }
 
   const publicEndpoint = normalizeTosEndpoint(requireFirstEnvValue(effectiveEnv, ["TOS_ENDPOINT", "TOS_S3_ENDPOINT"]));

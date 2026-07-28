@@ -2,6 +2,10 @@ import "@testing-library/jest-dom/vitest";
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { setAttachmentStorageClientForTests } from "@dofe-agent/services";
+import { createTestTosAttachmentStorage } from "../test-utils/tos-attachment-storage";
+
+setAttachmentStorageClientForTests(createTestTosAttachmentStorage().client);
 
 if (typeof window !== "undefined" && typeof window.localStorage?.getItem !== "function") {
   const values = new Map<string, string>();

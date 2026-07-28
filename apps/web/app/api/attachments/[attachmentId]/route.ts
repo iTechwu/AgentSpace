@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto";
-import { access, readFile } from "node:fs/promises";
-import { constants } from "node:fs";
 import { basename } from "node:path";
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
@@ -65,24 +63,20 @@ export async function GET(
     return visibility;
   };
   const storedAttachment = readStoredAttachmentSync(workspaceContext.currentWorkspace.id, attachmentId);
-  const attachment: MessageAttachment | null = storedAttachment
-    ? (
-        canReadStoredAttachmentWithoutVisibility({
-          attachment: storedAttachment,
-          workspaceId: workspaceContext.currentWorkspace.id,
-          workspaceRole: workspaceContext.currentMembership.role,
-        }) || getVisibility().canAccessChannel(storedAttachment.channelName)
-          ? storedAttachment
-          : null
-      )
-    : shouldUseLegacyAttachmentFallback()
-      ? findAttachment(
+  const attachment: MessageAttachment | null = storedAttachment && (
+    canReadStoredAttachmentWithoutVisibility({
+      attachment: storedAttachment,
+      workspaceId: workspaceContext.currentWorkspace.id,
+      workspaceRole: workspaceContext.currentMembership.role,
+    }) || getVisibility().canAccessChannel(storedAttachment.channelName)
+  )
+    ? storedAttachment
+    : findTosSnapshotAttachment(
         attachmentId,
         workspaceContext.currentWorkspace.id,
         workspaceContext.currentUser.displayName,
         getVisibility(),
-      )
-      : null;
+      );
 
   if (!attachment) {
     return new Response("Attachment not found.", { status: 404 });
@@ -112,7 +106,7 @@ export async function GET(
   try {
     content = await readAttachmentContent(attachment);
   } catch (error) {
-    if (error instanceof AttachmentNotFoundError || isStorageMissingError(error)) {
+    if (isStorageMissingError(error)) {
       const note = error instanceof Error ? error.message : "Attachment object is missing from storage.";
       tryRecordWorkspaceAuditEventSync({
         workspaceId: workspaceContext.currentWorkspace.id,
@@ -155,23 +149,17 @@ export async function GET(
 }
 
 async function readAttachmentContent(attachment: MessageAttachment): Promise<Uint8Array> {
-  if ((attachment.storageProvider === "tos" || attachment.storageProvider === "s3") && attachment.storageKey) {
-    return createAttachmentStorageClient().getObject({
-      storageProvider: attachment.storageProvider,
-      storageBucket: attachment.storageBucket,
-      storageRegion: attachment.storageRegion,
-      storageEndpoint: attachment.storageEndpoint,
-      storageKey: attachment.storageKey,
-      storedPath: attachment.storedPath,
-    });
+  if (!attachment.storageKey) {
+    throw new Error(`Attachment "${attachment.id}" is missing its TOS object key.`);
   }
-
-  try {
-    await access(attachment.storedPath, constants.R_OK);
-  } catch {
-    throw new AttachmentNotFoundError(attachment.id, attachment.storedPath);
-  }
-  return readFile(attachment.storedPath);
+  return createAttachmentStorageClient().getObject({
+    storageProvider: "tos",
+    storageBucket: attachment.storageBucket,
+    storageRegion: attachment.storageRegion,
+    storageEndpoint: attachment.storageEndpoint,
+    storageKey: attachment.storageKey,
+    storedPath: attachment.storedPath,
+  });
 }
 
 function buildContentDisposition(disposition: "inline" | "attachment", fileName: string): string {
@@ -253,56 +241,6 @@ function encodeHeaderParameter(value: string): string {
   );
 }
 
-function findAttachment(
-  attachmentId: string,
-  workspaceId: string,
-  currentUserDisplayName: string,
-  visibility: ReturnType<typeof getWorkspaceChannelVisibilitySync>,
-) {
-  const state = readWorkspaceStateSync(workspaceId);
-
-  for (const message of state.messages) {
-    if (!visibility.canAccessChannel(message.channel)) {
-      continue;
-    }
-    const attachment = message.attachments?.find((item) => item.id === attachmentId);
-    if (attachment) {
-      return attachment;
-    }
-  }
-
-  const knowledgeAttachment = state.knowledgePages.find((page) => page.sourceAttachmentId === attachmentId);
-  if (knowledgeAttachment?.sourceAttachmentStoredPath) {
-    const sourceMessage = state.messages.find((message) =>
-      message.attachments?.some((attachment) => attachment.id === attachmentId)
-    );
-    if (sourceMessage && !visibility.canAccessChannel(sourceMessage.channel)) {
-      return null;
-    }
-    return buildSnapshotAttachment(attachmentId, knowledgeAttachment.sourceAttachmentStoredPath);
-  }
-
-  for (const version of state.channelDocumentVersions) {
-    if (version.sourceAttachmentId !== attachmentId || !version.sourceAttachmentStoredPath) {
-      continue;
-    }
-    if (!canViewChannelDocumentSync(version.documentId, currentUserDisplayName, "human", workspaceId)) {
-      continue;
-    }
-    return buildSnapshotAttachment(attachmentId, version.sourceAttachmentStoredPath);
-  }
-
-  return null;
-}
-
-function shouldUseLegacyAttachmentFallback(): boolean {
-  const configured = process.env.DOFE_AGENT_ATTACHMENT_LEGACY_FALLBACK_ENABLED?.trim().toLowerCase();
-  if (configured) {
-    return configured !== "0" && configured !== "false";
-  }
-  return process.env.LOADTEST_MODE !== "local";
-}
-
 function canReadStoredAttachmentWithoutVisibility(input: {
   attachment: { channelName?: string | null };
   workspaceId: string;
@@ -324,9 +262,43 @@ function canReadStoredAttachmentWithoutVisibility(input: {
   return channelName.startsWith("load-channel-");
 }
 
-function buildSnapshotAttachment(attachmentId: string, storedPath: string) {
-  const fallbackName = basename(storedPath.replace(/\\/g, "/")).replace(new RegExp(`^${escapeRegExp(attachmentId)}-`), "");
-  const fileName = fallbackName || `${attachmentId}.bin`;
+function findTosSnapshotAttachment(
+  attachmentId: string,
+  workspaceId: string,
+  currentUserDisplayName: string,
+  visibility: ReturnType<typeof getWorkspaceChannelVisibilitySync>,
+): MessageAttachment | null {
+  const state = readWorkspaceStateSync(workspaceId);
+  const knowledgePage = state.knowledgePages.find((page) => page.sourceAttachmentId === attachmentId);
+  if (knowledgePage?.sourceAttachmentStoredPath) {
+    const sourceMessage = state.messages.find((message) =>
+      message.attachments?.some((attachment) => attachment.id === attachmentId)
+    );
+    if (sourceMessage && !visibility.canAccessChannel(sourceMessage.channel)) {
+      return null;
+    }
+    return buildTosSnapshotAttachment(attachmentId, knowledgePage.sourceAttachmentStoredPath);
+  }
+
+  for (const version of state.channelDocumentVersions) {
+    if (
+      version.sourceAttachmentId === attachmentId &&
+      version.sourceAttachmentStoredPath &&
+      canViewChannelDocumentSync(version.documentId, currentUserDisplayName, "human", workspaceId)
+    ) {
+      return buildTosSnapshotAttachment(attachmentId, version.sourceAttachmentStoredPath);
+    }
+  }
+  return null;
+}
+
+function buildTosSnapshotAttachment(attachmentId: string, storedPath: string): MessageAttachment | null {
+  const match = /^tos:\/\/([^/]+)\/(.+)$/.exec(storedPath);
+  if (!match) {
+    return null;
+  }
+  const [, bucket, storageKey] = match;
+  const fileName = basename(storageKey) || `${attachmentId}.bin`;
   const mediaType = resolveAttachmentMediaType(fileName);
   return {
     id: attachmentId,
@@ -335,18 +307,10 @@ function buildSnapshotAttachment(attachmentId: string, storedPath: string) {
     sizeBytes: 0,
     kind: inferAttachmentKind(mediaType),
     storedPath,
-  } satisfies MessageAttachment;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-class AttachmentNotFoundError extends Error {
-  constructor(attachmentId: string, storedPath: string) {
-    super(`Attachment "${attachmentId}" is missing from storage: ${storedPath}`);
-    this.name = "AttachmentNotFoundError";
-  }
+    storageProvider: "tos",
+    storageBucket: bucket,
+    storageKey,
+  };
 }
 
 function isStorageMissingError(error: unknown): boolean {

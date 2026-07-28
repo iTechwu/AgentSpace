@@ -1,4 +1,4 @@
-import { basename, join } from "node:path";
+import { basename } from "node:path";
 import type {
   DofeAgentState,
   ChannelDocument,
@@ -15,7 +15,7 @@ import type {
 import type { ChannelDocumentBlock } from "@dofe-agent/domain";
 import { DEFAULT_WORKSPACE_ID, listWorkspaceMemberUsersSync, readUserSync } from "@dofe-agent/db";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
-import { createOpaqueId, sameValue, resolveAttachmentMediaType, resolveRepositoryRoot, STATE_DIR } from "../shared/helpers.ts";
+import { createOpaqueId, sameValue, resolveAttachmentMediaType } from "../shared/helpers.ts";
 import {
   pushWorkspaceMessageIfChannel,
   pushWorkspaceMessageToChannel,
@@ -66,7 +66,7 @@ import {
   markChannelDocumentRunStepFailed,
   markChannelDocumentRunStepRunning,
 } from "./runs.ts";
-import { persistWorkspaceAttachmentFromFileSync } from "../attachments/attachments.ts";
+import { persistWorkspaceAttachmentFromBytesSync } from "../attachments/attachments.ts";
 
 const DOC_COORDINATOR = "系统提示";
 
@@ -595,11 +595,10 @@ export function exportChannelDocumentAsAttachmentSync(input: {
   const attachment = createAttachmentFromChannelDocumentVersion({
     document,
     version: currentVersion,
-    persistAttachment: (attachmentInput) => persistWorkspaceAttachmentFromFileSync({
+    persistAttachment: (attachmentInput) => persistWorkspaceAttachmentFromBytesSync({
       ...attachmentInput,
       workspaceId,
     }),
-    tempDirPath: join(resolveRepositoryRoot(), STATE_DIR, "temp-exports", workspaceId ?? "default"),
   });
   pushWorkspaceMessageIfChannel(state, document.channelName, {
     speaker: DOC_COORDINATOR,

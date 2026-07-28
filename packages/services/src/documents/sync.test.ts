@@ -434,11 +434,12 @@ test("createChannelDocumentFromAttachmentSync rejects markdown attachments from 
         mediaType: "text/markdown",
         sizeBytes: 18,
         kind: "file",
-        storedPath: join(tempRoot, "data", "secret-plan.md"),
+        storedPath: "tos://test-bucket/workspaces/default/attachments/att-secret-md/secret-plan.md",
+        storageProvider: "tos",
+        storageKey: "workspaces/default/attachments/att-secret-md/secret-plan.md",
       },
     ],
   });
-  writeFileSync(join(tempRoot, "data", "secret-plan.md"), "# secret\nhidden plan\n", "utf8");
   writeWorkspaceStateSync(state);
 
   assert.throws(

@@ -1,13 +1,73 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import test from "node:test";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
+import {
+  setAttachmentStorageClientForTests,
+  type AttachmentStorageClient,
+} from "../attachments/storage.ts";
 import { createAttachmentFromChannelDocumentVersion, readMarkdownAttachmentContent } from "./files.ts";
 
-test("createAttachmentFromChannelDocumentVersion delegates attachment persistence with markdown content", () => {
-  const tempDir = mkdtempSync(join(tmpdir(), "dofe-agent-doc-export-"));
-  let persistedSourcePath = "";
+const tosObjects = new Map<string, Uint8Array>();
+const testTosStorage: AttachmentStorageClient = {
+  async putObject() {
+    throw new Error("Unexpected direct TOS upload in document file test.");
+  },
+  putObjectSync() {
+    throw new Error("Unexpected direct TOS upload in document file test.");
+  },
+  async getObject(input) {
+    return this.getObjectSync(input);
+  },
+  getObjectSync(input) {
+    const bytes = tosObjects.get(input.storageKey ?? "");
+    if (!bytes) {
+      throw new Error(`NoSuchKey: ${input.storageKey ?? ""}`);
+    }
+    return new Uint8Array(bytes);
+  },
+  async headObject() {
+    return null;
+  },
+  async deleteObject() {},
+  deleteObjectSync() {},
+  async createReadUrl() {
+    return null;
+  },
+};
+
+test.before(() => {
+  process.env.NODE_ENV = "test";
+  setAttachmentStorageClientForTests(testTosStorage);
+});
+
+test.after(() => {
+  setAttachmentStorageClientForTests(undefined);
+});
+
+function persistTestAttachment(input: {
+  id: string;
+  contentBytes: Uint8Array;
+  fileName: string;
+  mediaType: string;
+}): MessageAttachment {
+  const storageKey = `workspaces/test/attachments/${input.id}/${input.fileName}`;
+  tosObjects.set(storageKey, new Uint8Array(input.contentBytes));
+  return {
+    id: input.id,
+    fileName: input.fileName,
+    mediaType: input.mediaType,
+    sizeBytes: input.contentBytes.byteLength,
+    kind: "file",
+    storedPath: `tos://test-bucket/${storageKey}`,
+    storageProvider: "tos",
+    storageBucket: "test-bucket",
+    storageRegion: "cn-beijing",
+    storageEndpoint: "https://tos-cn-beijing.volces.com",
+    storageKey,
+  };
+}
+
+test("createAttachmentFromChannelDocumentVersion uploads markdown bytes without a local intermediary", () => {
   const attachment = createAttachmentFromChannelDocumentVersion({
     document: {
       id: "doc-1",
@@ -35,56 +95,26 @@ test("createAttachmentFromChannelDocumentVersion delegates attachment persistenc
       triggerType: "manual",
       createdAt: new Date().toISOString(),
     },
-    persistAttachment: ({ sourcePath, fileName, mediaType }) => {
-      persistedSourcePath = sourcePath;
-      return {
-        id: "att-1",
-        fileName: fileName ?? "",
-        mediaType: mediaType ?? "text/markdown",
-        sizeBytes: 8,
-        kind: "file",
-        storedPath: sourcePath,
-      };
-    },
-    tempDirPath: tempDir,
+    persistAttachment: (input) => persistTestAttachment({ id: "att-1", ...input }),
   });
 
   assert.equal(attachment.fileName, "osaka-trip.md");
-  assert.match(persistedSourcePath, /osaka-trip\.md$/);
-  const content = readMarkdownAttachmentContent({
-    id: "att-1",
-    fileName: attachment.fileName,
-    mediaType: attachment.mediaType,
-    sizeBytes: attachment.sizeBytes,
-    kind: attachment.kind,
-    storedPath: persistedSourcePath,
-  });
-  assert.match(content, /大阪/);
-
-  rmSync(tempDir, { recursive: true, force: true });
+  assert.match(attachment.storedPath, /^tos:\/\/test-bucket\//);
+  assert.match(readMarkdownAttachmentContent(attachment), /大阪/);
 });
 
-test("readMarkdownAttachmentContent returns stored markdown content", () => {
-  const tempDir = mkdtempSync(join(tmpdir(), "dofe-agent-doc-import-"));
-  const filePath = join(tempDir, "plan.md");
-  writeFileSync(filePath, "# 计划\n\n宇治", "utf8");
-
-  const content = readMarkdownAttachmentContent({
+test("readMarkdownAttachmentContent reads markdown from TOS", () => {
+  const attachment = persistTestAttachment({
     id: "att-2",
     fileName: "plan.md",
     mediaType: "text/markdown",
-    sizeBytes: 12,
-    kind: "file",
-    storedPath: filePath,
+    contentBytes: Buffer.from("# 计划\n\n宇治", "utf8"),
   });
 
-  assert.match(content, /宇治/);
-  rmSync(tempDir, { recursive: true, force: true });
+  assert.match(readMarkdownAttachmentContent(attachment), /宇治/);
 });
 
 test("createAttachmentFromChannelDocumentVersion preserves Chinese file names", () => {
-  const tempDir = mkdtempSync(join(tmpdir(), "dofe-agent-doc-export-"));
-  let persistedSourcePath = "";
   const attachment = createAttachmentFromChannelDocumentVersion({
     document: {
       id: "doc-2",
@@ -112,22 +142,9 @@ test("createAttachmentFromChannelDocumentVersion preserves Chinese file names", 
       triggerType: "agent",
       createdAt: new Date().toISOString(),
     },
-    persistAttachment: ({ sourcePath, fileName, mediaType }) => {
-      persistedSourcePath = sourcePath;
-      return {
-        id: "att-2",
-        fileName: fileName ?? "",
-        mediaType: mediaType ?? "text/markdown",
-        sizeBytes: 16,
-        kind: "file",
-        storedPath: sourcePath,
-      };
-    },
-    tempDirPath: tempDir,
+    persistAttachment: (input) => persistTestAttachment({ id: "att-3", ...input }),
   });
 
   assert.equal(attachment.fileName, "日本一周行程方案.md");
-  assert.match(persistedSourcePath, /日本一周行程方案\.md$/);
-
-  rmSync(tempDir, { recursive: true, force: true });
+  assert.match(readMarkdownAttachmentContent(attachment), /大阪进出/);
 });

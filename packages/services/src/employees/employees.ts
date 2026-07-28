@@ -21,7 +21,7 @@ import {
   type ActiveEmployee,
   type DofeAgentState,
 } from "@dofe-agent/domain/workspace";
-import { pruneOrphanWorkspaceAttachmentsSync } from "../attachments/attachments.ts";
+import { deleteUnreferencedWorkspaceAttachmentsSync } from "../attachments/attachments.ts";
 import { isDirectChannel, removeChannelArtifactsFromState } from "../channels/channels.ts";
 import { listWorkspaceSkillsSync } from "../skills/skills.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
@@ -161,6 +161,9 @@ export function deleteEmployeeSync(employeeName: string, workspaceId?: string): 
   const directChannelNames = state.channels
     .filter((channel) => isDirectChannel(channel) && channel.employeeNames.some((name) => sameValue(name, employee.name)))
     .map((channel) => channel.name);
+  const removedAttachments = state.messages
+    .filter((message) => directChannelNames.some((channelName) => sameValue(message.channel ?? "", channelName)))
+    .flatMap((message) => message.attachments ?? []);
   const noticeChannel =
     employee.channels.find(
       (channelName) =>
@@ -211,7 +214,7 @@ export function deleteEmployeeSync(employeeName: string, workspaceId?: string): 
   }, workspaceId);
 
   const written = writeWorkspaceStateSync(state, workspaceId);
-  pruneOrphanWorkspaceAttachmentsSync(workspaceId ?? DEFAULT_WORKSPACE_ID);
+  deleteUnreferencedWorkspaceAttachmentsSync(removedAttachments, written);
   return written;
 }
 

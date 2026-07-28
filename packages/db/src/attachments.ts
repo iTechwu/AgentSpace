@@ -52,6 +52,21 @@ export function readStoredAttachmentSync(
   return row ? mapStoredAttachment(row) : null;
 }
 
+export function listStoredAttachmentsSync(
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): StoredAttachmentRecord[] {
+  return getDatabase()
+    .prepare(
+      `SELECT *
+       FROM attachment
+       WHERE workspace_id = ?
+       ORDER BY source_message_index ASC, created_at ASC, id ASC`,
+    )
+    .all(workspaceId)
+    .map((row) => mapStoredAttachment(row))
+    .filter((row): row is StoredAttachmentRecord => row !== null);
+}
+
 function insertStoredAttachmentSync(input: {
   workspaceId: string;
   message: WorkspaceMessage;
@@ -117,7 +132,7 @@ function insertStoredAttachmentSync(input: {
     input.attachment.kind,
     input.attachment.sizeBytes,
     input.attachment.storedPath,
-    input.attachment.storageProvider ?? "local",
+    input.attachment.storageProvider ?? "tos",
     input.attachment.storageBucket ?? null,
     input.attachment.storageRegion ?? null,
     input.attachment.storageEndpoint ?? null,
@@ -156,7 +171,7 @@ function mapStoredAttachment(row: Record<string, unknown>): StoredAttachmentReco
     kind: row.kind === "image" ? "image" : "file",
     sizeBytes: row.sizeBytes,
     storedPath: row.storedPath,
-    storageProvider: row.storageProvider === "tos" || row.storageProvider === "s3" || row.storageProvider === "local" ? row.storageProvider : undefined,
+    storageProvider: "tos",
     storageBucket: typeof row.storageBucket === "string" ? row.storageBucket : undefined,
     storageRegion: typeof row.storageRegion === "string" ? row.storageRegion : undefined,
     storageEndpoint: typeof row.storageEndpoint === "string" ? row.storageEndpoint : undefined,
