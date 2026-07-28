@@ -13,9 +13,11 @@ import {
   listWorkspaceNotificationsForRecipientSync,
   readStoredEmployeeSync,
   registerDaemonRuntimesSync,
+  updateAgentRuntimeManagedFieldsSync,
 } from "@dofe-agent/db";
 import {
   acceptAgentForkInvitationForActorSync,
+  bindEmployeeRuntimeSync,
   createAgentForkInvitationForActorSync,
   createEmployeeSync,
   createWorkspaceSkillSync,
@@ -233,6 +235,49 @@ test("creator can revoke a pending fork invitation and target can list only thei
     }).some((notification) => notification.type === "agent.fork_invitation_revoked"),
     true,
   );
+});
+
+test("bindEmployeeRuntimeSync refuses a new employee when allowNewEmployeeSharing is false", () => {
+  const fixtures = seedForkServiceWorkspace();
+  createEmployeeSync({ name: "Solo", role: "Solo", active: true }, fixtures.workspaceId);
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId: fixtures.targetRuntimeId,
+    workspaceId: fixtures.workspaceId,
+    allowNewEmployeeSharing: false,
+  });
+
+  assert.throws(
+    () => bindEmployeeRuntimeSync("Solo", fixtures.targetRuntimeId, fixtures.workspaceId, fixtures.admin.id),
+    /runtime\.sharing_closed/,
+  );
+
+  const binding = listEmployeeRuntimeBindingsSync(fixtures.workspaceId).find((item) => item.employeeName === "Solo");
+  assert.equal(binding, undefined);
+});
+
+test("bindEmployeeRuntimeSync still rebinds an employee already on the runtime when sharing is closed", () => {
+  const fixtures = seedForkServiceWorkspace();
+  // Planner is seeded already bound to sourceRuntimeId; closing sharing must not block a rebind.
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId: fixtures.sourceRuntimeId,
+    workspaceId: fixtures.workspaceId,
+    allowNewEmployeeSharing: false,
+  });
+
+  bindEmployeeRuntimeSync("Planner", fixtures.sourceRuntimeId, fixtures.workspaceId, fixtures.admin.id);
+
+  const binding = listEmployeeRuntimeBindingsSync(fixtures.workspaceId).find((item) => item.employeeName === "Planner");
+  assert.equal(binding?.runtimeId, fixtures.sourceRuntimeId);
+});
+
+test("bindEmployeeRuntimeSync allows a new employee when allowNewEmployeeSharing is true", () => {
+  const fixtures = seedForkServiceWorkspace();
+  createEmployeeSync({ name: "Shared", role: "Shared", active: true }, fixtures.workspaceId);
+
+  bindEmployeeRuntimeSync("Shared", fixtures.targetRuntimeId, fixtures.workspaceId, fixtures.admin.id);
+
+  const binding = listEmployeeRuntimeBindingsSync(fixtures.workspaceId).find((item) => item.employeeName === "Shared");
+  assert.equal(binding?.runtimeId, fixtures.targetRuntimeId);
 });
 
 function seedForkServiceWorkspace(): {

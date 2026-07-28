@@ -1,6 +1,6 @@
 "use server";
 
-import { readAgentRuntimeSync } from "@dofe-agent/db";
+import { readAgentRuntimeSync, updateAgentRuntimeManagedFieldsSync } from "@dofe-agent/db";
 import { DAEMON_PROVIDER_PROTOCOLS } from "@dofe-agent/domain";
 import {
   cancelRuntimeProvisioningTaskAsync,
@@ -146,6 +146,25 @@ export async function getManagedRuntimeCredentialStatusAction(runtimeId: string)
   assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId } = await requireAdminActor();
   return getManagedRuntimeCredentialStatusAsync({ workspaceId, actorUserId, runtimeId });
+}
+
+export async function updateManagedRuntimeSharingAction(input: {
+  runtimeId: string;
+  allowNewEmployeeSharing: boolean;
+}): Promise<void> {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId, slug } = await requireAdminActor();
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (!runtime || runtime.workspaceId !== workspaceId) {
+    throw new Error("runtime.not_found");
+  }
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId: input.runtimeId,
+    workspaceId,
+    allowNewEmployeeSharing: input.allowNewEmployeeSharing,
+  });
+  revalidateWorkspacePath(`/runtimes/runtime/${input.runtimeId}`, slug);
+  revalidateWorkspacePath("/runtimes", slug);
 }
 
 export interface RuntimeModelCatalogItem {

@@ -959,7 +959,7 @@ function mapAgentRuntimeRecord(value: Record<string, unknown>): AgentRuntimeReco
     credentialConfigRef: typeof value.credentialConfigRef === "string" ? value.credentialConfigRef : undefined,
     protocols: parseProtocolsValue(value.protocolsJson),
     defaultModel: typeof value.defaultModel === "string" ? value.defaultModel : undefined,
-    allowNewEmployeeSharing: value.allowNewEmployeeSharing !== false,
+    allowNewEmployeeSharing: value.allowNewEmployeeSharing !== false && value.allowNewEmployeeSharing !== 0,
     provisioningTaskId: typeof value.provisioningTaskId === "string" ? value.provisioningTaskId : undefined,
     managedAt: typeof value.managedAt === "string" ? value.managedAt : undefined,
     createdAt: value.createdAt,

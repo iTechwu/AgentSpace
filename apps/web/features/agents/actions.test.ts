@@ -82,6 +82,8 @@ import {
   installWorkspaceAgentSkillAction,
   setWorkspaceAgentSkillAssignmentsAction,
 } from "@/features/agents/actions";
+import { readAgentRuntimeSync } from "@dofe-agent/db";
+import { bindEmployeeRuntimeSync } from "@dofe-agent/services";
 
 describe("agent actions", () => {
   beforeEach(() => {
@@ -155,6 +157,44 @@ describe("agent actions", () => {
     })).rejects.toThrow("Only workspace owners and admins can manage AI employees.");
 
     expect(mockCreateEmployeeSync).not.toHaveBeenCalled();
+  });
+
+  it("runs skill-readiness preflight against the selected runtime before binding", async () => {
+    vi.mocked(readAgentRuntimeSync).mockReturnValue({
+      id: "runtime-1",
+      workspaceId: "workspace-1",
+      provider: "codex",
+    } as never);
+    vi.mocked(bindEmployeeRuntimeSync).mockClear();
+    mockListEmployeeSkillIdsSync.mockReturnValue(["skill-a"]);
+
+    await createWorkspaceAgentAction({ name: "Atlas", runtimeId: "runtime-1" });
+
+    expect(mockAssertAgentSkillRequirementsReadySync).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "workspace-1",
+      employeeName: "Atlas",
+      skillIds: ["skill-a"],
+      runtimeProvider: "codex",
+    }));
+    expect(vi.mocked(bindEmployeeRuntimeSync)).toHaveBeenCalledWith("Atlas", "runtime-1", "workspace-1");
+  });
+
+  it("does not bind the runtime when skill readiness preflight fails", async () => {
+    vi.mocked(readAgentRuntimeSync).mockReturnValue({
+      id: "runtime-1",
+      workspaceId: "workspace-1",
+      provider: "codex",
+    } as never);
+    vi.mocked(bindEmployeeRuntimeSync).mockClear();
+    mockListEmployeeSkillIdsSync.mockReturnValue(["skill-a"]);
+    mockAssertAgentSkillRequirementsReadySync.mockImplementation(() => {
+      throw new Error("skill requirements not ready");
+    });
+
+    await expect(createWorkspaceAgentAction({ name: "Atlas", runtimeId: "runtime-1" }))
+      .rejects.toThrow("skill requirements not ready");
+
+    expect(vi.mocked(bindEmployeeRuntimeSync)).not.toHaveBeenCalled();
   });
 
   it("returns an invalidation hint when creating a task", async () => {

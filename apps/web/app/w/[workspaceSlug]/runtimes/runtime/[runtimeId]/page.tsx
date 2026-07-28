@@ -5,6 +5,7 @@ import { listManagedRuntimesForWorkspaceSync, resolveAgentRuntimeMode } from "@d
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 import { getWorkspacePageContext } from "../../../_lib/workspace-page-context";
+import { ManagedRuntimeSharingToggle } from "@/features/runtimes/managed-runtime-sharing-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,17 @@ export default async function ManagedRuntimeDetailPage({
         <RuntimeField label="Period actual cost" value={`$${runtime.periodActualCostUsd.toFixed(4)}`} />
         <RuntimeField label="Unallocated cost" value={`$${runtime.unallocatedCostUsd.toFixed(4)}`} />
       </dl>
+
+      <div className="space-y-1 border-y py-5">
+        <h2 className="text-xs font-medium uppercase text-neutral-500">Sharing</h2>
+        <ManagedRuntimeSharingToggle
+          runtimeId={runtime.id}
+          allowNewEmployeeSharing={runtime.allowNewEmployeeSharing !== false}
+        />
+        <p className="text-xs text-neutral-500">
+          When off, this runtime refuses to bind additional AI employees. Existing bindings are preserved.
+        </p>
+      </div>
     </section>
   );
 }
