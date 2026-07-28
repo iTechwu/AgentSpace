@@ -5,6 +5,7 @@ import {
   deleteWorkspaceSkillFileSync,
   deleteWorkspaceSkillSync,
   exportWorkspaceSkillsArchiveSync,
+  importWorkspaceSkillFromZipUpload,
   importWorkspaceSkillFromUrl,
   readWorkspaceSkillSync,
   tryRecordWorkspaceAuditEventSync,
@@ -211,6 +212,48 @@ export async function importWorkspaceSkillFromUrlAction(input: {
     skipped: result.skipped,
     requiresConfiguration: result.requiresConfiguration,
   }, toast);
+}
+
+export async function importWorkspaceSkillFromZipAction(formData: FormData): Promise<ActionToastResult<{ skillId: string; renamed: boolean; replaced: boolean; skipped: boolean; requiresConfiguration: boolean }>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  const archive = formData.get("archive");
+  if (!archive || typeof archive === "string" || typeof archive.arrayBuffer !== "function") {
+    throw new Error("请选择一个 Skill zip 文件。");
+  }
+  const conflict = formData.get("conflict");
+  const result = await importWorkspaceSkillFromZipUpload({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    fileName: archive.name,
+    contentBytes: new Uint8Array(await archive.arrayBuffer()),
+    conflict: conflict as "reject" | "rename" | "replace" | "skip",
+  });
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    title: "Skill imported",
+    note: `Skill "${result.skillName}" was uploaded to TOS and imported by ${workspaceContext.currentUser.displayName}.`,
+    code: "workspace.skill_imported",
+    data: {
+      actorType: "session_user",
+      resourceType: "skill",
+      resourceId: result.skillId,
+      sourceType: result.sourceType,
+      sourceUrl: result.sourceUrl,
+      renamed: result.renamed,
+      replaced: result.replaced,
+    },
+  });
+  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+  return actionToastResult(
+    {
+      skillId: result.skillId,
+      renamed: result.renamed,
+      replaced: result.replaced,
+      skipped: result.skipped,
+      requiresConfiguration: result.requiresConfiguration,
+    },
+    successToast("Skill 已上传至 TOS 并导入。", "Skill uploaded to TOS and imported."),
+  );
 }
 
 export async function reimportWorkspaceSkillAction(skillId: string): Promise<ActionToastResult<{ skillId: string }>> {

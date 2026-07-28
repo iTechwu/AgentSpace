@@ -208,10 +208,9 @@ function buildDockerTemplate(
     credentialEnvKey: PROVIDER_CREDENTIAL_ENV_KEYS[provider],
     pullImageCommands: [
       cmd(
-        "docker",
-        "pull",
-        `--quiet`,
-        `dofe/agent-runtime-${imageName}:{{imageTag}}`,
+        "sh",
+        "-c",
+        `docker image inspect 'dofe/agent-runtime-${imageName}:{{imageTag}}' >/dev/null 2>&1 || docker pull --quiet 'dofe/agent-runtime-${imageName}:{{imageTag}}'`,
       ),
     ],
     installCliCommands: [

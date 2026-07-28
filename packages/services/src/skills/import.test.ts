@@ -3,22 +3,28 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
-import { zipSync } from "fflate";
+import { strToU8, zipSync } from "fflate";
 import { listStoredAgentSkillAssignmentsSync, listStoredSkillImportEventsSync } from "@dofe-agent/db";
 import {
   createEmployeeSync,
   createWorkspaceSkillSync,
   importWorkspaceSkillFromUrl,
+  importWorkspaceSkillFromZipUpload,
   listWorkspaceSkillsSync,
   resetWorkspaceStateSync,
+  setAttachmentStorageClientForTests,
   setEmployeeSkillIdsSync,
 } from "../index.ts";
+import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-skill-import-"));
 const originalFetch = globalThis.fetch;
+const testTosStorage = createTestTosAttachmentStorage();
 
 before(() => {
+  process.env.NODE_ENV = "test";
+  setAttachmentStorageClientForTests(testTosStorage.client);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   process.chdir(tempRoot);
@@ -148,6 +154,38 @@ description: Local skill
   assert.ok(skill);
   assert.equal(skill?.sourceType, "local");
   assert.equal(skill?.files.some((file) => file.path === "references/notes.md"), true);
+});
+
+test("imports an uploaded zip by reading the persisted TOS object", async () => {
+  const archive = zipSync({
+    "SKILL.md": strToU8(`---
+name: tos-research
+description: TOS upload
+---
+
+# TOS Research
+`),
+    "references/checklist.md": strToU8("- read from TOS\n"),
+  });
+
+  const result = await importWorkspaceSkillFromZipUpload({
+    fileName: "research-pack.zip",
+    contentBytes: archive,
+  });
+
+  const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
+  assert.ok(skill);
+  assert.equal(skill?.sourceType, "tos");
+  assert.match(skill?.sourceUrl ?? "", /^tos:\/\/test-bucket\/workspaces\//);
+  assert.equal(skill?.files.some((file) => file.path === "references/checklist.md"), true);
+  assert.match(result.sourceUrl, /^tos:\/\/test-bucket\/workspaces\//);
+
+  const reimported = await importWorkspaceSkillFromUrl({
+    url: result.sourceUrl,
+    conflict: "replace",
+  });
+  assert.equal(reimported.replaced, true);
+  assert.equal(reimported.sourceType, "tos");
 });
 
 test("importWorkspaceSkillFromUrl can skip an existing conflict", async () => {

@@ -52,6 +52,35 @@ test("install stage verifies the provider CLI inside the pulled runtime image", 
   }]);
 });
 
+test("Hermes install stage uses the CLI path provided by its approved image", () => {
+  const commands = buildManagedProvisioningStageCommands("hermes", "install_cli", {
+    runtimeId: "runtime-hermes",
+    runtimeCredentialId: "credential-hermes",
+    gatewayBaseUrl: "http://model.local.dofe.ai/api",
+    imageTag: "stable",
+  });
+
+  assert.equal(commands[0]?.args.at(-1), "command -v /opt/hermes/.venv/bin/hermes-agent");
+});
+
+test("pull stage reuses an approved local runtime image before contacting a registry", () => {
+  const commands = buildManagedProvisioningStageCommands("claude", "pull_image", {
+    runtimeId: "runtime-claude",
+    runtimeCredentialId: "credential-claude",
+    gatewayBaseUrl: "http://models.test",
+    imageTag: "stable",
+  });
+
+  assert.deepEqual(commands, [{
+    executable: "sh",
+    args: [
+      "-c",
+      "docker image inspect 'dofe/agent-runtime-claude:stable' >/dev/null 2>&1 || docker pull --quiet 'dofe/agent-runtime-claude:stable'",
+    ],
+    env: undefined,
+  }]);
+});
+
 function runtime(provider: "claude" | "codex" | "gemini") {
   return {
     id: `runtime-${provider}`,

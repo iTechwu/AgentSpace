@@ -11,10 +11,13 @@ import { DAEMON_PROVIDER_IDS, formatDaemonProviderLabel, type DaemonProvider } f
 import type { ManagedRuntimeCreationPreflightResult } from "@dofe-agent/services";
 
 export function ManagedRuntimeCreationWizard({
-  onCreated,
+  onResolved,
   targetServers = [],
 }: {
-  onCreated: (taskId: string) => void;
+  onResolved: (result:
+    | { kind: "reused"; runtimeId: string; runtimeName: string }
+    | { kind: "provisioning"; taskId: string }
+  ) => void;
   targetServers?: Array<{ deviceName: string; status: "online" | "offline" }>;
 }) {
   const { tx } = useLanguage();
@@ -24,6 +27,7 @@ export function ManagedRuntimeCreationWizard({
   const [targetServer, setTargetServer] = useState("");
   const [defaultModel, setDefaultModel] = useState("");
   const [allowNewEmployeeSharing, setAllowNewEmployeeSharing] = useState(true);
+  const [forceProvisioning, setForceProvisioning] = useState(false);
   const [preflight, setPreflight] = useState<ManagedRuntimeCreationPreflightResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -42,6 +46,7 @@ export function ManagedRuntimeCreationWizard({
         const result = await preflightManagedRuntimeAction({
           provider,
           defaultModel: defaultModel || undefined,
+          forceProvisioning,
         });
         setPreflight(result);
         setStep(3);
@@ -64,9 +69,10 @@ export function ManagedRuntimeCreationWizard({
           allowedModels: defaultModel ? [defaultModel] : undefined,
           targetServer: targetServer.trim() || undefined,
           allowNewEmployeeSharing,
+          forceProvisioning,
           idempotencyKey: idempotencyKey.current!,
         });
-        onCreated(result.taskId);
+        onResolved(result);
       } catch (createError) {
         setError(humanizeRuntimeError(createError, tx));
       }
@@ -78,11 +84,11 @@ export function ManagedRuntimeCreationWizard({
       <div className="runtimes-panel__header runtime-wizard__header">
         <div>
           <span>{tx("新建", "Create")}</span>
-          <h2 id="runtime-wizard-title">{tx("创建托管执行引擎", "Create managed runtime")}</h2>
+          <h2 id="runtime-wizard-title">{tx("配置执行能力", "Configure execution capacity")}</h2>
         </div>
         <ol className="runtime-wizard__steps" aria-label={tx("创建进度", "Creation progress")}>
           {[
-            tx("运行环境", "Execution"),
+            tx("供应商", "Provider"),
             tx("模型", "Model"),
             tx("确认", "Confirm"),
           ].map((label, index) => {
@@ -98,20 +104,10 @@ export function ManagedRuntimeCreationWizard({
 
       <div className="runtime-wizard__body">
         {step === 1 ? (
-        <div className="runtime-wizard__fields">
+        <div className="runtime-wizard__execution">
+          <div className="runtime-wizard__fields runtime-wizard__fields--primary">
           <label className="runtime-field">
-            <span>{tx("执行引擎名称", "Runtime name")}</span>
-            <input
-              value={name}
-              onChange={(event) => {
-                setName(event.target.value);
-                invalidatePreflight();
-              }}
-              placeholder={tx(`托管 ${formatDaemonProviderLabel(provider)}`, `Managed ${formatDaemonProviderLabel(provider)}`)}
-            />
-          </label>
-          <label className="runtime-field">
-            <span>{tx("执行引擎类型", "Runtime type")}</span>
+            <span>{tx("执行能力类型", "Capacity type")}</span>
             <select
               value={provider}
               onChange={(event) => {
@@ -125,23 +121,59 @@ export function ManagedRuntimeCreationWizard({
               ))}
             </select>
           </label>
-          <label className="runtime-field">
-            <span>{tx("目标服务器", "Target server")}</span>
-            <select
-              value={targetServer}
-              onChange={(event) => {
-                setTargetServer(event.target.value);
-                invalidatePreflight();
-              }}
-            >
-              <option value="">{tx("自动调度", "Automatic placement")}</option>
-              {targetServers.map((server) => (
-                <option key={server.deviceName} value={server.deviceName} disabled={server.status !== "online"}>
-                  {server.deviceName}{server.status === "online" ? "" : tx("（离线）", " (offline)")}
-                </option>
-              ))}
-            </select>
-          </label>
+          </div>
+          <details className="runtime-wizard__advanced">
+            <summary>{tx("高级设置", "Advanced settings")}</summary>
+            <div className="runtime-wizard__fields">
+              <label className="runtime-field">
+                <span>{tx("执行能力名称", "Runtime name")}</span>
+                <input
+                  value={name}
+                  onChange={(event) => {
+                    setName(event.target.value);
+                    invalidatePreflight();
+                  }}
+                  placeholder={tx(`托管 ${formatDaemonProviderLabel(provider)}`, `Managed ${formatDaemonProviderLabel(provider)}`)}
+                />
+              </label>
+              <label className="runtime-field">
+                <span>{tx("目标执行节点", "Target execution node")}</span>
+                <select
+                  value={targetServer}
+                  onChange={(event) => {
+                    setTargetServer(event.target.value);
+                    invalidatePreflight();
+                  }}
+                >
+                  <option value="">{tx("自动调度", "Automatic placement")}</option>
+                  {targetServers.map((server) => (
+                    <option key={server.deviceName} value={server.deviceName} disabled={server.status !== "online"}>
+                      {server.deviceName}{server.status === "online" ? "" : tx("（离线）", " (offline)")}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="runtime-wizard__sharing runtime-wizard__advanced-toggle">
+                <input
+                  type="checkbox"
+                  checked={forceProvisioning}
+                  onChange={(event) => {
+                    setForceProvisioning(event.target.checked);
+                    invalidatePreflight();
+                  }}
+                />
+                <span>{tx("始终部署独立运行环境", "Always deploy an isolated environment")}</span>
+              </label>
+              <label className="runtime-wizard__sharing runtime-wizard__advanced-toggle">
+                <input
+                  type="checkbox"
+                  checked={allowNewEmployeeSharing}
+                  onChange={(event) => setAllowNewEmployeeSharing(event.target.checked)}
+                />
+                <span>{tx("允许新的 AI 员工共享新部署的运行环境", "Allow new AI employees to share a newly deployed environment")}</span>
+              </label>
+            </div>
+          </details>
         </div>
       ) : null}
 
@@ -161,28 +193,25 @@ export function ManagedRuntimeCreationWizard({
       {step === 3 ? (
         <div className="runtime-wizard__confirmation">
           <dl>
-            <dt>{tx("名称", "Name")}</dt>
-            <dd>{name.trim() || tx(`托管 ${formatDaemonProviderLabel(provider)}`, `Managed ${formatDaemonProviderLabel(provider)}`)}</dd>
-            <dt>{tx("执行引擎", "Runtime")}</dt>
+            <dt>{tx("执行能力", "Capacity")}</dt>
             <dd>{formatDaemonProviderLabel(provider)}</dd>
-            <dt>{tx("服务器", "Server")}</dt>
+            <dt>{tx("分配方式", "Allocation")}</dt>
+            <dd>{preflight?.reusableRuntime
+              ? preflight.reusableRuntime.name
+              : forceProvisioning
+                ? tx("部署独立运行环境", "Deploy isolated environment")
+                : tx("自动部署运行环境", "Deploy automatically")}</dd>
+            <dt>{tx("执行节点", "Execution node")}</dt>
             <dd>{targetServer.trim() || tx("自动调度", "Automatic placement")}</dd>
             <dt>{tx("默认模型", "Default model")}</dt>
             <dd>{defaultModel || tx("跟随系统默认", "System fallback")}</dd>
-            <dt>{tx("共享范围", "Sharing")}</dt>
-            <dd>
-              <label className="runtime-wizard__sharing">
-                <input
-                  type="checkbox"
-                  checked={allowNewEmployeeSharing}
-                  onChange={(event) => setAllowNewEmployeeSharing(event.target.checked)}
-                />
-                <span>{tx("允许新的 AI 员工共享此执行引擎", "Allow new AI employees to share this runtime")}</span>
-              </label>
-            </dd>
           </dl>
           <div className={`runtime-preflight runtime-preflight--${preflight?.allowed ? "passed" : "blocked"}`}>
-            <p>{preflight?.allowed ? tx("预检通过", "Preflight passed") : tx("预检未通过", "Preflight blocked")}</p>
+            <p>{preflight?.allowed
+              ? preflight.reusableRuntime
+                ? tx("已有可共享执行能力", "Shared capacity available")
+                : tx("可以自动部署", "Ready to deploy")
+              : tx("预检未通过", "Preflight blocked")}</p>
             <small>
               {formatPreflightSummary(preflight, tx)}
             </small>
@@ -215,7 +244,7 @@ export function ManagedRuntimeCreationWizard({
         ) : null}
         {step === 3 ? (
           <button type="button" className="primary-button" disabled={pending || !preflight?.allowed} onClick={createRuntime}>
-            {pending ? tx("创建中...", "Creating...") : tx("创建执行引擎", "Create runtime")}
+            {pending ? tx("配置中...", "Configuring...") : tx("配置执行能力", "Configure capacity")}
           </button>
         ) : null}
       </div>
@@ -227,6 +256,9 @@ export function ManagedRuntimeCreationWizard({
 function formatPreflightSummary(result: ManagedRuntimeCreationPreflightResult | null, tx: (zh: string, en: string) => string): string {
   if (!result) return tx("预检尚未完成。", "Preflight has not completed.");
   if (!result.allowed) return result.message || tx("需要检查模型可用性或团队余额。", "Model availability or team balance requires attention.");
+  if (result.reusableRuntime) {
+    return tx("将直接复用兼容的在线执行能力。", "Compatible online capacity will be reused.");
+  }
   if (result.availableBalance !== undefined) {
     return tx(`可用余额：${result.availableBalance} ${result.currency ?? ""}`, `Available balance: ${result.availableBalance} ${result.currency ?? ""}`).trim();
   }

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   createWorkspaceSkillAction,
   deleteWorkspaceSkillAction,
+  importWorkspaceSkillFromZipAction,
   importWorkspaceSkillFromUrlAction,
   updateWorkspaceSkillMetaAction,
   upsertWorkspaceSkillFileAction,
@@ -35,7 +36,7 @@ export function SkillsPageClient({
   const router = useRouter();
   const navigationSearchParams = useSearchParams();
   const searchParams = moduleSearchParams ?? navigationSearchParams;
-  const [activeSourceFilter, setActiveSourceFilter] = useState<"all" | "builtin" | "manual" | "github" | "skills.sh" | "clawhub" | "local">("all");
+  const [activeSourceFilter, setActiveSourceFilter] = useState<"all" | "builtin" | "manual" | "github" | "skills.sh" | "clawhub" | "tos">("all");
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(data.skills[0]?.id ?? null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(data.skills[0]?.files[0]?.id ?? null);
   const [showCreateSkill, setShowCreateSkill] = useState(false);
@@ -102,7 +103,7 @@ export function SkillsPageClient({
     if (activeSourceFilter === "manual") {
       return customSkills.filter((skill) => !skill.sourceType || skill.sourceType === "manual");
     }
-    if (activeSourceFilter === "github" || activeSourceFilter === "skills.sh" || activeSourceFilter === "clawhub" || activeSourceFilter === "local") {
+    if (activeSourceFilter === "github" || activeSourceFilter === "skills.sh" || activeSourceFilter === "clawhub" || activeSourceFilter === "tos") {
       return importedSkills.filter((skill) => skill.sourceType === activeSourceFilter);
     }
     return data.skills;
@@ -259,7 +260,15 @@ export function SkillsPageClient({
           onCancel={() => setShowImportSkill(false)}
           onConfirm={(input) =>
             runAction(
-              () => importWorkspaceSkillFromUrlAction(input),
+              () => {
+                if ("archive" in input) {
+                  const formData = new FormData();
+                  formData.set("archive", input.archive);
+                  formData.set("conflict", input.conflict);
+                  return importWorkspaceSkillFromZipAction(formData);
+                }
+                return importWorkspaceSkillFromUrlAction(input);
+              },
               (result) => {
                 setSelectedSkillId(result.skillId);
                 setShowImportSkill(false);
@@ -312,12 +321,12 @@ export function SkillsPageClient({
                   ["github", "GitHub"],
                   ["skills.sh", "skills.sh"],
                   ["clawhub", "ClawHub"],
-                  ["local", tx("本地导入", "Local")],
+                  ["tos", tx("TOS 上传", "TOS upload")],
                 ].map(([value, label]) => (
                   <button
                     className={`filter-pill${activeSourceFilter === value ? " filter-pill--active" : ""}`}
                     key={value}
-                    onClick={() => setActiveSourceFilter(value as "all" | "builtin" | "manual" | "github" | "skills.sh" | "clawhub" | "local")}
+                    onClick={() => setActiveSourceFilter(value as "all" | "builtin" | "manual" | "github" | "skills.sh" | "clawhub" | "tos")}
                     type="button"
                   >
                     {label}
@@ -462,6 +471,9 @@ function translateSkillSourceBadge(
   }
   if (skill.sourceType === "clawhub") {
     return "ClawHub";
+  }
+  if (skill.sourceType === "tos") {
+    return tx("TOS 上传", "TOS upload");
   }
   if (skill.sourceType === "local") {
     return tx("本地", "Local");

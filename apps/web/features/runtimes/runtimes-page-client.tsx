@@ -55,30 +55,45 @@ export function RuntimesPageClient({
     <section className="page-shell runtimes-page">
       <WorkbenchPageHeader
         description={tx(
-          "每个托管执行引擎使用独立凭证，并通过可恢复的异步任务完成部署。",
-          "Each managed runtime uses an isolated credential and is provisioned through a resumable asynchronous task.",
+          "系统优先复用兼容的共享执行能力，缺失时自动在托管节点通过 Docker 部署。",
+          "Compatible shared capacity is reused first; otherwise it is deployed with Docker on a managed node.",
         )}
         eyebrow={tx("数字员工", "AI employees")}
         meta={(
           <>
-            <span>{tx(`${initialRuntimes.length} 个执行引擎`, `${initialRuntimes.length} runtimes`)}</span>
+            <span>{tx(`${targetServers.filter((node) => node.status === "online").length} 个在线节点`, `${targetServers.filter((node) => node.status === "online").length} online nodes`)}</span>
             <span>{tx(`${initialTasks.length} 个部署任务`, `${initialTasks.length} provisioning tasks`)}</span>
           </>
         )}
-        title={tx("执行引擎管理", "Runtime management")}
+        title={tx("执行能力管理", "Execution capacity")}
       />
 
       <div className="runtimes-page__content">
         <ManagedRuntimeCreationWizard
           targetServers={targetServers}
-          onCreated={(taskId) => router.push(buildWorkspacePath(workspaceSlug, `/runtimes/${taskId}`))}
+          onResolved={(result) => {
+            if (result.kind === "reused") {
+              refresh();
+              return;
+            }
+            router.push(buildWorkspacePath(workspaceSlug, `/runtimes/${result.taskId}`));
+          }}
         />
 
-        <section className="runtimes-panel" aria-labelledby="runtime-list-title">
+        <details className="runtime-operations">
+          <summary>
+            <span>{tx("运维详情", "Operations")}</span>
+            <small>{tx(
+              `${initialRuntimes.length} 个运行环境 · ${initialTasks.length} 个部署任务`,
+              `${initialRuntimes.length} environments · ${initialTasks.length} provisioning tasks`,
+            )}</small>
+          </summary>
+          <div className="runtime-operations__content">
+          <section className="runtimes-panel" aria-labelledby="runtime-list-title">
           <div className="runtimes-panel__header">
             <div>
               <span>{tx("资源", "Resources")}</span>
-              <h2 id="runtime-list-title">{tx("已部署执行引擎", "Provisioned runtimes")}</h2>
+              <h2 id="runtime-list-title">{tx("运行环境", "Runtime environments")}</h2>
             </div>
           </div>
           <ManagedRuntimeList
@@ -195,6 +210,8 @@ export function RuntimesPageClient({
           </ul>
           )}
         </section>
+          </div>
+        </details>
       </div>
     </section>
   );

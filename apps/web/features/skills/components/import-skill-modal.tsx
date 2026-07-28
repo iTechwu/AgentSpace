@@ -4,15 +4,20 @@ import { getField } from "@/shared/lib/form";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import { AppIcon } from "@/shared/ui/app-icon";
 
-type SkillImportSource = "github" | "skills.sh" | "clawhub" | "local";
+type SkillImportSource = "github" | "skills.sh" | "clawhub" | "upload";
 
 interface ImportSkillModalProps {
   readonly pending: boolean;
   readonly onCancel: () => void;
-  readonly onConfirm: (input: {
-    url: string;
-    conflict: "reject" | "rename" | "replace" | "skip";
-  }) => void;
+  readonly onConfirm: (input:
+    | {
+      url: string;
+      conflict: "reject" | "rename" | "replace" | "skip";
+    }
+    | {
+      archive: File;
+      conflict: "reject" | "rename" | "replace" | "skip";
+    }) => void;
 }
 
 export function ImportSkillModal({
@@ -23,6 +28,7 @@ export function ImportSkillModal({
   const { tx } = useLanguage();
   const { surfaceRef, handleBackdropMouseDown, labelId, descriptionId } = useDialogSurface<HTMLFormElement>(onCancel);
   const [source, setSource] = useState<SkillImportSource>("github");
+  const [archive, setArchive] = useState<File | null>(null);
   const sourceOptions = useMemo(
     () => [
       {
@@ -44,10 +50,9 @@ export function ImportSkillModal({
         placeholder: "https://clawhub.ai/fangkelvin/find-skills-skill",
       },
       {
-        value: "local" as const,
-        label: tx("本地", "Local"),
-        hint: tx("输入本地 skill 目录、zip 文件或 SKILL.md 路径。", "Enter a local skill directory, zip file, or SKILL.md path."),
-        placeholder: "./skills/research-pack",
+        value: "upload" as const,
+        label: tx("上传 ZIP", "Upload ZIP"),
+        hint: tx("选择本机 Skill zip，文件会先上传到 TOS，再由服务端解析导入。", "Choose a local Skill zip. It is uploaded to TOS before the server imports it."),
       },
     ],
     [tx],
@@ -67,16 +72,20 @@ export function ImportSkillModal({
         onSubmit={(event) => {
           event.preventDefault();
           const formData = new FormData(event.currentTarget);
-          onConfirm({
-            url: normalizeImportSourceInput(getField(formData, "url"), source),
-            conflict: getField(formData, "conflict") as "reject" | "rename" | "replace" | "skip",
-          });
+          const conflict = getField(formData, "conflict") as "reject" | "rename" | "replace" | "skip";
+          if (source === "upload") {
+            if (archive && archive.size > 0) {
+              onConfirm({ archive, conflict });
+            }
+            return;
+          }
+          onConfirm({ url: normalizeImportSourceInput(getField(formData, "url"), source), conflict });
         }}
       >
         <div className="modal-card__header">
           <div>
             <h3 id={labelId}>{tx("导入 Skill", "Import skill")}</h3>
-            <p id={descriptionId}>{tx("当前支持 GitHub / skills.sh / ClawHub，以及本地目录或 zip 路径。", "Currently supports GitHub / skills.sh / ClawHub plus local directories or zip paths.")}</p>
+            <p id={descriptionId}>{tx("支持 GitHub / skills.sh / ClawHub，以及上传本机 zip 后导入。", "Supports GitHub / skills.sh / ClawHub and locally uploaded zip files.")}</p>
           </div>
           <button className="modal-close" onClick={onCancel} type="button">
             <AppIcon name="close" />
@@ -89,7 +98,12 @@ export function ImportSkillModal({
                 aria-label={tx(`选择 ${option.label} 导入来源`, `Select ${option.label} import source`)}
                 className={`skill-import-source-picker__button${source === option.value ? " skill-import-source-picker__button--active" : ""}`}
                 key={option.value}
-                onClick={() => setSource(option.value)}
+                onClick={() => {
+                  setSource(option.value);
+                  if (option.value !== "upload") {
+                    setArchive(null);
+                  }
+                }}
                 type="button"
               >
                 {option.label}
@@ -97,17 +111,32 @@ export function ImportSkillModal({
             ))}
           </div>
 
-          <label className="form-field">
-            <span>{tx("来源 URL", "Source URL")}</span>
-            <input
-              aria-label={tx("来源 URL", "Source URL")}
-              autoFocus
-              name="url"
-              placeholder={activeSource.placeholder}
-              type="text"
-            />
-            <small className="form-field__hint">{activeSource.hint}</small>
-          </label>
+          {source === "upload" ? (
+            <label className="form-field">
+              <span>{tx("Skill 压缩包", "Skill archive")}</span>
+              <input
+                accept=".zip,application/zip,application/x-zip-compressed"
+                aria-label={tx("Skill 压缩包", "Skill archive")}
+                autoFocus
+                name="archive"
+                onChange={(event) => setArchive(event.currentTarget.files?.[0] ?? null)}
+                type="file"
+              />
+              <small className="form-field__hint">{activeSource.hint}</small>
+            </label>
+          ) : (
+            <label className="form-field">
+              <span>{tx("来源 URL", "Source URL")}</span>
+              <input
+                aria-label={tx("来源 URL", "Source URL")}
+                autoFocus
+                name="url"
+                placeholder={activeSource.placeholder}
+                type="text"
+              />
+              <small className="form-field__hint">{activeSource.hint}</small>
+            </label>
+          )}
 
           <label className="form-field">
             <span>{tx("冲突策略", "Conflict strategy")}</span>
@@ -123,7 +152,7 @@ export function ImportSkillModal({
           <button className="modal-secondary-button" onClick={onCancel} type="button">
             {tx("取消", "Cancel")}
           </button>
-          <button className="primary-button" disabled={pending} type="submit">
+          <button className="primary-button" disabled={pending || (source === "upload" && !archive)} type="submit">
             {pending ? tx("导入中...", "Importing...") : tx("开始导入", "Import")}
           </button>
         </div>

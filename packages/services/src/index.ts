@@ -222,6 +222,7 @@ export {
   type SkillExportManifestEntry,
 } from "./skills/export.ts";
 export {
+  importWorkspaceSkillFromZipUpload,
   importWorkspaceSkillFromUrl,
   type SkillImportConflict,
   type SkillImportResult,
@@ -978,6 +979,7 @@ export {
   cancelRuntimeProvisioningTaskAsync,
   completeManagedRuntimeCleanupSync,
   deleteManagedRuntimeAsync,
+  ensureManagedRuntimeCapacitySync,
   failManagedRuntimeCleanupSync,
   finalizeManagedRuntimeProvisioningSync,
   getManagedRuntimeCredentialStatusAsync,
@@ -985,6 +987,7 @@ export {
   getRuntimeProvisioningTaskDetailSync,
   listManagedRuntimeTasksSync,
   listManagedRuntimesForWorkspaceSync,
+  listManagedExecutionNodesSync,
   preflightManagedRuntimeCreationAsync,
   requestManagedRuntimeProvisioningSync,
   resumePendingRuntimeCredentialRecoveriesAsync,
@@ -997,6 +1000,9 @@ export {
   stopManagedRuntimeAsync,
   type GetManagedRuntimeCredentialStatusInput,
   type HandleManagedRuntimeProviderFailureInput,
+  type EnsureManagedRuntimeCapacityInput,
+  type ManagedExecutionNode,
+  type ManagedRuntimeCapacityResult,
   type ManagedRuntimeProviderFailureResult,
   type ManagedRuntimeListItem,
   type ManagedRuntimeCreationPreflightResult,

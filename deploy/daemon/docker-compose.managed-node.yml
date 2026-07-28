@@ -1,0 +1,32 @@
+services:
+  managed-node:
+    build:
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile.managed-node
+    image: dofe-agent-managed-node:local
+    platform: linux/amd64
+    env_file: ./.env.managed-node
+    environment:
+      DOFE_AGENT_DAEMON_STATE_DIR: ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}
+      DOFE_AGENT_MANAGED_NODE: "true"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    working_dir: ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}:${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}
+    user: ${MANAGED_NODE_USER:-0:0}
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "dofe-agent-daemon", "status", "--json"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped

@@ -160,6 +160,7 @@ test("managed credential launchers run the provider inside its dedicated image",
     assert.match(launcher, /dst=\/dofe-home/);
     assert.match(launcher, /--env HOME=\/dofe-home/);
     assert.match(launcher, /--env OPENAI_BASE_URL/);
+    assert.match(launcher, /--entrypoint node/);
     assert.match(launcher, /--env DOFE_AGENT_RUNTIME_CREDENTIAL_ID/);
     assert.match(launcher, /--env DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID/);
     assert.match(launcher, /--read-only/);

@@ -11,6 +11,7 @@ const {
   mockCreateWorkspaceSkillAction,
   mockDeleteWorkspaceSkillAction,
   mockDeleteWorkspaceSkillFileAction,
+  mockImportWorkspaceSkillFromZipAction,
   mockImportWorkspaceSkillFromUrlAction,
   mockUpdateWorkspaceSkillMetaAction,
   mockUpsertWorkspaceSkillFileAction,
@@ -26,6 +27,13 @@ const {
   mockDeleteWorkspaceSkillFileAction: vi.fn(async () => ({
     data: undefined,
     toast: { tone: "success", zh: "Skill 文件已删除。", en: "Skill file deleted." },
+  })),
+  mockImportWorkspaceSkillFromZipAction: vi.fn<(formData: FormData) => Promise<{
+    data: { skillId: string; renamed: boolean; replaced: boolean; skipped: boolean };
+    toast: { tone: "success"; zh: string; en: string };
+  }>>(async () => ({
+    data: { skillId: "skill-zip", renamed: false, replaced: false, skipped: false },
+    toast: { tone: "success", zh: "Skill 已上传至 TOS 并导入。", en: "Skill uploaded to TOS and imported." },
   })),
   mockImportWorkspaceSkillFromUrlAction: vi.fn(async () => ({
     data: { skillId: "skill-3", renamed: false, replaced: false, skipped: false },
@@ -56,6 +64,7 @@ vi.mock("@/features/skills/actions", () => ({
   createWorkspaceSkillAction: mockCreateWorkspaceSkillAction,
   deleteWorkspaceSkillAction: mockDeleteWorkspaceSkillAction,
   deleteWorkspaceSkillFileAction: mockDeleteWorkspaceSkillFileAction,
+  importWorkspaceSkillFromZipAction: mockImportWorkspaceSkillFromZipAction,
   importWorkspaceSkillFromUrlAction: mockImportWorkspaceSkillFromUrlAction,
   updateWorkspaceSkillMetaAction: mockUpdateWorkspaceSkillMetaAction,
   upsertWorkspaceSkillFileAction: mockUpsertWorkspaceSkillFileAction,
@@ -282,6 +291,25 @@ describe("SkillsPageClient", () => {
       url: "https://clawhub.ai/fangkelvin/find-skills-skill",
       conflict: "rename",
     });
+  });
+
+  it("uploads a local zip for TOS-backed skill import", async () => {
+    const user = userEvent.setup();
+
+    renderSkillsPage();
+
+    await user.click(screen.getByRole("button", { name: "导入 Skill" }));
+    await user.click(screen.getByRole("button", { name: "选择 上传 ZIP 导入来源" }));
+    const archive = new File(["zip-content"], "research-pack.zip", { type: "application/zip" });
+    await user.upload(screen.getByLabelText("Skill 压缩包"), archive);
+    await user.click(screen.getByRole("button", { name: "开始导入" }));
+
+    await waitFor(() => {
+      expect(mockImportWorkspaceSkillFromZipAction).toHaveBeenCalledTimes(1);
+    });
+    const formData = mockImportWorkspaceSkillFromZipAction.mock.calls[0]?.[0] as FormData;
+    expect(formData.get("archive")).toBe(archive);
+    expect(formData.get("conflict")).toBe("rename");
   });
 
   it("filters skills by source type", async () => {

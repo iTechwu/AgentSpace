@@ -14,6 +14,31 @@ Codex uses `workspace-write` by default. The daemon no longer turns off provider
 
 Each provider credential directory contains a node-local `provider-accounts.json` map. It maps a Provider Account ID to `configRef` and `secretRef`; the daemon accepts only `file://` references beneath `DOFE_AGENT_PROVIDER_CREDENTIAL_ROOT`, copies their `files` entries to that runtime's private provider HOME, and supplies their `environment` entries only to that runtime's process. The secret-derived profile is stored with mode `0700` in that runtime's state volume and is replaced on each daemon start.
 
+## Managed execution node
+
+`docker-compose.managed-node.yml` is the separate deployment mode used by the
+managed-runtime provisioning workflow. It runs one provider-neutral daemon,
+mounts the Docker socket, reuses an approved local `dofe/agent-runtime-*` image
+when present, and pulls the image only when it is missing. Do not run one
+managed-node container per provider.
+
+Copy `managed-node.env.example` to `.env.managed-node`, set a newly-created
+daemon token and an absolute `MANAGED_NODE_STATE_DIR`, then start it with:
+
+```sh
+docker compose \
+  --env-file deploy/daemon/.env.managed-node \
+  -f deploy/daemon/docker-compose.managed-node.yml \
+  up -d --build
+```
+
+The state directory is deliberately bind-mounted at the same absolute path on
+the host and in the daemon container. Provider containers are siblings created
+through the host Docker socket, so their credential and workspace bind mounts
+must resolve to host-visible paths. `MANAGED_NODE_USER=0:0` is suitable for a
+local Docker Desktop test; production Linux hosts should instead grant the
+container user access to the Docker socket by group id.
+
 ```json
 {
   "version": 1,

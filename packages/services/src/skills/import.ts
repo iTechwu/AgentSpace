@@ -20,13 +20,19 @@ import {
 import { parseSkillMetadata } from "./skill-metadata.ts";
 import { parseSkillDependencyDeclarations } from "./dependencies.ts";
 import { parseSkillRequirementDeclarations } from "./requirements.ts";
+import {
+  deleteWorkspaceAttachmentsSync,
+  persistWorkspaceAttachmentFromBytesSync,
+  readWorkspaceAttachmentBytesSync,
+} from "../attachments/attachments.ts";
 
 export type SkillImportConflict = "reject" | "rename" | "replace" | "skip";
-export type SkillImportSourceType = "github" | "skills.sh" | "clawhub" | "local";
+export type SkillImportSourceType = "github" | "skills.sh" | "clawhub" | "local" | "tos";
 
 export interface SkillImportResult {
   skillId: string;
   skillName: string;
+  sourceUrl: string;
   created: boolean;
   renamed: boolean;
   replaced: boolean;
@@ -74,6 +80,10 @@ const IMPORTABLE_TEXT_EXTENSIONS = new Set([
   ".sh",
 ]);
 
+const MAX_SKILL_ARCHIVE_BYTES = 10 * 1024 * 1024;
+const MAX_SKILL_ARCHIVE_FILES = 100;
+const MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024;
+
 export async function importWorkspaceSkillFromUrl(input: {
   workspaceId?: string;
   url: string;
@@ -85,14 +95,64 @@ export async function importWorkspaceSkillFromUrl(input: {
     throw new Error("Skill import URL is required.");
   }
 
-  const imported = await importSkillDefinition(sourceUrl);
+  const hasRecordedTosSource = listWorkspaceSkillsSync(workspaceId).some(
+    (skill) => skill.sourceType === "tos" && sameValue(skill.sourceUrl ?? "", sourceUrl),
+  );
+  const imported = await importSkillDefinition(sourceUrl, { hasRecordedTosSource });
+  return persistImportedSkillDefinition(imported, workspaceId, input.conflict);
+}
+
+export async function importWorkspaceSkillFromZipUpload(input: {
+  workspaceId?: string;
+  fileName: string;
+  contentBytes: Uint8Array;
+  conflict?: SkillImportConflict;
+}): Promise<SkillImportResult> {
+  const fileName = basename(input.fileName.trim());
+  if (!fileName.toLowerCase().endsWith(".zip")) {
+    throw new Error("Skill upload must be a .zip archive.");
+  }
+  if (input.contentBytes.byteLength === 0) {
+    throw new Error("Skill archive cannot be empty.");
+  }
+  if (input.contentBytes.byteLength > MAX_SKILL_ARCHIVE_BYTES) {
+    throw new Error("Skill archive exceeds the 10 MB upload limit.");
+  }
+
+  const sourceAttachment = persistWorkspaceAttachmentFromBytesSync({
+    workspaceId: input.workspaceId,
+    fileName,
+    mediaType: "application/zip",
+    contentBytes: input.contentBytes,
+  });
+
+  try {
+    // Parse the persisted TOS object instead of trusting the browser upload bytes.
+    const archiveBytes = readWorkspaceAttachmentBytesSync(sourceAttachment);
+    const imported = importTosSkillDefinition(archiveBytes, sourceAttachment);
+    const result = await persistImportedSkillDefinition(imported, input.workspaceId, input.conflict);
+    if (result.skipped) {
+      deleteWorkspaceAttachmentsSync([sourceAttachment]);
+    }
+    return result;
+  } catch (error) {
+    deleteWorkspaceAttachmentsSync([sourceAttachment]);
+    throw error;
+  }
+}
+
+async function persistImportedSkillDefinition(
+  imported: ImportedSkillDefinition,
+  workspaceId?: string,
+  requestedConflict?: SkillImportConflict,
+): Promise<SkillImportResult> {
   const existingSkills = listWorkspaceSkillsSync(workspaceId);
   const existing = existingSkills.find((skill) => sameValue(skill.name, imported.name));
   if (existing && isBuiltinSkill(existing.name)) {
     throw new Error(`Builtin skill "${existing.name}" cannot be replaced by an import.`);
   }
 
-  const conflict = input.conflict ?? "reject";
+  const conflict = requestedConflict ?? "reject";
   if (existing && conflict === "reject") {
     throw new Error(`Skill "${existing.name}" already exists. Use --conflict rename or --conflict replace.`);
   }
@@ -100,6 +160,7 @@ export async function importWorkspaceSkillFromUrl(input: {
     return {
       skillId: existing.id,
       skillName: existing.name,
+      sourceUrl: imported.sourceUrl,
       created: false,
       renamed: false,
       replaced: false,
@@ -150,6 +211,7 @@ export async function importWorkspaceSkillFromUrl(input: {
   return {
     skillId: created.id,
     skillName: created.name,
+    sourceUrl: imported.sourceUrl,
     created: true,
     renamed: !sameValue(created.name, imported.name),
     replaced: false,
@@ -214,6 +276,7 @@ async function replaceImportedSkill(
   return {
     skillId: refreshed.id,
     skillName: refreshed.name,
+    sourceUrl: imported.sourceUrl,
     created: false,
     renamed: false,
     replaced: true,
@@ -224,7 +287,10 @@ async function replaceImportedSkill(
   };
 }
 
-async function importSkillDefinition(sourceUrl: string): Promise<ImportedSkillDefinition> {
+async function importSkillDefinition(
+  sourceUrl: string,
+  options: { hasRecordedTosSource: boolean } = { hasRecordedTosSource: false },
+): Promise<ImportedSkillDefinition> {
   const parsed = parseUrl(sourceUrl);
   if (!parsed) {
     return importLocalSkillDefinition(sourceUrl);
@@ -239,7 +305,65 @@ async function importSkillDefinition(sourceUrl: string): Promise<ImportedSkillDe
   if (parsed.protocol === "file:") {
     return importLocalSkillDefinition(decodeURIComponent(parsed.pathname));
   }
+  if (parsed.protocol === "tos:") {
+    if (!options.hasRecordedTosSource) {
+      throw new Error("TOS skill sources must be created through a zip upload.");
+    }
+    return importTosSkillDefinitionFromPath(sourceUrl, parsed);
+  }
   return importGitHubSkillDefinition(sourceUrl);
+}
+
+function importTosSkillDefinitionFromPath(sourceUrl: string, parsed: URL): ImportedSkillDefinition {
+  const storageKey = decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
+  if (!parsed.hostname || !storageKey) {
+    throw new Error("TOS skill source must include a bucket and object key.");
+  }
+  const archiveBytes = readWorkspaceAttachmentBytesSync({
+    storedPath: sourceUrl,
+    storageBucket: parsed.hostname,
+    storageKey,
+  });
+  return importTosSkillDefinition(archiveBytes, {
+    fileName: basename(storageKey),
+    storedPath: sourceUrl,
+    storageBucket: parsed.hostname,
+    storageKey,
+    sizeBytes: archiveBytes.byteLength,
+  });
+}
+
+function importTosSkillDefinition(
+  archiveBytes: Uint8Array,
+  source: Pick<
+    ReturnType<typeof persistWorkspaceAttachmentFromBytesSync>,
+    "fileName" | "storedPath" | "storageBucket" | "storageRegion" | "storageEndpoint" | "storageKey" | "sha256" | "sizeBytes"
+  >,
+): ImportedSkillDefinition {
+  const warnings: string[] = [];
+  const files = readSkillZipFiles(archiveBytes, warnings, "TOS skill archive");
+  const skillMd = readImportedSkillFile(files, "SKILL.md");
+  const metadata = parseSkillMetadata(skillMd, deriveSkillNameFromPath(source.fileName));
+  return {
+    name: metadata.name,
+    description: metadata.description,
+    files,
+    sourceType: "tos",
+    sourceUrl: source.storedPath,
+    configJson: JSON.stringify({
+      provider: "tos",
+      storageKey: source.storageKey,
+      storageBucket: source.storageBucket,
+      storageRegion: source.storageRegion,
+      storageEndpoint: source.storageEndpoint,
+      sha256: source.sha256,
+      sizeBytes: source.sizeBytes ?? archiveBytes.byteLength,
+      warnings,
+      dependencies: parseSkillDependencyDeclarations(skillMd),
+      requirements: parseSkillRequirementDeclarations(skillMd),
+    }),
+    warnings,
+  };
 }
 
 async function importLocalSkillDefinition(sourcePath: string): Promise<ImportedSkillDefinition> {
@@ -530,13 +654,43 @@ async function readLocalSkillZipFiles(
   archivePath: string,
   warnings: string[],
 ): Promise<ImportedSkillFile[]> {
-  const archive = unzipSync(new Uint8Array(await readFile(archivePath)));
-  const files: ImportedSkillFile[] = [];
+  return readSkillZipFiles(new Uint8Array(await readFile(archivePath)), warnings, "Local skill archive");
+}
 
-  for (const [entryName, content] of Object.entries(archive)) {
+function readSkillZipFiles(
+  archiveBytes: Uint8Array,
+  warnings: string[],
+  sourceLabel: string,
+): ImportedSkillFile[] {
+  if (archiveBytes.byteLength === 0) {
+    throw new Error(`${sourceLabel} cannot be empty.`);
+  }
+  if (archiveBytes.byteLength > MAX_SKILL_ARCHIVE_BYTES) {
+    throw new Error(`${sourceLabel} exceeds the 10 MB upload limit.`);
+  }
+
+  let archive: Record<string, Uint8Array>;
+  try {
+    archive = unzipSync(archiveBytes);
+  } catch {
+    throw new Error(`${sourceLabel} is not a valid zip archive.`);
+  }
+  const entries = Object.entries(archive);
+  if (entries.length > MAX_SKILL_ARCHIVE_FILES) {
+    throw new Error(`${sourceLabel} contains more than ${MAX_SKILL_ARCHIVE_FILES} files.`);
+  }
+
+  const files: ImportedSkillFile[] = [];
+  let uncompressedBytes = 0;
+
+  for (const [entryName, content] of entries) {
     const normalizedPath = normalizeSkillFilePath(entryName);
     if (!normalizedPath) {
       continue;
+    }
+    uncompressedBytes += content.byteLength;
+    if (uncompressedBytes > MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES) {
+      throw new Error(`${sourceLabel} expands beyond the 16 MB extraction limit.`);
     }
     if (!isImportableSkillTextFile(normalizedPath)) {
       warnings.push(`Skipped non-text archive file: ${normalizedPath}`);
@@ -549,7 +703,7 @@ async function readLocalSkillZipFiles(
   }
 
   if (!files.some((file) => sameValue(file.path, "SKILL.md"))) {
-    throw new Error(`Local skill archive must contain SKILL.md: ${archivePath}`);
+    throw new Error(`${sourceLabel} must contain SKILL.md.`);
   }
 
   return sortImportedSkillFiles(files);

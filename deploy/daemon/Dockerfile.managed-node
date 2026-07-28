@@ -1,0 +1,38 @@
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS daemon-build
+
+WORKDIR /workspace
+
+COPY package.json tsconfig.base.json ./
+COPY apps/cli ./apps/cli
+COPY packages ./packages
+
+RUN npm --prefix apps/cli ci --ignore-scripts \
+  && npm --prefix packages/db ci --ignore-scripts \
+  && npm --prefix packages/services ci --ignore-scripts \
+  && npm --prefix packages/daemon ci --ignore-scripts \
+  && npm --prefix packages/daemon run build \
+  && mkdir -p /opt/daemon-package \
+  && npm pack ./packages/daemon --ignore-scripts --pack-destination /opt/daemon-package
+
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
+
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends docker.io \
+  && rm -rf /var/lib/apt/lists/* \
+  && groupadd --gid 10001 dofe-agent \
+  && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent
+
+COPY --from=daemon-build /opt/daemon-package/dofe-agent-daemon-*.tgz /tmp/
+
+RUN npm install --global /tmp/dofe-agent-daemon-*.tgz \
+  && rm /tmp/dofe-agent-daemon-*.tgz \
+  && mkdir -p /var/lib/dofe-agent-daemon \
+  && chown -R dofe-agent:dofe-agent /home/dofe-agent /var/lib/dofe-agent-daemon
+
+ENV HOME=/home/dofe-agent \
+    NODE_ENV=production \
+    DOFE_AGENT_MANAGED_NODE=true
+
+USER dofe-agent
+
+ENTRYPOINT ["dofe-agent-daemon", "start", "--foreground", "--managed-node"]

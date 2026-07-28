@@ -26,6 +26,7 @@ import {
   failManagedProvisioningStageSync,
   getMonthStartIso,
   listEmployeeRuntimeBindingsSync,
+  listDaemonSnapshotsSync,
   listManagedAgentRuntimesSync,
   listRuntimeCostSummariesSync,
   listRuntimeProvisioningTaskEventsSync,
@@ -152,6 +153,104 @@ export interface RequestManagedRuntimeInput extends ManagedRuntimeActor {
   name?: string;
   /** When false, the created runtime refuses new employee binds (default true). */
   allowNewEmployeeSharing?: boolean;
+}
+
+export interface EnsureManagedRuntimeCapacityInput extends RequestManagedRuntimeInput {
+  /** Skip compatible shared runtimes and provision an isolated runtime. */
+  forceProvisioning?: boolean;
+}
+
+export type ManagedRuntimeCapacityResult =
+  | { kind: "reused"; runtimeId: string; runtimeName: string }
+  | { kind: "provisioning"; task: RuntimeProvisioningTaskRecord };
+
+export interface ManagedExecutionNode {
+  deviceName: string;
+  status: "online" | "offline";
+}
+
+export function ensureManagedRuntimeCapacitySync(
+  input: EnsureManagedRuntimeCapacityInput,
+): ManagedRuntimeCapacityResult {
+  assertRemoteRuntimeMode();
+  assertCanManageManagedRuntimes(input);
+
+  if (!input.forceProvisioning) {
+    const runtime = findReusableManagedRuntime(input);
+    if (runtime) {
+      tryRecordWorkspaceAuditEventSync({
+        workspaceId: input.workspaceId,
+        title: "Managed runtime capacity reused",
+        note: `Reused ${runtime.provider} runtime ${runtime.id}`,
+        code: "runtime.capacity_reused",
+        data: { runtimeId: runtime.id, runtimeType: runtime.provider, actorId: input.actorUserId },
+      });
+      return { kind: "reused", runtimeId: runtime.id, runtimeName: runtime.name };
+    }
+  }
+
+  return {
+    kind: "provisioning",
+    task: requestManagedRuntimeProvisioningSync(input),
+  };
+}
+
+export function listManagedExecutionNodesSync(
+  input: ManagedRuntimeActor,
+): ManagedExecutionNode[] {
+  assertRemoteRuntimeMode();
+  assertCanManageManagedRuntimes(input);
+  const nodes = new Map<string, ManagedExecutionNode>();
+  for (const { daemon } of listDaemonSnapshotsSync(input.workspaceId)) {
+    if (!isManagedExecutionNodeMetadata(daemon.metadataJson)) continue;
+    const current = nodes.get(daemon.deviceName);
+    if (!current || daemon.status === "online") {
+      nodes.set(daemon.deviceName, {
+        deviceName: daemon.deviceName,
+        status: daemon.status,
+      });
+    }
+  }
+  return [...nodes.values()].sort((left, right) => left.deviceName.localeCompare(right.deviceName));
+}
+
+function findReusableManagedRuntime(
+  input: Pick<EnsureManagedRuntimeCapacityInput, "workspaceId" | "provider" | "protocols" | "defaultModel" | "targetServer">,
+): AgentRuntimeRecord | undefined {
+  const requiredProtocols = input.protocols?.length
+    ? input.protocols
+    : resolveProviderProtocols(input.provider);
+  const targetRuntimeIds = input.targetServer
+    ? new Set(
+        listDaemonSnapshotsSync(input.workspaceId)
+          .filter(({ daemon }) => daemon.deviceName === input.targetServer)
+          .flatMap(({ runtimes }) => runtimes.map((runtime) => runtime.id)),
+      )
+    : undefined;
+
+  return listManagedAgentRuntimesSync(input.workspaceId).find((runtime) =>
+    runtime.provider === input.provider
+    && runtime.status === "online"
+    && runtime.provisioningState === "managed"
+    && runtime.allowNewEmployeeSharing !== false
+    && requiredProtocols.every((protocol) => runtime.protocols?.includes(protocol))
+    && (!input.defaultModel || runtime.defaultModel === input.defaultModel)
+    && (!targetRuntimeIds || targetRuntimeIds.has(runtime.id)),
+  );
+}
+
+function isManagedExecutionNodeMetadata(value: string): boolean {
+  try {
+    const metadata = JSON.parse(value) as unknown;
+    return Boolean(
+      metadata
+      && typeof metadata === "object"
+      && !Array.isArray(metadata)
+      && (metadata as Record<string, unknown>).managedNode === true,
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function requestManagedRuntimeProvisioningSync(
@@ -1118,6 +1217,7 @@ export function setProvisioningModelsClientProviderForTests(provider: () => Mode
 
 export interface ManagedRuntimeCreationPreflightResult {
   allowed: boolean;
+  reusableRuntime?: { id: string; name: string };
   availableBalance?: string;
   estimatedCharge?: string;
   currency?: string;
@@ -1142,11 +1242,21 @@ export async function preflightManagedRuntimeCreationAsync(
     provider: DaemonProvider;
     defaultModel?: string;
     estimatedCharge?: number;
+    forceProvisioning?: boolean;
   },
 ): Promise<ManagedRuntimeCreationPreflightResult> {
   assertRemoteRuntimeMode();
-  resolveManagedRuntimeGatewayBaseUrl();
   assertCanManageManagedRuntimes(input);
+  if (!input.forceProvisioning) {
+    const reusable = findReusableManagedRuntime(input);
+    if (reusable) {
+      return {
+        allowed: true,
+        reusableRuntime: { id: reusable.id, name: reusable.name },
+      };
+    }
+  }
+  resolveManagedRuntimeGatewayBaseUrl();
   const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
   try {
     await assertManagedRuntimeModelSelectionAsync({

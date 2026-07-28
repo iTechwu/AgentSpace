@@ -34,12 +34,14 @@ import {
   cancelRuntimeProvisioningTaskAsync,
   completeManagedRuntimeCleanupSync,
   deleteManagedRuntimeAsync,
+  ensureManagedRuntimeCapacitySync,
   finalizeManagedRuntimeProvisioningSync,
   getManagedRuntimeCredentialStatusAsync,
   getRuntimeProvisioningTaskDetailSync,
   handleManagedRuntimeProviderFailureAsync,
   listManagedRuntimeTasksSync,
   listManagedRuntimesForWorkspaceSync,
+  listManagedExecutionNodesSync,
   preflightManagedRuntimeCreationAsync,
   requestManagedRuntimeProvisioningSync,
   resumePendingRuntimeCredentialRecoveriesAsync,
@@ -488,6 +490,109 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
   assert.equal(managed.assignedEmployeeCount, 1);
   assert.equal(managed.periodActualCostUsd, 2);
   assert.equal(managed.unallocatedCostUsd, 0);
+});
+
+test("execution capacity reuses a compatible shared managed runtime", async () => {
+  const first = ensureManagedRuntimeCapacitySync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    defaultModel: "claude-sonnet",
+    idempotencyKey: "capacity-first",
+  });
+  assert.equal(first.kind, "provisioning");
+  if (first.kind !== "provisioning") return;
+
+  const ready = await awaitTaskTerminal(first.task.id);
+  assert.ok(ready.runtimeId);
+
+  const reused = ensureManagedRuntimeCapacitySync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    defaultModel: "claude-sonnet",
+    idempotencyKey: "capacity-second",
+  });
+
+  assert.deepEqual(reused, {
+    kind: "reused",
+    runtimeId: ready.runtimeId,
+    runtimeName: "Managed claude",
+  });
+  assert.equal(activeClient.createCalls, 1);
+});
+
+test("execution capacity provisions an isolated runtime when reuse is disabled", async () => {
+  const first = ensureManagedRuntimeCapacitySync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "capacity-shared",
+  });
+  assert.equal(first.kind, "provisioning");
+  if (first.kind !== "provisioning") return;
+  await awaitTaskTerminal(first.task.id);
+
+  const isolated = ensureManagedRuntimeCapacitySync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "capacity-isolated",
+    forceProvisioning: true,
+  });
+
+  assert.equal(isolated.kind, "provisioning");
+  if (isolated.kind !== "provisioning") return;
+  const ready = await awaitTaskTerminal(isolated.task.id);
+  assert.equal(ready.status, "succeeded");
+  assert.equal(activeClient.createCalls, 2);
+});
+
+test("preflight reports reusable capacity without reserving new-runtime balance", async () => {
+  const first = ensureManagedRuntimeCapacitySync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "capacity-for-preflight",
+  });
+  assert.equal(first.kind, "provisioning");
+  if (first.kind !== "provisioning") return;
+  const ready = await awaitTaskTerminal(first.task.id);
+  const priorPreflightCalls = activeClient.preflightCalls;
+
+  const result = await preflightManagedRuntimeCreationAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+  });
+
+  assert.deepEqual(result.reusableRuntime, {
+    id: ready.runtimeId,
+    name: "Managed claude",
+  });
+  assert.equal(result.allowed, true);
+  assert.equal(activeClient.preflightCalls, priorPreflightCalls);
+});
+
+test("managed execution nodes exclude provider runtimes", () => {
+  registerDaemonRuntimesSync({
+    workspaceId: TEAM_WS,
+    daemonKey: "provider-daemon",
+    deviceName: "172.30.30.11 Codex",
+    metadata: { managedNode: false },
+    runtimes: [{ provider: "codex", name: "Shared Codex", deviceInfo: "172.30.30.11" }],
+  });
+  registerDaemonRuntimesSync({
+    workspaceId: TEAM_WS,
+    daemonKey: "managed-node",
+    deviceName: "172.30.30.11",
+    metadata: { managedNode: true },
+    runtimes: [],
+  });
+
+  assert.deepEqual(listManagedExecutionNodesSync({ workspaceId: TEAM_WS, actorUserId: OWNER }), [
+    { deviceName: "172.30.30.11", status: "online" },
+  ]);
 });
 
 test("model catalog preflight blocks incompatible models before credential creation", async () => {

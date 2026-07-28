@@ -5,11 +5,11 @@ import { DAEMON_PROVIDER_PROTOCOLS } from "@dofe-agent/domain";
 import {
   cancelRuntimeProvisioningTaskAsync,
   deleteManagedRuntimeAsync,
+  ensureManagedRuntimeCapacitySync,
   getManagedRuntimeCredentialStatusAsync,
   getRuntimeProvisioningTaskDetailSync,
   listManagedRuntimeTasksSync,
   preflightManagedRuntimeCreationAsync,
-  requestManagedRuntimeProvisioningSync,
   resolveAgentRuntimeMode,
   resolveManagedRuntimeScopeSync,
   retryRuntimeProvisioningTaskSync,
@@ -47,10 +47,14 @@ export async function createManagedRuntimeAction(input: {
   targetServer?: string;
   name?: string;
   allowNewEmployeeSharing?: boolean;
-}): Promise<{ taskId: string }> {
+  forceProvisioning?: boolean;
+}): Promise<
+  | { kind: "reused"; runtimeId: string; runtimeName: string }
+  | { kind: "provisioning"; taskId: string }
+> {
   assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId, slug } = await requireAdminActor();
-  const task = requestManagedRuntimeProvisioningSync({
+  const result = ensureManagedRuntimeCapacitySync({
     workspaceId,
     actorUserId,
     provider: input.provider,
@@ -60,14 +64,18 @@ export async function createManagedRuntimeAction(input: {
     targetServer: input.targetServer,
     name: input.name,
     allowNewEmployeeSharing: input.allowNewEmployeeSharing,
+    forceProvisioning: input.forceProvisioning,
   });
   revalidateWorkspacePath("/runtimes", slug);
-  return { taskId: task.id };
+  return result.kind === "reused"
+    ? result
+    : { kind: "provisioning", taskId: result.task.id };
 }
 
 export async function preflightManagedRuntimeAction(input: {
   provider: DaemonProvider;
   defaultModel?: string;
+  forceProvisioning?: boolean;
 }) {
   assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId } = await requireAdminActor();
@@ -83,6 +91,7 @@ export async function preflightManagedRuntimeAction(input: {
     actorUserId,
     provider: input.provider,
     defaultModel: input.defaultModel,
+    forceProvisioning: input.forceProvisioning,
   });
 }
 
