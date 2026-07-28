@@ -181,71 +181,6 @@ test("prepareDaemonTaskContext materializes agent knowledge and mentions it in t
   assert.match(context.prompt, /不要手写 runtime-output\/knowledge-proposals\.json/);
 });
 
-test("prepareDaemonTaskContext does not inject retired Google Workspace skills", () => {
-  createEmployeeSync({ name: "Planner" });
-  const workspaceState = readWorkspaceStateSync();
-  const agentProfile = workspaceState.activeEmployees.find((employee: ActiveEmployee) => employee.name === "Planner");
-  const workDir = join(tempRoot, "prepared-google-workspace-workdir");
-  const context = prepareDaemonTaskContext({
-    runtime: {
-      id: "runtime-1",
-      workspaceId: "default",
-      provider: "codex",
-      name: "Codex",
-      version: "1",
-      status: "online",
-      deviceInfo: "",
-      metadataJson: "{}",
-      createdAt: "2026-04-29T00:00:00.000Z",
-      updatedAt: "2026-04-29T00:00:00.000Z",
-    },
-    task: {
-      id: "queue-1",
-      workspaceId: "default",
-      agentId: "Planner",
-      runtimeId: "runtime-1",
-      triggerType: "channel_chat",
-      priority: 1,
-      status: "queued",
-      inputJson: JSON.stringify({
-        assignee: "Planner",
-        channelName: "research",
-        channelMessage: "Read the sheet",
-      }),
-      queuedAt: "2026-04-29T00:00:00.000Z",
-      createdAt: "2026-04-29T00:00:00.000Z",
-      updatedAt: "2026-04-29T00:00:00.000Z",
-    } satisfies QueuedTaskRecord,
-    workDir,
-    agentProfile,
-    channelDocuments: [
-      {
-        id: "doc-sheet-1",
-        channelName: "research",
-        title: "Competitors",
-        slug: "competitors",
-        kind: "sheet",
-        storageMode: "external",
-        externalProvider: "google_workspace",
-        externalFileId: "google-file-1",
-        externalUrl: "https://docs.google.com/spreadsheets/d/google-file-1/edit",
-        externalSyncStatus: "ok",
-        status: "active",
-        currentVersionId: "version-1",
-        summary: "Competitor research",
-        lastEditorType: "human",
-        createdBy: "techwu",
-        updatedBy: "techwu",
-        createdAt: "2026-04-29T00:00:00.000Z",
-        updatedAt: "2026-04-29T00:00:00.000Z",
-      },
-    ],
-  });
-
-  assert.equal(context.agentSkills.some((skill) => skill.name === "google-workspace-cli"), false);
-  assert.doesNotMatch(context.prompt, /\bgws\b/i);
-});
-
 test("prepareDaemonTaskContext includes rejected document permission requests", () => {
   createEmployeeSync({ name: "Planner" });
   const decider = createUserSync({
@@ -254,9 +189,9 @@ test("prepareDaemonTaskContext includes rejected document permission requests", 
   });
   const request = createDocumentPermissionRequestSync({
     workspaceId: "default",
-    externalProvider: "google_workspace",
-    externalFileId: "sheet-1",
-    externalUrl: "https://docs.google.com/spreadsheets/d/sheet-1/edit",
+    externalProvider: "notion",
+    externalFileId: "page-1",
+    externalUrl: "https://www.notion.so/page-1",
     requestedRole: "forwarder",
     requestedByAgentName: "Planner",
     requestedForChannelName: "research",
@@ -306,7 +241,7 @@ test("prepareDaemonTaskContext includes rejected document permission requests", 
   });
 
   assert.match(context.prompt, /已有的文档权限申请状态/);
-  assert.match(context.prompt, /rejected \| role forwarder \| target https:\/\/docs\.google\.com\/spreadsheets\/d\/sheet-1\/edit \| channel research/);
+  assert.match(context.prompt, /rejected \| role forwarder \| target https:\/\/www\.notion\.so\/page-1 \| channel research/);
   assert.match(context.prompt, /Use the exported summary instead/);
 });
 

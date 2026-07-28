@@ -13,21 +13,13 @@ import { basename, dirname, extname, isAbsolute, join, parse, relative, resolve 
 import {
   getRuntimeOutputArtifactsDir,
   getRuntimeOutputChannelDocumentsPath,
-  getRuntimeOutputExternalDocumentsPath,
-  getRuntimeOutputExternalGoogleDocsPath,
   getRuntimeOutputPermissionRequestsPath,
-  getRuntimeOutputExternalSheetsPath,
-  getRuntimeOutputExternalSheetsResultsPath,
   getRuntimeOutputFeishuDataOperationRequestsPath,
   getRuntimeOutputManifestPath,
   getRuntimeOutputKnowledgeProposalsPath,
   getRuntimeOutputSkillImportsPath,
   RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR,
   RUNTIME_OUTPUT_CHANNEL_DOCUMENTS_RELATIVE_PATH,
-  RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH,
-  RUNTIME_OUTPUT_EXTERNAL_GOOGLE_DOCS_RELATIVE_PATH,
-  RUNTIME_OUTPUT_EXTERNAL_SHEETS_RELATIVE_PATH,
-  RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH,
   RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH,
   RUNTIME_OUTPUT_MANIFEST_RELATIVE_PATH,
   RUNTIME_OUTPUT_KNOWLEDGE_PROPOSALS_RELATIVE_PATH,
@@ -48,19 +40,12 @@ export const RUNTIME_OUTPUT_MANIFEST_RELATIVE_PATHS = [
   RUNTIME_OUTPUT_CHANNEL_DOCUMENTS_RELATIVE_PATH,
   RUNTIME_OUTPUT_SKILL_IMPORTS_RELATIVE_PATH,
   RUNTIME_OUTPUT_KNOWLEDGE_PROPOSALS_RELATIVE_PATH,
-  RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH,
   RUNTIME_OUTPUT_PERMISSION_REQUESTS_RELATIVE_PATH,
-  RUNTIME_OUTPUT_EXTERNAL_SHEETS_RELATIVE_PATH,
-  RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH,
-  RUNTIME_OUTPUT_EXTERNAL_GOOGLE_DOCS_RELATIVE_PATH,
   RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH,
 ] as const;
 
 type RuntimeOutputManifestPath = typeof RUNTIME_OUTPUT_MANIFEST_RELATIVE_PATHS[number];
 type SkillImportConflict = "reject" | "rename" | "replace" | "skip";
-type ExternalSheetOperationType = "read" | "append_rows" | "update_values" | "batch_update";
-type ExternalGoogleDocOperationType = "append_text" | "batch_update";
-type ExternalSheetResultStatus = "succeeded" | "failed";
 type AgentAssignableDocumentAccessRole = "viewer" | "editor" | "forwarder";
 type KnowledgeProposalOperation = "create" | "update";
 
@@ -132,118 +117,11 @@ export interface KnowledgeProposalsManifest {
   proposals: KnowledgeProposalManifestEntry[];
 }
 
-export interface ExternalSheetManifestOperation {
-  documentId: string;
-  operationType: ExternalSheetOperationType;
-  intent: string;
-  rangeA1?: string;
-  values?: unknown[][];
-  requests?: Array<Record<string, unknown>>;
-  requestSummary?: string;
-  valueInputOption?: "RAW" | "USER_ENTERED";
-  insertDataOption?: "OVERWRITE" | "INSERT_ROWS";
-}
-
-export interface ExternalSheetsManifest {
-  operations: ExternalSheetManifestOperation[];
-}
-
-export interface ExternalSheetResultPreview {
-  rowCount?: number;
-  cellCount?: number;
-  headers?: string[];
-  rowsPreview?: unknown[][];
-  truncated?: boolean;
-}
-
-export interface ExternalSheetResultManifestEntry {
-  documentId: string;
-  operation: ExternalSheetOperationType;
-  range?: string;
-  resultPath: string;
-  summary: string;
-  requestSummary?: string;
-  rowCount?: number;
-  cellCount?: number;
-  headers?: string[];
-  rowsPreview?: unknown[][];
-  truncated?: boolean;
-  preview?: ExternalSheetResultPreview;
-  status?: ExternalSheetResultStatus;
-  errorCode?: string;
-  errorMessage?: string;
-  startedAt?: string;
-  finishedAt?: string;
-  durationMs?: number;
-}
-
-export interface ExternalSheetsResultsManifest {
-  version?: 1;
-  results: ExternalSheetResultManifestEntry[];
-}
-
-export type ExternalGoogleDocManifestOperation =
-  | {
-      documentId: string;
-      operationType: "append_text";
-      intent: string;
-      text: string;
-      textPath?: string;
-      requestSummary?: string;
-    }
-  | {
-      documentId: string;
-      operationType: "batch_update";
-      intent: string;
-      requests: Array<Record<string, unknown>>;
-      requestsPath?: string;
-      requestSummary?: string;
-    };
-
-export interface ExternalGoogleDocsManifest {
-  version?: 1;
-  operations: ExternalGoogleDocManifestOperation[];
-}
-
-export interface ExternalDocumentLinkManifestEntry {
-  operationType: "link_google_sheet";
-  sourceDocumentId?: string;
-  externalFileId?: string;
-  externalUrl?: string;
-  targetChannel: string;
-  title: string;
-  summary?: string;
-}
-
-export interface ExternalDocumentCreateGoogleSheetManifestEntry {
-  operationType: "create_google_sheet";
-  externalFileId: string;
-  externalUrl: string;
-  targetChannel: string;
-  title: string;
-  summary?: string;
-  externalMimeType?: string;
-  externalRevisionId?: string;
-  externalUpdatedAt?: string;
-  resultPath: string;
-  parentFolderId?: string;
-}
-
-export type ExternalDocumentManifestEntry =
-  | ExternalDocumentLinkManifestEntry
-  | ExternalDocumentCreateGoogleSheetManifestEntry;
-
-export interface ExternalDocumentsManifest {
-  version?: 1;
-  generatedBy?: "dofe-agent-cli";
-  operations: ExternalDocumentManifestEntry[];
-}
-
 export interface DocumentPermissionRequestManifestEntry {
   requestedRole: AgentAssignableDocumentAccessRole;
   reason: string;
   documentId?: string;
-  externalProvider?: "google_workspace" | "notion" | "microsoft_365";
+  externalProvider?: "notion" | "microsoft_365";
   externalFileId?: string;
   externalUrl?: string;
   targetChannel?: string;
@@ -282,27 +160,6 @@ export interface RuntimeOutputPreview {
       exists: boolean;
       proposals: number;
     };
-    externalSheets: {
-      exists: boolean;
-      operations: number;
-    };
-    externalSheetResults: {
-      exists: boolean;
-      results: number;
-    };
-    externalGoogleDocs: {
-      exists: boolean;
-      operations: number;
-      operationSummaries: Array<{
-        documentId: string;
-        operationType: ExternalGoogleDocOperationType;
-        intent: string;
-      }>;
-    };
-    externalDocuments: {
-      exists: boolean;
-      operations: number;
-    };
     permissionRequests: {
       exists: boolean;
       requests: number;
@@ -335,15 +192,13 @@ const ALLOWED_SKILL_IMPORT_HOSTS = new Set([
 ]);
 
 const SENSITIVE_RUNTIME_OUTPUT_PATTERNS = [
-  /GOOGLE_WORKSPACE_CLI_TOKEN/i,
   /"refresh_token"\s*:/i,
   /"access_token"\s*:/i,
   /"client_secret"\s*:/i,
   /"private_key"\s*:/i,
   /"credentials?"\s*:/i,
-  /["']?authorization["']?\s*:\s*["']?(Bearer|Basic|ya29\.)/i,
+  /["']?authorization["']?\s*:\s*["']?(Bearer|Basic)/i,
   /\bBearer\s+[A-Za-z0-9._~+/-]{20,}/i,
-  /\bya29\.[A-Za-z0-9._-]{20,}/i,
 ];
 
 export function readAgentOutputManifest(workDir: string): AgentOutputManifest {
@@ -437,110 +292,6 @@ export function appendKnowledgeProposalManifestEntry(
   return next;
 }
 
-export function readExternalSheetsManifest(workDir: string): ExternalSheetsManifest {
-  const value = readManifestValue(getRuntimeOutputExternalSheetsPath(workDir), { operations: [] });
-  if (Array.isArray(value)) {
-    return { operations: value as ExternalSheetManifestOperation[] };
-  }
-  if (value && typeof value === "object" && Array.isArray((value as { operations?: unknown }).operations)) {
-    return value as ExternalSheetsManifest;
-  }
-  return { operations: [] };
-}
-
-export function appendExternalSheetOperation(
-  workDir: string,
-  operation: ExternalSheetManifestOperation,
-): ExternalSheetsManifest {
-  const manifest = readExternalSheetsManifest(workDir);
-  const next = {
-    operations: [...manifest.operations, operation],
-  } satisfies ExternalSheetsManifest;
-  writeManifestFile(workDir, RUNTIME_OUTPUT_EXTERNAL_SHEETS_RELATIVE_PATH, next);
-  return next;
-}
-
-export function readExternalSheetsResultsManifest(workDir: string): ExternalSheetsResultsManifest {
-  const value = readManifestValue(getRuntimeOutputExternalSheetsResultsPath(workDir), { version: 1, results: [] });
-  if (value && typeof value === "object" && Array.isArray((value as { results?: unknown }).results)) {
-    return value as ExternalSheetsResultsManifest;
-  }
-  return { version: 1, results: [] };
-}
-
-export function appendExternalSheetResult(
-  workDir: string,
-  result: ExternalSheetResultManifestEntry,
-): ExternalSheetsResultsManifest {
-  const manifest = readExternalSheetsResultsManifest(workDir);
-  const next = {
-    version: 1,
-    results: [...manifest.results, result],
-  } satisfies ExternalSheetsResultsManifest;
-  writeManifestFile(workDir, RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH, next);
-  return next;
-}
-
-export function readExternalGoogleDocsManifest(workDir: string): ExternalGoogleDocsManifest {
-  const value = readManifestValue(getRuntimeOutputExternalGoogleDocsPath(workDir), { version: 1, operations: [] });
-  if (Array.isArray(value)) {
-    return { version: 1, operations: value as ExternalGoogleDocManifestOperation[] };
-  }
-  if (value && typeof value === "object" && Array.isArray((value as { operations?: unknown }).operations)) {
-    return value as ExternalGoogleDocsManifest;
-  }
-  return { version: 1, operations: [] };
-}
-
-export function appendExternalGoogleDocOperation(
-  workDir: string,
-  operation: ExternalGoogleDocManifestOperation,
-): ExternalGoogleDocsManifest {
-  const manifest = readExternalGoogleDocsManifest(workDir);
-  const next = {
-    version: 1,
-    operations: [...manifest.operations, operation],
-  } satisfies ExternalGoogleDocsManifest;
-  writeManifestFile(workDir, RUNTIME_OUTPUT_EXTERNAL_GOOGLE_DOCS_RELATIVE_PATH, next);
-  return next;
-}
-
-export function readExternalDocumentsManifest(workDir: string): ExternalDocumentsManifest {
-  const value = readManifestValue(getRuntimeOutputExternalDocumentsPath(workDir), { version: 1, operations: [] });
-  if (value && typeof value === "object" && Array.isArray((value as { operations?: unknown }).operations)) {
-    return value as ExternalDocumentsManifest;
-  }
-  return { version: 1, operations: [] };
-}
-
-export function appendExternalDocumentLinkOperation(
-  workDir: string,
-  operation: ExternalDocumentLinkManifestEntry,
-): ExternalDocumentsManifest {
-  return appendExternalDocumentOperation(workDir, operation);
-}
-
-export function appendExternalDocumentCreateGoogleSheetOperation(
-  workDir: string,
-  operation: ExternalDocumentCreateGoogleSheetManifestEntry,
-): ExternalDocumentsManifest {
-  return appendExternalDocumentOperation(workDir, operation);
-}
-
-function appendExternalDocumentOperation(
-  workDir: string,
-  operation: ExternalDocumentManifestEntry,
-): ExternalDocumentsManifest {
-  const manifest = readExternalDocumentsManifest(workDir);
-  const next = {
-    version: 1,
-    generatedBy: "dofe-agent-cli",
-    operations: [...manifest.operations, operation],
-  } satisfies ExternalDocumentsManifest;
-  writeManifestFile(workDir, RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH, next);
-  return next;
-}
-
 export function readDocumentPermissionRequestsManifest(workDir: string): DocumentPermissionRequestsManifest {
   const value = readManifestValue(getRuntimeOutputPermissionRequestsPath(workDir), { version: 1, requests: [] });
   if (value && typeof value === "object" && Array.isArray((value as { requests?: unknown }).requests)) {
@@ -628,10 +379,6 @@ export function validateRuntimeOutputManifests(workDir: string): RuntimeOutputVa
   validateChannelDocumentsManifest(workDir, errors);
   validateSkillImportsManifest(workDir, errors);
   validateKnowledgeProposalsManifest(workDir, errors);
-  validateExternalSheetsManifest(workDir, errors);
-  validateExternalSheetsResultsManifest(workDir, errors);
-  validateExternalGoogleDocsManifest(workDir, errors);
-  validateExternalDocumentsManifest(workDir, errors);
   validatePermissionRequestsManifest(workDir, errors);
   validateFeishuDataOperationRequestsManifest(workDir, errors);
   return {
@@ -651,10 +398,6 @@ export function createRuntimeOutputPreview(workDir: string): RuntimeOutputPrevie
       channelDocuments: summarizeChannelDocumentsManifest(resolvedWorkDir),
       skillImports: summarizeSkillImportsManifest(resolvedWorkDir),
       knowledgeProposals: summarizeKnowledgeProposalsManifest(resolvedWorkDir),
-      externalSheets: summarizeExternalSheetsManifest(resolvedWorkDir),
-      externalSheetResults: summarizeExternalSheetsResultsManifest(resolvedWorkDir),
-      externalGoogleDocs: summarizeExternalGoogleDocsManifest(resolvedWorkDir),
-      externalDocuments: summarizeExternalDocumentsManifest(resolvedWorkDir),
       permissionRequests: summarizePermissionRequestsManifest(resolvedWorkDir),
       feishuDataOperationRequests: summarizeFeishuDataOperationRequestsManifest(resolvedWorkDir),
     },
@@ -681,9 +424,6 @@ export function collectRuntimeOutputBundleFiles(workDir: string): RuntimeOutputB
   addChannelDocumentBundleReferences(workDir, files);
   addKnowledgeProposalBundleReferences(workDir, files);
   addSkillImportBundleReferences(workDir, files);
-  addExternalSheetResultBundleReferences(workDir, files);
-  addExternalGoogleDocsBundleReferences(workDir, files);
-  addExternalDocumentBundleReferences(workDir, files);
 
   const bundleFiles: RuntimeOutputBundleFile[] = [];
   let totalBytes = 0;
@@ -990,386 +730,6 @@ function validateKnowledgeProposalsManifest(workDir: string, errors: string[]): 
   }
 }
 
-function validateExternalSheetsManifest(workDir: string, errors: string[]): void {
-  const manifestPath = getRuntimeOutputExternalSheetsPath(workDir);
-  if (!existsSync(manifestPath)) {
-    return;
-  }
-  const parsed = parseJsonManifest(manifestPath, RUNTIME_OUTPUT_EXTERNAL_SHEETS_RELATIVE_PATH, errors);
-  if (parsed === undefined) {
-    return;
-  }
-
-  const operations = Array.isArray(parsed)
-    ? parsed
-    : isRecord(parsed) && Array.isArray(parsed.operations)
-      ? parsed.operations
-      : null;
-  if (!operations) {
-    errors.push(`${RUNTIME_OUTPUT_EXTERNAL_SHEETS_RELATIVE_PATH} must be an array or an object with operations[].`);
-    return;
-  }
-
-  for (const [index, operation] of operations.entries()) {
-    const label = `${RUNTIME_OUTPUT_EXTERNAL_SHEETS_RELATIVE_PATH}.operations[${index}]`;
-    if (!isRecord(operation)) {
-      errors.push(`${label} must be an object.`);
-      continue;
-    }
-    const operationType = normalizeExternalSheetOperationType(operation.operationType);
-    if (typeof operation.documentId !== "string" || operation.documentId.trim().length === 0) {
-      errors.push(`${label}.documentId is required.`);
-    }
-    if (typeof operation.intent !== "string" || operation.intent.trim().length === 0) {
-      errors.push(`${label}.intent is required.`);
-    }
-    if (!operationType) {
-      errors.push(`${label}.operationType is not supported.`);
-      continue;
-    }
-    if (operationType === "batch_update") {
-      if (!Array.isArray(operation.requests) || operation.requests.length === 0) {
-        errors.push(`${label}.requests must be a non-empty array.`);
-      } else if (operation.requests.some((request) => !isRecord(request))) {
-        errors.push(`${label}.requests entries must be objects.`);
-      }
-      continue;
-    }
-    if (typeof operation.rangeA1 !== "string" || operation.rangeA1.trim().length === 0) {
-      errors.push(`${label}.rangeA1 is required.`);
-    }
-    if (operationType !== "read") {
-      validateExternalSheetValues(operation.values, `${label}.values`, errors);
-    }
-  }
-}
-
-function validateExternalSheetsResultsManifest(workDir: string, errors: string[]): void {
-  const manifestPath = getRuntimeOutputExternalSheetsResultsPath(workDir);
-  if (!existsSync(manifestPath)) {
-    return;
-  }
-  validateNoSensitiveOutput(readFileSync(manifestPath, "utf8"), RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH, errors);
-  const parsed = parseJsonManifest(manifestPath, RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH, errors);
-  if (parsed === undefined) {
-    return;
-  }
-  if (!isRecord(parsed)) {
-    errors.push(`${RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH} must be an object.`);
-    return;
-  }
-  if (parsed.version !== undefined && parsed.version !== 1) {
-    errors.push(`${RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH}.version must be 1.`);
-  }
-  if (!Array.isArray(parsed.results)) {
-    errors.push(`${RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH}.results must be an array.`);
-    return;
-  }
-
-  for (const [index, result] of parsed.results.entries()) {
-    const label = `${RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH}.results[${index}]`;
-    if (!isRecord(result)) {
-      errors.push(`${label} must be an object.`);
-      continue;
-    }
-    if (typeof result.documentId !== "string" || result.documentId.trim().length === 0) {
-      errors.push(`${label}.documentId is required.`);
-    }
-    const operation = normalizeExternalSheetOperationType(result.operation ?? result.operationType);
-    if (!operation) {
-      errors.push(`${label}.operation must be read, append_rows, update_values, or batch_update.`);
-    }
-    if (typeof result.summary !== "string" || result.summary.trim().length === 0) {
-      errors.push(`${label}.summary is required.`);
-    }
-    if (result.status !== undefined && result.status !== "succeeded" && result.status !== "failed") {
-      errors.push(`${label}.status must be succeeded or failed.`);
-    }
-    if (result.range !== undefined && typeof result.range !== "string") {
-      errors.push(`${label}.range must be a string.`);
-    }
-    if (result.requestSummary !== undefined && typeof result.requestSummary !== "string") {
-      errors.push(`${label}.requestSummary must be a string.`);
-    }
-    if (result.rowCount !== undefined && !isNonNegativeInteger(result.rowCount)) {
-      errors.push(`${label}.rowCount must be a non-negative integer.`);
-    }
-    if (result.cellCount !== undefined && !isNonNegativeInteger(result.cellCount)) {
-      errors.push(`${label}.cellCount must be a non-negative integer.`);
-    }
-    if (result.durationMs !== undefined && !isNonNegativeInteger(result.durationMs)) {
-      errors.push(`${label}.durationMs must be a non-negative integer.`);
-    }
-    if (result.headers !== undefined && (!Array.isArray(result.headers) || result.headers.some((item) => typeof item !== "string"))) {
-      errors.push(`${label}.headers must be an array of strings.`);
-    }
-    if (result.rowsPreview !== undefined && !Array.isArray(result.rowsPreview)) {
-      errors.push(`${label}.rowsPreview must be an array.`);
-    }
-    if (result.truncated !== undefined && typeof result.truncated !== "boolean") {
-      errors.push(`${label}.truncated must be a boolean.`);
-    }
-    if (result.preview !== undefined && !isRecord(result.preview)) {
-      errors.push(`${label}.preview must be an object.`);
-    }
-    const normalizedPath = normalizeManifestRelativePath(result.resultPath);
-    if (!normalizedPath) {
-      errors.push(`${label}.resultPath must be a non-empty relative path.`);
-      continue;
-    }
-    if (!isRuntimeOutputArtifactsReference(normalizedPath.relativePath)) {
-      errors.push(`${label}.resultPath must be under ${RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR}/.`);
-      continue;
-    }
-    if (!normalizedPath.relativePath.toLocaleLowerCase("en-US").endsWith(".json")) {
-      errors.push(`${label}.resultPath must point to a JSON file.`);
-    }
-    const file = validateManifestFileReference(workDir, normalizedPath.relativePath, `${label}.resultPath`, errors, {
-      requireFile: true,
-      requireNonEmpty: true,
-    });
-    if (!file) {
-      continue;
-    }
-    validateNoSensitiveOutput(readFileSync(file.absolutePath, "utf8"), `${label}.resultPath`, errors);
-  }
-}
-
-function validateExternalGoogleDocsManifest(workDir: string, errors: string[]): void {
-  const manifestPath = getRuntimeOutputExternalGoogleDocsPath(workDir);
-  if (!existsSync(manifestPath)) {
-    return;
-  }
-  validateNoSensitiveOutput(readFileSync(manifestPath, "utf8"), RUNTIME_OUTPUT_EXTERNAL_GOOGLE_DOCS_RELATIVE_PATH, errors);
-  const parsed = parseJsonManifest(manifestPath, RUNTIME_OUTPUT_EXTERNAL_GOOGLE_DOCS_RELATIVE_PATH, errors);
-  if (parsed === undefined) {
-    return;
-  }
-
-  if (isRecord(parsed) && parsed.version !== undefined && parsed.version !== 1) {
-    errors.push(`${RUNTIME_OUTPUT_EXTERNAL_GOOGLE_DOCS_RELATIVE_PATH}.version must be 1.`);
-  }
-  const operations = Array.isArray(parsed)
-    ? parsed
-    : isRecord(parsed) && Array.isArray(parsed.operations)
-      ? parsed.operations
-      : null;
-  if (!operations) {
-    errors.push(`${RUNTIME_OUTPUT_EXTERNAL_GOOGLE_DOCS_RELATIVE_PATH} must be an array or an object with operations[].`);
-    return;
-  }
-
-  for (const [index, operation] of operations.entries()) {
-    validateExternalGoogleDocOperation(workDir, operation, `${RUNTIME_OUTPUT_EXTERNAL_GOOGLE_DOCS_RELATIVE_PATH}.operations[${index}]`, errors);
-  }
-}
-
-function validateExternalGoogleDocOperation(
-  workDir: string,
-  operation: unknown,
-  label: string,
-  errors: string[],
-): void {
-  if (!isRecord(operation)) {
-    errors.push(`${label} must be an object.`);
-    return;
-  }
-  const operationType = normalizeExternalGoogleDocOperationType(operation.operationType);
-  if (typeof operation.documentId !== "string" || operation.documentId.trim().length === 0) {
-    errors.push(`${label}.documentId is required.`);
-  }
-  if (typeof operation.intent !== "string" || operation.intent.trim().length === 0) {
-    errors.push(`${label}.intent is required.`);
-  }
-  if (operation.requestSummary !== undefined && typeof operation.requestSummary !== "string") {
-    errors.push(`${label}.requestSummary must be a string.`);
-  }
-  if (!operationType) {
-    errors.push(`${label}.operationType must be append_text or batch_update.`);
-    return;
-  }
-
-  if (operationType === "append_text") {
-    if (typeof operation.text !== "string" || operation.text.length === 0) {
-      errors.push(`${label}.text is required.`);
-    }
-    if (typeof operation.text === "string") {
-      validateNoSensitiveOutput(operation.text, `${label}.text`, errors);
-    }
-    if (operation.textPath !== undefined) {
-      validateExternalGoogleDocArtifactReference(workDir, operation.textPath, `${label}.textPath`, errors, { json: false });
-    }
-    return;
-  }
-
-  if (!Array.isArray(operation.requests) || operation.requests.length === 0) {
-    errors.push(`${label}.requests must be a non-empty array.`);
-  } else if (operation.requests.some((request) => !isRecord(request))) {
-    errors.push(`${label}.requests entries must be objects.`);
-  }
-  if (operation.requestsPath !== undefined) {
-    validateExternalGoogleDocArtifactReference(workDir, operation.requestsPath, `${label}.requestsPath`, errors, { json: true });
-  }
-}
-
-function validateExternalDocumentsManifest(workDir: string, errors: string[]): void {
-  const manifestPath = getRuntimeOutputExternalDocumentsPath(workDir);
-  if (!existsSync(manifestPath)) {
-    return;
-  }
-  const parsed = parseJsonManifest(manifestPath, RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH, errors);
-  if (parsed === undefined) {
-    return;
-  }
-  if (!isRecord(parsed)) {
-    errors.push(`${RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH} must be an object.`);
-    return;
-  }
-  if (parsed.version !== undefined && parsed.version !== 1) {
-    errors.push(`${RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH}.version must be 1.`);
-  }
-  if (parsed.generatedBy !== "dofe-agent-cli") {
-    errors.push(`${RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH}.generatedBy must be dofe-agent-cli; use dofe-agent output external-document link-google-sheet/create-google-sheet.`);
-  }
-  if (!Array.isArray(parsed.operations)) {
-    errors.push(`${RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH}.operations must be an array.`);
-    return;
-  }
-  for (const [index, operation] of parsed.operations.entries()) {
-    const label = `${RUNTIME_OUTPUT_EXTERNAL_DOCUMENTS_RELATIVE_PATH}.operations[${index}]`;
-    if (!isRecord(operation)) {
-      errors.push(`${label} must be an object.`);
-      continue;
-    }
-    if (operation.operationType === "link_google_sheet") {
-      validateExternalDocumentLinkOperation(operation, label, errors);
-      continue;
-    }
-    if (operation.operationType === "create_google_sheet") {
-      validateExternalDocumentCreateGoogleSheetOperation(workDir, operation, label, errors);
-      continue;
-    }
-    errors.push(`${label}.operationType must be link_google_sheet or create_google_sheet.`);
-  }
-}
-
-function validateExternalDocumentLinkOperation(
-  operation: Record<string, unknown>,
-  label: string,
-  errors: string[],
-): void {
-  const sources = [
-    typeof operation.sourceDocumentId === "string" && operation.sourceDocumentId.trim().length > 0 ? "sourceDocumentId" : "",
-    typeof operation.externalFileId === "string" && operation.externalFileId.trim().length > 0 ? "externalFileId" : "",
-    typeof operation.externalUrl === "string" && operation.externalUrl.trim().length > 0 ? "externalUrl" : "",
-  ].filter(Boolean);
-  if (sources.length === 0) {
-    errors.push(`${label} requires sourceDocumentId, externalFileId, or externalUrl.`);
-  }
-  validateExternalDocumentCommonFields(operation, label, errors);
-}
-
-function validateExternalDocumentCreateGoogleSheetOperation(
-  workDir: string,
-  operation: Record<string, unknown>,
-  label: string,
-  errors: string[],
-): void {
-  if (typeof operation.externalFileId !== "string" || operation.externalFileId.trim().length === 0) {
-    errors.push(`${label}.externalFileId is required.`);
-  }
-  if (typeof operation.externalUrl !== "string" || operation.externalUrl.trim().length === 0) {
-    errors.push(`${label}.externalUrl is required.`);
-  } else if (extractGoogleWorkspaceFileId(operation.externalUrl) !== operation.externalFileId) {
-    errors.push(`${label}.externalUrl must point to externalFileId.`);
-  }
-  if (operation.externalMimeType !== undefined && operation.externalMimeType !== "application/vnd.google-apps.spreadsheet") {
-    errors.push(`${label}.externalMimeType must be application/vnd.google-apps.spreadsheet.`);
-  }
-  if (operation.externalRevisionId !== undefined && typeof operation.externalRevisionId !== "string") {
-    errors.push(`${label}.externalRevisionId must be a string.`);
-  }
-  if (operation.externalUpdatedAt !== undefined && typeof operation.externalUpdatedAt !== "string") {
-    errors.push(`${label}.externalUpdatedAt must be a string.`);
-  }
-  if (operation.parentFolderId !== undefined && typeof operation.parentFolderId !== "string") {
-    errors.push(`${label}.parentFolderId must be a string.`);
-  }
-  const resultPath = normalizeManifestRelativePath(operation.resultPath);
-  if (!resultPath) {
-    errors.push(`${label}.resultPath is required.`);
-  } else {
-    if (!isRuntimeOutputArtifactsReference(resultPath.relativePath)) {
-      errors.push(`${label}.resultPath must be under ${RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR}/.`);
-    }
-    if (!resultPath.relativePath.toLocaleLowerCase("en-US").endsWith(".json")) {
-      errors.push(`${label}.resultPath must point to a JSON file.`);
-    }
-    const file = validateManifestFileReference(workDir, resultPath.relativePath, `${label}.resultPath`, errors, {
-      requireFile: true,
-      requireNonEmpty: true,
-    });
-    if (file) {
-      const content = readFileSync(file.absolutePath, "utf8");
-      validateNoSensitiveOutput(content, `${label}.resultPath`, errors);
-      validateCreateGoogleSheetResultArtifact(content, operation.externalFileId, operation.externalUrl, `${label}.resultPath`, errors);
-    }
-  }
-  validateExternalDocumentCommonFields(operation, label, errors);
-}
-
-function validateExternalDocumentCommonFields(
-  operation: Record<string, unknown>,
-  label: string,
-  errors: string[],
-): void {
-  if (typeof operation.targetChannel !== "string" || operation.targetChannel.trim().length === 0) {
-    errors.push(`${label}.targetChannel is required.`);
-  }
-  if (typeof operation.title !== "string" || operation.title.trim().length === 0) {
-    errors.push(`${label}.title is required.`);
-  }
-  if (operation.summary !== undefined && typeof operation.summary !== "string") {
-    errors.push(`${label}.summary must be a string.`);
-  }
-}
-
-function validateCreateGoogleSheetResultArtifact(
-  content: string,
-  externalFileId: unknown,
-  externalUrl: unknown,
-  label: string,
-  errors: string[],
-): void {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content) as unknown;
-  } catch (error) {
-    errors.push(`${label} must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
-    return;
-  }
-  if (!isRecord(parsed)) {
-    errors.push(`${label} must be a JSON object.`);
-    return;
-  }
-  if (typeof externalFileId === "string" && parsed.id !== undefined && parsed.id !== externalFileId) {
-    errors.push(`${label}.id must match externalFileId.`);
-  }
-  if (parsed.mimeType !== undefined && parsed.mimeType !== "application/vnd.google-apps.spreadsheet") {
-    errors.push(`${label}.mimeType must be application/vnd.google-apps.spreadsheet.`);
-  }
-  const webViewFileId = typeof parsed.webViewLink === "string" ? extractGoogleWorkspaceFileId(parsed.webViewLink) : undefined;
-  if (typeof externalFileId === "string" && webViewFileId && webViewFileId !== externalFileId) {
-    errors.push(`${label}.webViewLink must point to externalFileId.`);
-  }
-  if (typeof externalUrl === "string" && typeof parsed.webViewLink === "string") {
-    const manifestFileId = extractGoogleWorkspaceFileId(externalUrl);
-    if (manifestFileId && webViewFileId && manifestFileId !== webViewFileId) {
-      errors.push(`${label}.webViewLink must point to externalUrl file id.`);
-    }
-  }
-}
-
 function validatePermissionRequestsManifest(workDir: string, errors: string[]): void {
   const manifestPath = getRuntimeOutputPermissionRequestsPath(workDir);
   if (!existsSync(manifestPath)) {
@@ -1413,7 +773,7 @@ function validatePermissionRequestsManifest(workDir: string, errors: string[]): 
     if (sources.length === 0) {
       errors.push(`${label} requires documentId, externalFileId, or externalUrl.`);
     }
-    if (request.externalProvider !== undefined && request.externalProvider !== "google_workspace" && request.externalProvider !== "notion" && request.externalProvider !== "microsoft_365") {
+    if (request.externalProvider !== undefined && request.externalProvider !== "notion" && request.externalProvider !== "microsoft_365") {
       errors.push(`${label}.externalProvider is not supported.`);
     }
     if ((request.externalFileId || request.externalUrl) && !request.externalProvider) {
@@ -1547,73 +907,6 @@ function summarizeKnowledgeProposalsManifest(workDir: string): RuntimeOutputPrev
   };
 }
 
-function summarizeExternalSheetsManifest(workDir: string): RuntimeOutputPreview["manifests"]["externalSheets"] {
-  const manifestPath = getRuntimeOutputExternalSheetsPath(workDir);
-  if (!existsSync(manifestPath)) {
-    return { exists: false, operations: 0 };
-  }
-  const parsed = parseJsonManifestQuiet(manifestPath);
-  const operations = Array.isArray(parsed)
-    ? parsed
-    : isRecord(parsed) && Array.isArray(parsed.operations)
-      ? parsed.operations
-      : [];
-  return {
-    exists: true,
-    operations: operations.length,
-  };
-}
-
-function summarizeExternalSheetsResultsManifest(workDir: string): RuntimeOutputPreview["manifests"]["externalSheetResults"] {
-  const manifestPath = getRuntimeOutputExternalSheetsResultsPath(workDir);
-  if (!existsSync(manifestPath)) {
-    return { exists: false, results: 0 };
-  }
-  const parsed = parseJsonManifestQuiet(manifestPath);
-  return {
-    exists: true,
-    results: isRecord(parsed) && Array.isArray(parsed.results) ? parsed.results.length : 0,
-  };
-}
-
-function summarizeExternalGoogleDocsManifest(workDir: string): RuntimeOutputPreview["manifests"]["externalGoogleDocs"] {
-  const manifestPath = getRuntimeOutputExternalGoogleDocsPath(workDir);
-  if (!existsSync(manifestPath)) {
-    return { exists: false, operations: 0, operationSummaries: [] };
-  }
-  const parsed = parseJsonManifestQuiet(manifestPath);
-  const operations = Array.isArray(parsed)
-    ? parsed
-    : isRecord(parsed) && Array.isArray(parsed.operations)
-      ? parsed.operations
-      : [];
-  const operationSummaries = operations
-    .filter(isRecord)
-    .map((operation) => ({
-      documentId: typeof operation.documentId === "string" ? operation.documentId : "",
-      operationType: normalizeExternalGoogleDocOperationType(operation.operationType) ?? "append_text",
-      intent: typeof operation.intent === "string" ? operation.intent : "",
-    }))
-    .filter((operation) => operation.documentId && operation.intent);
-  return {
-    exists: true,
-    operations: operations.length,
-    operationSummaries,
-  };
-}
-
-function summarizeExternalDocumentsManifest(workDir: string): RuntimeOutputPreview["manifests"]["externalDocuments"] {
-  const manifestPath = getRuntimeOutputExternalDocumentsPath(workDir);
-  if (!existsSync(manifestPath)) {
-    return { exists: false, operations: 0 };
-  }
-  const parsed = parseJsonManifestQuiet(manifestPath);
-  return {
-    exists: true,
-    operations: isRecord(parsed) && Array.isArray(parsed.operations) ? parsed.operations.length : 0,
-  };
-}
-
 function summarizePermissionRequestsManifest(workDir: string): RuntimeOutputPreview["manifests"]["permissionRequests"] {
   const manifestPath = getRuntimeOutputPermissionRequestsPath(workDir);
   if (!existsSync(manifestPath)) {
@@ -1698,51 +991,6 @@ function addSkillImportBundleReferences(workDir: string, files: Map<string, stri
     }
     addBundlePathReference(workDir, entry.path, files, { allowDirectory: true, requireArtifacts: true });
     addBundlePathReference(workDir, entry.archivePath, files, { allowDirectory: false, requireArtifacts: true });
-  }
-}
-
-function addExternalSheetResultBundleReferences(workDir: string, files: Map<string, string>): void {
-  const manifestPath = getRuntimeOutputExternalSheetsResultsPath(workDir);
-  const parsed = existsSync(manifestPath) ? parseJsonManifestQuiet(manifestPath) : undefined;
-  if (!isRecord(parsed) || !Array.isArray(parsed.results)) {
-    return;
-  }
-  for (const result of parsed.results) {
-    if (!isRecord(result)) {
-      continue;
-    }
-    addBundlePathReference(workDir, result.resultPath, files, { allowDirectory: false, requireArtifacts: true });
-  }
-}
-
-function addExternalGoogleDocsBundleReferences(workDir: string, files: Map<string, string>): void {
-  const manifestPath = getRuntimeOutputExternalGoogleDocsPath(workDir);
-  const parsed = existsSync(manifestPath) ? parseJsonManifestQuiet(manifestPath) : undefined;
-  const operations = Array.isArray(parsed)
-    ? parsed
-    : isRecord(parsed) && Array.isArray(parsed.operations)
-      ? parsed.operations
-      : [];
-  for (const operation of operations) {
-    if (!isRecord(operation)) {
-      continue;
-    }
-    addBundlePathReference(workDir, operation.textPath, files, { allowDirectory: false, requireArtifacts: true });
-    addBundlePathReference(workDir, operation.requestsPath, files, { allowDirectory: false, requireArtifacts: true });
-  }
-}
-
-function addExternalDocumentBundleReferences(workDir: string, files: Map<string, string>): void {
-  const manifestPath = getRuntimeOutputExternalDocumentsPath(workDir);
-  const parsed = existsSync(manifestPath) ? parseJsonManifestQuiet(manifestPath) : undefined;
-  if (!isRecord(parsed) || !Array.isArray(parsed.operations)) {
-    return;
-  }
-  for (const operation of parsed.operations) {
-    if (!isRecord(operation) || operation.operationType !== "create_google_sheet") {
-      continue;
-    }
-    addBundlePathReference(workDir, operation.resultPath, files, { allowDirectory: false, requireArtifacts: true });
   }
 }
 
@@ -1857,87 +1105,14 @@ function validateSkillArtifactReference(
   });
 }
 
-function validateExternalSheetValues(value: unknown, label: string, errors: string[]): void {
-  if (!Array.isArray(value) || value.length === 0) {
-    errors.push(`${label} must be a non-empty two-dimensional array.`);
-    return;
-  }
-  if (value.some((row) => !Array.isArray(row))) {
-    errors.push(`${label} must be a two-dimensional array.`);
-  }
-}
-
-function validateExternalGoogleDocArtifactReference(
-  workDir: string,
-  value: unknown,
-  label: string,
-  errors: string[],
-  options: { json: boolean },
-): void {
-  const normalized = normalizeManifestRelativePath(value);
-  if (!normalized) {
-    errors.push(`${label} must be a non-empty relative path.`);
-    return;
-  }
-  if (!isRuntimeOutputArtifactsReference(normalized.relativePath)) {
-    errors.push(`${label} must be under ${RUNTIME_OUTPUT_ARTIFACTS_RELATIVE_DIR}/.`);
-    return;
-  }
-  if (options.json && !normalized.relativePath.toLocaleLowerCase("en-US").endsWith(".json")) {
-    errors.push(`${label} must point to a JSON file.`);
-  }
-  const file = validateManifestFileReference(workDir, normalized.relativePath, label, errors, {
-    requireFile: true,
-    requireNonEmpty: true,
-  });
-  if (!file) {
-    return;
-  }
-  const content = readFileSync(file.absolutePath, "utf8");
-  validateNoSensitiveOutput(content, label, errors);
-  if (options.json) {
-    try {
-      const parsed = JSON.parse(content) as unknown;
-      if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((request) => !isRecord(request))) {
-        errors.push(`${label} must contain a non-empty JSON array of objects.`);
-      }
-    } catch (error) {
-      errors.push(`${label} JSON parse failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-}
-
 function validateNoSensitiveOutput(value: string, label: string, errors: string[]): void {
   if (SENSITIVE_RUNTIME_OUTPUT_PATTERNS.some((pattern) => pattern.test(value))) {
-    errors.push(`${label} appears to contain Google Workspace token material; remove credentials before uploading runtime-output.`);
+    errors.push(`${label} appears to contain sensitive credential material; remove credentials before uploading runtime-output.`);
   }
 }
 
 function isNonNegativeInteger(value: unknown): boolean {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
-}
-
-function normalizeExternalSheetOperationType(value: unknown): ExternalSheetOperationType | null {
-  if (value === "read" || value === "append_rows" || value === "update_values" || value === "batch_update") {
-    return value;
-  }
-  return null;
-}
-
-function normalizeExternalGoogleDocOperationType(value: unknown): ExternalGoogleDocOperationType | null {
-  if (value === "append_text" || value === "batch_update") {
-    return value;
-  }
-  return null;
-}
-
-function extractGoogleWorkspaceFileId(value: unknown): string | undefined {
-  const trimmed = typeof value === "string" ? value.trim() : "";
-  if (!trimmed) {
-    return undefined;
-  }
-  const match = /\/(?:spreadsheets|document)\/d\/([^/?#]+)/.exec(trimmed);
-  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
 function isAgentAssignableDocumentRole(value: unknown): value is AgentAssignableDocumentAccessRole {

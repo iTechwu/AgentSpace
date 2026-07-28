@@ -23,7 +23,6 @@ import {
 import {
   normalizeChannelDocuments,
   normalizeChannelDocumentVersions,
-  normalizeExternalSheetOperationRuns,
 } from "../documents/model.ts";
 import { findPreloadedAgentTemplateSkillSource } from "../agent-templates/preloaded-skill-sources.ts";
 import {
@@ -58,7 +57,6 @@ const BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME = "workspace-context";
 const BUILTIN_WORKSPACE_CONTEXT_SKILL_DESCRIPTION = "Inspect workspace-scoped collaborators, channels, messages, and documents with dofe-agent workspace context commands. Use when the inline task context is insufficient and the agent needs verifiable workspace facts before answering.";
 const BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME = "update-channel-documents";
 const BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_DESCRIPTION = "Use when Codex should create or update shared channel documents via dofe-agent output document.";
-const RETIRED_BUILTIN_SKILL_NAMES = ["google-workspace-cli"] as const;
 
 export function normalizeWorkspaceState(state: Partial<DofeAgentState>): DofeAgentState {
   const fallback = createDefaultWorkspaceState();
@@ -112,11 +110,6 @@ export function normalizeWorkspaceState(state: Partial<DofeAgentState>): DofeAge
     channelDocumentRunSteps: normalizeChannelDocumentRunSteps(
       state.channelDocumentRunSteps,
       fallback.channelDocumentRunSteps,
-    ),
-    externalSheetOperationRuns: normalizeExternalSheetOperationRuns(
-      state.externalSheetOperationRuns,
-      fallback.externalSheetOperationRuns,
-      channelDocuments,
     ),
     collaborationCommentThreads: normalizeCollaborationCommentThreads(
       state.collaborationCommentThreads,
@@ -284,7 +277,7 @@ export function sortWorkspaceSkillFiles(files: WorkspaceSkillFile[]): WorkspaceS
 }
 
 export function ensureBuiltinWorkspaceSkills(skills: WorkspaceSkill[]): WorkspaceSkill[] {
-  let nextSkills = skills.filter((skill) => !RETIRED_BUILTIN_SKILL_NAMES.some((name) => sameValue(skill.name, name)));
+  let nextSkills = skills;
   nextSkills = replaceBuiltinWorkspaceSkill(nextSkills, BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME, createBuiltinReturnOutputFilesSkill);
   nextSkills = replaceBuiltinWorkspaceSkill(nextSkills, BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME, createBuiltinWorkspaceContextSkill);
   nextSkills = replaceBuiltinWorkspaceSkill(nextSkills, BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME, createBuiltinUpdateChannelDocumentsSkill);

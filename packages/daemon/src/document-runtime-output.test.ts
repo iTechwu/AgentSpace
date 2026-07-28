@@ -32,33 +32,7 @@ test("document runtime output rejects hand-written permission manifests", () => 
     });
 
     assert.equal(result.permissionRequests.length, 0);
-    assert.equal(result.externalDocumentLinks.length, 0);
     assert.match(result.warnings[0] ?? "", /permission-requests\.json 已被拒绝/);
-  } finally {
-    rmSync(workDir, { recursive: true, force: true });
-  }
-});
-
-test("document runtime output rejects Google Workspace permission requests", () => {
-  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-document-runtime-output-"));
-  try {
-    appendDocumentPermissionRequest(workDir, {
-      requestedRole: "viewer",
-      reason: "Need access",
-      externalProvider: "google_workspace",
-      externalFileId: "sheet-1",
-      externalUrl: "https://docs.google.com/spreadsheets/d/sheet-1/edit",
-    });
-
-    const result = applyDocumentRuntimeOutputOperations({
-      workDir,
-      workspaceId: "default",
-      actorName: "Planner",
-      sourceTaskQueueId: "task-1",
-    });
-
-    assert.equal(result.permissionRequests[0]?.status, "failed");
-    assert.match(result.warnings[0] ?? "", /Google Workspace document permission requests have been removed/);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

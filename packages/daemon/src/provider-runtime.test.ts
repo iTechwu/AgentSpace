@@ -673,87 +673,6 @@ test("runProviderTask starts a new Claude conversation when resume session is mi
   }
 });
 
-test("runProviderTask keeps built-in Claude tool grants narrow and excludes retired Google Workspace tools when running as root", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-root-permissions-"));
-  const providerBinDir = join(workDir, "provider-bin");
-  const gwsBinDir = join(workDir, "gws-bin");
-  const binPath = join(providerBinDir, "claude");
-  const gwsPath = join(gwsBinDir, "gws");
-  const argsPath = join(workDir, "claude-args.txt");
-  const originalPath = process.env.PATH;
-  mkdirSync(providerBinDir, { recursive: true });
-  mkdirSync(gwsBinDir, { recursive: true });
-  writeFileSync(
-    binPath,
-    [
-      "#!/bin/sh",
-      ": > \"$CLAUDE_ARGS_PATH\"",
-      "for arg in \"$@\"; do",
-      "  printf '%s\\n' \"$arg\" >> \"$CLAUDE_ARGS_PATH\"",
-      "done",
-      "IFS= read -r _prompt",
-      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"root claude ok\",\"session_id\":\"session-root\"}'",
-      "",
-    ].join("\n"),
-    "utf8",
-  );
-  writeFileSync(gwsPath, "#!/bin/sh\necho gws 1.0.0\n", "utf8");
-  chmodSync(binPath, 0o755);
-  chmodSync(gwsPath, 0o755);
-
-  const runtime: ProviderRuntimeRecord = {
-    id: "runtime-claude-root-permissions-test",
-    workspaceId: "default",
-    provider: "claude",
-    name: "Claude",
-    status: "online",
-    metadata: {
-      executablePath: binPath,
-      mode: "remote",
-    },
-  };
-
-  try {
-    process.env.PATH = `${providerBinDir}${delimiter}${gwsBinDir}`;
-    await withProcessGetuid(0, async () => {
-      const result = await runProviderTask(runtime, "hi", workDir, {
-        contextEnv: {
-          CLAUDE_ARGS_PATH: argsPath,
-          GOOGLE_WORKSPACE_CLI_TOKEN: "secret-token",
-        },
-        taskTimeoutMs: 5_000,
-      });
-      const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
-
-      assert.equal(result.output, "root claude ok");
-      assert.equal(result.sessionId, "session-root");
-      assert.equal(args.includes("--permission-mode"), true);
-      assert.equal(args.includes("auto"), true);
-      assert.equal(args.includes("--allowedTools"), true);
-      assert.equal(args.includes("Bash(gws *)"), false);
-      assert.equal(args.includes("Bash(gws +*)"), false);
-      assert.equal(args.includes("Bash(gws sheets *)"), false);
-      assert.equal(args.includes("Bash(gws --version)"), false);
-      assert.equal(args.includes("Bash(command -v *)"), true);
-      assert.equal(args.includes("Bash(dofe-agent output *)"), false);
-      assert.equal(args.includes("Bash(dofe-agent output text *)"), true);
-      assert.equal(args.includes("Bash(dofe-agent output attach *)"), true);
-      assert.equal(args.includes("Bash(dofe-agent output document *)"), false);
-      assert.equal(args.includes("Bash(dofe-agent output skill import *)"), false);
-      assert.equal(args.includes("Bash(dofe-agent output sheets-result add *)"), false);
-      assert.equal(args.includes("Bash(dofe-agent output external-document link-google-sheet *)"), false);
-      assert.equal(args.includes("Bash(dofe-agent output permission request-document *)"), false);
-      assert.equal(args.includes("Bash(dofe-agent output google-docs *)"), false);
-      assert.equal(args.includes("Bash(*) Read Write Edit Glob Grep"), false);
-      assert.equal(args.includes("bypassPermissions"), false);
-      assert.equal(args.includes("--dangerously-skip-permissions"), false);
-    });
-  } finally {
-    process.env.PATH = originalPath;
-    rmSync(workDir, { recursive: true, force: true });
-  }
-});
-
 test("runProviderTask exposes Feishu lark-cli diagnostic grants only when enabled", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-feishu-lark-cli-"));
   const providerBinDir = join(workDir, "provider-bin");
@@ -1449,7 +1368,7 @@ test("runProviderTask asks for approval and retries Claude permission denials un
       "done",
       "IFS= read -r _prompt",
       "if [ \"$count\" = \"1\" ]; then",
-      "  printf '%s\\n' '{\"type\":\"result\",\"result\":\"need approval\",\"session_id\":\"session-denied\",\"permission_denials\":[{\"tool_name\":\"Bash\",\"tool_use_id\":\"tool-1\",\"tool_input\":{\"command\":\"gws +read --help\"}}]}'",
+      "  printf '%s\\n' '{\"type\":\"result\",\"result\":\"need approval\",\"session_id\":\"session-denied\",\"permission_denials\":[{\"tool_name\":\"Bash\",\"tool_use_id\":\"tool-1\",\"tool_input\":{\"command\":\"acme-tool read --help\"}}]}'",
       "else",
       "  printf '%s\\n' '{\"type\":\"result\",\"result\":\"continued after approval\",\"session_id\":\"session-denied\"}'",
       "fi",
@@ -1474,7 +1393,7 @@ test("runProviderTask asks for approval and retries Claude permission denials un
   try {
     await withProcessGetuid(0, async () => {
       const approvals: Array<{ toolName: string; command?: string }> = [];
-      const result = await runProviderTask(runtime, "run gws", workDir, {
+      const result = await runProviderTask(runtime, "run acme-tool", workDir, {
         contextEnv: {
           CLAUDE_ARGS_PATH: argsPath,
           CLAUDE_COUNT_PATH: countPath,
@@ -1492,9 +1411,9 @@ test("runProviderTask asks for approval and retries Claude permission denials un
 
       assert.equal(result.output, "continued after approval");
       assert.equal(result.sessionId, "session-denied");
-      assert.deepEqual(approvals, [{ toolName: "Bash", command: "gws +read --help" }]);
+      assert.deepEqual(approvals, [{ toolName: "Bash", command: "acme-tool read --help" }]);
       assert.match(args, /--resume\nsession-denied/);
-      assert.match(args, /Bash\(gws \+read --help\)/);
+      assert.match(args, /Bash\(acme-tool read --help\)/);
     });
   } finally {
     rmSync(workDir, { recursive: true, force: true });

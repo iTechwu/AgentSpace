@@ -179,7 +179,7 @@ export interface ChannelRecord {
 
 export type ChannelDocumentKind = "markdown" | "sheet" | "deck" | "document";
 export type ChannelDocumentStorageMode = "native" | "external";
-export type ChannelDocumentExternalProvider = "google_workspace" | "feishu" | "notion" | "microsoft_365";
+export type ChannelDocumentExternalProvider = "feishu" | "notion" | "microsoft_365";
 export type ExternalDocumentProvider = ChannelDocumentExternalProvider;
 export type ChannelDocumentJsonContent = Record<string, unknown> | unknown[];
 export type ExternalDocumentSyncStatus = "ok" | "permission_error" | "missing" | "unknown";
@@ -226,56 +226,6 @@ export interface ChannelDocumentVersion {
   sourceAttachmentStoredPath?: string;
   sourceTaskQueueId?: string;
   createdAt: string;
-}
-
-export type ExternalSheetOperationRunStatus = "queued" | "running" | "succeeded" | "failed";
-export type ExternalSheetOperationType =
-  | "create"
-  | "read"
-  | "append_text"
-  | "append_rows"
-  | "update_values"
-  | "batch_update"
-  | "share"
-  | "metadata_refresh";
-
-export interface ExternalSheetResultPreview {
-  rowCount?: number;
-  cellCount?: number;
-  headers?: string[];
-  rowsPreview?: unknown[][];
-  truncated?: boolean;
-}
-
-export interface ExternalSheetOperationRun {
-  id: string;
-  workspaceId: string;
-  channelDocumentId: string;
-  provider: "google_workspace";
-  externalFileId: string;
-  actorType: "agent" | "human" | "system";
-  actorId: string;
-  delegatedUserId?: string;
-  delegatedUserDisplayName?: string;
-  delegatedGoogleEmail?: string;
-  credentialDelegationId?: string;
-  status: ExternalSheetOperationRunStatus;
-  intent: string;
-  operationType: ExternalSheetOperationType;
-  rangeA1?: string;
-  affectedRows?: number;
-  affectedCells?: number;
-  requestSummary: string;
-  responseSummary?: string;
-  resultArtifactPath?: string;
-  resultArtifactFileName?: string;
-  resultArtifactMediaType?: string;
-  resultArtifactSizeBytes?: number;
-  resultPreview?: ExternalSheetResultPreview;
-  errorCode?: string;
-  errorMessage?: string;
-  startedAt: string;
-  finishedAt?: string;
 }
 
 export type TaskStatus = "todo" | "in_progress" | "blocked" | "done";
@@ -371,7 +321,7 @@ export interface KnowledgePage {
 
 export type DataColumnType = "text" | "number" | "select" | "date" | "person" | "checkbox";
 export type DataTableStatus = "active" | "archived";
-export type DataTableExternalProvider = "feishu" | "google_workspace";
+export type DataTableExternalProvider = "feishu";
 
 export interface DataTableExternalPreview {
   kind?: string;
@@ -523,7 +473,6 @@ export interface DofeAgentState {
   channelDocumentPresences: ChannelDocumentPresence[];
   channelDocumentRuns: ChannelDocumentRun[];
   channelDocumentRunSteps: ChannelDocumentRunStep[];
-  externalSheetOperationRuns: ExternalSheetOperationRun[];
   collaborationCommentThreads: CollaborationCommentThread[];
   collaborationComments: CollaborationComment[];
   collaborationActivities: CollaborationActivity[];
@@ -589,7 +538,6 @@ export interface WorkspaceSnapshot {
   channelDocumentPresences: ChannelDocumentPresence[];
   channelDocumentRuns: ChannelDocumentRun[];
   channelDocumentRunSteps: ChannelDocumentRunStep[];
-  externalSheetOperationRuns: ExternalSheetOperationRun[];
   collaborationCommentThreads: CollaborationCommentThread[];
   collaborationComments: CollaborationComment[];
   collaborationActivities: CollaborationActivity[];
@@ -633,7 +581,6 @@ export const defaultWorkspaceState: DofeAgentState = {
   channelDocumentPresences: [],
   channelDocumentRuns: [],
   channelDocumentRunSteps: [],
-  externalSheetOperationRuns: [],
   collaborationCommentThreads: [],
   collaborationComments: [],
   collaborationActivities: [],
@@ -676,7 +623,6 @@ export function createWorkspaceSnapshot(state: DofeAgentState): WorkspaceSnapsho
     channelDocumentPresences: state.channelDocumentPresences,
     channelDocumentRuns: state.channelDocumentRuns,
     channelDocumentRunSteps: state.channelDocumentRunSteps,
-    externalSheetOperationRuns: state.externalSheetOperationRuns,
     collaborationCommentThreads: state.collaborationCommentThreads,
     collaborationComments: state.collaborationComments,
     collaborationActivities: state.collaborationActivities,

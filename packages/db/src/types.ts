@@ -64,41 +64,6 @@ export interface StoredSessionRecord {
   revokedAt?: string;
 }
 
-export type GoogleOAuthCredentialStatus = "active" | "revoked";
-
-export interface StoredGoogleOAuthCredentialRecord {
-  id: string;
-  workspaceId: string;
-  userId: string;
-  googleSubject?: string;
-  googleEmail?: string;
-  scopes: string;
-  accessTokenEncrypted?: string;
-  refreshTokenEncrypted?: string;
-  expiresAt?: string;
-  status: GoogleOAuthCredentialStatus;
-  createdAt: string;
-  updatedAt: string;
-  revokedAt?: string;
-}
-
-export type AgentGoogleWorkspaceDelegationStatus = "active" | "revoked";
-
-export interface StoredAgentGoogleWorkspaceDelegationRecord {
-  id: string;
-  workspaceId: string;
-  employeeName: string;
-  userId: string;
-  googleOAuthCredentialId: string;
-  status: AgentGoogleWorkspaceDelegationStatus;
-  scopes: string;
-  googleEmail?: string;
-  grantedByUserId: string;
-  createdAt: string;
-  updatedAt: string;
-  revokedAt?: string;
-}
-
 export type ExternalIntegrationProvider = string;
 export type ExternalIntegrationStatus = "active" | "disabled" | "error";
 export type ExternalIntegrationTransportMode = "http_webhook" | "websocket_worker";
@@ -725,7 +690,7 @@ export interface DocumentAgentAccessRecord {
 }
 
 export type DocumentPermissionRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
-export type DocumentPermissionRequestExternalProvider = "google_workspace" | "notion" | "microsoft_365";
+export type DocumentPermissionRequestExternalProvider = "notion" | "microsoft_365";
 
 export interface DocumentPermissionRequestRecord {
   id: string;

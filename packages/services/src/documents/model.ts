@@ -8,7 +8,6 @@ import type {
   ChannelDocumentStorageMode,
   ChannelDocumentTriggerType,
   ChannelDocumentVersion,
-  ExternalSheetOperationRun,
 } from "@dofe-agent/domain/workspace";
 
 export function buildChannelDocumentRecord(input: {
@@ -172,78 +171,6 @@ export function normalizeChannelDocument(document: unknown): ChannelDocument | n
   };
 }
 
-export function normalizeExternalSheetOperationRuns(
-  runs: DofeAgentState["externalSheetOperationRuns"] | undefined,
-  fallback: DofeAgentState["externalSheetOperationRuns"],
-  documents: ChannelDocument[],
-): DofeAgentState["externalSheetOperationRuns"] {
-  if (!Array.isArray(runs)) {
-    return fallback;
-  }
-
-  const documentIds = new Set(documents.map((document) => document.id));
-  return runs
-    .map((run) => normalizeExternalSheetOperationRun(run))
-    .filter((run): run is ExternalSheetOperationRun => run !== null && documentIds.has(run.channelDocumentId))
-    .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
-}
-
-export function normalizeExternalSheetOperationRun(run: unknown): ExternalSheetOperationRun | null {
-  if (!run || typeof run !== "object") {
-    return null;
-  }
-
-  const candidate = run as Partial<ExternalSheetOperationRun>;
-  if (
-    typeof candidate.id !== "string" ||
-    typeof candidate.workspaceId !== "string" ||
-    typeof candidate.channelDocumentId !== "string" ||
-    candidate.provider !== "google_workspace" ||
-    typeof candidate.externalFileId !== "string" ||
-    typeof candidate.actorId !== "string" ||
-    typeof candidate.intent !== "string" ||
-    typeof candidate.requestSummary !== "string"
-  ) {
-    return null;
-  }
-
-  return {
-    id: candidate.id,
-    workspaceId: candidate.workspaceId,
-    channelDocumentId: candidate.channelDocumentId,
-    provider: "google_workspace",
-    externalFileId: candidate.externalFileId,
-    actorType:
-      candidate.actorType === "human" || candidate.actorType === "system" ? candidate.actorType : "agent",
-    actorId: candidate.actorId,
-    delegatedUserId: typeof candidate.delegatedUserId === "string" ? candidate.delegatedUserId : undefined,
-    delegatedUserDisplayName:
-      typeof candidate.delegatedUserDisplayName === "string" ? candidate.delegatedUserDisplayName : undefined,
-    delegatedGoogleEmail: typeof candidate.delegatedGoogleEmail === "string" ? candidate.delegatedGoogleEmail : undefined,
-    credentialDelegationId: typeof candidate.credentialDelegationId === "string" ? candidate.credentialDelegationId : undefined,
-    status:
-      candidate.status === "running" || candidate.status === "succeeded" || candidate.status === "failed"
-        ? candidate.status
-        : "queued",
-    intent: candidate.intent,
-    operationType: normalizeExternalSheetOperationType(candidate.operationType),
-    rangeA1: typeof candidate.rangeA1 === "string" ? candidate.rangeA1 : undefined,
-    affectedRows: normalizeNonNegativeInteger(candidate.affectedRows),
-    affectedCells: normalizeNonNegativeInteger(candidate.affectedCells),
-    requestSummary: candidate.requestSummary,
-    responseSummary: typeof candidate.responseSummary === "string" ? candidate.responseSummary : undefined,
-    resultArtifactPath: typeof candidate.resultArtifactPath === "string" ? candidate.resultArtifactPath : undefined,
-    resultArtifactFileName: typeof candidate.resultArtifactFileName === "string" ? candidate.resultArtifactFileName : undefined,
-    resultArtifactMediaType: typeof candidate.resultArtifactMediaType === "string" ? candidate.resultArtifactMediaType : undefined,
-    resultArtifactSizeBytes: normalizeNonNegativeInteger(candidate.resultArtifactSizeBytes),
-    resultPreview: normalizeExternalSheetResultPreview(candidate.resultPreview),
-    errorCode: typeof candidate.errorCode === "string" ? candidate.errorCode : undefined,
-    errorMessage: typeof candidate.errorMessage === "string" ? candidate.errorMessage : undefined,
-    startedAt: typeof candidate.startedAt === "string" ? candidate.startedAt : new Date(0).toISOString(),
-    finishedAt: typeof candidate.finishedAt === "string" ? candidate.finishedAt : undefined,
-  };
-}
-
 export function normalizeChannelDocumentVersions(
   versions: DofeAgentState["channelDocumentVersions"] | undefined,
   fallback: DofeAgentState["channelDocumentVersions"],
@@ -361,7 +288,7 @@ function normalizeChannelDocumentStorageMode(value: unknown): ChannelDocumentSto
 }
 
 function normalizeChannelDocumentExternalProvider(value: unknown): ChannelDocumentExternalProvider | undefined {
-  return value === "google_workspace" || value === "feishu" || value === "notion" || value === "microsoft_365"
+  return value === "feishu" || value === "notion" || value === "microsoft_365"
     ? value
     : undefined;
 }
@@ -381,46 +308,6 @@ function normalizeExternalDocumentSyncStatus(value: unknown): ChannelDocument["e
     return value;
   }
   return value === "unknown" ? "unknown" : undefined;
-}
-
-function normalizeExternalSheetOperationType(value: unknown): ExternalSheetOperationRun["operationType"] {
-  if (
-    value === "create" ||
-    value === "append_text" ||
-    value === "append_rows" ||
-    value === "update_values" ||
-    value === "batch_update" ||
-    value === "share" ||
-    value === "metadata_refresh"
-  ) {
-    return value;
-  }
-  return "read";
-}
-
-function normalizeExternalSheetResultPreview(value: unknown): ExternalSheetOperationRun["resultPreview"] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  const candidate = value as ExternalSheetOperationRun["resultPreview"];
-  return {
-    rowCount: normalizeNonNegativeInteger(candidate?.rowCount),
-    cellCount: normalizeNonNegativeInteger(candidate?.cellCount),
-    headers: Array.isArray(candidate?.headers)
-      ? candidate.headers.filter((item): item is string => typeof item === "string")
-      : undefined,
-    rowsPreview: Array.isArray(candidate?.rowsPreview)
-      ? candidate.rowsPreview.filter((row): row is unknown[] => Array.isArray(row))
-      : undefined,
-    truncated: typeof candidate?.truncated === "boolean" ? candidate.truncated : undefined,
-  };
-}
-
-function normalizeNonNegativeInteger(value: unknown): number | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return undefined;
-  }
-  return Math.max(0, Math.round(value));
 }
 
 function normalizeOptionalString(value: unknown): string | undefined {

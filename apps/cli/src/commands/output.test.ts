@@ -112,7 +112,7 @@ test("output attach rejects absolute files unless --copy is set", async () => {
   }
 });
 
-test("output document and sheets commands write compatible manifests", async () => {
+test("output document command writes a compatible manifest", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
     mkdirSync(join(workDir, "runtime-output", "artifacts"), { recursive: true });
@@ -136,36 +136,12 @@ test("output document and sheets commands write compatible manifests", async () 
       ),
       0,
     );
-    assert.equal(
-      await runOutputCommand(
-        "sheets",
-        [
-          "append-rows",
-          "--document-id",
-          "channel-doc-123",
-          "--range",
-          "Research!A2:B",
-          "--intent",
-          "Append rows",
-          "--values-json",
-          "[[\"Acme\",\"SaaS\"]]",
-          "--work-dir",
-          workDir,
-        ],
-        "text",
-      ),
-      0,
-    );
     assert.equal(await runOutputCommand("validate", ["--work-dir", workDir], "text"), 0);
 
     const documents = JSON.parse(readFileSync(join(workDir, "runtime-output", "channel-documents.json"), "utf8")) as {
       documents?: Array<{ title: string; contentPath: string }>;
     };
-    const sheets = JSON.parse(readFileSync(join(workDir, "runtime-output", "external-sheets.json"), "utf8")) as {
-      operations?: Array<{ operationType: string; values?: unknown[][] }>;
-    };
     assert.equal(documents.documents?.[0]?.contentPath, "runtime-output/artifacts/notes.md");
-    assert.equal(sheets.operations?.[0]?.operationType, "append_rows");
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
@@ -212,272 +188,9 @@ test("output knowledge commands write controlled proposal manifests", async () =
   }
 });
 
-test("output sheets commands cover read, update, and batch manifests", async () => {
+test("output permission command writes a controlled manifest", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
   try {
-    assert.equal(
-      await runOutputCommand(
-        "sheets",
-        [
-          "read",
-          "--document-id",
-          "channel-doc-123",
-          "--range",
-          "Research!A1:B2",
-          "--intent",
-          "Read rows",
-          "--work-dir",
-          workDir,
-        ],
-        "text",
-      ),
-      0,
-    );
-    assert.equal(
-      await runOutputCommand(
-        "sheets",
-        [
-          "update-values",
-          "--document-id",
-          "channel-doc-123",
-          "--range",
-          "Research!C2:C2",
-          "--intent",
-          "Update score",
-          "--values-json",
-          "[[5]]",
-          "--work-dir",
-          workDir,
-        ],
-        "text",
-      ),
-      0,
-    );
-    assert.equal(
-      await runOutputCommand(
-        "sheets",
-        [
-          "batch-update",
-          "--document-id",
-          "channel-doc-123",
-          "--intent",
-          "Freeze header",
-          "--requests-json",
-          "[{\"updateSheetProperties\":{\"properties\":{\"sheetId\":0,\"gridProperties\":{\"frozenRowCount\":1}},\"fields\":\"gridProperties.frozenRowCount\"}}]",
-          "--work-dir",
-          workDir,
-        ],
-        "text",
-      ),
-      0,
-    );
-    assert.equal(await runOutputCommand("sheets", ["read", "--help"], "text"), 0);
-
-    const sheets = JSON.parse(readFileSync(join(workDir, "runtime-output", "external-sheets.json"), "utf8")) as {
-      operations?: Array<{ operationType: string; rangeA1?: string; values?: unknown[][]; requests?: unknown[] }>;
-    };
-    assert.deepEqual(sheets.operations?.map((operation) => operation.operationType), [
-      "read",
-      "update_values",
-      "batch_update",
-    ]);
-    assert.equal(sheets.operations?.[0]?.rangeA1, "Research!A1:B2");
-    assert.deepEqual(sheets.operations?.[1]?.values, [[5]]);
-    assert.equal(sheets.operations?.[2]?.requests?.length, 1);
-    assert.equal(await runOutputCommand("validate", ["--work-dir", workDir], "text"), 0);
-  } finally {
-    rmSync(workDir, { recursive: true, force: true });
-  }
-});
-
-test("output sheets-result add registers executed gws JSON results", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
-  try {
-    const sheetsDir = join(workDir, "runtime-output", "artifacts", "sheets");
-    mkdirSync(sheetsDir, { recursive: true });
-    writeFileSync(
-      join(sheetsDir, "read-1.json"),
-      JSON.stringify({
-        range: "Sheet1!A1:C3",
-        values: [
-          ["Name", "Status", "Owner"],
-          ["Acme", "Open", "Vega"],
-          ["Globex", "Done", "Nova"],
-        ],
-      }),
-      "utf8",
-    );
-
-    assert.equal(
-      await runOutputCommand(
-        "sheets-result",
-        [
-          "add",
-          "--document-id",
-          "channel-doc-123",
-          "--operation",
-          "read",
-          "--range",
-          "Sheet1!A1:C3",
-          "--result-json",
-          "runtime-output/artifacts/sheets/read-1.json",
-          "--summary",
-          "Read competitor status.",
-          "--work-dir",
-          workDir,
-        ],
-        "text",
-      ),
-      0,
-    );
-    assert.equal(await runOutputCommand("validate", ["--work-dir", workDir], "text"), 0);
-
-    const manifest = JSON.parse(readFileSync(join(workDir, "runtime-output", "external-sheets-results.json"), "utf8")) as {
-      results?: Array<{ operation?: string; resultPath?: string; rowCount?: number; cellCount?: number; headers?: string[] }>;
-    };
-    assert.equal(manifest.results?.[0]?.operation, "read");
-    assert.equal(manifest.results?.[0]?.resultPath, "runtime-output/artifacts/sheets/read-1.json");
-    assert.equal(manifest.results?.[0]?.rowCount, 3);
-    assert.equal(manifest.results?.[0]?.cellCount, 9);
-    assert.deepEqual(manifest.results?.[0]?.headers, ["Name", "Status", "Owner"]);
-  } finally {
-    rmSync(workDir, { recursive: true, force: true });
-  }
-});
-
-test("output google-docs commands create validated manifests from artifact files", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
-  try {
-    const docsDir = join(workDir, "runtime-output", "artifacts", "docs");
-    mkdirSync(docsDir, { recursive: true });
-    writeFileSync(join(docsDir, "summary.md"), "\n## Summary\n- Launch approved.\n", "utf8");
-    writeFileSync(
-      join(docsDir, "requests.json"),
-      JSON.stringify([
-        {
-          insertText: {
-            text: "hello",
-            endOfSegmentLocation: { segmentId: "" },
-          },
-        },
-      ]),
-      "utf8",
-    );
-
-    assert.equal(
-      await runOutputCommand(
-        "google-docs",
-        [
-          "append-text",
-          "--document-id",
-          "channel-doc-google-doc-1",
-          "--intent",
-          "Append meeting summary",
-          "--text-file",
-          "runtime-output/artifacts/docs/summary.md",
-          "--work-dir",
-          workDir,
-        ],
-        "text",
-      ),
-      0,
-    );
-    assert.equal(
-      await runOutputCommand(
-        "google-docs",
-        [
-          "batch-update",
-          "--document-id",
-          "channel-doc-google-doc-1",
-          "--intent",
-          "Apply structured Docs changes",
-          "--requests-json",
-          "runtime-output/artifacts/docs/requests.json",
-          "--request-summary",
-          "Insert greeting",
-          "--work-dir",
-          workDir,
-        ],
-        "text",
-      ),
-      0,
-    );
-    assert.equal(await runOutputCommand("validate", ["--work-dir", workDir], "text"), 0);
-
-    const manifest = JSON.parse(readFileSync(join(workDir, "runtime-output", "external-google-docs.json"), "utf8")) as {
-      operations?: Array<{
-        operationType?: string;
-        text?: string;
-        textPath?: string;
-        requests?: unknown[];
-        requestsPath?: string;
-        requestSummary?: string;
-      }>;
-    };
-    assert.equal(manifest.operations?.[0]?.operationType, "append_text");
-    assert.equal(manifest.operations?.[0]?.textPath, "runtime-output/artifacts/docs/summary.md");
-    assert.match(manifest.operations?.[0]?.text ?? "", /Launch approved/);
-    assert.equal(manifest.operations?.[1]?.operationType, "batch_update");
-    assert.equal(manifest.operations?.[1]?.requestsPath, "runtime-output/artifacts/docs/requests.json");
-    assert.equal(manifest.operations?.[1]?.requests?.length, 1);
-    assert.equal(manifest.operations?.[1]?.requestSummary, "Insert greeting");
-  } finally {
-    rmSync(workDir, { recursive: true, force: true });
-  }
-});
-
-test("output google-docs rejects token material in artifacts", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
-  try {
-    const docsDir = join(workDir, "runtime-output", "artifacts", "docs");
-    mkdirSync(docsDir, { recursive: true });
-    writeFileSync(join(docsDir, "summary.md"), "Bearer ya29.secret-token-material", "utf8");
-
-    assert.equal(
-      await runOutputCommand(
-        "google-docs",
-        [
-          "append-text",
-          "--document-id",
-          "channel-doc-google-doc-1",
-          "--intent",
-          "Append token",
-          "--text-file",
-          "runtime-output/artifacts/docs/summary.md",
-          "--work-dir",
-          workDir,
-        ],
-        "text",
-      ),
-      1,
-    );
-    assert.equal(existsSync(join(workDir, "runtime-output", "external-google-docs.json")), false);
-  } finally {
-    rmSync(workDir, { recursive: true, force: true });
-  }
-});
-
-test("output external-document and permission commands write controlled manifests", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
-  try {
-    assert.equal(
-      await runOutputCommand(
-        "external-document",
-        [
-          "link-google-sheet",
-          "--source-document-id",
-          "channel-doc-123",
-          "--target-channel",
-          "general",
-          "--title",
-          "Shared Sheet",
-          "--work-dir",
-          workDir,
-        ],
-        "text",
-      ),
-      0,
-    );
     assert.equal(
       await runOutputCommand(
         "permission",
@@ -500,119 +213,13 @@ test("output external-document and permission commands write controlled manifest
     );
     assert.equal(await runOutputCommand("validate", ["--work-dir", workDir], "text"), 0);
 
-    const externalDocuments = JSON.parse(readFileSync(join(workDir, "runtime-output", "external-documents.json"), "utf8")) as {
-      generatedBy?: string;
-      operations?: Array<{ operationType?: string; sourceDocumentId?: string }>;
-    };
     const permissionRequests = JSON.parse(readFileSync(join(workDir, "runtime-output", "permission-requests.json"), "utf8")) as {
       generatedBy?: string;
       requests?: Array<{ requestedRole?: string; documentId?: string }>;
     };
-    assert.equal(externalDocuments.generatedBy, "dofe-agent-cli");
-    assert.equal(externalDocuments.operations?.[0]?.operationType, "link_google_sheet");
-    assert.equal(externalDocuments.operations?.[0]?.sourceDocumentId, "channel-doc-123");
     assert.equal(permissionRequests.generatedBy, "dofe-agent-cli");
     assert.equal(permissionRequests.requests?.[0]?.requestedRole, "forwarder");
     assert.equal(permissionRequests.requests?.[0]?.documentId, "channel-doc-123");
-  } finally {
-    rmSync(workDir, { recursive: true, force: true });
-  }
-});
-
-test("output external-document create-google-sheet writes controlled manifest", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
-  try {
-    const artifactDir = join(workDir, "runtime-output", "artifacts", "sheets");
-    mkdirSync(artifactDir, { recursive: true });
-    writeFileSync(
-      join(artifactDir, "create-sheet.json"),
-      JSON.stringify({
-        id: "spreadsheet-created-123",
-        name: "Created Sheet",
-        webViewLink: "https://docs.google.com/spreadsheets/d/spreadsheet-created-123/edit",
-        mimeType: "application/vnd.google-apps.spreadsheet",
-        modifiedTime: "2026-05-20T00:00:00.000Z",
-      }),
-      "utf8",
-    );
-
-    assert.equal(
-      await runOutputCommand(
-        "external-document",
-        [
-          "create-google-sheet",
-          "--external-file-id",
-          "spreadsheet-created-123",
-          "--external-url",
-          "https://docs.google.com/spreadsheets/d/spreadsheet-created-123/edit",
-          "--target-channel",
-          "general",
-          "--title",
-          "Created Sheet",
-          "--summary",
-          "Agent-created sheet.",
-          "--gws-result-json",
-          "runtime-output/artifacts/sheets/create-sheet.json",
-          "--work-dir",
-          workDir,
-        ],
-        "text",
-      ),
-      0,
-    );
-    assert.equal(await runOutputCommand("validate", ["--work-dir", workDir], "text"), 0);
-
-    const externalDocuments = JSON.parse(readFileSync(join(workDir, "runtime-output", "external-documents.json"), "utf8")) as {
-      generatedBy?: string;
-      operations?: Array<{ operationType?: string; externalFileId?: string; resultPath?: string }>;
-    };
-    assert.equal(externalDocuments.generatedBy, "dofe-agent-cli");
-    assert.equal(externalDocuments.operations?.[0]?.operationType, "create_google_sheet");
-    assert.equal(externalDocuments.operations?.[0]?.externalFileId, "spreadsheet-created-123");
-    assert.equal(externalDocuments.operations?.[0]?.resultPath, "runtime-output/artifacts/sheets/create-sheet.json");
-  } finally {
-    rmSync(workDir, { recursive: true, force: true });
-  }
-});
-
-test("output external-document create-google-sheet rejects mismatched gws result", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-output-command-"));
-  try {
-    const artifactDir = join(workDir, "runtime-output", "artifacts", "sheets");
-    mkdirSync(artifactDir, { recursive: true });
-    writeFileSync(
-      join(artifactDir, "create-sheet.json"),
-      JSON.stringify({
-        id: "other-spreadsheet",
-        webViewLink: "https://docs.google.com/spreadsheets/d/other-spreadsheet/edit",
-        mimeType: "application/vnd.google-apps.spreadsheet",
-      }),
-      "utf8",
-    );
-
-    assert.equal(
-      await runOutputCommand(
-        "external-document",
-        [
-          "create-google-sheet",
-          "--external-file-id",
-          "spreadsheet-created-123",
-          "--external-url",
-          "https://docs.google.com/spreadsheets/d/spreadsheet-created-123/edit",
-          "--target-channel",
-          "general",
-          "--title",
-          "Created Sheet",
-          "--gws-result-json",
-          "runtime-output/artifacts/sheets/create-sheet.json",
-          "--work-dir",
-          workDir,
-        ],
-        "text",
-      ),
-      1,
-    );
-    assert.equal(existsSync(join(workDir, "runtime-output", "external-documents.json")), false);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

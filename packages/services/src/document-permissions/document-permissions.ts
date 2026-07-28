@@ -6,7 +6,6 @@ import {
   linkDocumentPermissionRequestDocumentSync,
   listDocumentAgentAccessSync as listStoredDocumentAgentAccessSync,
   listDocumentPermissionRequestsSync as listStoredDocumentPermissionRequestsSync,
-  listGoogleOAuthCredentialsSync,
   listWorkspaceMembershipsSync,
   readDocumentPermissionRequestSync,
   readWorkspaceMembershipSync,
@@ -26,11 +25,7 @@ import {
 } from "@dofe-agent/domain";
 import type { ChannelDocument } from "@dofe-agent/domain/workspace";
 import { resolveChannelHumanMemberNames } from "../channels/channels.ts";
-import {
-  createExternalGoogleDocChannelDocumentSync,
-  createExternalGoogleSheetChannelDocumentSync,
-  readChannelDocumentSync,
-} from "../documents/sync.ts";
+import { readChannelDocumentSync } from "../documents/sync.ts";
 import { recordTaskExecutionEventSync } from "../task-execution-events.ts";
 import { readWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue } from "../shared/helpers.ts";
@@ -507,72 +502,13 @@ export function resolveAgentDocumentRejectionContextSync(input: {
 function ensurePermissionRequestHasDocument(
   workspaceId: string,
   request: DocumentPermissionRequestRecord,
-  decidedByUserId: string,
+  _decidedByUserId: string,
 ): DocumentPermissionRequestRecord {
   if (request.documentId) {
     assertDocumentExists(workspaceId, request.documentId);
     return request;
   }
-  if (request.externalProvider !== "google_workspace") {
-    throw new Error("Cannot approve an external document permission request before it is linked to a channel document.");
-  }
-
-  const externalFileId = normalizeOptional(request.externalFileId) ?? extractGoogleWorkspaceFileId(request.externalUrl);
-  const externalUrl = normalizeOptional(request.externalUrl) ?? buildGoogleWorkspaceUrl(externalFileId, "sheet");
-  const targetChannelName = normalizeOptional(request.requestedForChannelName);
-  if (!externalFileId || !externalUrl || !targetChannelName) {
-    throw new Error("External document permission approval requires externalFileId/externalUrl and requestedForChannelName.");
-  }
-
-  const existing = findExternalGoogleWorkspaceDocument(workspaceId, externalFileId, targetChannelName);
-  if (existing) {
-    return linkDocumentPermissionRequestDocumentSync({
-      requestId: request.id,
-      documentId: existing.id,
-    });
-  }
-
-  const kind = inferGoogleWorkspaceDocumentKind(request.externalUrl);
-  const creator = resolveApprovalDocumentCreator(workspaceId, targetChannelName, request, decidedByUserId);
-  const created = kind === "document"
-    ? createExternalGoogleDocChannelDocumentSync({
-        channelName: targetChannelName,
-        title: buildExternalRequestDocumentTitle(request, "Google Doc"),
-        externalFileId,
-        externalUrl,
-        summary: request.reason,
-        createdBy: creator.createdBy,
-        createdByType: creator.createdByType,
-      }, workspaceId)
-    : createExternalGoogleSheetChannelDocumentSync({
-        channelName: targetChannelName,
-        title: buildExternalRequestDocumentTitle(request, "Google Sheet"),
-        externalFileId,
-        externalUrl,
-        summary: request.reason,
-        createdBy: creator.createdBy,
-        createdByType: creator.createdByType,
-      }, workspaceId);
-
-  tryRecordWorkspaceAuditEventSync({
-    workspaceId,
-    title: "External document linked for permission approval",
-    note: `Linked external ${kind === "document" ? "Google Doc" : "Google Sheet"} for ${request.requestedByAgentName}.`,
-    code: "document_permission.external_document_linked",
-    data: {
-      requestId: request.id,
-      documentId: created.document.id,
-      externalFileId,
-      requestedByAgentName: request.requestedByAgentName,
-      decidedByUserId,
-      targetChannelName,
-    },
-  });
-
-  return linkDocumentPermissionRequestDocumentSync({
-    requestId: request.id,
-    documentId: created.document.id,
-  });
+  throw new Error("Cannot approve an external document permission request before it is linked to a channel document.");
 }
 
 function assertCanDecideDocumentPermissionRequest(input: {
@@ -583,7 +519,7 @@ function assertCanDecideDocumentPermissionRequest(input: {
   if (canDecideDocumentPermissionRequest(input)) {
     return;
   }
-  throw new Error("Only workspace managers, document owners, or Google credential owners can decide this document permission request.");
+  throw new Error("Only workspace managers or document owners can decide this document permission request.");
 }
 
 function canDecideDocumentPermissionRequest(input: {
@@ -616,23 +552,7 @@ function canDecideDocumentPermissionRequest(input: {
     }
   }
 
-  if (
-    input.request.externalProvider === "google_workspace" &&
-    (input.request.externalFileId || input.request.externalUrl) &&
-    userHasActiveGoogleCredentialForWorkspace(input.workspaceId, input.decidedByUserId)
-  ) {
-    return true;
-  }
-
   return false;
-}
-
-function userHasActiveGoogleCredentialForWorkspace(workspaceId: string, userId: string): boolean {
-  return listGoogleOAuthCredentialsSync(workspaceId).some((credential) =>
-    credential.userId === userId &&
-    credential.status === "active" &&
-    Boolean(credential.refreshTokenEncrypted),
-  );
 }
 
 function resolveDocumentPermissionApproverRecipients(
@@ -666,16 +586,6 @@ function resolveDocumentPermissionApproverRecipients(
       if (user) {
         recipients.set(user.id, { userId: user.id, displayName: user.displayName });
       }
-    }
-  }
-
-  if (request.externalProvider === "google_workspace" && (request.externalFileId || request.externalUrl)) {
-    for (const credential of listGoogleOAuthCredentialsSync(workspaceId)) {
-      if (credential.status !== "active" || !credential.refreshTokenEncrypted) {
-        continue;
-      }
-      const user = readUserSync(credential.userId);
-      recipients.set(credential.userId, { userId: credential.userId, displayName: user?.displayName });
     }
   }
 
@@ -776,85 +686,6 @@ function findWorkspaceUserByDisplayName(workspaceId: string, displayName: string
     }
   }
   return null;
-}
-
-function findExternalGoogleWorkspaceDocument(
-  workspaceId: string,
-  externalFileId: string,
-  channelName: string,
-): ChannelDocument | undefined {
-  return readWorkspaceStateSync(workspaceId).channelDocuments.find((document) =>
-    document.status === "active" &&
-    sameValue(document.channelName, channelName) &&
-    document.storageMode === "external" &&
-    document.externalProvider === "google_workspace" &&
-    document.externalFileId === externalFileId,
-  );
-}
-
-function resolveApprovalDocumentCreator(
-  workspaceId: string,
-  targetChannelName: string,
-  request: DocumentPermissionRequestRecord,
-  decidedByUserId: string,
-): {
-  createdBy: string;
-  createdByType: "human" | "agent";
-} {
-  const state = readWorkspaceStateSync(workspaceId);
-  const channel = state.channels.find((item) => sameValue(item.name, targetChannelName));
-  const visibleHumanNames = channel ? resolveChannelHumanMemberNames(state, channel) : [];
-  const decider = readUserSync(decidedByUserId);
-  const deciderDisplayName = decider?.displayName.trim();
-  const deciderChannelName = deciderDisplayName && visibleHumanNames.find((name) => sameValue(name, deciderDisplayName));
-  if (deciderChannelName) {
-    return {
-      createdBy: deciderChannelName,
-      createdByType: "human",
-    };
-  }
-  if (visibleHumanNames[0]) {
-    return {
-      createdBy: visibleHumanNames[0],
-      createdByType: "human",
-    };
-  }
-
-  const agent = state.activeEmployees.find((employee) =>
-    sameValue(employee.name, request.requestedByAgentName) &&
-    employee.channels.some((channelName) => sameValue(channelName, targetChannelName)),
-  );
-  if (agent) {
-    return {
-      createdBy: agent.name,
-      createdByType: "agent",
-    };
-  }
-
-  throw new Error(`No actor can create channel documents in ${targetChannelName}.`);
-}
-
-function inferGoogleWorkspaceDocumentKind(externalUrl: string | undefined): "sheet" | "document" {
-  return externalUrl?.includes("/document/d/") ? "document" : "sheet";
-}
-
-function buildExternalRequestDocumentTitle(
-  request: DocumentPermissionRequestRecord,
-  fallbackPrefix: "Google Sheet" | "Google Doc",
-): string {
-  const externalFileId = normalizeOptional(request.externalFileId) ?? extractGoogleWorkspaceFileId(request.externalUrl);
-  return `${fallbackPrefix} ${externalFileId ?? request.id}`.trim();
-}
-
-function buildGoogleWorkspaceUrl(
-  externalFileId: string | undefined,
-  kind: "sheet" | "document",
-): string | undefined {
-  if (!externalFileId) {
-    return undefined;
-  }
-  const path = kind === "document" ? "document" : "spreadsheets";
-  return `https://docs.google.com/${path}/d/${encodeURIComponent(externalFileId)}/edit`;
 }
 
 function resolveExplicitRoleForContext(
@@ -1009,18 +840,4 @@ function postSystemMessageSafely(input: {
     code: input.code,
     data: input.data,
   });
-}
-
-function normalizeOptional(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-}
-
-function extractGoogleWorkspaceFileId(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-  const match = /\/(?:spreadsheets|document)\/d\/([^/?#]+)/.exec(trimmed);
-  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }

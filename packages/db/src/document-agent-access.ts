@@ -594,7 +594,7 @@ function isPermissionRequestStatus(value: unknown): value is DocumentPermissionR
 }
 
 function normalizeExternalProvider(value: string | undefined): DocumentPermissionRequestExternalProvider | undefined {
-  if (value === "google_workspace" || value === "notion" || value === "microsoft_365") {
+  if (value === "notion" || value === "microsoft_365") {
     return value;
   }
   return undefined;

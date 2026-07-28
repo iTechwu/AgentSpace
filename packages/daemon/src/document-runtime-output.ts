@@ -12,13 +12,6 @@ import {
   RUNTIME_OUTPUT_PERMISSION_REQUESTS_RELATIVE_PATH,
 } from "./runtime-output.ts";
 
-export interface AppliedExternalDocumentLinkOperation {
-  operationType: "link_google_sheet" | "create_google_sheet";
-  status: "succeeded" | "failed";
-  targetChannel: string;
-  message: string;
-}
-
 export interface AppliedDocumentPermissionRequest {
   status: "created" | "failed";
   requestId?: string;
@@ -33,8 +26,6 @@ export interface AppliedDocumentPermissionRequest {
 export interface DocumentRuntimeOutputResult {
   warnings: string[];
   statusMessages: string[];
-  // Kept as an empty compatibility field for daemon completion payloads.
-  externalDocumentLinks: AppliedExternalDocumentLinkOperation[];
   permissionRequests: AppliedDocumentPermissionRequest[];
 }
 
@@ -58,7 +49,6 @@ export function applyDocumentRuntimeOutputOperations(input: {
     return {
       warnings,
       statusMessages,
-      externalDocumentLinks: [],
       permissionRequests,
     };
   }
@@ -75,7 +65,6 @@ export function applyDocumentRuntimeOutputOperations(input: {
   return {
     warnings,
     statusMessages,
-    externalDocumentLinks: [],
     permissionRequests,
   };
 }
@@ -135,9 +124,6 @@ function applyDocumentPermissionRequestManifestEntry(
   const externalFileId = normalizeOptional(entry.externalFileId);
   const externalUrl = normalizeOptional(entry.externalUrl);
   try {
-    if (externalProvider === "google_workspace" || isGoogleWorkspaceUrl(externalUrl)) {
-      throw new Error("Google Workspace document permission requests have been removed. Use a bound Feishu resource instead.");
-    }
     const request = createDocumentPermissionRequestSync({
       workspaceId: context.workspaceId,
       documentId,
@@ -180,16 +166,7 @@ function normalizeExternalProvider(
   if (value === "notion" || value === "microsoft_365") {
     return value;
   }
-  return value === "google_workspace" ? value : undefined;
-}
-
-function isGoogleWorkspaceUrl(value: string | undefined): boolean {
-  try {
-    const url = value ? new URL(value) : undefined;
-    return url?.hostname === "docs.google.com" || url?.hostname.endsWith(".google.com") || false;
-  } catch {
-    return false;
-  }
+  return undefined;
 }
 
 function normalizeOptional(value: string | undefined): string | undefined {

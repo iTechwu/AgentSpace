@@ -324,7 +324,6 @@ export async function POST(
         })),
         skillImports: skillImportOperations.imports,
         documentUpdates: documentOperations.documentUpdates,
-        externalDocumentLinks: documentRuntimeOutputOperations.externalDocumentLinks,
         feishuLarkCliDataOperationRunIds: feishuLarkCliResultOperations.operationRunIds,
         feishuRuntimeDataOperationRunIds: feishuRuntimeDataOperationRequests.operationRunIds,
         feishuRuntimeDataOperationApprovalIds: feishuRuntimeDataOperationRequests.approvalIds,

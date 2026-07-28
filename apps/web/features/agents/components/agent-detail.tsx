@@ -380,13 +380,6 @@ export function AgentDetail({
                             .join(" · ")}
                         </p>
                         {grant.externalFileId ? <span>{grant.externalFileId}</span> : null}
-                        {grant.latestExternalRunStatus ? (
-                          <span>
-                            {tx("最近外部授权状态", "Latest external status")}: {grant.latestExternalRunStatus}
-                            {grant.latestExternalRunAt ? ` · ${formatAgentTimestamp(grant.latestExternalRunAt)}` : ""}
-                          </span>
-                        ) : null}
-                        {grant.latestExternalRunError ? <span>{grant.latestExternalRunError}</span> : null}
                       </div>
                       <span className={`status-chip status-chip--${agentDocumentRoleTone(grant.role)}`}>{formatAgentDocumentRole(grant.role, tx)}</span>
                     </article>

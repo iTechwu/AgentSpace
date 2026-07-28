@@ -66,7 +66,6 @@ import type {
   ChannelDocument,
   ChannelDocumentVersion,
   DataTable,
-  ExternalSheetOperationRun,
   KnowledgeAssignmentMode,
   KnowledgePage,
   LedgerItem,
@@ -477,38 +476,6 @@ export interface ChannelDocumentRecord {
   collaborators: ChannelDocumentAccessRecord[];
   availableCollaborators: ChannelDocumentCollaboratorCandidateRecord[];
   lastBackgroundSync?: ChannelDocumentSyncEventRecord;
-  externalSheet?: {
-    provider: "google_workspace";
-    externalFileId: string;
-    externalUrl: string;
-    externalRevisionId?: string;
-    syncStatus: NonNullable<ChannelDocument["externalSyncStatus"]>;
-    externalMimeType?: string;
-    externalUpdatedAt?: string;
-  };
-  externalSheetOperations: ChannelDocumentExternalSheetOperationRecord[];
-}
-
-export interface ChannelDocumentExternalSheetOperationRecord {
-  id: string;
-  actorType: ExternalSheetOperationRun["actorType"];
-  actorId: string;
-  delegatedUserId?: string;
-  delegatedUserDisplayName?: string;
-  delegatedGoogleEmail?: string;
-  credentialDelegationId?: string;
-  status: ExternalSheetOperationRun["status"];
-  intent: string;
-  operationType: ExternalSheetOperationRun["operationType"];
-  rangeA1?: string;
-  affectedRows?: number;
-  affectedCells?: number;
-  requestSummary: string;
-  responseSummary?: string;
-  errorCode?: string;
-  errorMessage?: string;
-  startedAt: string;
-  finishedAt?: string;
 }
 
 export interface ChannelDocumentRunRecord {
@@ -615,9 +582,6 @@ export interface WorkspaceAgentDocumentAccessRecord {
   externalProvider?: string;
   externalFileId?: string;
   externalUrl?: string;
-  latestExternalRunStatus?: string;
-  latestExternalRunAt?: string;
-  latestExternalRunError?: string;
   updatedAt: string;
 }
 
@@ -1333,38 +1297,6 @@ function buildChannelWorkspaceArtifacts(
       presences.sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()),
     );
   }
-  const externalSheetOperationsByDocumentId = new Map<string, ChannelDocumentExternalSheetOperationRecord[]>();
-  for (const run of state.externalSheetOperationRuns ?? []) {
-    const list = externalSheetOperationsByDocumentId.get(run.channelDocumentId) ?? [];
-    list.push({
-      id: run.id,
-      actorType: run.actorType,
-      actorId: run.actorId,
-      delegatedUserId: run.delegatedUserId,
-      delegatedUserDisplayName: run.delegatedUserDisplayName,
-      delegatedGoogleEmail: run.delegatedGoogleEmail,
-      credentialDelegationId: run.credentialDelegationId,
-      status: run.status,
-      intent: run.intent,
-      operationType: run.operationType,
-      rangeA1: run.rangeA1,
-      affectedRows: run.affectedRows,
-      affectedCells: run.affectedCells,
-      requestSummary: run.requestSummary,
-      responseSummary: run.responseSummary,
-      errorCode: run.errorCode,
-      errorMessage: run.errorMessage,
-      startedAt: run.startedAt,
-      finishedAt: run.finishedAt,
-    });
-    externalSheetOperationsByDocumentId.set(run.channelDocumentId, list);
-  }
-  for (const [documentId, runs] of externalSheetOperationsByDocumentId) {
-    externalSheetOperationsByDocumentId.set(
-      documentId,
-      runs.sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime()),
-    );
-  }
   const openConflictsByDocumentId = new Map<string, ChannelDocumentConflict[]>();
   for (const conflict of state.channelDocumentConflicts ?? []) {
     if (conflict.status !== "open") {
@@ -1466,8 +1398,6 @@ function buildChannelWorkspaceArtifacts(
         collaborators,
         availableCollaborators,
         lastBackgroundSync,
-        externalSheet: buildExternalSheetRecord(document),
-        externalSheetOperations: externalSheetOperationsByDocumentId.get(document.id) ?? [],
       } satisfies ChannelDocumentRecord];
     });
   const accessibleDocumentIds = new Set(documents.map((document) => document.id));
@@ -1688,28 +1618,6 @@ function getVisibleWorkspaceChannelNames(
       )
     .map((channel) => channel.name),
   );
-}
-
-function buildExternalSheetRecord(document: ChannelDocument): ChannelDocumentRecord["externalSheet"] {
-  if (
-    document.kind !== "sheet" ||
-    document.storageMode !== "external" ||
-    document.externalProvider !== "google_workspace" ||
-    !document.externalFileId ||
-    !document.externalUrl
-  ) {
-    return undefined;
-  }
-
-  return {
-    provider: "google_workspace",
-    externalFileId: document.externalFileId,
-    externalUrl: document.externalUrl,
-    externalRevisionId: document.externalRevisionId,
-    syncStatus: document.externalSyncStatus ?? "unknown",
-    externalMimeType: document.externalMimeType,
-    externalUpdatedAt: document.externalUpdatedAt,
-  };
 }
 
 function buildKnowledgeDocumentPageRecords(
@@ -3363,16 +3271,6 @@ function buildWorkspaceAgentDocumentAccessSummaries(
   state: DofeAgentState,
 ): Map<string, WorkspaceAgentDocumentAccessSummaryRecord> {
   const documentById = new Map(state.channelDocuments.map((document) => [document.id, document]));
-  const latestRunByDocumentId = new Map<string, ExternalSheetOperationRun>();
-  for (const run of state.externalSheetOperationRuns ?? []) {
-    const existing = latestRunByDocumentId.get(run.channelDocumentId);
-    const runTime = new Date(run.finishedAt ?? run.startedAt).getTime();
-    const existingTime = existing ? new Date(existing.finishedAt ?? existing.startedAt).getTime() : 0;
-    if (!existing || runTime > existingTime) {
-      latestRunByDocumentId.set(run.channelDocumentId, run);
-    }
-  }
-
   const summaries = new Map<string, WorkspaceAgentDocumentAccessSummaryRecord>();
   const ensureSummary = (employeeName: string): WorkspaceAgentDocumentAccessSummaryRecord => {
     const existing = summaries.get(employeeName);
@@ -3389,7 +3287,6 @@ function buildWorkspaceAgentDocumentAccessSummaries(
       continue;
     }
     const document = documentById.get(access.documentId);
-    const latestRun = latestRunByDocumentId.get(access.documentId);
     const summary = ensureSummary(access.subjectId);
     summary.grants.push({
       id: access.id,
@@ -3402,9 +3299,6 @@ function buildWorkspaceAgentDocumentAccessSummaries(
       externalProvider: document?.externalProvider,
       externalFileId: document?.externalFileId,
       externalUrl: document?.externalUrl,
-      latestExternalRunStatus: latestRun?.status,
-      latestExternalRunAt: latestRun?.finishedAt ?? latestRun?.startedAt,
-      latestExternalRunError: latestRun?.errorMessage,
       updatedAt: access.updatedAt,
     });
   }

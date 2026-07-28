@@ -49,39 +49,7 @@ test("collectRuntimeOutputBundle captures manifests and referenced runtime-outpu
       "utf8",
     );
     writeFileSync(join(artifactsDir, "chart.png"), "image", "utf8");
-    writeFileSync(join(artifactsDir, "sheet-result.json"), "{\"values\":[[\"Name\"]]}", "utf8");
-    mkdirSync(join(artifactsDir, "docs"), { recursive: true });
-    writeFileSync(join(artifactsDir, "docs", "requests.json"), "[{\"insertText\":{\"text\":\"hello\"}}]", "utf8");
     writeFileSync(join(artifactsDir, "tmp.bin"), "unreferenced", "utf8");
-    writeFileSync(
-      join(workDir, "runtime-output", "external-sheets-results.json"),
-      JSON.stringify({
-        results: [
-          {
-            documentId: "channel-doc-123",
-            operation: "read",
-            resultPath: "runtime-output/artifacts/sheet-result.json",
-            summary: "Read 1 row.",
-          },
-        ],
-      }),
-      "utf8",
-    );
-    writeFileSync(
-      join(workDir, "runtime-output", "external-google-docs.json"),
-      JSON.stringify({
-        operations: [
-          {
-            documentId: "channel-doc-google-doc-1",
-            operationType: "batch_update",
-            intent: "Insert greeting",
-            requests: [{ insertText: { text: "hello" } }],
-            requestsPath: "runtime-output/artifacts/docs/requests.json",
-          },
-        ],
-      }),
-      "utf8",
-    );
 
     const bundle = collectRuntimeOutputBundle(workDir);
     assert.ok(bundle);
@@ -90,10 +58,6 @@ test("collectRuntimeOutputBundle captures manifests and referenced runtime-outpu
       [
         "runtime-output/agent-output.json",
         "runtime-output/artifacts/chart.png",
-        "runtime-output/artifacts/docs/requests.json",
-        "runtime-output/artifacts/sheet-result.json",
-        "runtime-output/external-google-docs.json",
-        "runtime-output/external-sheets-results.json",
       ],
     );
     assert.equal(

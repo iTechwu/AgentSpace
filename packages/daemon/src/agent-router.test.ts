@@ -384,7 +384,7 @@ test("runAgentRouter handles Codex snake_case events without treating successful
       [
         "#!/bin/sh",
         "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"codex-snake-session\"}'",
-        "printf '%s\\n' '{\"type\":\"item.started\",\"item\":{\"type\":\"command_execution\",\"command\":\"gws read\"}}'",
+        "printf '%s\\n' '{\"type\":\"item.started\",\"item\":{\"type\":\"command_execution\",\"command\":\"acme-tool read\"}}'",
         "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"command_execution\",\"aggregated_output\":\"docs mention unauthorized 401 api key text, but command succeeded\",\"exit_code\":0,\"status\":\"completed\"}}'",
         "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"snake final text\"}}'",
         "printf '%s\\n' '{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":4,\"output_tokens\":5}}'",
@@ -574,84 +574,6 @@ test("runAgentRouter returns structured OpenCode diagnostics for nonzero, empty,
     assert.equal(timeout.status, "timeout");
     assert.equal(timeout.diagnostics.some((diagnostic) => diagnostic.code === "harness.timeout"), true);
   } finally {
-    process.env.PATH = originalPath;
-    rmSync(workDir, { recursive: true, force: true });
-  }
-});
-
-test("runAgentRouter includes daemon and Google Workspace CLIs in provider PATH", async () => {
-  const workDir = mkdtempSync(join(tmpdir(), "agent-router-provider-path-"));
-  const providerBinDir = join(workDir, "provider-bin");
-  const daemonBinDir = join(workDir, "daemon-runtime", "bin");
-  const gwsBinDir = join(workDir, "gws-bin");
-  const codexPath = join(providerBinDir, "codex");
-  const daemonPath = join(daemonBinDir, "dofe-agent");
-  const gwsPath = join(gwsBinDir, "gws");
-  const seenPathFile = join(workDir, "seen-path.txt");
-  const originalDaemonBin = process.env.DOFE_AGENT_DAEMON_BIN;
-  const originalPath = process.env.PATH;
-
-  try {
-    mkdirSync(providerBinDir, { recursive: true });
-    mkdirSync(daemonBinDir, { recursive: true });
-    mkdirSync(gwsBinDir, { recursive: true });
-    writeExecutable(
-      codexPath,
-      [
-        "#!/bin/sh",
-        "printf '%s' \"$PATH\" > \"$SEEN_PATH_FILE\"",
-        "prev=''",
-        "for arg in \"$@\"; do",
-        "  if [ \"$prev\" = '-o' ]; then",
-        "    if command -v dofe-agent >/dev/null 2>&1 && command -v gws >/dev/null 2>&1; then",
-        "      printf '%s' 'path ok' > \"$arg\"",
-        "    else",
-        "      printf '%s' 'path missing' > \"$arg\"",
-        "    fi",
-        "  fi",
-        "  prev=\"$arg\"",
-        "done",
-      ].join("\n"),
-    );
-    writeExecutable(daemonPath, "#!/bin/sh\nexit 0\n");
-    writeExecutable(gwsPath, "#!/bin/sh\nexit 0\n");
-
-    process.env.PATH = `${providerBinDir}${delimiter}${gwsBinDir}`;
-    process.env.DOFE_AGENT_DAEMON_BIN = join(daemonBinDir, "dofe-agent-daemon");
-
-    const result = await runAgentRouter({
-      version: 1,
-      harness: "codex",
-      prompt: "check path",
-      cwd: workDir,
-      executablePath: codexPath,
-      env: {
-        PATH: providerBinDir,
-        SEEN_PATH_FILE: seenPathFile,
-      },
-      runtimeToolCapabilities: [{
-        id: "google-workspace",
-        command: "gws",
-        displayName: "Google Workspace",
-        binDir: gwsBinDir,
-        allowedShellPatterns: ["gws *"],
-        source: "builtin",
-      }],
-      timeoutMs: 1_000,
-    });
-    const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
-
-    assert.equal(result.status, "completed");
-    assert.equal(result.outputText, "path ok");
-    assert.equal(seenPath[0], providerBinDir);
-    assert.equal(seenPath.includes(daemonBinDir), true);
-    assert.equal(seenPath.includes(gwsBinDir), true);
-  } finally {
-    if (originalDaemonBin === undefined) {
-      delete process.env.DOFE_AGENT_DAEMON_BIN;
-    } else {
-      process.env.DOFE_AGENT_DAEMON_BIN = originalDaemonBin;
-    }
     process.env.PATH = originalPath;
     rmSync(workDir, { recursive: true, force: true });
   }

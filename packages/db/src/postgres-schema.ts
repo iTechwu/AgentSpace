@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "42";
+export const POSTGRES_SCHEMA_VERSION = "43";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -7,8 +7,6 @@ export const POSTGRES_TABLE_NAMES = [
   "auth_identity",
   "session",
   "workspace_membership",
-  "google_oauth_credential",
-  "agent_google_workspace_delegation",
   "external_integration",
   "external_user_binding",
   "external_channel_binding",
@@ -86,6 +84,8 @@ export function getPostgresSchemaStatements(): string[] {
         value TEXT NOT NULL
       )
     `,
+    `DROP TABLE IF EXISTS agent_google_workspace_delegation`,
+    `DROP TABLE IF EXISTS google_oauth_credential`,
     `
       CREATE TABLE IF NOT EXISTS workspace (
         id TEXT PRIMARY KEY,
@@ -139,6 +139,10 @@ export function getPostgresSchemaStatements(): string[] {
         revoked_at TIMESTAMPTZ
       )
     `,
+    `DELETE FROM session WHERE user_id NOT IN (SELECT user_id FROM auth_identity WHERE provider = 'sso')`,
+    `DELETE FROM auth_identity WHERE provider <> 'sso'`,
+    `ALTER TABLE auth_identity DROP CONSTRAINT IF EXISTS auth_identity_provider_check`,
+    `ALTER TABLE auth_identity ADD CONSTRAINT auth_identity_provider_check CHECK (provider = 'sso')`,
     `
       CREATE TABLE IF NOT EXISTS workspace_membership (
         id TEXT PRIMARY KEY,
@@ -149,41 +153,6 @@ export function getPostgresSchemaStatements(): string[] {
         joined_at TIMESTAMPTZ NOT NULL,
         invited_by TEXT,
         UNIQUE(workspace_id, user_id)
-      )
-    `,
-    `
-      CREATE TABLE IF NOT EXISTS google_oauth_credential (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        google_subject TEXT,
-        google_email TEXT,
-        scopes TEXT NOT NULL,
-        access_token_encrypted TEXT,
-        refresh_token_encrypted TEXT,
-        expires_at TIMESTAMPTZ,
-        status TEXT NOT NULL DEFAULT 'active',
-        created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL,
-        revoked_at TIMESTAMPTZ,
-        UNIQUE(workspace_id, user_id)
-      )
-    `,
-    `
-      CREATE TABLE IF NOT EXISTS agent_google_workspace_delegation (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-        employee_name TEXT NOT NULL,
-        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        google_oauth_credential_id TEXT NOT NULL REFERENCES google_oauth_credential(id) ON DELETE CASCADE,
-        status TEXT NOT NULL DEFAULT 'active',
-        scopes TEXT NOT NULL,
-        google_email TEXT,
-        granted_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL,
-        revoked_at TIMESTAMPTZ,
-        UNIQUE(workspace_id, employee_name, user_id)
       )
     `,
     // external_* bindings reference workspace_channel, so create it before those tables.
@@ -1648,6 +1617,36 @@ export function getPostgresSchemaStatements(): string[] {
         ON managed_runtime_cleanup_request(status, claimed_at)
     `,
     `
+      UPDATE workspace_snapshot
+      SET state_json = jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            state_json - 'externalSheetOperationRuns',
+            '{channelDocuments}',
+            COALESCE((
+              SELECT jsonb_agg(item)
+              FROM jsonb_array_elements(COALESCE(state_json->'channelDocuments', '[]'::jsonb)) AS item
+              WHERE item->>'externalProvider' IS DISTINCT FROM 'google_workspace'
+            ), '[]'::jsonb)
+          ),
+          '{dataTables}',
+          COALESCE((
+            SELECT jsonb_agg(item)
+            FROM jsonb_array_elements(COALESCE(state_json->'dataTables', '[]'::jsonb)) AS item
+            WHERE item->>'externalProvider' IS DISTINCT FROM 'google_workspace'
+          ), '[]'::jsonb)
+        ),
+        '{skills}',
+        COALESCE((
+          SELECT jsonb_agg(item)
+          FROM jsonb_array_elements(COALESCE(state_json->'skills', '[]'::jsonb)) AS item
+          WHERE item->>'name' IS DISTINCT FROM 'google-workspace-cli'
+        ), '[]'::jsonb)
+      )
+    `,
+    `DELETE FROM skill_import_event WHERE skill_name = 'google-workspace-cli'`,
+    `DELETE FROM skill WHERE name = 'google-workspace-cli'`,
+    `
       CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_slug
         ON workspace(slug)
     `,
@@ -1658,14 +1657,6 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_workspace_membership_workspace
         ON workspace_membership(workspace_id)
-    `,
-    `
-      CREATE INDEX IF NOT EXISTS idx_google_oauth_credential_workspace_user
-        ON google_oauth_credential(workspace_id, user_id, status)
-    `,
-    `
-      CREATE INDEX IF NOT EXISTS idx_agent_google_workspace_delegation_agent
-        ON agent_google_workspace_delegation(workspace_id, employee_name, status)
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_workspace_channel_workspace

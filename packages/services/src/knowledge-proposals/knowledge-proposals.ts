@@ -708,15 +708,13 @@ function assertNoSensitiveKnowledgeProposalText(value: string | undefined, label
 
 function containsSensitiveTokenMaterial(value: string): boolean {
   return [
-    /GOOGLE_WORKSPACE_CLI_TOKEN/i,
     /"refresh_token"\s*:/i,
     /"access_token"\s*:/i,
     /"client_secret"\s*:/i,
     /"private_key"\s*:/i,
     /"credentials?"\s*:/i,
-    /["']?authorization["']?\s*:\s*["']?(Bearer|Basic|ya29\.)/i,
+    /["']?authorization["']?\s*:\s*["']?(Bearer|Basic)/i,
     /\bBearer\s+[A-Za-z0-9._~+/-]{20,}/i,
-    /\bya29\.[A-Za-z0-9._-]{20,}/i,
   ].some((pattern) => pattern.test(value));
 }
 

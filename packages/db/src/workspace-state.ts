@@ -149,7 +149,6 @@ export function getDatabaseStatusSync(): Record<string, string | number> {
     skills: countRows(db, "skill"),
     skillFiles: countRows(db, "skill_file"),
     agentSkills: countRows(db, "agent_skill"),
-    agentGoogleWorkspaceDelegations: countRows(db, "agent_google_workspace_delegation"),
     users: countRows(db, "users"),
     authIdentities: countRows(db, "auth_identity"),
     sessions: countRows(db, "session"),

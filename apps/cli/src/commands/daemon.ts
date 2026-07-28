@@ -1260,7 +1260,6 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         })),
         skillImports: skillImportOperations.imports,
         documentUpdates: documentOperations.documentUpdates,
-        externalDocumentLinks: documentRuntimeOutputOperations.externalDocumentLinks,
         feishuLarkCliDataOperationRunIds: feishuLarkCliResultOperations.operationRunIds,
         feishuRuntimeDataOperationRunIds: feishuRuntimeDataOperationRequests.operationRunIds,
         feishuRuntimeDataOperationApprovalIds: feishuRuntimeDataOperationRequests.approvalIds,

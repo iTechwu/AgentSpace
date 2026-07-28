@@ -105,10 +105,6 @@ export type {
   StoredAuthIdentityRecord,
   StoredSessionRecord,
   AuthProvider,
-  GoogleOAuthCredentialStatus,
-  StoredGoogleOAuthCredentialRecord,
-  AgentGoogleWorkspaceDelegationStatus,
-  StoredAgentGoogleWorkspaceDelegationRecord,
   ExternalBindingStatus,
   ExternalChannelBindingRecord,
   ExternalChannelBindingSyncMode,
@@ -287,22 +283,6 @@ export {
   updateUserSync,
   type WorkspaceMemberUserRecord,
 } from "./user-auth.ts";
-
-export {
-  listAgentGoogleWorkspaceDelegationsSync,
-  readActiveAgentGoogleWorkspaceDelegationSync,
-  readAgentGoogleWorkspaceDelegationSync,
-  revokeAgentGoogleWorkspaceDelegationSync,
-  upsertAgentGoogleWorkspaceDelegationSync,
-} from "./agent-google-workspace-delegations.ts";
-
-export {
-  listGoogleOAuthCredentialsSync,
-  readActiveGoogleOAuthCredentialSync,
-  readGoogleOAuthCredentialSync,
-  revokeGoogleOAuthCredentialSync,
-  upsertGoogleOAuthCredentialSync,
-} from "./google-oauth-credentials.ts";
 
 export {
   cancelExternalMessageOutboxForIntegrationSync,

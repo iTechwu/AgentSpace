@@ -213,9 +213,6 @@ export function removeChannelArtifactsFromState(
   state.channelDocumentPresences = state.channelDocumentPresences.filter((presence) => !documentIds.has(presence.documentId));
   state.channelDocumentRuns = state.channelDocumentRuns.filter((run) => !runIds.has(run.id));
   state.channelDocumentRunSteps = state.channelDocumentRunSteps.filter((step) => !runIds.has(step.runId));
-  state.externalSheetOperationRuns = (state.externalSheetOperationRuns ?? []).filter(
-    (run) => !documentIds.has(run.channelDocumentId),
-  );
   state.activeEmployees = state.activeEmployees.map((employee) => ({
     ...employee,
     channels: employee.channels.filter((name) => !sameValue(name, channelName)),

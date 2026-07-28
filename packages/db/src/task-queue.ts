@@ -702,9 +702,8 @@ function recordArtifactEvents(task: QueuedTaskRecord, resultJson: Record<string,
   const attachments = readObjectArray(resultJson.attachments);
   const skillImports = readObjectArray(resultJson.skillImports);
   const documentUpdates = readObjectArray(resultJson.documentUpdates);
-  const externalSheetOperations = readObjectArray(resultJson.externalSheetOperations);
   const knowledgeProposals = readObjectArray(resultJson.knowledgeProposals);
-  const artifactCount = attachments.length + skillImports.length + documentUpdates.length + externalSheetOperations.length + knowledgeProposals.length;
+  const artifactCount = attachments.length + skillImports.length + documentUpdates.length + knowledgeProposals.length;
   if (artifactCount === 0) {
     return;
   }
@@ -718,7 +717,6 @@ function recordArtifactEvents(task: QueuedTaskRecord, resultJson: Record<string,
       attachmentCount: attachments.length,
       skillImportCount: skillImports.length,
       documentUpdateCount: documentUpdates.length,
-      externalSheetOperationCount: externalSheetOperations.length,
       knowledgeProposalCount: knowledgeProposals.length,
     },
   });
@@ -769,23 +767,6 @@ function recordArtifactEvents(task: QueuedTaskRecord, resultJson: Record<string,
         artifactKind: "skill_import",
         skillName,
         skillId: readString(skillImport.skillId),
-      },
-    });
-  }
-
-  for (const operation of externalSheetOperations) {
-    recordQueueLifecycleEvent(task, {
-      type: "artifact_collected",
-      title: "External sheet operation collected",
-      summary: "The runtime output was applied to a connected Google Workspace document.",
-      status: readString(operation.status) === "failed" ? "failed" : "succeeded",
-      severity: readString(operation.status) === "failed" ? "error" : "info",
-      data: {
-        artifactKind: "external_sheet_operation",
-        operationId: readString(operation.id),
-        operationType: readString(operation.operationType),
-        status: readString(operation.status),
-        documentId: readString(operation.channelDocumentId) ?? readString(operation.documentId),
       },
     });
   }

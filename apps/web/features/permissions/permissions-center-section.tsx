@@ -336,7 +336,7 @@ function NodeOperationPanel({
   const employeeName = metadataString(node, "employeeName");
   const selectedKnowledgePages = permissions.catalog.knowledgePages.filter((page) => page.assignmentMode === "selected_agents");
 
-  if (!canManageWorkspace && node.resourceType !== "agent" && node.resourceType !== "oauth_credential") {
+  if (!canManageWorkspace && node.resourceType !== "agent") {
     return null;
   }
 
@@ -713,7 +713,6 @@ function BindingActions({
   const documentId = valueAsString(metadata.documentId);
   const actorId = valueAsString(metadata.actorId);
   const actorType = valueAsString(metadata.actorType) as "human" | "agent" | "";
-  const googleCredentialId = valueAsString(metadata.googleOAuthCredentialId);
 
   return (
     <div className="permissions-binding-card__actions">
@@ -835,7 +834,6 @@ function BindingActions({
               documentId,
               actorId,
               actorType,
-              googleCredentialId,
             }),
           })}
           type="button"
@@ -859,7 +857,6 @@ async function runRevokeAction(input: {
   documentId: string;
   actorId: string;
   actorType: "human" | "agent" | "";
-  googleCredentialId: string;
 }): Promise<void> {
   switch (input.action) {
     case "channel_access_request_reject":
@@ -1086,8 +1083,6 @@ function formatResourceType(type: string, tx: SettingsTx): string {
       return "Skill";
     case "knowledge_page":
       return tx("知识页", "Knowledge page");
-    case "oauth_credential":
-      return tx("OAuth 凭据", "OAuth credential");
     case "external_identity_policy":
       return tx("外部身份策略", "External identity policy");
     default:
@@ -1103,8 +1098,6 @@ function formatSubjectType(type: string, tx: SettingsTx): string {
       return tx("AI员工", "AI employee");
     case "daemon_token":
       return "Daemon token";
-    case "oauth_credential":
-      return "OAuth";
     case "external_guest":
       return tx("外部访客", "External guest");
     case "system":
@@ -1155,8 +1148,8 @@ function formatSource(source: string, tx: SettingsTx): string {
       return tx("知识分配", "Knowledge assignment");
     case "skill_assignment":
       return "Skill assignment";
-    case "oauth_delegation":
-      return "OAuth delegation";
+    case "external_document_permission":
+      return tx("外部文档权限", "External document permission");
     case "external_guest_policy":
       return tx("外部访客策略", "External guest policy");
     case "derived":

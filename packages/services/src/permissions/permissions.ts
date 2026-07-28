@@ -1,7 +1,6 @@
 import {
   listAgentForkInvitationsSync,
   listAgentAccessRequestsSync,
-  listAgentGoogleWorkspaceDelegationsSync,
   listChannelAccessRequestsSync,
   listChannelInvitationsSync,
   listDaemonApiTokensSync,
@@ -11,13 +10,11 @@ import {
   listEmployeeRuntimeBindingsSync,
   listExternalIntegrationsSync,
   listExternalMessageMappingsSync,
-  listGoogleOAuthCredentialsSync,
   listRuntimeGrantsSync,
   listWorkspaceChannelParticipantsSync,
   listWorkspaceMemberUsersSync,
   listWorkspaceRuntimeDisplayNamesSync,
   listStoredWorkspaceSkillsSync,
-  readGoogleOAuthCredentialSync,
   readWorkspaceSync,
   type WorkspaceRole,
 } from "@dofe-agent/db";
@@ -25,7 +22,6 @@ import type {
   ActiveEmployee,
   ChannelDocument,
   ChannelRecord,
-  ExternalSheetOperationRun,
   MessageAttachment,
   WorkspaceMessage,
   WorkspaceSkill,
@@ -44,7 +40,6 @@ export type PermissionSubjectType =
   | "human"
   | "agent"
   | "daemon_token"
-  | "oauth_credential"
   | "external_guest"
   | "system";
 
@@ -63,7 +58,6 @@ export type PermissionResourceType =
   | "external_document"
   | "skill"
   | "knowledge_page"
-  | "oauth_credential"
   | "external_identity_policy";
 
 export type PermissionSource =
@@ -80,8 +74,7 @@ export type PermissionSource =
   | "agent_channel_member_access"
   | "knowledge_assignment"
   | "skill_assignment"
-  | "oauth_delegation"
-  | "external_drive_permission"
+  | "external_document_permission"
   | "external_guest_policy"
   | "derived";
 
@@ -294,7 +287,6 @@ function buildWorkspacePermissionTree(
     buildRuntimeAndDaemonNodes(context),
     buildDocumentAndFileNodes(context),
     buildDocumentPermissionRequestNodes(context),
-    buildExternalAuthorizationNodes(context),
     buildFeishuExternalGuestPolicyNodes(context),
   ];
 
@@ -396,9 +388,6 @@ function buildPermissionDiagnostics(
   const bindingsByEmployee = new Map(
     listEmployeeRuntimeBindingsSync(input.workspaceId).map((binding) => [binding.employeeName, binding]),
   );
-  const credentialsById = new Map(
-    listGoogleOAuthCredentialsSync(input.workspaceId).map((credential) => [credential.id, credential]),
-  );
 
   for (const access of state.channelDocumentAccesses) {
     if (access.actorType !== "human") {
@@ -442,49 +431,27 @@ function buildPermissionDiagnostics(
     }
   }
 
-  for (const delegation of listAgentGoogleWorkspaceDelegationsSync(input.workspaceId)) {
-    if (delegation.status !== "active") {
-      continue;
-    }
-    const credential = credentialsById.get(delegation.googleOAuthCredentialId);
-    if (!credential || credential.status !== "active") {
-      diagnostics.push({
-        id: `diagnostic:agent-google-delegation-credential:${delegation.id}`,
-        severity: "critical",
-        title: "Agent Google delegation points to an unavailable credential",
-        description: `${delegation.employeeName} has an active Google Workspace delegation, but the referenced OAuth credential is missing or revoked.`,
-        source: "oauth_delegation",
-        resourceNodeId: `agent:${delegation.employeeName}`,
-        subjectType: "agent",
-        subjectId: delegation.employeeName,
-        lastChangedAt: delegation.updatedAt,
-      });
-    }
-  }
-
   for (const document of state.channelDocuments) {
     if (document.externalSyncStatus === "permission_error") {
       diagnostics.push({
         id: `diagnostic:external-document-permission-error:${document.id}`,
         severity: "critical",
         title: "External document permission sync failed",
-        description: `${document.title} is marked as permission_error. Re-sync Google Drive permissions after checking the delegated credential.`,
-        source: "external_drive_permission",
+        description: `${document.title} is marked as permission_error. Re-sync permissions through its configured integration.`,
+        source: "external_document_permission",
         resourceNodeId: externalDocumentNodeId(document),
         lastChangedAt: document.externalUpdatedAt ?? document.updatedAt,
       });
     }
     if (document.externalSyncStatus === "missing") {
-      const latestRun = findLatestExternalRun(state.externalSheetOperationRuns, document.id);
       diagnostics.push({
-        id: `diagnostic:external-document-oauth-visibility:${document.id}`,
+        id: `diagnostic:external-document-missing:${document.id}`,
         severity: "critical",
-        title: "External document is not visible to OAuth",
-        description: latestRun?.errorMessage
-          ?? `${document.title} is marked as missing. The current OAuth client or scope may not be able to see this file even if the Google account can open it in a browser.`,
-        source: "external_drive_permission",
+        title: "External document is unavailable",
+        description: `${document.title} is marked as missing. Check the configured integration and resource binding.`,
+        source: "external_document_permission",
         resourceNodeId: externalDocumentNodeId(document),
-        lastChangedAt: latestRun?.finishedAt ?? latestRun?.startedAt ?? document.externalUpdatedAt ?? document.updatedAt,
+        lastChangedAt: document.externalUpdatedAt ?? document.updatedAt,
       });
     }
   }
@@ -935,13 +902,11 @@ function buildAgentNodes(context: PermissionBuildContext): PermissionTreeNode[] 
   const runtimeBindings = new Map(
     listEmployeeRuntimeBindingsSync(context.workspaceId).map((binding) => [binding.employeeName, binding]),
   );
-  const delegations = listAgentGoogleWorkspaceDelegationsSync(context.workspaceId);
 
   return context.visibleEmployees.map((employee) => {
     const owner = employee.ownerUserId ? context.memberByUserId.get(employee.ownerUserId) : undefined;
     const skillIds = skillIdsByEmployee.get(employee.name) ?? employee.skillIds;
     const runtimeBinding = runtimeBindings.get(employee.name);
-    const activeDelegation = delegations.find((delegation) => delegation.employeeName === employee.name && delegation.status === "active");
     const forkedFrom = parseAgentForkOrigin(employee.origin);
     const selectedKnowledgePageIds = selectedKnowledgeAssignments
       .filter((assignment) => assignment.employeeName === employee.name)
@@ -1017,27 +982,6 @@ function buildAgentNodes(context: PermissionBuildContext): PermissionTreeNode[] 
           employeeName: employee.name,
           sourceAgentName: forkedFrom.sourceAgentName,
           invitationId: forkedFrom.invitationId,
-        },
-      });
-    }
-
-    if (activeDelegation) {
-      bindings.push({
-        subjectType: "oauth_credential",
-        subjectId: activeDelegation.googleOAuthCredentialId,
-        subjectLabel: activeDelegation.googleEmail ?? activeDelegation.googleOAuthCredentialId,
-        permission: "delegated Google Workspace credential",
-        source: "oauth_delegation",
-        status: "external",
-        editable: context.isManager || activeDelegation.userId === context.actor.userId || employee.ownerUserId === context.actor.userId,
-        revokeAction: "agent_google_delegation_revoke",
-        lastChangedAt: activeDelegation.updatedAt,
-        metadata: {
-          employeeName: employee.name,
-          userId: activeDelegation.userId,
-          googleOAuthCredentialId: activeDelegation.googleOAuthCredentialId,
-          googleEmail: activeDelegation.googleEmail ?? null,
-          scopes: activeDelegation.scopes,
         },
       });
     }
@@ -1644,7 +1588,6 @@ function buildDocumentNode(
       context.isManager ||
       context.visibleEmployees.some((employee) => sameValue(employee.name, access.subjectId)),
     );
-  const latestRun = findLatestExternalRun(state.externalSheetOperationRuns, document.id);
   const collaboratorBindings: PermissionBinding[] = accesses.map((access) => {
     const member = access.actorType === "human"
       ? context.memberByDisplayName.get(normalizeKey(access.actorId))
@@ -1695,7 +1638,7 @@ function buildDocumentNode(
     } satisfies PermissionBinding;
   });
   const externalChild = document.storageMode === "external" && document.externalProvider
-    ? [buildExternalDocumentNode(context, document, latestRun)]
+    ? [buildExternalDocumentNode(context, document)]
     : [];
 
   return {
@@ -1712,8 +1655,6 @@ function buildDocumentNode(
       storageMode: document.storageMode,
       externalProvider: document.externalProvider ?? null,
       externalSyncStatus: document.externalSyncStatus ?? null,
-      latestExternalRunStatus: latestRun?.status ?? null,
-      latestExternalRunAt: latestRun?.finishedAt ?? latestRun?.startedAt ?? null,
     },
     bindings: [
       ...collaboratorBindings,
@@ -1830,15 +1771,6 @@ function canActorDecideDocumentPermissionRequest(
       return true;
     }
   }
-  if (request.externalProvider === "google_workspace" && (request.externalFileId || request.externalUrl)) {
-    const credential = readGoogleOAuthCredentialSync({
-      workspaceId: context.workspaceId,
-      userId: context.actor.userId,
-    });
-    if (credential?.status === "active" && credential.refreshTokenEncrypted) {
-      return true;
-    }
-  }
   return false;
 }
 
@@ -1867,40 +1799,34 @@ function canActorDecideAgentAccessRequest(
 function buildExternalDocumentNode(
   context: PermissionBuildContext,
   document: ChannelDocument,
-  latestRun: ExternalSheetOperationRun | undefined,
 ): PermissionTreeNode {
   return {
     id: externalDocumentNodeId(document),
     parentId: `document:${document.id}`,
     resourceType: "external_document",
-    label: document.externalProvider === "google_workspace" ? `Google Drive: ${document.title}` : `External: ${document.title}`,
+    label: `External: ${document.title}`,
     status: document.externalSyncStatus === "permission_error" ? "error" : document.externalSyncStatus === "missing" ? "error" : "active",
-    source: "external_drive_permission",
+    source: "external_document_permission",
     metadata: {
       documentId: document.id,
       channelName: document.channelName,
       externalProvider: document.externalProvider ?? null,
       externalFileId: document.externalFileId ?? null,
       externalSyncStatus: document.externalSyncStatus ?? "unknown",
-      latestExternalRunStatus: latestRun?.status ?? null,
-      latestExternalRunAt: latestRun?.finishedAt ?? latestRun?.startedAt ?? null,
-      latestExternalRunError: latestRun?.errorMessage ?? null,
     },
     bindings: [
       {
         subjectType: "system",
-        subjectId: "external_drive_permission_sync",
-        subjectLabel: "Google Drive permission sync",
+        subjectId: "external_document_permission_sync",
+        subjectLabel: "External document permission sync",
         permission: document.externalSyncStatus ?? "unknown",
-        source: "external_drive_permission",
+        source: "external_document_permission",
         status: "external",
         editable: context.isManager,
-        updateAction: context.isManager ? "external_drive_permission_sync" : undefined,
-        lastChangedAt: latestRun?.finishedAt ?? latestRun?.startedAt ?? document.externalUpdatedAt ?? document.updatedAt,
+        updateAction: context.isManager ? "external_document_permission_sync" : undefined,
+        lastChangedAt: document.externalUpdatedAt ?? document.updatedAt,
         metadata: {
           documentId: document.id,
-          latestExternalRunStatus: latestRun?.status ?? null,
-          latestExternalRunError: latestRun?.errorMessage ?? null,
         },
       },
     ],
@@ -1971,77 +1897,6 @@ function buildFileNode(
     },
     bindings,
   };
-}
-
-function buildExternalAuthorizationNodes(context: PermissionBuildContext): PermissionTreeNode[] {
-  const credentials = listGoogleOAuthCredentialsSync(context.workspaceId)
-    .filter((credential) => context.isManager || credential.userId === context.actor.userId);
-  const delegations = listAgentGoogleWorkspaceDelegationsSync(context.workspaceId)
-    .filter((delegation) =>
-      context.isManager ||
-      delegation.userId === context.actor.userId ||
-      context.visibleEmployees.some((employee) => employee.name === delegation.employeeName),
-    );
-
-  return credentials.map((credential) => {
-    const member = context.memberByUserId.get(credential.userId);
-    const credentialDelegations = delegations.filter((delegation) => delegation.googleOAuthCredentialId === credential.id);
-    return {
-      id: `oauth-credential:${credential.id}`,
-      parentId: context.workspaceNodeId,
-      resourceType: "oauth_credential",
-      label: credential.googleEmail ?? member?.primaryEmail ?? credential.id,
-      status: credential.status === "active" ? "active" : "revoked",
-      source: "oauth_delegation",
-      metadata: {
-        googleOAuthCredentialId: credential.id,
-        userId: credential.userId,
-        googleEmail: credential.googleEmail ?? null,
-        scopes: credential.scopes,
-        expiresAt: credential.expiresAt ?? null,
-        status: credential.status,
-        updatedAt: credential.updatedAt,
-      },
-      bindings: [
-        {
-          subjectType: "human",
-          subjectId: credential.userId,
-          subjectLabel: member ? memberLabel(member) : credential.userId,
-          permission: "Google OAuth credential owner",
-          source: "direct_grant",
-          status: credential.status === "active" ? "active" : "revoked",
-          editable: credential.userId === context.actor.userId,
-          revokeAction: credential.userId === context.actor.userId && credential.status === "active" ? "oauth_credential_revoke" : undefined,
-          lastChangedAt: credential.updatedAt,
-          metadata: {
-            googleOAuthCredentialId: credential.id,
-            userId: credential.userId,
-            scopes: credential.scopes,
-          },
-        },
-        ...credentialDelegations.map((delegation) => {
-          const employee = context.visibleEmployees.find((item) => item.name === delegation.employeeName);
-          return {
-            subjectType: "agent",
-            subjectId: delegation.employeeName,
-            subjectLabel: employee?.remarkName ?? delegation.employeeName,
-            permission: "delegated Google Workspace credential",
-            source: "oauth_delegation",
-            status: delegation.status === "active" ? "external" : "revoked",
-            editable: delegation.status === "active" && (context.isManager || delegation.userId === context.actor.userId || employee?.ownerUserId === context.actor.userId),
-            revokeAction: delegation.status === "active" ? "agent_google_delegation_revoke" : undefined,
-            lastChangedAt: delegation.updatedAt,
-            metadata: {
-              employeeName: delegation.employeeName,
-              userId: delegation.userId,
-              googleOAuthCredentialId: delegation.googleOAuthCredentialId,
-              scopes: delegation.scopes,
-            },
-          } satisfies PermissionBinding;
-        }),
-      ],
-    } satisfies PermissionTreeNode;
-  });
 }
 
 function buildFeishuExternalGuestPolicyNodes(context: PermissionBuildContext): PermissionTreeNode[] {
@@ -2447,15 +2302,6 @@ function getAgentAccessRequestsForSource(
   return context.agentAccessRequestsBySourceName.get(normalizeKey(employeeName)) ?? [];
 }
 
-function findLatestExternalRun(
-  runs: ExternalSheetOperationRun[],
-  documentId: string,
-): ExternalSheetOperationRun | undefined {
-  return runs
-    .filter((run) => run.channelDocumentId === documentId)
-    .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime())[0];
-}
-
 function attachDiagnostics(
   node: PermissionTreeNode,
   diagnosticsByNode: Map<string, PermissionDiagnostic[]>,
@@ -2544,12 +2390,10 @@ function subjectTypeRank(type: PermissionSubjectType): number {
       return 1;
     case "daemon_token":
       return 2;
-    case "oauth_credential":
-      return 3;
     case "external_guest":
-      return 4;
+      return 3;
     case "system":
-      return 5;
+      return 4;
   }
 }
 

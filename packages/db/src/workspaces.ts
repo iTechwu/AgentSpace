@@ -6,8 +6,6 @@ export type HardDeleteWorkspaceResult = {
   removedWorkspaceRows: number;
   removedWorkspaceSnapshotRows: number;
   removedMembershipRows: number;
-  removedGoogleOAuthCredentialRows: number;
-  removedAgentGoogleWorkspaceDelegationRows: number;
   removedChannelRows: number;
   removedEmployeeRows: number;
   removedTaskRows: number;
@@ -292,14 +290,6 @@ export function hardDeleteWorkspaceSync(id: string): HardDeleteWorkspaceResult {
       db.prepare("DELETE FROM workspace_membership WHERE workspace_id = ?").run(id).changes,
     );
 
-    const removedAgentGoogleWorkspaceDelegationRows = Number(
-      db.prepare("DELETE FROM agent_google_workspace_delegation WHERE workspace_id = ?").run(id).changes,
-    );
-
-    const removedGoogleOAuthCredentialRows = Number(
-      db.prepare("DELETE FROM google_oauth_credential WHERE workspace_id = ?").run(id).changes,
-    );
-
     const removedWorkspaceSnapshotRows = Number(
       db.prepare("DELETE FROM workspace_snapshot WHERE id = ?").run(id).changes,
     );
@@ -313,8 +303,6 @@ export function hardDeleteWorkspaceSync(id: string): HardDeleteWorkspaceResult {
       removedWorkspaceRows,
       removedWorkspaceSnapshotRows,
       removedMembershipRows,
-      removedGoogleOAuthCredentialRows,
-      removedAgentGoogleWorkspaceDelegationRows,
       removedChannelRows,
       removedEmployeeRows,
       removedTaskRows,

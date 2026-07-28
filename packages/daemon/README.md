@@ -130,7 +130,7 @@ OpenClaw troubleshooting：
 - `provider.auth_invalid`：重新登录或刷新 OpenClaw/OpenRouter profile，检查 daemon 继承的 env
 - `provider.model_unavailable`：确认 `OPENCLAW_MODEL` 或 profile 默认 model 在当前 auth profile 下可用
 - `provider.session_invalid`：旧 session/conversation/agent 不存在；provider-runtime 会清理 task output 并自动开启新会话
-- `provider.tool_missing` / `provider.tool_unauthorized` / `provider.tool_permission_denied`：检查 `dofe-agent output`、Google Workspace `gws`、CLI-Hub app 是否在 PATH 且已授权
+- `provider.tool_missing` / `provider.tool_unauthorized` / `provider.tool_permission_denied`：检查 `dofe-agent output`、CLI-Hub app 是否在 PATH 且已授权
 - `provider.protocol_parse_failed`：OpenClaw stdout/stderr 不符合 JSON event 预期；查看 provider diagnostic tail
 
 ## Sandbox provider（实验中的 Cube scaffold）
