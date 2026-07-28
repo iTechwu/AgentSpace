@@ -60,9 +60,11 @@
 | 平台超管 | `/platform` + `/platform/audit` 路由 + 仅超管可见侧栏 | ✅ | `apps/web/app/platform/page.tsx`、`apps/web/app/platform/audit/page.tsx`、`workspace-frame.tsx:849-854` |
 | 门禁 | `test:agent-pricing` / `verify:managed-runtime-egress|billing|release` | ✅ | 根 `package.json:32-35` |
 
-### 本轮新发现的产品验收缺口（未闭环）
+### 本轮新发现的产品验收缺口
 
-1. **team/tenant 所有权转移在仓库内无可达实现。** `transferWorkspaceOwnershipSync` 仅作为 DB 原语存在于 `packages/db/src/workspace-memberships.ts:139`（且仅用 `isPlatformAdminUserSync` 拒绝超管为目标、用 SQL `WHERE role='owner'` 保证转出方当前是 Owner），但 **`apps/` 与 `packages/services/` 中无任何调用方**——没有服务端 action，也没有 UI 入口。因此 `00-产品需求与交付规格.md` 验收清单中“仅 Owner 可转移 team/tenant 所有权”目前**无法在可达路径上生效或验证**，已将该条由 `[x]` 改为 `[ ]` 并加注。Owner/Admin 其余管理能力、三角色、Member 不可操作 AI员工 均已确认。
+1. ~~**team/tenant 所有权转移在仓库内无可达实现。**~~ → ✅ **已闭环（2026-07-28 第五轮跨仓实施）**。新增 `transferWorkspaceOwnershipAction`（`apps/web/features/settings/actions.ts`）：Owner 服务端校验 → 校验目标（非自己、非超管、须为成员）→ 经 `transferSsoWorkspaceOwnership`（`apps/web/features/auth/sso-workspace-ownership.ts`）按 `workspace_sso_binding.source` 把角色写入 sso.dofe.ai 内部端点（**先提升目标为 OWNER、再降级当前 Owner 为 ADMIN**，中途不空 owner）→ 本地镜像 `transferWorkspaceOwnershipSync` → 审计 `workspace.ownership_transferred`。设置页权限区对 Owner 渲染「所有权转移」卡片（`apps/web/features/permissions/ownership-transfer-card.tsx`）。**关键：角色写入 IdP 才是事实来源，避免 `syncSsoWorkspacesForUserSync` 在下次登录静默回滚。** sso.dofe.ai 侧 `internal-api.service.ts` 的 team/tenant `updateMemberRole` 已加「最后一位 Owner」`ConflictException` 守卫 + `TEAM_MEMBER_ROLE_CHANGE`（新增枚举值 + 迁移）/`TENANT_MEMBER_ROLE_CHANGE` 审计；内部 schema 加可选 `actorUserId/reason`（向后兼容）。仓库门禁全绿。**待 sso.dofe.ai 发布后**：可选地把 `actorUserId` 经 sso-node SDK 透传到 IdP 审计（当前 AgentSpace 用 `{role}` 即可工作，真实 actor 已在 AgentSpace 审计记录）。
+
+> 本节原列 1 处产品验收缺口，现已全部闭环。仓库内不再有未闭环的产品验收项；剩余仅为真实 models 网关/容器 staging E2E、网络出口隔离与真实账单核对（见下文「仍属 staging 门槛」）。
 
 ### 文档准确性订正（不改变业务代码结论）
 

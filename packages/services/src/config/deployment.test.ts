@@ -7,6 +7,10 @@ import {
   resolveAgentRuntimeMode,
   resolveDofeAgentRuntimeConfig,
   resolveAttachmentRuntimeConfig,
+  resolveModelsBaseUrl,
+  resolveModelsGatewayBaseUrl,
+  DEFAULT_MODELS_BASE_URL,
+  DEFAULT_MODELS_GATEWAY_BASE_URL,
 } from "./deployment.ts";
 
 test("runtime mode defaults to local and only accepts remote explicitly", () => {
@@ -20,6 +24,18 @@ test("runtime mode rejects unsupported deployment values", () => {
     () => resolveAgentRuntimeMode({ DOFE_AGENT_RUNTIME_MODE: "server" }),
     /DOFE_AGENT_RUNTIME_MODE must be either local or remote/,
   );
+});
+
+test("models base url falls back to the shared default and honors env overrides", () => {
+  assert.equal(resolveModelsBaseUrl({}), DEFAULT_MODELS_BASE_URL);
+  assert.equal(resolveModelsBaseUrl({ MODELS_BASE_URL: "  https://models.internal/api  " }), "https://models.internal/api");
+  assert.equal(resolveModelsBaseUrl({ MODELS_BASE_URL: "   " }), DEFAULT_MODELS_BASE_URL);
+});
+
+test("models gateway base url falls back to the shared default and honors env overrides", () => {
+  assert.equal(resolveModelsGatewayBaseUrl({}), DEFAULT_MODELS_GATEWAY_BASE_URL);
+  assert.equal(resolveModelsGatewayBaseUrl({ MODELS_GATEWAY_BASE_URL: "https://gateway.example/api" }), "https://gateway.example/api");
+  assert.equal(resolveModelsGatewayBaseUrl({ MODELS_GATEWAY_BASE_URL: "" }), DEFAULT_MODELS_GATEWAY_BASE_URL);
 });
 
 test("runtime config reads PostgreSQL and TOS configuration from repository .env", () => {

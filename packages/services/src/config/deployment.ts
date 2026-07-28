@@ -13,6 +13,25 @@ export function resolveAgentRuntimeMode(env: NodeJS.ProcessEnv = process.env): A
   throw new Error("DOFE_AGENT_RUNTIME_MODE must be either local or remote.");
 }
 
+/**
+ * models.dofe.ai endpoints. The control plane (MODELS_BASE_URL, internal API
+ * used by AgentSpace) and the data plane (MODELS_GATEWAY_BASE_URL, consumed by
+ * managed runtimes to reach the model gateway) share one default origin so a
+ * deployment that sets neither still resolves consistently. Per-environment
+ * overrides via the env vars are always honored; these constants exist only to
+ * avoid scattering the literal `model.local.dofe.ai/api` default across modules.
+ */
+export const DEFAULT_MODELS_BASE_URL = "https://model.local.dofe.ai/api";
+export const DEFAULT_MODELS_GATEWAY_BASE_URL = "https://model.local.dofe.ai/api";
+
+export function resolveModelsBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  return env.MODELS_BASE_URL?.trim() || DEFAULT_MODELS_BASE_URL;
+}
+
+export function resolveModelsGatewayBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  return env.MODELS_GATEWAY_BASE_URL?.trim() || DEFAULT_MODELS_GATEWAY_BASE_URL;
+}
+
 export interface AttachmentRuntimeConfig {
   provider: "local" | "tos";
   tos?: {

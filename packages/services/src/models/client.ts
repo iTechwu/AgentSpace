@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { createModelsInternalDataClient, type ModelsInternalDataClient } from "@dofe/models-sdk";
+import { resolveModelsBaseUrl } from "../config/deployment.ts";
 
 /**
  * models.dofe.ai internal-API client for AgentSpace.
@@ -19,10 +20,7 @@ let cachedClient: ModelsInternalDataClient | null = null;
 let cachedConfigKey: string | null = null;
 
 export function resolveModelsInternalConfig(env: NodeJS.ProcessEnv = process.env): ModelsInternalConfig {
-  const baseUrl = (env.MODELS_BASE_URL ?? "").trim();
-  if (!baseUrl) {
-    throw new Error("models.internal_config_missing: set MODELS_BASE_URL");
-  }
+  const baseUrl = resolveModelsBaseUrl(env);
   // models.dofe.ai validates the HMAC with its INTERNAL_API_SECRET and allowlists
   // caller service names in MODELS_RUNTIME_CREDENTIAL_SERVICE_NAMES. AgentSpace
   // therefore reuses the platform's shared INTERNAL_API_SECRET and its existing
@@ -31,7 +29,7 @@ export function resolveModelsInternalConfig(env: NodeJS.ProcessEnv = process.env
   const secret = (env.MODELS_INTERNAL_API_SECRET ?? env.INTERNAL_API_SECRET ?? "").trim();
   if (!serviceName || !secret) {
     throw new Error(
-      "models.internal_config_missing: MODELS_BASE_URL is set, but a service name " +
+      "models.internal_config_missing: a service name " +
         "(MODELS_SERVICE_NAME or SSO_SERVICE_NAME) and a shared secret " +
         "(MODELS_INTERNAL_API_SECRET or INTERNAL_API_SECRET) are required. models.dofe.ai " +
         "validates with its INTERNAL_API_SECRET; the values must match.",

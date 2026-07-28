@@ -1,6 +1,5 @@
-import { createSsoInternalClient } from "@dofe/sso-node";
 import type { WorkspaceRole } from "@dofe-agent/db";
-import { readServerEnvValue } from "./server-env";
+import { getSsoInternalClient } from "./sso-internal-client";
 import { buildSsoWorkspaceScopesForUser } from "./sso-workspaces";
 
 export interface SsoWorkspaceDirectory {
@@ -12,11 +11,7 @@ export async function loadSsoWorkspaceDirectory(input: {
   subject: string;
   workspaceId: string;
 }): Promise<SsoWorkspaceDirectory> {
-  const client = createSsoInternalClient({
-    baseUrl: readRequiredSsoEnv("SSO_INTERNAL_API_URL"),
-    internalSecret: readRequiredSsoEnv("INTERNAL_API_SECRET"),
-    serviceName: readRequiredSsoEnv("SSO_SERVICE_NAME"),
-  });
+  const client = getSsoInternalClient();
   const [user, teams, tenants, preference] = await Promise.all([
     client.users.get(input.subject),
     client.users.getTeams(input.subject),
@@ -40,10 +35,4 @@ export async function loadSsoWorkspaceDirectory(input: {
     role: scope.role,
     workspaceName: scope.name,
   };
-}
-
-function readRequiredSsoEnv(name: string): string {
-  const value = readServerEnvValue(name);
-  if (!value) throw new Error(`Missing required environment variable: ${name}`);
-  return value;
 }

@@ -40,6 +40,7 @@ import {
   permissionsUpdateChannelDocumentAccessRoleAction,
 } from "@/features/permissions/actions";
 import { EmptyState } from "@/shared/ui/empty-state";
+import { OwnershipTransferCard } from "@/features/permissions/ownership-transfer-card";
 
 type PermissionViewMode = "resources" | "actors";
 type DocumentRole = "owner" | "forwarder" | "editor" | "viewer";
@@ -114,6 +115,10 @@ export function PermissionsCenterSection({
             <span>{tx(`${permissions.diagnostics.length} 条诊断`, `${permissions.diagnostics.length} diagnostics`)}</span>
           </div>
         </div>
+
+        {currentMembershipRole === "owner" ? (
+          <OwnershipTransferCard candidates={permissions.catalog.members} tx={tx} />
+        ) : null}
 
         <div className="permissions-center-toolbar">
           <div className="permissions-center-tabs" role="tablist" aria-label={tx("权限视图", "Permission view")}>

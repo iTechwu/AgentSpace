@@ -2,14 +2,18 @@
 
 import {
   createDaemonApiTokenSync,
+  isPlatformAdminUserSync,
+  listWorkspaceMemberUsersSync,
   readDaemonApiTokenSync,
   revokeDaemonApiTokenSync,
   revokeOtherSessionsForUserSync,
   revokeSessionByIdSync,
+  transferWorkspaceOwnershipSync,
 } from "@dofe-agent/db";
 import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { getCurrentSession } from "@/features/auth/server-auth";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
+import { transferSsoWorkspaceOwnership } from "@/features/auth/sso-workspace-ownership";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";
 import { SETTINGS_REVALIDATE_PATHS } from "@/features/settings/settings-sections";
@@ -158,4 +162,61 @@ export async function revokeOtherSessionsAction(): Promise<{ revokedCount: numbe
 
   revalidateSettingsPaths(workspaceContext.currentWorkspace.slug);
   return { revokedCount };
+}
+
+export async function transferWorkspaceOwnershipAction(input: {
+  targetUserId: string;
+}): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "owner");
+
+  const targetUserId = input.targetUserId.trim();
+  const actorUserId = workspaceContext.currentUser.id;
+  if (!targetUserId) {
+    throw new Error("Missing target user.");
+  }
+  if (targetUserId === actorUserId) {
+    throw new Error("Cannot transfer ownership to yourself.");
+  }
+  if (isPlatformAdminUserSync(targetUserId)) {
+    throw new Error("workspace.members.transfer_target_is_platform_admin");
+  }
+
+  const members = listWorkspaceMemberUsersSync(workspaceContext.currentWorkspace.id);
+  const target = members.find((member) => member.userId === targetUserId);
+  if (!target) {
+    throw new Error("workspace.members.transfer_target_missing");
+  }
+
+  // Write to the IdP first so the change survives SSO re-sync, then mirror locally
+  // for immediate UI consistency. Promote-before-demote guarantees the workspace is
+  // never ownerless mid-flight.
+  await transferSsoWorkspaceOwnership({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    currentOwnerUserId: actorUserId,
+    nextOwnerUserId: targetUserId,
+    actorUserId,
+  });
+  transferWorkspaceOwnershipSync(
+    workspaceContext.currentWorkspace.id,
+    actorUserId,
+    targetUserId,
+  );
+
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    title: "Ownership transferred",
+    note: `${workspaceContext.currentUser.displayName} transferred workspace ownership to ${target.displayName}.`,
+    code: "workspace.ownership_transferred",
+    data: {
+      actorType: "session_user",
+      resourceType: "workspace_membership",
+      actorUserId,
+      targetUserId,
+      previousOwnerRole: "owner",
+      newOwnerRole: "admin",
+    },
+  });
+  revalidateSettingsPaths(workspaceContext.currentWorkspace.slug);
+  return actionToastResult(undefined, successToast("所有权已转移。", "Ownership transferred."));
 }

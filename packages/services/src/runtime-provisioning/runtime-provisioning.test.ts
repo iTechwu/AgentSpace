@@ -332,16 +332,16 @@ test("tenant-only workspace (no teamId) is rejected", () => {
   );
 });
 
-test("remote provisioning rejects a missing data-plane gateway before creating a task", () => {
+test("remote provisioning falls back to the default data-plane gateway when the env var is unset", () => {
   const gatewayBaseUrl = process.env.MODELS_GATEWAY_BASE_URL;
   delete process.env.MODELS_GATEWAY_BASE_URL;
   try {
-    assert.throws(() => requestManagedRuntimeProvisioningSync({
+    assert.doesNotThrow(() => requestManagedRuntimeProvisioningSync({
       workspaceId: TEAM_WS,
       actorUserId: OWNER,
       provider: "claude",
-      idempotencyKey: "missing-gateway-key",
-    }), /models_gateway_base_url_missing/);
+      idempotencyKey: "default-gateway-key",
+    }));
   } finally {
     if (gatewayBaseUrl === undefined) delete process.env.MODELS_GATEWAY_BASE_URL;
     else process.env.MODELS_GATEWAY_BASE_URL = gatewayBaseUrl;

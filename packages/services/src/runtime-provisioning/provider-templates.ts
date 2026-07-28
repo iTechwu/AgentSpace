@@ -1,5 +1,6 @@
 import type { DaemonProvider } from "@dofe-agent/domain";
 import type { AgentRuntimeRecord } from "@dofe-agent/db";
+import { resolveModelsGatewayBaseUrl } from "../config/deployment.ts";
 
 export interface ManagedProvisioningCommand {
   executable: string;
@@ -76,11 +77,7 @@ export interface ManagedRuntimeProviderTemplate {
 }
 
 export function resolveManagedRuntimeGatewayBaseUrl(): string {
-  const base = (process.env.MODELS_GATEWAY_BASE_URL ?? "").trim();
-  if (!base) {
-    throw new Error("managed_runtime.models_gateway_base_url_missing");
-  }
-  return base;
+  return resolveModelsGatewayBaseUrl();
 }
 
 export function buildManagedProvisioningCommandContext(
@@ -165,9 +162,12 @@ function resolveProtocolGatewayBaseUrl(provider: DaemonProvider, gatewayBaseUrl:
   if (provider !== "gemini") {
     return template.replace("{{gatewayBaseUrl}}", gatewayBaseUrl.replace(/\/$/, ""));
   }
+  // Gemini requires https and lives at {gatewayBase}/gemini, preserving the
+  // deployment path prefix (e.g. /api) the same way the OpenAI/Anthropic
+  // templates preserve it via {{gatewayBaseUrl}} substitution.
   const url = new URL(gatewayBaseUrl);
   url.protocol = "https:";
-  url.pathname = "/gemini";
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/gemini`;
   url.search = "";
   url.hash = "";
   return url.toString().replace(/\/$/, "");
