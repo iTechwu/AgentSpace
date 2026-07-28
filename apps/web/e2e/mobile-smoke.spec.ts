@@ -28,5 +28,5 @@ test("mobile workspace drill-down flows render and navigate", async ({ page }) =
   await expect(page.getByRole("button", { name: /全部|All/i })).toBeVisible();
 
   await page.goto("/agents");
-  await expect(page.getByRole("heading", { name: /全部 Agent|All agents/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /全部 AI员工|All AI employees/i })).toBeVisible();
 });

@@ -32,7 +32,7 @@ test("keeps agents mode query and active content through navigation and refresh"
 
   await page.getByRole("link", { name: /员工管理|Agent Management/i }).click();
   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/agents\\?mode=agent$`));
-  await expect(page.getByRole("heading", { name: /全部 Agent|All agents/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /全部 AI员工|All AI employees/i })).toBeVisible();
 
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/agents\\?mode=container$`));
@@ -68,7 +68,7 @@ test("keeps the final active module after rapid desktop switching", async ({ pag
   await page.getByRole("link", { name: /员工管理|Agent Management/i }).click();
 
   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/agents\\?mode=agent$`));
-  await expect(page.getByRole("heading", { name: /全部 Agent|All agents/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /全部 AI员工|All AI employees/i })).toBeVisible();
   await expect(page.getByRole("link", { name: /员工管理|Agent Management/i })).toHaveClass(/workspace-sidebar__section-link--active/);
 });
 

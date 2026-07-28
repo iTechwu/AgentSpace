@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { expect, type Page } from "@playwright/test";
 import {
+  createAuthIdentitySync,
   createChannelParticipantSync,
   createSessionSync,
   createUserSync,
@@ -27,27 +28,7 @@ export interface SeededWorkspaceSession {
 }
 
 export async function ensureWorkspaceSession(page: Page): Promise<void> {
-  await page.goto("/");
-
-  if (/\/(?:w\/[^/]+\/)?im(?:\?.*)?$/.test(page.url())) {
-    await expect(page.locator(".workspace-layout")).toBeVisible();
-    await dismissWorkspaceChromeOverlays(page);
-    return;
-  }
-
-  const registerTab = page.getByRole("button", { name: /注册|Register/i });
-  await expect(registerTab).toBeVisible();
-  await registerTab.click();
-
-  const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  await page.getByRole("textbox", { name: /你的名字|Your name/i }).fill(`E2E ${suffix}`);
-  await page.getByRole("textbox", { name: /邮箱|Email/i }).fill(`e2e-${suffix}@example.com`);
-  await page.getByRole("textbox", { name: /密码|Password/i }).fill("codex-e2e-password");
-
-  await page.getByRole("button", { name: /创建账号并打开工作台|Create account and open workspace/i }).click();
-  await expect(page).toHaveURL(/\/w\/[^/]+\/im(?:\?.*)?$/);
-  await expect(page.locator(".workspace-layout")).toBeVisible();
-  await dismissWorkspaceChromeOverlays(page);
+  await openSeededWorkspacePage(page, "/im");
 }
 
 async function dismissWorkspaceChromeOverlays(page: Page): Promise<void> {
@@ -67,6 +48,14 @@ export async function seedWorkspaceSession(page: Page): Promise<SeededWorkspaceS
   const user = createUserSync({
     displayName: userDisplayName,
     primaryEmail: `e2e-owner-${suffix}@example.com`,
+  });
+  createAuthIdentitySync({
+    userId: user.id,
+    provider: "sso",
+    providerSubject: `e2e-subject-${suffix}`,
+    email: user.primaryEmail,
+    emailVerified: true,
+    profileJson: JSON.stringify({ issuer: "e2e.sso.dofe.test" }),
   });
   const workspace = createWorkspaceSync({
     id: workspaceId,

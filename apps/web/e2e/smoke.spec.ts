@@ -14,7 +14,7 @@ test("workspace routes render after authentication", async ({ page }) => {
 
   await page.goto("/agents");
   await expect(page).toHaveURL(/\/agents(?:\?.*)?$/);
-  await expect(page.getByRole("heading", { name: /全部 Agent|All agents/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /全部 AI员工|All AI employees/i })).toBeVisible();
 
   await page.goto("/approvals");
   await expect(page).toHaveURL(/\/approvals(?:\?.*)?$/);
