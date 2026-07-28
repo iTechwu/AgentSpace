@@ -1,18 +1,20 @@
 /**
- * Managed Runtime provisioning service (Phase 2).
+ * Managed Runtime provisioning service.
  *
  * Drives a durable, stage-tracked, idempotent RuntimeProvisioningTask through:
- *   request_credential → prepare_node → (pull_image/install_cli skipped in
- *   Phase 2) → write_credential → health_check → ready
+ *   request_credential → prepare_node → pull_image → install_cli →
+ *   write_credential → health_check → ready
  *
- * Credential plaintext is returned by models exactly once and is held only in
- * the RuntimeCredentialVault (never the DB/logs). Re-submission of the same
- * idempotency key returns the existing task without re-issuing a key. All
- * mutations require workspace Owner/Admin (server-side enforced here).
+ * Node-side image/CLI pull and install are real, daemon-claimed stages
+ * (claimed via the provisioning-task claim route and executed by the daemon's
+ * managed provisioning executor). Credential plaintext is returned by models
+ * exactly once and is held only in the RuntimeCredentialVault (never the
+ * DB/logs). Re-submission of the same idempotency key returns the existing
+ * task without re-issuing a key. All mutations require workspace Owner/Admin
+ * (server-side enforced here).
  */
 import {
   advanceRuntimeProvisioningTaskStageSync,
-  appendRuntimeProvisioningEventSync,
   claimManagedProvisioningStageSync,
   completeManagedProvisioningStageSync,
   completeManagedRuntimeCleanupRequestSync as completeManagedRuntimeCleanupRequestRecordSync,
@@ -148,6 +150,8 @@ export interface RequestManagedRuntimeInput extends ManagedRuntimeActor {
   idempotencyKey: string;
   targetServer?: string;
   name?: string;
+  /** When false, the created runtime refuses new employee binds (default true). */
+  allowNewEmployeeSharing?: boolean;
 }
 
 export function requestManagedRuntimeProvisioningSync(
@@ -186,6 +190,7 @@ export function requestManagedRuntimeProvisioningSync(
   void runProvisioningPipeline(task.id, input.workspaceId, {
     name: input.name,
     allowedModels: input.allowedModels,
+    allowNewEmployeeSharing: input.allowNewEmployeeSharing,
   }).catch((error) => {
     markRuntimeProvisioningTaskFailedSync({
       id: task.id,
@@ -381,6 +386,7 @@ export function listManagedRuntimesForWorkspaceSync(
       provisioningState: normalizeManagedRuntimeLifecycleState(row.provisioningState),
       protocols: row.protocols ?? [],
       defaultModel: row.defaultModel,
+      allowNewEmployeeSharing: row.allowNewEmployeeSharing,
       assignedEmployeeCount: bindingCountByRuntime.get(row.id) ?? 0,
       lastHeartbeatAt: row.lastHeartbeatAt,
       periodActualCostUsd: actualCostByRuntime.get(row.id) ?? 0,
@@ -397,6 +403,8 @@ export interface ManagedRuntimeListItem {
   provisioningState: "managed" | "credential_recovering" | "needs_attention" | "legacy";
   protocols: string[];
   defaultModel?: string;
+  /** Whether additional AI employees may bind to this runtime. */
+  allowNewEmployeeSharing?: boolean;
   assignedEmployeeCount: number;
   lastHeartbeatAt?: string;
   periodActualCostUsd: number;
@@ -1062,6 +1070,8 @@ export function failManagedRuntimeCleanupSync(
 export interface PipelineRunOptions {
   name?: string;
   allowedModels?: string[];
+  /** When false, the created runtime refuses new employee binds (default true). */
+  allowNewEmployeeSharing?: boolean;
   /** Test seam: inject a models client. Defaults to the env-configured client. */
   modelsClient?: ModelsClientLike;
   /** Test seam: inject a vault. Defaults to the process vault. */
@@ -1295,6 +1305,7 @@ export async function runProvisioningPipeline(
         managedCredentialId: task.runtimeCredentialId!,
         credentialSecretRef: task.secretRef,
         provisioningTaskId: taskId,
+        allowNewEmployeeSharing: options.allowNewEmployeeSharing,
       });
       advanceStage(taskId, workspaceId, "prepare_node", "succeeded", 45, {
         runtimeId: runtime.id,
@@ -1510,22 +1521,6 @@ function advanceStage(
     status,
     progressPercent,
     ...fields,
-  });
-}
-
-function recordSkipped(
-  taskId: string,
-  stage: RuntimeProvisioningTaskRecord["stage"],
-  progressPercent: number,
-): void {
-  appendRuntimeProvisioningEventSync({
-    taskId,
-    stage,
-    status: "skipped",
-    progressPercent,
-    title: `Stage ${stage} skipped (Phase 3)`,
-    summary: "Node-side image/CLI install is realised in Phase 3.",
-    severity: "info",
   });
 }
 

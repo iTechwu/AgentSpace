@@ -87,21 +87,21 @@ test("heartbeat can refresh daemon metadata without changing runtimes", () => {
   const snapshot = heartbeatDaemonSync("build-box-readiness", {
     metadata: {
       mode: "remote",
-      googleWorkspaceReadiness: {
-        executor: "gws",
-        gws: { available: true, version: "gws 0.22.5" },
+      runtimeReadiness: {
+        executor: "agent-router",
+        available: true,
       },
     },
   });
   const metadata = JSON.parse(snapshot.daemon.metadataJson) as {
-    googleWorkspaceReadiness?: {
+    runtimeReadiness?: {
       executor?: string;
-      gws?: { available?: boolean; version?: string };
+      available?: boolean;
     };
   };
 
-  assert.equal(metadata.googleWorkspaceReadiness?.executor, "gws");
-  assert.equal(metadata.googleWorkspaceReadiness?.gws?.available, true);
+  assert.equal(metadata.runtimeReadiness?.executor, "agent-router");
+  assert.equal(metadata.runtimeReadiness?.available, true);
   assert.equal(snapshot.runtimes.length, 1);
 });
 

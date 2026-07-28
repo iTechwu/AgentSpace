@@ -48,9 +48,9 @@ test("resolveAgentDocumentContextSync keeps editor grants scoped to the document
     title: "Private sheet",
     kind: "sheet",
     storageMode: "external",
-    externalProvider: "google_workspace",
-    externalFileId: "sheet-private",
-    externalUrl: "https://docs.google.com/spreadsheets/d/sheet-private/edit",
+    externalProvider: "notion",
+    externalFileId: "page-private",
+    externalUrl: "https://www.notion.so/page-private",
     contentMarkdown: "sheet",
     createdBy: "Mina",
     createdByType: "human",
@@ -104,7 +104,7 @@ test("resolveAgentDocumentContextSync keeps editor grants scoped to the document
   );
 });
 
-test("approving an external Google URL request links a channel document and grants access", { concurrency: false }, () => {
+test("external document requests must be linked before approval", { concurrency: false }, () => {
   const suffix = Math.random().toString(36).slice(2);
   const workspaceId = `workspace-doc-approval-${suffix}`;
   const workspace = createWorkspaceSync({
@@ -133,8 +133,8 @@ test("approving an external Google URL request links a channel document and gran
 
   const request = createDocumentPermissionRequestSync({
     workspaceId: workspace.id,
-    externalProvider: "google_workspace",
-    externalUrl: "https://docs.google.com/spreadsheets/d/sheet-approval/edit",
+    externalProvider: "notion",
+    externalUrl: "https://www.notion.so/page-approval",
     requestedRole: "forwarder",
     requestedByAgentName: "Planner",
     requestedForChannelName: "share",
@@ -149,34 +149,23 @@ test("approving an external Google URL request links a channel document and gran
     true,
   );
 
-  const approved = approveDocumentPermissionRequestSync({
-    workspaceId: workspace.id,
-    requestId: request.id,
-    decidedByUserId: owner.id,
-  });
-
-  assert.equal(approved.status, "approved");
-  assert.ok(approved.documentId);
+  assert.throws(
+    () => approveDocumentPermissionRequestSync({
+      workspaceId: workspace.id,
+      requestId: request.id,
+      decidedByUserId: owner.id,
+    }),
+    /before it is linked to a channel document/,
+  );
   const state = readWorkspaceStateSync(workspace.id);
-  const document = state.channelDocuments.find((item) => item.id === approved.documentId);
-  assert.equal(document?.externalFileId, "sheet-approval");
-  assert.equal(document?.channelName, "share");
-  assert.equal(document?.createdBy, "Mina");
   assert.equal(
     listDocumentAgentAccessSync({
       workspaceId: workspace.id,
       agentName: "Planner",
-    }).some((access) => access.documentId === approved.documentId && access.role === "forwarder"),
-    true,
+    }).length,
+    0,
   );
-  assert.equal(
-    state.messages.some((message) =>
-      message.channel === "share" &&
-      message.code === "document_permission.approved" &&
-      message.data?.requestId === request.id,
-    ),
-    true,
-  );
+  assert.equal(state.channelDocuments.some((document) => document.externalFileId === "page-approval"), false);
 });
 
 test("unauthorized users cannot approve external document requests or create side effects", { concurrency: false }, () => {
@@ -217,8 +206,8 @@ test("unauthorized users cannot approve external document requests or create sid
 
   const request = createDocumentPermissionRequestSync({
     workspaceId: workspace.id,
-    externalProvider: "google_workspace",
-    externalUrl: "https://docs.google.com/spreadsheets/d/sheet-denied-approval/edit",
+    externalProvider: "notion",
+    externalUrl: "https://www.notion.so/page-denied-approval",
     requestedRole: "forwarder",
     requestedByAgentName: "Planner",
     requestedForChannelName: "share",
@@ -231,11 +220,11 @@ test("unauthorized users cannot approve external document requests or create sid
       requestId: request.id,
       decidedByUserId: outsider.id,
     }),
-    /Only workspace managers, document owners, or Google credential owners/,
+    /Only workspace managers or document owners/,
   );
   const state = readWorkspaceStateSync(workspace.id);
   assert.equal(
-    state.channelDocuments.some((document) => document.externalFileId === "sheet-denied-approval"),
+    state.channelDocuments.some((document) => document.externalFileId === "page-denied-approval"),
     false,
   );
   assert.equal(

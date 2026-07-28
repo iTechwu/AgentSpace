@@ -10,14 +10,9 @@ const {
   mockPinMessageSync,
   mockCanViewChannelDocumentSync,
   mockCanReadChannelForActorSync,
-  mockCreateExternalGoogleSheetChannelDocumentSync,
-  mockCreateGoogleWorkspaceSheet,
   mockDeleteChannelAttachmentSync,
-  mockGetGoogleWorkspaceAccessTokenForUser,
   mockReadChannelDocumentSync,
-  mockReadGoogleDriveFileMetadata,
   mockReadWorkspaceStateSync,
-  mockReadGoogleWorkspaceOAuthConfig,
   mockRenameChannelSync,
   mockRequireCurrentWorkspaceContext,
   mockGetChannelDetailData,
@@ -31,7 +26,6 @@ const {
   mockSameValue,
   mockSendChannelHumanMessageSync,
   mockSendHumanDirectMessageSync,
-  mockSyncGoogleSheetDocumentDrivePermissions,
   mockUnpinMessageSync,
   mockValidateSessionModelOverrideForChatCommandAsync,
 } = vi.hoisted(() => ({
@@ -44,14 +38,9 @@ const {
   mockPinMessageSync: vi.fn(),
   mockCanViewChannelDocumentSync: vi.fn(),
   mockCanReadChannelForActorSync: vi.fn(),
-  mockCreateExternalGoogleSheetChannelDocumentSync: vi.fn(),
-  mockCreateGoogleWorkspaceSheet: vi.fn(),
   mockDeleteChannelAttachmentSync: vi.fn(),
-  mockGetGoogleWorkspaceAccessTokenForUser: vi.fn(),
   mockReadChannelDocumentSync: vi.fn(),
-  mockReadGoogleDriveFileMetadata: vi.fn(),
   mockReadWorkspaceStateSync: vi.fn(),
-  mockReadGoogleWorkspaceOAuthConfig: vi.fn(),
   mockRenameChannelSync: vi.fn(),
   mockRequireCurrentWorkspaceContext: vi.fn(),
   mockGetChannelDetailData: vi.fn(),
@@ -65,7 +54,6 @@ const {
   mockSameValue: vi.fn((left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase()),
   mockSendChannelHumanMessageSync: vi.fn(),
   mockSendHumanDirectMessageSync: vi.fn(),
-  mockSyncGoogleSheetDocumentDrivePermissions: vi.fn(),
   mockUnpinMessageSync: vi.fn(),
   mockValidateSessionModelOverrideForChatCommandAsync: vi.fn(),
 }));
@@ -95,7 +83,6 @@ vi.mock("@dofe-agent/services", () => ({
   restoreChannelDocumentSync: vi.fn(),
   createChannelDocumentFromAttachmentSync: vi.fn(),
   createChannelDocumentSync: vi.fn(),
-  createExternalGoogleSheetChannelDocumentSync: mockCreateExternalGoogleSheetChannelDocumentSync,
   exportChannelDocumentAsAttachmentSync: vi.fn(),
   removeChannelDocumentCollaboratorSync: vi.fn(),
   resolveChannelDocumentConflictSync: vi.fn(),
@@ -136,17 +123,6 @@ vi.mock("@/features/dashboard/data", () => ({
   getChannelDetailData: mockGetChannelDetailData,
 }));
 
-vi.mock("@/features/integrations/google-workspace", () => ({
-  createGoogleWorkspaceSheet: mockCreateGoogleWorkspaceSheet,
-  getGoogleWorkspaceAccessTokenForUser: mockGetGoogleWorkspaceAccessTokenForUser,
-  readGoogleDriveFileMetadata: mockReadGoogleDriveFileMetadata,
-  readGoogleWorkspaceOAuthConfig: mockReadGoogleWorkspaceOAuthConfig,
-}));
-
-vi.mock("@/features/integrations/google-drive-permissions", () => ({
-  syncGoogleSheetDocumentDrivePermissions: mockSyncGoogleSheetDocumentDrivePermissions,
-}));
-
 import {
   acknowledgeMessageAction,
   addWorkspaceMembersToChannelAction,
@@ -174,13 +150,8 @@ describe("channel actions", () => {
     mockPinMessageSync.mockReset();
     mockCanViewChannelDocumentSync.mockReset();
     mockCanReadChannelForActorSync.mockReset();
-    mockCreateExternalGoogleSheetChannelDocumentSync.mockReset();
-    mockCreateGoogleWorkspaceSheet.mockReset();
-    mockGetGoogleWorkspaceAccessTokenForUser.mockReset();
     mockReadChannelDocumentSync.mockReset();
-    mockReadGoogleDriveFileMetadata.mockReset();
     mockReadWorkspaceStateSync.mockReset();
-    mockReadGoogleWorkspaceOAuthConfig.mockReset();
     mockRenameChannelSync.mockReset();
     mockRequireCurrentWorkspaceContext.mockReset();
     mockGetChannelDetailData.mockReset();
@@ -194,7 +165,6 @@ describe("channel actions", () => {
     mockSameValue.mockClear();
     mockSendChannelHumanMessageSync.mockReset();
     mockSendHumanDirectMessageSync.mockReset();
-    mockSyncGoogleSheetDocumentDrivePermissions.mockReset();
     mockUnpinMessageSync.mockReset();
     mockValidateSessionModelOverrideForChatCommandAsync.mockReset();
 
@@ -254,46 +224,6 @@ describe("channel actions", () => {
       documentConflicts: [],
       channelFiles: [],
       detailScope: ["general"],
-    });
-    mockCreateExternalGoogleSheetChannelDocumentSync.mockReturnValue({
-      document: { id: "sheet-doc-1" },
-      version: { id: "sheet-version-1" },
-      state: {},
-    });
-    mockGetGoogleWorkspaceAccessTokenForUser.mockResolvedValue({
-      accessToken: "access-token",
-      credential: {
-        googleEmail: "techwu@gmail.com",
-      },
-    });
-    mockSyncGoogleSheetDocumentDrivePermissions.mockResolvedValue({
-      status: "succeeded",
-      sharedCount: 1,
-      skippedCount: 1,
-      failedCount: 0,
-      message: "Shared 1 collaborator(s); skipped 1.",
-    });
-    mockReadGoogleWorkspaceOAuthConfig.mockReturnValue({
-      appUrl: "http://app.test",
-      clientId: "client-id",
-      clientSecret: "client-secret",
-      callbackUrl: "http://app.test/api/integrations/google/callback",
-      stateSecret: "state-secret",
-      driveParentFolderId: "folder-1",
-    });
-    mockCreateGoogleWorkspaceSheet.mockResolvedValue({
-      id: "google-file-1",
-      name: "Competitors",
-      webViewLink: "https://docs.google.com/spreadsheets/d/google-file-1/edit",
-      mimeType: "application/vnd.google-apps.spreadsheet",
-      modifiedTime: "2026-04-30T00:00:00.000Z",
-    });
-    mockReadGoogleDriveFileMetadata.mockResolvedValue({
-      id: "google-file-1",
-      name: "Shared Sheet",
-      webViewLink: "https://docs.google.com/spreadsheets/d/google-file-1/edit",
-      mimeType: "application/vnd.google-apps.spreadsheet",
-      modifiedTime: "2026-04-30T00:00:00.000Z",
     });
   });
 

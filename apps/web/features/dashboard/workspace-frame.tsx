@@ -846,6 +846,19 @@ function WorkspaceFrameContent({
             </section>
           ) : null}
 
+          {user.isPlatformAdmin ? (
+            <section className="workspace-sidebar__group">
+              <SidebarSectionLink
+                href="/platform"
+                icon="approvals"
+                label={tx("平台运维", "Platform Ops")}
+                active={false}
+                nativeNavigation
+                showArrow={false}
+              />
+            </section>
+          ) : null}
+
           {visibility.tables && !isChannelScopedGuest ? (
             <section className="workspace-sidebar__group" data-onboarding-target="tables">
               <SidebarSectionLink

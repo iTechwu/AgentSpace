@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { collectSqliteMigrationSnapshotSync, redactPostgresDatabaseUrl, renderPostgresCutoverPlan } from "./postgres.ts";
-import { getPostgresSchemaStatements, POSTGRES_TABLE_NAMES } from "./postgres-schema.ts";
+import { getPostgresSchemaStatements, POSTGRES_SCHEMA_VERSION, POSTGRES_TABLE_NAMES } from "./postgres-schema.ts";
 
 test("postgres schema includes the expected core and derived tables", () => {
   const statements = getPostgresSchemaStatements().join("\n");
@@ -31,9 +31,38 @@ test("postgres schema includes the expected core and derived tables", () => {
   assert.match(statements, /ON external_integration\(workspace_id, provider, app_id, COALESCE\(tenant_key, ''\)\)/);
   assert.match(statements, /ALTER TABLE external_resource_binding\s+ADD COLUMN IF NOT EXISTS dofe_agent_resource_type TEXT/);
   assert.match(statements, /ALTER TABLE external_resource_binding\s+ADD COLUMN IF NOT EXISTS dofe_agent_resource_id TEXT/);
+  assert.match(statements, /DROP COLUMN IF EXISTS agent_space_resource_type/);
+  assert.match(statements, /DROP COLUMN IF EXISTS agent_space_resource_id/);
   assert.match(statements, /ALTER TABLE external_message_mapping\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
   assert.match(statements, /ALTER TABLE external_message_outbox\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
   assert.match(statements, /ALTER TABLE external_thread_binding\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
+});
+
+test("postgres schema removes retired Workspace data and enforces SSO-only identities", () => {
+  const statements = getPostgresSchemaStatements().join("\n");
+
+  assert.equal(POSTGRES_SCHEMA_VERSION, "46");
+  assert.equal(POSTGRES_TABLE_NAMES.some((name) => name.includes("google")), false);
+  assert.doesNotMatch(statements, /CREATE TABLE IF NOT EXISTS google_oauth_credential/);
+  assert.doesNotMatch(statements, /CREATE TABLE IF NOT EXISTS agent_google_workspace_delegation/);
+  assert.match(statements, /DROP TABLE IF EXISTS agent_google_workspace_delegation/);
+  assert.match(statements, /DROP TABLE IF EXISTS google_oauth_credential/);
+  assert.match(statements, /DELETE FROM session WHERE user_id NOT IN \(SELECT user_id FROM auth_identity WHERE provider = 'sso'\)/);
+  assert.match(statements, /DELETE FROM auth_identity WHERE provider <> 'sso'/);
+  assert.match(statements, /auth_identity_provider_check CHECK \(provider = 'sso'\)/);
+  assert.match(statements, /state_json - 'externalSheetOperationRuns'/);
+  for (const fieldName of [
+    "channelDocumentVersions",
+    "channelDocumentBlocks",
+    "channelDocumentAccesses",
+    "channelDocumentChangeSets",
+    "channelDocumentConflicts",
+    "channelDocumentPresences",
+    "channelDocumentRuns",
+  ]) {
+    assert.match(statements, new RegExp(`'\\{${fieldName}\\}'`));
+  }
+  assert.match(statements, /DELETE FROM skill WHERE name = 'google-workspace-cli'/);
 });
 
 test("token usage gateway usage uniqueness migration clears duplicate remote identifiers first", () => {
@@ -151,37 +180,6 @@ test("collectSqliteMigrationSnapshotSync extracts relational rows and derived at
         status TEXT NOT NULL,
         joined_at TEXT NOT NULL,
         invited_by TEXT
-      );
-
-      CREATE TABLE google_oauth_credential (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        google_subject TEXT,
-        google_email TEXT,
-        scopes TEXT NOT NULL,
-        access_token_encrypted TEXT,
-        refresh_token_encrypted TEXT,
-        expires_at TEXT,
-        status TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        revoked_at TEXT
-      );
-
-      CREATE TABLE agent_google_workspace_delegation (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL,
-        employee_name TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        google_oauth_credential_id TEXT NOT NULL,
-        status TEXT NOT NULL,
-        scopes TEXT NOT NULL,
-        google_email TEXT,
-        granted_by_user_id TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        revoked_at TEXT
       );
 
       CREATE TABLE legacy_workspace (
@@ -656,7 +654,7 @@ test("collectSqliteMigrationSnapshotSync extracts relational rows and derived at
     db.prepare(
       `INSERT INTO auth_identity (id, user_id, provider, provider_subject, email, email_verified, profile_json, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run("identity-1", "user-1", "password", "techwu@example.com", "techwu@example.com", 1, "{\"passwordHash\":\"x\"}", timestamp, timestamp);
+    ).run("identity-1", "user-1", "legacy", "techwu@example.com", "techwu@example.com", 1, "{}", timestamp, timestamp);
     db.prepare(
       `INSERT INTO session (id, user_id, token_hash, expires_at, last_seen_at, created_at, ip_address, user_agent, revoked_at)
        VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
@@ -762,6 +760,8 @@ test("collectSqliteMigrationSnapshotSync extracts relational rows and derived at
     const snapshot = collectSqliteMigrationSnapshotSync(sourceDb, "2026-04-23T13:00:00.000Z");
 
     const workspaceRows = snapshot.tables.find((table) => table.tableName === "workspace")?.rows ?? [];
+    const authIdentityRows = snapshot.tables.find((table) => table.tableName === "auth_identity")?.rows ?? [];
+    const sessionRows = snapshot.tables.find((table) => table.tableName === "session")?.rows ?? [];
     const workspaceSnapshotRows = snapshot.tables.find((table) => table.tableName === "workspace_snapshot")?.rows ?? [];
     const forkInvitationRows = snapshot.tables.find((table) => table.tableName === "agent_fork_invitation")?.rows ?? [];
     const forkSnapshotRows = snapshot.tables.find((table) => table.tableName === "agent_fork_snapshot")?.rows ?? [];
@@ -769,6 +769,8 @@ test("collectSqliteMigrationSnapshotSync extracts relational rows and derived at
     const auditLogRows = snapshot.tables.find((table) => table.tableName === "audit_log")?.rows ?? [];
 
     assert.equal(workspaceRows.length, 1);
+    assert.equal(authIdentityRows.length, 0);
+    assert.equal(sessionRows.length, 0);
     assert.equal(workspaceSnapshotRows.length, 1);
     assert.equal(forkInvitationRows.length, 1);
     assert.equal(forkSnapshotRows.length, 1);

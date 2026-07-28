@@ -1689,8 +1689,8 @@ test("Feishu bound reads enforce DofeAgent document and data table access", () =
       readDataTable: {
         id: "table-1",
         status: "active",
-        externalProvider: "google_workspace",
-        externalResourceToken: "sheetToken",
+        externalProvider: "feishu",
+        externalResourceToken: "differentSheetToken",
       },
     }),
   });

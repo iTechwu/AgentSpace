@@ -9,7 +9,6 @@ import {
   createWorkspaceSync,
   getDatabase,
   grantRuntimeUseToUserSync,
-  listAgentGoogleWorkspaceDelegationsSync,
   listEmployeeRuntimeBindingsSync,
   listWorkspaceNotificationsForRecipientSync,
   readStoredEmployeeSync,
@@ -47,8 +46,6 @@ beforeEach(() => {
     DELETE FROM agent_fork_snapshot;
     DELETE FROM agent_fork_invitation;
     DELETE FROM workspace_notification;
-    DELETE FROM agent_google_workspace_delegation;
-    DELETE FROM google_oauth_credential;
     DELETE FROM employee_runtime_binding;
     DELETE FROM workspace_runtime_grant;
     DELETE FROM agent_runtime;
@@ -123,7 +120,6 @@ test("agent owner can fork an agent and target accepts with their granted runtim
     listEmployeeRuntimeBindingsSync(fixtures.workspaceId).find((binding) => binding.employeeName === "Planner")?.runtimeId,
     fixtures.sourceRuntimeId,
   );
-  assert.equal(listAgentGoogleWorkspaceDelegationsSync(fixtures.workspaceId).some((delegation) => delegation.employeeName === "Mina Planner"), false);
 
   const state = readWorkspaceStateSync(fixtures.workspaceId);
   const humanDirectChannel = state.channels.find((channel) =>
@@ -166,7 +162,7 @@ test("fork permissions reject non-owners, non-target acceptors, and ungranted ru
       copySkills: true,
       copyKnowledgeAssignments: true,
     },
-  }), /not managed|agent/);
+  }), /workspace owners and admins/);
 
   const invitation = createAgentForkInvitationForActorSync({
     workspaceId: fixtures.workspaceId,
@@ -260,7 +256,7 @@ function seedForkServiceWorkspace(): {
     createdBy: admin.id,
   });
   createWorkspaceMembershipSync({ workspaceId: workspace.id, userId: admin.id, role: "admin" });
-  createWorkspaceMembershipSync({ workspaceId: workspace.id, userId: agentOwner.id, role: "member" });
+  createWorkspaceMembershipSync({ workspaceId: workspace.id, userId: agentOwner.id, role: "admin" });
   createWorkspaceMembershipSync({ workspaceId: workspace.id, userId: target.id, role: "member" });
   createWorkspaceMembershipSync({ workspaceId: workspace.id, userId: otherMember.id, role: "member" });
   const state = resetWorkspaceStateSync(workspace.id);
@@ -268,7 +264,7 @@ function seedForkServiceWorkspace(): {
     ...state,
     humanMembers: [
       { name: admin.displayName, role: "Admin" },
-      { name: agentOwner.displayName, role: "Owner" },
+      { name: agentOwner.displayName, role: "Admin" },
       { name: target.displayName, role: "Member" },
       { name: otherMember.displayName, role: "Member" },
     ],
@@ -329,40 +325,6 @@ function seedForkServiceWorkspace(): {
   setKnowledgePageAssignmentModeSync("page-prd", "selected_agents", admin.displayName, workspace.id);
   setEmployeeKnowledgePageIdsSync("Planner", ["page-prd"], admin.displayName, workspace.id);
   const now = new Date().toISOString();
-  getDatabase().prepare(
-    `INSERT INTO google_oauth_credential (
-      id, workspace_id, user_id, google_subject, google_email, scopes,
-      access_token_encrypted, refresh_token_encrypted, expires_at, status,
-      created_at, updated_at, revoked_at
-    ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL, 'active', ?, ?, NULL)`,
-  ).run(
-    "credential-source",
-    workspace.id,
-    agentOwner.id,
-    "google-owner",
-    "owner@example.com",
-    "https://www.googleapis.com/auth/drive.file",
-    "encrypted-refresh",
-    now,
-    now,
-  );
-  getDatabase().prepare(
-    `INSERT INTO agent_google_workspace_delegation (
-      id, workspace_id, employee_name, user_id, google_oauth_credential_id, status,
-      scopes, google_email, granted_by_user_id, created_at, updated_at, revoked_at
-    ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, NULL)`,
-  ).run(
-    "delegation-source",
-    workspace.id,
-    "Planner",
-    agentOwner.id,
-    "credential-source",
-    "https://www.googleapis.com/auth/drive.file",
-    "owner@example.com",
-    agentOwner.id,
-    now,
-    now,
-  );
   listEmployeeRuntimeBindingsSync(workspace.id);
   getDatabase().prepare(
     `INSERT INTO employee_runtime_binding (workspace_id, employee_name, runtime_id, created_at, updated_at)

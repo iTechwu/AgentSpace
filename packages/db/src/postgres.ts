@@ -467,6 +467,7 @@ export function collectSqliteMigrationSnapshotSync(
     jsonColumns: [...(plan.jsonColumns ?? [])],
     rows: readSqliteTableRowsSync(sourceDb, plan, warnings),
   }));
+  filterMigrationTablesToSsoIdentities(tables);
 
   const workspaceSnapshots = tables.find((table) => table.tableName === "workspace_snapshot")?.rows as LegacyWorkspaceRow[] | undefined;
   const derivedAttachments = workspaceSnapshots
@@ -665,7 +666,28 @@ async function collectPostgresMigrationSnapshot(client: Client): Promise<TableMi
       rows: await readPostgresTableRows(client, tableName),
     });
   }
+  filterMigrationTablesToSsoIdentities(tables);
   return tables;
+}
+
+function filterMigrationTablesToSsoIdentities(tables: TableMigrationSnapshot[]): void {
+  const identityTable = tables.find((table) => table.tableName === "auth_identity");
+  if (!identityTable) {
+    return;
+  }
+
+  identityTable.rows = identityTable.rows.filter((row) => row.provider === "sso");
+  const ssoUserIds = new Set(
+    identityTable.rows
+      .map((row) => row.user_id)
+      .filter((userId): userId is string => typeof userId === "string" && userId.length > 0),
+  );
+  const sessionTable = tables.find((table) => table.tableName === "session");
+  if (sessionTable) {
+    sessionTable.rows = sessionTable.rows.filter((row) =>
+      typeof row.user_id === "string" && ssoUserIds.has(row.user_id),
+    );
+  }
 }
 
 async function readPostgresTableRows(client: Client, tableName: PostgresTableName): Promise<MigrationRow[]> {

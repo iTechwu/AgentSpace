@@ -23,8 +23,6 @@ import {
   listExternalDataOperationRunsSync,
   createExternalMessageMappingSync,
   upsertRuntimeAppCatalogItemsSync,
-  upsertAgentGoogleWorkspaceDelegationSync,
-  upsertGoogleOAuthCredentialSync,
   listPendingExternalMessageOutboxSync,
   upsertExternalChannelBindingSync,
   upsertExternalResourceBindingSync,
@@ -35,11 +33,9 @@ import {
   bindEmployeeRuntimeSync,
   addChannelEmployeesSync,
   createEmployeeSync,
-  createExternalGoogleSheetChannelDocumentSync,
   createWorkspaceSkillSync,
   FEISHU_LARK_CLI_RESULT_MANIFEST_KIND,
   FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
-  grantDocumentAgentAccessSync,
   initializeOrganizationSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
@@ -65,22 +61,6 @@ import { POST as appOperationClaimPOST } from "./runtimes/[runtimeId]/apps/opera
 import { POST as appOperationStartPOST } from "./runtime-app-operations/[operationId]/start/route";
 import { POST as appOperationCompletePOST } from "./runtime-app-operations/[operationId]/complete/route";
 import { POST as appOperationFailPOST } from "./runtime-app-operations/[operationId]/fail/route";
-
-const {
-  mockGetGoogleWorkspaceAccessTokenForAgent,
-  mockSyncGoogleSheetDocumentDrivePermissions,
-} = vi.hoisted(() => ({
-  mockGetGoogleWorkspaceAccessTokenForAgent: vi.fn(),
-  mockSyncGoogleSheetDocumentDrivePermissions: vi.fn(),
-}));
-
-vi.mock("@/features/integrations/google-workspace", () => ({
-  getGoogleWorkspaceAccessTokenForAgent: mockGetGoogleWorkspaceAccessTokenForAgent,
-}));
-
-vi.mock("@/features/integrations/google-drive-permissions", () => ({
-  syncGoogleSheetDocumentDrivePermissions: mockSyncGoogleSheetDocumentDrivePermissions,
-}));
 
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-routes-"));
 const originalCwd = process.cwd();
@@ -124,8 +104,6 @@ beforeEach(() => {
   db.exec("DELETE FROM agent_runtime");
   db.exec("DELETE FROM daemon_connection");
   db.exec("DELETE FROM daemon_api_token");
-  db.exec("DELETE FROM agent_google_workspace_delegation");
-  db.exec("DELETE FROM google_oauth_credential");
   db.exec("DELETE FROM external_message_outbox");
   db.exec("DELETE FROM external_message_mapping");
   db.exec("DELETE FROM external_thread_binding");
@@ -136,23 +114,7 @@ beforeEach(() => {
   db.exec("DELETE FROM external_integration_event");
   db.exec("DELETE FROM external_integration");
   vi.unstubAllEnvs();
-  mockGetGoogleWorkspaceAccessTokenForAgent.mockReset();
-  mockGetGoogleWorkspaceAccessTokenForAgent.mockResolvedValue({
-    accessToken: "access-token",
-    credential: { expiresAt: "2026-05-20T12:00:00.000Z" },
-    delegation: { googleEmail: "owner@example.com" },
-    delegatedUserDisplayName: "Owner",
-  });
-  mockSyncGoogleSheetDocumentDrivePermissions.mockReset();
-  mockSyncGoogleSheetDocumentDrivePermissions.mockResolvedValue({
-    status: "succeeded",
-    sharedCount: 0,
-    updatedCount: 0,
-    revokedCount: 0,
-    skippedCount: 1,
-    failedCount: 0,
-    message: "No Drive permission changes needed.",
-  });
+  vi.stubEnv("ATTACHMENT_STORAGE_PROVIDER", "local");
 });
 
 function daemonHeaders(token: string): HeadersInit {
@@ -364,9 +326,9 @@ describe("daemon API routes", () => {
           daemonKey: "build-box-1",
           metadata: {
             mode: "remote",
-            googleWorkspaceReadiness: {
-              executor: "gws",
-              gws: { available: true, version: "gws 0.22.5" },
+            runtimeReadiness: {
+              executor: "agent-router",
+              available: true,
             },
           },
           runtimes: [{
@@ -387,7 +349,7 @@ describe("daemon API routes", () => {
     expect(heartbeatResponse.status).toBe(200);
     expect(heartbeatPayload.daemon.status).toBe("online");
     expect(heartbeatPayload.daemon.lastHeartbeatAt).toBeTruthy();
-    expect(JSON.parse(listDaemonSnapshotsSync()[0]!.daemon.metadataJson).googleWorkspaceReadiness.gws.version).toBe("gws 0.22.5");
+    expect(JSON.parse(listDaemonSnapshotsSync()[0]!.daemon.metadataJson).runtimeReadiness.available).toBe(true);
     expect(heartbeatPayload.runtimes[0].metadata.providerHealth.status).toBe("healthy");
 
     const repeatedHeartbeatResponse = await heartbeatPOST(
@@ -798,86 +760,6 @@ describe("daemon API routes", () => {
     expect(unavailableBundle.files.some((file: { path: string }) => file.path.includes("clihub-mermaid"))).toBe(false);
   });
 
-  it("injects Google Workspace create-sheet capability without existing external documents", async () => {
-    const daemonToken = createDaemonApiTokenSync({
-      label: "remote-daemon",
-      createdBy: "techwu",
-    });
-    const registerResponse = await registerPOST(
-      new Request("http://localhost/api/daemon/register", {
-        method: "POST",
-        headers: daemonHeaders(daemonToken.token),
-        body: JSON.stringify({
-          daemonKey: "build-box-gws-create",
-          deviceName: "Build Box GWS Create",
-          runtimes: [
-            {
-              provider: "codex",
-              name: "Remote Codex",
-              version: "test",
-            },
-          ],
-        }),
-      }),
-    );
-    const registerPayload = await registerResponse.json();
-    const runtimeId = registerPayload.runtimes[0].id as string;
-    createEmployeeSync({ name: "Atlas", role: "Planner" });
-    addChannelEmployeesSync({ channelName: "tour visit", employeeNames: ["Atlas"] });
-    bindEmployeeRuntimeSync("Atlas", runtimeId);
-    const user = createUserSync({
-      primaryEmail: "owner@example.com",
-      displayName: "Owner",
-    });
-    const credential = upsertGoogleOAuthCredentialSync({
-      workspaceId: "default",
-      userId: user.id,
-      googleEmail: "owner@example.com",
-      scopes: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets",
-      accessTokenEncrypted: "access-token",
-      refreshTokenEncrypted: "refresh-token",
-    });
-    upsertAgentGoogleWorkspaceDelegationSync({
-      workspaceId: "default",
-      employeeName: "Atlas",
-      userId: user.id,
-      googleOAuthCredentialId: credential.id,
-      scopes: credential.scopes,
-      googleEmail: credential.googleEmail,
-      grantedByUserId: user.id,
-    });
-    const queued = enqueueNativeTaskSync({
-      assignee: "Atlas",
-      title: "Create forecast sheet",
-      priority: "medium",
-      triggerType: "manual",
-      metadata: {
-        title: "Create forecast sheet",
-        channel: "tour visit",
-        channelName: "tour visit",
-      },
-    });
-
-    const response = await inputBundleGET(
-      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/input-bundle`, {
-        headers: daemonHeaders(daemonToken.token),
-      }),
-      { params: Promise.resolve({ taskId: queued!.id }) },
-    );
-    const bundle = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(bundle.metadata.googleWorkspace.status).toBe("available");
-    expect(bundle.metadata.googleWorkspace.capabilities).toContain("create_sheet");
-    expect(bundle.metadata.googleWorkspace.env.GOOGLE_WORKSPACE_CLI_TOKEN).toBe("access-token");
-    const patterns = bundle.metadata.runtimeToolCapabilities.capabilities.flatMap(
-      (capability: { allowedShellPatterns: string[] }) => capability.allowedShellPatterns,
-    );
-    expect(patterns).toContain("gws drive files create *");
-    expect(patterns).toContain("dofe-agent output external-document create-google-sheet *");
-    expect(bundle.prompt).toContain("external-document create-google-sheet");
-  });
-
   it("claims and completes runtime app operations through daemon routes", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
@@ -1145,8 +1027,8 @@ describe("daemon API routes", () => {
           runtimeId,
           sessionId: "session-1",
           toolName: "Bash",
-          toolInput: { command: "gws +read --help" },
-          contentPreview: "Bash: gws +read --help",
+          toolInput: { command: "acme-tool +read --help" },
+          contentPreview: "Bash: acme-tool +read --help",
         }),
       }),
       { params: Promise.resolve({ taskId: queued!.id }) },
@@ -1252,8 +1134,8 @@ describe("daemon API routes", () => {
           runtimeId,
           sessionId: "session-guest-1",
           toolName: "Bash",
-          toolInput: { command: "gws +write launch-plan" },
-          contentPreview: "Bash: gws +write launch-plan",
+          toolInput: { command: "acme-tool +write launch-plan" },
+          contentPreview: "Bash: acme-tool +write launch-plan",
         }),
       }),
       { params: Promise.resolve({ taskId: queued!.id }) },
@@ -1383,156 +1265,6 @@ describe("daemon API routes", () => {
     const timelineTypes = listTaskExecutionEventsSync({ taskId: queued!.id }).map((event) => event.type);
     expect(timelineTypes).toContain("artifact_collected");
     expect(timelineTypes).toContain("completed");
-  });
-
-  it("processes external sheet result manifests into operation runs", async () => {
-    const daemonToken = createDaemonApiTokenSync({
-      label: "remote-daemon",
-      createdBy: "techwu",
-    });
-
-    const registerResponse = await registerPOST(
-      new Request("http://localhost/api/daemon/register", {
-        method: "POST",
-        headers: daemonHeaders(daemonToken.token),
-        body: JSON.stringify({
-          daemonKey: "build-box-sheets",
-          deviceName: "Build Box Sheets",
-          runtimes: [
-            {
-              provider: "codex",
-              name: "Remote Codex",
-              version: "test",
-            },
-          ],
-        }),
-      }),
-    );
-    const registerPayload = await registerResponse.json();
-    const runtimeId = registerPayload.runtimes[0].id as string;
-
-    createEmployeeSync({
-      name: "Atlas",
-      role: "Planner",
-    });
-    bindEmployeeRuntimeSync("Atlas", runtimeId);
-    const user = createUserSync({
-      primaryEmail: "owner@example.com",
-      displayName: "Owner",
-    });
-    const credential = upsertGoogleOAuthCredentialSync({
-      workspaceId: "default",
-      userId: user.id,
-      googleEmail: "owner@example.com",
-      scopes: "https://www.googleapis.com/auth/drive.file",
-      accessTokenEncrypted: "access-token",
-      refreshTokenEncrypted: "refresh-token",
-    });
-    upsertAgentGoogleWorkspaceDelegationSync({
-      workspaceId: "default",
-      employeeName: "Atlas",
-      userId: user.id,
-      googleOAuthCredentialId: credential.id,
-      scopes: credential.scopes,
-      googleEmail: "owner@example.com",
-      grantedByUserId: user.id,
-    });
-    const { document } = createExternalGoogleSheetChannelDocumentSync({
-      channelName: "tour visit",
-      title: "Competitors",
-      externalFileId: "google-file-1",
-      externalUrl: "https://docs.google.com/spreadsheets/d/google-file-1/edit",
-      createdBy: "techwu",
-      createdByType: "human",
-    });
-    grantDocumentAgentAccessSync({
-      workspaceId: "default",
-      documentId: document.id,
-      agentName: "Atlas",
-      role: "viewer",
-      grantedByUserId: user.id,
-    });
-
-    const queued = enqueueNativeTaskSync({
-      assignee: "Atlas",
-      title: "Append sheet rows",
-      priority: "medium",
-      triggerType: "manual",
-      metadata: {
-        title: "Append sheet rows",
-        channel: "tour visit",
-        channelName: "tour visit",
-      },
-    });
-
-    const outputBundleResponse = await outputBundlePOST(
-      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/output-bundle`, {
-        method: "POST",
-        headers: daemonHeaders(daemonToken.token),
-        body: JSON.stringify({
-          version: 1,
-          format: "json-inline-v1",
-          files: [
-            {
-              path: "runtime-output/external-sheets-results.json",
-              contentBase64: Buffer.from(
-                JSON.stringify({
-                  results: [
-                    {
-                      documentId: document.id,
-                      operation: "read",
-                      range: "Research!A1:B2",
-                      resultPath: "runtime-output/artifacts/sheets/read-1.json",
-                      summary: "Read 2 rows and 4 cells.",
-                      requestSummary: "Read competitor rows.",
-                      rowCount: 2,
-                      cellCount: 4,
-                      headers: ["Name", "Type"],
-                      rowsPreview: [["Name", "Type"], ["Acme", "SaaS"]],
-                      truncated: false,
-                    },
-                  ],
-                }),
-                "utf8",
-              ).toString("base64"),
-            },
-            {
-              path: "runtime-output/artifacts/sheets/read-1.json",
-              contentBase64: Buffer.from(
-                JSON.stringify({
-                  range: "Research!A1:B2",
-                  values: [["Name", "Type"], ["Acme", "SaaS"]],
-                }),
-                "utf8",
-              ).toString("base64"),
-            },
-          ],
-        }),
-      }),
-      { params: Promise.resolve({ taskId: queued!.id }) },
-    );
-
-    expect(outputBundleResponse.status).toBe(202);
-
-    const completeResponse = await completePOST(
-      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/complete`, {
-        method: "POST",
-        headers: daemonHeaders(daemonToken.token),
-        body: JSON.stringify({
-          outputText: "已提交表格操作。",
-        }),
-      }),
-      { params: Promise.resolve({ taskId: queued!.id }) },
-    );
-
-    expect(completeResponse.status).toBe(200);
-    const state = readWorkspaceStateSync();
-    const run = state.externalSheetOperationRuns.find((item) => item.channelDocumentId === document.id);
-    expect(run?.status).toBe("succeeded");
-    expect(run?.operationType).toBe("read");
-    expect(run?.rangeA1).toBe("Research!A1:B2");
-    expect(run?.responseSummary).toBe("Read 2 rows and 4 cells.");
-    expect(run?.resultArtifactPath).toContain("external-sheet-results");
   });
 
   it("processes Feishu lark-cli result manifests into data operation evidence", async () => {
@@ -1688,165 +1420,6 @@ describe("daemon API routes", () => {
       feishuLarkCliDataOperationRunIds?: string[];
     };
     expect(taskResult.feishuLarkCliDataOperationRunIds).toEqual([run.id]);
-  });
-
-  it("processes agent-created Google Sheet manifests into channel documents", async () => {
-    const daemonToken = createDaemonApiTokenSync({
-      label: "remote-daemon",
-      createdBy: "techwu",
-    });
-
-    const registerResponse = await registerPOST(
-      new Request("http://localhost/api/daemon/register", {
-        method: "POST",
-        headers: daemonHeaders(daemonToken.token),
-        body: JSON.stringify({
-          daemonKey: "build-box-create-sheet",
-          deviceName: "Build Box Create Sheet",
-          runtimes: [
-            {
-              provider: "codex",
-              name: "Remote Codex",
-              version: "test",
-            },
-          ],
-        }),
-      }),
-    );
-    const registerPayload = await registerResponse.json();
-    const runtimeId = registerPayload.runtimes[0].id as string;
-
-    createEmployeeSync({
-      name: "Atlas",
-      role: "Planner",
-    });
-    addChannelEmployeesSync({ channelName: "tour visit", employeeNames: ["Atlas"] });
-    bindEmployeeRuntimeSync("Atlas", runtimeId);
-    const user = createUserSync({
-      primaryEmail: "owner@example.com",
-      displayName: "Owner",
-    });
-    const credential = upsertGoogleOAuthCredentialSync({
-      workspaceId: "default",
-      userId: user.id,
-      googleEmail: "owner@example.com",
-      scopes: "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets",
-      accessTokenEncrypted: "access-token",
-      refreshTokenEncrypted: "refresh-token",
-    });
-    upsertAgentGoogleWorkspaceDelegationSync({
-      workspaceId: "default",
-      employeeName: "Atlas",
-      userId: user.id,
-      googleOAuthCredentialId: credential.id,
-      scopes: credential.scopes,
-      googleEmail: credential.googleEmail,
-      grantedByUserId: user.id,
-    });
-
-    const queued = enqueueNativeTaskSync({
-      assignee: "Atlas",
-      title: "Create sheet",
-      priority: "medium",
-      triggerType: "manual",
-      metadata: {
-        title: "Create sheet",
-        channel: "tour visit",
-        channelName: "tour visit",
-      },
-    });
-
-    const outputBundleResponse = await outputBundlePOST(
-      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/output-bundle`, {
-        method: "POST",
-        headers: daemonHeaders(daemonToken.token),
-        body: JSON.stringify({
-          version: 1,
-          format: "json-inline-v1",
-          files: [
-            {
-              path: "runtime-output/external-documents.json",
-              contentBase64: Buffer.from(
-                JSON.stringify({
-                  version: 1,
-                  generatedBy: "dofe-agent-cli",
-                  operations: [
-                    {
-                      operationType: "create_google_sheet",
-                      targetChannel: "tour visit",
-                      title: "Created Forecast",
-                      summary: "Agent-created forecast sheet.",
-                      externalFileId: "spreadsheet-created-123",
-                      externalUrl: "https://docs.google.com/spreadsheets/d/spreadsheet-created-123/edit",
-                      externalMimeType: "application/vnd.google-apps.spreadsheet",
-                      resultPath: "runtime-output/artifacts/sheets/create-sheet.json",
-                    },
-                  ],
-                }),
-                "utf8",
-              ).toString("base64"),
-            },
-            {
-              path: "runtime-output/artifacts/sheets/create-sheet.json",
-              contentBase64: Buffer.from(
-                JSON.stringify({
-                  id: "spreadsheet-created-123",
-                  webViewLink: "https://docs.google.com/spreadsheets/d/spreadsheet-created-123/edit",
-                  mimeType: "application/vnd.google-apps.spreadsheet",
-                  modifiedTime: "2026-05-20T00:00:00.000Z",
-                }),
-                "utf8",
-              ).toString("base64"),
-            },
-          ],
-        }),
-      }),
-      { params: Promise.resolve({ taskId: queued!.id }) },
-    );
-    expect(outputBundleResponse.status).toBe(202);
-
-    const completeResponse = await completePOST(
-      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/complete`, {
-        method: "POST",
-        headers: daemonHeaders(daemonToken.token),
-        body: JSON.stringify({
-          outputText: "已创建表格。",
-        }),
-      }),
-      { params: Promise.resolve({ taskId: queued!.id }) },
-    );
-
-    expect(completeResponse.status).toBe(200);
-    const state = readWorkspaceStateSync();
-    const document = state.channelDocuments.find((item) => item.externalFileId === "spreadsheet-created-123");
-    expect(document).toMatchObject({
-      channelName: "tour visit",
-      title: "Created Forecast",
-      kind: "sheet",
-      storageMode: "external",
-      externalProvider: "google_workspace",
-      externalMimeType: "application/vnd.google-apps.spreadsheet",
-      externalSyncStatus: "ok",
-      createdBy: "Atlas",
-      lastEditorType: "agent",
-    });
-    const run = state.externalSheetOperationRuns.find((item) => item.channelDocumentId === document?.id && item.operationType === "create");
-    expect(run).toMatchObject({
-      status: "succeeded",
-      actorType: "agent",
-      actorId: "Atlas",
-      delegatedGoogleEmail: "owner@example.com",
-    });
-    expect(run?.resultArtifactPath).toContain("external-sheet-results");
-    expect(mockSyncGoogleSheetDocumentDrivePermissions).toHaveBeenCalledWith(
-      expect.objectContaining({
-        accessToken: "access-token",
-        workspaceId: "default",
-        documentId: document?.id,
-        actorId: "Atlas",
-        actorType: "agent",
-      }),
-    );
   });
 
   it("rejects output bundles that try to escape the staging directory", async () => {

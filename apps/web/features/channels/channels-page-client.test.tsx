@@ -242,7 +242,6 @@ const data: ChannelsPageData = {
       currentUserRole: "owner",
       collaborators: [],
       availableCollaborators: [],
-      externalSheetOperations: [],
     },
   ],
   documentRuns: [],

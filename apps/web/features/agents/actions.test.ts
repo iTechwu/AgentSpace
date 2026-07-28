@@ -36,7 +36,6 @@ vi.mock("@dofe-agent/db", () => ({
   pruneOfflineDaemonsSync: vi.fn(),
   readAgentRuntimeSync: vi.fn(),
   readEmployeeRuntimeBindingSync: vi.fn(),
-  revokeAgentGoogleWorkspaceDelegationSync: vi.fn(),
   updateWorkspaceRuntimeDisplayNameSync: vi.fn(),
 }));
 

@@ -13,13 +13,33 @@ const TERMINAL_BILLING_STATUSES = new Set([
 export function requiredEnv(env, names) {
   const values = {};
   const missing = [];
+  const placeholders = [];
   for (const name of names) {
     const value = env[name]?.trim();
-    if (value) values[name] = value;
-    else missing.push(name);
+    if (!value) {
+      missing.push(name);
+    } else if (isPlaceholderEnvValue(value)) {
+      placeholders.push(name);
+    } else {
+      values[name] = value;
+    }
   }
   if (missing.length > 0) throw new Error(`missing_required_environment:${missing.join(",")}`);
+  if (placeholders.length > 0) {
+    throw new Error(`placeholder_environment_refused:${placeholders.join(",")}`);
+  }
   return values;
+}
+
+function isPlaceholderEnvValue(value) {
+  const normalized = value.toLowerCase();
+  if (/^(?:replace(?:_|-)with(?:_|-)|changeme$|xxx$)/.test(normalized)) return true;
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === "example.com" || hostname.endsWith(".example.com") || hostname.endsWith(".example");
+  } catch {
+    return false;
+  }
 }
 
 export function splitList(value) {

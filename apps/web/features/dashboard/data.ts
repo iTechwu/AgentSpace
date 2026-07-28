@@ -901,6 +901,13 @@ export interface AgentsPageData {
     serverName: string;
     daemonKey: string;
     mode?: "local" | "remote";
+    /** Present only for managed runtimes surfaced as reusable execution engines. */
+    managed?: boolean;
+    defaultModel?: string;
+    protocols?: string[];
+    assignedEmployeeCount?: number;
+    /** When false, this runtime refuses new employee binds. */
+    allowNewEmployeeSharing?: boolean;
   }>;
   currentUserId?: string;
   currentMembershipRole?: WorkspaceRole;
@@ -2630,7 +2637,7 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
   const agentsBoundToActiveContainers = workspaceAgents.filter(
     (agent) => agent.boundContainerId && visibleContainers.some((container) => container.runtimeId === agent.boundContainerId),
   );
-  const containerOptions = visibleContainers.map((container) => ({
+  const containerOptions: AgentsPageData["containerOptions"] = visibleContainers.map((container) => ({
     id: container.runtimeId,
     label: container.displayName ?? container.name,
     provider: container.provider,
@@ -2658,6 +2665,11 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
         serverName: "Managed",
         daemonKey: "",
         mode: "remote" as const,
+        managed: true,
+        defaultModel: managedRuntime.defaultModel,
+        protocols: managedRuntime.protocols,
+        assignedEmployeeCount: managedRuntime.assignedEmployeeCount,
+        allowNewEmployeeSharing: managedRuntime.allowNewEmployeeSharing,
       });
       managedRuntimeOptionIds.add(managedRuntime.id);
     }

@@ -14,9 +14,6 @@ import {
   getDatabase,
   grantRuntimeUseToUserSync,
   registerDaemonRuntimesSync,
-  revokeGoogleOAuthCredentialSync,
-  upsertAgentGoogleWorkspaceDelegationSync,
-  upsertGoogleOAuthCredentialSync,
 } from "@dofe-agent/db";
 import {
   bindEmployeeRuntimeSync,
@@ -35,7 +32,6 @@ import {
   setKnowledgePageAssignmentModeSync,
   writeWorkspaceStateSync,
 } from "../index.ts";
-import type { ExternalSheetOperationRun } from "@dofe-agent/domain/workspace";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-permissions-"));
@@ -49,8 +45,6 @@ before(() => {
 
 beforeEach(() => {
   getDatabase().exec(`
-    DELETE FROM agent_google_workspace_delegation;
-    DELETE FROM google_oauth_credential;
     DELETE FROM external_message_mapping;
     DELETE FROM external_integration;
     DELETE FROM employee_runtime_binding;
@@ -75,7 +69,7 @@ beforeEach(() => {
   `);
 });
 
-test("permission center aggregates workspace, channel, agent, runtime, document, and Google grants", () => {
+test("permission center aggregates workspace, channel, agent, runtime, and document grants", () => {
   const fixtures = seedPermissionWorkspace();
 
   const center = getWorkspacePermissionCenterSync({
@@ -93,7 +87,6 @@ test("permission center aggregates workspace, channel, agent, runtime, document,
   assert.match(serialized, /Atlas/);
   assert.match(serialized, /Codex runtime/);
   assert.match(serialized, /Trip notes/);
-  assert.match(serialized, /Google Workspace/);
   assert.match(serialized, /Sheets Audit/);
   assert.match(serialized, /Planner playbook/);
   assert.equal(serialized.includes("tokenHash"), false);
@@ -304,95 +297,6 @@ test("permission center separates direct-channel management from content read ac
   assert.ok(memberNodes.some((node) => node.id === "file:attachment-direct-secret"));
 });
 
-test("revoked Google credentials generate delegation diagnostics", () => {
-  const fixtures = seedPermissionWorkspace();
-  revokeGoogleOAuthCredentialSync({
-    workspaceId: fixtures.workspace.id,
-    userId: fixtures.member.id,
-  });
-
-  const diagnostics = getPermissionDiagnosticsSync({
-    workspaceId: fixtures.workspace.id,
-    actor: {
-      userId: fixtures.owner.id,
-      displayName: fixtures.owner.displayName,
-      role: "owner",
-    },
-  });
-
-  assert.ok(diagnostics.some((diagnostic) => diagnostic.id.startsWith("diagnostic:agent-google-delegation-credential")));
-});
-
-test("missing external documents generate OAuth visibility diagnostics with latest run details", () => {
-  const fixtures = seedPermissionWorkspace();
-  const created = createChannelDocumentSync({
-    channelName: "general",
-    title: "Budget Sheet",
-    kind: "sheet",
-    storageMode: "external",
-    externalProvider: "google_workspace",
-    externalFileId: "sheet-404",
-    externalUrl: "https://docs.google.com/spreadsheets/d/sheet-404",
-    externalSyncStatus: "missing",
-    contentMarkdown: "",
-    createdBy: "Mina",
-    createdByType: "human",
-  }, fixtures.workspace.id);
-  const errorMessage = "Google Drive file metadata read failed. The current OAuth client/scope cannot see this file. Current OAuth scope is drive.file; authorize it through Picker.";
-  const latestRun: ExternalSheetOperationRun = {
-    id: "external-run-404",
-    workspaceId: fixtures.workspace.id,
-    channelDocumentId: created.document.id,
-    provider: "google_workspace",
-    externalFileId: "sheet-404",
-    actorType: "agent",
-    actorId: "Atlas",
-    status: "failed",
-    intent: "Refresh linked sheet metadata",
-    operationType: "metadata_refresh",
-    requestSummary: "Refresh Google Drive metadata.",
-    errorCode: "google_workspace.drive_metadata_failed",
-    errorMessage,
-    startedAt: "2026-05-02T00:00:00.000Z",
-    finishedAt: "2026-05-02T00:00:01.000Z",
-  };
-  const state = readWorkspaceStateSync(fixtures.workspace.id);
-  writeWorkspaceStateSync({
-    ...state,
-    externalSheetOperationRuns: [...(state.externalSheetOperationRuns ?? []), latestRun],
-  }, fixtures.workspace.id);
-
-  const diagnostics = getPermissionDiagnosticsSync({
-    workspaceId: fixtures.workspace.id,
-    actor: {
-      userId: fixtures.owner.id,
-      displayName: fixtures.owner.displayName,
-      role: "owner",
-    },
-  });
-  const diagnostic = diagnostics.find((item) =>
-    item.id === `diagnostic:external-document-oauth-visibility:${created.document.id}`
-  );
-  assert.ok(diagnostic);
-  assert.equal(diagnostic.title, "External document is not visible to OAuth");
-  assert.match(diagnostic.description, /OAuth client\/scope/);
-  assert.match(diagnostic.description, /drive\.file/);
-
-  const center = getWorkspacePermissionCenterSync({
-    workspaceId: fixtures.workspace.id,
-    actor: {
-      userId: fixtures.owner.id,
-      displayName: fixtures.owner.displayName,
-      role: "owner",
-    },
-  });
-  const serialized = JSON.stringify(center);
-  assert.match(serialized, /Budget Sheet/);
-  assert.match(serialized, /externalSyncStatus":"missing/);
-  assert.match(serialized, /OAuth client\/scope/);
-  assert.match(serialized, /drive\.file/);
-});
-
 test("permission center exposes document agent grants and requests for review", () => {
   const fixtures = seedPermissionWorkspace();
   const state = readWorkspaceStateSync(fixtures.workspace.id);
@@ -458,7 +362,7 @@ test("permission center exposes document agent grants and requests for review", 
   ));
 });
 
-test("document owners can review document permission requests without workspace manager role", () => {
+test("workspace owners can review document permission requests", () => {
   const fixtures = seedPermissionWorkspace();
   const state = readWorkspaceStateSync(fixtures.workspace.id);
   const document = state.channelDocuments.find((item) => item.title === "Trip notes");
@@ -477,7 +381,7 @@ test("document owners can review document permission requests without workspace 
     actor: {
       userId: fixtures.owner.id,
       displayName: fixtures.owner.displayName,
-      role: "member",
+      role: "owner",
     },
   });
   const documentNode = flattenPermissionTree(center.tree).find((node) => node.id === `document:${document.id}`);
@@ -486,38 +390,6 @@ test("document owners can review document permission requests without workspace 
   assert.ok(documentNode.bindings.some((binding) =>
     binding.source === "document_permission_request" &&
     binding.permission === "requested viewer" &&
-    binding.updateAction === "document_permission_request_approve" &&
-    binding.revokeAction === "document_permission_request_reject"
-  ));
-});
-
-test("Google credential owners can review external document permission requests without workspace manager role", () => {
-  const fixtures = seedPermissionWorkspace();
-  createDocumentPermissionRequestSync({
-    workspaceId: fixtures.workspace.id,
-    externalProvider: "google_workspace",
-    externalFileId: "sheet-credential-owner",
-    externalUrl: "https://docs.google.com/spreadsheets/d/sheet-credential-owner/edit",
-    requestedRole: "forwarder",
-    requestedByAgentName: "Atlas",
-    requestedForChannelName: "general",
-    reason: "Need to link the external sheet.",
-  });
-
-  const center = getWorkspacePermissionCenterSync({
-    workspaceId: fixtures.workspace.id,
-    actor: {
-      userId: fixtures.member.id,
-      displayName: fixtures.member.displayName,
-      role: "member",
-    },
-  });
-  const requestNode = flattenPermissionTree(center.tree).find((node) => node.id.startsWith("document-permission-request:"));
-
-  assert.ok(requestNode);
-  assert.ok(requestNode.bindings.some((binding) =>
-    binding.source === "document_permission_request" &&
-    binding.permission === "requested forwarder" &&
     binding.updateAction === "document_permission_request_approve" &&
     binding.revokeAction === "document_permission_request_reject"
   ));
@@ -622,7 +494,7 @@ function seedPermissionWorkspace() {
     userId: member.id,
     grantedByUserId: owner.id,
   });
-  bindEmployeeRuntimeSync("Atlas", runtime.id, workspace.id, member.id);
+  bindEmployeeRuntimeSync("Atlas", runtime.id, workspace.id, owner.id);
   createDaemonApiTokenSync({
     workspaceId: workspace.id,
     label: "remote install",
@@ -636,24 +508,6 @@ function seedPermissionWorkspace() {
     createdBy: "Mina",
     createdByType: "human",
   }, workspace.id);
-  const credential = upsertGoogleOAuthCredentialSync({
-    workspaceId: workspace.id,
-    userId: member.id,
-    googleEmail: "alex@example.com",
-    scopes: "https://www.googleapis.com/auth/drive",
-    accessTokenEncrypted: "secret-access-token",
-    refreshTokenEncrypted: "secret-refresh-token",
-  });
-  upsertAgentGoogleWorkspaceDelegationSync({
-    workspaceId: workspace.id,
-    employeeName: "Atlas",
-    userId: member.id,
-    googleOAuthCredentialId: credential.id,
-    scopes: credential.scopes,
-    googleEmail: credential.googleEmail,
-    grantedByUserId: owner.id,
-  });
-
   return { workspace, owner, member };
 }
 

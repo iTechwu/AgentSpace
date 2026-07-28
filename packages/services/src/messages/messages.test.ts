@@ -189,11 +189,11 @@ test("failure summaries hide provider diagnostics in user-visible chat text", ()
 
   const approvalSummary = formatTaskFailureSummary({
     title: "读取 test 表格",
-    errorText: 'This command requires approval: gws sheets spreadsheets values get --format json --params "{}"',
+    errorText: 'This command requires approval: acme-tool records get --format json --params "{}"',
   });
 
   assert.match(approvalSummary, /当前会话无法交互审批/);
-  assert.doesNotMatch(approvalSummary, /gws sheets spreadsheets/);
+  assert.doesNotMatch(approvalSummary, /acme-tool records/);
 
   const codexResumeSummary = formatTaskFailureSummary({
     title: "继续会话",

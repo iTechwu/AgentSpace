@@ -38,7 +38,7 @@ The check must reach `MODELS_GATEWAY_BASE_URL`; every domain in `MANAGED_RUNTIME
 
 ## Managed Runtime billing gate
 
-In staging, use the approved Runtime image and Runtime Key to make one real model request. Record its tenant, Runtime Credential, Runtime, AI employee, conversation, gateway request ID, model, and start time in the corresponding `STAGING_*` variables. After models has finalized the charge, run:
+In staging, use the approved Runtime image and Runtime Key to make one real model request. Record its tenant, Runtime Credential, Runtime, AI employee, conversation, gateway request ID, model, and start time in the corresponding `STAGING_*` variables in the repository root `.env`. These values are request-scoped release evidence, not application runtime configuration; replace them for each release candidate. After models has finalized the charge, run:
 
 ```bash
 npm run verify:managed-runtime-billing

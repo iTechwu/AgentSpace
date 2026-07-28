@@ -191,7 +191,7 @@ dofe-agent-daemon help
 
 ## AgentRouter MVP
 
-`agent-router` 是同包发布的轻量跨 harness CLI，用来直接验证 Claude Code、Codex CLI、Antigravity CLI、OpenCode、OpenClaw、Hermes Agent 的原生 headless 调用与统一结果 contract。daemon 的 Claude Code、Codex CLI、Antigravity CLI、OpenCode、OpenClaw、Hermes Agent task execution 已经通过 AgentRouter 执行；DofeAgent task queue、runtime-output、gws、workspace skills 和 Web UI 仍由 daemon 外层流程处理。Gemini、NanoBot 暂时保留旧 provider runtime 路径。
+`agent-router` 是同包发布的轻量跨 harness CLI，用来直接验证 Claude Code、Codex CLI、Antigravity CLI、OpenCode、OpenClaw、Hermes Agent 的原生 headless 调用与统一结果 contract。daemon 的 Claude Code、Codex CLI、Antigravity CLI、OpenCode、OpenClaw、Hermes Agent task execution 已经通过 AgentRouter 执行；DofeAgent task queue、runtime-output、workspace skills 和 Web UI 仍由 daemon 外层流程处理。Gemini、NanoBot 暂时保留旧 provider runtime 路径。
 
 AgentRouter 工作机制图见仓库根目录 `README.md`。
 

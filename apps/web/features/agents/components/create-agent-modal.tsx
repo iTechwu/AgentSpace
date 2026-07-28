@@ -21,6 +21,8 @@ interface CreateAgentModalProps {
   readonly canCreate?: boolean;
   readonly requiresRuntime?: boolean;
   readonly emptyRuntimeMessage?: string;
+  /** When provided (admin), the form offers a shortcut to create a new runtime. */
+  readonly createRuntimeHref?: string;
   readonly onClose: () => void;
   readonly onSubmit: (input: {
     name: string;
@@ -44,6 +46,7 @@ export function CreateAgentModal({
   canCreate = true,
   requiresRuntime = false,
   emptyRuntimeMessage,
+  createRuntimeHref,
   onClose,
   onSubmit,
 }: CreateAgentModalProps) {
@@ -127,7 +130,7 @@ export function CreateAgentModal({
       >
         <div className="modal-card__header">
           <div>
-            <h3 id={labelId}>Create Agent</h3>
+            <h3 id={labelId}>{tx("创建 AI员工", "Create AI employee")}</h3>
           </div>
           <button className="modal-close" onClick={onClose} type="button">
             <AppIcon name="close" />
@@ -307,7 +310,14 @@ export function CreateAgentModal({
             </div>
           ) : null}
           <div className="form-field">
-            <span>{tx("执行引擎", "Execution Engine")}</span>
+            <div className="form-field__label-row">
+              <span>{tx("执行引擎", "Execution Engine")}</span>
+              {createRuntimeHref ? (
+                <a className="form-field__link" href={createRuntimeHref}>
+                  {tx("＋ 创建新 Runtime", "＋ Create new runtime")}
+                </a>
+              ) : null}
+            </div>
             <ExecutionEngineSelect
               label={tx("执行引擎", "Execution Engine")}
               name="containerId"
@@ -317,6 +327,12 @@ export function CreateAgentModal({
               placeholder={tx("选择一个执行引擎", "Select an execution engine")}
               value={containerId}
             />
+            <p className="form-help">
+              {tx(
+                "优先复用列表中标记“可复用”的受管 Runtime；一个 Runtime 可服务多个 AI员工。",
+                "Prefer reusing managed runtimes marked “Reusable”; one runtime can serve multiple AI employees.",
+              )}
+            </p>
             {requiresRuntime && containerOptions.length === 0 ? (
               <p className="form-help">{emptyRuntimeMessage ?? tx("请联系管理员分配执行引擎。", "Ask an admin to assign an execution engine.")}</p>
             ) : null}

@@ -303,6 +303,14 @@ export interface AgentRuntimeRecord {
   protocols?: string[];
   /** Runtime-level default model suggestion. */
   defaultModel?: string;
+  /**
+   * Whether additional AI employees may bind to this managed runtime. Existing
+   * bindings are preserved when false; only new binds are refused. Defaults to
+   * true (one runtime serving many employees is the baseline model). Optional
+   * in the type because partial record fixtures omit it; the DB column is
+   * NOT NULL DEFAULT TRUE and the record mapper always returns a boolean.
+   */
+  allowNewEmployeeSharing?: boolean;
   provisioningTaskId?: string;
   managedAt?: string;
   createdAt: string;

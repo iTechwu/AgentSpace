@@ -11,7 +11,6 @@ import {
   writeWorkspaceStateRecordSync,
 } from "@dofe-agent/db";
 import {
-  BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME,
   BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME,
   createEmployeeSync,
   createWorkspaceSkillSync,
@@ -203,7 +202,7 @@ test("outdated builtin skill content is replaced with the canonical version", ()
   const builtinSkill = snapshot.skills.find((skill) => skill.name === "return-output-files");
   assert.ok(builtinSkill);
   const builtinContent = builtinSkill?.files.find((file) => file.path === "SKILL.md")?.content ?? "";
-  assert.match(builtinContent, /runtime-output\/agent-output\.json/);
+  assert.match(builtinContent, /dofe-agent output attach runtime-output\/artifacts\/chart\.png/);
   assert.match(builtinContent, /runtime-output\/artifacts\/summary\.md/);
   assert.doesNotMatch(builtinContent, /write `agent-output\.json` in the root of the current `workDir`/);
 
@@ -287,7 +286,6 @@ test("resetWorkspaceStateSync clears dedicated skill storage", () => {
   assert.ok(storedSkills.some((item) => item.name === "workspace-context"));
   assert.ok(storedSkills.some((item) => item.name === "return-output-files"));
   assert.ok(storedSkills.some((item) => item.name === BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME));
-  assert.ok(storedSkills.some((item) => item.name === BUILTIN_GOOGLE_WORKSPACE_CLI_SKILL_NAME));
   assert.equal(storedSkills.some((item) => item.id === skill.id), false);
 });
 

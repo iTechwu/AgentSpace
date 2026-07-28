@@ -29,17 +29,17 @@ test("channel document records default to native markdown", () => {
   assert.equal(document.externalProvider, undefined);
 });
 
-test("channel document normalization preserves sheet external metadata", () => {
+test("channel document normalization preserves external document metadata", () => {
   const document = normalizeChannelDocument({
     id: "doc-1",
     channelName: "tour visit",
-    title: "Budget sheet",
+    title: "Project brief",
     slug: "budget-sheet",
-    kind: "sheet",
+    kind: "document",
     storageMode: "external",
-    externalProvider: "google_workspace",
-    externalFileId: "sheet-123",
-    externalUrl: "https://docs.google.com/spreadsheets/d/sheet-123",
+    externalProvider: "notion",
+    externalFileId: "page-123",
+    externalUrl: "https://www.notion.so/page-123",
     externalRevisionId: "revision-1",
     currentVersionId: "version-1",
     summary: "Budget tracker",
@@ -51,10 +51,10 @@ test("channel document normalization preserves sheet external metadata", () => {
   });
 
   assert.ok(document);
-  assert.equal(document.kind, "sheet");
+  assert.equal(document.kind, "document");
   assert.equal(document.storageMode, "external");
-  assert.equal(document.externalProvider, "google_workspace");
-  assert.equal(document.externalFileId, "sheet-123");
+  assert.equal(document.externalProvider, "notion");
+  assert.equal(document.externalFileId, "page-123");
   assert.equal(document.externalRevisionId, "revision-1");
 });
 
@@ -149,78 +149,4 @@ test("workspace normalization preserves legacy markdown documents as native docu
   assert.equal(state.channelDocuments[0]?.kind, "markdown");
   assert.equal(state.channelDocuments[0]?.storageMode, "native");
   assert.equal(state.channelDocuments[0]?.externalSyncStatus, undefined);
-  assert.deepEqual(state.externalSheetOperationRuns, []);
-});
-
-test("workspace normalization keeps Google Sheets external metadata and operation runs", () => {
-  const state = normalizeWorkspaceState({
-    channelDocuments: [
-      {
-        id: "sheet-1",
-        channelName: "research",
-        title: "Competitors",
-        kind: "sheet",
-        storageMode: "external",
-        currentVersionId: "ver-1",
-        externalProvider: "google_workspace",
-        externalFileId: "google-file-1",
-        externalUrl: "https://docs.google.com/spreadsheets/d/google-file-1",
-        externalRevisionId: "rev-7",
-        externalSyncStatus: "ok",
-      },
-    ] as unknown as DofeAgentState["channelDocuments"],
-    channelDocumentVersions: [
-      {
-        id: "ver-1",
-        documentId: "sheet-1",
-        contentMarkdown: "",
-        createdBy: "Atlas",
-      },
-    ] as unknown as DofeAgentState["channelDocumentVersions"],
-    externalSheetOperationRuns: [
-      {
-        id: "run-1",
-        workspaceId: "default",
-        channelDocumentId: "sheet-1",
-        provider: "google_workspace",
-        externalFileId: "google-file-1",
-        actorType: "agent",
-        actorId: "Atlas",
-        status: "succeeded",
-        intent: "Append competitor rows",
-        operationType: "create",
-        rangeA1: "Research!A2:F13",
-        affectedRows: 12.4,
-        affectedCells: 72,
-        requestSummary: "Append 12 competitor rows.",
-        responseSummary: "Appended rows.",
-        startedAt: "2026-04-01T00:00:00.000Z",
-        finishedAt: "2026-04-01T00:00:03.000Z",
-      },
-      {
-        id: "orphan-run",
-        workspaceId: "default",
-        channelDocumentId: "missing-doc",
-        provider: "google_workspace",
-        externalFileId: "google-file-2",
-        actorType: "agent",
-        actorId: "Atlas",
-        status: "succeeded",
-        intent: "Ignored",
-        operationType: "read",
-        requestSummary: "Ignored orphan run.",
-        startedAt: "2026-04-01T00:00:00.000Z",
-      },
-    ],
-  });
-
-  const document = state.channelDocuments[0];
-  assert.equal(document?.kind, "sheet");
-  assert.equal(document?.storageMode, "external");
-  assert.equal(document?.externalProvider, "google_workspace");
-  assert.equal(document?.externalFileId, "google-file-1");
-  assert.equal(document?.externalSyncStatus, "ok");
-  assert.equal(state.externalSheetOperationRuns.length, 1);
-  assert.equal(state.externalSheetOperationRuns[0]?.operationType, "create");
-  assert.equal(state.externalSheetOperationRuns[0]?.affectedRows, 12);
 });

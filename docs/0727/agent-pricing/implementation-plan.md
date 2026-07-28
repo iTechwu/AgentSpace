@@ -19,6 +19,17 @@
 
 仓库内门禁为 `npm run test:agent-pricing`、`npm run typecheck` 与 `npm run lint:web`。未完成项不在代码仓库内：仍需真实 `models.dofe.ai` 测试租户、网关和容器环境执行 staging E2E、网络出口策略验证及正式账单核对。
 
+## 2026-07-28 三轮代码核实：剩余真实缺口（已闭环）
+
+> 以代码知识图谱 + 人工逐项核对，确认阶段 1–6 的核心功能确已落地。此前发现的四处**真实的、有界的**仓库内缺口，已在本轮全部实施闭环，并通过仓库门禁（`test:agent-pricing`、`typecheck`、`lint:web`）：
+
+1. **平台超管控制台无可发现入口** → ✅ 已闭环。侧栏新增仅 `isPlatformAdmin` 可见的“平台运维”入口（`workspace-frame.tsx`）；新增 `/platform` 跨团队只读运维看板（工作区 / 受管 Runtime 数·在线·需关注·周期成本 / 最近平台审计），复用 `listWorkspacesSync`、`listAllManagedAgentRuntimesSync`、`listRuntimeCostSummariesSync` 与 `PLATFORM_AUDIT_WORKSPACE_ID` 账本；保留 `/platform/audit` 完整审计视图。
+2. **Runtime 复用无显式 UI 入口** → ✅ 已闭环。`ExecutionEngineSelect` 对受管 Runtime 显式标注“可复用”徽标 + 默认模型/协议/已服务员工数，共享关闭项禁用并提示；AI员工表单加复用说明与“创建新 Runtime”快捷入口；`createWorkspaceAgentAction` 创建-绑定路径对齐 rebind 路径补 `assertAgentSkillRequirementsReadySync` 技能前置校验；schema v46 新增 `agent_runtime.allow_new_employee_sharing`（默认 true），`bindEmployeeRuntimeSync` 服务封装据此拒绝**新**绑定（已绑定员工重新绑定放行），创建向导确认步提供开关。
+3. **Phase 5 成本明细表无空状态** → ✅ 已闭环。`CostDimensionTable` 增 `emptyMessage`，Runtime / Runtime Key / 会话三张明细表改为始终渲染并显示说明性空状态，不再整块消失。
+4. **Phase 3 残留误导性死代码** → ✅ 已闭环。删除零调用的 `recordSkipped` 与未用导入；修正头部注释为真实 stage 序列（`request_credential → prepare_node → pull_image → install_cli → write_credential → health_check → ready`）。`probeManagedGateway` 因有专门单测予以保留。
+
+其余验收项以本文档“已完成”表述为准。下方阶段内容保留原始描述。
+
 ## 阶段 0：确认契约与安全基线
 
 目标：在开发前冻结跨项目责任边界。

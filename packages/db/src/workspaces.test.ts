@@ -47,7 +47,6 @@ beforeEach(() => {
     DELETE FROM workspace_task;
     DELETE FROM workspace_channel;
     DELETE FROM workspace_employee;
-    DELETE FROM google_oauth_credential;
     DELETE FROM workspace_membership;
     DELETE FROM workspace_snapshot;
     DELETE FROM workspace;
@@ -91,14 +90,12 @@ test("hardDeleteWorkspaceSync removes all workspace-scoped records without touch
   assert.equal(result.removedSkillRows, 1);
   assert.equal(result.removedBudgetRows, 1);
   assert.equal(result.removedRuntimeDisplayNameRows, 1);
-  assert.equal(result.removedGoogleOAuthCredentialRows, 1);
   assert.equal(result.removedKnowledgeAssignmentPolicyRows, 1);
   assert.equal(result.removedAgentKnowledgePageRows, 1);
 
   assert.equal(readWorkspaceSync(purgeTarget.id), null);
   assert.equal(countWhere(db, "workspace_snapshot", "id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "workspace_membership", "workspace_id", purgeTarget.id), 0);
-  assert.equal(countWhere(db, "google_oauth_credential", "workspace_id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "workspace_channel", "workspace_id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "workspace_employee", "workspace_id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "workspace_task", "workspace_id", purgeTarget.id), 0);
@@ -160,7 +157,6 @@ test("hardDeleteWorkspaceSync removes all workspace-scoped records without touch
   assert.equal(countWhere(db, "agent_task_attempt", "workspace_id", survivor.id), 1);
   assert.equal(countWhere(db, "agent_router_event", "workspace_id", survivor.id), 1);
   assert.equal(countWhere(db, "agent_router_context_snapshot", "workspace_id", survivor.id), 1);
-  assert.equal(countWhere(db, "google_oauth_credential", "workspace_id", survivor.id), 1);
   assert.equal(countWhere(db, "skill", "workspace_id", survivor.id), 1);
   assert.equal(countWhere(db, "agent_knowledge_page", "workspace_id", survivor.id), 1);
   assert.equal(countWhere(db, "external_integration", "workspace_id", survivor.id), 1);
@@ -214,22 +210,6 @@ function seedWorkspaceRecords(workspaceId: string, suffix: string): void {
     `INSERT INTO workspace_membership (id, workspace_id, user_id, role, status, joined_at, invited_by)
      VALUES (?, ?, ?, 'owner', 'active', ?, 'system')`,
   ).run(`membership-${suffix}`, workspaceId, `user-${suffix}`, now);
-
-  db.prepare(
-    `INSERT INTO google_oauth_credential (
-       id,
-       workspace_id,
-       user_id,
-       google_subject,
-       google_email,
-       scopes,
-       access_token_encrypted,
-       refresh_token_encrypted,
-       status,
-       created_at,
-       updated_at
-     ) VALUES (?, ?, ?, ?, ?, 'https://www.googleapis.com/auth/drive.file', 'access-token', 'refresh-token', 'active', ?, ?)`,
-  ).run(`google-oauth-${suffix}`, workspaceId, `user-${suffix}`, `google-sub-${suffix}`, `${suffix}@example.com`, now, now);
 
   db.prepare(
     `INSERT INTO workspace_channel (id, workspace_id, name, created_at, updated_at)

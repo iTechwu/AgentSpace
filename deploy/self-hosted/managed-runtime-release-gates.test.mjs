@@ -2,9 +2,30 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   evaluateEgressProbeEvidence,
+  requiredEnv,
   validateBillingUsageLog,
   validateManagedNetworkInspection,
 } from "./managed-runtime-release-gates.mjs";
+
+test("release gates reject example values before contacting staging services", () => {
+  assert.throws(
+    () => requiredEnv({
+      MODELS_BASE_URL: "https://models.example.com",
+      STAGING_RUNTIME_ID: "replace_with_runtime_id",
+    }, ["MODELS_BASE_URL", "STAGING_RUNTIME_ID"]),
+    /placeholder_environment_refused:MODELS_BASE_URL,STAGING_RUNTIME_ID/,
+  );
+  assert.deepEqual(
+    requiredEnv({
+      STAGING_RUNTIME_ID: "runtime-managed-1",
+      STAGING_EXPECTED_MODEL: "claude-example-model",
+    }, ["STAGING_RUNTIME_ID", "STAGING_EXPECTED_MODEL"]),
+    {
+      STAGING_RUNTIME_ID: "runtime-managed-1",
+      STAGING_EXPECTED_MODEL: "claude-example-model",
+    },
+  );
+});
 
 test("managed network evidence requires the configured restricted-egress label", () => {
   const inspection = {

@@ -268,59 +268,65 @@ function CostOverview({
         <div className="costs-empty">{tx("暂无用量数据", "No usage data yet")}</div>
       )}
 
-      {data.runtimes.length > 0 ? (
-        <CostDimensionTable
-          title={tx("Runtime 费用明细", "Runtime Cost Breakdown")}
-          rows={data.runtimes.map((runtime) => ({
-            id: runtime.runtimeId,
-            label: runtime.displayName ?? runtime.runtimeId,
-            taskCount: runtime.taskCount,
-            totalInputTokens: runtime.totalInputTokens,
-            totalOutputTokens: runtime.totalOutputTokens,
-            totalCostUsd: runtime.totalCostUsd,
-            totalActualCostUsd: runtime.totalActualCostUsd,
-            avgCostPerTask: runtime.avgCostPerTask,
-          }))}
-          compact={compact}
-          tx={tx}
-        />
-      ) : null}
+      <CostDimensionTable
+        title={tx("Runtime 费用明细", "Runtime Cost Breakdown")}
+        rows={data.runtimes.map((runtime) => ({
+          id: runtime.runtimeId,
+          label: runtime.displayName ?? runtime.runtimeId,
+          taskCount: runtime.taskCount,
+          totalInputTokens: runtime.totalInputTokens,
+          totalOutputTokens: runtime.totalOutputTokens,
+          totalCostUsd: runtime.totalCostUsd,
+          totalActualCostUsd: runtime.totalActualCostUsd,
+          avgCostPerTask: runtime.avgCostPerTask,
+        }))}
+        compact={compact}
+        emptyMessage={tx(
+          "暂无受管 Runtime 用量；受管 Runtime 经路由产生用量后，此处按 Runtime 拆分。",
+          "No managed runtime usage yet. This breaks down by runtime once managed runtimes produce routed usage.",
+        )}
+        tx={tx}
+      />
 
-      {data.runtimeCredentials.length > 0 ? (
-        <CostDimensionTable
-          title={tx("Runtime Key 费用明细", "Runtime Key Cost Breakdown")}
-          rows={data.runtimeCredentials.map((credential) => ({
-            id: credential.runtimeCredentialId,
-            label: credential.runtimeCredentialId,
-            taskCount: credential.taskCount,
-            totalInputTokens: credential.totalInputTokens,
-            totalOutputTokens: credential.totalOutputTokens,
-            totalCostUsd: credential.totalCostUsd,
-            totalActualCostUsd: credential.totalActualCostUsd,
-            avgCostPerTask: credential.avgCostPerTask,
-          }))}
-          compact={compact}
-          tx={tx}
-        />
-      ) : null}
+      <CostDimensionTable
+        title={tx("Runtime Key 费用明细", "Runtime Key Cost Breakdown")}
+        rows={data.runtimeCredentials.map((credential) => ({
+          id: credential.runtimeCredentialId,
+          label: credential.runtimeCredentialId,
+          taskCount: credential.taskCount,
+          totalInputTokens: credential.totalInputTokens,
+          totalOutputTokens: credential.totalOutputTokens,
+          totalCostUsd: credential.totalCostUsd,
+          totalActualCostUsd: credential.totalActualCostUsd,
+          avgCostPerTask: credential.avgCostPerTask,
+        }))}
+        compact={compact}
+        emptyMessage={tx(
+          "暂无 Runtime Key 用量；对账后此处按 Runtime Key 拆分实际扣费。",
+          "No runtime key usage yet. This breaks down by runtime key after reconciliation.",
+        )}
+        tx={tx}
+      />
 
-      {data.sessions.length > 0 ? (
-        <CostDimensionTable
-          title={tx("会话费用明细", "Session Cost Breakdown")}
-          rows={data.sessions.map((session) => ({
-            id: session.routerSessionId,
-            label: session.routerSessionId,
-            taskCount: session.taskCount,
-            totalInputTokens: session.totalInputTokens,
-            totalOutputTokens: session.totalOutputTokens,
-            totalCostUsd: session.totalCostUsd,
-            totalActualCostUsd: session.totalActualCostUsd,
-            avgCostPerTask: session.avgCostPerTask,
-          }))}
-          compact={compact}
-          tx={tx}
-        />
-      ) : null}
+      <CostDimensionTable
+        title={tx("会话费用明细", "Session Cost Breakdown")}
+        rows={data.sessions.map((session) => ({
+          id: session.routerSessionId,
+          label: session.routerSessionId,
+          taskCount: session.taskCount,
+          totalInputTokens: session.totalInputTokens,
+          totalOutputTokens: session.totalOutputTokens,
+          totalCostUsd: session.totalCostUsd,
+          totalActualCostUsd: session.totalActualCostUsd,
+          avgCostPerTask: session.avgCostPerTask,
+        }))}
+        compact={compact}
+        emptyMessage={tx(
+          "暂无会话用量；会话产生用量后此处按会话拆分。",
+          "No session usage yet. This breaks down by session once sessions produce usage.",
+        )}
+        tx={tx}
+      />
 
       {data.recentUsage.length > 0 ? (
         <>
@@ -380,6 +386,7 @@ function CostDimensionTable({
   title,
   rows,
   compact,
+  emptyMessage,
   tx,
 }: {
   title: string;
@@ -394,12 +401,15 @@ function CostDimensionTable({
     avgCostPerTask: number;
   }>;
   compact: boolean;
+  emptyMessage?: string;
   tx: (zh: string, en: string) => string;
 }) {
   return (
     <>
       <h3>{title}</h3>
-      {compact ? (
+      {rows.length === 0 ? (
+        <div className="costs-empty">{emptyMessage ?? tx("暂无用量数据", "No usage data yet")}</div>
+      ) : compact ? (
         <div className="costs-agent-cards">
           {rows.map((row) => (
             <article className="costs-agent-card" key={row.id}>

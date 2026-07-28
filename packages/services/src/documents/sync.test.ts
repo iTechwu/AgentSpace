@@ -9,8 +9,6 @@ import {
   clearChannelDocumentPresenceSync,
   createEmployeeSync,
   createChannelDocumentSync,
-  createExternalGoogleDocChannelDocumentSync,
-  createExternalGoogleSheetChannelDocumentSync,
   createChannelDocumentFromAttachmentSync,
   canViewChannelDocumentSync,
   ensureWorkspaceStateSync,
@@ -25,10 +23,8 @@ import {
   resolveChannelDocumentConflictSync,
   retryChannelDocumentConflictSync,
   sendChannelHumanMessageSync,
-  recordExternalSheetOperationRunSync,
   updateChannelDocumentAccessRoleSync,
   updateExternalChannelDocumentMetadataSync,
-  updateExternalSheetOperationRunSync,
   upsertChannelDocumentPresenceSync,
   updateChannelDocumentSync,
   writeWorkspaceStateSync,
@@ -209,27 +205,27 @@ test("createChannelDocumentSync preserves external document binding metadata", (
 
   const created = createChannelDocumentSync({
     channelName: "tour visit",
-    title: "外部预算表",
-    kind: "sheet",
+    title: "外部项目说明",
+    kind: "document",
     storageMode: "external",
-    externalProvider: "google_workspace",
-    externalFileId: "spreadsheet-123",
-    externalUrl: "https://docs.google.com/spreadsheets/d/spreadsheet-123",
+    externalProvider: "notion",
+    externalFileId: "page-123",
+    externalUrl: "https://www.notion.so/page-123",
     externalRevisionId: "revision-1",
     contentJson: { syncedAt: "2026-05-01T00:00:00.000Z" },
-    summary: "Google Sheets 预算表",
+    summary: "Notion 项目说明",
     createdBy: "techwu",
     createdByType: "human",
   });
 
-  assert.equal(created.document.kind, "sheet");
+  assert.equal(created.document.kind, "document");
   assert.equal(created.document.storageMode, "external");
-  assert.equal(created.document.externalProvider, "google_workspace");
-  assert.equal(created.document.externalFileId, "spreadsheet-123");
+  assert.equal(created.document.externalProvider, "notion");
+  assert.equal(created.document.externalFileId, "page-123");
   assert.equal(created.document.externalRevisionId, "revision-1");
 
   const persisted = readChannelDocumentSync(created.document.id);
-  assert.equal(persisted.document.externalUrl, "https://docs.google.com/spreadsheets/d/spreadsheet-123");
+  assert.equal(persisted.document.externalUrl, "https://www.notion.so/page-123");
   assert.deepEqual(persisted.currentVersion.contentJson, { syncedAt: "2026-05-01T00:00:00.000Z" });
 });
 
@@ -270,134 +266,6 @@ test("create and update change sets keep version and source metadata", () => {
   assert.equal(createdChangeSet?.documentVersionId, created.version.id);
   assert.equal(createdChangeSet?.sourceMessageId, "message-create");
   assert.equal(createdChangeSet?.sourceTaskQueueId, "queue-create");
-});
-
-test("external Google Sheet channel documents retain binding metadata and operation runs", () => {
-  resetWorkspace();
-
-  const created = createExternalGoogleSheetChannelDocumentSync({
-    channelName: "tour visit",
-    title: "竞品调研表",
-    externalFileId: "google-sheet-123",
-    externalUrl: "https://docs.google.com/spreadsheets/d/google-sheet-123/edit",
-    createdBy: "techwu",
-    createdByType: "human",
-  });
-
-  assert.equal(created.document.kind, "sheet");
-  assert.equal(created.document.storageMode, "external");
-  assert.equal(created.document.externalProvider, "google_workspace");
-  assert.equal(created.document.externalFileId, "google-sheet-123");
-
-  const queued = recordExternalSheetOperationRunSync({
-    channelDocumentId: created.document.id,
-    actorType: "agent",
-    actorId: "Atlas",
-    status: "running",
-    intent: "Append competitor rows",
-    operationType: "append_rows",
-    rangeA1: "Research!A2:F13",
-    requestSummary: "Append 12 rows.",
-  });
-  const completed = updateExternalSheetOperationRunSync({
-    runId: queued.id,
-    status: "succeeded",
-    affectedRows: 12,
-    affectedCells: 72,
-    responseSummary: "Appended rows to Research.",
-  });
-
-  assert.equal(completed.status, "succeeded");
-  assert.equal(completed.affectedRows, 12);
-  assert.equal(completed.affectedCells, 72);
-
-  const persisted = ensureWorkspaceStateSync();
-  assert.equal(persisted.externalSheetOperationRuns.length, 2);
-  assert.equal(persisted.externalSheetOperationRuns[0]?.id, completed.id);
-  assert.equal(persisted.externalSheetOperationRuns[1]?.operationType, "metadata_refresh");
-
-  const refreshed = updateExternalChannelDocumentMetadataSync({
-    documentId: created.document.id,
-    externalSyncStatus: "permission_error",
-    externalUpdatedAt: "2026-04-30T01:00:00.000Z",
-    updatedBy: "系统提示",
-  });
-  assert.equal(refreshed.externalSyncStatus, "permission_error");
-  assert.equal(refreshed.externalUpdatedAt, "2026-04-30T01:00:00.000Z");
-  assert.equal(refreshed.updatedBy, "系统提示");
-});
-
-test("external Google Sheet channel documents can skip default metadata run for agent create audit", () => {
-  resetWorkspace();
-
-  const created = createExternalGoogleSheetChannelDocumentSync({
-    channelName: "tour visit",
-    title: "Agent Created Sheet",
-    externalFileId: "google-sheet-created",
-    externalUrl: "https://docs.google.com/spreadsheets/d/google-sheet-created/edit",
-    createdBy: "Atlas",
-    createdByType: "agent",
-    triggerType: "agent",
-    sourceTaskQueueId: "task-create",
-    recordMetadataRun: false,
-  });
-
-  const persisted = ensureWorkspaceStateSync();
-  assert.equal(created.version.triggerType, "agent");
-  assert.equal(created.version.sourceTaskQueueId, "task-create");
-  assert.equal(persisted.externalSheetOperationRuns.length, 0);
-  const run = recordExternalSheetOperationRunSync({
-    channelDocumentId: created.document.id,
-    actorType: "agent",
-    actorId: "Atlas",
-    status: "succeeded",
-    intent: "Create Google Sheet",
-    operationType: "create",
-    requestSummary: "Created sheet.",
-  });
-  assert.equal(run.operationType, "create");
-});
-
-test("external Google Doc channel documents retain binding metadata and operation runs", () => {
-  resetWorkspace();
-
-  const created = createExternalGoogleDocChannelDocumentSync({
-    channelName: "tour visit",
-    title: "会议纪要",
-    externalFileId: "google-doc-123",
-    externalUrl: "https://docs.google.com/document/d/google-doc-123/edit",
-    createdBy: "techwu",
-    createdByType: "human",
-  });
-
-  assert.equal(created.document.kind, "document");
-  assert.equal(created.document.storageMode, "external");
-  assert.equal(created.document.externalProvider, "google_workspace");
-  assert.equal(created.document.externalFileId, "google-doc-123");
-  assert.equal(created.document.externalMimeType, "application/vnd.google-apps.document");
-
-  const queued = recordExternalSheetOperationRunSync({
-    channelDocumentId: created.document.id,
-    actorType: "agent",
-    actorId: "Atlas",
-    status: "running",
-    intent: "Append meeting summary",
-    operationType: "append_text",
-    requestSummary: "Append summary text.",
-  });
-  const completed = updateExternalSheetOperationRunSync({
-    runId: queued.id,
-    status: "succeeded",
-    affectedRows: 1,
-    responseSummary: "Appended text to Google Doc.",
-  });
-
-  assert.equal(completed.status, "succeeded");
-  assert.equal(completed.operationType, "append_text");
-  const persisted = ensureWorkspaceStateSync();
-  assert.equal(persisted.externalSheetOperationRuns.length, 2);
-  assert.equal(persisted.externalSheetOperationRuns[0]?.id, completed.id);
-  assert.equal(persisted.externalSheetOperationRuns[1]?.operationType, "metadata_refresh");
 });
 
 test("updateChannelDocumentSync keeps the original title when a stale save conflicts", () => {

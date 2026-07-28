@@ -124,7 +124,6 @@ const baseDocument: ChannelDocumentRecord = {
       status: "completed",
     },
   },
-  externalSheetOperations: [],
 };
 
 const archivedDocument: ChannelDocumentRecord = {

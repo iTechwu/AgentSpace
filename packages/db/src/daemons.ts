@@ -429,6 +429,7 @@ export function readAgentRuntimeSync(runtimeId: string): AgentRuntimeRecord | nu
         credential_config_ref,
         provisioning_task_id,
         managed_at,
+        allow_new_employee_sharing AS allowNewEmployeeSharing,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM agent_runtime
@@ -464,6 +465,7 @@ export function listManagedAgentRuntimesSync(workspaceId: string): AgentRuntimeR
         credential_config_ref,
         provisioning_task_id,
         managed_at,
+        allow_new_employee_sharing AS allowNewEmployeeSharing,
         created_at AS createdAt,
         updated_at AS updatedAt
        FROM agent_runtime
@@ -495,6 +497,7 @@ export interface UpdateAgentRuntimeManagedFieldsInput {
   defaultModel?: string;
   provisioningTaskId?: string;
   status?: "online" | "offline";
+  allowNewEmployeeSharing?: boolean;
 }
 
 export interface CreateManagedAgentRuntimeInput {
@@ -505,6 +508,8 @@ export interface CreateManagedAgentRuntimeInput {
   name: string;
   protocols: string[];
   defaultModel?: string;
+  /** When false, the runtime refuses new employee binds (default true). */
+  allowNewEmployeeSharing?: boolean;
   managedCredentialId: string;
   credentialSecretRef?: string;
   credentialConfigRef?: string;
@@ -528,9 +533,10 @@ export function createManagedAgentRuntimeSync(
        name, version, status, device_info, metadata_json,
        runtime_type, protocols_json, default_model, provisioning_state,
        managed_credential_id, credential_secret_ref, credential_config_ref,
-       provisioning_task_id, managed_at, created_at, updated_at
+       provisioning_task_id, managed_at, allow_new_employee_sharing,
+       created_at, updated_at
      ) VALUES (?, ?, NULL, ?, NULL, ?, '', 'offline', '', '{}'::jsonb,
-       ?, ?, ?, 'managed', ?, ?, ?, ?, ?, ?, ?)`,
+       ?, ?, ?, 'managed', ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     input.id,
     input.workspaceId,
@@ -544,6 +550,7 @@ export function createManagedAgentRuntimeSync(
     input.credentialConfigRef ?? null,
     input.provisioningTaskId,
     now,
+    input.allowNewEmployeeSharing ?? true,
     now,
     now,
   );
@@ -588,6 +595,10 @@ export function updateAgentRuntimeManagedFieldsSync(
   if (input.defaultModel !== undefined) {
     sets.push("default_model = ?");
     params.push(input.defaultModel || null);
+  }
+  if (input.allowNewEmployeeSharing !== undefined) {
+    sets.push("allow_new_employee_sharing = ?");
+    params.push(input.allowNewEmployeeSharing);
   }
   if (input.provisioningTaskId !== undefined) {
     sets.push("provisioning_task_id = ?");
@@ -868,6 +879,7 @@ function listDaemonRuntimesSync(daemonConnectionId: string): AgentRuntimeRecord[
         credential_config_ref,
         provisioning_task_id,
         managed_at,
+        allow_new_employee_sharing AS allowNewEmployeeSharing,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM agent_runtime
@@ -947,6 +959,7 @@ function mapAgentRuntimeRecord(value: Record<string, unknown>): AgentRuntimeReco
     credentialConfigRef: typeof value.credentialConfigRef === "string" ? value.credentialConfigRef : undefined,
     protocols: parseProtocolsValue(value.protocolsJson),
     defaultModel: typeof value.defaultModel === "string" ? value.defaultModel : undefined,
+    allowNewEmployeeSharing: value.allowNewEmployeeSharing !== false,
     provisioningTaskId: typeof value.provisioningTaskId === "string" ? value.provisioningTaskId : undefined,
     managedAt: typeof value.managedAt === "string" ? value.managedAt : undefined,
     createdAt: value.createdAt,

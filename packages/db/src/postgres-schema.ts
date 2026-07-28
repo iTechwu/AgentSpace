@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "43";
+export const POSTGRES_SCHEMA_VERSION = "46";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -279,6 +279,8 @@ export function getPostgresSchemaStatements(): string[] {
       ALTER TABLE external_resource_binding
         ADD COLUMN IF NOT EXISTS dofe_agent_resource_id TEXT
     `,
+    `ALTER TABLE external_resource_binding DROP COLUMN IF EXISTS agent_space_resource_type`,
+    `ALTER TABLE external_resource_binding DROP COLUMN IF EXISTS agent_space_resource_id`,
     `
       CREATE TABLE IF NOT EXISTS external_message_mapping (
         id TEXT PRIMARY KEY,
@@ -633,6 +635,7 @@ export function getPostgresSchemaStatements(): string[] {
         connected_at TIMESTAMPTZ,
         last_heartbeat_at TIMESTAMPTZ,
         last_error TEXT,
+        allow_new_employee_sharing BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL
       )
@@ -652,6 +655,10 @@ export function getPostgresSchemaStatements(): string[] {
     // carries the relationship.
     `ALTER TABLE agent_runtime ADD COLUMN IF NOT EXISTS provisioning_task_id TEXT`,
     `ALTER TABLE agent_runtime ADD COLUMN IF NOT EXISTS managed_at TIMESTAMPTZ`,
+    // When false, this managed runtime refuses to bind additional AI employees
+    // (existing bindings are preserved). Defaults to true to keep the
+    // one-runtime-many-employees model the baseline.
+    `ALTER TABLE agent_runtime ADD COLUMN IF NOT EXISTS allow_new_employee_sharing BOOLEAN NOT NULL DEFAULT TRUE`,
     `
       CREATE INDEX IF NOT EXISTS idx_agent_runtime_managed_credential
         ON agent_runtime(workspace_id, managed_credential_id)
@@ -1644,6 +1651,30 @@ export function getPostgresSchemaStatements(): string[] {
         ), '[]'::jsonb)
       )
     `,
+    ...[
+      "channelDocumentVersions",
+      "channelDocumentBlocks",
+      "channelDocumentAccesses",
+      "channelDocumentChangeSets",
+      "channelDocumentConflicts",
+      "channelDocumentPresences",
+      "channelDocumentRuns",
+    ].map((fieldName) => `
+      UPDATE workspace_snapshot
+      SET state_json = jsonb_set(
+        state_json,
+        '{${fieldName}}',
+        COALESCE((
+          SELECT jsonb_agg(item)
+          FROM jsonb_array_elements(COALESCE(state_json->'${fieldName}', '[]'::jsonb)) AS item
+          WHERE EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(COALESCE(state_json->'channelDocuments', '[]'::jsonb)) AS document
+            WHERE document->>'id' = item->>'documentId'
+          )
+        ), '[]'::jsonb)
+      )
+    `),
     `DELETE FROM skill_import_event WHERE skill_name = 'google-workspace-cli'`,
     `DELETE FROM skill WHERE name = 'google-workspace-cli'`,
     `

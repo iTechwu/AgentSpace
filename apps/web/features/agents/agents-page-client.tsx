@@ -477,6 +477,7 @@ export function AgentsPageClient({
         <CreateAgentModal
           containerOptions={data.containerOptions}
           canCreate={data.canCreateAgent}
+          createRuntimeHref={data.canManageRuntimes ? workspaceHref("/runtimes") : undefined}
           defaultContainerId={selectedContainerId ?? ""}
           emptyRuntimeMessage={
             data.canManageAllAgents

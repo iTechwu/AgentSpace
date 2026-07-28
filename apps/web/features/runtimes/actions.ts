@@ -46,6 +46,7 @@ export async function createManagedRuntimeAction(input: {
   idempotencyKey: string;
   targetServer?: string;
   name?: string;
+  allowNewEmployeeSharing?: boolean;
 }): Promise<{ taskId: string }> {
   assertRemoteManagedRuntimeMode();
   const { workspaceId, actorUserId, slug } = await requireAdminActor();
@@ -58,6 +59,7 @@ export async function createManagedRuntimeAction(input: {
     idempotencyKey: input.idempotencyKey,
     targetServer: input.targetServer,
     name: input.name,
+    allowNewEmployeeSharing: input.allowNewEmployeeSharing,
   });
   revalidateWorkspacePath("/runtimes", slug);
   return { taskId: task.id };

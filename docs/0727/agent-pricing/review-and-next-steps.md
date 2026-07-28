@@ -2,6 +2,25 @@
 
 > **2026-07-28 实施闭环更新：** 下文保留为实施前审查快照，不再代表当前代码状态。第二轮复审又闭环了 Runtime 归因 HMAC、延迟取消/清理、人工轮换幂等、managed-node 安装与重启、自托管恢复调度和 Runtime 详情。当前权威状态见 [implementation-plan.md](./implementation-plan.md) 与 [本轮复审记录](./implementation-review-2026-07-28.md)；真实 models、网关、容器和网络出口隔离仍需 staging 验收。
 
+> **2026-07-28 三轮代码逐项核实（针对下文 ❌/⚠️ 标记）：** 以代码知识图谱 +
+> 人工核对重审了下方每一项，确认**下文大量 ❌/⚠️ 已不成立**。下文表格保留原样以
+> 供追溯，真实状态以本表为准：
+>
+> | 下文原始判定 | 核实后真实代码状态 | 证据（file:line） |
+> | --- | --- | --- |
+> | Phase 0 平台超管隐身 ⚠️ 部分实施 | **已实施**：成员排除（`listWorkspaceMemberUsersSync`/`countWorkspaceMembersSync`/`transferWorkspaceOwnershipSync` 均过滤 `is_admin`）、SSO `isAdmin` 持久化（`server-auth.ts:209`）、审计匿名化为“平台运维”（`shared/audit.ts:116`） | `packages/db/src/user-auth.ts:357`、`packages/services/src/shared/audit.ts:58` |
+> | Phase 3 节点侧安装全部 ❌ 未实施 | **已实施**：`ManagedCredentialResolver`、`provider-templates.ts`（固定网关 URL + Docker 模板 + 加固）、daemon 真实驱动 `pull_image/install_cli/write_credential/health_check`（`recordSkipped` 已为零调用死代码）、凭据包端点、容器/卷清理、协议级健康检查（经归因代理）、9 条 daemon/cron 路由齐备 | `packages/daemon/src/managed-provider-credentials.ts`、`packages/daemon/src/managed-runtime-provisioning.ts:53`、`packages/services/src/runtime-provisioning/provider-templates.ts` |
+> | Phase 5 余额/Key 用量 ⚠️ 部分实施 | **已实施**：`getTeamBillingBalanceAction` 调 models `billing.balanceByTeam`，余额卡片在 costs 页渲染（仅 remote 模式显示数值，local 显示“暂不可用”）；Runtime Key 用量即“Runtime Key 费用明细”表 | `apps/web/features/costs/actions.ts:12`、`apps/web/features/costs/costs-page-client.tsx:165` |
+> | Phase 5 AI员工/Runtime/会话维度成本 ❌ 未实施 | **已实施**：DB（`getRuntimeCostSummarySync`/`getRuntimeCredentialCostSummarySync`/`getSessionCostSummarySync`）+ service + costs 页三张明细表全链路存在 | `packages/db/src/token-usage.ts:385`、`packages/services/src/costs/costs.ts:186`、`apps/web/features/costs/costs-page-client.tsx:271` |
+> | Phase 5 异常告警 ❌ 未实施 | **已实施**：4 类告警（`billing.insufficient_balance`、`runtime.credential_rotation_failed`、`usage.reconciliation_discrepancy`、`budget.exceeded`）经 `notifyWorkspaceAdminsSync` 发出，`/inbox` + 侧栏未读徽标展示 | `packages/services/src/runtime-provisioning/runtime-provisioning.ts:1227`、`packages/services/src/notifications/notifications.ts:115` |
+> | Phase 5 平台超管审计隔离 ❌ 未实施 | **已实施**：`platform-audit` 合成工作区账本（`audit_log` 的 `workspace_id='platform-audit'` + `source='platform_admin'` 切片）、`/platform/audit` 路由、跨团队访问（`server-workspace-resolver.ts:219`）、双写匿名化 | `packages/services/src/shared/audit.ts:7`、`apps/web/app/platform/audit/page.tsx` |
+>
+> **核实后仍存在的真实（有界）缺口**（2026-07-28 已全部实施闭环，通过仓库门禁）：
+> 1. ~~平台超管控制台**无导航入口**~~ → ✅ 侧栏新增“平台运维”入口 + 新增 `/platform` 跨团队运维看板（工作区/Runtime/成本/审计聚合），`/platform/audit` 保留。
+> 2. ~~Runtime 复用**无显式 UI 入口**~~ → ✅ `ExecutionEngineSelect` 显式“可复用”徽标 + 协议/默认模型/已服务数，共享关闭项禁用；创建-绑定路径补技能前置校验；schema v46 新增 `allow_new_employee_sharing`，`bindEmployeeRuntimeSync` 据此拒绝新绑定，向导提供开关。
+> 3. ~~Phase 5 三张明细表**无空状态**~~ → ✅ `CostDimensionTable` 始终渲染 + 说明性空状态。
+> 4. ~~Phase 3 残留**误导性死代码**~~ → ✅ 删除 `recordSkipped` + 未用导入，修正头部注释为真实 stage 序列。
+
 审查日期：2026-07-27  
 审查范围：`docs/0727/agent-pricing` 三份文档 + AgentSpace 当前分支业务代码  
 结论：**尚未全面实施，但 Step 2 成本对账骨架与 Step 3 “Agent”→“AI员工”文案迁移已完成**。Phase 1（models.dofe.ai 侧 RuntimeCredential）已完成；Phase 2（AgentSpace 控制面）已落地主要路径；Phase 3（节点侧受管安装）基本未实施；Phase 4（模型配置与会话体验）核心路径已通；Phase 5（成本对账、文案迁移）已完成骨架与文案，余额/Key 用量、多维度视图、告警仍待实施。
@@ -50,6 +69,8 @@
 
 ### Phase 3：节点侧凭据解析与受管安装
 
+> ⚠️ **本表为 2026-07-27 快照，全部 ❌ 现已不成立。** 节点侧 `ManagedCredentialResolver`、`provider-templates`（固定网关 URL + Docker 模板 + 加固）、daemon 真实驱动四个 stage、凭据包端点、容器/卷清理、协议级健康检查均已实现；`recordSkipped` 已为零调用死代码（待清理）。详见顶部“三轮代码逐项核实”表与 [implementation-review-2026-07-28.md](./implementation-review-2026-07-28.md)。
+
 | 要求 | 状态 | 证据 |
 | --- | --- | --- |
 | 节点侧 `ProviderCredentialResolver` | ❌ 未实施 | `packages/daemon/src/provider-runtime.ts` 仍为本地 Provider Runtime；无按 `runtimeCredentialId` 解析 `secretRef/configRef` 的代码 |
@@ -70,6 +91,8 @@
 | **不兼容 / 不可用 / 无权限模型的可操作错误状态** | ✅ **已实施** | `ChatModelOverrideValidationError` 归类错误码；`setChatModelOverrideAction` 返回 `{ok, code, message}`；`ChatModelSelector` 显示错误标签；`/model reset` 也支持清除覆盖 |
 
 ### Phase 5：用量、计费、对账与术语迁移
+
+> ⚠️ **本表为 2026-07-27 快照，其中 ⚠️/❌ 现已多数不成立。** 余额卡片、Runtime/Key/会话三维度明细表、4 类异常告警、平台超管审计隔离均已实现（仅 local 模式不显示 models 数值、明细表空时无空状态为真实可发现性缺口）。详见顶部“三轮代码逐项核实”表。
 
 | 要求 | 状态 | 证据 |
 | --- | --- | --- |

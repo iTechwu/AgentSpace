@@ -211,6 +211,17 @@ export async function createWorkspaceAgentAction(input: {
   }, workspaceId);
 
   if (runtimeId) {
+    const skillIds = listEmployeeSkillIdsSync(agentName, workspaceId);
+    const boundRuntime = readAgentRuntimeSync(runtimeId);
+    if (!boundRuntime || boundRuntime.workspaceId !== workspaceId) {
+      throw new Error("runtime.not_found");
+    }
+    assertAgentSkillRequirementsReadySync({
+      workspaceId,
+      employeeName: agentName,
+      skillIds,
+      runtimeProvider: boundRuntime.provider,
+    });
     bindEmployeeRuntimeSync(agentName, runtimeId, workspaceId);
   }
 

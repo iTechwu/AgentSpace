@@ -84,6 +84,7 @@ export function ExecutionEngineSelect({
             <>
               <span className="execution-engine-select__title-row">
                 <strong>{selectedOption.label}</strong>
+                {selectedOption.managed ? <ReusableBadge /> : null}
                 <EngineStatusBadge status={selectedOption.status} />
               </span>
               <EngineMeta option={selectedOption} />
@@ -104,27 +105,41 @@ export function ExecutionEngineSelect({
 
       {open && !isDisabled ? (
         <div aria-label={label} className="execution-engine-select__menu" id={menuId} role="listbox">
-          {options.map((option) => (
-            <button
-              aria-selected={option.id === selectedOption?.id}
-              className={`execution-engine-select__option${option.id === selectedOption?.id ? " execution-engine-select__option--selected" : ""}`}
-              key={option.id}
-              onClick={() => {
-                onChange(option.id);
-                setOpen(false);
-              }}
-              role="option"
-              type="button"
-            >
-              <span className="execution-engine-select__option-main">
-                <span>
-                  <strong>{option.label}</strong>
-                  <EngineMeta option={option} />
+          {options.map((option) => {
+            const sharingClosed = option.managed === true && option.allowNewEmployeeSharing === false;
+            return (
+              <button
+                aria-disabled={sharingClosed || undefined}
+                aria-selected={option.id === selectedOption?.id}
+                className={`execution-engine-select__option${option.id === selectedOption?.id ? " execution-engine-select__option--selected" : ""}${sharingClosed ? " execution-engine-select__option--disabled" : ""}`}
+                disabled={sharingClosed}
+                key={option.id}
+                onClick={() => {
+                  if (sharingClosed) {
+                    return;
+                  }
+                  onChange(option.id);
+                  setOpen(false);
+                }}
+                role="option"
+                type="button"
+              >
+                <span className="execution-engine-select__option-main">
+                  <span>
+                    <strong>{option.label}</strong>
+                    {option.managed ? <ReusableBadge /> : null}
+                    <EngineMeta option={option} />
+                    {sharingClosed ? (
+                      <span className="execution-engine-select__sharing-closed">
+                        {tx("已关闭新员工共享", "New employee sharing disabled")}
+                      </span>
+                    ) : null}
+                  </span>
+                  <EngineStatusBadge status={option.status} />
                 </span>
-                <EngineStatusBadge status={option.status} />
-              </span>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       ) : null}
     </div>
@@ -145,6 +160,10 @@ function EngineMeta({ option }: { readonly option: ExecutionEngineOption }) {
       <span>{option.serverName || option.daemonKey}</span>
       <span>{formatDaemonProviderLabel(option.provider)}</span>
       <span>{option.mode === "remote" ? tx("远程", "Remote") : tx("本地", "Local")}</span>
+      {option.defaultModel ? <span>{tx("默认模型", "Default model")}: {option.defaultModel}</span> : null}
+      {typeof option.assignedEmployeeCount === "number" ? (
+        <span>{tx(`已服务 ${option.assignedEmployeeCount} 个 AI员工`, `${option.assignedEmployeeCount} AI employee(s) served`)}</span>
+      ) : null}
       {option.daemonKey.trim() ? <code>{option.daemonKey}</code> : null}
     </span>
   );
@@ -156,5 +175,12 @@ function EngineStatusBadge({ status }: { readonly status: ExecutionEngineOption[
     <span className={`execution-engine-select__status execution-engine-select__status--${status}`}>
       {status === "online" ? tx("在线", "Online") : tx("离线", "Offline")}
     </span>
+  );
+}
+
+function ReusableBadge() {
+  const { tx } = useLanguage();
+  return (
+    <span className="execution-engine-select__reusable-badge">{tx("可复用", "Reusable")}</span>
   );
 }

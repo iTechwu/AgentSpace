@@ -21,6 +21,7 @@ export function ManagedRuntimeCreationWizard({
   const [name, setName] = useState("");
   const [targetServer, setTargetServer] = useState("");
   const [defaultModel, setDefaultModel] = useState("");
+  const [allowNewEmployeeSharing, setAllowNewEmployeeSharing] = useState(true);
   const [preflight, setPreflight] = useState<ManagedRuntimeCreationPreflightResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -60,6 +61,7 @@ export function ManagedRuntimeCreationWizard({
           defaultModel: defaultModel || undefined,
           allowedModels: defaultModel ? [defaultModel] : undefined,
           targetServer: targetServer.trim() || undefined,
+          allowNewEmployeeSharing,
           idempotencyKey: idempotencyKey.current!,
         });
         onCreated(result.taskId);
@@ -160,6 +162,17 @@ export function ManagedRuntimeCreationWizard({
             <dd>{targetServer.trim() || "Automatic placement"}</dd>
             <dt className="text-neutral-500">Default model</dt>
             <dd>{defaultModel || "System fallback"}</dd>
+            <dt className="text-neutral-500">Sharing</dt>
+            <dd>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={allowNewEmployeeSharing}
+                  onChange={(event) => setAllowNewEmployeeSharing(event.target.checked)}
+                />
+                <span>Allow new AI employees to share this runtime</span>
+              </label>
+            </dd>
           </dl>
           <div className={`border-l-2 pl-3 ${preflight?.allowed ? "border-green-600" : "border-red-600"}`}>
             <p className="font-medium">{preflight?.allowed ? "Preflight passed" : "Preflight blocked"}</p>

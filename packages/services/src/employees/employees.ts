@@ -8,6 +8,8 @@ import {
   deleteEmployeeExecutionStateSync,
   listStoredAgentSkillAssignmentsSync,
   listEmployeeRuntimeBindingsSync,
+  readAgentRuntimeSync,
+  readEmployeeRuntimeBindingSync,
   replaceStoredChannelsSync,
   setStoredEmployeeSkillAssignmentsSync,
   unbindEmployeeRuntimeSync as unbindEmployeeRuntimeRecordSync,
@@ -89,6 +91,17 @@ export function bindEmployeeRuntimeSync(
   if (actorUserId) {
     assertCanManageEmployeeForActorSync({ workspaceId, employeeName: employee.name, actorUserId });
     assertCanUseRuntimeForActorSync({ workspaceId, runtimeId, actorUserId });
+  }
+
+  // Enforce the managed-runtime "allow new employee sharing" policy: a runtime
+  // with allowNewEmployeeSharing === false refuses to bind ADDITIONAL employees,
+  // but re-binding an employee already on this runtime stays permitted.
+  const runtimeRecord = readAgentRuntimeSync(runtimeId);
+  if (runtimeRecord && runtimeRecord.allowNewEmployeeSharing === false) {
+    const existingBinding = readEmployeeRuntimeBindingSync(employee.name, workspaceId);
+    if (!existingBinding || existingBinding.runtimeId !== runtimeId) {
+      throw new Error("runtime.sharing_closed");
+    }
   }
 
   const binding = bindEmployeeRuntimeRecordSync({
