@@ -194,6 +194,28 @@ describe("daemon API routes", () => {
     });
   });
 
+  it("rejects task completion when neither usage nor its durable retry can be persisted", () => {
+    expect(() => persistManagedTaskUsagesBestEffort({
+      usages: [{
+        modelId: "gpt-5",
+        runtimeCredentialId: "credential-1",
+        gatewayRequestId: "gateway-1",
+        inputTokens: 10,
+        outputTokens: 2,
+      }],
+      workspaceId: "workspace-1",
+      taskId: "task-1",
+      agentId: "agent-1",
+      runtimeCredentialId: "credential-1",
+      recordUsage: () => {
+        throw new Error("usage unavailable");
+      },
+      enqueueRetry: () => {
+        throw new Error("retry unavailable");
+      },
+    })).toThrow(/token_usage\.durability_unavailable/);
+  });
+
   it("serves a hosted install script with baked server defaults", async () => {
     const response = await installScriptGET(
       new Request("http://localhost/api/daemon/install-script"),

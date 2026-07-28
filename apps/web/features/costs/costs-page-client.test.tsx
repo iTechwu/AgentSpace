@@ -62,6 +62,15 @@ const costs: CostPageData = {
   reconciledCostUsd: 0,
   unallocatedCostUsd: 0,
   totalActualCostUsd: 0,
+  billingByCurrency: [
+    {
+      currency: "EUR",
+      pendingReconciliationCost: 0.02,
+      reconciledCost: 0,
+      unallocatedCost: 0,
+      totalActualCost: 0,
+    },
+  ],
   models: [],
   recentUsage: [
     {
@@ -123,12 +132,20 @@ describe("CostsPageClient", () => {
 
     await screen.findByText("100.00 USD");
     expect(screen.getAllByText("Pending reconciliation").length).toBeGreaterThan(0);
+    expect(screen.getByText("0.0200 EUR")).toBeInTheDocument();
     expect(screen.getByText(/0\.0100.*0\.0200 EUR/)).toBeInTheDocument();
     expect(screen.getByText(/Updated/)).toBeInTheDocument();
   });
 
   it("shows an actionable reason when models billing is unavailable", async () => {
     vi.mocked(getTeamBillingBalanceAction).mockResolvedValue({ errorCode: "upstream_unavailable" } as never);
+    render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
+
+    await screen.findByText("Models billing service unavailable");
+  });
+
+  it("shows an actionable reason when the balance action rejects", async () => {
+    vi.mocked(getTeamBillingBalanceAction).mockRejectedValue(new Error("network unavailable"));
     render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
 
     await screen.findByText("Models billing service unavailable");

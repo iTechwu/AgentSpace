@@ -1,8 +1,10 @@
 import {
   findTokenUsageByGatewayRequestIdSync,
+  findTokenUsageByGatewayUsageIdSync,
   insertUnallocatedTokenUsageIfAbsentSync,
   listAllManagedAgentRuntimesSync,
   markTokenUsageReconciledSync,
+  readOldestPendingTokenUsageTimestampForRuntimeCredentialSync,
   readTokenUsageReconciliationCursorSync,
   recordAuditLogSync,
   upsertTokenUsageReconciliationCursorSync,
@@ -60,9 +62,16 @@ export async function reconcileAllManagedRuntimeUsageAsync(): Promise<ReconcileA
     if (!runtime.managedCredentialId) continue;
     totals.runtimeCount += 1;
     const cursor = readTokenUsageReconciliationCursorSync(runtime.workspaceId, runtime.managedCredentialId);
-    const since = cursor
+    const cursorOverlap = cursor
       ? new Date(new Date(cursor).getTime() - 24 * 60 * 60 * 1_000).toISOString()
       : undefined;
+    const oldestPending = readOldestPendingTokenUsageTimestampForRuntimeCredentialSync(
+      runtime.workspaceId,
+      runtime.managedCredentialId,
+    );
+    const since = cursorOverlap && oldestPending
+      ? (cursorOverlap < oldestPending ? cursorOverlap : oldestPending)
+      : cursorOverlap ?? oldestPending;
     try {
       const result = await syncRuntimeCredentialUsageAsync({
         workspaceId: runtime.workspaceId,
@@ -90,10 +99,10 @@ export async function reconcileAllManagedRuntimeUsageAsync(): Promise<ReconcileA
  * Pull usage logs from models.dofe.ai for a single RuntimeCredential and
  * reconcile them against local `token_usage` rows.
  *
- * - Matching `gateway_request_id` → mark as `reconciled` with actual cost.
- * - Unmatched gateway log → insert an `unallocated` row so the team can see
- *   charges that did not originate from a tracked local task.
- * - Already-reconciled rows are skipped (idempotent).
+ * - Match the stable remote usage ID first, then fall back to the gateway request ID.
+ * - Keep provisional or unknown remote billing states pending until a known terminal state arrives.
+ * - Insert unmatched terminal charges as `unallocated` so the team can investigate them.
+ * - Skip rows only when their current remote facts already match (idempotent).
  */
 export async function syncRuntimeCredentialUsageAsync(
   input: SyncRuntimeCredentialUsageInput,
@@ -160,7 +169,9 @@ export async function syncRuntimeCredentialUsageAsync(
     for (const entry of entries) {
       result.totalRemoteCount += 1;
       if (entry.requestId) {
-        result.lastRemoteTimestamp = entry.timestamp;
+        if (!result.lastRemoteTimestamp || entry.timestamp > result.lastRemoteTimestamp) {
+          result.lastRemoteTimestamp = entry.timestamp;
+        }
       }
       reconcileRuntimeCredentialUsageEntrySync(input.workspaceId, runtime.managedCredentialId, entry, result);
     }
@@ -216,7 +227,8 @@ export function reconcileRuntimeCredentialUsageEntrySync(
     return;
   }
 
-  const existing = findTokenUsageByGatewayRequestIdSync(gatewayRequestId, workspaceId);
+  const existing = (entry.id ? findTokenUsageByGatewayUsageIdSync(entry.id, workspaceId) : null)
+    ?? findTokenUsageByGatewayRequestIdSync(gatewayRequestId, workspaceId);
   if (existing) {
     if (
       existing.runtimeCredentialId
@@ -291,7 +303,10 @@ function resolveRemoteBillingStatus(
   if (normalized === "estimated" || normalized === "pending" || normalized === "pending_reconciliation") {
     return "pending_reconciliation";
   }
-  return hasLocalTask ? "reconciled" : "unallocated";
+  if (!normalized || ["reconciled", "settled", "final", "billed", "charged", "completed"].includes(normalized)) {
+    return hasLocalTask ? "reconciled" : "unallocated";
+  }
+  return "pending_reconciliation";
 }
 
 function parseCost(value: number | string | null | undefined): number {

@@ -105,6 +105,7 @@ export function persistManagedTaskUsagesBestEffort(input: {
         } catch {
           // Completion remains successful even if retry diagnostics fail.
         }
+        throw new Error("token_usage.durability_unavailable", { cause: retryError });
       }
       try {
         input.onError?.(error);
@@ -137,6 +138,26 @@ export async function POST(
   }
 
   const body = (await request.json()) as Partial<CompleteTaskRequest>;
+  const usages = [...(Array.isArray(body.usages) ? body.usages : []), ...(body.usage ? [body.usage] : [])];
+  try {
+    persistManagedTaskUsagesBestEffort({
+      usages,
+      workspaceId: task.workspaceId,
+      taskId: task.id,
+      agentId: task.agentId,
+      routerSessionId: task.routerSessionId,
+      runtimeCredentialId: runtime.managedCredentialId,
+      onError: (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Failed to persist managed usage for task ${task.id}: ${message}`);
+      },
+    });
+  } catch {
+    return Response.json(
+      { error: "Usage attribution could not be persisted; retry task completion." },
+      { status: 503, headers: { "retry-after": "5" } },
+    );
+  }
   const payload = parseTaskPayload(task);
   const workspaceState = readWorkspaceStateSync(task.workspaceId);
   const providerSupportsReusableSession = runtime.provider !== "hermes";
@@ -455,25 +476,6 @@ export async function POST(
       workspaceId: task.workspaceId,
       sessionId: conversationSessionId ?? undefined,
       workDir: body.workDir,
-    });
-
-    const usages = [...(Array.isArray(body.usages) ? body.usages : []), ...(body.usage ? [body.usage] : [])];
-    persistManagedTaskUsagesBestEffort({
-      usages,
-      workspaceId: task.workspaceId,
-      taskId: task.id,
-      agentId: task.agentId,
-      routerSessionId: task.routerSessionId,
-      runtimeCredentialId: runtime.managedCredentialId,
-      onError: (error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`Failed to persist managed usage for completed task ${task.id}: ${message}`);
-        appendTaskMessageSync({
-          taskId: task.id,
-          type: "status",
-          content: "Usage attribution is pending reconciliation.",
-        });
-      },
     });
 
     return Response.json({

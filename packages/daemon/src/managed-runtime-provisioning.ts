@@ -211,11 +211,7 @@ export function buildManagedAttributionProxyHealthCheckCommand(
     provider: ManagedProvisioningTask["runtimeType"];
   },
 ): ManagedProvisioningCommand {
-  const modelPath = input.provider === "gemini"
-    ? "/v1beta/models"
-    : input.provider === "claude"
-      ? "/v1/models"
-      : "/models";
+  const modelPath = resolveManagedGatewayHealthPath(input.provider);
   return {
     executable: "sh",
     args: [launcherPath, "--version"],
@@ -236,12 +232,17 @@ function resolveManagedGatewayHealthEndpoint(
   baseUrl: string,
   provider: ManagedProvisioningTask["runtimeType"],
 ): string {
-  const modelPath = provider === "gemini"
-    ? "v1beta/models"
+  return `${baseUrl.replace(/\/$/, "")}${resolveManagedGatewayHealthPath(provider)}`;
+}
+
+function resolveManagedGatewayHealthPath(
+  provider: ManagedProvisioningTask["runtimeType"],
+): string {
+  return provider === "gemini"
+    ? "/v1beta/models"
     : provider === "claude"
-      ? "v1/models"
-      : "models";
-  return `${baseUrl.replace(/\/$/, "")}/${modelPath}`;
+      ? "/v1/models"
+      : "/models";
 }
 
 async function runCommandSequence(

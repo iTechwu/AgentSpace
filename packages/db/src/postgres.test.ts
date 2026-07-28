@@ -21,6 +21,7 @@ test("postgres schema includes the expected core and derived tables", () => {
   assert.match(statements, /CREATE TABLE IF NOT EXISTS token_usage_retry/);
   assert.match(statements, /CREATE TABLE IF NOT EXISTS token_usage_reconciliation_cursor/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS gateway_usage_id TEXT/);
+  assert.match(statements, /CREATE UNIQUE INDEX IF NOT EXISTS idx_token_usage_workspace_gateway_usage_unique/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS cache_tokens INTEGER NOT NULL DEFAULT 0/);
   assert.match(statements, /workspace_snapshot_ledger/);
   assert.match(statements, /CREATE UNIQUE INDEX IF NOT EXISTS idx_external_integration_provider_app_tenant/);
@@ -30,6 +31,18 @@ test("postgres schema includes the expected core and derived tables", () => {
   assert.match(statements, /ALTER TABLE external_message_mapping\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
   assert.match(statements, /ALTER TABLE external_message_outbox\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
   assert.match(statements, /ALTER TABLE external_thread_binding\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
+});
+
+test("token usage gateway usage uniqueness migration clears duplicate remote identifiers first", () => {
+  const statements = getPostgresSchemaStatements();
+  const deduplicateUsageIds = statements.findIndex((statement) =>
+    statement.includes("PARTITION BY workspace_id, gateway_usage_id"),
+  );
+  const uniqueUsageIdIndex = statements.findIndex((statement) =>
+    statement.includes("idx_token_usage_workspace_gateway_usage_unique"),
+  );
+
+  assert.ok(deduplicateUsageIds >= 0 && deduplicateUsageIds < uniqueUsageIdIndex);
 });
 
 test("postgres schema adds cleanup retry columns before creating dependent indexes", () => {

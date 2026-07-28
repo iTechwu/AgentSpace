@@ -34,9 +34,7 @@ import type {
   FeishuChatMemberSnapshot,
   PerformanceDashboardData,
   WorkspaceNotificationRecord,
-  RuntimeCostProfile,
-  RuntimeCredentialCostProfile,
-  SessionCostProfile,
+  CostDashboardData,
 } from "@dofe-agent/services";
 import {
   DEFAULT_WORKSPACE_ID,
@@ -4943,55 +4941,7 @@ export function getOrgChartPageData(workspaceId = DEFAULT_WORKSPACE_ID): OrgChar
 
 // ── Costs ──
 
-export interface CostPageData {
-  agents: Array<{
-    agentId: string;
-    displayName: string;
-    modelId: string;
-    providerAccountId?: string;
-    totalCostUsd: number;
-    totalInputTokens: number;
-    totalOutputTokens: number;
-    taskCount: number;
-    avgCostPerTask: number;
-  }>;
-  runtimes: RuntimeCostProfile[];
-  runtimeCredentials: RuntimeCredentialCostProfile[];
-  sessions: SessionCostProfile[];
-  totalCostUsd: number;
-  totalTasks: number;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  estimatedCostUsd: number;
-  pendingReconciliationCostUsd: number;
-  reconciledCostUsd: number;
-  unallocatedCostUsd: number;
-  totalActualCostUsd: number;
-  lastReconciledAt?: string;
-  models: Array<{ modelId: string; displayName: string; inputPer1M: number; outputPer1M: number }>;
-  recentUsage: Array<{
-    id: string;
-    agentId: string;
-    modelId: string;
-    providerAccountId?: string;
-    inputTokens: number;
-    outputTokens: number;
-    cacheTokens: number;
-    costUsd: number;
-    actualCostUsd?: number;
-    billingStatus: string;
-    currency?: string;
-    protocol?: string;
-    gatewayRequestId?: string;
-    gatewayUsageId?: string;
-    reconciledAt?: string;
-    sourceUpdatedAt?: string;
-    requestStartedAt?: string;
-    requestEndedAt?: string;
-    channelName?: string;
-    createdAt: string;
-  }>;
-}
+export type CostPageData = CostDashboardData;
 
 export function getCostPageData(
   period: "monthly" | "total" = "monthly",

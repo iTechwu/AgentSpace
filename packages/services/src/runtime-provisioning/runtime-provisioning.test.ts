@@ -7,6 +7,7 @@ import {
   bindEmployeeRuntimeSync,
   completeManagedProvisioningStageSync,
   getDatabase,
+  getWorkspaceBillingSummarySync,
   findTokenUsageByGatewayRequestIdSync,
   insertUnallocatedTokenUsageSync,
   insertUnallocatedTokenUsageIfAbsentSync,
@@ -17,6 +18,7 @@ import {
   markManagedRuntimeCleanupRequestRunningSync,
   registerDaemonRuntimesSync,
   recordTokenUsageSync,
+  readOldestPendingTokenUsageTimestampForRuntimeCredentialSync,
   upsertWorkspaceSsoBindingSync,
   upsertWorkspaceMembershipSync,
 } from "@dofe-agent/db";
@@ -502,7 +504,7 @@ test("model catalog preflight blocks incompatible models before credential creat
   assert.equal(activeClient.createCalls, 0);
 });
 
-test("usage reconciliation keeps provisional billing pending until models finalizes it", () => {
+test("usage reconciliation keeps provisional billing pending until models finalizes it", async () => {
   recordTokenUsageSync({
     workspaceId: TEAM_WS,
     agentId: "atlas",
@@ -542,7 +544,7 @@ test("usage reconciliation keeps provisional billing pending until models finali
   const finalResult = { reconciledCount: 0, unallocatedCount: 0, skippedCount: 0, totalRemoteCount: 1 };
   reconcileRuntimeCredentialUsageEntrySync(TEAM_WS, "rtc-pending", {
     id: "usage-pending",
-    requestId: "gateway-pending",
+    requestId: "gateway-finalized-alias",
     model: "gateway-canonical-model",
     protocol: "anthropic",
     billingStatus: "reconciled",
@@ -558,6 +560,7 @@ test("usage reconciliation keeps provisional billing pending until models finali
   assert.equal(finalizedUsage?.actualCostUsd, 0.2);
   assert.equal(finalizedUsage?.inputTokens, 10);
   assert.equal(finalizedUsage?.outputTokens, 4);
+  assert.equal(findTokenUsageByGatewayRequestIdSync("gateway-finalized-alias", TEAM_WS), null);
 
   reconcileRuntimeCredentialUsageEntrySync(TEAM_WS, "rtc-pending", {
     id: "usage-unmatched-pending",
@@ -572,6 +575,88 @@ test("usage reconciliation keeps provisional billing pending until models finali
   assert.equal(
     findTokenUsageByGatewayRequestIdSync("gateway-unmatched-pending", TEAM_WS)?.billingStatus,
     "pending_reconciliation",
+  );
+
+  activeClient = createMockClient({ credentialId: "rtc-pending" });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+  const provisioningTask = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "pending-usage-attribution",
+  });
+  const readyTask = await awaitTaskTerminal(provisioningTask.id);
+  const runtime = readAgentRuntimeSync(readyTask.runtimeId!);
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO agent_task_queue (id, workspace_id, agent_id, runtime_id, status, input_json, queued_at, created_at, updated_at)
+     VALUES ('queue-pending-attribution', ?, 'atlas', ?, 'completed', '{}'::jsonb, ?, ?, ?)`,
+  ).run(TEAM_WS, runtime!.id, now, now, now);
+  const attributedPending = recordTokenUsageSync({
+    workspaceId: TEAM_WS,
+    taskQueueId: "queue-pending-attribution",
+    agentId: "atlas",
+    modelId: "gateway-canonical-model",
+    runtimeCredentialId: "rtc-pending",
+    gatewayRequestId: "gateway-unmatched-pending",
+    inputTokens: 1,
+    outputTokens: 1,
+  });
+  assert.equal(attributedPending.taskQueueId, "queue-pending-attribution");
+  assert.equal(attributedPending.billingStatus, "pending_reconciliation");
+
+  reconcileRuntimeCredentialUsageEntrySync(TEAM_WS, "rtc-pending", {
+    id: "usage-unmatched-pending",
+    requestId: "gateway-unmatched-pending",
+    model: "gateway-canonical-model",
+    billingStatus: "reconciled",
+    totalCost: 0.08,
+    currency: "USD",
+    timestamp: "2026-07-28T03:00:00.000Z",
+  } as never, finalResult);
+  assert.equal(
+    findTokenUsageByGatewayRequestIdSync("gateway-unmatched-pending", TEAM_WS)?.billingStatus,
+    "reconciled",
+  );
+});
+
+test("billing summary keeps currencies separate and retains the oldest pending reconciliation timestamp", () => {
+  recordTokenUsageSync({
+    workspaceId: TEAM_WS,
+    agentId: "atlas",
+    modelId: "gpt-5",
+    runtimeCredentialId: "rtc-currency",
+    gatewayRequestId: "gateway-eur",
+    inputTokens: 10,
+    outputTokens: 2,
+    actualCostUsd: 1.5,
+    currency: "EUR",
+    billingStatus: "pending_reconciliation",
+    sourceUpdatedAt: "2026-07-20T00:00:00.000Z",
+  });
+  recordTokenUsageSync({
+    workspaceId: TEAM_WS,
+    agentId: "atlas",
+    modelId: "gpt-5",
+    runtimeCredentialId: "rtc-currency",
+    gatewayRequestId: "gateway-usd",
+    inputTokens: 5,
+    outputTokens: 1,
+    actualCostUsd: 2,
+    currency: "USD",
+    billingStatus: "pending_reconciliation",
+    sourceUpdatedAt: "2026-07-21T00:00:00.000Z",
+  });
+
+  const billing = getWorkspaceBillingSummarySync(undefined, TEAM_WS);
+  assert.equal(billing.pendingReconciliationCostUsd, 2);
+  assert.deepEqual(
+    billing.billingByCurrency.map((entry) => [entry.currency, entry.pendingReconciliationCost]),
+    [["EUR", 1.5], ["USD", 2]],
+  );
+  assert.equal(
+    readOldestPendingTokenUsageTimestampForRuntimeCredentialSync(TEAM_WS, "rtc-currency"),
+    "2026-07-20T00:00:00.000Z",
   );
 });
 

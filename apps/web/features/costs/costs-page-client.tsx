@@ -32,6 +32,8 @@ export function CostsPageClient({
     let active = true;
     void getTeamBillingBalanceAction().then((balance) => {
       if (active) setTeamBalance(balance);
+    }).catch(() => {
+      if (active) setTeamBalance({ errorCode: "upstream_unavailable" });
     });
     return () => { active = false; };
   }, []);
@@ -176,19 +178,19 @@ function CostOverview({
         </div>
         <div className="costs-summary-card">
           <span className="costs-summary-card__label">{tx("待对账", "Pending reconciliation")}</span>
-          <span className="costs-summary-card__value">${data.pendingReconciliationCostUsd.toFixed(4)} USD</span>
+          <span className="costs-summary-card__value">{formatCurrencyBreakdown(data, "pendingReconciliationCost")}</span>
         </div>
         <div className="costs-summary-card">
           <span className="costs-summary-card__label">{tx("已对账", "Reconciled")}</span>
-          <span className="costs-summary-card__value">${data.reconciledCostUsd.toFixed(4)}</span>
+          <span className="costs-summary-card__value">{formatCurrencyBreakdown(data, "reconciledCost")}</span>
         </div>
         <div className="costs-summary-card">
           <span className="costs-summary-card__label">{tx("未分配", "Unallocated")}</span>
-          <span className="costs-summary-card__value">${data.unallocatedCostUsd.toFixed(4)}</span>
+          <span className="costs-summary-card__value">{formatCurrencyBreakdown(data, "unallocatedCost")}</span>
         </div>
         <div className="costs-summary-card">
           <span className="costs-summary-card__label">{tx("实际扣费", "Actual Charged")}</span>
-          <span className="costs-summary-card__value">${data.totalActualCostUsd.toFixed(4)}</span>
+          <span className="costs-summary-card__value">{formatCurrencyBreakdown(data, "totalActualCost")}</span>
         </div>
       </div>
 
@@ -362,6 +364,16 @@ function CostOverview({
       ) : null}
     </div>
   );
+}
+
+function formatCurrencyBreakdown(
+  data: CostPageData,
+  field: "pendingReconciliationCost" | "reconciledCost" | "unallocatedCost" | "totalActualCost",
+): string {
+  const values = data.billingByCurrency
+    .filter((entry) => entry[field] !== 0)
+    .map((entry) => `${entry[field].toFixed(4)} ${entry.currency}`);
+  return values.length > 0 ? values.join(" + ") : "0.0000 USD";
 }
 
 function CostDimensionTable({

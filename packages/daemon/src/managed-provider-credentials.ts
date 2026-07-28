@@ -82,11 +82,11 @@ export interface ManagedGatewayUsage {
 const MANAGED_GATEWAY_USAGE_EXTRACTOR_SOURCE = String.raw`
 function extractGatewayUsage(value) {
   let inputTokens = 0;
-	let outputTokens = 0;
-	let cacheTokens = 0;
-	const inputKeys = ["input_tokens", "inputTokens", "prompt_tokens", "promptTokens", "promptTokenCount"];
-	const outputKeys = ["output_tokens", "outputTokens", "completion_tokens", "completionTokens", "candidatesTokenCount"];
-	const cacheKeys = ["cached_tokens", "cache_tokens", "cacheTokens", "cachedInputTokens", "cache_read_input_tokens", "cache_creation_input_tokens"];
+  let outputTokens = 0;
+  let cacheTokens = 0;
+  const inputKeys = ["input_tokens", "inputTokens", "prompt_tokens", "promptTokens", "promptTokenCount"];
+  const outputKeys = ["output_tokens", "outputTokens", "completion_tokens", "completionTokens", "candidatesTokenCount"];
+  const cacheKeys = ["cached_tokens", "cache_tokens", "cacheTokens", "cachedInputTokens", "cache_read_input_tokens", "cache_creation_input_tokens"];
 
   function readToken(record, keys) {
     for (const key of keys) {
@@ -94,6 +94,13 @@ function extractGatewayUsage(value) {
       if (typeof token === "number" && Number.isFinite(token) && token >= 0) return token;
     }
     return 0;
+  }
+
+  function readCacheTokens(record) {
+    const aliased = readToken(record, ["cached_tokens", "cache_tokens", "cacheTokens", "cachedInputTokens"]);
+    const anthropic = readToken(record, ["cache_read_input_tokens"])
+      + readToken(record, ["cache_creation_input_tokens"]);
+    return Math.max(aliased, anthropic);
   }
 
   function visit(current, parentKey) {
@@ -105,19 +112,20 @@ function extractGatewayUsage(value) {
     const record = current;
     const hasInput = inputKeys.some((key) => Object.prototype.hasOwnProperty.call(record, key));
     const hasOutput = outputKeys.some((key) => Object.prototype.hasOwnProperty.call(record, key));
+    const hasCache = cacheKeys.some((key) => Object.prototype.hasOwnProperty.call(record, key));
     const isUsageObject = /usage/i.test(parentKey || "") || (hasInput && hasOutput);
     if (isUsageObject) {
       inputTokens = Math.max(inputTokens, readToken(record, inputKeys));
-		outputTokens = Math.max(outputTokens, readToken(record, outputKeys));
-		cacheTokens = Math.max(cacheTokens, readToken(record, cacheKeys));
+      outputTokens = Math.max(outputTokens, readToken(record, outputKeys));
     }
+    if (isUsageObject || hasCache) cacheTokens = Math.max(cacheTokens, readCacheTokens(record));
     for (const [key, nested] of Object.entries(record)) visit(nested, key);
   }
 
   visit(value, "");
-	return inputTokens > 0 || outputTokens > 0
-		? { inputTokens, outputTokens, ...(cacheTokens > 0 ? { cacheTokens } : {}) }
-		: undefined;
+  return inputTokens > 0 || outputTokens > 0
+    ? { inputTokens, outputTokens, ...(cacheTokens > 0 ? { cacheTokens } : {}) }
+    : undefined;
 }`;
 
 let managedGatewayUsageExtractor: ((value: unknown) => ManagedGatewayUsage | undefined) | undefined;
@@ -308,7 +316,7 @@ const upstream = new URL(upstreamBaseUrl);
 const basePath = upstream.pathname.replace(/\\\/$/, "");
 const idPattern = /^[A-Za-z0-9._:-]{1,128}$/;
 const server = http.createServer((request, response) => {
-	const requestStartedAt = new Date().toISOString();
+  const requestStartedAt = new Date().toISOString();
   let requestPath = request.url || "/";
   if (basePath && requestPath !== basePath && !requestPath.startsWith(basePath + "/")) {
     requestPath = basePath + (requestPath.startsWith("/") ? requestPath : "/" + requestPath);
@@ -339,8 +347,8 @@ const server = http.createServer((request, response) => {
       ?? proxyResponse.headers["x-request-id"]
       ?? proxyResponse.headers["request-id"];
     const requestId = Array.isArray(requestIdHeader) ? requestIdHeader[0] : requestIdHeader;
-	const usageIdHeader = proxyResponse.headers["x-dofe-usage-id"] ?? proxyResponse.headers["x-usage-id"];
-	const gatewayUsageId = Array.isArray(usageIdHeader) ? usageIdHeader[0] : usageIdHeader;
+    const usageIdHeader = proxyResponse.headers["x-dofe-usage-id"] ?? proxyResponse.headers["x-usage-id"];
+    const gatewayUsageId = Array.isArray(usageIdHeader) ? usageIdHeader[0] : usageIdHeader;
     const requestLog = process.env.DOFE_AGENT_GATEWAY_REQUEST_LOG;
     response.writeHead(proxyResponse.statusCode || 502, proxyResponse.headers);
     let responseBody = "";
@@ -354,7 +362,7 @@ const server = http.createServer((request, response) => {
       capturedUsage = {
         inputTokens: Math.max(capturedUsage?.inputTokens || 0, usage.inputTokens),
         outputTokens: Math.max(capturedUsage?.outputTokens || 0, usage.outputTokens),
-		cacheTokens: Math.max(capturedUsage?.cacheTokens || 0, usage.cacheTokens || 0),
+        cacheTokens: Math.max(capturedUsage?.cacheTokens || 0, usage.cacheTokens || 0),
       };
     };
     const captureEventLine = (line) => {
@@ -387,14 +395,14 @@ const server = http.createServer((request, response) => {
         requestLog && requestId && /^[A-Za-z0-9._:-]{1,256}$/.test(requestId)
         && statusCode >= 200 && statusCode < 300 && capturedUsage
       ) {
-		appendFileSync(requestLog, JSON.stringify({
-			requestId,
-			gatewayUsageId: typeof gatewayUsageId === "string" ? gatewayUsageId : undefined,
-			protocol: process.env.DOFE_AGENT_GATEWAY_PROTOCOL || undefined,
-			requestStartedAt,
-			requestEndedAt: new Date().toISOString(),
-			...capturedUsage,
-		}) + "\\n", { encoding: "utf8", mode: 0o600 });
+    appendFileSync(requestLog, JSON.stringify({
+      requestId,
+      gatewayUsageId: typeof gatewayUsageId === "string" ? gatewayUsageId : undefined,
+      protocol: process.env.DOFE_AGENT_GATEWAY_PROTOCOL || undefined,
+      requestStartedAt,
+      requestEndedAt: new Date().toISOString(),
+      ...capturedUsage,
+    }) + "\\n", { encoding: "utf8", mode: 0o600 });
       }
       response.end();
     });

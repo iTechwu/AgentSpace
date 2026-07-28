@@ -2,7 +2,12 @@ import { chmodSync, createReadStream, existsSync, mkdirSync, readFileSync, rmSyn
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import { getDaemonChannelWorkDirPath, getDaemonTaskWorkDirPath } from "@dofe-agent/db";
-import { isDaemonProvider, resolveProviderProtocols, type DaemonProvider } from "@dofe-agent/domain";
+import {
+  isDaemonProvider,
+  resolveProviderProtocols,
+  type DaemonProvider,
+  type DaemonTaskUsage,
+} from "@dofe-agent/domain";
 import { getStringFlag, parseArgs } from "./args.ts";
 import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, RegisterDaemonResponse } from "./daemon-api.ts";
 import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputBundle } from "./bundle.ts";
@@ -98,19 +103,7 @@ export function resolveRemoteTaskExecutionModel(bundle: DaemonTaskInputBundle): 
   return bundle.metadata.effectiveModel?.modelId.trim() || undefined;
 }
 
-interface RemoteTaskUsageEntry {
-  modelId: string;
-  runtimeCredentialId: string;
-  routerSessionId?: string;
-  gatewayRequestId?: string;
-  gatewayUsageId?: string;
-  protocol?: string;
-  inputTokens: number;
-  outputTokens: number;
-  cacheTokens?: number;
-  requestStartedAt?: string;
-  requestEndedAt?: string;
-}
+type RemoteTaskUsageEntry = DaemonTaskUsage;
 
 interface RemoteGatewayUsageEntry {
   requestId: string;

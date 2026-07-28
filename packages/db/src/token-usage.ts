@@ -153,7 +153,6 @@ export function recordTokenUsageSync(input: RecordTokenUsageInput): TokenUsageRe
     }
     if (
       existing && input.taskQueueId && !existing.taskQueueId
-      && (existing.billingStatus === "unallocated" || existing.billingStatus === "reconciled")
     ) {
       db.prepare(
         `UPDATE token_usage
@@ -163,8 +162,14 @@ export function recordTokenUsageSync(input: RecordTokenUsageInput): TokenUsageRe
              runtime_credential_id = COALESCE(runtime_credential_id, ?),
              router_session_id = COALESCE(?, router_session_id),
              channel_name = COALESCE(?, channel_name),
-             billing_status = CASE WHEN actual_cost_usd IS NOT NULL THEN 'reconciled' ELSE billing_status END,
-             reconciled_at = CASE WHEN actual_cost_usd IS NOT NULL THEN COALESCE(reconciled_at, ?) ELSE reconciled_at END
+             billing_status = CASE
+               WHEN billing_status = 'unallocated' AND actual_cost_usd IS NOT NULL THEN 'reconciled'
+               ELSE billing_status
+             END,
+             reconciled_at = CASE
+               WHEN billing_status = 'unallocated' AND actual_cost_usd IS NOT NULL THEN COALESCE(reconciled_at, ?)
+               ELSE reconciled_at
+             END
          WHERE id = ? AND task_queue_id IS NULL`,
       ).run(
         input.taskQueueId,
@@ -300,6 +305,14 @@ function reconcileStatus(value: string | null): TokenUsageRecord["billingStatus"
   return "estimated";
 }
 
+export interface BillingCurrencySummary {
+  currency: string;
+  pendingReconciliationCost: number;
+  reconciledCost: number;
+  unallocatedCost: number;
+  totalActualCost: number;
+}
+
 export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEFAULT_WORKSPACE_ID): {
   estimatedCostUsd: number;
   pendingReconciliationCostUsd: number;
@@ -307,6 +320,7 @@ export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEF
   unallocatedCostUsd: number;
   totalActualCostUsd: number;
   lastReconciledAt?: string;
+  billingByCurrency: BillingCurrencySummary[];
 } {
   const db = getDatabase();
   const params: string[] = [workspaceId];
@@ -318,15 +332,26 @@ export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEF
 
   const rows = db.prepare(
     `SELECT billing_status,
+            CASE
+              WHEN billing_status = 'estimated' OR actual_cost_usd IS NULL THEN 'USD'
+              ELSE COALESCE(NULLIF(UPPER(currency), ''), 'UNKNOWN')
+            END AS billing_currency,
             COALESCE(SUM(actual_cost_usd), 0) AS total_actual,
             COALESCE(SUM(cost_usd), 0) AS total_estimated,
+            COALESCE(SUM(CASE WHEN actual_cost_usd IS NOT NULL THEN actual_cost_usd ELSE cost_usd END), 0) AS total_effective,
             MAX(reconciled_at) AS last_reconciled
      FROM token_usage ${dateFilter}
-     GROUP BY billing_status`,
+     GROUP BY billing_status,
+              CASE
+                WHEN billing_status = 'estimated' OR actual_cost_usd IS NULL THEN 'USD'
+                ELSE COALESCE(NULLIF(UPPER(currency), ''), 'UNKNOWN')
+              END`,
   ).all(...params) as Array<{
     billing_status: string | null;
+    billing_currency: string;
     total_actual: number;
     total_estimated: number;
+    total_effective: number;
     last_reconciled: string | null;
   }>;
 
@@ -336,20 +361,39 @@ export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEF
   let unallocatedCostUsd = 0;
   let totalActualCostUsd = 0;
   let lastReconciledAt: string | undefined;
+  const byCurrency = new Map<string, BillingCurrencySummary>();
 
   for (const row of rows) {
     const status = reconcileStatus(row.billing_status);
+    const currency = row.billing_currency;
+    const summary = byCurrency.get(currency) ?? {
+      currency,
+      pendingReconciliationCost: 0,
+      reconciledCost: 0,
+      unallocatedCost: 0,
+      totalActualCost: 0,
+    };
     if (status === "estimated") {
-      estimatedCostUsd += row.total_estimated;
+      if (currency === "USD") estimatedCostUsd += row.total_estimated;
     } else if (status === "pending_reconciliation") {
-      pendingReconciliationCostUsd += row.total_actual || row.total_estimated;
+      summary.pendingReconciliationCost += row.total_effective;
+      if (currency === "USD") pendingReconciliationCostUsd += row.total_effective;
     } else if (status === "reconciled") {
-      reconciledCostUsd += row.total_actual;
-      totalActualCostUsd += row.total_actual;
+      summary.reconciledCost += row.total_actual;
+      summary.totalActualCost += row.total_actual;
+      if (currency === "USD") {
+        reconciledCostUsd += row.total_actual;
+        totalActualCostUsd += row.total_actual;
+      }
     } else if (status === "unallocated") {
-      unallocatedCostUsd += row.total_actual;
-      totalActualCostUsd += row.total_actual;
+      summary.unallocatedCost += row.total_actual;
+      summary.totalActualCost += row.total_actual;
+      if (currency === "USD") {
+        unallocatedCostUsd += row.total_actual;
+        totalActualCostUsd += row.total_actual;
+      }
     }
+    byCurrency.set(currency, summary);
     if (row.last_reconciled && (!lastReconciledAt || row.last_reconciled > lastReconciledAt)) {
       lastReconciledAt = row.last_reconciled;
     }
@@ -362,7 +406,22 @@ export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEF
     unallocatedCostUsd,
     totalActualCostUsd,
     lastReconciledAt,
+    billingByCurrency: [...byCurrency.values()].sort((a, b) => a.currency.localeCompare(b.currency)),
   };
+}
+
+export function readOldestPendingTokenUsageTimestampForRuntimeCredentialSync(
+  workspaceId: string,
+  runtimeCredentialId: string,
+): string | undefined {
+  const row = getDatabase().prepare(
+    `SELECT MIN(COALESCE(source_updated_at, request_ended_at, request_started_at, created_at)) AS oldest_timestamp
+     FROM token_usage
+     WHERE workspace_id = ?
+       AND runtime_credential_id = ?
+       AND billing_status = 'pending_reconciliation'`,
+  ).get(workspaceId, runtimeCredentialId) as { oldest_timestamp?: string | null } | undefined;
+  return row?.oldest_timestamp ?? undefined;
 }
 
 export function getAgentCostSummarySync(agentId: string, since?: string, workspaceId = DEFAULT_WORKSPACE_ID): {
@@ -735,6 +794,16 @@ export function findTokenUsageByGatewayRequestIdSync(
   return mapTokenUsageRow(row);
 }
 
+export function findTokenUsageByGatewayUsageIdSync(
+  gatewayUsageId: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): TokenUsageRecord | null {
+  const row = getDatabase().prepare(
+    `SELECT * FROM token_usage WHERE workspace_id = ? AND gateway_usage_id = ?`,
+  ).get(workspaceId, gatewayUsageId) as Record<string, unknown> | undefined;
+  return row ? mapTokenUsageRow(row) : null;
+}
+
 export function markTokenUsageReconciledSync(
   id: string,
   input: {
@@ -762,7 +831,7 @@ export function markTokenUsageReconciledSync(
      SET billing_status = ?,
          actual_cost_usd = ?,
          currency = ?,
-         gateway_request_id = COALESCE(?, gateway_request_id),
+         gateway_request_id = COALESCE(gateway_request_id, ?),
          gateway_usage_id = COALESCE(?, gateway_usage_id),
          protocol = COALESCE(?, protocol),
          model_id = ?,

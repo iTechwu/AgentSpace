@@ -219,6 +219,21 @@ test("managed gateway usage parser ignores auxiliary and failed responses and re
     type: "message_delta",
     usage: { output_tokens: 18 },
   }), { inputTokens: 0, outputTokens: 18 });
+  assert.deepEqual(extractManagedGatewayUsage({
+    usage: {
+      prompt_tokens: 200,
+      completion_tokens: 20,
+      prompt_tokens_details: { cached_tokens: 75 },
+    },
+  }), { inputTokens: 200, outputTokens: 20, cacheTokens: 75 });
+  assert.deepEqual(extractManagedGatewayUsage({
+    usage: {
+      input_tokens: 150,
+      output_tokens: 30,
+      cache_read_input_tokens: 40,
+      cache_creation_input_tokens: 10,
+    },
+  }), { inputTokens: 150, outputTokens: 30, cacheTokens: 50 });
 });
 
 test("managed runtime network configuration fails closed for permissive Docker networks", () => {

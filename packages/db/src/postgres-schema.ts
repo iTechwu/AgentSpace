@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "38";
+export const POSTGRES_SCHEMA_VERSION = "39";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -1895,6 +1895,30 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE INDEX IF NOT EXISTS idx_token_usage_gateway_request
         ON token_usage(gateway_request_id)
         WHERE gateway_request_id IS NOT NULL
+    `,
+    `
+      WITH ranked AS (
+        SELECT id,
+          ROW_NUMBER() OVER (
+            PARTITION BY workspace_id, gateway_usage_id
+            ORDER BY
+              CASE WHEN task_queue_id IS NOT NULL THEN 0 ELSE 1 END,
+              created_at,
+              id
+          ) AS duplicate_rank
+        FROM token_usage
+        WHERE gateway_usage_id IS NOT NULL
+      )
+      UPDATE token_usage
+      SET gateway_usage_id = NULL
+      FROM ranked
+      WHERE token_usage.id = ranked.id
+        AND ranked.duplicate_rank > 1
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_token_usage_workspace_gateway_usage_unique
+        ON token_usage(workspace_id, gateway_usage_id)
+        WHERE gateway_usage_id IS NOT NULL
     `,
     `
       WITH ranked AS (

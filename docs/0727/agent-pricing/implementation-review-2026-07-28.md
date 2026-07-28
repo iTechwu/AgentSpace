@@ -16,8 +16,8 @@
 | service 层直接查询 `agent_runtime`，异步 API 使用 `Sync` 后缀 | 数据访问边界和接口语义不一致 | 原始查询移入 `packages/db`；Promise API 统一改为 `Async` 后缀；移除重复接口声明。 |
 | 受管容器缺少基础 Docker hardening | 容器默认权限面过宽 | 增加只读根文件系统、受限 `/tmp`、`no-new-privileges` 和 capability drop。 |
 | 远端计费状态被提前终结 | pending 金额可能被误标为正式结算且无法继续修正 | 增加 `pending_reconciliation` 状态并按远端最终状态重复更新。 |
-| 用量归因字段不完整 | 缓存计费、协议和调用时段无法审计 | schema 38 增加网关用量 ID、协议、缓存 Token、调用时段与来源更新时间。 |
-| 用量写入与对账依赖请求内成功和人工全量操作 | 短暂数据库失败会丢失任务关联，历史全量扫描无法扩展 | 增加持久化重试队列、按 Runtime Credential 游标自动对账和 24 小时回看窗口。 |
+| 用量归因字段不完整 | 缓存计费、协议和调用时段无法审计 | schema 39 增加网关用量 ID、协议、缓存 Token、调用时段与来源更新时间，并以远端用量 ID 建立唯一幂等约束。 |
+| 用量写入与对账依赖请求内成功和人工全量操作 | 短暂数据库失败会丢失任务关联，历史全量扫描无法扩展 | 增加持久化重试队列、按 Runtime Credential 游标自动对账和 24 小时回看窗口；仍为 pending 的记录会把窗口扩展到最早待结算时间，避免延迟终态永久遗漏。 |
 | Ready 检查未经过归因代理 | HMAC 或代理转发异常可能在创建时漏检 | 健康阶段新增经本地归因代理访问非计费模型目录的检查，并保留 CLI 可执行性检查。 |
 | 受管容器未强制指定隔离网络 | 容器可能使用默认出口直连 Provider | 强制配置非默认 Docker 网络，并提供 `npm run verify:managed-runtime-egress` staging 门禁。 |
 
@@ -41,3 +41,14 @@
 4. 演练节点中断、清理最终失败、Key 撤销失败、轮换宽限期和回滚流程，保留审计证据。
 
 在上述门槛完成前，生产环境继续保持 `DOFE_AGENT_RUNTIME_MODE=local`。
+
+## 仍未实施或待优化
+
+| 优先级 | 内容 | 当前限制 / 建议动作 |
+| --- | --- | --- |
+| P0 | 真实 staging 网络隔离与账单 E2E | 仓库脚本只能验证已配置目标；必须在目标网络验证 DNS、直连 IP、代理变量等旁路均失败，并保留 models 账单归因证据。 |
+| P1 | models SDK 用量契约扩展 | 当前 AgentSpace 能采集本地缓存 Token 和调用时段，也会兼容读取远端扩展字段；正式 SDK 仍缺 `cacheTokens`、`startedAt`、`endedAt`、`updatedAt`，需在 models 仓发布契约版本。 |
+| P1 | 凭据轮换后的历史对账 | 自动任务只遍历 Runtime 当前 `managedCredentialId`；宽限期内旧 Key 的延迟用量需要凭据历史/对账目标表，或由 models 提供按 Runtime 跨凭据查询。 |
+| P2 | 对账任务可观测性与故障隔离 | worker 已统计失败 Runtime，但仍需持久化失败原因、指标和告警，并确保 provisioning、cleanup、usage retry、reconciliation 各阶段互不阻塞。 |
+| P2 | 用量存储模块拆分 | `token-usage.ts` 同时承担定价、CRUD、聚合、重试和游标；建议按 usage repository、billing summary、retry outbox、reconciliation cursor 拆分。 |
+| P2 | 历史快照 / 事件流 | 当前以可变事实表和审计日志为主，尚未形成账单快照或 append-only billing event，不能完整重放一次结算演进。 |

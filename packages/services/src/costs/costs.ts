@@ -43,6 +43,13 @@ export interface CostDashboardData {
   reconciledCostUsd: number;
   unallocatedCostUsd: number;
   totalActualCostUsd: number;
+  billingByCurrency: Array<{
+    currency: string;
+    pendingReconciliationCost: number;
+    reconciledCost: number;
+    unallocatedCost: number;
+    totalActualCost: number;
+  }>;
   lastReconciledAt?: string;
   models: Array<{ modelId: string; displayName: string; inputPer1M: number; outputPer1M: number }>;
   recentUsage: Array<{
@@ -113,6 +120,7 @@ export function getCostDashboardDataSync(
     reconciledCostUsd: billing.reconciledCostUsd,
     unallocatedCostUsd: billing.unallocatedCostUsd,
     totalActualCostUsd: billing.totalActualCostUsd,
+    billingByCurrency: billing.billingByCurrency,
     lastReconciledAt: billing.lastReconciledAt,
     models: models.map((m: (typeof models)[number]) => ({
       modelId: m.modelId,
