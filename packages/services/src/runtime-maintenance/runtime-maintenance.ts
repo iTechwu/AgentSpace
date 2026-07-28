@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   completeRuntimeMaintenanceRunSync,
   createRuntimeMaintenanceRunSync,
+  heartbeatRuntimeMaintenanceRunSync,
 } from "@dofe-agent/db";
 import {
   resumeManagedRuntimeCleanupRequestsAsync,
@@ -36,6 +37,8 @@ interface RuntimeMaintenanceDependencies {
     status: "succeeded" | "partial_failure";
     stages: Record<string, unknown>;
   }) => unknown;
+  heartbeatRun?: (id: string) => unknown;
+  heartbeatIntervalMs?: number;
   resumeProvisioning: () => Promise<unknown>;
   resumeCleanup: () => Promise<unknown>;
   drainUsageRetries: () => unknown;
@@ -45,6 +48,7 @@ interface RuntimeMaintenanceDependencies {
 const defaultDependencies: RuntimeMaintenanceDependencies = {
   createRun: createRuntimeMaintenanceRunSync,
   completeRun: completeRuntimeMaintenanceRunSync,
+  heartbeatRun: heartbeatRuntimeMaintenanceRunSync,
   resumeProvisioning: resumePendingProvisioningTasksAsync,
   resumeCleanup: resumeManagedRuntimeCleanupRequestsAsync,
   drainUsageRetries: drainTokenUsageRetriesSync,
@@ -65,12 +69,27 @@ export async function runRuntimeMaintenanceAsync(
     if (error instanceof Error && error.message === "runtime_maintenance.already_running") throw error;
     evidence = toFailedStage(error);
   }
+  const heartbeat = (): void => {
+    if (!persisted || !dependencies.heartbeatRun) return;
+    try {
+      dependencies.heartbeatRun(runId);
+    } catch (error) {
+      evidence = toFailedStage(error);
+    }
+  };
+  heartbeat();
+  const heartbeatTimer = persisted && dependencies.heartbeatRun
+    ? setInterval(heartbeat, dependencies.heartbeatIntervalMs ?? 30_000)
+    : undefined;
+  heartbeatTimer?.unref();
   const stages = {
     provisioning: await runStage(dependencies.resumeProvisioning),
     cleanup: await runStage(dependencies.resumeCleanup),
     usageRetries: await runStage(dependencies.drainUsageRetries),
     usageReconciliation: await runStage(dependencies.reconcileUsage),
   };
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeat();
   const stagesSucceeded = Object.values(stages).every((stage) => stage.status === "succeeded");
   const persistedStatus = stagesSucceeded ? "succeeded" : "partial_failure";
   if (persisted) {

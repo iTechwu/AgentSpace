@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "41";
+export const POSTGRES_SCHEMA_VERSION = "42";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -1357,10 +1357,14 @@ export function getPostgresSchemaStatements(): string[] {
         status TEXT NOT NULL DEFAULT 'running',
         stages_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         started_at TIMESTAMPTZ NOT NULL,
+        lease_expires_at TIMESTAMPTZ NOT NULL,
         finished_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL
       )
     `,
+    `ALTER TABLE runtime_maintenance_run ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ`,
+    `UPDATE runtime_maintenance_run SET lease_expires_at = COALESCE(lease_expires_at, started_at)`,
+    `ALTER TABLE runtime_maintenance_run ALTER COLUMN lease_expires_at SET NOT NULL`,
     `
       CREATE INDEX IF NOT EXISTS idx_runtime_maintenance_run_started
         ON runtime_maintenance_run(started_at DESC)

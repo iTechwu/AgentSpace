@@ -60,3 +60,28 @@ test("runtime maintenance still executes every stage when evidence persistence i
   assert.equal(result.evidence.status, "failed");
   assert.match(result.evidence.error ?? "", /evidence database unavailable/);
 });
+
+test("runtime maintenance renews its lease while a long stage remains active", async () => {
+  let finishProvisioning!: () => void;
+  const provisioning = new Promise<void>((resolve) => {
+    finishProvisioning = resolve;
+  });
+  let heartbeatCount = 0;
+  const running = runRuntimeMaintenanceAsync({
+    createRun: () => ({ id: "maintenance-long" }),
+    completeRun: () => undefined,
+    heartbeatRun: () => {
+      heartbeatCount += 1;
+    },
+    heartbeatIntervalMs: 5,
+    resumeProvisioning: () => provisioning,
+    resumeCleanup: async () => undefined,
+    drainUsageRetries: () => undefined,
+    reconcileUsage: async () => undefined,
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 18));
+  assert.ok(heartbeatCount >= 2);
+  finishProvisioning();
+  assert.equal((await running).ok, true);
+});

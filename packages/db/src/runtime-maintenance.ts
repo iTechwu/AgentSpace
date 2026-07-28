@@ -8,13 +8,16 @@ export interface RuntimeMaintenanceRunRecord {
   status: RuntimeMaintenanceRunStatus;
   stages: Record<string, unknown>;
   startedAt: string;
+  leaseExpiresAt: string;
   finishedAt?: string;
 }
+
+const MAINTENANCE_LEASE_MS = 5 * 60 * 1_000;
 
 export function createRuntimeMaintenanceRunSync(): RuntimeMaintenanceRunRecord {
   const id = `runtime-maintenance-${randomUUID()}`;
   const now = new Date().toISOString();
-  const staleBefore = new Date(Date.now() - 15 * 60 * 1_000).toISOString();
+  const leaseExpiresAt = new Date(Date.now() + MAINTENANCE_LEASE_MS).toISOString();
   const db = getDatabase();
   withTransaction(db, () => {
     const lock = db.prepare("SELECT pg_try_advisory_xact_lock(723041) AS acquired").get() as {
@@ -26,18 +29,29 @@ export function createRuntimeMaintenanceRunSync(): RuntimeMaintenanceRunRecord {
        SET status = 'partial_failure',
            stages_json = jsonb_build_object('evidence', jsonb_build_object('status', 'failed', 'error', 'maintenance lease expired')),
            finished_at = ?
-       WHERE status = 'running' AND started_at <= ?`,
-    ).run(now, staleBefore);
+       WHERE status = 'running' AND lease_expires_at <= ?`,
+    ).run(now, now);
     const active = db.prepare(
       "SELECT id FROM runtime_maintenance_run WHERE status = 'running' LIMIT 1",
     ).get();
     if (active) throw new Error("runtime_maintenance.already_running");
     db.prepare(
-      `INSERT INTO runtime_maintenance_run (id, status, stages_json, started_at, created_at)
-       VALUES (?, 'running', '{}'::jsonb, ?, ?)`,
-    ).run(id, now, now);
+      `INSERT INTO runtime_maintenance_run (
+         id, status, stages_json, started_at, lease_expires_at, created_at
+       ) VALUES (?, 'running', '{}'::jsonb, ?, ?, ?)`,
+    ).run(id, now, leaseExpiresAt, now);
   });
-  return { id, status: "running", stages: {}, startedAt: now };
+  return { id, status: "running", stages: {}, startedAt: now, leaseExpiresAt };
+}
+
+export function heartbeatRuntimeMaintenanceRunSync(id: string): void {
+  const leaseExpiresAt = new Date(Date.now() + MAINTENANCE_LEASE_MS).toISOString();
+  const result = getDatabase().prepare(
+    `UPDATE runtime_maintenance_run
+     SET lease_expires_at = ?
+     WHERE id = ? AND status = 'running'`,
+  ).run(leaseExpiresAt, id);
+  if (result.changes !== 1) throw new Error("runtime_maintenance.lease_lost");
 }
 
 export function completeRuntimeMaintenanceRunSync(input: {
@@ -64,6 +78,7 @@ export function readRuntimeMaintenanceRunSync(id: string): RuntimeMaintenanceRun
     status: row.status as RuntimeMaintenanceRunStatus,
     stages: parseJsonObject(row.stages_json),
     startedAt: String(row.started_at),
+    leaseExpiresAt: String(row.lease_expires_at),
     finishedAt: typeof row.finished_at === "string" ? row.finished_at : undefined,
   };
 }

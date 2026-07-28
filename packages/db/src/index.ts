@@ -663,6 +663,7 @@ export {
 export {
   completeRuntimeMaintenanceRunSync,
   createRuntimeMaintenanceRunSync,
+  heartbeatRuntimeMaintenanceRunSync,
   readRuntimeMaintenanceRunSync,
   type RuntimeMaintenanceRunRecord,
   type RuntimeMaintenanceRunStatus,

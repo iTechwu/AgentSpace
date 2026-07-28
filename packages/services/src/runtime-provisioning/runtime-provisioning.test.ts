@@ -781,7 +781,7 @@ test("runtime maintenance run creation rejects overlapping active runs", () => {
   completeRuntimeMaintenanceRunSync({ id: next.id, status: "succeeded", stages: {} });
 });
 
-test("schema 39 to 41 replay keeps exactly one historical billing snapshot", () => {
+test("schema 39 to 42 replay keeps exactly one historical billing snapshot", () => {
   const usage = recordTokenUsageSync({
     workspaceId: TEAM_WS,
     agentId: "atlas",

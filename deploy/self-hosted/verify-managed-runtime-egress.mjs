@@ -53,7 +53,7 @@ try {
   const probeEvidence = parseContainerEvidence(result.stdout);
   const probesPassed = evaluateEgressProbeEvidence(probeEvidence.probes);
   evidence = {
-    passed: result.status === 0 && probeEvidence.passed === true && probesPassed,
+    passed: result.status === 0 && probesPassed,
     image,
     network: networkEvidence,
     probes: probeEvidence.probes,
@@ -121,15 +121,8 @@ const blockedIps = await Promise.all(input.blockedIps.map((target) => tcpProbe(t
 const blockedProxies = await Promise.all(input.blockedProxies.map((target) => tcpProbe(target, 8080)));
 const proxyEnvironment = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]
   .filter((name) => process.env[name]);
-const passed = gateway.reachable
-  && blockedUrls.every((probe) => !probe.reachable && !probe.tcpReachable)
-  && blockedIps.every((probe) => !probe.reachable)
-  && blockedProxies.every((probe) => !probe.reachable)
-  && proxyEnvironment.length === 0;
 console.log("EVIDENCE_JSON:" + JSON.stringify({
-  passed,
   probes: { gateway, blockedUrls, blockedIps, blockedProxies, proxyEnvironment },
 }));
-process.exit(passed ? 0 : 1);
 `;
 }
