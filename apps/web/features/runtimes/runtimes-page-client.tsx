@@ -13,6 +13,8 @@ import {
 import { ManagedRuntimeList } from "@/features/runtimes/managed-runtime-list";
 import { ManagedRuntimeCreationWizard } from "@/features/runtimes/managed-runtime-creation-wizard";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
+import { useLanguage } from "@/features/i18n/language-provider";
+import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import type { ManagedRuntimeListItem, PublicRuntimeProvisioningTaskRecord } from "@dofe-agent/services";
 
@@ -30,15 +32,17 @@ export function RuntimesPageClient({
   targetServers: Array<{ deviceName: string; status: "online" | "offline" }>;
 }) {
   const router = useRouter();
+  const { tx } = useLanguage();
   const [pending, startTransition] = useTransition();
 
   if (!isAdmin) {
     return (
-      <section className="mx-auto max-w-3xl p-6">
-        <h1 className="text-xl font-semibold">Managed Runtimes</h1>
-        <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-300">
-          Only workspace owners and admins can manage managed runtimes.
-        </p>
+      <section className="page-shell runtimes-page">
+        <WorkbenchPageHeader
+          description={tx("只有工作区所有者和管理员可以管理执行引擎。", "Only workspace owners and admins can manage runtimes.")}
+          eyebrow={tx("数字员工", "AI employees")}
+          title={tx("执行引擎管理", "Runtime management")}
+        />
       </section>
     );
   }
@@ -48,59 +52,80 @@ export function RuntimesPageClient({
   }
 
   return (
-    <section className="mx-auto max-w-4xl space-y-8 p-6">
-      <header>
-        <h1 className="text-xl font-semibold">Managed Runtimes</h1>
-        <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-300">
-          Each managed runtime gets its own models.dofe.ai RuntimeCredential. Provisioning is an
-          async, resumable task — you can leave this page.
-        </p>
-      </header>
-
-      <ManagedRuntimeCreationWizard
-        targetServers={targetServers}
-        onCreated={(taskId) => router.push(buildWorkspacePath(workspaceSlug, `/runtimes/${taskId}`))}
+    <section className="page-shell runtimes-page">
+      <WorkbenchPageHeader
+        description={tx(
+          "每个托管执行引擎使用独立凭证，并通过可恢复的异步任务完成部署。",
+          "Each managed runtime uses an isolated credential and is provisioned through a resumable asynchronous task.",
+        )}
+        eyebrow={tx("数字员工", "AI employees")}
+        meta={(
+          <>
+            <span>{tx(`${initialRuntimes.length} 个执行引擎`, `${initialRuntimes.length} runtimes`)}</span>
+            <span>{tx(`${initialTasks.length} 个部署任务`, `${initialTasks.length} provisioning tasks`)}</span>
+          </>
+        )}
+        title={tx("执行引擎管理", "Runtime management")}
       />
 
-      <div>
-        <h2 className="mb-3 text-sm font-medium">Runtimes</h2>
-        <ManagedRuntimeList
-          runtimes={initialRuntimes}
-          workspaceSlug={workspaceSlug}
-          pending={pending}
-          onRotate={(runtimeId) =>
-            startTransition(async () => {
-              await rotateManagedRuntimeCredentialAction(runtimeId, "manual");
-              refresh();
-            })
-          }
+      <div className="runtimes-page__content">
+        <ManagedRuntimeCreationWizard
+          targetServers={targetServers}
+          onCreated={(taskId) => router.push(buildWorkspacePath(workspaceSlug, `/runtimes/${taskId}`))}
         />
-      </div>
 
-      <div>
-        <h2 className="mb-3 text-sm font-medium">Provisioning tasks</h2>
-        {initialTasks.length === 0 ? (
-          <p className="text-sm text-neutral-500">No managed runtimes yet.</p>
-        ) : (
-          <ul className="divide-y rounded-lg border">
+        <section className="runtimes-panel" aria-labelledby="runtime-list-title">
+          <div className="runtimes-panel__header">
+            <div>
+              <span>{tx("资源", "Resources")}</span>
+              <h2 id="runtime-list-title">{tx("已部署执行引擎", "Provisioned runtimes")}</h2>
+            </div>
+          </div>
+          <ManagedRuntimeList
+            runtimes={initialRuntimes}
+            workspaceSlug={workspaceSlug}
+            pending={pending}
+            onRotate={(runtimeId) =>
+              startTransition(async () => {
+                await rotateManagedRuntimeCredentialAction(runtimeId, "manual");
+                refresh();
+              })
+            }
+          />
+        </section>
+
+        <section className="runtimes-panel" aria-labelledby="provisioning-task-title">
+          <div className="runtimes-panel__header">
+            <div>
+              <span>{tx("部署", "Provisioning")}</span>
+              <h2 id="provisioning-task-title">{tx("部署任务", "Provisioning tasks")}</h2>
+            </div>
+          </div>
+          {initialTasks.length === 0 ? (
+            <div className="runtimes-empty">
+              <strong>{tx("暂无部署任务", "No provisioning tasks")}</strong>
+              <p>{tx("创建托管执行引擎后，部署进度会显示在这里。", "Provisioning progress will appear here after you create a managed runtime.")}</p>
+            </div>
+          ) : (
+          <ul className="runtime-task-list">
             {initialTasks.map((task) => (
-              <li key={task.id} className="flex flex-wrap items-center gap-3 p-3 text-sm">
+              <li key={task.id} className="runtime-task-list__item">
                 <Link
                   href={buildWorkspacePath(workspaceSlug, `/runtimes/${task.id}`)}
-                  className="font-medium underline-offset-2 hover:underline"
+                  className="runtime-task-list__link"
                 >
                   {formatDaemonProviderLabel(task.runtimeType)}
                 </Link>
                 <StatusBadge status={task.status} />
-                <span className="text-neutral-500">
+                <span className="runtime-task-list__progress">
                   {task.stage} · {task.progressPercent}%
                 </span>
                 {task.runtimeCredentialId ? (
-                  <span className="font-mono text-xs text-neutral-400">
+                  <span className="runtime-task-list__credential">
                     {task.runtimeCredentialId.slice(0, 12)}
                   </span>
                 ) : null}
-                <div className="ml-auto flex gap-2">
+                <div className="runtime-task-list__actions">
                   {task.status === "failed" || task.status === "retrying" ? (
                     <ActionButton
                       disabled={pending}
@@ -111,7 +136,7 @@ export function RuntimesPageClient({
                         })
                       }
                     >
-                      Retry
+                      {tx("重试", "Retry")}
                     </ActionButton>
                   ) : null}
                   {task.status === "running" || task.status === "queued" || task.status === "retrying" || task.status === "failed" ? (
@@ -124,7 +149,7 @@ export function RuntimesPageClient({
                         })
                       }
                     >
-                      Cancel
+                      {tx("取消", "Cancel")}
                     </ActionButton>
                   ) : null}
                   {task.status === "succeeded" && task.runtimeId ? (
@@ -138,7 +163,7 @@ export function RuntimesPageClient({
                           })
                         }
                       >
-                        Rotate key
+                        {tx("轮换凭证", "Rotate credential")}
                       </ActionButton>
                       <ActionButton
                         disabled={pending}
@@ -149,7 +174,7 @@ export function RuntimesPageClient({
                           })
                         }
                       >
-                        Stop
+                        {tx("停止", "Stop")}
                       </ActionButton>
                       <ActionButton
                         disabled={pending}
@@ -160,7 +185,7 @@ export function RuntimesPageClient({
                           })
                         }
                       >
-                        Delete
+                        {tx("删除", "Delete")}
                       </ActionButton>
                     </>
                   ) : null}
@@ -168,24 +193,26 @@ export function RuntimesPageClient({
               </li>
             ))}
           </ul>
-        )}
+          )}
+        </section>
       </div>
     </section>
   );
 }
 
 function StatusBadge({ status }: { status: PublicRuntimeProvisioningTaskRecord["status"] }) {
-  const tone: Record<PublicRuntimeProvisioningTaskRecord["status"], string> = {
-    queued: "bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200",
-    running: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200",
-    retrying: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200",
-    cancelling: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200",
-    succeeded: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200",
-    failed: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200",
-    cancelled: "bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200",
+  const { tx } = useLanguage();
+  const label: Record<PublicRuntimeProvisioningTaskRecord["status"], string> = {
+    queued: tx("排队中", "Queued"),
+    running: tx("部署中", "Running"),
+    retrying: tx("重试中", "Retrying"),
+    cancelling: tx("取消中", "Cancelling"),
+    succeeded: tx("已完成", "Succeeded"),
+    failed: tx("失败", "Failed"),
+    cancelled: tx("已取消", "Cancelled"),
   };
   return (
-    <span className={`rounded px-2 py-0.5 text-xs font-medium ${tone[status]}`}>{status}</span>
+    <span className={`runtime-status runtime-status--${status}`}>{label[status]}</span>
   );
 }
 
@@ -201,7 +228,7 @@ function ActionButton({
   return (
     <button
       type="button"
-      className="rounded border px-2 py-0.5 text-xs disabled:opacity-50"
+      className="action-button runtime-action-button"
       disabled={disabled}
       onClick={onClick}
     >

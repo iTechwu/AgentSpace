@@ -49,7 +49,7 @@ export default async function ChannelInvitationPage({
   if (!currentUser) {
     return (
       <ChannelInvitationShell
-        body="请先登录或注册账号。登录完成后，再打开这条链接即可接受群邀请。"
+        body="请先通过 Dofe SSO 登录。登录完成后，再打开这条链接即可接受群邀请。"
         contextItems={[
           { label: "工作区", value: workspace.name },
           { label: "群", value: invitation.channelName },

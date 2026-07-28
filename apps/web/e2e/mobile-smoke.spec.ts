@@ -6,15 +6,17 @@ test.use({
 });
 
 test("mobile workspace drill-down flows render and navigate", async ({ page }) => {
-  await ensureWorkspaceSession(page);
+  const session = await ensureWorkspaceSession(page);
 
   await page.goto("/skills");
   await expect(page.getByRole("button", { name: /打开导航|Open navigation/i })).toBeVisible();
   await page.getByRole("button", { name: /打开导航|Open navigation/i }).click();
-  await expect(page.getByRole("button", { name: /关闭侧边导航|Close sidebar/i })).toBeVisible();
+  await expect(
+    page.getByTestId("workspace-sidebar").getByRole("button", { name: /关闭侧边导航|Close sidebar/i }),
+  ).toBeVisible();
 
   await page.goto("/im");
-  await expect(page.getByRole("heading", { name: /会话|Conversations/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: session.channelName })).toBeVisible();
 
   await page.goto("/skills");
   const firstSkill = page.locator(".skills-studio__skill-row").first();

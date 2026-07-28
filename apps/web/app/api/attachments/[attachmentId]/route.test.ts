@@ -29,7 +29,7 @@ const testTos = createTestTosAttachmentStorage();
 beforeAll(() => {
   setAttachmentStorageClientForTests(testTos.client);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
-  mkdirSync(join(tempRoot, "data", "workspaces", "default", "attachments"), { recursive: true });
+  mkdirSync(join(tempRoot, "data"), { recursive: true });
   process.chdir(tempRoot);
 });
 

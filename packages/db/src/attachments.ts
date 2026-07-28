@@ -14,7 +14,7 @@ export interface StoredAttachmentRecord extends MessageAttachment {
 }
 
 export function replaceStoredAttachmentsSync(
-  state: Pick<DofeAgentState, "messages">,
+  state: Pick<DofeAgentState, "messages"> & Partial<Pick<DofeAgentState, "materials">>,
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): void {
   const db = getDatabase();
@@ -34,6 +34,44 @@ export function replaceStoredAttachmentsSync(
           fallbackCreatedAt: now,
         });
       }
+    }
+    for (const [materialIndex, material] of (state.materials ?? []).entries()) {
+      if (
+        material.kind !== "file"
+        || !material.id
+        || !material.fileName
+        || !material.storedPath
+        || !material.storageKey
+      ) {
+        continue;
+      }
+      insertStoredAttachmentSync({
+        workspaceId,
+        message: {
+          id: `material-${material.id}`,
+          speaker: "system",
+          role: "agent",
+          time: now,
+          summary: material.source,
+        },
+        attachment: {
+          id: material.id,
+          fileName: material.fileName,
+          mediaType: material.mediaType ?? "application/octet-stream",
+          sizeBytes: material.sizeBytes ?? 0,
+          kind: "file",
+          storedPath: material.storedPath,
+          storageProvider: "tos",
+          storageBucket: material.storageBucket,
+          storageRegion: material.storageRegion,
+          storageEndpoint: material.storageEndpoint,
+          storageKey: material.storageKey,
+          storageUrl: material.storageUrl,
+          sha256: material.sha256,
+        },
+        messageIndex: state.messages.length + materialIndex,
+        fallbackCreatedAt: now,
+      });
     }
   });
 }

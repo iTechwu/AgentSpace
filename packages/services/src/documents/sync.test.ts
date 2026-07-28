@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +17,7 @@ import {
   listChannelDocumentBlocksSync,
   listChannelDocumentAccessesSync,
   listChannelMarkdownAttachmentsSync,
+  persistWorkspaceAttachmentFromBytesSync,
   readChannelDocumentSync,
   recordChannelDocumentConflictSync,
   removeChannelDocumentCollaboratorSync,
@@ -23,6 +25,8 @@ import {
   resolveChannelDocumentConflictSync,
   retryChannelDocumentConflictSync,
   sendChannelHumanMessageSync,
+  setAttachmentStorageClientForTests,
+  type AttachmentStorageClient,
   updateChannelDocumentAccessRoleSync,
   updateExternalChannelDocumentMetadataSync,
   upsertChannelDocumentPresenceSync,
@@ -34,11 +38,58 @@ import { applyChannelDocumentBlockOperations } from "./operations.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-doc-sync-"));
+const tosObjects = new Map<string, Uint8Array>();
+const testTosStorage: AttachmentStorageClient = {
+  async putObject(input) {
+    return this.putObjectSync(input);
+  },
+  putObjectSync(input) {
+    const key = `workspaces/${input.workspaceId}/attachments/${input.attachmentId}/${input.fileName}`;
+    const bytes = new Uint8Array(input.contentBytes);
+    tosObjects.set(key, bytes);
+    return {
+      provider: "tos",
+      bucket: "test-bucket",
+      region: "cn-beijing",
+      endpoint: "https://tos-cn-beijing.volces.com",
+      key,
+      storedPath: `tos://test-bucket/${key}`,
+      sizeBytes: bytes.byteLength,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
+  },
+  async getObject(input) {
+    return this.getObjectSync(input);
+  },
+  getObjectSync(input) {
+    const bytes = tosObjects.get(input.storageKey ?? "");
+    if (!bytes) throw new Error(`NoSuchKey: ${input.storageKey ?? ""}`);
+    return new Uint8Array(bytes);
+  },
+  async headObject() {
+    return null;
+  },
+  async deleteObject(input) {
+    tosObjects.delete(input.storageKey ?? "");
+  },
+  deleteObjectSync(input) {
+    tosObjects.delete(input.storageKey ?? "");
+  },
+  async createReadUrl(input) {
+    return input.storageKey ? `https://test-bucket.example.com/${input.storageKey}` : null;
+  },
+};
 
 before(() => {
+  process.env.NODE_ENV = "test";
+  setAttachmentStorageClientForTests(testTosStorage);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   process.chdir(tempRoot);
+});
+
+test.after(() => {
+  setAttachmentStorageClientForTests(undefined);
 });
 
 function resetWorkspace() {
@@ -307,40 +358,36 @@ test("updateChannelDocumentSync keeps the original title when a stale save confl
   assert.match(persisted.currentVersion.contentMarkdown, /Day 2\n宇治/);
 });
 
-test("markdown attachments with legacy octet-stream media type still show up as channel files and can import into documents", () => {
+test("markdown attachments with octet-stream media type in TOS show up as channel files and can import into documents", () => {
   resetWorkspace();
 
-  const attachmentsDir = join(tempRoot, "data", "workspaces", "default", "attachments");
-  mkdirSync(attachmentsDir, { recursive: true });
-  const storedPath = join(attachmentsDir, "att-legacy-itinerary_detailed.md");
-  writeFileSync(storedPath, "# Legacy itinerary\n\n## Day 1\n大阪\n", "utf8");
+  const attachment = persistWorkspaceAttachmentFromBytesSync({
+    contentBytes: Buffer.from("# TOS itinerary\n\n## Day 1\n大阪\n", "utf8"),
+    fileName: "itinerary_detailed.md",
+    mediaType: "application/octet-stream",
+  });
 
   sendChannelHumanMessageSync("tour visit", "techwu", "请看附件", [
     {
-      id: "att-legacy-itinerary",
-      fileName: "itinerary_detailed.md",
-      mediaType: "application/octet-stream",
-      sizeBytes: 35,
-      kind: "file",
-      storedPath,
+      ...attachment,
     },
   ]);
 
   const markdownAttachments = listChannelMarkdownAttachmentsSync("tour visit");
   assert.equal(markdownAttachments.length, 1);
-  assert.equal(markdownAttachments[0]?.id, "att-legacy-itinerary");
+  assert.equal(markdownAttachments[0]?.id, attachment.id);
 
   const created = createChannelDocumentFromAttachmentSync({
     channelName: "tour visit",
-    attachmentId: "att-legacy-itinerary",
+    attachmentId: attachment.id,
     createdBy: "techwu",
     createdByType: "human",
   });
 
   assert.equal(created.document.title, "itinerary_detailed");
-  assert.match(created.version.contentMarkdown, /Legacy itinerary/);
-  assert.equal(created.version.sourceAttachmentId, "att-legacy-itinerary");
-  assert.equal(created.version.sourceAttachmentStoredPath, storedPath);
+  assert.match(created.version.contentMarkdown, /TOS itinerary/);
+  assert.equal(created.version.sourceAttachmentId, attachment.id);
+  assert.equal(created.version.sourceAttachmentStoredPath, attachment.storedPath);
 });
 
 test("completeChannelDocumentRunStepSync warns when a document step finishes without a new version", () => {

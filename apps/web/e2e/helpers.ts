@@ -27,8 +27,8 @@ export interface SeededWorkspaceSession {
   workspaceSlug: string;
 }
 
-export async function ensureWorkspaceSession(page: Page): Promise<void> {
-  await openSeededWorkspacePage(page, "/im");
+export async function ensureWorkspaceSession(page: Page): Promise<SeededWorkspaceSession> {
+  return openSeededWorkspacePage(page, "/im");
 }
 
 async function dismissWorkspaceChromeOverlays(page: Page): Promise<void> {

@@ -7,6 +7,7 @@ import {
 } from "@/features/runtimes/actions";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import type { DaemonProvider } from "@dofe-agent/domain";
+import { useLanguage } from "@/features/i18n/language-provider";
 
 export interface RuntimeModelPickerProps {
   provider: DaemonProvider;
@@ -15,6 +16,7 @@ export interface RuntimeModelPickerProps {
 }
 
 export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPickerProps) {
+  const { tx } = useLanguage();
   const [pending, startTransition] = useTransition();
   const [items, setItems] = useState<RuntimeModelCatalogItem[]>([]);
   const [configured, setConfigured] = useState(true);
@@ -30,11 +32,11 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
         setConfigured(result.configured);
         setItems(result.list);
       } catch {
-        setError("Model catalog could not be loaded.");
+        setError(tx("无法加载模型目录。", "Model catalog could not be loaded."));
         setItems([]);
       }
     });
-  }, [provider]);
+  }, [provider, tx]);
 
   const selected = items.find((item) => item.alias === value || item.model === value);
   const normalizedQuery = query.trim().toLowerCase();
@@ -44,81 +46,83 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
     || [item.alias, item.displayName, item.model, item.protocol].some((field) => field?.toLowerCase().includes(normalizedQuery)),
   );
   return (
-    <div className="space-y-2">
-      <label className="text-sm">
-        <span className="mb-1 block text-neutral-500">Search models</span>
-        <input type="search" className="w-full rounded border px-2 py-1" value={query} disabled={pending || !configured} onChange={(event) => setQuery(event.target.value)} placeholder="Name, alias, or protocol" />
+    <div className="runtime-model-picker">
+      <label className="runtime-field">
+        <span>{tx("搜索模型", "Search models")}</span>
+        <input type="search" value={query} disabled={pending || !configured} onChange={(event) => setQuery(event.target.value)} placeholder={tx("名称、别名或协议", "Name, alias, or protocol")} />
       </label>
-      <label className="text-sm">
-        <span className="mb-1 block text-neutral-500">Default model</span>
+      <label className="runtime-field">
+        <span>{tx("默认模型", "Default model")}</span>
         <select
-          className="w-full rounded border px-2 py-1 disabled:opacity-50"
           value={value}
           disabled={pending || !configured}
           onChange={(event) => onChange(event.target.value)}
         >
-          <option value="">{pending ? "Loading models…" : "Inherit system fallback"}</option>
+          <option value="">{pending ? tx("正在加载模型...", "Loading models...") : tx("跟随系统默认", "Inherit system fallback")}</option>
           {filteredItems.map((item) => (
             <option key={item.alias} value={item.alias} disabled={!item.isAvailable}>
-              {formatModelOption(item)}
+              {formatModelOption(item, tx)}
             </option>
           ))}
         </select>
       </label>
 
       {!configured ? (
-        <p className="text-xs text-amber-600">
-          Model catalog is not configured. Runtime creation is unavailable until it is connected.
+        <p className="runtime-model-picker__warning">
+          {tx("模型目录尚未配置，连接模型服务后才能创建执行引擎。", "Model catalog is not configured. Runtime creation is unavailable until it is connected.")}
         </p>
       ) : null}
 
       {selected ? (
-        <div className="rounded border bg-neutral-50 p-2 text-xs dark:bg-neutral-900">
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded bg-neutral-200 px-1.5 py-0.5 dark:bg-neutral-700">{selected.protocol}</span>
+        <div className="runtime-model-picker__summary">
+          <div className="runtime-model-picker__tags">
+            <span>{selected.protocol}</span>
             {selected.contextLength ? (
-              <span className="rounded bg-neutral-200 px-1.5 py-0.5 dark:bg-neutral-700">
-                {formatTokens(selected.contextLength)} context
+              <span>
+                {formatTokens(selected.contextLength)} {tx("上下文", "context")}
               </span>
             ) : null}
             {selected.supportsVision ? (
-              <span className="rounded bg-neutral-200 px-1.5 py-0.5 dark:bg-neutral-700">vision</span>
+              <span>{tx("视觉", "vision")}</span>
             ) : null}
             {selected.supportsFunctionCalling ? (
-              <span className="rounded bg-neutral-200 px-1.5 py-0.5 dark:bg-neutral-700">tools</span>
+              <span>{tx("工具调用", "tools")}</span>
             ) : null}
           </div>
           {selected.inputPrice != null || selected.outputPrice != null ? (
-            <p className="mt-1 text-neutral-600 dark:text-neutral-400">
-              ${formatPrice(selected.inputPrice)}/1M in · ${formatPrice(selected.outputPrice)}/1M out
+            <p>
+              ${formatPrice(selected.inputPrice)}/1M {tx("输入", "in")} · ${formatPrice(selected.outputPrice)}/1M {tx("输出", "out")}
             </p>
           ) : null}
           {!selected.isAvailable ? (
-            <p className="mt-1 text-red-600">{selected.unavailableReason ?? "Unavailable"}</p>
+            <p className="runtime-model-picker__error">{selected.unavailableReason ?? tx("不可用", "Unavailable")}</p>
           ) : null}
         </div>
       ) : value ? (
-        <p className="text-xs text-neutral-500">
-          Selected model “{value}” is not in the {formatDaemonProviderLabel(provider)} catalog; it may be rejected if incompatible.
+        <p className="runtime-model-picker__hint">
+          {tx(
+            `所选模型“${value}”不在 ${formatDaemonProviderLabel(provider)} 目录中；若不兼容，请求可能被拒绝。`,
+            `Selected model “${value}” is not in the ${formatDaemonProviderLabel(provider)} catalog; it may be rejected if incompatible.`,
+          )}
         </p>
       ) : null}
 
-      {error ? <p className="text-xs text-red-600">{error}</p> : null}
+      {error ? <p className="runtime-model-picker__error">{error}</p> : null}
     </div>
   );
 }
 
-function formatModelOption(item: RuntimeModelCatalogItem): string {
+function formatModelOption(item: RuntimeModelCatalogItem, tx: (zh: string, en: string) => string): string {
   const capabilities = [
     item.protocol,
-    item.contextLength ? `${formatTokens(item.contextLength)} context` : undefined,
-    item.supportsFunctionCalling ? "tools" : undefined,
-    item.supportsVision ? "vision" : undefined,
+    item.contextLength ? `${formatTokens(item.contextLength)} ${tx("上下文", "context")}` : undefined,
+    item.supportsFunctionCalling ? tx("工具调用", "tools") : undefined,
+    item.supportsVision ? tx("视觉", "vision") : undefined,
     item.inputPrice != null || item.outputPrice != null
       ? `$${formatPrice(item.inputPrice)}/$${formatPrice(item.outputPrice)} per 1M`
       : undefined,
   ].filter(Boolean).join(" · ");
-  const availability = item.isAvailable ? "available" : item.unavailableReason ?? "Unavailable";
+  const availability = item.isAvailable ? tx("可用", "available") : item.unavailableReason ?? tx("不可用", "Unavailable");
   return `${item.displayName ?? item.alias} · ${capabilities} · ${availability}`;
 }
 

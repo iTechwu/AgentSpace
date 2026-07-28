@@ -38,31 +38,13 @@ test("postgres schema includes the expected core and derived tables", () => {
   assert.match(statements, /ALTER TABLE external_thread_binding\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
 });
 
-test("postgres schema removes retired Workspace data and enforces SSO-only identities", () => {
+test("postgres schema enforces SSO-only identities", () => {
   const statements = getPostgresSchemaStatements().join("\n");
 
   assert.equal(POSTGRES_SCHEMA_VERSION, "46");
-  assert.equal(POSTGRES_TABLE_NAMES.some((name) => name.includes("google")), false);
-  assert.doesNotMatch(statements, /CREATE TABLE IF NOT EXISTS google_oauth_credential/);
-  assert.doesNotMatch(statements, /CREATE TABLE IF NOT EXISTS agent_google_workspace_delegation/);
-  assert.match(statements, /DROP TABLE IF EXISTS agent_google_workspace_delegation/);
-  assert.match(statements, /DROP TABLE IF EXISTS google_oauth_credential/);
   assert.match(statements, /DELETE FROM session WHERE user_id NOT IN \(SELECT user_id FROM auth_identity WHERE provider = 'sso'\)/);
   assert.match(statements, /DELETE FROM auth_identity WHERE provider <> 'sso'/);
   assert.match(statements, /auth_identity_provider_check CHECK \(provider = 'sso'\)/);
-  assert.match(statements, /state_json - 'externalSheetOperationRuns'/);
-  for (const fieldName of [
-    "channelDocumentVersions",
-    "channelDocumentBlocks",
-    "channelDocumentAccesses",
-    "channelDocumentChangeSets",
-    "channelDocumentConflicts",
-    "channelDocumentPresences",
-    "channelDocumentRuns",
-  ]) {
-    assert.match(statements, new RegExp(`'\\{${fieldName}\\}'`));
-  }
-  assert.match(statements, /DELETE FROM skill WHERE name = 'google-workspace-cli'/);
 });
 
 test("token usage gateway usage uniqueness migration clears duplicate remote identifiers first", () => {

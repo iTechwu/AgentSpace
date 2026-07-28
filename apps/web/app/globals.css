@@ -23623,10 +23623,19 @@ button[aria-disabled="true"] svg {
     overflow: visible;
   }
 
+  .knowledge-page > .workbench-page-header {
+    flex: 0 0 auto;
+  }
+
   .approvals-shell,
   .knowledge-layout {
     flex: none;
     overflow: visible;
+  }
+
+  .knowledge-layout.knowledge-layout--compact {
+    height: auto;
+    min-height: 0;
   }
 
   .approvals-list-pane {
@@ -25635,6 +25644,552 @@ button[aria-disabled="true"] svg {
   max-width: 1200px;
   margin: 0 auto;
   padding: 2rem 1.5rem;
+}
+
+/* Runtime and audit workbenches use semantic classes because this app does not compile utility CSS. */
+.runtimes-page,
+.audit-page {
+  min-width: 0;
+  height: 100%;
+  gap: 1rem;
+  padding: 0;
+}
+
+.runtimes-page__content,
+.audit-page__content {
+  min-width: 0;
+  display: grid;
+  gap: 1rem;
+  overflow: auto;
+  padding: 0 0.25rem 1rem;
+}
+
+.runtimes-panel,
+.audit-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+}
+
+.runtimes-panel__header,
+.audit-panel__header {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-strong);
+}
+
+.runtimes-panel__header > div,
+.audit-panel__header > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.runtimes-panel__header span,
+.audit-panel__header span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.runtimes-panel__header h2,
+.audit-panel__header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 22px;
+}
+
+.runtime-wizard__header {
+  align-items: flex-end;
+}
+
+.runtime-wizard__steps {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.runtime-wizard__steps li {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.55rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.runtime-wizard__steps .runtime-wizard__step--active {
+  border-color: var(--line-strong);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-weight: 650;
+}
+
+.runtime-wizard__body {
+  padding: 1rem;
+}
+
+.runtime-wizard__fields,
+.runtime-list__filters,
+.audit-filters {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.runtime-wizard__fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.runtime-field,
+.audit-field {
+  min-width: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.runtime-field > span,
+.audit-field > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 18px;
+}
+
+.runtime-wizard__model {
+  max-width: 720px;
+}
+
+.runtime-model-picker {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.runtime-model-picker__warning,
+.runtime-model-picker__hint,
+.runtime-model-picker__error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.runtime-model-picker__warning {
+  color: #9a5a13;
+}
+
+.runtime-model-picker__hint {
+  color: var(--muted);
+}
+
+.runtime-model-picker__error,
+.runtime-wizard__error {
+  color: #b42318;
+}
+
+.runtime-model-picker__summary {
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-strong);
+  font-size: 12px;
+}
+
+.runtime-model-picker__summary p {
+  margin: 0.45rem 0 0;
+}
+
+.runtime-model-picker__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.runtime-model-picker__tags span {
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.runtime-wizard__confirmation {
+  max-width: 720px;
+  display: grid;
+  gap: 1rem;
+}
+
+.runtime-wizard__confirmation dl {
+  display: grid;
+  grid-template-columns: minmax(96px, max-content) minmax(0, 1fr);
+  gap: 0.55rem 1rem;
+  margin: 0;
+}
+
+.runtime-wizard__confirmation dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.runtime-wizard__confirmation dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.runtime-wizard__sharing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.runtime-wizard__sharing input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  padding: 0;
+}
+
+.runtime-preflight {
+  padding: 0.65rem 0.8rem;
+  border-left: 3px solid var(--line-strong);
+  background: var(--panel-strong);
+}
+
+.runtime-preflight--passed {
+  border-left-color: #16875d;
+}
+
+.runtime-preflight--blocked {
+  border-left-color: #b42318;
+}
+
+.runtime-preflight p,
+.runtime-preflight small,
+.runtime-wizard__error {
+  display: block;
+  margin: 0;
+}
+
+.runtime-preflight p {
+  font-weight: 650;
+}
+
+.runtime-preflight small {
+  margin-top: 0.15rem;
+  color: var(--muted);
+}
+
+.runtime-wizard__error {
+  margin-top: 0.75rem;
+  font-size: 13px;
+}
+
+.runtime-wizard__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.runtime-wizard__actions :is(.action-button, .primary-button),
+.audit-filters__actions :is(.action-button, .primary-button) {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.runtime-list {
+  min-width: 0;
+}
+
+.runtime-list__filters {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.runtime-list__table-wrap,
+.audit-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.runtime-list__table,
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+
+.runtime-list__table {
+  min-width: 980px;
+}
+
+.runtime-list__table th,
+.runtime-list__table td,
+.audit-table th,
+.audit-table td {
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.runtime-list__table th,
+.audit-table th {
+  background: var(--panel-strong);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.runtime-list__table tbody tr:last-child td,
+.audit-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.runtime-list__table td > span,
+.runtime-list__table td > small {
+  display: block;
+}
+
+.runtime-list__table td > small {
+  max-width: 210px;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.runtime-list__name,
+.runtime-list__link,
+.runtime-task-list__link {
+  font-weight: 650;
+}
+
+.runtime-list__link:hover,
+.runtime-task-list__link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.runtime-list__number {
+  font-variant-numeric: tabular-nums;
+}
+
+.runtime-list__table .runtime-list__warning {
+  color: #9a5a13;
+}
+
+.runtime-list__actions {
+  text-align: right;
+}
+
+.runtime-status {
+  width: max-content;
+  display: inline-flex !important;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 0.5rem;
+  border-radius: var(--radius-sm);
+  background: #eef0f3;
+  color: #55616f;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.runtime-status--available,
+.runtime-status--succeeded {
+  background: #e4f5ec;
+  color: #16764f;
+}
+
+.runtime-status--recovering,
+.runtime-status--running {
+  background: #e6f0fb;
+  color: #2563a7;
+}
+
+.runtime-status--attention,
+.runtime-status--failed {
+  background: #fde8e7;
+  color: #b42318;
+}
+
+.runtime-status--retrying,
+.runtime-status--cancelling {
+  background: #fff1d6;
+  color: #8c5200;
+}
+
+.runtime-action-button {
+  min-height: 30px;
+  padding: 0 0.65rem;
+  font-size: 12px;
+}
+
+.runtimes-empty,
+.audit-empty {
+  padding: 1.35rem 1rem;
+  text-align: center;
+}
+
+.runtimes-empty strong,
+.audit-empty strong {
+  display: block;
+  font-size: 13px;
+}
+
+.runtimes-empty p,
+.audit-empty p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.runtime-task-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.runtime-task-list__item {
+  min-height: 52px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.runtime-task-list__item:last-child {
+  border-bottom: 0;
+}
+
+.runtime-task-list__progress {
+  color: var(--muted);
+}
+
+.runtime-task-list__credential {
+  color: var(--muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+}
+
+.runtime-task-list__actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.audit-filters {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 1rem;
+}
+
+.audit-filters__actions {
+  grid-column: span 2;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.audit-table {
+  min-width: 800px;
+}
+
+.audit-table td:first-child,
+.audit-table td:nth-child(2) {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.audit-table__muted {
+  color: var(--muted);
+}
+
+.audit-table__context {
+  display: block;
+  max-width: 340px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 980px) {
+  .runtime-wizard__fields,
+  .runtime-list__filters,
+  .audit-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .runtime-wizard__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .runtime-wizard__steps {
+    width: 100%;
+  }
+
+  .runtime-wizard__steps li {
+    flex: 1;
+    justify-content: center;
+    padding: 0 0.2rem;
+  }
+
+  .runtime-wizard__fields,
+  .runtime-list__filters,
+  .audit-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-wizard__confirmation dl {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+
+  .runtime-wizard__confirmation dd + dt {
+    margin-top: 0.5rem;
+  }
+
+  .runtime-wizard__actions,
+  .audit-filters__actions {
+    grid-column: auto;
+  }
+
+  .runtime-wizard__actions :is(.action-button, .primary-button),
+  .audit-filters__actions :is(.action-button, .primary-button) {
+    flex: 1;
+  }
+
+  .runtime-task-list__actions {
+    width: 100%;
+    margin-left: 0;
+  }
 }
 
 .platform-audit-header {

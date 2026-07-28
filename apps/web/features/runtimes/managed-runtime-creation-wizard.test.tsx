@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { render as testingRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import { ManagedRuntimeCreationWizard } from "@/features/runtimes/managed-runtime-creation-wizard";
@@ -6,6 +7,11 @@ import {
   createManagedRuntimeAction,
   preflightManagedRuntimeAction,
 } from "@/features/runtimes/actions";
+import { LanguageProvider } from "@/features/i18n/language-provider";
+
+function render(ui: ReactNode) {
+  return testingRender(<LanguageProvider initialLanguage="en">{ui}</LanguageProvider>);
+}
 
 vi.mock("@/features/runtimes/actions", () => ({
   createManagedRuntimeAction: vi.fn(async () => ({ taskId: "task-created" })),

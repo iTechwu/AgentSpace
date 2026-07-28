@@ -44,8 +44,16 @@ export interface MaterialInput {
   source: string;
   status: string;
   kind?: "note" | "file";
-  originalPath?: string;
+  fileName?: string;
+  mediaType?: string;
   storedPath?: string;
+  storageProvider?: "tos";
+  storageBucket?: string;
+  storageRegion?: string;
+  storageEndpoint?: string;
+  storageKey?: string;
+  storageUrl?: string;
+  sha256?: string;
   sizeBytes?: number;
   preview?: string;
 }

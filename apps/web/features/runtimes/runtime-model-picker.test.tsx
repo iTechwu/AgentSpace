@@ -1,8 +1,14 @@
-import { render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { render as testingRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import { RuntimeModelPicker } from "@/features/runtimes/runtime-model-picker";
 import { listProtocolFilteredRuntimeModelsAction } from "@/features/runtimes/actions";
+import { LanguageProvider } from "@/features/i18n/language-provider";
+
+function render(ui: ReactNode) {
+  return testingRender(<LanguageProvider initialLanguage="en">{ui}</LanguageProvider>);
+}
 
 vi.mock("@/features/runtimes/actions", () => ({
   listProtocolFilteredRuntimeModelsAction: vi.fn(),

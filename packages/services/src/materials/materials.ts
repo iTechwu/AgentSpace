@@ -1,8 +1,9 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { basename, extname, join } from "node:path";
 import { type DofeAgentState, type MaterialInput } from "@dofe-agent/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
-import { STATE_DIR, slugify, resolveRepositoryRoot } from "../shared/helpers.ts";
+import {
+  persistWorkspaceAttachmentFromFileSync,
+  readWorkspaceAttachmentBytesSync,
+} from "../attachments/attachments.ts";
 
 export function listMaterialsSync(): MaterialInput[] {
   return ensureWorkspaceStateSync().materials;
@@ -30,39 +31,31 @@ export function importMaterialFileSync(input: {
   status: string;
 }): DofeAgentState {
   const state = ensureWorkspaceStateSync();
-
-  if (!existsSync(input.filePath)) {
-    throw new Error(`File "${input.filePath}" does not exist.`);
-  }
-
-  const materialsDir = join(resolveRepositoryRoot(), STATE_DIR, "materials");
-  if (!existsSync(materialsDir)) {
-    mkdirSync(materialsDir, { recursive: true });
-  }
-
-  const originalName = basename(input.filePath);
-  const ext = extname(originalName);
-  const base = originalName.slice(0, Math.max(0, originalName.length - ext.length));
-  const safeBase = slugify(base);
-  const targetName = `${Date.now()}-${safeBase}${ext}`;
-  const targetPath = join(materialsDir, targetName);
-  copyFileSync(input.filePath, targetPath);
-
-  const fileStat = statSync(targetPath);
-  const source = input.label ?? originalName;
+  const attachment = persistWorkspaceAttachmentFromFileSync({
+    sourcePath: input.filePath,
+  });
+  const source = input.label ?? attachment.fileName;
 
   state.materials.unshift({
-    id: `mat-${Date.now()}`,
+    id: attachment.id,
     source,
     status: input.status,
     kind: "file",
-    originalPath: input.filePath,
-    storedPath: targetPath,
-    sizeBytes: fileStat.size,
+    fileName: attachment.fileName,
+    mediaType: attachment.mediaType,
+    storedPath: attachment.storedPath,
+    storageProvider: attachment.storageProvider,
+    storageBucket: attachment.storageBucket,
+    storageRegion: attachment.storageRegion,
+    storageEndpoint: attachment.storageEndpoint,
+    storageKey: attachment.storageKey,
+    storageUrl: attachment.storageUrl,
+    sha256: attachment.sha256,
+    sizeBytes: attachment.sizeBytes,
   });
   state.ledger.unshift({
     title: "File imported",
-    note: `Imported file ${source} and stored it as ${targetName} for downstream processing.`,
+    note: `Imported file ${source} into TOS for downstream processing.`,
   });
 
   return writeWorkspaceStateSync(state);
@@ -76,12 +69,17 @@ export function parseMaterialSync(id: string): DofeAgentState {
     throw new Error(`Material "${id}" does not exist.`);
   }
 
-  const targetPath = material.storedPath ?? material.originalPath;
-  if (!targetPath || !existsSync(targetPath)) {
-    throw new Error(`Material "${material.source}" has no readable file source.`);
+  if (!material.storedPath || !material.storageKey) {
+    throw new Error(`Material "${material.source}" has no readable TOS object.`);
   }
 
-  const raw = readFileSync(targetPath, "utf8");
+  const raw = Buffer.from(readWorkspaceAttachmentBytesSync({
+    storedPath: material.storedPath,
+    storageBucket: material.storageBucket,
+    storageRegion: material.storageRegion,
+    storageEndpoint: material.storageEndpoint,
+    storageKey: material.storageKey,
+  })).toString("utf8");
   const preview = raw.replace(/\s+/g, " ").trim().slice(0, 220);
 
   material.preview = preview || "The file is readable, but there is no displayable text to preview.";

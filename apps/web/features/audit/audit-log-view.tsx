@@ -1,43 +1,81 @@
+"use client";
+
 import Link from "next/link";
 import type { AuditLogRecord } from "@dofe-agent/db";
+import { useLanguage } from "@/features/i18n/language-provider";
+import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
+import type { AuditLogFilters } from "@/features/audit/audit-log-filters";
 
-export interface AuditLogFilters {
-  code?: string;
-  actorId?: string;
-  employeeId?: string;
-  runtimeId?: string;
-  sessionId?: string;
-  taskId?: string;
-  modelId?: string;
-  createdFrom?: string;
-  createdTo?: string;
-}
-
-export function parseAuditLogFilters(input: Record<string, string | string[] | undefined>): AuditLogFilters {
-  const read = (key: keyof AuditLogFilters) => typeof input[key] === "string" && input[key] ? String(input[key]) : undefined;
-  const timestamp = (key: "createdFrom" | "createdTo") => {
-    const value = read(key);
-    if (!value) return undefined;
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-  };
-  return { code: read("code"), actorId: read("actorId"), employeeId: read("employeeId"), runtimeId: read("runtimeId"), sessionId: read("sessionId"), taskId: read("taskId"), modelId: read("modelId"), createdFrom: timestamp("createdFrom"), createdTo: timestamp("createdTo") };
-}
-
-export function AuditLogView({ logs, filters, clearHref }: { logs: AuditLogRecord[]; filters: AuditLogFilters; clearHref: string }) {
+export function AuditLogView({
+  logs,
+  filters,
+  clearHref,
+  title,
+  description,
+  eyebrow,
+}: {
+  logs: AuditLogRecord[];
+  filters: AuditLogFilters;
+  clearHref: string;
+  title?: string;
+  description?: string;
+  eyebrow?: string;
+}) {
+  const { tx, language } = useLanguage();
   const fields: Array<[keyof AuditLogFilters, string]> = [
-    ["code", "Event type"], ["actorId", "Actor"], ["employeeId", "AI employee"],
-    ["runtimeId", "Runtime"], ["sessionId", "Session"], ["taskId", "Task"], ["modelId", "Model"],
+    ["code", tx("事件类型", "Event type")], ["actorId", tx("操作人", "Actor")], ["employeeId", tx("AI 员工", "AI employee")],
+    ["runtimeId", tx("执行引擎", "Runtime")], ["sessionId", tx("会话", "Session")], ["taskId", tx("任务", "Task")], ["modelId", tx("模型", "Model")],
   ];
-  return <>
-    <form method="get" className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-      {fields.map(([name, label]) => <label key={name} className="text-xs"><span className="mb-1 block text-neutral-500">{label}</span><input name={name} defaultValue={filters[name]} className="w-full rounded border px-2 py-1.5 text-sm" /></label>)}
-      <label className="text-xs"><span className="mb-1 block text-neutral-500">From</span><input type="datetime-local" name="createdFrom" defaultValue={toLocalInput(filters.createdFrom)} className="w-full rounded border px-2 py-1.5 text-sm" /></label>
-      <label className="text-xs"><span className="mb-1 block text-neutral-500">To</span><input type="datetime-local" name="createdTo" defaultValue={toLocalInput(filters.createdTo)} className="w-full rounded border px-2 py-1.5 text-sm" /></label>
-      <div className="col-span-2 flex items-end justify-end gap-2 lg:col-span-2"><Link href={clearHref} className="rounded border px-3 py-1.5 text-sm">Clear</Link><button type="submit" className="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white dark:bg-white dark:text-neutral-900">Apply filters</button></div>
-    </form>
-    <div className="mt-4 overflow-x-auto rounded border"><table className="w-full min-w-[760px] text-left text-sm"><thead className="border-b bg-neutral-50 text-xs text-neutral-500 dark:bg-neutral-900"><tr><th className="p-3">Time</th><th className="p-3">Event</th><th className="p-3">Title</th><th className="p-3">Note</th><th className="p-3">Context</th></tr></thead><tbody className="divide-y">{logs.map((log) => <tr key={log.id}><td className="p-3 text-xs">{new Date(log.createdAt).toLocaleString()}</td><td className="p-3 font-mono text-xs">{log.code ?? log.source}</td><td className="p-3">{log.title}</td><td className="p-3 text-neutral-500">{log.note}</td><td className="p-3"><code className="block max-w-80 whitespace-pre-wrap break-all text-xs">{formatData(log.dataJson)}</code></td></tr>)}</tbody></table>{logs.length === 0 ? <p className="p-4 text-sm text-neutral-500">No audit events match these filters.</p> : null}</div>
-  </>;
+  return (
+    <section className="page-shell audit-page">
+      <WorkbenchPageHeader
+        description={description ?? tx("集中检索工作区操作、执行引擎运行与治理事件。", "Search workspace operations, runtime execution, and governance events in one place.")}
+        eyebrow={eyebrow ?? tx("治理", "Governance")}
+        meta={<span>{tx(`${logs.length} 条记录`, `${logs.length} records`)}</span>}
+        title={title ?? tx("审计日志", "Audit log")}
+      />
+      <div className="audit-page__content">
+        <section className="audit-panel" aria-labelledby="audit-filter-title">
+          <div className="audit-panel__header">
+            <div>
+              <span>{tx("查询", "Query")}</span>
+              <h2 id="audit-filter-title">{tx("筛选条件", "Filters")}</h2>
+            </div>
+          </div>
+          <form method="get" className="audit-filters">
+            {fields.map(([name, label]) => <label key={name} className="audit-field"><span>{label}</span><input name={name} defaultValue={filters[name]} /></label>)}
+            <label className="audit-field"><span>{tx("开始时间", "From")}</span><input type="datetime-local" name="createdFrom" defaultValue={toLocalInput(filters.createdFrom)} /></label>
+            <label className="audit-field"><span>{tx("结束时间", "To")}</span><input type="datetime-local" name="createdTo" defaultValue={toLocalInput(filters.createdTo)} /></label>
+            <div className="audit-filters__actions">
+              <Link href={clearHref} className="action-button">{tx("清除", "Clear")}</Link>
+              <button type="submit" className="primary-button">{tx("应用筛选", "Apply filters")}</button>
+            </div>
+          </form>
+        </section>
+
+        <section className="audit-panel audit-panel--results" aria-labelledby="audit-results-title">
+          <div className="audit-panel__header">
+            <div>
+              <span>{tx("记录", "Records")}</span>
+              <h2 id="audit-results-title">{tx("事件明细", "Event details")}</h2>
+            </div>
+          </div>
+          <div className="audit-table-wrap">
+            <table className="audit-table">
+              <thead><tr><th>{tx("时间", "Time")}</th><th>{tx("事件", "Event")}</th><th>{tx("标题", "Title")}</th><th>{tx("备注", "Note")}</th><th>{tx("上下文", "Context")}</th></tr></thead>
+              <tbody>{logs.map((log) => <tr key={log.id}><td>{new Date(log.createdAt).toLocaleString(language === "zh" ? "zh-CN" : "en")}</td><td><code>{log.code ?? log.source}</code></td><td>{log.title}</td><td className="audit-table__muted">{log.note}</td><td><code className="audit-table__context">{formatData(log.dataJson)}</code></td></tr>)}</tbody>
+            </table>
+            {logs.length === 0 ? (
+              <div className="audit-empty">
+                <strong>{tx("没有符合条件的审计事件", "No matching audit events")}</strong>
+                <p>{tx("调整筛选条件后重新查询。", "Adjust the filters and run the query again.")}</p>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      </div>
+    </section>
+  );
 }
 
 function toLocalInput(value: string | undefined): string | undefined { return value ? value.slice(0, 16) : undefined; }

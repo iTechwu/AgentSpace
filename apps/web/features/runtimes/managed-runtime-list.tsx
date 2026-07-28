@@ -5,6 +5,7 @@ import Link from "next/link";
 import { DAEMON_PROVIDER_IDS, formatDaemonProviderLabel } from "@dofe-agent/domain";
 import type { ManagedRuntimeListItem } from "@dofe-agent/services";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
+import { useLanguage } from "@/features/i18n/language-provider";
 
 export function ManagedRuntimeList({
   runtimes,
@@ -17,6 +18,7 @@ export function ManagedRuntimeList({
   pending: boolean;
   onRotate: (runtimeId: string) => void;
 }) {
+  const { tx, language } = useLanguage();
   const [provider, setProvider] = useState("");
   const [status, setStatus] = useState("");
   const [model, setModel] = useState("");
@@ -33,72 +35,77 @@ export function ManagedRuntimeList({
   );
 
   if (runtimes.length === 0) {
-    return <p className="text-sm text-neutral-500">No provisioned runtimes yet.</p>;
+    return (
+      <div className="runtimes-empty">
+        <strong>{tx("暂无已部署执行引擎", "No provisioned runtimes")}</strong>
+        <p>{tx("使用上方流程创建第一个托管执行引擎。", "Use the workflow above to create the first managed runtime.")}</p>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" aria-label="Runtime filters">
-        <FilterSelect label="Provider" value={provider} onChange={setProvider}>
+    <div className="runtime-list">
+      <div className="runtime-list__filters" aria-label={tx("执行引擎筛选", "Runtime filters")}>
+        <FilterSelect allLabel={tx("全部", "All")} label={tx("供应商", "Provider")} value={provider} onChange={setProvider}>
           {DAEMON_PROVIDER_IDS.map((id) => <option key={id} value={id}>{formatDaemonProviderLabel(id)}</option>)}
         </FilterSelect>
-        <FilterSelect label="Status" value={status} onChange={setStatus}>
-          <option value="available">Available</option>
-          <option value="offline">Offline</option>
-          <option value="recovering">Credential recovery</option>
-          <option value="attention">Needs attention</option>
-          <option value="stopped">Stopped</option>
+        <FilterSelect allLabel={tx("全部", "All")} label={tx("状态", "Status")} value={status} onChange={setStatus}>
+          <option value="available">{tx("可用", "Available")}</option>
+          <option value="offline">{tx("离线", "Offline")}</option>
+          <option value="recovering">{tx("凭证恢复中", "Credential recovery")}</option>
+          <option value="attention">{tx("需要处理", "Needs attention")}</option>
+          <option value="stopped">{tx("已停止", "Stopped")}</option>
         </FilterSelect>
-        <FilterSelect label="Model" value={model} onChange={setModel}>
+        <FilterSelect allLabel={tx("全部", "All")} label={tx("模型", "Model")} value={model} onChange={setModel}>
           {models.map((item) => <option key={item} value={item}>{item}</option>)}
         </FilterSelect>
-        <FilterSelect label="Cost attribution" value={costAttribution} onChange={setCostAttribution}>
-          <option value="allocated">Allocated</option>
-          <option value="unallocated">Has unallocated cost</option>
+        <FilterSelect allLabel={tx("全部", "All")} label={tx("成本归属", "Cost attribution")} value={costAttribution} onChange={setCostAttribution}>
+          <option value="allocated">{tx("已归属", "Allocated")}</option>
+          <option value="unallocated">{tx("存在未归属成本", "Has unallocated cost")}</option>
         </FilterSelect>
       </div>
-      <div className="overflow-x-auto rounded border">
-        <table className="w-full min-w-[880px] text-left text-sm" aria-label="Managed runtimes">
-          <thead className="border-b bg-neutral-50 text-xs text-neutral-500 dark:bg-neutral-900">
+      <div className="runtime-list__table-wrap">
+        <table className="runtime-list__table" aria-label={tx("托管执行引擎", "Managed runtimes")}>
+          <thead>
             <tr>
-              <th className="p-3 font-medium">Name</th><th className="p-3 font-medium">Provider / protocol</th>
-              <th className="p-3 font-medium">Status</th><th className="p-3 font-medium">Default model</th>
-              <th className="p-3 font-medium">AI employees</th><th className="p-3 font-medium">Last heartbeat</th>
-              <th className="p-3 font-medium">Period actual cost</th><th className="p-3 font-medium"><span className="sr-only">Actions</span></th>
+              <th>{tx("名称", "Name")}</th><th>{tx("供应商 / 协议", "Provider / protocol")}</th>
+              <th>{tx("状态", "Status")}</th><th>{tx("默认模型", "Default model")}</th>
+              <th>{tx("AI 员工", "AI employees")}</th><th>{tx("最后心跳", "Last heartbeat")}</th>
+              <th>{tx("周期实际成本", "Period actual cost")}</th><th><span className="sr-only">{tx("操作", "Actions")}</span></th>
             </tr>
           </thead>
-          <tbody className="divide-y">
+          <tbody>
       {filtered.map((runtime) => {
-        const presentation = presentRuntimeState(runtime);
+        const presentation = presentRuntimeState(runtime, tx);
         return (
           <tr key={runtime.id}>
-            <td className="p-3 font-medium">{workspaceSlug ? (
+            <td className="runtime-list__name">{workspaceSlug ? (
               <Link
-                className="underline-offset-2 hover:underline"
+                className="runtime-list__link"
                 href={buildWorkspacePath(workspaceSlug, `/runtimes/runtime/${runtime.id}`)}
               >
                 {runtime.name}
               </Link>
             ) : runtime.name}</td>
-            <td className="p-3"><span className="block">{formatDaemonProviderLabel(runtime.provider)}</span><span className="text-xs text-neutral-500">{runtime.protocols.join(", ") || "—"}</span></td>
-            <td className="p-3"><span className={`rounded px-2 py-0.5 text-xs font-medium ${presentation.tone}`}>{presentation.label}</span><span className="mt-1 block max-w-48 text-xs text-neutral-500">{presentation.detail}</span></td>
-            <td className="p-3">{runtime.defaultModel || "System fallback"}</td>
-            <td className="p-3 tabular-nums">
+            <td><span>{formatDaemonProviderLabel(runtime.provider)}</span><small>{runtime.protocols.join(", ") || "—"}</small></td>
+            <td><span className={`runtime-status runtime-status--${presentation.tone}`}>{presentation.label}</span><small>{presentation.detail}</small></td>
+            <td>{runtime.defaultModel || tx("跟随系统默认", "System fallback")}</td>
+            <td className="runtime-list__number">
               {runtime.assignedEmployeeCount}
               {runtime.allowNewEmployeeSharing === false ? (
-                <span className="mt-1 block max-w-48 text-xs text-amber-700 dark:text-amber-400">Sharing closed to new AI employees</span>
+                <small className="runtime-list__warning">{tx("已关闭新 AI 员工共享", "Sharing closed to new AI employees")}</small>
               ) : null}
             </td>
-            <td className="p-3 text-xs">{formatHeartbeat(runtime.lastHeartbeatAt)}</td>
-            <td className="p-3 tabular-nums"><span>${runtime.periodActualCostUsd.toFixed(4)}</span>{runtime.unallocatedCostUsd > 0 ? <span className="block text-xs text-amber-700">${runtime.unallocatedCostUsd.toFixed(4)} unallocated</span> : null}</td>
-            <td className="p-3 text-right">{runtime.provisioningState === "needs_attention" ? (
+            <td>{formatHeartbeat(runtime.lastHeartbeatAt, language)}</td>
+            <td className="runtime-list__number"><span>${runtime.periodActualCostUsd.toFixed(4)}</span>{runtime.unallocatedCostUsd > 0 ? <small className="runtime-list__warning">${runtime.unallocatedCostUsd.toFixed(4)} {tx("未归属", "unallocated")}</small> : null}</td>
+            <td className="runtime-list__actions">{runtime.provisioningState === "needs_attention" ? (
               <button
                 type="button"
-                className="rounded border px-2 py-1 text-xs font-medium disabled:opacity-50"
+                className="action-button runtime-action-button"
                 disabled={pending}
                 onClick={() => onRotate(runtime.id)}
               >
-                Rotate key
+                {tx("轮换凭证", "Rotate key")}
               </button>
             ) : null}</td>
           </tr>
@@ -106,14 +113,14 @@ export function ManagedRuntimeList({
       })}
           </tbody>
         </table>
-        {filtered.length === 0 ? <p className="p-4 text-sm text-neutral-500">No runtimes match these filters.</p> : null}
+        {filtered.length === 0 ? <p className="runtime-list__no-results">{tx("没有符合筛选条件的执行引擎。", "No runtimes match these filters.")}</p> : null}
       </div>
     </div>
   );
 }
 
-function FilterSelect({ label, value, onChange, children }: { label: string; value: string; onChange: (value: string) => void; children: React.ReactNode }) {
-  return <label className="text-xs"><span className="mb-1 block text-neutral-500">{label}</span><select className="w-full rounded border px-2 py-1.5 text-sm" value={value} onChange={(event) => onChange(event.target.value)}><option value="">All</option>{children}</select></label>;
+function FilterSelect({ label, allLabel, value, onChange, children }: { label: string; allLabel: string; value: string; onChange: (value: string) => void; children: React.ReactNode }) {
+  return <label className="runtime-field"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}><option value="">{allLabel}</option>{children}</select></label>;
 }
 
 function runtimeStatusFilter(runtime: ManagedRuntimeListItem): string {
@@ -123,46 +130,46 @@ function runtimeStatusFilter(runtime: ManagedRuntimeListItem): string {
   return runtime.status === "online" ? "available" : "offline";
 }
 
-function formatHeartbeat(value: string | undefined): string {
-  if (!value) return "Never";
-  return new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+function formatHeartbeat(value: string | undefined, language: "zh" | "en"): string {
+  if (!value) return language === "zh" ? "从未" : "Never";
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
-function presentRuntimeState(runtime: ManagedRuntimeListItem): {
+function presentRuntimeState(runtime: ManagedRuntimeListItem, tx: (zh: string, en: string) => string): {
   label: string;
   detail: string;
   tone: string;
 } {
   if (runtime.provisioningState === "credential_recovering") {
     return {
-      label: "Credential recovery",
-      detail: "Updating the gateway credential; new tasks are paused.",
-      tone: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200",
+      label: tx("凭证恢复中", "Credential recovery"),
+      detail: tx("正在更新网关凭证，新任务已暂停。", "Updating the gateway credential; new tasks are paused."),
+      tone: "recovering",
     };
   }
   if (runtime.provisioningState === "needs_attention") {
     return {
-      label: "Needs attention",
-      detail: "Automatic recovery stopped after three attempts.",
-      tone: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200",
+      label: tx("需要处理", "Needs attention"),
+      detail: tx("自动恢复在三次尝试后已停止。", "Automatic recovery stopped after three attempts."),
+      tone: "attention",
     };
   }
   if (runtime.provisioningState === "legacy") {
     return {
-      label: "Stopped",
-      detail: "This runtime is not accepting new tasks.",
-      tone: "bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200",
+      label: tx("已停止", "Stopped"),
+      detail: tx("此执行引擎不再接收新任务。", "This runtime is not accepting new tasks."),
+      tone: "stopped",
     };
   }
   return runtime.status === "online"
     ? {
-        label: "Available",
-        detail: "Credential verified and ready for scheduling.",
-        tone: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200",
+        label: tx("可用", "Available"),
+        detail: tx("凭证已验证，可以接受调度。", "Credential verified and ready for scheduling."),
+        tone: "available",
       }
     : {
-        label: "Offline",
-        detail: "Waiting for the managed node heartbeat.",
-        tone: "bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200",
+        label: tx("离线", "Offline"),
+        detail: tx("正在等待托管节点心跳。", "Waiting for the managed node heartbeat."),
+        tone: "offline",
       };
 }

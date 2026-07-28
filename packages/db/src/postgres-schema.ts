@@ -84,8 +84,6 @@ export function getPostgresSchemaStatements(): string[] {
         value TEXT NOT NULL
       )
     `,
-    `DROP TABLE IF EXISTS agent_google_workspace_delegation`,
-    `DROP TABLE IF EXISTS google_oauth_credential`,
     `
       CREATE TABLE IF NOT EXISTS workspace (
         id TEXT PRIMARY KEY,
@@ -1647,34 +1645,6 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE INDEX IF NOT EXISTS idx_managed_runtime_cleanup_request_running_timeout
         ON managed_runtime_cleanup_request(status, claimed_at)
     `,
-    `
-      UPDATE workspace_snapshot
-      SET state_json = jsonb_set(
-        jsonb_set(
-          jsonb_set(
-            state_json - 'externalSheetOperationRuns',
-            '{channelDocuments}',
-            COALESCE((
-              SELECT jsonb_agg(item)
-              FROM jsonb_array_elements(COALESCE(state_json->'channelDocuments', '[]'::jsonb)) AS item
-              WHERE item->>'externalProvider' IS DISTINCT FROM 'google_workspace'
-            ), '[]'::jsonb)
-          ),
-          '{dataTables}',
-          COALESCE((
-            SELECT jsonb_agg(item)
-            FROM jsonb_array_elements(COALESCE(state_json->'dataTables', '[]'::jsonb)) AS item
-            WHERE item->>'externalProvider' IS DISTINCT FROM 'google_workspace'
-          ), '[]'::jsonb)
-        ),
-        '{skills}',
-        COALESCE((
-          SELECT jsonb_agg(item)
-          FROM jsonb_array_elements(COALESCE(state_json->'skills', '[]'::jsonb)) AS item
-          WHERE item->>'name' IS DISTINCT FROM 'google-workspace-cli'
-        ), '[]'::jsonb)
-      )
-    `,
     ...[
       "channelDocumentVersions",
       "channelDocumentBlocks",
@@ -1699,8 +1669,6 @@ export function getPostgresSchemaStatements(): string[] {
         ), '[]'::jsonb)
       )
     `),
-    `DELETE FROM skill_import_event WHERE skill_name = 'google-workspace-cli'`,
-    `DELETE FROM skill WHERE name = 'google-workspace-cli'`,
     `
       CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_slug
         ON workspace(slug)

@@ -1,7 +1,13 @@
-import { render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { render as testingRender, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import { ManagedRuntimeList } from "@/features/runtimes/managed-runtime-list";
+import { LanguageProvider } from "@/features/i18n/language-provider";
+
+function render(ui: ReactNode) {
+  return testingRender(<LanguageProvider initialLanguage="en">{ui}</LanguageProvider>);
+}
 
 it("exposes manual credential rotation only when a runtime needs attention", async () => {
   const onRotate = vi.fn();

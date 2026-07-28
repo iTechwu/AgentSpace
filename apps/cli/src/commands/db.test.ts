@@ -74,8 +74,8 @@ test("db workspace-purge removes the target workspace when forced", () => {
     createdBy: "system",
   });
   resetWorkspaceStateSync(workspaceId);
-  mkdirSync(join(tempRoot, "data", "workspaces", workspaceId, "attachments"), { recursive: true });
-  writeFileSync(join(tempRoot, "data", "workspaces", workspaceId, "attachments", "artifact.txt"), "hello", "utf8");
+  mkdirSync(join(tempRoot, "data", "workspaces", workspaceId, "channel-history"), { recursive: true });
+  writeFileSync(join(tempRoot, "data", "workspaces", workspaceId, "channel-history", "general.md"), "hello", "utf8");
 
   const logs: string[] = [];
   const originalLog = console.log;

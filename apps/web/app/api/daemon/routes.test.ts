@@ -574,10 +574,9 @@ describe("daemon API routes", () => {
     addChannelEmployeesSync({ channelName: "tour visit", employeeNames: ["Atlas"] });
     bindEmployeeRuntimeSync("Atlas", runtimeId);
 
-    const attachmentsDir = join(tempRoot, "data", "workspaces", "default", "attachments");
-    mkdirSync(attachmentsDir, { recursive: true });
-    const storedPath = join(attachmentsDir, "att-manual-note.txt");
-    writeFileSync(storedPath, "input attachment", "utf8");
+    const storageKey = "workspaces/default/attachments/att-manual-note/manual-note.txt";
+    const storedPath = `tos://test-bucket/${storageKey}`;
+    testTos.seed(storageKey, "input attachment");
 
     const queued = enqueueNativeTaskSync({
       assignee: "Atlas",
@@ -590,6 +589,11 @@ describe("daemon API routes", () => {
           {
             fileName: "manual-note.txt",
             storedPath,
+            storageProvider: "tos",
+            storageBucket: "test-bucket",
+            storageRegion: "cn-beijing",
+            storageEndpoint: "https://tos-cn-beijing.volces.com",
+            storageKey,
             mediaType: "text/plain",
             kind: "file",
           },

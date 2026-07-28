@@ -1,6 +1,7 @@
 import { listAuditLogsSync } from "@dofe-agent/db";
 import { notFound } from "next/navigation";
-import { AuditLogView, parseAuditLogFilters } from "@/features/audit/audit-log-view";
+import { AuditLogView } from "@/features/audit/audit-log-view";
+import { parseAuditLogFilters } from "@/features/audit/audit-log-filters";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { getWorkspacePageContext } from "../_lib/workspace-page-context";
@@ -13,5 +14,5 @@ export default async function WorkspaceAuditPage({ params, searchParams }: { par
   if (!hasWorkspaceRole(context.currentMembership.role, "admin")) notFound();
   const filters = parseAuditLogFilters(await searchParams);
   const logs = listAuditLogsSync(context.currentWorkspace.id, { ...filters, limit: 500 });
-  return <section className="mx-auto max-w-6xl space-y-5 p-6"><header><h1 className="text-xl font-semibold">Audit log</h1><p className="mt-1 text-sm text-neutral-500">Workspace operations and runtime execution events.</p></header><AuditLogView logs={logs} filters={filters} clearHref={buildWorkspacePath(workspaceSlug, "/audit")} /></section>;
+  return <AuditLogView logs={logs} filters={filters} clearHref={buildWorkspacePath(workspaceSlug, "/audit")} />;
 }

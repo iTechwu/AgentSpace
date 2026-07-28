@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ContactAgentContext, MaterializedSkillDirectories } from "@dofe-agent/services";
 import {
@@ -17,6 +17,7 @@ import {
   listNotificationsForRecipientSync,
   materializeWorkspaceSkillsForProvider,
   readWorkspaceStateSync,
+  readWorkspaceAttachmentBytesSync,
   sameValue,
   FEISHU_LARK_CLI_RESULT_MANIFEST_KIND,
   FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
@@ -104,6 +105,11 @@ export interface ParsedTaskPayload {
     storedPath: string;
     mediaType?: string;
     kind?: string;
+    storageProvider?: "tos";
+    storageBucket?: string;
+    storageRegion?: string;
+    storageEndpoint?: string;
+    storageKey?: string;
   }>;
 }
 
@@ -232,7 +238,17 @@ export function parseTaskInputJson(inputJson: string): ParsedTaskPayload {
       attachments: Array.isArray(parsed.attachments)
         ? parsed.attachments
             .filter(
-              (item): item is { fileName: string; storedPath: string; mediaType?: string; kind?: string } =>
+              (item): item is {
+                fileName: string;
+                storedPath: string;
+                mediaType?: string;
+                kind?: string;
+                storageProvider?: "tos";
+                storageBucket?: string;
+                storageRegion?: string;
+                storageEndpoint?: string;
+                storageKey?: string;
+              } =>
                 Boolean(item) &&
                 typeof item === "object" &&
                 typeof (item as { fileName?: unknown }).fileName === "string" &&
@@ -243,6 +259,11 @@ export function parseTaskInputJson(inputJson: string): ParsedTaskPayload {
               storedPath: item.storedPath,
               mediaType: typeof item.mediaType === "string" ? item.mediaType : undefined,
               kind: typeof item.kind === "string" ? item.kind : undefined,
+              storageProvider: item.storageProvider === "tos" ? "tos" : undefined,
+              storageBucket: typeof item.storageBucket === "string" ? item.storageBucket : undefined,
+              storageRegion: typeof item.storageRegion === "string" ? item.storageRegion : undefined,
+              storageEndpoint: typeof item.storageEndpoint === "string" ? item.storageEndpoint : undefined,
+              storageKey: typeof item.storageKey === "string" ? item.storageKey : undefined,
             }))
         : undefined,
     };
@@ -998,7 +1019,7 @@ export function materializeAgentKnowledgePages(
 }
 
 export function materializeAttachments(
-  attachments: Array<{ fileName: string; storedPath: string; mediaType?: string; kind?: string }> | undefined,
+  attachments: ParsedTaskPayload["attachments"],
   workDir: string,
 ): string[] {
   if (!attachments || attachments.length === 0) {
@@ -1011,12 +1032,8 @@ export function materializeAttachments(
   return attachments.map((attachment, index) => {
     const safeName = sanitizePathSegment(attachment.fileName.replace(/[\\/]/g, "-"));
     const targetPath = join(targetDir, `${String(index + 1).padStart(2, "0")}-${safeName}`);
-    try {
-      copyFileSync(attachment.storedPath, targetPath);
-      return `- ${attachment.fileName} (${targetPath})`;
-    } catch {
-      return `- ${attachment.fileName} (${attachment.storedPath})`;
-    }
+    writeFileSync(targetPath, readWorkspaceAttachmentBytesSync(attachment));
+    return `- ${attachment.fileName} (${targetPath})`;
   });
 }
 

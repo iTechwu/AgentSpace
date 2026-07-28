@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import test, { before, beforeEach } from "node:test";
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
@@ -13,24 +13,35 @@ import {
   deleteKnowledgePageSync,
   listEmployeeKnowledgePageIdsSync,
   listKnowledgeAssignmentsByPageIdSync,
+  persistWorkspaceAttachmentFromBytesSync,
   setEmployeeKnowledgePageIdsSync,
   setKnowledgePageAssignedEmployeesSync,
   setKnowledgePageAssignmentModeSync,
+  setAttachmentStorageClientForTests,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
   writeWorkspaceStateSync,
 } from "../index.ts";
+import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-knowledge-"));
+const testTos = createTestTosAttachmentStorage();
 
 before(() => {
+  process.env.NODE_ENV = "test";
+  setAttachmentStorageClientForTests(testTos.client);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   process.chdir(tempRoot);
 });
 
+test.after(() => {
+  setAttachmentStorageClientForTests(undefined);
+});
+
 beforeEach(() => {
+  testTos.clear();
   resetWorkspaceStateSync();
   writeWorkspaceStateSync({
     ...readWorkspaceStateSync(),
@@ -52,17 +63,14 @@ beforeEach(() => {
 });
 
 function createAttachment(id: string, fileName: string, mediaType: string, content: string): MessageAttachment {
-  const attachmentsDir = join(tempRoot, "data", "workspaces", "default", "attachments");
-  mkdirSync(attachmentsDir, { recursive: true });
-  const storedPath = join(attachmentsDir, `${id}-${basename(fileName.replace(/\\/g, "/"))}`);
-  writeFileSync(storedPath, content, "utf8");
-  return {
-    id,
+  const stored = persistWorkspaceAttachmentFromBytesSync({
+    contentBytes: Buffer.from(content, "utf8"),
     fileName,
     mediaType,
-    sizeBytes: Buffer.byteLength(content),
-    kind: mediaType.startsWith("image/") ? "image" : "file",
-    storedPath,
+  });
+  return {
+    ...stored,
+    id,
   };
 }
 

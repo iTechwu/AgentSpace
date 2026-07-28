@@ -49,6 +49,9 @@ export function resolveCurrentWorkspaceContextForUserSync(
       return buildChannelScopedWorkspaceContext(currentUser, channelWorkspace, memberships, preferredWorkspaceIdentifiers);
     }
   }
+  if (memberships.length === 0) {
+    throw new Error("auth.sso_no_workspace");
+  }
   const currentMembership =
     (preferredWorkspace
       ? memberships.find((membership) => membership.workspaceId === preferredWorkspace.id)
@@ -231,8 +234,5 @@ function ensureWorkspaceMembershipsSync(currentUser: AuthUser): StoredWorkspaceM
   }
   const memberships = listUserWorkspacesSync(currentUser.id)
     .filter((membership) => membership.workspaceId.startsWith("sso-"));
-  if (memberships.length > 0) {
-    return memberships;
-  }
-  throw new Error("auth.sso_no_workspace");
+  return memberships;
 }

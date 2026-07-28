@@ -2,7 +2,13 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createWorkspaceMembershipSync, createWorkspaceSync, getDatabase, listUserWorkspacesSync } from "@dofe-agent/db";
+import {
+  createChannelParticipantSync,
+  createWorkspaceMembershipSync,
+  createWorkspaceSync,
+  getDatabase,
+  listUserWorkspacesSync,
+} from "@dofe-agent/db";
 import type { AuthUser } from "./server-auth";
 import {
   resolveCurrentWorkspaceContextForUserSync,
@@ -42,6 +48,44 @@ describe("server workspace context", () => {
     seedUser(user);
 
     expect(() => resolveCurrentWorkspaceContextForUserSync(user)).toThrow("auth.sso_no_workspace");
+  });
+
+  it("resolves an explicitly selected workspace for a channel-scoped guest", () => {
+    const user: AuthUser = {
+      id: "channel-guest-1",
+      organizationName: "",
+      displayName: "Channel Guest",
+      role: "member",
+      email: "channel-guest@example.com",
+      isPlatformAdmin: false,
+    };
+    seedUser(user);
+    const workspace = createWorkspaceSync({
+      id: "sso-team-channel-guest",
+      slug: "channel-guest",
+      name: "Channel Guest Workspace",
+      createdBy: "workspace-owner",
+    });
+    const now = new Date().toISOString();
+    getDatabase().prepare(
+      `INSERT INTO workspace_channel (
+        id, workspace_id, name, kind, human_member_names_json,
+        human_member_count, employee_names_json, version, created_at, updated_at
+      ) VALUES (?, ?, ?, 'group', '[]', 0, '[]', 1, ?, ?)`,
+    ).run("channel-guest-general", workspace.id, "guest-general", now, now);
+    createChannelParticipantSync({
+      workspaceId: workspace.id,
+      channelName: "guest-general",
+      userId: user.id,
+      addedBy: "workspace-owner",
+    });
+
+    const context = resolveCurrentWorkspaceContextForUserSync(user, workspace.slug);
+
+    expect(context.accessScope).toBe("channel");
+    expect(context.channelNames).toEqual(["guest-general"]);
+    expect(context.currentMembership.role).toBe("member");
+    expect(context.memberships).toEqual([]);
   });
 
   it("prefers existing user memberships instead of forcing default workspace", () => {

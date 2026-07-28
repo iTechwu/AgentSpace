@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import test, { before } from "node:test";
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
@@ -24,6 +24,7 @@ import {
   formatTaskFailureSummary,
   initializeOrganizationSync,
   pinMessageSync,
+  persistWorkspaceAttachmentFromBytesSync,
   postMessageSync,
   readWorkspaceStateSync,
   replacePendingChannelMessageSync,
@@ -33,18 +34,23 @@ import {
   sendChannelHumanMessageSync,
   sendContactMessageSync,
   sendHumanDirectMessageSync,
+  setAttachmentStorageClientForTests,
   setEmployeeChannelMemberAccessSync,
   stopAutoContinuationSync,
   subscribeWorkspaceRealtimeEvents,
   unpinMessageSync,
   writeWorkspaceStateSync,
 } from "../index.ts";
+import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
 
 const originalCwd = process.cwd();
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-message-attachments-"));
+const testTos = createTestTosAttachmentStorage();
 
 before(() => {
+  process.env.NODE_ENV = "test";
+  setAttachmentStorageClientForTests(testTos.client);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   const packagesLink = join(tempRoot, "packages");
@@ -54,7 +60,12 @@ before(() => {
   process.chdir(tempRoot);
 });
 
+test.after(() => {
+  setAttachmentStorageClientForTests(undefined);
+});
+
 function seedWorkspace(): void {
+  testTos.clear();
   resetWorkspaceStateSync();
   initializeOrganizationSync({
     organizationName: "Northstar Labs",
@@ -93,17 +104,14 @@ function seedWorkspace(): void {
 }
 
 function createAttachment(id: string, fileName: string, mediaType: string): MessageAttachment {
-  const attachmentsDir = join(tempRoot, "data", "workspaces", "default", "attachments");
-  mkdirSync(attachmentsDir, { recursive: true });
-  const storedPath = join(attachmentsDir, `${id}-${basename(fileName.replace(/\\/g, "/"))}`);
-  writeFileSync(storedPath, "attachment-content", "utf8");
-  return {
-    id,
+  const stored = persistWorkspaceAttachmentFromBytesSync({
+    contentBytes: Buffer.from("attachment-content", "utf8"),
     fileName,
     mediaType,
-    sizeBytes: Buffer.byteLength("attachment-content"),
-    kind: mediaType.startsWith("image/") ? "image" : "file",
-    storedPath,
+  });
+  return {
+    ...stored,
+    id,
   };
 }
 

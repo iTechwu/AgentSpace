@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/features/auth/server-auth";
 import { listAuditLogsSync } from "@dofe-agent/db";
 import { PLATFORM_AUDIT_WORKSPACE_ID } from "@dofe-agent/services";
-import { AuditLogView, parseAuditLogFilters } from "@/features/audit/audit-log-view";
+import { AuditLogView } from "@/features/audit/audit-log-view";
+import { parseAuditLogFilters } from "@/features/audit/audit-log-filters";
 
 export const metadata: Metadata = {
   title: "平台审计",
@@ -26,13 +27,13 @@ export default async function PlatformAuditPage({ searchParams }: { searchParams
   });
 
   return (
-    <main className="platform-audit-page">
-      <header className="platform-audit-header">
-        <h1>平台审计看板</h1>
-        <p>仅平台运维可见的操作日志</p>
-      </header>
-
-      <section className="platform-audit-table-wrap"><AuditLogView logs={logs} filters={filters} clearHref="/platform/audit" /></section>
-    </main>
+    <AuditLogView
+      clearHref="/platform/audit"
+      description="仅平台运维可见的操作日志。"
+      eyebrow="平台治理"
+      filters={filters}
+      logs={logs}
+      title="平台审计看板"
+    />
   );
 }
