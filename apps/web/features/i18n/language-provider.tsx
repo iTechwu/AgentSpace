@@ -21,7 +21,7 @@ export function LanguageProvider({
   children: React.ReactNode;
   initialLanguage?: LanguageCode;
 }) {
-  const [language, setLanguageState] = useState<LanguageCode>(initialLanguage ?? "en");
+  const [language, setLanguageState] = useState<LanguageCode>(initialLanguage ?? "zh");
   const [hasLoadedStoredLanguage, setHasLoadedStoredLanguage] = useState(false);
 
   useEffect(() => {
