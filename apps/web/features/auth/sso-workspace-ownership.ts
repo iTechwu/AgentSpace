@@ -12,12 +12,22 @@ import { getSsoInternalClient } from "./sso-internal-client";
  * mid-flight; the IdP last-owner guard (sso.dofe.ai) sees count=2 when demoting and
  * allows it, ending at one owner. A promote failure aborts (actor stays owner); a
  * demote failure leaves two owners (over-permissive, never ownerless, converges on retry).
+ *
+ * `actorUserId`/`reason` attribute the change on the IdP audit log to the real SSO
+ * actor. The published SDK request type is `{ role }`; the SDK client forwards the
+ * body verbatim (no validation/stripping) and sso.dofe.ai accepts these optional
+ * fields, so we extend the request locally via `AttributedRoleUpdate`.
  */
+type AttributedRoleUpdate = {
+  role: "OWNER" | "ADMIN" | "MEMBER";
+  actorUserId?: string;
+  reason?: string;
+};
+
 export async function transferSsoWorkspaceOwnership(input: {
   workspaceId: string;
   currentOwnerUserId: string;
   nextOwnerUserId: string;
-  actorUserId?: string;
 }): Promise<void> {
   const binding = readWorkspaceSsoBindingSync(input.workspaceId);
   if (!binding) throw new Error("workspace.sso_binding_missing");
@@ -29,18 +39,28 @@ export async function transferSsoWorkspaceOwnership(input: {
   }
 
   const client = getSsoInternalClient();
+  const promote: AttributedRoleUpdate = {
+    role: "OWNER",
+    actorUserId: actorSubject,
+    reason: "ownership_transfer",
+  };
+  const demote: AttributedRoleUpdate = {
+    role: "ADMIN",
+    actorUserId: actorSubject,
+    reason: "ownership_transfer",
+  };
 
   if (binding.source === "team") {
     if (!binding.teamId) throw new Error("workspace.sso_binding_missing");
     // Promote first so the team is never ownerless.
-    await client.teams.updateMemberRole(binding.teamId, nextSubject, { role: "OWNER" });
-    await client.teams.updateMemberRole(binding.teamId, actorSubject, { role: "ADMIN" });
+    await client.teams.updateMemberRole(binding.teamId, nextSubject, promote);
+    await client.teams.updateMemberRole(binding.teamId, actorSubject, demote);
     return;
   }
 
   // Tenant-scoped workspace: transfer tenant ownership.
-  await client.tenants.updateMemberRole(binding.tenantId, nextSubject, { role: "OWNER" });
-  await client.tenants.updateMemberRole(binding.tenantId, actorSubject, { role: "ADMIN" });
+  await client.tenants.updateMemberRole(binding.tenantId, nextSubject, promote);
+  await client.tenants.updateMemberRole(binding.tenantId, actorSubject, demote);
 }
 
 function resolveSsoSubject(localUserId: string): string | null {

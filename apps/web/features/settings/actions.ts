@@ -195,7 +195,6 @@ export async function transferWorkspaceOwnershipAction(input: {
     workspaceId: workspaceContext.currentWorkspace.id,
     currentOwnerUserId: actorUserId,
     nextOwnerUserId: targetUserId,
-    actorUserId,
   });
   transferWorkspaceOwnershipSync(
     workspaceContext.currentWorkspace.id,
