@@ -83,7 +83,12 @@ export function ManagedRuntimeList({
             <td className="p-3"><span className="block">{formatDaemonProviderLabel(runtime.provider)}</span><span className="text-xs text-neutral-500">{runtime.protocols.join(", ") || "—"}</span></td>
             <td className="p-3"><span className={`rounded px-2 py-0.5 text-xs font-medium ${presentation.tone}`}>{presentation.label}</span><span className="mt-1 block max-w-48 text-xs text-neutral-500">{presentation.detail}</span></td>
             <td className="p-3">{runtime.defaultModel || "System fallback"}</td>
-            <td className="p-3 tabular-nums">{runtime.assignedEmployeeCount}</td>
+            <td className="p-3 tabular-nums">
+              {runtime.assignedEmployeeCount}
+              {runtime.allowNewEmployeeSharing === false ? (
+                <span className="mt-1 block max-w-48 text-xs text-amber-700 dark:text-amber-400">Sharing closed to new AI employees</span>
+              ) : null}
+            </td>
             <td className="p-3 text-xs">{formatHeartbeat(runtime.lastHeartbeatAt)}</td>
             <td className="p-3 tabular-nums"><span>${runtime.periodActualCostUsd.toFixed(4)}</span>{runtime.unallocatedCostUsd > 0 ? <span className="block text-xs text-amber-700">${runtime.unallocatedCostUsd.toFixed(4)} unallocated</span> : null}</td>
             <td className="p-3 text-right">{runtime.provisioningState === "needs_attention" ? (

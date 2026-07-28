@@ -7,6 +7,7 @@ import {
   createManagedProvisioningExecutor,
   probeManagedGateway,
 } from "./managed-runtime-provisioning.ts";
+import type { ManagedProvisioningCommand, ManagedProvisioningTask } from "./daemon-api.ts";
 
 process.env.MANAGED_RUNTIME_DOCKER_NETWORK = "dofe-models-egress";
 
@@ -162,4 +163,112 @@ test("failed managed cleanup preserves the credential profile for retry", async 
 
   assert.equal(result.success, false);
   assert.equal(cleanupCalls, 0);
+});
+
+function buildProvisioningTask(
+  stage: ManagedProvisioningTask["stage"],
+  commands: ManagedProvisioningCommand[],
+): ManagedProvisioningTask {
+  return {
+    taskId: "task-1",
+    workspaceId: "ws-1",
+    runtimeId: "runtime-1",
+    runtimeType: "codex",
+    runtimeCredentialId: "credential-1",
+    stage,
+    commands,
+  };
+}
+
+test("execute(write_credential) resolves the credential profile and launcher, then succeeds", async () => {
+  let resolvedCredentialId = "";
+  const executor = createManagedProvisioningExecutor("/tmp/managed-runtime-test", {
+    async resolve(_runtimeId, expectedCredentialId) {
+      resolvedCredentialId = expectedCredentialId ?? "";
+      return { accountId: "runtime-1", profileDir: "/tmp/profile", environment: {} };
+    },
+    getExecutablePath(_runtimeId, provider) {
+      return `/tmp/run-${provider}`;
+    },
+    cleanup() {},
+  });
+
+  const result = await executor.execute(buildProvisioningTask("write_credential", []));
+
+  assert.equal(result.success, true);
+  assert.equal(resolvedCredentialId, "credential-1");
+});
+
+test("execute(write_credential) surfaces a structured error when credential resolution fails", async () => {
+  const executor = createManagedProvisioningExecutor("/tmp/managed-runtime-test", {
+    async resolve() {
+      throw new Error("bundle fetch rejected");
+    },
+    getExecutablePath() {
+      return "/tmp/run-codex";
+    },
+    cleanup() {},
+  });
+
+  const result = await executor.execute(buildProvisioningTask("write_credential", []));
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "managed_runtime.write_credential_failed");
+  assert.match(result.errorMessage ?? "", /bundle fetch rejected/);
+});
+
+test("execute(pull_image) runs an allowed command sequence and reports success", async () => {
+  const executor = createManagedProvisioningExecutor("/tmp/managed-runtime-test", {
+    async resolve() {
+      return null;
+    },
+    getExecutablePath() {
+      return "/tmp/run-codex";
+    },
+    cleanup() {},
+  });
+
+  const result = await executor.execute(buildProvisioningTask("pull_image", [
+    { executable: "sh", args: ["-c", "exit 0"] },
+  ]));
+
+  assert.equal(result.success, true);
+});
+
+test("execute(pull_image) reports a stage-specific error when a command exits non-zero", async () => {
+  const executor = createManagedProvisioningExecutor("/tmp/managed-runtime-test", {
+    async resolve() {
+      return null;
+    },
+    getExecutablePath() {
+      return "/tmp/run-codex";
+    },
+    cleanup() {},
+  });
+
+  const result = await executor.execute(buildProvisioningTask("pull_image", [
+    { executable: "sh", args: ["-c", "exit 1"] },
+  ]));
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "managed_runtime.pull_image_failed");
+});
+
+test("execute(install_cli) refuses commands outside the allowed executable allowlist", async () => {
+  const executor = createManagedProvisioningExecutor("/tmp/managed-runtime-test", {
+    async resolve() {
+      return null;
+    },
+    getExecutablePath() {
+      return "/tmp/run-codex";
+    },
+    cleanup() {},
+  });
+
+  const result = await executor.execute(buildProvisioningTask("install_cli", [
+    { executable: "python3", args: ["-c", "import os"] },
+  ]));
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "managed_runtime.disallowed_executable");
 });

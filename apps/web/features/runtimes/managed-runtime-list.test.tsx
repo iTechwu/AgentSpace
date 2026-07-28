@@ -71,3 +71,16 @@ it("filters runtimes by provider, status, model, and cost attribution", async ()
   await user.selectOptions(screen.getByLabelText("Cost attribution"), "allocated");
   expect(screen.getByText("No runtimes match these filters.")).toBeInTheDocument();
 });
+
+it("flags runtimes that have closed sharing to new AI employees", () => {
+  render(<ManagedRuntimeList pending={false} onRotate={vi.fn()} runtimes={[
+    { id: "r-open", name: "Open Codex", provider: "codex", managedCredentialId: "c1", status: "online", provisioningState: "managed", protocols: ["openai"], defaultModel: "gpt-5", assignedEmployeeCount: 3, periodActualCostUsd: 1, unallocatedCostUsd: 0, allowNewEmployeeSharing: true },
+    { id: "r-closed", name: "Locked Claude", provider: "claude", managedCredentialId: "c2", status: "online", provisioningState: "managed", protocols: ["anthropic"], defaultModel: "claude", assignedEmployeeCount: 1, periodActualCostUsd: 0.5, unallocatedCostUsd: 0, allowNewEmployeeSharing: false },
+  ]} />);
+
+  const table = screen.getByRole("table", { name: "Managed runtimes" });
+  const lockedRow = within(table).getByText("Locked Claude").closest("tr")!;
+  const openRow = within(table).getByText("Open Codex").closest("tr")!;
+  expect(within(lockedRow).getByText("Sharing closed to new AI employees")).toBeInTheDocument();
+  expect(within(openRow).queryByText("Sharing closed to new AI employees")).not.toBeInTheDocument();
+});
