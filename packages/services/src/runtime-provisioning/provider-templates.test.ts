@@ -10,15 +10,15 @@ const originalGatewayBaseUrl = process.env.MODELS_GATEWAY_BASE_URL;
 
 test("managed credential bundles use the gateway endpoint required by each protocol", () => {
   process.env.MODELS_BASE_URL = "http://models-control.test";
-  process.env.MODELS_GATEWAY_BASE_URL = "http://model.local.dofe.ai";
+  process.env.MODELS_GATEWAY_BASE_URL = "http://model.local.dofe.ai/api";
   try {
     const claude = buildManagedCredentialBundleDocument(runtime("claude"), "claude-key");
     const codex = buildManagedCredentialBundleDocument(runtime("codex"), "codex-key");
     const gemini = buildManagedCredentialBundleDocument(runtime("gemini"), "gemini-key");
 
-    assert.equal(claude.environment.ANTHROPIC_BASE_URL, "http://model.local.dofe.ai/anthropic");
-    assert.equal(codex.environment.OPENAI_BASE_URL, "http://model.local.dofe.ai/v1");
-    assert.equal(gemini.environment.GEMINI_BASE_URL, "https://model.local.dofe.ai/gemini");
+    assert.equal(claude.environment.ANTHROPIC_BASE_URL, "http://model.local.dofe.ai/api/anthropic");
+    assert.equal(codex.environment.OPENAI_BASE_URL, "http://model.local.dofe.ai/api/v1");
+    assert.equal(gemini.environment.GEMINI_BASE_URL, "https://model.local.dofe.ai/api/gemini");
   } finally {
     if (originalModelsBaseUrl === undefined) delete process.env.MODELS_BASE_URL;
     else process.env.MODELS_BASE_URL = originalModelsBaseUrl;
@@ -31,7 +31,7 @@ test("install stage verifies the provider CLI inside the pulled runtime image", 
   const commands = buildManagedProvisioningStageCommands("codex", "install_cli", {
     runtimeId: "runtime-codex",
     runtimeCredentialId: "credential-codex",
-    gatewayBaseUrl: "http://model.local.dofe.ai",
+    gatewayBaseUrl: "http://model.local.dofe.ai/api",
     imageTag: "stable",
   });
 

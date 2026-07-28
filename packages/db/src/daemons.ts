@@ -429,7 +429,7 @@ export function readAgentRuntimeSync(runtimeId: string): AgentRuntimeRecord | nu
         credential_config_ref,
         provisioning_task_id,
         managed_at,
-        allow_new_employee_sharing AS allowNewEmployeeSharing,
+        allow_new_employee_sharing,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM agent_runtime
@@ -465,7 +465,7 @@ export function listManagedAgentRuntimesSync(workspaceId: string): AgentRuntimeR
         credential_config_ref,
         provisioning_task_id,
         managed_at,
-        allow_new_employee_sharing AS allowNewEmployeeSharing,
+        allow_new_employee_sharing,
         created_at AS createdAt,
         updated_at AS updatedAt
        FROM agent_runtime
@@ -550,7 +550,7 @@ export function createManagedAgentRuntimeSync(
     input.credentialConfigRef ?? null,
     input.provisioningTaskId,
     now,
-    input.allowNewEmployeeSharing ?? true,
+    input.allowNewEmployeeSharing === false ? 0 : 1,
     now,
     now,
   );
@@ -598,7 +598,7 @@ export function updateAgentRuntimeManagedFieldsSync(
   }
   if (input.allowNewEmployeeSharing !== undefined) {
     sets.push("allow_new_employee_sharing = ?");
-    params.push(input.allowNewEmployeeSharing);
+    params.push(input.allowNewEmployeeSharing === false ? 0 : 1);
   }
   if (input.provisioningTaskId !== undefined) {
     sets.push("provisioning_task_id = ?");
@@ -879,7 +879,7 @@ function listDaemonRuntimesSync(daemonConnectionId: string): AgentRuntimeRecord[
         credential_config_ref,
         provisioning_task_id,
         managed_at,
-        allow_new_employee_sharing AS allowNewEmployeeSharing,
+        allow_new_employee_sharing,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM agent_runtime

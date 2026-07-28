@@ -15,7 +15,7 @@
 5. 清理请求具备原子领取、超时回收、最多三次尝试、退避和 daemon 成功/失败回调；进入任务重试时不会提前清理 Runtime。
 6. 成本页读取 models 的团队真实余额并区分总额、预留、可用、实际、估算、已对账和未分配费用；Runtime 列表同步呈现周期实际及未分配成本。
 7. 团队 Owner/Admin 可访问工作区审计页，并按来源、操作者、AI员工、Runtime、会话、任务、模型和时间范围过滤；平台审计仍保持独立权限与真实操作者视图。
-8. PostgreSQL schema 升级至 v34，补齐任务/清理恢复字段、索引迁移顺序及历史 `token_usage.task_queue_id` 可空迁移，并纳入专项门禁。
+8. PostgreSQL schema 当轮升级至 v34（补齐任务/清理恢复字段、索引迁移顺序及历史 `token_usage.task_queue_id` 可空迁移，并纳入专项门禁）；后续 `allow_new_employee_sharing` 等已推进至 **v46**（`packages/db/src/postgres-schema.ts:1` `POSTGRES_SCHEMA_VERSION`，2026-07-28 第四轮核实）。
 
 仓库内门禁为 `npm run test:agent-pricing`、`npm run typecheck` 与 `npm run lint:web`。未完成项不在代码仓库内：仍需真实 `models.dofe.ai` 测试租户、网关和容器环境执行 staging E2E、网络出口策略验证及正式账单核对。
 
@@ -29,6 +29,52 @@
 4. **Phase 3 残留误导性死代码** → ✅ 已闭环。删除零调用的 `recordSkipped` 与未用导入；修正头部注释为真实 stage 序列（`request_credential → prepare_node → pull_image → install_cli → write_credential → health_check → ready`）。`probeManagedGateway` 因有专门单测予以保留。
 
 其余验收项以本文档“已完成”表述为准。下方阶段内容保留原始描述。
+
+## 2026-07-28 第四轮逐源码核实（代码知识图谱 + 人工核对）
+
+> 以代码知识图谱与人工逐行核对重审阶段 1–6 的断言与 file:line 证据。结论：阶段 2/3/4/5/6 与平台超管隔离的核心行为**均经源码确认**；本轮新发现 **1 处产品验收缺口** 与若干**文档准确性订正**（不影响业务代码结论，仅修正文档表述与引用）。
+
+### 已逐源码确认（抽样证据）
+
+| 领域 | 断言 | 结论 | 证据 |
+| --- | --- | --- | --- |
+| Phase 4 | 五级模型优先级（会话>AI员工>Runtime>团队>协议兜底） | ✅ | `packages/services/src/models/model-resolution.ts:43-96`；`/model` 仅写当前会话 + 审计，不动 Runtime 默认 |
+| Phase 4 | `/model`、群聊 @、DM 无需 @、Owner/Admin 服务端校验 | ✅ | `apps/web/features/chat/model-command.ts:12-18`、`packages/services/src/chat/model-override.ts:112-117,169-183`、`channels/actions.ts:525` |
+| Phase 4 | 聊天顶部模型选择器（仅直接私聊）、错误码结构化 | ✅ | `chat-model-selector.tsx:81-138,190-229`；错误码实际为 5 个（多了 `model_required`） |
+| Phase 4 | 协议过滤模型目录 `listProtocolFilteredRuntimeModelsAction` | ✅ | `apps/web/features/runtimes/actions.ts:184-229` |
+| Phase 5 | `token_usage` 全部归因列 + `billing_status` 四值（含 `pending_reconciliation`） | ✅ | `packages/db/src/postgres-schema.ts:1198-1213`、`packages/db/src/types.ts:1151` |
+| Phase 5 | Runtime / Key / 会话三维度成本查询 + service 封装 + `CostDashboardData` 字段 | ✅ | `packages/db/src/token-usage.ts:385-617`、`packages/services/src/costs/costs.ts:41-297` |
+| Phase 5 | 成本页三张明细表始终渲染 + 说明性空状态 | ✅ | `apps/web/features/costs/costs-page-client.tsx:271-311,385-411` |
+| Phase 5 | 对账：per-credential 游标、24h 回看、pending 扩窗、重试 outbox | ✅ | `packages/services/src/models/usage-sync.ts:258-312`、`packages/db/src/token-usage-retry.ts:12` |
+| Phase 5 | 4 类告警全部真实 emit | ✅ | `billing.insufficient_balance`@`runtime-provisioning.ts:1237`、`runtime.credential_rotation_failed`@`:461`、`usage.reconciliation_discrepancy`@`usage-sync.ts:305`、`budget.exceeded`@`budgets.ts:35`；`/inbox` + 侧栏徽标齐备 |
+| Phase 5 | 余额（remote 显示数值，local “暂不可用”）、`reconcileWorkspaceUsageAction` | ✅ | `apps/web/features/costs/actions.ts:24,121`（均 `assertWorkspaceRoleForContext(...,"admin")`，Owner rank 2 通过） |
+| Phase 3/6 | 节点真实驱动 `pull_image/install_cli/write_credential/health_check`；`recordSkipped` 已删 | ✅ | `packages/daemon/src/managed-runtime-provisioning.ts:59-110`；`recordSkipped` 全仓零命中 |
+| Phase 3/6 | AES-256-GCM vault、版本化目录 + 原子 `current` 切换、`0o700/0o600` | ✅ | `packages/daemon/src/credential-vault.ts:83-162`、`provider-credentials.ts:33-54` |
+| Phase 3/6 | 归因 HMAC（剥离外部 `x-dofe-*`、4 头、HMAC-SHA256） | ✅ | `managed-provider-credentials.ts:140-159,297-341` |
+| Phase 3/6 | 清理：原子领取、超时回收、最多 3 次、取消保持 `cancelling` 至清理终态 | ✅ | `managed-runtime-cleanup.ts:74-80`、`runtime-provisioning.ts:306-311,1493-1505` |
+| Phase 6 | 自托管 `runtime-maintenance` worker + `CRON_SECRET`；local 空闲 | ✅ | `deploy/self-hosted/runtime-maintenance.mjs`、`apps/web/app/api/cron/runtime-provisioning/route.ts:6-19` |
+| 平台超管 | `isAdmin`→`users.is_admin`、`AuthUser.isPlatformAdmin` | ✅ | `apps/web/features/auth/server-auth.ts:80,99,209` |
+| 平台超管 | 登录不写成员、内存合成 Admin、清理历史 SSO 成员 | ✅ | `server-workspace-resolver.ts:219-231`、`sso-workspaces.ts:140-147` |
+| 平台超管 | 成员/计数排除超管；转移拒绝超管为目标 | ✅ | `user-auth.ts:357,376`（`AND u.is_admin=0`）、`workspace-memberships.ts:139-146`（`isPlatformAdminUserSync` 守卫） |
+| 平台超管 | 团队侧审计匿名化为“平台运维”、`platform-audit` 账本保留真实操作者 | ✅ | `packages/services/src/shared/audit.ts:6,30-88,116-147` |
+| 平台超管 | `/platform` + `/platform/audit` 路由 + 仅超管可见侧栏 | ✅ | `apps/web/app/platform/page.tsx`、`apps/web/app/platform/audit/page.tsx`、`workspace-frame.tsx:849-854` |
+| 门禁 | `test:agent-pricing` / `verify:managed-runtime-egress|billing|release` | ✅ | 根 `package.json:32-35` |
+
+### 本轮新发现的产品验收缺口（未闭环）
+
+1. **team/tenant 所有权转移在仓库内无可达实现。** `transferWorkspaceOwnershipSync` 仅作为 DB 原语存在于 `packages/db/src/workspace-memberships.ts:139`（且仅用 `isPlatformAdminUserSync` 拒绝超管为目标、用 SQL `WHERE role='owner'` 保证转出方当前是 Owner），但 **`apps/` 与 `packages/services/` 中无任何调用方**——没有服务端 action，也没有 UI 入口。因此 `00-产品需求与交付规格.md` 验收清单中“仅 Owner 可转移 team/tenant 所有权”目前**无法在可达路径上生效或验证**，已将该条由 `[x]` 改为 `[ ]` 并加注。Owner/Admin 其余管理能力、三角色、Member 不可操作 AI员工 均已确认。
+
+### 文档准确性订正（不改变业务代码结论）
+
+1. **schema 版本**：本文档原“审查闭环”第 8 条记为 v34；当前 `POSTGRES_SCHEMA_VERSION` 已为 **v46**（见上）。已就地订正。
+2. **网关 Base URL 并非固定字面量**：`README.md §3.2` 表中的 `model.local.dofe.ai/api` 是**规范默认主机**，实际主机在部署时由 `MODELS_GATEWAY_BASE_URL` 解析（`provider-templates.ts:78-84` `resolveManagedRuntimeGatewayBaseUrl`）；只有路径后缀（`/v1`、`/anthropic`、`/gemini`）与 Gemini 的 https 升级（`:165-173`）是固定的。字面量 `model.local.dofe.ai/api` 仅出现在测试中。
+3. **Docker hardening 位置**：只读根文件系统、受限 `/tmp`、`no-new-privileges`、cap-drop、非默认网络实际位于 daemon 侧 `managed-runtime-provisioning.ts:178-181` 与 `managed-provider-credentials.ts:264-269`，而非 `provider-templates.ts`（后者仅有 `--network none` 示例）。
+4. **归因 5 分钟时间窗**：节点侧只负责发出时间戳；skew/重放校验在 models 网关侧，**本仓库无法核实**，需 staging 验收。
+5. **更正的 file:line 引用**（见 `review-and-next-steps.md` 三轮核实表）：SSO `isAdmin` 持久化实为 `apps/web/features/auth/server-auth.ts:209`（原表误写 `packages/services/src/server-auth.ts`，该路径不存在）；`transferWorkspaceOwnershipSync` 在 `workspace-memberships.ts:139` 且用程序守卫而非 SQL `is_admin` 过滤（原表将其与 `listWorkspaceMemberUsersSync` 的 `user-auth.ts:357` 混为一类）。
+
+### 仍属 staging 门槛（与前三轮一致，未变）
+
+真实 `models.dofe.ai` 测试租户/网关/容器 E2E、网络出口隔离、真实账单精确核对、节点中断与轮换宽限演练——均不能用仓库单测替代，生产继续 `DOFE_AGENT_RUNTIME_MODE=local`。
 
 ## 阶段 0：确认契约与安全基线
 

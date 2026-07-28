@@ -196,7 +196,7 @@ before(() => {
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   process.chdir(tempRoot);
   process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
-  process.env.MODELS_GATEWAY_BASE_URL = "http://model.local.dofe.ai";
+  process.env.MODELS_GATEWAY_BASE_URL = "http://model.local.dofe.ai/api";
 });
 
 beforeEach(() => {

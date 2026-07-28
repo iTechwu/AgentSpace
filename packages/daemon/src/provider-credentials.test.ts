@@ -105,13 +105,13 @@ test("managed credentials are atomically refreshed when their credential generat
     {
       version: 1 as const,
       credentialId: "credential-first",
-      environment: { OPENAI_API_KEY: "first-key", OPENAI_BASE_URL: "http://model.local.dofe.ai/v1" },
+      environment: { OPENAI_API_KEY: "first-key", OPENAI_BASE_URL: "http://model.local.dofe.ai/api/v1" },
       files: {},
     },
     {
       version: 1 as const,
       credentialId: "credential-second",
-      environment: { OPENAI_API_KEY: "second-key", OPENAI_BASE_URL: "http://model.local.dofe.ai/v1" },
+      environment: { OPENAI_API_KEY: "second-key", OPENAI_BASE_URL: "http://model.local.dofe.ai/api/v1" },
       files: {},
     },
   ];
@@ -142,7 +142,7 @@ test("managed credential launchers run the provider inside its dedicated image",
   const resolver = createManagedCredentialResolver(root, async () => ({
     version: 1,
     credentialId: "credential-codex",
-    environment: { OPENAI_API_KEY: "runtime-only-key", OPENAI_BASE_URL: "http://model.local.dofe.ai/v1" },
+    environment: { OPENAI_API_KEY: "runtime-only-key", OPENAI_BASE_URL: "http://model.local.dofe.ai/api/v1" },
     files: {},
   }));
 

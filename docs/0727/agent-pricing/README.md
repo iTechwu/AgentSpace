@@ -84,7 +84,7 @@ flowchart LR
   Queue --> Node[节点执行器]
   Node --> Docker[受管 Docker Runtime]
   AS --> Models[models.dofe.ai 内部接口]
-  Docker --> Gateway[model.local.dofe.ai]
+  Docker --> Gateway[model.local.dofe.ai/api]
   Gateway --> Provider[上游模型供应商]
   Gateway --> Billing[余额、用量与账单]
   AS --> Audit[AgentSpace 审计与归因]
@@ -100,7 +100,7 @@ flowchart LR
   Queue --> Node[节点执行器]
   Node --> Docker[受管 Docker Runtime]
   AS --> Models[models.dofe.ai 内部接口]
-  Docker --> Gateway[model.local.dofe.ai]
+  Docker --> Gateway[model.local.dofe.ai/api]
   Gateway --> Provider[上游模型供应商]
   Gateway --> Billing[余额、用量与账单]
   AS --> Audit[AgentSpace 审计与归因]
@@ -115,13 +115,13 @@ flowchart LR
 `MANAGED_RUNTIME_PREFLIGHT_CHARGE_USD` 作为缺省估算金额，默认 `0.01` 美元，且必须大于
 零；调用方传入的正数估算金额优先。
 
-受管 Runtime 的适配器根据协议注入固定网关地址：
+受管 Runtime 的适配器根据协议注入网关地址。**主机在部署时由 `MODELS_GATEWAY_BASE_URL` 解析**（`provider-templates.ts` 的 `resolveManagedRuntimeGatewayBaseUrl`）；下表中的 `model.local.dofe.ai/api` 是规范默认主机（字面量仅出现在测试中），只有路径后缀与 Gemini 的 https 升级是固定的：
 
-| 协议 | Base URL |
+| 协议 | Base URL（`gatewayBaseUrl` = `MODELS_GATEWAY_BASE_URL`，缺省 `model.local.dofe.ai/api`） |
 | --- | --- |
-| OpenAI 兼容 | `http://model.local.dofe.ai/v1` |
-| Anthropic | `http://model.local.dofe.ai/anthropic` |
-| Gemini | `https://model.local.dofe.ai/gemini` |
+| OpenAI 兼容 | `http://gatewayBaseUrl/v1` |
+| Anthropic | `http://gatewayBaseUrl/anthropic` |
+| Gemini | `https://gatewayBaseUrl/gemini`（强制 https 升级） |
 
 服务器 Runtime 不直接使用用户在本地 Claude Code 或 Codex 配置过的 Provider。Provider、模型可见性、余额与最终路由均由模型网关统一控制。本地模式不适用本表，并继续使用既有配置。
 
