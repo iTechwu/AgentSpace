@@ -54,6 +54,7 @@ export async function POST(
   const updated = completeManagedProvisioningStageSync({
     taskId,
     stage: task.stage,
+    workspaceId: auth.workspaceId,
     nextStage,
   });
 

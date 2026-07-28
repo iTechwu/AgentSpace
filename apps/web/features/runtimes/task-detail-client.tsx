@@ -66,24 +66,24 @@ export function RuntimeTaskDetailClient({
   const { task, events, runtime } = detail;
 
   return (
-    <section className="mx-auto max-w-3xl space-y-6 p-6">
-      <header className="flex items-center justify-between">
-        <div>
+    <section className="page-shell runtimes-page runtime-task-detail">
+      <header className="runtime-task-detail__header">
+        <div className="runtime-task-detail__heading">
           <Link
             href={buildWorkspacePath(workspaceSlug, "/runtimes")}
-            className="text-xs text-neutral-500 hover:underline"
+            className="runtime-task-detail__back-link"
           >
             ← Runtimes
           </Link>
-          <h1 className="mt-1 text-xl font-semibold">{task.runtimeType} provisioning</h1>
-          <p className="font-mono text-xs text-neutral-400">{task.id}</p>
+          <h1>{task.runtimeType} provisioning</h1>
+          <p>{task.id}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="runtime-task-detail__actions">
           {(task.status === "failed" || task.status === "retrying") &&
           task.retryCount < task.maxRetries ? (
             <button
               type="button"
-              className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+              className="action-button runtime-action-button"
               disabled={pending}
               onClick={() =>
                 startTransition(async () => {
@@ -97,7 +97,7 @@ export function RuntimeTaskDetailClient({
           {task.status === "running" || task.status === "queued" || task.status === "retrying" || task.status === "failed" ? (
             <button
               type="button"
-              className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+              className="action-button runtime-action-button"
               disabled={pending}
               onClick={() =>
                 startTransition(async () => {
@@ -111,23 +111,23 @@ export function RuntimeTaskDetailClient({
         </div>
       </header>
 
-      <div className="rounded-lg border p-4">
-        <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-neutral-500">
+      <section className="runtime-task-detail__progress" aria-label="Provisioning progress">
+        <div className="runtime-task-detail__meta">
           <span>requested: {new Date(task.createdAt).toLocaleString()}</span>
           <span>elapsed: {formatElapsed(task.startedAt ?? task.createdAt, task.completedAt, clock)}</span>
           <span>safe cancellation: {task.runtimeCredentialId ? "cleanup required" : "yes"}</span>
         </div>
-        <div className="flex items-center justify-between text-sm">
-          <span className="font-medium">{task.stage}</span>
+        <div className="runtime-task-detail__stage">
+          <span>{task.stage}</span>
           <span>{task.progressPercent}%</span>
         </div>
-        <div className="mt-2 h-2 w-full overflow-hidden rounded bg-neutral-200 dark:bg-neutral-700">
+        <div className="runtime-task-detail__progress-track" aria-hidden="true">
           <div
-            className="h-full bg-neutral-900 dark:bg-white"
+            className="runtime-task-detail__progress-bar"
             style={{ width: `${task.progressPercent}%` }}
           />
         </div>
-        <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-neutral-500">
+        <div className="runtime-task-detail__meta runtime-task-detail__meta--status">
           <span>status: {task.status}</span>
           {task.runtimeCredentialId ? (
             <span>credential: {task.runtimeCredentialId.slice(0, 12)}…</span>
@@ -137,48 +137,58 @@ export function RuntimeTaskDetailClient({
           ) : null}
           {task.retryCount > 0 ? <span>retries: {task.retryCount}</span> : null}
           {task.lastErrorMessage ? (
-            <span className="text-red-600">error: {task.lastErrorMessage}</span>
+            <span className="runtime-task-detail__error">error: {task.lastErrorMessage}</span>
           ) : null}
         </div>
-      </div>
+      </section>
 
       {runtime ? (
-        <div className="rounded-lg border p-4 text-sm">
-          <h2 className="mb-2 font-medium">Managed runtime</h2>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-            <dt className="text-neutral-500">Runtime ID</dt>
-            <dd className="font-mono">{runtime.id}</dd>
-            <dt className="text-neutral-500">Status</dt>
+        <section className="runtimes-panel runtime-task-detail__panel">
+          <div className="runtimes-panel__header">
+            <div>
+              <span>Resource</span>
+              <h2>Managed runtime</h2>
+            </div>
+          </div>
+          <dl className="runtime-task-detail__runtime-fields">
+            <dt>Runtime ID</dt>
+            <dd>{runtime.id}</dd>
+            <dt>Status</dt>
             <dd>{runtime.status}</dd>
-            <dt className="text-neutral-500">Provisioning state</dt>
+            <dt>Provisioning state</dt>
             <dd>{runtime.provisioningState ?? "—"}</dd>
-            <dt className="text-neutral-500">Protocols</dt>
+            <dt>Protocols</dt>
             <dd>{(runtime.protocols ?? []).join(", ") || "—"}</dd>
-            <dt className="text-neutral-500">Default model</dt>
+            <dt>Default model</dt>
             <dd>{runtime.defaultModel ?? "—"}</dd>
           </dl>
-        </div>
+        </section>
       ) : null}
 
-      <div className="rounded-lg border p-4">
-        <h2 className="mb-2 text-sm font-medium">Stage log</h2>
+      <section className="runtimes-panel runtime-task-detail__panel">
+        <div className="runtimes-panel__header">
+          <div>
+            <span>Activity</span>
+            <h2>Stage log</h2>
+          </div>
+        </div>
         {events.length === 0 ? (
-          <p className="text-xs text-neutral-500">No events yet.</p>
+          <p className="runtime-task-detail__empty-events">No events yet.</p>
         ) : (
-          <ol className="space-y-1 text-xs">
+          <ol className="runtime-task-detail__events">
             {events.map((event) => (
-              <li key={event.id} className="flex gap-2">
-                <span className="font-mono text-neutral-400">
+              <li key={event.id}>
+                <time>
                   {new Date(event.createdAt).toLocaleTimeString()}
-                </span>
-                <span className="font-medium">{event.stage}</span>
-                <span className="text-neutral-500">{event.status}</span>
-                {event.summary ? <span className="text-neutral-600">{event.summary}</span> : null}
+                </time>
+                <strong>{event.stage}</strong>
+                <span>{event.status}</span>
+                {event.summary ? <span className="runtime-task-detail__event-summary">{event.summary}</span> : null}
               </li>
             ))}
           </ol>
         )}
-      </div>
+      </section>
     </section>
   );
 }

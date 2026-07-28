@@ -44,6 +44,7 @@ export async function POST(
   const updated = failManagedProvisioningStageSync({
     taskId,
     stage: task.stage,
+    workspaceId: auth.workspaceId,
     errorCode: body.errorCode,
     errorMessage: body.errorMessage ?? "Stage failed on the node.",
   });

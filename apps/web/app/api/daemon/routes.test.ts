@@ -27,6 +27,10 @@ import {
   upsertExternalChannelBindingSync,
   upsertExternalResourceBindingSync,
   updateAgentRuntimeManagedFieldsSync,
+  advanceRuntimeProvisioningTaskStageSync,
+  claimManagedProvisioningStageSync,
+  createRuntimeProvisioningTaskSync,
+  readRuntimeProvisioningTaskSync,
 } from "@dofe-agent/db";
 import { getDatabase } from "@dofe-agent/db/database";
 import {
@@ -63,6 +67,8 @@ import { POST as appOperationClaimPOST } from "./runtimes/[runtimeId]/apps/opera
 import { POST as appOperationStartPOST } from "./runtime-app-operations/[operationId]/start/route";
 import { POST as appOperationCompletePOST } from "./runtime-app-operations/[operationId]/complete/route";
 import { POST as appOperationFailPOST } from "./runtime-app-operations/[operationId]/fail/route";
+import { POST as provisioningStageCompletePOST } from "./provisioning-tasks/[taskId]/stages/[stage]/complete/route";
+import { POST as provisioningStageFailPOST } from "./provisioning-tasks/[taskId]/stages/[stage]/fail/route";
 
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-routes-"));
 const originalCwd = process.cwd();
@@ -107,6 +113,8 @@ beforeEach(() => {
   db.exec("DELETE FROM runtime_app_operation");
   db.exec("DELETE FROM runtime_installed_app");
   db.exec("DELETE FROM runtime_app_catalog_item");
+  db.exec("DELETE FROM runtime_provisioning_task_event");
+  db.exec("DELETE FROM runtime_provisioning_task");
   db.exec("DELETE FROM employee_runtime_binding");
   db.exec("DELETE FROM workspace_runtime_grant");
   db.exec("DELETE FROM agent_runtime");
@@ -372,6 +380,122 @@ describe("daemon API routes", () => {
 
     expect(repeatedHeartbeatResponse.status).toBe(200);
     expect(repeatedHeartbeatPayload.daemon.status).toBe("online");
+  });
+
+  it("advances and fails managed provisioning stages in the daemon token workspace", async () => {
+    const workspaceId = "workspace-managed-stage-routes";
+    if (!readWorkspaceSync(workspaceId)) {
+      createWorkspaceSync({
+        id: workspaceId,
+        slug: workspaceId,
+        name: "Managed Stage Routes",
+        createdBy: "techwu",
+      });
+    }
+    const requester = createUserSync({ displayName: "Managed Stage Requester" });
+    createWorkspaceMembershipSync({
+      workspaceId,
+      userId: requester.id,
+      role: "member",
+    });
+
+    const daemonToken = createDaemonApiTokenSync({
+      workspaceId,
+      label: "managed-stage-node",
+      createdBy: requester.id,
+    });
+    const registration = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          daemonKey: "managed-stage-node",
+          deviceName: "Managed Stage Node",
+          metadata: { managedNode: true },
+          runtimes: [],
+        }),
+      }),
+    );
+    expect(registration.status).toBe(200);
+
+    const completedTask = createRuntimeProvisioningTaskSync({
+      workspaceId,
+      requestedByUserId: requester.id,
+      idempotencyKey: "managed-stage-complete",
+      runtimeType: "claude",
+      protocols: ["anthropic"],
+    });
+    advanceRuntimeProvisioningTaskStageSync({
+      id: completedTask.id,
+      workspaceId,
+      stage: "pull_image",
+      status: "pending",
+      progressPercent: 50,
+    });
+    const managedNode = listDaemonSnapshotsSync(workspaceId)[0]!.daemon;
+    expect(claimManagedProvisioningStageSync({
+      workspaceId,
+      daemonConnectionId: managedNode.id,
+    })?.id).toBe(completedTask.id);
+
+    const completeResponse = await provisioningStageCompletePOST(
+      new Request(`http://localhost/api/daemon/provisioning-tasks/${completedTask.id}/stages/pull_image/complete`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+      }),
+      { params: Promise.resolve({ taskId: completedTask.id, stage: "pull_image" }) },
+    );
+    expect(completeResponse.status).toBe(200);
+    await expect(completeResponse.json()).resolves.toMatchObject({
+      task: { stage: "install_cli", stageStatus: "pending", workspaceId },
+    });
+    expect(readRuntimeProvisioningTaskSync(completedTask.id, workspaceId)).toMatchObject({
+      stage: "install_cli",
+      stageStatus: "pending",
+    });
+
+    advanceRuntimeProvisioningTaskStageSync({
+      id: completedTask.id,
+      workspaceId,
+      stage: "ready",
+      status: "pending",
+      progressPercent: 95,
+    });
+    const failedTask = createRuntimeProvisioningTaskSync({
+      workspaceId,
+      requestedByUserId: requester.id,
+      idempotencyKey: "managed-stage-fail",
+      runtimeType: "claude",
+      protocols: ["anthropic"],
+    });
+    advanceRuntimeProvisioningTaskStageSync({
+      id: failedTask.id,
+      workspaceId,
+      stage: "pull_image",
+      status: "pending",
+      progressPercent: 50,
+    });
+    expect(claimManagedProvisioningStageSync({
+      workspaceId,
+      daemonConnectionId: managedNode.id,
+    })?.id).toBe(failedTask.id);
+
+    const failResponse = await provisioningStageFailPOST(
+      new Request(`http://localhost/api/daemon/provisioning-tasks/${failedTask.id}/stages/pull_image/fail`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({ errorCode: "image.pull_failed", errorMessage: "image unavailable" }),
+      }),
+      { params: Promise.resolve({ taskId: failedTask.id, stage: "pull_image" }) },
+    );
+    expect(failResponse.status).toBe(200);
+    await expect(failResponse.json()).resolves.toMatchObject({
+      task: { status: "retrying", lastErrorCode: "image.pull_failed", workspaceId },
+    });
+    expect(readRuntimeProvisioningTaskSync(failedTask.id, workspaceId)).toMatchObject({
+      status: "retrying",
+      lastErrorCode: "image.pull_failed",
+    });
   });
 
   it("does not let one daemon token claim or read another daemon runtime task", async () => {

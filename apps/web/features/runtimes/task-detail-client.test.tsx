@@ -57,3 +57,16 @@ it("offers retry while the task remains below its retry limit", () => {
 
   expect(screen.getByRole("button", { name: "Retry (retry 3/3)" })).toBeInTheDocument();
 });
+
+it("uses the runtime detail layout classes instead of uncompiled utility classes", () => {
+  render(
+    <RuntimeTaskDetailClient
+      workspaceSlug="acme"
+      initialDetail={makeDetail(0, 3)}
+    />,
+  );
+
+  expect(screen.getByRole("heading", { name: "claude provisioning" }).closest("section"))
+    .toHaveClass("runtime-task-detail");
+  expect(screen.getByLabelText("Provisioning progress")).toHaveClass("runtime-task-detail__progress");
+});

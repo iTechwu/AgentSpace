@@ -26181,6 +26181,196 @@ button[aria-disabled="true"] svg {
   gap: 1rem;
 }
 
+.runtime-task-detail {
+  overflow: auto;
+  padding: 0 0.25rem 1rem;
+}
+
+.runtime-task-detail__header {
+  min-height: 56px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.runtime-task-detail__heading {
+  min-width: 0;
+}
+
+.runtime-task-detail__back-link {
+  display: inline-block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.runtime-task-detail__back-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.runtime-task-detail__heading h1 {
+  margin: 0.25rem 0 0;
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 680;
+  line-height: 30px;
+}
+
+.runtime-task-detail__heading p {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.runtime-task-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.runtime-task-detail__progress {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+}
+
+.runtime-task-detail__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.25rem;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.runtime-task-detail__meta--status {
+  padding-top: 0.1rem;
+  border-top: 1px solid var(--line);
+}
+
+.runtime-task-detail__meta--status span {
+  padding-top: 0.65rem;
+}
+
+.runtime-task-detail__stage {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.runtime-task-detail__stage span:last-child {
+  font-variant-numeric: tabular-nums;
+}
+
+.runtime-task-detail__progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--panel-strong);
+}
+
+.runtime-task-detail__progress-bar {
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
+.runtime-task-detail__error {
+  color: #b42318;
+}
+
+.runtime-task-detail__panel {
+  display: grid;
+}
+
+.runtime-task-detail__runtime-fields {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);
+  gap: 0.55rem 1rem;
+  margin: 0;
+  padding: 1rem;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.runtime-task-detail__runtime-fields dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.runtime-task-detail__runtime-fields dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.runtime-task-detail__runtime-fields dd:first-of-type {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.runtime-task-detail__empty-events {
+  margin: 0;
+  padding: 1rem;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.runtime-task-detail__events {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.runtime-task-detail__events li {
+  display: grid;
+  grid-template-columns: 76px minmax(112px, max-content) minmax(72px, max-content) minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.runtime-task-detail__events li:last-child {
+  border-bottom: 0;
+}
+
+.runtime-task-detail__events time {
+  color: var(--muted);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+}
+
+.runtime-task-detail__events strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.runtime-task-detail__event-summary {
+  overflow-wrap: anywhere;
+}
+
 .audit-filters {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   padding: 1rem;
@@ -26267,6 +26457,50 @@ button[aria-disabled="true"] svg {
   .runtime-task-list__actions {
     width: 100%;
     margin-left: 0;
+  }
+
+  .runtime-task-detail__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .runtime-task-detail__actions {
+    justify-content: stretch;
+  }
+
+  .runtime-task-detail__actions .runtime-action-button {
+    flex: 1;
+  }
+
+  .runtime-task-detail__runtime-fields {
+    grid-template-columns: 1fr;
+    gap: 0.18rem;
+  }
+
+  .runtime-task-detail__runtime-fields dd + dt {
+    margin-top: 0.55rem;
+  }
+
+  .runtime-task-detail__events li {
+    grid-template-columns: 1fr auto;
+  }
+
+  .runtime-task-detail__events time {
+    grid-column: 1;
+  }
+
+  .runtime-task-detail__events strong {
+    grid-column: 1;
+  }
+
+  .runtime-task-detail__events li > span {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .runtime-task-detail__events .runtime-task-detail__event-summary {
+    grid-column: 1 / -1;
+    grid-row: auto;
   }
 }
 
