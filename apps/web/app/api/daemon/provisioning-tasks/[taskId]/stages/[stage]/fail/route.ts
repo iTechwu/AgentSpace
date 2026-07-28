@@ -38,6 +38,9 @@ export async function POST(
   if (task.status === "cancelling" || task.status === "cancelled" || task.status === "succeeded" || task.status === "failed") {
     return Response.json({ taskId, stage, status: task.status, task });
   }
+  if (task.status !== "running" || task.stageStatus !== "running") {
+    return Response.json({ error: "Stage must be claimed before it can be failed." }, { status: 409 });
+  }
 
   const body = (await request.json()) as { errorCode?: string; errorMessage?: string };
 
@@ -48,6 +51,9 @@ export async function POST(
     errorCode: body.errorCode,
     errorMessage: body.errorMessage ?? "Stage failed on the node.",
   });
+  if (!updated) {
+    return Response.json({ error: "Stage state changed before failure was recorded." }, { status: 409 });
+  }
 
   if (task.runtimeId && updated?.status === "failed") {
     const runtime = readAgentRuntimeSync(task.runtimeId);
@@ -61,5 +67,5 @@ export async function POST(
     }
   }
 
-  return Response.json({ taskId, stage, status: updated?.status ?? "failed", task: updated });
+  return Response.json({ taskId, stage, status: updated.status, task: updated });
 }

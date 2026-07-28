@@ -454,6 +454,30 @@ describe("daemon API routes", () => {
       stageStatus: "pending",
     });
 
+    const prematureCompleteResponse = await provisioningStageCompletePOST(
+      new Request(`http://localhost/api/daemon/provisioning-tasks/${completedTask.id}/stages/install_cli/complete`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+      }),
+      { params: Promise.resolve({ taskId: completedTask.id, stage: "install_cli" }) },
+    );
+    expect(prematureCompleteResponse.status).toBe(409);
+
+    const prematureFailResponse = await provisioningStageFailPOST(
+      new Request(`http://localhost/api/daemon/provisioning-tasks/${completedTask.id}/stages/install_cli/fail`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({ errorMessage: "should not be accepted before claim" }),
+      }),
+      { params: Promise.resolve({ taskId: completedTask.id, stage: "install_cli" }) },
+    );
+    expect(prematureFailResponse.status).toBe(409);
+    expect(readRuntimeProvisioningTaskSync(completedTask.id, workspaceId)).toMatchObject({
+      stage: "install_cli",
+      stageStatus: "pending",
+      status: "running",
+    });
+
     advanceRuntimeProvisioningTaskStageSync({
       id: completedTask.id,
       workspaceId,

@@ -57,6 +57,32 @@ function computeRetryAfterMs(retryCount: number, baseMs = 15_000, maxMs = 5 * 60
   return Math.min(maxMs, baseMs * 2 ** retryCount) * jitter;
 }
 
+interface ExpectedRuntimeProvisioningTaskState {
+  expectedStage?: RuntimeProvisioningTaskStage;
+  expectedStatus?: RuntimeProvisioningTaskStatus;
+  expectedStageStatus?: RuntimeProvisioningTaskStageStatus;
+}
+
+function expectedTaskStateWhere(
+  input: ExpectedRuntimeProvisioningTaskState & { id: string; workspaceId: string },
+): { conditions: string[]; params: unknown[] } {
+  const conditions = ["id = ?", "workspace_id = ?"];
+  const params: unknown[] = [input.id, input.workspaceId];
+  if (input.expectedStage) {
+    conditions.push("stage = ?");
+    params.push(input.expectedStage);
+  }
+  if (input.expectedStatus) {
+    conditions.push("status = ?");
+    params.push(input.expectedStatus);
+  }
+  if (input.expectedStageStatus) {
+    conditions.push("stage_status = ?");
+    params.push(input.expectedStageStatus);
+  }
+  return { conditions, params };
+}
+
 export interface CreateRuntimeProvisioningTaskInput {
   workspaceId?: string;
   requestedByUserId: string;
@@ -280,10 +306,17 @@ export function markRuntimeProvisioningTaskFailedSync(input: {
   allowRetry?: boolean;
   retryAfterMs?: number;
   metadata?: Record<string, unknown>;
-}): RuntimeProvisioningTaskRecord | null {
+} & ExpectedRuntimeProvisioningTaskState): RuntimeProvisioningTaskRecord | null {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const task = readRuntimeProvisioningTaskSync(input.id, workspaceId);
   if (!task) {
+    return null;
+  }
+  if (
+    (input.expectedStage && task.stage !== input.expectedStage) ||
+    (input.expectedStatus && task.status !== input.expectedStatus) ||
+    (input.expectedStageStatus && task.stageStatus !== input.expectedStageStatus)
+  ) {
     return null;
   }
 
@@ -297,26 +330,32 @@ export function markRuntimeProvisioningTaskFailedSync(input: {
       errorCode: input.errorCode,
       errorMessage: input.errorMessage,
       retryAfterMs: input.retryAfterMs,
+      expectedStage: input.expectedStage,
+      expectedStatus: input.expectedStatus,
+      expectedStageStatus: input.expectedStageStatus,
     });
   }
 
   const db = getDatabase();
-  withTransaction(db, () => {
+  const changed = withTransaction(db, () => {
     const now = new Date().toISOString();
-    db.prepare(
+    const { conditions, params } = expectedTaskStateWhere({ ...input, workspaceId });
+    const changes = db.prepare(
       `UPDATE runtime_provisioning_task
        SET stage = ?, stage_status = 'failed', status = 'failed',
            last_error_code = ?, last_error_message = ?, completed_at = ?, updated_at = ?
-       WHERE id = ? AND workspace_id = ?`,
+       WHERE ${conditions.join(" AND ")}`,
     ).run(
       input.stage,
       optional(input.errorCode),
       input.errorMessage,
       now,
       now,
-      input.id,
-      workspaceId,
-    );
+      ...params,
+    ).changes;
+    if (changes !== 1) {
+      return false;
+    }
     appendRuntimeProvisioningEventRowSync(db, {
       taskId: input.id,
       stage: input.stage,
@@ -330,7 +369,9 @@ export function markRuntimeProvisioningTaskFailedSync(input: {
         ...(input.metadata ?? {}),
       },
     });
+    return true;
   });
+  if (!changed) return null;
   return readRuntimeProvisioningTaskSync(input.id, workspaceId);
 }
 
@@ -341,28 +382,31 @@ export function scheduleRuntimeProvisioningTaskRetrySync(input: {
   errorCode?: string;
   errorMessage: string;
   retryAfterMs?: number;
-}): RuntimeProvisioningTaskRecord | null {
+} & ExpectedRuntimeProvisioningTaskState): RuntimeProvisioningTaskRecord | null {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const db = getDatabase();
   const retryAfterMs = input.retryAfterMs ?? computeRetryAfterMs(0);
   const nextRetryAt = new Date(Date.now() + retryAfterMs).toISOString();
-  withTransaction(db, () => {
+  const changed = withTransaction(db, () => {
     const now = new Date().toISOString();
-    db.prepare(
+    const { conditions, params } = expectedTaskStateWhere({ ...input, workspaceId });
+    const changes = db.prepare(
       `UPDATE runtime_provisioning_task
        SET stage = ?, stage_status = 'failed', status = 'retrying',
            last_error_code = ?, last_error_message = ?,
            next_retry_at = ?, completed_at = NULL, updated_at = ?
-       WHERE id = ? AND workspace_id = ?`,
+       WHERE ${conditions.join(" AND ")}`,
     ).run(
       input.stage,
       optional(input.errorCode),
       input.errorMessage,
       nextRetryAt,
       now,
-      input.id,
-      workspaceId,
-    );
+      ...params,
+    ).changes;
+    if (changes !== 1) {
+      return false;
+    }
     appendRuntimeProvisioningEventRowSync(db, {
       taskId: input.id,
       stage: input.stage,
@@ -373,7 +417,9 @@ export function scheduleRuntimeProvisioningTaskRetrySync(input: {
       severity: "warning",
       data: { errorCode: input.errorCode, nextRetryAt },
     });
+    return true;
   });
+  if (!changed) return null;
   return readRuntimeProvisioningTaskSync(input.id, workspaceId);
 }
 
@@ -619,23 +665,34 @@ export function completeManagedProvisioningStageSync(input: {
   const db = getDatabase();
   return withTransaction(db, () => {
     const task = readRuntimeProvisioningTaskSync(input.taskId, workspaceId);
-    if (!task || task.status === "cancelling" || task.status === "cancelled" || task.status === "succeeded" || task.status === "failed") {
-      return task;
+    if (
+      !task ||
+      task.stage !== input.stage ||
+      task.status !== "running" ||
+      task.stageStatus !== "running"
+    ) {
+      return null;
     }
     const now = new Date().toISOString();
+    let changes = 0;
     if (input.nextStage) {
-      db.prepare(
+      changes = db.prepare(
         `UPDATE runtime_provisioning_task
          SET stage = ?, stage_status = 'pending', progress_percent = progress_percent + 5,
              stage_started_at = NULL, updated_at = ?
-         WHERE id = ? AND workspace_id = ?`,
-      ).run(input.nextStage, now, input.taskId, workspaceId);
+         WHERE id = ? AND workspace_id = ?
+           AND stage = ? AND status = 'running' AND stage_status = 'running'`,
+      ).run(input.nextStage, now, input.taskId, workspaceId, input.stage).changes;
     } else {
-      db.prepare(
+      changes = db.prepare(
         `UPDATE runtime_provisioning_task
          SET stage_status = 'succeeded', updated_at = ?
-         WHERE id = ? AND workspace_id = ?`,
-      ).run(now, input.taskId, workspaceId);
+         WHERE id = ? AND workspace_id = ?
+           AND stage = ? AND status = 'running' AND stage_status = 'running'`,
+      ).run(now, input.taskId, workspaceId, input.stage).changes;
+    }
+    if (changes !== 1) {
+      return null;
     }
     appendRuntimeProvisioningEventRowSync(db, {
       taskId: input.taskId,
@@ -664,6 +721,9 @@ export function failManagedProvisioningStageSync(input: {
     errorCode: input.errorCode,
     errorMessage: input.errorMessage,
     metadata: input.metadata,
+    expectedStage: input.stage,
+    expectedStatus: "running",
+    expectedStageStatus: "running",
   });
 }
 

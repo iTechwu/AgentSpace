@@ -49,6 +49,9 @@ export async function POST(
   if (task.status === "cancelling" || task.status === "cancelled" || task.status === "succeeded" || task.status === "failed") {
     return Response.json({ taskId, stage, status: task.status, task });
   }
+  if (task.status !== "running" || task.stageStatus !== "running") {
+    return Response.json({ error: "Stage must be claimed before it can be completed." }, { status: 409 });
+  }
 
   const nextStage = NEXT_STAGE[stage as RuntimeProvisioningTaskStage];
   const updated = completeManagedProvisioningStageSync({
@@ -57,8 +60,11 @@ export async function POST(
     workspaceId: auth.workspaceId,
     nextStage,
   });
+  if (!updated) {
+    return Response.json({ error: "Stage state changed before completion was recorded." }, { status: 409 });
+  }
 
-  if (task.stage === "health_check" && task.runtimeId && updated?.status === "succeeded") {
+  if (task.stage === "health_check" && task.runtimeId && updated.stageStatus === "succeeded") {
     finalizeManagedRuntimeProvisioningSync({
       taskId,
       workspaceId: task.workspaceId,
