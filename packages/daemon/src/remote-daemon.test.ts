@@ -6,7 +6,9 @@ import {
   buildRemoteDaemonRelaunchCommand,
   buildRemoteRuntimeHeartbeatMetadata,
   classifyRemoteLoopError,
+  mergeRemoteGatewayUsages,
   reconcileRemoteRuntimesWithHeartbeat,
+  resolveRemoteTaskExecutionModel,
   resolveRemoteTaskProviderSessionId,
 } from "./remote-daemon.ts";
 import { DaemonAuthError, DaemonResourceGoneError } from "./daemon-client.ts";
@@ -178,6 +180,52 @@ test("resolveRemoteTaskProviderSessionId reads channel session from task payload
   );
   assert.equal(resolveRemoteTaskProviderSessionId(JSON.stringify({ channelSessionId: "" })), undefined);
   assert.equal(resolveRemoteTaskProviderSessionId("{not-json"), undefined);
+});
+
+test("managed task execution uses the effective model from the server bundle", () => {
+  assert.equal(
+    resolveRemoteTaskExecutionModel({
+      version: 1,
+      format: "json-inline-v1",
+      taskId: "task-1",
+      runtimeId: "runtime-1",
+      prompt: "hello",
+      metadata: {
+        taskTriggerType: "manual",
+        effectiveModel: {
+          modelId: "claude-opus",
+          source: "session_override",
+          runtimeCredentialId: "credential-1",
+        },
+      },
+      files: [],
+    }),
+    "claude-opus",
+  );
+});
+
+test("managed task usage is driven by billable gateway responses, not provider event position", () => {
+  const usages = mergeRemoteGatewayUsages(
+    [
+      { modelId: "gpt-5", runtimeCredentialId: "credential-1", inputTokens: 30, outputTokens: 6 },
+      { modelId: "gpt-5", runtimeCredentialId: "credential-1", gatewayRequestId: "gateway-explicit", inputTokens: 5, outputTokens: 1 },
+    ],
+    [
+      { requestId: "gateway-1", inputTokens: 10, outputTokens: 2 },
+      { requestId: "gateway-2", inputTokens: 20, outputTokens: 4 },
+    ],
+    {
+      modelId: "gpt-5",
+      runtimeCredentialId: "credential-1",
+      routerSessionId: "session-1",
+    },
+  );
+
+  assert.deepEqual(usages.map((usage) => [usage.gatewayRequestId, usage.inputTokens, usage.outputTokens]), [
+    ["gateway-explicit", 5, 1],
+    ["gateway-1", 10, 2],
+    ["gateway-2", 20, 4],
+  ]);
 });
 
 test("classifyRemoteLoopError routes auth failures to shutdown and 404 to skip-runtime", () => {

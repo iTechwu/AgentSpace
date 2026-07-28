@@ -255,6 +255,11 @@ export interface DaemonTaskInputBundle {
     taskTriggerType: string;
     channelName?: string;
     contactId?: string;
+    effectiveModel?: {
+      modelId: string;
+      source: "session_override" | "employee_default" | "runtime_default" | "team_policy_default" | "protocol_fallback";
+      runtimeCredentialId: string;
+    };
     runtimeApps?: {
       status: "available" | "none";
       apps: RuntimeAppContextEntry[];
@@ -377,6 +382,22 @@ export interface CompleteTaskRequest {
   routerSessionId?: string;
   workDir?: string;
   outputBundle?: DaemonTaskOutputBundle;
+  usage?: {
+    modelId: string;
+    runtimeCredentialId: string;
+    routerSessionId?: string;
+    gatewayRequestId?: string;
+    inputTokens: number;
+    outputTokens: number;
+  };
+  usages?: Array<{
+    modelId: string;
+    runtimeCredentialId: string;
+    routerSessionId?: string;
+    gatewayRequestId?: string;
+    inputTokens: number;
+    outputTokens: number;
+  }>;
 }
 
 export interface RuntimeApprovalRequest {

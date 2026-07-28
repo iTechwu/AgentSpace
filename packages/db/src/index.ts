@@ -622,6 +622,7 @@ export {
   findTokenUsageByGatewayRequestIdSync,
   markTokenUsageReconciledSync,
   insertUnallocatedTokenUsageSync,
+  insertUnallocatedTokenUsageIfAbsentSync,
 } from "./token-usage.ts";
 
 // Budgets

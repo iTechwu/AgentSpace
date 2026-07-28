@@ -1,4 +1,10 @@
-import { appendTaskMessageSync, completeQueuedTaskSync, failQueuedTaskSync, readAgentRuntimeSync } from "@dofe-agent/db";
+import {
+  appendTaskMessageSync,
+  completeQueuedTaskSync,
+  failQueuedTaskSync,
+  readAgentRuntimeSync,
+  recordTokenUsageSync,
+} from "@dofe-agent/db";
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
   applyDocumentRuntimeOutputOperations,
@@ -383,6 +389,31 @@ export async function POST(
       sessionId: conversationSessionId ?? undefined,
       workDir: body.workDir,
     });
+
+    const usages = [...(Array.isArray(body.usages) ? body.usages : []), ...(body.usage ? [body.usage] : [])];
+    for (const usage of usages) {
+      if (!(
+        runtime.managedCredentialId &&
+        usage.runtimeCredentialId === runtime.managedCredentialId &&
+        usage.modelId?.trim() &&
+        Number.isFinite(usage.inputTokens) &&
+        Number.isFinite(usage.outputTokens) &&
+        usage.inputTokens >= 0 &&
+        usage.outputTokens >= 0 &&
+        (usage.inputTokens > 0 || usage.outputTokens > 0)
+      )) continue;
+      recordTokenUsageSync({
+        workspaceId: task.workspaceId,
+        taskQueueId: task.id,
+        agentId: task.agentId,
+        modelId: usage.modelId.trim(),
+        runtimeCredentialId: usage.runtimeCredentialId,
+        routerSessionId: task.routerSessionId,
+        gatewayRequestId: usage.gatewayRequestId,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+      });
+    }
 
     return Response.json({
       task: {

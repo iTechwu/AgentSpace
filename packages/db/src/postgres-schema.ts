@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "36";
+export const POSTGRES_SCHEMA_VERSION = "37";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -1855,6 +1855,83 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_token_usage_gateway_request
         ON token_usage(gateway_request_id)
+        WHERE gateway_request_id IS NOT NULL
+    `,
+    `
+      WITH ranked AS (
+        SELECT id, workspace_id, gateway_request_id,
+          ROW_NUMBER() OVER (
+            PARTITION BY workspace_id, gateway_request_id
+            ORDER BY
+              CASE
+                WHEN billing_status = 'reconciled' THEN 0
+                WHEN task_queue_id IS NOT NULL THEN 1
+                WHEN billing_status = 'estimated' THEN 2
+                ELSE 3
+              END,
+              created_at,
+              id
+          ) AS duplicate_rank,
+          COUNT(*) OVER (PARTITION BY workspace_id, gateway_request_id) AS duplicate_count
+        FROM token_usage
+        WHERE gateway_request_id IS NOT NULL
+      ),
+      keepers AS (
+        SELECT id, workspace_id, gateway_request_id
+        FROM ranked
+        WHERE duplicate_rank = 1 AND duplicate_count > 1
+      ),
+      actuals AS (
+        SELECT DISTINCT ON (workspace_id, gateway_request_id)
+          workspace_id, gateway_request_id, actual_cost_usd, currency, reconciled_at
+        FROM token_usage
+        WHERE gateway_request_id IS NOT NULL AND actual_cost_usd IS NOT NULL
+        ORDER BY workspace_id, gateway_request_id,
+          CASE billing_status WHEN 'reconciled' THEN 0 WHEN 'unallocated' THEN 1 ELSE 2 END,
+          created_at,
+          id
+      )
+      UPDATE token_usage AS keeper
+      SET actual_cost_usd = COALESCE(actuals.actual_cost_usd, keeper.actual_cost_usd),
+          currency = COALESCE(actuals.currency, keeper.currency),
+          billing_status = CASE WHEN actuals.actual_cost_usd IS NOT NULL THEN 'reconciled' ELSE keeper.billing_status END,
+          reconciled_at = CASE
+            WHEN actuals.actual_cost_usd IS NOT NULL THEN COALESCE(actuals.reconciled_at, keeper.reconciled_at, NOW())
+            ELSE keeper.reconciled_at
+          END
+      FROM keepers
+      JOIN actuals
+        ON actuals.workspace_id = keepers.workspace_id
+       AND actuals.gateway_request_id = keepers.gateway_request_id
+      WHERE keeper.id = keepers.id
+    `,
+    `
+      DELETE FROM token_usage
+      WHERE id IN (
+        SELECT id
+        FROM (
+          SELECT id,
+            ROW_NUMBER() OVER (
+              PARTITION BY workspace_id, gateway_request_id
+              ORDER BY
+                CASE
+                  WHEN billing_status = 'reconciled' THEN 0
+                  WHEN task_queue_id IS NOT NULL THEN 1
+                  WHEN billing_status = 'estimated' THEN 2
+                  ELSE 3
+                END,
+                created_at,
+                id
+            ) AS duplicate_rank
+          FROM token_usage
+          WHERE gateway_request_id IS NOT NULL
+        ) ranked
+        WHERE duplicate_rank > 1
+      )
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_token_usage_workspace_gateway_request_unique
+        ON token_usage(workspace_id, gateway_request_id)
         WHERE gateway_request_id IS NOT NULL
     `,
     `CREATE INDEX IF NOT EXISTS idx_provider_account_workspace ON provider_account(workspace_id, provider, status)`,

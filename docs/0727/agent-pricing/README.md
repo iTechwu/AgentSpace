@@ -109,6 +109,12 @@ flowchart LR
 
 ### 3.2 服务器模式模型网关地址
 
+部署时必须分别配置控制面 `MODELS_BASE_URL` 与数据面
+`MODELS_GATEWAY_BASE_URL`。前者只供 AgentSpace 服务端调用 models 内部接口；后者只用于
+生成受管 Runtime 的协议 Base URL，不得用控制面地址兜底。余额预检使用
+`MANAGED_RUNTIME_PREFLIGHT_CHARGE_USD` 作为缺省估算金额，默认 `0.01` 美元，且必须大于
+零；调用方传入的正数估算金额优先。
+
 受管 Runtime 的适配器根据协议注入固定网关地址：
 
 | 协议 | Base URL |

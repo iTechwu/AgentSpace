@@ -98,13 +98,16 @@ export function recordTokenUsageSync(input: {
   const workspaceId = input.workspaceId ?? (input.taskQueueId ? readWorkspaceIdForTaskQueueSync(input.taskQueueId) : null) ?? DEFAULT_WORKSPACE_ID;
   const billingStatus = input.billingStatus ?? "estimated";
 
-  db.prepare(
+  const insertResult = db.prepare(
     `INSERT INTO token_usage (
       id, workspace_id, task_queue_id, agent_id, model_id, provider_account_id,
       runtime_credential_id, router_session_id, gateway_request_id, input_tokens,
       output_tokens, cost_usd, actual_cost_usd, currency, billing_status,
       channel_name, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (workspace_id, gateway_request_id)
+       WHERE gateway_request_id IS NOT NULL
+       DO NOTHING`,
   ).run(
     id,
     workspaceId,
@@ -124,6 +127,41 @@ export function recordTokenUsageSync(input: {
     input.channelName ?? null,
     now,
   );
+
+  if (insertResult.changes === 0 && input.gatewayRequestId) {
+    const existing = findTokenUsageByGatewayRequestIdSync(input.gatewayRequestId, workspaceId);
+    if (existing?.billingStatus === "unallocated") {
+      db.prepare(
+        `UPDATE token_usage
+         SET task_queue_id = COALESCE(?, task_queue_id),
+             agent_id = ?,
+             model_id = ?,
+             provider_account_id = COALESCE(?, provider_account_id),
+             runtime_credential_id = COALESCE(?, runtime_credential_id),
+             router_session_id = COALESCE(?, router_session_id),
+             input_tokens = ?,
+             output_tokens = ?,
+             cost_usd = ?,
+             billing_status = 'reconciled',
+             reconciled_at = ?
+         WHERE id = ? AND billing_status = 'unallocated'`,
+      ).run(
+        input.taskQueueId ?? null,
+        input.agentId,
+        input.modelId,
+        input.providerAccountId ?? null,
+        input.runtimeCredentialId ?? null,
+        input.routerSessionId ?? null,
+        input.inputTokens,
+        input.outputTokens,
+        costUsd,
+        now,
+        existing.id,
+      );
+      return findTokenUsageByGatewayRequestIdSync(input.gatewayRequestId, workspaceId) ?? existing;
+    }
+    if (existing) return existing;
+  }
 
   return {
     id,
@@ -677,7 +715,7 @@ export function markTokenUsageReconciledSync(
   return row ? mapTokenUsageRow(row) : null;
 }
 
-export function insertUnallocatedTokenUsageSync(input: {
+interface InsertUnallocatedTokenUsageInput {
   workspaceId: string;
   agentId: string;
   modelId: string;
@@ -689,16 +727,23 @@ export function insertUnallocatedTokenUsageSync(input: {
   currency: string;
   channelName?: string;
   createdAt?: string;
-}): TokenUsageRecord {
+}
+
+export function insertUnallocatedTokenUsageIfAbsentSync(
+  input: InsertUnallocatedTokenUsageInput,
+): { record: TokenUsageRecord; inserted: boolean } {
   const db = getDatabase();
   const id = randomLikeId();
   const now = input.createdAt ?? new Date().toISOString();
-  db.prepare(
+  const insertResult = db.prepare(
     `INSERT INTO token_usage (
       id, workspace_id, task_queue_id, agent_id, model_id,
       runtime_credential_id, gateway_request_id, input_tokens, output_tokens,
       cost_usd, actual_cost_usd, currency, billing_status, channel_name, created_at
-     ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'unallocated', ?, ?)`,
+     ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'unallocated', ?, ?)
+     ON CONFLICT (workspace_id, gateway_request_id)
+       WHERE gateway_request_id IS NOT NULL
+       DO NOTHING`,
   ).run(
     id,
     input.workspaceId,
@@ -713,8 +758,15 @@ export function insertUnallocatedTokenUsageSync(input: {
     input.channelName ?? null,
     now,
   );
-  const row = db.prepare("SELECT * FROM token_usage WHERE id = ?").get(id) as Record<string, unknown>;
-  return mapTokenUsageRow(row);
+  const row = insertResult.changes > 0
+    ? db.prepare("SELECT * FROM token_usage WHERE id = ?").get(id) as Record<string, unknown>
+    : db.prepare("SELECT * FROM token_usage WHERE workspace_id = ? AND gateway_request_id = ?")
+        .get(input.workspaceId, input.gatewayRequestId) as Record<string, unknown>;
+  return { record: mapTokenUsageRow(row), inserted: insertResult.changes > 0 };
+}
+
+export function insertUnallocatedTokenUsageSync(input: InsertUnallocatedTokenUsageInput): TokenUsageRecord {
+  return insertUnallocatedTokenUsageIfAbsentSync(input).record;
 }
 
 function mapTokenUsageRow(row: Record<string, unknown>): TokenUsageRecord {

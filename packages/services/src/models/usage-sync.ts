@@ -1,6 +1,6 @@
 import {
   findTokenUsageByGatewayRequestIdSync,
-  insertUnallocatedTokenUsageSync,
+  insertUnallocatedTokenUsageIfAbsentSync,
   markTokenUsageReconciledSync,
   recordAuditLogSync,
 } from "@dofe-agent/db";
@@ -102,7 +102,7 @@ export async function syncRuntimeCredentialUsageAsync(
       if (entry.requestId) {
         result.lastRemoteTimestamp = entry.timestamp;
       }
-      reconcileSingleEntry(input.workspaceId, runtime.managedCredentialId, entry, result);
+      reconcileRuntimeCredentialUsageEntrySync(input.workspaceId, runtime.managedCredentialId, entry, result);
     }
   }
 
@@ -144,7 +144,7 @@ export async function syncRuntimeCredentialUsageAsync(
   return result;
 }
 
-function reconcileSingleEntry(
+export function reconcileRuntimeCredentialUsageEntrySync(
   workspaceId: string,
   runtimeCredentialId: string,
   entry: ModelsInternalUsageLogEntry,
@@ -158,7 +158,7 @@ function reconcileSingleEntry(
 
   const existing = findTokenUsageByGatewayRequestIdSync(gatewayRequestId, workspaceId);
   if (existing) {
-    if (existing.billingStatus === "reconciled") {
+    if (existing.billingStatus === "reconciled" || existing.billingStatus === "unallocated") {
       result.skippedCount += 1;
       return;
     }
@@ -171,7 +171,7 @@ function reconcileSingleEntry(
     return;
   }
 
-  insertUnallocatedTokenUsageSync({
+  const inserted = insertUnallocatedTokenUsageIfAbsentSync({
     workspaceId,
     agentId: entry.employeeId ?? entry.runtimeId ?? "unknown",
     modelId: entry.model,
@@ -183,7 +183,8 @@ function reconcileSingleEntry(
     currency: entry.currency,
     createdAt: entry.timestamp,
   });
-  result.unallocatedCount += 1;
+  if (inserted.inserted) result.unallocatedCount += 1;
+  else result.skippedCount += 1;
 }
 
 function parseCost(value: number | string | null | undefined): number {

@@ -14,6 +14,7 @@ import {
   readQueuedTaskSync,
   listRuntimeInstalledAppsSync,
   listTaskExecutionEventsSync,
+  listTokenUsageSync,
   readWorkspaceSync,
   registerDaemonRuntimesSync,
   createRuntimeAppOperationSync,
@@ -27,6 +28,7 @@ import {
   listPendingExternalMessageOutboxSync,
   upsertExternalChannelBindingSync,
   upsertExternalResourceBindingSync,
+  updateAgentRuntimeManagedFieldsSync,
 } from "@dofe-agent/db";
 import { getDatabase } from "@dofe-agent/db/database";
 import {
@@ -2175,6 +2177,10 @@ describe("daemon API routes", () => {
 
     const queued = listQueuedTasksSync().find((task) => task.agentId === "Atlas" && task.triggerType === "channel_chat");
     expect(queued?.id).toBeTruthy();
+    updateAgentRuntimeManagedFieldsSync({
+      runtimeId,
+      managedCredentialId: "runtime-credential-direct",
+    });
 
     const completeResponse = await completePOST(
       new Request(`http://localhost/api/daemon/tasks/${queued?.id}/complete`, {
@@ -2182,6 +2188,22 @@ describe("daemon API routes", () => {
         headers: daemonHeaders(daemonToken.token),
         body: JSON.stringify({
           outputText: "我先给你一版大阪行程草案。",
+          usages: [
+            {
+              modelId: "gpt-5.4",
+              runtimeCredentialId: "runtime-credential-direct",
+              gatewayRequestId: "gateway-request-direct-1",
+              inputTokens: 120,
+              outputTokens: 45,
+            },
+            {
+              modelId: "gpt-5.4",
+              runtimeCredentialId: "runtime-credential-direct",
+              gatewayRequestId: "gateway-request-direct-2",
+              inputTokens: 30,
+              outputTokens: 10,
+            },
+          ],
         }),
       }),
       { params: Promise.resolve({ taskId: queued!.id }) },
@@ -2196,6 +2218,19 @@ describe("daemon API routes", () => {
     const channelMessages = state.messages.filter((message) => message.channel === directChannel?.name);
     expect(channelMessages.some((message) => message.role === "agent" && message.status === "pending")).toBe(false);
     expect(channelMessages[0]?.summary).toBe("我先给你一版大阪行程草案。");
+    expect(listTokenUsageSync().find((usage) => usage.gatewayRequestId === "gateway-request-direct-1")).toMatchObject({
+      taskQueueId: queued!.id,
+      agentId: "Atlas",
+      modelId: "gpt-5.4",
+      runtimeCredentialId: "runtime-credential-direct",
+      inputTokens: 120,
+      outputTokens: 45,
+    });
+    expect(listTokenUsageSync().find((usage) => usage.gatewayRequestId === "gateway-request-direct-2")).toMatchObject({
+      taskQueueId: queued!.id,
+      inputTokens: 30,
+      outputTokens: 10,
+    });
   });
 
   it("labels remote direct-channel task failures as direct conversations", async () => {

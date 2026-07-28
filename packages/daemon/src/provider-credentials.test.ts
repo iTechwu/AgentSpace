@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { applyProviderCredentialProfile, resolveProviderCredentialProfile } from "./provider-credentials.ts";
-import { buildManagedRuntimeAttributionHeaders, createManagedCredentialResolver } from "./managed-provider-credentials.ts";
+import {
+  buildManagedRuntimeAttributionHeaders,
+  createManagedCredentialResolver,
+  extractManagedGatewayUsage,
+} from "./managed-provider-credentials.ts";
 
 test("resolves account-scoped provider files and environment without exposing references", () => {
   const root = mkdtempSync(join(tmpdir(), "dofe-agent-provider-credentials-"));
@@ -146,17 +151,27 @@ test("managed credential launchers run the provider inside its dedicated image",
     assert.match(launcher, /docker run --rm --init/);
     assert.match(launcher, /--name 'dofe-runtime-runtime-codex'/);
     assert.match(launcher, /dofe\/agent-runtime-codex:latest/);
-    assert.match(launcher, /--env OPENAI_API_KEY/);
+    assert.doesNotMatch(launcher, /--env OPENAI_API_KEY/);
+    assert.match(launcher, /runtime-key/);
+    assert.match(launcher, /readonly/);
+    assert.match(launcher, /dst=\/dofe-home/);
+    assert.match(launcher, /--env HOME=\/dofe-home/);
     assert.match(launcher, /--env OPENAI_BASE_URL/);
     assert.match(launcher, /--env DOFE_AGENT_RUNTIME_CREDENTIAL_ID/);
     assert.match(launcher, /--env DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID/);
     assert.match(launcher, /--read-only/);
     assert.match(launcher, /--security-opt no-new-privileges/);
     assert.match(launcher, /--cap-drop ALL/);
+    assert.match(launcher, /--user "\$\(id -u\):\$\(id -g\)"/);
     assert.match(launcher, /attribution-proxy\.mjs/);
-    const proxy = readFileSync(join(root, "managed-runtimes", "runtime-codex", "current", "attribution-proxy.mjs"), "utf8");
+    const proxyPath = join(root, "managed-runtimes", "runtime-codex", "current", "attribution-proxy.mjs");
+    const proxy = readFileSync(proxyPath, "utf8");
     assert.match(proxy, /x-dofe-attribution-signature/);
     assert.match(proxy, /startsWith\("x-dofe-"\)/);
+    assert.match(proxy, /process\.env\[runtimeKeyName\] = runtimeKey/);
+    assert.match(proxy, /DOFE_AGENT_GATEWAY_REQUEST_LOG/);
+    assert.match(proxy, /x-request-id/);
+    execFileSync(process.execPath, ["--check", proxyPath]);
     assert.doesNotMatch(launcher, /runtime-only-key/);
   } finally {
     resolver.cleanup("runtime-codex");
@@ -187,6 +202,18 @@ test("managed runtime attribution follows the models HMAC contract", () => {
     conversationId: "conversation-1",
     timestampSeconds: 1_800_000_000,
   }), /invalid_attribution_id/);
+});
+
+test("managed gateway usage parser ignores auxiliary and failed responses and reads streaming usage", () => {
+  assert.equal(extractManagedGatewayUsage({ data: [{ id: "model-1" }] }), undefined);
+  assert.deepEqual(extractManagedGatewayUsage({
+    type: "response.completed",
+    response: { usage: { input_tokens: 120, output_tokens: 45 } },
+  }), { inputTokens: 120, outputTokens: 45 });
+  assert.deepEqual(extractManagedGatewayUsage({
+    type: "message_delta",
+    usage: { output_tokens: 18 },
+  }), { inputTokens: 0, outputTokens: 18 });
 });
 
 function writeJson(path: string, value: unknown): void {

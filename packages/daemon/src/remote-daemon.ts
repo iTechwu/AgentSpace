@@ -1,4 +1,4 @@
-import { chmodSync, createReadStream, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import { getDaemonChannelWorkDirPath, getDaemonTaskWorkDirPath } from "@dofe-agent/db";
@@ -92,6 +92,30 @@ export function classifyRemoteLoopError(error: unknown): RemoteLoopErrorAction {
     return "skip-runtime";
   }
   return "log";
+}
+
+export function resolveRemoteTaskExecutionModel(bundle: DaemonTaskInputBundle): string | undefined {
+  return bundle.metadata.effectiveModel?.modelId.trim() || undefined;
+}
+
+interface RemoteTaskUsageEntry {
+  modelId: string;
+  runtimeCredentialId: string;
+  routerSessionId?: string;
+  gatewayRequestId?: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export function attachRemoteGatewayRequestIds(
+  usages: RemoteTaskUsageEntry[],
+  gatewayRequestIds: string[],
+): RemoteTaskUsageEntry[] {
+  let requestIndex = 0;
+  return usages.map((usage) => {
+    const capturedRequestId = gatewayRequestIds[requestIndex++];
+    return usage.gatewayRequestId ? usage : { ...usage, gatewayRequestId: capturedRequestId };
+  });
 }
 
 /** Shared, actionable message used wherever the daemon's token is rejected. */
@@ -751,6 +775,10 @@ async function executeRemoteTask(
           },
         }
       : runtime;
+    const effectiveModelId = resolveRemoteTaskExecutionModel(bundle);
+    let usages: RemoteTaskUsageEntry[] = [];
+    const gatewayRequestLogPath = join(workDir, ".dofe-gateway-requests.jsonl");
+    rmSync(gatewayRequestLogPath, { force: true });
 
     const result = await runProviderTask(
       taskRuntime,
@@ -758,6 +786,7 @@ async function executeRemoteTask(
       workDir,
       {
         sessionId: bundle.metadata.routerSession?.providerSessionId ?? resolveRemoteTaskProviderSessionId(task.inputJson),
+        modelId: effectiveModelId,
         taskTimeoutMs: config.taskTimeoutMs,
         contextEnv: {
           ...managedCredentialEnv,
@@ -769,11 +798,28 @@ async function executeRemoteTask(
             DOFE_AGENT_RUNTIME_ID: runtime.id,
             DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID: task.agentId,
             DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID: task.routerSessionId ?? task.id,
+            DOFE_AGENT_GATEWAY_REQUEST_LOG: "/workspace/.dofe-gateway-requests.jsonl",
           } : {}),
         },
         runtimeApps: bundle.metadata.runtimeApps?.apps ?? [],
         runtimeToolCapabilities: bundle.metadata.runtimeToolCapabilities?.capabilities ?? [],
         onEvent: (event) => {
+          if (event.type === "usage" && event.inputJson) {
+            const inputTokens = readFiniteNumber(event.inputJson.input_tokens);
+            const outputTokens = readFiniteNumber(event.inputJson.output_tokens);
+            if (effectiveModelId && managedCredentialId && (inputTokens > 0 || outputTokens > 0)) {
+              usages.push({
+                modelId: effectiveModelId,
+                runtimeCredentialId: managedCredentialId,
+                routerSessionId: task.routerSessionId,
+                gatewayRequestId: typeof event.inputJson.gateway_request_id === "string"
+                  ? event.inputJson.gateway_request_id.trim() || undefined
+                  : undefined,
+                inputTokens,
+                outputTokens,
+              });
+            }
+          }
           void client.reportMessages(task.id, { messages: [event] }).catch((error) => {
             const message = error instanceof Error ? error.message : String(error);
             console.error(`Failed to report remote task message for ${task.id}: ${message}`);
@@ -782,6 +828,9 @@ async function executeRemoteTask(
         onApprovalRequest: (request) => waitForRuntimeApproval(client, task.id, request),
       },
     );
+
+    usages = attachRemoteGatewayRequestIds(usages, readRemoteGatewayRequestIds(gatewayRequestLogPath));
+    rmSync(gatewayRequestLogPath, { force: true });
 
     const preparedSkillImports = prepareSkillImportOperationArtifacts(workDir);
     for (const warning of preparedSkillImports.warnings) {
@@ -800,6 +849,7 @@ async function executeRemoteTask(
       outputText: result.output,
       sessionId: result.sessionId,
       workDir,
+      usages: usages.length > 0 ? usages : undefined,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -821,6 +871,27 @@ async function executeRemoteTask(
       rmSync(workDir, { recursive: true, force: true });
     }
   }
+}
+
+function readFiniteNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function readRemoteGatewayRequestIds(path: string): string[] {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .flatMap((line) => {
+      if (!line.trim()) return [];
+      try {
+        const value = JSON.parse(line) as { requestId?: unknown };
+        return typeof value.requestId === "string" && value.requestId.trim()
+          ? [value.requestId.trim()]
+          : [];
+      } catch {
+        return [];
+      }
+    });
 }
 
 function buildRemoteRuntimeRecords(

@@ -75,7 +75,12 @@ export function createManagedProvisioningExecutor(
         if (!profile) {
           throw new Error("managed_runtime.credential_profile_missing");
         }
-        await probeManagedGateway(profile, task.runtimeType);
+        const probeResult = await runCommandSequence(task.runtimeId, task.stage, [
+          buildManagedContainerHealthCheckCommand(profile, task.runtimeType),
+        ]);
+        if (!probeResult.success) {
+          throw new Error(probeResult.errorMessage ?? "managed_runtime.container_gateway_health_failed");
+        }
       } catch (error) {
         return {
           success: false,
@@ -117,12 +122,7 @@ export async function probeManagedGateway(
   if (!apiKey || !baseUrl) {
     throw new Error("managed_runtime.gateway_health_credentials_missing");
   }
-  const modelPath = provider === "gemini"
-    ? "v1beta/models"
-    : provider === "claude"
-      ? "v1/models"
-      : "models";
-  const endpoint = `${baseUrl.replace(/\/$/, "")}/${modelPath}`;
+  const endpoint = resolveManagedGatewayHealthEndpoint(baseUrl, provider);
   const response = await request(endpoint, {
     headers: {
       authorization: `Bearer ${apiKey}`,
@@ -133,6 +133,56 @@ export async function probeManagedGateway(
   if (!response.ok) {
     throw new Error(`managed_runtime.gateway_health_http_${response.status}`);
   }
+}
+
+export function buildManagedContainerHealthCheckCommand(
+  profile: ProviderCredentialProfile,
+  provider: ManagedProvisioningTask["runtimeType"],
+): ManagedProvisioningCommand {
+  const baseUrl = Object.entries(profile.environment)
+    .find(([key]) => key.endsWith("_BASE_URL"))?.[1];
+  if (!baseUrl) throw new Error("managed_runtime.gateway_health_credentials_missing");
+  const endpoint = resolveManagedGatewayHealthEndpoint(baseUrl, provider);
+  const imageTag = process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest";
+  const user = `${process.getuid?.() ?? 10001}:${process.getgid?.() ?? 10001}`;
+  const script = [
+    'const { readFileSync } = require("node:fs");',
+    'const key = readFileSync("/dofe-profile/runtime-key", "utf8").trim();',
+    'const endpoint = process.argv[1];',
+    'const provider = process.argv[2];',
+    'const headers = { authorization: `Bearer ${key}` };',
+    'if (provider === "claude") headers["x-api-key"] = key;',
+    'if (provider === "gemini") headers["x-goog-api-key"] = key;',
+    'fetch(endpoint, { headers }).then((response) => {',
+    '  if (!response.ok) throw new Error(`gateway_http_${response.status}`);',
+    '}).catch((error) => { console.error(error.message); process.exit(1); });',
+  ].join("\n");
+  return {
+    executable: "docker",
+    args: [
+      "run", "--rm", "--read-only",
+      "--tmpfs", "/tmp:rw,nosuid,nodev,noexec",
+      "--security-opt", "no-new-privileges",
+      "--cap-drop", "ALL",
+      "--user", user,
+      "--mount", `type=bind,src=${profile.profileDir},dst=/dofe-profile,readonly`,
+      "--entrypoint", "node",
+      `dofe/agent-runtime-${provider}:${imageTag}`,
+      "-e", script, endpoint, provider,
+    ],
+  };
+}
+
+function resolveManagedGatewayHealthEndpoint(
+  baseUrl: string,
+  provider: ManagedProvisioningTask["runtimeType"],
+): string {
+  const modelPath = provider === "gemini"
+    ? "v1beta/models"
+    : provider === "claude"
+      ? "v1/models"
+      : "models";
+  return `${baseUrl.replace(/\/$/, "")}/${modelPath}`;
 }
 
 async function runCommandSequence(

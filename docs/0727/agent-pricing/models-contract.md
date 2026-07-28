@@ -12,7 +12,8 @@ AgentSpace 仅在实例启动配置为 `DOFE_AGENT_RUNTIME_MODE=remote` 后调�
 - `local` 不调用 Runtime Credential、内部模型目录、用量查询、余额预检或轮换/撤销接口；
 - models 不为本地 Runtime 签发占位 API Key，也不接收伪造的本地 `runtimeId` 用于计费；
 - 未设置该变量时必须按 `local` 处理；`remote` 是服务器模式的正式配置值；不得接受或写入 `server` 作为替代值；
-- 服务器模式缺失 `MODELS_BASE_URL`、服务身份或内部密钥时必须在创建前失败，不能改走本地服务。
+- 服务器模式缺失控制面 `MODELS_BASE_URL`、数据面 `MODELS_GATEWAY_BASE_URL`、服务身份或内部密钥时必须在创建前失败，不能改走本地服务；两个 URL 不得互相兜底。
+- 余额预检的 `estimatedCharge` 必须大于零；AgentSpace 默认使用 `MANAGED_RUNTIME_PREFLIGHT_CHARGE_USD=0.01`，可由部署配置或具体创建请求提供更准确的正数估算。
 
 `models.dofe.ai` 已具备下列可复用能力：
 

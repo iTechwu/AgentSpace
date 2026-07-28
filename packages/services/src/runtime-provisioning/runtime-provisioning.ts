@@ -71,6 +71,7 @@ import {
 import {
   buildManagedProvisioningCommandContext,
   buildManagedProvisioningStageCommands,
+  resolveManagedRuntimeGatewayBaseUrl,
   type ManagedProvisioningCommand,
 } from "./provider-templates.ts";
 import type {
@@ -150,6 +151,7 @@ export function requestManagedRuntimeProvisioningSync(
   input: RequestManagedRuntimeInput,
 ): RuntimeProvisioningTaskRecord {
   assertRemoteRuntimeMode();
+  resolveManagedRuntimeGatewayBaseUrl();
   assertCanManageManagedRuntimes(input);
   resolveManagedRuntimeScopeSync(input.workspaceId);
   const protocols = input.protocols?.length
@@ -1076,6 +1078,18 @@ export interface ManagedRuntimeCreationPreflightResult {
   message?: string;
 }
 
+const DEFAULT_MANAGED_RUNTIME_PREFLIGHT_CHARGE = 0.01;
+
+function resolveManagedRuntimePreflightCharge(requestedCharge?: number): number {
+  if (typeof requestedCharge === "number" && Number.isFinite(requestedCharge) && requestedCharge > 0) {
+    return requestedCharge;
+  }
+  const configured = Number.parseFloat(process.env.MANAGED_RUNTIME_PREFLIGHT_CHARGE_USD ?? "");
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_MANAGED_RUNTIME_PREFLIGHT_CHARGE;
+}
+
 export async function preflightManagedRuntimeCreationAsync(
   input: ManagedRuntimeActor & {
     provider: DaemonProvider;
@@ -1084,6 +1098,7 @@ export async function preflightManagedRuntimeCreationAsync(
   },
 ): Promise<ManagedRuntimeCreationPreflightResult> {
   assertRemoteRuntimeMode();
+  resolveManagedRuntimeGatewayBaseUrl();
   assertCanManageManagedRuntimes(input);
   const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
   try {
@@ -1103,7 +1118,7 @@ export async function preflightManagedRuntimeCreationAsync(
   const result = await clientProvider().billing.preflight({
     body: {
       teamId: scope.teamId,
-      estimatedCharge: input.estimatedCharge ?? 0,
+      estimatedCharge: resolveManagedRuntimePreflightCharge(input.estimatedCharge),
     },
   });
   return {
@@ -1137,6 +1152,7 @@ export async function runProvisioningPipeline(
   options: PipelineRunOptions = {},
 ): Promise<void> {
   assertRemoteRuntimeMode();
+  resolveManagedRuntimeGatewayBaseUrl();
   const client = options.modelsClient ?? clientProvider();
   const vault = options.vault ?? getRuntimeCredentialVault();
 
@@ -1163,7 +1179,7 @@ export async function runProvisioningPipeline(
         requestedModel: task.requestedModel,
       });
       const preflight = await client.billing.preflight({
-        body: { teamId: scope.teamId, estimatedCharge: 0 },
+        body: { teamId: scope.teamId, estimatedCharge: resolveManagedRuntimePreflightCharge() },
       });
       if (!preflight.allowed) {
         const today = new Date().toISOString().slice(0, 10);

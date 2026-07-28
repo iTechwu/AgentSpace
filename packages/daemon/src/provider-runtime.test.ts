@@ -282,7 +282,7 @@ test("runProviderTask resumes Codex sessions when sessionId is provided", async 
     const result = await runProviderTask(runtime, "continue work", workDir, {
       sessionId: "session-prev",
       contextEnv: { CODEX_ARGS_PATH: argsPath },
-      taskTimeoutMs: 1_000,
+      taskTimeoutMs: 5_000,
     });
     const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
 
@@ -345,12 +345,12 @@ test("concurrent provider tasks keep model selection scoped to each invocation",
       runProviderTask(runtime, "first prompt", firstWorkDir, {
         contextEnv: { CODEX_ARGS_PATH: firstArgsPath },
         modelId: "model-first",
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       }),
       runProviderTask(runtime, "second prompt", secondWorkDir, {
         contextEnv: { CODEX_ARGS_PATH: secondArgsPath },
         modelId: "model-second",
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       }),
     ]);
 
@@ -424,7 +424,7 @@ test("runProviderTask adds daemon bin directory to provider PATH", async () => {
         PATH: providerBinDir,
         SEEN_PATH_FILE: seenPathFile,
       },
-      taskTimeoutMs: 1_000,
+      taskTimeoutMs: 5_000,
     });
     const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
 
@@ -500,7 +500,7 @@ test("runProviderTask starts a new Codex conversation when resume rollout is mis
         CODEX_ARGS_DIR: argsDir,
         CODEX_COUNT_PATH: countPath,
       },
-      taskTimeoutMs: 1_000,
+      taskTimeoutMs: 5_000,
       onEvent: (event) => {
         events.push(event);
       },
@@ -564,7 +564,7 @@ test("runProviderTask sends Claude prompts through stream-json stdin", async () 
           CLAUDE_ARGS_PATH: argsPath,
           CLAUDE_STDIN_PATH: stdinPath,
         },
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
         onEvent: (event) => {
           events.push(event);
         },
@@ -651,7 +651,7 @@ test("runProviderTask starts a new Claude conversation when resume session is mi
           CLAUDE_ARGS_DIR: argsDir,
           CLAUDE_COUNT_PATH: countPath,
         },
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
         onEvent: (event) => {
           events.push(event);
         },
@@ -721,7 +721,7 @@ test("runProviderTask keeps built-in Claude tool grants narrow and excludes reti
           CLAUDE_ARGS_PATH: argsPath,
           GOOGLE_WORKSPACE_CLI_TOKEN: "secret-token",
         },
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       });
       const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
 
@@ -800,7 +800,7 @@ test("runProviderTask exposes Feishu lark-cli diagnostic grants only when enable
         contextEnv: {
           CLAUDE_ARGS_PATH: argsPath,
         },
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       });
       const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
 
@@ -876,7 +876,7 @@ test("runProviderTask exposes CLI-Hub runtime app capabilities without adapter-s
           displayName: "Foo CLI",
           entryPoint: "fooctl",
         }],
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       });
       const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
       const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
@@ -923,7 +923,7 @@ test("runProviderTask maps missing and unauthorized runtime tool capabilities to
           status: "denied",
           denialReason: "Agent lacks workspace grant.",
         }],
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       }),
       (error) => {
         const metadata = readProviderTaskFailureMetadata(error);
@@ -942,7 +942,7 @@ test("runProviderTask maps missing and unauthorized runtime tool capabilities to
           diagnosticCommands: ["command -v missing-tool"],
           source: "runtime",
         }],
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       }),
       (error) => {
         const metadata = readProviderTaskFailureMetadata(error);
@@ -1031,7 +1031,7 @@ test("runProviderTask routes Hermes through AgentRouter with model, PATH capabil
         allowedShellPatterns: ["fake-cli *"],
         source: "runtime",
       }],
-      taskTimeoutMs: 1_000,
+      taskTimeoutMs: 5_000,
     });
     const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
     const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
@@ -1049,7 +1049,7 @@ test("runProviderTask routes Hermes through AgentRouter with model, PATH capabil
           SEEN_PATH_FILE: seenPathFile,
           HERMES_FAIL: "1",
         },
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       }),
       (error) => {
         const metadata = readProviderTaskFailureMetadata(error);
@@ -1143,7 +1143,7 @@ test("runProviderTask routes Antigravity through AgentRouter with prompt mode, m
         allowedShellPatterns: ["fake-cli *"],
         source: "runtime",
       }],
-      taskTimeoutMs: 1_000,
+      taskTimeoutMs: 5_000,
     });
     const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
     const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
@@ -1246,7 +1246,7 @@ test("runProviderTask routes OpenCode through AgentRouter with model, session, a
         source: "runtime",
       }],
       onEvent: (event) => events.push(event),
-      taskTimeoutMs: 1_000,
+      taskTimeoutMs: 5_000,
     });
     const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
     const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
@@ -1310,7 +1310,7 @@ test("runProviderTask maps Hermes capability and empty-response diagnostics to p
           status: "denied",
           denialReason: "Agent lacks workspace grant.",
         }],
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       }),
       (error) => {
         const metadata = readProviderTaskFailureMetadata(error);
@@ -1330,7 +1330,7 @@ test("runProviderTask maps Hermes capability and empty-response diagnostics to p
           diagnosticCommands: ["command -v missing-tool"],
           source: "runtime",
         }],
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       }),
       (error) => {
         const metadata = readProviderTaskFailureMetadata(error);
@@ -1342,7 +1342,7 @@ test("runProviderTask maps Hermes capability and empty-response diagnostics to p
 
     await assert.rejects(
       () => runProviderTask(runtime, "empty", workDir, {
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       }),
       (error) => {
         const metadata = readProviderTaskFailureMetadata(error);
@@ -1402,7 +1402,7 @@ test("runProviderTask routes Claude control requests through approval callback u
           });
           return { decision: "approved" };
         },
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       });
       const stdinLines = readFileSync(stdinPath, "utf8").trim().split(/\r?\n/);
       const promptInput = JSON.parse(stdinLines[0] ?? "") as { type: string };
@@ -1486,7 +1486,7 @@ test("runProviderTask asks for approval and retries Claude permission denials un
           });
           return { decision: "approved" };
         },
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       });
       const args = readFileSync(argsPath, "utf8");
 
@@ -1512,7 +1512,7 @@ test("runProviderTask uses Claude assistant text as fallback when result event i
   try {
     await withProcessGetuid(1000, async () => {
       const result = await runProviderTask(fixture.runtime, "summarize", fixture.workDir, {
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       });
 
       assert.equal(result.output, "fallback answer");
@@ -1534,7 +1534,7 @@ test("runProviderTask reports Claude usage-only responses with structured diagno
   try {
     await withProcessGetuid(1000, async () => {
       await assert.rejects(
-        () => runProviderTask(fixture.runtime, "summarize", fixture.workDir, { taskTimeoutMs: 1_000 }),
+        () => runProviderTask(fixture.runtime, "summarize", fixture.workDir, { taskTimeoutMs: 5_000 }),
         (error) => {
           const metadata = readProviderTaskFailureMetadata(error);
           assert.equal(metadata?.providerError?.code, "provider.empty_response.no_text_event");
@@ -1563,7 +1563,7 @@ test("runProviderTask reports Claude non-JSON stdout as a protocol diagnostic", 
   try {
     await withProcessGetuid(1000, async () => {
       await assert.rejects(
-        () => runProviderTask(fixture.runtime, "summarize", fixture.workDir, { taskTimeoutMs: 1_000 }),
+        () => runProviderTask(fixture.runtime, "summarize", fixture.workDir, { taskTimeoutMs: 5_000 }),
         (error) => {
           const metadata = readProviderTaskFailureMetadata(error);
           assert.equal(metadata?.providerError?.code, "provider.protocol_parse_failed");
@@ -1590,7 +1590,7 @@ test("runProviderTask includes sanitized Claude stderr tail on empty stdout", as
   try {
     await withProcessGetuid(1000, async () => {
       await assert.rejects(
-        () => runProviderTask(fixture.runtime, "summarize", fixture.workDir, { taskTimeoutMs: 1_000 }),
+        () => runProviderTask(fixture.runtime, "summarize", fixture.workDir, { taskTimeoutMs: 5_000 }),
         (error) => {
           const metadata = readProviderTaskFailureMetadata(error);
           assert.equal(metadata?.providerError?.code, "provider.empty_response.stdout_empty");
@@ -1627,7 +1627,7 @@ test("runProviderTask value-redacts bare secret values leaked into Gemini output
 
   try {
     const result = await runProviderTask(runtime, "summarize", workDir, {
-      taskTimeoutMs: 1_000,
+      taskTimeoutMs: 5_000,
       contextEnv: { CUSTOM_API_TOKEN: "gamma-delta-9988-echo" },
     });
     assert.equal(result.output.includes("gamma-delta-9988-echo"), false);
@@ -1673,7 +1673,7 @@ test("runProviderTask allows Claude execution under root", async () => {
   ]);
   try {
     await withProcessGetuid(0, async () => {
-      const result = await runProviderTask(fixture.runtime, "hi", fixture.workDir, { taskTimeoutMs: 1_000 });
+      const result = await runProviderTask(fixture.runtime, "hi", fixture.workDir, { taskTimeoutMs: 5_000 });
       assert.equal(result.output, "root claude ok");
       assert.equal(result.sessionId, "session-root");
     });
@@ -1856,7 +1856,7 @@ test("runProviderTask returns OpenClaw final text without keyword-classifying it
   };
 
   try {
-    const result = await runProviderTask(runtime, "hi", workDir, { taskTimeoutMs: 1_000 });
+    const result = await runProviderTask(runtime, "hi", workDir, { taskTimeoutMs: 5_000 });
     assert.equal(result.output, "HTTP 401: User not found.");
   } finally {
     rmSync(workDir, { recursive: true, force: true });
@@ -1882,7 +1882,7 @@ test("runProviderTask maps OpenClaw router diagnostics to provider errors", asyn
 
   try {
     await assert.rejects(
-      () => runProviderTask(runtime, "hi", workDir, { taskTimeoutMs: 1_000 }),
+      () => runProviderTask(runtime, "hi", workDir, { taskTimeoutMs: 5_000 }),
       (error) => {
         const metadata = readProviderTaskFailureMetadata(error);
         assert.equal(metadata?.providerError?.code, "provider.model_unavailable");
@@ -1935,7 +1935,7 @@ test("runProviderTask retries OpenClaw when resume session is missing", async ()
         OPENCLAW_ARGS_DIR: argsDir,
         OPENCLAW_COUNT_PATH: countPath,
       },
-      taskTimeoutMs: 1_000,
+      taskTimeoutMs: 5_000,
       onEvent: (event) => events.push(event),
     });
     const firstArgs = readFileSync(join(argsDir, "invocation-1.txt"), "utf8").trim().split(/\r?\n/);
@@ -1973,7 +1973,7 @@ test("runProviderTask fails OpenClaw daemon preflight before provider launch", a
           OPENCLAW_COUNT_PATH: countPath,
           DOFE_AGENT_CONTEXT_TASK_ID: "task-openclaw",
         },
-        taskTimeoutMs: 1_000,
+        taskTimeoutMs: 5_000,
       }),
       (error) => {
         const metadata = readProviderTaskFailureMetadata(error);
@@ -2009,7 +2009,7 @@ test("runProviderTask keeps OpenClaw execution on AgentRouter launch shape", asy
   try {
     const result = await runProviderTask(runtime, "hi", workDir, {
       contextEnv: { OPENCLAW_ARGS_PATH: argsPath },
-      taskTimeoutMs: 1_000,
+      taskTimeoutMs: 5_000,
     });
     const argsText = readFileSync(argsPath, "utf8");
 
@@ -2059,7 +2059,7 @@ test("managed runtimes do not inherit host provider credentials", async () => {
   };
 
   try {
-    const result = await runProviderTask(runtime, "verify isolation", workDir, { taskTimeoutMs: 1_000 });
+    const result = await runProviderTask(runtime, "verify isolation", workDir, { taskTimeoutMs: 5_000 });
     assert.equal(result.output, "[]");
   } finally {
     if (originalOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;

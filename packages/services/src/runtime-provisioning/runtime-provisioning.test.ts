@@ -7,7 +7,9 @@ import {
   bindEmployeeRuntimeSync,
   completeManagedProvisioningStageSync,
   getDatabase,
+  findTokenUsageByGatewayRequestIdSync,
   insertUnallocatedTokenUsageSync,
+  insertUnallocatedTokenUsageIfAbsentSync,
   listPendingManagedRuntimeCleanupRequestsForDaemonSync,
   listRuntimeProvisioningTaskEventsSync,
   readAgentRuntimeSync,
@@ -38,6 +40,7 @@ import {
   stopManagedRuntimeAsync,
   type ModelsClientLike,
 } from "./runtime-provisioning.ts";
+import { reconcileRuntimeCredentialUsageEntrySync } from "../models/usage-sync.ts";
 import { resetRuntimeCredentialVaultForTests, getRuntimeCredentialVault } from "./credential-vault.ts";
 
 const originalCwd = process.cwd();
@@ -48,6 +51,7 @@ const OWNER = "owner-user";
 const MEMBER = "member-user";
 const PLATFORM_ADMIN = "platform-admin-user";
 const originalRuntimeMode = process.env.DOFE_AGENT_RUNTIME_MODE;
+const originalGatewayBaseUrl = process.env.MODELS_GATEWAY_BASE_URL;
 
 function createMockClient(behavior: {
   failCreate?: boolean;
@@ -84,8 +88,9 @@ function createMockClient(behavior: {
       },
     },
     billing: {
-      async preflight() {
+      async preflight(args) {
         preflightCalls += 1;
+        assert.ok(args.body.estimatedCharge > 0);
         return { allowed: behavior.preflightAllowed ?? true };
       },
     },
@@ -178,6 +183,7 @@ before(() => {
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   process.chdir(tempRoot);
   process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+  process.env.MODELS_GATEWAY_BASE_URL = "http://model.local.dofe.ai";
 });
 
 beforeEach(() => {
@@ -210,6 +216,8 @@ after(() => {
   } else {
     process.env.DOFE_AGENT_RUNTIME_MODE = originalRuntimeMode;
   }
+  if (originalGatewayBaseUrl === undefined) delete process.env.MODELS_GATEWAY_BASE_URL;
+  else process.env.MODELS_GATEWAY_BASE_URL = originalGatewayBaseUrl;
 });
 
 async function awaitTaskTerminal(taskId: string, workspaceId = TEAM_WS, timeoutMs = 2000): Promise<NonNullable<ReturnType<typeof readRuntimeProvisioningTaskSync>>> {
@@ -310,6 +318,22 @@ test("tenant-only workspace (no teamId) is rejected", () => {
   );
 });
 
+test("remote provisioning rejects a missing data-plane gateway before creating a task", () => {
+  const gatewayBaseUrl = process.env.MODELS_GATEWAY_BASE_URL;
+  delete process.env.MODELS_GATEWAY_BASE_URL;
+  try {
+    assert.throws(() => requestManagedRuntimeProvisioningSync({
+      workspaceId: TEAM_WS,
+      actorUserId: OWNER,
+      provider: "claude",
+      idempotencyKey: "missing-gateway-key",
+    }), /models_gateway_base_url_missing/);
+  } finally {
+    if (gatewayBaseUrl === undefined) delete process.env.MODELS_GATEWAY_BASE_URL;
+    else process.env.MODELS_GATEWAY_BASE_URL = gatewayBaseUrl;
+  }
+});
+
 test("balance preflight rejects provisioning before a Runtime credential is created", async () => {
   activeClient = createMockClient({ preflightAllowed: false });
   setProvisioningModelsClientProviderForTests(() => activeClient);
@@ -377,14 +401,54 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
      VALUES ('queue-runtime-list', ?, 'atlas', ?, 'completed', '{}'::jsonb, ?, ?, ?)`,
   ).run(TEAM_WS, runtime!.id, now, now, now);
   recordTokenUsageSync({ workspaceId: TEAM_WS, taskQueueId: "queue-runtime-list", agentId: "atlas", modelId: "claude-sonnet", inputTokens: 10, outputTokens: 5, actualCostUsd: 1.25, billingStatus: "reconciled" });
-  insertUnallocatedTokenUsageSync({ workspaceId: TEAM_WS, agentId: "atlas", modelId: "claude-sonnet", runtimeCredentialId: runtime!.managedCredentialId!, gatewayRequestId: "gateway-unallocated", actualCostUsd: 0.5, currency: "USD" });
+  insertUnallocatedTokenUsageSync({ workspaceId: TEAM_WS, agentId: "atlas", modelId: "gateway-canonical-model", runtimeCredentialId: runtime!.managedCredentialId!, gatewayRequestId: "gateway-unallocated", inputTokens: 77, outputTokens: 22, actualCostUsd: 0.5, currency: "USD" });
+  const repeatedRemoteUsage = insertUnallocatedTokenUsageIfAbsentSync({ workspaceId: TEAM_WS, agentId: "atlas", modelId: "claude-sonnet", runtimeCredentialId: runtime!.managedCredentialId!, gatewayRequestId: "gateway-unallocated", actualCostUsd: 0.5, currency: "USD" });
+  assert.equal(repeatedRemoteUsage.inserted, false);
+  const reconciliation = { reconciledCount: 0, unallocatedCount: 0, skippedCount: 0, totalRemoteCount: 1 };
+  reconcileRuntimeCredentialUsageEntrySync(TEAM_WS, runtime!.managedCredentialId!, {
+    requestId: "gateway-unallocated",
+    model: "claude-sonnet",
+    totalCost: 0.5,
+    currency: "USD",
+    timestamp: now,
+  }, reconciliation);
+  assert.equal(reconciliation.skippedCount, 1);
+  const unallocatedUsage = findTokenUsageByGatewayRequestIdSync("gateway-unallocated", TEAM_WS);
+  assert.equal(unallocatedUsage?.billingStatus, "unallocated");
+  const duplicateUsage = recordTokenUsageSync({
+    workspaceId: TEAM_WS,
+    taskQueueId: "queue-runtime-list",
+    agentId: "atlas",
+    modelId: "claude-sonnet",
+    runtimeCredentialId: runtime!.managedCredentialId!,
+    gatewayRequestId: "gateway-unallocated",
+    inputTokens: 10,
+    outputTokens: 5,
+  });
+  assert.equal(duplicateUsage.id, unallocatedUsage?.id);
+  assert.equal(duplicateUsage.billingStatus, "reconciled");
+  assert.equal(duplicateUsage.actualCostUsd, 0.5);
+  assert.equal(duplicateUsage.taskQueueId, "queue-runtime-list");
+  assert.equal(duplicateUsage.modelId, "gateway-canonical-model");
+  assert.equal(duplicateUsage.inputTokens, 77);
+  assert.equal(duplicateUsage.outputTokens, 22);
+  assert.throws(() => recordTokenUsageSync({
+    workspaceId: TEAM_WS,
+    taskQueueId: "queue-runtime-list",
+    agentId: "atlas",
+    modelId: "claude-sonnet",
+    runtimeCredentialId: "different-runtime-credential",
+    gatewayRequestId: "gateway-unallocated",
+    inputTokens: 10,
+    outputTokens: 5,
+  }), /runtime_credential_mismatch/);
 
   const managed = listManagedRuntimesForWorkspaceSync({ workspaceId: TEAM_WS, actorUserId: OWNER })[0]!;
   assert.deepEqual(managed.protocols, ["anthropic"]);
   assert.equal(managed.defaultModel, "claude-sonnet");
   assert.equal(managed.assignedEmployeeCount, 1);
-  assert.equal(managed.periodActualCostUsd, 1.25);
-  assert.equal(managed.unallocatedCostUsd, 0.5);
+  assert.equal(managed.periodActualCostUsd, 1.75);
+  assert.equal(managed.unallocatedCostUsd, 0);
 });
 
 test("model catalog preflight blocks incompatible models before credential creation", async () => {

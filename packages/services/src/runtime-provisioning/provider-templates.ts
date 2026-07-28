@@ -36,6 +36,17 @@ const PROVIDER_CREDENTIAL_ENV_KEYS: Record<DaemonProvider, string> = {
   hermes: "OPENAI_API_KEY",
 };
 
+const PROVIDER_EXECUTABLES: Record<DaemonProvider, string> = {
+  claude: "claude",
+  codex: "codex",
+  antigravity: "agy",
+  gemini: "gemini",
+  opencode: "opencode",
+  openclaw: "openclaw",
+  nanobot: "nanobot",
+  hermes: "hermes-agent",
+};
+
 export function getManagedRuntimeCredentialEnvKey(provider: DaemonProvider): string {
   const key = PROVIDER_CREDENTIAL_ENV_KEYS[provider];
   if (!key) {
@@ -64,10 +75,10 @@ export interface ManagedRuntimeProviderTemplate {
   cleanupCommands: ManagedProvisioningCommand[];
 }
 
-function resolveGatewayBaseUrl(): string {
-  const base = (process.env.MODELS_BASE_URL ?? "").trim();
+export function resolveManagedRuntimeGatewayBaseUrl(): string {
+  const base = (process.env.MODELS_GATEWAY_BASE_URL ?? "").trim();
   if (!base) {
-    throw new Error("managed_runtime.models_base_url_missing");
+    throw new Error("managed_runtime.models_gateway_base_url_missing");
   }
   return base;
 }
@@ -81,7 +92,7 @@ export function buildManagedProvisioningCommandContext(
   return {
     runtimeId: runtime.id,
     runtimeCredentialId: runtime.managedCredentialId,
-    gatewayBaseUrl: resolveGatewayBaseUrl(),
+    gatewayBaseUrl: resolveManagedRuntimeGatewayBaseUrl(),
     imageTag: process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() ?? "latest",
   };
 }
@@ -130,7 +141,7 @@ export function buildManagedCredentialBundleDocument(
   if (!envKey) {
     throw new Error(`managed_runtime.no_credential_env_key:${runtimeType}`);
   }
-  const gatewayBaseUrl = resolveProtocolGatewayBaseUrl(runtimeType, resolveGatewayBaseUrl());
+  const gatewayBaseUrl = resolveProtocolGatewayBaseUrl(runtimeType, resolveManagedRuntimeGatewayBaseUrl());
   return {
     version: 1,
     credentialId: runtime.managedCredentialId ?? "",
@@ -204,8 +215,18 @@ function buildDockerTemplate(
       ),
     ],
     installCliCommands: [
-      // Phase 3 treats the pulled image as the runtime; no host CLI install is required.
-      cmd("sh", "-c", "echo 'Runtime image ready'"),
+      cmd(
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--entrypoint",
+        "sh",
+        `dofe/agent-runtime-${imageName}:{{imageTag}}`,
+        "-c",
+        `command -v ${PROVIDER_EXECUTABLES[provider]}`,
+      ),
     ],
     // The node executes the authenticated /v1/models probe in memory so the
     // Runtime Key never appears in a command line or container inspection.
@@ -235,7 +256,7 @@ export function buildManagedCleanupCommands(
   const context: ManagedProvisioningCommandContext = {
     runtimeId: normalizeManagedRuntimePathSegment(runtimeId),
     runtimeCredentialId: "cleanup",
-    gatewayBaseUrl: resolveGatewayBaseUrl(),
+    gatewayBaseUrl: resolveManagedRuntimeGatewayBaseUrl(),
     imageTag: process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() ?? "latest",
   };
   return buildManagedProvisioningStageCommands(runtimeType, "cleanup", context);

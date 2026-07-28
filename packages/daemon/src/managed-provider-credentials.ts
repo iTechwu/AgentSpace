@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { chmodSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as pathResolve } from "node:path";
 import type { DaemonProvider } from "@dofe-agent/domain";
 import type { ManagedCredentialBundleDocument } from "./daemon-api.ts";
@@ -65,6 +65,7 @@ const ATTRIBUTION_ENVIRONMENT_KEYS = [
   "DOFE_AGENT_RUNTIME_ID",
   "DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID",
   "DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID",
+  "DOFE_AGENT_GATEWAY_REQUEST_LOG",
 ] as const;
 
 const ATTRIBUTION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -122,6 +123,9 @@ export function createManagedCredentialResolver(
     }
 
     const profileDir = pathResolve(stateDir, "managed-runtimes", normalizeRuntimeId(runtimeId));
+    const runtimeHomeDir = join(profileDir, "home");
+    mkdirSync(runtimeHomeDir, { recursive: true, mode: 0o700 });
+    chmodSync(runtimeHomeDir, 0o700);
     const filteredEnvironment: Record<string, string> = {};
     for (const [key, value] of Object.entries(bundle.environment)) {
       if (!ALLOWED_ENVIRONMENT_KEYS.has(key)) {
@@ -129,10 +133,18 @@ export function createManagedCredentialResolver(
       }
       filteredEnvironment[key] = value;
     }
+    const runtimeKey = Object.entries(filteredEnvironment)
+      .find(([key]) => key.endsWith("_API_KEY"))?.[1];
+    if (!runtimeKey) {
+      throw new Error("managed_runtime.credential_api_key_missing");
+    }
     const document = {
       version: 1,
       environment: filteredEnvironment,
-      files: bundle.files,
+      files: {
+        ...bundle.files,
+        "runtime-key": runtimeKey,
+      },
     };
     const profile = writeCredentialProfile(profileDir, document);
     writeFileSync(join(profile.profileDir, "attribution-proxy.mjs"), buildAttributionProxySource(), {
@@ -174,7 +186,8 @@ export function createManagedCredentialResolver(
 function buildDockerProviderLauncher(profileDir: string, runtimeId: string, provider: DaemonProvider): string {
   const imageTag = process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest";
   const image = `dofe/agent-runtime-${provider}:${imageTag}`;
-  const environmentArgs = [...PROVIDER_ENVIRONMENT_KEYS[provider], ...ATTRIBUTION_ENVIRONMENT_KEYS]
+  const runtimeHomeDir = join(dirname(profileDir), "home");
+  const environmentArgs = [PROVIDER_BASE_URL_KEYS[provider], ...ATTRIBUTION_ENVIRONMENT_KEYS]
     .map((key) => `  --env ${key} \\\n`)
     .join("");
   return [
@@ -185,13 +198,15 @@ function buildDockerProviderLauncher(profileDir: string, runtimeId: string, prov
     "  --tmpfs /tmp:rw,nosuid,nodev,noexec \\",
     "  --security-opt no-new-privileges \\",
     "  --cap-drop ALL \\",
+    "  --user \"$(id -u):$(id -g)\" \\",
     `  --name ${shellQuote(`dofe-runtime-${normalizeRuntimeId(runtimeId)}`)} \\`,
     "  --mount \\\"type=bind,src=$(pwd),dst=/workspace\\\" \\",
-    `  --mount ${shellQuote(`type=bind,src=${profileDir},dst=/dofe-profile`)} \\`,
+    `  --mount ${shellQuote(`type=bind,src=${profileDir},dst=/dofe-profile,readonly`)} \\`,
+    `  --mount ${shellQuote(`type=bind,src=${runtimeHomeDir},dst=/dofe-home`)} \\`,
     "  --workdir /workspace \\",
-    "  --env HOME=/dofe-profile \\",
+    "  --env HOME=/dofe-home \\",
     environmentArgs.trimEnd(),
-    `  ${shellQuote(image)} node /dofe-profile/attribution-proxy.mjs ${shellQuote(PROVIDER_BASE_URL_KEYS[provider])} ${shellQuote(getManagedProviderCredentialEnvironmentKey(provider))} ${shellQuote(PROVIDER_EXECUTABLES[provider])} \"$@\"`,
+    `  ${shellQuote(image)} node /dofe-profile/attribution-proxy.mjs ${shellQuote(PROVIDER_BASE_URL_KEYS[provider])} ${shellQuote(getManagedProviderCredentialEnvironmentKey(provider))} /dofe-profile/runtime-key ${shellQuote(PROVIDER_EXECUTABLES[provider])} \"$@\"`,
     "",
   ].join("\n");
 }
@@ -199,13 +214,14 @@ function buildDockerProviderLauncher(profileDir: string, runtimeId: string, prov
 function buildAttributionProxySource(): string {
   return `import { createHmac } from "node:crypto";
 import { spawn } from "node:child_process";
+import { appendFileSync, readFileSync } from "node:fs";
 import http from "node:http";
 import https from "node:https";
 
-const [baseUrlKey, runtimeKeyName, executable, ...args] = process.argv.slice(2);
+const [baseUrlKey, runtimeKeyName, runtimeKeyPath, executable, ...args] = process.argv.slice(2);
 const upstreamBaseUrl = process.env[baseUrlKey];
-const runtimeKey = process.env[runtimeKeyName];
-if (!upstreamBaseUrl || !runtimeKey || !executable) {
+const runtimeKey = readFileSync(runtimeKeyPath, "utf8").trim();
+if (!upstreamBaseUrl || !runtimeKeyName || !runtimeKey || !executable) {
   console.error("managed_runtime.attribution_proxy_configuration_missing");
   process.exit(1);
 }
@@ -239,6 +255,14 @@ const server = http.createServer((request, response) => {
 
   const transport = target.protocol === "https:" ? https : http;
   const proxyRequest = transport.request(target, { method: request.method, headers }, (proxyResponse) => {
+    const requestIdHeader = proxyResponse.headers["x-dofe-request-id"]
+      ?? proxyResponse.headers["x-request-id"]
+      ?? proxyResponse.headers["request-id"];
+    const requestId = Array.isArray(requestIdHeader) ? requestIdHeader[0] : requestIdHeader;
+    const requestLog = process.env.DOFE_AGENT_GATEWAY_REQUEST_LOG;
+    if (requestLog && requestId && /^[A-Za-z0-9._:-]{1,256}$/.test(requestId)) {
+      appendFileSync(requestLog, JSON.stringify({ requestId }) + "\\n", { encoding: "utf8", mode: 0o600 });
+    }
     response.writeHead(proxyResponse.statusCode || 502, proxyResponse.headers);
     proxyResponse.pipe(response);
   });
@@ -253,6 +277,7 @@ server.listen(0, "127.0.0.1", () => {
   const address = server.address();
   if (!address || typeof address === "string") process.exit(1);
   process.env[baseUrlKey] = "http://127.0.0.1:" + address.port + basePath;
+  process.env[runtimeKeyName] = runtimeKey;
   const child = spawn(executable, args, { stdio: "inherit", env: process.env });
   for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));
   child.on("exit", (code, signal) => {

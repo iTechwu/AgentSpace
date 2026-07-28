@@ -47,6 +47,28 @@ test("postgres schema adds cleanup retry columns before creating dependent index
   assert.ok(claimedAtColumn >= 0 && claimedAtColumn < timeoutIndex);
 });
 
+test("token usage uniqueness migration merges actual billing facts before deleting duplicates", () => {
+  const statements = getPostgresSchemaStatements();
+  const mergeIndex = statements.findIndex((statement) =>
+    statement.includes("UPDATE token_usage AS keeper") && statement.includes("actual_cost_usd"),
+  );
+  const deleteIndex = statements.findIndex((statement) =>
+    statement.includes("DELETE FROM token_usage") && statement.includes("duplicate_rank"),
+  );
+  const uniqueIndex = statements.findIndex((statement) =>
+    statement.includes("idx_token_usage_workspace_gateway_request_unique"),
+  );
+
+  assert.ok(mergeIndex >= 0 && mergeIndex < deleteIndex);
+  assert.ok(deleteIndex < uniqueIndex);
+  assert.match(statements[mergeIndex]!, /WHEN task_queue_id IS NOT NULL THEN 0/);
+  assert.match(statements[mergeIndex]!, /actuals\.runtime_credential_id IS NULL/);
+  assert.ok(statements.some((statement) =>
+    statement.includes("UPDATE token_usage AS conflicting")
+      && statement.includes("SET gateway_request_id = NULL"),
+  ));
+});
+
 test("collectSqliteMigrationSnapshotSync extracts relational rows and derived attachments/audit logs", () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-pg-migration-"));
   const sqlitePath = join(tempRoot, "dofe-agent.sqlite");

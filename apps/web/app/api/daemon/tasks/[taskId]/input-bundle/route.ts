@@ -22,6 +22,7 @@ import {
   readWorkspaceStateSync,
   resolveAgentDocumentContextSync,
   resolveCompatibleDirectChannelRecord,
+  resolveEffectiveModelForTaskAsync,
   sameValue,
 } from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
@@ -92,6 +93,14 @@ export async function GET(
       ...buildRuntimeToolCapabilitiesForBundle(prepared.runtimeApps),
       ...buildDocumentRuntimeToolCapabilities(prepared.agentDocumentContexts),
     ];
+    const effectiveModel = runtime.managedCredentialId
+      ? await resolveEffectiveModelForTaskAsync({
+          workspaceId: auth.workspaceId,
+          employeeName: agentName,
+          runtimeId: runtime.id,
+          routerSessionId: task.routerSessionId,
+        })
+      : undefined;
     const bundle: DaemonTaskInputBundle = {
       version: 1,
       format: "json-inline-v1",
@@ -103,6 +112,7 @@ export async function GET(
         taskTriggerType: task.triggerType,
         channelName: prepared.payload.channelName,
         contactId: prepared.payload.contactId,
+        effectiveModel,
         runtimeApps: {
           status: prepared.runtimeApps.length > 0 ? "available" : "none",
           apps: prepared.runtimeApps,

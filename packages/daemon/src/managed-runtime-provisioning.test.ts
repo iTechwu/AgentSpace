@@ -1,6 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createManagedProvisioningExecutor, probeManagedGateway } from "./managed-runtime-provisioning.ts";
+import {
+  buildManagedContainerHealthCheckCommand,
+  createManagedProvisioningExecutor,
+  probeManagedGateway,
+} from "./managed-runtime-provisioning.ts";
+
+test("managed health check runs from the provider container with a read-only credential mount", () => {
+  const command = buildManagedContainerHealthCheckCommand({
+    accountId: "runtime-1",
+    profileDir: "/srv/managed/runtime-1/current",
+    environment: {
+      OPENAI_API_KEY: "must-not-appear",
+      OPENAI_BASE_URL: "https://model.example/v1",
+    },
+  }, "codex");
+
+  assert.equal(command.executable, "docker");
+  assert.ok(command.args.includes("dofe/agent-runtime-codex:latest"));
+  assert.ok(command.args.includes("type=bind,src=/srv/managed/runtime-1/current,dst=/dofe-profile,readonly"));
+  assert.ok(command.args.includes("https://model.example/v1/models"));
+  assert.equal(command.args.join(" ").includes("must-not-appear"), false);
+});
 
 test("managed gateway health probe preserves the configured protocol path", async () => {
   let observedUrl = "";
