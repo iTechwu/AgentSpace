@@ -13,34 +13,42 @@ export interface RuntimeMaintenanceRunRecord {
 }
 
 const MAINTENANCE_LEASE_MS = 5 * 60 * 1_000;
+const MAINTENANCE_ADVISORY_LOCK_ID = 723041;
 
 export function createRuntimeMaintenanceRunSync(): RuntimeMaintenanceRunRecord {
   const id = `runtime-maintenance-${randomUUID()}`;
   const now = new Date().toISOString();
   const leaseExpiresAt = new Date(Date.now() + MAINTENANCE_LEASE_MS).toISOString();
   const db = getDatabase();
-  withTransaction(db, () => {
-    const lock = db.prepare("SELECT pg_try_advisory_xact_lock(723041) AS acquired").get() as {
-      acquired?: boolean;
-    } | undefined;
+  let lockAcquired = false;
+  try {
+    const lock = db.prepare("SELECT pg_try_advisory_lock(?) AS acquired").get(
+      MAINTENANCE_ADVISORY_LOCK_ID,
+    ) as { acquired?: boolean } | undefined;
     if (!lock?.acquired) throw new Error("runtime_maintenance.already_running");
-    db.prepare(
-      `UPDATE runtime_maintenance_run
-       SET status = 'partial_failure',
-           stages_json = jsonb_build_object('evidence', jsonb_build_object('status', 'failed', 'error', 'maintenance lease expired')),
-           finished_at = ?
-       WHERE status = 'running' AND lease_expires_at <= ?`,
-    ).run(now, now);
-    const active = db.prepare(
-      "SELECT id FROM runtime_maintenance_run WHERE status = 'running' LIMIT 1",
-    ).get();
-    if (active) throw new Error("runtime_maintenance.already_running");
-    db.prepare(
-      `INSERT INTO runtime_maintenance_run (
-         id, status, stages_json, started_at, lease_expires_at, created_at
-       ) VALUES (?, 'running', '{}'::jsonb, ?, ?, ?)`,
-    ).run(id, now, leaseExpiresAt, now);
-  });
+    lockAcquired = true;
+    withTransaction(db, () => {
+      db.prepare(
+        `UPDATE runtime_maintenance_run
+         SET status = 'partial_failure',
+             stages_json = jsonb_build_object('evidence', jsonb_build_object('status', 'failed', 'error', 'maintenance lease expired')),
+             finished_at = ?
+         WHERE status = 'running' AND lease_expires_at <= ?`,
+      ).run(now, now);
+      const active = db.prepare(
+        "SELECT id FROM runtime_maintenance_run WHERE status = 'running' LIMIT 1",
+      ).get();
+      if (active) throw new Error("runtime_maintenance.already_running");
+      db.prepare(
+        `INSERT INTO runtime_maintenance_run (
+           id, status, stages_json, started_at, lease_expires_at, created_at
+         ) VALUES (?, 'running', '{}'::jsonb, ?, ?, ?)`,
+      ).run(id, now, leaseExpiresAt, now);
+    });
+  } catch (error) {
+    if (lockAcquired) releaseMaintenanceAdvisoryLockSync(db);
+    throw error;
+  }
   return { id, status: "running", stages: {}, startedAt: now, leaseExpiresAt };
 }
 
@@ -60,12 +68,18 @@ export function completeRuntimeMaintenanceRunSync(input: {
   stages: Record<string, unknown>;
 }): RuntimeMaintenanceRunRecord | null {
   const finishedAt = new Date().toISOString();
-  getDatabase().prepare(
-    `UPDATE runtime_maintenance_run
-     SET status = ?, stages_json = ?::jsonb, finished_at = ?
-     WHERE id = ?`,
-  ).run(input.status, JSON.stringify(input.stages), finishedAt, input.id);
-  return readRuntimeMaintenanceRunSync(input.id);
+  const db = getDatabase();
+  try {
+    const result = db.prepare(
+      `UPDATE runtime_maintenance_run
+       SET status = ?, stages_json = ?::jsonb, finished_at = ?
+       WHERE id = ? AND status = 'running' AND lease_expires_at > ?`,
+    ).run(input.status, JSON.stringify(input.stages), finishedAt, input.id, finishedAt);
+    if (result.changes !== 1) throw new Error("runtime_maintenance.lease_lost");
+    return readRuntimeMaintenanceRunSync(input.id);
+  } finally {
+    releaseMaintenanceAdvisoryLockSync(db);
+  }
 }
 
 export function readRuntimeMaintenanceRunSync(id: string): RuntimeMaintenanceRunRecord | null {
@@ -88,4 +102,8 @@ function parseJsonObject(value: unknown): Record<string, unknown> {
   return parsed && typeof parsed === "object" && !Array.isArray(parsed)
     ? parsed as Record<string, unknown>
     : {};
+}
+
+function releaseMaintenanceAdvisoryLockSync(db: ReturnType<typeof getDatabase>): void {
+  db.prepare("SELECT pg_advisory_unlock(?) AS released").get(MAINTENANCE_ADVISORY_LOCK_ID);
 }

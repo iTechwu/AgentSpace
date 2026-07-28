@@ -25,6 +25,7 @@ import {
   registerDaemonRuntimesSync,
   recordTokenUsageSync,
   readOldestPendingTokenUsageTimestampForRuntimeCredentialSync,
+  readRuntimeMaintenanceRunSync,
   upsertWorkspaceSsoBindingSync,
   upsertWorkspaceMembershipSync,
 } from "@dofe-agent/db";
@@ -779,6 +780,21 @@ test("runtime maintenance run creation rejects overlapping active runs", () => {
   completeRuntimeMaintenanceRunSync({ id: first.id, status: "succeeded", stages: {} });
   const next = createRuntimeMaintenanceRunSync();
   completeRuntimeMaintenanceRunSync({ id: next.id, status: "succeeded", stages: {} });
+});
+
+test("an expired maintenance owner cannot overwrite its fenced run", () => {
+  const run = createRuntimeMaintenanceRunSync();
+  getDatabase().prepare(
+    `UPDATE runtime_maintenance_run
+     SET status = 'partial_failure', lease_expires_at = ?, finished_at = ?
+     WHERE id = ?`,
+  ).run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z", run.id);
+
+  assert.throws(
+    () => completeRuntimeMaintenanceRunSync({ id: run.id, status: "succeeded", stages: {} }),
+    /runtime_maintenance\.lease_lost/,
+  );
+  assert.equal(readRuntimeMaintenanceRunSync(run.id)?.status, "partial_failure");
 });
 
 test("schema 39 to 42 replay keeps exactly one historical billing snapshot", () => {

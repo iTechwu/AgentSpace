@@ -39,9 +39,9 @@ test("runtime maintenance isolates stage failures and persists complete run evid
   assert.equal(completed?.status, "partial_failure");
 });
 
-test("runtime maintenance still executes every stage when evidence persistence is unavailable", async () => {
+test("runtime maintenance fails closed before stages when its run lease cannot be created", async () => {
   const calls: string[] = [];
-  const result = await runRuntimeMaintenanceAsync({
+  await assert.rejects(() => runRuntimeMaintenanceAsync({
     createRun: () => {
       throw new Error("evidence database unavailable");
     },
@@ -52,13 +52,9 @@ test("runtime maintenance still executes every stage when evidence persistence i
     resumeCleanup: async () => calls.push("cleanup"),
     drainUsageRetries: () => calls.push("usageRetries"),
     reconcileUsage: async () => calls.push("usageReconciliation"),
-  });
+  }), /evidence database unavailable/);
 
-  assert.deepEqual(calls, ["provisioning", "cleanup", "usageRetries", "usageReconciliation"]);
-  assert.equal(result.ok, false);
-  assert.equal(result.status, "partial_failure");
-  assert.equal(result.evidence.status, "failed");
-  assert.match(result.evidence.error ?? "", /evidence database unavailable/);
+  assert.deepEqual(calls, []);
 });
 
 test("runtime maintenance renews its lease while a long stage remains active", async () => {
@@ -84,4 +80,31 @@ test("runtime maintenance renews its lease while a long stage remains active", a
   assert.ok(heartbeatCount >= 2);
   finishProvisioning();
   assert.equal((await running).ok, true);
+});
+
+test("runtime maintenance stops subsequent stages and completion after lease loss", async () => {
+  const calls: string[] = [];
+  let heartbeatCount = 0;
+  let completionAttempts = 0;
+  const result = await runRuntimeMaintenanceAsync({
+    createRun: () => ({ id: "maintenance-lost" }),
+    completeRun: () => {
+      completionAttempts += 1;
+      throw new Error("runtime_maintenance.lease_lost");
+    },
+    heartbeatRun: () => {
+      heartbeatCount += 1;
+      if (heartbeatCount >= 2) throw new Error("runtime_maintenance.lease_lost");
+    },
+    resumeProvisioning: async () => calls.push("provisioning"),
+    resumeCleanup: async () => calls.push("cleanup"),
+    drainUsageRetries: () => calls.push("usageRetries"),
+    reconcileUsage: async () => calls.push("usageReconciliation"),
+  });
+
+  assert.deepEqual(calls, ["provisioning"]);
+  assert.equal(completionAttempts, 1);
+  assert.equal(result.ok, false);
+  assert.equal(result.stages.cleanup.status, "failed");
+  assert.match(result.evidence.error ?? "", /lease_lost/);
 });

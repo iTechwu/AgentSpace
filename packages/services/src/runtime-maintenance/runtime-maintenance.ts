@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   completeRuntimeMaintenanceRunSync,
   createRuntimeMaintenanceRunSync,
@@ -58,46 +57,45 @@ const defaultDependencies: RuntimeMaintenanceDependencies = {
 export async function runRuntimeMaintenanceAsync(
   dependencies: RuntimeMaintenanceDependencies = defaultDependencies,
 ): Promise<RuntimeMaintenanceResult> {
-  let runId = `maintenance-unpersisted-${randomUUID()}`;
-  let persisted = false;
+  const run = dependencies.createRun();
+  const runId = run.id;
   let evidence: RuntimeMaintenanceStageResult = { status: "succeeded" };
-  try {
-    const run = dependencies.createRun();
-    runId = run.id;
-    persisted = true;
-  } catch (error) {
-    if (error instanceof Error && error.message === "runtime_maintenance.already_running") throw error;
-    evidence = toFailedStage(error);
-  }
+  let leaseHealthy = true;
   const heartbeat = (): void => {
-    if (!persisted || !dependencies.heartbeatRun) return;
+    if (!dependencies.heartbeatRun || !leaseHealthy) return;
     try {
       dependencies.heartbeatRun(runId);
     } catch (error) {
+      leaseHealthy = false;
       evidence = toFailedStage(error);
     }
   };
   heartbeat();
-  const heartbeatTimer = persisted && dependencies.heartbeatRun
+  const heartbeatTimer = dependencies.heartbeatRun
     ? setInterval(heartbeat, dependencies.heartbeatIntervalMs ?? 30_000)
     : undefined;
   heartbeatTimer?.unref();
-  const stages = {
-    provisioning: await runStage(dependencies.resumeProvisioning),
-    cleanup: await runStage(dependencies.resumeCleanup),
-    usageRetries: await runStage(dependencies.drainUsageRetries),
-    usageReconciliation: await runStage(dependencies.reconcileUsage),
-  };
+  const stages = {} as RuntimeMaintenanceResult["stages"];
+  const operations = [
+    ["provisioning", dependencies.resumeProvisioning],
+    ["cleanup", dependencies.resumeCleanup],
+    ["usageRetries", dependencies.drainUsageRetries],
+    ["usageReconciliation", dependencies.reconcileUsage],
+  ] as const;
+  for (const [name, operation] of operations) {
+    stages[name] = leaseHealthy
+      ? await runStage(operation)
+      : { status: "failed", error: "runtime_maintenance.lease_lost" };
+    heartbeat();
+  }
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   heartbeat();
   const stagesSucceeded = Object.values(stages).every((stage) => stage.status === "succeeded");
   const persistedStatus = stagesSucceeded ? "succeeded" : "partial_failure";
-  if (persisted) {
-    try {
-      dependencies.completeRun({ id: runId, status: persistedStatus, stages });
-    } catch (error) {
-      evidence = toFailedStage(error);
-    }
+  try {
+    dependencies.completeRun({ id: runId, status: persistedStatus, stages });
+  } catch (error) {
+    evidence = toFailedStage(error);
   }
   const ok = stagesSucceeded && evidence.status === "succeeded";
   const status = ok ? "succeeded" : "partial_failure";
