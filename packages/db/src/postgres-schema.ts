@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "39";
+export const POSTGRES_SCHEMA_VERSION = "40";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -63,6 +63,8 @@ export const POSTGRES_TABLE_NAMES = [
   "token_usage",
   "token_usage_retry",
   "token_usage_reconciliation_cursor",
+  "runtime_credential_reconciliation_target",
+  "runtime_maintenance_run",
   "budget",
   "attachment",
   "audit_log",
@@ -1260,6 +1262,41 @@ export function getPostgresSchemaStatements(): string[] {
         updated_at TIMESTAMPTZ NOT NULL,
         PRIMARY KEY(workspace_id, runtime_credential_id)
       )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS runtime_credential_reconciliation_target (
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL,
+        runtime_credential_id TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'active',
+        retire_after TIMESTAMPTZ,
+        last_remote_timestamp TIMESTAMPTZ,
+        last_attempt_at TIMESTAMPTZ,
+        last_success_at TIMESTAMPTZ,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY(workspace_id, runtime_credential_id)
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_credential_reconciliation_target_state
+        ON runtime_credential_reconciliation_target(state, retire_after, updated_at)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS runtime_maintenance_run (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL DEFAULT 'running',
+        stages_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        started_at TIMESTAMPTZ NOT NULL,
+        finished_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_maintenance_run_started
+        ON runtime_maintenance_run(started_at DESC)
     `,
     `
       ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS runtime_credential_id TEXT

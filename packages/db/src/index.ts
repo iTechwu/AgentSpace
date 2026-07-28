@@ -615,7 +615,6 @@ export {
   getAgentCostSummarySync,
   getWorkspaceCostSummarySync,
   getWorkspaceBillingSummarySync,
-  readOldestPendingTokenUsageTimestampForRuntimeCredentialSync,
   getRuntimeCostSummarySync,
   listRuntimeCostSummariesSync,
   getRuntimeCredentialCostSummarySync,
@@ -631,11 +630,30 @@ export {
   listDueTokenUsageRetriesSync,
   completeTokenUsageRetrySync,
   failTokenUsageRetrySync,
-  readTokenUsageReconciliationCursorSync,
-  upsertTokenUsageReconciliationCursorSync,
   type RecordTokenUsageInput,
   type TokenUsageRetryRecord,
 } from "./token-usage.ts";
+export {
+  completeRuntimeCredentialReconciliationTargetSync,
+  listRuntimeCredentialReconciliationTargetsSync,
+  markRuntimeCredentialReconciliationTargetDrainingSync,
+  readOldestPendingTokenUsageTimestampForRuntimeCredentialSync,
+  readRuntimeCredentialReconciliationTargetSync,
+  readTokenUsageReconciliationCursorSync,
+  recordRuntimeCredentialReconciliationFailureSync,
+  recordRuntimeCredentialReconciliationSuccessSync,
+  upsertActiveRuntimeCredentialReconciliationTargetSync,
+  upsertTokenUsageReconciliationCursorSync,
+  type RuntimeCredentialReconciliationTargetRecord,
+  type RuntimeCredentialReconciliationTargetState,
+} from "./runtime-credential-reconciliation.ts";
+export {
+  completeRuntimeMaintenanceRunSync,
+  createRuntimeMaintenanceRunSync,
+  readRuntimeMaintenanceRunSync,
+  type RuntimeMaintenanceRunRecord,
+  type RuntimeMaintenanceRunStatus,
+} from "./runtime-maintenance.ts";
 
 // Budgets
 export {

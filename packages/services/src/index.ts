@@ -1,5 +1,11 @@
 // State I/O
 export {
+  runRuntimeMaintenanceAsync,
+  type RuntimeMaintenanceResult,
+  type RuntimeMaintenanceStageResult,
+} from "./runtime-maintenance/runtime-maintenance.ts";
+
+export {
   getWorkspaceStateFilePath,
   getWorkspaceDatabaseFilePath,
   getWorkspaceAttachmentsDirPath,

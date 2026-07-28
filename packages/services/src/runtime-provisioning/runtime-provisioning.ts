@@ -39,6 +39,7 @@ import {
   markRuntimeProvisioningTaskReadySync,
   markRuntimeCredentialRecoveryFailedSync,
   markRuntimeCredentialRecoverySucceededSync,
+  markRuntimeCredentialReconciliationTargetDrainingSync,
   requeueStaleRuntimeCredentialRecoveryTasksSync,
   readAgentRuntimeSync,
   readManagedRuntimeCleanupRequestSync,
@@ -53,6 +54,7 @@ import {
   startRuntimeCredentialRecoveryAttemptSync,
   timeoutRunningNodeStagesSync,
   updateAgentRuntimeManagedFieldsSync,
+  upsertActiveRuntimeCredentialReconciliationTargetSync,
   type AgentRuntimeRecord,
   type RuntimeProvisioningTaskRecord,
   type RuntimeCredentialRecoveryTaskRecord,
@@ -87,6 +89,7 @@ const DEFAULT_STAGE_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_CLEANUP_TIMEOUT_MS = 10 * 60 * 1000;
 const RETRY_BACKOFF_BASE_MS = 15_000;
 const RETRY_BACKOFF_MAX_MS = 5 * 60 * 1000;
+const DEFAULT_CREDENTIAL_RECONCILIATION_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 
 function computeRetryBackoffMs(retryCount: number): number {
   const jitter = Math.random() * 0.4 + 0.8;
@@ -464,6 +467,17 @@ export async function rotateManagedRuntimeCredentialAsync(
   const oldSecretRef = runtime.credentialSecretRef;
   const credentialScope = { tenantId: scope.tenantId, teamId: scope.teamId, runtimeId: runtime.id };
   const newSecret = vault.store(result.credential.id, result.secret.apiKey, credentialScope);
+  markRuntimeCredentialReconciliationTargetDrainingSync({
+    workspaceId: input.workspaceId,
+    runtimeId: runtime.id,
+    runtimeCredentialId: credentialId,
+    retireAfter: resolveCredentialReconciliationRetireAfter(),
+  });
+  upsertActiveRuntimeCredentialReconciliationTargetSync({
+    workspaceId: input.workspaceId,
+    runtimeId: runtime.id,
+    runtimeCredentialId: result.credential.id,
+  });
   updateAgentRuntimeManagedFieldsSync({
     runtimeId: runtime.id,
     workspaceId: input.workspaceId,
@@ -673,6 +687,17 @@ export async function handleManagedRuntimeProviderFailureAsync(
       runtimeId: runtime.id,
     };
     const newSecret = vault.store(result.credential.id, result.secret.apiKey, credentialScope);
+    markRuntimeCredentialReconciliationTargetDrainingSync({
+      workspaceId: input.workspaceId,
+      runtimeId: runtime.id,
+      runtimeCredentialId: input.reportedCredentialId,
+      retireAfter: resolveCredentialReconciliationRetireAfter(),
+    });
+    upsertActiveRuntimeCredentialReconciliationTargetSync({
+      workspaceId: input.workspaceId,
+      runtimeId: runtime.id,
+      runtimeCredentialId: result.credential.id,
+    });
     const updated = updateAgentRuntimeManagedFieldsSync({
       runtimeId: runtime.id,
       workspaceId: input.workspaceId,
@@ -872,6 +897,12 @@ export async function stopManagedRuntimeAsync(input: StopManagedRuntimeInput): P
       idempotencyKey: `revoke:${runtime.managedCredentialId}:${input.reason ?? "stopped"}`,
       audit: { actorId: input.actorUserId },
     });
+    markRuntimeCredentialReconciliationTargetDrainingSync({
+      workspaceId: input.workspaceId,
+      runtimeId: runtime.id,
+      runtimeCredentialId: runtime.managedCredentialId,
+      retireAfter: resolveCredentialReconciliationRetireAfter(),
+    });
   }
   if (runtime.credentialSecretRef) {
     getRuntimeCredentialVault().forget(runtime.credentialSecretRef, {
@@ -926,6 +957,12 @@ export async function deleteManagedRuntimeAsync(input: StopManagedRuntimeInput):
       reason: input.reason ?? "deleted",
       idempotencyKey: `revoke:${runtime.managedCredentialId}:${input.reason ?? "deleted"}`,
       audit: { actorId: input.actorUserId },
+    });
+    markRuntimeCredentialReconciliationTargetDrainingSync({
+      workspaceId: input.workspaceId,
+      runtimeId: runtime.id,
+      runtimeCredentialId: runtime.managedCredentialId,
+      retireAfter: resolveCredentialReconciliationRetireAfter(),
     });
   }
   if (runtime.credentialSecretRef) {
@@ -1337,6 +1374,13 @@ export function finalizeManagedRuntimeProvisioningSync(input: {
     status: "online",
   });
   const task = readRuntimeProvisioningTaskSync(input.taskId, input.workspaceId);
+  if (task?.runtimeCredentialId) {
+    upsertActiveRuntimeCredentialReconciliationTargetSync({
+      workspaceId: input.workspaceId,
+      runtimeId: input.runtimeId,
+      runtimeCredentialId: task.runtimeCredentialId,
+    });
+  }
   tryRecordWorkspaceAuditEventSync({
     workspaceId: input.workspaceId,
     title: "Managed runtime ready",
@@ -1345,6 +1389,20 @@ export function finalizeManagedRuntimeProvisioningSync(input: {
     data: { runtimeId: input.runtimeId, runtimeCredentialId: task?.runtimeCredentialId ?? "" },
   });
   return task;
+}
+
+function resolveCredentialReconciliationRetireAfter(
+  environment: NodeJS.ProcessEnv = process.env,
+  now = new Date(),
+): string {
+  const configuredDays = Number.parseInt(
+    environment.MANAGED_RUNTIME_CREDENTIAL_RECONCILIATION_RETENTION_DAYS ?? "",
+    10,
+  );
+  const retentionMs = Number.isFinite(configuredDays) && configuredDays > 0
+    ? configuredDays * 24 * 60 * 60 * 1_000
+    : DEFAULT_CREDENTIAL_RECONCILIATION_RETENTION_MS;
+  return new Date(now.getTime() + retentionMs).toISOString();
 }
 
 /**
@@ -1514,6 +1572,14 @@ async function compensateProvisioning(
         idempotencyKey: `revoke:${task.runtimeCredentialId}:provisioning_cancelled:${task.id}`,
         audit: { actorId: task.requestedByUserId, taskId: task.id },
       });
+      if (task.runtimeId) {
+        markRuntimeCredentialReconciliationTargetDrainingSync({
+          workspaceId: task.workspaceId,
+          runtimeId: task.runtimeId,
+          runtimeCredentialId: task.runtimeCredentialId,
+          retireAfter: resolveCredentialReconciliationRetireAfter(),
+        });
+      }
       detail.revokedCredentialId = task.runtimeCredentialId;
     } catch (error) {
       ok = false;

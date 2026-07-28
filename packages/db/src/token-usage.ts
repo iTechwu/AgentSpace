@@ -410,20 +410,6 @@ export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEF
   };
 }
 
-export function readOldestPendingTokenUsageTimestampForRuntimeCredentialSync(
-  workspaceId: string,
-  runtimeCredentialId: string,
-): string | undefined {
-  const row = getDatabase().prepare(
-    `SELECT MIN(COALESCE(source_updated_at, request_ended_at, request_started_at, created_at)) AS oldest_timestamp
-     FROM token_usage
-     WHERE workspace_id = ?
-       AND runtime_credential_id = ?
-       AND billing_status = 'pending_reconciliation'`,
-  ).get(workspaceId, runtimeCredentialId) as { oldest_timestamp?: string | null } | undefined;
-  return row?.oldest_timestamp ?? undefined;
-}
-
 export function getAgentCostSummarySync(agentId: string, since?: string, workspaceId = DEFAULT_WORKSPACE_ID): {
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -1041,34 +1027,6 @@ export function failTokenUsageRetrySync(id: string, attempts: number, error: unk
      SET attempts = ?, next_attempt_at = ?, last_error = ?, updated_at = ?
      WHERE id = ?`,
   ).run(nextAttempts, new Date(Date.now() + delayMs).toISOString(), message.slice(0, 1_000), now, id);
-}
-
-export function readTokenUsageReconciliationCursorSync(
-  workspaceId: string,
-  runtimeCredentialId: string,
-): string | undefined {
-  const row = getDatabase().prepare(
-    `SELECT last_remote_timestamp
-     FROM token_usage_reconciliation_cursor
-     WHERE workspace_id = ? AND runtime_credential_id = ?`,
-  ).get(workspaceId, runtimeCredentialId) as { last_remote_timestamp?: string } | undefined;
-  return row?.last_remote_timestamp;
-}
-
-export function upsertTokenUsageReconciliationCursorSync(
-  workspaceId: string,
-  runtimeCredentialId: string,
-  lastRemoteTimestamp: string,
-): void {
-  const now = new Date().toISOString();
-  getDatabase().prepare(
-    `INSERT INTO token_usage_reconciliation_cursor (
-      workspace_id, runtime_credential_id, last_remote_timestamp, updated_at
-     ) VALUES (?, ?, ?, ?)
-     ON CONFLICT (workspace_id, runtime_credential_id) DO UPDATE SET
-       last_remote_timestamp = EXCLUDED.last_remote_timestamp,
-       updated_at = EXCLUDED.updated_at`,
-  ).run(workspaceId, runtimeCredentialId, lastRemoteTimestamp, now);
 }
 
 function parseUsageRetryPayload(value: unknown): RecordTokenUsageInput {

@@ -3,22 +3,32 @@ import {
   findTokenUsageByGatewayUsageIdSync,
   insertUnallocatedTokenUsageIfAbsentSync,
   listAllManagedAgentRuntimesSync,
+  listRuntimeCredentialReconciliationTargetsSync,
   markTokenUsageReconciledSync,
+  completeRuntimeCredentialReconciliationTargetSync,
   readOldestPendingTokenUsageTimestampForRuntimeCredentialSync,
+  readRuntimeCredentialReconciliationTargetSync,
   readTokenUsageReconciliationCursorSync,
   recordAuditLogSync,
+  recordRuntimeCredentialReconciliationFailureSync,
+  recordRuntimeCredentialReconciliationSuccessSync,
+  upsertActiveRuntimeCredentialReconciliationTargetSync,
   upsertTokenUsageReconciliationCursorSync,
 } from "@dofe-agent/db";
 import { readAgentRuntimeSync } from "@dofe-agent/db";
-import type { ModelsInternalUsageLogEntry } from "@dofe/models-sdk";
 import { resolveAgentRuntimeMode } from "../config/deployment.ts";
 import { getModelsInternalClient } from "./client.ts";
+import {
+  normalizeModelsUsageLogEntry,
+  type NormalizedModelsUsageLogEntry,
+} from "./models-usage-contract.ts";
 import { resolveManagedRuntimeScopeSync } from "../runtime-provisioning/runtime-provisioning.ts";
 import { notifyWorkspaceAdminsSync } from "../notifications/notifications.ts";
 
 export interface SyncRuntimeCredentialUsageInput {
   workspaceId: string;
   runtimeId: string;
+  runtimeCredentialId?: string;
   since?: string;
   until?: string;
   pageLimit?: number;
@@ -33,12 +43,7 @@ export interface SyncRuntimeCredentialUsageResult {
   lastRemoteTimestamp?: string;
 }
 
-type ReconciliationUsageLogEntry = ModelsInternalUsageLogEntry & {
-  cacheTokens?: number | null;
-  startedAt?: string | null;
-  endedAt?: string | null;
-  updatedAt?: string | null;
-};
+type ReconciliationUsageLogEntry = NormalizedModelsUsageLogEntry;
 
 export interface ReconcileAllManagedRuntimeUsageResult {
   runtimeCount: number;
@@ -46,6 +51,7 @@ export interface ReconcileAllManagedRuntimeUsageResult {
   reconciledCount: number;
   pendingCount: number;
   unallocatedCount: number;
+  credentialTargetCount: number;
 }
 
 export async function reconcileAllManagedRuntimeUsageAsync(): Promise<ReconcileAllManagedRuntimeUsageResult> {
@@ -55,27 +61,40 @@ export async function reconcileAllManagedRuntimeUsageAsync(): Promise<ReconcileA
     reconciledCount: 0,
     pendingCount: 0,
     unallocatedCount: 0,
+    credentialTargetCount: 0,
   };
   if (resolveAgentRuntimeMode() !== "remote") return totals;
 
-  for (const runtime of listAllManagedAgentRuntimesSync()) {
+  const runtimes = listAllManagedAgentRuntimesSync();
+  for (const runtime of runtimes) {
     if (!runtime.managedCredentialId) continue;
-    totals.runtimeCount += 1;
-    const cursor = readTokenUsageReconciliationCursorSync(runtime.workspaceId, runtime.managedCredentialId);
+    upsertActiveRuntimeCredentialReconciliationTargetSync({
+      workspaceId: runtime.workspaceId,
+      runtimeId: runtime.id,
+      runtimeCredentialId: runtime.managedCredentialId,
+    });
+  }
+  totals.runtimeCount = new Set(runtimes.map((runtime) => `${runtime.workspaceId}:${runtime.id}`)).size;
+
+  const targets = listRuntimeCredentialReconciliationTargetsSync();
+  totals.credentialTargetCount = targets.length;
+  for (const target of targets) {
+    const cursor = readTokenUsageReconciliationCursorSync(target.workspaceId, target.runtimeCredentialId);
     const cursorOverlap = cursor
       ? new Date(new Date(cursor).getTime() - 24 * 60 * 60 * 1_000).toISOString()
       : undefined;
     const oldestPending = readOldestPendingTokenUsageTimestampForRuntimeCredentialSync(
-      runtime.workspaceId,
-      runtime.managedCredentialId,
+      target.workspaceId,
+      target.runtimeCredentialId,
     );
     const since = cursorOverlap && oldestPending
       ? (cursorOverlap < oldestPending ? cursorOverlap : oldestPending)
       : cursorOverlap ?? oldestPending;
     try {
       const result = await syncRuntimeCredentialUsageAsync({
-        workspaceId: runtime.workspaceId,
-        runtimeId: runtime.id,
+        workspaceId: target.workspaceId,
+        runtimeId: target.runtimeId,
+        runtimeCredentialId: target.runtimeCredentialId,
         since,
       });
       totals.reconciledCount += result.reconciledCount;
@@ -83,13 +102,54 @@ export async function reconcileAllManagedRuntimeUsageAsync(): Promise<ReconcileA
       totals.unallocatedCount += result.unallocatedCount;
       if (result.lastRemoteTimestamp) {
         upsertTokenUsageReconciliationCursorSync(
-          runtime.workspaceId,
-          runtime.managedCredentialId,
+          target.workspaceId,
+          target.runtimeCredentialId,
           result.lastRemoteTimestamp,
         );
+      } else {
+        recordRuntimeCredentialReconciliationSuccessSync({
+          workspaceId: target.workspaceId,
+          runtimeCredentialId: target.runtimeCredentialId,
+        });
       }
-    } catch {
+      if (
+        target.state === "draining"
+        && target.retireAfter
+        && target.retireAfter <= new Date().toISOString()
+        && !readOldestPendingTokenUsageTimestampForRuntimeCredentialSync(
+          target.workspaceId,
+          target.runtimeCredentialId,
+        )
+      ) {
+        completeRuntimeCredentialReconciliationTargetSync(
+          target.workspaceId,
+          target.runtimeCredentialId,
+        );
+      }
+    } catch (error) {
       totals.failedRuntimeCount += 1;
+      recordRuntimeCredentialReconciliationFailureSync({
+        workspaceId: target.workspaceId,
+        runtimeCredentialId: target.runtimeCredentialId,
+        error,
+      });
+      const today = new Date().toISOString().slice(0, 10);
+      notifyWorkspaceAdminsSync({
+        workspaceId: target.workspaceId,
+        title: "Usage reconciliation failed",
+        body: `Usage reconciliation failed for runtime credential ${target.runtimeCredentialId}. The maintenance worker will retry automatically.`,
+        type: "usage.reconciliation_failed",
+        severity: "warning",
+        resourceType: "workspace",
+        resourceId: target.runtimeId,
+        actionHref: "/costs",
+        dedupeKey: `usage.reconciliation_failed:${target.workspaceId}:${target.runtimeCredentialId}:${today}`,
+        metadata: {
+          runtimeId: target.runtimeId,
+          runtimeCredentialId: target.runtimeCredentialId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
     }
   }
   return totals;
@@ -112,11 +172,25 @@ export async function syncRuntimeCredentialUsageAsync(
   }
 
   const runtime = readAgentRuntimeSync(input.runtimeId);
-  if (!runtime || runtime.workspaceId !== input.workspaceId) {
+  if (runtime && runtime.workspaceId !== input.workspaceId) {
     throw new Error("usage_sync.runtime_not_found");
   }
-  if (!runtime.managedCredentialId) {
+  const requestedTarget = input.runtimeCredentialId
+    ? readRuntimeCredentialReconciliationTargetSync(input.workspaceId, input.runtimeCredentialId)
+    : null;
+  const runtimeCredentialId = input.runtimeCredentialId ?? runtime?.managedCredentialId;
+  if (!runtimeCredentialId) {
     throw new Error("usage_sync.not_a_managed_runtime");
+  }
+  if (
+    input.runtimeCredentialId
+    && input.runtimeCredentialId !== runtime?.managedCredentialId
+    && requestedTarget?.runtimeId !== input.runtimeId
+  ) {
+    throw new Error("usage_sync.credential_target_not_found");
+  }
+  if (!runtime && requestedTarget?.runtimeId !== input.runtimeId) {
+    throw new Error("usage_sync.runtime_not_found");
   }
 
   const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
@@ -125,14 +199,14 @@ export async function syncRuntimeCredentialUsageAsync(
   recordAuditLogSync({
     workspaceId: input.workspaceId,
     title: "Usage reconciliation started",
-    note: `Starting reconciliation for runtime credential ${runtime.managedCredentialId}.`,
+    note: `Starting reconciliation for runtime credential ${runtimeCredentialId}.`,
     code: "usage.reconciliation_started",
     source: "runtime_lifecycle",
     data: {
       actorType: "system",
       resourceType: "runtime",
-      resourceId: runtime.id,
-      runtimeCredentialId: runtime.managedCredentialId,
+      resourceId: input.runtimeId,
+      runtimeCredentialId,
       since: input.since,
       until: input.until,
     },
@@ -154,7 +228,7 @@ export async function syncRuntimeCredentialUsageAsync(
     const response = await client.usage.tenantLogs({
       params: { tenantId: scope.tenantId },
       query: {
-        runtimeCredentialId: runtime.managedCredentialId,
+        runtimeCredentialId,
         startDate: input.since,
         endDate: input.until,
         page,
@@ -162,7 +236,7 @@ export async function syncRuntimeCredentialUsageAsync(
       },
     });
 
-    const entries = response.list ?? [];
+    const entries = (response.list ?? []).map(normalizeModelsUsageLogEntry);
     hasMore = entries.length === limit;
     page += 1;
 
@@ -173,7 +247,7 @@ export async function syncRuntimeCredentialUsageAsync(
           result.lastRemoteTimestamp = entry.timestamp;
         }
       }
-      reconcileRuntimeCredentialUsageEntrySync(input.workspaceId, runtime.managedCredentialId, entry, result);
+      reconcileRuntimeCredentialUsageEntrySync(input.workspaceId, runtimeCredentialId, entry, result);
     }
   }
 
@@ -186,8 +260,8 @@ export async function syncRuntimeCredentialUsageAsync(
     data: {
       actorType: "system",
       resourceType: "runtime",
-      resourceId: runtime.id,
-      runtimeCredentialId: runtime.managedCredentialId,
+      resourceId: input.runtimeId,
+      runtimeCredentialId,
       ...result,
     },
   });
@@ -197,17 +271,17 @@ export async function syncRuntimeCredentialUsageAsync(
     notifyWorkspaceAdminsSync({
       workspaceId: input.workspaceId,
       title: "Usage reconciliation discrepancy detected",
-      body: `Reconciliation found ${result.unallocatedCount} unallocated charge(s) for runtime "${runtime.name ?? runtime.id}". Review the cost overview to investigate missing attribution.`,
+      body: `Reconciliation found ${result.unallocatedCount} unallocated charge(s) for runtime "${runtime?.name ?? input.runtimeId}". Review the cost overview to investigate missing attribution.`,
       type: "usage.reconciliation_discrepancy",
       severity: "warning",
       resourceType: "workspace",
-      resourceId: runtime.id,
+      resourceId: input.runtimeId,
       actionHref: "/costs",
-      dedupeKey: `usage.reconciliation_discrepancy:${input.workspaceId}:${runtime.id}:${today}`,
+      dedupeKey: `usage.reconciliation_discrepancy:${input.workspaceId}:${input.runtimeId}:${today}`,
       metadata: {
         unallocatedCount: result.unallocatedCount,
-        runtimeId: runtime.id,
-        runtimeCredentialId: runtime.managedCredentialId,
+        runtimeId: input.runtimeId,
+        runtimeCredentialId,
       },
     });
   }

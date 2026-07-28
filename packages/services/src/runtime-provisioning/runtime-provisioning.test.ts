@@ -12,6 +12,8 @@ import {
   insertUnallocatedTokenUsageSync,
   insertUnallocatedTokenUsageIfAbsentSync,
   listPendingManagedRuntimeCleanupRequestsForDaemonSync,
+  listRuntimeCredentialReconciliationTargetsSync,
+  listTokenUsageBillingEventsSync,
   listRuntimeProvisioningTaskEventsSync,
   readAgentRuntimeSync,
   readRuntimeProvisioningTaskSync,
@@ -660,6 +662,32 @@ test("billing summary keeps currencies separate and retains the oldest pending r
   );
 });
 
+test("billing events preserve the usage lifecycle as replayable snapshots", () => {
+  const usage = recordTokenUsageSync({
+    workspaceId: TEAM_WS,
+    agentId: "atlas",
+    modelId: "gpt-5",
+    runtimeCredentialId: "rtc-events",
+    gatewayRequestId: "gateway-events",
+    inputTokens: 10,
+    outputTokens: 2,
+  });
+  reconcileRuntimeCredentialUsageEntrySync(TEAM_WS, "rtc-events", {
+    id: "usage-events",
+    requestId: "gateway-events",
+    model: "gpt-5",
+    billingStatus: "pending_reconciliation",
+    totalCost: 0.1,
+    currency: "USD",
+    timestamp: "2026-07-28T00:00:00.000Z",
+  } as never, { reconciledCount: 0, unallocatedCount: 0, skippedCount: 0, totalRemoteCount: 1 });
+
+  const events = listTokenUsageBillingEventsSync({ workspaceId: TEAM_WS, tokenUsageId: usage.id });
+  assert.deepEqual(events.map((event) => event.eventType), ["usage_recorded", "billing_state_changed"]);
+  assert.equal(events.at(-1)?.snapshot.billingStatus, "pending_reconciliation");
+  assert.equal(events.at(-1)?.snapshot.actualCostUsd, 0.1);
+});
+
 test("idempotency: same key returns the same task and creates the credential once", async () => {
   const first = requestManagedRuntimeProvisioningSync({
     workspaceId: TEAM_WS,
@@ -823,6 +851,14 @@ test("rotate issues a new credential and forgets the old vault entry", async () 
     "rotate:rtc-mock-1:manual:manual-rotation-1",
   );
   assert.equal(getRuntimeCredentialVault().retrieve(oldSecretRef), undefined);
+  assert.deepEqual(
+    listRuntimeCredentialReconciliationTargetsSync(TEAM_WS)
+      .map((target) => ({ credentialId: target.runtimeCredentialId, state: target.state })),
+    [
+      { credentialId: "rtc-mock-1", state: "draining" },
+      { credentialId: "rtc-mock-rotated", state: "active" },
+    ],
+  );
   assert.equal(getRuntimeCredentialVault().retrieve(rotated.credentialSecretRef!), "sk-runtime-plaintext-rotated");
 });
 

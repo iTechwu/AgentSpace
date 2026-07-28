@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const services = vi.hoisted(() => ({
-  resumePendingProvisioningTasksAsync: vi.fn(),
-  resumeManagedRuntimeCleanupRequestsAsync: vi.fn(),
-  drainTokenUsageRetriesSync: vi.fn(),
-  reconcileAllManagedRuntimeUsageAsync: vi.fn(),
+  runRuntimeMaintenanceAsync: vi.fn(),
 }));
 
 vi.mock("@dofe-agent/services", () => services);
@@ -15,10 +12,17 @@ const originalSecret = process.env.CRON_SECRET;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  services.resumePendingProvisioningTasksAsync.mockResolvedValue({ driven: 2 });
-  services.resumeManagedRuntimeCleanupRequestsAsync.mockResolvedValue({ staleFailed: 1 });
-  services.drainTokenUsageRetriesSync.mockReturnValue({ processedCount: 1, completedCount: 1, failedCount: 0 });
-  services.reconcileAllManagedRuntimeUsageAsync.mockResolvedValue({ runtimeCount: 2, failedRuntimeCount: 0, reconciledCount: 3, pendingCount: 1, unallocatedCount: 0 });
+  services.runRuntimeMaintenanceAsync.mockResolvedValue({
+    ok: true,
+    status: "succeeded",
+    runId: "maintenance-1",
+    stages: {
+      provisioning: { status: "succeeded", value: { driven: 2 } },
+      cleanup: { status: "succeeded", value: { staleFailed: 1 } },
+      usageRetries: { status: "succeeded", value: { processedCount: 1 } },
+      usageReconciliation: { status: "succeeded", value: { reconciledCount: 3 } },
+    },
+  });
 });
 
 afterEach(() => {
@@ -31,7 +35,7 @@ describe("runtime provisioning maintenance route", () => {
     delete process.env.CRON_SECRET;
     const response = await GET(new Request("http://localhost/api/cron/runtime-provisioning"));
     expect(response.status).toBe(500);
-    expect(services.resumePendingProvisioningTasksAsync).not.toHaveBeenCalled();
+    expect(services.runRuntimeMaintenanceAsync).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid bearer token", async () => {
@@ -48,16 +52,7 @@ describe("runtime provisioning maintenance route", () => {
       headers: { authorization: "Bearer expected-secret" },
     }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      ok: true,
-      provisioning: { driven: 2 },
-      cleanup: { staleFailed: 1 },
-      usageRetries: { processedCount: 1, completedCount: 1, failedCount: 0 },
-      usageReconciliation: { runtimeCount: 2, failedRuntimeCount: 0, reconciledCount: 3, pendingCount: 1, unallocatedCount: 0 },
-    });
-    expect(services.resumePendingProvisioningTasksAsync).toHaveBeenCalledOnce();
-    expect(services.resumeManagedRuntimeCleanupRequestsAsync).toHaveBeenCalledOnce();
-    expect(services.drainTokenUsageRetriesSync).toHaveBeenCalledOnce();
-    expect(services.reconcileAllManagedRuntimeUsageAsync).toHaveBeenCalledOnce();
+    expect(await response.json()).toEqual(await services.runRuntimeMaintenanceAsync.mock.results[0]?.value);
+    expect(services.runRuntimeMaintenanceAsync).toHaveBeenCalledOnce();
   });
 });

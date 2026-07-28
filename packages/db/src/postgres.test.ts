@@ -20,6 +20,9 @@ test("postgres schema includes the expected core and derived tables", () => {
   assert.match(statements, /ALTER TABLE token_usage ALTER COLUMN task_queue_id DROP NOT NULL/);
   assert.match(statements, /CREATE TABLE IF NOT EXISTS token_usage_retry/);
   assert.match(statements, /CREATE TABLE IF NOT EXISTS token_usage_reconciliation_cursor/);
+  assert.match(statements, /CREATE TABLE IF NOT EXISTS runtime_credential_reconciliation_target/);
+  assert.match(statements, /CREATE TABLE IF NOT EXISTS runtime_maintenance_run/);
+  assert.match(statements, /CREATE TABLE IF NOT EXISTS token_usage_billing_event/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS gateway_usage_id TEXT/);
   assert.match(statements, /CREATE UNIQUE INDEX IF NOT EXISTS idx_token_usage_workspace_gateway_usage_unique/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS cache_tokens INTEGER NOT NULL DEFAULT 0/);

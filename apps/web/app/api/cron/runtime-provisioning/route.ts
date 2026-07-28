@@ -1,9 +1,4 @@
-import {
-  drainTokenUsageRetriesSync,
-  reconcileAllManagedRuntimeUsageAsync,
-  resumeManagedRuntimeCleanupRequestsAsync,
-  resumePendingProvisioningTasksAsync,
-} from "@dofe-agent/services";
+import { runRuntimeMaintenanceAsync } from "@dofe-agent/services";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,16 +14,5 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const provisioning = await resumePendingProvisioningTasksAsync();
-  const cleanup = await resumeManagedRuntimeCleanupRequestsAsync();
-  const usageRetries = drainTokenUsageRetriesSync();
-  const usageReconciliation = await reconcileAllManagedRuntimeUsageAsync();
-
-  return Response.json({
-    ok: true,
-    provisioning,
-    cleanup,
-    usageRetries,
-    usageReconciliation,
-  });
+  return Response.json(await runRuntimeMaintenanceAsync());
 }
