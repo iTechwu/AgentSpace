@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { createModelsInternalDataClient, type ModelsInternalDataClient } from "@dofe/models-sdk";
+import { unwrapModelsInternalResponse } from "@dofe/models-sdk/response";
 import { resolveModelsBaseUrl } from "../config/deployment.ts";
 
 /**
@@ -62,6 +63,60 @@ export function getModelsInternalClient(env: NodeJS.ProcessEnv = process.env): M
   });
   cachedConfigKey = key;
   return cachedClient;
+}
+
+export interface ModelsBillingScopePreflightInput {
+  scope: {
+    tenantId: string;
+    ssoTeamId: string;
+    teamId: null;
+    requestId: string;
+    source: "admin";
+  };
+  estimatedCharge: number;
+  reserve: false;
+}
+
+export interface ModelsBillingScopePreflightResult {
+  allowed: boolean;
+  availableBalance?: string | number | null;
+  estimatedCharge?: string | number | null;
+  currency?: string;
+  code?: string;
+  message?: string;
+}
+
+/**
+ * Tenant-first billing preflight. The published SDK still exposes only the
+ * deprecated local-team route, so keep this small signed adapter until its v2
+ * surface is available in @dofe/models-sdk.
+ */
+export async function preflightModelsBillingByScopeAsync(
+  body: ModelsBillingScopePreflightInput,
+  env: NodeJS.ProcessEnv = process.env,
+  request: typeof fetch = fetch,
+): Promise<ModelsBillingScopePreflightResult> {
+  const config = resolveModelsInternalConfig(env);
+  const response = await request(
+    `${config.baseUrl.replace(/\/+$/, "")}/internal/billing/v2/preflight`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: buildModelsInternalAuthorization(config),
+        "x-service-name": config.serviceName,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  const contentType = response.headers.get("content-type") ?? "";
+  const responseBody = contentType.includes("application/json")
+    ? await response.json()
+    : await response.text();
+  return unwrapModelsInternalResponse<ModelsBillingScopePreflightResult>(
+    { status: response.status, body: responseBody },
+    "POST /internal/billing/v2/preflight",
+  );
 }
 
 /** For tests: drop the cached client so the next call re-reads env. */

@@ -166,6 +166,7 @@ export {
   createRuntimeProvisioningTaskSync,
   failManagedProvisioningStageSync,
   listRuntimeProvisioningTaskEventsSync,
+  listRuntimeProvisioningTasksAcrossWorkspacesSync,
   listRuntimeProvisioningTasksSync,
   listRetryingRuntimeProvisioningTasksReadySync,
   listRunningNodeStagesForTimeoutSync,

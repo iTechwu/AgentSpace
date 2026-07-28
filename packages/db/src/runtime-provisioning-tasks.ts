@@ -204,6 +204,24 @@ export function listRuntimeProvisioningTasksSync(
   return rows.map(mapRuntimeProvisioningTask);
 }
 
+export function listRuntimeProvisioningTasksAcrossWorkspacesSync(
+  options?: { statuses?: RuntimeProvisioningTaskStatus[]; limit?: number },
+): RuntimeProvisioningTaskRecord[] {
+  const statuses = options?.statuses;
+  const limit = Math.min(Math.max(options?.limit ?? 200, 1), 1_000);
+  const rows = (statuses && statuses.length > 0
+    ? getDatabase().prepare(
+        `SELECT * FROM runtime_provisioning_task
+         WHERE status = ANY(?)
+         ORDER BY created_at ASC LIMIT ?`,
+      ).all(statuses, limit)
+    : getDatabase().prepare(
+        `SELECT * FROM runtime_provisioning_task
+         ORDER BY created_at ASC LIMIT ?`,
+      ).all(limit)) as RawRuntimeProvisioningTask[];
+  return rows.map(mapRuntimeProvisioningTask);
+}
+
 /**
  * Mark a task running and advance to a stage. In Phase 2 the Docker/CLI stages
  * (`pull_image`, `install_cli`) are auto-marked `skipped` — they are realised

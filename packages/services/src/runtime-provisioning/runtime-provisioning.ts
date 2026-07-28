@@ -32,6 +32,7 @@ import {
   listRuntimeProvisioningTaskEventsSync,
   listTokenUsageSync,
   listDueRuntimeCredentialRecoveryTasksSync,
+  listRuntimeProvisioningTasksAcrossWorkspacesSync,
   listRuntimeProvisioningTasksSync,
   listRetryingRuntimeProvisioningTasksReadySync,
   listRunningProvisioningTasksTimedOutSync,
@@ -64,7 +65,10 @@ import {
   type WorkspaceSsoBindingRecord,
 } from "@dofe-agent/db";
 import { isDaemonProvider, resolveProviderProtocols, type DaemonProvider } from "@dofe-agent/domain";
-import { getModelsInternalClient } from "../models/client.ts";
+import {
+  getModelsInternalClient,
+  preflightModelsBillingByScopeAsync,
+} from "../models/client.ts";
 import { resolveAgentRuntimeMode } from "../config/deployment.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
@@ -1183,7 +1187,17 @@ export interface ModelsClientLike {
     list(args: { query: { tenantId: string } }): Promise<{ list: unknown[] }>;
   };
   billing: {
-    preflight(args: { body: { teamId: string; estimatedCharge: number } }): Promise<{
+    preflightByScope(args: { body: {
+      scope: {
+        tenantId: string;
+        ssoTeamId: string;
+        teamId: null;
+        requestId: string;
+        source: "admin";
+      };
+      estimatedCharge: number;
+      reserve: false;
+    } }): Promise<{
       allowed: boolean;
       availableBalance?: string | number | null;
       estimatedCharge?: string | number | null;
@@ -1208,8 +1222,17 @@ export interface ModelsCreateResult {
 }
 
 /** Indirection so tests can swap the client without touching env. */
-let clientProvider: () => ModelsClientLike = () =>
-  getModelsInternalClient() as unknown as ModelsClientLike;
+let clientProvider: () => ModelsClientLike = () => {
+  const client = getModelsInternalClient();
+  return {
+    ...client,
+    billing: {
+      preflightByScope: (
+        { body }: Parameters<ModelsClientLike["billing"]["preflightByScope"]>[0],
+      ) => preflightModelsBillingByScopeAsync(body),
+    },
+  } as unknown as ModelsClientLike;
+};
 
 export function setProvisioningModelsClientProviderForTests(provider: () => ModelsClientLike): void {
   clientProvider = provider;
@@ -1235,6 +1258,24 @@ function resolveManagedRuntimePreflightCharge(requestedCharge?: number): number 
   return Number.isFinite(configured) && configured > 0
     ? configured
     : DEFAULT_MANAGED_RUNTIME_PREFLIGHT_CHARGE;
+}
+
+function buildManagedRuntimeBillingPreflightBody(
+  scope: { tenantId: string; teamId: string },
+  requestId: string,
+  estimatedCharge: number,
+) {
+  return {
+    scope: {
+      tenantId: scope.tenantId,
+      ssoTeamId: scope.teamId,
+      teamId: null,
+      requestId,
+      source: "admin" as const,
+    },
+    estimatedCharge,
+    reserve: false as const,
+  };
 }
 
 export async function preflightManagedRuntimeCreationAsync(
@@ -1272,11 +1313,12 @@ export async function preflightManagedRuntimeCreationAsync(
       message: formatManagedRuntimePreflightError(error),
     };
   }
-  const result = await clientProvider().billing.preflight({
-    body: {
-      teamId: scope.teamId,
-      estimatedCharge: resolveManagedRuntimePreflightCharge(input.estimatedCharge),
-    },
+  const result = await clientProvider().billing.preflightByScope({
+    body: buildManagedRuntimeBillingPreflightBody(
+      scope,
+      `managed-runtime-preflight:${input.workspaceId}:${input.provider}`,
+      resolveManagedRuntimePreflightCharge(input.estimatedCharge),
+    ),
   });
   return {
     allowed: result.allowed,
@@ -1335,15 +1377,19 @@ export async function runProvisioningPipeline(
         protocols: task.protocols,
         requestedModel: task.requestedModel,
       });
-      const preflight = await client.billing.preflight({
-        body: { teamId: scope.teamId, estimatedCharge: resolveManagedRuntimePreflightCharge() },
+      const preflight = await client.billing.preflightByScope({
+        body: buildManagedRuntimeBillingPreflightBody(
+          scope,
+          task.id,
+          resolveManagedRuntimePreflightCharge(),
+        ),
       });
       if (!preflight.allowed) {
         const today = new Date().toISOString().slice(0, 10);
         notifyWorkspaceAdminsSync({
           workspaceId,
           title: "Insufficient balance for managed runtime",
-          body: `Provisioning ${task.runtimeType} runtime "${runtimeId}" was rejected because the team balance is insufficient. Add credits or lower usage before retrying.`,
+          body: `Provisioning ${task.runtimeType} runtime "${runtimeId}" was rejected because the tenant balance is insufficient. Add credits or lower usage before retrying.`,
           type: "billing.insufficient_balance",
           severity: "critical",
           resourceType: "workspace",
@@ -1566,9 +1612,13 @@ export async function resumePendingProvisioningTasksAsync(workspaceId?: string):
     });
   }
 
-  const tasks = listRuntimeProvisioningTasksSync(workspaceId, {
-    statuses: ["queued", "running", "retrying"],
-  });
+  const tasks = workspaceId
+    ? listRuntimeProvisioningTasksSync(workspaceId, {
+        statuses: ["queued", "running", "retrying"],
+      })
+    : listRuntimeProvisioningTasksAcrossWorkspacesSync({
+        statuses: ["queued", "running", "retrying"],
+      });
   let driven = 0;
   for (const task of tasks) {
     if (task.status === "retrying" && task.nextRetryAt && task.nextRetryAt > new Date().toISOString()) {

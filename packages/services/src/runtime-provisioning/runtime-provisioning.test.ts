@@ -77,12 +77,13 @@ function createMockClient(behavior: {
   plaintext?: string;
   nextPlaintext?: string;
   modelList?: unknown[];
-}): ModelsClientLike & { createCalls: number; preflightCalls: number; revokeCalls: number; rotateCalls: number; getCalls: number; lastRevokeBody?: unknown; lastRotateBody?: unknown } {
+}): ModelsClientLike & { createCalls: number; preflightCalls: number; revokeCalls: number; rotateCalls: number; getCalls: number; lastPreflightBody?: unknown; lastRevokeBody?: unknown; lastRotateBody?: unknown } {
   let createCalls = 0;
   let preflightCalls = 0;
   let revokeCalls = 0;
   let rotateCalls = 0;
   let getCalls = 0;
+  let lastPreflightBody: unknown;
   let lastRevokeBody: unknown;
   let lastRotateBody: unknown;
   return {
@@ -103,8 +104,9 @@ function createMockClient(behavior: {
       },
     },
     billing: {
-      async preflight(args) {
+      async preflightByScope(args) {
         preflightCalls += 1;
+        lastPreflightBody = args.body;
         assert.ok(args.body.estimatedCharge > 0);
         return { allowed: behavior.preflightAllowed ?? true };
       },
@@ -172,6 +174,9 @@ function createMockClient(behavior: {
     },
     get preflightCalls() {
       return preflightCalls;
+    },
+    get lastPreflightBody() {
+      return lastPreflightBody;
     },
     get revokeCalls() {
       return revokeCalls;
@@ -366,6 +371,13 @@ test("balance preflight rejects provisioning before a Runtime credential is crea
   assert.equal(failed.stage, "request_credential");
   assert.match(failed.lastErrorMessage ?? "", /managed_runtime.balance_preflight_rejected/);
   assert.equal(activeClient.preflightCalls, 1);
+  assert.deepEqual((activeClient.lastPreflightBody as { scope: unknown }).scope, {
+    tenantId: "tenant-1",
+    ssoTeamId: "team-1",
+    teamId: null,
+    requestId: task.id,
+    source: "admin",
+  });
   assert.equal(activeClient.createCalls, 0);
 });
 

@@ -45,7 +45,7 @@ const PROVIDER_EXECUTABLES: Record<DaemonProvider, string> = {
   opencode: "opencode",
   openclaw: "openclaw",
   nanobot: "nanobot",
-  hermes: "hermes-agent",
+  hermes: "/opt/hermes/.venv/bin/hermes-agent",
 };
 
 export function getManagedRuntimeCredentialEnvKey(provider: DaemonProvider): string {

@@ -13,6 +13,7 @@ import {
   listAuditLogsSync,
   listPendingManagedRuntimeCleanupRequestsForDaemonSync,
   listRuntimeProvisioningTaskEventsSync,
+  listRuntimeProvisioningTasksAcrossWorkspacesSync,
   listRuntimeProvisioningTasksSync,
   markRuntimeProvisioningTaskCancellingSync,
   markManagedRuntimeCleanupRequestRunningSync,
@@ -101,6 +102,35 @@ test("provisioning task create is idempotent by workspace + idempotency key", ()
   assert.equal(second.id, first.id);
   assert.equal(readRuntimeProvisioningTaskByIdempotencyKeySync(WORKSPACE, "runtime-A:create:v1")?.id, first.id);
   assert.equal(listRuntimeProvisioningTasksSync(WORKSPACE).length, 1);
+});
+
+test("maintenance can list queued provisioning tasks across SSO workspaces", () => {
+  const otherWorkspace = "provisioning-ws-other";
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    "INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(otherWorkspace, otherWorkspace, otherWorkspace, USER, now, now);
+  createRuntimeProvisioningTaskSync({
+    workspaceId: WORKSPACE,
+    requestedByUserId: USER,
+    idempotencyKey: "queued-main",
+    runtimeType: "claude",
+    protocols: ["anthropic"],
+  });
+  createRuntimeProvisioningTaskSync({
+    workspaceId: otherWorkspace,
+    requestedByUserId: USER,
+    idempotencyKey: "queued-other",
+    runtimeType: "codex",
+    protocols: ["openai"],
+  });
+
+  assert.equal(listRuntimeProvisioningTasksSync(WORKSPACE).length, 1);
+  assert.deepEqual(
+    new Set(listRuntimeProvisioningTasksAcrossWorkspacesSync({ statuses: ["queued"] })
+      .map((task) => task.workspaceId)),
+    new Set([WORKSPACE, otherWorkspace]),
+  );
 });
 
 test("advance stage records credential ref and marks task running", () => {

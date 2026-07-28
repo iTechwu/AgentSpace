@@ -35,7 +35,7 @@ const PROVIDER_EXECUTABLES: Record<DaemonProvider, string> = {
   opencode: "opencode",
   openclaw: "openclaw",
   nanobot: "nanobot",
-  hermes: "hermes-agent",
+  hermes: "/opt/hermes/.venv/bin/hermes-agent",
 };
 
 const PROVIDER_ENVIRONMENT_KEYS: Record<DaemonProvider, string[]> = {
@@ -274,8 +274,9 @@ function buildDockerProviderLauncher(profileDir: string, runtimeId: string, prov
     `  --mount ${shellQuote(`type=bind,src=${runtimeHomeDir},dst=/dofe-home`)} \\`,
     "  --workdir /workspace \\",
     "  --env HOME=/dofe-home \\",
+    "  --entrypoint node \\",
     environmentArgs.trimEnd(),
-    `  ${shellQuote(image)} node /dofe-profile/attribution-proxy.mjs ${shellQuote(PROVIDER_BASE_URL_KEYS[provider])} ${shellQuote(getManagedProviderCredentialEnvironmentKey(provider))} /dofe-profile/runtime-key ${shellQuote(PROVIDER_EXECUTABLES[provider])} \"$@\"`,
+    `  ${shellQuote(image)} /dofe-profile/attribution-proxy.mjs ${shellQuote(PROVIDER_BASE_URL_KEYS[provider])} ${shellQuote(getManagedProviderCredentialEnvironmentKey(provider))} /dofe-profile/runtime-key ${shellQuote(PROVIDER_EXECUTABLES[provider])} \"$@\"`,
     "",
   ].join("\n");
 }

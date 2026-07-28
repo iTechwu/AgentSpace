@@ -79,7 +79,8 @@ export function RuntimeTaskDetailClient({
           <p className="font-mono text-xs text-neutral-400">{task.id}</p>
         </div>
         <div className="flex gap-2">
-          {task.status === "failed" || task.status === "retrying" ? (
+          {(task.status === "failed" || task.status === "retrying") &&
+          task.retryCount < task.maxRetries ? (
             <button
               type="button"
               className="rounded border px-2 py-1 text-xs disabled:opacity-50"
