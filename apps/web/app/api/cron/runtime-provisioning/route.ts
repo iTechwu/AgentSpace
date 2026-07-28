@@ -14,5 +14,6 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  return Response.json(await runRuntimeMaintenanceAsync());
+  const result = await runRuntimeMaintenanceAsync();
+  return Response.json(result, { status: result.ok ? 200 : 503 });
 }

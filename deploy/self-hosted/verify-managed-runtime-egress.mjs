@@ -1,55 +1,135 @@
 import { spawnSync } from "node:child_process";
+import {
+  persistReleaseEvidence,
+  evaluateEgressProbeEvidence,
+  requiredEnv,
+  splitList,
+  validateManagedNetworkInspection,
+} from "./managed-runtime-release-gates.mjs";
 
-const network = process.env.MANAGED_RUNTIME_DOCKER_NETWORK?.trim();
-const gateway = process.env.MODELS_GATEWAY_BASE_URL?.trim();
-const blocked = (process.env.MANAGED_RUNTIME_BLOCKED_EGRESS_URLS ?? "")
-  .split(",")
-  .map((value) => value.trim())
-  .filter(Boolean);
-const imageTag = process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest";
-const image = process.env.MANAGED_RUNTIME_EGRESS_CHECK_IMAGE?.trim()
-  || `dofe/agent-runtime-codex:${imageTag}`;
-
-if (!network || !gateway || blocked.length === 0) {
-  console.error("MANAGED_RUNTIME_DOCKER_NETWORK, MODELS_GATEWAY_BASE_URL, and MANAGED_RUNTIME_BLOCKED_EGRESS_URLS are required.");
-  process.exit(2);
+let evidence = { passed: false };
+let exitCode = 2;
+try {
+  const required = requiredEnv(process.env, [
+    "MANAGED_RUNTIME_DOCKER_NETWORK",
+    "MODELS_GATEWAY_BASE_URL",
+    "MANAGED_RUNTIME_BLOCKED_EGRESS_URLS",
+    "MANAGED_RUNTIME_BLOCKED_EGRESS_IPS",
+    "MANAGED_RUNTIME_BLOCKED_PROXY_URLS",
+  ]);
+  const network = required.MANAGED_RUNTIME_DOCKER_NETWORK;
+  const policyLabel = process.env.MANAGED_RUNTIME_NETWORK_POLICY_LABEL?.trim()
+    || "dofe.managed-egress=restricted";
+  const inspectionResult = spawnSync("docker", ["network", "inspect", network], {
+    encoding: "utf8",
+  });
+  if (inspectionResult.error) throw inspectionResult.error;
+  if (inspectionResult.status !== 0) {
+    throw new Error(`docker_network_inspect_failed:${inspectionResult.stderr.trim()}`);
+  }
+  const inspection = JSON.parse(inspectionResult.stdout)?.[0];
+  const networkEvidence = validateManagedNetworkInspection(inspection, { network, policyLabel });
+  const imageTag = process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest";
+  const image = process.env.MANAGED_RUNTIME_EGRESS_CHECK_IMAGE?.trim()
+    || `dofe/agent-runtime-codex:${imageTag}`;
+  const probeInput = {
+    gateway: required.MODELS_GATEWAY_BASE_URL,
+    blockedUrls: splitList(required.MANAGED_RUNTIME_BLOCKED_EGRESS_URLS),
+    blockedIps: splitList(required.MANAGED_RUNTIME_BLOCKED_EGRESS_IPS),
+    blockedProxies: splitList(required.MANAGED_RUNTIME_BLOCKED_PROXY_URLS),
+  };
+  for (const [name, targets] of Object.entries(probeInput).filter(([name]) => name !== "gateway")) {
+    if (!Array.isArray(targets) || targets.length === 0) throw new Error(`egress_probe_targets_empty:${name}`);
+  }
+  const result = spawnSync("docker", [
+    "run", "--rm", "--network", network,
+    "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+    "--entrypoint", "node", image, "--input-type=module", "-e", getContainerProbeScript(),
+    JSON.stringify(probeInput),
+  ], { encoding: "utf8" });
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.error) throw result.error;
+  const probeEvidence = parseContainerEvidence(result.stdout);
+  const probesPassed = evaluateEgressProbeEvidence(probeEvidence.probes);
+  evidence = {
+    passed: result.status === 0 && probeEvidence.passed === true && probesPassed,
+    image,
+    network: networkEvidence,
+    probes: probeEvidence.probes,
+  };
+  exitCode = evidence.passed ? 0 : 1;
+} catch (error) {
+  evidence = {
+    ...evidence,
+    error: error instanceof Error ? error.message : String(error),
+  };
 }
-if (["bridge", "default", "host", "none"].includes(network.toLowerCase())) {
-  console.error(`Refusing to validate permissive Docker network: ${network}`);
-  process.exit(2);
+
+try {
+  const stored = persistReleaseEvidence("managed-runtime-egress", evidence);
+  console.log(JSON.stringify({ ...stored.payload, evidenceFile: stored.filePath }));
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  exitCode = 2;
+}
+process.exit(exitCode);
+
+function parseContainerEvidence(output) {
+  const line = output.split(/\r?\n/).find((value) => value.startsWith("EVIDENCE_JSON:"));
+  if (!line) throw new Error("container_probe_evidence_missing");
+  return JSON.parse(line.slice("EVIDENCE_JSON:".length));
 }
 
-const script = `
-const [gateway, ...blocked] = process.argv.slice(1);
-const probe = async (url) => {
+function getContainerProbeScript() {
+  return String.raw`
+import net from "node:net";
+
+const input = JSON.parse(process.argv[1]);
+const timeoutMs = 5000;
+const fetchProbe = async (url) => {
   try {
-    await fetch(url, { signal: AbortSignal.timeout(5000), redirect: "manual" });
-    return true;
-  } catch {
-    return false;
+    const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: "manual" });
+    return { target: url, reachable: true, status: response.status };
+  } catch (error) {
+    return { target: url, reachable: false, error: error instanceof Error ? error.message : String(error) };
   }
 };
-if (!(await probe(gateway))) {
-  console.error("models gateway is unreachable");
-  process.exit(1);
-}
-for (const url of blocked) {
-  if (await probe(url)) {
-    console.error("blocked Provider endpoint is reachable: " + url);
-    process.exit(1);
-  }
-}
-console.log("managed Runtime egress policy passed");
+const tcpProbe = async (target, defaultPort) => {
+  const url = new URL(target.includes("://") ? target : "tcp://" + target);
+  const port = Number(url.port || defaultPort);
+  return await new Promise((resolve) => {
+    const socket = net.createConnection({ host: url.hostname, port });
+    const finish = (reachable, error) => {
+      socket.destroy();
+      resolve({ target, host: url.hostname, port, reachable, ...(error ? { error } : {}) });
+    };
+    socket.setTimeout(timeoutMs, () => finish(false, "timeout"));
+    socket.once("connect", () => finish(true));
+    socket.once("error", (error) => finish(false, error.message));
+  });
+};
+
+const gateway = await fetchProbe(input.gateway);
+const blockedUrls = await Promise.all(input.blockedUrls.map(async (target) => {
+  const application = await fetchProbe(target);
+  const url = new URL(target);
+  const transport = await tcpProbe(target, url.protocol === "http:" ? 80 : 443);
+  return { ...application, tcpReachable: transport.reachable, tcpError: transport.error };
+}));
+const blockedIps = await Promise.all(input.blockedIps.map((target) => tcpProbe(target, 443)));
+const blockedProxies = await Promise.all(input.blockedProxies.map((target) => tcpProbe(target, 8080)));
+const proxyEnvironment = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]
+  .filter((name) => process.env[name]);
+const passed = gateway.reachable
+  && blockedUrls.every((probe) => !probe.reachable && !probe.tcpReachable)
+  && blockedIps.every((probe) => !probe.reachable)
+  && blockedProxies.every((probe) => !probe.reachable)
+  && proxyEnvironment.length === 0;
+console.log("EVIDENCE_JSON:" + JSON.stringify({
+  passed,
+  probes: { gateway, blockedUrls, blockedIps, blockedProxies, proxyEnvironment },
+}));
+process.exit(passed ? 0 : 1);
 `;
-
-const result = spawnSync("docker", [
-  "run", "--rm", "--network", network,
-  "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-  "--entrypoint", "node", image, "-e", script, gateway, ...blocked,
-], { stdio: "inherit" });
-
-if (result.error) {
-  console.error(result.error.message);
-  process.exit(2);
 }
-process.exit(result.status ?? 2);

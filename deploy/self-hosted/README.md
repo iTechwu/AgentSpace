@@ -22,13 +22,35 @@ docker compose --env-file deploy/self-hosted/.env -f deploy/self-hosted/docker-c
 
 Remote managed nodes require `MANAGED_RUNTIME_DOCKER_NETWORK`. Create that network with infrastructure-level DNS and egress policy that permits the models gateway but denies direct Provider endpoints. The daemon rejects missing configuration and Docker's permissive `host`, `bridge`, and `default` networks.
 
-Run the release gate from each managed node after applying the policy:
+Label the network after the infrastructure policy has been applied. The label is an attestation marker, not the policy itself:
+
+```bash
+docker network create --label dofe.managed-egress=restricted dofe-models-egress
+```
+
+Run the release gate from each managed node:
 
 ```bash
 npm run verify:managed-runtime-egress
 ```
 
-The check must reach `MODELS_GATEWAY_BASE_URL` and must fail to reach every URL in `MANAGED_RUNTIME_BLOCKED_EGRESS_URLS`. Keep production in `local` mode until this command and the real billing reconciliation exercise both pass in staging.
+The check must reach `MODELS_GATEWAY_BASE_URL`; every domain in `MANAGED_RUNTIME_BLOCKED_EGRESS_URLS`, raw IP in `MANAGED_RUNTIME_BLOCKED_EGRESS_IPS`, and proxy in `MANAGED_RUNTIME_BLOCKED_PROXY_URLS` must be unreachable. It also rejects proxy variables baked into the Runtime image and validates `MANAGED_RUNTIME_NETWORK_POLICY_LABEL`. Results are written as JSON below `MANAGED_RUNTIME_EVIDENCE_DIR`.
+
+## Managed Runtime billing gate
+
+In staging, use the approved Runtime image and Runtime Key to make one real model request. Record its tenant, Runtime Credential, Runtime, AI employee, conversation, gateway request ID, model, and start time in the corresponding `STAGING_*` variables. After models has finalized the charge, run:
+
+```bash
+npm run verify:managed-runtime-billing
+```
+
+The gate queries the models internal tenant usage API and requires an exact attribution match, a terminal billing status, a valid cost, and a currency. To run both release gates in sequence:
+
+```bash
+npm run verify:managed-runtime-release
+```
+
+Keep production in `local` mode until both commands pass on every managed node and their JSON evidence has been retained with the release record.
 
 ## Provider authentication
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   completeRuntimeMaintenanceRunSync,
   createRuntimeMaintenanceRunSync,
@@ -19,6 +20,7 @@ export interface RuntimeMaintenanceResult {
   ok: boolean;
   status: "succeeded" | "partial_failure";
   runId: string;
+  evidence: RuntimeMaintenanceStageResult;
   stages: {
     provisioning: RuntimeMaintenanceStageResult;
     cleanup: RuntimeMaintenanceStageResult;
@@ -52,26 +54,48 @@ const defaultDependencies: RuntimeMaintenanceDependencies = {
 export async function runRuntimeMaintenanceAsync(
   dependencies: RuntimeMaintenanceDependencies = defaultDependencies,
 ): Promise<RuntimeMaintenanceResult> {
-  const run = dependencies.createRun();
+  let runId = `maintenance-unpersisted-${randomUUID()}`;
+  let persisted = false;
+  let evidence: RuntimeMaintenanceStageResult = { status: "succeeded" };
+  try {
+    const run = dependencies.createRun();
+    runId = run.id;
+    persisted = true;
+  } catch (error) {
+    if (error instanceof Error && error.message === "runtime_maintenance.already_running") throw error;
+    evidence = toFailedStage(error);
+  }
   const stages = {
     provisioning: await runStage(dependencies.resumeProvisioning),
     cleanup: await runStage(dependencies.resumeCleanup),
     usageRetries: await runStage(dependencies.drainUsageRetries),
     usageReconciliation: await runStage(dependencies.reconcileUsage),
   };
-  const ok = Object.values(stages).every((stage) => stage.status === "succeeded");
+  const stagesSucceeded = Object.values(stages).every((stage) => stage.status === "succeeded");
+  const persistedStatus = stagesSucceeded ? "succeeded" : "partial_failure";
+  if (persisted) {
+    try {
+      dependencies.completeRun({ id: runId, status: persistedStatus, stages });
+    } catch (error) {
+      evidence = toFailedStage(error);
+    }
+  }
+  const ok = stagesSucceeded && evidence.status === "succeeded";
   const status = ok ? "succeeded" : "partial_failure";
-  dependencies.completeRun({ id: run.id, status, stages });
-  return { ok, status, runId: run.id, stages };
+  return { ok, status, runId, evidence, stages };
 }
 
 async function runStage(operation: () => unknown | Promise<unknown>): Promise<RuntimeMaintenanceStageResult> {
   try {
     return { status: "succeeded", value: await operation() };
   } catch (error) {
-    return {
-      status: "failed",
-      error: error instanceof Error ? error.message : String(error),
-    };
+    return toFailedStage(error);
   }
+}
+
+function toFailedStage(error: unknown): RuntimeMaintenanceStageResult {
+  return {
+    status: "failed",
+    error: error instanceof Error ? error.message : String(error),
+  };
 }

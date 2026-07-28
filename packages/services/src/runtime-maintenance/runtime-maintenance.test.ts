@@ -38,3 +38,25 @@ test("runtime maintenance isolates stage failures and persists complete run evid
   assert.equal(completed?.id, "maintenance-1");
   assert.equal(completed?.status, "partial_failure");
 });
+
+test("runtime maintenance still executes every stage when evidence persistence is unavailable", async () => {
+  const calls: string[] = [];
+  const result = await runRuntimeMaintenanceAsync({
+    createRun: () => {
+      throw new Error("evidence database unavailable");
+    },
+    completeRun: () => {
+      throw new Error("must not complete an unpersisted run");
+    },
+    resumeProvisioning: async () => calls.push("provisioning"),
+    resumeCleanup: async () => calls.push("cleanup"),
+    drainUsageRetries: () => calls.push("usageRetries"),
+    reconcileUsage: async () => calls.push("usageReconciliation"),
+  });
+
+  assert.deepEqual(calls, ["provisioning", "cleanup", "usageRetries", "usageReconciliation"]);
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "partial_failure");
+  assert.equal(result.evidence.status, "failed");
+  assert.match(result.evidence.error ?? "", /evidence database unavailable/);
+});

@@ -1,7 +1,7 @@
 import {
   completeTokenUsageRetrySync,
+  claimDueTokenUsageRetriesSync,
   failTokenUsageRetrySync,
-  listDueTokenUsageRetriesSync,
   recordTokenUsageSync,
 } from "@dofe-agent/db";
 
@@ -17,7 +17,7 @@ export function drainTokenUsageRetriesSync(limit = 100): DrainTokenUsageRetriesR
     completedCount: 0,
     failedCount: 0,
   };
-  for (const retry of listDueTokenUsageRetriesSync(limit)) {
+  for (const retry of claimDueTokenUsageRetriesSync(limit)) {
     result.processedCount += 1;
     try {
       recordTokenUsageSync(retry.payload);

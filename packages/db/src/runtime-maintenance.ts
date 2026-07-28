@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getDatabase } from "./database.ts";
+import { getDatabase, withTransaction } from "./database.ts";
 
 export type RuntimeMaintenanceRunStatus = "running" | "succeeded" | "partial_failure";
 
@@ -14,10 +14,29 @@ export interface RuntimeMaintenanceRunRecord {
 export function createRuntimeMaintenanceRunSync(): RuntimeMaintenanceRunRecord {
   const id = `runtime-maintenance-${randomUUID()}`;
   const now = new Date().toISOString();
-  getDatabase().prepare(
-    `INSERT INTO runtime_maintenance_run (id, status, stages_json, started_at, created_at)
-     VALUES (?, 'running', '{}'::jsonb, ?, ?)`,
-  ).run(id, now, now);
+  const staleBefore = new Date(Date.now() - 15 * 60 * 1_000).toISOString();
+  const db = getDatabase();
+  withTransaction(db, () => {
+    const lock = db.prepare("SELECT pg_try_advisory_xact_lock(723041) AS acquired").get() as {
+      acquired?: boolean;
+    } | undefined;
+    if (!lock?.acquired) throw new Error("runtime_maintenance.already_running");
+    db.prepare(
+      `UPDATE runtime_maintenance_run
+       SET status = 'partial_failure',
+           stages_json = jsonb_build_object('evidence', jsonb_build_object('status', 'failed', 'error', 'maintenance lease expired')),
+           finished_at = ?
+       WHERE status = 'running' AND started_at <= ?`,
+    ).run(now, staleBefore);
+    const active = db.prepare(
+      "SELECT id FROM runtime_maintenance_run WHERE status = 'running' LIMIT 1",
+    ).get();
+    if (active) throw new Error("runtime_maintenance.already_running");
+    db.prepare(
+      `INSERT INTO runtime_maintenance_run (id, status, stages_json, started_at, created_at)
+       VALUES (?, 'running', '{}'::jsonb, ?, ?)`,
+    ).run(id, now, now);
+  });
   return { id, status: "running", stages: {}, startedAt: now };
 }
 

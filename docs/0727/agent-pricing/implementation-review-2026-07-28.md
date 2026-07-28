@@ -20,6 +20,10 @@
 | 用量写入与对账依赖请求内成功和人工全量操作 | 短暂数据库失败会丢失任务关联，历史全量扫描无法扩展 | 增加持久化重试队列、按 Runtime Credential 游标自动对账和 24 小时回看窗口；仍为 pending 的记录会把窗口扩展到最早待结算时间，避免延迟终态永久遗漏。 |
 | Ready 检查未经过归因代理 | HMAC 或代理转发异常可能在创建时漏检 | 健康阶段新增经本地归因代理访问非计费模型目录的检查，并保留 CLI 可执行性检查。 |
 | 受管容器未强制指定隔离网络 | 容器可能使用默认出口直连 Provider | 强制配置非默认 Docker 网络，并提供 `npm run verify:managed-runtime-egress` staging 门禁。 |
+| 凭据轮换后只对账当前 Key | 旧 Key 宽限期内的延迟账单可能永久遗漏 | Schema 40 增加凭据级对账目标；当前 Key 保持 active，旧 Key 在可配置最短保留期内保持 draining，自动任务逐凭据续扫；仅在 Models 明确返回 `expired/revoked` 且无 pending 用量后才完成。 |
+| 维护任务阶段和证据写入互相阻塞 | 单个故障可能阻断其余恢复工作，且缺少可追踪运行结果 | Schema 40 增加维护运行记录；四个阶段逐项隔离并持久化结果，连证据库创建失败也不会阻止业务阶段继续执行。 |
+| 用量存储职责集中且缺少可重放账单演进 | 重试、游标、汇总与事实写入耦合，结算变化只能看最终状态 | 拆分账单汇总、重试 outbox、凭据对账游标/目标；Schema 41 增加同事务 append-only billing event 与迁移快照。 |
+| 发布门禁只能探测 Provider 域名 | 直连 IP、代理旁路和账单归因仍依赖人工判断 | 网络门禁增加策略标签、域名、原始 IP、代理和镜像代理变量校验；新增真实账单精确归因门禁，统一生成 JSON 审计证据。 |
 
 ## 仓库验证
 
@@ -42,13 +46,15 @@
 
 在上述门槛完成前，生产环境继续保持 `DOFE_AGENT_RUNTIME_MODE=local`。
 
-## 仍未实施或待优化
+## 本轮遗留项实施状态
 
-| 优先级 | 内容 | 当前限制 / 建议动作 |
+| 优先级 | 内容 | 实施状态 |
 | --- | --- | --- |
-| P0 | 真实 staging 网络隔离与账单 E2E | 仓库脚本只能验证已配置目标；必须在目标网络验证 DNS、直连 IP、代理变量等旁路均失败，并保留 models 账单归因证据。 |
-| P1 | models SDK 用量契约扩展 | 当前 AgentSpace 能采集本地缓存 Token 和调用时段，也会兼容读取远端扩展字段；正式 SDK 仍缺 `cacheTokens`、`startedAt`、`endedAt`、`updatedAt`，需在 models 仓发布契约版本。 |
-| P1 | 凭据轮换后的历史对账 | 自动任务只遍历 Runtime 当前 `managedCredentialId`；宽限期内旧 Key 的延迟用量需要凭据历史/对账目标表，或由 models 提供按 Runtime 跨凭据查询。 |
-| P2 | 对账任务可观测性与故障隔离 | worker 已统计失败 Runtime，但仍需持久化失败原因、指标和告警，并确保 provisioning、cleanup、usage retry、reconciliation 各阶段互不阻塞。 |
-| P2 | 用量存储模块拆分 | `token-usage.ts` 同时承担定价、CRUD、聚合、重试和游标；建议按 usage repository、billing summary、retry outbox、reconciliation cursor 拆分。 |
-| P2 | 历史快照 / 事件流 | 当前以可变事实表和审计日志为主，尚未形成账单快照或 append-only billing event，不能完整重放一次结算演进。 |
+| P0 | 真实 staging 网络隔离与账单 E2E | **业务代码已落实，待目标环境执行。** `verify:managed-runtime-egress` 校验网络策略标签、网关可达性，以及 Provider 域名、原始 IP、代理端点和代理环境变量旁路；`verify:managed-runtime-billing` 对真实请求的 Runtime Credential、Runtime、AI员工、会话、请求、模型、终态费用和币种做精确核验；`verify:managed-runtime-release` 串行执行并保存 JSON 证据。 |
+| P1 | models SDK 用量契约扩展 | **AgentSpace 侧已落实。** 本地契约适配器兼容 `cacheTokens`/`cachedTokens`、`cacheReadTokens + cacheWriteTokens` 和调用起止/更新时间，测试已覆盖；models SDK 正式类型发布仍是 models 仓的跨仓发版动作。 |
+| P1 | 凭据轮换后的历史对账 | **已落实。** 新增持久化凭据对账目标；人工轮换、自动恢复、停止、删除和取消都会把旧 Key 转为 draining，自动对账不再依赖 Runtime 当前 Key；退出还必须取得 Models 的 `expired/revoked` 终态证据。 |
+| P2 | 对账任务可观测性与故障隔离 | **已落实。** 维护运行和凭据失败原因持久化，管理员告警具备去重键；四阶段及不同凭据目标相互隔离，通知或证据写入失败不会中断其余目标。 |
+| P2 | 用量存储模块拆分 | **已落实。** 账单汇总、重试 outbox、对账游标/凭据目标已从通用 usage repository 拆出，公共导出保持兼容。 |
+| P2 | 历史快照 / 事件流 | **已落实。** `token_usage_billing_event` 由数据库触发器与事实变更同事务追加，覆盖发现、记录、归因、计费状态变化及迁移快照；持久化延期也追加独立事件。 |
+
+仓库内本轮列出的 P0/P1/P2 业务代码项已全部实施。剩余工作只包括目标基础设施上的真实执行、审计证据归档，以及 models SDK 的跨仓版本发布，不应被标记为 AgentSpace 业务代码缺失。

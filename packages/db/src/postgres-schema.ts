@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "40";
+export const POSTGRES_SCHEMA_VERSION = "41";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -61,6 +61,7 @@ export const POSTGRES_TABLE_NAMES = [
   "task_message",
   "model_pricing",
   "token_usage",
+  "token_usage_billing_event",
   "token_usage_retry",
   "token_usage_reconciliation_cursor",
   "runtime_credential_reconciliation_target",
@@ -1237,6 +1238,72 @@ export function getPostgresSchemaStatements(): string[] {
         channel_name TEXT,
         created_at TIMESTAMPTZ NOT NULL
       )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS token_usage_billing_event (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        token_usage_id TEXT REFERENCES token_usage(id) ON DELETE SET NULL,
+        event_type TEXT NOT NULL,
+        snapshot_json JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_token_usage_billing_event_usage
+        ON token_usage_billing_event(workspace_id, token_usage_id, created_at)
+    `,
+    `
+      CREATE OR REPLACE FUNCTION append_token_usage_billing_event()
+      RETURNS TRIGGER AS $$
+      DECLARE
+        billing_event_type TEXT;
+      BEGIN
+        IF TG_OP = 'INSERT' THEN
+          billing_event_type := CASE
+            WHEN NEW.task_queue_id IS NULL AND NEW.billing_status IN ('pending_reconciliation', 'unallocated')
+              THEN 'usage_discovered'
+            ELSE 'usage_recorded'
+          END;
+        ELSIF OLD.task_queue_id IS NULL AND NEW.task_queue_id IS NOT NULL THEN
+          billing_event_type := 'usage_attributed';
+        ELSE
+          billing_event_type := 'billing_state_changed';
+        END IF;
+
+        INSERT INTO token_usage_billing_event (
+          id, workspace_id, token_usage_id, event_type, snapshot_json, created_at
+        ) VALUES (
+          'billing-event-' || md5(NEW.id || clock_timestamp()::text || random()::text),
+          NEW.workspace_id,
+          NEW.id,
+          billing_event_type,
+          to_jsonb(NEW),
+          clock_timestamp()
+        );
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `,
+    `DROP TRIGGER IF EXISTS trg_token_usage_billing_event ON token_usage`,
+    `
+      CREATE TRIGGER trg_token_usage_billing_event
+      AFTER INSERT OR UPDATE ON token_usage
+      FOR EACH ROW EXECUTE FUNCTION append_token_usage_billing_event()
+    `,
+    `
+      INSERT INTO token_usage_billing_event (
+        id, workspace_id, token_usage_id, event_type, snapshot_json, created_at
+      )
+      SELECT
+        'billing-event-migration-' || id,
+        workspace_id,
+        id,
+        'migration_snapshot',
+        to_jsonb(token_usage),
+        created_at
+      FROM token_usage
+      ON CONFLICT (id) DO NOTHING
     `,
     `
       CREATE TABLE IF NOT EXISTS token_usage_retry (

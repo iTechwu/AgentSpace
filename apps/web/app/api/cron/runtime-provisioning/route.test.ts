@@ -9,20 +9,22 @@ vi.mock("@dofe-agent/services", () => services);
 import { GET } from "./route";
 
 const originalSecret = process.env.CRON_SECRET;
+const successfulMaintenanceResult = {
+  ok: true,
+  status: "succeeded",
+  runId: "maintenance-1",
+  evidence: { status: "succeeded" },
+  stages: {
+    provisioning: { status: "succeeded", value: { driven: 2 } },
+    cleanup: { status: "succeeded", value: { staleFailed: 1 } },
+    usageRetries: { status: "succeeded", value: { processedCount: 1 } },
+    usageReconciliation: { status: "succeeded", value: { reconciledCount: 3 } },
+  },
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
-  services.runRuntimeMaintenanceAsync.mockResolvedValue({
-    ok: true,
-    status: "succeeded",
-    runId: "maintenance-1",
-    stages: {
-      provisioning: { status: "succeeded", value: { driven: 2 } },
-      cleanup: { status: "succeeded", value: { staleFailed: 1 } },
-      usageRetries: { status: "succeeded", value: { processedCount: 1 } },
-      usageReconciliation: { status: "succeeded", value: { reconciledCount: 3 } },
-    },
-  });
+  services.runRuntimeMaintenanceAsync.mockResolvedValue(successfulMaintenanceResult);
 });
 
 afterEach(() => {
@@ -52,7 +54,26 @@ describe("runtime provisioning maintenance route", () => {
       headers: { authorization: "Bearer expected-secret" },
     }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(await services.runRuntimeMaintenanceAsync.mock.results[0]?.value);
+    expect(await response.json()).toEqual(successfulMaintenanceResult);
     expect(services.runRuntimeMaintenanceAsync).toHaveBeenCalledOnce();
+  });
+
+  it("returns a retryable status when any maintenance stage fails", async () => {
+    process.env.CRON_SECRET = "expected-secret";
+    services.runRuntimeMaintenanceAsync.mockResolvedValue({
+      ...successfulMaintenanceResult,
+      ok: false,
+      status: "partial_failure",
+      stages: {
+        ...successfulMaintenanceResult.stages,
+        usageReconciliation: { status: "failed", error: "models unavailable" },
+      },
+    });
+    const response = await GET(new Request("http://localhost/api/cron/runtime-provisioning", {
+      headers: { authorization: "Bearer expected-secret" },
+    }));
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).ok).toBe(false);
   });
 });

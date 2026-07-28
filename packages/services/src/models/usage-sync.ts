@@ -48,6 +48,7 @@ type ReconciliationUsageLogEntry = NormalizedModelsUsageLogEntry;
 export interface ReconcileAllManagedRuntimeUsageResult {
   runtimeCount: number;
   failedRuntimeCount: number;
+  failedCredentialTargetCount: number;
   reconciledCount: number;
   pendingCount: number;
   unallocatedCount: number;
@@ -58,6 +59,7 @@ export async function reconcileAllManagedRuntimeUsageAsync(): Promise<ReconcileA
   const totals: ReconcileAllManagedRuntimeUsageResult = {
     runtimeCount: 0,
     failedRuntimeCount: 0,
+    failedCredentialTargetCount: 0,
     reconciledCount: 0,
     pendingCount: 0,
     unallocatedCount: 0,
@@ -77,6 +79,7 @@ export async function reconcileAllManagedRuntimeUsageAsync(): Promise<ReconcileA
   totals.runtimeCount = new Set(runtimes.map((runtime) => `${runtime.workspaceId}:${runtime.id}`)).size;
 
   const targets = listRuntimeCredentialReconciliationTargetsSync();
+  const failedRuntimeKeys = new Set<string>();
   totals.credentialTargetCount = targets.length;
   for (const target of targets) {
     const cursor = readTokenUsageReconciliationCursorSync(target.workspaceId, target.runtimeCredentialId);
@@ -120,6 +123,7 @@ export async function reconcileAllManagedRuntimeUsageAsync(): Promise<ReconcileA
           target.workspaceId,
           target.runtimeCredentialId,
         )
+        && await isRuntimeCredentialTerminalForReconciliationAsync(target)
       ) {
         completeRuntimeCredentialReconciliationTargetSync(
           target.workspaceId,
@@ -127,32 +131,58 @@ export async function reconcileAllManagedRuntimeUsageAsync(): Promise<ReconcileA
         );
       }
     } catch (error) {
-      totals.failedRuntimeCount += 1;
-      recordRuntimeCredentialReconciliationFailureSync({
-        workspaceId: target.workspaceId,
-        runtimeCredentialId: target.runtimeCredentialId,
-        error,
-      });
-      const today = new Date().toISOString().slice(0, 10);
-      notifyWorkspaceAdminsSync({
-        workspaceId: target.workspaceId,
-        title: "Usage reconciliation failed",
-        body: `Usage reconciliation failed for runtime credential ${target.runtimeCredentialId}. The maintenance worker will retry automatically.`,
-        type: "usage.reconciliation_failed",
-        severity: "warning",
-        resourceType: "workspace",
-        resourceId: target.runtimeId,
-        actionHref: "/costs",
-        dedupeKey: `usage.reconciliation_failed:${target.workspaceId}:${target.runtimeCredentialId}:${today}`,
-        metadata: {
-          runtimeId: target.runtimeId,
+      failedRuntimeKeys.add(`${target.workspaceId}:${target.runtimeId}`);
+      totals.failedCredentialTargetCount += 1;
+      try {
+        recordRuntimeCredentialReconciliationFailureSync({
+          workspaceId: target.workspaceId,
           runtimeCredentialId: target.runtimeCredentialId,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      });
+          error,
+        });
+      } catch {
+        // Continue reconciling other credentials even if failure evidence cannot be updated.
+      }
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        notifyWorkspaceAdminsSync({
+          workspaceId: target.workspaceId,
+          title: "Usage reconciliation failed",
+          body: `Usage reconciliation failed for runtime credential ${target.runtimeCredentialId}. The maintenance worker will retry automatically.`,
+          type: "usage.reconciliation_failed",
+          severity: "warning",
+          resourceType: "workspace",
+          resourceId: target.runtimeId,
+          actionHref: "/costs",
+          dedupeKey: `usage.reconciliation_failed:${target.workspaceId}:${target.runtimeCredentialId}:${today}`,
+          metadata: {
+            runtimeId: target.runtimeId,
+            runtimeCredentialId: target.runtimeCredentialId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
+      } catch {
+        // Notification failures must not block the remaining reconciliation targets.
+      }
     }
   }
+  totals.failedRuntimeCount = failedRuntimeKeys.size;
   return totals;
+}
+
+async function isRuntimeCredentialTerminalForReconciliationAsync(target: {
+  workspaceId: string;
+  runtimeCredentialId: string;
+}): Promise<boolean> {
+  const scope = resolveManagedRuntimeScopeSync(target.workspaceId);
+  const credential = await getModelsInternalClient().runtimeCredentials.get({
+    params: { id: target.runtimeCredentialId },
+    query: { tenantId: scope.tenantId, teamId: scope.teamId },
+  });
+  return isRuntimeCredentialTerminalForReconciliation(credential.status);
+}
+
+export function isRuntimeCredentialTerminalForReconciliation(status: string): boolean {
+  return status === "expired" || status === "revoked";
 }
 
 /**
@@ -311,29 +341,43 @@ export function reconcileRuntimeCredentialUsageEntrySync(
       throw new Error("usage_sync.gateway_request_runtime_credential_mismatch");
     }
     const remoteStatus = resolveRemoteBillingStatus(entry.billingStatus, Boolean(existing.taskQueueId));
+    const actualCostUsd = parseCost(entry.totalCost);
+    const modelId = entry.model.trim() || existing.modelId;
+    const inputTokens = normalizeRemoteTokenCount(entry.inputTokens, existing.inputTokens);
+    const outputTokens = normalizeRemoteTokenCount(entry.outputTokens, existing.outputTokens);
+    const cacheTokens = normalizeRemoteTokenCount(entry.cacheTokens, existing.cacheTokens);
+    const requestStartedAt = entry.startedAt ?? entry.timestamp;
+    const requestEndedAt = entry.endedAt ?? entry.timestamp;
+    const sourceUpdatedAt = entry.updatedAt ?? entry.timestamp;
     if (
       existing.billingStatus === remoteStatus
-      && existing.actualCostUsd === parseCost(entry.totalCost)
-      && existing.modelId === (entry.model.trim() || existing.modelId)
-      && existing.inputTokens === normalizeRemoteTokenCount(entry.inputTokens, existing.inputTokens)
-      && existing.outputTokens === normalizeRemoteTokenCount(entry.outputTokens, existing.outputTokens)
+      && existing.actualCostUsd === actualCostUsd
+      && existing.currency === entry.currency
+      && existing.protocol === entry.protocol
+      && existing.modelId === modelId
+      && existing.inputTokens === inputTokens
+      && existing.outputTokens === outputTokens
+      && existing.cacheTokens === cacheTokens
+      && existing.requestStartedAt === requestStartedAt
+      && existing.requestEndedAt === requestEndedAt
+      && existing.sourceUpdatedAt === sourceUpdatedAt
     ) {
       result.skippedCount += 1;
       return;
     }
     markTokenUsageReconciledSync(existing.id, {
-      actualCostUsd: parseCost(entry.totalCost),
+      actualCostUsd,
       currency: entry.currency,
       gatewayRequestId,
       gatewayUsageId: entry.id,
       protocol: entry.protocol,
-      modelId: entry.model.trim() || existing.modelId,
-      inputTokens: normalizeRemoteTokenCount(entry.inputTokens, existing.inputTokens),
-      outputTokens: normalizeRemoteTokenCount(entry.outputTokens, existing.outputTokens),
-      cacheTokens: normalizeRemoteTokenCount(entry.cacheTokens, existing.cacheTokens),
-      requestStartedAt: entry.startedAt ?? entry.timestamp,
-      requestEndedAt: entry.endedAt ?? entry.timestamp,
-      sourceUpdatedAt: entry.updatedAt ?? entry.timestamp,
+      modelId,
+      inputTokens,
+      outputTokens,
+      cacheTokens,
+      requestStartedAt,
+      requestEndedAt,
+      sourceUpdatedAt,
       billingStatus: remoteStatus,
     });
     if (remoteStatus === "pending_reconciliation") result.pendingCount = (result.pendingCount ?? 0) + 1;

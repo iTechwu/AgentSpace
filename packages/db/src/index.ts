@@ -135,6 +135,13 @@ export type {
 } from "./types.ts";
 
 export {
+  appendTokenUsageBillingEventSync,
+  listTokenUsageBillingEventsSync,
+  type TokenUsageBillingEventRecord,
+  type TokenUsageBillingEventType,
+} from "./token-usage-events.ts";
+
+export {
   assertActiveProviderAccountSync,
   createProviderAccountSync,
   createRuntimeProvisionRequestSync,
@@ -614,7 +621,6 @@ export {
   listTokenUsageSync,
   getAgentCostSummarySync,
   getWorkspaceCostSummarySync,
-  getWorkspaceBillingSummarySync,
   getRuntimeCostSummarySync,
   listRuntimeCostSummariesSync,
   getRuntimeCredentialCostSummarySync,
@@ -626,13 +632,20 @@ export {
   markTokenUsageReconciledSync,
   insertUnallocatedTokenUsageSync,
   insertUnallocatedTokenUsageIfAbsentSync,
-  enqueueTokenUsageRetrySync,
-  listDueTokenUsageRetriesSync,
-  completeTokenUsageRetrySync,
-  failTokenUsageRetrySync,
   type RecordTokenUsageInput,
-  type TokenUsageRetryRecord,
 } from "./token-usage.ts";
+export {
+  getWorkspaceBillingSummarySync,
+  type BillingCurrencySummary,
+} from "./token-usage-billing.ts";
+export {
+  completeTokenUsageRetrySync,
+  claimDueTokenUsageRetriesSync,
+  enqueueTokenUsageRetrySync,
+  failTokenUsageRetrySync,
+  listDueTokenUsageRetriesSync,
+  type TokenUsageRetryRecord,
+} from "./token-usage-retry.ts";
 export {
   completeRuntimeCredentialReconciliationTargetSync,
   listRuntimeCredentialReconciliationTargetsSync,

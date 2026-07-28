@@ -5,7 +5,11 @@ import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import {
   bindEmployeeRuntimeSync,
+  claimDueTokenUsageRetriesSync,
   completeManagedProvisioningStageSync,
+  completeRuntimeMaintenanceRunSync,
+  createRuntimeMaintenanceRunSync,
+  enqueueTokenUsageRetrySync,
   getDatabase,
   getWorkspaceBillingSummarySync,
   findTokenUsageByGatewayRequestIdSync,
@@ -24,6 +28,7 @@ import {
   upsertWorkspaceSsoBindingSync,
   upsertWorkspaceMembershipSync,
 } from "@dofe-agent/db";
+import { resetDatabaseForTests } from "../../../db/src/database.ts";
 import {
   cancelRuntimeProvisioningTaskAsync,
   completeManagedRuntimeCleanupSync,
@@ -44,7 +49,10 @@ import {
   stopManagedRuntimeAsync,
   type ModelsClientLike,
 } from "./runtime-provisioning.ts";
-import { reconcileRuntimeCredentialUsageEntrySync } from "../models/usage-sync.ts";
+import {
+  isRuntimeCredentialTerminalForReconciliation,
+  reconcileRuntimeCredentialUsageEntrySync,
+} from "../models/usage-sync.ts";
 import { resetRuntimeCredentialVaultForTests, getRuntimeCredentialVault } from "./credential-vault.ts";
 
 const originalCwd = process.cwd();
@@ -193,6 +201,7 @@ before(() => {
 beforeEach(() => {
   const db = getDatabase();
   db.exec("DELETE FROM managed_runtime_cleanup_request");
+  db.exec("DELETE FROM runtime_maintenance_run");
   db.exec("DELETE FROM runtime_provisioning_task_event");
   db.exec("DELETE FROM runtime_provisioning_task");
   db.exec("DELETE FROM token_usage");
@@ -662,6 +671,52 @@ test("billing summary keeps currencies separate and retains the oldest pending r
   );
 });
 
+test("usage reconciliation applies extension-only corrections", () => {
+  recordTokenUsageSync({
+    workspaceId: TEAM_WS,
+    agentId: "atlas",
+    modelId: "gpt-5",
+    runtimeCredentialId: "rtc-extension-correction",
+    gatewayRequestId: "gateway-extension-correction",
+    protocol: "openai",
+    inputTokens: 10,
+    outputTokens: 2,
+    cacheTokens: 0,
+    actualCostUsd: 0.1,
+    currency: "USD",
+    billingStatus: "pending_reconciliation",
+    requestStartedAt: "2026-07-28T00:00:00.000Z",
+    requestEndedAt: "2026-07-28T00:00:01.000Z",
+    sourceUpdatedAt: "2026-07-28T00:00:02.000Z",
+  });
+  const result = { reconciledCount: 0, unallocatedCount: 0, skippedCount: 0, totalRemoteCount: 1, pendingCount: 0 };
+  reconcileRuntimeCredentialUsageEntrySync(TEAM_WS, "rtc-extension-correction", {
+    id: "usage-extension-correction",
+    requestId: "gateway-extension-correction",
+    model: "gpt-5",
+    protocol: "anthropic",
+    billingStatus: "pending",
+    inputTokens: 10,
+    outputTokens: 2,
+    cacheTokens: 7,
+    totalCost: 0.1,
+    currency: "USD",
+    timestamp: "2026-07-28T00:00:00.000Z",
+    startedAt: "2026-07-28T00:00:03.000Z",
+    endedAt: "2026-07-28T00:00:04.000Z",
+    updatedAt: "2026-07-28T00:00:05.000Z",
+  } as never, result);
+
+  const usage = findTokenUsageByGatewayRequestIdSync("gateway-extension-correction", TEAM_WS);
+  assert.equal(result.skippedCount, 0);
+  assert.equal(usage?.protocol, "anthropic");
+  assert.equal(usage?.cacheTokens, 7);
+  assert.equal(usage?.requestStartedAt, "2026-07-28T00:00:03.000Z");
+  assert.equal(usage?.sourceUpdatedAt, "2026-07-28T00:00:05.000Z");
+  assert.equal(isRuntimeCredentialTerminalForReconciliation("expired"), true);
+  assert.equal(isRuntimeCredentialTerminalForReconciliation("rotating"), false);
+});
+
 test("billing events preserve the usage lifecycle as replayable snapshots", () => {
   const usage = recordTokenUsageSync({
     workspaceId: TEAM_WS,
@@ -686,6 +741,65 @@ test("billing events preserve the usage lifecycle as replayable snapshots", () =
   assert.deepEqual(events.map((event) => event.eventType), ["usage_recorded", "billing_state_changed"]);
   assert.equal(events.at(-1)?.snapshot.billingStatus, "pending_reconciliation");
   assert.equal(events.at(-1)?.snapshot.actualCostUsd, 0.1);
+});
+
+test("usage retry claim is exclusive until its lease expires", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "codex",
+    idempotencyKey: "retry-claim-task",
+  });
+  const final = await awaitTaskTerminal(task.id);
+  const queueId = "queue-retry-claim";
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO agent_task_queue (
+       id, workspace_id, agent_id, runtime_id, status, input_json, queued_at, created_at, updated_at
+     ) VALUES (?, ?, 'atlas', ?, 'completed', '{}'::jsonb, ?, ?, ?)`,
+  ).run(queueId, TEAM_WS, final.runtimeId, now, now, now);
+  enqueueTokenUsageRetrySync({
+    workspaceId: TEAM_WS,
+    taskQueueId: queueId,
+    agentId: "atlas",
+    modelId: "gpt-5",
+    runtimeCredentialId: "rtc-retry",
+    gatewayRequestId: "gateway-retry-claim",
+    inputTokens: 10,
+    outputTokens: 2,
+  }, new Error("temporary database failure"));
+
+  assert.equal(claimDueTokenUsageRetriesSync(10).length, 1);
+  assert.equal(claimDueTokenUsageRetriesSync(10).length, 0);
+});
+
+test("runtime maintenance run creation rejects overlapping active runs", () => {
+  const first = createRuntimeMaintenanceRunSync();
+  assert.throws(() => createRuntimeMaintenanceRunSync(), /runtime_maintenance\.already_running/);
+  completeRuntimeMaintenanceRunSync({ id: first.id, status: "succeeded", stages: {} });
+  const next = createRuntimeMaintenanceRunSync();
+  completeRuntimeMaintenanceRunSync({ id: next.id, status: "succeeded", stages: {} });
+});
+
+test("schema 39 to 41 replay keeps exactly one historical billing snapshot", () => {
+  const usage = recordTokenUsageSync({
+    workspaceId: TEAM_WS,
+    agentId: "atlas",
+    modelId: "gpt-5",
+    gatewayRequestId: "gateway-schema-replay",
+    inputTokens: 3,
+    outputTokens: 1,
+  });
+  getDatabase().prepare("UPDATE app_metadata SET value = '39' WHERE key = 'schema_version'").run();
+  resetDatabaseForTests();
+  getDatabase();
+  getDatabase().prepare("UPDATE app_metadata SET value = '39' WHERE key = 'schema_version'").run();
+  resetDatabaseForTests();
+  getDatabase();
+
+  const snapshots = listTokenUsageBillingEventsSync({ workspaceId: TEAM_WS, tokenUsageId: usage.id })
+    .filter((event) => event.eventType === "migration_snapshot");
+  assert.equal(snapshots.length, 1);
 });
 
 test("idempotency: same key returns the same task and creates the credential once", async () => {
