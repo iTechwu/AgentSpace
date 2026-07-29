@@ -50,6 +50,7 @@ vi.mock("@/features/auth/sso-workspace-ownership", () => ({
 }));
 
 vi.mock("@dofe-agent/services", () => ({
+  resolveAgentRuntimeMode: vi.fn(() => "local"),
   tryRecordWorkspaceAuditEventSync: mockTryRecordWorkspaceAuditEventSync,
 }));
 
@@ -72,6 +73,7 @@ import {
   revokeSessionAction,
   transferWorkspaceOwnershipAction,
 } from "./actions";
+import { resolveAgentRuntimeMode } from "@dofe-agent/services";
 
 describe("settings actions", () => {
   beforeEach(() => {
@@ -112,6 +114,17 @@ describe("settings actions", () => {
       createdBy: "Mina",
     });
     expect(mockRevalidateWorkspacePaths).toHaveBeenCalled();
+  });
+
+  it("rejects manual daemon token creation in remote mode", async () => {
+    vi.mocked(resolveAgentRuntimeMode).mockReturnValue("remote");
+
+    await expect(createDaemonApiTokenAction({
+      label: "Managed node",
+      createdBy: "Mina",
+    })).rejects.toThrow("manual_runtime.remote_mode_required");
+
+    expect(mockCreateDaemonApiTokenSync).not.toHaveBeenCalled();
   });
 
   it("does not revoke a daemon token from another workspace", async () => {

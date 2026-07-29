@@ -34,6 +34,7 @@ import {
   replacePendingChannelMessageSync,
   resolveCompatibleDirectChannelRecord,
   AgentDocumentPermissionError,
+  resolveAgentRuntimeMode,
   writeConversationExecutionWorkspaceStateSync,
   upsertDirectConversationStateSync,
   updateTaskStatusSync,
@@ -139,24 +140,26 @@ export async function POST(
 
   const body = (await request.json()) as Partial<CompleteTaskRequest>;
   const usages = [...(Array.isArray(body.usages) ? body.usages : []), ...(body.usage ? [body.usage] : [])];
-  try {
-    persistManagedTaskUsagesBestEffort({
-      usages,
-      workspaceId: task.workspaceId,
-      taskId: task.id,
-      agentId: task.agentId,
-      routerSessionId: task.routerSessionId,
-      runtimeCredentialId: runtime.managedCredentialId,
-      onError: (error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`Failed to persist managed usage for task ${task.id}: ${message}`);
-      },
-    });
-  } catch {
-    return Response.json(
-      { error: "Usage attribution could not be persisted; retry task completion." },
-      { status: 503, headers: { "retry-after": "5" } },
-    );
+  if (resolveAgentRuntimeMode() === "remote" && runtime.managedCredentialId) {
+    try {
+      persistManagedTaskUsagesBestEffort({
+        usages,
+        workspaceId: task.workspaceId,
+        taskId: task.id,
+        agentId: task.agentId,
+        routerSessionId: task.routerSessionId,
+        runtimeCredentialId: runtime.managedCredentialId,
+        onError: (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error(`Failed to persist managed usage for task ${task.id}: ${message}`);
+        },
+      });
+    } catch {
+      return Response.json(
+        { error: "Usage attribution could not be persisted; retry task completion." },
+        { status: 503, headers: { "retry-after": "5" } },
+      );
+    }
   }
   const payload = parseTaskPayload(task);
   const workspaceState = readWorkspaceStateSync(task.workspaceId);

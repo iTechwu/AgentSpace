@@ -25,6 +25,7 @@ import {
   acceptAgentForkInvitationForActorSync,
   approveAgentAccessRequestForActorSync,
   assertAgentSkillRequirementsReadySync,
+  assertRuntimeCanBindEmployeeSync,
   bindEmployeeRuntimeSync,
   assertCanManageEmployeeForActorSync,
   assertCanUseEmployeeInChannelForActorSync,
@@ -43,6 +44,7 @@ import {
   rejectAgentAccessRequestForActorSync,
   revokeAgentForkInvitationForActorSync,
   revokeRuntimeUseFromUserForActorSync,
+  resolveAgentRuntimeMode,
   resolveSystemAgentTemplateForWorkspaceSync,
   setEmployeeChannelMemberAccessSync,
   setEmployeeKnowledgePageIdsSync,
@@ -65,6 +67,12 @@ import {
 
 const OLD_OFFLINE_DAEMON_PRUNE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
+function assertManualRuntimeManagementEnabled(): void {
+  if (resolveAgentRuntimeMode() === "remote") {
+    throw new Error("manual_runtime.remote_mode_required");
+  }
+}
+
 export async function createProviderAccountAction(input: {
   provider: string;
   name: string;
@@ -73,6 +81,7 @@ export async function createProviderAccountAction(input: {
   configRef?: string;
   allowedModels?: string[];
 }): Promise<ActionToastResult<{ id: string }>> {
+  assertManualRuntimeManagementEnabled();
   const context = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(context, "admin");
   if (!isDaemonProvider(input.provider)) throw new Error("Unsupported provider.");
@@ -103,6 +112,7 @@ export async function requestRuntimeProvisionAction(input: {
   runtimeName: string;
   targetServer: string;
 }): Promise<ActionToastResult<{ id: string }>> {
+  assertManualRuntimeManagementEnabled();
   const context = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(context, "admin");
   if (!isDaemonProvider(input.provider)) throw new Error("Unsupported provider.");
@@ -131,6 +141,7 @@ export async function approveRuntimeProvisionAction(requestId: string): Promise<
   providerAccountId: string;
   provider: DaemonProvider;
 }>> {
+  assertManualRuntimeManagementEnabled();
   const context = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(context, "admin");
   const { created, request } = withTransaction(getDatabase(), () => {
@@ -187,11 +198,23 @@ export async function createWorkspaceAgentAction(input: {
   if (!canManageWorkspaceAgents) {
     throw new Error("Only workspace owners and admins can manage AI employees.");
   }
+  const skillIds = resolvedTemplate?.skillIds ?? [];
   if (runtimeId) {
     assertCanUseRuntimeForActorSync({
       workspaceId,
       runtimeId,
       actorUserId,
+    });
+    assertRuntimeCanBindEmployeeSync(runtimeId);
+    const boundRuntime = readAgentRuntimeSync(runtimeId);
+    if (!boundRuntime || boundRuntime.workspaceId !== workspaceId) {
+      throw new Error("runtime.not_found");
+    }
+    assertAgentSkillRequirementsReadySync({
+      workspaceId,
+      employeeName: agentName,
+      skillIds,
+      runtimeProvider: boundRuntime.provider,
     });
   }
 
@@ -211,17 +234,6 @@ export async function createWorkspaceAgentAction(input: {
   }, workspaceId);
 
   if (runtimeId) {
-    const skillIds = listEmployeeSkillIdsSync(agentName, workspaceId);
-    const boundRuntime = readAgentRuntimeSync(runtimeId);
-    if (!boundRuntime || boundRuntime.workspaceId !== workspaceId) {
-      throw new Error("runtime.not_found");
-    }
-    assertAgentSkillRequirementsReadySync({
-      workspaceId,
-      employeeName: agentName,
-      skillIds,
-      runtimeProvider: boundRuntime.provider,
-    });
     bindEmployeeRuntimeSync(agentName, runtimeId, workspaceId);
   }
 
@@ -923,6 +935,7 @@ export async function createContainerInstallTokenAction(): Promise<{
   label: string;
   token: string;
 }> {
+  assertManualRuntimeManagementEnabled();
   const workspaceContext = await requireCurrentWorkspaceContext();
 
   const createdBy = workspaceContext.currentUser.id;

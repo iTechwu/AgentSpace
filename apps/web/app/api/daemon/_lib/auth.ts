@@ -9,7 +9,7 @@ import {
   type DaemonConnectionRecord,
   type QueuedTaskRecord,
 } from "@dofe-agent/db";
-import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { resolveAgentRuntimeMode, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 
 export interface DaemonAuthContext {
   token: DaemonApiTokenRecord;
@@ -32,6 +32,27 @@ export function requireDaemonAuth(request: Request): DaemonAuthContext | Respons
     token,
     workspaceId: token.workspaceId,
   };
+}
+
+/** Managed provisioning is a deployment capability, never a daemon-selected mode. */
+export function requireRemoteManagedRuntimeMode(): Response | null {
+  if (resolveAgentRuntimeMode() === "remote") {
+    return null;
+  }
+  return Response.json(
+    { error: "Managed runtime operations are unavailable in local mode." },
+    { status: 409 },
+  );
+}
+
+export function requireManagedNodeBootstrapToken(auth: DaemonAuthContext): Response | null {
+  if (auth.token.purpose === "managed_node_bootstrap") {
+    return null;
+  }
+  return Response.json(
+    { error: "Managed node registration requires a managed bootstrap token." },
+    { status: 403 },
+  );
 }
 
 export function readDaemonConnectionForDaemon(
@@ -73,6 +94,21 @@ export function readRuntimeForDaemon(runtimeId: string, auth: DaemonAuthContext)
   }
   if (!runtime.daemonConnectionId || runtime.daemonConnectionId !== auth.token.daemonConnectionId) {
     return daemonBindingDenied(auth, "runtime", runtimeId);
+  }
+  if (
+    resolveAgentRuntimeMode() === "remote" &&
+    (!runtime.managedCredentialId || runtime.provisioningState !== "managed" || runtime.status !== "online")
+  ) {
+    return Response.json({ error: "Remote mode requires a managed, online runtime." }, { status: 409 });
+  }
+  if (
+    resolveAgentRuntimeMode() === "remote" &&
+    auth.token.purpose !== "managed_node_bootstrap"
+  ) {
+    return Response.json(
+      { error: "Managed runtime execution requires a managed bootstrap token." },
+      { status: 403 },
+    );
   }
   return runtime;
 }

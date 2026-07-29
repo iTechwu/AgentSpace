@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import {
   bindEmployeeRuntimeSync,
+  claimManagedProvisioningStageSync,
   claimDueTokenUsageRetriesSync,
   completeManagedProvisioningStageSync,
   completeRuntimeMaintenanceRunSync,
@@ -249,6 +250,17 @@ async function awaitTaskTerminal(taskId: string, workspaceId = TEAM_WS, timeoutM
       return task;
     }
     if (task?.stageStatus === "pending" && task.runtimeId && isNodeProvisioningStage(task.stage)) {
+      const managedNode = registerDaemonRuntimesSync({
+        workspaceId,
+        daemonKey: `provisioning-test-node-${workspaceId}`,
+        deviceName: "Provisioning test node",
+        metadata: { managedNode: true },
+        runtimes: [],
+      }).daemon;
+      assert.equal(claimManagedProvisioningStageSync({
+        workspaceId,
+        daemonConnectionId: managedNode.id,
+      })?.id, task.id);
       const nextStage = nextNodeProvisioningStage(task.stage);
       completeManagedProvisioningStageSync({
         taskId: task.id,
@@ -1018,11 +1030,16 @@ test("cancel runs compensation: revokes credential with scope and removes the ru
     taskId: task.id,
     reason: "user_cancelled",
   });
-  assert.equal(cancelled.status, "cancelled");
+  assert.equal(cancelled.status, "cancelling");
   assert.equal(activeClient.revokeCalls, 1);
   assert.deepEqual((activeClient.lastRevokeBody as Record<string, string> | undefined)?.tenantId, "tenant-1");
   assert.deepEqual((activeClient.lastRevokeBody as Record<string, string> | undefined)?.teamId, "team-1");
-  // Runtime row removed by compensation.
+  const cleanup = listPendingManagedRuntimeCleanupRequestsForDaemonSync(
+    readAgentRuntimeSync(runtimeId)!.daemonConnectionId!,
+  )[0]!;
+  assert.equal(markManagedRuntimeCleanupRequestRunningSync(cleanup.id)?.status, "running");
+  assert.equal(completeManagedRuntimeCleanupSync(cleanup.id, { removed: true })?.status, "succeeded");
+  assert.equal(readRuntimeProvisioningTaskSync(task.id, TEAM_WS)?.status, "cancelled");
   assert.equal(readAgentRuntimeSync(runtimeId), null);
 });
 

@@ -13,6 +13,7 @@ export type {
   StoredChannelAccessRequestRecord,
   StoredChannelInvitationRecord,
   StoredChannelParticipantRecord,
+  DaemonApiTokenPurpose,
   DaemonApiTokenRecord,
   DaemonConnectionRecord,
   AgentRuntimeRecord,
@@ -381,6 +382,7 @@ export {
 // Daemon tokens
 export {
   createDaemonApiTokenSync,
+  createManagedDaemonBootstrapTokenSync,
   listDaemonApiTokensSync,
   readDaemonApiTokenSync,
   revokeDaemonApiTokenSync,

@@ -705,10 +705,12 @@ test("buildTaskPrompt for direct-channel chat prefers unified channel prompt", (
 });
 
 test("daemon token subcommands create, list, and revoke tokens", async () => {
+  const previousMode = process.env.DOFE_AGENT_RUNTIME_MODE;
   const originalLog = console.log;
   const originalError = console.error;
   const output: string[] = [];
   const errors: string[] = [];
+  process.env.DOFE_AGENT_RUNTIME_MODE = "local";
   console.log = (...args: unknown[]) => output.push(args.map((arg) => String(arg)).join(" "));
   console.error = (...args: unknown[]) => errors.push(args.map((arg) => String(arg)).join(" "));
 
@@ -729,8 +731,7 @@ test("daemon token subcommands create, list, and revoke tokens", async () => {
     const listCode = await runDaemonCommand("token", ["list"], "json");
     assert.equal(listCode, 0);
     const listed = JSON.parse(output.join("\n")) as Array<{ id: string; label: string; status: string }>;
-    assert.equal(listed.length, 1);
-    assert.equal(listed[0]?.id, created.id);
+    assert.equal(listed.some((token) => token.id === created.id), true);
 
     output.length = 0;
     const revokeCode = await runDaemonCommand("token", ["revoke", "--id", created.id], "json");
@@ -741,9 +742,36 @@ test("daemon token subcommands create, list, and revoke tokens", async () => {
   } finally {
     console.log = originalLog;
     console.error = originalError;
+    if (previousMode === undefined) {
+      delete process.env.DOFE_AGENT_RUNTIME_MODE;
+    } else {
+      process.env.DOFE_AGENT_RUNTIME_MODE = previousMode;
+    }
   }
 
   assert.equal(errors.length, 0);
+});
+
+test("daemon token creation is unavailable in remote mode", async () => {
+  const previousMode = process.env.DOFE_AGENT_RUNTIME_MODE;
+  const originalError = console.error;
+  const errors: string[] = [];
+  process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+  console.error = (...args: unknown[]) => errors.push(args.map((arg) => String(arg)).join(" "));
+
+  try {
+    const code = await runDaemonCommand("token", ["create", "--label", "manual-node"], "json");
+
+    assert.equal(code, 1);
+    assert.match(errors.join("\n"), /unavailable in remote mode/);
+  } finally {
+    console.error = originalError;
+    if (previousMode === undefined) {
+      delete process.env.DOFE_AGENT_RUNTIME_MODE;
+    } else {
+      process.env.DOFE_AGENT_RUNTIME_MODE = previousMode;
+    }
+  }
 });
 
 test.after(() => {

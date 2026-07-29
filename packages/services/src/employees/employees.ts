@@ -28,6 +28,7 @@ import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/sta
 import { sameValue, normalizeSkillIds, uniqueStringValues } from "../shared/helpers.ts";
 import { normalizeWorkspaceState } from "../shared/normalizers.ts";
 import { pushWorkspaceMessageIfChannel } from "../shared/messaging.ts";
+import { resolveAgentRuntimeMode } from "../config/deployment.ts";
 import {
   assertCanManageEmployeeForActorSync,
   assertCanUseRuntimeForActorSync,
@@ -77,6 +78,19 @@ export function buildLegacyAgentIdForEmployeeName(employeeName: string): string 
   return `agent:${employeeName.trim()}`;
 }
 
+export function assertRuntimeCanBindEmployeeSync(runtimeId: string): void {
+  const runtime = readAgentRuntimeSync(runtimeId);
+  if (resolveAgentRuntimeMode() !== "remote") {
+    return;
+  }
+  if (!runtime?.managedCredentialId) {
+    throw new Error("runtime.managed_runtime_required");
+  }
+  if (runtime.provisioningState !== "managed" || runtime.status !== "online") {
+    throw new Error("runtime.managed_runtime_not_ready");
+  }
+}
+
 export function bindEmployeeRuntimeSync(
   employeeName: string,
   runtimeId: string,
@@ -96,6 +110,7 @@ export function bindEmployeeRuntimeSync(
   // Enforce the managed-runtime "allow new employee sharing" policy: a runtime
   // with allowNewEmployeeSharing === false refuses to bind ADDITIONAL employees,
   // but re-binding an employee already on this runtime stays permitted.
+  assertRuntimeCanBindEmployeeSync(runtimeId);
   const runtimeRecord = readAgentRuntimeSync(runtimeId);
   if (runtimeRecord && runtimeRecord.allowNewEmployeeSharing === false) {
     const existingBinding = readEmployeeRuntimeBindingSync(employee.name, workspaceId);

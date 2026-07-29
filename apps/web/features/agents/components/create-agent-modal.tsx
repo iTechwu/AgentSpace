@@ -9,7 +9,7 @@ import { useLanguage } from "@/features/i18n/language-provider";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import type { AgentsPageData } from "@/features/dashboard/data";
 import { AppIcon } from "@/shared/ui/app-icon";
-import { ExecutionEngineSelect, resolveExecutionEngineValue } from "@/features/agents/components/execution-engine-select";
+import { ExecutionEngineSelect } from "@/features/agents/components/execution-engine-select";
 import { RuntimeModelPicker } from "@/features/runtimes/runtime-model-picker";
 import { isDaemonProvider } from "@dofe-agent/domain";
 
@@ -389,7 +389,8 @@ function resolveDefaultRuntimeId(
   containerOptions: AgentsPageData["containerOptions"],
   requiresRuntime: boolean,
 ): string {
-  return resolveExecutionEngineValue(defaultContainerId, containerOptions) || (requiresRuntime ? containerOptions[0]?.id ?? "" : "");
+  const requested = containerOptions.find((option) => option.id === defaultContainerId && option.bindable !== false);
+  return requested?.id || (requiresRuntime ? containerOptions.find((option) => option.bindable !== false)?.id ?? "" : "");
 }
 
 function createDraftFromTemplate(template: SystemAgentTemplatePreset): {

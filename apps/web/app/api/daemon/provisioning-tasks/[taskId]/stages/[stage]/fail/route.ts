@@ -4,7 +4,7 @@ import {
   readRuntimeProvisioningTaskSync,
   requestManagedRuntimeCleanupSync,
 } from "@dofe-agent/db";
-import { requireDaemonAuth } from "../../../../../_lib/auth";
+import { requireDaemonAuth, requireManagedNodeBootstrapToken, requireRemoteManagedRuntimeMode } from "../../../../../_lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +16,14 @@ export async function POST(
   const auth = requireDaemonAuth(request);
   if (auth instanceof Response) {
     return auth;
+  }
+  const modeError = requireRemoteManagedRuntimeMode();
+  if (modeError) {
+    return modeError;
+  }
+  const tokenError = requireManagedNodeBootstrapToken(auth);
+  if (tokenError) {
+    return tokenError;
   }
 
   const { taskId, stage } = await context.params;

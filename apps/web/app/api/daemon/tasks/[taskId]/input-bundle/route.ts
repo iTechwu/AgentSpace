@@ -21,6 +21,7 @@ import {
   buildContactAgentContext,
   readWorkspaceStateSync,
   resolveAgentDocumentContextSync,
+  resolveAgentRuntimeMode,
   resolveCompatibleDirectChannelRecord,
   resolveEffectiveModelForTaskAsync,
   sameValue,
@@ -93,7 +94,7 @@ export async function GET(
       ...buildRuntimeToolCapabilitiesForBundle(prepared.runtimeApps),
       ...buildDocumentRuntimeToolCapabilities(prepared.agentDocumentContexts),
     ];
-    const effectiveModel = runtime.managedCredentialId
+    const effectiveModel = runtime.managedCredentialId && resolveAgentRuntimeMode() === "remote"
       ? await resolveEffectiveModelForTaskAsync({
           workspaceId: auth.workspaceId,
           employeeName: agentName,

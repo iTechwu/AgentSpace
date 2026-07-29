@@ -4,8 +4,8 @@ import {
   registerDaemonRuntimesSync,
 } from "@dofe-agent/db";
 import { isDaemonProvider, type RegisterDaemonRequest, type RegisterDaemonResponse } from "@dofe-agent/domain";
-import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
-import { requireDaemonAuth } from "../_lib/auth";
+import { resolveAgentRuntimeMode, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { requireDaemonAuth, requireManagedNodeBootstrapToken } from "../_lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,10 +18,23 @@ export async function POST(request: Request): Promise<Response> {
 
   const body = (await request.json()) as Partial<RegisterDaemonRequest>;
   const isManagedNode = body.metadata?.managedNode === true;
+  const runtimes = body.runtimes ?? [];
+  const isRemoteMode = resolveAgentRuntimeMode() === "remote";
+  if (isRemoteMode && (!isManagedNode || runtimes.length > 0)) {
+    return Response.json({ error: "Remote mode only accepts managed runtime nodes." }, { status: 409 });
+  }
+  if (!isRemoteMode && isManagedNode) {
+    return Response.json({ error: "Managed runtime nodes are unavailable in local mode." }, { status: 409 });
+  }
+  if (isRemoteMode && isManagedNode) {
+    const tokenError = requireManagedNodeBootstrapToken(auth);
+    if (tokenError) {
+      return tokenError;
+    }
+  }
   if (!body.daemonKey || !body.deviceName || (!isManagedNode && (!Array.isArray(body.runtimes) || body.runtimes.length === 0))) {
     return Response.json({ error: "daemonKey, deviceName, and runtimes[] are required." }, { status: 400 });
   }
-  const runtimes = body.runtimes ?? [];
   if (runtimes.some((runtime) => !runtime?.provider || !isDaemonProvider(runtime.provider))) {
     return Response.json({ error: "runtimes[].provider contains an unsupported provider id." }, { status: 400 });
   }

@@ -5,7 +5,10 @@ import { join } from "node:path";
 import test, { before, beforeEach } from "node:test";
 import {
   createDaemonApiTokenSync,
+  createManagedDaemonBootstrapTokenSync,
+  createWorkspaceSync,
   listDaemonApiTokensSync,
+  readWorkspaceSync,
   registerDaemonRuntimesSync,
   revokeDaemonApiTokenSync,
   validateDaemonApiTokenSync,
@@ -23,6 +26,14 @@ before(() => {
 
 beforeEach(() => {
   const db = getDatabase();
+  if (!readWorkspaceSync("default")) {
+    createWorkspaceSync({
+      id: "default",
+      slug: "default",
+      name: "Default Workspace",
+      createdBy: "system",
+    });
+  }
   db.exec("DELETE FROM agent_runtime");
   db.exec("DELETE FROM daemon_connection");
   db.exec("DELETE FROM daemon_api_token");
@@ -36,6 +47,7 @@ test("daemon api tokens can be created, validated, and revoked", () => {
   });
 
   assert.ok(created.token.startsWith("adt_"));
+  assert.equal(created.purpose, "general");
   assert.equal(listDaemonApiTokensSync().length, 1);
 
   const validated = validateDaemonApiTokenSync(created.token);
@@ -46,6 +58,17 @@ test("daemon api tokens can be created, validated, and revoked", () => {
   const revoked = revokeDaemonApiTokenSync(created.id);
   assert.equal(revoked.status, "revoked");
   assert.equal(validateDaemonApiTokenSync(created.token), null);
+});
+
+test("managed daemon bootstrap tokens retain their dedicated purpose", () => {
+  const created = createManagedDaemonBootstrapTokenSync({
+    workspaceId: "default",
+    label: "managed-node-bootstrap",
+    createdBy: "runtime-orchestrator",
+  });
+
+  assert.equal(created.purpose, "managed_node_bootstrap");
+  assert.equal(validateDaemonApiTokenSync(created.token)?.purpose, "managed_node_bootstrap");
 });
 
 test("a daemon token binds exactly one daemon and rejects cross-workspace daemon key reuse", () => {

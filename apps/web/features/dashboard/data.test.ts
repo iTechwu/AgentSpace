@@ -16,6 +16,7 @@ import {
   readWorkspaceSync,
   recordTokenUsageSync,
   registerDaemonRuntimesSync,
+  updateAgentRuntimeManagedFieldsSync,
   upsertBudgetSync,
   upsertExternalChannelBindingSync,
   upsertExternalResourceBindingSync,
@@ -67,6 +68,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  process.env.DOFE_AGENT_RUNTIME_MODE = "local";
   ensureTestWorkspace("default", "default", "Dofe Agent");
   ensureTestWorkspace("workspace-mars", "workspace-mars", "Mars Labs");
   clearWorkspaceScopedTestRows();
@@ -233,6 +235,62 @@ describe("dashboard data", () => {
     expect(marsAgentsPage.daemonSnapshots[0]?.daemonKey).toBe("mars-box");
     expect(marsAgentsPage.daemonTokens).toHaveLength(1);
     expect(marsAgentsPage.daemonTokens[0]?.label).toBe("Mars Token");
+  });
+
+  it("hides ordinary runtime options in remote mode", () => {
+    const runtime = registerDaemonRuntimesSync({
+      daemonKey: "remote-ordinary-runtime",
+      deviceName: "Ordinary provider host",
+      runtimes: [{ provider: "codex", name: "Ordinary Codex" }],
+    }).runtimes[0];
+    expect(runtime?.id).toBeTruthy();
+    const previousMode = process.env.DOFE_AGENT_RUNTIME_MODE;
+    process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+
+    try {
+      const agentsPage = getAgentsPageData();
+      expect(agentsPage.containerOptions.find((option) => option.id === runtime!.id)).toBeUndefined();
+      expect(agentsPage.canConnectRuntimes).toBe(false);
+    } finally {
+      if (previousMode === undefined) {
+        delete process.env.DOFE_AGENT_RUNTIME_MODE;
+      } else {
+        process.env.DOFE_AGENT_RUNTIME_MODE = previousMode;
+      }
+    }
+  });
+
+  it("marks recovering managed runtimes as unavailable for new bindings", () => {
+    const owner = createUserSync({
+      displayName: "Runtime Owner",
+      primaryEmail: `runtime-owner-${Date.now()}@example.com`,
+    });
+    createWorkspaceMembershipSync({ workspaceId: "default", userId: owner.id, role: "owner" });
+    const runtime = registerDaemonRuntimesSync({
+      daemonKey: `recovering-managed-node-${Date.now()}`,
+      deviceName: "Managed node",
+      metadata: { managedNode: true },
+      runtimes: [{ provider: "codex", name: "Recovering Codex" }],
+    }).runtimes[0];
+    expect(runtime?.id).toBeTruthy();
+    updateAgentRuntimeManagedFieldsSync({
+      runtimeId: runtime!.id,
+      managedCredentialId: "credential-recovering",
+      provisioningState: "credential_recovering",
+      status: "offline",
+    });
+    process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+
+    const agentsPage = getAgentsPageData({
+      currentUserId: owner.id,
+      currentMembershipRole: "owner",
+    });
+
+    expect(agentsPage.containerOptions.find((option) => option.id === runtime!.id)).toMatchObject({
+      managed: true,
+      provisioningState: "credential_recovering",
+      bindable: false,
+    });
   });
 
   it("exposes provider usability separately from runtime online state", () => {

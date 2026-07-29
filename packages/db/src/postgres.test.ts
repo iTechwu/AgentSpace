@@ -25,6 +25,7 @@ test("postgres schema includes the expected core and derived tables", () => {
   assert.match(statements, /CREATE TABLE IF NOT EXISTS token_usage_billing_event/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS gateway_usage_id TEXT/);
   assert.match(statements, /CREATE UNIQUE INDEX IF NOT EXISTS idx_token_usage_workspace_gateway_usage_unique/);
+  assert.match(statements, /idx_agent_runtime_workspace_daemon_provider[\s\S]*WHERE managed_credential_id IS NULL/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS cache_tokens INTEGER NOT NULL DEFAULT 0/);
   assert.match(statements, /workspace_snapshot_ledger/);
   assert.match(statements, /CREATE UNIQUE INDEX IF NOT EXISTS idx_external_integration_provider_app_tenant/);
@@ -41,7 +42,8 @@ test("postgres schema includes the expected core and derived tables", () => {
 test("postgres schema enforces SSO-only identities", () => {
   const statements = getPostgresSchemaStatements().join("\n");
 
-  assert.equal(POSTGRES_SCHEMA_VERSION, "46");
+  assert.equal(POSTGRES_SCHEMA_VERSION, "48");
+  assert.match(statements, /ALTER TABLE daemon_api_token\s+ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'general'/);
   assert.match(statements, /DELETE FROM session WHERE user_id NOT IN \(SELECT user_id FROM auth_identity WHERE provider = 'sso'\)/);
   assert.match(statements, /DELETE FROM auth_identity WHERE provider <> 'sso'/);
   assert.match(statements, /auth_identity_provider_check CHECK \(provider = 'sso'\)/);

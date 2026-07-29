@@ -10,7 +10,7 @@ import {
   revokeSessionByIdSync,
   transferWorkspaceOwnershipSync,
 } from "@dofe-agent/db";
-import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { resolveAgentRuntimeMode, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { getCurrentSession } from "@/features/auth/server-auth";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { transferSsoWorkspaceOwnership } from "@/features/auth/sso-workspace-ownership";
@@ -27,6 +27,12 @@ function revalidateSettingsPaths(workspaceSlug: string): void {
   revalidateWorkspacePaths(workspaceSlug, SETTINGS_REVALIDATE_PATHS);
 }
 
+function assertManualDaemonTokenManagementEnabled(): void {
+  if (resolveAgentRuntimeMode() === "remote") {
+    throw new Error("manual_runtime.remote_mode_required");
+  }
+}
+
 export async function createDaemonApiTokenAction(input: {
   label: string;
   createdBy: string;
@@ -35,6 +41,7 @@ export async function createDaemonApiTokenAction(input: {
   label: string;
   token: string;
 }>> {
+  assertManualDaemonTokenManagementEnabled();
   const label = input.label.trim();
   const createdBy = input.createdBy.trim();
   if (!label) {

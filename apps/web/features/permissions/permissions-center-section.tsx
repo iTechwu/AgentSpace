@@ -52,12 +52,14 @@ interface FlatPermissionNode {
 }
 
 export function PermissionsCenterSection({
+  canCreateDaemonTokens,
   currentMembershipRole,
   currentUserDisplayName,
   permissions,
   meta,
   tx,
 }: {
+  canCreateDaemonTokens: boolean;
   currentMembershipRole: WorkspaceRole;
   currentUserDisplayName: string;
   permissions?: PermissionCenterData;
@@ -205,6 +207,7 @@ export function PermissionsCenterSection({
           <div className="permissions-inspector">
             {viewMode === "resources" && selectedNode ? (
               <ResourceInspector
+                canCreateDaemonTokens={canCreateDaemonTokens}
                 canManageWorkspace={canManageWorkspace}
                 currentUserDisplayName={currentUserDisplayName}
                 isPending={isPending}
@@ -230,6 +233,7 @@ export function PermissionsCenterSection({
 }
 
 function ResourceInspector({
+  canCreateDaemonTokens,
   canManageWorkspace,
   currentUserDisplayName,
   isPending,
@@ -240,6 +244,7 @@ function ResourceInspector({
   startTransition,
   tx,
 }: {
+  canCreateDaemonTokens: boolean;
   canManageWorkspace: boolean;
   currentUserDisplayName: string;
   isPending: boolean;
@@ -263,6 +268,7 @@ function ResourceInspector({
       </div>
 
       <NodeOperationPanel
+        canCreateDaemonTokens={canCreateDaemonTokens}
         canManageWorkspace={canManageWorkspace}
         currentUserDisplayName={currentUserDisplayName}
         isPending={isPending}
@@ -307,6 +313,7 @@ function ResourceInspector({
 }
 
 function NodeOperationPanel({
+  canCreateDaemonTokens,
   canManageWorkspace,
   currentUserDisplayName,
   isPending,
@@ -317,6 +324,7 @@ function NodeOperationPanel({
   startTransition,
   tx,
 }: {
+  canCreateDaemonTokens: boolean;
   canManageWorkspace: boolean;
   currentUserDisplayName: string;
   isPending: boolean;
@@ -347,7 +355,7 @@ function NodeOperationPanel({
 
   return (
     <div className="permissions-operation-panel">
-      {node.resourceType === "workspace" && canManageWorkspace ? (
+      {node.resourceType === "workspace" && canManageWorkspace && canCreateDaemonTokens ? (
         <div className="permissions-operation-row">
             <label className="form-field">
               <span>{tx("daemon token 标签", "Daemon token label")}</span>

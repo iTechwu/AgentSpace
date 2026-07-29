@@ -1,6 +1,7 @@
 import {
   acceptAgentForkInvitationSync,
   createAgentForkInvitationSync,
+  getDatabase,
   listAgentForkInvitationsSync,
   listStoredAgentKnowledgePageAssignmentsSync,
   listStoredAgentSkillAssignmentsSync,
@@ -11,11 +12,13 @@ import {
   readUserSync,
   readWorkspaceMembershipSync,
   revokeAgentForkInvitationSync,
+  withTransaction,
   type AgentForkInvitationStatus,
   type StoredAgentForkInvitationRecord,
 } from "@dofe-agent/db";
 import type { ActiveEmployee } from "@dofe-agent/domain/workspace";
 import {
+  assertRuntimeCanBindEmployeeSync,
   bindEmployeeRuntimeSync,
   createEmployeeSync,
   setEmployeeSkillIdsSync,
@@ -144,6 +147,7 @@ export function acceptAgentForkInvitationForActorSync(input: {
   if (!runtime || runtime.workspaceId !== workspaceId) {
     throw new Error("agent.fork.runtime_not_found");
   }
+  assertRuntimeCanBindEmployeeSync(runtimeId);
   const state = ensureWorkspaceStateSync(workspaceId);
   if (state.activeEmployees.some((employee) => sameValue(employee.name, newAgentName))) {
     throw new Error("agent.fork.agent_name_exists");
@@ -167,23 +171,26 @@ export function acceptAgentForkInvitationForActorSync(input: {
     copiedSkillIds: skillIdsToCopy,
   });
 
-  createEmployeeSync(targetAgent, workspaceId);
-  if (skillIdsToCopy.length > 0) {
-    setEmployeeSkillIdsSync(newAgentName, skillIdsToCopy, workspaceId);
-  }
-  if (knowledgePageIdsToCopy.length > 0) {
-    setEmployeeKnowledgePageIdsSync(newAgentName, knowledgePageIdsToCopy, actorUserId, workspaceId);
-  }
-  bindEmployeeRuntimeSync(newAgentName, runtimeId, workspaceId);
-  const accepted = acceptAgentForkInvitationSync({
-    workspaceId,
-    invitationId: invitation.id,
-    acceptedAgentName: newAgentName,
-    acceptedRuntimeId: runtimeId,
+  const accepted = withTransaction(getDatabase(), () => {
+    createEmployeeSync(targetAgent, workspaceId);
+    if (skillIdsToCopy.length > 0) {
+      setEmployeeSkillIdsSync(newAgentName, skillIdsToCopy, workspaceId);
+    }
+    if (knowledgePageIdsToCopy.length > 0) {
+      setEmployeeKnowledgePageIdsSync(newAgentName, knowledgePageIdsToCopy, actorUserId, workspaceId);
+    }
+    bindEmployeeRuntimeSync(newAgentName, runtimeId, workspaceId);
+    const next = acceptAgentForkInvitationSync({
+      workspaceId,
+      invitationId: invitation.id,
+      acceptedAgentName: newAgentName,
+      acceptedRuntimeId: runtimeId,
+    });
+    if (!next) {
+      throw new Error("agent.fork.accept_failed");
+    }
+    return next;
   });
-  if (!accepted) {
-    throw new Error("agent.fork.accept_failed");
-  }
 
   notifyForkInvitationAccepted({
     workspaceId,

@@ -44,6 +44,7 @@ before(() => {
 });
 
 beforeEach(() => {
+  process.env.DOFE_AGENT_RUNTIME_MODE = "local";
   getDatabase().exec(`
     DELETE FROM agent_fork_snapshot;
     DELETE FROM agent_fork_invitation;
@@ -278,6 +279,117 @@ test("bindEmployeeRuntimeSync allows a new employee when allowNewEmployeeSharing
 
   const binding = listEmployeeRuntimeBindingsSync(fixtures.workspaceId).find((item) => item.employeeName === "Shared");
   assert.equal(binding?.runtimeId, fixtures.targetRuntimeId);
+});
+
+test("bindEmployeeRuntimeSync rejects ordinary runtimes in remote mode", () => {
+  const fixtures = seedForkServiceWorkspace();
+  const previousMode = process.env.DOFE_AGENT_RUNTIME_MODE;
+  process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+
+  try {
+    assert.throws(
+      () => bindEmployeeRuntimeSync("Planner", fixtures.sourceRuntimeId, fixtures.workspaceId, fixtures.admin.id),
+      /managed_runtime_required/,
+    );
+  } finally {
+    if (previousMode === undefined) {
+      delete process.env.DOFE_AGENT_RUNTIME_MODE;
+    } else {
+      process.env.DOFE_AGENT_RUNTIME_MODE = previousMode;
+    }
+  }
+});
+
+test("bindEmployeeRuntimeSync rejects managed runtimes that are not ready in remote mode", () => {
+  const fixtures = seedForkServiceWorkspace();
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId: fixtures.targetRuntimeId,
+    workspaceId: fixtures.workspaceId,
+    managedCredentialId: "credential-recovering",
+    provisioningState: "credential_recovering",
+    status: "offline",
+  });
+  process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+
+  assert.throws(
+    () => bindEmployeeRuntimeSync("Planner", fixtures.targetRuntimeId, fixtures.workspaceId, fixtures.admin.id),
+    /managed_runtime_not_ready/,
+  );
+});
+
+test("fork acceptance validates a remote runtime before creating its AI employee", () => {
+  const fixtures = seedForkServiceWorkspace();
+  const invitation = createAgentForkInvitationForActorSync({
+    workspaceId: fixtures.workspaceId,
+    sourceAgentName: "Planner",
+    targetUserId: fixtures.target.id,
+    actorUserId: fixtures.agentOwner.id,
+    options: {
+      copyProfile: true,
+      copyInstructions: true,
+      copySkills: true,
+      copyKnowledgeAssignments: true,
+    },
+  });
+  process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+
+  assert.throws(
+    () => acceptAgentForkInvitationForActorSync({
+      workspaceId: fixtures.workspaceId,
+      invitationId: invitation.id,
+      actorUserId: fixtures.target.id,
+      newAgentName: "Rejected Remote Fork",
+      runtimeId: fixtures.targetRuntimeId,
+    }),
+    /managed_runtime_required/,
+  );
+  assert.equal(readStoredEmployeeSync("Rejected Remote Fork", fixtures.workspaceId), null);
+});
+
+test("fork acceptance rolls back employee creation when runtime binding is rejected", () => {
+  const fixtures = seedForkServiceWorkspace();
+  const invitation = createAgentForkInvitationForActorSync({
+    workspaceId: fixtures.workspaceId,
+    sourceAgentName: "Planner",
+    targetUserId: fixtures.target.id,
+    actorUserId: fixtures.agentOwner.id,
+    options: {
+      copyProfile: true,
+      copyInstructions: true,
+      copySkills: true,
+      copyKnowledgeAssignments: true,
+    },
+  });
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId: fixtures.targetRuntimeId,
+    workspaceId: fixtures.workspaceId,
+    allowNewEmployeeSharing: false,
+  });
+
+  assert.throws(
+    () => acceptAgentForkInvitationForActorSync({
+      workspaceId: fixtures.workspaceId,
+      invitationId: invitation.id,
+      actorUserId: fixtures.target.id,
+      newAgentName: "Rejected Shared Fork",
+      runtimeId: fixtures.targetRuntimeId,
+    }),
+    /runtime\.sharing_closed/,
+  );
+
+  assert.equal(readStoredEmployeeSync("Rejected Shared Fork", fixtures.workspaceId), null);
+  assert.equal(
+    listEmployeeRuntimeBindingsSync(fixtures.workspaceId)
+      .some((binding) => binding.employeeName === "Rejected Shared Fork"),
+    false,
+  );
+  assert.equal(
+    listAgentForkInvitationsForActorSync({
+      workspaceId: fixtures.workspaceId,
+      actorUserId: fixtures.target.id,
+    }).find((item) => item.id === invitation.id)?.status,
+    "pending",
+  );
 });
 
 function seedForkServiceWorkspace(): {

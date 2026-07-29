@@ -3,7 +3,7 @@ import {
   getRuntimeCredentialVault,
 } from "@dofe-agent/services";
 import { readWorkspaceSsoBindingSync } from "@dofe-agent/db";
-import { readRuntimeForDaemon, requireDaemonAuth } from "../../../_lib/auth";
+import { readRuntimeForDaemon, requireDaemonAuth, requireRemoteManagedRuntimeMode } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +15,10 @@ export async function GET(
   const auth = requireDaemonAuth(request);
   if (auth instanceof Response) {
     return auth;
+  }
+  const modeError = requireRemoteManagedRuntimeMode();
+  if (modeError) {
+    return modeError;
   }
 
   const { runtimeId } = await context.params;

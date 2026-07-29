@@ -496,14 +496,34 @@ export function resetDatabaseForTests(): void {
   closeDatabase();
 }
 
+let transactionDepth = 0;
+
 export function withTransaction<T>(db: PostgresSyncDatabase, work: () => T): T {
-  db.exec("BEGIN");
+  const depth = transactionDepth;
+  const savepoint = `dofe_transaction_${depth}`;
+  if (depth === 0) {
+    db.exec("BEGIN");
+  } else {
+    db.exec(`SAVEPOINT ${savepoint}`);
+  }
+  transactionDepth += 1;
   try {
     const result = work();
-    db.exec("COMMIT");
+    transactionDepth -= 1;
+    if (depth === 0) {
+      db.exec("COMMIT");
+    } else {
+      db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+    }
     return result;
   } catch (error) {
-    db.exec("ROLLBACK");
+    transactionDepth -= 1;
+    if (depth === 0) {
+      db.exec("ROLLBACK");
+    } else {
+      db.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+      db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+    }
     throw error;
   }
 }

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockAssertCanUseEmployeeInChannelForActorSync,
   mockAssertAgentSkillRequirementsReadySync,
+  mockAssertRuntimeCanBindEmployeeSync,
   mockCreateEmployeeSync,
   mockCreateTaskSync,
   mockHasGitHubSkillDependenciesSync,
@@ -10,6 +11,7 @@ const {
   mockListEmployeeSkillIdsSync,
   mockRequireCurrentWorkspaceContext,
   mockResolveSystemAgentTemplateForWorkspaceSync,
+  mockResolveAgentRuntimeMode,
   mockQueueGitHubSkillDependenciesForAgentSync,
   mockRevalidateWorkspacePaths,
   mockSetEmployeeSkillIdsSync,
@@ -17,6 +19,7 @@ const {
 } = vi.hoisted(() => ({
   mockAssertCanUseEmployeeInChannelForActorSync: vi.fn(),
   mockAssertAgentSkillRequirementsReadySync: vi.fn(),
+  mockAssertRuntimeCanBindEmployeeSync: vi.fn(),
   mockCreateEmployeeSync: vi.fn(),
   mockCreateTaskSync: vi.fn(),
   mockHasGitHubSkillDependenciesSync: vi.fn(),
@@ -24,6 +27,7 @@ const {
   mockListEmployeeSkillIdsSync: vi.fn(),
   mockRequireCurrentWorkspaceContext: vi.fn(),
   mockResolveSystemAgentTemplateForWorkspaceSync: vi.fn(),
+  mockResolveAgentRuntimeMode: vi.fn(),
   mockQueueGitHubSkillDependenciesForAgentSync: vi.fn(),
   mockRevalidateWorkspacePaths: vi.fn(),
   mockSetEmployeeSkillIdsSync: vi.fn(),
@@ -43,6 +47,7 @@ vi.mock("@dofe-agent/services", () => ({
   acceptAgentForkInvitationForActorSync: vi.fn(),
   assertCanManageEmployeeForActorSync: vi.fn(),
   assertAgentSkillRequirementsReadySync: mockAssertAgentSkillRequirementsReadySync,
+  assertRuntimeCanBindEmployeeSync: mockAssertRuntimeCanBindEmployeeSync,
   assertCanUseEmployeeInChannelForActorSync: mockAssertCanUseEmployeeInChannelForActorSync,
   assertCanUseRuntimeForActorSync: vi.fn(),
   bindEmployeeRuntimeSync: vi.fn(),
@@ -56,6 +61,7 @@ vi.mock("@dofe-agent/services", () => ({
   listEmployeeSkillIdsSync: mockListEmployeeSkillIdsSync,
   resolveSystemAgentTemplateForWorkspaceSync: mockResolveSystemAgentTemplateForWorkspaceSync,
   queueGitHubSkillDependenciesForAgentSync: mockQueueGitHubSkillDependenciesForAgentSync,
+  resolveAgentRuntimeMode: mockResolveAgentRuntimeMode,
   revokeAgentForkInvitationForActorSync: vi.fn(),
   revokeRuntimeUseFromUserForActorSync: vi.fn(),
   setEmployeeChannelMemberAccessSync: vi.fn(),
@@ -77,6 +83,7 @@ vi.mock("@/features/auth/workspace-revalidation", () => ({
 }));
 
 import {
+  createContainerInstallTokenAction,
   createWorkspaceAgentAction,
   createWorkspaceTaskAction,
   installWorkspaceAgentSkillAction,
@@ -89,6 +96,7 @@ describe("agent actions", () => {
   beforeEach(() => {
     mockAssertCanUseEmployeeInChannelForActorSync.mockReset();
     mockAssertAgentSkillRequirementsReadySync.mockReset();
+    mockAssertRuntimeCanBindEmployeeSync.mockReset();
     mockCreateEmployeeSync.mockReset();
     mockCreateTaskSync.mockReset();
     mockHasGitHubSkillDependenciesSync.mockReset();
@@ -96,6 +104,7 @@ describe("agent actions", () => {
     mockListEmployeeSkillIdsSync.mockReset();
     mockRequireCurrentWorkspaceContext.mockReset();
     mockResolveSystemAgentTemplateForWorkspaceSync.mockReset();
+    mockResolveAgentRuntimeMode.mockReset();
   mockQueueGitHubSkillDependenciesForAgentSync.mockReset();
     mockRevalidateWorkspacePaths.mockReset();
     mockSetEmployeeSkillIdsSync.mockReset();
@@ -104,6 +113,7 @@ describe("agent actions", () => {
     mockIsWorkspaceAdminOrOwnerSync.mockReturnValue(true);
     mockListEmployeeSkillIdsSync.mockReturnValue([]);
     mockResolveSystemAgentTemplateForWorkspaceSync.mockReturnValue(null);
+    mockResolveAgentRuntimeMode.mockReturnValue("local");
     mockHasGitHubSkillDependenciesSync.mockReturnValue(false);
     mockQueueGitHubSkillDependenciesForAgentSync.mockReturnValue({ queued: 0, skipped: 0, waitingForRuntime: false });
     mockCreateTaskSync.mockReturnValue({
@@ -159,16 +169,42 @@ describe("agent actions", () => {
     expect(mockCreateEmployeeSync).not.toHaveBeenCalled();
   });
 
-  it("runs skill-readiness preflight against the selected runtime before binding", async () => {
+  it("rejects an unready remote runtime before creating an AI employee", async () => {
     vi.mocked(readAgentRuntimeSync).mockReturnValue({
       id: "runtime-1",
       workspaceId: "workspace-1",
       provider: "codex",
     } as never);
-    vi.mocked(bindEmployeeRuntimeSync).mockClear();
-    mockListEmployeeSkillIdsSync.mockReturnValue(["skill-a"]);
+    mockAssertRuntimeCanBindEmployeeSync.mockImplementation(() => {
+      throw new Error("runtime.managed_runtime_not_ready");
+    });
 
-    await createWorkspaceAgentAction({ name: "Atlas", runtimeId: "runtime-1" });
+    await expect(createWorkspaceAgentAction({ name: "Atlas", runtimeId: "runtime-1" }))
+      .rejects.toThrow("runtime.managed_runtime_not_ready");
+
+    expect(mockCreateEmployeeSync).not.toHaveBeenCalled();
+  });
+
+  it("rejects manual daemon installation tokens in remote mode", async () => {
+    mockResolveAgentRuntimeMode.mockReturnValue("remote");
+
+    await expect(createContainerInstallTokenAction())
+      .rejects.toThrow("manual_runtime.remote_mode_required");
+  });
+
+  it("runs skill-readiness preflight before creating an agent bound to a runtime", async () => {
+    vi.mocked(readAgentRuntimeSync).mockReturnValue({
+      id: "runtime-1",
+      workspaceId: "workspace-1",
+      provider: "codex",
+    } as never);
+    mockResolveSystemAgentTemplateForWorkspaceSync.mockReturnValue({
+      template: { id: "finance-analyst" },
+      skillIds: ["skill-a"],
+    } as never);
+    vi.mocked(bindEmployeeRuntimeSync).mockClear();
+
+    await createWorkspaceAgentAction({ name: "Atlas", runtimeId: "runtime-1", templateId: "finance-analyst" });
 
     expect(mockAssertAgentSkillRequirementsReadySync).toHaveBeenCalledWith(expect.objectContaining({
       workspaceId: "workspace-1",
@@ -179,21 +215,25 @@ describe("agent actions", () => {
     expect(vi.mocked(bindEmployeeRuntimeSync)).toHaveBeenCalledWith("Atlas", "runtime-1", "workspace-1");
   });
 
-  it("does not bind the runtime when skill readiness preflight fails", async () => {
+  it("does not create an agent when skill readiness preflight fails", async () => {
     vi.mocked(readAgentRuntimeSync).mockReturnValue({
       id: "runtime-1",
       workspaceId: "workspace-1",
       provider: "codex",
     } as never);
+    mockResolveSystemAgentTemplateForWorkspaceSync.mockReturnValue({
+      template: { id: "finance-analyst" },
+      skillIds: ["skill-a"],
+    } as never);
     vi.mocked(bindEmployeeRuntimeSync).mockClear();
-    mockListEmployeeSkillIdsSync.mockReturnValue(["skill-a"]);
     mockAssertAgentSkillRequirementsReadySync.mockImplementation(() => {
       throw new Error("skill requirements not ready");
     });
 
-    await expect(createWorkspaceAgentAction({ name: "Atlas", runtimeId: "runtime-1" }))
+    await expect(createWorkspaceAgentAction({ name: "Atlas", runtimeId: "runtime-1", templateId: "finance-analyst" }))
       .rejects.toThrow("skill requirements not ready");
 
+    expect(mockCreateEmployeeSync).not.toHaveBeenCalled();
     expect(vi.mocked(bindEmployeeRuntimeSync)).not.toHaveBeenCalled();
   });
 

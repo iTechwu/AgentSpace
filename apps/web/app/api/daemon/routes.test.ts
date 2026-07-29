@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   createWorkspaceSync,
   createDaemonApiTokenSync,
+  createManagedDaemonBootstrapTokenSync,
   createUserSync,
   createWorkspaceMembershipSync,
   enqueueNativeTaskSync,
@@ -56,6 +57,7 @@ import { POST as heartbeatPOST } from "./heartbeat/route";
 import { GET as installScriptGET } from "./install-script/route";
 import { GET as packageGET } from "./package/route";
 import { POST as claimPOST } from "./runtimes/[runtimeId]/tasks/claim/route";
+import { GET as credentialBundleGET } from "./runtimes/[runtimeId]/credential-bundle/route";
 import { persistManagedTaskUsagesBestEffort, POST as completePOST } from "./tasks/[taskId]/complete/route";
 import { POST as failPOST } from "./tasks/[taskId]/fail/route";
 import { GET as inputBundleGET } from "./tasks/[taskId]/input-bundle/route";
@@ -69,6 +71,7 @@ import { POST as appOperationCompletePOST } from "./runtime-app-operations/[oper
 import { POST as appOperationFailPOST } from "./runtime-app-operations/[operationId]/fail/route";
 import { POST as provisioningStageCompletePOST } from "./provisioning-tasks/[taskId]/stages/[stage]/complete/route";
 import { POST as provisioningStageFailPOST } from "./provisioning-tasks/[taskId]/stages/[stage]/fail/route";
+import { POST as provisioningClaimPOST } from "./provisioning-tasks/claim/route";
 
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-routes-"));
 const originalCwd = process.cwd();
@@ -130,6 +133,7 @@ beforeEach(() => {
   db.exec("DELETE FROM external_integration_event");
   db.exec("DELETE FROM external_integration");
   vi.unstubAllEnvs();
+  vi.stubEnv("DOFE_AGENT_RUNTIME_MODE", "local");
 });
 
 function daemonHeaders(token: string): HeadersInit {
@@ -383,6 +387,7 @@ describe("daemon API routes", () => {
   });
 
   it("advances and fails managed provisioning stages in the daemon token workspace", async () => {
+    vi.stubEnv("DOFE_AGENT_RUNTIME_MODE", "remote");
     const workspaceId = "workspace-managed-stage-routes";
     if (!readWorkspaceSync(workspaceId)) {
       createWorkspaceSync({
@@ -399,7 +404,7 @@ describe("daemon API routes", () => {
       role: "member",
     });
 
-    const daemonToken = createDaemonApiTokenSync({
+    const daemonToken = createManagedDaemonBootstrapTokenSync({
       workspaceId,
       label: "managed-stage-node",
       createdBy: requester.id,
@@ -520,6 +525,271 @@ describe("daemon API routes", () => {
       status: "retrying",
       lastErrorCode: "image.pull_failed",
     });
+  });
+
+  it("does not let local daemons claim managed provisioning work", async () => {
+    vi.stubEnv("DOFE_AGENT_RUNTIME_MODE", "local");
+    const daemonToken = createDaemonApiTokenSync({
+      label: "local-daemon",
+      createdBy: "techwu",
+    });
+
+    const response = await provisioningClaimPOST(
+      new Request("http://localhost/api/daemon/provisioning-tasks/claim", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Managed runtime operations are unavailable in local mode.",
+    });
+  });
+
+  it("does not let local daemons register ordinary remote runtimes", async () => {
+    vi.stubEnv("DOFE_AGENT_RUNTIME_MODE", "remote");
+    const daemonToken = createDaemonApiTokenSync({
+      label: "remote-ordinary-daemon",
+      createdBy: "techwu",
+    });
+
+    const response = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          daemonKey: "remote-ordinary-daemon",
+          deviceName: "Ordinary provider daemon",
+          runtimes: [{ provider: "codex", name: "Local Codex" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Remote mode only accepts managed runtime nodes.",
+    });
+  });
+
+  it("rejects generic daemon tokens that claim to be managed nodes in remote mode", async () => {
+    vi.stubEnv("DOFE_AGENT_RUNTIME_MODE", "remote");
+    const daemonToken = createDaemonApiTokenSync({
+      label: "legacy-generic-token",
+      createdBy: "techwu",
+    });
+
+    const response = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          daemonKey: "spoofed-managed-node",
+          deviceName: "Spoofed managed node",
+          metadata: { managedNode: true },
+          runtimes: [],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Managed node registration requires a managed bootstrap token.",
+    });
+  });
+
+  it("blocks a legacy local runtime from claiming tasks after switching to remote mode", async () => {
+    const daemonToken = createDaemonApiTokenSync({
+      label: "legacy-local-runtime",
+      createdBy: "techwu",
+    });
+    const registration = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          daemonKey: "legacy-local-runtime",
+          deviceName: "Legacy local runtime",
+          runtimes: [{ provider: "codex", name: "Legacy Codex" }],
+        }),
+      }),
+    );
+    expect(registration.status).toBe(200);
+    const runtimeId = (await registration.json()).runtimes[0].id as string;
+
+    createEmployeeSync({ name: "Legacy Atlas", role: "Planner" });
+    bindEmployeeRuntimeSync("Legacy Atlas", runtimeId);
+    expect(enqueueNativeTaskSync({
+      assignee: "Legacy Atlas",
+      title: "Must not run in remote mode",
+      priority: "medium",
+      triggerType: "manual",
+      metadata: { title: "Must not run in remote mode" },
+    })).toBeTruthy();
+
+    vi.stubEnv("DOFE_AGENT_RUNTIME_MODE", "remote");
+    const response = await claimPOST(
+      new Request(`http://localhost/api/daemon/runtimes/${runtimeId}/tasks/claim`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+      }),
+      { params: Promise.resolve({ runtimeId }) },
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Remote mode requires a managed, online runtime.",
+    });
+  });
+
+  it("blocks a legacy generic token from executing through an existing managed runtime", async () => {
+    const daemonToken = createDaemonApiTokenSync({
+      label: "legacy-managed-token",
+      createdBy: "techwu",
+    });
+    const runtime = registerDaemonRuntimesSync({
+      daemonKey: "legacy-managed-token",
+      deviceName: "Legacy managed runtime",
+      daemonTokenId: daemonToken.id,
+      metadata: { managedNode: true },
+      runtimes: [{ provider: "codex", name: "Legacy managed Codex" }],
+    }).runtimes[0]!;
+    updateAgentRuntimeManagedFieldsSync({
+      runtimeId: runtime.id,
+      managedCredentialId: "legacy-managed-credential",
+      provisioningState: "managed",
+      status: "online",
+    });
+    createEmployeeSync({ name: "Managed Legacy Atlas", role: "Planner" });
+    bindEmployeeRuntimeSync("Managed Legacy Atlas", runtime.id);
+    expect(enqueueNativeTaskSync({
+      assignee: "Managed Legacy Atlas",
+      title: "Must not use a legacy generic token",
+      priority: "medium",
+      triggerType: "manual",
+      metadata: { title: "Must not use a legacy generic token" },
+    })).toBeTruthy();
+
+    vi.stubEnv("DOFE_AGENT_RUNTIME_MODE", "remote");
+    const response = await claimPOST(
+      new Request(`http://localhost/api/daemon/runtimes/${runtime.id}/tasks/claim`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+      }),
+      { params: Promise.resolve({ runtimeId: runtime.id }) },
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Managed runtime execution requires a managed bootstrap token.",
+    });
+
+    const heartbeatResponse = await heartbeatPOST(
+      new Request("http://localhost/api/daemon/heartbeat", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({ daemonKey: "legacy-managed-token" }),
+      }),
+    );
+    expect(heartbeatResponse.status).toBe(403);
+  });
+
+  it("keeps legacy managed runtime records on the local provider path", async () => {
+    vi.stubEnv("DOFE_AGENT_RUNTIME_MODE", "local");
+    const daemonToken = createDaemonApiTokenSync({
+      label: "local-managed-runtime-daemon",
+      createdBy: "techwu",
+    });
+    const registration = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          daemonKey: "local-managed-runtime-daemon",
+          deviceName: "Local managed runtime daemon",
+          runtimes: [{ provider: "codex", name: "Local Codex" }],
+        }),
+      }),
+    );
+    const runtimeId = (await registration.json()).runtimes[0].id as string;
+    updateAgentRuntimeManagedFieldsSync({ runtimeId, managedCredentialId: "legacy-managed-credential" });
+    createEmployeeSync({ name: "Local Atlas", role: "Planner" });
+    bindEmployeeRuntimeSync("Local Atlas", runtimeId);
+    const queued = enqueueNativeTaskSync({
+      assignee: "Local Atlas",
+      title: "Local managed runtime compatibility",
+      priority: "medium",
+      triggerType: "manual",
+      metadata: { title: "Local managed runtime compatibility" },
+    });
+
+    const claimResponse = await claimPOST(
+      new Request(`http://localhost/api/daemon/runtimes/${runtimeId}/tasks/claim`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+      }),
+      { params: Promise.resolve({ runtimeId }) },
+    );
+    expect(claimResponse.status).toBe(200);
+
+    const bundleResponse = await inputBundleGET(
+      new Request(`http://localhost/api/daemon/tasks/${queued!.id}/input-bundle`, {
+        headers: daemonHeaders(daemonToken.token),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+
+    expect(bundleResponse.status).toBe(200);
+    const bundle = await bundleResponse.json();
+    expect(bundle.metadata.effectiveModel).toBeUndefined();
+
+    const heartbeatResponse = await heartbeatPOST(
+      new Request("http://localhost/api/daemon/heartbeat", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          daemonKey: "local-managed-runtime-daemon",
+          runtimes: [{
+            id: runtimeId,
+            provider: "codex",
+            metadata: {
+              managedCredentialId: "spoofed-managed-credential",
+              provisioningState: "managed",
+            },
+          }],
+        }),
+      }),
+    );
+    const heartbeat = await heartbeatResponse.json();
+    expect(heartbeat.runtimes[0]?.metadata.managedCredentialId).toBeUndefined();
+    expect(heartbeat.runtimes[0]?.metadata.provisioningState).toBeUndefined();
+
+    const credentialBundleResponse = await credentialBundleGET(
+      new Request(`http://localhost/api/daemon/runtimes/${runtimeId}/credential-bundle`, {
+        headers: daemonHeaders(daemonToken.token),
+      }),
+      { params: Promise.resolve({ runtimeId }) },
+    );
+    expect(credentialBundleResponse.status).toBe(409);
+
+    const completeResponse = await completePOST(
+      new Request(`http://localhost/api/daemon/tasks/${queued!.id}/complete`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          outputText: "Local provider response",
+          usages: [{
+            modelId: "gpt-5",
+            runtimeCredentialId: "legacy-managed-credential",
+            inputTokens: 10,
+            outputTokens: 5,
+          }],
+        }),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+    expect(completeResponse.status).toBe(200);
+    expect(listTokenUsageSync()).toEqual([]);
   });
 
   it("does not let one daemon token claim or read another daemon runtime task", async () => {
@@ -1928,7 +2198,8 @@ describe("daemon API routes", () => {
   });
 
   it("completes a remote direct-channel task and replaces the pending channel reply", async () => {
-    const daemonToken = createDaemonApiTokenSync({
+    vi.stubEnv("DOFE_AGENT_RUNTIME_MODE", "remote");
+    const daemonToken = createManagedDaemonBootstrapTokenSync({
       label: "remote-daemon",
       createdBy: "techwu",
     });
@@ -1940,18 +2211,27 @@ describe("daemon API routes", () => {
         body: JSON.stringify({
           daemonKey: "build-box-5",
           deviceName: "Build Box 5",
-          runtimes: [
-            {
-              provider: "codex",
-              name: "Remote Codex",
-              version: "test",
-            },
-          ],
+          metadata: { managedNode: true },
+          runtimes: [],
         }),
       }),
     );
-    const registerPayload = await registerResponse.json();
-    const runtimeId = registerPayload.runtimes[0].id as string;
+    expect(registerResponse.status).toBe(200);
+    const managedRuntime = registerDaemonRuntimesSync({
+      daemonKey: "build-box-5",
+      deviceName: "Build Box 5",
+      daemonTokenId: daemonToken.id,
+      metadata: { managedNode: true },
+      runtimes: [{ provider: "codex", name: "Managed Codex", version: "test" }],
+    }).runtimes[0];
+    expect(managedRuntime).toBeTruthy();
+    const runtimeId = managedRuntime!.id;
+    updateAgentRuntimeManagedFieldsSync({
+      runtimeId,
+      managedCredentialId: "runtime-credential-direct",
+      provisioningState: "managed",
+      status: "online",
+    });
 
     createEmployeeSync({
       name: "Atlas",
@@ -1962,10 +2242,6 @@ describe("daemon API routes", () => {
 
     const queued = listQueuedTasksSync().find((task) => task.agentId === "Atlas" && task.triggerType === "channel_chat");
     expect(queued?.id).toBeTruthy();
-    updateAgentRuntimeManagedFieldsSync({
-      runtimeId,
-      managedCredentialId: "runtime-credential-direct",
-    });
 
     const completeResponse = await completePOST(
       new Request(`http://localhost/api/daemon/tasks/${queued?.id}/complete`, {

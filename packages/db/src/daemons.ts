@@ -114,7 +114,10 @@ export function registerDaemonRuntimesSync(input: {
             id,
             created_at AS createdAt
           FROM agent_runtime
-          WHERE workspace_id = ? AND daemon_connection_id = ? AND provider = ?`,
+          WHERE workspace_id = ?
+            AND daemon_connection_id = ?
+            AND provider = ?
+            AND managed_credential_id IS NULL`,
         )
         .get(workspaceId, daemonId, provider) as Record<string, unknown> | undefined;
       const runtimeId =
@@ -149,7 +152,9 @@ export function registerDaemonRuntimesSync(input: {
           created_at,
           updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(workspace_id, daemon_connection_id, provider) DO UPDATE SET
+        ON CONFLICT(workspace_id, daemon_connection_id, provider)
+          WHERE managed_credential_id IS NULL
+          DO UPDATE SET
           name = excluded.name,
           provider_account_id = excluded.provider_account_id,
           version = excluded.version,

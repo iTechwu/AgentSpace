@@ -3,7 +3,7 @@ import {
   readAuthIdentityForUserSync,
   type WorkspaceRole,
 } from "@dofe-agent/db";
-import { getWorkspacePermissionCenterSync } from "@dofe-agent/services";
+import { getWorkspacePermissionCenterSync, resolveAgentRuntimeMode } from "@dofe-agent/services";
 import { loadSsoWorkspaceDirectory } from "@/features/auth/sso-directory";
 import { readPublicAppUrl } from "@/features/auth/public-app-url";
 import {
@@ -38,6 +38,7 @@ export interface SettingsPageData {
   currentUserDisplayName: string;
   currentUserId: string;
   currentWorkspaceSlug: string;
+  canCreateDaemonTokens: boolean;
   initialSection: SettingsSectionId;
   feishuAvailableAgents: SettingsFeishuAvailableAgentItem[];
   feishuAvailableChannels: SettingsFeishuAvailableChannelItem[];
@@ -105,6 +106,7 @@ export async function loadSettingsPageData(input: {
     currentUserDisplayName: input.currentUser.displayName,
     currentUserId: input.currentUser.id,
     currentWorkspaceSlug: input.currentWorkspace.slug,
+    canCreateDaemonTokens: resolveAgentRuntimeMode() !== "remote",
     initialSection: requestedSection,
     feishuAvailableChannels: shouldLoadIntegrations && canManageIntegrations
       ? listFeishuAvailableChannels({ workspaceId })

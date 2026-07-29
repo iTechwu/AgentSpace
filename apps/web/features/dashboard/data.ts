@@ -904,6 +904,10 @@ export interface AgentsPageData {
     mode?: "local" | "remote";
     /** Present only for managed runtimes surfaced as reusable execution engines. */
     managed?: boolean;
+    /** Managed-runtime lifecycle state used to explain whether it can be bound. */
+    provisioningState?: "managed" | "credential_recovering" | "needs_attention" | "legacy";
+    /** False when a managed runtime must not receive new or updated bindings. */
+    bindable?: boolean;
     defaultModel?: string;
     protocols?: string[];
     assignedEmployeeCount?: number;
@@ -2525,7 +2529,8 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
   const currentMembershipRole = options.currentMembershipRole;
   const canManageAllAgents = !currentUserId || isWorkspaceManagerRole(currentMembershipRole);
   const canManageRuntimes = canManageAllAgents;
-  const canConnectRuntimes = canManageRuntimes;
+  const isRemoteMode = resolveAgentRuntimeMode() === "remote";
+  const canConnectRuntimes = canManageRuntimes && !isRemoteMode;
   const state = readWorkspaceStateCached(workspaceId);
   const workspaceSkills = listWorkspaceSkillsCached(workspaceId);
   const workspaceSkillSummaries = shouldUseLoadtestDashboardPayloadLimits()
@@ -2585,7 +2590,8 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
     }))
     .sort(compareContainers);
   const activeContainers = allContainers.filter((container) => container.status === "linked");
-  const visibleContainers = canManageRuntimes ? activeContainers : [];
+  const selectableContainers = isRemoteMode ? [] : activeContainers;
+  const visibleContainers = canManageRuntimes ? selectableContainers : [];
   const containerIndex = new Map(allContainers.map((container) => [container.runtimeId, container]));
   const bindingIndex = new Map(bindings.map((binding) => [binding.employeeName, binding]));
   const allWorkspaceAgentRecords = state.activeEmployees
@@ -2648,7 +2654,7 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
     mode: container.daemonMode,
   }));
   const managedRuntimeOptionIds = new Set(containerOptions.map((option) => option.id));
-  if (canManageRuntimes && currentUserId && resolveAgentRuntimeMode() === "remote") {
+  if (canManageRuntimes && currentUserId && isRemoteMode) {
     for (const managedRuntime of listManagedRuntimesForWorkspaceSync({ workspaceId, actorUserId: currentUserId })) {
       if (managedRuntimeOptionIds.has(managedRuntime.id)) {
         continue;
@@ -2666,6 +2672,8 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
         daemonKey: "",
         mode: "remote" as const,
         managed: true,
+        provisioningState: managedRuntime.provisioningState,
+        bindable: managedRuntime.provisioningState === "managed" && managedRuntime.status === "online",
         defaultModel: managedRuntime.defaultModel,
         protocols: managedRuntime.protocols,
         assignedEmployeeCount: managedRuntime.assignedEmployeeCount,

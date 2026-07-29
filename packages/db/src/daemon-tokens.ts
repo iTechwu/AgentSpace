@@ -1,12 +1,28 @@
 import { createHash, randomBytes } from "node:crypto";
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId } from "./database.ts";
-import type { DaemonApiTokenRecord } from "./types.ts";
+import type { DaemonApiTokenPurpose, DaemonApiTokenRecord } from "./types.ts";
 
-export function createDaemonApiTokenSync(input: {
+export interface CreateDaemonApiTokenInput {
   workspaceId?: string;
   label: string;
   createdBy: string;
-}): DaemonApiTokenRecord & { token: string } {
+}
+
+export function createDaemonApiTokenSync(input: CreateDaemonApiTokenInput): DaemonApiTokenRecord & { token: string } {
+  return createDaemonApiTokenWithPurposeSync(input, "general");
+}
+
+/** Only managed-runtime orchestration may issue a node bootstrap credential. */
+export function createManagedDaemonBootstrapTokenSync(
+  input: CreateDaemonApiTokenInput,
+): DaemonApiTokenRecord & { token: string } {
+  return createDaemonApiTokenWithPurposeSync(input, "managed_node_bootstrap");
+}
+
+function createDaemonApiTokenWithPurposeSync(
+  input: CreateDaemonApiTokenInput,
+  purpose: DaemonApiTokenPurpose,
+): DaemonApiTokenRecord & { token: string } {
   const db = getDatabase();
   const now = new Date().toISOString();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -21,11 +37,12 @@ export function createDaemonApiTokenSync(input: {
       daemon_connection_id,
       label,
       token_hash,
+      purpose,
       status,
       created_by,
       created_at
-    ) VALUES (?, ?, NULL, ?, ?, 'active', ?, ?)`,
-  ).run(id, workspaceId, input.label.trim(), tokenHash, input.createdBy.trim(), now);
+    ) VALUES (?, ?, NULL, ?, ?, ?, 'active', ?, ?)`,
+  ).run(id, workspaceId, input.label.trim(), tokenHash, purpose, input.createdBy.trim(), now);
 
   const record = readDaemonApiTokenSync(id);
   if (!record) {
@@ -48,6 +65,7 @@ export function listDaemonApiTokensSync(workspaceId = DEFAULT_WORKSPACE_ID): Dae
         daemon_connection_id AS daemonConnectionId,
         label,
         token_hash AS tokenHash,
+        purpose,
         status,
         created_by AS createdBy,
         last_used_at AS lastUsedAt,
@@ -74,6 +92,7 @@ export function readDaemonApiTokenSync(id: string): DaemonApiTokenRecord | null 
         daemon_connection_id AS daemonConnectionId,
         label,
         token_hash AS tokenHash,
+        purpose,
         status,
         created_by AS createdBy,
         last_used_at AS lastUsedAt,
@@ -101,6 +120,7 @@ export function validateDaemonApiTokenSync(token: string): DaemonApiTokenRecord 
         daemon_connection_id AS daemonConnectionId,
         label,
         token_hash AS tokenHash,
+        purpose,
         status,
         created_by AS createdBy,
         last_used_at AS lastUsedAt,
@@ -157,6 +177,7 @@ function mapDaemonApiTokenRecord(value: Record<string, unknown>): DaemonApiToken
     typeof value.workspaceId !== "string" ||
     typeof value.label !== "string" ||
     typeof value.tokenHash !== "string" ||
+    (value.purpose !== "general" && value.purpose !== "managed_node_bootstrap") ||
     (value.status !== "active" && value.status !== "revoked") ||
     typeof value.createdBy !== "string" ||
     typeof value.createdAt !== "string"
@@ -170,6 +191,7 @@ function mapDaemonApiTokenRecord(value: Record<string, unknown>): DaemonApiToken
     daemonConnectionId: typeof value.daemonConnectionId === "string" ? value.daemonConnectionId : undefined,
     label: value.label,
     tokenHash: value.tokenHash,
+    purpose: value.purpose,
     status: value.status,
     createdBy: value.createdBy,
     lastUsedAt: typeof value.lastUsedAt === "string" ? value.lastUsedAt : undefined,

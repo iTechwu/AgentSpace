@@ -60,6 +60,7 @@ export {
   listEmployeeSkillIdsMapSync,
   listEmployeeSkillIdsSync,
   listEmployeeRuntimeBindingsForWorkspaceSync,
+  assertRuntimeCanBindEmployeeSync,
   bindEmployeeRuntimeSync,
   unbindEmployeeRuntimeSync,
   deleteEmployeeSync,

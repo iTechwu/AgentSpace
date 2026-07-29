@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "46";
+export const POSTGRES_SCHEMA_VERSION = "48";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -586,6 +586,7 @@ export function getPostgresSchemaStatements(): string[] {
         daemon_connection_id TEXT REFERENCES daemon_connection(id) ON DELETE SET NULL,
         label TEXT NOT NULL DEFAULT '',
         token_hash TEXT NOT NULL UNIQUE,
+        purpose TEXT NOT NULL DEFAULT 'general',
         status TEXT NOT NULL DEFAULT 'active',
         created_by TEXT NOT NULL DEFAULT '',
         last_used_at TIMESTAMPTZ,
@@ -596,6 +597,10 @@ export function getPostgresSchemaStatements(): string[] {
     `
       ALTER TABLE daemon_api_token
         ADD COLUMN IF NOT EXISTS daemon_connection_id TEXT REFERENCES daemon_connection(id) ON DELETE SET NULL
+    `,
+    `
+      ALTER TABLE daemon_api_token
+        ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'general'
     `,
     `
       CREATE UNIQUE INDEX IF NOT EXISTS idx_daemon_api_token_active_connection
@@ -1768,8 +1773,12 @@ export function getPostgresSchemaStatements(): string[] {
         ON session(user_id)
     `,
     `
+      DROP INDEX IF EXISTS idx_agent_runtime_workspace_daemon_provider
+    `,
+    `
       CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runtime_workspace_daemon_provider
         ON agent_runtime(workspace_id, daemon_connection_id, provider)
+        WHERE managed_credential_id IS NULL
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_agent_runtime_status

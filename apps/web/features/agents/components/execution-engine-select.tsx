@@ -107,15 +107,17 @@ export function ExecutionEngineSelect({
         <div aria-label={label} className="execution-engine-select__menu" id={menuId} role="listbox">
           {options.map((option) => {
             const sharingClosed = option.managed === true && option.allowNewEmployeeSharing === false;
+            const bindingUnavailable = option.managed === true && option.bindable === false;
+            const optionDisabled = sharingClosed || bindingUnavailable;
             return (
               <button
-                aria-disabled={sharingClosed || undefined}
+                aria-disabled={optionDisabled || undefined}
                 aria-selected={option.id === selectedOption?.id}
-                className={`execution-engine-select__option${option.id === selectedOption?.id ? " execution-engine-select__option--selected" : ""}${sharingClosed ? " execution-engine-select__option--disabled" : ""}`}
-                disabled={sharingClosed}
+                className={`execution-engine-select__option${option.id === selectedOption?.id ? " execution-engine-select__option--selected" : ""}${optionDisabled ? " execution-engine-select__option--disabled" : ""}`}
+                disabled={optionDisabled}
                 key={option.id}
                 onClick={() => {
-                  if (sharingClosed) {
+                  if (optionDisabled) {
                     return;
                   }
                   onChange(option.id);
@@ -134,6 +136,11 @@ export function ExecutionEngineSelect({
                         {tx("已关闭新员工共享", "New employee sharing disabled")}
                       </span>
                     ) : null}
+                    {bindingUnavailable ? (
+                      <span className="execution-engine-select__sharing-closed">
+                        {formatBindingUnavailableReason(option, tx)}
+                      </span>
+                    ) : null}
                   </span>
                   <EngineStatusBadge status={option.status} />
                 </span>
@@ -144,6 +151,22 @@ export function ExecutionEngineSelect({
       ) : null}
     </div>
   );
+}
+
+function formatBindingUnavailableReason(
+  option: ExecutionEngineOption,
+  tx: (zh: string, en: string) => string,
+): string {
+  if (option.provisioningState === "credential_recovering") {
+    return tx("凭证恢复中", "Credential recovery in progress");
+  }
+  if (option.provisioningState === "needs_attention") {
+    return tx("需要处理后才能绑定", "Needs attention before it can be bound");
+  }
+  if (option.provisioningState === "legacy") {
+    return tx("旧版 Runtime 不可绑定", "Legacy runtime cannot be bound");
+  }
+  return tx("Runtime 离线，暂不可绑定", "Runtime is offline and cannot be bound");
 }
 
 export function resolveExecutionEngineValue(

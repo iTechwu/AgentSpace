@@ -77,6 +77,7 @@ import {
   readWorkspaceStateSync,
   replacePendingChannelMessageSync,
   resolveAgentDocumentContextSync,
+  resolveAgentRuntimeMode,
   resolveEffectiveModelForTaskAsync,
   startFeishuWebSocketWorkerSupervisor,
   resolveCompatibleDirectChannelRecord,
@@ -565,6 +566,10 @@ function runDaemonTokenCommand(args: string[], format: OutputFormat): number {
   const action = parsed.positionals[0];
 
   if (action === "create") {
+    if (resolveAgentRuntimeMode() === "remote") {
+      console.error("Daemon token creation is unavailable in remote mode. Managed runtime nodes are provisioned by the service.");
+      return 1;
+    }
     const label = getStringFlag(parsed.flags, "label")?.trim() ?? "";
     const createdBy = getStringFlag(parsed.flags, "created-by")?.trim() ?? "system";
     if (!label) {
@@ -1055,7 +1060,10 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
     feishuLarkCliResourceGrants,
   });
 
-  const tokenAcc: TokenAccumulator = runtime.managedCredentialId
+  const isManagedRemoteRuntime = Boolean(
+    runtime.managedCredentialId && resolveAgentRuntimeMode() === "remote",
+  );
+  const tokenAcc: TokenAccumulator = isManagedRemoteRuntime
     ? {
         inputTokens: 0,
         outputTokens: 0,
@@ -1067,7 +1075,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         modelId: resolveModelId(runtime),
       };
   let runtimeCredentialId: string | undefined;
-  if (runtime.managedCredentialId) {
+  if (isManagedRemoteRuntime) {
     const resolution = await resolveEffectiveModelForTaskAsync({
       workspaceId: task.workspaceId,
       employeeName: agentName,

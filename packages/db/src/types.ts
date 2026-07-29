@@ -563,12 +563,15 @@ export interface DaemonApiTokenRecord {
   daemonConnectionId?: string;
   label: string;
   tokenHash: string;
+  purpose: DaemonApiTokenPurpose;
   status: "active" | "revoked";
   createdBy: string;
   lastUsedAt?: string;
   createdAt: string;
   revokedAt?: string;
 }
+
+export type DaemonApiTokenPurpose = "general" | "managed_node_bootstrap";
 
 export interface EmployeeRuntimeBindingRecord {
   workspaceId: string;

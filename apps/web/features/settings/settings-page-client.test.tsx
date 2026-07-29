@@ -357,6 +357,7 @@ describe("SettingsPageClient", () => {
   it("renders the unified permissions center without exposing token fields", async () => {
     const user = userEvent.setup();
     const { container } = renderSettingsPage({
+      canCreateDaemonTokens: false,
       currentMembershipRole: "owner",
       currentUserDisplayName: "Mina",
       currentUserId: "user-1",
@@ -513,6 +514,7 @@ describe("SettingsPageClient", () => {
     expect(screen.getByText("Atlas Feishu Bot guest policy")).toBeInTheDocument();
     expect(screen.getAllByText(/外部身份策略/).length).toBeGreaterThan(0);
     expect(screen.getByText("Codex runtime")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "创建 daemon token" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Atlas Feishu Bot guest policy/ }));
 

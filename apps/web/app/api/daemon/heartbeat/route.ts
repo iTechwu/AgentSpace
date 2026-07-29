@@ -1,7 +1,11 @@
 import { heartbeatDaemonSync, listPendingManagedRuntimeCleanupRequestsForDaemonSync, markManagedRuntimeCleanupRequestRunningSync } from "@dofe-agent/db";
 import type { HeartbeatDaemonRequest, HeartbeatDaemonResponse } from "@dofe-agent/domain";
-import { buildManagedCleanupCommands, resumePendingRuntimeCredentialRecoveriesAsync } from "@dofe-agent/services";
-import { readDaemonConnectionForDaemon, requireDaemonAuth } from "../_lib/auth";
+import {
+  buildManagedCleanupCommands,
+  resolveAgentRuntimeMode,
+  resumePendingRuntimeCredentialRecoveriesAsync,
+} from "@dofe-agent/services";
+import { readDaemonConnectionForDaemon, requireDaemonAuth, requireManagedNodeBootstrapToken } from "../_lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +14,13 @@ export async function POST(request: Request): Promise<Response> {
   const auth = requireDaemonAuth(request);
   if (auth instanceof Response) {
     return auth;
+  }
+  const isRemoteMode = resolveAgentRuntimeMode() === "remote";
+  if (isRemoteMode) {
+    const tokenError = requireManagedNodeBootstrapToken(auth);
+    if (tokenError) {
+      return tokenError;
+    }
   }
 
   const body = (await request.json()) as Partial<HeartbeatDaemonRequest>;
@@ -35,25 +46,29 @@ export async function POST(request: Request): Promise<Response> {
       : undefined,
   });
 
-  const cleanupRequests = listPendingManagedRuntimeCleanupRequestsForDaemonSync(daemon.id)
-    .map((req) => {
-      const claimed = markManagedRuntimeCleanupRequestRunningSync(req.id);
-      if (!claimed) {
-        return null;
-      }
-      return {
-        requestId: req.id,
-        workspaceId: req.workspaceId,
-        runtimeId: req.runtimeId,
-        runtimeType: req.runtimeType,
-        commands: buildManagedCleanupCommands(req.runtimeType, req.runtimeId),
-      };
-    })
-    .filter((request): request is NonNullable<typeof request> => request !== null);
+  const cleanupRequests = isRemoteMode
+    ? listPendingManagedRuntimeCleanupRequestsForDaemonSync(daemon.id)
+      .map((req) => {
+        const claimed = markManagedRuntimeCleanupRequestRunningSync(req.id);
+        if (!claimed) {
+          return null;
+        }
+        return {
+          requestId: req.id,
+          workspaceId: req.workspaceId,
+          runtimeId: req.runtimeId,
+          runtimeType: req.runtimeType,
+          commands: buildManagedCleanupCommands(req.runtimeType, req.runtimeId),
+        };
+      })
+      .filter((request): request is NonNullable<typeof request> => request !== null)
+    : [];
 
-  await resumePendingRuntimeCredentialRecoveriesAsync({
-    workspaceId: auth.workspaceId,
-  }).catch(() => []);
+  if (isRemoteMode) {
+    await resumePendingRuntimeCredentialRecoveriesAsync({
+      workspaceId: auth.workspaceId,
+    }).catch(() => []);
+  }
 
   const response: HeartbeatDaemonResponse = {
     daemon: {
@@ -64,15 +79,16 @@ export async function POST(request: Request): Promise<Response> {
     },
     runtimes: snapshot.runtimes.map((runtime) => {
       const metadata = safeParseRecord(runtime.metadataJson) ?? {};
+      const responseMetadata = isRemoteMode ? metadata : omitManagedRuntimeMetadata(metadata);
       return {
         id: runtime.id,
         provider: runtime.provider,
         status: runtime.status,
         lastHeartbeatAt: runtime.lastHeartbeatAt,
         metadata: {
-          ...metadata,
-          ...(runtime.managedCredentialId ? { managedCredentialId: runtime.managedCredentialId } : {}),
-          ...(runtime.provisioningState ? { provisioningState: runtime.provisioningState } : {}),
+          ...responseMetadata,
+          ...(isRemoteMode && runtime.managedCredentialId ? { managedCredentialId: runtime.managedCredentialId } : {}),
+          ...(isRemoteMode && runtime.provisioningState ? { provisioningState: runtime.provisioningState } : {}),
         },
       };
     }),
@@ -93,4 +109,9 @@ function safeParseRecord(value: string): Record<string, unknown> | undefined {
   } catch {
     return undefined;
   }
+}
+
+function omitManagedRuntimeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  const { managedCredentialId: _managedCredentialId, provisioningState: _provisioningState, ...localMetadata } = metadata;
+  return localMetadata;
 }

@@ -52,6 +52,7 @@ export function SettingsPageClient({
   currentUserDisplayName = "",
   currentUserId,
   currentWorkspaceSlug = "",
+  canCreateDaemonTokens = true,
   feishuAvailableAgents = [],
   feishuAvailableChannels = [],
   feishuAvailableUsers = [],
@@ -68,6 +69,7 @@ export function SettingsPageClient({
   currentUserDisplayName?: string;
   currentUserId?: string;
   currentWorkspaceSlug?: string;
+  canCreateDaemonTokens?: boolean;
   feishuAvailableAgents?: SettingsFeishuAvailableAgentItem[];
   feishuAvailableChannels?: SettingsFeishuAvailableChannelItem[];
   feishuAvailableUsers?: SettingsFeishuAvailableUserItem[];
@@ -164,6 +166,7 @@ export function SettingsPageClient({
 
           {resolvedActiveSection === "permissions" ? (
             <PermissionsCenterSection
+              canCreateDaemonTokens={canCreateDaemonTokens}
               currentMembershipRole={currentMembershipRole}
               currentUserDisplayName={currentUserDisplayName}
               meta={currentSectionMeta}
