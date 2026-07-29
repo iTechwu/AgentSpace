@@ -63,7 +63,7 @@ export interface RemoteDaemonRelaunchCommand {
   args: string[];
 }
 
-interface ManagedRuntimeEntry {
+export interface ManagedRuntimeEntry {
   id: string;
   provider: DaemonProvider;
   runtimeCredentialId: string;
@@ -274,6 +274,7 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
           buildRemoteRuntimeHeartbeatMetadata(runtimes, managedRuntimes, verificationEnvironments),
         );
         runtimes = reconcileRemoteRuntimesWithHeartbeat(runtimes, heartbeat, registered.daemon.workspaceId, config.deviceName);
+        await restoreManagedRuntimesFromHeartbeat(heartbeat, managedRuntimes, credentialResolver);
         if (runtimes.some(hasPendingProviderVerification)) {
           const verificationEnvironments = await resolveManagedProviderVerificationEnvironments(runtimes, credentialResolver);
           const verificationHeartbeat = await client.sendHeartbeatWithMetadata(
@@ -1035,6 +1036,39 @@ export function reconcileRemoteRuntimesWithHeartbeat(
   }
 
   return result;
+}
+
+/**
+ * A managed daemon keeps executable profiles only in memory. After it restarts,
+ * the control plane still reports its completed managed runtimes in the
+ * heartbeat response. Rehydrate their credential profiles before accepting
+ * work so that an "online" runtime is actually executable.
+ */
+export async function restoreManagedRuntimesFromHeartbeat(
+  heartbeat: HeartbeatDaemonResponse,
+  managedRuntimes: Map<string, ManagedRuntimeEntry>,
+  credentialResolver: ManagedCredentialResolver,
+): Promise<void> {
+  for (const runtime of heartbeat.runtimes) {
+    if (runtime.status !== "online" || !isDaemonProvider(runtime.provider) || managedRuntimes.has(runtime.id)) {
+      continue;
+    }
+    const metadata = runtime.metadata ?? {};
+    if (metadata.provisioningState !== "managed" || typeof metadata.managedCredentialId !== "string") {
+      continue;
+    }
+    const profile = await credentialResolver.resolve(runtime.id, metadata.managedCredentialId);
+    if (!profile) {
+      continue;
+    }
+    managedRuntimes.set(runtime.id, {
+      id: runtime.id,
+      provider: runtime.provider,
+      runtimeCredentialId: metadata.managedCredentialId,
+      executablePath: credentialResolver.getExecutablePath(runtime.id, runtime.provider),
+      status: "online",
+    });
+  }
 }
 
 export function buildRemoteRuntimeHeartbeatMetadata(

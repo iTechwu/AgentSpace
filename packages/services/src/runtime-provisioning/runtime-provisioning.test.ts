@@ -73,6 +73,7 @@ function createMockClient(behavior: {
   failCreate?: boolean;
   preflightAllowed?: boolean;
   failRotate?: boolean;
+  rotateNotFound?: boolean;
   credentialId?: string;
   nextCredentialId?: string;
   plaintext?: string;
@@ -151,6 +152,9 @@ function createMockClient(behavior: {
         lastRotateBody = body;
         if (behavior.failRotate) {
           throw new Error("models.rotate_failed");
+        }
+        if (behavior.rotateNotFound) {
+          throw { status: 404 };
         }
         return {
           credential: {
@@ -1150,6 +1154,35 @@ test("rotate issues a new credential and forgets the old vault entry", async () 
     ],
   );
   assert.equal(getRuntimeCredentialVault().retrieve(rotated.credentialSecretRef!), "sk-runtime-plaintext-rotated");
+});
+
+test("reissues a credential in the current team scope when rotation cannot find the old credential", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "codex",
+    idempotencyKey: "reissue-moved-team-credential",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtimeId = provisioned.runtimeId!;
+  activeClient = createMockClient({
+    rotateNotFound: true,
+    credentialId: "rtc-current-team",
+    plaintext: "sk-current-team",
+  });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const repaired = await rotateManagedRuntimeCredentialAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    runtimeId,
+    operationId: "reissue-current-team-1",
+  });
+
+  assert.equal(activeClient.rotateCalls, 1);
+  assert.equal(activeClient.createCalls, 1);
+  assert.equal(repaired.managedCredentialId, "rtc-current-team");
+  assert.equal(getRuntimeCredentialVault().retrieve(repaired.credentialSecretRef!), "sk-current-team");
 });
 
 test("rotate without a returned secret fails without updating the runtime", async () => {

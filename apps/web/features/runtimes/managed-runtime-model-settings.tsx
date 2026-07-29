@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   getManagedRuntimeModelsAction,
+  rotateManagedRuntimeCredentialAction,
   updateManagedRuntimeDefaultModelAction,
 } from "@/features/runtimes/actions";
 import { ModelCatalogSelect, type ModelCatalogOption } from "@/features/runtimes/runtime-model-picker";
@@ -59,6 +60,18 @@ export function ManagedRuntimeModelSettings({
   );
   const changed = value !== (defaultModel ?? "");
   const unavailable = loading || pending || !configured;
+  const repairCredential = () => {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await rotateManagedRuntimeCredentialAction(runtimeId, "manual");
+        setReloadKey((current) => current + 1);
+        router.refresh();
+      } catch {
+        setError("无法修复模型凭据，请确认模型服务与执行引擎连接正常后重试。");
+      }
+    });
+  };
 
   return (
     <form
@@ -108,7 +121,16 @@ export function ManagedRuntimeModelSettings({
       <button type="submit" className="action-button runtime-model-setting__save" disabled={!changed || unavailable}>
         {pending ? "保存中" : "保存模型"}
       </button>
-      {!configured && !error ? <p className="runtime-model-setting__notice">{catalogNotice(catalogState)}</p> : null}
+      {!configured && !error ? (
+        <div className="runtime-model-setting__notice">
+          <p>{catalogNotice(catalogState)}</p>
+          {catalogState === "credential_missing" ? (
+            <button className="runtime-model-setting__retry" disabled={loading || pending} onClick={repairCredential} type="button">
+              {pending ? "修复中" : "修复模型凭据"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {error ? (
         <div className="runtime-model-setting__error" role="alert">
           <p>{error}</p>

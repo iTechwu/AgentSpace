@@ -546,16 +546,42 @@ export async function rotateManagedRuntimeCredentialAsync(
   const credentialId = runtime.managedCredentialId;
   const reason = input.reason ?? "manual";
   const operationId = input.operationId?.trim() || crypto.randomUUID();
-  const result = await client.runtimeCredentials.rotate({
-    params: { id: credentialId },
-    body: {
-      tenantId: scope.tenantId,
-      teamId: scope.teamId,
-      idempotencyKey: `rotate:${credentialId}:${reason}:${operationId}`,
-      reason,
-      audit: { actorId: input.actorUserId },
-    },
-  });
+  let reissuedForCurrentScope = false;
+  let result: ModelsCreateResult;
+  try {
+    result = await client.runtimeCredentials.rotate({
+      params: { id: credentialId },
+      body: {
+        tenantId: scope.tenantId,
+        teamId: scope.teamId,
+        idempotencyKey: `rotate:${credentialId}:${reason}:${operationId}`,
+        reason,
+        audit: { actorId: input.actorUserId },
+      },
+    });
+  } catch (error) {
+    // Workspaces can be moved between SSO teams after a runtime has already
+    // been provisioned. The old credential is intentionally invisible in the
+    // new scope, so issue a replacement instead of leaving the runtime unable
+    // to load its model catalog forever.
+    if (!isModelsNotFoundError(error)) {
+      throw error;
+    }
+    reissuedForCurrentScope = true;
+    result = await client.runtimeCredentials.create({
+      body: {
+        tenantId: scope.tenantId,
+        teamId: scope.teamId,
+        runtimeId: runtime.id,
+        runtimeType: runtime.provider,
+        protocols: runtime.protocols?.length ? runtime.protocols : resolveProviderProtocols(runtime.provider),
+        allowedModels: runtime.defaultModel ? [runtime.defaultModel] : [],
+        defaultModel: runtime.defaultModel,
+        idempotencyKey: `reissue:${runtime.id}:${operationId}`,
+        audit: { actorId: input.actorUserId, replacedCredentialId: credentialId },
+      },
+    });
+  }
   if (!result.secretIssued || !result.secret?.apiKey) {
     const today = new Date().toISOString().slice(0, 10);
     notifyWorkspaceAdminsSync({
@@ -603,9 +629,9 @@ export async function rotateManagedRuntimeCredentialAsync(
   }
   recordAuditLogSync({
     workspaceId: input.workspaceId,
-    title: "Runtime credential rotated",
-    note: `Credential rotated from ${credentialId} to ${result.credential.id}`,
-    code: "runtime_credential.rotated",
+    title: reissuedForCurrentScope ? "Runtime credential reissued" : "Runtime credential rotated",
+    note: `${reissuedForCurrentScope ? "Credential reissued" : "Credential rotated"} from ${credentialId} to ${result.credential.id}`,
+    code: reissuedForCurrentScope ? "runtime_credential.reissued" : "runtime_credential.rotated",
     source: "runtime_credential",
     data: {
       runtimeId: runtime.id,
@@ -614,11 +640,21 @@ export async function rotateManagedRuntimeCredentialAsync(
       newKeyFingerprint: result.credential.keyFingerprint ?? "",
       reason,
       operationId,
+      reissuedForCurrentScope,
       actorId: input.actorUserId,
     },
   });
   const updated = readAgentRuntimeSync(runtime.id);
   return updated ?? runtime;
+}
+
+function isModelsNotFoundError(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === "object"
+    && "status" in error
+    && (error as { status?: unknown }).status === 404,
+  );
 }
 
 const CREDENTIAL_RECOVERY_MAX_ATTEMPTS = 3;

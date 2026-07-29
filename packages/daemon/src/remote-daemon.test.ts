@@ -8,6 +8,7 @@ import {
   classifyRemoteLoopError,
   mergeRemoteGatewayUsages,
   reconcileRemoteRuntimesWithHeartbeat,
+  restoreManagedRuntimesFromHeartbeat,
   resolveManagedProviderVerificationEnvironments,
   resolveRemoteTaskExecutionModel,
   resolveRemoteTaskProviderSessionId,
@@ -318,6 +319,39 @@ test("heartbeat publishes newly healthy managed runtimes for server-side schedul
       provisioningState: "managed",
     },
   }]);
+});
+
+test("managed runtime profiles are restored after a daemon restart", async () => {
+  const restored = new Map();
+  const resolved: Array<{ runtimeId: string; credentialId?: string }> = [];
+  const heartbeat = {
+    daemon: { daemonKey: "daemon-1", status: "online" as const, workspaceId: "ws-1" },
+    runtimes: [{
+      id: "runtime-managed-1",
+      provider: "codex" as const,
+      status: "online" as const,
+      metadata: { managedCredentialId: "credential-1", provisioningState: "managed" },
+    }],
+    managedRuntimeCleanupRequests: [],
+  };
+
+  await restoreManagedRuntimesFromHeartbeat(heartbeat, restored, {
+    resolve: async (runtimeId, credentialId) => {
+      resolved.push({ runtimeId, credentialId });
+      return { provider: "codex" } as never;
+    },
+    getExecutablePath: () => "/managed/runtime-managed-1/codex",
+    cleanup: () => undefined,
+  });
+
+  assert.deepEqual(resolved, [{ runtimeId: "runtime-managed-1", credentialId: "credential-1" }]);
+  assert.deepEqual(restored.get("runtime-managed-1"), {
+    id: "runtime-managed-1",
+    provider: "codex",
+    runtimeCredentialId: "credential-1",
+    executablePath: "/managed/runtime-managed-1/codex",
+    status: "online",
+  });
 });
 
 test("heartbeat stops publishing a managed runtime after successful cleanup", () => {
