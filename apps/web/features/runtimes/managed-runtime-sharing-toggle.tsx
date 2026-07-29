@@ -16,15 +16,15 @@ export function ManagedRuntimeSharingToggle({
   return (
     <label className="runtime-sharing-toggle">
       <span className="runtime-sharing-toggle__copy">
-        <strong>{value ? "Sharing is enabled" : "Sharing is paused"}</strong>
+        <strong>{value ? "允许新员工使用" : "已暂停新员工使用"}</strong>
         <small>
           {value
-            ? "New AI employees can be assigned to this runtime."
-            : "Existing assignments are preserved; new employees cannot be added."}
+            ? "新创建的 AI 员工可以分配到此执行引擎。"
+            : "保留现有分配，但不能再添加新的 AI 员工。"}
         </small>
       </span>
       <span className="runtime-sharing-toggle__control">
-        {pending ? <span className="runtime-sharing-toggle__saving">Saving</span> : null}
+        {pending ? <span className="runtime-sharing-toggle__saving">保存中</span> : null}
         <input
           type="checkbox"
           checked={value}

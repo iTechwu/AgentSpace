@@ -35,16 +35,16 @@ export default async function ManagedRuntimeDetailPage({
           className="runtime-detail__back"
           href={buildWorkspacePath(workspaceContext.currentWorkspace.slug, "/runtimes")}
         >
-          Back to runtimes
+          返回执行引擎列表
         </Link>
         <div className="runtime-detail__identity">
           <div className="runtime-detail__provider" aria-hidden="true">
             {formatDaemonProviderLabel(runtime.provider).slice(0, 1)}
           </div>
           <div className="runtime-detail__title">
-            <div className="runtime-detail__eyebrow">Managed runtime</div>
+            <div className="runtime-detail__eyebrow">托管执行引擎</div>
             <h1>{runtime.name}</h1>
-            <p>{formatDaemonProviderLabel(runtime.provider)} deployment</p>
+            <p>{formatDaemonProviderLabel(runtime.provider)} 部署</p>
           </div>
           <div className="runtime-detail__status" aria-label={`Status: ${presentation.label}`}>
             <span className={`runtime-status runtime-status--${presentation.tone}`}>{presentation.label}</span>
@@ -57,31 +57,31 @@ export default async function ManagedRuntimeDetailPage({
         <section className="runtime-detail__section runtime-detail__section--configuration" aria-labelledby="runtime-configuration-title">
           <div className="runtime-detail__section-heading">
             <div>
-              <span>Runtime overview</span>
-              <h2 id="runtime-configuration-title">Connection</h2>
+              <span>运行概览</span>
+              <h2 id="runtime-configuration-title">连接信息</h2>
             </div>
-            <p>Connection state and the identity used to accept work.</p>
+            <p>查看当前连接状态，以及用于接收任务的执行身份。</p>
           </div>
           <dl className="runtime-detail__fields">
-            <RuntimeField label="Default model" value={runtime.defaultModel || "System fallback"} />
-            <RuntimeField label="Protocols" value={runtime.protocols.join(", ") || "None reported"} />
-            <RuntimeField label="Last heartbeat" value={formatHeartbeat(runtime.lastHeartbeatAt)} />
-            <RuntimeField label="Runtime credential" value={formatCredential(runtime.managedCredentialId)} mono />
+            <RuntimeField label="默认模型" value={runtime.defaultModel || "跟随系统默认"} />
+            <RuntimeField label="支持协议" value={runtime.protocols.join(", ") || "暂未上报"} />
+            <RuntimeField label="最近心跳" value={formatHeartbeat(runtime.lastHeartbeatAt)} />
+            <RuntimeField label="运行凭据" value={formatCredential(runtime.managedCredentialId)} mono />
           </dl>
         </section>
 
         <section className="runtime-detail__section runtime-detail__section--usage" aria-labelledby="runtime-usage-title">
           <div className="runtime-detail__section-heading">
             <div>
-              <span>Capacity and spend</span>
-              <h2 id="runtime-usage-title">Current period</h2>
+              <span>容量与费用</span>
+              <h2 id="runtime-usage-title">当前周期</h2>
             </div>
-            <p>Usage attributed to this runtime.</p>
+            <p>本周期归属于该执行引擎的使用情况。</p>
           </div>
           <dl className="runtime-detail__metrics">
-            <RuntimeMetric label="AI employees" value={String(runtime.assignedEmployeeCount)} />
-            <RuntimeMetric label="Actual cost" value={formatCny(runtime.periodActualCostUsd)} />
-            <RuntimeMetric label="Unallocated" value={formatCny(runtime.unallocatedCostUsd)} warning={runtime.unallocatedCostUsd > 0} />
+            <RuntimeMetric label="已分配员工" value={String(runtime.assignedEmployeeCount)} />
+            <RuntimeMetric label="实际费用" value={formatCny(runtime.periodActualCostUsd)} />
+            <RuntimeMetric label="未归属费用" value={formatCny(runtime.unallocatedCostUsd)} warning={runtime.unallocatedCostUsd > 0} />
           </dl>
         </section>
       </div>
@@ -89,10 +89,10 @@ export default async function ManagedRuntimeDetailPage({
       <section className="runtime-detail__section runtime-detail__section--model" aria-labelledby="runtime-model-title">
         <div className="runtime-detail__section-heading">
           <div>
-            <span>Model policy</span>
-            <h2 id="runtime-model-title">Default model</h2>
+            <span>模型策略</span>
+            <h2 id="runtime-model-title">默认模型</h2>
           </div>
-          <p>Choose the language model used when work does not set an override.</p>
+          <p>当任务没有指定模型时，使用此处设置的语言模型。</p>
         </div>
         <ManagedRuntimeModelSettings runtimeId={runtime.id} defaultModel={runtime.defaultModel} />
       </section>
@@ -100,10 +100,10 @@ export default async function ManagedRuntimeDetailPage({
       <section className="runtime-detail__section runtime-detail__section--sharing" aria-labelledby="runtime-sharing-title">
         <div className="runtime-detail__section-heading">
           <div>
-            <span>Access policy</span>
-            <h2 id="runtime-sharing-title">Share with AI employees</h2>
+            <span>分配规则</span>
+            <h2 id="runtime-sharing-title">允许分配给 AI 员工</h2>
           </div>
-          <p>Control whether newly created employees can use this runtime.</p>
+          <p>控制新创建的 AI 员工能否使用此执行引擎。</p>
         </div>
         <ManagedRuntimeSharingToggle
           runtimeId={runtime.id}
@@ -136,17 +136,17 @@ function presentRuntimeState(
   state: "managed" | "credential_recovering" | "needs_attention" | "legacy",
   status: "online" | "offline",
 ): { label: string; detail: string; tone: "available" | "recovering" | "attention" | "stopped" } {
-  if (state === "credential_recovering") return { label: "Credential recovery", detail: "Updating secure access", tone: "recovering" };
-  if (state === "needs_attention") return { label: "Needs attention", detail: "Requires an administrator", tone: "attention" };
-  if (state === "legacy") return { label: "Stopped", detail: "Not accepting new work", tone: "stopped" };
+  if (state === "credential_recovering") return { label: "凭据恢复中", detail: "正在更新安全访问凭据", tone: "recovering" };
+  if (state === "needs_attention") return { label: "需要处理", detail: "需要管理员介入", tone: "attention" };
+  if (state === "legacy") return { label: "已停止", detail: "不再接收新任务", tone: "stopped" };
   return status === "online"
-    ? { label: "Available", detail: "Ready to receive work", tone: "available" }
-    : { label: "Offline", detail: "Awaiting a node heartbeat", tone: "attention" };
+    ? { label: "可用", detail: "可以接收任务", tone: "available" }
+    : { label: "离线", detail: "等待节点心跳", tone: "attention" };
 }
 
 function formatHeartbeat(value?: string): string {
-  if (!value) return "Never";
-  return new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+  if (!value) return "从未上报";
+  return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
 function formatCredential(value: string): string {

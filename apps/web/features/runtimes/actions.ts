@@ -303,14 +303,22 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
     throw new Error("managed_runtime.runtime_not_found");
   }
   if (!isModelsInternalConfigured()) {
-    return { list: [], total: 0, configured: false as const };
+    return { list: [], total: 0, configured: false as const, catalogState: "not_configured" as const };
   }
-  const { tenantId, teamId } = resolveManagedRuntimeScopeSync(workspaceId);
-  const client = getModelsInternalClient();
-  const response = await client.runtimeCredentials.models({
-    params: { id: runtime.managedCredentialId },
-    query: { tenantId, teamId },
-  });
+  let response;
+  try {
+    const { tenantId, teamId } = resolveManagedRuntimeScopeSync(workspaceId);
+    response = await getModelsInternalClient().runtimeCredentials.models({
+      params: { id: runtime.managedCredentialId },
+      query: { tenantId, teamId },
+    });
+  } catch (error) {
+    const status = typeof error === "object" && error && "status" in error ? (error as { status?: number }).status : undefined;
+    return {
+      list: [], total: 0, configured: false as const,
+      catalogState: status === 404 ? "credential_missing" as const : "unavailable" as const,
+    };
+  }
   const list = response.list.filter(isExecutionLanguageModel).map((model) => {
     const catalogModel = model as typeof model & {
       supportedProtocols?: string[];
@@ -341,6 +349,7 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
     list,
     total: list.length,
     configured: true as const,
+    catalogState: "ready" as const,
   };
 }
 

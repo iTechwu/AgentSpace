@@ -23,6 +23,7 @@ export function ManagedRuntimeModelSettings({
   const router = useRouter();
   const [models, setModels] = useState<RuntimeModelOption[]>([]);
   const [configured, setConfigured] = useState(true);
+  const [catalogState, setCatalogState] = useState<"ready" | "not_configured" | "credential_missing" | "unavailable">("ready");
   const [value, setValue] = useState(defaultModel ?? "");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,12 +39,14 @@ export function ManagedRuntimeModelSettings({
         if (!active) return;
         setModels(result.list);
         setConfigured(result.configured);
+        setCatalogState(result.catalogState);
       })
       .catch(() => {
         if (!active) return;
         setModels([]);
         setConfigured(false);
-        setError("The model catalog could not be loaded. Check the models service and try again.");
+        setCatalogState("unavailable");
+        setError("无法加载模型目录，请检查模型服务后重试。");
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -69,19 +72,33 @@ export function ManagedRuntimeModelSettings({
             await updateManagedRuntimeDefaultModelAction({ runtimeId, defaultModel: value || undefined });
             router.refresh();
           } catch {
-            setError("The selected model is no longer available for this runtime. Refresh the catalog and choose another model.");
+            setError("所选模型已不适用于当前执行引擎，请刷新目录后重新选择。");
           }
         });
       }}
     >
       <div className="runtime-model-setting__copy">
-        <strong>Default model</strong>
-        <small>Used when an AI employee and conversation do not set a model.</small>
+        <strong>默认模型</strong>
+        <small>当 AI 员工或会话未指定模型时，使用此设置。</small>
       </div>
       <div className="runtime-model-setting__field">
         <ModelCatalogSelect
           disabled={unavailable}
-          label="Default model"
+          label="默认模型"
+          labels={{
+            fallback: "跟随系统默认",
+            loading: "正在加载模型...",
+            search: "搜索模型",
+            searchPlaceholder: "搜索模型、别名或供应商...",
+            empty: "没有匹配的模型",
+            resultCount: (count) => `可用模型 ${count} 个`,
+            context: "上下文",
+            tools: "工具调用",
+            vision: "视觉",
+            perMillion: "每百万 Token",
+            available: "可用",
+            unavailable: (reason) => reason || "不可用",
+          }}
           loading={loading}
           onChange={setValue}
           options={availableModels}
@@ -89,9 +106,9 @@ export function ManagedRuntimeModelSettings({
         />
       </div>
       <button type="submit" className="action-button runtime-model-setting__save" disabled={!changed || unavailable}>
-        {pending ? "Saving" : "Save model"}
+        {pending ? "保存中" : "保存模型"}
       </button>
-      {!configured && !error ? <p className="runtime-model-setting__notice">Connect the models service to configure a runtime default.</p> : null}
+      {!configured && !error ? <p className="runtime-model-setting__notice">{catalogNotice(catalogState)}</p> : null}
       {error ? (
         <div className="runtime-model-setting__error" role="alert">
           <p>{error}</p>
@@ -101,10 +118,16 @@ export function ManagedRuntimeModelSettings({
             onClick={() => setReloadKey((current) => current + 1)}
             type="button"
           >
-            Retry catalog
+            重试加载
           </button>
         </div>
       ) : null}
     </form>
   );
+}
+
+function catalogNotice(state: "ready" | "not_configured" | "credential_missing" | "unavailable"): string {
+  if (state === "credential_missing") return "此执行引擎的模型凭据需要恢复或重新部署后，才能设置默认模型。";
+  if (state === "not_configured") return "连接模型服务后即可设置执行引擎的默认模型。";
+  return "模型目录暂时不可用，请稍后重试。";
 }
