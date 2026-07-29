@@ -99,6 +99,35 @@ export function KnowledgePageClient({
     setActiveView(searchParams.get("view") === "documents" ? "documents" : "knowledge");
   }, [searchParams]);
 
+  useEffect(() => {
+    if (searchParams.get("create") !== "page" || showCreateModal) {
+      return;
+    }
+
+    const assignedEmployeeName = searchParams.get("assign")?.trim();
+    const canPreassign = Boolean(
+      assignedEmployeeName && agentOptions.some((agent) => agent.employeeName === assignedEmployeeName),
+    );
+    setActiveView("knowledge");
+    setCreateParentId(null);
+    setCreateTitle("");
+    setCreateAssignmentMode(canPreassign ? "selected_agents" : "all_agents");
+    setCreateAssignedEmployeeNames(canPreassign && assignedEmployeeName ? [assignedEmployeeName] : []);
+    setShowCreateModal(true);
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("create");
+    nextParams.delete("assign");
+    const nextQuery = nextParams.toString();
+    if (moduleSearchParams && typeof window !== "undefined") {
+      const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}`;
+      window.history.replaceState(window.history.state, "", nextUrl);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+      return;
+    }
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname);
+  }, [agentOptions, moduleSearchParams, pathname, router, searchParams, showCreateModal]);
+
   const selected = data.pages.find((page) => page.id === selectedId) ?? null;
   const documentChannelOptions = Array.from(
     new Set(data.documentPages.map((document) => document.channelName).filter((channelName): channelName is string => Boolean(channelName))),

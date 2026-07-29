@@ -157,6 +157,22 @@ describe("KnowledgePageClient", () => {
     expect(screen.getByRole("tab", { name: "文档页面" })).toBeDisabled();
   });
 
+  it("opens a preassigned creation dialog from the employee knowledge deep link", () => {
+    searchParamsStore.set("create", "page");
+    searchParamsStore.set("assign", "Planner");
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <KnowledgePageClient data={data} />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "新建知识页面" })).toBeInTheDocument();
+    expect(screen.getByLabelText("指定 AI员工")).toBeChecked();
+    expect(screen.getByLabelText("Planner")).toBeChecked();
+    expect(routerReplaceMock).toHaveBeenCalledWith("/w/workspace-alpha/knowledge");
+  });
+
   it("switches between page tree and detail on compact layouts", async () => {
     mockMatchMedia(true);
     const user = userEvent.setup();

@@ -50,6 +50,7 @@ it("searches models and shows unavailable protocol-compatible models with their 
 
   render(<RuntimeModelPicker provider="codex" value="" onChange={vi.fn()} />);
 
+  await userEvent.click(await screen.findByRole("button", { name: "Default model" }));
   expect(await screen.findByRole("option", { name: /available-model.*openai.*available/i })).toBeEnabled();
   expect(screen.getByRole("option", { name: /disabled-model.*Disabled by team policy/i })).toBeDisabled();
   expect(screen.queryByRole("option", { name: /image-model/i })).not.toBeInTheDocument();
@@ -75,5 +76,6 @@ it("localizes known model availability reasons in Chinese", async () => {
 
   renderChinese(<RuntimeModelPicker provider="claude" value="" onChange={vi.fn()} />);
 
+  await userEvent.click(await screen.findByRole("button", { name: "默认模型" }));
   expect(await screen.findByRole("option", { name: /不支持执行引擎协议（anthropic）/ })).toBeDisabled();
 });

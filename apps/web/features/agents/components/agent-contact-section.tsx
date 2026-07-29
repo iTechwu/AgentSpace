@@ -47,6 +47,7 @@ const AgentContactRow = memo(function AgentContactRow({
   readonly tx: TranslateFn;
   readonly onSelect: (agentId: string) => void;
 }) {
+  const statusTone = toneForStatus(agent.status);
   const boundLabel = agent.boundContainerName?.trim()
     || (agent.boundContainerId ? tx("已绑定 runtime", "Runtime bound") : tx("未绑定 runtime", "No runtime"));
   const metaLabel = agent.ownerDisplayName
@@ -55,7 +56,7 @@ const AgentContactRow = memo(function AgentContactRow({
 
   return (
     <button
-      className={`agent-contact-row${selected ? " agent-contact-row--active" : ""}`}
+      className={`agent-contact-row agent-contact-row--${statusTone}${selected ? " agent-contact-row--active" : ""}`}
       onClick={() => onSelect(agent.id)}
       type="button"
     >
@@ -71,7 +72,7 @@ const AgentContactRow = memo(function AgentContactRow({
             <strong>{agent.name}</strong>
             <span>{metaLabel}</span>
           </div>
-          <span className={`agent-contact-status agent-contact-status--${toneForStatus(agent.status)}`}>
+          <span className={`agent-contact-status agent-contact-status--${statusTone}`}>
             <span className="agent-contact-dot" />
             {translateManagementStatus(agent.statusLabel || agent.status, tx)}
           </span>

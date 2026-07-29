@@ -54,6 +54,8 @@ interface AgentDetailProps {
   readonly onRevokeForkInvitation?: (invitationId: string) => void;
   readonly onFeishuAgentBotUpdated?: () => void;
   readonly onStartConversation?: () => void;
+  readonly onCreateKnowledge?: () => void;
+  readonly onOpenDocumentWorkspace?: () => void;
 }
 
 export function AgentDetail({
@@ -77,6 +79,8 @@ export function AgentDetail({
   onRevokeForkInvitation,
   onFeishuAgentBotUpdated,
   onStartConversation,
+  onCreateKnowledge,
+  onOpenDocumentWorkspace,
 }: AgentDetailProps) {
   const { tx } = useLanguage();
   const [activeTab, setActiveTab] = useState<"instructions" | "skills" | "knowledge" | "documents" | "workspaces" | "settings">("instructions");
@@ -286,11 +290,18 @@ export function AgentDetail({
                 </div>
                 <button
                   className="action-button"
-                  disabled={pending || !canManage || !onSetKnowledgePageIds || knowledge.assignablePages.length === 0}
-                  onClick={() => setShowKnowledgePicker(true)}
+                  disabled={pending || !canManage || (!onSetKnowledgePageIds && !onCreateKnowledge)}
+                  onClick={() => {
+                    if (knowledge.assignablePages.length > 0 && onSetKnowledgePageIds) {
+                      setShowKnowledgePicker(true);
+                      return;
+                    }
+                    onCreateKnowledge?.();
+                  }}
                   type="button"
                 >
-                  {tx("添加知识", "Add knowledge")}
+                  <AppIcon name={knowledge.assignablePages.length > 0 ? "plus" : "knowledge"} />
+                  {knowledge.assignablePages.length > 0 ? tx("添加知识", "Add knowledge") : tx("新建知识", "Create knowledge")}
                 </button>
               </div>
 
@@ -332,7 +343,37 @@ export function AgentDetail({
               ) : null}
 
               {knowledge.inheritedPages.length === 0 && knowledge.directPages.length === 0 ? (
-                <EmptyState title={tx("没有可用知识", "No knowledge assigned")} />
+                <section className="agent-resource-guide" aria-label={tx("知识配置引导", "Knowledge setup guide")}>
+                  <div className="agent-resource-guide__intro">
+                    <span className="agent-resource-guide__icon"><AppIcon name="knowledge" /></span>
+                    <div>
+                      <h4>{tx("先创建知识，再分配给 AI员工", "Create knowledge, then assign it to the AI employee")}</h4>
+                      <p>{tx("知识页用于沉淀可重复使用的规则、流程和资料。创建时可直接限定给当前 AI员工，也可设为全员共享。", "Knowledge pages capture reusable rules, processes, and materials. Create one for this AI employee or share it with everyone.")}</p>
+                    </div>
+                  </div>
+                  <ol className="agent-resource-guide__steps">
+                    <li>
+                      <span>1</span>
+                      <div>
+                        <strong>{tx("新建一篇知识页面", "Create a knowledge page")}</strong>
+                        <p>{tx("写入需要长期复用的背景、规范或操作流程。", "Add background, policies, or operating procedures that should be reused.")}</p>
+                      </div>
+                      {onCreateKnowledge ? (
+                        <button className="primary-button" disabled={pending || !canManage} onClick={onCreateKnowledge} type="button">
+                          <AppIcon name="plus" />
+                          {tx("新建知识", "Create knowledge")}
+                        </button>
+                      ) : null}
+                    </li>
+                    <li>
+                      <span>2</span>
+                      <div>
+                        <strong>{tx("确认分配范围", "Confirm the assignment scope")}</strong>
+                        <p>{tx("新建页会预选当前 AI员工；也可在知识库中改为全员共享或分配给其他员工。", "The new page preselects this AI employee. You can later share it with everyone or assign it to others in the knowledge base.")}</p>
+                      </div>
+                    </li>
+                  </ol>
+                </section>
               ) : null}
             </section>
           </div>
@@ -431,7 +472,37 @@ export function AgentDetail({
                   ))}
                 </div>
               ) : (
-                <EmptyState title={tx("没有显式文档权限", "No explicit document access")} />
+                <section className="agent-resource-guide" aria-label={tx("文档权限配置引导", "Document access setup guide")}>
+                  <div className="agent-resource-guide__intro">
+                    <span className="agent-resource-guide__icon"><AppIcon name="edit" /></span>
+                    <div>
+                      <h4>{tx("在群文档中添加 AI员工 协作者", "Add the AI employee as a collaborator in a group document")}</h4>
+                      <p>{tx("文档权限由文档所有者管理。将 AI员工 加为协作者后，它才能按所授角色查看、编辑或转发该文档。", "Document owners manage access. Add this AI employee as a collaborator to let it read, edit, or forward the document according to its assigned role.")}</p>
+                    </div>
+                  </div>
+                  <ol className="agent-resource-guide__steps">
+                    <li>
+                      <span>1</span>
+                      <div>
+                        <strong>{tx("打开协作群的文档", "Open a collaboration group's documents")}</strong>
+                        <p>{tx("在消息中选择群聊，进入“文档”并创建或打开需要协作的文档。", "Choose a group in Messages, open Documents, and create or open the document that needs collaboration.")}</p>
+                      </div>
+                      {onOpenDocumentWorkspace ? (
+                        <button className="action-button" onClick={onOpenDocumentWorkspace} type="button">
+                          <AppIcon name="messages" />
+                          {tx("打开群文档", "Open group documents")}
+                        </button>
+                      ) : null}
+                    </li>
+                    <li>
+                      <span>2</span>
+                      <div>
+                        <strong>{tx("在协作者设置中授予角色", "Grant a role in collaborator settings")}</strong>
+                        <p>{tx(`添加 ${record.name} 并选择查看、编辑或转发权限。后续该员工发起的权限申请也会在此页记录。`, `Add ${record.name} and select viewer, editor, or forwarder. Future access requests from this AI employee are also recorded here.`)}</p>
+                      </div>
+                    </li>
+                  </ol>
+                </section>
               )}
             </section>
 

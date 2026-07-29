@@ -7,7 +7,7 @@ export function toneForStatus(
 ): "neutral" | "positive" | "warning" | "danger" {
   if (status === "error" || status === "blocked") return "danger";
   if (status === "busy") return "warning";
-  if (status === "linked") return "positive";
+  if (status === "linked" || status === "online") return "positive";
   return "neutral";
 }
 

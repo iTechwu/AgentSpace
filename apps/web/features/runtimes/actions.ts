@@ -311,15 +311,32 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
     params: { id: runtime.managedCredentialId },
     query: { tenantId, teamId },
   });
-  const list = response.list.filter(isExecutionLanguageModel).map((model) => ({
+  const list = response.list.filter(isExecutionLanguageModel).map((model) => {
+    const catalogModel = model as typeof model & {
+      supportedProtocols?: string[];
+      contextLength?: number;
+      supportsVision?: boolean;
+      supportsFunctionCalling?: boolean;
+      inputPrice?: number | null;
+      outputPrice?: number | null;
+    };
+    const supportedProtocols = catalogModel.supportedProtocols ?? [];
+    return {
       id: model.id ?? model.alias,
       alias: model.alias,
       model: model.model,
       displayName: model.displayName,
       modelType: "llm" as const,
+      protocol: supportedProtocols.find((protocol) => (runtime.protocols ?? []).includes(protocol)) ?? supportedProtocols[0],
+      contextLength: catalogModel.contextLength,
+      supportsVision: catalogModel.supportsVision,
+      supportsFunctionCalling: catalogModel.supportsFunctionCalling,
+      inputPrice: catalogModel.inputPrice,
+      outputPrice: catalogModel.outputPrice,
       isAvailable: model.isAvailable,
       isEnabled: model.isEnabled,
-    }));
+    };
+  });
   return {
     list,
     total: list.length,

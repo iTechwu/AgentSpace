@@ -740,6 +740,21 @@ export function AgentsPageClient({
                       router.push(href, { scroll: false });
                     }
                   }}
+                  onCreateKnowledge={() => {
+                    const href = workspaceHref(`/knowledge?create=page&assign=${encodeURIComponent(selectedAgent.internalName)}`);
+                    if (!navigateWorkspaceModule(href)) {
+                      router.push(href, { scroll: false });
+                    }
+                  }}
+                  onOpenDocumentWorkspace={() => {
+                    const channelName = selectedAgent.channels[0];
+                    const href = channelName
+                      ? workspaceHref(`/im?focus=${encodeURIComponent(`channel:${channelName}`)}&tab=documents`)
+                      : workspaceHref("/im");
+                    if (!navigateWorkspaceModule(href)) {
+                      router.push(href, { scroll: false });
+                    }
+                  }}
                   onSaveInstructions={(instructions) =>
                     runAction(
                       () =>

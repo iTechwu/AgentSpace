@@ -6,14 +6,10 @@ import {
   getManagedRuntimeModelsAction,
   updateManagedRuntimeDefaultModelAction,
 } from "@/features/runtimes/actions";
+import { ModelCatalogSelect, type ModelCatalogOption } from "@/features/runtimes/runtime-model-picker";
 
-type RuntimeModelOption = {
-  id: string;
-  alias?: string | null;
-  model?: string | null;
-  displayName?: string | null;
+type RuntimeModelOption = ModelCatalogOption & {
   modelType?: string | null;
-  isAvailable?: boolean | null;
   isEnabled?: boolean | null;
 };
 
@@ -30,10 +26,13 @@ export function ManagedRuntimeModelSettings({
   const [value, setValue] = useState(defaultModel ?? "");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setError(null);
     void getManagedRuntimeModelsAction(runtimeId)
       .then((result) => {
         if (!active) return;
@@ -41,32 +40,36 @@ export function ManagedRuntimeModelSettings({
         setConfigured(result.configured);
       })
       .catch(() => {
-        if (active) setError("The model catalog could not be loaded.");
+        if (!active) return;
+        setModels([]);
+        setConfigured(false);
+        setError("The model catalog could not be loaded. Check the models service and try again.");
       })
       .finally(() => {
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [runtimeId]);
+  }, [reloadKey, runtimeId]);
 
   const availableModels = models.filter(
     (model) => model.modelType === "llm" && model.alias && model.isAvailable && model.isEnabled !== false,
   );
   const changed = value !== (defaultModel ?? "");
+  const unavailable = loading || pending || !configured;
 
   return (
     <form
       className="runtime-model-setting"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!changed) return;
+        if (!changed || unavailable) return;
         setError(null);
         startTransition(async () => {
           try {
             await updateManagedRuntimeDefaultModelAction({ runtimeId, defaultModel: value || undefined });
             router.refresh();
           } catch {
-            setError("The selected model is no longer available for this runtime.");
+            setError("The selected model is no longer available for this runtime. Refresh the catalog and choose another model.");
           }
         });
       }}
@@ -75,22 +78,33 @@ export function ManagedRuntimeModelSettings({
         <strong>Default model</strong>
         <small>Used when an AI employee and conversation do not set a model.</small>
       </div>
-      <label className="runtime-model-setting__field">
-        <span className="sr-only">Default model</span>
-        <select value={value} disabled={loading || pending || !configured} onChange={(event) => setValue(event.target.value)}>
-          <option value="">System fallback</option>
-          {availableModels.map((model) => (
-            <option key={model.id} value={model.alias!}>
-              {model.displayName || model.alias}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button type="submit" className="action-button runtime-model-setting__save" disabled={!changed || loading || pending || !configured}>
+      <div className="runtime-model-setting__field">
+        <ModelCatalogSelect
+          disabled={unavailable}
+          label="Default model"
+          loading={loading}
+          onChange={setValue}
+          options={availableModels}
+          value={value}
+        />
+      </div>
+      <button type="submit" className="action-button runtime-model-setting__save" disabled={!changed || unavailable}>
         {pending ? "Saving" : "Save model"}
       </button>
-      {!configured ? <p className="runtime-model-setting__notice">Connect the models service to configure a runtime default.</p> : null}
-      {error ? <p className="runtime-model-setting__error" role="alert">{error}</p> : null}
+      {!configured && !error ? <p className="runtime-model-setting__notice">Connect the models service to configure a runtime default.</p> : null}
+      {error ? (
+        <div className="runtime-model-setting__error" role="alert">
+          <p>{error}</p>
+          <button
+            className="runtime-model-setting__retry"
+            disabled={loading || pending}
+            onClick={() => setReloadKey((current) => current + 1)}
+            type="button"
+          >
+            Retry catalog
+          </button>
+        </div>
+      ) : null}
     </form>
   );
 }

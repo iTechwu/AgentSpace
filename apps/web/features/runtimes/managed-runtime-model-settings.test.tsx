@@ -33,12 +33,13 @@ it("saves a runtime default from the credential-authorized model catalog", async
   const user = userEvent.setup();
   render(<ManagedRuntimeModelSettings runtimeId="runtime-1" />);
 
-  const select = await screen.findByRole("combobox", { name: "Default model" });
-  expect(screen.getByRole("option", { name: "GPT-5" })).toBeInTheDocument();
+  const select = await screen.findByRole("button", { name: "Default model" });
+  await user.click(select);
+  expect(screen.getByRole("option", { name: /GPT-5/ })).toBeInTheDocument();
   expect(screen.queryByRole("option", { name: "Disabled" })).not.toBeInTheDocument();
   expect(screen.queryByRole("option", { name: "Image model" })).not.toBeInTheDocument();
 
-  await user.selectOptions(select, "gpt-5");
+  await user.click(screen.getByRole("option", { name: /GPT-5/ }));
   await user.click(screen.getByRole("button", { name: "Save model" }));
 
   expect(updateManagedRuntimeDefaultModelAction).toHaveBeenCalledWith({

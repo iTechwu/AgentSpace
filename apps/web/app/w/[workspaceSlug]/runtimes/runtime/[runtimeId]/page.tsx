@@ -29,7 +29,7 @@ export default async function ManagedRuntimeDetailPage({
   const presentation = presentRuntimeState(runtime.provisioningState, runtime.status);
 
   return (
-    <section className="page-shell runtime-detail">
+    <section className="page-shell runtime-detail runtime-detail--stable">
       <header className="runtime-detail__header">
         <Link
           className="runtime-detail__back"
@@ -57,10 +57,10 @@ export default async function ManagedRuntimeDetailPage({
         <section className="runtime-detail__section runtime-detail__section--configuration" aria-labelledby="runtime-configuration-title">
           <div className="runtime-detail__section-heading">
             <div>
-              <span>Configuration</span>
-              <h2 id="runtime-configuration-title">Connection profile</h2>
+              <span>Runtime overview</span>
+              <h2 id="runtime-configuration-title">Connection</h2>
             </div>
-            <p>How this runtime accepts work.</p>
+            <p>Connection state and the identity used to accept work.</p>
           </div>
           <dl className="runtime-detail__fields">
             <RuntimeField label="Default model" value={runtime.defaultModel || "System fallback"} />
@@ -68,7 +68,6 @@ export default async function ManagedRuntimeDetailPage({
             <RuntimeField label="Last heartbeat" value={formatHeartbeat(runtime.lastHeartbeatAt)} />
             <RuntimeField label="Runtime credential" value={formatCredential(runtime.managedCredentialId)} mono />
           </dl>
-          <ManagedRuntimeModelSettings runtimeId={runtime.id} defaultModel={runtime.defaultModel} />
         </section>
 
         <section className="runtime-detail__section runtime-detail__section--usage" aria-labelledby="runtime-usage-title">
@@ -86,6 +85,17 @@ export default async function ManagedRuntimeDetailPage({
           </dl>
         </section>
       </div>
+
+      <section className="runtime-detail__section runtime-detail__section--model" aria-labelledby="runtime-model-title">
+        <div className="runtime-detail__section-heading">
+          <div>
+            <span>Model policy</span>
+            <h2 id="runtime-model-title">Default model</h2>
+          </div>
+          <p>Choose the language model used when work does not set an override.</p>
+        </div>
+        <ManagedRuntimeModelSettings runtimeId={runtime.id} defaultModel={runtime.defaultModel} />
+      </section>
 
       <section className="runtime-detail__section runtime-detail__section--sharing" aria-labelledby="runtime-sharing-title">
         <div className="runtime-detail__section-heading">

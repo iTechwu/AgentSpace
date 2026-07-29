@@ -677,6 +677,24 @@ describe("AgentsPageClient", () => {
     expect(await screen.findByText("AI员工 可先创建，后续再绑定执行引擎和 skills。")).toBeInTheDocument();
   });
 
+  it("uses semantic colors for employee statuses in the directory", () => {
+    const agentsWithStatuses: AgentsPageData = {
+      ...data,
+      agents: [
+        { ...data.agents[0]!, status: "online", statusLabel: "online" },
+        { ...data.agents[0]!, id: "agent:working", name: "处理中员工", internalName: "working", status: "busy", statusLabel: "busy" },
+        { ...data.agents[0]!, id: "agent:blocked", name: "异常员工", internalName: "blocked", status: "blocked", statusLabel: "blocked" },
+      ],
+    };
+
+    renderAgentsPage(agentsWithStatuses);
+
+    const directoryStatus = (label: string) => screen.getAllByText(label).find((element) => element.classList.contains("agent-contact-status"));
+    expect(directoryStatus("在线")).toHaveClass("agent-contact-status--positive");
+    expect(directoryStatus("处理中")).toHaveClass("agent-contact-status--warning");
+    expect(directoryStatus("阻塞")).toHaveClass("agent-contact-status--danger");
+  });
+
   it("opens the new agent flow from a directory create deep link", async () => {
     searchParams.set("mode", "agent");
     searchParams.set("create", "agent");
@@ -713,6 +731,53 @@ describe("AgentsPageClient", () => {
 
     expect(navigateWorkspaceModule).toHaveBeenCalledWith(
       `/w/workspace-alpha/im?view=direct&focus=${encodeURIComponent(`contact:${selectedAgent.internalName}`)}`,
+    );
+  });
+
+  it("opens knowledge creation and group documents from empty resource guides", async () => {
+    const user = userEvent.setup();
+    const navigateWorkspaceModule = vi.fn(() => true);
+    const selectedAgent = data.agents[0]!;
+    const dataWithoutResources: AgentsPageData = {
+      ...data,
+      agents: data.agents.map((agent) => agent.id === selectedAgent.id ? {
+        ...agent,
+        knowledge: {
+          ...agent.knowledge!,
+          directPageIds: [],
+          directPages: [],
+          inheritedPages: [],
+          assignablePages: [],
+          totalAvailableCount: 0,
+          directCount: 0,
+          inheritedCount: 0,
+        },
+        documentAccess: {
+          ...agent.documentAccess!,
+          grants: [],
+          requests: [],
+          readableCount: 0,
+          editableCount: 0,
+          forwardableCount: 0,
+          externalCount: 0,
+          pendingRequestCount: 0,
+          rejectedRequestCount: 0,
+        },
+      } : agent),
+    };
+
+    renderAgentsPage(dataWithoutResources, { navigateWorkspaceModule });
+
+    await user.click(screen.getByRole("button", { name: "知识" }));
+    await user.click(screen.getAllByRole("button", { name: "新建知识" }).at(-1)!);
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith(
+      `/w/workspace-alpha/knowledge?create=page&assign=${encodeURIComponent(selectedAgent.internalName)}`,
+    );
+
+    await user.click(screen.getByRole("button", { name: "文档权限" }));
+    await user.click(screen.getByRole("button", { name: "打开群文档" }));
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith(
+      `/w/workspace-alpha/im?focus=${encodeURIComponent(`channel:${selectedAgent.channels[0]}`)}&tab=documents`,
     );
   });
 
