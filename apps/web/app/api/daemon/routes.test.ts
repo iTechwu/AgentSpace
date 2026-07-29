@@ -642,6 +642,51 @@ describe("daemon API routes", () => {
     });
   });
 
+  it("allows an offline managed runtime to retrieve its credential bundle while provisioning", async () => {
+    vi.stubEnv("DOFE_AGENT_RUNTIME_MODE", "remote");
+    const daemonToken = createManagedDaemonBootstrapTokenSync({
+      label: "provisioning-managed-node",
+      createdBy: "techwu",
+    });
+    const registration = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          daemonKey: "provisioning-managed-node",
+          deviceName: "Provisioning managed node",
+          metadata: { managedNode: true },
+          runtimes: [],
+        }),
+      }),
+    );
+    expect(registration.status).toBe(200);
+
+    const runtime = registerDaemonRuntimesSync({
+      daemonKey: "provisioning-managed-node",
+      deviceName: "Provisioning managed node",
+      daemonTokenId: daemonToken.id,
+      metadata: { managedNode: true },
+      runtimes: [{ provider: "codex", name: "Provisioning Codex" }],
+    }).runtimes[0]!;
+    updateAgentRuntimeManagedFieldsSync({
+      runtimeId: runtime.id,
+      managedCredentialId: "provisioning-credential",
+      provisioningState: "managed",
+      status: "offline",
+    });
+
+    const response = await credentialBundleGET(
+      new Request(`http://localhost/api/daemon/runtimes/${runtime.id}/credential-bundle`, {
+        headers: daemonHeaders(daemonToken.token),
+      }),
+      { params: Promise.resolve({ runtimeId: runtime.id }) },
+    );
+
+    // The request reached credential validation; an online check would return 409 instead.
+    expect(response.status).toBe(404);
+  });
+
   it("blocks a legacy generic token from executing through an existing managed runtime", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "legacy-managed-token",

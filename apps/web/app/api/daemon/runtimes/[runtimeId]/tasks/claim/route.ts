@@ -14,7 +14,7 @@ export async function POST(
   }
 
   const { runtimeId } = await context.params;
-  const runtime = readRuntimeForDaemon(runtimeId, auth);
+  const runtime = readRuntimeForDaemon(runtimeId, auth, { requireOnline: true });
   if (runtime instanceof Response) {
     return runtime;
   }

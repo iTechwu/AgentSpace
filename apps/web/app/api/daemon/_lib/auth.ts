@@ -78,7 +78,11 @@ export function readDaemonConnectionForDaemon(
   return daemon;
 }
 
-export function readRuntimeForDaemon(runtimeId: string, auth: DaemonAuthContext): AgentRuntimeRecord | Response {
+export function readRuntimeForDaemon(
+  runtimeId: string,
+  auth: DaemonAuthContext,
+  options: { requireOnline?: boolean } = {},
+): AgentRuntimeRecord | Response {
   const runtime = readAgentRuntimeSync(runtimeId);
   if (!runtime) {
     return Response.json({ error: `Runtime "${runtimeId}" does not exist.` }, { status: 404 });
@@ -97,7 +101,9 @@ export function readRuntimeForDaemon(runtimeId: string, auth: DaemonAuthContext)
   }
   if (
     resolveAgentRuntimeMode() === "remote" &&
-    (!runtime.managedCredentialId || runtime.provisioningState !== "managed" || runtime.status !== "online")
+    (!runtime.managedCredentialId ||
+      runtime.provisioningState !== "managed" ||
+      (options.requireOnline && runtime.status !== "online"))
   ) {
     return Response.json({ error: "Remote mode requires a managed, online runtime." }, { status: 409 });
   }
