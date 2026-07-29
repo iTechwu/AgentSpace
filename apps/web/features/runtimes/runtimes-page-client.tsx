@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -34,6 +34,19 @@ export function RuntimesPageClient({
   const router = useRouter();
   const { tx } = useLanguage();
   const [pending, startTransition] = useTransition();
+  const [activeTab, setActiveTab] = useState<"list" | "create" | "operations">(
+    () => initialRuntimes.length === 0 ? "create" : "list",
+  );
+  const onlineRuntimeCount = initialRuntimes.filter((runtime) => runtime.status === "online").length;
+  const activeTaskCount = initialTasks.filter((task) =>
+    task.status === "queued" || task.status === "running" || task.status === "retrying" || task.status === "cancelling",
+  ).length;
+
+  useEffect(() => {
+    if (initialRuntimes.length === 0) {
+      setActiveTab("create");
+    }
+  }, [initialRuntimes.length]);
 
   if (!isAdmin) {
     return (
@@ -69,26 +82,46 @@ export function RuntimesPageClient({
       />
 
       <div className="runtimes-page__content">
-        <ManagedRuntimeCreationWizard
-          targetServers={targetServers}
-          onResolved={(result) => {
-            if (result.kind === "reused") {
-              refresh();
-              return;
-            }
-            router.push(buildWorkspacePath(workspaceSlug, `/runtimes/${result.taskId}`));
-          }}
-        />
+        <div className="runtimes-page__tabs" aria-label={tx("执行引擎视图", "Runtime views")} role="tablist">
+          <button
+            aria-controls="runtime-list-panel"
+            aria-selected={activeTab === "list"}
+            className={`runtimes-page__tab${activeTab === "list" ? " runtimes-page__tab--active" : ""}`}
+            id="runtime-list-tab"
+            onClick={() => setActiveTab("list")}
+            role="tab"
+            type="button"
+          >
+            {tx("执行引擎列表", "Runtime list")}
+            <span>{initialRuntimes.length}</span>
+          </button>
+          <button
+            aria-controls="runtime-create-panel"
+            aria-selected={activeTab === "create"}
+            className={`runtimes-page__tab${activeTab === "create" ? " runtimes-page__tab--active" : ""}`}
+            id="runtime-create-tab"
+            onClick={() => setActiveTab("create")}
+            role="tab"
+            type="button"
+          >
+            {tx("新增执行引擎", "Add runtime")}
+          </button>
+          <button
+            aria-controls="runtime-operations-panel"
+            aria-selected={activeTab === "operations"}
+            className={`runtimes-page__tab${activeTab === "operations" ? " runtimes-page__tab--active" : ""}`}
+            id="runtime-operations-tab"
+            onClick={() => setActiveTab("operations")}
+            role="tab"
+            type="button"
+          >
+            {tx("运维详情", "Operations")}
+            {activeTaskCount > 0 ? <span>{activeTaskCount}</span> : null}
+          </button>
+        </div>
 
-        <details className="runtime-operations">
-          <summary>
-            <span>{tx("运维详情", "Operations")}</span>
-            <small>{tx(
-              `${initialRuntimes.length} 个运行环境 · ${initialTasks.length} 个部署任务`,
-              `${initialRuntimes.length} environments · ${initialTasks.length} provisioning tasks`,
-            )}</small>
-          </summary>
-          <div className="runtime-operations__content">
+        {activeTab === "list" ? (
+          <div aria-labelledby="runtime-list-tab" className="runtimes-page__tab-panel" id="runtime-list-panel" role="tabpanel">
           <section className="runtimes-panel" aria-labelledby="runtime-list-title">
           <div className="runtimes-panel__header">
             <div>
@@ -109,109 +142,148 @@ export function RuntimesPageClient({
           />
         </section>
 
-        <section className="runtimes-panel" aria-labelledby="provisioning-task-title">
-          <div className="runtimes-panel__header">
-            <div>
-              <span>{tx("部署", "Provisioning")}</span>
-              <h2 id="provisioning-task-title">{tx("部署任务", "Provisioning tasks")}</h2>
-            </div>
           </div>
-          {initialTasks.length === 0 ? (
-            <div className="runtimes-empty">
-              <strong>{tx("暂无部署任务", "No provisioning tasks")}</strong>
-              <p>{tx("创建托管执行引擎后，部署进度会显示在这里。", "Provisioning progress will appear here after you create a managed runtime.")}</p>
-            </div>
-          ) : (
-          <ul className="runtime-task-list">
-            {initialTasks.map((task) => (
-              <li key={task.id} className="runtime-task-list__item">
-                <Link
-                  href={buildWorkspacePath(workspaceSlug, `/runtimes/${task.id}`)}
-                  className="runtime-task-list__link"
-                >
-                  {formatDaemonProviderLabel(task.runtimeType)}
-                </Link>
-                <StatusBadge status={task.status} />
-                <span className="runtime-task-list__progress">
-                  {task.stage} · {task.progressPercent}%
-                </span>
-                {task.runtimeCredentialId ? (
-                  <span className="runtime-task-list__credential">
-                    {task.runtimeCredentialId.slice(0, 12)}
-                  </span>
-                ) : null}
-                <div className="runtime-task-list__actions">
-                  {task.status === "failed" || task.status === "retrying" ? (
-                    <ActionButton
-                      disabled={pending}
-                      onClick={() =>
-                        startTransition(async () => {
-                          await retryProvisioningAction(task.id);
-                          refresh();
-                        })
-                      }
-                    >
-                      {tx("重试", "Retry")}
-                    </ActionButton>
-                  ) : null}
-                  {task.status === "running" || task.status === "queued" || task.status === "retrying" || task.status === "failed" ? (
-                    <ActionButton
-                      disabled={pending}
-                      onClick={() =>
-                        startTransition(async () => {
-                          await cancelProvisioningAction(task.id, "ui_cancel");
-                          refresh();
-                        })
-                      }
-                    >
-                      {tx("取消", "Cancel")}
-                    </ActionButton>
-                  ) : null}
-                  {task.status === "succeeded" && task.runtimeId ? (
-                    <>
-                      <ActionButton
-                        disabled={pending}
-                        onClick={() =>
-                          startTransition(async () => {
-                            await rotateManagedRuntimeCredentialAction(task.runtimeId!, "manual");
-                            refresh();
-                          })
-                        }
-                      >
-                        {tx("轮换凭证", "Rotate credential")}
-                      </ActionButton>
-                      <ActionButton
-                        disabled={pending}
-                        onClick={() =>
-                          startTransition(async () => {
-                            await stopManagedRuntimeAction(task.runtimeId!, "ui_stop");
-                            refresh();
-                          })
-                        }
-                      >
-                        {tx("停止", "Stop")}
-                      </ActionButton>
-                      <ActionButton
-                        disabled={pending}
-                        onClick={() =>
-                          startTransition(async () => {
-                            await deleteManagedRuntimeAction(task.runtimeId!, "ui_delete");
-                            refresh();
-                          })
-                        }
-                      >
-                        {tx("删除", "Delete")}
-                      </ActionButton>
-                    </>
-                  ) : null}
+        ) : null}
+
+        {activeTab === "create" ? (
+          <div aria-labelledby="runtime-create-tab" className="runtimes-page__tab-panel" id="runtime-create-panel" role="tabpanel">
+            <ManagedRuntimeCreationWizard
+              targetServers={targetServers}
+              onResolved={(result) => {
+                if (result.kind === "reused") {
+                  setActiveTab("list");
+                  refresh();
+                  return;
+                }
+                router.push(buildWorkspacePath(workspaceSlug, `/runtimes/${result.taskId}`));
+              }}
+            />
+          </div>
+        ) : null}
+
+        {activeTab === "operations" ? (
+          <div aria-labelledby="runtime-operations-tab" className="runtimes-page__tab-panel" id="runtime-operations-panel" role="tabpanel">
+            <section className="runtimes-operations-summary" aria-label={tx("运行概览", "Runtime overview")}>
+              <div>
+                <span>{tx("运行环境", "Runtime environments")}</span>
+                <strong>{initialRuntimes.length}</strong>
+                <small>{tx(`${onlineRuntimeCount} 个可用`, `${onlineRuntimeCount} available`)}</small>
+              </div>
+              <div>
+                <span>{tx("在线节点", "Online nodes")}</span>
+                <strong>{targetServers.filter((node) => node.status === "online").length}</strong>
+                <small>{tx(`${targetServers.length} 个托管节点`, `${targetServers.length} managed nodes`)}</small>
+              </div>
+              <div>
+                <span>{tx("待处理部署", "Active provisioning")}</span>
+                <strong>{activeTaskCount}</strong>
+                <small>{tx(`${initialTasks.length} 个部署任务`, `${initialTasks.length} provisioning tasks`)}</small>
+              </div>
+            </section>
+
+            <section className="runtimes-panel" aria-labelledby="provisioning-task-title">
+              <div className="runtimes-panel__header">
+                <div>
+                  <span>{tx("部署", "Provisioning")}</span>
+                  <h2 id="provisioning-task-title">{tx("部署任务", "Provisioning tasks")}</h2>
                 </div>
-              </li>
-            ))}
-          </ul>
-          )}
-        </section>
+              </div>
+              {initialTasks.length === 0 ? (
+                <div className="runtimes-empty">
+                  <strong>{tx("暂无部署任务", "No provisioning tasks")}</strong>
+                  <p>{tx("创建托管执行引擎后，部署进度和处置入口会显示在这里。", "Provisioning progress and recovery actions appear here after you create a managed runtime.")}</p>
+                </div>
+              ) : (
+                <ul className="runtime-task-list">
+                  {initialTasks.map((task) => (
+                    <li key={task.id} className="runtime-task-list__item">
+                      <Link
+                        href={buildWorkspacePath(workspaceSlug, `/runtimes/${task.id}`)}
+                        className="runtime-task-list__link"
+                      >
+                        {formatDaemonProviderLabel(task.runtimeType)}
+                      </Link>
+                      <StatusBadge status={task.status} />
+                      <span className="runtime-task-list__progress">
+                        {task.stage} · {task.progressPercent}%
+                      </span>
+                      {task.runtimeCredentialId ? (
+                        <span className="runtime-task-list__credential">
+                          {task.runtimeCredentialId.slice(0, 12)}
+                        </span>
+                      ) : null}
+                      <div className="runtime-task-list__actions">
+                        {task.status === "failed" || task.status === "retrying" ? (
+                          <ActionButton
+                            disabled={pending}
+                            onClick={() =>
+                              startTransition(async () => {
+                                await retryProvisioningAction(task.id);
+                                refresh();
+                              })
+                            }
+                          >
+                            {tx("重试", "Retry")}
+                          </ActionButton>
+                        ) : null}
+                        {task.status === "running" || task.status === "queued" || task.status === "retrying" || task.status === "failed" ? (
+                          <ActionButton
+                            disabled={pending}
+                            onClick={() =>
+                              startTransition(async () => {
+                                await cancelProvisioningAction(task.id, "ui_cancel");
+                                refresh();
+                              })
+                            }
+                          >
+                            {tx("取消", "Cancel")}
+                          </ActionButton>
+                        ) : null}
+                        {task.status === "succeeded" && task.runtimeId ? (
+                          <>
+                            <ActionButton
+                              disabled={pending}
+                              onClick={() =>
+                                startTransition(async () => {
+                                  await rotateManagedRuntimeCredentialAction(task.runtimeId!, "manual");
+                                  refresh();
+                                })
+                              }
+                            >
+                              {tx("轮换凭证", "Rotate credential")}
+                            </ActionButton>
+                            <ActionButton
+                              disabled={pending}
+                              onClick={() =>
+                                startTransition(async () => {
+                                  await stopManagedRuntimeAction(task.runtimeId!, "ui_stop");
+                                  refresh();
+                                })
+                              }
+                            >
+                              {tx("停止", "Stop")}
+                            </ActionButton>
+                            <ActionButton
+                              disabled={pending}
+                              onClick={() =>
+                                startTransition(async () => {
+                                  await deleteManagedRuntimeAction(task.runtimeId!, "ui_delete");
+                                  refresh();
+                                })
+                              }
+                            >
+                              {tx("删除", "Delete")}
+                            </ActionButton>
+                          </>
+                        ) : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           </div>
-        </details>
+        ) : null}
       </div>
     </section>
   );

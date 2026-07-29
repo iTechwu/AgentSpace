@@ -232,12 +232,12 @@ export function CreateAgentModal({
           ) : null}
 
           <label className="form-field">
-            <span>Name</span>
+            <span>{tx("名称", "Name")}</span>
             <input
               autoFocus
               name="name"
               onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-              placeholder="e.g. Deep Research AI Employee"
+              placeholder={tx("例如：深度研究智能体", "e.g. Deep Research AI Employee")}
               type="text"
               value={draft.name}
             />
@@ -253,7 +253,7 @@ export function CreateAgentModal({
             />
           </label>
           <label className="form-field">
-            <span>Description</span>
+            <span>{tx("简介", "Description")}</span>
             <input
               name="summary"
               onChange={(event) => setDraft((current) => ({ ...current, summary: event.target.value }))}
@@ -263,7 +263,7 @@ export function CreateAgentModal({
             />
           </label>
           <label className="form-field">
-            <span>Instructions</span>
+            <span>{tx("工作说明", "Instructions")}</span>
             <textarea
               name="instructions"
               onChange={(event) => setDraft((current) => ({ ...current, instructions: event.target.value }))}
@@ -352,16 +352,20 @@ export function CreateAgentModal({
               </div>
             ) : (
               <div className="form-field">
-                <label className="form-field">
+                <label className="runtime-field">
                   <span>{tx("默认模型", "Default model")}</span>
-                  <input
-                    name="defaultModel"
-                    onChange={(event) => setDraft((current) => ({ ...current, defaultModel: event.target.value }))}
-                    placeholder={tx("继承 Runtime 默认模型", "Inherit runtime default model")}
-                    type="text"
-                    value={draft.defaultModel}
-                  />
+                  <select disabled name="defaultModel" value="">
+                    <option value="">
+                      {tx("请先选择执行引擎", "Select an execution engine first")}
+                    </option>
+                  </select>
                 </label>
+                <p className="form-help">
+                  {tx(
+                    "模型列表会按执行引擎协议从模型目录加载，仅可选择兼容的语言模型。",
+                    "The model catalog loads compatible language models after an execution engine is selected.",
+                  )}
+                </p>
               </div>
             );
           })()}

@@ -734,6 +734,12 @@ export function AgentsPageClient({
                       () => setSelectedAgentId(null),
                     )
                   }
+                  onStartConversation={() => {
+                    const href = workspaceHref(`/im?view=direct&focus=${encodeURIComponent(`contact:${selectedAgent.internalName}`)}`);
+                    if (!navigateWorkspaceModule(href)) {
+                      router.push(href, { scroll: false });
+                    }
+                  }}
                   onSaveInstructions={(instructions) =>
                     runAction(
                       () =>
@@ -1290,8 +1296,8 @@ function formatForkScope(
   tx: (zh: string, en: string) => string,
 ): string {
   const scopes = [
-    invitation.copyProfile ? tx("Profile", "Profile") : "",
-    invitation.copyInstructions ? "Instructions" : "",
+    invitation.copyProfile ? tx("资料", "Profile") : "",
+    invitation.copyInstructions ? tx("工作说明", "Instructions") : "",
     invitation.copySkills ? tx(`${invitation.copiedSkillCount} skills`, `${invitation.copiedSkillCount} skills`) : "",
     invitation.copyKnowledgeAssignments
       ? tx(`${invitation.copiedKnowledgePageCount} 知识`, `${invitation.copiedKnowledgePageCount} knowledge pages`)

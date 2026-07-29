@@ -11,6 +11,7 @@ import { SkillPickerModal } from "@/features/agents/components/skill-picker-moda
 import { SkillRequirementsModal } from "@/features/skills/components/skill-requirements-modal";
 import { FeishuAgentBotAgentSettingsPanel } from "@/features/integrations/feishu/feishu-agent-bot-agent-settings-panel";
 import { GeneratedAvatar } from "@/shared/ui/generated-avatar";
+import { InstructionMarkdown } from "@/features/agents/components/instruction-markdown";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import {
   toneForStatus,
@@ -52,6 +53,7 @@ interface AgentDetailProps {
   }) => void;
   readonly onRevokeForkInvitation?: (invitationId: string) => void;
   readonly onFeishuAgentBotUpdated?: () => void;
+  readonly onStartConversation?: () => void;
 }
 
 export function AgentDetail({
@@ -74,6 +76,7 @@ export function AgentDetail({
   onCreateForkInvitation,
   onRevokeForkInvitation,
   onFeishuAgentBotUpdated,
+  onStartConversation,
 }: AgentDetailProps) {
   const { tx } = useLanguage();
   const [activeTab, setActiveTab] = useState<"instructions" | "skills" | "knowledge" | "documents" | "workspaces" | "settings">("instructions");
@@ -84,6 +87,7 @@ export function AgentDetail({
   const [forkTargetUserId, setForkTargetUserId] = useState("");
   const [forkContextNote, setForkContextNote] = useState("");
   const [instructionDraft, setInstructionDraft] = useState(record.instructions ?? "");
+  const [isEditingInstructions, setIsEditingInstructions] = useState(false);
   const [defaultModelDraft, setDefaultModelDraft] = useState(record.defaultModel ?? "");
   const [selectedRuntimeId, setSelectedRuntimeId] = useState(() =>
     resolveExecutionEngineValue(record.boundContainerId, containerOptions),
@@ -91,6 +95,7 @@ export function AgentDetail({
 
   useEffect(() => {
     setInstructionDraft(record.instructions ?? "");
+    setIsEditingInstructions(false);
   }, [record.id, record.instructions]);
 
   useEffect(() => {
@@ -186,11 +191,11 @@ export function AgentDetail({
       <div className="agent-resume-layout">
         <nav aria-label={tx("AI员工 简历章节", "AI employee resume sections")} className="agent-tabs agent-tabs--resume">
           {[
-            { key: "instructions", label: "Instructions", meta: tx("执行前注入", "Run context") },
-            { key: "skills", label: "Skills", meta: tx(`${record.skills.length} 个技能`, `${record.skills.length} skills`) },
-            { key: "knowledge", label: "Knowledge", meta: tx(`${knowledge.totalAvailableCount} 篇知识`, `${knowledge.totalAvailableCount} pages`) },
+            { key: "instructions", label: tx("工作说明", "Instructions"), meta: tx("执行前注入", "Run context") },
+            { key: "skills", label: tx("技能", "Skills"), meta: tx(`${record.skills.length} 个技能`, `${record.skills.length} skills`) },
+            { key: "knowledge", label: tx("知识", "Knowledge"), meta: tx(`${knowledge.totalAvailableCount} 篇知识`, `${knowledge.totalAvailableCount} pages`) },
             { key: "documents", label: tx("文档权限", "Documents"), meta: tx(`${documentAccess.readableCount} 份文档`, `${documentAccess.readableCount} documents`) },
-            { key: "workspaces", label: "Workspaces", meta: tx(`${record.workAreas.length} 个工作区`, `${record.workAreas.length} workspaces`) },
+            { key: "workspaces", label: tx("工作区", "Workspaces"), meta: tx(`${record.workAreas.length} 个工作区`, `${record.workAreas.length} workspaces`) },
             { key: "settings", label: tx("设置", "Settings"), meta: tx("执行引擎", "Execution engine") },
           ].map((tab) => (
             <button
@@ -208,28 +213,68 @@ export function AgentDetail({
 
         <div className="agent-tab-panel agent-tab-panel--resume">
         {activeTab === "instructions" ? (
-          <>
-            <div className="detail-copy">
-              <p>{tx("每次执行都会注入这段 instructions。", "Injected into every run.")}</p>
+          <section className="agent-instructions" aria-label={tx("工作说明", "Instructions")}>
+            <div className="agent-instructions__header">
+              <div>
+                <strong>{tx("角色定义", "Role definition")}</strong>
+                <p>{tx("每次执行都会引用这份工作说明。", "This role definition is included in every run.")}</p>
+              </div>
+              {canManage && !isEditingInstructions ? (
+                <button className="action-button" disabled={pending} onClick={() => setIsEditingInstructions(true)} type="button">
+                  <AppIcon name="edit" />
+                  {tx("编辑工作说明", "Edit instructions")}
+                </button>
+              ) : null}
             </div>
-            <textarea
-              className="instructions-editor"
-              disabled={!canManage}
-              onChange={(event) => setInstructionDraft(event.currentTarget.value)}
-              rows={10}
-              value={instructionDraft}
-            />
-            <div className="detail-actions">
-              <button
-                className="primary-button"
-                disabled={pending || !canManage}
-                onClick={() => onSaveInstructions(instructionDraft)}
-                type="button"
-              >
-                {tx("保存 Instructions", "Save instructions")}
-              </button>
-            </div>
-          </>
+
+            {isEditingInstructions ? (
+              <div className="agent-instructions__editor">
+                <label className="form-field">
+                  <span>{tx("Markdown 工作说明", "Markdown instructions")}</span>
+                  <textarea
+                    aria-label={tx("Markdown 工作说明", "Markdown instructions")}
+                    className="instructions-editor"
+                    disabled={pending}
+                    onChange={(event) => setInstructionDraft(event.currentTarget.value)}
+                    placeholder={tx("使用 Markdown 描述角色、职责、工作方式与边界。", "Use Markdown to describe role, responsibilities, working style, and boundaries.")}
+                    rows={14}
+                    value={instructionDraft}
+                  />
+                </label>
+                <div className="detail-actions">
+                  <button
+                    className="modal-secondary-button"
+                    disabled={pending}
+                    onClick={() => {
+                      setInstructionDraft(record.instructions ?? "");
+                      setIsEditingInstructions(false);
+                    }}
+                    type="button"
+                  >
+                    {tx("取消", "Cancel")}
+                  </button>
+                  <button
+                    className="primary-button"
+                    disabled={pending}
+                    onClick={() => {
+                      onSaveInstructions(instructionDraft);
+                      setIsEditingInstructions(false);
+                    }}
+                    type="button"
+                  >
+                    {tx("保存工作说明", "Save instructions")}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <article className="agent-instructions__document">
+                <InstructionMarkdown
+                  content={record.instructions ?? ""}
+                  emptyLabel={tx("尚未编写工作说明。", "No instructions have been written yet.")}
+                />
+              </article>
+            )}
+          </section>
         ) : null}
 
         {activeTab === "knowledge" ? (
@@ -453,7 +498,53 @@ export function AgentDetail({
                 ))}
               </div>
             ) : (
-              <EmptyState title={tx("暂无工作区域", "No work areas")} />
+              <section className="agent-workspaces-guide" aria-label={tx("执行工作区引导", "Execution workspace guide")}>
+                <div className="agent-workspaces-guide__intro">
+                  <span className="agent-workspaces-guide__icon"><AppIcon name="containers" /></span>
+                  <div>
+                    <h4>{tx("首次执行后自动创建工作区", "Created automatically on the first run")}</h4>
+                    <p>
+                      {tx(
+                        "工作区会按会话与 AI员工 隔离，并保存该会话的执行上下文。无需在这里手动指定目录。",
+                        "Workspaces are isolated by conversation and AI employee, preserving execution context without a manually configured directory.",
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <ol className="agent-workspaces-guide__steps">
+                  <li>
+                    <span>1</span>
+                    <div>
+                      <strong>{tx("确认执行引擎", "Confirm execution engine")}</strong>
+                      <p>
+                        {record.boundContainerId
+                          ? tx(`已绑定 ${record.boundContainerName ?? "执行引擎"}。`, `Bound to ${record.boundContainerName ?? "an execution engine"}.`)
+                          : tx("请先为该 AI员工 绑定可用的执行引擎。", "Bind an available execution engine for this AI employee first.")}
+                      </p>
+                    </div>
+                    <button className="action-button" onClick={() => setActiveTab("settings")} type="button">
+                      <AppIcon name="settings" />
+                      {record.boundContainerId ? tx("查看设置", "View settings") : tx("配置执行引擎", "Configure engine")}
+                    </button>
+                  </li>
+                  <li>
+                    <span>2</span>
+                    <div>
+                      <strong>{tx("在对话或群聊中发起任务", "Start a task in a conversation or group")}</strong>
+                      <p>{tx("首次执行开始时会自动创建工作区；飞书中也可将机器人加入群聊后 @ 它。", "The first execution creates a workspace automatically; in Feishu, add the bot to a group and mention it.")}</p>
+                    </div>
+                    {record.boundContainerId && onStartConversation ? (
+                      <button className="primary-button" onClick={onStartConversation} type="button">
+                        <AppIcon name="messages" />
+                        {tx("开始对话", "Start conversation")}
+                      </button>
+                    ) : null}
+                  </li>
+                </ol>
+                <p className="agent-workspaces-guide__note">
+                  {tx("工作区创建后会显示在这里，包括会话、执行状态、可复用会话与诊断信息。", "After creation, this page shows the conversation, execution status, reusable session, and diagnostics.")}
+                </p>
+              </section>
             )}
           </div>
         ) : null}
@@ -590,10 +681,10 @@ export function AgentDetail({
                 </div>
                 <div className="agent-fork-panel__scope">
                   {[
-                    tx("Profile", "Profile"),
-                    "Instructions",
-                    `Skills (${record.skills.length})`,
-                    `Knowledge (${knowledge.directCount})`,
+                    tx("资料", "Profile"),
+                    tx("工作说明", "Instructions"),
+                    tx(`技能（${record.skills.length}）`, `Skills (${record.skills.length})`),
+                    tx(`知识（${knowledge.directCount}）`, `Knowledge (${knowledge.directCount})`),
                   ].map((scope) => (
                     <span className="tag-pill" key={scope}>{scope}</span>
                   ))}

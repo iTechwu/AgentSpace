@@ -641,15 +641,19 @@ describe("AgentsPageClient", () => {
 
     expect(screen.getByRole("button", { name: /Planner/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "返回列表" })).not.toBeInTheDocument();
-    expect(screen.queryByText("保存 Instructions")).not.toBeInTheDocument();
+    expect(screen.queryByText("保存工作说明")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Planner/i }));
 
     expect(await screen.findByRole("button", { name: "返回列表" })).toBeInTheDocument();
     expect(screen.getByText("AI员工 详情")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "保存 Instructions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑工作说明" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "保存工作说明" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Workspaces" }));
+    await user.click(screen.getByRole("button", { name: "编辑工作说明" }));
+    expect(screen.getByRole("button", { name: "保存工作说明" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "工作区" }));
     expect(screen.getByText("执行工作区")).toBeInTheDocument();
     expect(screen.getByText(/可复用会话: sess-1/)).toBeInTheDocument();
     expect(screen.getByText(/远程执行工作区: Build Box 1/)).toBeInTheDocument();
@@ -688,9 +692,28 @@ describe("AgentsPageClient", () => {
 
     renderAgentsPage();
 
-    await user.click(screen.getByRole("button", { name: "Knowledge" }));
+    await user.click(screen.getByRole("button", { name: "知识" }));
     expect(screen.getByText("Shared handbook")).toBeInTheDocument();
     expect(screen.getByText("Planner playbook")).toBeInTheDocument();
+  });
+
+  it("opens the employee conversation from the empty workspace guide", async () => {
+    const user = userEvent.setup();
+    const navigateWorkspaceModule = vi.fn(() => true);
+    const selectedAgent = data.agents[0]!;
+    const dataWithoutWorkspaces: AgentsPageData = {
+      ...data,
+      agents: data.agents.map((agent) => agent.id === selectedAgent.id ? { ...agent, workAreas: [] } : agent),
+    };
+
+    renderAgentsPage(dataWithoutWorkspaces, { navigateWorkspaceModule });
+
+    await user.click(screen.getByRole("button", { name: "工作区" }));
+    await user.click(screen.getByRole("button", { name: "开始对话" }));
+
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith(
+      `/w/workspace-alpha/im?view=direct&focus=${encodeURIComponent(`contact:${selectedAgent.internalName}`)}`,
+    );
   });
 
   it("shows agent document access and permission requests", async () => {
@@ -1166,6 +1189,18 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("daemon-2")).toBeInTheDocument();
   });
 
+  it("uses a disabled model select until an execution engine is selected", async () => {
+    const user = userEvent.setup();
+    renderAgentsPage({ ...data, containerOptions: [] });
+
+    await user.click(screen.getByRole("button", { name: "新建 AI员工" }));
+
+    const modelSelect = screen.getByLabelText("默认模型");
+    expect(modelSelect.tagName).toBe("SELECT");
+    expect(modelSelect).toBeDisabled();
+    expect(screen.getByRole("option", { name: "请先选择执行引擎" })).toBeInTheDocument();
+  });
+
   it("creates an agent from the finance template with preloaded skills", async () => {
     const user = userEvent.setup();
     const dataWithPreloadedSkill: AgentsPageData = {
@@ -1189,9 +1224,9 @@ describe("AgentsPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: "新建 AI员工" }));
 
-    expect(screen.getByRole("button", { name: /财务分析 Agent/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /财务分析智能体/ })).toBeInTheDocument();
     expect(screen.getByText("已准备 1/1 个预置技能")).toBeInTheDocument();
-    expect(screen.getByText("Financial Analysis Agent")).toBeInTheDocument();
+    expect(screen.getAllByText("财务分析智能体")).toHaveLength(2);
     expect(screen.getByText("模板技能由系统预置并在创建时自动绑定，无需手动导入。")).toBeInTheDocument();
 
     await user.click(screen.getAllByRole("button", { name: "从模板创建" }).at(-1)!);
@@ -1199,8 +1234,8 @@ describe("AgentsPageClient", () => {
     await waitFor(() => {
       expect(createWorkspaceAgentAction).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: "finance-analyst",
-          remarkName: "财务分析 Agent",
+          name: "财务分析智能体",
+          remarkName: "财务分析智能体",
           runtimeId: "runtime-1",
           templateId: "finance-analyst",
         }),
@@ -1558,6 +1593,84 @@ describe("AgentsPageClient", () => {
 });
 
 describe("AgentDetail", () => {
+  it("guides an employee with no workspaces to configure an engine or start a conversation", async () => {
+    const user = userEvent.setup();
+    const onStartConversation = vi.fn();
+    const record = {
+      ...data.agents[0]!,
+      workAreas: [],
+    };
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <AgentDetail
+          containerOptions={data.containerOptions}
+          pending={false}
+          record={record}
+          workspaceSkills={[]}
+          onBindContainer={vi.fn()}
+          onDeleteAgent={vi.fn()}
+          onSaveInstructions={vi.fn()}
+          onSetSkillIds={vi.fn()}
+          onInstallSkill={vi.fn()}
+          onStartConversation={onStartConversation}
+          onUnbindContainer={vi.fn()}
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "工作区" }));
+
+    expect(screen.getByText("首次执行后自动创建工作区")).toBeInTheDocument();
+    expect(screen.getByText("确认执行引擎")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "查看设置" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "开始对话" }));
+    expect(onStartConversation).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "查看设置" }));
+    expect(screen.getByRole("button", { name: "设置" })).toHaveAttribute("class", expect.stringContaining("agent-tab--active"));
+  });
+
+  it("shows the role definition as Markdown and opens editing explicitly", async () => {
+    const user = userEvent.setup();
+    const onSaveInstructions = vi.fn();
+    const record = {
+      ...data.agents[0]!,
+      instructions: "# 角色\n负责将需求梳理为可执行的产品决策。\n\n## 职责\n- 明确目标与验收标准\n- 标记待确认事项",
+    };
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <AgentDetail
+          containerOptions={data.containerOptions}
+          pending={false}
+          record={record}
+          workspaceSkills={[]}
+          onBindContainer={vi.fn()}
+          onDeleteAgent={vi.fn()}
+          onSaveInstructions={onSaveInstructions}
+          onSetSkillIds={vi.fn()}
+          onInstallSkill={vi.fn()}
+          onUnbindContainer={vi.fn()}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "角色" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "职责" })).toBeInTheDocument();
+    expect(screen.getByText("负责将需求梳理为可执行的产品决策。")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Markdown 工作说明" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "编辑工作说明" }));
+    const editor = screen.getByRole("textbox", { name: "Markdown 工作说明" });
+    await user.clear(editor);
+    await user.type(editor, "# 新角色\n负责评审需求。");
+    await user.click(screen.getByRole("button", { name: "保存工作说明" }));
+
+    expect(onSaveInstructions).toHaveBeenCalledWith("# 新角色\n负责评审需求。");
+    expect(screen.queryByRole("textbox", { name: "Markdown 工作说明" })).not.toBeInTheDocument();
+  });
+
   it("searches and updates agent knowledge assignments", async () => {
     const user = userEvent.setup();
     const onSetKnowledgePageIds = vi.fn();
@@ -1580,7 +1693,7 @@ describe("AgentDetail", () => {
       </LanguageProvider>,
     );
 
-    await user.click(screen.getByRole("button", { name: "Knowledge" }));
+    await user.click(screen.getByRole("button", { name: "知识" }));
     await user.click(screen.getByRole("button", { name: "添加知识" }));
     await user.type(await screen.findByPlaceholderText("搜索知识页"), "legal");
     await user.click(await screen.findByRole("button", { name: /Legal memo/i }));
