@@ -150,7 +150,7 @@ function CostOverview({
       <div className="costs-insight-band" role="list">
         <article className="costs-insight-card" role="listitem">
           <span>{tx("每任务均价", "Avg per task")}</span>
-          <strong>${averagePerTask.toFixed(4)}</strong>
+          <strong>{formatCny(averagePerTask)}</strong>
         </article>
         <article className="costs-insight-card" role="listitem">
           <span>{tx("模型数", "Models")}</span>
@@ -174,7 +174,7 @@ function CostOverview({
         </div>
         <div className="costs-summary-card">
           <span className="costs-summary-card__label">{tx("估算费用", "Estimated")}</span>
-          <span className="costs-summary-card__value">${data.estimatedCostUsd.toFixed(4)}</span>
+          <span className="costs-summary-card__value">{formatCny(data.estimatedCostUsd)}</span>
         </div>
         <div className="costs-summary-card">
           <span className="costs-summary-card__label">{tx("待对账", "Pending reconciliation")}</span>
@@ -232,8 +232,8 @@ function CostOverview({
                   {agent.providerAccountId ? <span>{tx("Provider 账户", "Provider account")}: {agent.providerAccountId}</span> : null}
                   <span>{tx("输入", "Input")}: {formatTokens(agent.totalInputTokens)}</span>
                   <span>{tx("输出", "Output")}: {formatTokens(agent.totalOutputTokens)}</span>
-                  <span>{tx("总费用", "Cost")}: ${agent.totalCostUsd.toFixed(4)}</span>
-                  <span>{tx("均价", "Avg")}: ${agent.avgCostPerTask.toFixed(4)}</span>
+                  <span>{tx("总费用", "Cost")}: {formatCny(agent.totalCostUsd)}</span>
+                  <span>{tx("均价", "Avg")}: {formatCny(agent.avgCostPerTask)}</span>
                 </div>
               </article>
             ))}
@@ -258,8 +258,8 @@ function CostOverview({
                 <span>{agent.taskCount}</span>
                 <span>{formatTokens(agent.totalInputTokens)}</span>
                 <span>{formatTokens(agent.totalOutputTokens)}</span>
-                <span>${agent.totalCostUsd.toFixed(4)}</span>
-                <span>${agent.avgCostPerTask.toFixed(4)}</span>
+                <span>{formatCny(agent.totalCostUsd)}</span>
+                <span>{formatCny(agent.avgCostPerTask)}</span>
               </div>
             ))}
           </div>
@@ -378,8 +378,8 @@ function formatCurrencyBreakdown(
 ): string {
   const values = data.billingByCurrency
     .filter((entry) => entry[field] !== 0)
-    .map((entry) => `${entry[field].toFixed(4)} ${entry.currency}`);
-  return values.length > 0 ? values.join(" + ") : "0.0000 USD";
+    .map((entry) => formatBillingAmount(entry[field], entry.currency));
+  return values.length > 0 ? values.join(" + ") : formatCny(0);
 }
 
 function CostDimensionTable({
@@ -420,8 +420,8 @@ function CostDimensionTable({
                 <span>{tx("任务数", "Tasks")}: {row.taskCount}</span>
                 <span>{tx("输入", "Input")}: {formatTokens(row.totalInputTokens)}</span>
                 <span>{tx("输出", "Output")}: {formatTokens(row.totalOutputTokens)}</span>
-                <span>{tx("总费用", "Cost")}: ${row.totalCostUsd.toFixed(4)}{row.totalActualCostUsd > 0 ? ` → $${row.totalActualCostUsd.toFixed(4)}` : ""}</span>
-                <span>{tx("均价", "Avg")}: ${row.avgCostPerTask.toFixed(4)}</span>
+                <span>{tx("总费用", "Cost")}: {formatCny(row.totalCostUsd)}{row.totalActualCostUsd > 0 ? ` → ${formatCny(row.totalActualCostUsd)}` : ""}</span>
+                <span>{tx("均价", "Avg")}: {formatCny(row.avgCostPerTask)}</span>
               </div>
             </article>
           ))}
@@ -442,8 +442,8 @@ function CostDimensionTable({
               <span>{row.taskCount}</span>
               <span>{formatTokens(row.totalInputTokens)}</span>
               <span>{formatTokens(row.totalOutputTokens)}</span>
-              <span>${row.totalCostUsd.toFixed(4)}{row.totalActualCostUsd > 0 ? ` → $${row.totalActualCostUsd.toFixed(4)}` : ""}</span>
-              <span>${row.avgCostPerTask.toFixed(4)}</span>
+              <span>{formatCny(row.totalCostUsd)}{row.totalActualCostUsd > 0 ? ` → ${formatCny(row.totalActualCostUsd)}` : ""}</span>
+              <span>{formatCny(row.avgCostPerTask)}</span>
             </div>
           ))}
         </div>
@@ -476,10 +476,10 @@ function formatUsageTokens(usage: CostPageData["recentUsage"][number]): string {
 }
 
 function formatUsageCost(usage: CostPageData["recentUsage"][number]): string {
-  const estimated = `${usage.costUsd.toFixed(4)} USD`;
+  const estimated = formatCny(usage.costUsd);
   return usage.actualCostUsd == null
     ? estimated
-    : `${estimated} → ${usage.actualCostUsd.toFixed(4)} ${usage.currency ?? "USD"}`;
+    : `${estimated} → ${formatBillingAmount(usage.actualCostUsd, usage.currency)}`;
 }
 
 function formatBalanceError(
@@ -566,7 +566,7 @@ function BudgetManager({
           ) : null}
 
           <div className="budget-form__row">
-            <label>{tx("预算上限 (USD)", "Limit (USD)")}</label>
+            <label>{tx("预算上限 (CNY)", "Limit (CNY)")}</label>
             <input type="number" step="0.01" min="0" value={limitUsd} onChange={(e) => setLimitUsd(e.target.value)} />
           </div>
 
@@ -657,7 +657,7 @@ function BudgetCard({
         />
       </div>
       <div className="budget-card__stats">
-        <span>${budget.spentUsd.toFixed(4)} / ${budget.limitUsd.toFixed(2)}</span>
+        <span>{formatCny(budget.spentUsd)} / {formatCny(budget.limitUsd, 2)}</span>
         <span>{pct}%</span>
       </div>
       <div className="budget-card__meta">
@@ -694,4 +694,15 @@ function formatTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
   return String(value);
+}
+
+function formatCny(value: number, fractionDigits = 4): string {
+  return `¥${value.toFixed(fractionDigits)}`;
+}
+
+function formatBillingAmount(value: number, currency?: string): string {
+  const normalized = currency?.trim().toUpperCase();
+  return normalized && normalized !== "CNY"
+    ? `${value.toFixed(4)} ${normalized}`
+    : formatCny(value);
 }

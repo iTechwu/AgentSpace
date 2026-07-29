@@ -58,7 +58,7 @@ it("exposes manual credential rotation only when a runtime needs attention", asy
   expect(within(table).getByText("Available")).toBeInTheDocument();
   expect(within(table).getByText("Needs attention")).toBeInTheDocument();
   expect(within(table).getByText("gpt-5")).toBeInTheDocument();
-  expect(within(table).getByText("$0.2000 unallocated")).toBeInTheDocument();
+  expect(within(table).getByText("¥0.2000 unallocated")).toBeInTheDocument();
   const rotateButton = screen.getByRole("button", { name: "Rotate key" });
   await user.click(rotateButton);
   expect(onRotate).toHaveBeenCalledWith("runtime-attention");

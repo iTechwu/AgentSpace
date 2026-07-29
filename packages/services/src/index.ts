@@ -957,6 +957,7 @@ export {
   resolveModelsInternalConfig,
   type ModelsInternalConfig,
 } from "./models/client.ts";
+export { isExecutionLanguageModel } from "./models/execution-models.ts";
 export {
   resolveEffectiveModelForBoundEmployeeAsync,
   resolveEffectiveModelForTaskAsync,

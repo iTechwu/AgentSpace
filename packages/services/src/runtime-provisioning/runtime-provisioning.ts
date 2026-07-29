@@ -69,6 +69,7 @@ import {
   getModelsInternalClient,
   preflightModelsBillingByScopeAsync,
 } from "../models/client.ts";
+import { isExecutionLanguageModel } from "../models/execution-models.ts";
 import { resolveAgentRuntimeMode } from "../config/deployment.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
@@ -1787,6 +1788,7 @@ async function assertManagedRuntimeModelSelectionAsync(input: {
       isDeprecated?: boolean;
     };
     return (
+      isExecutionLanguageModel(model) &&
       model.isEnabled !== false &&
       model.isDeprecated !== true &&
       (model.supportedProtocols ?? []).some((protocol) => input.protocols.includes(protocol))

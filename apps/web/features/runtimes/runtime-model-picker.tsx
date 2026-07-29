@@ -91,7 +91,7 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
           </div>
           {selected.inputPrice != null || selected.outputPrice != null ? (
             <p>
-              ${formatPrice(selected.inputPrice)}/1M {tx("输入", "in")} · ${formatPrice(selected.outputPrice)}/1M {tx("输出", "out")}
+              ¥{formatPrice(selected.inputPrice)}/1M {tx("输入", "in")} · ¥{formatPrice(selected.outputPrice)}/1M {tx("输出", "out")}
             </p>
           ) : null}
           {!selected.isAvailable ? (
@@ -119,7 +119,7 @@ function formatModelOption(item: RuntimeModelCatalogItem, tx: (zh: string, en: s
     item.supportsFunctionCalling ? tx("工具调用", "tools") : undefined,
     item.supportsVision ? tx("视觉", "vision") : undefined,
     item.inputPrice != null || item.outputPrice != null
-      ? `$${formatPrice(item.inputPrice)}/$${formatPrice(item.outputPrice)} ${tx("每百万", "per 1M")}`
+      ? `¥${formatPrice(item.inputPrice)}/¥${formatPrice(item.outputPrice)} ${tx("每百万", "per 1M")}`
       : undefined,
   ].filter(Boolean).join(" · ");
   const availability = item.isAvailable ? tx("可用", "available") : translateUnavailableReason(item.unavailableReason, tx);

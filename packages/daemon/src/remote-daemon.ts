@@ -267,17 +267,19 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
           config.managedNode,
         );
         const managedRuntimeMetadata = buildManagedRuntimeHeartbeatMetadata(managedRuntimes);
+        const verificationEnvironments = await resolveManagedProviderVerificationEnvironments(runtimes, credentialResolver);
         const heartbeat = await client.sendHeartbeatWithMetadata(
           config.daemonKey,
           { ...metadata, managedRuntimes: managedRuntimeMetadata },
-          buildRemoteRuntimeHeartbeatMetadata(runtimes, managedRuntimes),
+          buildRemoteRuntimeHeartbeatMetadata(runtimes, managedRuntimes, verificationEnvironments),
         );
         runtimes = reconcileRemoteRuntimesWithHeartbeat(runtimes, heartbeat, registered.daemon.workspaceId, config.deviceName);
-        if (!config.managedNode && runtimes.some(hasPendingProviderVerification)) {
+        if (runtimes.some(hasPendingProviderVerification)) {
+          const verificationEnvironments = await resolveManagedProviderVerificationEnvironments(runtimes, credentialResolver);
           const verificationHeartbeat = await client.sendHeartbeatWithMetadata(
             config.daemonKey,
             metadata,
-            buildRemoteRuntimeHeartbeatMetadata(runtimes, managedRuntimes),
+            buildRemoteRuntimeHeartbeatMetadata(runtimes, managedRuntimes, verificationEnvironments),
           );
           runtimes = reconcileRemoteRuntimesWithHeartbeat(runtimes, verificationHeartbeat, registered.daemon.workspaceId, config.deviceName);
         }
@@ -1038,6 +1040,7 @@ export function reconcileRemoteRuntimesWithHeartbeat(
 export function buildRemoteRuntimeHeartbeatMetadata(
   runtimes: RemoteRuntimeRecord[],
   managedRuntimes?: Map<string, ManagedRuntimeEntry>,
+  verificationEnvironments?: Map<string, Record<string, string>>,
 ): Array<{
   id: string;
   provider: RemoteRuntimeRecord["provider"];
@@ -1046,7 +1049,9 @@ export function buildRemoteRuntimeHeartbeatMetadata(
   const records = runtimes.map((runtime) => ({
     id: runtime.id,
     provider: runtime.provider,
-    metadata: buildProviderRuntimeMetadata(runtime),
+    metadata: buildProviderRuntimeMetadata(runtime, {
+      environment: verificationEnvironments?.get(runtime.id),
+    }),
   }));
   const knownRuntimeIds = new Set(records.map((runtime) => runtime.id));
   for (const runtime of managedRuntimes?.values() ?? []) {
@@ -1065,6 +1070,23 @@ export function buildRemoteRuntimeHeartbeatMetadata(
     });
   }
   return records;
+}
+
+export async function resolveManagedProviderVerificationEnvironments(
+  runtimes: RemoteRuntimeRecord[],
+  credentialResolver: Pick<ManagedCredentialResolver, "resolve">,
+): Promise<Map<string, Record<string, string>>> {
+  const environments = new Map<string, Record<string, string>>();
+  await Promise.all(runtimes.map(async (runtime) => {
+    if (!runtime.metadata.managedCredentialId || !hasPendingProviderVerification(runtime)) {
+      return;
+    }
+    const profile = await credentialResolver.resolve(runtime.id, runtime.metadata.managedCredentialId);
+    if (profile) {
+      environments.set(runtime.id, profile.environment);
+    }
+  }));
+  return environments;
 }
 
 function hasPendingProviderVerification(runtime: RemoteRuntimeRecord): boolean {

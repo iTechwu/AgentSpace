@@ -16,7 +16,11 @@ import {
   rotateManagedRuntimeCredentialAsync,
   stopManagedRuntimeAsync,
 } from "@dofe-agent/services";
-import { getModelsInternalClient, isModelsInternalConfigured } from "@dofe-agent/services";
+import {
+  getModelsInternalClient,
+  isExecutionLanguageModel,
+  isModelsInternalConfigured,
+} from "@dofe-agent/services";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import { revalidateWorkspacePath } from "@/features/auth/workspace-revalidation";
@@ -176,10 +180,57 @@ export async function updateManagedRuntimeSharingAction(input: {
   revalidateWorkspacePath("/runtimes", slug);
 }
 
+export async function updateManagedRuntimeDefaultModelAction(input: {
+  runtimeId: string;
+  defaultModel?: string;
+}): Promise<void> {
+  assertRemoteManagedRuntimeMode();
+  const { workspaceId, slug } = await requireAdminActor();
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (!runtime || runtime.workspaceId !== workspaceId || !runtime.managedCredentialId) {
+    throw new Error("managed_runtime.runtime_not_found");
+  }
+
+  const requestedModel = input.defaultModel?.trim() ?? "";
+  let defaultModel: string | undefined;
+  if (requestedModel) {
+    if (!isModelsInternalConfigured()) {
+      throw new Error("managed_runtime.models_not_configured");
+    }
+    const { tenantId, teamId } = resolveManagedRuntimeScopeSync(workspaceId);
+    const response = await getModelsInternalClient().runtimeCredentials.models({
+      params: { id: runtime.managedCredentialId },
+      query: { tenantId, teamId },
+    });
+    const selected = response.list.find(
+      (model) =>
+        isExecutionLanguageModel(model) &&
+        model.isAvailable &&
+        model.isEnabled !== false &&
+        (model.alias === requestedModel || model.model === requestedModel || model.id === requestedModel),
+    );
+    if (!selected?.alias) {
+      throw new Error("managed_runtime.model_unavailable");
+    }
+    defaultModel = selected.alias;
+  }
+
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId: runtime.id,
+    workspaceId,
+    // The database helper treats undefined as "leave unchanged"; an empty
+    // string intentionally clears the runtime default and restores fallback.
+    defaultModel: defaultModel ?? "",
+  });
+  revalidateWorkspacePath(`/runtimes/runtime/${runtime.id}`, slug);
+  revalidateWorkspacePath("/runtimes", slug);
+}
+
 export interface RuntimeModelCatalogItem {
   alias: string;
   displayName?: string | null;
   model?: string;
+  modelType: "llm";
   protocol: string;
   contextLength?: number;
   supportsVision?: boolean;
@@ -207,6 +258,7 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
   const client = getModelsInternalClient();
   const response = await client.models.list({ query: { tenantId } });
   const list = response.list
+    .filter(isExecutionLanguageModel)
     .map((model) => {
       const supported = (model as { supportedProtocols?: string[] }).supportedProtocols ?? [];
       const protocol = protocols.find((p) => supported.includes(p));
@@ -219,6 +271,7 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
         alias: String((model as { alias?: string }).alias ?? (model as { id?: string }).id ?? ""),
         displayName: (model as { displayName?: string | null }).displayName,
         model: (model as { model?: string }).model,
+        modelType: "llm" as const,
         protocol: protocol ?? supported[0] ?? "",
         contextLength: (model as { contextLength?: number }).contextLength,
         supportsVision: (model as { supportsVision?: boolean }).supportsVision,
@@ -258,7 +311,20 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
     params: { id: runtime.managedCredentialId },
     query: { tenantId, teamId },
   });
-  return { list: response.list, total: response.total, configured: true as const };
+  const list = response.list.filter(isExecutionLanguageModel).map((model) => ({
+      id: model.id ?? model.alias,
+      alias: model.alias,
+      model: model.model,
+      displayName: model.displayName,
+      modelType: "llm" as const,
+      isAvailable: model.isAvailable,
+      isEnabled: model.isEnabled,
+    }));
+  return {
+    list,
+    total: list.length,
+    configured: true as const,
+  };
 }
 
 /**

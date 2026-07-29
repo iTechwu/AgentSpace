@@ -8,6 +8,7 @@ import {
   classifyRemoteLoopError,
   mergeRemoteGatewayUsages,
   reconcileRemoteRuntimesWithHeartbeat,
+  resolveManagedProviderVerificationEnvironments,
   resolveRemoteTaskExecutionModel,
   resolveRemoteTaskProviderSessionId,
 } from "./remote-daemon.ts";
@@ -334,4 +335,37 @@ test("heartbeat stops publishing a managed runtime after successful cleanup", ()
   managedRuntimes.delete("runtime-managed-1");
 
   assert.deepEqual(buildRemoteRuntimeHeartbeatMetadata([], managedRuntimes), []);
+});
+
+test("managed provider verification resolves its credential environment without publishing it", async () => {
+  const runtimes = [{
+    id: "runtime-managed-1",
+    workspaceId: "ws-1",
+    provider: "claude" as const,
+    name: "Managed Claude",
+    status: "online" as const,
+    metadata: {
+      executablePath: "/var/lib/dofe/managed-runtimes/runtime-managed-1/run-provider",
+      mode: "remote" as const,
+      managedCredentialId: "credential-1",
+      providerVerificationRequestedAt: new Date().toISOString(),
+    },
+  }];
+  const environments = await resolveManagedProviderVerificationEnvironments(runtimes, {
+    resolve: async (runtimeId, credentialId) => {
+      assert.equal(runtimeId, "runtime-managed-1");
+      assert.equal(credentialId, "credential-1");
+      return {
+        accountId: runtimeId,
+        profileDir: "/var/lib/dofe/managed-runtimes/runtime-managed-1",
+        environment: { ANTHROPIC_BASE_URL: "http://gateway.internal/v1" },
+      };
+    },
+  });
+
+  assert.deepEqual(environments, new Map([
+    ["runtime-managed-1", { ANTHROPIC_BASE_URL: "http://gateway.internal/v1" }],
+  ]));
+  const records = buildRemoteRuntimeHeartbeatMetadata(runtimes, undefined, environments);
+  assert.equal("ANTHROPIC_BASE_URL" in records[0]!.metadata, false);
 });

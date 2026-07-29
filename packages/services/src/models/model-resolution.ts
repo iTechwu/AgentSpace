@@ -6,6 +6,7 @@ import {
   readStoredEmployeeSync,
 } from "@dofe-agent/db";
 import { getModelsInternalClient } from "./client.ts";
+import { isExecutionLanguageModel } from "./execution-models.ts";
 import { resolveAgentRuntimeMode } from "../config/deployment.ts";
 import { resolveManagedRuntimeScopeSync } from "../runtime-provisioning/runtime-provisioning.ts";
 import { recordAuditLogSync } from "@dofe-agent/db";
@@ -77,7 +78,7 @@ export async function resolveEffectiveModelForTaskAsync(
     params: { id: runtime.managedCredentialId },
     query: { tenantId: scope.tenantId, teamId: scope.teamId },
   });
-  const availableModels = response.list;
+  const availableModels = response.list.filter(isExecutionLanguageModel);
 
   const ctx: ResolutionContext = {
     workspaceId,
@@ -221,6 +222,7 @@ export async function validateModelOverrideForBoundEmployeeAsync(input: {
   const requestedModel = input.modelId.trim();
   const model = response.list.find(
     (candidate) =>
+      isExecutionLanguageModel(candidate) &&
       candidate.isAvailable &&
       candidate.isEnabled !== false &&
       (candidate.alias === requestedModel || candidate.model === requestedModel || candidate.id === requestedModel),

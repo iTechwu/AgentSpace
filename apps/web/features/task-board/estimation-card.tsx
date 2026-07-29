@@ -102,12 +102,12 @@ export function EstimationCard({
                         ) : null}
                       </div>
                     </td>
-                    <td className="estimation-table__num">${agent.estimatedCostUsd.toFixed(4)}</td>
+                    <td className="estimation-table__num">¥{agent.estimatedCostUsd.toFixed(4)}</td>
                     <td className="estimation-table__num">{Math.round(agent.avgCompletionRate * 100)}%</td>
                     <td className="estimation-table__num">
                       <ConfidenceBadge confidence={agent.confidence} basedOn={agent.basedOnTaskCount} />
                     </td>
-                    <td className="estimation-table__num">${agent.recommendedBudgetUsd.toFixed(4)}</td>
+                    <td className="estimation-table__num">¥{agent.recommendedBudgetUsd.toFixed(4)}</td>
                     <td>{agent.recommended ? tx("推荐", "Recommended") : ""}</td>
                   </tr>
                 ))}

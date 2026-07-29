@@ -133,6 +133,36 @@ test("buildProviderRuntimeMetadata runs a requested provider verification", () =
   }
 });
 
+test("buildProviderRuntimeMetadata passes the managed provider environment to a requested verification", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-bin-"));
+  const executablePath = join(binDir, "claude");
+
+  try {
+    writeFileSync(
+      executablePath,
+      "#!/bin/sh\n[ \"$ANTHROPIC_BASE_URL\" = \"http://gateway.internal/v1\" ] || exit 19\necho 1.0.0\n",
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "claude",
+      metadata: {
+        executablePath,
+        mode: "remote",
+        managedCredentialId: "credential-managed-1",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    }, {
+      environment: { ANTHROPIC_BASE_URL: "http://gateway.internal/v1" },
+    });
+
+    assert.equal((metadata.providerHealth as { status?: unknown } | undefined)?.status, "healthy");
+  } finally {
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
 test("resolveModelId returns provider-specific defaults and overrides for expanded providers", () => {
   const baseRuntime: Omit<ProviderRuntimeRecord, "provider"> = {
     id: "runtime-1",

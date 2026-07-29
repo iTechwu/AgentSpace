@@ -847,7 +847,10 @@ export function readNodeMetadata(serverUrl: string, runtimeName: string, runtime
   };
 }
 
-export function buildProviderRuntimeMetadata(runtime: Pick<ProviderRuntimeRecord, "provider" | "metadata">): Record<string, unknown> {
+export function buildProviderRuntimeMetadata(
+  runtime: Pick<ProviderRuntimeRecord, "provider" | "metadata">,
+  options: { environment?: Record<string, string> } = {},
+): Record<string, unknown> {
   const base: Record<string, unknown> = {
     executablePath: runtime.metadata.executablePath,
     mode: runtime.metadata.mode,
@@ -870,7 +873,7 @@ export function buildProviderRuntimeMetadata(runtime: Pick<ProviderRuntimeRecord
   if (requiresProviderVerification(runtime)) {
     return {
       ...base,
-      providerHealth: inspectProviderCliHealth(runtime),
+      providerHealth: inspectProviderCliHealth(runtime, options.environment),
     };
   }
   return base;
@@ -888,12 +891,16 @@ function requiresProviderVerification(runtime: Pick<ProviderRuntimeRecord, "meta
   return new Date(existingHealth.checkedAt).getTime() < new Date(requestedAt).getTime();
 }
 
-function inspectProviderCliHealth(runtime: Pick<ProviderRuntimeRecord, "provider" | "metadata">): ProviderHealthSnapshot {
+function inspectProviderCliHealth(
+  runtime: Pick<ProviderRuntimeRecord, "provider" | "metadata">,
+  environment?: Record<string, string>,
+): ProviderHealthSnapshot {
   const checkedAt = new Date().toISOString();
   const result = spawnSync(runtime.metadata.executablePath, ["--version"], {
     encoding: "utf8",
     timeout: 5_000,
     windowsHide: true,
+    env: environment ? { ...process.env, ...environment } : undefined,
   });
   if (!result.error && result.status === 0) {
     return {

@@ -111,7 +111,7 @@ export default async function PlatformConsolePage(): Promise<ReactNode> {
         </div>
         <div className="platform-console-stat">
           <span className="platform-console-stat__label">本周期实际成本</span>
-          <strong className="platform-console-stat__value">${totalPeriodCost.toFixed(4)}</strong>
+          <strong className="platform-console-stat__value">¥{totalPeriodCost.toFixed(4)}</strong>
         </div>
       </section>
 
@@ -134,7 +134,7 @@ export default async function PlatformConsolePage(): Promise<ReactNode> {
                 <span role="cell">{summary.managedRuntimeCount}</span>
                 <span role="cell">{summary.onlineRuntimeCount}</span>
                 <span role="cell">{summary.needsAttentionRuntimeCount > 0 ? `⚠ ${summary.needsAttentionRuntimeCount}` : "0"}</span>
-                <span role="cell">${summary.periodActualCostUsd.toFixed(4)}</span>
+                <span role="cell">¥{summary.periodActualCostUsd.toFixed(4)}</span>
               </div>
             ))}
           </div>

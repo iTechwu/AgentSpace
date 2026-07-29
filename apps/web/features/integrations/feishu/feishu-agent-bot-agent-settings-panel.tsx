@@ -578,27 +578,41 @@ function FeishuAgentBotOnboarding({
   tx: (zh: string, en: string) => string;
 }) {
   return (
-    <section className="feishu-setup-summary feishu-agent-settings-panel__setup-reference">
-      <div>
-        <strong>{tx("先在飞书开放平台完成以下配置", "Complete this setup in the Feishu developer console")}</strong>
-        <a href={developerConsoleUrl} rel="noreferrer" target="_blank">
+    <section className="feishu-agent-bot-onboarding" aria-label={tx("飞书 Bot 绑定准备", "Feishu Bot setup")}>
+      <header className="feishu-agent-bot-onboarding__header">
+        <div>
+          <span>{tx("绑定前准备", "Before you bind")}</span>
+          <h4>{tx("在飞书开放平台完成配置", "Complete setup in the Feishu developer console")}</h4>
+          <p>{tx("完成以下六项后，填写 App ID 与 App Secret 即可绑定。", "Complete these six items, then bind with the App ID and App Secret.")}</p>
+        </div>
+        <a className="action-button feishu-agent-bot-onboarding__link" href={developerConsoleUrl} rel="noreferrer" target="_blank">
           {tx("打开飞书开放平台", "Open Feishu Developer Console")}
         </a>
-      </div>
-      <ol>
-        {setupSteps.map((step) => (
+      </header>
+
+      <ol className="feishu-agent-bot-onboarding__steps">
+        {setupSteps.map((step, index) => (
           <li key={step.id}>
-            <span>{formatFeishuSetupStep(step.id, tx)}</span>
-            <small>{step.required.join(", ")}</small>
+            <span className="feishu-agent-bot-onboarding__step-number" aria-hidden="true">{index + 1}</span>
+            <div>
+              <strong>{formatFeishuSetupStep(step.id, tx)}</strong>
+              <ul aria-label={tx("所需配置", "Required configuration")}>
+                {step.required.map((requirement) => <li key={requirement}><code>{requirement}</code></li>)}
+              </ul>
+            </div>
           </li>
         ))}
       </ol>
-      <p>
-        {tx(
-          "绑定后会立即启用此 AI员工 的飞书工作区数据平面；机器人进群或被 @ 时会自动建立对应 Channel。",
-          "Binding immediately enables this AI employee's Feishu workspace data plane and automatically provisions a Channel when the bot is added or mentioned.",
-        )}
-      </p>
+
+      <aside className="feishu-agent-bot-onboarding__outcome">
+        <span>{tx("绑定后", "After binding")}</span>
+        <p>
+          {tx(
+            "将立即启用此 AI员工 的飞书工作区数据平面；机器人进群或被 @ 时会自动建立对应 Channel。",
+            "This immediately enables the AI employee's Feishu workspace data plane and creates a Channel when the bot is added or mentioned.",
+          )}
+        </p>
+      </aside>
     </section>
   );
 }

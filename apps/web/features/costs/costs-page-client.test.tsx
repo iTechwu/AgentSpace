@@ -117,7 +117,7 @@ describe("CostsPageClient", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByText("Atlas")).toBeInTheDocument();
     expect(screen.getAllByText("gpt-5")).toHaveLength(2);
-    expect(screen.getByText("$0.1234")).toBeInTheDocument();
+    expect(screen.getByText("¥0.1234")).toBeInTheDocument();
     await screen.findByText("100.00 USD");
   });
 
@@ -133,7 +133,7 @@ describe("CostsPageClient", () => {
     await screen.findByText("100.00 USD");
     expect(screen.getAllByText("待对账").length).toBeGreaterThan(0);
     expect(screen.getByText("0.0200 EUR")).toBeInTheDocument();
-    expect(screen.getByText(/0\.0100.*0\.0200 EUR/)).toBeInTheDocument();
+    expect(screen.getByText(/¥0\.0100.*0\.0200 EUR/)).toBeInTheDocument();
     expect(screen.getByText(/更新时间/)).toBeInTheDocument();
   });
 
