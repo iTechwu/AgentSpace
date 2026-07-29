@@ -96,6 +96,7 @@ function createMockClient(behavior: {
               id: "model-test",
               alias: "claude-sonnet",
               model: "claude-sonnet",
+              modelType: "llm",
               supportedProtocols: ["anthropic", "openai", "gemini"],
               isEnabled: true,
               isDeprecated: false,
@@ -643,6 +644,31 @@ test("model catalog preflight blocks incompatible models before credential creat
   assert.equal(failed.status, "failed");
   assert.match(failed.lastErrorMessage ?? "", /managed_runtime.no_compatible_models/);
   assert.equal(activeClient.createCalls, 0);
+});
+
+test("model catalog preflight rejects protocol-compatible non-LLM models", async () => {
+  activeClient = createMockClient({
+    modelList: [{
+      id: "image-model",
+      alias: "image-model",
+      model: "image-model",
+      modelType: "image",
+      supportedProtocols: ["anthropic", "openai"],
+      isEnabled: true,
+      isDeprecated: false,
+    }],
+  });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const preflight = await preflightManagedRuntimeCreationAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    defaultModel: "image-model",
+  });
+
+  assert.equal(preflight.allowed, false);
+  assert.equal(preflight.code, "managed_runtime.no_compatible_models");
 });
 
 test("usage reconciliation keeps provisional billing pending until models finalizes it", async () => {

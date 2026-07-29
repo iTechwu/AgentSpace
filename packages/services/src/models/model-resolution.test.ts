@@ -32,7 +32,7 @@ const CREDENTIAL_ID = "rtc-1";
 const EMPLOYEE_NAME = "researcher";
 const originalRuntimeMode = process.env.DOFE_AGENT_RUNTIME_MODE;
 
-function mockModelsClient(availableModels: Array<{ alias: string; model?: string; id?: string; isAvailable?: boolean; isEnabled?: boolean }>) {
+function mockModelsClient(availableModels: Array<{ alias: string; model?: string; id?: string; modelType?: string; isAvailable?: boolean; isEnabled?: boolean }>) {
   const client = getModelsInternalClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (client as any).runtimeCredentials.models = async () => ({
@@ -40,6 +40,7 @@ function mockModelsClient(availableModels: Array<{ alias: string; model?: string
       alias: m.alias,
       model: m.model ?? m.alias,
       id: m.id ?? m.alias,
+      modelType: m.modelType ?? "llm",
       isAvailable: m.isAvailable ?? true,
       isEnabled: m.isEnabled ?? true,
     })),
@@ -241,6 +242,21 @@ test("protocol fallback is used as last resort", async () => {
   assert.equal(result.source, "protocol_fallback");
 });
 
+test("image and video models never become an execution fallback", async () => {
+  mockModelsClient([
+    { alias: "image-generator", modelType: "image" },
+    { alias: "video-generator", modelType: "video" },
+    { alias: "language-model", modelType: "llm" },
+  ]);
+  createManagedRuntime();
+  createEmployee();
+
+  const result = await resolve({ employeeName: EMPLOYEE_NAME });
+
+  assert.equal(result.modelId, "language-model");
+  assert.equal(result.source, "protocol_fallback");
+});
+
 test("invalid session override is rejected instead of silently changing the selected model", async () => {
   mockModelsClient([{ alias: "general" }]);
   createManagedRuntime("general");
@@ -326,6 +342,26 @@ test("chat overrides are validated against the enabled bound Runtime catalog", a
       workspaceId: WORKSPACE_ID,
       employeeName: EMPLOYEE_NAME,
       modelId: "disabled",
+    }),
+    /model_resolution.model_unavailable/,
+  );
+});
+
+test("chat overrides reject non-LLM models", async () => {
+  mockModelsClient([{ alias: "image-generator", modelType: "image" }]);
+  createManagedRuntime();
+  createEmployee();
+  bindEmployeeRuntimeSync({
+    workspaceId: WORKSPACE_ID,
+    employeeName: EMPLOYEE_NAME,
+    runtimeId: RUNTIME_ID,
+  });
+
+  await assert.rejects(
+    validateModelOverrideForBoundEmployeeAsync({
+      workspaceId: WORKSPACE_ID,
+      employeeName: EMPLOYEE_NAME,
+      modelId: "image-generator",
     }),
     /model_resolution.model_unavailable/,
   );

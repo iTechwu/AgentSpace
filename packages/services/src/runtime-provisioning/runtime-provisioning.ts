@@ -1783,6 +1783,7 @@ async function assertManagedRuntimeModelSelectionAsync(input: {
   const response = await input.client.models.list({ query: { tenantId: input.tenantId } });
   const available = response.list.filter((item) => {
     const model = item as {
+      modelType?: string;
       supportedProtocols?: string[];
       isEnabled?: boolean;
       isDeprecated?: boolean;

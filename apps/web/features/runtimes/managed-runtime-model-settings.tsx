@@ -12,6 +12,7 @@ type RuntimeModelOption = {
   alias?: string | null;
   model?: string | null;
   displayName?: string | null;
+  modelType?: string | null;
   isAvailable?: boolean | null;
   isEnabled?: boolean | null;
 };
@@ -48,7 +49,9 @@ export function ManagedRuntimeModelSettings({
     return () => { active = false; };
   }, [runtimeId]);
 
-  const availableModels = models.filter((model) => model.alias && model.isAvailable && model.isEnabled !== false);
+  const availableModels = models.filter(
+    (model) => model.modelType === "llm" && model.alias && model.isAvailable && model.isEnabled !== false,
+  );
   const changed = value !== (defaultModel ?? "");
 
   return (

@@ -26,15 +26,24 @@ it("searches models and shows unavailable protocol-compatible models with their 
       {
         alias: "available-model",
         model: "available-model",
+        modelType: "llm",
         protocol: "openai",
         isAvailable: true,
       },
       {
         alias: "disabled-model",
         model: "disabled-model",
+        modelType: "llm",
         protocol: "openai",
         isAvailable: false,
         unavailableReason: "Disabled by team policy",
+      },
+      {
+        alias: "image-model",
+        model: "image-model",
+        modelType: "image",
+        protocol: "openai",
+        isAvailable: true,
       },
     ],
   });
@@ -43,6 +52,7 @@ it("searches models and shows unavailable protocol-compatible models with their 
 
   expect(await screen.findByRole("option", { name: /available-model.*openai.*available/i })).toBeEnabled();
   expect(screen.getByRole("option", { name: /disabled-model.*Disabled by team policy/i })).toBeDisabled();
+  expect(screen.queryByRole("option", { name: /image-model/i })).not.toBeInTheDocument();
   await userEvent.type(screen.getByLabelText("Search models"), "disabled");
   expect(screen.queryByRole("option", { name: /available-model/i })).not.toBeInTheDocument();
   expect(screen.getByRole("option", { name: /disabled-model/i })).toBeInTheDocument();
@@ -55,6 +65,7 @@ it("localizes known model availability reasons in Chinese", async () => {
       {
         alias: "incompatible-model",
         model: "incompatible-model",
+        modelType: "llm",
         protocol: "openai",
         isAvailable: false,
         unavailableReason: "Runtime protocol (anthropic) not supported",

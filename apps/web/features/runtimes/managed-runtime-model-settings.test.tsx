@@ -23,8 +23,9 @@ it("saves a runtime default from the credential-authorized model catalog", async
     configured: true,
     total: 2,
     list: [
-      { id: "model-1", alias: "gpt-5", displayName: "GPT-5", isAvailable: true, isEnabled: true },
-      { id: "model-2", alias: "disabled", displayName: "Disabled", isAvailable: true, isEnabled: false },
+      { id: "model-1", alias: "gpt-5", displayName: "GPT-5", modelType: "llm", isAvailable: true, isEnabled: true },
+      { id: "model-2", alias: "disabled", displayName: "Disabled", modelType: "llm", isAvailable: true, isEnabled: false },
+      { id: "model-3", alias: "image-model", displayName: "Image model", modelType: "image", isAvailable: true, isEnabled: true },
     ],
   });
   vi.mocked(updateManagedRuntimeDefaultModelAction).mockResolvedValue();
@@ -35,6 +36,7 @@ it("saves a runtime default from the credential-authorized model catalog", async
   const select = await screen.findByRole("combobox", { name: "Default model" });
   expect(screen.getByRole("option", { name: "GPT-5" })).toBeInTheDocument();
   expect(screen.queryByRole("option", { name: "Disabled" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: "Image model" })).not.toBeInTheDocument();
 
   await user.selectOptions(select, "gpt-5");
   await user.click(screen.getByRole("button", { name: "Save model" }));

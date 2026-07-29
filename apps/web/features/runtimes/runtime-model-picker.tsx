@@ -41,10 +41,12 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
   const selected = items.find((item) => item.alias === value || item.model === value);
   const normalizedQuery = query.trim().toLowerCase();
   const filteredItems = items.filter((item) =>
-    !normalizedQuery
-    || item.alias === value
-    || [item.alias, item.displayName, item.model, item.protocol].some((field) => field?.toLowerCase().includes(normalizedQuery)),
+    item.modelType === "llm" &&
+      (!normalizedQuery
+        || item.alias === value
+        || [item.alias, item.displayName, item.model, item.protocol].some((field) => field?.toLowerCase().includes(normalizedQuery))),
   );
+  const selectedLlm = selected?.modelType === "llm" ? selected : undefined;
   return (
     <div className="runtime-model-picker">
       <label className="runtime-field">
@@ -73,29 +75,29 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
         </p>
       ) : null}
 
-      {selected ? (
+      {selectedLlm ? (
         <div className="runtime-model-picker__summary">
           <div className="runtime-model-picker__tags">
-            <span>{selected.protocol}</span>
-            {selected.contextLength ? (
+            <span>{selectedLlm.protocol}</span>
+            {selectedLlm.contextLength ? (
               <span>
-                {formatTokens(selected.contextLength)} {tx("上下文", "context")}
+                {formatTokens(selectedLlm.contextLength)} {tx("上下文", "context")}
               </span>
             ) : null}
-            {selected.supportsVision ? (
+            {selectedLlm.supportsVision ? (
               <span>{tx("视觉", "vision")}</span>
             ) : null}
-            {selected.supportsFunctionCalling ? (
+            {selectedLlm.supportsFunctionCalling ? (
               <span>{tx("工具调用", "tools")}</span>
             ) : null}
           </div>
-          {selected.inputPrice != null || selected.outputPrice != null ? (
+          {selectedLlm.inputPrice != null || selectedLlm.outputPrice != null ? (
             <p>
-              ¥{formatPrice(selected.inputPrice)}/1M {tx("输入", "in")} · ¥{formatPrice(selected.outputPrice)}/1M {tx("输出", "out")}
+              ¥{formatPrice(selectedLlm.inputPrice)}/1M {tx("输入", "in")} · ¥{formatPrice(selectedLlm.outputPrice)}/1M {tx("输出", "out")}
             </p>
           ) : null}
-          {!selected.isAvailable ? (
-            <p className="runtime-model-picker__error">{translateUnavailableReason(selected.unavailableReason, tx)}</p>
+          {!selectedLlm.isAvailable ? (
+            <p className="runtime-model-picker__error">{translateUnavailableReason(selectedLlm.unavailableReason, tx)}</p>
           ) : null}
         </div>
       ) : value ? (
