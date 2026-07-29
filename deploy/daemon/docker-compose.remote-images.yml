@@ -1,5 +1,6 @@
 # Runtime images already available on the remote host. Each service wraps one
-# provider CLI and registers exactly one DofeAgent runtime.
+# provider CLI and registers exactly one DofeAgent runtime. The image tag must
+# match MANAGED_RUNTIME_IMAGE_TAG in both the control plane and managed node.
 x-daemon-healthcheck: &daemon-healthcheck
   test: ["CMD", "dofe-agent-daemon", "status", "--json"]
   interval: 30s
@@ -14,8 +15,10 @@ services:
       dockerfile: Dockerfile.provider-runtime
       args:
         PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/codex-cli:0.144.6
-    image: dofe-agent-runtime-codex:172-30-30-11
+    image: dofe/agent-runtime-codex:${MANAGED_RUNTIME_IMAGE_TAG:-latest}
     env_file: ./runtimes/codex.env
+    environment:
+      MANAGED_RUNTIME_IMAGE_TAG: ${MANAGED_RUNTIME_IMAGE_TAG:-latest}
     extra_hosts:
       - dofe-agent.local.dofe.ai:172.30.140.30
     volumes:
@@ -38,8 +41,10 @@ services:
       dockerfile: Dockerfile.provider-runtime
       args:
         PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/claude-code-cli:2.1.216
-    image: dofe-agent-runtime-claude:172-30-30-11
+    image: dofe/agent-runtime-claude:${MANAGED_RUNTIME_IMAGE_TAG:-latest}
     env_file: ./runtimes/claude.env
+    environment:
+      MANAGED_RUNTIME_IMAGE_TAG: ${MANAGED_RUNTIME_IMAGE_TAG:-latest}
     extra_hosts:
       - dofe-agent.local.dofe.ai:172.30.140.30
     volumes:
@@ -62,8 +67,10 @@ services:
       dockerfile: Dockerfile.provider-runtime
       args:
         PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/openclaw:2026.7.2-2fac2ec8bf80
-    image: dofe-agent-runtime-openclaw:172-30-30-11
+    image: dofe/agent-runtime-openclaw:${MANAGED_RUNTIME_IMAGE_TAG:-latest}
     env_file: ./runtimes/openclaw.env
+    environment:
+      MANAGED_RUNTIME_IMAGE_TAG: ${MANAGED_RUNTIME_IMAGE_TAG:-latest}
     extra_hosts:
       - dofe-agent.local.dofe.ai:172.30.140.30
     volumes:
@@ -87,10 +94,11 @@ services:
       args:
         PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/hermes-agent:1.0.0-1bf1a11135bf
         PROVIDER_PATH: /opt/hermes/bin:/opt/hermes/.venv/bin
-    image: dofe-agent-runtime-hermes:172-30-30-11
+    image: dofe/agent-runtime-hermes:${MANAGED_RUNTIME_IMAGE_TAG:-latest}
     env_file: ./runtimes/hermes.env
     environment:
       HERMES_HOME: /home/dofe-agent/.hermes
+      MANAGED_RUNTIME_IMAGE_TAG: ${MANAGED_RUNTIME_IMAGE_TAG:-latest}
     extra_hosts:
       - dofe-agent.local.dofe.ai:172.30.140.30
     volumes:

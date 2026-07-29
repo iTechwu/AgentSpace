@@ -8,6 +8,9 @@ import {
   retryProvisioningAction,
 } from "@/features/runtimes/actions";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
+import { useLanguage } from "@/features/i18n/language-provider";
+import type { TxFn } from "@/features/i18n/presentation";
+import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import type { RuntimeProvisioningTaskDetail } from "@dofe-agent/services";
 
 const POLL_INTERVAL_MS = 2000;
@@ -19,6 +22,7 @@ export function RuntimeTaskDetailClient({
   workspaceSlug: string;
   initialDetail: RuntimeProvisioningTaskDetail;
 }) {
+  const { language, tx } = useLanguage();
   const [detail, setDetail] = useState(initialDetail);
   const [pending, startTransition] = useTransition();
   const [clock, setClock] = useState(() => Date.now());
@@ -73,9 +77,9 @@ export function RuntimeTaskDetailClient({
             href={buildWorkspacePath(workspaceSlug, "/runtimes")}
             className="runtime-task-detail__back-link"
           >
-            ← Runtimes
+            {tx("← 执行引擎", "← Runtimes")}
           </Link>
-          <h1>{task.runtimeType} provisioning</h1>
+          <h1>{tx(`${formatDaemonProviderLabel(task.runtimeType)} 部署`, `${formatDaemonProviderLabel(task.runtimeType)} provisioning`)}</h1>
           <p>{task.id}</p>
         </div>
         <div className="runtime-task-detail__actions">
@@ -91,7 +95,7 @@ export function RuntimeTaskDetailClient({
                 })
               }
             >
-              Retry (retry {task.retryCount + 1}/{task.maxRetries})
+              {tx(`重试（第 ${task.retryCount + 1}/${task.maxRetries} 次）`, `Retry (retry ${task.retryCount + 1}/${task.maxRetries})`)}
             </button>
           ) : null}
           {task.status === "running" || task.status === "queued" || task.status === "retrying" || task.status === "failed" ? (
@@ -105,20 +109,20 @@ export function RuntimeTaskDetailClient({
                 })
               }
             >
-              Cancel
+              {tx("取消", "Cancel")}
             </button>
           ) : null}
         </div>
       </header>
 
-      <section className="runtime-task-detail__progress" aria-label="Provisioning progress">
+      <section className="runtime-task-detail__progress" aria-label={tx("部署进度", "Provisioning progress")}>
         <div className="runtime-task-detail__meta">
-          <span>requested: {new Date(task.createdAt).toLocaleString()}</span>
-          <span>elapsed: {formatElapsed(task.startedAt ?? task.createdAt, task.completedAt, clock)}</span>
-          <span>safe cancellation: {task.runtimeCredentialId ? "cleanup required" : "yes"}</span>
+          <span>{tx("发起时间：", "requested: ")}{formatDateTime(task.createdAt, language)}</span>
+          <span>{tx("耗时：", "elapsed: ")}{formatElapsed(task.startedAt ?? task.createdAt, task.completedAt, clock)}</span>
+          <span>{tx("安全取消：", "safe cancellation: ")}{task.runtimeCredentialId ? tx("需要清理", "cleanup required") : tx("可以", "yes")}</span>
         </div>
         <div className="runtime-task-detail__stage">
-          <span>{task.stage}</span>
+          <span>{translateProvisioningStage(task.stage, tx)}</span>
           <span>{task.progressPercent}%</span>
         </div>
         <div className="runtime-task-detail__progress-track" aria-hidden="true">
@@ -128,16 +132,16 @@ export function RuntimeTaskDetailClient({
           />
         </div>
         <div className="runtime-task-detail__meta runtime-task-detail__meta--status">
-          <span>status: {task.status}</span>
+          <span>{tx("状态：", "status: ")}{translateProvisioningStatus(task.status, tx)}</span>
           {task.runtimeCredentialId ? (
-            <span>credential: {task.runtimeCredentialId.slice(0, 12)}…</span>
+            <span>{tx("凭证：", "credential: ")}{task.runtimeCredentialId.slice(0, 12)}…</span>
           ) : null}
           {task.nextRetryAt ? (
-            <span>next retry: {new Date(task.nextRetryAt).toLocaleString()}</span>
+            <span>{tx("下次重试：", "next retry: ")}{formatDateTime(task.nextRetryAt, language)}</span>
           ) : null}
-          {task.retryCount > 0 ? <span>retries: {task.retryCount}</span> : null}
+          {task.retryCount > 0 ? <span>{tx("已重试：", "retries: ")}{task.retryCount}</span> : null}
           {task.lastErrorMessage ? (
-            <span className="runtime-task-detail__error">error: {task.lastErrorMessage}</span>
+            <span className="runtime-task-detail__error">{tx("错误：", "error: ")}{task.lastErrorMessage}</span>
           ) : null}
         </div>
       </section>
@@ -146,20 +150,20 @@ export function RuntimeTaskDetailClient({
         <section className="runtimes-panel runtime-task-detail__panel">
           <div className="runtimes-panel__header">
             <div>
-              <span>Resource</span>
-              <h2>Managed runtime</h2>
+              <span>{tx("资源", "Resource")}</span>
+              <h2>{tx("托管执行引擎", "Managed runtime")}</h2>
             </div>
           </div>
           <dl className="runtime-task-detail__runtime-fields">
-            <dt>Runtime ID</dt>
+            <dt>{tx("执行引擎 ID", "Runtime ID")}</dt>
             <dd>{runtime.id}</dd>
-            <dt>Status</dt>
-            <dd>{runtime.status}</dd>
-            <dt>Provisioning state</dt>
-            <dd>{runtime.provisioningState ?? "—"}</dd>
-            <dt>Protocols</dt>
+            <dt>{tx("状态", "Status")}</dt>
+            <dd>{translateRuntimeStatus(runtime.status, tx)}</dd>
+            <dt>{tx("部署状态", "Provisioning state")}</dt>
+            <dd>{translateProvisioningState(runtime.provisioningState, tx)}</dd>
+            <dt>{tx("协议", "Protocols")}</dt>
             <dd>{(runtime.protocols ?? []).join(", ") || "—"}</dd>
-            <dt>Default model</dt>
+            <dt>{tx("默认模型", "Default model")}</dt>
             <dd>{runtime.defaultModel ?? "—"}</dd>
           </dl>
         </section>
@@ -168,21 +172,21 @@ export function RuntimeTaskDetailClient({
       <section className="runtimes-panel runtime-task-detail__panel">
         <div className="runtimes-panel__header">
           <div>
-            <span>Activity</span>
-            <h2>Stage log</h2>
+            <span>{tx("活动", "Activity")}</span>
+            <h2>{tx("阶段日志", "Stage log")}</h2>
           </div>
         </div>
         {events.length === 0 ? (
-          <p className="runtime-task-detail__empty-events">No events yet.</p>
+          <p className="runtime-task-detail__empty-events">{tx("暂无事件。", "No events yet.")}</p>
         ) : (
           <ol className="runtime-task-detail__events">
             {events.map((event) => (
               <li key={event.id}>
                 <time>
-                  {new Date(event.createdAt).toLocaleTimeString()}
+                  {new Date(event.createdAt).toLocaleTimeString(language === "zh" ? "zh-CN" : "en-US")}
                 </time>
-                <strong>{event.stage}</strong>
-                <span>{event.status}</span>
+                <strong>{translateProvisioningStage(event.stage, tx)}</strong>
+                <span>{translateProvisioningStatus(event.status, tx)}</span>
                 {event.summary ? <span className="runtime-task-detail__event-summary">{event.summary}</span> : null}
               </li>
             ))}
@@ -191,6 +195,54 @@ export function RuntimeTaskDetailClient({
       </section>
     </section>
   );
+}
+
+function translateProvisioningStage(value: string, tx: TxFn): string {
+  const labels: Record<string, [string, string]> = {
+    pending: ["等待处理", "Pending"],
+    request_credential: ["申请凭证", "Request credential"],
+    prepare_node: ["准备节点", "Prepare node"],
+    pull_image: ["拉取镜像", "Pull image"],
+    install_cli: ["安装 CLI", "Install CLI"],
+    write_credential: ["写入凭证", "Write credential"],
+    health_check: ["健康检查", "Health check"],
+    cleanup: ["清理资源", "Cleanup"],
+    ready: ["准备就绪", "Ready"],
+  };
+  const label = labels[value];
+  return label ? tx(...label) : value;
+}
+
+function translateProvisioningStatus(value: string, tx: TxFn): string {
+  const labels: Record<string, [string, string]> = {
+    pending: ["等待中", "Pending"],
+    queued: ["已排队", "Queued"],
+    running: ["进行中", "Running"],
+    retrying: ["重试中", "Retrying"],
+    succeeded: ["已完成", "Succeeded"],
+    failed: ["失败", "Failed"],
+    cancelling: ["取消中", "Cancelling"],
+    cancelled: ["已取消", "Cancelled"],
+    skipped: ["已跳过", "Skipped"],
+  };
+  const label = labels[value];
+  return label ? tx(...label) : value;
+}
+
+function translateRuntimeStatus(value: string, tx: TxFn): string {
+  if (value === "online") return tx("在线", "Online");
+  if (value === "offline") return tx("离线", "Offline");
+  return translateProvisioningStatus(value, tx);
+}
+
+function translateProvisioningState(value: string | null | undefined, tx: TxFn): string {
+  if (!value) return "—";
+  if (value === "managed") return tx("托管", "Managed");
+  return translateProvisioningStatus(value, tx);
+}
+
+function formatDateTime(value: string, language: "zh" | "en"): string {
+  return new Date(value).toLocaleString(language === "zh" ? "zh-CN" : "en-US");
 }
 
 function formatElapsed(start: string, completedAt: string | undefined, now: number): string {

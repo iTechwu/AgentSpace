@@ -39,6 +39,27 @@ must resolve to host-visible paths. `MANAGED_NODE_USER=0:0` is suitable for a
 local Docker Desktop test; production Linux hosts should instead grant the
 container user access to the Docker socket by group id.
 
+### Build managed runtime images
+
+Before creating a managed runtime, build its approved wrapper image on the
+same Docker host that runs the managed node. The image reference is always
+`dofe/agent-runtime-<provider>:<tag>`; use the same
+`MANAGED_RUNTIME_IMAGE_TAG` value in the control plane, `.env.managed-node`,
+and the build command.
+
+```sh
+cd deploy/daemon
+MANAGED_RUNTIME_IMAGE_TAG=latest \
+  docker compose -f docker-compose.remote-images.yml build runtime-codex runtime-claude
+
+docker image inspect dofe/agent-runtime-codex:latest
+docker image inspect dofe/agent-runtime-claude:latest
+```
+
+The remote-images Compose file now applies this canonical image name directly.
+Do not pre-pull only the provider base images: they do not include the
+`dofe-agent-daemon` runtime wrapper required by managed provisioning.
+
 ```json
 {
   "version": 1,
