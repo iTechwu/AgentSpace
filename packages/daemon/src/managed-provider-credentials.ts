@@ -269,7 +269,7 @@ function buildDockerProviderLauncher(profileDir: string, runtimeId: string, prov
     `  --network ${shellQuote(dockerNetwork)} \\`,
     "  --user \"$(id -u):$(id -g)\" \\",
     `  --name ${shellQuote(`dofe-runtime-${normalizeRuntimeId(runtimeId)}`)} \\`,
-    "  --mount \\\"type=bind,src=$(pwd),dst=/workspace\\\" \\",
+    "  --mount type=bind,src=$(pwd),dst=/workspace \\",
     `  --mount ${shellQuote(`type=bind,src=${profileDir},dst=/dofe-profile,readonly`)} \\`,
     `  --mount ${shellQuote(`type=bind,src=${runtimeHomeDir},dst=/dofe-home`)} \\`,
     "  --workdir /workspace \\",
