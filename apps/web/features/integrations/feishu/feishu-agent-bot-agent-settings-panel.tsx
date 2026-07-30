@@ -7,6 +7,7 @@ import {
   checkFeishuIntegrationHealthAction,
   createFeishuAgentBotBindingAction,
   disableFeishuAgentBotBindingAction,
+  inspectFeishuAgentBotBindingAvailabilityAction,
 } from "./feishu-actions";
 import { FeishuAgentBotCredentialRotation } from "./feishu-agent-bot-credential-rotation";
 import { FeishuAgentBotPolicyEditor } from "./feishu-agent-bots-panel";
@@ -29,6 +30,12 @@ type HealthCheckFeedback = {
   readonly tone: "success" | "error";
 };
 
+type FeishuAgentBotBindingAvailability =
+  | { state: "available" }
+  | { state: "target_already_bound"; integrationId: string; displayName: string }
+  | { state: "active_elsewhere"; integrationId: string; agentId: string; displayName: string }
+  | { state: "disabled_elsewhere"; integrationId: string; agentId: string; displayName: string };
+
 export function FeishuAgentBotAgentSettingsPanel({
   agentId,
   agentName,
@@ -41,6 +48,8 @@ export function FeishuAgentBotAgentSettingsPanel({
   const [isPending, startTransition] = useTransition();
   const [currentIntegration, setCurrentIntegration] = useState(integration);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [bindingAvailability, setBindingAvailability] = useState<FeishuAgentBotBindingAvailability | null>(null);
+  const [transferConfirmed, setTransferConfirmed] = useState(false);
   const [healthCheckFeedback, setHealthCheckFeedback] = useState<HealthCheckFeedback | null>(null);
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
@@ -58,6 +67,8 @@ export function FeishuAgentBotAgentSettingsPanel({
   useEffect(() => {
     setCurrentIntegration(integration);
     setFeedback(null);
+    setBindingAvailability(null);
+    setTransferConfirmed(false);
     setHealthCheckFeedback(null);
   }, [integration?.id, agentId]);
 
@@ -72,6 +83,8 @@ export function FeishuAgentBotAgentSettingsPanel({
     setAppSecret("");
     setVerificationToken("");
     setEncryptKey("");
+    setBindingAvailability(null);
+    setTransferConfirmed(false);
     setFeedback(tx("AI员工 飞书 Bot 已绑定，工作区已启用。", "AI employee Feishu bot bound and workspace enabled."));
     onUpdated?.(created);
   };
@@ -80,6 +93,20 @@ export function FeishuAgentBotAgentSettingsPanel({
     setCurrentIntegration(updated);
     onUpdated?.(updated);
   };
+
+  const inspectBindingAvailability = async () => {
+    const availability = await inspectFeishuAgentBotBindingAvailabilityAction({
+      agentId,
+      appId,
+      tenantKey,
+    });
+    setBindingAvailability(availability);
+    return availability;
+  };
+
+  const transferCandidate = bindingAvailability?.state === "disabled_elsewhere"
+    ? bindingAvailability
+    : null;
 
   return (
     <section className="form-panel form-panel--nested feishu-agent-settings-panel">
@@ -317,7 +344,21 @@ export function FeishuAgentBotAgentSettingsPanel({
             <input
               autoComplete="off"
               disabled={disabled}
-              onChange={(event) => setAppId(event.currentTarget.value)}
+              onBlur={() => {
+                if (!appId.trim()) return;
+                startTransition(async () => {
+                  try {
+                    await inspectBindingAvailability();
+                  } catch (error) {
+                    setFeedback(translateSettingsActionError(error, tx));
+                  }
+                });
+              }}
+              onChange={(event) => {
+                setAppId(event.currentTarget.value);
+                setBindingAvailability(null);
+                setTransferConfirmed(false);
+              }}
               value={appId}
             />
           </label>
@@ -364,7 +405,11 @@ export function FeishuAgentBotAgentSettingsPanel({
                 <input
                   autoComplete="off"
                   disabled={disabled}
-                  onChange={(event) => setTenantKey(event.currentTarget.value)}
+                  onChange={(event) => {
+                    setTenantKey(event.currentTarget.value);
+                    setBindingAvailability(null);
+                    setTransferConfirmed(false);
+                  }}
                   value={tenantKey}
                 />
               </label>
@@ -466,6 +511,39 @@ export function FeishuAgentBotAgentSettingsPanel({
             </div>
           </details>
 
+          {bindingAvailability?.state === "disabled_elsewhere" ? (
+            <aside className="feishu-agent-settings-panel__transfer-notice" aria-live="polite">
+              <strong>{tx("发现已停用的 Bot 绑定", "Disabled bot binding found")}</strong>
+              <p>
+                {tx(
+                  `此 App ID 之前绑定给“${bindingAvailability.agentId}”，目前已停用。移交后，该 Bot 将归属“${agentName}”；旧的群聊与资源路由会归档，待发消息会取消。`,
+                  `This App ID was previously bound to “${bindingAvailability.agentId}” and is disabled. Transferring assigns it to “${agentName}”, archives old channel and resource routes, and cancels pending messages.`,
+                )}
+              </p>
+              <label className="settings-checkbox">
+                <input
+                  checked={transferConfirmed}
+                  disabled={disabled}
+                  onChange={(event) => setTransferConfirmed(event.currentTarget.checked)}
+                  type="checkbox"
+                />
+                <span>{tx("我确认将这个已停用 Bot 移交给当前 AI员工", "I confirm transferring this disabled bot to the current AI employee")}</span>
+              </label>
+            </aside>
+          ) : null}
+
+          {bindingAvailability?.state === "active_elsewhere" ? (
+            <aside className="feishu-agent-settings-panel__transfer-notice feishu-agent-settings-panel__transfer-notice--blocked" aria-live="polite">
+              <strong>{tx("Bot 正在被其他 AI员工使用", "Bot is in use by another AI employee")}</strong>
+              <p>
+                {tx(
+                  `“${bindingAvailability.agentId}”当前正在使用此 App ID。请先在该 AI员工的设置中停用或发起移交，避免中断正在运行的飞书路由。`,
+                  `“${bindingAvailability.agentId}” is currently using this App ID. Disable it or start a transfer from that AI employee's settings first to avoid interrupting live Feishu routing.`,
+                )}
+              </p>
+            </aside>
+          ) : null}
+
           <div className="feishu-integration-form__actions">
             <button
               className="primary-button"
@@ -473,6 +551,21 @@ export function FeishuAgentBotAgentSettingsPanel({
               onClick={() => {
                 startTransition(async () => {
                   try {
+                    const availability = await inspectBindingAvailability();
+                    if (availability.state === "target_already_bound") {
+                      setFeedback(tx("这个 AI员工 已经绑定了飞书 Bot。", "This AI employee already has a Feishu bot."));
+                      return;
+                    }
+                    if (availability.state === "active_elsewhere") {
+                      setFeedback(tx("该 Bot 正在被其他 AI员工使用，不能在这里直接接管。", "This bot is in use by another AI employee and cannot be taken over here."));
+                      return;
+                    }
+                    if (availability.state === "disabled_elsewhere" && (
+                      !transferConfirmed || transferCandidate?.integrationId !== availability.integrationId
+                    )) {
+                      setFeedback(tx("请先确认移交已停用的 Bot。", "Confirm transfer of the disabled bot first."));
+                      return;
+                    }
                     const created = await createFeishuAgentBotBindingAction({
                       agentId,
                       displayName,
@@ -482,6 +575,9 @@ export function FeishuAgentBotAgentSettingsPanel({
                       verificationToken,
                       encryptKey,
                       tenantKey,
+                      transferDisabledBindingId: availability.state === "disabled_elsewhere"
+                        ? availability.integrationId
+                        : undefined,
                       channelAutoProvisioning: {
                         botAdded: botAddedPolicy,
                         firstMessage: firstMessagePolicy,
@@ -506,7 +602,9 @@ export function FeishuAgentBotAgentSettingsPanel({
               }}
               type="button"
             >
-              {tx("绑定 Bot 并启用工作区", "Bind Bot and Enable Workspace")}
+              {transferCandidate && transferConfirmed
+                ? tx("移交 Bot 并启用工作区", "Transfer Bot and Enable Workspace")
+                : tx("绑定 Bot 并启用工作区", "Bind Bot and Enable Workspace")}
             </button>
           </div>
         </div>

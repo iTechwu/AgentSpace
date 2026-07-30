@@ -31,6 +31,7 @@ import {
   checkFeishuIntegrationHealth,
   createFeishuAgentBotBindingSync,
   disableFeishuAgentBotBindingSync,
+  inspectFeishuAgentBotBindingAvailabilitySync,
   resolveFeishuResourceDescriptorForType,
   rotateFeishuAgentBotCredentialsSync,
   tryRecordWorkspaceAuditEventSync,
@@ -260,6 +261,21 @@ export async function createFeishuAgentBotBindingAction(
       role: workspaceContext.currentMembership.role,
       userId: workspaceContext.currentUser.id,
     },
+  });
+}
+
+export async function inspectFeishuAgentBotBindingAvailabilityAction(input: {
+  agentId: string;
+  appId: string;
+  tenantKey?: string;
+}) {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  return inspectFeishuAgentBotBindingAvailabilitySync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    agentId: input.agentId,
+    appId: input.appId,
+    tenantKey: input.tenantKey,
   });
 }
 

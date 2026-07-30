@@ -317,6 +317,7 @@ export {
   readExternalMessageMappingByExternalMessageSync,
   readExternalMessageOutboxSync,
   readExternalResourceBindingByKeySync,
+  reassignDisabledExternalIntegrationSync,
   readExternalThreadBindingByIdSync,
   readExternalThreadBindingSync,
   readExternalUserBindingByIdSync,

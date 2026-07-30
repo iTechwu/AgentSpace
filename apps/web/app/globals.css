@@ -10413,6 +10413,26 @@ textarea:focus {
   color: #b23a34;
 }
 
+.feishu-agent-settings-panel__transfer-notice {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.85rem 0.95rem;
+  border-left: 3px solid #c27518;
+  background: rgba(255, 248, 235, 0.86);
+  color: #55390d;
+}
+
+.feishu-agent-settings-panel__transfer-notice--blocked {
+  border-left-color: #b23a34;
+  background: rgba(255, 245, 244, 0.9);
+  color: #7d2520;
+}
+
+.feishu-agent-settings-panel__transfer-notice p {
+  margin: 0;
+  line-height: 1.45;
+}
+
 .feishu-agent-settings-panel__command-list {
   display: grid;
   gap: 0.55rem;

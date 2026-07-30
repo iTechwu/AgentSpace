@@ -286,6 +286,41 @@ test("Feishu agent bot binding rejects placeholders and duplicate bot ownership"
   }), /feishu\.agent_bot_binding\.duplicate_app_tenant/);
 });
 
+test("Feishu agent bot binding transfers an explicitly selected disabled bot", databaseTestOptions, () => {
+  const workspace = createWorkspaceSync({
+    slug: "feishu-agent-bot-transfer",
+    name: "Feishu Agent Bot Transfer",
+    createdBy: "system",
+  });
+  const disabled = createFeishuAgentBotBindingSync({
+    workspaceId: workspace.id,
+    agentId: "ProductDesigner",
+    appId: "cli_transferable_bot",
+    appSecret: "old-secret",
+  });
+  disableFeishuAgentBotBindingSync({
+    workspaceId: workspace.id,
+    integrationId: disabled.id,
+  });
+
+  const transferred = createFeishuAgentBotBindingSync({
+    workspaceId: workspace.id,
+    agentId: "ProductManager",
+    appId: "cli_transferable_bot",
+    appSecret: "new-secret",
+    transferDisabledBindingId: disabled.id,
+  });
+
+  assert.equal(transferred.id, disabled.id);
+  assert.equal(transferred.status, "active");
+  assert.equal(transferred.agentId, "ProductManager");
+  assert.deepEqual(readFeishuIntegrationCredentials(transferred), {
+    appSecret: "new-secret",
+    verificationToken: "",
+    encryptKey: undefined,
+  });
+});
+
 test("Feishu agent bot credentials can be rotated and disabled without exposing secrets", databaseTestOptions, () => {
   const workspace = createWorkspaceSync({
     slug: "feishu-agent-bot-rotate",
