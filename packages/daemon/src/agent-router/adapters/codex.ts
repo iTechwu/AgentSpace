@@ -92,20 +92,47 @@ async function runCodex(
   observer: AgentRouterObserver,
   request: AgentRouterRunRequest,
 ): Promise<AgentRouterRunResult> {
+  let discoveredSessionId = request.sessionId;
+  let stdoutBuffer = "";
+  const processLine = (line: string, runObserver: AgentRouterObserver): void => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) {
+      return;
+    }
+    try {
+      const event = JSON.parse(trimmed) as Record<string, unknown>;
+      discoveredSessionId = discoverSessionId([event], discoveredSessionId);
+      for (const mapped of mapCodexNativeEvent(event)) {
+        runObserver.emit(mapped);
+      }
+    } catch {
+      // Final parsing reports malformed JSON diagnostics.
+    }
+  };
+
   try {
     return await runNativeHarness("codex", plan, observer, request, {
       emptyMessage: "Codex CLI returned an empty final message.",
       nonZeroMessage: (exitCode) => `Codex CLI exited with code ${exitCode}.`,
       timeoutMessage: (timeoutMs) => `Codex CLI timed out after ${timeoutMs}ms.`,
+      onStdout: (chunk, runObserver) => {
+        stdoutBuffer += chunk;
+        const lines = stdoutBuffer.split(/\r?\n/);
+        stdoutBuffer = lines.pop() ?? "";
+        for (const line of lines) {
+          processLine(line, runObserver);
+        }
+      },
       parseEvents: (stdout, stderr, runObserver) => {
+        if (stdoutBuffer.trim()) {
+          processLine(stdoutBuffer, runObserver);
+          stdoutBuffer = "";
+        }
         const parsed = parseJsonEventOutput(stdout);
         const diagnostics = [...parsed.diagnostics];
         let outputText = readCodexOutputFile(plan.env[CODEX_OUTPUT_ENV]);
 
         for (const event of parsed.events) {
-          for (const mapped of mapCodexNativeEvent(event)) {
-            runObserver.emit(mapped);
-          }
           const finalText = extractCodexFinalText(event);
           if (finalText) {
             outputText = finalText;
@@ -121,7 +148,7 @@ async function runCodex(
           }));
         }
 
-        const sessionId = discoverSessionId(parsed.events, request.sessionId);
+        const sessionId = discoverSessionId(parsed.events, discoveredSessionId);
         emitSessionUpdate(runObserver, sessionId);
         return { outputText, sessionId, diagnostics };
       },

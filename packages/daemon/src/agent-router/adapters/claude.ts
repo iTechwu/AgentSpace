@@ -69,12 +69,14 @@ async function buildClaudeLaunch(input: AgentRouterRunRequest): Promise<HarnessL
     throw new Error("Claude Code CLI was not found on PATH.");
   }
 
-  const args = [
-    "-p",
-    "--output-format", "stream-json",
-    "--verbose",
-  ];
   const usesRealtimeInput = input.handleControlRequests === true;
+  const args = ["-p"];
+  // Claude Code treats -p as an option with an immediate argument. Keeping
+  // the prompt after other flags leaves --print without any input on 2.1.216.
+  if (!usesRealtimeInput) {
+    args.push(input.prompt);
+  }
+  args.push("--output-format", "stream-json", "--verbose");
   if (usesRealtimeInput) {
     args.push("--input-format", "stream-json");
   }
@@ -104,14 +106,6 @@ async function buildClaudeLaunch(input: AgentRouterRunRequest): Promise<HarnessL
   if (input.claudeTools) {
     args.push("--tools", input.claudeTools);
   }
-  if (!usesRealtimeInput) {
-    // Claude Code 2.1.216 exits successfully without producing events when a
-    // one-shot prompt is supplied through the realtime JSONL input channel.
-    // Passing the prompt as the documented -p argument remains compatible
-    // with stream-json output while guaranteeing that the request is started.
-    args.push(input.prompt);
-  }
-
   const env = buildBaseEnv(
     executable,
     buildCapabilityEnv(sanitizeClaudeEnv(input.env) ?? {}, input.runtimeToolCapabilities),

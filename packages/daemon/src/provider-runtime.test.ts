@@ -581,7 +581,7 @@ test("runProviderTask starts a new Codex conversation when resume rollout is mis
     assert.equal(firstArgs.includes("session-stale"), true);
     assert.equal(secondArgs.slice(0, 2).join(" "), "exec --json");
     assert.equal(secondArgs.includes("session-stale"), false);
-    assert.equal(secondArgs.includes("--cd"), true);
+    assert.equal(secondArgs.includes("--cd"), false);
     assert.equal(events.some((event) => event.type === "status" && event.content?.includes("starting a new conversation")), true);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
@@ -639,13 +639,13 @@ test("runProviderTask passes one-shot Claude prompts as a CLI argument", async (
       const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
       assert.equal(result.output, "hello from claude");
       assert.equal(result.sessionId, "session-next");
-      assert.deepEqual(args.slice(0, 5), ["-p", "--output-format", "stream-json", "--verbose", "--max-turns"]);
+      assert.deepEqual(args.slice(0, 6), ["-p", "write a short reply", "--output-format", "stream-json", "--verbose", "--max-turns"]);
       assert.equal(args.includes("--input-format"), false);
       assert.equal(args.includes("--permission-mode"), true);
       assert.equal(args.includes("auto"), true);
       assert.equal(args.includes("bypassPermissions"), false);
       assert.equal(args.includes("--dangerously-skip-permissions"), false);
-      assert.deepEqual(args.slice(-3), ["--tools", "default", "write a short reply"]);
+      assert.deepEqual(args.slice(-2), ["--tools", "default"]);
       assert.equal(readFileSync(stdinPath, "utf8"), "");
       assert.equal(events.some((event) => event.type === "usage" && event.inputJson?.input_tokens === 3), true);
     });

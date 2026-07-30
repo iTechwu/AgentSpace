@@ -173,6 +173,8 @@ test("managed credential launchers run the provider inside its dedicated image",
     assert.match(proxy, /x-dofe-attribution-signature/);
     assert.match(proxy, /startsWith\("x-dofe-"\)/);
     assert.match(proxy, /process\.env\[runtimeKeyName\] = runtimeKey/);
+    assert.match(proxy, /model_provider=\\\"dofe-managed\\\"/);
+    assert.match(proxy, /model_providers\.dofe-managed\.base_url/);
     assert.match(proxy, /DOFE_AGENT_GATEWAY_REQUEST_LOG/);
     assert.match(proxy, /x-request-id/);
     assert.match(proxy, /statusCode >= 200/);

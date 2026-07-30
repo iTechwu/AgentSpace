@@ -301,8 +301,9 @@ test("runAgentRouter invokes Claude with a text prompt and parses stream-json ou
     assert.equal(events.some((event) => event.type === "session_updated" && event.sessionId === "claude-session"), true);
     assert.equal(readFileSync(stdinPath, "utf8"), "");
     const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
-    assert.deepEqual(args.slice(0, 6), [
+    assert.deepEqual(args.slice(0, 7), [
       "-p",
+      "hello claude",
       "--output-format",
       "stream-json",
       "--verbose",
@@ -310,7 +311,7 @@ test("runAgentRouter invokes Claude with a text prompt and parses stream-json ou
       "sonnet",
     ]);
     assert.equal(args.includes("--input-format"), false);
-    assert.equal(args.at(-1), "hello claude");
+    assert.equal(args.includes("hello claude"), true);
   } finally {
     process.env.PATH = originalPath;
     rmSync(workDir, { recursive: true, force: true });

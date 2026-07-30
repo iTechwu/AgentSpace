@@ -438,7 +438,20 @@ server.listen(0, "127.0.0.1", () => {
     });
     return;
   }
-  const child = spawn(executable, args, { stdio: "inherit", env: process.env });
+  // Codex 0.144 ignores OPENAI_BASE_URL for its Responses WebSocket client.
+  // Its native model_provider configuration is the supported way to route
+  // Responses traffic, so point it at this local attribution proxy.
+  const providerArgs = executable === "codex" && baseUrlKey === "OPENAI_BASE_URL"
+    ? [
+      "-c", "model_provider=\\\"dofe-managed\\\"",
+      "-c", "model_providers.dofe-managed.name=\\\"Dofe managed gateway\\\"",
+      "-c", "model_providers.dofe-managed.base_url=" + JSON.stringify(localBaseUrl),
+      "-c", "model_providers.dofe-managed.wire_api=\\\"responses\\\"",
+      "-c", "model_providers.dofe-managed.requires_openai_auth=true",
+      ...args,
+    ]
+    : args;
+  const child = spawn(executable, providerArgs, { stdio: "inherit", env: process.env });
   for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));
   child.on("exit", (code, signal) => {
     server.close(() => process.exit(code ?? (signal ? 1 : 0)));
