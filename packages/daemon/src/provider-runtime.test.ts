@@ -1333,20 +1333,18 @@ test("runProviderTask maps Hermes capability and empty-response diagnostics to p
   }
 });
 
-test("runProviderTask routes Claude control requests through approval callback under root", async () => {
+test("runProviderTask keeps Claude one-shot when an approval callback is available", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-control-request-"));
   const binPath = join(workDir, "claude");
   const stdinPath = join(workDir, "claude-stdin.jsonl");
+  const argsPath = join(workDir, "claude-args.txt");
   writeFileSync(
     binPath,
     [
       "#!/bin/sh",
-      "IFS= read -r first",
-      "printf '%s\\n' \"$first\" > \"$CLAUDE_STDIN_PATH\"",
-      "printf '%s\\n' '{\"type\":\"control_request\",\"request_id\":\"req-42\",\"request\":{\"subtype\":\"tool_use\",\"tool_name\":\"Bash\",\"input\":{\"command\":\"ls\"}}}'",
-      "IFS= read -r second",
-      "printf '%s\\n' \"$second\" >> \"$CLAUDE_STDIN_PATH\"",
-      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"approved\",\"session_id\":\"session-control\"}'",
+      "printf '%s\\n' \"$@\" > \"$CLAUDE_ARGS_PATH\"",
+      "cat > \"$CLAUDE_STDIN_PATH\"",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"completed\",\"session_id\":\"session-control\"}'",
       "",
     ].join("\n"),
     "utf8",
@@ -1371,6 +1369,7 @@ test("runProviderTask routes Claude control requests through approval callback u
       const result = await runProviderTask(runtime, "run ls", workDir, {
         contextEnv: {
           CLAUDE_STDIN_PATH: stdinPath,
+          CLAUDE_ARGS_PATH: argsPath,
         },
         onApprovalRequest: async (request) => {
           approvals.push({
@@ -1381,24 +1380,14 @@ test("runProviderTask routes Claude control requests through approval callback u
         },
         taskTimeoutMs: 5_000,
       });
-      const stdinLines = readFileSync(stdinPath, "utf8").trim().split(/\r?\n/);
-      const promptInput = JSON.parse(stdinLines[0] ?? "") as { type: string };
-      const response = JSON.parse(stdinLines[1] ?? "") as {
-        type: string;
-        response: {
-          request_id: string;
-          response: { behavior: string; updatedInput: { command?: string } };
-        };
-      };
+      const args = readFileSync(argsPath, "utf8");
 
-      assert.equal(result.output, "approved");
+      assert.equal(result.output, "completed");
       assert.equal(result.sessionId, "session-control");
-      assert.equal(promptInput.type, "user");
-      assert.equal(response.type, "control_response");
-      assert.equal(response.response.request_id, "req-42");
-      assert.equal(response.response.response.behavior, "allow");
-      assert.equal(response.response.response.updatedInput.command, "ls");
-      assert.deepEqual(approvals, [{ toolName: "Bash", command: "ls" }]);
+      assert.doesNotMatch(args, /--input-format/);
+      assert.match(args, /run ls/);
+      assert.equal(readFileSync(stdinPath, "utf8"), "");
+      assert.deepEqual(approvals, []);
     });
   } finally {
     rmSync(workDir, { recursive: true, force: true });

@@ -269,7 +269,9 @@ async function runAgentRouterProviderTask(
     temporaryAllowedTools: options.temporaryAllowedTools,
     runtimeToolCapabilities,
     claudeTools: runtime.provider === "claude" ? "default" : undefined,
-    handleControlRequests: runtime.provider === "claude" && Boolean(options.onApprovalRequest),
+    // Remote tasks always provide an approval callback. Claude approvals are retried
+    // from returned permission denials below, so keep ordinary tasks one-shot.
+    handleControlRequests: false,
     openClawEphemeralAgent: runtime.provider === "openclaw" && !sessionId,
     onApprovalRequest: options.onApprovalRequest
       ? async (request) => options.onApprovalRequest?.({
