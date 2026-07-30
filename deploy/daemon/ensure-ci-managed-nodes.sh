@@ -31,7 +31,7 @@ if [ -n "${MANAGED_NODE_WORKSPACE_IDS:-}" ]; then
 else
   workspace_ids="$(docker exec "$MANAGED_NODE_WEB_CONTAINER" node --experimental-strip-types -e '
     import("./packages/db/src/database.ts").then(({ getDatabase }) => {
-      for (const row of getDatabase().prepare(`
+      const query = getDatabase().prepare(`
         SELECT w.id
         FROM workspace w
         WHERE w.id LIKE ?
@@ -39,11 +39,12 @@ else
             SELECT 1
             FROM daemon_connection d
             WHERE d.workspace_id = w.id
-              AND d.status = 'online'
-              AND d.metadata_json->>'managedNode' = 'true'
+              AND d.status = ?
+              AND d.metadata_json->>? = ?
           )
         ORDER BY w.id
-      `).all("sso-team-%")) {
+      `);
+      for (const row of query.all("sso-team-%", "online", "managedNode", "true")) {
         console.log(row.id);
       }
     });
