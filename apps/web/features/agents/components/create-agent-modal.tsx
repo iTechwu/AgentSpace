@@ -89,7 +89,10 @@ export function CreateAgentModal({
   const matchedSkillCount = skillMatches.filter((match) => Boolean(match.matchedSkill)).length;
 
   useEffect(() => {
-    setContainerId(resolveDefaultRuntimeId(defaultContainerId, containerOptions, requiresRuntime));
+    setContainerId((current) => {
+      const currentOption = containerOptions.find((option) => option.id === current && option.bindable !== false);
+      return currentOption ? current : resolveDefaultRuntimeId(defaultContainerId, containerOptions, requiresRuntime);
+    });
   }, [containerOptions, defaultContainerId, requiresRuntime]);
 
   useEffect(() => {
