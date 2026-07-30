@@ -10,7 +10,7 @@ services:
       DOFE_AGENT_DAEMON_STATE_DIR: ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}
       DOFE_AGENT_MANAGED_NODE: "true"
     extra_hosts:
-      - host.docker.internal:host-gateway
+      - ${MANAGED_NODE_SERVER_HOST:-host.docker.internal}:host-gateway
     working_dir: ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
