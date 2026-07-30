@@ -1,5 +1,8 @@
 FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS build
 
+ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
+    NPM_CONFIG_REPLACE_REGISTRY_HOST=always
+
 WORKDIR /srv/DofeAgent
 
 COPY package.json ./
