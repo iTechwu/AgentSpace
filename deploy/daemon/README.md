@@ -65,6 +65,16 @@ The remote-images Compose file now applies this canonical image name directly.
 Do not pre-pull only the provider base images: they do not include the
 `dofe-agent-daemon` runtime wrapper required by managed provisioning.
 
+### CI multi-workspace managed nodes
+
+`ensure-ci-managed-nodes.sh` is the CI-host reconciliation entry point for
+remote mode. It builds the approved wrapper images locally, then creates one
+managed-node container per `sso-team-*` workspace. Every container receives a
+distinct managed-node bootstrap token and state directory, preserving the
+workspace binding enforced by daemon registration and task APIs. Set its
+required `MANAGED_NODE_*` variables from protected CI configuration; do not
+replace this with a cross-workspace daemon token.
+
 ```json
 {
   "version": 1,

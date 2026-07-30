@@ -210,7 +210,7 @@ function buildDockerTemplate(
       cmd(
         "sh",
         "-c",
-        `docker image inspect 'dofe/agent-runtime-${imageName}:{{imageTag}}' >/dev/null 2>&1 || docker pull --quiet 'dofe/agent-runtime-${imageName}:{{imageTag}}'`,
+        `docker image inspect 'dofe/agent-runtime-${imageName}:{{imageTag}}' >/dev/null 2>&1 || { echo >&2 "Approved managed runtime image dofe/agent-runtime-${imageName}:{{imageTag}} is unavailable locally. Build the approved image on this managed node before retrying."; exit 42; }`,
       ),
     ],
     installCliCommands: [

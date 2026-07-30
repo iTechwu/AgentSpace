@@ -63,7 +63,7 @@ test("Hermes install stage uses the CLI path provided by its approved image", ()
   assert.equal(commands[0]?.args.at(-1), "command -v /opt/hermes/.venv/bin/hermes-agent");
 });
 
-test("pull stage reuses an approved local runtime image before contacting a registry", () => {
+test("pull stage requires a prebuilt approved runtime image without contacting a public registry", () => {
   const commands = buildManagedProvisioningStageCommands("claude", "pull_image", {
     runtimeId: "runtime-claude",
     runtimeCredentialId: "credential-claude",
@@ -75,7 +75,7 @@ test("pull stage reuses an approved local runtime image before contacting a regi
     executable: "sh",
     args: [
       "-c",
-      "docker image inspect 'dofe/agent-runtime-claude:stable' >/dev/null 2>&1 || docker pull --quiet 'dofe/agent-runtime-claude:stable'",
+      "docker image inspect 'dofe/agent-runtime-claude:stable' >/dev/null 2>&1 || { echo >&2 \"Approved managed runtime image dofe/agent-runtime-claude:stable is unavailable locally. Build the approved image on this managed node before retrying.\"; exit 42; }",
     ],
     env: undefined,
   }]);
