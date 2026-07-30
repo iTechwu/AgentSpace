@@ -1112,7 +1112,10 @@ export async function resolveManagedProviderVerificationEnvironments(
 ): Promise<Map<string, Record<string, string>>> {
   const environments = new Map<string, Record<string, string>>();
   await Promise.all(runtimes.map(async (runtime) => {
-    if (!runtime.metadata.managedCredentialId || !hasPendingProviderVerification(runtime)) {
+    if (
+      !runtime.metadata.managedCredentialId
+      || (!hasPendingProviderVerification(runtime) && runtime.provider !== "openclaw")
+    ) {
       return;
     }
     const profile = await credentialResolver.resolve(runtime.id, runtime.metadata.managedCredentialId);

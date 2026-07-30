@@ -53,6 +53,7 @@ export interface OpenClawDaemonAuthHealth {
     hasOpenClawConfig: boolean;
     hasTaskAuthProfiles: boolean;
     hasTaskModels: boolean;
+    hasGatewayCredentials: boolean;
     requiresTaskFiles: boolean;
     authProfileCount?: number;
   };
@@ -81,6 +82,7 @@ export function inspectOpenClawDaemonAuthHealth(input: {
   const authProfileCount = authProfiles ? countProfiles(authProfiles) : undefined;
   const hasTaskAuthProfiles = (authProfileCount ?? 0) > 0;
   const hasTaskModels = Boolean(models && Object.keys(models).length > 0);
+  const hasGatewayCredentials = Boolean(env.OPENAI_API_KEY?.trim() && env.OPENAI_BASE_URL?.trim());
   const requiresTaskFiles = input.requireTaskFiles ?? (Boolean(input.workDir) || isDaemonTaskWorkDir(input.workDir, env));
   const checkedAt = (input.now ?? new Date()).toISOString();
 
@@ -100,10 +102,21 @@ export function inspectOpenClawDaemonAuthHealth(input: {
       hasOpenClawConfig,
       hasTaskAuthProfiles,
       hasTaskModels,
+      hasGatewayCredentials,
       requiresTaskFiles,
       authProfileCount,
     },
   };
+
+  // Managed runtimes authenticate each task through the private gateway instead
+  // of the daemon user's persistent OpenClaw profile.
+  if (hasGatewayCredentials) {
+    return {
+      ...base,
+      status: "healthy",
+      usable: true,
+    };
+  }
 
   if (requiresTaskFiles && hasTaskAuthProfiles && hasTaskModels) {
     return {

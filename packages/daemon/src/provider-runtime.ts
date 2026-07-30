@@ -856,10 +856,11 @@ export function buildProviderRuntimeMetadata(
     mode: runtime.metadata.mode,
   };
   if (runtime.provider === "openclaw") {
-    const profile = process.env.OPENCLAW_PROFILE?.trim();
-    const model = process.env.OPENCLAW_MODEL?.trim();
+    const environment = options.environment ? { ...process.env, ...options.environment } : process.env;
+    const profile = environment.OPENCLAW_PROFILE?.trim();
+    const model = environment.OPENCLAW_MODEL?.trim();
     const health = inspectOpenClawDaemonAuthHealth({
-      env: process.env,
+      env: environment,
       profile,
       model,
     });

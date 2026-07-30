@@ -163,6 +163,26 @@ test("buildProviderRuntimeMetadata passes the managed provider environment to a 
   }
 });
 
+test("buildProviderRuntimeMetadata accepts managed OpenClaw gateway credentials without a daemon profile", () => {
+  const metadata = buildProviderRuntimeMetadata({
+    provider: "openclaw",
+    metadata: {
+      executablePath: "/usr/bin/openclaw",
+      mode: "remote",
+      managedCredentialId: "credential-managed-openclaw-1",
+    },
+  }, {
+    environment: {
+      OPENAI_API_KEY: "managed-openclaw-key",
+      OPENAI_BASE_URL: "http://gateway.internal/v1",
+    },
+  });
+
+  const health = metadata.providerHealth as { status?: unknown; error?: unknown } | undefined;
+  assert.equal(health?.status, "healthy");
+  assert.equal(health?.error, undefined);
+});
+
 test("resolveModelId returns provider-specific defaults and overrides for expanded providers", () => {
   const baseRuntime: Omit<ProviderRuntimeRecord, "provider"> = {
     id: "runtime-1",

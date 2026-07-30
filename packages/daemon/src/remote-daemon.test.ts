@@ -403,3 +403,40 @@ test("managed provider verification resolves its credential environment without 
   const records = buildRemoteRuntimeHeartbeatMetadata(runtimes, undefined, environments);
   assert.equal("ANTHROPIC_BASE_URL" in records[0]!.metadata, false);
 });
+
+test("managed OpenClaw health uses its gateway credential without a separate verification request", async () => {
+  const runtimes = [{
+    id: "runtime-managed-openclaw-1",
+    workspaceId: "ws-1",
+    provider: "openclaw" as const,
+    name: "Managed OpenClaw",
+    status: "online" as const,
+    metadata: {
+      executablePath: "/var/lib/dofe/managed-runtimes/runtime-managed-openclaw-1/run-provider",
+      mode: "remote" as const,
+      managedCredentialId: "credential-openclaw-1",
+      provisioningState: "managed",
+    },
+  }];
+
+  const environments = await resolveManagedProviderVerificationEnvironments(runtimes, {
+    resolve: async (runtimeId, credentialId) => {
+      assert.equal(runtimeId, "runtime-managed-openclaw-1");
+      assert.equal(credentialId, "credential-openclaw-1");
+      return {
+        accountId: runtimeId,
+        profileDir: "/var/lib/dofe/managed-runtimes/runtime-managed-openclaw-1",
+        environment: {
+          OPENAI_API_KEY: "managed-openclaw-key",
+          OPENAI_BASE_URL: "http://gateway.internal/v1",
+        },
+      };
+    },
+  });
+
+  const records = buildRemoteRuntimeHeartbeatMetadata(runtimes, undefined, environments);
+  const health = records[0]!.metadata.providerHealth as { status?: unknown; error?: unknown } | undefined;
+  assert.equal(health?.status, "healthy");
+  assert.equal(health?.error, undefined);
+  assert.equal("OPENAI_API_KEY" in records[0]!.metadata, false);
+});
