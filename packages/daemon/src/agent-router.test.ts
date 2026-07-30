@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, delimiter, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -368,6 +368,56 @@ test("runAgentRouter normalizes Codex JSON events, output file, and resume launc
     assert.equal(args.includes("--sandbox"), false);
     assert.equal(events.some((event) => event.type === "tool_started" && event.tool === "exec_command"), true);
     assert.equal(events.some((event) => event.type === "tool_output" && event.tool === "exec_command"), true);
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter launches Codex in its process cwd without passing a host --cd path", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-codex-cwd-"));
+  const binDir = join(workDir, "bin");
+  const codexPath = join(binDir, "codex");
+  const argsPath = join(workDir, "args.txt");
+  const cwdPath = join(workDir, "cwd.txt");
+  const originalPath = process.env.PATH;
+
+  try {
+    writeExecutable(
+      codexPath,
+      [
+        "#!/bin/sh",
+        "printf '%s\\n' \"$@\" > \"$CODEX_ARGS_PATH\"",
+        "pwd > \"$CODEX_CWD_PATH\"",
+        "prev=''",
+        "for arg in \"$@\"; do",
+        "  if [ \"$prev\" = '-o' ]; then",
+        "    printf '%s' 'codex cwd output' > \"$arg\"",
+        "  fi",
+        "  prev=\"$arg\"",
+        "done",
+      ].join("\n"),
+    );
+    process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "codex",
+      prompt: "hello codex",
+      cwd: workDir,
+      env: {
+        CODEX_ARGS_PATH: argsPath,
+        CODEX_CWD_PATH: cwdPath,
+      },
+      timeoutMs: 1_000,
+    });
+
+    assert.equal(result.status, "completed", JSON.stringify(result.diagnostics));
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    assert.equal(result.outputText, "codex cwd output");
+    assert.equal(readFileSync(cwdPath, "utf8").trim(), realpathSync(workDir));
+    assert.equal(args.includes("--cd"), false);
+    assert.equal(args.at(-1), "hello codex");
   } finally {
     process.env.PATH = originalPath;
     rmSync(workDir, { recursive: true, force: true });

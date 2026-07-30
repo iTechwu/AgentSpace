@@ -71,7 +71,7 @@ async function buildCodexLaunch(input: AgentRouterRunRequest): Promise<HarnessLa
   }
   const args = input.sessionId
     ? ["exec", "resume", ...baseArgs, input.sessionId, input.prompt]
-    : ["exec", ...baseArgs, "--cd", input.cwd, input.prompt];
+    : ["exec", ...baseArgs, input.prompt];
   const env = buildBaseEnv(
     executable,
     buildCapabilityEnv({ ...input.env, [CODEX_OUTPUT_ENV]: outputFile }, input.runtimeToolCapabilities),
