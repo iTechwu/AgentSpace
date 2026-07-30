@@ -32,6 +32,23 @@ test("preserves the IM composer draft across workbench module switches", async (
   await expect(composer).toHaveValue(draft);
 });
 
+test("restores the selected IM conversation after refresh", async ({ page }) => {
+  const session = await openSeededWorkspacePage(page, "/im");
+
+  await page.getByRole("button", { name: session.privateChannelName }).click();
+  await expect(page).toHaveURL(new RegExp(
+    `/w/${escapeRegExp(session.workspaceSlug)}/im\\?focus=channel%3A${escapeRegExp(encodeURIComponent(session.privateChannelName))}`,
+  ));
+  await expect(page.getByRole("heading", { name: session.privateChannelName })).toBeVisible();
+
+  await page.reload();
+
+  await expect(page).toHaveURL(new RegExp(
+    `/w/${escapeRegExp(session.workspaceSlug)}/im\\?focus=channel%3A${escapeRegExp(encodeURIComponent(session.privateChannelName))}`,
+  ));
+  await expect(page.getByRole("heading", { name: session.privateChannelName })).toBeVisible();
+});
+
 test("keeps runtime management destination and active content through navigation and refresh", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/agents?mode=container");
   const runtimePath = runtimeMode === "remote" ? "/runtimes" : "/agents?mode=container";

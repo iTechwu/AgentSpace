@@ -543,7 +543,9 @@ export function ChannelsPageClient({
     }
     router.replace(href, { scroll: false });
   }, [navigateWorkspaceModule, router, workspaceHref]);
-  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(data.channels[0]?.id ?? null);
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(() =>
+    resolveInitialSelectedChannelId(data.channels, searchParamText),
+  );
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showRename, setShowRename] = useState(false);
   const [activeTab, setActiveTab] = useState<ChannelWorkspaceTab>("messages");
@@ -2389,6 +2391,27 @@ function parseChannelRouteState(routeSearch: string): ChannelRouteState {
     conversationView: searchParams.get("view") === "direct" ? "direct" : "all",
     communicationContext: searchParams.get("context") === "contacts" ? "contacts" : "messages",
   };
+}
+
+function resolveInitialSelectedChannelId(channels: ChannelRecord[], routeSearch: string): string | null {
+  const focus = new URLSearchParams(routeSearch).get("focus");
+  if (focus) {
+    const focusedChannel = channels.find((channel) => {
+      if (focus === `channel:${channel.id}` || focus === `channel:${channel.channelName ?? channel.id}`) {
+        return true;
+      }
+      if (channel.kind === "direct" && channel.contactId && focus === `contact:${channel.contactId}`) {
+        return true;
+      }
+      return channel.kind === "direct"
+        && Boolean(channel.humanContactUserId)
+        && focus === `human:${channel.humanContactUserId}`;
+    });
+    if (focusedChannel) {
+      return focusedChannel.id;
+    }
+  }
+  return channels[0]?.id ?? null;
 }
 
 function buildChannelFocusValue(channel: ChannelRecord | undefined, fallbackChannelId: string): string {
