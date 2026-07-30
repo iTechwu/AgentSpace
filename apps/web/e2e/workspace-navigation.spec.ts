@@ -80,6 +80,25 @@ test("opens the deployment-appropriate execution engine management experience", 
   }
 });
 
+test("keeps the runtime model menu visible outside the creation panel", async ({ page }) => {
+  test.skip(runtimeMode !== "remote", "Managed runtime creation is only available in remote mode.");
+
+  await openSeededWorkspacePage(page, "/runtimes");
+  await page.getByRole("button", { name: /下一步|Continue/i }).click();
+
+  const modelTrigger = page.getByRole("button", { name: /默认模型|Default model/i });
+  await expect(modelTrigger).toBeEnabled();
+  await modelTrigger.click();
+
+  const menu = page.getByRole("listbox", { name: /默认模型|Default model/i });
+  const fallback = menu.getByRole("option", { name: /跟随系统默认|Inherit system fallback/i });
+  await expect(menu).toBeVisible();
+  await expect(fallback).toBeVisible();
+  await expect(page.locator(".runtime-wizard")).toHaveCSS("overflow", "visible");
+  await fallback.click();
+  await expect(menu).toBeHidden();
+});
+
 test("keeps the final active module after rapid desktop switching", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/inbox");
 

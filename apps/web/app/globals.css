@@ -26260,6 +26260,10 @@ button[aria-disabled="true"] svg {
   background: var(--panel);
 }
 
+.runtime-wizard.runtimes-panel {
+  overflow: visible;
+}
+
 .runtimes-panel__header,
 .audit-panel__header {
   min-height: 58px;
@@ -26298,6 +26302,7 @@ button[aria-disabled="true"] svg {
 
 .runtime-wizard__header {
   align-items: flex-end;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
 }
 
 .runtime-wizard__steps {
