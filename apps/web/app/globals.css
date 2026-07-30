@@ -27499,7 +27499,13 @@ button[aria-disabled="true"] svg {
 }
 
 .runtime-task-detail {
-  overflow: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: grid;
+  align-content: start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0 0.25rem 1rem;
 }
 
