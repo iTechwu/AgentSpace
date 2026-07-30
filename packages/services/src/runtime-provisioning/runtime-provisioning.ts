@@ -1790,8 +1790,12 @@ async function compensateProvisioning(
       }
       detail.revokedCredentialId = task.runtimeCredentialId;
     } catch (error) {
-      ok = false;
-      detail.revokeError = error instanceof Error ? error.message : String(error);
+      if (isModelsCredentialNotFoundError(error)) {
+        detail.credentialAlreadyRevoked = task.runtimeCredentialId;
+      } else {
+        ok = false;
+        detail.revokeError = error instanceof Error ? error.message : String(error);
+      }
     }
   }
   if (task.runtimeId) {
@@ -1824,6 +1828,14 @@ async function compensateProvisioning(
     }
   }
   return { ok, pending: pending && ok, detail };
+}
+
+function isModelsCredentialNotFoundError(error: unknown): boolean {
+  if (typeof error === "object" && error !== null) {
+    const status = (error as { status?: unknown }).status;
+    if (status === 404) return true;
+  }
+  return error instanceof Error && /\bnot found\b/i.test(error.message);
 }
 
 async function assertManagedRuntimeModelSelectionAsync(input: {

@@ -71,6 +71,7 @@ const originalGatewayBaseUrl = process.env.MODELS_GATEWAY_BASE_URL;
 
 function createMockClient(behavior: {
   failCreate?: boolean;
+  revokeNotFound?: boolean;
   preflightAllowed?: boolean;
   failRotate?: boolean;
   rotateNotFound?: boolean;
@@ -169,6 +170,9 @@ function createMockClient(behavior: {
       async revoke({ body }) {
         revokeCalls += 1;
         lastRevokeBody = body;
+        if (behavior.revokeNotFound) {
+          throw { status: 404, message: "Not Found" };
+        }
         return { ok: true };
       },
       async models() {
@@ -1096,6 +1100,35 @@ test("cancel runs compensation: revokes credential with scope and removes the ru
   assert.equal(completeManagedRuntimeCleanupSync(cleanup.id, { removed: true })?.status, "succeeded");
   assert.equal(readRuntimeProvisioningTaskSync(task.id, TEAM_WS)?.status, "cancelled");
   assert.equal(readAgentRuntimeSync(runtimeId), null);
+});
+
+test("cancel treats an already revoked Models credential as successful cleanup", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "cancel-credential-already-revoked",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  assert.equal(provisioned.status, "succeeded");
+  const runtimeId = provisioned.runtimeId!;
+
+  activeClient = createMockClient({ revokeNotFound: true });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+  const cancelled = await cancelRuntimeProvisioningTaskAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    taskId: task.id,
+  });
+
+  assert.equal(cancelled.status, "cancelling");
+  assert.equal(activeClient.revokeCalls, 1);
+  const cleanup = listPendingManagedRuntimeCleanupRequestsForDaemonSync(
+    readAgentRuntimeSync(runtimeId)!.daemonConnectionId!,
+  )[0]!;
+  assert.equal(markManagedRuntimeCleanupRequestRunningSync(cleanup.id)?.status, "running");
+  assert.equal(completeManagedRuntimeCleanupSync(cleanup.id, { removed: true })?.status, "succeeded");
+  assert.equal(readRuntimeProvisioningTaskSync(task.id, TEAM_WS)?.cleanupStatus, "succeeded");
 });
 
 test("cancel waits for durable node cleanup before deleting an issued runtime", async () => {
