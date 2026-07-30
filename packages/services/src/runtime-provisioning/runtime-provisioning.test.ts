@@ -99,7 +99,7 @@ function createMockClient(behavior: {
               alias: "claude-sonnet",
               model: "claude-sonnet",
               modelType: "llm",
-              supportedProtocols: ["anthropic", "openai", "gemini"],
+              supportedProtocols: ["anthropic", "openai", "openai_response", "gemini"],
               isEnabled: true,
               isDeprecated: false,
             },

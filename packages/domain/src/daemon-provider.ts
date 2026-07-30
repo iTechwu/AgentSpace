@@ -38,7 +38,9 @@ export function formatDaemonProviderLabel(provider: string): string {
  */
 export const DAEMON_PROVIDER_PROTOCOLS: Record<DaemonProvider, string[]> = {
   claude: ["anthropic"],
-  codex: ["openai"],
+  // Codex CLI uses the OpenAI Responses API (/v1/responses), not Chat
+  // Completions. The runtime credential must explicitly allow this protocol.
+  codex: ["openai_response"],
   antigravity: ["openai"],
   gemini: ["gemini"],
   opencode: ["openai"],
