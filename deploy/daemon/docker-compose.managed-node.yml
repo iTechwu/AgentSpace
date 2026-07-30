@@ -9,12 +9,14 @@ services:
     environment:
       DOFE_AGENT_DAEMON_STATE_DIR: ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}
       DOFE_AGENT_MANAGED_NODE: "true"
+      NODE_EXTRA_CA_CERTS: ${MANAGED_NODE_TLS_CA_PATH:+/run/dofe-agent-tls-ca.pem}
     extra_hosts:
       - ${MANAGED_NODE_SERVER_HOST:-host.docker.internal}:host-gateway
     working_dir: ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}:${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}
+      - ${MANAGED_NODE_TLS_CA_PATH:-/dev/null}:/run/dofe-agent-tls-ca.pem:ro
     user: ${MANAGED_NODE_USER:-0:0}
     read_only: true
     tmpfs:

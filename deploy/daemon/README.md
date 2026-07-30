@@ -39,6 +39,11 @@ must resolve to host-visible paths. `MANAGED_NODE_USER=0:0` is suitable for a
 local Docker Desktop test; production Linux hosts should instead grant the
 container user access to the Docker socket by group id.
 
+When `DOFE_AGENT_SERVER_URL` uses a private TLS certificate, set
+`MANAGED_NODE_TLS_CA_PATH` to the absolute host path of the signing CA. The
+compose deployment mounts that CA read-only and sets Node's
+`NODE_EXTRA_CA_CERTS`; certificate verification remains enabled.
+
 ### Build managed runtime images
 
 Before creating a managed runtime, build its approved wrapper image on the
