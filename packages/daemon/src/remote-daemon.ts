@@ -1050,7 +1050,7 @@ export async function restoreManagedRuntimesFromHeartbeat(
   credentialResolver: ManagedCredentialResolver,
 ): Promise<void> {
   for (const runtime of heartbeat.runtimes) {
-    if (runtime.status !== "online" || !isDaemonProvider(runtime.provider) || managedRuntimes.has(runtime.id)) {
+    if (!isDaemonProvider(runtime.provider) || managedRuntimes.has(runtime.id)) {
       continue;
     }
     const metadata = runtime.metadata ?? {};
@@ -1080,13 +1080,29 @@ export function buildRemoteRuntimeHeartbeatMetadata(
   provider: RemoteRuntimeRecord["provider"];
   metadata: Record<string, unknown>;
 }> {
-  const records = runtimes.map((runtime) => ({
-    id: runtime.id,
-    provider: runtime.provider,
-    metadata: buildProviderRuntimeMetadata(runtime, {
-      environment: verificationEnvironments?.get(runtime.id),
-    }),
-  }));
+  const records = runtimes.map((runtime) => {
+    const managedRuntime = managedRuntimes?.get(runtime.id);
+    const heartbeatRuntime = managedRuntime
+      ? {
+        ...runtime,
+        status: managedRuntime.status,
+        metadata: {
+          ...runtime.metadata,
+          executablePath: managedRuntime.executablePath,
+          mode: "remote" as const,
+          managedCredentialId: managedRuntime.runtimeCredentialId,
+          provisioningState: "managed",
+        },
+      }
+      : runtime;
+    return {
+      id: heartbeatRuntime.id,
+      provider: heartbeatRuntime.provider,
+      metadata: buildProviderRuntimeMetadata(heartbeatRuntime, {
+        environment: verificationEnvironments?.get(runtime.id),
+      }),
+    };
+  });
   const knownRuntimeIds = new Set(records.map((runtime) => runtime.id));
   for (const runtime of managedRuntimes?.values() ?? []) {
     if (knownRuntimeIds.has(runtime.id)) {

@@ -321,6 +321,34 @@ test("heartbeat publishes newly healthy managed runtimes for server-side schedul
   }]);
 });
 
+test("managed runtime metadata overrides a stale empty executable path", () => {
+  const records = buildRemoteRuntimeHeartbeatMetadata([{
+    id: "runtime-managed-1",
+    workspaceId: "ws-1",
+    provider: "claude" as const,
+    name: "Managed Claude",
+    status: "offline" as const,
+    metadata: {
+      executablePath: "",
+      mode: "remote" as const,
+      managedCredentialId: "credential-1",
+      provisioningState: "managed",
+      providerVerificationRequestedAt: new Date().toISOString(),
+    },
+  }], new Map([[
+    "runtime-managed-1",
+    {
+      id: "runtime-managed-1",
+      provider: "claude" as const,
+      runtimeCredentialId: "credential-1",
+      executablePath: "/managed/runtime-managed-1/run-provider",
+      status: "online" as const,
+    },
+  ]]));
+
+  assert.equal(records[0]?.metadata.executablePath, "/managed/runtime-managed-1/run-provider");
+});
+
 test("managed runtime profiles are restored after a daemon restart", async () => {
   const restored = new Map();
   const resolved: Array<{ runtimeId: string; credentialId?: string }> = [];
@@ -352,6 +380,28 @@ test("managed runtime profiles are restored after a daemon restart", async () =>
     executablePath: "/managed/runtime-managed-1/codex",
     status: "online",
   });
+});
+
+test("managed runtime profiles are restored when the control plane marked them offline", async () => {
+  const restored = new Map();
+  const heartbeat = {
+    daemon: { daemonKey: "daemon-1", status: "online" as const, workspaceId: "ws-1" },
+    runtimes: [{
+      id: "runtime-managed-1",
+      provider: "claude" as const,
+      status: "offline" as const,
+      metadata: { managedCredentialId: "credential-1", provisioningState: "managed" },
+    }],
+    managedRuntimeCleanupRequests: [],
+  };
+
+  await restoreManagedRuntimesFromHeartbeat(heartbeat, restored, {
+    resolve: async () => ({ provider: "claude" }) as never,
+    getExecutablePath: () => "/managed/runtime-managed-1/claude",
+    cleanup: () => undefined,
+  });
+
+  assert.equal(restored.get("runtime-managed-1")?.status, "online");
 });
 
 test("heartbeat stops publishing a managed runtime after successful cleanup", () => {

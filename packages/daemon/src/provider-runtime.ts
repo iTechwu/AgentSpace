@@ -897,7 +897,22 @@ function inspectProviderCliHealth(
   environment?: Record<string, string>,
 ): ProviderHealthSnapshot {
   const checkedAt = new Date().toISOString();
-  const result = spawnSync(runtime.metadata.executablePath, ["--version"], {
+  const executablePath = runtime.metadata.executablePath.trim();
+  if (!executablePath) {
+    const message = `${formatDaemonProviderLabel(runtime.provider)} CLI executable is unavailable on this node.`;
+    return {
+      status: "broken",
+      checkedAt,
+      reason: message,
+      error: {
+        code: "provider.cli_missing",
+        category: "runtime",
+        provider: runtime.provider,
+        message,
+      },
+    };
+  }
+  const result = spawnSync(executablePath, ["--version"], {
     encoding: "utf8",
     timeout: 5_000,
     windowsHide: true,

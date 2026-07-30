@@ -1865,16 +1865,22 @@ async function safeRevokeCredential(input: {
   audit?: { actorId?: string; taskId?: string };
 }): Promise<void> {
   const client = clientProvider();
-  await client.runtimeCredentials.revoke({
-    params: { id: input.credentialId },
-    body: {
-      tenantId: input.tenantId,
-      teamId: input.teamId,
-      reason: input.reason,
-      idempotencyKey: input.idempotencyKey,
-      audit: input.audit,
-    },
-  });
+  try {
+    await client.runtimeCredentials.revoke({
+      params: { id: input.credentialId },
+      body: {
+        tenantId: input.tenantId,
+        teamId: input.teamId,
+        reason: input.reason,
+        idempotencyKey: input.idempotencyKey,
+        audit: input.audit,
+      },
+    });
+  } catch (error) {
+    if (!isModelsCredentialNotFoundError(error)) {
+      throw error;
+    }
+  }
 }
 
 function generateId(): string {

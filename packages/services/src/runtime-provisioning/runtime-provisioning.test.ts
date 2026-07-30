@@ -1310,6 +1310,44 @@ test("stop and delete pass tenant/team scope to revoke", async () => {
   assert.deepEqual((activeClient.lastRevokeBody as Record<string, string> | undefined)?.teamId, "team-1");
 });
 
+test("stop and delete complete when the Models credential is already absent", async () => {
+  const stopTask = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "stop-credential-already-absent",
+  });
+  const stopped = await awaitTaskTerminal(stopTask.id);
+  const stopRuntime = readAgentRuntimeSync(stopped.runtimeId!)!;
+
+  activeClient = createMockClient({ revokeNotFound: true });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+  await stopManagedRuntimeAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    runtimeId: stopRuntime.id,
+    reason: "ui_stop",
+  });
+  assert.equal(readAgentRuntimeSync(stopRuntime.id)?.provisioningState, "legacy");
+
+  const deleteTask = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "delete-credential-already-absent",
+  });
+  const deleted = await awaitTaskTerminal(deleteTask.id);
+  const deleteRuntime = readAgentRuntimeSync(deleted.runtimeId!)!;
+
+  await deleteManagedRuntimeAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    runtimeId: deleteRuntime.id,
+    reason: "ui_delete",
+  });
+  assert.equal(activeClient.revokeCalls, 2);
+});
+
 test("non-admin cannot rotate, stop or delete a managed runtime", async () => {
   const task = requestManagedRuntimeProvisioningSync({
     workspaceId: TEAM_WS,

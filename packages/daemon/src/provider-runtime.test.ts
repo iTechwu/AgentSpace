@@ -133,6 +133,22 @@ test("buildProviderRuntimeMetadata runs a requested provider verification", () =
   }
 });
 
+test("buildProviderRuntimeMetadata reports a missing executable without interrupting the daemon", () => {
+  assert.doesNotThrow(() => {
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "claude",
+      metadata: {
+        executablePath: "",
+        mode: "remote",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    });
+    const health = metadata.providerHealth as { status?: unknown; error?: { code?: unknown } } | undefined;
+    assert.equal(health?.status, "broken");
+    assert.equal(health?.error?.code, "provider.cli_missing");
+  });
+});
+
 test("buildProviderRuntimeMetadata passes the managed provider environment to a requested verification", () => {
   const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-bin-"));
   const executablePath = join(binDir, "claude");
