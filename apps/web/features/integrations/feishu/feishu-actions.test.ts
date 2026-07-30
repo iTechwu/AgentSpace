@@ -57,6 +57,7 @@ const {
   mockCheckFeishuIntegrationHealth,
   mockCreateFeishuAgentBotBindingSync,
   mockDisableFeishuAgentBotBindingSync,
+  mockInspectFeishuAgentBotBindingAvailabilitySync,
   mockResolveFeishuResourceDescriptorForType,
   mockRotateFeishuAgentBotCredentialsSync,
   mockTryRecordWorkspaceAuditEventSync,
@@ -70,6 +71,7 @@ const {
   mockCheckFeishuIntegrationHealth: vi.fn(),
   mockCreateFeishuAgentBotBindingSync: vi.fn(),
   mockDisableFeishuAgentBotBindingSync: vi.fn(),
+  mockInspectFeishuAgentBotBindingAvailabilitySync: vi.fn(),
   mockResolveFeishuResourceDescriptorForType: vi.fn(),
   mockRotateFeishuAgentBotCredentialsSync: vi.fn(),
   mockTryRecordWorkspaceAuditEventSync: vi.fn(),
@@ -122,6 +124,7 @@ vi.mock("@dofe-agent/services", () => ({
   checkFeishuIntegrationHealth: mockCheckFeishuIntegrationHealth,
   createFeishuAgentBotBindingSync: mockCreateFeishuAgentBotBindingSync,
   disableFeishuAgentBotBindingSync: mockDisableFeishuAgentBotBindingSync,
+  inspectFeishuAgentBotBindingAvailabilitySync: mockInspectFeishuAgentBotBindingAvailabilitySync,
   resolveFeishuResourceDescriptorForType: mockResolveFeishuResourceDescriptorForType,
   rotateFeishuAgentBotCredentialsSync: mockRotateFeishuAgentBotCredentialsSync,
   tryRecordWorkspaceAuditEventSync: mockTryRecordWorkspaceAuditEventSync,
@@ -224,6 +227,7 @@ describe("Feishu actions", () => {
     mockCheckFeishuIntegrationHealth.mockReset();
     mockCreateFeishuAgentBotBindingSync.mockReset();
     mockDisableFeishuAgentBotBindingSync.mockReset();
+    mockInspectFeishuAgentBotBindingAvailabilitySync.mockReset();
     mockResolveFeishuResourceDescriptorForType.mockReset();
     mockRotateFeishuAgentBotCredentialsSync.mockReset();
     mockTryRecordWorkspaceAuditEventSync.mockReset();
@@ -1262,6 +1266,7 @@ describe("Feishu actions", () => {
       verificationToken: "",
       encryptKey: "",
       tenantKey: "",
+      transferDisabledBindingId: "disabled-agent-bot-1",
       channelAutoProvisioning: {
         botAdded: "pending_admin_review",
         firstMessage: "reply_with_setup_card",
@@ -1280,6 +1285,7 @@ describe("Feishu actions", () => {
       appId: " cli_codex_bot ",
       appSecret: " raw-agent-secret ",
       transportMode: "websocket_worker",
+      transferDisabledBindingId: "disabled-agent-bot-1",
       channelAutoProvisioning: {
         botAdded: "pending_admin_review",
         firstMessage: "reply_with_setup_card",

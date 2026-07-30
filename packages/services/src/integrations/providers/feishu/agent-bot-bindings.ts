@@ -143,9 +143,10 @@ export function inspectFeishuAgentBotBindingAvailabilitySync(input: {
   if (!existing) {
     return { state: "available" };
   }
+  const existingAgentId = existing.agentId ?? "";
   return existing.status === "disabled"
-    ? { state: "disabled_elsewhere", integrationId: existing.id, agentId: existing.agentId, displayName: existing.displayName }
-    : { state: "active_elsewhere", integrationId: existing.id, agentId: existing.agentId, displayName: existing.displayName };
+    ? { state: "disabled_elsewhere", integrationId: existing.id, agentId: existingAgentId, displayName: existing.displayName }
+    : { state: "active_elsewhere", integrationId: existing.id, agentId: existingAgentId, displayName: existing.displayName };
 }
 
 export function createFeishuAgentBotBindingSync(
@@ -179,6 +180,12 @@ export function createFeishuAgentBotBindingSync(
     });
     const configJson = buildFeishuAgentBotConfig(input);
     if (input.transferDisabledBindingId?.trim()) {
+      assertDisabledFeishuBotTransferSource({
+        workspaceId,
+        integrationId: input.transferDisabledBindingId,
+        appId,
+        tenantKey,
+      });
       archiveDisabledFeishuBotRouting({
         workspaceId,
         integrationId: input.transferDisabledBindingId,
@@ -226,6 +233,27 @@ export function createFeishuAgentBotBindingSync(
     return requireFeishuAgentBotBinding(integration);
   } catch (error) {
     throw normalizeFeishuAgentBotBindingError(error);
+  }
+}
+
+function assertDisabledFeishuBotTransferSource(input: {
+  workspaceId: string;
+  integrationId: string;
+  appId: string;
+  tenantKey?: string;
+}): void {
+  const integration = readExternalIntegrationSync({
+    workspaceId: input.workspaceId,
+    integrationId: input.integrationId,
+  });
+  if (
+    !integration ||
+    !isFeishuAgentBotBinding(integration) ||
+    integration.status !== "disabled" ||
+    integration.appId !== input.appId ||
+    integration.tenantKey !== input.tenantKey
+  ) {
+    throw new Error("feishu.agent_bot_binding.transfer_source_invalid");
   }
 }
 

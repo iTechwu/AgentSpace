@@ -228,6 +228,7 @@ export async function createFeishuAgentBotBindingAction(
       verificationToken: input.verificationToken,
       encryptKey: input.encryptKey,
       tenantKey: input.tenantKey,
+      transferDisabledBindingId: input.transferDisabledBindingId,
       channelAutoProvisioning: input.channelAutoProvisioning,
       externalGuestPolicy: input.externalGuestPolicy,
       createdByUserId: workspaceContext.currentUser.id,
@@ -238,9 +239,13 @@ export async function createFeishuAgentBotBindingAction(
 
   tryRecordWorkspaceAuditEventSync({
     workspaceId: workspaceContext.currentWorkspace.id,
-    title: "Feishu agent bot binding created",
-    note: `${workspaceContext.currentUser.displayName} connected Feishu bot "${integration.displayName}" to agent "${integration.agentId}".`,
-    code: "workspace.external_integration_created",
+    title: input.transferDisabledBindingId ? "Feishu agent bot binding transferred" : "Feishu agent bot binding created",
+    note: input.transferDisabledBindingId
+      ? `${workspaceContext.currentUser.displayName} transferred Feishu bot "${integration.displayName}" to agent "${integration.agentId}".`
+      : `${workspaceContext.currentUser.displayName} connected Feishu bot "${integration.displayName}" to agent "${integration.agentId}".`,
+    code: input.transferDisabledBindingId
+      ? "workspace.external_integration_transferred"
+      : "workspace.external_integration_created",
     data: {
       actorType: "session_user",
       resourceType: "external_integration",
@@ -248,6 +253,7 @@ export async function createFeishuAgentBotBindingAction(
       provider: FEISHU_PROVIDER_ID,
       agentId: integration.agentId,
       transportMode: integration.transportMode,
+      transferSourceIntegrationId: input.transferDisabledBindingId || undefined,
       secretRedacted: true,
     },
   });

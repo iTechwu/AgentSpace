@@ -20,6 +20,11 @@ describe("translateSettingsActionError", () => {
       new Error("feishu.integration.duplicate_app_tenant"),
       chineseTx,
     )).toBe("该飞书 App ID 和 Tenant Key 已经连接到当前工作区。");
+
+    expect(translateSettingsActionError(
+      new Error("feishu.agent_bot_binding.transfer_source_invalid"),
+      englishTx,
+    )).toBe("The disabled bot changed state. Refresh the page and confirm the transfer again.");
   });
 
   it("translates Feishu credential encryption setup errors", () => {
