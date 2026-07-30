@@ -704,6 +704,12 @@ function normalizeFeishuAgentBotBindingWriteError(error: unknown): Error {
   if (message.startsWith("feishu.agent_bot_binding.placeholder_value:")) {
     return new Error("feishu.agent_bot_binding.placeholder_value");
   }
+  if (message === "DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.") {
+    return new Error("feishu.agent_bot_binding.credential_encryption_key_missing");
+  }
+  if (message === "DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.") {
+    return new Error("feishu.agent_bot_binding.credential_encryption_key_invalid");
+  }
   return error instanceof Error ? error : new Error(message);
 }
 

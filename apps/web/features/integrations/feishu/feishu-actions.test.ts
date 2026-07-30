@@ -1296,6 +1296,42 @@ describe("Feishu actions", () => {
     expectNoFeishuSecretLeak(result);
   });
 
+  it("returns a stable error code when agent bot credential encryption is unavailable", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin", "admin-1"));
+    mockCreateFeishuAgentBotBindingSync.mockImplementationOnce(() => {
+      throw new Error("DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY is required to store Feishu credentials.");
+    });
+
+    await expect(createFeishuAgentBotBindingAction({
+      agentId: "Codex",
+      displayName: "Codex Feishu Bot",
+      transportMode: "websocket_worker",
+      appId: "cli_codex_bot",
+      appSecret: "raw-agent-secret",
+      verificationToken: "",
+      encryptKey: "",
+      tenantKey: "",
+    })).rejects.toThrow("feishu.agent_bot_binding.credential_encryption_key_missing");
+
+    mockCreateFeishuAgentBotBindingSync.mockImplementationOnce(() => {
+      throw new Error("DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.");
+    });
+
+    await expect(createFeishuAgentBotBindingAction({
+      agentId: "Codex",
+      displayName: "Codex Feishu Bot",
+      transportMode: "websocket_worker",
+      appId: "cli_codex_bot",
+      appSecret: "raw-agent-secret",
+      verificationToken: "",
+      encryptKey: "",
+      tenantKey: "",
+    })).rejects.toThrow("feishu.agent_bot_binding.credential_encryption_key_invalid");
+
+    expect(mockTryRecordWorkspaceAuditEventSync).not.toHaveBeenCalled();
+    expect(mockRevalidateWorkspacePaths).not.toHaveBeenCalled();
+  });
+
   it("rotates agent bot credentials through the Feishu service", async () => {
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin", "admin-1"));
     mockRotateFeishuAgentBotCredentialsSync.mockReturnValue(buildIntegration({

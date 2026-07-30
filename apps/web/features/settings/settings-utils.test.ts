@@ -34,6 +34,16 @@ describe("translateSettingsActionError", () => {
       new Error("feishu.integration.credential_encryption_key_invalid"),
       chineseTx,
     )).toBe("agent.dofe 飞书凭据加密密钥无效。请使用 base64 编码的 32 字节密钥。");
+
+    expect(translateSettingsActionError(
+      new Error("feishu.agent_bot_binding.credential_encryption_key_missing"),
+      chineseTx,
+    )).toBe("agent.dofe 未配置飞书凭据加密密钥。请设置 DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY。");
+
+    expect(translateSettingsActionError(
+      new Error("feishu.agent_bot_binding.credential_encryption_key_invalid"),
+      englishTx,
+    )).toBe("The agent.dofe Feishu credential encryption key is invalid. Use a base64-encoded 32-byte key.");
   });
 
   it("translates Feishu setup placeholder errors", () => {
