@@ -185,6 +185,51 @@ test("mark failed locates the stage, retry resets and bumps retry count", () => 
   assert.equal(retried?.retryCount, 1);
 });
 
+test("terminal provisioning failure takes its managed runtime offline", () => {
+  const snapshot = registerDaemonRuntimesSync({
+    daemonKey: "managed-daemon-terminal-failure",
+    deviceName: "Runner",
+    workspaceId: WORKSPACE,
+    runtimes: [{ provider: "claude", name: "Managed Claude" }],
+  });
+  const runtimeId = snapshot.runtimes[0]!.id;
+  const task = createRuntimeProvisioningTaskSync({
+    workspaceId: WORKSPACE,
+    requestedByUserId: USER,
+    idempotencyKey: "terminal-failure-key",
+    runtimeType: "claude",
+    protocols: ["anthropic"],
+  });
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId,
+    workspaceId: WORKSPACE,
+    provisioningTaskId: task.id,
+    provisioningState: "managed",
+    status: "online",
+  });
+  advanceRuntimeProvisioningTaskStageSync({
+    id: task.id,
+    workspaceId: WORKSPACE,
+    stage: "pull_image",
+    status: "running",
+    progressPercent: 50,
+    runtimeId,
+  });
+
+  const failed = markRuntimeProvisioningTaskFailedSync({
+    id: task.id,
+    workspaceId: WORKSPACE,
+    stage: "pull_image",
+    errorCode: "image.unavailable",
+    errorMessage: "Approved runtime image is unavailable locally.",
+    allowRetry: false,
+  });
+
+  assert.equal(failed?.status, "failed");
+  assert.equal(readAgentRuntimeSync(runtimeId)?.status, "offline");
+  assert.equal(readAgentRuntimeSync(runtimeId)?.provisioningState, "needs_attention");
+});
+
 test("cancel flow marks cancelling then completes cancellation", () => {
   const task = createRuntimeProvisioningTaskSync({
     workspaceId: WORKSPACE,

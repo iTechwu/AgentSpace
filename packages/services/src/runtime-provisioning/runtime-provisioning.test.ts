@@ -581,29 +581,25 @@ test("execution capacity provisions an isolated runtime when reuse is disabled",
   assert.equal(activeClient.createCalls, 2);
 });
 
-test("preflight blocks provisioning when the workspace has no online managed node", async () => {
+test("preflight permits provisioning before a managed node joins", async () => {
   const result = await preflightManagedRuntimeCreationAsync({
     workspaceId: TEAM_WS,
     actorUserId: OWNER,
     provider: "claude",
   });
 
-  assert.equal(result.allowed, false);
-  assert.equal(result.code, "managed_runtime.no_online_node");
-  assert.equal(activeClient.preflightCalls, 0);
+  assert.equal(result.allowed, true);
+  assert.equal(activeClient.preflightCalls, 1);
 });
 
-test("execution capacity cannot create a provisioning task without an online managed node", () => {
-  assert.throws(
-    () => ensureManagedRuntimeCapacitySync({
-      workspaceId: TEAM_WS,
-      actorUserId: OWNER,
-      provider: "claude",
-      idempotencyKey: "capacity-without-node",
-    }),
-    /managed_runtime\.no_online_node/,
-  );
-  assert.equal(activeClient.createCalls, 0);
+test("execution capacity queues provisioning before a managed node joins", () => {
+  const result = ensureManagedRuntimeCapacitySync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    idempotencyKey: "capacity-without-node",
+  });
+  assert.equal(result.kind, "provisioning");
 });
 
 test("preflight reports reusable capacity without reserving new-runtime balance", async () => {

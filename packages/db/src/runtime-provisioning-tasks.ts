@@ -356,6 +356,17 @@ export function markRuntimeProvisioningTaskFailedSync(input: {
     if (changes !== 1) {
       return false;
     }
+    // A terminal task failure must never leave its managed runtime eligible for
+    // reuse. The task may fail after the runtime row is created but before its
+    // daemon stages have completed.
+    db.prepare(
+      `UPDATE agent_runtime
+       SET status = 'offline',
+           provisioning_state = 'needs_attention',
+           last_error = ?,
+           updated_at = ?
+       WHERE workspace_id = ? AND provisioning_task_id = ?`,
+    ).run(input.errorMessage, now, workspaceId, input.id);
     appendRuntimeProvisioningEventRowSync(db, {
       taskId: input.id,
       stage: input.stage,
