@@ -26493,6 +26493,11 @@ button[aria-disabled="true"] svg {
   box-shadow: 0 16px 32px rgba(28, 36, 32, 0.16);
 }
 
+.model-catalog-select__menu--portal {
+  position: fixed;
+  z-index: 220;
+}
+
 .model-catalog-select__search {
   display: flex;
   align-items: center;

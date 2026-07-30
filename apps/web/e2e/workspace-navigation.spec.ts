@@ -98,7 +98,8 @@ test("keeps the runtime model menu visible outside the creation panel", async ({
   const fallback = menu.getByRole("option", { name: /跟随系统默认|Inherit system fallback/i });
   await expect(menu).toBeVisible();
   await expect(fallback).toBeVisible();
-  await expect(page.locator(".runtime-wizard")).toHaveCSS("overflow", "visible");
+  await expect(menu).toHaveClass(/model-catalog-select__menu--portal/);
+  await expect(page.locator("body > .model-catalog-select__menu--portal")).toBeVisible();
   await fallback.click();
   await expect(menu).toBeHidden();
 });

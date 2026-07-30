@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import {
   listProtocolFilteredRuntimeModelsAction,
   type RuntimeModelCatalogItem,
@@ -79,9 +80,15 @@ export function ModelCatalogSelect({
   labels,
 }: ModelCatalogSelectProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [menuPosition, setMenuPosition] = useState<{
+    left: number;
+    top: number;
+    width: number;
+  } | null>(null);
   const text = { ...defaultLabels, ...labels };
   const selected = options.find((option) => option.alias === value || option.model === value);
   const normalizedQuery = query.trim().toLowerCase();
@@ -94,7 +101,8 @@ export function ModelCatalogSelect({
     if (!open) return;
 
     function closeOnOutsidePointer(event: MouseEvent): void {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     }
 
     function closeOnEscape(event: KeyboardEvent): void {
@@ -112,6 +120,35 @@ export function ModelCatalogSelect({
   useEffect(() => {
     if (disabled || loading) setOpen(false);
   }, [disabled, loading]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+
+    function updateMenuPosition(): void {
+      const trigger = rootRef.current?.querySelector<HTMLButtonElement>(".model-catalog-select__trigger");
+      if (!trigger) return;
+
+      const rect = trigger.getBoundingClientRect();
+      const gutter = 12;
+      const width = Math.min(
+        Math.max(rect.width, 360),
+        Math.min(560, window.innerWidth - gutter * 2),
+      );
+      setMenuPosition({
+        left: Math.min(Math.max(gutter, rect.left), window.innerWidth - width - gutter),
+        top: rect.bottom + 7,
+        width,
+      });
+    }
+
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [open]);
 
   const triggerTitle = loading
     ? text.loading
@@ -142,8 +179,19 @@ export function ModelCatalogSelect({
         <AppIcon className="model-catalog-select__chevron" name="chevronDown" />
       </button>
 
-      {open ? (
-        <div aria-label={label} className="model-catalog-select__menu" id={menuId} role="listbox">
+      {open && typeof document !== "undefined" ? createPortal(
+        <div
+          aria-label={label}
+          className="model-catalog-select__menu model-catalog-select__menu--portal"
+          id={menuId}
+          ref={menuRef}
+          role="listbox"
+          style={menuPosition ? {
+            left: `${menuPosition.left}px`,
+            top: `${menuPosition.top}px`,
+            width: `${menuPosition.width}px`,
+          } : undefined}
+        >
           <label className="model-catalog-select__search">
             <AppIcon name="search" />
             <span className="sr-only">{text.search}</span>
@@ -199,7 +247,8 @@ export function ModelCatalogSelect({
             })}
             {visibleOptions.length === 0 ? <p className="model-catalog-select__empty">{text.empty}</p> : null}
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );
