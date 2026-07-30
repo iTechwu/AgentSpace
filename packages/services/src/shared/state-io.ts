@@ -122,7 +122,7 @@ function deleteWorkspaceAttachmentObjectsSync(workspaceId: string): void {
   const storage = createAttachmentStorageClient();
   for (const attachment of uniqueObjects.values()) {
     storage.deleteObjectSync({
-      storageProvider: "tos",
+      storageProvider: attachment.storageProvider ?? "tos",
       storageBucket: attachment.storageBucket,
       storageRegion: attachment.storageRegion,
       storageEndpoint: attachment.storageEndpoint,

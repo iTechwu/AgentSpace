@@ -32,7 +32,7 @@ export function resolveModelsGatewayBaseUrl(env: NodeJS.ProcessEnv = process.env
   return env.MODELS_GATEWAY_BASE_URL?.trim() || DEFAULT_MODELS_GATEWAY_BASE_URL;
 }
 
-export interface AttachmentRuntimeConfig {
+export interface TosAttachmentRuntimeConfig {
   provider: "tos";
   tos: {
     bucket: string;
@@ -44,6 +44,15 @@ export interface AttachmentRuntimeConfig {
     secretAccessKey: string;
   };
 }
+
+export interface LocalAttachmentRuntimeConfig {
+  provider: "local";
+  local: {
+    root: string;
+  };
+}
+
+export type AttachmentRuntimeConfig = TosAttachmentRuntimeConfig | LocalAttachmentRuntimeConfig;
 
 export interface DofeAgentRuntimeConfig {
   databaseUrl: string;
@@ -63,8 +72,19 @@ export function resolveDofeAgentRuntimeConfig(env: NodeJS.ProcessEnv = process.e
 export function resolveAttachmentRuntimeConfig(env: NodeJS.ProcessEnv = process.env): AttachmentRuntimeConfig {
   const effectiveEnv = readEffectiveRuntimeEnv({ env, repositoryOverridesEnv: env === process.env });
   const requestedProvider = effectiveEnv.ATTACHMENT_STORAGE_PROVIDER?.trim().toLowerCase();
+  if (requestedProvider === "local") {
+    if (effectiveEnv.ATTACHMENT_ENABLE_LOCAL_FALLBACK !== "true") {
+      throw new Error("Local attachment storage requires ATTACHMENT_ENABLE_LOCAL_FALLBACK=true.");
+    }
+    return {
+      provider: "local",
+      local: {
+        root: requireFirstEnvValue(effectiveEnv, ["SELF_HOSTED_ATTACHMENT_LOCAL_ROOT"]),
+      },
+    };
+  }
   if (requestedProvider && requestedProvider !== "tos") {
-    throw new Error("ATTACHMENT_STORAGE_PROVIDER must be tos; local attachment storage is not supported.");
+    throw new Error("ATTACHMENT_STORAGE_PROVIDER must be tos or local.");
   }
 
   const publicEndpoint = normalizeTosEndpoint(requireFirstEnvValue(effectiveEnv, ["TOS_ENDPOINT", "TOS_S3_ENDPOINT"]));

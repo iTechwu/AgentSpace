@@ -95,10 +95,10 @@ export async function importWorkspaceSkillFromUrl(input: {
     throw new Error("Skill import URL is required.");
   }
 
-  const hasRecordedTosSource = listWorkspaceSkillsSync(workspaceId).some(
-    (skill) => skill.sourceType === "tos" && sameValue(skill.sourceUrl ?? "", sourceUrl),
+  const hasRecordedStoredSource = listWorkspaceSkillsSync(workspaceId).some(
+    (skill) => (skill.sourceType === "tos" || skill.sourceType === "local") && sameValue(skill.sourceUrl ?? "", sourceUrl),
   );
-  const imported = await importSkillDefinition(sourceUrl, { hasRecordedTosSource });
+  const imported = await importSkillDefinition(sourceUrl, { hasRecordedStoredSource });
   return persistImportedSkillDefinition(imported, workspaceId, input.conflict);
 }
 
@@ -127,9 +127,9 @@ export async function importWorkspaceSkillFromZipUpload(input: {
   });
 
   try {
-    // Parse the persisted TOS object instead of trusting the browser upload bytes.
+    // Parse the persisted object instead of trusting the browser upload bytes.
     const archiveBytes = readWorkspaceAttachmentBytesSync(sourceAttachment);
-    const imported = importTosSkillDefinition(archiveBytes, sourceAttachment);
+    const imported = importStoredSkillDefinition(archiveBytes, sourceAttachment);
     const result = await persistImportedSkillDefinition(imported, input.workspaceId, input.conflict);
     if (result.skipped) {
       deleteWorkspaceAttachmentsSync([sourceAttachment]);
@@ -289,7 +289,7 @@ async function replaceImportedSkill(
 
 async function importSkillDefinition(
   sourceUrl: string,
-  options: { hasRecordedTosSource: boolean } = { hasRecordedTosSource: false },
+  options: { hasRecordedStoredSource: boolean } = { hasRecordedStoredSource: false },
 ): Promise<ImportedSkillDefinition> {
   const parsed = parseUrl(sourceUrl);
   if (!parsed) {
@@ -306,52 +306,65 @@ async function importSkillDefinition(
     return importLocalSkillDefinition(decodeURIComponent(parsed.pathname));
   }
   if (parsed.protocol === "tos:") {
-    if (!options.hasRecordedTosSource) {
+    if (!options.hasRecordedStoredSource) {
       throw new Error("TOS skill sources must be created through a zip upload.");
     }
-    return importTosSkillDefinitionFromPath(sourceUrl, parsed);
+    return importStoredSkillDefinitionFromPath(sourceUrl, parsed, "tos");
+  }
+  if (parsed.protocol === "local:") {
+    if (!options.hasRecordedStoredSource) {
+      throw new Error("Local skill sources must be created through a zip upload.");
+    }
+    return importStoredSkillDefinitionFromPath(sourceUrl, parsed, "local");
   }
   return importGitHubSkillDefinition(sourceUrl);
 }
 
-function importTosSkillDefinitionFromPath(sourceUrl: string, parsed: URL): ImportedSkillDefinition {
+function importStoredSkillDefinitionFromPath(
+  sourceUrl: string,
+  parsed: URL,
+  provider: "tos" | "local",
+): ImportedSkillDefinition {
   const storageKey = decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
-  if (!parsed.hostname || !storageKey) {
+  if (!storageKey || (provider === "tos" && !parsed.hostname)) {
     throw new Error("TOS skill source must include a bucket and object key.");
   }
   const archiveBytes = readWorkspaceAttachmentBytesSync({
     storedPath: sourceUrl,
-    storageBucket: parsed.hostname,
+    storageProvider: provider,
+    storageBucket: provider === "tos" ? parsed.hostname : undefined,
     storageKey,
   });
-  return importTosSkillDefinition(archiveBytes, {
+  return importStoredSkillDefinition(archiveBytes, {
     fileName: basename(storageKey),
     storedPath: sourceUrl,
-    storageBucket: parsed.hostname,
+    storageProvider: provider,
+    storageBucket: provider === "tos" ? parsed.hostname : undefined,
     storageKey,
     sizeBytes: archiveBytes.byteLength,
   });
 }
 
-function importTosSkillDefinition(
+function importStoredSkillDefinition(
   archiveBytes: Uint8Array,
   source: Pick<
     ReturnType<typeof persistWorkspaceAttachmentFromBytesSync>,
-    "fileName" | "storedPath" | "storageBucket" | "storageRegion" | "storageEndpoint" | "storageKey" | "sha256" | "sizeBytes"
+    "fileName" | "storedPath" | "storageProvider" | "storageBucket" | "storageRegion" | "storageEndpoint" | "storageKey" | "sha256" | "sizeBytes"
   >,
 ): ImportedSkillDefinition {
   const warnings: string[] = [];
-  const files = readSkillZipFiles(archiveBytes, warnings, "TOS skill archive");
+  const provider = source.storageProvider ?? "tos";
+  const files = readSkillZipFiles(archiveBytes, warnings, `${provider.toUpperCase()} skill archive`);
   const skillMd = readImportedSkillFile(files, "SKILL.md");
   const metadata = parseSkillMetadata(skillMd, deriveSkillNameFromPath(source.fileName));
   return {
     name: metadata.name,
     description: metadata.description,
     files,
-    sourceType: "tos",
+    sourceType: provider,
     sourceUrl: source.storedPath,
     configJson: JSON.stringify({
-      provider: "tos",
+      provider,
       storageKey: source.storageKey,
       storageBucket: source.storageBucket,
       storageRegion: source.storageRegion,

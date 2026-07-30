@@ -1270,7 +1270,7 @@ async function readFeishuOutboundAttachmentBytes(
     throw new Error(`Feishu attachment "${attachment.id}" is missing its TOS object key.`);
   }
   return createAttachmentStorageClient().getObject({
-    storageProvider: "tos",
+    storageProvider: attachment.storageProvider ?? "tos",
     storageBucket: attachment.storageBucket,
     storageRegion: attachment.storageRegion,
     storageEndpoint: attachment.storageEndpoint,

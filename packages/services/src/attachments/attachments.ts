@@ -80,7 +80,7 @@ export function deleteWorkspaceAttachmentsSync(
       throw new Error(`Attachment object key is missing for "${attachment.storedPath}".`);
     }
     storage.deleteObjectSync({
-      storageProvider: "tos",
+      storageProvider: attachment.storageProvider ?? "tos",
       storageBucket: attachment.storageBucket,
       storageRegion: attachment.storageRegion,
       storageEndpoint: attachment.storageEndpoint,
@@ -91,13 +91,13 @@ export function deleteWorkspaceAttachmentsSync(
 }
 
 export function readWorkspaceAttachmentBytesSync(
-  attachment: Pick<MessageAttachment, "storedPath" | "storageBucket" | "storageRegion" | "storageEndpoint" | "storageKey">,
+  attachment: Pick<MessageAttachment, "storedPath" | "storageProvider" | "storageBucket" | "storageRegion" | "storageEndpoint" | "storageKey">,
 ): Uint8Array {
   if (!attachment.storageKey) {
     throw new Error(`Attachment object key is missing for "${attachment.storedPath}".`);
   }
   return createAttachmentStorageClient().getObjectSync({
-    storageProvider: "tos",
+    storageProvider: attachment.storageProvider ?? "tos",
     storageBucket: attachment.storageBucket,
     storageRegion: attachment.storageRegion,
     storageEndpoint: attachment.storageEndpoint,

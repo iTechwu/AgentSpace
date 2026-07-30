@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import { TosClient } from "@volcengine/tos-sdk";
 import {
@@ -10,7 +12,7 @@ import {
 const TOS_SIGNED_URL_TTL_SECONDS = 300;
 
 export interface StoredAttachmentObject {
-  provider: "tos";
+  provider: "tos" | "local";
   bucket?: string;
   region?: string;
   endpoint?: string;
@@ -39,7 +41,7 @@ export interface AttachmentStorageReadInput {
 }
 
 export interface AttachmentStorageObjectMetadata {
-  provider: "tos";
+  provider: "tos" | "local";
   bucket?: string;
   region?: string;
   endpoint?: string;
@@ -68,7 +70,10 @@ export function createAttachmentStorageClient(config?: AttachmentRuntimeConfig):
   if (testStorageClient) {
     return testStorageClient;
   }
-  return new TosAttachmentStorageClient(config ?? resolveAttachmentRuntimeConfig());
+  const resolvedConfig = config ?? resolveAttachmentRuntimeConfig();
+  return resolvedConfig.provider === "local"
+    ? new LocalAttachmentStorageClient(resolvedConfig)
+    : new TosAttachmentStorageClient(resolvedConfig);
 }
 
 export function setAttachmentStorageClientForTests(client: AttachmentStorageClient | undefined): void {
@@ -103,10 +108,10 @@ export function sha256Hex(contentBytes: Uint8Array): string {
 }
 
 class TosAttachmentStorageClient implements AttachmentStorageClient {
-  private readonly config: AttachmentRuntimeConfig["tos"];
+  private readonly config: Extract<AttachmentRuntimeConfig, { provider: "tos" }>["tos"];
   private readonly client: TosClient;
 
-  constructor(config: AttachmentRuntimeConfig) {
+  constructor(config: Extract<AttachmentRuntimeConfig, { provider: "tos" }>) {
     this.config = config.tos;
     this.client = new TosClient({
       accessKeyId: this.config.accessKeyId,
@@ -308,6 +313,91 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
   }
 }
 
+class LocalAttachmentStorageClient implements AttachmentStorageClient {
+  private readonly root: string;
+
+  constructor(config: Extract<AttachmentRuntimeConfig, { provider: "local" }>) {
+    this.root = resolve(config.local.root);
+  }
+
+  async putObject(input: AttachmentStoragePutInput): Promise<StoredAttachmentObject> {
+    return this.putObjectSync(input);
+  }
+
+  putObjectSync(input: AttachmentStoragePutInput): StoredAttachmentObject {
+    const key = buildAttachmentStorageKey(input);
+    const targetPath = this.resolveObjectPath(key);
+    mkdirSync(dirname(targetPath), { recursive: true });
+    writeFileSync(targetPath, input.contentBytes, { flag: "wx" });
+    return this.toStoredObject(key, input.contentBytes);
+  }
+
+  async getObject(input: AttachmentStorageReadInput): Promise<Uint8Array> {
+    return this.getObjectSync(input);
+  }
+
+  getObjectSync(input: AttachmentStorageReadInput): Uint8Array {
+    return new Uint8Array(readFileSync(this.resolveObjectPath(this.requireStorageKey(input))));
+  }
+
+  async headObject(input: AttachmentStorageReadInput): Promise<AttachmentStorageObjectMetadata | null> {
+    const key = input.storageKey?.trim();
+    if (!key) return null;
+    try {
+      const stats = statSync(this.resolveObjectPath(key));
+      return {
+        provider: "local",
+        key,
+        storedPath: input.storedPath,
+        sizeBytes: stats.size,
+        lastModified: stats.mtime.toISOString(),
+      };
+    } catch (error) {
+      if (isLocalStorageNotFoundError(error)) return null;
+      throw error;
+    }
+  }
+
+  async deleteObject(input: AttachmentStorageReadInput): Promise<void> {
+    this.deleteObjectSync(input);
+  }
+
+  deleteObjectSync(input: AttachmentStorageReadInput): void {
+    const key = input.storageKey?.trim();
+    if (!key) return;
+    rmSync(this.resolveObjectPath(key), { force: true });
+  }
+
+  async createReadUrl(_input: AttachmentStorageReadInput): Promise<string | null> {
+    return null;
+  }
+
+  private toStoredObject(key: string, contentBytes: Uint8Array): StoredAttachmentObject {
+    return {
+      provider: "local",
+      key,
+      storedPath: `local:///${key}`,
+      sizeBytes: contentBytes.byteLength,
+      sha256: sha256Hex(contentBytes),
+    };
+  }
+
+  private requireStorageKey(input: AttachmentStorageReadInput): string {
+    const key = input.storageKey?.trim();
+    if (!key) throw new Error("Missing local attachment storage key.");
+    return key;
+  }
+
+  private resolveObjectPath(key: string): string {
+    const targetPath = resolve(this.root, key);
+    const relativePath = relative(this.root, targetPath);
+    if (!relativePath || relativePath === ".." || relativePath.startsWith(`..${sep}`)) {
+      throw new Error("Attachment storage key resolves outside the configured local attachment root.");
+    }
+    return targetPath;
+  }
+}
+
 function parseContentLength(value: string | null): number | undefined {
   if (!value) {
     return undefined;
@@ -334,6 +424,13 @@ function isTosNotFoundError(error: unknown): boolean {
     && error !== null
     && "statusCode" in error
     && Number((error as { statusCode?: unknown }).statusCode) === 404;
+}
+
+function isLocalStorageNotFoundError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && (error as { code?: unknown }).code === "ENOENT";
 }
 
 function toEndpointHost(value: string): string {

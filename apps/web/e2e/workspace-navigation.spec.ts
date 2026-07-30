@@ -131,6 +131,7 @@ test("keeps managed runtime settings reachable in a constrained viewport", async
 
   const detail = page.locator(".runtime-detail");
   await expect(detail).toHaveCSS("overflow-y", "auto");
+  await expect(detail).toHaveCSS("flex-basis", "0px");
   const dimensions = await detail.evaluate((element) => ({
     clientHeight: element.clientHeight,
     scrollHeight: element.scrollHeight,

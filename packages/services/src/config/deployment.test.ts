@@ -106,11 +106,20 @@ test("legacy TOS S3 endpoint aliases are normalized for the TOS SDK", () => {
   assert.equal(attachments.tos?.endpoint, "https://tos-cn-beijing.volces.com");
 });
 
-test("local attachment storage is rejected", () => {
+test("local attachment storage requires an explicit fallback opt-in", () => {
   assert.throws(
     () => resolveAttachmentRuntimeConfig({ ATTACHMENT_STORAGE_PROVIDER: "local" }),
-    /must be tos; local attachment storage is not supported/,
+    /ATTACHMENT_ENABLE_LOCAL_FALLBACK=true/,
   );
+});
+
+test("local attachment storage is available with an explicit fallback configuration", () => {
+  const attachments = resolveAttachmentRuntimeConfig({
+    ATTACHMENT_STORAGE_PROVIDER: "local",
+    ATTACHMENT_ENABLE_LOCAL_FALLBACK: "true",
+    SELF_HOSTED_ATTACHMENT_LOCAL_ROOT: "/srv/DofeAgent/data/attachments",
+  });
+  assert.equal(attachments.provider, "local");
 });
 
 test("incomplete TOS configuration is rejected instead of falling back to local storage", () => {

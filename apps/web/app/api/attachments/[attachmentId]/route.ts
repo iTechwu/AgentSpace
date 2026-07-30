@@ -71,7 +71,7 @@ export async function GET(
     }) || getVisibility().canAccessChannel(storedAttachment.channelName)
   )
     ? storedAttachment
-    : findTosSnapshotAttachment(
+    : findStoredSnapshotAttachment(
         attachmentId,
         workspaceContext.currentWorkspace.id,
         workspaceContext.currentUser.displayName,
@@ -153,7 +153,7 @@ async function readAttachmentContent(attachment: MessageAttachment): Promise<Uin
     throw new Error(`Attachment "${attachment.id}" is missing its TOS object key.`);
   }
   return createAttachmentStorageClient().getObject({
-    storageProvider: "tos",
+    storageProvider: attachment.storageProvider ?? "tos",
     storageBucket: attachment.storageBucket,
     storageRegion: attachment.storageRegion,
     storageEndpoint: attachment.storageEndpoint,
@@ -262,7 +262,7 @@ function canReadStoredAttachmentWithoutVisibility(input: {
   return channelName.startsWith("load-channel-");
 }
 
-function findTosSnapshotAttachment(
+function findStoredSnapshotAttachment(
   attachmentId: string,
   workspaceId: string,
   currentUserDisplayName: string,
@@ -277,7 +277,7 @@ function findTosSnapshotAttachment(
     if (sourceMessage && !visibility.canAccessChannel(sourceMessage.channel)) {
       return null;
     }
-    return buildTosSnapshotAttachment(attachmentId, knowledgePage.sourceAttachmentStoredPath);
+    return buildStoredSnapshotAttachment(attachmentId, knowledgePage.sourceAttachmentStoredPath);
   }
 
   for (const version of state.channelDocumentVersions) {
@@ -286,18 +286,20 @@ function findTosSnapshotAttachment(
       version.sourceAttachmentStoredPath &&
       canViewChannelDocumentSync(version.documentId, currentUserDisplayName, "human", workspaceId)
     ) {
-      return buildTosSnapshotAttachment(attachmentId, version.sourceAttachmentStoredPath);
+      return buildStoredSnapshotAttachment(attachmentId, version.sourceAttachmentStoredPath);
     }
   }
   return null;
 }
 
-function buildTosSnapshotAttachment(attachmentId: string, storedPath: string): MessageAttachment | null {
-  const match = /^tos:\/\/([^/]+)\/(.+)$/.exec(storedPath);
-  if (!match) {
-    return null;
-  }
-  const [, bucket, storageKey] = match;
+function buildStoredSnapshotAttachment(attachmentId: string, storedPath: string): MessageAttachment | null {
+  const tosMatch = /^tos:\/\/([^/]+)\/(.+)$/.exec(storedPath);
+  const localMatch = /^local:\/\/\/(.+)$/.exec(storedPath);
+  if (!tosMatch && !localMatch) return null;
+  const storageProvider = localMatch ? "local" : "tos";
+  const storageBucket = tosMatch?.[1];
+  const storageKey = localMatch?.[1] ?? tosMatch?.[2];
+  if (!storageKey) return null;
   const fileName = basename(storageKey) || `${attachmentId}.bin`;
   const mediaType = resolveAttachmentMediaType(fileName);
   return {
@@ -307,8 +309,8 @@ function buildTosSnapshotAttachment(attachmentId: string, storedPath: string): M
     sizeBytes: 0,
     kind: inferAttachmentKind(mediaType),
     storedPath,
-    storageProvider: "tos",
-    storageBucket: bucket,
+    storageProvider,
+    storageBucket,
     storageKey,
   };
 }
@@ -317,5 +319,5 @@ function isStorageMissingError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
-  return /TOS read failed with status 404|NoSuchKey|NoSuchBucket/i.test(error.message);
+  return /TOS read failed with status 404|NoSuchKey|NoSuchBucket|ENOENT/i.test(error.message);
 }

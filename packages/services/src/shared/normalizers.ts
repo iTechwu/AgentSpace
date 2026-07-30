@@ -1200,7 +1200,7 @@ function normalizeMessageAttachment(attachment: unknown): MessageAttachment | nu
     sizeBytes: candidate.sizeBytes,
     kind: candidate.kind === "image" ? "image" : "file",
     storedPath: candidate.storedPath,
-    storageProvider: "tos",
+    storageProvider: candidate.storageProvider === "local" ? "local" : "tos",
     storageBucket: normalizeOptionalString(candidate.storageBucket),
     storageRegion: normalizeOptionalString(candidate.storageRegion),
     storageEndpoint: normalizeOptionalString(candidate.storageEndpoint),

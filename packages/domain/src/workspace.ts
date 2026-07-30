@@ -47,7 +47,7 @@ export interface MaterialInput {
   fileName?: string;
   mediaType?: string;
   storedPath?: string;
-  storageProvider?: "tos";
+  storageProvider?: "tos" | "local";
   storageBucket?: string;
   storageRegion?: string;
   storageEndpoint?: string;
@@ -65,7 +65,7 @@ export interface MessageAttachment {
   sizeBytes: number;
   kind: "image" | "file";
   storedPath: string;
-  storageProvider?: "tos";
+  storageProvider?: "tos" | "local";
   storageBucket?: string;
   storageRegion?: string;
   storageEndpoint?: string;

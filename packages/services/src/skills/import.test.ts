@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
@@ -186,6 +186,41 @@ description: TOS upload
   });
   assert.equal(reimported.replaced, true);
   assert.equal(reimported.sourceType, "tos");
+});
+
+test("imports and reimports an uploaded zip from explicit local attachment storage", async () => {
+  const localRoot = mkdtempSync(join(tmpdir(), "dofe-agent-local-skill-import-"));
+  const originalProvider = process.env.ATTACHMENT_STORAGE_PROVIDER;
+  const originalFallback = process.env.ATTACHMENT_ENABLE_LOCAL_FALLBACK;
+  const originalRoot = process.env.SELF_HOSTED_ATTACHMENT_LOCAL_ROOT;
+  setAttachmentStorageClientForTests(undefined);
+  process.env.ATTACHMENT_STORAGE_PROVIDER = "local";
+  process.env.ATTACHMENT_ENABLE_LOCAL_FALLBACK = "true";
+  process.env.SELF_HOSTED_ATTACHMENT_LOCAL_ROOT = localRoot;
+  try {
+    const archive = zipSync({
+      "SKILL.md": strToU8("---\nname: local-upload-research\ndescription: Local upload\n---\n\n# Local Upload Research\n"),
+    });
+    const result = await importWorkspaceSkillFromZipUpload({
+      fileName: "local-research.zip",
+      contentBytes: archive,
+    });
+    assert.equal(result.sourceType, "local");
+    assert.match(result.sourceUrl, /^local:\/\/\/workspaces\//);
+
+    const reimported = await importWorkspaceSkillFromUrl({
+      url: result.sourceUrl,
+      conflict: "replace",
+    });
+    assert.equal(reimported.replaced, true);
+    assert.equal(reimported.sourceType, "local");
+  } finally {
+    setAttachmentStorageClientForTests(testTosStorage.client);
+    restoreEnvironmentVariable("ATTACHMENT_STORAGE_PROVIDER", originalProvider);
+    restoreEnvironmentVariable("ATTACHMENT_ENABLE_LOCAL_FALLBACK", originalFallback);
+    restoreEnvironmentVariable("SELF_HOSTED_ATTACHMENT_LOCAL_ROOT", originalRoot);
+    rmSync(localRoot, { recursive: true, force: true });
+  }
 });
 
 test("importWorkspaceSkillFromUrl can skip an existing conflict", async () => {
@@ -423,4 +458,12 @@ function jsonResponse(body: unknown): Response {
       "content-type": "application/json",
     },
   });
+}
+
+function restoreEnvironmentVariable(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
 }
