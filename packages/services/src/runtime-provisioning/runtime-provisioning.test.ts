@@ -49,6 +49,7 @@ import {
   retryRuntimeProvisioningTaskSync,
   rotateManagedRuntimeCredentialAsync,
   runProvisioningPipeline,
+  setManagedRuntimeDefaultModelAsync,
   setProvisioningModelsClientProviderForTests,
   stopManagedRuntimeAsync,
   type ModelsClientLike,
@@ -80,12 +81,13 @@ function createMockClient(behavior: {
   plaintext?: string;
   nextPlaintext?: string;
   modelList?: unknown[];
-}): ModelsClientLike & { createCalls: number; preflightCalls: number; revokeCalls: number; rotateCalls: number; getCalls: number; lastPreflightBody?: unknown; lastRevokeBody?: unknown; lastRotateBody?: unknown } {
+}): ModelsClientLike & { createCalls: number; preflightCalls: number; revokeCalls: number; rotateCalls: number; getCalls: number; lastCreateBody?: unknown; lastPreflightBody?: unknown; lastRevokeBody?: unknown; lastRotateBody?: unknown } {
   let createCalls = 0;
   let preflightCalls = 0;
   let revokeCalls = 0;
   let rotateCalls = 0;
   let getCalls = 0;
+  let lastCreateBody: unknown;
   let lastPreflightBody: unknown;
   let lastRevokeBody: unknown;
   let lastRotateBody: unknown;
@@ -118,6 +120,7 @@ function createMockClient(behavior: {
     runtimeCredentials: {
       async create({ body }) {
         createCalls += 1;
+        lastCreateBody = body;
         if (behavior.failCreate) {
           throw new Error("models.create_failed");
         }
@@ -184,6 +187,9 @@ function createMockClient(behavior: {
     },
     get preflightCalls() {
       return preflightCalls;
+    },
+    get lastCreateBody() {
+      return lastCreateBody;
     },
     get lastPreflightBody() {
       return lastPreflightBody;
@@ -1208,6 +1214,96 @@ test("rotate issues a new credential and forgets the old vault entry", async () 
     ],
   );
   assert.equal(getRuntimeCredentialVault().retrieve(rotated.credentialSecretRef!), "sk-runtime-plaintext-rotated");
+});
+
+test("changing a managed runtime default reissues a credential for the selected model", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    defaultModel: "claude-sonnet",
+    idempotencyKey: "model-change-key",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtimeId = provisioned.runtimeId!;
+  const previous = readAgentRuntimeSync(runtimeId)!;
+  const previousSecretRef = previous.credentialSecretRef!;
+
+  activeClient = createMockClient({
+    credentialId: "rtc-model-change",
+    plaintext: "sk-model-change",
+    modelList: [
+      {
+        id: "model-deepseek",
+        alias: "deepseek-v4-flash",
+        model: "deepseek-v4-flash",
+        modelType: "llm",
+        supportedProtocols: ["anthropic"],
+        isEnabled: true,
+        isDeprecated: false,
+      },
+    ],
+  });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const updated = await setManagedRuntimeDefaultModelAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    runtimeId,
+    defaultModel: "deepseek-v4-flash",
+    operationId: "model-change-1",
+  });
+
+  assert.equal(updated.defaultModel, "deepseek-v4-flash");
+  assert.equal(updated.managedCredentialId, "rtc-model-change");
+  assert.deepEqual(activeClient.lastCreateBody, {
+    tenantId: "tenant-1",
+    teamId: "team-1",
+    runtimeId,
+    runtimeType: "claude",
+    protocols: ["anthropic"],
+    allowedModels: ["deepseek-v4-flash"],
+    defaultModel: "deepseek-v4-flash",
+    idempotencyKey: `model-change:${runtimeId}:deepseek-v4-flash:model-change-1`,
+    audit: { actorId: OWNER },
+  });
+  assert.equal(getRuntimeCredentialVault().retrieve(previousSecretRef), undefined);
+  assert.equal(getRuntimeCredentialVault().retrieve(updated.credentialSecretRef!), "sk-model-change");
+});
+
+test("clearing a managed runtime default reissues an unrestricted compatible credential", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "claude",
+    defaultModel: "claude-sonnet",
+    idempotencyKey: "model-clear-key",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtimeId = provisioned.runtimeId!;
+
+  activeClient = createMockClient({ credentialId: "rtc-system-default", plaintext: "sk-system-default" });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const updated = await setManagedRuntimeDefaultModelAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    runtimeId,
+    operationId: "model-clear-1",
+  });
+
+  assert.equal(updated.defaultModel, undefined);
+  assert.deepEqual(activeClient.lastCreateBody, {
+    tenantId: "tenant-1",
+    teamId: "team-1",
+    runtimeId,
+    runtimeType: "claude",
+    protocols: ["anthropic"],
+    allowedModels: [],
+    defaultModel: undefined,
+    idempotencyKey: `model-change:${runtimeId}:system:model-clear-1`,
+    audit: { actorId: OWNER },
+  });
 });
 
 test("reissues a credential in the current team scope when rotation cannot find the old credential", async () => {

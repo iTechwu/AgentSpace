@@ -648,6 +648,113 @@ export async function rotateManagedRuntimeCredentialAsync(
   return updated ?? runtime;
 }
 
+export interface SetManagedRuntimeDefaultModelInput extends ManagedRuntimeActor {
+  runtimeId: string;
+  defaultModel?: string;
+  operationId?: string;
+}
+
+/**
+ * A runtime credential allowlist is enforced by the gateway. Selecting a new
+ * default therefore needs a new credential, rather than only changing the
+ * AgentSpace row and leaving the selected model impossible to call.
+ */
+export async function setManagedRuntimeDefaultModelAsync(
+  input: SetManagedRuntimeDefaultModelInput,
+): Promise<AgentRuntimeRecord> {
+  assertRemoteRuntimeMode();
+  assertCanManageManagedRuntimes(input);
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (!runtime || runtime.workspaceId !== input.workspaceId || !runtime.managedCredentialId) {
+    throw new Error("managed_runtime.runtime_not_found");
+  }
+  if (runtime.provisioningState !== "managed" && runtime.provisioningState !== "needs_attention") {
+    throw new Error("managed_runtime.not_a_managed_runtime");
+  }
+
+  const defaultModel = input.defaultModel?.trim() || undefined;
+  if (defaultModel && runtime.defaultModel === defaultModel) {
+    return runtime;
+  }
+
+  const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
+  const protocols = runtime.protocols?.length ? runtime.protocols : resolveProviderProtocols(runtime.provider);
+  const client = clientProvider();
+  await assertManagedRuntimeModelSelectionAsync({
+    client,
+    tenantId: scope.tenantId,
+    protocols,
+    requestedModel: defaultModel,
+  });
+
+  const previousCredentialId = runtime.managedCredentialId;
+  const operationId = input.operationId?.trim() || crypto.randomUUID();
+  const result = await client.runtimeCredentials.create({
+    body: {
+      tenantId: scope.tenantId,
+      teamId: scope.teamId,
+      runtimeId: runtime.id,
+      runtimeType: runtime.provider,
+      protocols,
+      // When following the system default, do not leave the prior selected
+      // model as the sole gateway allowlist entry. The fallback must remain
+      // callable even when it resolves to a different compatible model.
+      allowedModels: defaultModel ? [defaultModel] : [],
+      defaultModel,
+      idempotencyKey: `model-change:${runtime.id}:${defaultModel ?? "system"}:${operationId}`,
+      audit: { actorId: input.actorUserId },
+    },
+  });
+  if (!result.secretIssued || !result.secret?.apiKey) {
+    throw new Error("managed_runtime.model_change_no_secret");
+  }
+
+  const vault = getRuntimeCredentialVault();
+  const previousSecretRef = runtime.credentialSecretRef;
+  const credentialScope = { tenantId: scope.tenantId, teamId: scope.teamId, runtimeId: runtime.id };
+  const secret = vault.store(result.credential.id, result.secret.apiKey, credentialScope);
+  markRuntimeCredentialReconciliationTargetDrainingSync({
+    workspaceId: input.workspaceId,
+    runtimeId: runtime.id,
+    runtimeCredentialId: previousCredentialId,
+    retireAfter: resolveCredentialReconciliationRetireAfter(),
+  });
+  upsertActiveRuntimeCredentialReconciliationTargetSync({
+    workspaceId: input.workspaceId,
+    runtimeId: runtime.id,
+    runtimeCredentialId: result.credential.id,
+  });
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId: runtime.id,
+    workspaceId: input.workspaceId,
+    provisioningState: "managed",
+    status: "online",
+    managedCredentialId: result.credential.id,
+    credentialSecretRef: secret.secretRef,
+    defaultModel: defaultModel ?? "",
+  });
+  if (previousSecretRef && previousSecretRef !== secret.secretRef) {
+    vault.forget(previousSecretRef, credentialScope);
+  }
+  recordAuditLogSync({
+    workspaceId: input.workspaceId,
+    title: "Runtime default model changed",
+    note: `Runtime ${runtime.id} default model changed from ${runtime.defaultModel ?? "inherit"} to ${defaultModel ?? "system default"}.`,
+    code: "runtime.default_model.changed",
+    source: "runtime_credential",
+    data: {
+      runtimeId: runtime.id,
+      previousCredentialId,
+      newCredentialId: result.credential.id,
+      previousModel: runtime.defaultModel ?? "",
+      defaultModel: defaultModel ?? "",
+      operationId,
+      actorId: input.actorUserId,
+    },
+  });
+  return readAgentRuntimeSync(runtime.id) ?? runtime;
+}
+
 function isModelsNotFoundError(error: unknown): boolean {
   return Boolean(
     error

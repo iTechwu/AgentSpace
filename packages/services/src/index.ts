@@ -1001,6 +1001,7 @@ export {
   retryRuntimeProvisioningTaskSync,
   rotateManagedRuntimeCredentialAsync,
   runProvisioningPipeline,
+  setManagedRuntimeDefaultModelAsync,
   stopManagedRuntimeAsync,
   type GetManagedRuntimeCredentialStatusInput,
   type HandleManagedRuntimeProviderFailureInput,
@@ -1015,6 +1016,7 @@ export {
   type PublicRuntimeProvisioningTaskRecord,
   type RequestManagedRuntimeInput,
   type RotateManagedRuntimeCredentialInput,
+  type SetManagedRuntimeDefaultModelInput,
   type RuntimeProvisioningTaskDetail,
   type StopManagedRuntimeInput,
 } from "./runtime-provisioning/runtime-provisioning.ts";

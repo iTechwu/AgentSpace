@@ -14,6 +14,7 @@ import {
   resolveManagedRuntimeScopeSync,
   retryRuntimeProvisioningTaskSync,
   rotateManagedRuntimeCredentialAsync,
+  setManagedRuntimeDefaultModelAsync,
   stopManagedRuntimeAsync,
 } from "@dofe-agent/services";
 import {
@@ -185,42 +186,18 @@ export async function updateManagedRuntimeDefaultModelAction(input: {
   defaultModel?: string;
 }): Promise<void> {
   assertRemoteManagedRuntimeMode();
-  const { workspaceId, slug } = await requireAdminActor();
+  const { workspaceId, actorUserId, slug } = await requireAdminActor();
   const runtime = readAgentRuntimeSync(input.runtimeId);
   if (!runtime || runtime.workspaceId !== workspaceId || !runtime.managedCredentialId) {
     throw new Error("managed_runtime.runtime_not_found");
   }
 
   const requestedModel = input.defaultModel?.trim() ?? "";
-  let defaultModel: string | undefined;
-  if (requestedModel) {
-    if (!isModelsInternalConfigured()) {
-      throw new Error("managed_runtime.models_not_configured");
-    }
-    const { tenantId, teamId } = resolveManagedRuntimeScopeSync(workspaceId);
-    const response = await getModelsInternalClient().runtimeCredentials.models({
-      params: { id: runtime.managedCredentialId },
-      query: { tenantId, teamId },
-    });
-    const selected = response.list.find(
-      (model) =>
-        isExecutionLanguageModel(model) &&
-        model.isAvailable &&
-        model.isEnabled !== false &&
-        (model.alias === requestedModel || model.model === requestedModel || model.id === requestedModel),
-    );
-    if (!selected?.alias) {
-      throw new Error("managed_runtime.model_unavailable");
-    }
-    defaultModel = selected.alias;
-  }
-
-  updateAgentRuntimeManagedFieldsSync({
-    runtimeId: runtime.id,
+  await setManagedRuntimeDefaultModelAsync({
     workspaceId,
-    // The database helper treats undefined as "leave unchanged"; an empty
-    // string intentionally clears the runtime default and restores fallback.
-    defaultModel: defaultModel ?? "",
+    actorUserId,
+    runtimeId: runtime.id,
+    defaultModel: requestedModel || undefined,
   });
   revalidateWorkspacePath(`/runtimes/runtime/${runtime.id}`, slug);
   revalidateWorkspacePath("/runtimes", slug);
@@ -291,9 +268,10 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
 }
 
 /**
- * Models available to an existing managed runtime (filtered by its credential's
- * protocols + allowlist on models.dofe.ai). Used on the runtime detail page,
- * not the create wizard (no credential exists yet pre-provisioning).
+ * Models that can become an existing runtime's default. The current credential
+ * may have a narrower allowlist, but presenting that list would make changing
+ * the default impossible. Saving a selection reissues the credential with the
+ * selected model as its gateway allowlist.
  */
 export async function getManagedRuntimeModelsAction(runtimeId: string) {
   assertRemoteManagedRuntimeMode();
@@ -307,11 +285,8 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
   }
   let response;
   try {
-    const { tenantId, teamId } = resolveManagedRuntimeScopeSync(workspaceId);
-    response = await getModelsInternalClient().runtimeCredentials.models({
-      params: { id: runtime.managedCredentialId },
-      query: { tenantId, teamId },
-    });
+    const { tenantId } = resolveManagedRuntimeScopeSync(workspaceId);
+    response = await getModelsInternalClient().models.list({ query: { tenantId } });
   } catch (error) {
     const status = typeof error === "object" && error && "status" in error ? (error as { status?: number }).status : undefined;
     return {
@@ -341,7 +316,12 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
       supportsFunctionCalling: catalogModel.supportsFunctionCalling,
       inputPrice: catalogModel.inputPrice,
       outputPrice: catalogModel.outputPrice,
-      isAvailable: model.isAvailable,
+      isAvailable: Boolean(
+        (model as { isAvailable?: boolean }).isAvailable &&
+        model.isEnabled !== false &&
+        model.isDeprecated !== true &&
+        supportedProtocols.some((protocol) => (runtime.protocols ?? []).includes(protocol)),
+      ),
       isEnabled: model.isEnabled,
     };
   });
