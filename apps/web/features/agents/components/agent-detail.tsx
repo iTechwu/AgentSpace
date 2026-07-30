@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { EmptyState } from "@/shared/ui/empty-state";
@@ -96,6 +96,10 @@ export function AgentDetail({
   const [selectedRuntimeId, setSelectedRuntimeId] = useState(() =>
     resolveExecutionEngineValue(record.boundContainerId, containerOptions),
   );
+  const previousRuntimeBindingRef = useRef({
+    recordId: record.id,
+    runtimeId: record.boundContainerId ?? "",
+  });
 
   useEffect(() => {
     setInstructionDraft(record.instructions ?? "");
@@ -107,7 +111,19 @@ export function AgentDetail({
   }, [record.id, record.defaultModel]);
 
   useEffect(() => {
-    setSelectedRuntimeId(resolveExecutionEngineValue(record.boundContainerId, containerOptions));
+    setSelectedRuntimeId((current) => {
+      const previous = previousRuntimeBindingRef.current;
+      const boundRuntimeId = record.boundContainerId ?? "";
+      previousRuntimeBindingRef.current = { recordId: record.id, runtimeId: boundRuntimeId };
+      const currentOption = containerOptions.find((option) => option.id === current && option.bindable !== false);
+      const recordChanged = previous.recordId !== record.id;
+      const serverBindingChanged = previous.runtimeId !== boundRuntimeId;
+
+      if (recordChanged || !currentOption || (serverBindingChanged && current === previous.runtimeId)) {
+        return resolveExecutionEngineValue(record.boundContainerId, containerOptions);
+      }
+      return current;
+    });
   }, [containerOptions, record.boundContainerId, record.id]);
 
   useEffect(() => {

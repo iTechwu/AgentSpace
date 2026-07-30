@@ -1658,6 +1658,68 @@ describe("AgentsPageClient", () => {
 });
 
 describe("AgentDetail", () => {
+  it("keeps a pending execution engine selection while the same employee refreshes", async () => {
+    const user = userEvent.setup();
+    const record = {
+      ...data.agents[0]!,
+      boundContainerId: undefined,
+      boundContainerName: undefined,
+      boundContainerStatus: undefined,
+      boundProvider: undefined,
+      boundProviderHealth: undefined,
+    };
+    const containerOptions = [
+      data.containerOptions[0]!,
+      {
+        ...data.containerOptions[0]!,
+        id: "runtime-2",
+        label: "Second runtime",
+        daemonKey: "daemon-2",
+        serverName: "Server two",
+      },
+    ];
+    const view = render(
+      <LanguageProvider initialLanguage="zh">
+        <AgentDetail
+          containerOptions={containerOptions}
+          pending={false}
+          record={record}
+          workspaceSkills={[]}
+          onBindContainer={vi.fn()}
+          onDeleteAgent={vi.fn()}
+          onInstallSkill={vi.fn()}
+          onSaveInstructions={vi.fn()}
+          onSetSkillIds={vi.fn()}
+          onUnbindContainer={vi.fn()}
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    await user.click(screen.getByRole("button", { name: "当前绑定" }));
+    await user.click(screen.getByRole("option", { name: /Second runtime/ }));
+    expect(screen.getByRole("button", { name: "当前绑定" })).toHaveTextContent("Second runtime");
+
+    view.rerender(
+      <LanguageProvider initialLanguage="zh">
+        <AgentDetail
+          containerOptions={containerOptions.map((option) => ({ ...option }))}
+          pending={false}
+          record={{ ...record }}
+          workspaceSkills={[]}
+          onBindContainer={vi.fn()}
+          onDeleteAgent={vi.fn()}
+          onInstallSkill={vi.fn()}
+          onSaveInstructions={vi.fn()}
+          onSetSkillIds={vi.fn()}
+          onUnbindContainer={vi.fn()}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: "当前绑定" })).toHaveTextContent("Second runtime");
+  });
+
   it("guides an employee with no workspaces to configure an engine or start a conversation", async () => {
     const user = userEvent.setup();
     const onStartConversation = vi.fn();
