@@ -11,8 +11,8 @@ x-daemon-healthcheck: &daemon-healthcheck
 services:
   runtime-codex:
     build:
-      context: .
-      dockerfile: Dockerfile.provider-runtime
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile.provider-runtime
       args:
         PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/codex-cli:0.144.6
     image: dofe/agent-runtime-codex:${MANAGED_RUNTIME_IMAGE_TAG:-latest}
@@ -37,8 +37,8 @@ services:
 
   runtime-claude:
     build:
-      context: .
-      dockerfile: Dockerfile.provider-runtime
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile.provider-runtime
       args:
         PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/claude-code-cli:2.1.216
     image: dofe/agent-runtime-claude:${MANAGED_RUNTIME_IMAGE_TAG:-latest}
@@ -63,8 +63,8 @@ services:
 
   runtime-openclaw:
     build:
-      context: .
-      dockerfile: Dockerfile.provider-runtime
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile.provider-runtime
       args:
         PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/openclaw:2026.7.2-2fac2ec8bf80
     image: dofe/agent-runtime-openclaw:${MANAGED_RUNTIME_IMAGE_TAG:-latest}
@@ -89,8 +89,8 @@ services:
 
   runtime-hermes:
     build:
-      context: .
-      dockerfile: Dockerfile.provider-runtime
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile.provider-runtime
       args:
         PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/hermes-agent:1.0.0-1bf1a11135bf
         PROVIDER_PATH: /opt/hermes/bin:/opt/hermes/.venv/bin

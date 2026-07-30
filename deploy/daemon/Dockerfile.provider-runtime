@@ -1,3 +1,24 @@
+# Build the daemon package from the checked-out source so approved runtime
+# images never depend on a manually staged tarball in deploy/daemon.
+FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS daemon-build
+
+ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
+    NPM_CONFIG_REPLACE_REGISTRY_HOST=always
+
+WORKDIR /workspace
+
+COPY package.json tsconfig.base.json ./
+COPY apps/cli ./apps/cli
+COPY packages ./packages
+
+RUN npm --prefix apps/cli ci --ignore-scripts \
+  && npm --prefix packages/db ci --ignore-scripts \
+  && npm --prefix packages/services ci --ignore-scripts \
+  && npm --prefix packages/daemon ci --ignore-scripts \
+  && npm --prefix packages/daemon run build \
+  && mkdir -p /opt/daemon-package \
+  && npm pack ./packages/daemon --ignore-scripts --pack-destination /opt/daemon-package
+
 # Build a runtime wrapper around an already approved provider image. The base
 # image must contain Node.js/npm and exactly one supported provider CLI.
 ARG PROVIDER_BASE_IMAGE
@@ -10,7 +31,7 @@ ARG PROVIDER_PATH=""
 RUN groupadd --gid 10001 dofe-agent \
   && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent
 
-COPY dofe-agent-daemon-*.tgz /tmp/
+COPY --from=daemon-build /opt/daemon-package/dofe-agent-daemon-*.tgz /tmp/
 
 RUN npm install --global /tmp/dofe-agent-daemon-*.tgz \
   && rm /tmp/dofe-agent-daemon-*.tgz \
