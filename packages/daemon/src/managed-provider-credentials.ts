@@ -327,6 +327,12 @@ const server = http.createServer((request, response) => {
   for (const key of Object.keys(headers)) {
     if (key.toLowerCase().startsWith("x-dofe-")) delete headers[key];
   }
+  // The CLI is not a trusted credential boundary. In particular, Codex's
+  // custom Responses provider does not send OPENAI_API_KEY at all, so always
+  // replace its auth headers with the runtime-scoped gateway credential.
+  headers.authorization = "Bearer " + runtimeKey;
+  headers["x-api-key"] = runtimeKey;
+  headers["x-goog-api-key"] = runtimeKey;
   headers["accept-encoding"] = "identity";
 
   const credentialId = process.env.DOFE_AGENT_RUNTIME_CREDENTIAL_ID || "";

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { applyProviderCredentialProfile, resolveProviderCredentialProfile } from "./provider-credentials.ts";
 import {
@@ -182,6 +185,73 @@ test("managed credential launchers run the provider inside its dedicated image",
     execFileSync(process.execPath, ["--check", proxyPath]);
     assert.doesNotMatch(launcher, /runtime-only-key/);
   } finally {
+    resolver.cleanup("runtime-codex");
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("managed Codex proxy injects its runtime key when Codex sends no auth header", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-managed-codex-proxy-"));
+  const binDir = join(root, "bin");
+  mkdirSync(binDir, { recursive: true, mode: 0o700 });
+  let receivedAuthorization: string | undefined;
+  const upstream = createServer((request, response) => {
+    receivedAuthorization = request.headers.authorization;
+    request.resume();
+    request.on("end", () => response.end("{}"));
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+
+  const resolver = createManagedCredentialResolver(root, async () => ({
+    version: 1,
+    credentialId: "credential-codex",
+    environment: { OPENAI_API_KEY: "runtime-only-key", OPENAI_BASE_URL: "http://model.local.dofe.ai/api/v1" },
+    files: {},
+  }));
+
+  try {
+    const profile = await resolver.resolve("runtime-codex", "credential-codex");
+    assert.ok(profile);
+    const proxyPath = join(profile.profileDir, "attribution-proxy.mjs");
+    const fakeCodexPath = join(binDir, "codex");
+    writeFileSync(fakeCodexPath, [
+      "#!/usr/bin/env node",
+      'const http = require("node:http");',
+      'const base = new URL(process.env.OPENAI_BASE_URL);',
+      'const target = new URL(base.pathname.replace(/\\/$/, "") + "/responses", base);',
+      'const request = http.request(target, { method: "POST" }, (response) => {',
+      '  response.resume();',
+      '  response.on("end", () => process.exit(response.statusCode === 200 ? 0 : 1));',
+      '});',
+      'request.on("error", () => process.exit(1));',
+      'request.end("{}");',
+      "",
+    ].join("\n"), { encoding: "utf8", mode: 0o700 });
+    chmodSync(fakeCodexPath, 0o700);
+    const port = (upstream.address() as AddressInfo).port;
+    const child = spawn(process.execPath, [
+      proxyPath,
+      "OPENAI_BASE_URL",
+      "OPENAI_API_KEY",
+      join(profile.profileDir, "runtime-key"),
+      "codex",
+      "exec",
+      "hi",
+    ], {
+      env: {
+        ...process.env,
+        OPENAI_BASE_URL: `http://127.0.0.1:${port}/v1`,
+        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+      },
+      stdio: "ignore",
+    });
+    const [exitCode] = await once(child, "exit") as [number | null];
+
+    assert.equal(exitCode, 0);
+    assert.equal(receivedAuthorization, "Bearer runtime-only-key");
+  } finally {
+    upstream.close();
     resolver.cleanup("runtime-codex");
     rmSync(root, { recursive: true, force: true });
   }
