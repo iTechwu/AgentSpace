@@ -72,9 +72,12 @@ async function buildClaudeLaunch(input: AgentRouterRunRequest): Promise<HarnessL
   const args = [
     "-p",
     "--output-format", "stream-json",
-    "--input-format", "stream-json",
     "--verbose",
   ];
+  const usesRealtimeInput = input.handleControlRequests === true;
+  if (usesRealtimeInput) {
+    args.push("--input-format", "stream-json");
+  }
   if (input.maxTurns && input.maxTurns > 0) {
     args.push("--max-turns", String(Math.floor(input.maxTurns)));
   }
@@ -101,6 +104,13 @@ async function buildClaudeLaunch(input: AgentRouterRunRequest): Promise<HarnessL
   if (input.claudeTools) {
     args.push("--tools", input.claudeTools);
   }
+  if (!usesRealtimeInput) {
+    // Claude Code 2.1.216 exits successfully without producing events when a
+    // one-shot prompt is supplied through the realtime JSONL input channel.
+    // Passing the prompt as the documented -p argument remains compatible
+    // with stream-json output while guaranteeing that the request is started.
+    args.push(input.prompt);
+  }
 
   const env = buildBaseEnv(
     executable,
@@ -112,8 +122,8 @@ async function buildClaudeLaunch(input: AgentRouterRunRequest): Promise<HarnessL
     args,
     cwd: input.cwd,
     env,
-    stdin: buildClaudeStreamJsonInput(input.prompt),
-    keepStdinOpen: input.handleControlRequests === true,
+    stdin: usesRealtimeInput ? buildClaudeStreamJsonInput(input.prompt) : undefined,
+    keepStdinOpen: usesRealtimeInput,
     timeoutMs: resolveTimeoutMs(input.timeoutMs),
     redactions: buildRedactions(env),
   };

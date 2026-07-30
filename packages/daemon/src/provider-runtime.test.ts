@@ -588,7 +588,7 @@ test("runProviderTask starts a new Codex conversation when resume rollout is mis
   }
 });
 
-test("runProviderTask sends Claude prompts through stream-json stdin", async () => {
+test("runProviderTask passes one-shot Claude prompts as a CLI argument", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-stdin-"));
   const binPath = join(workDir, "claude");
   const argsPath = join(workDir, "claude-args.txt");
@@ -637,24 +637,16 @@ test("runProviderTask sends Claude prompts through stream-json stdin", async () 
       });
 
       const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
-      const input = JSON.parse(readFileSync(stdinPath, "utf8")) as {
-        type: string;
-        message: { role: string; content: Array<{ type: string; text: string }> };
-      };
-
       assert.equal(result.output, "hello from claude");
       assert.equal(result.sessionId, "session-next");
-      assert.equal(args.includes("write a short reply"), false);
-      assert.deepEqual(args.slice(0, 4), ["-p", "--output-format", "stream-json", "--input-format"]);
-      assert.equal(args[4], "stream-json");
+      assert.deepEqual(args.slice(0, 5), ["-p", "--output-format", "stream-json", "--verbose", "--max-turns"]);
+      assert.equal(args.includes("--input-format"), false);
       assert.equal(args.includes("--permission-mode"), true);
       assert.equal(args.includes("auto"), true);
       assert.equal(args.includes("bypassPermissions"), false);
       assert.equal(args.includes("--dangerously-skip-permissions"), false);
-      assert.deepEqual(args.slice(-2), ["--tools", "default"]);
-      assert.equal(input.type, "user");
-      assert.equal(input.message.role, "user");
-      assert.equal(input.message.content[0]?.text, "write a short reply");
+      assert.deepEqual(args.slice(-3), ["--tools", "default", "write a short reply"]);
+      assert.equal(readFileSync(stdinPath, "utf8"), "");
       assert.equal(events.some((event) => event.type === "usage" && event.inputJson?.input_tokens === 3), true);
     });
   } finally {

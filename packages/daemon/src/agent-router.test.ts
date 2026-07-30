@@ -252,7 +252,7 @@ test("runAgentRouter returns structured Hermes diagnostics for nonzero and empty
   }
 });
 
-test("runAgentRouter normalizes Claude stream-json text, tool, session, and result output", async () => {
+test("runAgentRouter invokes Claude with a text prompt and parses stream-json output", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "agent-router-claude-"));
   const binDir = join(workDir, "bin");
   const claudePath = join(binDir, "claude");
@@ -299,16 +299,18 @@ test("runAgentRouter normalizes Claude stream-json text, tool, session, and resu
     assert.equal(events.some((event) => event.type === "tool_started" && event.tool === "Bash"), true);
     assert.equal(events.some((event) => event.type === "tool_finished" && event.tool === "Bash"), true);
     assert.equal(events.some((event) => event.type === "session_updated" && event.sessionId === "claude-session"), true);
-    assert.match(readFileSync(stdinPath, "utf8"), /hello claude/);
-    assert.deepEqual(readFileSync(argsPath, "utf8").trim().split(/\r?\n/).slice(0, 7), [
+    assert.equal(readFileSync(stdinPath, "utf8"), "");
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    assert.deepEqual(args.slice(0, 6), [
       "-p",
       "--output-format",
       "stream-json",
-      "--input-format",
-      "stream-json",
       "--verbose",
       "--model",
+      "sonnet",
     ]);
+    assert.equal(args.includes("--input-format"), false);
+    assert.equal(args.at(-1), "hello claude");
   } finally {
     process.env.PATH = originalPath;
     rmSync(workDir, { recursive: true, force: true });
