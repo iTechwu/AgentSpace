@@ -194,6 +194,8 @@ export function ensureManagedRuntimeCapacitySync(
     }
   }
 
+  assertOnlineManagedExecutionNode(input);
+
   return {
     kind: "provisioning",
     task: requestManagedRuntimeProvisioningSync(input),
@@ -217,6 +219,13 @@ export function listManagedExecutionNodesSync(
     }
   }
   return [...nodes.values()].sort((left, right) => left.deviceName.localeCompare(right.deviceName));
+}
+
+function assertOnlineManagedExecutionNode(input: ManagedRuntimeActor): void {
+  const hasOnlineNode = listManagedExecutionNodesSync(input).some((node) => node.status === "online");
+  if (!hasOnlineNode) {
+    throw new Error("managed_runtime.no_online_node");
+  }
 }
 
 function findReusableManagedRuntime(
@@ -1333,6 +1342,13 @@ export async function preflightManagedRuntimeCreationAsync(
         reusableRuntime: { id: reusable.id, name: reusable.name },
       };
     }
+  }
+  if (!listManagedExecutionNodesSync(input).some((node) => node.status === "online")) {
+    return {
+      allowed: false,
+      code: "managed_runtime.no_online_node",
+      message: "No online managed execution node is available for this workspace.",
+    };
   }
   resolveManagedRuntimeGatewayBaseUrl();
   const scope = resolveManagedRuntimeScopeSync(input.workspaceId);

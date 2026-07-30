@@ -1,4 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import {
+  createManagedAgentRuntimeSync,
+  createRuntimeProvisioningTaskSync,
+} from "../../../packages/db/src/index.ts";
 import { openSeededWorkspacePage, seedChannelScopedGuestSession } from "./helpers";
 
 const runtimeMode = process.env.DOFE_AGENT_RUNTIME_MODE?.trim().toLowerCase() === "remote"
@@ -97,6 +101,52 @@ test("keeps the runtime model menu visible outside the creation panel", async ({
   await expect(page.locator(".runtime-wizard")).toHaveCSS("overflow", "visible");
   await fallback.click();
   await expect(menu).toBeHidden();
+});
+
+test("keeps managed runtime settings reachable in a constrained viewport", async ({ page }) => {
+  test.skip(runtimeMode !== "remote", "Managed runtime details are only available in remote mode.");
+  await page.setViewportSize({ width: 1280, height: 560 });
+  const session = await openSeededWorkspacePage(page, "/runtimes");
+  const task = createRuntimeProvisioningTaskSync({
+    workspaceId: session.workspaceId,
+    requestedByUserId: session.userId,
+    idempotencyKey: `e2e-runtime-detail-${Date.now()}`,
+    runtimeType: "claude",
+    protocols: ["anthropic"],
+    requestedName: "Compact Runtime",
+    requestedModel: "glm-5.2",
+  });
+  const runtime = createManagedAgentRuntimeSync({
+    id: `runtime-detail-${Date.now()}`,
+    workspaceId: session.workspaceId,
+    provider: "claude",
+    name: "Compact Runtime",
+    protocols: ["anthropic"],
+    defaultModel: "glm-5.2",
+    managedCredentialId: `runtime-credential-${Date.now()}`,
+    provisioningTaskId: task.id,
+  });
+  await page.goto(`/w/${session.workspaceSlug}/runtimes/runtime/${runtime.id}`);
+
+  const detail = page.locator(".runtime-detail");
+  await expect(detail).toHaveCSS("overflow-y", "auto");
+  const dimensions = await detail.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
+  const sharingHeading = page.getByRole("heading", { name: /允许分配给 AI 员工|Allow assignment to AI employees/i });
+  await sharingHeading.scrollIntoViewIfNeeded();
+  await expect(sharingHeading).toBeInViewport();
+  expect(await detail.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+  await page.setViewportSize({ width: 390, height: 720 });
+  const sidebarOverlay = page.locator(".workspace-sidebar-overlay");
+  if (await sidebarOverlay.isVisible()) await sidebarOverlay.click();
+  const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(horizontalOverflow).toBeLessThanOrEqual(1);
+  await sharingHeading.scrollIntoViewIfNeeded();
+  await expect(sharingHeading).toBeInViewport();
 });
 
 test("keeps the final active module after rapid desktop switching", async ({ page }) => {

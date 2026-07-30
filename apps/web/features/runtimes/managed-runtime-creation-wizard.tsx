@@ -255,6 +255,12 @@ export function ManagedRuntimeCreationWizard({
 
 function formatPreflightSummary(result: ManagedRuntimeCreationPreflightResult | null, tx: (zh: string, en: string) => string): string {
   if (!result) return tx("预检尚未完成。", "Preflight has not completed.");
+  if (result.code === "managed_runtime.no_online_node") {
+    return tx(
+      "当前工作区没有在线托管节点，请先恢复节点连接后再创建执行引擎。",
+      "No managed node is online for this workspace. Restore the node connection before creating a runtime.",
+    );
+  }
   if (!result.allowed) return result.message || tx("需要检查模型可用性或团队余额。", "Model availability or team balance requires attention.");
   if (result.reusableRuntime) {
     return tx("将直接复用兼容的在线执行能力。", "Compatible online capacity will be reused.");
@@ -272,6 +278,10 @@ function humanizeRuntimeError(error: unknown, tx: (zh: string, en: string) => st
     "managed_runtime.model_unavailable": tx("所选模型不适用于此执行引擎。", "The selected model is unavailable for this runtime."),
     "managed_runtime.no_compatible_models": tx("没有可用模型支持此执行引擎。", "No available model supports this runtime."),
     "managed_runtime.models_not_configured": tx("模型服务尚未配置。", "The models service is not configured."),
+    "managed_runtime.no_online_node": tx(
+      "当前工作区没有在线托管节点，请先恢复节点连接后再创建执行引擎。",
+      "No managed node is online for this workspace. Restore the node connection before creating a runtime.",
+    ),
   };
   return known[message] ?? tx("执行引擎请求未能完成，请检查配置后重试。", "The runtime request could not be completed. Review the configuration and try again.");
 }

@@ -7,6 +7,7 @@ import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 import { getWorkspacePageContext } from "../../../_lib/workspace-page-context";
 import { ManagedRuntimeSharingToggle } from "@/features/runtimes/managed-runtime-sharing-toggle";
 import { ManagedRuntimeModelSettings } from "@/features/runtimes/managed-runtime-model-settings";
+import { AppIcon } from "@/shared/ui/app-icon";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,7 @@ export default async function ManagedRuntimeDetailPage({
           className="runtime-detail__back"
           href={buildWorkspacePath(workspaceContext.currentWorkspace.slug, "/runtimes")}
         >
+          <AppIcon name="arrowLeft" />
           返回执行引擎列表
         </Link>
         <div className="runtime-detail__identity">
@@ -86,30 +88,32 @@ export default async function ManagedRuntimeDetailPage({
         </section>
       </div>
 
-      <section className="runtime-detail__section runtime-detail__section--model" aria-labelledby="runtime-model-title">
-        <div className="runtime-detail__section-heading">
-          <div>
-            <span>模型策略</span>
-            <h2 id="runtime-model-title">默认模型</h2>
+      <div className="runtime-detail__settings" aria-label="执行引擎设置">
+        <section className="runtime-detail__section runtime-detail__section--model" aria-labelledby="runtime-model-title">
+          <div className="runtime-detail__section-heading">
+            <div>
+              <span>模型策略</span>
+              <h2 id="runtime-model-title">默认模型</h2>
+            </div>
+            <p>当任务没有指定模型时，使用此处设置的语言模型。</p>
           </div>
-          <p>当任务没有指定模型时，使用此处设置的语言模型。</p>
-        </div>
-        <ManagedRuntimeModelSettings runtimeId={runtime.id} defaultModel={runtime.defaultModel} />
-      </section>
+          <ManagedRuntimeModelSettings runtimeId={runtime.id} defaultModel={runtime.defaultModel} />
+        </section>
 
-      <section className="runtime-detail__section runtime-detail__section--sharing" aria-labelledby="runtime-sharing-title">
-        <div className="runtime-detail__section-heading">
-          <div>
-            <span>分配规则</span>
-            <h2 id="runtime-sharing-title">允许分配给 AI 员工</h2>
+        <section className="runtime-detail__section runtime-detail__section--sharing" aria-labelledby="runtime-sharing-title">
+          <div className="runtime-detail__section-heading">
+            <div>
+              <span>分配规则</span>
+              <h2 id="runtime-sharing-title">允许分配给 AI 员工</h2>
+            </div>
+            <p>控制新创建的 AI 员工能否使用此执行引擎。</p>
           </div>
-          <p>控制新创建的 AI 员工能否使用此执行引擎。</p>
-        </div>
-        <ManagedRuntimeSharingToggle
-          runtimeId={runtime.id}
-          allowNewEmployeeSharing={runtime.allowNewEmployeeSharing !== false}
-        />
-      </section>
+          <ManagedRuntimeSharingToggle
+            runtimeId={runtime.id}
+            allowNewEmployeeSharing={runtime.allowNewEmployeeSharing !== false}
+          />
+        </section>
+      </div>
     </section>
   );
 }
