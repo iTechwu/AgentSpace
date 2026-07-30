@@ -731,6 +731,77 @@ test("runProviderTask starts a new Claude conversation when resume session is mi
   }
 });
 
+test("runProviderTask starts a new Claude conversation when a resumed session is rejected for prompt injection", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-poisoned-resume-"));
+  const binPath = join(workDir, "claude");
+  const argsDir = join(workDir, "args");
+  const countPath = join(workDir, "count.txt");
+  mkdirSync(argsDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "count=0",
+      "if [ -f \"$CLAUDE_COUNT_PATH\" ]; then",
+      "  count=$(cat \"$CLAUDE_COUNT_PATH\")",
+      "fi",
+      "count=$((count + 1))",
+      "printf '%s' \"$count\" > \"$CLAUDE_COUNT_PATH\"",
+      "args_path=\"$CLAUDE_ARGS_DIR/invocation-$count.txt\"",
+      ": > \"$args_path\"",
+      "for arg in \"$@\"; do",
+      "  printf '%s\\n' \"$arg\" >> \"$args_path\"",
+      "done",
+      "cat > /dev/null",
+      "if [ \"$count\" = \"1\" ]; then",
+      "  printf '%s\\n' '{\"type\":\"result\",\"session_id\":\"session-poisoned\",\"is_error\":true,\"result\":\"API Error: 400 Prompt injection detected: encoding_bypass\"}'",
+      "  exit 1",
+      "fi",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"fresh reply\",\"session_id\":\"session-fresh\",\"usage\":{\"input_tokens\":5,\"output_tokens\":6}}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-claude-poisoned-resume-test",
+    workspaceId: "default",
+    provider: "claude",
+    name: "Claude",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    await withProcessGetuid(1000, async () => {
+      const events: Array<{ type: string; content?: string; inputJson?: Record<string, unknown> }> = [];
+      const result = await runProviderTask(runtime, "continue the chat", workDir, {
+        sessionId: "session-poisoned",
+        contextEnv: {
+          CLAUDE_ARGS_DIR: argsDir,
+          CLAUDE_COUNT_PATH: countPath,
+        },
+        taskTimeoutMs: 5_000,
+        onEvent: (event) => {
+          events.push(event);
+        },
+      });
+
+      const firstArgs = readFileSync(join(argsDir, "invocation-1.txt"), "utf8").trim().split(/\r?\n/);
+      const secondArgs = readFileSync(join(argsDir, "invocation-2.txt"), "utf8").trim().split(/\r?\n/);
+
+      assert.equal(result.output, "fresh reply");
+      assert.equal(result.sessionId, "session-fresh");
+      assert.equal(firstArgs.includes("--resume"), true);
+      assert.equal(secondArgs.includes("--resume"), false);
+      assert.equal(events.some((event) => event.type === "provider_session_invalid" && event.inputJson?.code === "provider.session_poisoned"), true);
+    });
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("runProviderTask exposes Feishu lark-cli diagnostic grants only when enabled", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-feishu-lark-cli-"));
   const providerBinDir = join(workDir, "provider-bin");

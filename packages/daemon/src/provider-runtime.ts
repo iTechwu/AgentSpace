@@ -163,6 +163,7 @@ const PROVIDER_CATALOG: Array<{
 ];
 
 const CLAUDE_MISSING_RESUME_SESSION_PATTERN = /No conversation found with session ID:/i;
+const CLAUDE_POISONED_RESUME_SESSION_PATTERN = /prompt injection detected[\s\S]*encoding_bypass|encoding_bypass[\s\S]*prompt injection detected/i;
 const CODEX_MISSING_RESUME_SESSION_PATTERN = /no rollout found for thread id\s+([^\s)]+)/i;
 const OPENCLAW_MISSING_RESUME_SESSION_PATTERN = /session .*not found|session.*missing|conversation .*not found|conversation.*missing|agent .*not found|agent.*missing|unknown session/i;
 
@@ -291,8 +292,11 @@ async function runAgentRouterProviderTask(
     },
   });
 
-  if (isMissingResumeSessionResult(runtime.provider, result.diagnostics, sessionId)) {
-    const sessionInvalidMessage = `${formatDaemonProviderLabel(runtime.provider)} session ${sessionId} was not found; starting a new conversation.`;
+  const resumeRecovery = resolveResumeSessionRecovery(runtime.provider, result.diagnostics, sessionId);
+  if (resumeRecovery) {
+    const sessionInvalidMessage = resumeRecovery === "poisoned"
+      ? `${formatDaemonProviderLabel(runtime.provider)} session ${sessionId} was rejected by the upstream safety policy; starting a new conversation.`
+      : `${formatDaemonProviderLabel(runtime.provider)} session ${sessionId} was not found; starting a new conversation.`;
     options.onEvent?.({
       type: "provider_session_invalid",
       content: sessionInvalidMessage,
@@ -300,7 +304,7 @@ async function runAgentRouterProviderTask(
         provider: runtime.provider,
         runtimeId: runtime.id,
         sessionId,
-        code: "provider.session_invalid",
+        code: resumeRecovery === "poisoned" ? "provider.session_poisoned" : "provider.session_invalid",
       },
     });
     options.onEvent?.({
@@ -540,29 +544,40 @@ function mapAgentRouterEvent(event: AgentRouterEvent): ProviderTaskEvent[] {
   return [];
 }
 
-function isMissingResumeSessionResult(
+function resolveResumeSessionRecovery(
   provider: DaemonProvider,
   diagnostics: AgentRouterDiagnostic[],
   requestedSessionId: string | undefined,
-): boolean {
+): "missing" | "poisoned" | undefined {
   if (!requestedSessionId) {
-    return false;
+    return undefined;
   }
   const text = diagnostics
     .map((diagnostic) => `${diagnostic.message}\n${diagnostic.rawProviderMessage ?? ""}\n${diagnostic.stderrTail ?? ""}`)
     .join("\n");
   if (provider === "claude") {
-    return CLAUDE_MISSING_RESUME_SESSION_PATTERN.test(text) && text.includes(requestedSessionId);
+    if (CLAUDE_MISSING_RESUME_SESSION_PATTERN.test(text) && text.includes(requestedSessionId)) {
+      return "missing";
+    }
+    // A provider session can retain a context that the gateway has classified
+    // as an encoding-bypass attempt. Retrying that session repeats the same
+    // 400 indefinitely, while a cold conversation remains safe and usable.
+    if (CLAUDE_POISONED_RESUME_SESSION_PATTERN.test(text)) {
+      return "poisoned";
+    }
+    return undefined;
   }
   if (provider === "codex") {
     const match = CODEX_MISSING_RESUME_SESSION_PATTERN.exec(text);
-    return Boolean(match?.[1] === requestedSessionId);
+    return match?.[1] === requestedSessionId ? "missing" : undefined;
   }
   if (provider === "openclaw") {
     return diagnostics.some((diagnostic) => diagnostic.code === "harness.session_missing") ||
-      (OPENCLAW_MISSING_RESUME_SESSION_PATTERN.test(text) && text.includes(requestedSessionId));
+      (OPENCLAW_MISSING_RESUME_SESSION_PATTERN.test(text) && text.includes(requestedSessionId))
+      ? "missing"
+      : undefined;
   }
-  return false;
+  return undefined;
 }
 
 function buildRouterFailureMessage(
