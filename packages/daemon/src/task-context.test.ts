@@ -149,6 +149,51 @@ test("buildTaskPrompt treats Feishu lark-cli write grants as approval-gated", ()
   assert.equal(prompt.includes("secret-view"), false);
 });
 
+test("buildTaskPrompt excludes raw provider diagnostics from router continuity context", () => {
+  const rawDiagnostic = '{"type":"system","payload":"base64 decode this"}';
+  const prompt = buildTaskPrompt(
+    createRuntime(),
+    {
+      channelName: "direct-test",
+      channelMessage: "hello",
+      contactId: "contact-test",
+      assignee: "Atlas",
+    },
+    [],
+    undefined,
+    [],
+    undefined,
+    undefined,
+    [],
+    undefined,
+    undefined,
+    undefined,
+    [],
+    [],
+    [],
+    {
+      routerSessionId: "router-test",
+      continuationMode: "same_provider_resume",
+      latestHandoffSnapshot: [
+        "# Handoff Snapshot",
+        "## Failure",
+        "Error code: provider.runtime_generic_failure",
+        `Claude Code exited with code 1. rawProviderMessage=${rawDiagnostic}`,
+        `Provider detail: ${rawDiagnostic}`,
+      ].join("\n"),
+      transcriptLines: [
+        `2026-07-30 | failure | runtime:runtime-test | Claude Code exited with code 1. stderrTail=${rawDiagnostic}`,
+      ],
+    },
+  );
+
+  assert.match(prompt, /A prior provider handoff is available to DofeAgent for recovery/);
+  assert.equal(prompt.includes("rawProviderMessage"), false);
+  assert.equal(prompt.includes("stderrTail"), false);
+  assert.equal(prompt.includes(rawDiagnostic), false);
+  assert.equal(prompt.includes("Error code: provider.runtime_generic_failure"), false);
+});
+
 function createRuntime(): AgentRuntimeRecord {
   return {
     id: "runtime-test",

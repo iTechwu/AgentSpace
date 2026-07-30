@@ -857,8 +857,7 @@ function buildFailureHandoffSnapshot(
     "## Failure",
     input.errorCode ? `Error code: ${input.errorCode}` : "",
     input.errorCategory ? `Error category: ${input.errorCategory}` : "",
-    truncateSummary(input.errorText) ?? input.errorText,
-    input.rawProviderMessage ? `Provider detail: ${truncateSummary(input.rawProviderMessage)}` : "",
+    summarizeFailureForHandoff(input.errorText) ?? "Provider execution failed.",
     "",
     "## Continuation Guidance",
     "- Treat provider hidden state, provider session id, credentials, and runtime-local workDir as non-portable unless the next attempt is on the same runtime and provider.",
@@ -928,6 +927,18 @@ function truncateSummary(value: unknown): string | undefined {
     return undefined;
   }
   return compact.length > 280 ? `${compact.slice(0, 277)}...` : compact;
+}
+
+function summarizeFailureForHandoff(value: unknown): string | undefined {
+  const summary = truncateSummary(value);
+  if (!summary) {
+    return undefined;
+  }
+  const diagnosticStart = summary.search(/\b(?:rawProviderMessage|stderrTail)\s*=/i);
+  if (diagnosticStart < 0) {
+    return summary;
+  }
+  return summary.slice(0, diagnosticStart).replace(/[\s(;,:-]+$/, "").trim() || undefined;
 }
 
 function mapQueuedTaskRecord(value: Record<string, unknown>): QueuedTaskRecord | null {

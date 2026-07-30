@@ -785,13 +785,17 @@ function buildRouterSessionContextLines(context: RouterSessionPromptContext | un
     typeof context.attemptCount === "number" ? `- attemptCount: ${context.attemptCount}` : "",
     context.fallbackReason ? `- fallbackReason: ${context.fallbackReason}` : "",
     context.memorySummary?.trim() ? "Router memory summary:" : "",
-    context.memorySummary?.trim() ? truncateRouterContextBlock(context.memorySummary) : "",
-    context.latestHandoffSnapshot?.trim() ? "Latest handoff snapshot:" : "",
-    context.latestHandoffSnapshot?.trim() ? truncateRouterContextBlock(context.latestHandoffSnapshot) : "",
+    context.memorySummary?.trim() ? sanitizeRouterContextBlock(context.memorySummary) : "",
+    context.latestHandoffSnapshot?.trim()
+      ? "A prior provider handoff is available to DofeAgent for recovery. Continue from the stable session metadata and conversation history above; do not rely on raw provider diagnostics."
+      : "",
     context.transcriptLines && context.transcriptLines.length > 0
       ? "Compact router transcript / event log:"
       : "",
-    ...(context.transcriptLines ?? []).slice(-40).map((line) => `- ${truncateRouterLine(line)}`),
+    ...(context.transcriptLines ?? []).slice(-40)
+      .map((line) => sanitizeRouterContextLine(truncateRouterLine(line)))
+      .filter(Boolean)
+      .map((line) => `- ${line}`),
     "如果 provider session 缺失、失效或 provider/runtime 已切换，不要假设隐藏会话状态仍存在；请根据上面的平台状态、频道历史、文档、知识和附件继续。",
   ];
   return lines.filter(Boolean);
@@ -805,6 +809,27 @@ function formatContinuationMode(mode: NonNullable<RouterSessionPromptContext["co
     return "runtime fallback with cold rebuild";
   }
   return "cold rebuild";
+}
+
+function sanitizeRouterContextBlock(value: string): string {
+  const lines = value
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => sanitizeRouterContextLine(line))
+    .filter(Boolean);
+  return truncateRouterContextBlock(lines.join("\n"));
+}
+
+function sanitizeRouterContextLine(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized || /^provider detail\s*:/i.test(normalized)) {
+    return "";
+  }
+  const diagnosticStart = normalized.search(/\b(?:rawProviderMessage|stderrTail)\s*=/i);
+  if (diagnosticStart < 0) {
+    return normalized;
+  }
+  return normalized.slice(0, diagnosticStart).replace(/[\s(;,:-]+$/, "").trim();
 }
 
 function truncateRouterContextBlock(value: string): string {
