@@ -129,7 +129,7 @@ export function FeishuUserBindingsPanel({
   }
 
   return (
-    <section className="page-panel" id="feishu-user-bindings">
+    <section className="page-panel feishu-panel" id="feishu-user-bindings">
       <div className="panel-header">
         <div>
           <h3>{tx("飞书用户绑定", "Feishu User Bindings")}</h3>
@@ -321,4 +321,31 @@ function formatUserLabel(
     return fallbackUserId ?? tx("当前用户", "Current user");
   }
   return user.primaryEmail ? `${user.displayName} (${user.primaryEmail})` : user.displayName;
+}
+
+function translateUserBindingStatus(
+  status: FeishuIntegrationSettingsItem["userBindings"][number]["status"],
+  tx: SettingsTx,
+): string {
+  switch (status) {
+    case "active":
+      return tx("已启用", "Active");
+    case "disabled":
+      return tx("已停用", "Disabled");
+    case "archived":
+      return tx("已撤销", "Revoked");
+  }
+}
+
+function resolveUserBindingStatusClass(
+  status: FeishuIntegrationSettingsItem["userBindings"][number]["status"],
+): string {
+  switch (status) {
+    case "active":
+      return "status-chip--positive";
+    case "disabled":
+      return "status-chip--warning";
+    case "archived":
+      return "status-chip--neutral";
+  }
 }

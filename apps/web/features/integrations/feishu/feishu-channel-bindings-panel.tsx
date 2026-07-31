@@ -100,7 +100,7 @@ export function FeishuChannelBindingsPanel({
   }
 
   return (
-    <section className="page-panel" id="feishu-channel-bindings">
+    <section className="page-panel feishu-panel" id="feishu-channel-bindings">
       <div className="panel-header">
         <div>
           <h3>{tx("飞书会话映射", "Feishu Chat Mappings")}</h3>

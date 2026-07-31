@@ -14,6 +14,7 @@ import { ensureWorkspaceStateSync } from "../shared/state-io.ts";
 import { listEmployeeSkillIdsSync } from "../employees/employees.ts";
 import { readAgentSkillRequirementConfigurationSync } from "../skills/agent-skill-requirements.ts";
 import type { ModelsInternalRuntimeCredentialModel } from "@dofe/models-sdk";
+import { resolveProviderProtocols, isDaemonProvider } from "@dofe-agent/domain";
 
 export interface ResolveEffectiveModelInput {
   workspaceId?: string;
@@ -141,7 +142,19 @@ export async function resolveEffectiveModelForTaskAsync(
     }
     throw error;
   }
-  const availableModels = response.list.filter(isExecutionLanguageModel);
+  // 按运行时 Provider 所需协议过滤模型目录。
+  // 例如 Codex 使用 openai_response 协议（/v1/responses），
+  // 只支持 chat/completions 的模型（如 deepseek-v4-flash）必须被排除，
+  // 否则 Codex 调用时网关会返回 "No available provider"。
+  const requiredProtocols = runtime.protocols?.length
+    ? runtime.protocols
+    : (isDaemonProvider(runtime.provider) ? resolveProviderProtocols(runtime.provider) : []);
+  const availableModels = response.list.filter(
+    (model) =>
+      isExecutionLanguageModel(model) &&
+      (requiredProtocols.length === 0 ||
+        (model.supportedProtocols ?? []).some((protocol) => requiredProtocols.includes(protocol))),
+  );
 
   const ctx: ResolutionContext = {
     workspaceId,
@@ -179,7 +192,12 @@ export async function resolveEffectiveModelForTaskAsync(
 
   const fallback = firstAvailableModelAlias(availableModels);
   if (!fallback) {
-    throw new Error("model_resolution.no_available_model");
+    throw new Error(
+      `model_resolution.no_available_model: no protocol-compatible models found ` +
+      `for provider "${runtime.provider}" (required protocols: ${requiredProtocols.join(", ") || "none"}). ` +
+      `Ensure the RuntimeCredential "${runtime.managedCredentialId}" has at least one model ` +
+      `supporting these protocols.`,
+    );
   }
   return {
     modelId: fallback,

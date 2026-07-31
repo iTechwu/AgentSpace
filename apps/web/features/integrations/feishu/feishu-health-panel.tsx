@@ -37,7 +37,7 @@ export function FeishuHealthPanel({
   tx: SettingsTx;
 }) {
   return (
-    <section className="page-panel">
+    <section className="page-panel feishu-panel">
       <div className="panel-header">
         <div>
           <h3>{tx("飞书应用", "Feishu Apps")}</h3>

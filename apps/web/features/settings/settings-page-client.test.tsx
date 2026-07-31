@@ -1649,7 +1649,7 @@ describe("SettingsPageClient", () => {
     expect(screen.queryByText(/doccnActive|shtcnPaused|baseArchived/)).not.toBeInTheDocument();
     expect(screen.getByText("写入: 需审批")).toBeInTheDocument();
     expect(screen.getAllByText("写入: 未授权")).toHaveLength(2);
-    expect(screen.getByText("状态: 暂停")).toBeInTheDocument();
+    expect(screen.getByText("暂停", { selector: ".status-chip" })).toBeInTheDocument();
   });
 
   it("manages Feishu integration and binding lifecycle actions", async () => {

@@ -52,11 +52,11 @@ import {
 import { formatFrontmatterDescription, createDefaultSkillFileContent } from "./skill-frontmatter.ts";
 
 const BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME = "return-output-files";
-const BUILTIN_RETURN_OUTPUT_FILES_SKILL_DESCRIPTION = "Return generated files to DofeAgent via dofe-agent output attach/text. Use when a task should deliver artifacts such as images, markdown, PDFs, or other files back into chat instead of only replying with plain text.";
+const BUILTIN_RETURN_OUTPUT_FILES_SKILL_DESCRIPTION = "通过 dofe-agent output attach/text 将生成的文件返回到 DofeAgent。适用于任务需要交付图片、markdown、PDF 等文件而非纯文本回复的场景。";
 const BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME = "workspace-context";
-const BUILTIN_WORKSPACE_CONTEXT_SKILL_DESCRIPTION = "Inspect workspace-scoped collaborators, channels, messages, and documents with dofe-agent workspace context commands. Use when the inline task context is insufficient and the agent needs verifiable workspace facts before answering.";
+const BUILTIN_WORKSPACE_CONTEXT_SKILL_DESCRIPTION = "使用 dofe-agent workspace context 命令查看工作区范围内的协作者、频道、消息和文档。适用于内联任务上下文不足、需要可验证的工作区事实后再回答的场景。";
 const BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME = "update-channel-documents";
-const BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_DESCRIPTION = "Use when Codex should create or update shared channel documents via dofe-agent output document.";
+const BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_DESCRIPTION = "当 Codex 需要通过 dofe-agent output document 创建或更新共享频道文档时使用。";
 
 export function normalizeWorkspaceState(state: Partial<DofeAgentState>): DofeAgentState {
   const fallback = createDefaultWorkspaceState();
@@ -403,41 +403,41 @@ name: ${BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME}
 description: ${BUILTIN_RETURN_OUTPUT_FILES_SKILL_DESCRIPTION}
 ---
 
-# Return Output Files
+# 返回输出文件
 
-Use this skill when your final answer should include generated files instead of only plain text.
+当你需要在最终回复中包含生成的文件（而非仅有纯文本）时，使用此技能。
 
-## When to use it
+## 适用场景
 
-- The user explicitly asks for a file, image, PDF, markdown note, or downloadable artifact
-- The result is easier to consume as a file than as a pasted chat reply
-- You generated a chart, report, draft, export, or other deliverable inside the current workDir
+- 用户明确要求获取文件、图片、PDF、markdown 笔记或可下载的成果物
+- 结果以文件形式交付比在聊天中粘贴更易于使用
+- 你在当前 workDir 中生成了图表、报告、草稿、导出文件或其他可交付物
 
-## Contract
+## 约定
 
-- Write output files inside the current \`workDir\`
-- Place generated files under \`runtime-output/artifacts/\`
-- Do not reference absolute paths
-- Do not reference files outside \`workDir\`
-- Do not reply with only a file path in plain text
+- 在当前 \`workDir\` 中写入输出文件
+- 将生成的文件放在 \`runtime-output/artifacts/\` 目录下
+- 不要引用绝对路径
+- 不要引用 \`workDir\` 之外的文件
+- 不要仅在纯文本中回复文件路径
 
-## Commands
+## 命令
 
 \`\`\`bash
-dofe-agent output text "Optional summary shown in the chat message."
-dofe-agent output attach runtime-output/artifacts/chart.png --name chart.png --media-type image/png --text "Chart generated."
+dofe-agent output text "可选的摘要信息，显示在聊天消息中。"
+dofe-agent output attach runtime-output/artifacts/chart.png --name chart.png --media-type image/png --text "图表已生成。"
 dofe-agent output validate
 \`\`\`
 
-## Rules
+## 规则
 
-- Every file passed to \`dofe-agent output attach\` must already exist and be non-empty
-- Keep \`text\` as the human-readable summary shown in chat
-- Use \`name\` only when you want a different display name
-- Use \`mediaType\` when the file type is not obvious from the extension
-- If no file should be returned, use a normal text reply or \`dofe-agent output text\`
+- 传递给 \`dofe-agent output attach\` 的每个文件必须已存在且非空
+- 将 \`text\` 作为在聊天中显示的可读摘要
+- 仅在需要不同展示名称时使用 \`name\`
+- 当文件类型无法从扩展名中明显判断时，使用 \`mediaType\`
+- 如果不需要返回文件，使用普通文本回复或 \`dofe-agent output text\`
 
-## Examples
+## 示例
 
 - PNG: \`runtime-output/artifacts/preview.png\`
 - Markdown: \`runtime-output/artifacts/summary.md\`
@@ -451,23 +451,23 @@ name: ${BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME}
 description: ${BUILTIN_WORKSPACE_CONTEXT_SKILL_DESCRIPTION}
 ---
 
-# Workspace Context
+# 工作区上下文
 
-Use this skill when the inline task prompt does not contain enough workspace facts and you need to query the current workspace safely.
+当内联任务提示中不包含足够的工作区信息，需要安全地查询当前工作区时，使用此技能。
 
-## When to use it
+## 适用场景
 
-- You need to confirm who someone is in the current workspace
-- You need recent channel history before replying
-- You need to check which documents exist in a channel
-- You need a verifiable answer instead of guessing from incomplete prompt context
+- 需要确认工作区中某个人的身份
+- 回复前需要查看最近的频道历史记录
+- 需要检查频道中存在哪些文档
+- 需要可验证的答案，而非根据不完整的提示上下文猜测
 
-## Contract
+## 约定
 
 - Use the shared \`dofe-agent workspace context ...\` commands
-- Do not pass an agent name, user identity, or database path
-- The runtime injects the current Agent context automatically
-- Treat all returned data as workspace-scoped context, not real-world identity
+- 不要传递智能体名称、用户身份或数据库路径
+- 运行时会自动注入当前 Agent 上下文
+- 将所有返回数据视为工作区范围内的上下文，而非真实世界身份
 
 ## Commands
 
@@ -479,13 +479,13 @@ dofe-agent workspace context search-messages --query "任天堂博物馆" --chan
 dofe-agent workspace context list-documents --channel "tour visit" --json
 \`\`\`
 
-## Rules
+## 规则
 
-- Use these commands only when the inline task context is not enough
-- For simple questions like "Do you know X?", answer directly if the prompt already gives enough relationship facts
-- Only describe entities, channels, messages, and documents that appear in the returned workspace context
-- Do not infer hidden channels, user-private labels, or real-world identity from these results
-- Prefer the narrowest query that answers the question instead of dumping everything
+- 仅在内联任务上下文不足时使用这些命令
+- 对于类似"你认识 X 吗？"的简单问题，如果提示中已给出足够的关系信息，直接回答即可
+- 只描述返回的工作区上下文中出现的实体、频道、消息和文档
+- 不要从这些结果中推断隐藏频道、用户私有标签或真实世界身份
+- 优先使用能回答问题的最精确查询，而非一次性转储全部数据
 `;
 }
 
@@ -495,35 +495,35 @@ name: ${BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME}
 description: ${BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_DESCRIPTION}
 ---
 
-# Update Channel Documents
+# 更新频道文档
 
-Use this skill when your result should become a persistent shared channel document instead of only a one-off reply.
+当你希望结果成为持久的共享频道文档（而非仅一次性回复）时，使用此技能。
 
-## When to use it
+## 适用场景
 
-- The user explicitly asks you to create or update a channel document
-- The result should stay in the channel as a long-lived working draft
-- The content will likely be edited again by humans or other agents
+- 用户明确要求创建或更新频道文档
+- 结果应作为长期工作草稿保留在频道中
+- 内容可能会被人类或其他智能体再次编辑
 
-## Output contract
+## 输出约定
 
 \`\`\`bash
-dofe-agent output document upsert --title "Research Notes" --content runtime-output/artifacts/research-notes.md --summary "Summarized interview findings."
+dofe-agent output document upsert --title "Research Notes" --content runtime-output/artifacts/research-notes.md --summary "汇总的访谈发现。"
 dofe-agent output document replace-block --document-id channel-doc-123 --base-version-id channel-doc-version-456 --title "Research Notes" --block-id channel-doc-block-1 --base-revision 3 --content runtime-output/artifacts/updated-block.md
 dofe-agent output document insert-after --document-id channel-doc-123 --base-version-id channel-doc-version-456 --title "Research Notes" --after-block-id channel-doc-block-1 --content runtime-output/artifacts/new-block.md
 dofe-agent output document delete-block --document-id channel-doc-123 --base-version-id channel-doc-version-456 --title "Research Notes" --block-id channel-doc-block-1 --base-revision 3
 dofe-agent output validate
 \`\`\`
 
-Referenced markdown files should live under \`runtime-output/artifacts/\`.
+引用的 markdown 文件应放在 \`runtime-output/artifacts/\` 目录下。
 
-## Rules
+## 规则
 
-- Put referenced markdown files under \`runtime-output/artifacts/\`
-- Do not use absolute paths
-- Do not reference files outside the current \`workDir\`
-- Prefer updating the shared document instead of replying with a disposable summary
-- If you do not want to modify documents, do not run an output document command
+- 将引用的 markdown 文件放在 \`runtime-output/artifacts/\` 目录下
+- 不要使用绝对路径
+- 不要引用当前 \`workDir\` 之外的文件
+- 优先更新共享文档，而非回复一次性摘要
+- 如果不需要修改文档，不要运行 output document 命令
 `;
 }
 

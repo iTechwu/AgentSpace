@@ -4181,7 +4181,7 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  min-height: 0;
+  padding-bottom: 1rem;
 }
 
 .skills-editor__header,
@@ -4329,6 +4329,11 @@ textarea:focus {
 .skills-editor__md-preview {
   max-height: 520px;
   overflow-y: auto;
+  padding-bottom: 1rem;
+}
+
+.skills-editor__md-preview .wmde-markdown {
+  padding-bottom: 0.5rem;
 }
 
 .skills-editor__md-container .w-md-editor {
@@ -19116,6 +19121,10 @@ textarea:focus {
 /* Skills page: compact editor with only name, content, assigned agents, and save/delete actions. */
 .skills-page .skills-studio,
 .skills-page .skills-studio__sidebar,
+.skills-page .skills-studio__editor {
+  overflow-y: auto;
+}
+
 .skills-page .skills-studio__editor,
 .skills-page .skills-studio__editor .skills-editor__header,
 .skills-page .skills-studio__editor .skills-editor__assigned,
@@ -31507,4 +31516,113 @@ button[aria-disabled="true"] svg {
   .feishu-setup-command .action-button {
     justify-self: start;
   }
+}
+
+/* ---- Binding card identity row ---- */
+.feishu-binding-card__identity {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+.feishu-binding-card__identity strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.feishu-binding-card__identity .status-chip {
+  flex: none;
+}
+
+/* ==========================================================================
+   Feishu integrations — layout & spacing polish (unified vertical rhythm)
+   Rhythm: shell 1.25 · panel-internal 1.1 · group 0.9 · card-gap 0.9 · field 0.9
+   ========================================================================== */
+
+/* Top-level blocks (overview / feedback / groups) get one consistent gap */
+.settings-group__grid {
+  gap: 1.25rem;
+}
+
+/* Every Feishu panel: uniform internal column rhythm */
+.feishu-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+/* Grouped sections */
+.feishu-group {
+  gap: 0.9rem;
+}
+.feishu-group__header {
+  padding: 0 0.15rem;
+}
+
+/* Card lists */
+.feishu-integration-list,
+.feishu-binding-list {
+  gap: 0.9rem;
+}
+
+/* Inline forms: consistent grid gap, no leftover chrome */
+.feishu-integration-form,
+.feishu-binding-form {
+  gap: 0.9rem 1rem;
+  padding: 0;
+}
+
+/* Cards: uniform horizontal padding + internal gaps */
+.feishu-integration-card {
+  gap: 0.95rem;
+  padding: 1.05rem 1.1rem;
+}
+.feishu-binding-card {
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+}
+.feishu-integration-card__meta,
+.feishu-binding-card__meta {
+  gap: 0.4rem 0.9rem;
+  padding: 0.7rem 0.85rem;
+}
+
+/* Accordions: consistent summary/body padding */
+.feishu-advanced-settings > summary,
+.feishu-agent-bot-policy-editor > summary {
+  padding: 0.85rem 2.5rem 0.85rem 1rem;
+}
+.feishu-advanced-settings__body,
+.feishu-agent-bot-policy-editor__body {
+  gap: 0.85rem 0.9rem;
+  padding: 0.95rem 1rem 1rem;
+}
+.feishu-setup-guide {
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Setup-guide sections must span full width inside the 2-col accordion body */
+.feishu-setup-guide > .feishu-setup-guide__grid,
+.feishu-setup-guide > .feishu-setup-checks,
+.feishu-setup-guide > .feishu-setup-command-list {
+  grid-column: 1 / -1;
+}
+
+/* Create-integration: header + form span full width in the 2-col body */
+.feishu-advanced-settings__body .panel-header,
+.feishu-advanced-settings__body .feishu-integration-form {
+  grid-column: 1 / -1;
+}
+
+/* Command list density */
+.feishu-setup-command-list {
+  gap: 0.55rem;
+}
+
+/* Resource hint / coverage / health callouts */
+.feishu-resource-scope-hint,
+.feishu-binding-coverage,
+.feishu-resource-health {
+  gap: 0.55rem;
+  padding: 0.9rem 1rem;
 }

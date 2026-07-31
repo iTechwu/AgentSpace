@@ -26,6 +26,11 @@ export interface ChatModelSelectorProps {
   displayName?: string;
   /** Whether the current user is allowed to change the session override. */
   canManage: boolean;
+  /**
+   * AI 员工在设置页配置的默认模型 ID。传递后首帧即可渲染
+   * "员工名（模型名）"，无需等待 server action 返回。
+   */
+  initialModelId?: string;
 }
 
 export interface ChatModelCommandDialogProps {
@@ -63,13 +68,13 @@ export function ChatModelSelector({
 }: ChatModelSelectorProps) {
   const { tx } = useLanguage();
   const [info, setInfo] = useState<ModelOverrideInfo | null>(null);
-  const [loading, setLoading] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<{ code: string; message: string } | null>(null);
+  // 跟踪首次 fetch 是否完成——未完成时不显示 error 状态避免闪烁
+  const [initialFetchDone, setInitialFetchDone] = useState(false);
 
   const fetchInfo = useCallback(() => {
     let cancelled = false;
-    setLoading(true);
     getChatModelOverrideAction({
       contactId,
       channelName,
@@ -92,7 +97,7 @@ export function ChatModelSelector({
       })
       .finally(() => {
         if (!cancelled) {
-          setLoading(false);
+          setInitialFetchDone(true);
         }
       });
     return () => {
@@ -103,9 +108,6 @@ export function ChatModelSelector({
   useEffect(() => {
     return fetchInfo();
   }, [fetchInfo]);
-
-  const activeModel = info?.effectiveModel ?? info?.sessionOverride;
-  const sessionValue = info?.sessionOverride?.modelId ?? "";
 
   const handleChange = (value: string) => {
     if (!info) return;
@@ -126,52 +128,31 @@ export function ChatModelSelector({
     });
   };
 
-  if (loading) {
-    return (
-      <span className="chat-model-selector chat-model-selector--loading">
-        <span className="chat-model-selector__trigger">
-          <span className="chat-model-selector__value">{displayName ?? tx("加载中…", "Loading…")}</span>
-        </span>
-      </span>
-    );
-  }
-
-  if (!info) {
-    return (
-      <span className="chat-model-selector" title={error?.message}>
-        <span className="chat-model-selector__trigger">
-          <span className="chat-model-selector__value chat-model-selector__value--empty">
-            {displayName ?? tx("模型不可用", "Model unavailable")}
-          </span>
-        </span>
-        {error ? (
-          <span className="chat-model-selector__error" title={error.message}>
-            {errorLabel(error.code, tx)}
-          </span>
-        ) : null}
-      </span>
-    );
-  }
-
-  const provider = info.provider;
+  // 始终渲染同一结构，消除加载状态导致的模型名闪烁。
+  // info 未就绪时用 initialModelId 或 displayName 作为占位文案。
+  const activeModel = info?.effectiveModel ?? info?.sessionOverride;
+  const sessionValue = info?.sessionOverride?.modelId ?? "";
+  const provider = info?.provider;
   const canPick = canManage && provider != null;
-  const modelDisplay = formatModelDisplay(displayName ?? info.agentName, activeModel?.modelId, tx);
+  const effectiveDisplayName = displayName ?? info?.agentName ?? "";
+  const modelDisplay = info
+    ? formatModelDisplay(effectiveDisplayName, activeModel?.modelId, tx)
+    : initialModelId
+      ? formatModelDisplay(displayName ?? "", initialModelId, tx)
+      : displayName ?? "";
 
   return (
     <span
-      className={`chat-model-selector${canPick ? " chat-model-selector--interactive" : ""}`}
+      className={`chat-model-selector${canPick ? " chat-model-selector--interactive" : ""}${!info ? " chat-model-selector--pending" : ""}`}
       title={modelDisplay}
     >
       <span className="chat-model-selector__trigger">
-        {activeModel ? (
-          <span className="chat-model-selector__value" title={modelDisplay}>
-            {modelDisplay}
-          </span>
-        ) : (
-          <span className="chat-model-selector__value chat-model-selector__value--empty" title={modelDisplay}>
-            {modelDisplay}
-          </span>
-        )}
+        <span
+          className={`chat-model-selector__value${!info || !activeModel ? " chat-model-selector__value--empty" : ""}`}
+          title={modelDisplay}
+        >
+          {modelDisplay || tx("加载中…", "Loading…")}
+        </span>
         {canPick ? <AppIcon className="chat-model-selector__chevron" name="chevronDown" /> : null}
       </span>
       {canPick ? (
@@ -182,7 +163,7 @@ export function ChatModelSelector({
           onChange={handleChange}
         />
       ) : null}
-      {error ? (
+      {error && initialFetchDone ? (
         <span className="chat-model-selector__error" title={error.message}>
           {errorLabel(error.code, tx)}
         </span>

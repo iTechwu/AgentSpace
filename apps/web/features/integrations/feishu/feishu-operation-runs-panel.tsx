@@ -26,7 +26,7 @@ export function FeishuOperationRunsPanel({
   const latestFailedRun = failedRuns[0];
 
   return (
-    <section className="page-panel">
+    <section className="page-panel feishu-panel">
       <div className="panel-header">
         <div>
           <h3>{tx("飞书数据操作记录", "Feishu Data Operation Runs")}</h3>

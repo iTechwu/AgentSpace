@@ -53,7 +53,7 @@ export function FeishuCreateIntegrationDialog({
   return (
     <section
       aria-label={tx("高级：工作区级飞书集成", "Advanced: Workspace-Level Feishu Integration")}
-      className="page-panel"
+      className="page-panel feishu-panel"
     >
       <details className="feishu-advanced-settings">
         <summary>

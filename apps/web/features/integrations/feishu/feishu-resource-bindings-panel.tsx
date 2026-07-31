@@ -155,7 +155,7 @@ export function FeishuResourceBindingsPanel({
   }
 
   return (
-    <section className="page-panel">
+    <section className="page-panel feishu-panel">
       <div className="panel-header">
         <div>
           <h3>{tx("飞书数据资源", "Feishu Data Resources")}</h3>
@@ -333,16 +333,20 @@ export function FeishuResourceBindingsPanel({
             {group.bindings.map((binding) => (
               <article className="feishu-binding-card" key={binding.id}>
                 <div>
-                  <strong>{formatFeishuResourceTitle(binding)}</strong>
+                  <div className="feishu-binding-card__identity">
+                    <strong>{formatFeishuResourceTitle(binding)}</strong>
+                    <span className={`status-chip ${resolveResourceBindingStatusClass(binding.status)}`}>
+                      {translateBindingStatus(binding.status, tx)}
+                    </span>
+                  </div>
                   <p>{binding.integrationName}</p>
                 </div>
                 <div className="feishu-binding-card__meta">
                   <span>{tx("飞书", "Feishu")}: {binding.providerResourceReference}</span>
-                  <span>agent.dofe: {binding.dofeAgentResourceType}</span>
+                  <span>agent.dofe: {translateDofeAgentResourceType(binding.dofeAgentResourceType, tx)}</span>
                   <span>{tx("资源 ID", "Resource ID")}: {binding.dofeAgentResourceId}</span>
                   <span>{tx("写入", "Write")}: {binding.canWrite ? tx("需审批", "Approval required") : tx("未授权", "Not allowed")}</span>
                   <span>{tx("访客读取", "Guest read")}: {binding.guestReadable ? tx("允许", "Allowed") : tx("关闭", "Off")}</span>
-                  <span>{tx("状态", "Status")}: {translateBindingStatus(binding.status, tx)}</span>
                 </div>
                 <div className="feishu-binding-card__actions">
                   {binding.status === "active" ? (
@@ -508,5 +512,34 @@ function translateBindingStatus(
       return tx("暂停", "Paused");
     case "archived":
       return tx("归档", "Archived");
+  }
+}
+
+function resolveResourceBindingStatusClass(
+  status: FeishuIntegrationSettingsItem["resourceBindings"][number]["status"],
+): string {
+  switch (status) {
+    case "active":
+      return "status-chip--positive";
+    case "disabled":
+      return "status-chip--warning";
+    case "archived":
+      return "status-chip--neutral";
+  }
+}
+
+function translateDofeAgentResourceType(
+  type: FeishuIntegrationSettingsItem["resourceBindings"][number]["dofeAgentResourceType"],
+  tx: SettingsTx,
+): string {
+  switch (type) {
+    case "channel_document":
+      return tx("频道文档", "Channel Document");
+    case "data_table":
+      return tx("数据表", "Data Table");
+    case "knowledge_page":
+      return tx("知识页", "Knowledge Page");
+    default:
+      return type;
   }
 }

@@ -75,7 +75,7 @@ export function FeishuAgentBotsPanel({
   return (
     <section
       aria-label={tx("AI员工 飞书 Bot", "AI Employee Feishu Bots")}
-      className="page-panel"
+      className="page-panel feishu-panel"
       id="feishu-agent-bots"
     >
       <div className="panel-header">
