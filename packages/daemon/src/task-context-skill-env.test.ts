@@ -11,7 +11,7 @@ import {
   resetWorkspaceStateSync,
   upsertAgentSkillRequirementsSync,
 } from "@dofe-agent/services";
-import { resolveAgentSkillEnvironment } from "./task-context.ts";
+import { collectSkillReadinessBlockers, resolveAgentSkillEnvironment } from "./task-context.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-task-context-skill-env-"));
@@ -125,4 +125,35 @@ test("resolveAgentSkillEnvironment ignores DOFE_AGENT_ prefixed keys", () => {
 
   const { env } = resolveAgentSkillEnvironment("default", "Researcher", [skill]);
   assert.equal(env.DOFE_AGENT_OVERRIDDEN, undefined);
+});
+
+test("collectSkillReadinessBlockers reports missing required configuration and clears once configured", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "notion-sync",
+    description: "Sync",
+    configJson: JSON.stringify({
+      requirements: [
+        { kind: "config", value: "NOTION_DATABASE_ID" },
+        { kind: "secret", value: "NOTION_API_TOKEN" },
+      ],
+    }),
+  });
+
+  let blockers = collectSkillReadinessBlockers("default", "Researcher", [skill], undefined);
+  assert.ok(blockers.length >= 2, "expected missing-config and missing-secret blockers");
+  assert.ok(blockers.some((b) => b.includes("NOTION_DATABASE_ID")));
+  assert.ok(blockers.some((b) => b.includes("NOTION_API_TOKEN")));
+
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { NOTION_DATABASE_ID: "db-1" },
+    secrets: { NOTION_API_TOKEN: "tok" },
+  });
+
+  blockers = collectSkillReadinessBlockers("default", "Researcher", [skill], undefined);
+  assert.deepEqual(blockers, []);
 });

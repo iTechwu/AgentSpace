@@ -505,6 +505,7 @@ export function getPostgresSchemaStatements(): string[] {
         owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
         channel_member_access TEXT NOT NULL DEFAULT 'disabled',
         default_model TEXT,
+        execution_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         version INTEGER NOT NULL DEFAULT 1,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL,
@@ -514,6 +515,10 @@ export function getPostgresSchemaStatements(): string[] {
     `
       ALTER TABLE workspace_employee
         ADD COLUMN IF NOT EXISTS default_model TEXT
+    `,
+    `
+      ALTER TABLE workspace_employee
+        ADD COLUMN IF NOT EXISTS execution_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb
     `,
     `
       CREATE TABLE IF NOT EXISTS agent_fork_invitation (

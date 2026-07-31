@@ -4760,9 +4760,34 @@ textarea:focus {
   font-size: 0.9rem;
 }
 
-.conversation-process summary span {
+.conversation-process summary > span {
   font-size: 0.76rem;
   color: var(--muted);
+}
+
+.conversation-process__heading {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.conversation-process__heading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-process__spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  flex: none;
+  color: #4f68d8;
+  animation: conversation-process-spin 1s linear infinite;
+}
+
+.conversation-process__state {
+  flex: none;
 }
 
 .conversation-process pre {
@@ -4771,6 +4796,10 @@ textarea:focus {
   word-break: break-word;
   font: 0.82rem/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   color: var(--text);
+}
+
+@keyframes conversation-process-spin {
+  to { transform: rotate(360deg); }
 }
 
 .attachment-row a {
@@ -13413,10 +13442,12 @@ textarea:focus {
 
 .workspace-module-stage--loading > .workspace-module-stage__content,
 .workspace-module-stage--loading > .workspace-module-stage__preserved {
-  opacity: 0.34;
-  filter: saturate(0.72);
   pointer-events: none;
-  transition: opacity 180ms ease, filter 180ms ease;
+}
+
+.workspace-module-stage--loading[data-retained-content="true"] > .workspace-module-stage__content,
+.workspace-module-stage--loading[data-retained-content="true"] > .workspace-module-stage__preserved {
+  animation: workspace-module-retained-content-exit 360ms ease-out both;
 }
 
 .workspace-module-stage__loading {
@@ -13428,11 +13459,15 @@ textarea:focus {
   min-height: 0;
   overflow: hidden;
   pointer-events: none;
-  animation: workspace-module-loading-enter 180ms ease-out both;
 }
 
 .workspace-module-stage[data-retained-content="true"] .workspace-module-stage__loading .workspace-page-loading {
-  background: color-mix(in srgb, var(--console-bg, #ffffff) 82%, transparent);
+  background: transparent;
+}
+
+.workspace-module-stage[data-retained-content="true"] .workspace-module-stage__loading .workspace-page-loading__content {
+  background: #f8faf8;
+  animation: workspace-module-skeleton-enter 360ms ease-out both;
 }
 
 .workspace-page-loading {
@@ -13587,9 +13622,14 @@ textarea:focus {
   100% { transform: translateX(270%); }
 }
 
-@keyframes workspace-module-loading-enter {
-  from { opacity: 0; }
-  to { opacity: 1; }
+@keyframes workspace-module-retained-content-exit {
+  0%, 50% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes workspace-module-skeleton-enter {
+  0%, 50% { opacity: 0; }
+  100% { opacity: 1; }
 }
 
 @media (max-width: 860px) {

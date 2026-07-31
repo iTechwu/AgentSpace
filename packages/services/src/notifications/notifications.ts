@@ -79,6 +79,7 @@ export function postNotificationChannelMessageSync(input: {
   data?: Record<string, string | undefined>;
   speaker?: string;
   status?: "pending" | "completed" | "error";
+  allowDirectChannel?: boolean;
 }): boolean {
   const channelName = input.channelName.trim();
   if (!channelName) {
@@ -86,7 +87,7 @@ export function postNotificationChannelMessageSync(input: {
   }
   const state = readWorkspaceStateSync(input.workspaceId);
   const channel = state.channels.find((item) => sameValue(item.name, channelName));
-  if (!channel || channel.kind === "direct") {
+  if (!channel || (channel.kind === "direct" && !input.allowDirectChannel)) {
     return false;
   }
 

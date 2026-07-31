@@ -6,7 +6,7 @@ import {
 } from "@dofe-agent/db";
 import type { DaemonProvider, DaemonTaskMessageInput, ReportTaskMessagesRequest } from "@dofe-agent/domain";
 import { parseTaskPayload } from "dofe-agent-daemon";
-import { updatePendingAgentChannelReplySync } from "@dofe-agent/services";
+import { recordAgentChannelProgressSync, updatePendingAgentChannelReplySync } from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -37,18 +37,36 @@ export async function POST(
   const channelName = payload.channelName ?? payload.channel;
   if (channelName) {
     for (const message of body.messages) {
-      if (message.type !== "text_delta" || !message.content?.trim()) {
-        continue;
+      const pendingSpeaker = payload.assignee ?? task.agentId;
+      if (message.type === "text" && message.content?.trim()) {
+        updatePendingAgentChannelReplySync({
+          channel: channelName,
+          sourceTaskQueueId: task.id,
+          pendingSpeaker,
+          delta: message.content,
+        }, task.workspaceId);
       }
-      updatePendingAgentChannelReplySync({
-        channel: channelName,
-        sourceTaskQueueId: task.id,
-        pendingSpeaker: payload.assignee ?? task.agentId,
-        delta: message.content,
-      }, task.workspaceId);
+      const progressType = toProgressType(message.type);
+      if (progressType) {
+        recordAgentChannelProgressSync({
+          channel: channelName,
+          sourceTaskQueueId: task.id,
+          speaker: pendingSpeaker,
+          type: progressType,
+          tool: message.tool,
+          content: message.content,
+        }, task.workspaceId);
+      }
     }
   }
   return Response.json({ messages: appended });
+}
+
+function toProgressType(type: string): "thinking" | "tool_use" | "tool_result" | "status" | null {
+  if (type === "thinking" || type === "tool_use" || type === "tool_result" || type === "status") {
+    return type;
+  }
+  return null;
 }
 
 function appendSingleMessage(task: QueuedTaskRecord, message: DaemonTaskMessageInput) {

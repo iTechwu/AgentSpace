@@ -86,6 +86,36 @@ export function buildRedactions(env: Record<string, string>): HarnessLaunchPlan[
   return redactions;
 }
 
+/**
+ * Builds value-based redaction patterns for every explicitly-listed key that is
+ * present in `env`, regardless of whether the key name looks like a secret.
+ *
+ * Skill authors can store credentials under benign-looking config keys (for
+ * example `MY_SERVICE_CODE`); the name-based {@link buildRedactions} would miss
+ * those. Callers that know which keys were injected from per-employee Skill
+ * configuration pass them here so their values are scrubbed from logs too.
+ */
+export function buildEnvValueRedactions(
+  env: Record<string, string>,
+  keys: readonly string[] | undefined,
+): HarnessLaunchPlan["redactions"] {
+  const redactions: HarnessLaunchPlan["redactions"] = [];
+  if (!keys || keys.length === 0) {
+    return redactions;
+  }
+  const keySet = new Set(keys);
+  for (const [key, value] of Object.entries(env)) {
+    if (keySet.has(key) && value) {
+      redactions.push({
+        envName: key,
+        pattern: escapeRegExp(value),
+        replacement: `[redacted:${key}]`,
+      });
+    }
+  }
+  return redactions;
+}
+
 export function redactText(value: string, redactions: HarnessLaunchPlan["redactions"]): string {
   let result = value;
   for (const redaction of redactions) {

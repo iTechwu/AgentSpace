@@ -19,6 +19,7 @@ import {
   normalizeProviderTaskErrorCategory,
   type ProviderApprovalRequest,
   type ProviderApprovalDecision,
+  type ProviderTaskEvent,
   buildProviderRuntimeMetadata,
   readProviderTaskFailureMetadata,
   readNodeMetadata,
@@ -148,6 +149,8 @@ export function mergeRemoteGatewayUsages(
 export const DAEMON_AUTH_REJECTED_MESSAGE =
   "Daemon token rejected by server (HTTP 401/403 — invalid or revoked). "
   + "Re-register the daemon with a valid --daemon-token / DOFE_AGENT_DAEMON_TOKEN.";
+
+const RUNTIME_APPROVAL_TIMEOUT_MS = 15 * 60 * 1_000;
 
 export async function runRemoteDaemonCommand(subcommand: string | undefined, args: string[]): Promise<number> {
   if (subcommand === "start") {
@@ -805,6 +808,11 @@ async function executeRemoteTask(
           "Resolve by using the same value across skills or uninstalling conflicting skills.",
       );
     }
+    if (bundle.metadata.skillReadinessBlockers?.length) {
+      throw new Error(
+        `Skill requirements not satisfied for this task: ${bundle.metadata.skillReadinessBlockers.join("; ")}.`,
+      );
+    }
     const managedCredentialId = typeof runtime.metadata.managedCredentialId === "string"
       ? runtime.metadata.managedCredentialId
       : undefined;
@@ -819,6 +827,16 @@ async function executeRemoteTask(
       : runtime;
     const effectiveModelId = resolveRemoteTaskExecutionModel(bundle);
     let usages: RemoteTaskUsageEntry[] = [];
+    let queuedMessageReports = Promise.resolve();
+    const reportTaskMessage = (message: ProviderTaskEvent): void => {
+      queuedMessageReports = queuedMessageReports
+        .then(() => client.reportMessages(task.id, { messages: [message] }))
+        .catch((error) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          console.error(`Failed to report remote task message for ${task.id}: ${detail}`);
+        });
+    };
+    reportTaskMessage({ type: "status", content: "正在准备执行环境" });
     const gatewayRequestLogPath = join(workDir, ".dofe-gateway-requests.jsonl");
     rmSync(gatewayRequestLogPath, { force: true });
 
@@ -829,6 +847,8 @@ async function executeRemoteTask(
       {
         sessionId: bundle.metadata.routerSession?.providerSessionId ?? resolveRemoteTaskProviderSessionId(task.inputJson),
         modelId: effectiveModelId,
+        executionPolicy: bundle.metadata.executionPolicy,
+        skillEnvKeys: bundle.metadata.skillEnv ? Object.keys(bundle.metadata.skillEnv) : undefined,
         taskTimeoutMs: config.taskTimeoutMs,
         contextEnv: {
           ...bundle.metadata.skillEnv,
@@ -864,10 +884,7 @@ async function executeRemoteTask(
               });
             }
           }
-          void client.reportMessages(task.id, { messages: [event] }).catch((error) => {
-            const message = error instanceof Error ? error.message : String(error);
-            console.error(`Failed to report remote task message for ${task.id}: ${message}`);
-          });
+          reportTaskMessage(event);
         },
         onApprovalRequest: (request) => waitForRuntimeApproval(client, task.id, request),
       },
@@ -884,10 +901,7 @@ async function executeRemoteTask(
 
     const preparedSkillImports = prepareSkillImportOperationArtifacts(workDir);
     for (const warning of preparedSkillImports.warnings) {
-      await client.reportMessages(task.id, { messages: [{ type: "status", content: warning }] }).catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`Failed to report skill import warning for ${task.id}: ${message}`);
-      });
+      reportTaskMessage({ type: "status", content: warning });
     }
 
     const outputBundle = collectRuntimeOutputBundle(workDir);
@@ -895,6 +909,7 @@ async function executeRemoteTask(
       await client.uploadOutputBundle(task.id, outputBundle);
     }
 
+    await queuedMessageReports;
     await client.completeTask(task.id, {
       outputText: result.output,
       sessionId: result.sessionId,
@@ -1205,14 +1220,15 @@ async function waitForRuntimeApproval(
   await client.reportMessages(taskId, {
     messages: [{
       type: "status",
-      content: `等待前端审批工具调用：${request.contentPreview}`,
+      content: "等待你的工具审批，任务已暂停。",
     }],
   }).catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Failed to report approval wait message for ${taskId}: ${message}`);
   });
 
-  while (true) {
+  const deadline = Date.now() + RUNTIME_APPROVAL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
     const current = await client.getRuntimeApproval(taskId, created.approval.approvalId);
     if (current.approval.status === "approved") {
       return {
@@ -1228,6 +1244,8 @@ async function waitForRuntimeApproval(
     }
     await sleep(1_000);
   }
+
+  throw new Error("Runtime approval timed out after 15 minutes.");
 }
 
 async function pollManagedProvisioningTasks(

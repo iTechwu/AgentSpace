@@ -155,6 +155,7 @@ export interface ActiveEmployee {
   ownerUserId?: string;
   channelMemberAccess?: AgentChannelMemberAccess;
   defaultModel?: string;
+  executionPolicy?: EmployeeExecutionPolicy;
   origin: string;
   summary: string;
   traits: string[];
@@ -171,6 +172,16 @@ export interface ActiveEmployee {
 }
 
 export type AgentChannelMemberAccess = "enabled" | "disabled";
+
+export type ClaudeCodePermissionMode = "manual" | "acceptEdits" | "plan" | "auto";
+export type CodexApprovalPolicy = "untrusted" | "on-request" | "never";
+export type CodexSandboxMode = "workspace-write" | "danger-full-access";
+
+export interface EmployeeExecutionPolicy {
+  claudePermissionMode?: ClaudeCodePermissionMode;
+  codexApprovalPolicy?: CodexApprovalPolicy;
+  codexSandboxMode?: CodexSandboxMode;
+}
 
 export interface HumanMember {
   name: string;

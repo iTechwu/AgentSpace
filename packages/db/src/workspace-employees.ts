@@ -17,6 +17,7 @@ export function listStoredEmployeesSync(workspaceId = DEFAULT_WORKSPACE_ID): Act
       instructions,
       channel_member_access AS channelMemberAccess,
       default_model AS defaultModel,
+      execution_policy_json AS executionPolicyJson,
       created_at AS createdAt,
       updated_at AS updatedAt
      FROM workspace_employee
@@ -51,10 +52,11 @@ export function createStoredEmployeeSync(employee: ActiveEmployee, workspaceId =
       instructions,
       channel_member_access,
       default_model,
+      execution_policy_json,
       version,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
   ).run(
     workspaceId,
     employee.name,
@@ -69,6 +71,7 @@ export function createStoredEmployeeSync(employee: ActiveEmployee, workspaceId =
     employee.instructions ?? "",
     employee.channelMemberAccess ?? (employee.ownerUserId ? "disabled" : "enabled"),
     employee.defaultModel ?? null,
+    JSON.stringify(employee.executionPolicy ?? {}),
     now,
     now,
   );
@@ -92,6 +95,7 @@ export function updateStoredEmployeeSync(employeeName: string, next: ActiveEmplo
          instructions = ?,
          channel_member_access = ?,
          default_model = ?,
+         execution_policy_json = ?,
          version = version + 1,
          updated_at = ?
      WHERE workspace_id = ? AND name = ?`,
@@ -107,6 +111,7 @@ export function updateStoredEmployeeSync(employeeName: string, next: ActiveEmplo
     next.instructions ?? "",
     next.channelMemberAccess ?? (next.ownerUserId ? "disabled" : "enabled"),
     next.defaultModel ?? null,
+    JSON.stringify(next.executionPolicy ?? {}),
     now,
     workspaceId,
     employeeName,
@@ -158,6 +163,7 @@ function mapStoredEmployeeRecord(row: Record<string, unknown>): ActiveEmployee |
     traits: parseStringArray(typeof row.traitsJson === "string" ? row.traitsJson : "[]"),
     fit: row.fit,
     defaultModel: typeof row.defaultModel === "string" ? row.defaultModel : undefined,
+    executionPolicy: parseExecutionPolicy(row.executionPolicyJson),
     skillIds: [],
     channels: [],
     status: row.status === "active" ? "active" : "active",
@@ -169,6 +175,30 @@ function mapStoredEmployeeRecord(row: Record<string, unknown>): ActiveEmployee |
           ? "disabled"
           : "enabled",
   };
+}
+
+function parseExecutionPolicy(value: unknown): ActiveEmployee["executionPolicy"] {
+  if (typeof value !== "string") return undefined;
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const policy = {
+      claudePermissionMode:
+        parsed.claudePermissionMode === "manual" || parsed.claudePermissionMode === "acceptEdits" || parsed.claudePermissionMode === "plan" || parsed.claudePermissionMode === "auto"
+          ? parsed.claudePermissionMode
+          : undefined,
+      codexApprovalPolicy:
+        parsed.codexApprovalPolicy === "untrusted" || parsed.codexApprovalPolicy === "on-request" || parsed.codexApprovalPolicy === "never"
+          ? parsed.codexApprovalPolicy
+          : undefined,
+      codexSandboxMode:
+        parsed.codexSandboxMode === "workspace-write" || parsed.codexSandboxMode === "danger-full-access"
+          ? parsed.codexSandboxMode
+          : undefined,
+    };
+    return Object.values(policy).some(Boolean) ? policy : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseStringArray(json: string): string[] {

@@ -11,7 +11,7 @@ import type {
 import { AGENT_ROUTER_HARNESSES } from "./types.ts";
 import { getHarnessAdapter, HARNESS_ADAPTERS } from "./adapters/index.ts";
 import { runCapabilityDiagnostics } from "./capabilities.ts";
-import { createDiagnostic, resolveExecutablePath } from "./utils.ts";
+import { createDiagnostic, resolveExecutablePath, buildEnvValueRedactions } from "./utils.ts";
 
 export function listAgentRouterHarnesses(): HarnessCatalogEntry[] {
   return AGENT_ROUTER_HARNESSES.map((id) => ({
@@ -82,6 +82,15 @@ export async function runAgentRouter(
       ...request,
       cwd: resolve(request.cwd),
     });
+    // Also redact Skill-injected values whose key names don't match the secret
+    // name pattern (e.g. a credential stored as `MY_SERVICE_CODE`). The adapter
+    // already redacts secret-named entries; this closes the name-based gap.
+    if (request.skillEnvKeys?.length) {
+      plan.redactions = [
+        ...(plan.redactions ?? []),
+        ...buildEnvValueRedactions(plan.env, request.skillEnvKeys),
+      ];
+    }
     const capabilityDiagnostics = runCapabilityDiagnostics({
       env: plan.env,
       capabilities: request.runtimeToolCapabilities,

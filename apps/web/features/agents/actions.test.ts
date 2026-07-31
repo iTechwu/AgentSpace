@@ -62,6 +62,7 @@ vi.mock("@dofe-agent/services", () => ({
   hasGitHubSkillDependenciesSync: mockHasGitHubSkillDependenciesSync,
   isWorkspaceAdminOrOwnerSync: mockIsWorkspaceAdminOrOwnerSync,
   listEmployeeSkillIdsSync: mockListEmployeeSkillIdsSync,
+  readAgentSkillRequirementConfigurationSync: vi.fn(() => ({ configuredSecretKeys: [] })),
   resolveSystemAgentTemplateForWorkspaceSync: mockResolveSystemAgentTemplateForWorkspaceSync,
   queueGitHubSkillDependenciesForAgentSync: mockQueueGitHubSkillDependenciesForAgentSync,
   resolveAgentRuntimeMode: mockResolveAgentRuntimeMode,
@@ -118,6 +119,7 @@ describe("agent actions", () => {
     mockListEmployeeSkillIdsSync.mockReturnValue([]);
     mockResolveSystemAgentTemplateForWorkspaceSync.mockReturnValue(null);
     mockResolveAgentRuntimeMode.mockReturnValue("local");
+    mockUpsertAgentSkillRequirementsSync.mockReturnValue(["skill-image"]);
     mockGetManagedRuntimeCredentialEnvKey.mockReturnValue("OPENAI_API_KEY");
     mockHasGitHubSkillDependenciesSync.mockReturnValue(false);
     mockQueueGitHubSkillDependenciesForAgentSync.mockReturnValue({ queued: 0, skipped: 0, waitingForRuntime: false });
@@ -320,14 +322,9 @@ describe("agent actions", () => {
       projectWorkDir: "/workspace/creative",
       values: { IMAGE_BASE_URL: "https://images.example.test" },
       secrets: { IMAGE_APPKEY: "secret-value" },
+      assignSkill: true,
     });
-    expect(mockAssertAgentSkillRequirementsReadySync).toHaveBeenCalledWith({
-      workspaceId: "workspace-1",
-      employeeName: "Atlas",
-      skillIds: ["skill-image"],
-      runtimeProvider: undefined,
-    });
-    expect(mockSetEmployeeSkillIdsSync).toHaveBeenCalledWith("Atlas", ["skill-image"], "workspace-1");
+    expect(mockAssertAgentSkillRequirementsReadySync).not.toHaveBeenCalled();
     expect(result.toast?.en).toContain("installed and configured for this agent");
   });
 
@@ -346,6 +343,8 @@ describe("agent actions", () => {
       employeeName: "Atlas",
       skillId: "skill-openai",
       managedRuntimeCredentialKey: "OPENAI_API_KEY",
+      runtimeProvider: "codex",
+      assignSkill: true,
     }));
   });
 
@@ -359,7 +358,6 @@ describe("agent actions", () => {
       secrets: {},
     });
 
-    expect(mockSetEmployeeSkillIdsSync).toHaveBeenCalledWith("Atlas", ["skill-image"], "workspace-1");
     expect(result.toast?.en).toBe("Skill configuration updated for this agent.");
   });
 });

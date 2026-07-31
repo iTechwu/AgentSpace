@@ -8,6 +8,7 @@ import { getDatabase } from "@dofe-agent/db";
 import {
   createEmployeeSync,
   createWorkspaceSkillSync,
+  listEmployeeSkillIdsSync,
   readAgentSkillRequirementEnvSync,
   readAgentSkillRequirementConfigurationSync,
   readAgentSkillRequirementSummarySync,
@@ -224,6 +225,23 @@ test("upsertAgentSkillRequirementsSync accepts the same value used by an install
   );
 });
 
+test("upsertAgentSkillRequirementsSync can save and assign the skill atomically", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createSkillWithConfig("atomic-install", "INSTALL_KEY");
+
+  const skillIds = upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { INSTALL_KEY: "configured" },
+    assignSkill: true,
+  });
+
+  assert.deepEqual(skillIds, [skill.id]);
+  assert.deepEqual(listEmployeeSkillIdsSync("Researcher"), [skill.id]);
+});
+
 test("upsertAgentSkillRequirementsSync preserves an existing secret when it is not replaced", () => {
   createEmployeeSync({ name: "Researcher" });
   const skill = createSkillWithRequirements();
@@ -274,6 +292,37 @@ test("upsertAgentSkillRequirementsSync rejects managed runtime credential keys",
   );
 });
 
+test("upsertAgentSkillRequirementsSync rejects runtime-incompatible configuration before saving", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "codex-only",
+    description: "Codex only",
+    configJson: JSON.stringify({
+      requirements: [{ kind: "provider", value: "codex" }],
+    }),
+  });
+
+  assert.throws(
+    () => upsertAgentSkillRequirementsSync({
+      workspaceId: "default",
+      employeeName: "Researcher",
+      skillId: skill.id,
+      actorUserId: TEST_USER_ID,
+      modelProvider: "codex",
+      runtimeProvider: "claude",
+    }),
+    /bound runtime uses claude/,
+  );
+  assert.equal(
+    readAgentSkillRequirementConfigurationSync({
+      workspaceId: "default",
+      employeeName: "Researcher",
+      skillId: skill.id,
+    }).configuration,
+    undefined,
+  );
+});
+
 test("readAgentSkillRequirementSummarySync reports missing requirements", () => {
   createEmployeeSync({ name: "Researcher" });
   const skill = createSkillWithRequirements();
@@ -315,4 +364,105 @@ test("readAgentSkillRequirementSummarySync exposes metadata without secret value
   assert.equal(summary.configuredCount, 2);
   assert.equal(summary.configuration?.values.NOTION_DATABASE_ID, "db-123");
   assert.equal(JSON.stringify(summary).includes("secret-never-returned"), false);
+});
+
+test("readAgentSkillRequirementSummarySync reports expired after a requirement upgrade", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createSkillWithRequirements();
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { NOTION_DATABASE_ID: "db-123" },
+    secrets: { NOTION_API_TOKEN: "secret-token" },
+  });
+
+  // Simulate a reimport that adds a new required config key.
+  getDatabase().prepare("UPDATE skill SET config_json = ? WHERE id = ?").run(
+    JSON.stringify({
+      requirements: [
+        { kind: "config", value: "NOTION_DATABASE_ID" },
+        { kind: "secret", value: "NOTION_API_TOKEN" },
+        { kind: "config", value: "NOTION_PAGE_SIZE" },
+      ],
+    }),
+    skill.id,
+  );
+
+  const summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+  });
+  assert.equal(summary.status, "expired");
+  assert.deepEqual(summary.upgradeAddedKeys, ["NOTION_PAGE_SIZE"]);
+});
+
+test("readAgentSkillRequirementSummarySync clears expired after the upgrade is re-saved", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createSkillWithRequirements();
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { NOTION_DATABASE_ID: "db-123" },
+    secrets: { NOTION_API_TOKEN: "secret-token" },
+  });
+  getDatabase().prepare("UPDATE skill SET config_json = ? WHERE id = ?").run(
+    JSON.stringify({
+      requirements: [
+        { kind: "config", value: "NOTION_DATABASE_ID" },
+        { kind: "secret", value: "NOTION_API_TOKEN" },
+        { kind: "config", value: "NOTION_PAGE_SIZE" },
+      ],
+    }),
+    skill.id,
+  );
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { NOTION_DATABASE_ID: "db-123", NOTION_PAGE_SIZE: "10" },
+    secrets: { NOTION_API_TOKEN: "secret-token" },
+  });
+
+  const summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+  });
+  assert.equal(summary.status, "ready");
+  assert.deepEqual(summary.upgradeAddedKeys, []);
+});
+
+test("readAgentSkillRequirementSummarySync reports awaiting validation when the runtime is offline", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createSkillWithRequirements();
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { NOTION_DATABASE_ID: "db-123" },
+    secrets: { NOTION_API_TOKEN: "secret-token" },
+  });
+
+  const offline = readAgentSkillRequirementSummarySync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    runtimeOnline: false,
+  });
+  assert.equal(offline.status, "awaiting_validation");
+
+  const online = readAgentSkillRequirementSummarySync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    runtimeOnline: true,
+  });
+  assert.equal(online.status, "ready");
 });

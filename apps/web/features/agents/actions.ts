@@ -41,6 +41,7 @@ import {
   isWorkspaceAdminOrOwnerSync,
   hasGitHubSkillDependenciesSync,
   listEmployeeSkillIdsSync,
+  readAgentSkillRequirementConfigurationSync,
   queueGitHubSkillDependenciesForAgentSync,
   rejectAgentAccessRequestForActorSync,
   revokeAgentForkInvitationForActorSync,
@@ -50,14 +51,16 @@ import {
   setEmployeeChannelMemberAccessSync,
   setEmployeeKnowledgePageIdsSync,
   setEmployeeSkillIdsSync,
+  setAgentSkillAssignmentsWithRequirementsValidationSync,
   tryRecordWorkspaceAuditEventSync,
   unbindEmployeeRuntimeSync,
   upsertAgentSkillRequirementsSync,
   updateEmployeeDefaultModelSync,
+  updateEmployeeExecutionPolicySync,
   updateEmployeeInstructionsSync,
 } from "@dofe-agent/services";
 import type { TaskRecord } from "@dofe-agent/domain/workspace";
-import { isDaemonProvider, type DaemonProvider } from "@dofe-agent/domain";
+import { isDaemonProvider, type DaemonProvider, type EmployeeExecutionPolicy } from "@dofe-agent/domain";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
 import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-invalidation";
 import {
@@ -442,6 +445,46 @@ export async function updateWorkspaceAgentDefaultModelAction(input: {
   );
 }
 
+export async function updateWorkspaceAgentExecutionPolicyAction(input: {
+  employeeName: string;
+  executionPolicy?: EmployeeExecutionPolicy;
+}): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  assertRequired(input.employeeName, "employee name");
+  assertCanManageEmployeeForActorSync({
+    workspaceId,
+    employeeName: input.employeeName.trim(),
+    actorUserId: workspaceContext.currentUser.id,
+  });
+  const runtime = readEmployeeRuntimeBindingSync(input.employeeName.trim(), workspaceId);
+  const provider = runtime ? readAgentRuntimeSync(runtime.runtimeId)?.provider : undefined;
+  assertExecutionPolicyMatchesProvider(input.executionPolicy, provider);
+  updateEmployeeExecutionPolicySync(input.employeeName.trim(), input.executionPolicy, workspaceId);
+  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+  return actionToastResult(
+    undefined,
+    successToast("执行权限已保存。", "Execution permissions saved."),
+    buildAgentInvalidation(workspaceId, input.employeeName.trim()),
+  );
+}
+
+function assertExecutionPolicyMatchesProvider(
+  policy: EmployeeExecutionPolicy | undefined,
+  provider: DaemonProvider | undefined,
+): void {
+  if (!policy) return;
+  if (provider === "claude" && (policy.codexApprovalPolicy || policy.codexSandboxMode)) {
+    throw new Error("Codex execution settings cannot be saved for a Claude Code runtime.");
+  }
+  if (provider === "codex" && policy.claudePermissionMode) {
+    throw new Error("Claude Code execution settings cannot be saved for a Codex runtime.");
+  }
+  if (provider && provider !== "claude" && provider !== "codex") {
+    throw new Error("Execution permission settings are only available for Claude Code and Codex runtimes.");
+  }
+}
+
 export async function setSessionModelOverrideAction(input: {
   routerSessionId: string;
   modelId?: string;
@@ -527,7 +570,7 @@ export async function setWorkspaceAgentSkillAssignmentsAction(input: {
     actorUserId: workspaceContext.currentUser.id,
   });
   const boundRuntime = readEmployeeRuntimeBindingSync(input.employeeName.trim(), workspaceId);
-  assertAgentSkillRequirementsReadySync({
+  setAgentSkillAssignmentsWithRequirementsValidationSync({
     workspaceId,
     employeeName: input.employeeName.trim(),
     skillIds: input.skillIds,
@@ -540,7 +583,6 @@ export async function setWorkspaceAgentSkillAssignmentsAction(input: {
   if (hasGitHubDependencies) {
     assertWorkspaceRoleForContext(workspaceContext, "admin");
   }
-  setEmployeeSkillIdsSync(input.employeeName.trim(), input.skillIds, workspaceId);
   const dependencyQueue = hasGitHubDependencies
     ? queueGitHubSkillDependenciesForAgentSync({
       workspaceId,
@@ -585,11 +627,16 @@ export async function installWorkspaceAgentSkillAction(input: {
   assertRequired(input.employeeName, "employee name");
   assertRequired(input.skillId, "skill id");
   assertCanManageEmployeeForActorSync({ workspaceId, employeeName: input.employeeName.trim(), actorUserId: workspaceContext.currentUser.id });
+  const assignedSkillIds = listEmployeeSkillIdsSync(input.employeeName.trim(), workspaceId);
+  const isAlreadyAssigned = assignedSkillIds.includes(input.skillId.trim());
   const boundRuntime = readEmployeeRuntimeBindingSync(input.employeeName.trim(), workspaceId);
+  const priorConfiguredSecretKeys = new Set(
+    readAgentSkillRequirementConfigurationSync({ workspaceId, employeeName: input.employeeName.trim(), skillId: input.skillId.trim() }).configuredSecretKeys,
+  );
   const managedRuntimeCredentialKey = boundRuntime && resolveAgentRuntimeMode() === "remote"
     ? getManagedRuntimeCredentialEnvKey(boundRuntime.provider)
     : undefined;
-  upsertAgentSkillRequirementsSync({
+  const skillIds = upsertAgentSkillRequirementsSync({
     workspaceId,
     employeeName: input.employeeName.trim(),
     skillId: input.skillId.trim(),
@@ -601,22 +648,48 @@ export async function installWorkspaceAgentSkillAction(input: {
     values: input.values,
     secrets: input.secrets,
     ...(managedRuntimeCredentialKey ? { managedRuntimeCredentialKey } : {}),
-  });
-  const skillIds = [...new Set([...listEmployeeSkillIdsSync(input.employeeName.trim(), workspaceId), input.skillId.trim()])];
-  assertAgentSkillRequirementsReadySync({ workspaceId, employeeName: input.employeeName.trim(), skillIds, runtimeProvider: boundRuntime?.provider });
-  setEmployeeSkillIdsSync(input.employeeName.trim(), skillIds, workspaceId);
+    ...(boundRuntime?.provider ? { runtimeProvider: boundRuntime.provider } : {}),
+    assignSkill: true,
+  }) ?? [];
   const hasGitHubDependencies = hasGitHubSkillDependenciesSync({ workspaceId, skillIds });
   const dependencyQueue = hasGitHubDependencies
     ? queueGitHubSkillDependenciesForAgentSync({ workspaceId, employeeName: input.employeeName.trim(), skillIds, actorUserId: workspaceContext.currentUser.id, actorDisplayName: workspaceContext.currentUser.displayName })
     : { queued: 0, skipped: 0, waitingForRuntime: false };
   tryRecordWorkspaceAuditEventSync({
     workspaceId,
-    title: "AI employee skill configured",
-    note: `${workspaceContext.currentUser.displayName} configured skill requirements for ${input.employeeName.trim()}.`,
-    code: "workspace.agent_skill_requirements_configured",
+    title: isAlreadyAssigned ? "AI employee skill configuration updated" : "AI employee skill configured",
+    note: `${workspaceContext.currentUser.displayName} ${isAlreadyAssigned ? "updated" : "configured"} skill requirements for ${input.employeeName.trim()}.`,
+    code: isAlreadyAssigned ? "workspace.agent_skill_requirements_updated" : "workspace.agent_skill_requirements_configured",
     data: { actorType: "session_user", resourceType: "agent_skill_requirement", resourceId: `${input.employeeName.trim()}:${input.skillId.trim()}` },
   });
+  // Secret rotation gets its own audit trail (key names + count only; never values). A secret
+  // is "rotated" when a new value is supplied for a key that was already configured.
+  const rotatedSecretKeys = Object.entries(input.secrets ?? {})
+    .map(([key, value]) => ({ key, value: (value ?? "").trim() }))
+    .filter((entry) => entry.value.length > 0 && priorConfiguredSecretKeys.has(entry.key))
+    .map((entry) => entry.key);
+  if (rotatedSecretKeys.length > 0) {
+    tryRecordWorkspaceAuditEventSync({
+      workspaceId,
+      title: "AI employee skill secret rotated",
+      note: `${workspaceContext.currentUser.displayName} rotated ${rotatedSecretKeys.length} secret(s) for ${input.employeeName.trim()}: ${rotatedSecretKeys.join(", ")}.`,
+      code: "workspace.agent_skill_secret_rotated",
+      data: {
+        actorType: "session_user",
+        resourceType: "agent_skill_requirement",
+        resourceId: `${input.employeeName.trim()}:${input.skillId.trim()}`,
+        secretKeys: rotatedSecretKeys.join(","),
+        secretCount: String(rotatedSecretKeys.length),
+      },
+    });
+  }
   revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+  if (isAlreadyAssigned) {
+    return actionToastResult(undefined, successToast(
+      dependencyQueue.queued > 0 ? `Skill 配置已更新，并已排队安装 ${dependencyQueue.queued} 个依赖。` : "该 AI员工 的 Skill 配置已更新。",
+      dependencyQueue.queued > 0 ? `Skill configuration updated; ${dependencyQueue.queued} dependency install(s) queued.` : "Skill configuration updated for this agent.",
+    ), buildAgentInvalidation(workspaceId, input.employeeName.trim()));
+  }
   return actionToastResult(undefined, successToast(
     dependencyQueue.queued > 0 ? `Skill 已安装并已排队安装 ${dependencyQueue.queued} 个依赖。` : "Skill 已为该 AI员工 安装并完成配置。",
     dependencyQueue.queued > 0 ? `Skill installed; ${dependencyQueue.queued} dependency install(s) queued.` : "Skill installed and configured for this agent.",

@@ -1,12 +1,15 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import {
   listStoredAgentSkillAssignmentsSync,
+  getDatabase,
   readAgentSkillRequirementConfigSync,
   readEffectiveRuntimeEnv,
   upsertAgentSkillRequirementConfigSync,
+  withTransaction,
 } from "@dofe-agent/db";
 import type { DaemonProvider } from "@dofe-agent/domain";
 import { readWorkspaceSkillSync } from "./skills.ts";
+import { setEmployeeSkillIdsSync } from "../employees/employees.ts";
 import {
   getSkillRequirementBlockers,
   normalizeSkillRequirementConfiguration,
@@ -14,13 +17,14 @@ import {
   readSkillRequirementDeclarations,
   serializeSkillRequirementConfiguration,
   type SkillRequirementConfiguration,
+  type SkillRequirementDeclaration,
 } from "./requirements.ts";
 
 const CREDENTIAL_VERSION = "v1";
 
 export interface AgentSkillRequirementSummary {
   skillId: string;
-  status: "ready" | "needs_configuration" | "runtime_incompatible";
+  status: "ready" | "needs_configuration" | "runtime_incompatible" | "awaiting_validation" | "expired";
   requiredCount: number;
   configuredCount: number;
   blockers: string[];
@@ -30,6 +34,8 @@ export interface AgentSkillRequirementSummary {
     configured: boolean;
   }>;
   configuration?: SkillRequirementConfiguration;
+  runtimeOnline?: boolean;
+  upgradeAddedKeys?: string[];
   updatedAt?: string;
 }
 
@@ -45,6 +51,39 @@ export function upsertAgentSkillRequirementsSync(input: {
   values?: Record<string, string>;
   secrets?: Record<string, string>;
   managedRuntimeCredentialKey?: string;
+  runtimeProvider?: DaemonProvider;
+  assignSkill?: boolean;
+}): string[] | undefined {
+  if (input.assignSkill) {
+    return withEmployeeSkillMutationLockSync(input.workspaceId, input.employeeName, () => {
+      persistAgentSkillRequirementsSync(input);
+      const skillIds = [...new Set([
+        ...listStoredAgentSkillAssignmentsSync(input.workspaceId)
+          .filter((assignment) => assignment.employeeName === input.employeeName.trim())
+          .map((assignment) => assignment.skillId),
+        input.skillId.trim(),
+      ])];
+      setEmployeeSkillIdsSync(input.employeeName, skillIds, input.workspaceId);
+      return skillIds;
+    });
+  }
+  persistAgentSkillRequirementsSync(input);
+  return undefined;
+}
+
+function persistAgentSkillRequirementsSync(input: {
+  workspaceId: string;
+  employeeName: string;
+  skillId: string;
+  actorUserId: string;
+  modelProvider?: string;
+  modelId?: string;
+  capabilities?: string[];
+  projectWorkDir?: string;
+  values?: Record<string, string>;
+  secrets?: Record<string, string>;
+  managedRuntimeCredentialKey?: string;
+  runtimeProvider?: DaemonProvider;
 }): void {
   const skill = readWorkspaceSkillSync(input.skillId, input.workspaceId);
   if (!skill) throw new Error("Skill does not exist.");
@@ -73,6 +112,17 @@ export function upsertAgentSkillRequirementsSync(input: {
     skillId: input.skillId,
   });
   const secrets = resolveDeclaredSecrets(secretNames, input.secrets, existingRecord?.encryptedSecretsJson);
+  const candidateConfigJson = serializeSkillRequirementConfiguration({
+    configJson: skill.configJson,
+    configuration,
+  });
+  const readinessBlocker = getSkillRequirementBlockers({
+    configJson: candidateConfigJson,
+    runtimeProvider: input.runtimeProvider,
+  }).find((blocker) => !secretNames.some((name) => blocker.startsWith(`${name} must be configured`)));
+  if (readinessBlocker) {
+    throw new Error(`Skill "${skill.name}" is not ready for this agent: ${readinessBlocker}`);
+  }
   assertNoInstalledSkillEnvironmentConflicts({
     workspaceId: input.workspaceId,
     employeeName: input.employeeName,
@@ -83,7 +133,10 @@ export function upsertAgentSkillRequirementsSync(input: {
     workspaceId: input.workspaceId,
     employeeName: input.employeeName,
     skillId: input.skillId,
-    configJson: serializeSkillRequirementConfiguration({ configJson: "{}", configuration }),
+    configJson: JSON.stringify({
+      requirementConfiguration: configuration,
+      requirementSignature: requirementSignatureFor(requirements),
+    }),
     encryptedSecretsJson: JSON.stringify(secrets.encrypted),
     actorUserId: input.actorUserId,
   });
@@ -95,6 +148,7 @@ export function assertAgentSkillRequirementsReadySync(input: {
   skillIds: string[];
   runtimeProvider?: DaemonProvider;
 }): void {
+  const resolvedEnvironment = new Map<string, { value: string; skillName: string }>();
   for (const skillId of new Set(input.skillIds)) {
     const skill = readWorkspaceSkillSync(skillId, input.workspaceId);
     if (!skill) continue;
@@ -105,7 +159,34 @@ export function assertAgentSkillRequirementsReadySync(input: {
       runtimeProvider: input.runtimeProvider,
     }).blockers[0];
     if (blocker) throw new Error(`Skill "${skill.name}" is not ready for this agent: ${blocker}`);
+    const environment = readAgentSkillRequirementEnvSync({
+      workspaceId: input.workspaceId,
+      employeeName: input.employeeName,
+      skillId,
+    });
+    for (const [key, value] of Object.entries(environment)) {
+      const existing = resolvedEnvironment.get(key);
+      if (existing && existing.value !== value) {
+        throw new Error(
+          `Skill environment variable ${key} conflicts between Skill "${existing.skillName}" and Skill "${skill.name}". `
+          + "Use the same value or remove one of the Skills.",
+        );
+      }
+      resolvedEnvironment.set(key, { value, skillName: skill.name });
+    }
   }
+}
+
+export function setAgentSkillAssignmentsWithRequirementsValidationSync(input: {
+  workspaceId: string;
+  employeeName: string;
+  skillIds: string[];
+  runtimeProvider?: DaemonProvider;
+}): ReturnType<typeof setEmployeeSkillIdsSync> {
+  return withEmployeeSkillMutationLockSync(input.workspaceId, input.employeeName, () => {
+    assertAgentSkillRequirementsReadySync(input);
+    return setEmployeeSkillIdsSync(input.employeeName, input.skillIds, input.workspaceId);
+  });
 }
 
 export function readAgentSkillRequirementSummarySync(input: {
@@ -113,6 +194,7 @@ export function readAgentSkillRequirementSummarySync(input: {
   employeeName: string;
   skillId: string;
   runtimeProvider?: DaemonProvider;
+  runtimeOnline?: boolean;
 }): AgentSkillRequirementSummary {
   const skill = readWorkspaceSkillSync(input.skillId, input.workspaceId);
   if (!skill) throw new Error("Skill does not exist.");
@@ -145,15 +227,35 @@ export function readAgentSkillRequirementSummarySync(input: {
   const runtimeIncompatible = blockers.some((blocker) => (
     blocker.includes("bound runtime uses") || blocker.includes("does not match the bound runtime provider")
   ));
+  const currentSignature = requirementSignatureFor(requirements);
+  const savedSignature = record ? readSavedRequirementSignature(record.configJson) : [];
+  const upgradeAddedKeys = record
+    ? currentSignature.filter((key) => !savedSignature.includes(key))
+    : [];
+
+  let status: AgentSkillRequirementSummary["status"];
+  if (upgradeAddedKeys.length > 0) {
+    status = "expired";
+  } else if (runtimeIncompatible) {
+    status = "runtime_incompatible";
+  } else if (blockers.length > 0) {
+    status = "needs_configuration";
+  } else if (input.runtimeOnline === false && requirements.length > 0) {
+    status = "awaiting_validation";
+  } else {
+    status = "ready";
+  }
 
   return {
     skillId: input.skillId,
-    status: runtimeIncompatible ? "runtime_incompatible" : blockers.length > 0 ? "needs_configuration" : "ready",
+    status,
     requiredCount: environment.length,
     configuredCount: environment.filter((item) => item.configured).length,
     blockers,
     environment,
     configuration,
+    runtimeOnline: input.runtimeOnline,
+    upgradeAddedKeys,
     updatedAt: record?.updatedAt,
   };
 }
@@ -315,4 +417,37 @@ function readEncryptedSecretNames(value: string | undefined): string[] {
   return Object.entries(parsed)
     .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].startsWith(`${CREDENTIAL_VERSION}:`))
     .map(([key]) => key);
+}
+
+function requirementSignatureFor(requirements: SkillRequirementDeclaration[]): string[] {
+  return Array.from(new Set(
+    requirements
+      .filter((requirement) => requirement.kind === "config" || requirement.kind === "secret")
+      .map((requirement) => requirement.value),
+  )).sort((left, right) => left.localeCompare(right));
+}
+
+function readSavedRequirementSignature(configJson: string | undefined): string[] {
+  const config = safeJson(configJson ?? "{}");
+  const signature = config.requirementSignature;
+  return Array.isArray(signature)
+    ? signature.filter((value): value is string => typeof value === "string")
+    : [];
+}
+
+function withEmployeeSkillMutationLockSync<T>(
+  workspaceId: string,
+  employeeName: string,
+  work: () => T,
+): T {
+  const db = getDatabase();
+  return withTransaction(db, () => {
+    const employeeRow = db.prepare(
+      `SELECT name FROM workspace_employee
+       WHERE workspace_id = ? AND LOWER(name) = LOWER(?)
+       FOR UPDATE`,
+    ).get(workspaceId, employeeName.trim());
+    if (!employeeRow) throw new Error(`Active employee "${employeeName}" does not exist.`);
+    return work();
+  });
 }

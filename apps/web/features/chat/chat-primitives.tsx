@@ -157,8 +157,13 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
         />
         <details className={`conversation-process${isError ? " conversation-process--error" : ""}`}>
           <summary>
-            <strong>{processTitle(message, tx)}</strong>
-            <span>{renderMessageTimestamp(message.timestamp)}</span>
+            <span className="conversation-process__heading">
+              {message.status === "pending" ? <AppIcon className="conversation-process__spinner" name="loader" /> : null}
+              <strong>{processTitle(message, tx)}</strong>
+            </span>
+            <span className="conversation-process__state">
+              {message.status === "pending" ? tx("进行中", "In progress") : renderMessageTimestamp(message.timestamp)}
+            </span>
           </summary>
           <pre>{message.content}</pre>
         </details>
@@ -419,16 +424,17 @@ function translateInlineApprovalStatus(
 
 function processTitle(message: ConversationThreadMessage, tx: (zh: string, en: string) => string): string {
   if (message.processType === "thinking") {
-    return tx("思考过程", "Thinking");
+    return message.status === "pending" ? tx("正在分析任务", "Analyzing task") : tx("已完成分析", "Analysis complete");
   }
   if (message.processType === "tool_use") {
-    return message.tool ? `${tx("调用工具", "Tool use")} · ${message.tool}` : tx("调用工具", "Tool use");
+    const label = message.status === "pending" ? tx("正在调用工具", "Using tool") : tx("已调用工具", "Tool used");
+    return message.tool ? `${label} · ${message.tool}` : label;
   }
   if (message.processType === "tool_result") {
-    return message.tool ? `${tx("工具结果", "Tool result")} · ${message.tool}` : tx("工具结果", "Tool result");
+    return message.tool ? `${tx("工具已完成", "Tool complete")} · ${message.tool}` : tx("工具已完成", "Tool complete");
   }
   if (message.processType === "status") {
-    return tx("状态更新", "Status update");
+    return message.content || tx("状态更新", "Status update");
   }
   return message.processType ?? tx("中间过程", "Process");
 }

@@ -65,6 +65,7 @@ export {
   unbindEmployeeRuntimeSync,
   deleteEmployeeSync,
   updateEmployeeDefaultModelSync,
+  updateEmployeeExecutionPolicySync,
   updateEmployeeInstructionsSync,
   updateEmployeeRemarkNameSync,
   setEmployeeChannelMemberAccessSync,
@@ -97,6 +98,7 @@ export {
   readAgentSkillRequirementConfigurationSync,
   readAgentSkillRequirementEnvSync,
   readAgentSkillRequirementSummarySync,
+  setAgentSkillAssignmentsWithRequirementsValidationSync,
   upsertAgentSkillRequirementsSync,
 } from "./skills/agent-skill-requirements.ts";
 export type { AgentSkillRequirementSummary } from "./skills/agent-skill-requirements.ts";
@@ -293,6 +295,7 @@ export {
   postMessageSync,
   sendChannelHumanMessageSync,
   replacePendingChannelMessageSync,
+  recordAgentChannelProgressSync,
   updatePendingAgentChannelReplySync,
   pinMessageSync,
   unpinMessageSync,

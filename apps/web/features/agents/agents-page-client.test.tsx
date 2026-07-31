@@ -4,6 +4,7 @@ import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentsPageClient } from "@/features/agents/agents-page-client";
 import { AgentDetail } from "@/features/agents/components/agent-detail";
+import { SkillRequirementsModal } from "@/features/skills/components/skill-requirements-modal";
 import { WorkspaceModuleNavigationProvider } from "@/features/dashboard/workspace-module-navigation";
 import {
   approveAgentAccessRequestAction,
@@ -2015,5 +2016,33 @@ describe("AgentDetail", () => {
         "knowledge-legal-memo",
       ]);
     });
+  });
+});
+
+describe("SkillRequirementsModal", () => {
+  it("lets an administrator confirm a capability-only requirement", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <SkillRequirementsModal
+          configJson={JSON.stringify({
+            requirements: [{ kind: "capability", value: "image_generation" }],
+          })}
+          pending={false}
+          skillName="image-skill"
+          onCancel={vi.fn()}
+          onConfirm={onConfirm}
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: "image_generation" }));
+    await user.click(screen.getByRole("button", { name: "保存配置" }));
+
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      capabilities: ["image_generation"],
+    }));
   });
 });

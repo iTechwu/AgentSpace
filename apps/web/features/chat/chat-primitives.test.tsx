@@ -209,6 +209,29 @@ describe("ConversationMessageBubble", () => {
     expect(screen.getByLabelText("正在生成")).toBeInTheDocument();
   });
 
+  it("shows an active execution milestone without revealing raw thought content", () => {
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <ConversationMessageBubble
+          message={{
+            id: "message-progress",
+            speaker: "Atlas",
+            role: "agent",
+            content: "正在分析任务",
+            timestamp: "10:00",
+            status: "pending",
+            kind: "process",
+            processType: "thinking",
+          }}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getAllByText("正在分析任务")).toHaveLength(2);
+    expect(screen.getByText("进行中")).toBeInTheDocument();
+    expect(document.querySelector(".conversation-process__spinner")).toBeInTheDocument();
+  });
+
   it("renders inline runtime approval actions", async () => {
     const user = userEvent.setup();
     const onReviewApproval = vi.fn(async () => {});

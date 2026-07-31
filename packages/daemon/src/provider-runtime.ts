@@ -3,7 +3,7 @@ import { accessSync, constants, existsSync, readFileSync, writeFileSync } from "
 import { spawnSync } from "node:child_process";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { arch, platform, version as nodeVersion } from "node:process";
-import type { DaemonProvider, ProviderErrorCategory, ProviderErrorCode, ProviderHealthSnapshot, RuntimeAppContextEntry, RuntimeToolCapability } from "@dofe-agent/domain";
+import type { DaemonProvider, EmployeeExecutionPolicy, ProviderErrorCategory, ProviderErrorCode, ProviderHealthSnapshot, RuntimeAppContextEntry, RuntimeToolCapability } from "@dofe-agent/domain";
 import { formatDaemonProviderLabel, isDaemonProvider } from "@dofe-agent/domain";
 import { connectSandbox, resolveSandboxTaskTimeoutMs, type ExecController } from "@dofe-agent/sandbox";
 import { buildFeishuLarkCliDiagnosticRuntimeToolCapability } from "@dofe-agent/services";
@@ -14,7 +14,7 @@ import {
   type AgentRouterEvent,
   type AgentRouterHarness,
 } from "./agent-router/index.ts";
-import { buildRedactions, redactText } from "./agent-router/utils.ts";
+import { buildEnvValueRedactions, buildRedactions, redactText } from "./agent-router/utils.ts";
 import { clearTaskOutputArtifacts } from "./bundle.ts";
 import { buildOpenClawProviderHealthSnapshot, inspectOpenClawDaemonAuthHealth } from "./openclaw-health.ts";
 import { readCliHubReadiness } from "./runtime-apps.ts";
@@ -74,7 +74,10 @@ export interface ProviderTaskOptions {
   sessionId?: string;
   /** Explicit task-scoped model selection; never mutate process.env for this. */
   modelId?: string;
+  executionPolicy?: EmployeeExecutionPolicy;
   contextEnv?: Record<string, string>;
+  /** Keys in `contextEnv` that were injected from per-employee Skill configuration; their values are always redacted from logs. */
+  skillEnvKeys?: string[];
   taskTimeoutMs?: number;
   onEvent?: (event: ProviderTaskEvent) => void;
   onApprovalRequest?: (request: ProviderApprovalRequest) => Promise<ProviderApprovalDecision>;
@@ -257,15 +260,22 @@ async function runAgentRouterProviderTask(
     cwd: workDir,
     executablePath: runtime.metadata.executablePath,
     model: options.modelId ?? resolveModelId(runtime),
-    mode: resolveAgentRouterMode(runtime),
+    mode: runtime.provider === "codex"
+      ? options.executionPolicy?.codexSandboxMode ?? resolveAgentRouterMode(runtime)
+      : resolveAgentRouterMode(runtime),
     sessionId,
     env: contextEnv,
+    skillEnvKeys: options.skillEnvKeys,
     providerHealth: runtime.provider === "openclaw"
       ? readRuntimeProviderHealthMetadata(runtime)
       : undefined,
     timeoutMs: taskTimeoutMs,
     maxTurns: runtime.provider === "claude" ? 30 : undefined,
-    permissionMode: runtime.provider === "claude" ? resolveClaudePermissionMode() : undefined,
+    permissionMode: runtime.provider === "claude"
+      ? options.executionPolicy?.claudePermissionMode ?? resolveClaudePermissionMode()
+      : undefined,
+    codexApprovalPolicy: runtime.provider === "codex" ? options.executionPolicy?.codexApprovalPolicy : undefined,
+    codexFullAccess: runtime.provider === "codex" && options.executionPolicy?.codexSandboxMode === "danger-full-access",
     allowedTools: runtime.provider === "claude" ? buildDefaultClaudeAllowedTools() : undefined,
     temporaryAllowedTools: options.temporaryAllowedTools,
     runtimeToolCapabilities,
@@ -1712,7 +1722,7 @@ async function runGeminiProviderTask(
   let stderr = "";
   let stdoutBuffer = "";
   const providerEnv = buildProviderEnv(runtime, options.contextEnv);
-  const redactions = buildProviderRedactions(providerEnv);
+  const redactions = buildProviderRedactions(providerEnv, options.skillEnvKeys);
   const result = await sandbox.exec({
     command: runtime.metadata.executablePath,
     args: providerArgs,
@@ -1788,7 +1798,7 @@ async function runNanoBotProviderTask(
   }
 
   let stderr = "";
-  const result = await execProviderCommand(runtime, providerArgs, workDir, taskTimeoutMs, buildNanoBotEnv(runtime, options.contextEnv), {
+  const result = await execProviderCommand(runtime, providerArgs, workDir, taskTimeoutMs, buildNanoBotEnv(runtime, options.contextEnv), options.skillEnvKeys, {
     onStderr: (chunk) => {
       stderr += chunk;
     },
@@ -1990,14 +2000,14 @@ const MANAGED_PROVIDER_CREDENTIAL_ENVIRONMENT_KEYS = [
 // provider env, mirroring the agent-router path (see buildRedactions). Used to
 // scrub secret values from provider stdout/stderr before they are stored,
 // streamed to clients, or surfaced in error diagnostics.
-function buildProviderRedactions(env: NodeJS.ProcessEnv) {
+function buildProviderRedactions(env: NodeJS.ProcessEnv, skillEnvKeys?: readonly string[]) {
   const stringEnv: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
     if (typeof value === "string") {
       stringEnv[key] = value;
     }
   }
-  return buildRedactions(stringEnv);
+  return [...buildRedactions(stringEnv), ...buildEnvValueRedactions(stringEnv, skillEnvKeys)];
 }
 
 function buildClaudeEnv(runtime: ProviderRuntimeRecord, extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -2028,6 +2038,7 @@ async function execProviderCommand(
   workDir: string,
   timeoutMs: number,
   env?: NodeJS.ProcessEnv,
+  skillEnvKeys?: readonly string[],
   callbacks?: {
     onStdout?: (chunk: string) => void;
     onStderr?: (chunk: string) => void;
@@ -2043,7 +2054,7 @@ async function execProviderCommand(
   });
 
   const providerEnv = buildProviderEnv(runtime, env);
-  const redactions = buildProviderRedactions(providerEnv);
+  const redactions = buildProviderRedactions(providerEnv, skillEnvKeys);
   let stdout = "";
   let stderr = "";
   const result = await sandbox.exec({

@@ -108,25 +108,27 @@ export function SkillRequirementsModal({
           <button className="modal-close" onClick={onCancel} type="button">×</button>
         </div>
         <div className="modal-card__body skill-requirements-modal__body">
-          {(providers.length > 0 || models.length > 0) ? (
+          {(providers.length > 0 || models.length > 0 || capabilities.length > 0) ? (
             <section className="skill-requirements-modal__section">
               <h4>{tx("模型运行时", "Model runtime")}</h4>
-              <div className="skill-requirements-modal__grid">
-                <label className="form-field">
-                  <span>{tx("模型 Provider", "Model provider")}</span>
-                  <select onChange={(event) => setModelProvider(event.currentTarget.value)} required value={modelProvider}>
-                    {providerOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                  </select>
-                </label>
-                {models.length > 0 ? (
+              {(providers.length > 0 || models.length > 0) ? (
+                <div className="skill-requirements-modal__grid">
                   <label className="form-field">
-                    <span>{tx("模型", "Model")}</span>
-                    <select onChange={(event) => setModelId(event.currentTarget.value)} required value={modelId}>
-                      {models.map((model) => <option key={model} value={model}>{model}</option>)}
+                    <span>{tx("模型 Provider", "Model provider")}</span>
+                    <select onChange={(event) => setModelProvider(event.currentTarget.value)} required value={modelProvider}>
+                      {providerOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     </select>
                   </label>
-                ) : null}
-              </div>
+                  {models.length > 0 ? (
+                    <label className="form-field">
+                      <span>{tx("模型", "Model")}</span>
+                      <select onChange={(event) => setModelId(event.currentTarget.value)} required value={modelId}>
+                        {models.map((model) => <option key={model} value={model}>{model}</option>)}
+                      </select>
+                    </label>
+                  ) : null}
+                </div>
+              ) : null}
               {capabilities.length > 0 ? (
                 <div className="skill-requirements-modal__capabilities">
                   <span>{tx("确认所需能力", "Confirm required capabilities")}</span>
@@ -226,7 +228,9 @@ export function SkillRequirementsModal({
           ) : null}
         </div>
         <div className="modal-card__footer">
-          <button className="modal-secondary-button" onClick={onCancel} type="button">{tx("稍后配置", "Configure later")}</button>
+          <button className="modal-secondary-button" onClick={onCancel} type="button">
+            {mode === "manage" ? tx("取消", "Cancel") : tx("稍后配置", "Configure later")}
+          </button>
           <button className="primary-button" disabled={pending} type="submit">
             {pending ? tx("保存中...", "Saving...") : mode === "manage" ? tx("保存更改", "Save changes") : tx("保存配置", "Save configuration")}
           </button>

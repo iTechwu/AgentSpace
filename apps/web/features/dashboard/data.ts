@@ -723,6 +723,7 @@ export interface WorkspaceAgentRecord extends ManagementRecordBase {
   boundProviderHealth?: RuntimeProviderHealth;
   boundAt?: string;
   defaultModel?: string;
+  executionPolicy?: import("@dofe-agent/domain/workspace").EmployeeExecutionPolicy;
   workAreas: AgentWorkAreaRecord[];
   instructions?: string;
   knowledge?: WorkspaceAgentKnowledgeRecord;
@@ -3827,6 +3828,8 @@ function buildWorkspaceAgentRecord(
   const runtimeProvider = binding?.provider && isDaemonProvider(binding.provider)
     ? binding.provider
     : undefined;
+  const runtime = binding?.runtimeId ? runtimeIndex.get(binding.runtimeId) : undefined;
+  const runtimeOnline = runtime ? runtime.status === "linked" : undefined;
   const skillRequirements = Object.fromEntries(assignedSkills.map((skill) => [
     skill.id,
     readAgentSkillRequirementSummarySync({
@@ -3834,12 +3837,12 @@ function buildWorkspaceAgentRecord(
       employeeName: employee.name,
       skillId: skill.id,
       runtimeProvider,
+      runtimeOnline,
     }),
   ]));
   const tasks = state.tasks.filter((task) => task.assignee === employee.name);
   const taskPreview = limitLoadtestDashboardPayload(tasks, AGENT_TASK_PREVIEW_LIMIT);
   const recentMessages = state.messages.filter((message) => isMessageRelevantToAgent(message, employee.name, tasks)).slice(0, 6);
-  const runtime = binding?.runtimeId ? runtimeIndex.get(binding.runtimeId) : undefined;
   const workspaceTaskIndex = new Map(state.tasks.map((task) => [task.id, task]));
   const workAreaMap = new Map<string, AgentWorkAreaRecord>();
   const relevantQueuedTasks = queuedTasks
@@ -3943,6 +3946,7 @@ function buildWorkspaceAgentRecord(
     boundProviderHealth: runtime?.providerHealth,
     boundAt: binding?.boundAt,
     defaultModel: employee.defaultModel,
+    executionPolicy: employee.executionPolicy,
     workAreas,
     instructions: employee.instructions,
     knowledge,

@@ -168,6 +168,10 @@ export function pushWorkspaceMessageToChannel(
     code?: string;
     data?: Record<string, string>;
     status?: "pending" | "completed" | "error";
+    kind?: "message" | "process";
+    processType?: string;
+    tool?: string;
+    recordInChannelHistory?: boolean;
     attachments?: MessageAttachment[];
     mentions?: MessageMention[];
     replyToMessageId?: string;
@@ -183,13 +187,16 @@ export function pushWorkspaceMessageToChannel(
     code: input.code,
     data: input.data,
     status: input.status ?? "completed",
+    kind: input.kind,
+    processType: input.processType,
+    tool: input.tool,
     attachments: input.attachments,
     mentions: input.mentions,
     replyToMessageId: input.replyToMessageId,
   });
   state.messages.unshift(message);
 
-  if ((input.status ?? "completed") !== "pending") {
+  if (input.recordInChannelHistory !== false && (input.status ?? "completed") !== "pending") {
     appendChannelHistoryEntry(channel, {
       speaker: input.speaker,
       role: input.role,
@@ -210,8 +217,11 @@ export function createWorkspaceMessageRecord(input: {
   role: "human" | "agent";
   summary: string;
   code?: string;
-  data?: Record<string, string>;
-  status?: "pending" | "completed" | "error";
+    data?: Record<string, string>;
+    status?: "pending" | "completed" | "error";
+    kind?: "message" | "process";
+    processType?: string;
+    tool?: string;
   attachments?: MessageAttachment[];
   mentions?: MessageMention[];
   replyToMessageId?: string;
@@ -227,6 +237,9 @@ export function createWorkspaceMessageRecord(input: {
     code: input.code,
     data: input.data,
     status: input.status ?? "completed",
+    kind: input.kind,
+    processType: input.processType,
+    tool: input.tool,
     attachments: input.attachments,
     mentions: input.mentions && input.mentions.length > 0 ? input.mentions : undefined,
     replyToMessageId: input.replyToMessageId,

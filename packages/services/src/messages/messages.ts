@@ -678,7 +678,8 @@ export function completeAgentChannelReplySync(input: {
     const pendingReplies = state.messages.filter((message) =>
       sameValue(message.channel ?? "", channel.name) &&
       message.role === "agent" &&
-      message.status === "pending",
+      message.status === "pending" &&
+      message.kind !== "process",
     );
     const sourceTaskQueueId = input.sourceTaskQueueId?.trim();
     const taskBoundReplies = sourceTaskQueueId
@@ -698,6 +699,15 @@ export function completeAgentChannelReplySync(input: {
           : [];
     const replyIdsToReplace = new Set(repliesToReplace.map((message) => message.id));
     state.messages = state.messages.filter((message) => !replyIdsToReplace.has(message.id));
+    if (sourceTaskQueueId) {
+      state.messages = state.messages.map((message) =>
+        message.kind === "process" &&
+        message.status === "pending" &&
+        message.data?.source_task_queue_id === sourceTaskQueueId
+          ? { ...message, status: "completed" }
+          : message,
+      );
+    }
   }
 
   const shouldProcessMentions = channel.kind !== "direct";
@@ -796,7 +806,8 @@ export function updatePendingAgentChannelReplySync(input: {
   const pendingMessages = state.messages.filter((message) =>
     sameValue(message.channel ?? "", input.channel) &&
     message.role === "agent" &&
-    message.status === "pending",
+    message.status === "pending" &&
+    message.kind !== "process",
   );
   const taskBoundMessage = pendingMessages.find((message) => message.data?.source_task_queue_id === sourceTaskQueueId);
   const legacyMatches = input.pendingSpeaker?.trim()
@@ -829,6 +840,112 @@ export function updatePendingAgentChannelReplySync(input: {
     changedAt: new Date().toISOString(),
   });
   return message;
+}
+
+/**
+ * Persists user-facing execution milestones next to a pending agent reply. Raw
+ * reasoning is deliberately reduced to a generic analysis step rather than
+ * exposing provider chain-of-thought in the conversation.
+ */
+export function recordAgentChannelProgressSync(input: {
+  channel: string;
+  sourceTaskQueueId: string;
+  speaker: string;
+  type: "thinking" | "tool_use" | "tool_result" | "status";
+  tool?: string;
+  content?: string;
+}, workspaceId?: string): WorkspaceMessage | null {
+  const sourceTaskQueueId = input.sourceTaskQueueId.trim();
+  if (!sourceTaskQueueId) {
+    return null;
+  }
+
+  const state = ensureWorkspaceStateSync(workspaceId);
+  const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const hasPendingReply = state.messages.some((message) =>
+    sameValue(message.channel ?? "", input.channel) &&
+    message.role === "agent" &&
+    message.status === "pending" &&
+    message.data?.source_task_queue_id === sourceTaskQueueId,
+  );
+  if (!hasPendingReply) {
+    return null;
+  }
+
+  const progressMessages = state.messages.filter((message) =>
+    sameValue(message.channel ?? "", input.channel) &&
+    message.kind === "process" &&
+    message.data?.source_task_queue_id === sourceTaskQueueId,
+  );
+  if (input.type === "thinking" && progressMessages.some((message) =>
+    message.processType === "thinking" && message.status === "pending",
+  )) {
+    return null;
+  }
+
+  const tool = input.tool?.trim();
+  if (input.type === "tool_result") {
+    const runningTool = progressMessages.find((message) =>
+      message.processType === "tool_use" &&
+      message.status === "pending" &&
+      sameValue(message.tool ?? "", tool ?? ""),
+    );
+    if (runningTool) {
+      const message: WorkspaceMessage = {
+        ...runningTool,
+        processType: "tool_result",
+        status: "completed",
+        summary: tool ? `已完成 ${tool}` : "工具执行完成",
+      };
+      state.messages = state.messages.map((candidate) => candidate.id === message.id ? message : candidate);
+      writeWorkspaceStateSync(state, effectiveWorkspaceId);
+      publishChannelThreadChangedEvent({
+        workspaceId: effectiveWorkspaceId,
+        channelName: input.channel,
+        changedAt: new Date().toISOString(),
+      });
+      return message;
+    }
+  }
+
+  const summary = formatAgentProgressSummary(input.type, tool, input.content);
+  const message = pushWorkspaceMessageToChannel(state, input.channel, {
+    speaker: input.speaker,
+    role: "agent",
+    summary,
+    code: "agent.progress",
+    data: { source_task_queue_id: sourceTaskQueueId },
+    status: input.type === "tool_use" || input.type === "thinking" ? "pending" : "completed",
+    kind: "process",
+    processType: input.type,
+    tool,
+    recordInChannelHistory: false,
+  }, effectiveWorkspaceId);
+  writeWorkspaceStateSync(state, effectiveWorkspaceId);
+  publishChannelThreadChangedEvent({
+    workspaceId: effectiveWorkspaceId,
+    channelName: input.channel,
+    changedAt: message.time,
+  });
+  return message;
+}
+
+function formatAgentProgressSummary(
+  type: "thinking" | "tool_use" | "tool_result" | "status",
+  tool: string | undefined,
+  content: string | undefined,
+): string {
+  if (type === "thinking") {
+    return "正在分析任务";
+  }
+  if (type === "tool_use") {
+    return tool ? `正在调用 ${tool}` : "正在调用工具";
+  }
+  if (type === "tool_result") {
+    return tool ? `已完成 ${tool}` : "工具执行完成";
+  }
+  const compact = content?.replace(/\s+/g, " ").trim();
+  return compact ? compact.slice(0, 160) : "状态已更新";
 }
 
 export function replacePendingChannelMessageSync(input: {
@@ -1107,6 +1224,15 @@ function formatUserFacingTaskFailure(errorText: string): string {
   }
   if (/unexpected argument ['"]--sandbox['"]|exec resume[\s\S]*--sandbox/i.test(trimmed)) {
     return "绑定执行引擎上的 Codex CLI 不支持当前会话续接参数；已阻止跨引擎改派，请更新执行引擎后重试。";
+  }
+  if (/model metadata[\s\S]*not found|model metadata[\s\S]*fallback metadata/i.test(trimmed)) {
+    return "所选模型的执行配置不完整，无法稳定建立流式连接。请切换到已验证的模型后重试。";
+  }
+  if (/stream disconnected[\s\S]*(response\.completed|turn\.failed)|response\.completed[\s\S]*not received|turn\.failed/i.test(trimmed)) {
+    return "模型的流式响应在完成前中断，自动重试后仍未完成。请检查模型连接或切换模型后重试。";
+  }
+  if (/runtime approval timed out|审批等待超时/i.test(trimmed)) {
+    return "等待你的工具审批已超时，任务已停止。请重新发送任务，并在出现审批卡片后处理。";
   }
   const withoutDiagnosticBlock = trimmed.replace(/\s*\((?:code|exitCode|timedOut|events|resultEvent|textEvent|toolEvent|parseErrors|nonJsonLines|stdoutTail|stderrTail|sessionId)=[\s\S]*\)\s*$/i, "").trim();
   const compact = withoutDiagnosticBlock || trimmed;

@@ -7,6 +7,7 @@ import {
   deleteStoredKnowledgeAssignmentsForEmployeeSync,
   deleteEmployeeExecutionStateSync,
   listStoredAgentSkillAssignmentsSync,
+  getDatabase,
   listEmployeeRuntimeBindingsSync,
   readAgentRuntimeSync,
   readEmployeeRuntimeBindingSync,
@@ -14,12 +15,14 @@ import {
   setStoredEmployeeSkillAssignmentsSync,
   unbindEmployeeRuntimeSync as unbindEmployeeRuntimeRecordSync,
   updateStoredEmployeeSync,
+  withTransaction,
   writeWorkspaceStateRecordSync,
 } from "@dofe-agent/db";
 import {
   type AgentChannelMemberAccess,
   type ActiveEmployee,
   type DofeAgentState,
+  type EmployeeExecutionPolicy,
 } from "@dofe-agent/domain/workspace";
 import { deleteUnreferencedWorkspaceAttachmentsSync } from "../attachments/attachments.ts";
 import { isDirectChannel, removeChannelArtifactsFromState } from "../channels/channels.ts";
@@ -272,6 +275,36 @@ export function updateEmployeeDefaultModelSync(
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
+export function updateEmployeeExecutionPolicySync(
+  employeeName: string,
+  executionPolicy: EmployeeExecutionPolicy | undefined,
+  workspaceId?: string,
+): DofeAgentState {
+  const state = ensureWorkspaceStateSync(workspaceId);
+  const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
+  if (!employee) {
+    throw new Error(`Active employee "${employeeName}" does not exist.`);
+  }
+
+  employee.executionPolicy = normalizeExecutionPolicy(executionPolicy);
+  updateStoredEmployeeSync(employeeName, employee, workspaceId);
+  state.ledger.unshift({
+    title: "AI employee execution policy updated",
+    note: `${employee.remarkName ?? employee.name} execution policy was updated.`,
+  });
+  return writeWorkspaceStateSync(state, workspaceId);
+}
+
+function normalizeExecutionPolicy(value: EmployeeExecutionPolicy | undefined): EmployeeExecutionPolicy | undefined {
+  if (!value) return undefined;
+  const policy: EmployeeExecutionPolicy = {
+    claudePermissionMode: value.claudePermissionMode,
+    codexApprovalPolicy: value.codexApprovalPolicy,
+    codexSandboxMode: value.codexSandboxMode,
+  };
+  return Object.values(policy).some(Boolean) ? policy : undefined;
+}
+
 export function updateEmployeeRemarkNameSync(employeeName: string, remarkName: string, workspaceId?: string): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
@@ -366,24 +399,36 @@ export function setEmployeeChannelMemberAccessSync(
 }
 
 export function setEmployeeSkillIdsSync(employeeName: string, skillIds: string[], workspaceId?: string): DofeAgentState {
-  const workspaceSkills = listWorkspaceSkillsSync(workspaceId);
-  const state = ensureWorkspaceStateSync(workspaceId);
-  const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
-  if (!employee) {
-    throw new Error(`Active employee "${employeeName}" does not exist.`);
-  }
+  const resolvedWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const db = getDatabase();
+  return withTransaction(db, () => {
+    const employeeRow = db.prepare(
+      `SELECT name FROM workspace_employee
+       WHERE workspace_id = ? AND LOWER(name) = LOWER(?)
+       FOR UPDATE`,
+    ).get(resolvedWorkspaceId, employeeName.trim());
+    if (!employeeRow) {
+      throw new Error(`Active employee "${employeeName}" does not exist.`);
+    }
+    const workspaceSkills = listWorkspaceSkillsSync(resolvedWorkspaceId);
+    const state = ensureWorkspaceStateSync(resolvedWorkspaceId);
+    const employee = state.activeEmployees.find((item) => sameValue(item.name, employeeName));
+    if (!employee) {
+      throw new Error(`Active employee "${employeeName}" does not exist.`);
+    }
 
-  const normalizedSkillIds = normalizeSkillIds(skillIds, workspaceSkills);
-  if (normalizedSkillIds.length !== uniqueStringValues(skillIds).length) {
-    throw new Error("One or more skills do not exist.");
-  }
+    const normalizedSkillIds = normalizeSkillIds(skillIds, workspaceSkills);
+    if (normalizedSkillIds.length !== uniqueStringValues(skillIds).length) {
+      throw new Error("One or more skills do not exist.");
+    }
 
-  employee.skillIds = normalizedSkillIds;
-  setStoredEmployeeSkillAssignmentsSync(employee.name, normalizedSkillIds, workspaceId);
-  state.ledger.unshift({
-    title: "Agent skill assignments updated",
-    note: `${employee.remarkName ?? employee.name} skill assignments were updated with ${employee.skillIds.length} item(s).`,
+    employee.skillIds = normalizedSkillIds;
+    setStoredEmployeeSkillAssignmentsSync(employee.name, normalizedSkillIds, resolvedWorkspaceId);
+    state.ledger.unshift({
+      title: "Agent skill assignments updated",
+      note: `${employee.remarkName ?? employee.name} skill assignments were updated with ${employee.skillIds.length} item(s).`,
+    });
+
+    return writeWorkspaceStateRecordSync(normalizeWorkspaceState(state), resolvedWorkspaceId);
   });
-
-  return writeWorkspaceStateRecordSync(normalizeWorkspaceState(state), workspaceId);
 }

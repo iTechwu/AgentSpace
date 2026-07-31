@@ -861,6 +861,8 @@ interface ProviderTaskOptions {
   sessionId?: string;
   modelId?: string;
   contextEnv?: Record<string, string>;
+  /** Keys in `contextEnv` injected from per-employee Skill configuration; always redacted from logs. */
+  skillEnvKeys?: string[];
   taskTimeoutMs?: number;
   runtimeToolCapabilities?: RuntimeToolCapability[];
   onEvent?: (event: ProviderTaskEvent) => void;
@@ -1074,6 +1076,12 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
     );
   }
 
+  if (preparedContext.skillReadinessBlockers.length > 0) {
+    throw new Error(
+      `Skill requirements not satisfied for this task: ${preparedContext.skillReadinessBlockers.join("; ")}.`,
+    );
+  }
+
   const isManagedRemoteRuntime = Boolean(
     runtime.managedCredentialId && resolveAgentRuntimeMode() === "remote",
   );
@@ -1116,6 +1124,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
           DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
         },
+        skillEnvKeys: preparedContext.skillEnv ? Object.keys(preparedContext.skillEnv) : undefined,
         runtimeToolCapabilities: buildDocumentRuntimeToolCapabilities(agentDocumentContexts, {
           feishuLarkCliResourceGrants,
         }),

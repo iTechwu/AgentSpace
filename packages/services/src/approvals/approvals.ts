@@ -58,14 +58,7 @@ export function createApprovalRequestSync(input: {
   createApprovalRequestedNotifications(approval, workspaceId ?? DEFAULT_WORKSPACE_ID);
 
   writeWorkspaceStateSync(state, workspaceId);
-  postNotificationChannelMessageSync({
-    workspaceId: workspaceId ?? DEFAULT_WORKSPACE_ID,
-    channelName: input.channelName,
-    summary: buildApprovalConversationSummary(approval),
-    code: "approval.created",
-    data: buildApprovalMessageData(approval),
-    speaker: SYSTEM_SPEAKER,
-  });
+  ensureApprovalConversationMessage(approval, workspaceId ?? DEFAULT_WORKSPACE_ID);
   return ensureWorkspaceStateSync(workspaceId);
 }
 
@@ -89,6 +82,7 @@ export function createRuntimeToolApprovalRequestSync(input: {
     JSON.stringify(approval.metadata.toolInput ?? {}) === JSON.stringify(input.toolInput ?? {})
   );
   if (existing) {
+    ensureApprovalConversationMessage(existing, workspaceId ?? DEFAULT_WORKSPACE_ID);
     return existing;
   }
 
@@ -112,6 +106,27 @@ export function createRuntimeToolApprovalRequestSync(input: {
     throw new Error("Runtime tool approval could not be created.");
   }
   return created;
+}
+
+function ensureApprovalConversationMessage(approval: ApprovalRequest, workspaceId: string): void {
+  const hasMessage = ensureWorkspaceStateSync(workspaceId).messages.some((message) =>
+    message.code === "approval.created" && message.data?.approval_id === approval.id,
+  );
+  if (hasMessage) {
+    return;
+  }
+
+  postNotificationChannelMessageSync({
+    workspaceId,
+    channelName: approval.channelName,
+    summary: buildApprovalConversationSummary(approval),
+    code: "approval.created",
+    data: buildApprovalMessageData(approval),
+    speaker: SYSTEM_SPEAKER,
+    // Runtime tools pause a live conversation. Their approval must be
+    // actionable in that same conversation, including private chats.
+    allowDirectChannel: approval.type === "runtime_tool",
+  });
 }
 
 export function reviewApprovalSync(

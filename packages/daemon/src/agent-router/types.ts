@@ -17,10 +17,14 @@ export interface AgentRouterRunRequest {
   mode?: string;
   sessionId?: string;
   env?: Record<string, string>;
+  /** Keys in `env` that were injected from per-employee Skill configuration. Their values are always redacted from logs, even when the key name does not look like a secret. */
+  skillEnvKeys?: string[];
   timeoutMs?: number;
   outputFormat?: AgentRouterOutputFormat;
   maxTurns?: number;
   permissionMode?: string;
+  codexApprovalPolicy?: "untrusted" | "on-request" | "never";
+  codexFullAccess?: boolean;
   allowedTools?: string[];
   temporaryAllowedTools?: string[];
   claudeTools?: string;

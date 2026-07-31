@@ -115,7 +115,9 @@ export async function GET(
         contactId: prepared.payload.contactId,
         skillEnv: prepared.skillEnv,
         skillEnvConflicts: prepared.skillEnvConflicts,
+        skillReadinessBlockers: prepared.skillReadinessBlockers,
         effectiveModel,
+        executionPolicy: agentProfile?.executionPolicy,
         runtimeApps: {
           status: prepared.runtimeApps.length > 0 ? "available" : "none",
           apps: prepared.runtimeApps,

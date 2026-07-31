@@ -66,8 +66,14 @@ async function buildCodexLaunch(input: AgentRouterRunRequest): Promise<HarnessLa
   if (input.model) {
     baseArgs.push("--model", input.model);
   }
+  if (input.codexApprovalPolicy) {
+    baseArgs.push("--config", `approval_policy=${JSON.stringify(input.codexApprovalPolicy)}`);
+  }
   if (input.mode && !input.sessionId) {
     baseArgs.push("--sandbox", input.mode);
+  }
+  if (input.codexFullAccess && !input.sessionId) {
+    baseArgs.push("--dangerously-bypass-approvals-and-sandbox");
   }
   const args = input.sessionId
     ? ["exec", "resume", ...baseArgs, input.sessionId, input.prompt]

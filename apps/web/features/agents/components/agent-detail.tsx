@@ -1042,14 +1042,27 @@ function formatSkillRequirementStatus(
   summary: WorkspaceAgentRecord["skillRequirements"][string],
   tx: (zh: string, en: string) => string,
 ): string {
+  if (summary.status === "expired") {
+    const added = summary.upgradeAddedKeys?.length ?? 1;
+    return tx(`已过期 · 新增 ${added} 项要求`, `Expired · ${added} new requirement(s)`);
+  }
+  if (summary.status === "awaiting_validation") {
+    return tx("等待验证 · Runtime 离线", "Awaiting validation · runtime offline");
+  }
   if (summary.status === "runtime_incompatible") {
     return tx("Runtime 不兼容", "Runtime incompatible");
   }
   if (summary.status === "needs_configuration") {
+    if (summary.configuredCount >= summary.requiredCount) {
+      return tx("安装检查未通过", "Installation check incomplete");
+    }
     return tx(
       `需配置 · ${summary.configuredCount}/${summary.requiredCount} 环境变量`,
       `Needs configuration · ${summary.configuredCount}/${summary.requiredCount} environment variables`,
     );
+  }
+  if (summary.requiredCount === 0) {
+    return tx("已就绪", "Ready");
   }
   return tx(
     `已就绪 · ${summary.configuredCount}/${summary.requiredCount} 环境变量`,

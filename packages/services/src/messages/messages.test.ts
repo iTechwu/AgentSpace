@@ -27,6 +27,7 @@ import {
   persistWorkspaceAttachmentFromBytesSync,
   postMessageSync,
   readWorkspaceStateSync,
+  recordAgentChannelProgressSync,
   replacePendingChannelMessageSync,
   reviewApprovalSync,
   resetWorkspaceStateSync,
@@ -210,6 +211,19 @@ test("failure summaries hide provider diagnostics in user-visible chat text", ()
   });
   assert.match(codexResumeSummary, /不支持当前会话续接参数/);
   assert.doesNotMatch(codexResumeSummary, /exited with code 2|stderrTail/);
+
+  const codexStreamingSummary = formatTaskFailureSummary({
+    title: "生成晨间简报",
+    errorText: "Codex CLI exited with code 1. Model metadata for deepseek-v4-pro not found. Codex stream disconnected prior to response.completed; turn.failed after retry 5/5.",
+  });
+  assert.match(codexStreamingSummary, /执行配置不完整/);
+  assert.doesNotMatch(codexStreamingSummary, /Codex CLI exited|deepseek-v4-pro|retry 5\/5/);
+
+  const approvalTimeoutSummary = formatTaskFailureSummary({
+    title: "读取资料",
+    errorText: "Runtime approval timed out after 15 minutes.",
+  });
+  assert.match(approvalTimeoutSummary, /等待你的工具审批已超时/);
 });
 
 test("sendContactMessageSync creates a direct conversation channel", () => {
@@ -1218,6 +1232,53 @@ test("streaming task output only updates its own pending reply", () => {
   assert.equal(state.messages[0]?.summary, "最终回复");
 });
 
+test("task progress is shown as bounded, task-scoped channel steps", () => {
+  seedWorkspace();
+  postMessageSync({
+    channel: "tour visit",
+    speaker: "Atlas",
+    role: "agent",
+    summary: "Thinking",
+    status: "pending",
+    data: { source_task_queue_id: "task-progress-1" },
+  });
+
+  recordAgentChannelProgressSync({
+    channel: "tour visit",
+    sourceTaskQueueId: "task-progress-1",
+    speaker: "Atlas",
+    type: "thinking",
+    content: "Provider-private reasoning must not be rendered.",
+  });
+  recordAgentChannelProgressSync({
+    channel: "tour visit",
+    sourceTaskQueueId: "task-progress-1",
+    speaker: "Atlas",
+    type: "tool_use",
+    tool: "web_search",
+  });
+  recordAgentChannelProgressSync({
+    channel: "tour visit",
+    sourceTaskQueueId: "task-progress-1",
+    speaker: "Atlas",
+    type: "tool_result",
+    tool: "web_search",
+  });
+  completeAgentChannelReplySync({
+    channel: "tour visit",
+    pendingSpeaker: "Atlas",
+    speaker: "Atlas",
+    sourceTaskQueueId: "task-progress-1",
+    summary: "行程已整理。",
+  });
+
+  const progress = readWorkspaceStateSync().messages.filter((message) => message.kind === "process");
+  assert.equal(progress.length, 2);
+  assert.equal(progress.some((message) => message.summary.includes("Provider-private")), false);
+  assert.equal(progress.find((message) => message.tool === "web_search")?.processType, "tool_result");
+  assert.equal(progress.some((message) => message.status === "pending"), false);
+});
+
 test("postMessageSync publishes realtime message events", () => {
   seedWorkspace();
   const events: Array<{ type: string; channelName: string; messageId?: string }> = [];
@@ -1290,6 +1351,29 @@ test("runtime tool approval requests are visible and reviewable in channel messa
   const reviewedMessage = state.messages.find((message) => message.data?.approval_id === approval.id);
   assert.equal(reviewedMessage?.data?.approval_status, "approved");
   assert.equal(reviewedMessage?.data?.reviewer_comment, "ok");
+});
+
+test("runtime tool approvals remain actionable in direct conversations", () => {
+  seedWorkspace();
+  sendContactMessageSync("Atlas", "请检索资料。");
+  const directChannel = readWorkspaceStateSync().channels.find((channel) =>
+    channel.kind === "direct" && channel.employeeNames.includes("Atlas"),
+  );
+  assert.ok(directChannel);
+
+  const approval = createRuntimeToolApprovalRequestSync({
+    sourceId: "queue-direct-approval",
+    agentId: "Atlas",
+    channelName: directChannel.name,
+    toolName: "WebFetch",
+    contentPreview: "WebFetch: https://example.com",
+    provider: "claude",
+    runtimeId: "runtime-1",
+  });
+  const state = readWorkspaceStateSync();
+  const message = state.messages.find((item) => item.data?.approval_id === approval.id);
+  assert.equal(message?.code, "approval.created");
+  assert.equal(message?.channel, directChannel.name);
 });
 
 test.after(() => {

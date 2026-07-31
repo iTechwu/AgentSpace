@@ -1,4 +1,5 @@
 import type { DaemonProvider } from "./daemon-provider.js";
+import type { EmployeeExecutionPolicy } from "./workspace.js";
 
 export const PROVIDER_ERROR_CODES = [
   "provider.cli_missing",
@@ -257,11 +258,13 @@ export interface DaemonTaskInputBundle {
     contactId?: string;
     skillEnv?: Record<string, string>;
     skillEnvConflicts?: string[];
+    skillReadinessBlockers?: string[];
     effectiveModel?: {
       modelId: string;
       source: "session_override" | "employee_default" | "runtime_default" | "team_policy_default" | "protocol_fallback";
       runtimeCredentialId: string;
     };
+    executionPolicy?: EmployeeExecutionPolicy;
     runtimeApps?: {
       status: "available" | "none";
       apps: RuntimeAppContextEntry[];

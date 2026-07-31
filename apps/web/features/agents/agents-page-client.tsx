@@ -24,6 +24,7 @@ import {
   installWorkspaceAgentSkillAction,
   unbindWorkspaceAgentRuntimeAction,
   updateWorkspaceAgentDefaultModelAction,
+  updateWorkspaceAgentExecutionPolicyAction,
   updateWorkspaceAgentInstructionsAction,
   updateWorkspaceRuntimeDisplayNameAction,
   verifyWorkspaceAgentRuntimeProviderAction,
@@ -879,6 +880,15 @@ export function AgentsPageClient({
                         updateWorkspaceAgentDefaultModelAction({
                           employeeName: selectedAgent.internalName,
                           defaultModel,
+                        }),
+                    )
+                  }
+                  onSaveExecutionPolicy={(executionPolicy) =>
+                    runAction(
+                      () =>
+                        updateWorkspaceAgentExecutionPolicyAction({
+                          employeeName: selectedAgent.internalName,
+                          executionPolicy,
                         }),
                     )
                   }

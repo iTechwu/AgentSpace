@@ -82,7 +82,7 @@ export async function POST(
     const failureSummary = formatConversationFailureSummary({
       agentName: payload.assignee ?? task.agentId,
       channelName: payload.channel,
-      errorText: body.errorText.trim(),
+      errorText: buildUserFacingFailureInput(body),
       isDirectConversation: Boolean(payload.contactId),
     });
     replacePendingChannelMessageSync({
@@ -145,7 +145,7 @@ export async function POST(
   } else if (payload.channel) {
     const failureSummary = formatTaskFailureSummary({
       title: payload.title || task.id,
-      errorText: body.errorText.trim(),
+      errorText: buildUserFacingFailureInput(body),
     });
     postMessageSync({
       channel: payload.channel,
@@ -226,6 +226,15 @@ function formatProviderDiagnosticMessage(body: Partial<FailTaskRequest>): string
     body.rawProviderMessage?.trim() ? `raw=${body.rawProviderMessage.trim()}` : undefined,
   ].filter(Boolean);
   return parts.length > 0 ? `provider diagnostic: ${parts.join("; ")}` : undefined;
+}
+
+// The chat only receives a classified summary. Provider diagnostics remain on
+// the task record, but their recognizable signatures let us offer a recovery
+// action instead of exposing a bare CLI exit code.
+function buildUserFacingFailureInput(body: Partial<FailTaskRequest>): string {
+  return [body.errorText, body.errorCode, body.errorCategory, body.rawProviderMessage]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join("\n");
 }
 
 function tryContinueAutoContinuation(input: {

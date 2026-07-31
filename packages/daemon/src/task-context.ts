@@ -17,6 +17,7 @@ import {
   listNotificationsForRecipientSync,
   materializeWorkspaceSkillsForProvider,
   readAgentSkillRequirementEnvSync,
+  readAgentSkillRequirementSummarySync,
   readWorkspaceStateSync,
   readWorkspaceAttachmentBytesSync,
   sameValue,
@@ -29,6 +30,7 @@ import {
   type WorkspaceNotificationRecord,
 } from "@dofe-agent/services";
 import type { RuntimeAppContextEntry } from "@dofe-agent/domain";
+import type { DaemonProvider } from "@dofe-agent/domain";
 import {
   buildChannelDocumentPromptLines,
   materializeChannelDocuments,
@@ -133,6 +135,7 @@ export interface PreparedDaemonTaskContext {
   knowledgeContextDir?: string;
   skillEnv: Record<string, string>;
   skillEnvConflicts: string[];
+  skillReadinessBlockers: string[];
 }
 
 export interface RouterSessionPromptContext {
@@ -452,6 +455,12 @@ export function prepareDaemonTaskContext(input: {
     agentName,
     agentSkills,
   );
+  const skillReadinessBlockers = collectSkillReadinessBlockers(
+    input.task.workspaceId,
+    agentName,
+    agentSkills,
+    input.runtime.provider,
+  );
   const knowledgeContextDir = materializeAgentKnowledgePages(agentKnowledgePages, input.workDir);
   const channelDocumentsContextDir =
     agentDocumentContexts.length > 0
@@ -492,6 +501,7 @@ export function prepareDaemonTaskContext(input: {
     knowledgeContextDir,
     skillEnv,
     skillEnvConflicts,
+    skillReadinessBlockers,
   };
 }
 
@@ -1097,6 +1107,42 @@ export function resolveAgentSkills(
   }
 
   return assignedSkills;
+}
+
+/**
+ * Re-validates per-employee Skill configuration at task time. A Skill that was
+ * bound but whose required config/secret/model/provider is incomplete would
+ * otherwise run with a silently incomplete environment; this surfaces the
+ * precise blocker so the task fails fast with an actionable message instead.
+ * Runtime-offline (`awaiting_validation`) is intentionally NOT a task-time
+ * failure here — the runtime executing this task is by definition the one being
+ * validated.
+ */
+export function collectSkillReadinessBlockers(
+  workspaceId: string,
+  agentName: string | undefined,
+  agentSkills: WorkspaceSkill[],
+  runtimeProvider: DaemonProvider | undefined,
+): string[] {
+  if (!agentName || agentSkills.length === 0) {
+    return [];
+  }
+  const blockers: string[] = [];
+  for (const skill of agentSkills) {
+    const summary = readAgentSkillRequirementSummarySync({
+      workspaceId,
+      employeeName: agentName,
+      skillId: skill.id,
+      runtimeProvider,
+    });
+    if (summary.requiredCount === 0) {
+      continue;
+    }
+    for (const blocker of summary.blockers) {
+      blockers.push(`"${skill.name}": ${blocker}`);
+    }
+  }
+  return blockers;
 }
 
 export function resolveAgentSkillEnvironment(
