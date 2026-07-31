@@ -1146,6 +1146,9 @@ export function collectSkillReadinessBlockers(
   const blockers: string[] = [];
   const availableCapabilities = availableCapabilityIds ? new Set(availableCapabilityIds) : undefined;
   for (const skill of agentSkills) {
+    if (skill.sourceType === "builtin") {
+      continue;
+    }
     const summary = readAgentSkillRequirementSummarySync({
       workspaceId,
       employeeName: agentName,
