@@ -82,7 +82,7 @@ export default async function PlatformConsolePage(): Promise<ReactNode> {
 
   return (
     <PlatformConsoleClient
-      operator={{ displayName: user.displayName, email: user.email }}
+      operator={{ displayName: user.displayName }}
       periodLabel={periodLabel}
       recentAudit={recentAudit}
       workspaces={summaries}

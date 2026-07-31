@@ -540,4 +540,164 @@ describe("ConversationShell", () => {
       replyToMessageId: undefined,
     }));
   });
+
+  it("adds file and skill references without inserting invalid member mentions", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => {});
+
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          mentionCandidates={[
+            { id: "file:quarterly", sourceId: "att-quarterly", label: "quarterly.csv", subtitle: "text/csv", inChannel: true, kind: "file" },
+            { id: "skill:finance", sourceId: "skill-finance", label: "Finance review", subtitle: "Review financial data", inChannel: true, kind: "skill" },
+          ]}
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={onSubmit}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    const composer = screen.getByRole("textbox");
+    await user.type(composer, "@");
+    await user.click(screen.getByRole("option", { name: /quarterly\.csv/ }));
+    expect(composer).toHaveValue("");
+    expect(screen.getByText("quarterly.csv")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "插入 @ 提及" }));
+    await user.click(screen.getByRole("option", { name: /Finance review/ }));
+    await user.type(composer, "analyze");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({
+      content: "analyze",
+      files: [],
+      replyToMessageId: undefined,
+      referenceAttachmentIds: ["att-quarterly"],
+      referenceSkillIds: ["skill-finance"],
+    }));
+  });
+
+  it("shows runtime-aware slash commands and supports keyboard selection", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          composerRuntime={{ employeeId: "Atlas", employeeLabel: "Atlas", provider: "claude" }}
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={vi.fn(async () => {})}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    const composer = screen.getByRole("textbox");
+    await user.type(composer, "/");
+    expect(screen.getByRole("listbox", { name: "快捷指令" })).toBeInTheDocument();
+    expect(screen.getByText("/model")).toBeInTheDocument();
+    expect(screen.getByText("/resume")).toBeInTheDocument();
+    expect(screen.getByText("/plan")).toBeInTheDocument();
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(composer).toHaveValue("/resume ");
+  });
+
+  it("offers all Claude Code permission modes and saves the selected mode", async () => {
+    const user = userEvent.setup();
+    const onUpdateExecutionPolicy = vi.fn(async () => {});
+
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          composerRuntime={{ employeeId: "Atlas", employeeLabel: "Atlas", provider: "claude" }}
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={vi.fn(async () => {})}
+          onUpdateExecutionPolicy={onUpdateExecutionPolicy}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Runtime 默认/ }));
+    expect(screen.getByRole("option", { name: /Manual/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Edit automatically/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Plan/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Auto/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: /^Plan/ }));
+
+    await waitFor(() => expect(onUpdateExecutionPolicy).toHaveBeenCalledWith("Atlas", { claudePermissionMode: "plan" }));
+  });
+
+  it("offers Codex approval policies and marks full access as the selected policy", async () => {
+    const user = userEvent.setup();
+    const onUpdateExecutionPolicy = vi.fn(async () => {});
+
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          composerRuntime={{ employeeId: "Codex", employeeLabel: "Codex", provider: "codex" }}
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-codex", title: "Codex", subtitle: "Agent", meta: "meta", avatar: "C" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={vi.fn(async () => {})}
+          onUpdateExecutionPolicy={onUpdateExecutionPolicy}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Codex", subtitle: "Agent", avatar: "C" }}
+          selectedItemId="direct-codex"
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Runtime 默认/ }));
+    expect(screen.getByRole("option", { name: /请求批准/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /帮我审批/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: /完全访问/ }));
+
+    await waitFor(() => expect(onUpdateExecutionPolicy).toHaveBeenCalledWith("Codex", {
+      codexApprovalPolicy: "never",
+      codexSandboxMode: "danger-full-access",
+    }));
+    expect(screen.getByRole("button", { name: /完全访问/ })).toBeInTheDocument();
+  });
 });

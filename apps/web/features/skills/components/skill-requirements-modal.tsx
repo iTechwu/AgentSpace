@@ -29,6 +29,8 @@ interface SkillRequirementsModalProps {
   readonly skillName: string;
   readonly updatedAt?: string;
   readonly updatedBy?: string;
+  /** Declared keys that collide with a managed runtime credential key. */
+  readonly credentialKeyWarnings?: string[];
   /** key -> names of OTHER skills on the same employee that already configure it. */
   readonly reuseCandidates?: Record<string, string[]>;
   readonly onCancel: () => void;
@@ -66,6 +68,7 @@ export function SkillRequirementsModal({
   skillName,
   updatedAt,
   updatedBy,
+  credentialKeyWarnings = [],
   reuseCandidates = {},
   onCancel,
   onConfirm,
@@ -75,6 +78,7 @@ export function SkillRequirementsModal({
   const { surfaceRef, handleBackdropMouseDown, labelId, descriptionId } = useDialogSurface<HTMLFormElement>(onCancel);
   const { requirements, configuration } = useMemo(() => readRequirements(configJson), [configJson]);
   const effectiveConfiguration = initialConfiguration ?? configuration;
+  const credentialWarningSet = new Set(credentialKeyWarnings);
   const providers = requirements.filter((item) => item.kind === "provider").map((item) => item.value);
   const models = requirements.filter((item) => item.kind === "model").map((item) => item.value);
   const capabilities = requirements.filter((item) => item.kind === "capability").map((item) => item.value);
@@ -257,6 +261,14 @@ export function SkillRequirementsModal({
                         )}
                       </small>
                     ) : null}
+                    {credentialWarningSet.has(key) ? (
+                      <small className="form-field__hint">
+                        {tx(
+                          `${key} 是受管 Runtime 凭据 Key：绑定对应 Runtime 时会与 Runtime 注入的凭据冲突并被拒绝，建议改用其他 Key。`,
+                          `${key} is a managed-runtime credential key: binding a matching runtime will reject this as a conflict — use a different key.`,
+                        )}
+                      </small>
+                    ) : null}
                   </div>
                 );
               })}
@@ -307,6 +319,14 @@ export function SkillRequirementsModal({
                         {tx(
                           `该员工其他 Skill 也配置了 ${key}（${reuse.join("、")}）；同名异值会被拒绝，请复用相同值。`,
                           `Also configured by another skill (${reuse.join(", ")}); a different value will be rejected — reuse the same value.`,
+                        )}
+                      </small>
+                    ) : null}
+                    {credentialWarningSet.has(key) ? (
+                      <small className="form-field__hint">
+                        {tx(
+                          `${key} 是受管 Runtime 凭据 Key：绑定对应 Runtime 时会与 Runtime 注入的凭据冲突并被拒绝，建议改用其他 Key。`,
+                          `${key} is a managed-runtime credential key: binding a matching runtime will reject this as a conflict — use a different key.`,
                         )}
                       </small>
                     ) : null}

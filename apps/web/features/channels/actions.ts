@@ -6,6 +6,7 @@ import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permiss
 import { getWorkspaceChannelVisibilitySync } from "@/features/auth/workspace-channel-visibility";
 import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";
 import type { ChannelDocumentAccessRole } from "@dofe-agent/domain";
+import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
   addChannelEmployeesSync,
   addWorkspaceMemberToChannelForActorSync,
@@ -46,6 +47,8 @@ import {
   updateChannelDocumentSync,
   reviewApprovalSync,
   listApprovalsSync,
+  listEmployeeSkillIdsSync,
+  listWorkspaceSkillsSync,
   replacePendingChannelMessageSync,
   FEISHU_PROVIDER_ID,
   readFeishuChatMemberSnapshot,
@@ -440,7 +443,9 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
   const channelName = getRequiredValue(formData, "channelName");
   const content = getRequiredValue(formData, "content");
   const replyToMessageId = formData.get("replyToMessageId") as string | null;
-  const attachments = await persistFormAttachments(formData, "attachments", workspaceContext.currentWorkspace.id);
+  const uploadedAttachments = await persistFormAttachments(formData, "attachments", workspaceContext.currentWorkspace.id);
+  const attachmentReferenceIds = getStringValues(formData, "attachmentReferences");
+  const skillReferenceIds = getStringValues(formData, "skillReferences");
 
   if (!channelName.trim()) {
     throw new Error("Missing channel name.");
@@ -449,8 +454,25 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
     throw new Error("Missing message content.");
   }
   assertChannelAccess(workspaceContext, channelName);
+  const state = readWorkspaceStateSync(workspaceContext.currentWorkspace.id);
+  const channel = state.channels.find((item) => sameValue(item.name, channelName));
+  if (!channel) {
+    throw new Error(`Channel "${channelName}" does not exist.`);
+  }
+  const referencedAttachments = resolveReferencedAttachments({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    channelName,
+    attachmentIds: attachmentReferenceIds,
+  });
+  const attachments = mergeMessageAttachments(uploadedAttachments, referencedAttachments);
+  const resolvedContent = appendReferencedSkillDirective({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    employeeNames: channel.employeeNames,
+    content,
+    skillIds: skillReferenceIds,
+  });
 
-  const modelCommand = parseModelCommand(content);
+  const modelCommand = parseModelCommand(resolvedContent);
   if (modelCommand) {
     assertWorkspaceRoleForContext(workspaceContext, "admin");
     const validation = await validateRequestedChatModelOverride({
@@ -477,7 +499,7 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
   sendChannelHumanMessageSync(
     channelName.trim(),
     workspaceContext.currentUser.displayName.trim() || "你",
-    content.trim(),
+    resolvedContent.trim(),
     attachments,
     replyToMessageId?.trim() || undefined,
     workspaceContext.currentWorkspace.id,
@@ -511,10 +533,41 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
   const workspaceContext = await requireCurrentWorkspaceContext();
   const contactId = getRequiredValue(formData, "contactId");
   const content = getRequiredValue(formData, "content");
-  const attachments = await persistFormAttachments(formData, "attachments", workspaceContext.currentWorkspace.id);
+  const uploadedAttachments = await persistFormAttachments(formData, "attachments", workspaceContext.currentWorkspace.id);
+  const attachmentReferenceIds = getStringValues(formData, "attachmentReferences");
+  const skillReferenceIds = getStringValues(formData, "skillReferences");
+  const referenceChannelName = getOptionalStringValue(formData, "referenceChannelName");
   const humanMemberName = workspaceContext.currentUser.displayName.trim() || "你";
+  let referencedAttachments: MessageAttachment[] = [];
+  if (attachmentReferenceIds.length > 0) {
+    if (!referenceChannelName) {
+      throw new Error("Missing referenceChannelName.");
+    }
+    assertChannelAccess(workspaceContext, referenceChannelName);
+    const state = readWorkspaceStateSync(workspaceContext.currentWorkspace.id);
+    const referenceChannel = state.channels.find((item) => sameValue(item.name, referenceChannelName));
+    if (
+      !referenceChannel ||
+      referenceChannel.kind !== "direct" ||
+      !referenceChannel.employeeNames.some((employeeName) => sameValue(employeeName, contactId))
+    ) {
+      throw new Error("Attachment references must belong to the selected direct conversation.");
+    }
+    referencedAttachments = resolveReferencedAttachments({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      channelName: referenceChannelName,
+      attachmentIds: attachmentReferenceIds,
+    });
+  }
+  const attachments = mergeMessageAttachments(uploadedAttachments, referencedAttachments);
+  const resolvedContent = appendReferencedSkillDirective({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    employeeNames: [contactId],
+    content,
+    skillIds: skillReferenceIds,
+  });
 
-  const modelCommand = parseModelCommand(content);
+  const modelCommand = parseModelCommand(resolvedContent);
   if (modelCommand) {
     assertWorkspaceRoleForContext(workspaceContext, "admin");
     const validation = await validateRequestedChatModelOverride({
@@ -541,7 +594,7 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
   sendContactMessageForHumanWithAttachmentsSync(
     humanMemberName,
     contactId.trim(),
-    content.trim(),
+    resolvedContent.trim(),
     attachments,
     workspaceContext.currentWorkspace.id,
     workspaceContext.currentUser.id,
@@ -970,6 +1023,79 @@ function getRequiredValue(formData: FormData, key: string): string {
     throw new Error(`Missing ${key}.`);
   }
   return value.trim();
+}
+
+function getOptionalStringValue(formData: FormData, key: string): string | undefined {
+  const value = formData.get(key);
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function getStringValues(formData: FormData, key: string): string[] {
+  return dedupeStrings(formData.getAll(key).filter((value): value is string => typeof value === "string"));
+}
+
+function resolveReferencedAttachments(input: {
+  workspaceId: string;
+  channelName: string;
+  attachmentIds: string[];
+}): MessageAttachment[] {
+  if (input.attachmentIds.length === 0) {
+    return [];
+  }
+  const requestedIds = new Set(input.attachmentIds);
+  const attachmentsById = new Map<string, MessageAttachment>();
+  for (const message of readWorkspaceStateSync(input.workspaceId).messages) {
+    if (!sameValue(message.channel ?? "", input.channelName)) {
+      continue;
+    }
+    for (const attachment of message.attachments ?? []) {
+      if (requestedIds.has(attachment.id) && !attachment.deletedAt && !attachmentsById.has(attachment.id)) {
+        attachmentsById.set(attachment.id, attachment);
+      }
+    }
+  }
+  return input.attachmentIds.map((attachmentId) => {
+    const attachment = attachmentsById.get(attachmentId);
+    if (!attachment) {
+      throw new Error(`Attachment "${attachmentId}" does not exist in channel "${input.channelName}".`);
+    }
+    const { deletedAt: _deletedAt, deletedByDisplayName: _deletedByDisplayName, deletedByUserId: _deletedByUserId, ...activeAttachment } = attachment;
+    return {
+      ...activeAttachment,
+      id: `att-ref-${crypto.randomUUID()}`,
+    };
+  });
+}
+
+function mergeMessageAttachments(
+  uploaded: MessageAttachment[] | undefined,
+  referenced: MessageAttachment[],
+): MessageAttachment[] | undefined {
+  const attachments = [...(uploaded ?? []), ...referenced];
+  return attachments.length > 0 ? attachments : undefined;
+}
+
+function appendReferencedSkillDirective(input: {
+  workspaceId: string;
+  employeeNames: string[];
+  content: string;
+  skillIds: string[];
+}): string {
+  if (input.skillIds.length === 0) {
+    return input.content;
+  }
+  const allowedSkillIds = new Set(
+    input.employeeNames.flatMap((employeeName) => listEmployeeSkillIdsSync(employeeName, input.workspaceId)),
+  );
+  const skillsById = new Map(listWorkspaceSkillsSync(input.workspaceId).map((skill) => [skill.id, skill]));
+  const skillNames = input.skillIds.map((skillId) => {
+    const skill = skillsById.get(skillId);
+    if (!skill || !allowedSkillIds.has(skillId)) {
+      throw new Error(`Skill "${skillId}" is not assigned to the selected employee.`);
+    }
+    return skill.name;
+  });
+  return `${input.content.trim()}\n\n[Use assigned skills: ${skillNames.join(", ")}]`;
 }
 
 function parseQueuedTaskPayload(inputJson: string): Record<string, unknown> {

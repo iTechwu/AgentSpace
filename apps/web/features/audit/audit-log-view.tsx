@@ -2,9 +2,44 @@
 
 import Link from "next/link";
 import type { AuditLogRecord } from "@dofe-agent/db";
-import { useLanguage } from "@/features/i18n/language-provider";
+import { useLanguage, type LanguageCode } from "@/features/i18n/language-provider";
 import { WorkbenchPageHeader } from "@/shared/ui/workbench-page-header";
 import type { AuditLogFilters } from "@/features/audit/audit-log-filters";
+
+type LocalizedEventLabel = Record<LanguageCode, string>;
+
+const AUDIT_EVENT_LABELS: Record<string, LocalizedEventLabel> = {
+  "auth.sso_login_succeeded": { zh: "用户登录成功", en: "User signed in" },
+  "auth.sso_platform_admin_login_succeeded": { zh: "平台管理员登录成功", en: "Platform administrator signed in" },
+  "model.resolution_fallback": { zh: "模型不可用，已自动切换", en: "Model unavailable; switched automatically" },
+  "runtime.capacity_reused": { zh: "已复用可用执行引擎", en: "Available runtime reused" },
+  "runtime.created": { zh: "执行引擎已创建", en: "Runtime created" },
+  "runtime.default_model.changed": { zh: "默认模型已更改", en: "Default model changed" },
+  "runtime.deleted": { zh: "执行引擎已删除", en: "Runtime deleted" },
+  "runtime.delete_scheduled": { zh: "执行引擎已安排删除", en: "Runtime deletion scheduled" },
+  "runtime.model_allowlist.expanded": { zh: "已开放所需模型", en: "Required model enabled" },
+  "runtime.provision_cancelled": { zh: "已取消创建执行引擎", en: "Runtime provisioning cancelled" },
+  "runtime.provision_requested": { zh: "已申请创建执行引擎", en: "Runtime provisioning requested" },
+  "runtime.provision_retry": { zh: "已重试创建执行引擎", en: "Runtime provisioning retried" },
+  "runtime.stopped": { zh: "执行引擎已停止", en: "Runtime stopped" },
+  "runtime_credential.created": { zh: "执行引擎凭据已签发", en: "Runtime credential issued" },
+  "runtime_credential.recovered": { zh: "执行引擎凭据已恢复", en: "Runtime credential recovered" },
+  "runtime_credential.recovery_failed": { zh: "执行引擎凭据恢复失败", en: "Runtime credential recovery failed" },
+  "runtime_credential.recovery_retry_scheduled": { zh: "执行引擎凭据将自动重试恢复", en: "Runtime credential recovery retry scheduled" },
+  "runtime_credential.recovery_started": { zh: "开始恢复执行引擎凭据", en: "Runtime credential recovery started" },
+  "runtime_credential.reissued": { zh: "执行引擎凭据已重新签发", en: "Runtime credential reissued" },
+  "runtime_credential.rotated": { zh: "执行引擎凭据已轮换", en: "Runtime credential rotated" },
+  "runtime_credential.status_checked": { zh: "已检查执行引擎凭据状态", en: "Runtime credential status checked" },
+  "session.model_override_cleared": { zh: "已恢复会话默认模型", en: "Session default model restored" },
+  "session.model_overridden": { zh: "已指定会话模型", en: "Session model selected" },
+  "usage.reconciliation_completed": { zh: "用量对账已完成", en: "Usage reconciliation completed" },
+  "usage.reconciliation_started": { zh: "用量对账已开始", en: "Usage reconciliation started" },
+  platform_admin: { zh: "平台管理操作", en: "Platform administration activity" },
+  runtime_credential: { zh: "执行引擎凭据变更", en: "Runtime credential activity" },
+  runtime_lifecycle: { zh: "执行引擎状态变更", en: "Runtime lifecycle activity" },
+  runtime_model: { zh: "模型配置变更", en: "Model configuration activity" },
+  workspace_snapshot_ledger: { zh: "工作区操作记录", en: "Workspace activity" },
+};
 
 export function AuditLogView({
   logs,
@@ -63,7 +98,7 @@ export function AuditLogView({
           <div className="audit-table-wrap">
             <table className="audit-table">
               <thead><tr><th>{tx("时间", "Time")}</th><th>{tx("事件", "Event")}</th><th>{tx("标题", "Title")}</th><th>{tx("备注", "Note")}</th><th>{tx("上下文", "Context")}</th></tr></thead>
-              <tbody>{logs.map((log) => <tr key={log.id}><td>{new Date(log.createdAt).toLocaleString(language === "zh" ? "zh-CN" : "en")}</td><td><code>{log.code ?? log.source}</code></td><td>{log.title}</td><td className="audit-table__muted">{log.note}</td><td><code className="audit-table__context">{formatData(log.dataJson)}</code></td></tr>)}</tbody>
+              <tbody>{logs.map((log) => <tr key={log.id}><td>{new Date(log.createdAt).toLocaleString(language === "zh" ? "zh-CN" : "en")}</td><td>{getAuditEventLabel(log, language)}</td><td>{log.title}</td><td className="audit-table__muted">{log.note}</td><td><code className="audit-table__context">{formatData(log.dataJson)}</code></td></tr>)}</tbody>
             </table>
             {logs.length === 0 ? (
               <div className="audit-empty">
@@ -76,6 +111,14 @@ export function AuditLogView({
       </div>
     </section>
   );
+}
+
+export function getAuditEventLabel(
+  log: Pick<AuditLogRecord, "code" | "source" | "title">,
+  language: LanguageCode,
+): string {
+  const label = AUDIT_EVENT_LABELS[log.code ?? log.source];
+  return label?.[language] ?? (log.title.trim() || (language === "zh" ? "未命名事件" : "Unnamed event"));
 }
 
 function toLocalInput(value: string | undefined): string | undefined { return value ? value.slice(0, 16) : undefined; }

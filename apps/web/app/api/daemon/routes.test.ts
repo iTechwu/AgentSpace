@@ -2119,6 +2119,73 @@ describe("daemon API routes", () => {
     });
   });
 
+  it("rejects input bundle when assigned skill requirements are not satisfied", async () => {
+    const daemonToken = createDaemonApiTokenSync({
+      label: "remote-daemon",
+      createdBy: "techwu",
+    });
+
+    const registerResponse = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          daemonKey: "skill-readiness-box",
+          deviceName: "Skill Readiness Box",
+          runtimes: [
+            {
+              provider: "codex",
+              name: "Remote Codex",
+              version: "test",
+            },
+          ],
+        }),
+      }),
+    );
+    const registerPayload = await registerResponse.json();
+    const runtimeId = registerPayload.runtimes[0].id as string;
+
+    createEmployeeSync({
+      name: "Atlas",
+      role: "Planner",
+    });
+    bindEmployeeRuntimeSync("Atlas", runtimeId);
+
+    const skill = createWorkspaceSkillSync({
+      name: "notion-sync",
+      description: "Requires NOTION_DATABASE_ID",
+      configJson: JSON.stringify({
+        requirements: [{ kind: "config", value: "NOTION_DATABASE_ID" }],
+      }),
+    });
+    setEmployeeSkillIdsSync("Atlas", [skill.id]);
+
+    const queued = enqueueNativeTaskSync({
+      assignee: "Atlas",
+      title: "sync notion",
+      priority: "medium",
+      triggerType: "manual",
+      metadata: {
+        title: "sync notion",
+      },
+    });
+    expect(queued?.id).toBeTruthy();
+
+    const response = await inputBundleGET(
+      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/input-bundle`, {
+        headers: daemonHeaders(daemonToken.token),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+
+    expect(response.status).toBe(409);
+    const payload = await response.json();
+    expect(payload.error).toMatch(/skill requirements are not satisfied/i);
+    expect(payload.skillReadinessBlockers).toEqual(
+      expect.arrayContaining([expect.stringContaining("NOTION_DATABASE_ID")]),
+    );
+  });
+
   it("keeps task state stable when start and fail are called repeatedly", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",

@@ -2,6 +2,11 @@ import http from "node:http";
 
 const port = Number.parseInt(process.env.REPRO_RESPONSES_PORT ?? "43123", 10);
 const mode = process.env.REPRO_RESPONSES_MODE ?? "complete";
+const supportedModes = new Set(["complete", "truncated", "chat_chunks", "failed"]);
+
+if (!supportedModes.has(mode)) {
+  throw new Error(`Unsupported REPRO_RESPONSES_MODE: ${mode}`);
+}
 
 function writeEvent(response, event) {
   response.write(`event: ${event.type}\n`);
@@ -80,6 +85,21 @@ const server = http.createServer((request, response) => {
 
     if (mode === "truncated") {
       response.end();
+      return;
+    }
+
+    if (mode === "failed") {
+      writeEvent(response, {
+        type: "response.failed",
+        response: {
+          ...responseEnvelope("failed"),
+          error: {
+            code: "upstream_stream_incomplete",
+            message: "The upstream stream ended without a Responses completion event.",
+          },
+        },
+      });
+      response.end("data: [DONE]\n\n");
       return;
     }
 

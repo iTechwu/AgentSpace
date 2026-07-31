@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { expect, it } from "vitest";
-import { AuditLogView } from "@/features/audit/audit-log-view";
+import type { AuditLogRecord } from "@dofe-agent/db";
+import { AuditLogView, getAuditEventLabel } from "@/features/audit/audit-log-view";
 import { parseAuditLogFilters } from "@/features/audit/audit-log-filters";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 
@@ -33,4 +34,46 @@ it("ignores invalid audit timestamps", () => {
     createdFrom: undefined,
     createdTo: new Date("2026-07-28T08:00").toISOString(),
   });
+});
+
+it("renders a user-friendly event description instead of the internal event code", () => {
+  const log: AuditLogRecord = {
+    id: "audit-1",
+    workspaceId: "workspace-1",
+    title: "Model resolution fallback",
+    note: "The selected model is unavailable.",
+    code: "model.resolution_fallback",
+    dataJson: "{}",
+    source: "runtime_model",
+    sourceIndex: 0,
+    createdAt: "2026-07-31T08:00:00.000Z",
+  };
+
+  render(
+    <LanguageProvider initialLanguage="zh">
+      <AuditLogView clearHref="/w/acme/audit" filters={{}} logs={[log]} />
+    </LanguageProvider>,
+  );
+
+  expect(screen.getByRole("cell", { name: "模型不可用，已自动切换" })).toBeInTheDocument();
+  expect(screen.queryByText("model.resolution_fallback")).not.toBeInTheDocument();
+});
+
+it("falls back to the readable audit title for an unknown event code", () => {
+  expect(getAuditEventLabel({
+    code: "custom.policy_updated",
+    source: "platform_admin",
+    title: "Custom policy updated",
+  }, "zh")).toBe("Custom policy updated");
+
+  expect(getAuditEventLabel({
+    code: "model.resolution_fallback",
+    source: "runtime_model",
+    title: "Model resolution fallback",
+  }, "en")).toBe("Model unavailable; switched automatically");
+
+  expect(getAuditEventLabel({
+    source: "runtime_credential",
+    title: "",
+  }, "zh")).toBe("执行引擎凭据变更");
 });

@@ -25065,6 +25065,11 @@ button[aria-disabled="true"] svg {
   background: #eef1f2;
 }
 
+.platform-console-page--audit {
+  height: 100vh;
+  overflow: hidden;
+}
+
 .platform-console-header {
   display: flex;
   align-items: flex-start;
@@ -25655,6 +25660,9 @@ button[aria-disabled="true"] svg {
   .platform-console-nav__item--active { box-shadow: inset 0 -2px 0 #b9e4d0; }
   .platform-console-scope, .platform-console-operator { display: none; }
   .platform-console-page { padding: 1.35rem 1rem 2rem; }
+  .platform-console-page--audit { height: auto; min-height: calc(100vh - 112px); overflow: visible; }
+  .platform-console-page--audit .audit-page { height: auto; }
+  .platform-console-page--audit .audit-page__content { overflow: visible; }
   .platform-console-header { flex-direction: column; gap: 1rem; }
   .platform-console-health { width: 100%; min-width: 0; }
   .platform-console-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -26536,6 +26544,230 @@ button[aria-disabled="true"] svg {
 
 .workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contacts-send-button:not(:disabled):hover {
   filter: brightness(0.94);
+}
+
+.workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .inbox-composer {
+  position: relative;
+}
+
+.workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contacts-composer__footer {
+  justify-content: flex-start;
+}
+
+.workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contacts-send-button {
+  margin-left: auto;
+}
+
+.workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contacts-execution-policy + .contacts-send-button {
+  margin-left: 0;
+}
+
+.contacts-composer-menu {
+  position: absolute;
+  z-index: 30;
+  right: 16px;
+  bottom: 70px;
+  left: 16px;
+  max-height: min(360px, 46vh);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  box-shadow: 0 12px 34px rgba(18, 28, 23, 0.14);
+}
+
+.contacts-composer-menu__heading {
+  padding: 8px 10px 6px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.contacts-mention-item,
+.contacts-command-item {
+  border: 0;
+  border-radius: 6px;
+}
+
+.contacts-mention-item--active,
+.contacts-command-item--active {
+  background: var(--accent-soft);
+}
+
+.contacts-command-menu {
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+}
+
+.contacts-command-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(86px, auto) 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.contacts-command-item:hover {
+  background: var(--accent-soft);
+}
+
+.contacts-command-item code {
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.contacts-command-item > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.contacts-command-item strong {
+  font-size: 0.84rem;
+}
+
+.contacts-command-item small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contacts-attachment-chip svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.contacts-attachment-chip--skill {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-strong));
+}
+
+.contacts-execution-policy {
+  position: relative;
+  margin-left: auto;
+}
+
+.contacts-execution-policy__trigger {
+  min-height: 36px;
+  max-width: 220px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-strong);
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+}
+
+.contacts-execution-policy__trigger:hover:not(:disabled),
+.contacts-execution-policy__trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  color: var(--text);
+}
+
+.contacts-execution-policy__trigger--warning {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--line));
+  color: var(--danger);
+}
+
+.contacts-execution-policy__trigger svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.contacts-execution-policy__trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contacts-execution-policy__menu {
+  position: absolute;
+  z-index: 35;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: min(330px, calc(100vw - 32px));
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  box-shadow: 0 12px 34px rgba(18, 28, 23, 0.14);
+}
+
+.contacts-execution-policy__option {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.contacts-execution-policy__option:hover,
+.contacts-execution-policy__option--selected {
+  background: var(--accent-soft);
+}
+
+.contacts-execution-policy__option--warning {
+  color: var(--danger);
+}
+
+.contacts-execution-policy__option > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.contacts-execution-policy__option strong {
+  font-size: 0.82rem;
+}
+
+.contacts-execution-policy__option small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.contacts-execution-policy__option > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--accent);
+}
+
+@media (max-width: 680px) {
+  .contacts-composer-menu {
+    right: 8px;
+    left: 8px;
+  }
+
+  .contacts-execution-policy__trigger {
+    max-width: 150px;
+  }
+
+  .contacts-execution-policy__menu {
+    right: -48px;
+  }
 }
 
 .contacts-send-button__spinner {
@@ -27691,6 +27923,7 @@ button[aria-disabled="true"] svg {
 .audit-page__content {
   min-height: 0;
   flex: 1;
+  grid-auto-rows: max-content;
 }
 
 .runtimes-page__tabs {

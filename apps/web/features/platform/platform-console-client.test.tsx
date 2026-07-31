@@ -3,6 +3,7 @@ import { render as testingRender, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { expect, it } from "vitest";
 import { PlatformConsoleClient, type PlatformWorkspaceSummary } from "@/features/platform/platform-console-client";
+import { PlatformConsoleShell } from "@/features/platform/platform-console-shell";
 
 const workspaces: PlatformWorkspaceSummary[] = [
   {
@@ -37,7 +38,7 @@ const workspaces: PlatformWorkspaceSummary[] = [
 function renderConsole(): void {
   const ui: ReactNode = (
     <PlatformConsoleClient
-      operator={{ displayName: "Operator", email: "operator@example.com" }}
+      operator={{ displayName: "Operator" }}
       periodLabel="2026年7月"
       recentAudit={[]}
       workspaces={workspaces}
@@ -56,6 +57,25 @@ it("summarizes platform health and links each workspace to its runtime view", ()
     "href",
     "/w/attention-team/runtimes",
   );
+});
+
+it("shows the operator identity instead of an email address", () => {
+  renderConsole();
+
+  expect(screen.getByText("平台管理员")).toBeInTheDocument();
+  expect(screen.queryByText(/operator@example\.com/)).not.toBeInTheDocument();
+});
+
+it("keeps the platform navigation and marks audit as the current page", () => {
+  testingRender(
+    <PlatformConsoleShell activeSection="audit" operator={{ displayName: "Operator" }}>
+      <div>审计内容</div>
+    </PlatformConsoleShell>,
+  );
+
+  expect(screen.getByRole("navigation", { name: "平台运维导航" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "平台审计" })).toHaveAttribute("aria-current", "page");
+  expect(screen.getByRole("link", { name: "运行概览" })).not.toHaveAttribute("aria-current");
 });
 
 it("filters by attention and searches workspace names", async () => {

@@ -17,6 +17,7 @@ import {
   upsertAgentSkillRequirementsSync,
   deleteAgentSkillRequirementKeySync,
   resolveSkillProjectWorkDirSync,
+  updateWorkspaceSkillSync,
 } from "../index.ts";
 
 const originalCwd = process.cwd();
@@ -692,4 +693,49 @@ test("resolveSkillProjectWorkDirSync returns the unanimous project dir and undef
   });
   setEmployeeSkillIdsSync("Researcher", [skillA.id, skillB.id]);
   assert.equal(resolveSkillProjectWorkDirSync("default", "Researcher"), undefined);
+});
+
+test("summary reports both added and removed keys after a requirement upgrade", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "evolving",
+    description: "Evolving",
+    configJson: JSON.stringify({ requirements: [
+      { kind: "config", value: "KEEP_KEY" },
+      { kind: "config", value: "DROP_KEY" },
+    ] }),
+  });
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skill.id, actorUserId: TEST_USER_ID,
+    values: { KEEP_KEY: "v1", DROP_KEY: "v2" },
+  });
+  // Upgrade: drop DROP_KEY, add NEW_KEY.
+  updateWorkspaceSkillSync({ skillId: skill.id, configJson: JSON.stringify({ requirements: [
+    { kind: "config", value: "KEEP_KEY" },
+    { kind: "config", value: "NEW_KEY" },
+  ] }) });
+
+  const summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skill.id,
+  });
+  assert.equal(summary.status, "expired");
+  assert.deepEqual(summary.upgradeAddedKeys, ["NEW_KEY"]);
+  assert.deepEqual(summary.upgradeRemovedKeys, ["DROP_KEY"]);
+});
+
+test("summary warns when a declared key collides with a managed runtime credential key", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "openai-skill",
+    description: "OpenAI",
+    configJson: JSON.stringify({ requirements: [{ kind: "secret", value: "OPENAI_API_KEY" }] }),
+  });
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skill.id, actorUserId: TEST_USER_ID,
+    secrets: { OPENAI_API_KEY: "sk-value" },
+  });
+  const summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skill.id,
+  });
+  assert.ok(summary.credentialKeyWarnings?.includes("OPENAI_API_KEY"));
 });

@@ -503,6 +503,14 @@ export function AgentDetail({
                             )}
                           </span>
                         ) : null}
+                        {record.skillRequirements[skill.id]?.credentialKeyWarnings?.length ? (
+                          <span className="status-chip status-chip--warning">
+                            {tx(
+                              `声明含受管 Runtime 凭据 Key（${record.skillRequirements[skill.id]?.credentialKeyWarnings?.length} 项），绑定对应 Runtime 时将被拒绝`,
+                              `Declared managed-runtime credential key (${record.skillRequirements[skill.id]?.credentialKeyWarnings?.length}) — rejected when a matching runtime is bound`,
+                            )}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="toolbar-actions">
                         {hasInstallRequirements(skill.configJson) ? (
@@ -1139,6 +1147,7 @@ export function AgentDetail({
           skillName={skillToInstall.name}
           updatedAt={record.skillRequirements[skillToInstall.id]?.updatedAt}
           updatedBy={record.skillRequirements[skillToInstall.id]?.updatedBy}
+          credentialKeyWarnings={record.skillRequirements[skillToInstall.id]?.credentialKeyWarnings}
           onCancel={() => setSkillToInstall(null)}
           onConfirm={(input) => {
             onInstallSkill(skillToInstall.id, input);
@@ -1248,7 +1257,10 @@ function formatSkillRequirementStatus(
 ): string {
   if (summary.status === "expired") {
     const added = summary.upgradeAddedKeys?.length ?? 1;
-    return tx(`已过期 · 新增 ${added} 项要求`, `Expired · ${added} new requirement(s)`);
+    const removed = summary.upgradeRemovedKeys?.length ?? 0;
+    return removed > 0
+      ? tx(`已过期 · 新增 ${added} 项、移除 ${removed} 项要求`, `Expired · ${added} added, ${removed} removed`)
+      : tx(`已过期 · 新增 ${added} 项要求`, `Expired · ${added} new requirement(s)`);
   }
   if (summary.status === "awaiting_validation") {
     return tx("等待验证 · Runtime 离线", "Awaiting validation · runtime offline");

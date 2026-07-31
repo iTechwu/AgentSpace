@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { MessageAttachment, MessageMention } from "@/shared/types/workspace";
 import { useLanguage } from "@/features/i18n/language-provider";
@@ -12,9 +12,12 @@ import { AppIcon } from "@/shared/ui/app-icon";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import type {
   ConversationListItem,
+  ConversationComposerRuntime,
   ConversationMentionCandidate,
+  ConversationSlashCommand,
   ConversationThreadMessage,
 } from "@/features/chat/conversation-shell";
+import type { EmployeeExecutionPolicy } from "@dofe-agent/domain/workspace";
 
 export const ConversationListRow = memo(function ConversationListRow({
   item,
@@ -547,11 +550,17 @@ function formatFileSize(bytes: number): string {
 }
 
 export function ChatComposer({
+  caretIndex,
   draft,
+  executionPolicy,
+  executionPolicyPending = false,
   feedback,
   files,
   isPending,
   mentionSuggestions,
+  references,
+  runtime,
+  slashSuggestions,
   placeholder,
   showPicker,
   pickerRef,
@@ -564,7 +573,10 @@ export function ChatComposer({
   onTogglePicker,
   onPickedFiles,
   onRemoveFile,
+  onRemoveReference,
   onSelectMention,
+  onSelectSlashCommand,
+  onSelectExecutionPolicy,
   onSubmit,
   replyToMessage,
   onCancelReply,
@@ -575,12 +587,20 @@ export function ChatComposer({
   onEditQueuedMessage,
   onGuideQueuedMessage,
   onStop,
+  showExecutionPolicyMenu = false,
+  onToggleExecutionPolicyMenu,
 }: {
+  caretIndex: number;
   draft: string;
+  executionPolicy?: EmployeeExecutionPolicy;
+  executionPolicyPending?: boolean;
   feedback: string | null;
   files: Array<{ id: string; label: string }>;
   isPending: boolean;
   mentionSuggestions: ConversationMentionCandidate[];
+  references: Array<{ id: string; label: string; kind: "file" | "skill" }>;
+  runtime?: ConversationComposerRuntime;
+  slashSuggestions: ConversationSlashCommand[];
   placeholder: string;
   showPicker: boolean;
   pickerRef: React.RefObject<HTMLDivElement | null>;
@@ -593,7 +613,10 @@ export function ChatComposer({
   onTogglePicker: () => void;
   onPickedFiles: (files: FileList | null) => void;
   onRemoveFile: (id: string) => void;
+  onRemoveReference: (id: string) => void;
   onSelectMention: (candidate: ConversationMentionCandidate) => void;
+  onSelectSlashCommand: (command: ConversationSlashCommand) => void;
+  onSelectExecutionPolicy?: (policy?: EmployeeExecutionPolicy) => void;
   onSubmit: () => void;
   replyToMessage?: ConversationThreadMessage | null;
   onCancelReply?: () => void;
@@ -608,12 +631,33 @@ export function ChatComposer({
   onEditQueuedMessage?: (id: string, content: string) => void;
   onGuideQueuedMessage?: (id: string) => void;
   onStop?: () => void;
+  showExecutionPolicyMenu?: boolean;
+  onToggleExecutionPolicyMenu?: () => void;
 }) {
   const { tx } = useLanguage();
   const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
   const [editingQueueValue, setEditingQueueValue] = useState("");
-  const hasDraft = draft.trim().length > 0 || files.length > 0;
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
+  const hasDraft = draft.trim().length > 0 || files.length > 0 || references.length > 0;
   const isStopAction = isAgentRunning && !hasDraft;
+  const activeSuggestions = slashSuggestions.length > 0 ? slashSuggestions : mentionSuggestions;
+  const slashMenuOpen = slashSuggestions.length > 0 && !suggestionsDismissed;
+  const mentionMenuOpen = !slashMenuOpen && mentionSuggestions.length > 0 && !suggestionsDismissed;
+  const executionOptions = useMemo(() => buildExecutionPolicyOptions(runtime, tx), [runtime, tx]);
+  const selectedExecutionOption = executionOptions.find((option) => option.id === executionPolicySelection(runtime, executionPolicy))
+    ?? executionOptions[0];
+
+  useEffect(() => {
+    setActiveSuggestionIndex(0);
+    setSuggestionsDismissed(false);
+  }, [caretIndex, draft]);
+
+  useEffect(() => {
+    if (activeSuggestionIndex >= activeSuggestions.length) {
+      setActiveSuggestionIndex(0);
+    }
+  }, [activeSuggestionIndex, activeSuggestions.length]);
 
   function beginQueueEdit(id: string, content: string): void {
     setEditingQueueId(id);
@@ -743,7 +787,7 @@ export function ChatComposer({
           ) : null}
         </div>
       ) : null}
-      {files.length > 0 ? (
+      {files.length > 0 || references.length > 0 ? (
         <div className="contacts-attachments">
           {files.map((item) => (
             <span className="contacts-attachment-chip" key={item.id}>
@@ -752,6 +796,20 @@ export function ChatComposer({
                 aria-label={tx(`移除 ${item.label}`, `Remove ${item.label}`)}
                 className="contacts-attachment-remove"
                 onClick={() => onRemoveFile(item.id)}
+                type="button"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          {references.map((item) => (
+            <span className={`contacts-attachment-chip contacts-attachment-chip--${item.kind}`} key={item.id}>
+              <AppIcon name={item.kind === "skill" ? "skills" : "knowledge"} />
+              <span>{item.label}</span>
+              <button
+                aria-label={tx(`移除引用 ${item.label}`, `Remove reference ${item.label}`)}
+                className="contacts-attachment-remove"
+                onClick={() => onRemoveReference(item.id)}
                 type="button"
               >
                 ×
@@ -770,6 +828,33 @@ export function ChatComposer({
               return;
             }
 
+            const suggestionMenuOpen = slashMenuOpen || mentionMenuOpen;
+            if (suggestionMenuOpen && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+              event.preventDefault();
+              setActiveSuggestionIndex((current) => {
+                const direction = event.key === "ArrowDown" ? 1 : -1;
+                return (current + direction + activeSuggestions.length) % activeSuggestions.length;
+              });
+              return;
+            }
+            if (suggestionMenuOpen && event.key === "Escape") {
+              event.preventDefault();
+              setSuggestionsDismissed(true);
+              return;
+            }
+            if (suggestionMenuOpen && event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              const selected = activeSuggestions[activeSuggestionIndex];
+              if (selected) {
+                if (slashMenuOpen) {
+                  onSelectSlashCommand(selected as ConversationSlashCommand);
+                } else {
+                  onSelectMention(selected as ConversationMentionCandidate);
+                }
+              }
+              return;
+            }
+
             if (event.key !== "Enter" || event.shiftKey) {
               return;
             }
@@ -783,13 +868,15 @@ export function ChatComposer({
           value={draft}
         />
 
-        {mentionSuggestions.length > 0 ? (
-          <div className="contacts-mention-menu">
+        {mentionMenuOpen ? (
+          <div aria-label={tx("引用建议", "Reference suggestions")} className="contacts-mention-menu contacts-composer-menu" role="listbox">
             {mentionSuggestions.map((candidate) => (
               <button
-                className="contacts-mention-item"
+                aria-selected={mentionSuggestions.indexOf(candidate) === activeSuggestionIndex}
+                className={`contacts-mention-item${mentionSuggestions.indexOf(candidate) === activeSuggestionIndex ? " contacts-mention-item--active" : ""}`}
                 key={candidate.id}
                 onClick={() => onSelectMention(candidate)}
+                role="option"
                 type="button"
               >
                 <div>
@@ -797,6 +884,28 @@ export function ChatComposer({
                   <span>{candidate.subtitle}</span>
                 </div>
                 <small>{formatMentionCandidateScope(candidate, tx)}</small>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {slashMenuOpen ? (
+          <div aria-label={tx("快捷指令", "Slash commands")} className="contacts-command-menu contacts-composer-menu" role="listbox">
+            <div className="contacts-composer-menu__heading">{tx("快捷指令", "Commands")}</div>
+            {slashSuggestions.map((command, index) => (
+              <button
+                aria-selected={index === activeSuggestionIndex}
+                className={`contacts-command-item${index === activeSuggestionIndex ? " contacts-command-item--active" : ""}`}
+                key={command.id}
+                onClick={() => onSelectSlashCommand(command)}
+                role="option"
+                type="button"
+              >
+                <code>{command.command}</code>
+                <span>
+                  <strong>{command.label}</strong>
+                  <small>{command.description}</small>
+                </span>
               </button>
             ))}
           </div>
@@ -833,6 +942,11 @@ export function ChatComposer({
               </button>
               {showPicker ? (
                 <div className="contacts-picker-menu" role="menu">
+                  <button className="contacts-picker-item" onClick={onInsertMentionTrigger} type="button">
+                    <span className="contacts-picker-item__icon">@</span>
+                    <span>{tx("引用成员、文件或技能", "Reference people, files, or skills")}</span>
+                  </button>
+                  <div className="contacts-picker-divider" />
                   <button className="contacts-picker-item" onClick={() => mediaInputRef.current?.click()} type="button">
                     <span className="contacts-picker-item__icon">IMG</span>
                     <span>{tx("图片/视频", "Images / Videos")}</span>
@@ -844,31 +958,6 @@ export function ChatComposer({
                   <button className="contacts-picker-item" onClick={() => folderInputRef.current?.click()} type="button">
                     <span className="contacts-picker-item__icon">DIR</span>
                     <span>{tx("本地文件夹", "Local folder")}</span>
-                  </button>
-                  <button className="contacts-picker-item contacts-picker-item--disabled" disabled type="button">
-                    <span className="contacts-picker-item__icon">DOC</span>
-                    <span>{tx("云文档", "Cloud doc")}</span>
-                  </button>
-                  <button className="contacts-picker-item contacts-picker-item--disabled" disabled type="button">
-                    <span className="contacts-picker-item__icon">CAL</span>
-                    <span>{tx("日程", "Calendar")}</span>
-                  </button>
-                  <button className="contacts-picker-item contacts-picker-item--disabled" disabled type="button">
-                    <span className="contacts-picker-item__icon">CARD</span>
-                    <span>{tx("个人名片", "Contact card")}</span>
-                  </button>
-                  <button className="contacts-picker-item contacts-picker-item--disabled" disabled type="button">
-                    <span className="contacts-picker-item__icon">TASK</span>
-                    <span>{tx("任务", "Task")}</span>
-                  </button>
-                  <button className="contacts-picker-item contacts-picker-item--disabled" disabled type="button">
-                    <span className="contacts-picker-item__icon">A↔</span>
-                    <span>{tx("开启边写边译", "Translate while typing")}</span>
-                  </button>
-                  <div className="contacts-picker-divider" />
-                  <button className="contacts-picker-item contacts-picker-item--disabled" disabled type="button">
-                    <span className="contacts-picker-item__icon">APP</span>
-                    <span>{tx("快捷应用", "Quick apps")}</span>
                   </button>
                 </div>
               ) : null}
@@ -898,6 +987,47 @@ export function ChatComposer({
               />
             </div>
           </div>
+
+          {runtime && onSelectExecutionPolicy && selectedExecutionOption ? (
+            <div className="contacts-execution-policy">
+              <button
+                aria-expanded={showExecutionPolicyMenu}
+                aria-haspopup="listbox"
+                className={`contacts-execution-policy__trigger${selectedExecutionOption.warning ? " contacts-execution-policy__trigger--warning" : ""}`}
+                disabled={executionPolicyPending}
+                onClick={onToggleExecutionPolicyMenu}
+                title={tx("执行权限", "Execution permissions")}
+                type="button"
+              >
+                <AppIcon className={executionPolicyPending ? "contacts-send-button__spinner" : undefined} name={executionPolicyPending ? "loader" : "approvals"} />
+                <span>{selectedExecutionOption.label}</span>
+                <AppIcon name="chevronDown" />
+              </button>
+              {showExecutionPolicyMenu ? (
+                <div aria-label={tx("执行权限", "Execution permissions")} className="contacts-execution-policy__menu" role="listbox">
+                  <div className="contacts-composer-menu__heading">
+                    {runtime.provider === "claude" ? "Claude Code" : "Codex"} · {tx("执行权限", "Execution permissions")}
+                  </div>
+                  {executionOptions.map((option) => (
+                    <button
+                      aria-selected={option.id === selectedExecutionOption.id}
+                      className={`contacts-execution-policy__option${option.id === selectedExecutionOption.id ? " contacts-execution-policy__option--selected" : ""}${option.warning ? " contacts-execution-policy__option--warning" : ""}`}
+                      key={option.id}
+                      onClick={() => onSelectExecutionPolicy(option.policy)}
+                      role="option"
+                      type="button"
+                    >
+                      <span>
+                        <strong>{option.label}</strong>
+                        <small>{option.description}</small>
+                      </span>
+                      {option.id === selectedExecutionOption.id ? <AppIcon name="checkCircle" /> : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <button
             aria-label={
@@ -985,10 +1115,85 @@ function formatMentionCandidateScope(
   candidate: ConversationMentionCandidate,
   tx: (zh: string, en: string) => string,
 ): string {
+  if (candidate.kind === "file") {
+    return tx("文件", "File");
+  }
+  if (candidate.kind === "skill") {
+    return tx("技能", "Skill");
+  }
   if (candidate.kind === "human") {
     return candidate.inChannel ? tx("群成员", "Member") : tx("其他成员", "Other member");
   }
   return candidate.inChannel ? tx("AI员工", "AI employee") : tx("其他 AI员工", "Other AI employee");
+}
+
+interface ComposerExecutionPolicyOption {
+  id: string;
+  label: string;
+  description: string;
+  policy?: EmployeeExecutionPolicy;
+  warning?: boolean;
+}
+
+function buildExecutionPolicyOptions(
+  runtime: ConversationComposerRuntime | undefined,
+  tx: (zh: string, en: string) => string,
+): ComposerExecutionPolicyOption[] {
+  if (!runtime) {
+    return [];
+  }
+  const inherit: ComposerExecutionPolicyOption = {
+    id: "inherit",
+    label: tx("Runtime 默认", "Runtime default"),
+    description: tx("使用执行引擎的默认权限", "Use the runtime's default permissions"),
+  };
+  if (runtime.provider === "claude") {
+    return [
+      inherit,
+      { id: "manual", label: "Manual", description: tx("工具调用需要手动确认", "Confirm tool calls manually"), policy: { claudePermissionMode: "manual" } },
+      { id: "acceptEdits", label: "Edit automatically", description: tx("自动接受文件编辑", "Automatically accept file edits"), policy: { claudePermissionMode: "acceptEdits" } },
+      { id: "plan", label: "Plan", description: tx("仅规划，不直接修改文件", "Plan without directly editing files"), policy: { claudePermissionMode: "plan" } },
+      { id: "auto", label: "Auto", description: tx("由 Claude Code 自动处理权限", "Let Claude Code handle permissions automatically"), policy: { claudePermissionMode: "auto" } },
+    ];
+  }
+  return [
+    inherit,
+    {
+      id: "untrusted",
+      label: tx("请求批准", "Request approval"),
+      description: tx("敏感操作始终请求批准", "Always request approval for sensitive operations"),
+      policy: { codexApprovalPolicy: "untrusted", codexSandboxMode: "workspace-write" },
+    },
+    {
+      id: "on-request",
+      label: tx("帮我审批", "Ask me when needed"),
+      description: tx("仅在 Codex 判断有需要时请求", "Ask only when Codex determines it is needed"),
+      policy: { codexApprovalPolicy: "on-request", codexSandboxMode: "workspace-write" },
+    },
+    {
+      id: "full-access",
+      label: tx("完全访问", "Full access"),
+      description: tx("跳过审批与沙箱限制", "Bypass approvals and sandbox restrictions"),
+      policy: { codexApprovalPolicy: "never", codexSandboxMode: "danger-full-access" },
+      warning: true,
+    },
+  ];
+}
+
+function executionPolicySelection(
+  runtime: ConversationComposerRuntime | undefined,
+  policy: EmployeeExecutionPolicy | undefined,
+): string {
+  if (!runtime || !policy) {
+    return "inherit";
+  }
+  if (runtime.provider === "claude") {
+    return policy.claudePermissionMode ?? "inherit";
+  }
+  if (policy.codexSandboxMode === "danger-full-access" || policy.codexApprovalPolicy === "never") {
+    return "full-access";
+  }
+  return policy.codexApprovalPolicy === "on-request" ? "on-request" : policy.codexApprovalPolicy === "untrusted" ? "untrusted" : "inherit";
 }
 
 function getMentionKey(mention: MessageMention): string {

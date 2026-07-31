@@ -35,10 +35,12 @@ import {
 import { CreateChannelModal } from "@/features/channels/create-channel-modal";
 import {
   ConversationShell,
+  type ConversationComposerRuntime,
   type ConversationListItem,
   type ConversationMentionCandidate,
   type ConversationThreadMessage,
 } from "@/features/chat/conversation-shell";
+import { updateWorkspaceAgentExecutionPolicyAction } from "@/features/agents/actions";
 import { CommunicationListActions } from "@/features/chat/communication-list-actions";
 import { ChatModelSelector } from "@/features/chat/chat-model-selector";
 import type { ChannelsPageData } from "@/features/dashboard/data";
@@ -64,6 +66,7 @@ import { GeneratedAvatar } from "@/shared/ui/generated-avatar";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { runToastAction } from "@/shared/lib/toast-action";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
+import type { EmployeeExecutionPolicy } from "@dofe-agent/domain/workspace";
 import {
   translateMemberLabel,
   translateSystemSpeaker,
@@ -1185,23 +1188,71 @@ export function ChannelsPageClient({
 
     return () => window.clearInterval(timer);
   }, [hasPendingThreadMessages, refreshChannelData, shouldPollChannelUpdates]);
+  const selectedComposerAgent = useMemo(() => {
+    const employeeId = selectedChannel?.contactId
+      ?? (selectedChannel?.employeeNames?.length === 1 ? selectedChannel.employeeNames[0] : undefined);
+    return employeeId
+      ? data.composerAgents?.find((agent) =>
+          agent.id.localeCompare(employeeId, "zh-CN", { sensitivity: "base" }) === 0
+        )
+      : undefined;
+  }, [data.composerAgents, selectedChannel]);
+  const composerRuntime: ConversationComposerRuntime | undefined =
+    selectedComposerAgent?.provider === "claude" || selectedComposerAgent?.provider === "codex"
+      ? {
+          employeeId: selectedComposerAgent.id,
+          employeeLabel: selectedComposerAgent.label,
+          provider: selectedComposerAgent.provider,
+          executionPolicy: selectedComposerAgent.executionPolicy,
+        }
+      : undefined;
   const mentionCandidates: ConversationMentionCandidate[] = useMemo(() => {
-    if (!selectedChannel || selectedChannel.kind === "direct") {
+    if (!selectedChannel) {
       return [];
     }
 
-    return (selectedConversationChannelName
-      ? indexes.mentionCandidatesByChannelName.get(selectedConversationChannelName) ?? EMPTY_MENTION_CANDIDATES
-      : EMPTY_MENTION_CANDIDATES)
-      .map((candidate) => ({
-        id: candidate.id,
-        label: candidate.label,
-        subtitle: candidate.subtitle,
+    const members = selectedChannel.kind === "direct"
+      ? []
+      : (selectedConversationChannelName
+          ? indexes.mentionCandidatesByChannelName.get(selectedConversationChannelName) ?? EMPTY_MENTION_CANDIDATES
+          : EMPTY_MENTION_CANDIDATES)
+        .map((candidate) => ({
+          id: `member:${candidate.id}`,
+          label: candidate.label,
+          subtitle: candidate.subtitle,
+          inChannel: true,
+          kind: candidate.kind ?? "agent",
+        } satisfies ConversationMentionCandidate));
+    const files = (selectedConversationChannelName
+      ? indexes.filesByChannelName.get(selectedConversationChannelName) ?? EMPTY_CHANNEL_FILES
+      : EMPTY_CHANNEL_FILES)
+      .map((file) => ({
+        id: `file:${file.id}`,
+        sourceId: file.id,
+        label: file.fileName,
+        subtitle: file.previewText?.trim() || file.mediaType,
         inChannel: true,
-        kind: candidate.kind ?? "agent",
-      }))
-      .sort((left, right) => left.label.localeCompare(right.label, "zh-CN", { sensitivity: "base" }));
-  }, [indexes, selectedChannel, selectedConversationChannelName]);
+        kind: "file" as const,
+      }));
+    const skills = (selectedComposerAgent?.skills ?? []).map((skill) => ({
+      id: `skill:${skill.id}`,
+      sourceId: skill.id,
+      label: skill.name,
+      subtitle: skill.description,
+      inChannel: true,
+      kind: "skill" as const,
+    }));
+    const kindOrder: Record<NonNullable<ConversationMentionCandidate["kind"]>, number> = {
+      agent: 0,
+      human: 1,
+      file: 2,
+      skill: 3,
+    };
+    return [...members, ...files, ...skills].sort((left, right) =>
+      kindOrder[left.kind ?? "agent"] - kindOrder[right.kind ?? "agent"] ||
+      left.label.localeCompare(right.label, "zh-CN", { sensitivity: "base" })
+    );
+  }, [indexes, selectedChannel, selectedComposerAgent, selectedConversationChannelName]);
 
   const addableChannelMemberCandidates = useMemo(() => {
     if (!selectedChannel || selectedChannel.kind === "direct") {
@@ -1992,13 +2043,39 @@ export function ChannelsPageClient({
           });
           measureInteraction("conversation-switch");
         }}
-        onSubmit={async ({ content, files, replyToMessageId }) => {
+        composerRuntime={composerRuntime}
+        onUpdateExecutionPolicy={async (employeeId, executionPolicy: EmployeeExecutionPolicy | undefined) => {
+          let updateSucceeded = false;
+          await runToastAction({
+            action: () => updateWorkspaceAgentExecutionPolicyAction({
+              employeeName: employeeId,
+              executionPolicy,
+            }),
+            onSuccess: async (_data, result) => {
+              if (result.invalidation) {
+                onInvalidation?.(result.invalidation);
+              }
+              updateSucceeded = true;
+            },
+            pushToast,
+            tx,
+          });
+          if (!updateSucceeded) {
+            throw new Error(tx("执行权限未保存，请重试。", "Execution permissions were not saved. Please try again."));
+          }
+        }}
+        onSubmit={async ({ content, files, replyToMessageId, referenceAttachmentIds, referenceSkillIds }) => {
           if (!selectedChannel) {
             return;
           }
           const formData = new FormData();
           formData.set("content", content);
           files.forEach((file) => formData.append("attachments", file));
+          referenceAttachmentIds?.forEach((attachmentId) => formData.append("attachmentReferences", attachmentId));
+          referenceSkillIds?.forEach((skillId) => formData.append("skillReferences", skillId));
+          if (referenceAttachmentIds?.length && selectedConversationChannelName) {
+            formData.set("referenceChannelName", selectedConversationChannelName);
+          }
 
           if (selectedChannel.kind === "direct") {
             if (!selectedChannel.contactId) {

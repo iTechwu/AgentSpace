@@ -12,6 +12,7 @@ import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import { useResizablePane } from "@/shared/lib/use-resizable-pane";
 import { PaneResizeHandle } from "@/shared/ui/pane-resize-handle";
 import type { GeneratedAvatarVariant } from "@/shared/ui/generated-avatar";
+import type { EmployeeExecutionPolicy } from "@dofe-agent/domain/workspace";
 
 export interface ConversationListItem {
   id: string;
@@ -51,7 +52,30 @@ export interface ConversationMentionCandidate {
   label: string;
   subtitle: string;
   inChannel: boolean;
-  kind?: "agent" | "human";
+  kind?: "agent" | "human" | "file" | "skill";
+  sourceId?: string;
+}
+
+export interface ConversationComposerRuntime {
+  employeeId: string;
+  employeeLabel: string;
+  provider: "claude" | "codex";
+  executionPolicy?: EmployeeExecutionPolicy;
+}
+
+export interface ConversationSlashCommand {
+  id: string;
+  command: string;
+  label: string;
+  description: string;
+  action: "insert" | "clear" | "permissions" | "claude-plan" | "claude-auto" | "codex-review";
+}
+
+interface SelectedComposerReference {
+  id: string;
+  label: string;
+  kind: "file" | "skill";
+  sourceId: string;
 }
 
 type PendingFile = {
@@ -65,6 +89,8 @@ interface QueuedConversationMessage {
   content: string;
   replyToMessageId?: string;
   createdAt: string;
+  referenceAttachmentIds?: string[];
+  referenceSkillIds?: string[];
 }
 
 export function ConversationShell({
@@ -101,6 +127,8 @@ export function ConversationShell({
   onDataChanged,
   isAgentRunning = false,
   onStopActiveTask,
+  composerRuntime,
+  onUpdateExecutionPolicy,
 }: {
   listKicker: string;
   listTitle: string;
@@ -124,7 +152,13 @@ export function ConversationShell({
   emptyThreadTitle: string;
   emptyThreadBody: string;
   placeholder: string;
-  onSubmit: (input: { content: string; files: File[]; replyToMessageId?: string }) => Promise<void>;
+  onSubmit: (input: {
+    content: string;
+    files: File[];
+    replyToMessageId?: string;
+    referenceAttachmentIds?: string[];
+    referenceSkillIds?: string[];
+  }) => Promise<void>;
   headerActions?: React.ReactNode;
   listActions?: React.ReactNode;
   shellClassName?: string;
@@ -144,6 +178,8 @@ export function ConversationShell({
   onDataChanged?: () => void;
   isAgentRunning?: boolean;
   onStopActiveTask?: () => Promise<void>;
+  composerRuntime?: ConversationComposerRuntime;
+  onUpdateExecutionPolicy?: (employeeId: string, policy?: EmployeeExecutionPolicy) => Promise<void>;
 }) {
   const { tx } = useLanguage();
   const router = useRouter();
@@ -151,10 +187,14 @@ export function ConversationShell({
   const [draftCaretIndex, setDraftCaretIndex] = useState(0);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [showPicker, setShowPicker] = useState(false);
+  const [showExecutionPolicyMenu, setShowExecutionPolicyMenu] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [replyToMessage, setReplyToMessage] = useState<ConversationThreadMessage | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<QueuedConversationMessage[]>([]);
+  const [selectedReferences, setSelectedReferences] = useState<SelectedComposerReference[]>([]);
+  const [executionPolicyOverride, setExecutionPolicyOverride] = useState<EmployeeExecutionPolicy | null | undefined>(undefined);
+  const [isExecutionPolicyPending, setIsExecutionPolicyPending] = useState(false);
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [mobilePane, setMobilePane] = useState<"list" | "thread">("list");
   const listPaneResize = useResizablePane({
@@ -180,6 +220,12 @@ export function ConversationShell({
   const queueStorageKey = draftStorageKey && selectedItemId
     ? `${draftStorageKey}:queue:${selectedItemId}`
     : undefined;
+  const serializedExecutionPolicy = JSON.stringify(composerRuntime?.executionPolicy ?? {});
+
+  useEffect(() => {
+    setExecutionPolicyOverride(undefined);
+    setShowExecutionPolicyMenu(false);
+  }, [composerRuntime?.employeeId, composerRuntime?.provider, selectedItemId, serializedExecutionPolicy]);
 
   useEffect(() => {
     if (!draftStorageKey || initialDraftHydratedRef.current || typeof window === "undefined") {
@@ -191,7 +237,7 @@ export function ConversationShell({
       return;
     }
     try {
-      const saved = JSON.parse(raw) as { draft?: unknown; draftCaretIndex?: unknown };
+      const saved = JSON.parse(raw) as { draft?: unknown; draftCaretIndex?: unknown; references?: unknown };
       if (typeof saved.draft === "string") {
         setDraft(saved.draft);
         setDraftCaretIndex(
@@ -199,6 +245,21 @@ export function ConversationShell({
             ? saved.draftCaretIndex
             : saved.draft.length,
         );
+      }
+      if (Array.isArray(saved.references)) {
+        setSelectedReferences(saved.references.flatMap((item) => {
+          if (!item || typeof item !== "object") return [];
+          const value = item as Record<string, unknown>;
+          if (
+            typeof value.id !== "string" ||
+            typeof value.label !== "string" ||
+            typeof value.sourceId !== "string" ||
+            (value.kind !== "file" && value.kind !== "skill")
+          ) {
+            return [];
+          }
+          return [value as unknown as SelectedComposerReference];
+        }));
       }
     } catch {
       window.sessionStorage.removeItem(draftStorageKey);
@@ -209,7 +270,7 @@ export function ConversationShell({
     if (!draftStorageKey || !initialDraftHydratedRef.current || typeof window === "undefined") {
       return;
     }
-    if (!draft && pendingFiles.length === 0 && !replyToMessage) {
+    if (!draft && pendingFiles.length === 0 && !replyToMessage && selectedReferences.length === 0) {
       window.sessionStorage.removeItem(draftStorageKey);
       return;
     }
@@ -218,9 +279,10 @@ export function ConversationShell({
       JSON.stringify({
         draft,
         draftCaretIndex,
+        references: selectedReferences,
       }),
     );
-  }, [draft, draftCaretIndex, draftStorageKey, pendingFiles.length, replyToMessage]);
+  }, [draft, draftCaretIndex, draftStorageKey, pendingFiles.length, replyToMessage, selectedReferences]);
 
   useEffect(() => {
     if (!queueStorageKey || typeof window === "undefined") {
@@ -252,6 +314,12 @@ export function ConversationShell({
           content: value.content,
           replyToMessageId: typeof value.replyToMessageId === "string" ? value.replyToMessageId : undefined,
           createdAt: typeof value.createdAt === "string" ? value.createdAt : new Date().toISOString(),
+          referenceAttachmentIds: Array.isArray(value.referenceAttachmentIds)
+            ? value.referenceAttachmentIds.filter((id): id is string => typeof id === "string")
+            : undefined,
+          referenceSkillIds: Array.isArray(value.referenceSkillIds)
+            ? value.referenceSkillIds.filter((id): id is string => typeof id === "string")
+            : undefined,
         } satisfies QueuedConversationMessage];
       }));
     } catch {
@@ -427,6 +495,21 @@ export function ConversationShell({
         : [],
     [activeMentionQuery, mentionCandidates],
   );
+  const activeSlashQuery = findDraftSlashQuery(draft, draftCaretIndex);
+  const slashSuggestions = useMemo(() => {
+    if (!activeSlashQuery) {
+      return [];
+    }
+    const query = activeSlashQuery.query.toLocaleLowerCase("zh-CN");
+    return buildComposerSlashCommands(composerRuntime?.provider, tx).filter((command) =>
+      !query ||
+      command.command.slice(1).toLocaleLowerCase("zh-CN").includes(query) ||
+      command.label.toLocaleLowerCase("zh-CN").includes(query)
+    );
+  }, [activeSlashQuery, composerRuntime?.provider, tx]);
+  const effectiveExecutionPolicy = executionPolicyOverride === undefined
+    ? composerRuntime?.executionPolicy
+    : executionPolicyOverride ?? undefined;
 
   const handleSelectListItem = useCallback(
     (id: string) => {
@@ -475,11 +558,19 @@ export function ConversationShell({
   }
 
   function submitMessage(): void {
-    if (!selectedHeader || (draft.trim().length === 0 && pendingFiles.length === 0)) {
+    if (!selectedHeader || (draft.trim().length === 0 && pendingFiles.length === 0 && selectedReferences.length === 0)) {
       return;
     }
 
-    const content = draft.trim().length > 0 ? draft : tx("请查看我发送的附件。", "Please review the attachment I sent.");
+    const content = draft.trim().length > 0
+      ? draft
+      : tx("请查看我发送或引用的内容。", "Please review the content I sent or referenced.");
+    const referenceAttachmentIds = selectedReferences
+      .filter((reference) => reference.kind === "file")
+      .map((reference) => reference.sourceId);
+    const referenceSkillIds = selectedReferences
+      .filter((reference) => reference.kind === "skill")
+      .map((reference) => reference.sourceId);
     if (isAgentRunning && pendingFiles.length === 0) {
       setQueuedMessages((current) => [
         ...current,
@@ -488,10 +579,13 @@ export function ConversationShell({
           content,
           replyToMessageId: replyToMessage?.id,
           createdAt: new Date().toISOString(),
+          referenceAttachmentIds,
+          referenceSkillIds,
         },
       ]);
       setDraft("");
       setDraftCaretIndex(0);
+      setSelectedReferences([]);
       setReplyToMessage(null);
       setFeedback(null);
       return;
@@ -500,10 +594,12 @@ export function ConversationShell({
     const submittedDraft = draft;
     const submittedFiles = pendingFiles;
     const submittedReplyToMessage = replyToMessage;
+    const submittedReferences = selectedReferences;
     setFeedback(null);
     setDraft("");
     setDraftCaretIndex(0);
     setPendingFiles([]);
+    setSelectedReferences([]);
     setShowPicker(false);
     setReplyToMessage(null);
     startTransition(async () => {
@@ -512,6 +608,8 @@ export function ConversationShell({
           content,
           files: submittedFiles.map((item) => item.file),
           replyToMessageId: submittedReplyToMessage?.id,
+          ...(referenceAttachmentIds.length > 0 ? { referenceAttachmentIds } : {}),
+          ...(referenceSkillIds.length > 0 ? { referenceSkillIds } : {}),
         });
         shouldStickToBottomRef.current = true;
         if (onDataChanged) {
@@ -527,6 +625,7 @@ export function ConversationShell({
           ...current,
         ]);
         setReplyToMessage((current) => current ?? submittedReplyToMessage);
+        setSelectedReferences((current) => current.length > 0 ? current : submittedReferences);
         setFeedback(error instanceof Error ? error.message : tx("发送失败，请稍后重试。", "Send failed. Please try again."));
       }
     });
@@ -544,6 +643,8 @@ export function ConversationShell({
           content: queued.content,
           files: [],
           replyToMessageId: queued.replyToMessageId,
+          ...(queued.referenceAttachmentIds?.length ? { referenceAttachmentIds: queued.referenceAttachmentIds } : {}),
+          ...(queued.referenceSkillIds?.length ? { referenceSkillIds: queued.referenceSkillIds } : {}),
         });
         setQueuedMessages((current) => current.filter((message) => message.id !== messageId));
         shouldStickToBottomRef.current = true;
@@ -597,6 +698,7 @@ export function ConversationShell({
     const nextCaretIndex = currentCaretIndex + 1;
     setDraft(nextDraft);
     setDraftCaretIndex(nextCaretIndex);
+    setShowPicker(false);
     setFeedback(null);
 
     window.requestAnimationFrame(() => {
@@ -609,9 +711,26 @@ export function ConversationShell({
   }
 
   function handleSelectMention(candidate: ConversationMentionCandidate): void {
-    const next = applyMentionSelection(draft, draftCaretIndex, candidate.label);
+    const isReference = candidate.kind === "file" || candidate.kind === "skill";
+    const next = isReference && activeMentionQuery
+      ? replaceDraftRange(draft, activeMentionQuery.start, draftCaretIndex, "")
+      : applyMentionSelection(draft, draftCaretIndex, candidate.label);
     setDraft(next.value);
     setDraftCaretIndex(next.caretIndex);
+    const referenceKind = candidate.kind === "file" || candidate.kind === "skill" ? candidate.kind : undefined;
+    const referenceSourceId = candidate.sourceId;
+    if (referenceKind && referenceSourceId) {
+      setSelectedReferences((current) => current.some((reference) =>
+        reference.kind === referenceKind && reference.sourceId === referenceSourceId
+      )
+        ? current
+        : [...current, {
+            id: `${referenceKind}:${referenceSourceId}`,
+            label: candidate.label,
+            kind: referenceKind,
+            sourceId: referenceSourceId,
+          }]);
+    }
     setFeedback(null);
 
     window.requestAnimationFrame(() => {
@@ -622,6 +741,63 @@ export function ConversationShell({
       target.focus();
       target.setSelectionRange(next.caretIndex, next.caretIndex);
     });
+  }
+
+  function handleSelectSlashCommand(command: ConversationSlashCommand): void {
+    if (!activeSlashQuery) {
+      return;
+    }
+    if (command.action === "clear") {
+      setDraft("");
+      setDraftCaretIndex(0);
+      setSelectedReferences([]);
+      return;
+    }
+
+    const next = replaceDraftRange(draft, activeSlashQuery.start, draftCaretIndex, "");
+    if (command.action === "permissions") {
+      setDraft(next.value);
+      setDraftCaretIndex(next.caretIndex);
+      setShowExecutionPolicyMenu(true);
+      return;
+    }
+    if (command.action !== "insert") {
+      setDraft(next.value);
+      setDraftCaretIndex(next.caretIndex);
+      const policy = policyForSlashCommand(command.action);
+      if (policy) {
+        void updateExecutionPolicy(policy);
+      }
+      return;
+    }
+
+    const inserted = replaceDraftRange(draft, activeSlashQuery.start, draftCaretIndex, `${command.command} `);
+    setDraft(inserted.value);
+    setDraftCaretIndex(inserted.caretIndex);
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(inserted.caretIndex, inserted.caretIndex);
+    });
+  }
+
+  async function updateExecutionPolicy(policy?: EmployeeExecutionPolicy): Promise<void> {
+    if (!composerRuntime || !onUpdateExecutionPolicy || isExecutionPolicyPending) {
+      return;
+    }
+    const previousPolicy = effectiveExecutionPolicy;
+    setExecutionPolicyOverride(policy ?? null);
+    setShowExecutionPolicyMenu(false);
+    setIsExecutionPolicyPending(true);
+    setFeedback(null);
+    try {
+      await onUpdateExecutionPolicy(composerRuntime.employeeId, policy);
+      onDataChanged?.();
+    } catch (error) {
+      setExecutionPolicyOverride(previousPolicy ?? null);
+      setFeedback(error instanceof Error ? error.message : tx("执行权限保存失败，请重试。", "Failed to save execution permissions. Please try again."));
+    } finally {
+      setIsExecutionPolicyPending(false);
+    }
   }
 
   function handleReplyToMessage(message: ConversationThreadMessage): void {
@@ -802,7 +978,10 @@ export function ConversationShell({
                   </div>
 
                   <ChatComposer
+                    caretIndex={draftCaretIndex}
                     draft={draft}
+                    executionPolicy={effectiveExecutionPolicy}
+                    executionPolicyPending={isExecutionPolicyPending}
                     feedback={feedback}
                     fileInputRef={fileInputRef}
                     files={pendingFiles.map((item) => ({ id: item.id, label: item.label }))}
@@ -811,11 +990,17 @@ export function ConversationShell({
                     isAgentRunning={isAgentRunning}
                     mediaInputRef={mediaInputRef}
                     mentionSuggestions={mentionSuggestions}
+                    references={selectedReferences}
+                    runtime={composerRuntime}
+                    slashSuggestions={slashSuggestions}
                     onDraftChange={handleDraftChange}
                     onInsertMentionTrigger={handleInsertMentionTrigger}
                     onPickedFiles={handlePickedFiles}
                     onRemoveFile={(id) => setPendingFiles((current) => current.filter((entry) => entry.id !== id))}
+                    onRemoveReference={(id) => setSelectedReferences((current) => current.filter((reference) => reference.id !== id))}
                     onSelectMention={handleSelectMention}
+                    onSelectSlashCommand={handleSelectSlashCommand}
+                    onSelectExecutionPolicy={(policy) => void updateExecutionPolicy(policy)}
                     onSubmit={submitMessage}
                     onStop={onStopActiveTask ? stopActiveTask : undefined}
                     queuedMessages={queuedMessages}
@@ -831,6 +1016,8 @@ export function ConversationShell({
                     replyToMessage={replyToMessage}
                     onCancelReply={() => setReplyToMessage(null)}
                     showPicker={showPicker}
+                    showExecutionPolicyMenu={showExecutionPolicyMenu}
+                    onToggleExecutionPolicyMenu={() => setShowExecutionPolicyMenu((value) => !value)}
                     textareaRef={textareaRef}
                   />
                 </>
@@ -1085,4 +1272,106 @@ function buildReplyMentionPrefix(
     return null;
   }
   return `@${trimmed} `;
+}
+
+function findDraftSlashQuery(draft: string, caretIndex: number): { start: number; query: string } | null {
+  const prefix = draft.slice(0, Math.max(0, Math.min(caretIndex, draft.length)));
+  const match = /(^|\s)\/([^\s/]*)$/.exec(prefix);
+  if (!match) {
+    return null;
+  }
+  const slashOffset = match[1]?.length ?? 0;
+  return {
+    start: match.index + slashOffset,
+    query: match[2] ?? "",
+  };
+}
+
+function replaceDraftRange(
+  draft: string,
+  start: number,
+  end: number,
+  replacement: string,
+): { value: string; caretIndex: number } {
+  const value = `${draft.slice(0, start)}${replacement}${draft.slice(end)}`;
+  return { value, caretIndex: start + replacement.length };
+}
+
+function buildComposerSlashCommands(
+  provider: ConversationComposerRuntime["provider"] | undefined,
+  tx: (zh: string, en: string) => string,
+): ConversationSlashCommand[] {
+  const commands: ConversationSlashCommand[] = [
+    {
+      id: "model",
+      command: "/model",
+      label: tx("切换模型", "Switch model"),
+      description: tx("为当前会话选择模型", "Choose a model for this conversation"),
+      action: "insert",
+    },
+  ];
+  if (provider) {
+    commands.push({
+      id: "resume",
+      command: "/resume",
+      label: tx("继续会话", "Resume session"),
+      description: tx("沿用当前运行时会话继续处理", "Continue with the current runtime session"),
+      action: "insert",
+    });
+    commands.push({
+      id: "permissions",
+      command: "/permissions",
+      label: tx("执行权限", "Execution permissions"),
+      description: tx("调整后续任务的工具与文件访问级别", "Adjust tool and file access for future tasks"),
+      action: "permissions",
+    });
+  }
+  if (provider === "claude") {
+    commands.push(
+      {
+        id: "plan",
+        command: "/plan",
+        label: tx("Plan 模式", "Plan mode"),
+        description: tx("仅规划，不直接修改文件", "Plan without directly editing files"),
+        action: "claude-plan",
+      },
+      {
+        id: "auto",
+        command: "/auto",
+        label: tx("Auto 模式", "Auto mode"),
+        description: tx("由 Claude Code 自动处理权限", "Let Claude Code handle permissions automatically"),
+        action: "claude-auto",
+      },
+    );
+  }
+  if (provider === "codex") {
+    commands.push({
+      id: "review",
+      command: "/review",
+      label: tx("需要时审批", "Ask when needed"),
+      description: tx("切换为 Codex 帮我审批模式", "Switch Codex to ask-me-when-needed mode"),
+      action: "codex-review",
+    });
+  }
+  commands.push({
+    id: "clear",
+    command: "/clear",
+    label: tx("清空输入", "Clear composer"),
+    description: tx("移除当前草稿与引用", "Remove the current draft and references"),
+    action: "clear",
+  });
+  return commands;
+}
+
+function policyForSlashCommand(action: ConversationSlashCommand["action"]): EmployeeExecutionPolicy | undefined {
+  if (action === "claude-plan") {
+    return { claudePermissionMode: "plan" };
+  }
+  if (action === "claude-auto") {
+    return { claudePermissionMode: "auto" };
+  }
+  if (action === "codex-review") {
+    return { codexApprovalPolicy: "on-request", codexSandboxMode: "workspace-write" };
+  }
+  return undefined;
 }

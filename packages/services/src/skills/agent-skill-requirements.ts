@@ -12,6 +12,7 @@ import type { DaemonProvider } from "@dofe-agent/domain";
 import { readWorkspaceSkillSync } from "./skills.ts";
 import { listEmployeeSkillIdsSync, setEmployeeSkillIdsSync } from "../employees/employees.ts";
 import { readSkillDependencyInstallStatusSync } from "./dependency-install.ts";
+import { getManagedRuntimeCredentialEnvKeys } from "../runtime-provisioning/provider-templates.ts";
 import {
   getSkillRequirementBlockers,
   normalizeSkillRequirementConfiguration,
@@ -49,6 +50,11 @@ export interface AgentSkillRequirementSummary {
   configuration?: SkillRequirementConfiguration;
   runtimeOnline?: boolean;
   upgradeAddedKeys?: string[];
+  /** Requirement keys removed by a skill upgrade (spec §5.3 diff detail). */
+  upgradeRemovedKeys?: string[];
+  /** Declared keys that may collide with a managed runtime credential when a
+   * matching runtime is bound later (spec §0 future-credential-conflict warning). */
+  credentialKeyWarnings?: string[];
   /** Declarations that are stored but invalid (e.g. reserved DOFE_AGENT_* keys). */
   invalidDeclarations?: string[];
   /** Declared `capability:` requirements (spec §6.4 — surfaces them for runtime matching). */
@@ -283,6 +289,9 @@ export function readAgentSkillRequirementSummarySync(input: {
   const upgradeAddedKeys = record
     ? currentSignature.filter((key) => !savedSignature.includes(key))
     : [];
+  const upgradeRemovedKeys = record
+    ? savedSignature.filter((key) => !currentSignature.includes(key))
+    : [];
 
   let status: AgentSkillRequirementSummary["status"];
   if (upgradeAddedKeys.length > 0) {
@@ -323,6 +332,7 @@ export function readAgentSkillRequirementSummarySync(input: {
     configuration,
     runtimeOnline: input.runtimeOnline,
     upgradeAddedKeys,
+    upgradeRemovedKeys,
     updatedAt: record?.updatedAt,
     updatedBy,
   };
@@ -342,6 +352,13 @@ export function readAgentSkillRequirementSummarySync(input: {
   });
   if (dependencyInstallStatus !== "none") {
     summary.dependencyInstallStatus = dependencyInstallStatus;
+  }
+  const managedCredentialKeys = new Set(getManagedRuntimeCredentialEnvKeys());
+  const credentialKeyWarnings = environment
+    .map((item) => item.key)
+    .filter((key) => managedCredentialKeys.has(key));
+  if (credentialKeyWarnings.length > 0) {
+    summary.credentialKeyWarnings = credentialKeyWarnings;
   }
   return summary;
 }

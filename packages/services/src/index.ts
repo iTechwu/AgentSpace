@@ -1055,6 +1055,7 @@ export {
   buildManagedProvisioningCommandContext,
   buildManagedProvisioningStageCommands,
   getManagedRuntimeCredentialEnvKey,
+  getManagedRuntimeCredentialEnvKeys,
   type ManagedCredentialBundleDocument,
   type ManagedProvisioningCommand,
   type ManagedProvisioningCommandContext,

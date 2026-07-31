@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
+import { PlatformConsoleShell } from "@/features/platform/platform-console-shell";
 
 export interface PlatformWorkspaceSummary {
   readonly workspaceId: string;
@@ -25,7 +26,6 @@ export interface PlatformAuditEntry {
 interface PlatformConsoleClientProps {
   readonly operator: {
     readonly displayName: string;
-    readonly email: string;
   };
   readonly periodLabel: string;
   readonly workspaces: PlatformWorkspaceSummary[];
@@ -92,53 +92,7 @@ export function PlatformConsoleClient({
       : { label: "运行平稳", detail: "所有受管 Runtime 均可用", tone: "healthy" as const };
 
   return (
-    <div className="platform-console-shell">
-      <aside className="platform-console-sidebar">
-        <div className="platform-console-brand">
-          <span className="platform-console-brand__mark" aria-hidden="true">D</span>
-          <div>
-            <strong>DOFE OPS</strong>
-            <span>平台运维中心</span>
-          </div>
-        </div>
-
-        <nav className="platform-console-nav" aria-label="平台运维导航">
-          <span className="platform-console-nav__label">工作台</span>
-          <Link className="platform-console-nav__item platform-console-nav__item--active" href="/platform" aria-current="page">
-            <AppIcon name="performance" />
-            <span>运行概览</span>
-          </Link>
-          <Link className="platform-console-nav__item" href="/platform/audit">
-            <AppIcon name="approvals" />
-            <span>平台审计</span>
-          </Link>
-          <span className="platform-console-nav__label">快速入口</span>
-          <Link className="platform-console-nav__item" href="/">
-            <AppIcon name="arrowLeft" />
-            <span>返回团队空间</span>
-          </Link>
-        </nav>
-
-        <div className="platform-console-scope">
-          <AppIcon name="info" />
-          <div>
-            <strong>只读跨团队视图</strong>
-            <span>所有操作均记录真实操作者</span>
-          </div>
-        </div>
-
-        <div className="platform-console-operator">
-          <span className="platform-console-operator__avatar" aria-hidden="true">
-            {operator.displayName.trim().slice(0, 1).toLocaleUpperCase("zh-CN") || "O"}
-          </span>
-          <div>
-            <strong>{operator.displayName || "平台运维"}</strong>
-            <span>{operator.email || "Platform administrator"}</span>
-          </div>
-        </div>
-      </aside>
-
-      <main className="platform-console-page">
+    <PlatformConsoleShell activeSection="overview" operator={operator}>
         <header className="platform-console-header">
           <div className="platform-console-header__copy">
             <span className="platform-console-header__eyebrow">PLATFORM OPERATIONS</span>
@@ -368,8 +322,7 @@ export function PlatformConsoleClient({
             </section>
           </aside>
         </div>
-      </main>
-    </div>
+    </PlatformConsoleShell>
   );
 }
 

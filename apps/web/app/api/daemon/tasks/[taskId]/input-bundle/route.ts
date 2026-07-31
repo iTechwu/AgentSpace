@@ -90,6 +90,16 @@ export async function GET(
       payloadOverride: effectivePayload,
       routerSessionContext,
     });
+    if (prepared.skillReadinessBlockers.length > 0 || prepared.skillEnvConflicts.length > 0) {
+      return Response.json(
+        {
+          error: "Task cannot start because skill requirements are not satisfied.",
+          skillReadinessBlockers: prepared.skillReadinessBlockers,
+          skillEnvConflicts: prepared.skillEnvConflicts,
+        },
+        { status: 409 },
+      );
+    }
     const runtimeToolCapabilities = [
       ...buildRuntimeToolCapabilitiesForBundle(prepared.runtimeApps),
       ...buildDocumentRuntimeToolCapabilities(prepared.agentDocumentContexts),

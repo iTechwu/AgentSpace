@@ -56,6 +56,16 @@ export function getManagedRuntimeCredentialEnvKey(provider: DaemonProvider): str
   return key;
 }
 
+/**
+ * The set of env keys that a managed runtime injects for SOME provider. A Skill
+ * that declares one of these risks colliding with (or shadowing) the runtime
+ * credential when that provider is bound later — used for the unbound-runtime /
+ * config-time warning (spec §0 "未绑定 Runtime 时的未来凭据冲突").
+ */
+export function getManagedRuntimeCredentialEnvKeys(): string[] {
+  return Array.from(new Set(Object.values(PROVIDER_CREDENTIAL_ENV_KEYS))).sort();
+}
+
 const PROVIDER_GATEWAY_BASE_URLS: Record<DaemonProvider, string> = {
   claude: "{{gatewayBaseUrl}}/anthropic",
   codex: "{{gatewayBaseUrl}}/v1",
