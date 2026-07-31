@@ -214,11 +214,23 @@ export function buildManagedAttributionProxyHealthCheckCommand(
   },
 ): ManagedProvisioningCommand {
   const modelPath = resolveManagedGatewayHealthPath(input.provider);
+  const providerBaseUrlKey = getManagedProviderBaseUrlEnvironmentKey(input.provider);
+  const providerBaseUrl = profile.environment[providerBaseUrlKey];
+  const healthBaseUrl = providerBaseUrl
+    ? resolveManagedGatewayHealthBaseUrl(providerBaseUrl, input.provider)
+    : undefined;
   return {
     executable: "sh",
     args: [launcherPath, "--version"],
     env: {
-      ...Object.fromEntries(Object.entries(profile.environment).filter(([key]) => key.endsWith("_BASE_URL"))),
+      ...Object.fromEntries(
+        Object.entries(profile.environment)
+          .filter(([key]) => key.endsWith("_BASE_URL"))
+          .map(([key, value]) => [
+            key,
+            key === providerBaseUrlKey ? healthBaseUrl ?? value : value,
+          ]),
+      ),
       DOFE_AGENT_MANAGED_PROXY_HEALTHCHECK: "1",
       DOFE_AGENT_GATEWAY_HEALTHCHECK_PATH: modelPath,
       DOFE_AGENT_RUNTIME_CREDENTIAL_ID: input.runtimeCredentialId,
@@ -234,7 +246,29 @@ function resolveManagedGatewayHealthEndpoint(
   baseUrl: string,
   provider: ManagedProvisioningTask["runtimeType"],
 ): string {
-  return `${baseUrl.replace(/\/$/, "")}${resolveManagedGatewayHealthPath(provider)}`;
+  return `${resolveManagedGatewayHealthBaseUrl(baseUrl, provider)}${resolveManagedGatewayHealthPath(provider)}`;
+}
+
+function resolveManagedGatewayHealthBaseUrl(
+  baseUrl: string,
+  provider: ManagedProvisioningTask["runtimeType"],
+): string {
+  const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
+  // Claude traffic uses the Anthropic protocol prefix, while model discovery is
+  // exposed by the gateway's shared OpenAI-compatible endpoint.
+  return provider === "claude"
+    ? normalizedBaseUrl.replace(/\/anthropic$/, "")
+    : normalizedBaseUrl;
+}
+
+function getManagedProviderBaseUrlEnvironmentKey(
+  provider: ManagedProvisioningTask["runtimeType"],
+): string {
+  return provider === "gemini"
+    ? "GEMINI_BASE_URL"
+    : provider === "claude"
+      ? "ANTHROPIC_BASE_URL"
+      : "OPENAI_BASE_URL";
 }
 
 function resolveManagedGatewayHealthPath(

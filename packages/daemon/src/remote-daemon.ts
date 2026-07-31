@@ -710,11 +710,18 @@ async function pollRemoteTasks(
         });
     } catch (error) {
       if (classifyRemoteLoopError(error) === "skip-runtime") {
-        // Runtime was deleted server-side. The next successful heartbeat reconciles
-        // (prunes) it from `runtimes`, so this surfaces at most once per deletion.
-        console.warn(
-          `Runtime ${runtime.id} no longer exists on the server; skipping until heartbeat reconciles.`,
-        );
+        if (error instanceof DaemonResourceGoneError) {
+          // The next successful heartbeat prunes a server-deleted runtime.
+          console.warn(
+            `Runtime ${runtime.id} no longer exists on the server; skipping until heartbeat reconciles.`,
+          );
+        } else {
+          // A newly provisioned managed runtime can briefly be ineligible to
+          // claim work before the next heartbeat reports it online.
+          console.debug(
+            `Runtime ${runtime.id} is temporarily unavailable; waiting for heartbeat reconciliation.`,
+          );
+        }
         continue;
       }
       throw error;

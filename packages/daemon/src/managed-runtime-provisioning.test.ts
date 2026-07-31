@@ -87,6 +87,21 @@ test("managed readiness probes the gateway through the attribution proxy", () =>
   assert.equal(command.env?.DOFE_AGENT_GATEWAY_HEALTHCHECK_PATH, "/models");
 });
 
+test("Claude proxy health checks use the shared model discovery endpoint", () => {
+  const command = buildManagedAttributionProxyHealthCheckCommand({
+    accountId: "runtime-1",
+    profileDir: "/srv/managed/runtime-1/current",
+    environment: { ANTHROPIC_BASE_URL: "https://model.example/api/anthropic" },
+  }, "/srv/managed/runtime-1/run-claude", {
+    runtimeId: "runtime-1",
+    runtimeCredentialId: "credential-1",
+    provider: "claude",
+  });
+
+  assert.equal(command.env?.ANTHROPIC_BASE_URL, "https://model.example/api");
+  assert.equal(command.env?.DOFE_AGENT_GATEWAY_HEALTHCHECK_PATH, "/v1/models");
+});
+
 test("managed gateway health probe preserves the configured protocol path", async () => {
   let observedUrl = "";
   let observedHeaders: Record<string, string> | undefined;
@@ -121,7 +136,7 @@ test("managed gateway health probe uses provider-specific model endpoints", asyn
         ANTHROPIC_API_KEY: "claude-secret",
         ANTHROPIC_BASE_URL: "https://models.example/anthropic",
       },
-      expectedUrl: "https://models.example/anthropic/v1/models",
+      expectedUrl: "https://models.example/v1/models",
     },
     {
       provider: "gemini" as const,
