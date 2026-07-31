@@ -3,6 +3,7 @@ import type { TokenUsageBillingStatus } from "./types.ts";
 
 export interface BillingCurrencySummary {
   currency: string;
+  estimatedCost: number;
   pendingReconciliationCost: number;
   reconciledCost: number;
   unallocatedCost: number;
@@ -27,20 +28,13 @@ export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEF
 
   const rows = getDatabase().prepare(
     `SELECT billing_status,
-            CASE
-              WHEN billing_status = 'estimated' OR actual_cost_usd IS NULL THEN 'USD'
-              ELSE COALESCE(NULLIF(UPPER(currency), ''), 'UNKNOWN')
-            END AS billing_currency,
+            COALESCE(NULLIF(UPPER(currency), ''), 'USD') AS billing_currency,
             COALESCE(SUM(actual_cost_usd), 0) AS total_actual,
             COALESCE(SUM(cost_usd), 0) AS total_estimated,
             COALESCE(SUM(CASE WHEN actual_cost_usd IS NOT NULL THEN actual_cost_usd ELSE cost_usd END), 0) AS total_effective,
             MAX(reconciled_at) AS last_reconciled
      FROM token_usage ${dateFilter}
-     GROUP BY billing_status,
-              CASE
-                WHEN billing_status = 'estimated' OR actual_cost_usd IS NULL THEN 'USD'
-                ELSE COALESCE(NULLIF(UPPER(currency), ''), 'UNKNOWN')
-              END`,
+     GROUP BY billing_status, COALESCE(NULLIF(UPPER(currency), ''), 'USD')`,
   ).all(...params) as Array<{
     billing_status: string | null;
     billing_currency: string;
@@ -63,12 +57,14 @@ export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEF
     const currency = row.billing_currency;
     const summary = byCurrency.get(currency) ?? {
       currency,
+      estimatedCost: 0,
       pendingReconciliationCost: 0,
       reconciledCost: 0,
       unallocatedCost: 0,
       totalActualCost: 0,
     };
     if (status === "estimated") {
+      summary.estimatedCost += row.total_estimated;
       if (currency === "USD") estimatedCostUsd += row.total_estimated;
     } else if (status === "pending_reconciliation") {
       summary.pendingReconciliationCost += row.total_effective;

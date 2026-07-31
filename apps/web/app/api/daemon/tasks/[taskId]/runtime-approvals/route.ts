@@ -1,4 +1,4 @@
-import { createExternalMessageOutboxSync } from "@dofe-agent/db";
+import { createExternalMessageOutboxSync, readQueuedTaskSync } from "@dofe-agent/db";
 import {
   buildFeishuIdentityBindingRequiredCard,
   buildFeishuInteractiveCardOutboundMessage,
@@ -25,6 +25,10 @@ export async function POST(
   const task = readTaskForDaemon(taskId, auth);
   if (task instanceof Response) {
     return task;
+  }
+  const terminalResponse = rejectApprovalForTerminalTask(task.status);
+  if (terminalResponse) {
+    return terminalResponse;
   }
 
   const body = (await request.json()) as Partial<CreateRuntimeApprovalRequest>;
@@ -53,6 +57,12 @@ export async function POST(
     }, { status: 403 });
   }
 
+  const latestTask = readQueuedTaskSync(task.id);
+  const latestTerminalResponse = rejectApprovalForTerminalTask(latestTask?.status);
+  if (latestTerminalResponse) {
+    return latestTerminalResponse;
+  }
+
   const approval = createRuntimeToolApprovalRequestSync({
     sourceId: task.id,
     agentId: task.agentId,
@@ -72,6 +82,22 @@ export async function POST(
       reviewerComment: approval.reviewerComment,
     },
   });
+}
+
+function rejectApprovalForTerminalTask(status: string | undefined): Response | null {
+  if (status === "cancelled") {
+    return Response.json({
+      error: "Runtime approval cannot be created for a cancelled task.",
+      errorCode: "task_cancelled",
+    }, { status: 409 });
+  }
+  if (status === "completed" || status === "failed") {
+    return Response.json({
+      error: "Runtime approval cannot be created for a terminal task.",
+      errorCode: "task_terminal",
+    }, { status: 409 });
+  }
+  return null;
 }
 
 function resolveTaskChannelName(inputJson: string): string {

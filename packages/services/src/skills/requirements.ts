@@ -68,6 +68,32 @@ export function readSkillRequirementDeclarations(configJson: string | undefined)
   }
 }
 
+/**
+ * Returns `kind:value` strings for stored requirement entries that would be
+ * rejected by the parser today — primarily historically-allowed reserved
+ * `DOFE_AGENT_*` keys. `readSkillRequirementDeclarations` silently drops these,
+ * so this lets the UI surface a warning instead of hiding the problem.
+ */
+export function readInvalidSkillRequirementDeclarations(configJson: string | undefined): string[] {
+  const config = readSkillConfig(configJson);
+  if (!config || !Array.isArray(config.requirements)) {
+    return [];
+  }
+  const invalid: string[] = [];
+  for (const entry of config.requirements) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const kind = typeof record.kind === "string" ? record.kind : "";
+    const value = typeof record.value === "string" ? record.value : "";
+    if ((kind === "config" || kind === "secret") && value.startsWith("DOFE_AGENT_")) {
+      invalid.push(`${kind}:${value}`);
+    }
+  }
+  return invalid;
+}
+
 export function readSkillRequirementConfiguration(configJson: string | undefined): SkillRequirementConfiguration {
   const config = readSkillConfig(configJson);
   const stored = config?.requirementConfiguration;

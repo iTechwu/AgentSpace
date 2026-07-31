@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "48";
+export const POSTGRES_SCHEMA_VERSION = "49";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -1192,6 +1192,7 @@ export function getPostgresSchemaStatements(): string[] {
         display_name TEXT NOT NULL,
         input_per_1m DOUBLE PRECISION NOT NULL,
         output_per_1m DOUBLE PRECISION NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'USD',
         updated_at TIMESTAMPTZ NOT NULL
       )
     `,
@@ -1361,6 +1362,7 @@ export function getPostgresSchemaStatements(): string[] {
       ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS router_session_id TEXT
     `,
     `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS provider_account_id TEXT REFERENCES provider_account(id) ON DELETE SET NULL`,
+    `ALTER TABLE model_pricing ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'USD'`,
     `
       ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS billing_status TEXT NOT NULL DEFAULT 'estimated'
     `,

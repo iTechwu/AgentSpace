@@ -214,6 +214,7 @@ export interface RuntimeModelCatalogItem {
   supportsFunctionCalling?: boolean;
   inputPrice?: number | null;
   outputPrice?: number | null;
+  priceCurrency?: string | null;
   isAvailable: boolean;
   unavailableReason?: string;
 }
@@ -237,6 +238,7 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
   const list = response.list
     .filter(isExecutionLanguageModel)
     .map((model) => {
+      const effectivePricing = resolveEffectiveModelPricing(model);
       const supported = (model as { supportedProtocols?: string[] }).supportedProtocols ?? [];
       const protocol = protocols.find((p) => supported.includes(p));
       const isAvailable = Boolean(
@@ -253,8 +255,9 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
         contextLength: (model as { contextLength?: number }).contextLength,
         supportsVision: (model as { supportsVision?: boolean }).supportsVision,
         supportsFunctionCalling: (model as { supportsFunctionCalling?: boolean }).supportsFunctionCalling,
-        inputPrice: (model as { inputPrice?: number | null }).inputPrice,
-        outputPrice: (model as { outputPrice?: number | null }).outputPrice,
+        inputPrice: effectivePricing.inputPrice,
+        outputPrice: effectivePricing.outputPrice,
+        priceCurrency: effectivePricing.currency,
         isAvailable,
         unavailableReason: protocol
           ? isAvailable
@@ -302,8 +305,12 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
       supportsFunctionCalling?: boolean;
       inputPrice?: number | null;
       outputPrice?: number | null;
+      inputPriceCurrency?: string | null;
+      outputPriceCurrency?: string | null;
+      pricing?: unknown;
       isAvailable?: boolean;
     };
+    const effectivePricing = resolveEffectiveModelPricing(catalogModel);
     const supportedProtocols = catalogModel.supportedProtocols ?? [];
     const runtimeProtocols = runtime.protocols ?? [];
     const matchedProtocol = supportedProtocols.find((protocol) => runtimeProtocols.includes(protocol));
@@ -334,8 +341,9 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
       contextLength: catalogModel.contextLength,
       supportsVision: catalogModel.supportsVision,
       supportsFunctionCalling: catalogModel.supportsFunctionCalling,
-      inputPrice: catalogModel.inputPrice,
-      outputPrice: catalogModel.outputPrice,
+      inputPrice: effectivePricing.inputPrice,
+      outputPrice: effectivePricing.outputPrice,
+      priceCurrency: effectivePricing.currency,
       isAvailable,
       isEnabled: model.isEnabled,
       unavailableReason,
@@ -346,6 +354,25 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
     total: list.length,
     configured: true as const,
     catalogState: "ready" as const,
+  };
+}
+
+function resolveEffectiveModelPricing(model: {
+  inputPrice?: number | null;
+  outputPrice?: number | null;
+  inputPriceCurrency?: string | null;
+  outputPriceCurrency?: string | null;
+  pricing?: unknown;
+}): { inputPrice?: number | null; outputPrice?: number | null; currency?: string | null } {
+  const pricing = typeof model.pricing === "object" && model.pricing !== null
+    ? model.pricing as Record<string, unknown>
+    : undefined;
+  return {
+    inputPrice: typeof pricing?.actualInputPrice === "number" ? pricing.actualInputPrice : model.inputPrice,
+    outputPrice: typeof pricing?.actualOutputPrice === "number" ? pricing.actualOutputPrice : model.outputPrice,
+    currency: typeof pricing?.currency === "string"
+      ? pricing.currency
+      : model.inputPriceCurrency ?? model.outputPriceCurrency,
   };
 }
 

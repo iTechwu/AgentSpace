@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { moveTaskToColumnAction } from "@/features/task-board/actions";
+import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import type { TaskBoardColumn, TaskBoardGroupBy, TaskBoardPageData } from "@/features/dashboard/data";
 import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-invalidation";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
@@ -22,10 +23,12 @@ const groupByOptions: Array<{ key: TaskBoardGroupBy; label: [string, string] }> 
 
 export function TaskBoardPageClient({
   data,
+  workspaceSlug,
   onDataChanged,
   onInvalidation,
 }: {
   data: TaskBoardPageData;
+  workspaceSlug: string;
   onDataChanged?: () => void;
   onInvalidation?: (event: WorkspaceInvalidationEvent) => void;
 }) {
@@ -126,7 +129,7 @@ export function TaskBoardPageClient({
 
       {data.totalCount === 0 ? (
         <EmptyState
-          actionHref="./im"
+          actionHref={buildWorkspacePath(workspaceSlug, "/im")}
           actionLabel={tx("前往消息", "Open messages")}
           body={tx("在消息中向数字员工分配工作，任务产生后会自动出现在这里。", "Assign work to a digital employee in messages. New tasks will appear here automatically.")}
           eyebrow={tx("任务看板", "Task board")}

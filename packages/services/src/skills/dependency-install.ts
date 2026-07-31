@@ -103,6 +103,85 @@ export function hasGitHubSkillDependenciesSync(input: { workspaceId: string; ski
   });
 }
 
+export type SkillDependencyInstallStatus =
+  | "none"
+  | "waiting_runtime"
+  | "ok"
+  | "installing"
+  | "pending"
+  | "failed";
+
+/**
+ * Computes the aggregate dependency-install status for one skill on one employee
+ * (spec §5.3 "环境就绪 / 依赖安装失败"). Non-GitHub skills or skills without
+ * declared dependencies report `none`. Worst-status-wins across dependencies.
+ */
+export function readSkillDependencyInstallStatusSync(input: {
+  workspaceId: string;
+  employeeName: string;
+  skillId: string;
+}): SkillDependencyInstallStatus {
+  const skill = readWorkspaceSkillSync(input.skillId, input.workspaceId);
+  if (!skill || skill.sourceType !== "github") {
+    return "none";
+  }
+  const dependencies = readSkillDependencyDeclarations(skill.configJson);
+  if (dependencies.length === 0) {
+    return "none";
+  }
+  const runtimeBinding = readEmployeeRuntimeBindingSync(input.employeeName, input.workspaceId);
+  if (!runtimeBinding) {
+    return "waiting_runtime";
+  }
+  const runtime = readAgentRuntimeSync(runtimeBinding.runtimeId);
+  if (!runtime || runtime.workspaceId !== input.workspaceId) {
+    return "waiting_runtime";
+  }
+
+  const operations = listRuntimeAppOperationsSync({
+    workspaceId: input.workspaceId,
+    runtimeId: runtime.id,
+    limit: 500,
+  });
+  let hasFailed = false;
+  let hasInstalling = false;
+  let hasPending = false;
+  for (const dependency of dependencies) {
+    const appName = dependencyOperationName(skill.id, dependency);
+    const installed = readRuntimeInstalledAppSync({
+      workspaceId: input.workspaceId,
+      runtimeId: runtime.id,
+      source: DEPENDENCY_SOURCE,
+      name: appName,
+    });
+    if (installed?.status === "installed" && installed.enabled) {
+      continue;
+    }
+    if (installed?.status === "failed") {
+      hasFailed = true;
+      continue;
+    }
+    if (installed?.status === "installing") {
+      hasInstalling = true;
+      continue;
+    }
+    const active = operations.some((operation) => (
+      operation.appSource === DEPENDENCY_SOURCE
+      && operation.appName === appName
+      && (operation.status === "pending" || operation.status === "claimed" || operation.status === "running")
+    ));
+    if (active) {
+      hasInstalling = true;
+    } else {
+      hasPending = true;
+    }
+  }
+  if (hasFailed) return "failed";
+  if (hasInstalling) return "installing";
+  if (hasPending) return "pending";
+  return "ok";
+}
+
 export function buildSkillDependencyInstallPlan(
   skillId: string,
   dependency: SkillDependencyDeclaration,

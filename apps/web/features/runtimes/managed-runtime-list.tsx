@@ -97,7 +97,7 @@ export function ManagedRuntimeList({
               ) : null}
             </td>
             <td>{formatHeartbeat(runtime.lastHeartbeatAt, language)}</td>
-            <td className="runtime-list__number"><span>{formatCny(runtime.periodActualCostUsd)}</span>{runtime.unallocatedCostUsd > 0 ? <small className="runtime-list__warning">{formatCny(runtime.unallocatedCostUsd)} {tx("未归属", "unallocated")}</small> : null}</td>
+            <td className="runtime-list__number"><span>{formatMoney(runtime.periodActualCostUsd, runtime.periodCurrency)}</span>{runtime.unallocatedCostUsd > 0 ? <small className="runtime-list__warning">{formatMoney(runtime.unallocatedCostUsd, runtime.periodCurrency)} {tx("未归属", "unallocated")}</small> : null}</td>
             <td className="runtime-list__actions">{runtime.provisioningState === "needs_attention" ? (
               <button
                 type="button"
@@ -137,6 +137,11 @@ function formatHeartbeat(value: string | undefined, language: "zh" | "en"): stri
 
 function formatCny(value: number): string {
   return `¥${value.toFixed(4)}`;
+}
+
+function formatMoney(value: number, currency?: string): string {
+  const normalized = currency?.trim().toUpperCase();
+  return !normalized || normalized === "CNY" ? formatCny(value) : `${value.toFixed(4)} ${normalized}`;
 }
 
 function presentRuntimeState(runtime: ManagedRuntimeListItem, tx: (zh: string, en: string) => string): {

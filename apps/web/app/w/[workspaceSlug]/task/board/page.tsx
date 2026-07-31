@@ -28,7 +28,7 @@ export default async function WorkspaceTaskBoardPage({
       serverDurationMs={result.meta.durationMs}
       workspaceId={workspaceContext.currentWorkspace.id}
     >
-      <TaskBoardPageClient data={result.data.data} />
+      <TaskBoardPageClient data={result.data.data} workspaceSlug={workspaceContext.currentWorkspace.slug} />
     </WorkspaceInitialModuleData>
   );
 }

@@ -64,7 +64,12 @@ import {
   type RuntimeCredentialRecoveryTaskRecord,
   type WorkspaceSsoBindingRecord,
 } from "@dofe-agent/db";
-import { isDaemonProvider, resolveProviderProtocols, type DaemonProvider } from "@dofe-agent/domain";
+import {
+  isDaemonProvider,
+  resolveProviderDefaultModel,
+  resolveProviderProtocols,
+  type DaemonProvider,
+} from "@dofe-agent/domain";
 import {
   getModelsInternalClient,
   preflightModelsBillingByScopeAsync,
@@ -98,6 +103,20 @@ const DEFAULT_CLEANUP_TIMEOUT_MS = 10 * 60 * 1000;
 const RETRY_BACKOFF_BASE_MS = 15_000;
 const RETRY_BACKOFF_MAX_MS = 5 * 60 * 1000;
 const DEFAULT_CREDENTIAL_RECONCILIATION_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
+
+function resolveManagedRuntimeDefaultModel(provider: DaemonProvider, requestedModel?: string): string | undefined {
+  return requestedModel?.trim() || resolveProviderDefaultModel(provider);
+}
+
+function resolveManagedRuntimeAllowedModels(provider: DaemonProvider, requestedModels?: string[]): string[] {
+  // An empty Models credential allowlist delegates filtering to team policy,
+  // protocol compatibility and availability. Responses runtimes need that
+  // dynamic catalog so an employee model does not become the sole allowed one.
+  if (resolveProviderProtocols(provider).includes("openai_response")) {
+    return [];
+  }
+  return [...new Set((requestedModels ?? []).map((model) => model.trim()).filter(Boolean))];
+}
 
 function computeRetryBackoffMs(retryCount: number): number {
   const jitter = Math.random() * 0.4 + 0.8;
@@ -225,6 +244,7 @@ function findReusableManagedRuntime(
   const requiredProtocols = input.protocols?.length
     ? input.protocols
     : resolveProviderProtocols(input.provider);
+  const requestedModel = resolveManagedRuntimeDefaultModel(input.provider, input.defaultModel);
   const targetRuntimeIds = input.targetServer
     ? new Set(
         listDaemonSnapshotsSync(input.workspaceId)
@@ -239,7 +259,7 @@ function findReusableManagedRuntime(
     && runtime.provisioningState === "managed"
     && runtime.allowNewEmployeeSharing !== false
     && requiredProtocols.every((protocol) => runtime.protocols?.includes(protocol))
-    && (!input.defaultModel || runtime.defaultModel === input.defaultModel)
+    && (!requestedModel || runtime.defaultModel === requestedModel)
     && (!targetRuntimeIds || targetRuntimeIds.has(runtime.id)),
   );
 }
@@ -268,6 +288,8 @@ export function requestManagedRuntimeProvisioningSync(
   const protocols = input.protocols?.length
     ? input.protocols
     : resolveProviderProtocols(input.provider);
+  const defaultModel = resolveManagedRuntimeDefaultModel(input.provider, input.defaultModel);
+  const allowedModels = resolveManagedRuntimeAllowedModels(input.provider, input.allowedModels);
 
   const task = createRuntimeProvisioningTaskSync({
     workspaceId: input.workspaceId,
@@ -276,8 +298,8 @@ export function requestManagedRuntimeProvisioningSync(
     runtimeType: input.provider,
     protocols,
     requestedName: input.name,
-    requestedModel: input.defaultModel,
-    allowedModels: input.allowedModels,
+    requestedModel: defaultModel,
+    allowedModels,
     targetServer: input.targetServer,
   });
 
@@ -293,7 +315,7 @@ export function requestManagedRuntimeProvisioningSync(
   // after the caller leaves the page. Errors are written back to the task.
   void runProvisioningPipeline(task.id, input.workspaceId, {
     name: input.name,
-    allowedModels: input.allowedModels,
+    allowedModels,
     allowNewEmployeeSharing: input.allowNewEmployeeSharing,
   }).catch((error) => {
     markRuntimeProvisioningTaskFailedSync({
@@ -468,20 +490,52 @@ export function listManagedRuntimesForWorkspaceSync(
   for (const binding of listEmployeeRuntimeBindingsSync(input.workspaceId)) {
     bindingCountByRuntime.set(binding.runtimeId, (bindingCountByRuntime.get(binding.runtimeId) ?? 0) + 1);
   }
-  const actualCostByRuntime = new Map(
+  const runtimeCosts = new Map(
     listRuntimeCostSummariesSync(getMonthStartIso(), input.workspaceId)
-      .map((summary) => [summary.runtimeId, summary.totalActualCostUsd]),
+      .map((summary) => [summary.runtimeId, summary]),
   );
-  const unallocatedCostByCredential = new Map<string, number>();
+  const credentialUsage = new Map<string, {
+    pendingCount: number;
+    unallocatedCount: number;
+    unallocatedInputTokens: number;
+    unallocatedOutputTokens: number;
+    unallocatedEstimatedCostUsd: number;
+    unallocatedActualCostUsd: number;
+    unpricedCount: number;
+    currencies: Set<string>;
+  }>();
   for (const usage of listTokenUsageSync({ workspaceId: input.workspaceId, since: getMonthStartIso() })) {
-    if (usage.billingStatus !== "unallocated" || !usage.runtimeCredentialId) continue;
-    unallocatedCostByCredential.set(
-      usage.runtimeCredentialId,
-      (unallocatedCostByCredential.get(usage.runtimeCredentialId) ?? 0) + (usage.actualCostUsd ?? 0),
-    );
+    if (!usage.runtimeCredentialId) continue;
+    const summary = credentialUsage.get(usage.runtimeCredentialId) ?? {
+      pendingCount: 0,
+      unallocatedCount: 0,
+      unallocatedInputTokens: 0,
+      unallocatedOutputTokens: 0,
+      unallocatedEstimatedCostUsd: 0,
+      unallocatedActualCostUsd: 0,
+      unpricedCount: 0,
+      currencies: new Set<string>(),
+    };
+    if (usage.currency?.trim()) summary.currencies.add(usage.currency.trim().toUpperCase());
+    if (usage.billingStatus === "pending_reconciliation") summary.pendingCount += 1;
+    if (usage.costUsd === 0 && usage.inputTokens + usage.outputTokens > 0) summary.unpricedCount += 1;
+    if (usage.billingStatus === "unallocated") {
+      summary.unallocatedCount += 1;
+      summary.unallocatedInputTokens += usage.inputTokens;
+      summary.unallocatedOutputTokens += usage.outputTokens;
+      summary.unallocatedEstimatedCostUsd += usage.costUsd;
+      summary.unallocatedActualCostUsd += usage.actualCostUsd ?? 0;
+    }
+    credentialUsage.set(usage.runtimeCredentialId, summary);
   }
   return rows
-    .map((row) => ({
+    .map((row) => {
+      const attributed = runtimeCosts.get(row.id);
+      const exceptional = credentialUsage.get(row.managedCredentialId!);
+      const attributedInputTokens = attributed?.totalInputTokens ?? 0;
+      const attributedOutputTokens = attributed?.totalOutputTokens ?? 0;
+      const periodEstimatedCostUsd = (attributed?.totalCostUsd ?? 0) + (exceptional?.unallocatedEstimatedCostUsd ?? 0);
+      return {
       id: row.id,
       name: row.name,
       provider: row.provider,
@@ -493,9 +547,19 @@ export function listManagedRuntimesForWorkspaceSync(
       allowNewEmployeeSharing: row.allowNewEmployeeSharing,
       assignedEmployeeCount: bindingCountByRuntime.get(row.id) ?? 0,
       lastHeartbeatAt: row.lastHeartbeatAt,
-      periodActualCostUsd: actualCostByRuntime.get(row.id) ?? 0,
-      unallocatedCostUsd: unallocatedCostByCredential.get(row.managedCredentialId!) ?? 0,
-    }));
+      periodTaskCount: attributed?.taskCount ?? 0,
+      periodInputTokens: attributedInputTokens + (exceptional?.unallocatedInputTokens ?? 0),
+      periodOutputTokens: attributedOutputTokens + (exceptional?.unallocatedOutputTokens ?? 0),
+      periodEstimatedCostUsd,
+      periodCurrency: exceptional?.currencies.size === 1 ? [...exceptional.currencies][0] : undefined,
+      periodActualCostUsd: (attributed?.totalActualCostUsd ?? 0) + (exceptional?.unallocatedActualCostUsd ?? 0),
+      pendingUsageCount: exceptional?.pendingCount ?? 0,
+      unallocatedUsageCount: exceptional?.unallocatedCount ?? 0,
+      unpricedUsageCount: exceptional?.unpricedCount
+        ?? (periodEstimatedCostUsd === 0 && attributedInputTokens + attributedOutputTokens > 0 ? 1 : 0),
+      unallocatedCostUsd: exceptional?.unallocatedActualCostUsd ?? 0,
+    };
+    });
 }
 
 export interface ManagedRuntimeListItem {
@@ -511,7 +575,15 @@ export interface ManagedRuntimeListItem {
   allowNewEmployeeSharing?: boolean;
   assignedEmployeeCount: number;
   lastHeartbeatAt?: string;
+  periodTaskCount?: number;
+  periodInputTokens?: number;
+  periodOutputTokens?: number;
+  periodEstimatedCostUsd?: number;
+  periodCurrency?: string;
   periodActualCostUsd: number;
+  pendingUsageCount?: number;
+  unallocatedUsageCount?: number;
+  unpricedUsageCount?: number;
   unallocatedCostUsd: number;
 }
 
@@ -575,7 +647,10 @@ export async function rotateManagedRuntimeCredentialAsync(
         runtimeId: runtime.id,
         runtimeType: runtime.provider,
         protocols: runtime.protocols?.length ? runtime.protocols : resolveProviderProtocols(runtime.provider),
-        allowedModels: runtime.defaultModel ? [runtime.defaultModel] : [],
+        allowedModels: resolveManagedRuntimeAllowedModels(
+          runtime.provider,
+          runtime.defaultModel ? [runtime.defaultModel] : [],
+        ),
         defaultModel: runtime.defaultModel,
         idempotencyKey: `reissue:${runtime.id}:${operationId}`,
         audit: { actorId: input.actorUserId, replacedCredentialId: credentialId },
@@ -661,9 +736,9 @@ export interface EnsureManagedRuntimeModelAllowedInput extends ManagedRuntimeAct
 }
 
 /**
- * Employee defaults share the bound Runtime credential. When that credential
- * has an explicit allowlist, add the requested employee model without changing
- * the Runtime default or removing models already used by other employees.
+ * Employee defaults share the bound Runtime credential. Responses runtimes use
+ * the full protocol-compatible catalog; other runtimes extend an explicit
+ * allowlist without changing the Runtime default.
  */
 export async function ensureManagedRuntimeModelAllowedAsync(
   input: EnsureManagedRuntimeModelAllowedInput,
@@ -693,12 +768,16 @@ export async function ensureManagedRuntimeModelAllowedAsync(
   const allowedModels = credential.allowedModels
     .map((value) => value.trim())
     .filter(Boolean);
-  if (allowedModels.length === 0 || allowedModels.includes(modelId)) {
+  const usesProtocolCatalog = resolveProviderProtocols(runtime.provider).includes("openai_response");
+  if (allowedModels.length === 0 || (!usesProtocolCatalog && allowedModels.includes(modelId))) {
     return runtime;
   }
 
   const operationId = input.operationId?.trim() || crypto.randomUUID();
-  const nextAllowedModels = [...new Set([...allowedModels, modelId])];
+  const nextAllowedModels = resolveManagedRuntimeAllowedModels(
+    runtime.provider,
+    [...allowedModels, modelId],
+  );
   await safeRevokeCredential({
     credentialId: previousCredentialId,
     tenantId: scope.tenantId,
@@ -818,10 +897,10 @@ export async function setManagedRuntimeDefaultModelAsync(
       runtimeId: runtime.id,
       runtimeType: runtime.provider,
       protocols,
-      // When following the system default, do not leave the prior selected
-      // model as the sole gateway allowlist entry. The fallback must remain
-      // callable even when it resolves to a different compatible model.
-      allowedModels: defaultModel ? [defaultModel] : [],
+      allowedModels: resolveManagedRuntimeAllowedModels(
+        runtime.provider,
+        defaultModel ? [defaultModel] : [],
+      ),
       defaultModel,
       idempotencyKey: `model-change:${runtime.id}:${defaultModel ?? "system"}:${operationId}`,
       audit: { actorId: input.actorUserId },
@@ -1554,8 +1633,9 @@ export async function preflightManagedRuntimeCreationAsync(
 ): Promise<ManagedRuntimeCreationPreflightResult> {
   assertRemoteRuntimeMode();
   assertCanManageManagedRuntimes(input);
+  const defaultModel = resolveManagedRuntimeDefaultModel(input.provider, input.defaultModel);
   if (!input.forceProvisioning) {
-    const reusable = findReusableManagedRuntime(input);
+    const reusable = findReusableManagedRuntime({ ...input, defaultModel });
     if (reusable) {
       return {
         allowed: true,
@@ -1570,7 +1650,7 @@ export async function preflightManagedRuntimeCreationAsync(
       client: clientProvider(),
       tenantId: scope.tenantId,
       protocols: resolveProviderProtocols(input.provider),
-      requestedModel: input.defaultModel,
+      requestedModel: defaultModel,
     });
   } catch (error) {
     return {
@@ -1631,7 +1711,10 @@ export async function runProvisioningPipeline(
 
   const scope = resolveManagedRuntimeScopeSync(workspaceId);
   const runtimeId = task.runtimeId ?? `runtime-managed-${generateId()}`;
-  const allowedModels = task.allowedModels.length > 0 ? task.allowedModels : options.allowedModels ?? [];
+  const allowedModels = resolveManagedRuntimeAllowedModels(
+    task.runtimeType,
+    task.allowedModels.length > 0 ? task.allowedModels : options.allowedModels,
+  );
 
   // Stage: request_credential (idempotent — skip if already issued)
   if (!task.runtimeCredentialId) {

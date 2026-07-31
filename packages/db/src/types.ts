@@ -1148,6 +1148,7 @@ export interface ModelPricingRecord {
   displayName: string;
   inputPer1M: number;
   outputPer1M: number;
+  currency: string;
   updatedAt: string;
 }
 

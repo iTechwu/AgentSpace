@@ -9,6 +9,7 @@ import {
   createEmployeeSync,
   createWorkspaceSkillSync,
   resetWorkspaceStateSync,
+  updateWorkspaceSkillSync,
   upsertAgentSkillRequirementsSync,
 } from "@dofe-agent/services";
 import { collectSkillReadinessBlockers, resolveAgentSkillEnvironment } from "./task-context.ts";
@@ -160,4 +161,48 @@ test("collectSkillReadinessBlockers reports missing required configuration and c
 
   blockers = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined);
   assert.deepEqual(blockers, []);
+});
+
+test("collectSkillReadinessBlockers flags a missing runtime capability when a capability catalog is supplied", () => {
+  createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
+  const skill = createWorkspaceSkillSync({
+    name: "needs-tool",
+    description: "Tool",
+    configJson: JSON.stringify({ requirements: [{ kind: "capability", value: "ffmpeg" }] }),
+  }, WORKSPACE_ID);
+  upsertAgentSkillRequirementsSync({
+    workspaceId: WORKSPACE_ID, employeeName: "Researcher", skillId: skill.id, actorUserId: TEST_USER_ID,
+    capabilities: ["ffmpeg"],
+  });
+
+  // No catalog supplied → legacy behavior (capabilities are form-confirmed only).
+  assert.deepEqual(collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined), []);
+  // Catalog supplied but missing the capability → blocker.
+  const blocked = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined, ["git", "gh"]);
+  assert.ok(blocked.some((b) => b.includes("ffmpeg") && b.includes("not available")));
+  // Catalog includes it → no blocker.
+  assert.deepEqual(collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined, ["ffmpeg"]), []);
+});
+
+test("collectSkillReadinessBlockers surfaces a missing requirement after a skill requirement upgrade", () => {
+  createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
+  const skill = createWorkspaceSkillSync({
+    name: "upgradable",
+    description: "Upg",
+    configJson: JSON.stringify({ requirements: [{ kind: "config", value: "FIRST_KEY" }] }),
+  }, WORKSPACE_ID);
+  upsertAgentSkillRequirementsSync({
+    workspaceId: WORKSPACE_ID, employeeName: "Researcher", skillId: skill.id, actorUserId: TEST_USER_ID,
+    values: { FIRST_KEY: "v1" },
+  });
+  assert.deepEqual(collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined), []);
+
+  // Simulate a skill update that adds a new required key.
+  updateWorkspaceSkillSync({ skillId: skill.id, configJson: JSON.stringify({ requirements: [
+    { kind: "config", value: "FIRST_KEY" },
+    { kind: "config", value: "SECOND_KEY" },
+  ] }) }, WORKSPACE_ID);
+
+  const blockers = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined);
+  assert.ok(blockers.some((b) => b.includes("SECOND_KEY")), "expected the newly-required key to block the task");
 });

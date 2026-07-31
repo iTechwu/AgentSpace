@@ -19,8 +19,8 @@ export function ensureDefaultPricingSync(): void {
   const db = getDatabase();
   const now = new Date().toISOString();
   const stmt = db.prepare(
-    `INSERT INTO model_pricing (model_id, display_name, input_per_1m, output_per_1m, updated_at)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO model_pricing (model_id, display_name, input_per_1m, output_per_1m, currency, updated_at)
+     VALUES (?, ?, ?, ?, 'USD', ?)
      ON CONFLICT(model_id) DO NOTHING`,
   );
   for (const p of DEFAULT_PRICING) {
@@ -38,6 +38,7 @@ export function upsertModelPricingSync(input: {
   displayName?: string;
   inputPer1M: number;
   outputPer1M: number;
+  currency?: string;
   updatedAt?: string;
 }): ModelPricingRecord {
   const modelId = input.modelId.trim();
@@ -49,23 +50,42 @@ export function upsertModelPricingSync(input: {
   const db = getDatabase();
   const updatedAt = input.updatedAt ?? new Date().toISOString();
   const displayName = input.displayName?.trim() || modelId;
+  const currency = input.currency?.trim().toUpperCase() || "USD";
+  const existing = db.prepare(
+    `SELECT display_name, input_per_1m, output_per_1m, currency
+     FROM model_pricing WHERE model_id = ?`,
+  ).get(modelId) as {
+    display_name: string;
+    input_per_1m: number;
+    output_per_1m: number;
+    currency: string;
+  } | undefined;
   db.prepare(
-    `INSERT INTO model_pricing (model_id, display_name, input_per_1m, output_per_1m, updated_at)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO model_pricing (model_id, display_name, input_per_1m, output_per_1m, currency, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT (model_id) DO UPDATE SET
        display_name = excluded.display_name,
        input_per_1m = excluded.input_per_1m,
        output_per_1m = excluded.output_per_1m,
+       currency = excluded.currency,
        updated_at = excluded.updated_at`,
-  ).run(modelId, displayName, input.inputPer1M, input.outputPer1M, updatedAt);
+  ).run(modelId, displayName, input.inputPer1M, input.outputPer1M, currency, updatedAt);
 
-  db.prepare(
-    `UPDATE token_usage
-     SET cost_usd = (input_tokens / 1000000.0) * ? + (output_tokens / 1000000.0) * ?
-     WHERE model_id = ?`,
-  ).run(input.inputPer1M, input.outputPer1M, modelId);
+  if (
+    !existing
+    || existing.input_per_1m !== input.inputPer1M
+    || existing.output_per_1m !== input.outputPer1M
+    || existing.currency !== currency
+  ) {
+    db.prepare(
+      `UPDATE token_usage
+       SET cost_usd = (input_tokens / 1000000.0) * ? + (output_tokens / 1000000.0) * ?,
+           currency = CASE WHEN actual_cost_usd IS NULL THEN ? ELSE currency END
+       WHERE model_id = ?`,
+    ).run(input.inputPer1M, input.outputPer1M, currency, modelId);
+  }
 
-  return { modelId, displayName, inputPer1M: input.inputPer1M, outputPer1M: input.outputPer1M, updatedAt };
+  return { modelId, displayName, inputPer1M: input.inputPer1M, outputPer1M: input.outputPer1M, currency, updatedAt };
 }
 
 export function listModelPricingSync(): ModelPricingRecord[] {
@@ -76,6 +96,7 @@ export function listModelPricingSync(): ModelPricingRecord[] {
     display_name: string;
     input_per_1m: number;
     output_per_1m: number;
+    currency: string;
     updated_at: string;
   }>;
   return rows.map((row) => ({
@@ -83,6 +104,7 @@ export function listModelPricingSync(): ModelPricingRecord[] {
     displayName: row.display_name,
     inputPer1M: row.input_per_1m,
     outputPer1M: row.output_per_1m,
+    currency: row.currency,
     updatedAt: row.updated_at,
   }));
 }
@@ -95,6 +117,7 @@ export function readModelPricingSync(modelId: string): ModelPricingRecord | unde
     display_name: string;
     input_per_1m: number;
     output_per_1m: number;
+    currency: string;
     updated_at: string;
   } | undefined;
   if (!row) return undefined;
@@ -103,6 +126,7 @@ export function readModelPricingSync(modelId: string): ModelPricingRecord | unde
     displayName: row.display_name,
     inputPer1M: row.input_per_1m,
     outputPer1M: row.output_per_1m,
+    currency: row.currency,
     updatedAt: row.updated_at,
   };
 }
@@ -140,6 +164,7 @@ export function recordTokenUsageSync(input: RecordTokenUsageInput): TokenUsageRe
   const now = new Date().toISOString();
   const pricing = readModelPricingSync(input.modelId);
   const costUsd = pricing ? computeCostUsd(input.inputTokens, input.outputTokens, pricing) : 0;
+  const usageCurrency = input.currency?.trim().toUpperCase() || pricing?.currency;
   const workspaceId = input.workspaceId ?? (input.taskQueueId ? readWorkspaceIdForTaskQueueSync(input.taskQueueId) : null) ?? DEFAULT_WORKSPACE_ID;
   const billingStatus = input.billingStatus ?? "estimated";
 
@@ -171,7 +196,7 @@ export function recordTokenUsageSync(input: RecordTokenUsageInput): TokenUsageRe
     input.cacheTokens ?? 0,
     costUsd,
     input.actualCostUsd ?? null,
-    input.currency ?? null,
+    usageCurrency ?? null,
     billingStatus,
     input.requestStartedAt ?? null,
     input.requestEndedAt ?? null,
@@ -236,7 +261,7 @@ export function recordTokenUsageSync(input: RecordTokenUsageInput): TokenUsageRe
     gatewayUsageId: input.gatewayUsageId,
     protocol: input.protocol,
     actualCostUsd: input.actualCostUsd,
-    currency: input.currency,
+    currency: usageCurrency,
     billingStatus,
     inputTokens: input.inputTokens,
     outputTokens: input.outputTokens,
@@ -360,7 +385,7 @@ export function getAgentCostSummarySync(agentId: string, since?: string, workspa
     `SELECT COALESCE(SUM(input_tokens), 0) AS total_input,
             COALESCE(SUM(output_tokens), 0) AS total_output,
             COALESCE(SUM(cost_usd), 0) AS total_cost,
-            COUNT(*) AS task_count
+            COUNT(DISTINCT task_queue_id) AS task_count
      FROM token_usage WHERE workspace_id = ? AND agent_id = ?${dateFilter}`,
   ).get(...params) as { total_input: number; total_output: number; total_cost: number; task_count: number };
 
@@ -397,7 +422,7 @@ export function getWorkspaceCostSummarySync(since?: string, workspaceId = DEFAUL
             COALESCE(SUM(input_tokens), 0) AS total_input,
             COALESCE(SUM(output_tokens), 0) AS total_output,
             COALESCE(SUM(cost_usd), 0) AS total_cost,
-            COUNT(*) AS task_count
+            COUNT(DISTINCT task_queue_id) AS task_count
      FROM token_usage${dateFilter}
      GROUP BY agent_id, model_id, provider_account_id, runtime_credential_id
      ORDER BY total_cost DESC`,
@@ -448,7 +473,7 @@ export function getRuntimeCostSummarySync(
             COALESCE(SUM(t.output_tokens), 0) AS total_output,
             COALESCE(SUM(t.cost_usd), 0) AS total_cost,
             COALESCE(SUM(t.actual_cost_usd), 0) AS total_actual,
-            COUNT(*) AS task_count
+            COUNT(DISTINCT t.task_queue_id) AS task_count
      FROM token_usage t
      JOIN agent_task_queue q ON q.id = t.task_queue_id AND q.workspace_id = t.workspace_id
      WHERE t.workspace_id = ? AND q.runtime_id = ?${dateFilter}`,
@@ -494,7 +519,7 @@ export function listRuntimeCostSummariesSync(
             COALESCE(SUM(t.output_tokens), 0) AS total_output,
             COALESCE(SUM(t.cost_usd), 0) AS total_cost,
             COALESCE(SUM(t.actual_cost_usd), 0) AS total_actual,
-            COUNT(*) AS task_count
+            COUNT(DISTINCT t.task_queue_id) AS task_count
      FROM token_usage t
      JOIN agent_task_queue q ON q.id = t.task_queue_id AND q.workspace_id = t.workspace_id
      WHERE t.workspace_id = ?${dateFilter}
@@ -543,7 +568,7 @@ export function getRuntimeCredentialCostSummarySync(
             COALESCE(SUM(output_tokens), 0) AS total_output,
             COALESCE(SUM(cost_usd), 0) AS total_cost,
             COALESCE(SUM(actual_cost_usd), 0) AS total_actual,
-            COUNT(*) AS task_count
+            COUNT(DISTINCT task_queue_id) AS task_count
      FROM token_usage
      WHERE workspace_id = ? AND runtime_credential_id = ?${dateFilter}`,
   ).get(...params) as {
@@ -588,7 +613,7 @@ export function listRuntimeCredentialCostSummariesSync(
             COALESCE(SUM(output_tokens), 0) AS total_output,
             COALESCE(SUM(cost_usd), 0) AS total_cost,
             COALESCE(SUM(actual_cost_usd), 0) AS total_actual,
-            COUNT(*) AS task_count
+            COUNT(DISTINCT task_queue_id) AS task_count
      FROM token_usage
      WHERE workspace_id = ? AND runtime_credential_id IS NOT NULL${dateFilter}
      GROUP BY runtime_credential_id
@@ -636,7 +661,7 @@ export function getSessionCostSummarySync(
             COALESCE(SUM(output_tokens), 0) AS total_output,
             COALESCE(SUM(cost_usd), 0) AS total_cost,
             COALESCE(SUM(actual_cost_usd), 0) AS total_actual,
-            COUNT(*) AS task_count
+            COUNT(DISTINCT task_queue_id) AS task_count
      FROM token_usage
      WHERE workspace_id = ? AND router_session_id = ?${dateFilter}`,
   ).get(...params) as {
@@ -681,7 +706,7 @@ export function listSessionCostSummariesSync(
             COALESCE(SUM(output_tokens), 0) AS total_output,
             COALESCE(SUM(cost_usd), 0) AS total_cost,
             COALESCE(SUM(actual_cost_usd), 0) AS total_actual,
-            COUNT(*) AS task_count
+            COUNT(DISTINCT task_queue_id) AS task_count
      FROM token_usage
      WHERE workspace_id = ? AND router_session_id IS NOT NULL${dateFilter}
      GROUP BY router_session_id

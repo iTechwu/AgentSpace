@@ -147,17 +147,25 @@ export function buildManagedRuntimeAttributionHeaders(input: {
   conversationId: string;
   timestampSeconds: number;
 }): Record<string, string> {
-  if (!ATTRIBUTION_ID_PATTERN.test(input.employeeId) || !ATTRIBUTION_ID_PATTERN.test(input.conversationId)) {
+  const employeeId = encodeAttributionIdentifier(input.employeeId);
+  const conversationId = encodeAttributionIdentifier(input.conversationId);
+  if (!employeeId || !conversationId) {
     throw new Error("managed_runtime.invalid_attribution_id");
   }
   const timestamp = String(input.timestampSeconds);
-  const content = [input.runtimeCredentialId, input.runtimeId, input.employeeId, input.conversationId, timestamp].join("\n");
+  const content = [input.runtimeCredentialId, input.runtimeId, employeeId, conversationId, timestamp].join("\n");
   return {
-    "x-dofe-employee-id": input.employeeId,
-    "x-dofe-conversation-id": input.conversationId,
+    "x-dofe-employee-id": employeeId,
+    "x-dofe-conversation-id": conversationId,
     "x-dofe-attribution-timestamp": timestamp,
     "x-dofe-attribution-signature": createHmac("sha256", input.runtimeKey).update(content, "utf8").digest("hex"),
   };
+}
+
+function encodeAttributionIdentifier(value: string): string | undefined {
+  if (ATTRIBUTION_ID_PATTERN.test(value)) return value;
+  const encoded = `utf8.${Buffer.from(value, "utf8").toString("base64url")}`;
+  return ATTRIBUTION_ID_PATTERN.test(encoded) ? encoded : undefined;
 }
 
 export function getManagedProviderCredentialEnvironmentKey(provider: DaemonProvider): string {
@@ -351,6 +359,11 @@ if (!upstreamBaseUrl || !runtimeKeyName || !runtimeKey || !executable) {
 const upstream = new URL(upstreamBaseUrl);
 const basePath = upstream.pathname.replace(/\\\/$/, "");
 const idPattern = /^[A-Za-z0-9._:-]{1,128}$/;
+const encodeAttributionId = (value) => {
+  if (idPattern.test(value)) return value;
+  const encoded = "utf8." + Buffer.from(value, "utf8").toString("base64url");
+  return idPattern.test(encoded) ? encoded : "";
+};
 const server = http.createServer((request, response) => {
   const requestStartedAt = new Date().toISOString();
   let requestPath = request.url || "/";
@@ -372,8 +385,8 @@ const server = http.createServer((request, response) => {
 
   const credentialId = process.env.DOFE_AGENT_RUNTIME_CREDENTIAL_ID || "";
   const runtimeId = process.env.DOFE_AGENT_RUNTIME_ID || "";
-  const employeeId = process.env.DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID || "";
-  const conversationId = process.env.DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID || "";
+  const employeeId = encodeAttributionId(process.env.DOFE_AGENT_ATTRIBUTION_EMPLOYEE_ID || "");
+  const conversationId = encodeAttributionId(process.env.DOFE_AGENT_ATTRIBUTION_CONVERSATION_ID || "");
   if (credentialId && runtimeId && idPattern.test(employeeId) && idPattern.test(conversationId)) {
     const timestamp = String(Math.floor(Date.now() / 1000));
     const content = [credentialId, runtimeId, employeeId, conversationId, timestamp].join("\\n");

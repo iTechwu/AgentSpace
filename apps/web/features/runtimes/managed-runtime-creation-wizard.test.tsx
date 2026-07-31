@@ -95,6 +95,29 @@ it("shows compatible shared capacity and returns the reused runtime", async () =
   });
 });
 
+it("uses Terra as the Codex default without sending a single-model allowlist", async () => {
+  const user = userEvent.setup();
+  render(<ManagedRuntimeCreationWizard onResolved={vi.fn()} />);
+
+  await user.selectOptions(screen.getByLabelText("Capacity type"), "codex");
+  await user.click(screen.getByRole("button", { name: "Continue" }));
+  await user.click(screen.getByRole("button", { name: "Review" }));
+  await screen.findByText("Ready to deploy");
+
+  expect(preflightManagedRuntimeAction).toHaveBeenCalledWith({
+    provider: "codex",
+    defaultModel: "gpt-5.6-terra",
+    forceProvisioning: false,
+  });
+  await user.click(screen.getByRole("button", { name: "Configure capacity" }));
+  const createInput = vi.mocked(createManagedRuntimeAction).mock.calls[0]?.[0];
+  expect(createInput).toEqual(expect.objectContaining({
+    provider: "codex",
+    defaultModel: "gpt-5.6-terra",
+  }));
+  expect(createInput).not.toHaveProperty("allowedModels");
+});
+
 it("uses a new idempotency key after a failed request is reconfigured", async () => {
   const user = userEvent.setup();
   vi.mocked(createManagedRuntimeAction)

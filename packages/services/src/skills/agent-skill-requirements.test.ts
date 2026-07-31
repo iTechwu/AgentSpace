@@ -16,6 +16,7 @@ import {
   setEmployeeSkillIdsSync,
   upsertAgentSkillRequirementsSync,
   deleteAgentSkillRequirementKeySync,
+  resolveSkillProjectWorkDirSync,
 } from "../index.ts";
 
 const originalCwd = process.cwd();
@@ -614,4 +615,81 @@ test("deleteAgentSkillRequirementKeySync removes an encrypted secret and recompu
   assert.ok(!stored.configuredSecretKeys.includes("API_TOKEN"));
   const env = readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: skill.id });
   assert.equal(env.API_TOKEN, undefined);
+});
+
+test("summary exposes a stable queryable statusDetail code per status", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createSkillWithRequirements();
+  // unconfigured → needs_configuration
+  let summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skill.id,
+  });
+  assert.equal(summary.statusDetail.code, "skill_needs_configuration");
+
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skill.id, actorUserId: TEST_USER_ID,
+    values: { NOTION_DATABASE_ID: "db-1" }, secrets: { NOTION_API_TOKEN: "tok" },
+  });
+  summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skill.id, runtimeOnline: true,
+  });
+  assert.equal(summary.status, "ready");
+  assert.equal(summary.statusDetail.code, "skill_ready");
+
+  summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skill.id, runtimeOnline: false,
+  });
+  assert.equal(summary.statusDetail.code, "skill_awaiting_validation");
+});
+
+test("summary surfaces historically-stored reserved DOFE_AGENT_ declarations as invalid", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "legacy-skill",
+    description: "Legacy",
+    configJson: JSON.stringify({
+      requirements: [
+        { kind: "config", value: "DOFE_AGENT_LEGACY" },
+        { kind: "config", value: "HEALTHY_CONFIG" },
+      ],
+    }),
+  });
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skill.id, actorUserId: TEST_USER_ID,
+    values: { HEALTHY_CONFIG: "ok" },
+  });
+  const summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skill.id,
+  });
+  // Reserved key is dropped from active requirements but surfaced as invalid.
+  assert.ok(summary.invalidDeclarations?.includes("config:DOFE_AGENT_LEGACY"));
+  assert.ok(!summary.environment.some((entry) => entry.key === "DOFE_AGENT_LEGACY"));
+});
+
+test("resolveSkillProjectWorkDirSync returns the unanimous project dir and undefined on conflict", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skillA = createWorkspaceSkillSync({
+    name: "proj-a",
+    description: "Project A",
+    configJson: JSON.stringify({ requirements: [{ kind: "project", value: "repo" }] }),
+  });
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skillA.id, actorUserId: TEST_USER_ID,
+    projectWorkDir: "/workspace/proj-a",
+  });
+  setEmployeeSkillIdsSync("Researcher", [skillA.id]);
+  assert.equal(resolveSkillProjectWorkDirSync("default", "Researcher"), "/workspace/proj-a");
+
+  // Second project skill with a different dir → no unanimous consensus.
+  const skillB = createWorkspaceSkillSync({
+    name: "proj-b",
+    description: "Project B",
+    configJson: JSON.stringify({ requirements: [{ kind: "project", value: "repo" }] }),
+  });
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skillB.id, actorUserId: TEST_USER_ID,
+    projectWorkDir: "/workspace/proj-b",
+  });
+  setEmployeeSkillIdsSync("Researcher", [skillA.id, skillB.id]);
+  assert.equal(resolveSkillProjectWorkDirSync("default", "Researcher"), undefined);
 });

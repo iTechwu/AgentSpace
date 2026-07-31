@@ -94,7 +94,7 @@ describe("TaskBoardPageClient", () => {
     render(
       <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
-          <TaskBoardPageClient data={data} />
+          <TaskBoardPageClient data={data} workspaceSlug="workspace-alpha" />
         </FeedbackToastProvider>
       </LanguageProvider>,
     );
@@ -124,7 +124,7 @@ describe("TaskBoardPageClient", () => {
     render(
       <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
-          <TaskBoardPageClient data={data} onDataChanged={onDataChanged} onInvalidation={onInvalidation} />
+          <TaskBoardPageClient data={data} workspaceSlug="workspace-alpha" onDataChanged={onDataChanged} onInvalidation={onInvalidation} />
         </FeedbackToastProvider>
       </LanguageProvider>,
     );
@@ -150,13 +150,17 @@ describe("TaskBoardPageClient", () => {
               inProgressCount: 0,
               doneCount: 0,
             }}
+            workspaceSlug="yootun-all-优惠豚-全体-87e967"
           />
         </FeedbackToastProvider>
       </LanguageProvider>,
     );
 
     expect(screen.getByRole("heading", { name: "任务看板" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "前往消息" })).toHaveAttribute("href", "./im");
+    expect(screen.getByRole("link", { name: "前往消息" })).toHaveAttribute(
+      "href",
+      "/w/yootun-all-%E4%BC%98%E6%83%A0%E8%B1%9A-%E5%85%A8%E4%BD%93-87e967/im",
+    );
     expect(screen.queryByRole("heading", { name: "Todo" })).not.toBeInTheDocument();
   });
 });

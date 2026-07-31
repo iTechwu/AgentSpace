@@ -273,14 +273,16 @@ test("managed runtime attribution follows the models HMAC contract", () => {
     "x-dofe-attribution-timestamp": "1800000000",
     "x-dofe-attribution-signature": "c32f43facc0776838604d8bfbb3f95bf04c93c47af895a16e6ca9407bd3490db",
   });
-  assert.throws(() => buildManagedRuntimeAttributionHeaders({
+  const localizedHeaders = buildManagedRuntimeAttributionHeaders({
     runtimeKey: "runtime-key",
     runtimeCredentialId: "credential-1",
     runtimeId: "runtime-1",
-    employeeId: "not allowed",
+    employeeId: "研究 助手",
     conversationId: "conversation-1",
     timestampSeconds: 1_800_000_000,
-  }), /invalid_attribution_id/);
+  });
+  assert.equal(localizedHeaders["x-dofe-employee-id"], "utf8.56CU56m2IOWKqeaJiw");
+  assert.match(localizedHeaders["x-dofe-attribution-signature"]!, /^[a-f0-9]{64}$/);
 });
 
 test("managed gateway usage parser ignores auxiliary and failed responses and reads streaming usage", () => {

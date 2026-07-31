@@ -13,6 +13,7 @@ import {
   recordRuntimeCredentialReconciliationFailureSync,
   recordRuntimeCredentialReconciliationSuccessSync,
   upsertActiveRuntimeCredentialReconciliationTargetSync,
+  upsertModelPricingSync,
   upsertTokenUsageReconciliationCursorSync,
 } from "@dofe-agent/db";
 import { readAgentRuntimeSync } from "@dofe-agent/db";
@@ -226,6 +227,17 @@ export async function syncRuntimeCredentialUsageAsync(
   const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
   const client = getModelsInternalClient();
 
+  // models.dofe.ai owns tenant pricing. Refresh the local estimate cache before
+  // reconciling so newly configured aliases and existing zero estimates use the
+  // same effective prices shown by the models catalog.
+  try {
+    const catalog = await client.models.list({ query: { tenantId: scope.tenantId } });
+    syncEffectiveModelPricing(catalog.list ?? []);
+  } catch {
+    // Settled usage remains auditable through totalSalePrice even when the
+    // catalog endpoint is temporarily unavailable.
+  }
+
   recordAuditLogSync({
     workspaceId: input.workspaceId,
     title: "Usage reconciliation started",
@@ -277,7 +289,13 @@ export async function syncRuntimeCredentialUsageAsync(
           result.lastRemoteTimestamp = entry.timestamp;
         }
       }
-      reconcileRuntimeCredentialUsageEntrySync(input.workspaceId, runtimeCredentialId, entry, result);
+      reconcileRuntimeCredentialUsageEntrySync(
+        input.workspaceId,
+        runtimeCredentialId,
+        entry,
+        result,
+        input.runtimeId,
+      );
     }
   }
 
@@ -324,6 +342,7 @@ export function reconcileRuntimeCredentialUsageEntrySync(
   runtimeCredentialId: string,
   entry: ReconciliationUsageLogEntry,
   result: SyncRuntimeCredentialUsageResult,
+  runtimeId?: string,
 ): void {
   const gatewayRequestId = entry.requestId;
   if (!gatewayRequestId) {
@@ -341,7 +360,7 @@ export function reconcileRuntimeCredentialUsageEntrySync(
       throw new Error("usage_sync.gateway_request_runtime_credential_mismatch");
     }
     const remoteStatus = resolveRemoteBillingStatus(entry.billingStatus, Boolean(existing.taskQueueId));
-    const actualCostUsd = parseCost(entry.totalCost);
+    const actualCostUsd = parseBillableAmount(entry);
     const modelId = entry.model.trim() || existing.modelId;
     const inputTokens = normalizeRemoteTokenCount(entry.inputTokens, existing.inputTokens);
     const outputTokens = normalizeRemoteTokenCount(entry.outputTokens, existing.outputTokens);
@@ -390,7 +409,7 @@ export function reconcileRuntimeCredentialUsageEntrySync(
     : "unallocated";
   const inserted = insertUnallocatedTokenUsageIfAbsentSync({
     workspaceId,
-    agentId: entry.employeeId ?? entry.runtimeId ?? "unknown",
+    agentId: decodeAttributionIdentifier(entry.employeeId) ?? entry.runtimeId ?? runtimeId ?? "__unattributed__",
     modelId: entry.model,
     runtimeCredentialId,
     gatewayRequestId,
@@ -399,7 +418,7 @@ export function reconcileRuntimeCredentialUsageEntrySync(
     inputTokens: entry.inputTokens ?? undefined,
     outputTokens: entry.outputTokens ?? undefined,
     cacheTokens: entry.cacheTokens ?? undefined,
-    actualCostUsd: parseCost(entry.totalCost),
+    actualCostUsd: parseBillableAmount(entry),
     currency: entry.currency,
     createdAt: entry.timestamp,
     requestStartedAt: entry.startedAt ?? entry.timestamp,
@@ -432,6 +451,59 @@ function parseCost(value: number | string | null | undefined): number {
   if (typeof value === "number") return value;
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseBillableAmount(entry: ReconciliationUsageLogEntry): number {
+  // totalSalePrice is the tenant charge calculated from the immutable models
+  // pricing snapshot. totalCost is retained only for older models deployments.
+  return parseCost(entry.totalSalePrice ?? entry.totalCost);
+}
+
+export function syncEffectiveModelPricing(models: unknown[]): void {
+  const updatedAt = new Date().toISOString();
+  for (const value of models) {
+    if (!isRecord(value)) continue;
+    const model = value;
+    const alias = readNonEmptyString(model.alias);
+    if (!alias) continue;
+    const pricing = isRecord(model.pricing) ? model.pricing : undefined;
+    const inputPer1M = readFiniteNonNegative(pricing?.actualInputPrice)
+      ?? readFiniteNonNegative(model.inputPrice);
+    const outputPer1M = readFiniteNonNegative(pricing?.actualOutputPrice)
+      ?? readFiniteNonNegative(model.outputPrice);
+    if (inputPer1M == null || outputPer1M == null) continue;
+    const displayName = readNonEmptyString(model.displayName) ?? alias;
+    const currency = readNonEmptyString(pricing?.currency)
+      ?? readNonEmptyString(model.inputPriceCurrency)
+      ?? readNonEmptyString(model.outputPriceCurrency)
+      ?? "USD";
+    const ids = new Set([alias, readNonEmptyString(model.model)].filter(Boolean) as string[]);
+    for (const modelId of ids) {
+      upsertModelPricingSync({ modelId, displayName, inputPer1M, outputPer1M, currency, updatedAt });
+    }
+  }
+}
+
+function readFiniteNonNegative(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function decodeAttributionIdentifier(value: string | null | undefined): string | undefined {
+  if (!value?.startsWith("utf8.")) return value ?? undefined;
+  try {
+    const decoded = Buffer.from(value.slice(5), "base64url").toString("utf8").trim();
+    return decoded || undefined;
+  } catch {
+    return value;
+  }
 }
 
 function normalizeRemoteTokenCount(value: number | null | undefined, fallback: number): number {

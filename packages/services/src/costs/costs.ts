@@ -22,6 +22,7 @@ export interface AgentCostProfile {
   displayName: string;
   modelId: string;
   providerAccountId?: string;
+  runtimeCredentialId?: string;
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCostUsd: number;
@@ -45,6 +46,7 @@ export interface CostDashboardData {
   totalActualCostUsd: number;
   billingByCurrency: Array<{
     currency: string;
+    estimatedCost: number;
     pendingReconciliationCost: number;
     reconciledCost: number;
     unallocatedCost: number;
@@ -99,6 +101,7 @@ export function getCostDashboardDataSync(
     displayName: employeeIndex.get(s.agentId) ?? s.agentId,
     modelId: s.modelId,
     providerAccountId: s.providerAccountId,
+    runtimeCredentialId: s.runtimeCredentialId,
     totalInputTokens: s.totalInputTokens,
     totalOutputTokens: s.totalOutputTokens,
     totalCostUsd: s.totalCostUsd,

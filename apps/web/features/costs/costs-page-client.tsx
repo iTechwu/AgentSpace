@@ -150,15 +150,17 @@ function CostOverview({
       <div className="costs-insight-band" role="list">
         <article className="costs-insight-card" role="listitem">
           <span>{tx("每任务均价", "Avg per task")}</span>
-          <strong>{formatCny(averagePerTask)}</strong>
+          <strong>{data.totalInputTokens + data.totalOutputTokens > 0 && data.totalCostUsd === 0
+            ? tx("尚未计价", "Pricing pending")
+            : formatCny(averagePerTask)}</strong>
         </article>
         <article className="costs-insight-card" role="listitem">
           <span>{tx("模型数", "Models")}</span>
           <strong>{new Set(data.agents.map((agent) => agent.modelId)).size}</strong>
         </article>
         <article className="costs-insight-card" role="listitem">
-          <span>{tx("最近记录", "Recent entries")}</span>
-          <strong>{data.recentUsage.length}</strong>
+          <span>{tx("Token 用量", "Token usage")}</span>
+          <strong>{formatTokens(data.totalInputTokens + data.totalOutputTokens)}</strong>
         </article>
       </div>
 
@@ -174,7 +176,7 @@ function CostOverview({
         </div>
         <div className="costs-summary-card">
           <span className="costs-summary-card__label">{tx("估算费用", "Estimated")}</span>
-          <span className="costs-summary-card__value">{formatCny(data.estimatedCostUsd)}</span>
+          <span className="costs-summary-card__value">{formatCurrencyBreakdown(data, "estimatedCost")}</span>
         </div>
         <div className="costs-summary-card">
           <span className="costs-summary-card__label">{tx("待对账", "Pending reconciliation")}</span>
@@ -222,18 +224,18 @@ function CostOverview({
         compact ? (
           <div className="costs-agent-cards">
             {data.agents.map((agent) => (
-              <article className="costs-agent-card" key={`${agent.agentId}-${agent.modelId}-${agent.providerAccountId ?? "legacy"}`}>
+              <article className="costs-agent-card" key={`${agent.agentId}-${agent.modelId}-${agent.providerAccountId ?? agent.runtimeCredentialId ?? "legacy"}`}>
                 <div className="costs-agent-card__header">
                   <strong>{agent.displayName}</strong>
                   <span className="costs-agent-model">{agent.modelId}</span>
                 </div>
                 <div className="costs-agent-card__stats">
                   <span>{tx("任务数", "Tasks")}: {agent.taskCount}</span>
-                  {agent.providerAccountId ? <span>{tx("Provider 账户", "Provider account")}: {agent.providerAccountId}</span> : null}
+                  <span>{tx("计费来源", "Billing source")}: {formatBillingSource(agent, tx)}</span>
                   <span>{tx("输入", "Input")}: {formatTokens(agent.totalInputTokens)}</span>
                   <span>{tx("输出", "Output")}: {formatTokens(agent.totalOutputTokens)}</span>
-                  <span>{tx("总费用", "Cost")}: {formatCny(agent.totalCostUsd)}</span>
-                  <span>{tx("均价", "Avg")}: {formatCny(agent.avgCostPerTask)}</span>
+                  <span>{tx("总费用", "Cost")}: {formatEstimatedCost(agent.totalCostUsd, agent.totalInputTokens + agent.totalOutputTokens, tx)}</span>
+                  <span>{tx("均价", "Avg")}: {formatEstimatedCost(agent.avgCostPerTask, agent.totalInputTokens + agent.totalOutputTokens, tx)}</span>
                 </div>
               </article>
             ))}
@@ -243,7 +245,7 @@ function CostOverview({
             <div className="costs-agent-row costs-agent-row--header">
               <span>AI员工</span>
               <span>{tx("模型", "Model")}</span>
-              <span>{tx("Provider 账户", "Provider account")}</span>
+              <span>{tx("计费来源", "Billing source")}</span>
               <span>{tx("任务数", "Tasks")}</span>
               <span>{tx("输入", "Input")}</span>
               <span>{tx("输出", "Output")}</span>
@@ -251,15 +253,15 @@ function CostOverview({
               <span>{tx("均价", "Avg")}</span>
             </div>
             {data.agents.map((agent) => (
-              <div className="costs-agent-row" key={`${agent.agentId}-${agent.modelId}-${agent.providerAccountId ?? "legacy"}`}>
+              <div className="costs-agent-row" key={`${agent.agentId}-${agent.modelId}-${agent.providerAccountId ?? agent.runtimeCredentialId ?? "legacy"}`}>
                 <span className="costs-agent-name">{agent.displayName}</span>
                 <span className="costs-agent-model">{agent.modelId}</span>
-                <span>{agent.providerAccountId ?? tx("旧账户", "Legacy account")}</span>
+                <span>{formatBillingSource(agent, tx)}</span>
                 <span>{agent.taskCount}</span>
                 <span>{formatTokens(agent.totalInputTokens)}</span>
                 <span>{formatTokens(agent.totalOutputTokens)}</span>
-                <span>{formatCny(agent.totalCostUsd)}</span>
-                <span>{formatCny(agent.avgCostPerTask)}</span>
+                <span>{formatEstimatedCost(agent.totalCostUsd, agent.totalInputTokens + agent.totalOutputTokens, tx)}</span>
+                <span>{formatEstimatedCost(agent.avgCostPerTask, agent.totalInputTokens + agent.totalOutputTokens, tx)}</span>
               </div>
             ))}
           </div>
@@ -336,13 +338,13 @@ function CostOverview({
               {data.recentUsage.slice(0, 20).map((usage) => (
                 <article className="costs-recent-card" key={usage.id}>
                   <div className="costs-recent-card__header">
-                    <strong>{usage.agentId}</strong>
+                    <strong>{formatUsageOwner(usage, tx)}</strong>
                     <span className="costs-recent-model">{usage.modelId}</span>
                     <BillingStatusBadge status={usage.billingStatus} tx={tx} />
                   </div>
                   <div className="costs-recent-card__stats">
                     <span>{formatUsageTokens(usage)}</span>
-                    <span>{formatUsageCost(usage)}</span>
+                    <span>{formatUsageCost(usage, tx)}</span>
                   </div>
                   <div className="costs-recent-time">
                     {tx("更新时间", "Updated")}: {formatCompactTimestamp(usage.sourceUpdatedAt ?? usage.reconciledAt ?? usage.createdAt, { emptyFallback: usage.createdAt })}
@@ -354,10 +356,10 @@ function CostOverview({
             <div className="costs-recent-list">
               {data.recentUsage.slice(0, 20).map((usage) => (
                 <div className="costs-recent-item" key={usage.id}>
-                  <span className="costs-recent-agent">{usage.agentId}</span>
+                  <span className="costs-recent-agent">{formatUsageOwner(usage, tx)}</span>
                   <span className="costs-recent-model">{usage.modelId}</span>
                   <span>{formatUsageTokens(usage)}</span>
-                  <span>{formatUsageCost(usage)}</span>
+                  <span>{formatUsageCost(usage, tx)}</span>
                   <BillingStatusBadge status={usage.billingStatus} tx={tx} />
                   <span className="costs-recent-time">
                     {tx("更新时间", "Updated")}: {formatCompactTimestamp(usage.sourceUpdatedAt ?? usage.reconciledAt ?? usage.createdAt, { emptyFallback: usage.createdAt })}
@@ -374,7 +376,7 @@ function CostOverview({
 
 function formatCurrencyBreakdown(
   data: CostPageData,
-  field: "pendingReconciliationCost" | "reconciledCost" | "unallocatedCost" | "totalActualCost",
+  field: "estimatedCost" | "pendingReconciliationCost" | "reconciledCost" | "unallocatedCost" | "totalActualCost",
 ): string {
   const values = data.billingByCurrency
     .filter((entry) => entry[field] !== 0)
@@ -475,11 +477,43 @@ function formatUsageTokens(usage: CostPageData["recentUsage"][number]): string {
   return `${formatTokens(usage.inputTokens)} / ${formatTokens(usage.outputTokens)}${cache}`;
 }
 
-function formatUsageCost(usage: CostPageData["recentUsage"][number]): string {
-  const estimated = formatCny(usage.costUsd);
+function formatUsageCost(
+  usage: CostPageData["recentUsage"][number],
+  tx: (zh: string, en: string) => string,
+): string {
+  const estimated = usage.costUsd === 0 && usage.inputTokens + usage.outputTokens > 0
+    ? tx("尚未计价", "Pricing pending")
+    : formatCny(usage.costUsd);
   return usage.actualCostUsd == null
     ? estimated
     : `${estimated} → ${formatBillingAmount(usage.actualCostUsd, usage.currency)}`;
+}
+
+function formatUsageOwner(
+  usage: CostPageData["recentUsage"][number],
+  tx: (zh: string, en: string) => string,
+): string {
+  if (usage.billingStatus === "unallocated" || usage.agentId === "unknown" || usage.agentId === "__unattributed__") {
+    return tx("未归属用量", "Unattributed usage");
+  }
+  return usage.agentId;
+}
+
+function formatBillingSource(
+  agent: CostPageData["agents"][number],
+  tx: (zh: string, en: string) => string,
+): string {
+  if (agent.providerAccountId) return agent.providerAccountId;
+  if (agent.runtimeCredentialId) return tx("models 托管凭据", "Managed models credential");
+  return tx("历史记录", "Historical record");
+}
+
+function formatEstimatedCost(
+  value: number,
+  tokenCount: number,
+  tx: (zh: string, en: string) => string,
+): string {
+  return value === 0 && tokenCount > 0 ? tx("尚未计价", "Pricing pending") : formatCny(value);
 }
 
 function formatBalanceError(

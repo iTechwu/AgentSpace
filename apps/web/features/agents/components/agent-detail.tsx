@@ -161,6 +161,15 @@ export function AgentDetail({
   }, [pending]);
 
   const assignedSkillIds = useMemo(() => record.skills.map((skill) => skill.id), [record.skills]);
+  // First assigned skill that declares a secret — used to offer a "rotate secret"
+  // shortcut from auth-shaped task failures (spec §5.3).
+  const secretBearingSkill = useMemo(
+    () => record.skills.find((skill) => (
+      hasInstallRequirements(skill.configJson)
+      && record.skillRequirements[skill.id]?.environment.some((item) => item.kind === "secret")
+    )),
+    [record.skills, record.skillRequirements],
+  );
   const availableSkills = useMemo(
     () => workspaceSkills.filter((skill) => !assignedSkillIds.includes(skill.id)),
     [assignedSkillIds, workspaceSkills],
@@ -473,11 +482,24 @@ export function AgentDetail({
                             {formatSkillRequirementStatus(record.skillRequirements[skill.id]!, tx)}
                           </span>
                         ) : null}
+                        {formatDependencyStatus(record.skillRequirements[skill.id]?.dependencyInstallStatus, tx) ? (
+                          <span className={`status-chip status-chip--${dependencyStatusTone(record.skillRequirements[skill.id]?.dependencyInstallStatus)}`}>
+                            {formatDependencyStatus(record.skillRequirements[skill.id]?.dependencyInstallStatus, tx)}
+                          </span>
+                        ) : null}
                         {record.skillRequirements[skill.id]?.updatedAt ? (
                           <span>
                             {tx(
                               `最近更新：${record.skillRequirements[skill.id]?.updatedBy ?? "—"}`,
                               `Last updated: ${record.skillRequirements[skill.id]?.updatedBy ?? "—"}`,
+                            )}
+                          </span>
+                        ) : null}
+                        {record.skillRequirements[skill.id]?.invalidDeclarations?.length ? (
+                          <span className="status-chip status-chip--warning">
+                            {tx(
+                              `声明含保留 Key（${record.skillRequirements[skill.id]?.invalidDeclarations?.length} 项），需 Skill 作者修正`,
+                              `Reserved key in declarations (${record.skillRequirements[skill.id]?.invalidDeclarations?.length}) — skill author must fix`,
                             )}
                           </span>
                         ) : null}
@@ -653,6 +675,18 @@ export function AgentDetail({
                     {area.workDir ? <p>{renderWorkAreaLocation(area, tx)}</p> : null}
                     {area.sessionId ? <p>{tx(`可复用会话: ${area.sessionId}`, `Reusable session: ${area.sessionId}`)}</p> : null}
                     {area.errorText ? <p>{area.errorText}</p> : null}
+                    {area.errorText && isLikelyAuthError(area.errorText) && secretBearingSkill && canManage ? (
+                      <p>
+                        <button
+                          className="modal-secondary-button"
+                          disabled={pending}
+                          onClick={() => setSkillToInstall(secretBearingSkill)}
+                          type="button"
+                        >
+                          {tx("替换相关密钥", "Rotate related secret")}
+                        </button>
+                      </p>
+                    ) : null}
                   </article>
                 ))}
               </div>
@@ -1166,12 +1200,46 @@ function hasInstallRequirements(configJson: string | undefined): boolean {
   }
 }
 
+const AUTH_ERROR_PATTERN = /(^|\W)(auth|unauthor|forbidden|401|403|token|secret|api[_-]?key|credential|expired|invalid[_ ]?key)(\W|$)/i;
+function isLikelyAuthError(errorText: string | undefined): boolean {
+  return Boolean(errorText) && AUTH_ERROR_PATTERN.test(errorText ?? "");
+}
+
 function skillRequirementStatusTone(
   status: WorkspaceAgentRecord["skillRequirements"][string]["status"],
 ): "positive" | "warning" | "danger" {
   if (status === "ready") return "positive";
   if (status === "runtime_incompatible") return "danger";
   return "warning";
+}
+
+function dependencyStatusTone(
+  status: WorkspaceAgentRecord["skillRequirements"][string]["dependencyInstallStatus"],
+): "positive" | "warning" | "danger" {
+  if (status === "ok") return "positive";
+  if (status === "failed") return "danger";
+  return "warning";
+}
+
+function formatDependencyStatus(
+  status: WorkspaceAgentRecord["skillRequirements"][string]["dependencyInstallStatus"],
+  tx: (zh: string, en: string) => string,
+): string | null {
+  if (!status) return null;
+  switch (status) {
+    case "ok":
+      return null; // ready deps don't need a chip
+    case "failed":
+      return tx("依赖安装失败", "Dependency install failed");
+    case "installing":
+      return tx("依赖安装中", "Installing dependencies");
+    case "pending":
+      return tx("依赖待安装", "Dependencies pending install");
+    case "waiting_runtime":
+      return tx("等待执行引擎后安装依赖", "Dependencies install after runtime bind");
+    default:
+      return null;
+  }
 }
 
 function formatSkillRequirementStatus(

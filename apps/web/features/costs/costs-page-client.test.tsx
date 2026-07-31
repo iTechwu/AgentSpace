@@ -65,6 +65,7 @@ const costs: CostPageData = {
   billingByCurrency: [
     {
       currency: "EUR",
+      estimatedCost: 0.1234,
       pendingReconciliationCost: 0.02,
       reconciledCost: 0,
       unallocatedCost: 0,

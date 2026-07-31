@@ -18,6 +18,7 @@ import {
   materializeWorkspaceSkillsForProvider,
   readAgentSkillRequirementEnvSync,
   readAgentSkillRequirementSummarySync,
+  resolveSkillProjectWorkDirSync,
   readWorkspaceStateSync,
   readWorkspaceAttachmentBytesSync,
   sameValue,
@@ -136,6 +137,8 @@ export interface PreparedDaemonTaskContext {
   skillEnv: Record<string, string>;
   skillEnvConflicts: string[];
   skillReadinessBlockers: string[];
+  /** Unanimously-declared project working dir for this employee's skills, if any. */
+  projectWorkDir?: string;
 }
 
 export interface RouterSessionPromptContext {
@@ -467,6 +470,8 @@ export function prepareDaemonTaskContext(input: {
       ? materializeChannelDocuments(agentDocumentContexts, input.workDir, input.task.workspaceId)
       : undefined;
 
+  const projectWorkDir = resolveSkillProjectWorkDirSync(input.task.workspaceId, agentName);
+
   return {
     prompt: buildTaskPromptWithDocumentContexts(
       input.runtime,
@@ -485,6 +490,7 @@ export function prepareDaemonTaskContext(input: {
       documentPermissionRequests,
       agentNotifications,
       input.routerSessionContext,
+      projectWorkDir,
     ),
     payload,
     agentProfile: input.agentProfile,
@@ -502,6 +508,7 @@ export function prepareDaemonTaskContext(input: {
     skillEnv,
     skillEnvConflicts,
     skillReadinessBlockers,
+    projectWorkDir,
   };
 }
 
@@ -561,6 +568,7 @@ export function buildTaskPromptWithDocumentContexts(
   documentPermissionRequests: DocumentPermissionRequestRecord[] = [],
   agentNotifications: WorkspaceNotificationRecord[] = [],
   routerSessionContext?: RouterSessionPromptContext,
+  projectWorkDir?: string,
 ): string {
   const agentContextLines = buildAgentContextLines(
     agentProfile,
@@ -568,6 +576,7 @@ export function buildTaskPromptWithDocumentContexts(
     runtime.provider,
     skillContextDir,
     providerSkillContextDir,
+    projectWorkDir,
   );
   const contactContextLines = buildContactContextLines(contactContext);
   const knowledgeContextLines = buildKnowledgeContextLines(knowledgeContext);
@@ -1123,11 +1132,19 @@ export function collectSkillReadinessBlockers(
   agentName: string | undefined,
   agentSkills: WorkspaceSkill[],
   runtimeProvider: DaemonProvider | undefined,
+  /**
+   * Optional set of capability ids the runtime actually exposes (tool commands /
+   * app names). When supplied, a skill `capability:X` that the runtime does not
+   * expose is reported as a blocker (spec §6.4). Omit to preserve the legacy
+   * form-confirmation behavior until a capability convention is agreed.
+   */
+  availableCapabilityIds?: readonly string[],
 ): string[] {
   if (!agentName || agentSkills.length === 0) {
     return [];
   }
   const blockers: string[] = [];
+  const availableCapabilities = availableCapabilityIds ? new Set(availableCapabilityIds) : undefined;
   for (const skill of agentSkills) {
     const summary = readAgentSkillRequirementSummarySync({
       workspaceId,
@@ -1135,11 +1152,18 @@ export function collectSkillReadinessBlockers(
       skillId: skill.id,
       runtimeProvider,
     });
-    if (summary.requiredCount === 0) {
+    if (summary.requiredCount === 0 && !(availableCapabilities && summary.requiredCapabilities?.length)) {
       continue;
     }
     for (const blocker of summary.blockers) {
       blockers.push(`"${skill.name}": ${blocker}`);
+    }
+    if (availableCapabilities && summary.requiredCapabilities) {
+      for (const capability of summary.requiredCapabilities) {
+        if (!availableCapabilities.has(capability)) {
+          blockers.push(`"${skill.name}": required capability ${capability} is not available on the bound runtime.`);
+        }
+      }
     }
   }
   return blockers;
@@ -1217,6 +1241,7 @@ function buildAgentContextLines(
   provider: AgentRuntimeRecord["provider"],
   skillContextDir?: string,
   providerSkillContextDir?: string,
+  projectWorkDir?: string,
 ): string[] {
   if (!agentProfile) {
     return [];
@@ -1229,6 +1254,11 @@ function buildAgentContextLines(
     agentProfile.summary.trim().length > 0 ? `定位: ${agentProfile.summary.trim()}` : "",
     agentProfile.instructions?.trim() ? `Instructions:\n${agentProfile.instructions.trim()}` : "",
   ].filter(Boolean);
+
+  if (projectWorkDir) {
+    lines.push(`项目工作目录: ${projectWorkDir}`);
+    lines.push("若任务涉及该项目，请在该目录下工作（如需可先确认目录存在再进入）。");
+  }
 
   if (agentSkills.length > 0) {
     lines.push(`已分配 Skills: ${agentSkills.map((skill) => skill.name).join(", ")}`);

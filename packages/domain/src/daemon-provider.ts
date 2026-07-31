@@ -49,6 +49,14 @@ export const DAEMON_PROVIDER_PROTOCOLS: Record<DaemonProvider, string[]> = {
   hermes: ["openai"],
 };
 
+const DAEMON_PROVIDER_DEFAULT_MODELS: Partial<Record<DaemonProvider, string>> = {
+  codex: "gpt-5.6-terra",
+};
+
 export function resolveProviderProtocols(provider: DaemonProvider): string[] {
   return DAEMON_PROVIDER_PROTOCOLS[provider] ?? [];
+}
+
+export function resolveProviderDefaultModel(provider: DaemonProvider): string | undefined {
+  return DAEMON_PROVIDER_DEFAULT_MODELS[provider];
 }

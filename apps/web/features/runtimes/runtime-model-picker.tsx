@@ -22,6 +22,7 @@ export interface ModelCatalogOption {
   supportsFunctionCalling?: boolean | null;
   inputPrice?: number | null;
   outputPrice?: number | null;
+  priceCurrency?: string | null;
   isAvailable?: boolean | null;
   unavailableReason?: string;
 }
@@ -338,7 +339,7 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
             {selectedLlm.supportsFunctionCalling ? <span>{tx("工具调用", "tools")}</span> : null}
           </div>
           {selectedLlm.inputPrice != null || selectedLlm.outputPrice != null ? (
-            <p>¥{formatPrice(selectedLlm.inputPrice)}/1M {tx("输入", "in")} · ¥{formatPrice(selectedLlm.outputPrice)}/1M {tx("输出", "out")}</p>
+            <p>{formatPrice(selectedLlm.inputPrice, selectedLlm.priceCurrency)}/1M {tx("输入", "in")} · {formatPrice(selectedLlm.outputPrice, selectedLlm.priceCurrency)}/1M {tx("输出", "out")}</p>
           ) : null}
           {!selectedLlm.isAvailable ? <p className="runtime-model-picker__error">{translateUnavailableReason(selectedLlm.unavailableReason, tx)}</p> : null}
         </div>
@@ -360,7 +361,7 @@ function formatModelMeta(option: ModelCatalogOption, labels: ModelCatalogSelectL
     option.supportsFunctionCalling ? labels.tools : undefined,
     option.supportsVision ? labels.vision : undefined,
     option.inputPrice != null || option.outputPrice != null
-      ? `¥${formatPrice(option.inputPrice)}/¥${formatPrice(option.outputPrice)} ${labels.perMillion}`
+      ? `${formatPrice(option.inputPrice, option.priceCurrency)}/${formatPrice(option.outputPrice, option.priceCurrency)} ${labels.perMillion}`
       : undefined,
   ].filter(Boolean).join(" · ") || labels.available;
 }
@@ -381,7 +382,8 @@ function formatTokens(value: number): string {
   return String(value);
 }
 
-function formatPrice(value: number | null | undefined): string {
+function formatPrice(value: number | null | undefined, currency?: string | null): string {
   if (value == null) return "-";
-  return value.toFixed(4);
+  const normalized = currency?.trim().toUpperCase();
+  return !normalized || normalized === "CNY" ? `¥${value.toFixed(4)}` : `${value.toFixed(4)} ${normalized}`;
 }

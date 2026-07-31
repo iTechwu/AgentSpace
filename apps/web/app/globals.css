@@ -26521,6 +26521,13 @@ button[aria-disabled="true"] svg {
   opacity: 0.42;
 }
 
+.workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contacts-send-button:disabled {
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  background: color-mix(in srgb, var(--accent) 13%, var(--panel-strong));
+  color: color-mix(in srgb, var(--accent) 48%, var(--text-secondary));
+  opacity: 1;
+}
+
 .workspace-main--conversation :is(.contacts-shell--directory, .contacts-shell--digital, .contacts-shell--chatting) .contacts-send-button:not(:disabled) {
   border-color: var(--accent);
   background: var(--accent);
@@ -28681,6 +28688,7 @@ button[aria-disabled="true"] svg {
 .runtime-detail__metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem 0;
   margin: 0;
   padding: 1rem;
 }
@@ -28695,6 +28703,15 @@ button[aria-disabled="true"] svg {
   padding-left: 0;
 }
 
+.runtime-detail__metric:nth-child(3n + 1) {
+  padding-left: 0;
+}
+
+.runtime-detail__metric:nth-child(3n) {
+  padding-right: 0;
+  border-right: 0;
+}
+
 .runtime-detail__metric:last-child {
   padding-right: 0;
   border-right: 0;
@@ -28707,6 +28724,23 @@ button[aria-disabled="true"] svg {
 
 .runtime-detail__metric--warning {
   color: var(--warning) !important;
+}
+
+.runtime-detail__usage-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 1rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-strong) 56%, transparent);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.runtime-detail__usage-status--warning {
+  color: var(--warning);
+  font-weight: 650;
 }
 
 .runtime-detail__settings {

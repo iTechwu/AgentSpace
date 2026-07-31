@@ -251,6 +251,46 @@ describe("dashboard data", () => {
     }
   });
 
+  it("hides skill variable names and detail from non-manager viewers (spec §3.3)", async () => {
+    const { redactSkillRequirementsForViewer } = await import("./data");
+    const redacted = redactSkillRequirementsForViewer({
+      "skill-1": {
+        skillId: "skill-1",
+        status: "needs_configuration",
+        statusDetail: { code: "skill_needs_configuration" },
+        requiredCount: 2,
+        configuredCount: 1,
+        blockers: ["NOTION_API_TOKEN must be configured for this agent in Credential Center."],
+        environment: [
+          { key: "NOTION_DATABASE_ID", kind: "config", sensitive: false, configured: true },
+          { key: "NOTION_API_TOKEN", kind: "secret", sensitive: true, configured: false },
+        ],
+        configuration: { capabilities: [], values: { NOTION_DATABASE_ID: "db-123" }, sensitiveKeys: [] },
+        upgradeAddedKeys: ["NOTION_API_TOKEN"],
+        invalidDeclarations: ["config:DOFE_AGENT_X"],
+        requiredCapabilities: ["image_generation"],
+        updatedAt: "2026-07-31T00:00:00.000Z",
+        updatedBy: "Admin User",
+      },
+    });
+    const summary = redacted["skill-1"];
+    // Aggregate readiness is preserved.
+    expect(summary.status).toBe("needs_configuration");
+    expect(summary.statusDetail.code).toBe("skill_needs_configuration");
+    expect(summary.requiredCount).toBe(2);
+    expect(summary.configuredCount).toBe(1);
+    // Everything carrying a name, value, or identity is dropped.
+    expect(summary.environment).toEqual([]);
+    expect(summary.blockers).toEqual([]);
+    expect(summary.configuration).toBeUndefined();
+    expect(summary.upgradeAddedKeys).toBeUndefined();
+    expect(summary.invalidDeclarations).toBeUndefined();
+    expect(summary.requiredCapabilities).toBeUndefined();
+    expect(summary.updatedBy).toBeUndefined();
+    expect(JSON.stringify(summary).includes("NOTION")).toBe(false);
+    expect(JSON.stringify(summary).includes("Admin User")).toBe(false);
+  });
+
   it("filters daemon snapshots and tokens by workspace", () => {
     registerDaemonRuntimesSync({
       daemonKey: "mars-box",

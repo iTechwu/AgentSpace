@@ -7,7 +7,12 @@ import {
 } from "@/features/runtimes/actions";
 import { RuntimeModelPicker } from "@/features/runtimes/runtime-model-picker";
 import { useLanguage } from "@/features/i18n/language-provider";
-import { DAEMON_PROVIDER_IDS, formatDaemonProviderLabel, type DaemonProvider } from "@dofe-agent/domain";
+import {
+  DAEMON_PROVIDER_IDS,
+  formatDaemonProviderLabel,
+  resolveProviderDefaultModel,
+  type DaemonProvider,
+} from "@dofe-agent/domain";
 import type { ManagedRuntimeCreationPreflightResult } from "@dofe-agent/services";
 
 export function ManagedRuntimeCreationWizard({
@@ -25,7 +30,9 @@ export function ManagedRuntimeCreationWizard({
   const [provider, setProvider] = useState<DaemonProvider>(DAEMON_PROVIDER_IDS[0] ?? "claude");
   const [name, setName] = useState("");
   const [targetServer, setTargetServer] = useState("");
-  const [defaultModel, setDefaultModel] = useState("");
+  const [defaultModel, setDefaultModel] = useState(
+    resolveProviderDefaultModel(DAEMON_PROVIDER_IDS[0] ?? "claude") ?? "",
+  );
   const [allowNewEmployeeSharing, setAllowNewEmployeeSharing] = useState(true);
   const [forceProvisioning, setForceProvisioning] = useState(false);
   const [preflight, setPreflight] = useState<ManagedRuntimeCreationPreflightResult | null>(null);
@@ -66,7 +73,6 @@ export function ManagedRuntimeCreationWizard({
           provider,
           name: name.trim() || undefined,
           defaultModel: defaultModel || undefined,
-          allowedModels: defaultModel ? [defaultModel] : undefined,
           targetServer: targetServer.trim() || undefined,
           allowNewEmployeeSharing,
           forceProvisioning,
@@ -111,8 +117,9 @@ export function ManagedRuntimeCreationWizard({
             <select
               value={provider}
               onChange={(event) => {
-                setProvider(event.target.value as DaemonProvider);
-                setDefaultModel("");
+                const nextProvider = event.target.value as DaemonProvider;
+                setProvider(nextProvider);
+                setDefaultModel(resolveProviderDefaultModel(nextProvider) ?? "");
                 invalidatePreflight();
               }}
             >

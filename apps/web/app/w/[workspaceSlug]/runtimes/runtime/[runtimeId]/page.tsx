@@ -78,13 +78,38 @@ export default async function ManagedRuntimeDetailPage({
               <span>容量与费用</span>
               <h2 id="runtime-usage-title">当前周期</h2>
             </div>
-            <p>本周期归属于该执行引擎的使用情况。</p>
+            <p>Token 用量为本地采集，费用以 models 对账结果为准。</p>
           </div>
           <dl className="runtime-detail__metrics">
-            <RuntimeMetric label="已分配员工" value={String(runtime.assignedEmployeeCount)} />
-            <RuntimeMetric label="实际费用" value={formatCny(runtime.periodActualCostUsd)} />
-            <RuntimeMetric label="未归属费用" value={formatCny(runtime.unallocatedCostUsd)} warning={runtime.unallocatedCostUsd > 0} />
+            <RuntimeMetric label="AI 员工" value={String(runtime.assignedEmployeeCount)} />
+            <RuntimeMetric label="任务" value={String(runtime.periodTaskCount ?? 0)} />
+            <RuntimeMetric label="输入 Token" value={formatTokens(runtime.periodInputTokens ?? 0)} />
+            <RuntimeMetric label="输出 Token" value={formatTokens(runtime.periodOutputTokens ?? 0)} />
+            <RuntimeMetric
+              label="当前估算"
+              value={(runtime.unpricedUsageCount ?? 0) > 0 && (runtime.periodEstimatedCostUsd ?? 0) === 0
+                ? "尚未计价"
+                : formatMoney(runtime.periodEstimatedCostUsd ?? 0, runtime.periodCurrency)}
+              warning={(runtime.unpricedUsageCount ?? 0) > 0}
+            />
+            <RuntimeMetric
+              label="实际扣费"
+              value={(runtime.pendingUsageCount ?? 0) > 0 && runtime.periodActualCostUsd === 0
+                ? "待对账"
+                : formatMoney(runtime.periodActualCostUsd, runtime.periodCurrency)}
+            />
           </dl>
+          {(runtime.unpricedUsageCount ?? 0) > 0 || (runtime.pendingUsageCount ?? 0) > 0 || (runtime.unallocatedUsageCount ?? 0) > 0 ? (
+            <div className="runtime-detail__usage-status" role="status">
+              {(runtime.unpricedUsageCount ?? 0) > 0 ? <span>{runtime.unpricedUsageCount} 条用量尚未取得 models 生效价</span> : null}
+              {(runtime.pendingUsageCount ?? 0) > 0 ? <span>{runtime.pendingUsageCount} 条用量等待对账</span> : null}
+              {(runtime.unallocatedUsageCount ?? 0) > 0 ? (
+                <span className="runtime-detail__usage-status--warning">
+                  {runtime.unallocatedUsageCount} 条用量未归属{runtime.unallocatedCostUsd > 0 ? `，涉及 ${formatMoney(runtime.unallocatedCostUsd, runtime.periodCurrency)}` : ""}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </section>
       </div>
 
@@ -160,4 +185,13 @@ function formatCredential(value: string): string {
 
 function formatCny(value: number): string {
   return `¥${value.toFixed(4)}`;
+}
+
+function formatMoney(value: number, currency?: string): string {
+  const normalized = currency?.trim().toUpperCase();
+  return !normalized || normalized === "CNY" ? formatCny(value) : `${value.toFixed(4)} ${normalized}`;
+}
+
+function formatTokens(value: number): string {
+  return new Intl.NumberFormat("zh-CN", { notation: value >= 10_000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value);
 }

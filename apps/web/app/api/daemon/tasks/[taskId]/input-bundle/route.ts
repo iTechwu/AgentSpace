@@ -113,6 +113,14 @@ export async function GET(
         taskTriggerType: task.triggerType,
         channelName: prepared.payload.channelName,
         contactId: prepared.payload.contactId,
+        // Threat model (spec §6.2): skillEnv carries plaintext secret/sensitive
+        // values so the authenticated daemon can inject REAL values into the
+        // provider subprocess. This bundle travels only over the authenticated
+        // daemon control-plane (mTLS + daemon token). Values are never logged,
+        // never persisted to disk by the daemon (only bundle.files is
+        // materialized), and are redacted by value from all provider
+        // stdout/stderr (buildEnvValueRedactions, keyed off these names) before
+        // any execution result is stored or surfaced.
         skillEnv: prepared.skillEnv,
         skillEnvConflicts: prepared.skillEnvConflicts,
         skillReadinessBlockers: prepared.skillReadinessBlockers,

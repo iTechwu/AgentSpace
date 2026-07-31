@@ -13,6 +13,7 @@ import {
   enqueueTokenUsageRetrySync,
   getDatabase,
   getWorkspaceBillingSummarySync,
+  getWorkspaceCostSummarySync,
   findTokenUsageByGatewayRequestIdSync,
   insertUnallocatedTokenUsageSync,
   insertUnallocatedTokenUsageIfAbsentSync,
@@ -22,6 +23,7 @@ import {
   listRuntimeProvisioningTaskEventsSync,
   readAgentRuntimeSync,
   readRuntimeProvisioningTaskSync,
+  readModelPricingSync,
   markManagedRuntimeCleanupRequestRunningSync,
   registerDaemonRuntimesSync,
   recordTokenUsageSync,
@@ -58,6 +60,7 @@ import {
 import {
   isRuntimeCredentialTerminalForReconciliation,
   reconcileRuntimeCredentialUsageEntrySync,
+  syncEffectiveModelPricing,
 } from "../models/usage-sync.ts";
 import { resetRuntimeCredentialVaultForTests, getRuntimeCredentialVault } from "./credential-vault.ts";
 
@@ -106,6 +109,15 @@ function createMockClient(behavior: {
               model: "claude-sonnet",
               modelType: "llm",
               supportedProtocols: ["anthropic", "openai", "openai_response", "gemini"],
+              isEnabled: true,
+              isDeprecated: false,
+            },
+            {
+              id: "model-terra",
+              alias: "gpt-5.6-terra",
+              model: "gpt-5.6-terra",
+              modelType: "llm",
+              supportedProtocols: ["openai_response"],
               isEnabled: true,
               isDeprecated: false,
             },
@@ -518,7 +530,8 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
     model: "gateway-canonical-model",
     inputTokens: 88,
     outputTokens: 33,
-    totalCost: 0.25,
+    totalCost: 0,
+    totalSalePrice: 0.75,
     currency: "USD",
     timestamp: now,
   }, reconciliation);
@@ -526,14 +539,73 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
   assert.equal(reconciledUsage?.modelId, "gateway-canonical-model");
   assert.equal(reconciledUsage?.inputTokens, 88);
   assert.equal(reconciledUsage?.outputTokens, 33);
-  assert.equal(reconciledUsage?.actualCostUsd, 0.25);
+  assert.equal(reconciledUsage?.actualCostUsd, 0.75);
 
   const managed = listManagedRuntimesForWorkspaceSync({ workspaceId: TEAM_WS, actorUserId: OWNER })[0]!;
   assert.deepEqual(managed.protocols, ["anthropic"]);
   assert.equal(managed.defaultModel, "claude-sonnet");
   assert.equal(managed.assignedEmployeeCount, 1);
-  assert.equal(managed.periodActualCostUsd, 2);
+  assert.equal(managed.periodTaskCount, 1);
+  assert.equal(managed.periodInputTokens, 175);
+  assert.equal(managed.periodOutputTokens, 60);
+  assert.equal(managed.periodActualCostUsd, 2.5);
   assert.equal(managed.unallocatedCostUsd, 0);
+});
+
+test("models effective tenant prices backfill zero estimates without changing settled charges", () => {
+  syncEffectiveModelPricing([{
+    alias: "glm-5.2",
+    model: "zhipu/glm-5.2",
+    displayName: "GLM 5.2",
+    inputPrice: 0,
+    outputPrice: 0,
+    pricing: { actualInputPrice: 0, actualOutputPrice: 0, currency: "CNY" },
+  }]);
+  recordTokenUsageSync({
+    workspaceId: TEAM_WS,
+    taskQueueId: undefined,
+    agentId: "atlas",
+    modelId: "glm-5.2",
+    runtimeCredentialId: "rtc-price-sync",
+    gatewayRequestId: "gateway-price-sync",
+    inputTokens: 1_000_000,
+    outputTokens: 500_000,
+    actualCostUsd: 0.5,
+    billingStatus: "reconciled",
+  });
+  assert.equal(findTokenUsageByGatewayRequestIdSync("gateway-price-sync", TEAM_WS)?.costUsd, 0);
+
+  syncEffectiveModelPricing([{
+    alias: "glm-5.2",
+    model: "zhipu/glm-5.2",
+    displayName: "GLM 5.2",
+    inputPrice: 1,
+    outputPrice: 2,
+    pricing: { actualInputPrice: 8, actualOutputPrice: 28, currency: "CNY" },
+  }]);
+
+  assert.equal(readModelPricingSync("glm-5.2")?.inputPer1M, 8);
+  assert.equal(readModelPricingSync("zhipu/glm-5.2")?.outputPer1M, 28);
+  assert.equal(findTokenUsageByGatewayRequestIdSync("gateway-price-sync", TEAM_WS)?.costUsd, 22);
+  assert.equal(findTokenUsageByGatewayRequestIdSync("gateway-price-sync", TEAM_WS)?.actualCostUsd, 0.5);
+});
+
+test("unallocated remote usage is not presented as an AI employee", () => {
+  insertUnallocatedTokenUsageSync({
+    workspaceId: TEAM_WS,
+    agentId: "unknown",
+    modelId: "glm-5.2",
+    runtimeCredentialId: "rtc-unallocated",
+    gatewayRequestId: "gateway-unallocated-only",
+    inputTokens: 100,
+    outputTokens: 20,
+    actualCostUsd: 0.02,
+    currency: "CNY",
+  });
+
+  assert.deepEqual(getWorkspaceCostSummarySync(undefined, TEAM_WS), []);
+  assert.equal(getWorkspaceBillingSummarySync(undefined, TEAM_WS).unallocatedCostUsd, 0);
+  assert.equal(getWorkspaceBillingSummarySync(undefined, TEAM_WS).billingByCurrency[0]?.unallocatedCost, 0.02);
 });
 
 test("execution capacity reuses a compatible shared managed runtime", async () => {
@@ -1318,7 +1390,7 @@ test("clearing a managed runtime default reissues an unrestricted compatible cre
   });
 });
 
-test("expands a managed runtime credential allowlist for an employee default model", async () => {
+test("restores a Responses runtime credential to its protocol-compatible model catalog", async () => {
   activeClient = createMockClient({
     credentialId: "rtc-employee-model-old",
     modelList: [
@@ -1379,7 +1451,7 @@ test("expands a managed runtime credential allowlist for an employee default mod
     runtimeId,
     runtimeType: "codex",
     protocols: ["openai_response"],
-    allowedModels: ["deepseek-v4-pro", "gpt-5.6-terra"],
+    allowedModels: [],
     defaultModel: "deepseek-v4-pro",
     idempotencyKey: `model-allowlist:${runtimeId}:gpt-5.6-terra:employee-model-1`,
     audit: { actorId: OWNER },
@@ -1390,6 +1462,46 @@ test("expands a managed runtime credential allowlist for an employee default mod
     reason: "manual",
     idempotencyKey: `revoke:${previous.managedCredentialId}:model-allowlist:employee-model-1`,
     audit: { actorId: OWNER },
+  });
+});
+
+test("Codex provisioning defaults to Terra without narrowing the Responses model catalog", async () => {
+  activeClient = createMockClient({
+    modelList: [
+      {
+        id: "model-terra",
+        alias: "gpt-5.6-terra",
+        model: "gpt-5.6-terra",
+        modelType: "llm",
+        supportedProtocols: ["openai_response"],
+        isEnabled: true,
+        isDeprecated: false,
+      },
+    ],
+  });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "codex",
+    allowedModels: ["deepseek-v4-pro"],
+    idempotencyKey: "codex-default-model",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+
+  assert.equal(provisioned.status, "succeeded");
+  assert.equal(readAgentRuntimeSync(provisioned.runtimeId!)?.defaultModel, "gpt-5.6-terra");
+  assert.deepEqual(activeClient.lastCreateBody, {
+    tenantId: "tenant-1",
+    teamId: "team-1",
+    runtimeId: provisioned.runtimeId,
+    runtimeType: "codex",
+    protocols: ["openai_response"],
+    allowedModels: [],
+    defaultModel: "gpt-5.6-terra",
+    idempotencyKey: "codex-default-model",
+    audit: { actorId: OWNER, taskId: task.id },
   });
 });
 
@@ -1418,6 +1530,10 @@ test("reissues a credential in the current team scope when rotation cannot find 
 
   assert.equal(activeClient.rotateCalls, 1);
   assert.equal(activeClient.createCalls, 1);
+  assert.deepEqual(
+    (activeClient.lastCreateBody as { allowedModels?: string[] } | undefined)?.allowedModels,
+    [],
+  );
   assert.equal(repaired.managedCredentialId, "rtc-current-team");
   assert.equal(getRuntimeCredentialVault().retrieve(repaired.credentialSecretRef!), "sk-current-team");
 });

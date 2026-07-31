@@ -244,6 +244,7 @@ export function WorkspaceModuleHost({
     onDataChanged: refreshActiveModuleData,
     routeState,
     tx,
+    workspaceSlug,
   });
   const isColdLoading = !cachedEntry?.data && cachedEntry?.status !== "error" && cachedEntry?.status !== "forbidden";
   const lastResolvedModule = lastResolvedModuleRef.current?.cacheScopeSignature === cacheScopeSignature
@@ -255,6 +256,7 @@ export function WorkspaceModuleHost({
         lastResolvedModule.routeState,
         refreshActiveModuleData,
         handleWorkspaceInvalidation,
+        workspaceSlug,
       )
     : null;
   const showPreservedContent = Boolean(
@@ -325,12 +327,14 @@ function renderActiveModuleContent({
   onDataChanged,
   routeState,
   tx,
+  workspaceSlug,
 }: {
   cachedEntry?: WorkspaceModuleCacheEntry<WorkspaceModuleLoaderData>;
   onInvalidation: (event: WorkspaceInvalidationEvent) => void;
   onDataChanged: (options?: { refreshCounters?: boolean }) => void;
   routeState: WorkspaceModuleRouteState;
   tx: (zh: string, en: string) => string;
+  workspaceSlug: string;
 }) {
   if (cachedEntry?.data) {
     return (
@@ -347,7 +351,7 @@ function renderActiveModuleContent({
             </button>
           </FeedbackBanner>
         ) : null}
-        {renderWorkspaceModuleData(cachedEntry.data, routeState, onDataChanged, onInvalidation)}
+        {renderWorkspaceModuleData(cachedEntry.data, routeState, onDataChanged, onInvalidation, workspaceSlug)}
       </>
     );
   }
@@ -375,6 +379,7 @@ function renderWorkspaceModuleData(
   routeState: WorkspaceModuleRouteState,
   onDataChanged: (options?: { refreshCounters?: boolean }) => void,
   onInvalidation: (event: WorkspaceInvalidationEvent) => void,
+  workspaceSlug: string,
 ): React.ReactNode {
   switch (data.moduleId) {
     case "agents":
@@ -441,7 +446,7 @@ function renderWorkspaceModuleData(
     case "market":
       return <MarketPageClient data={data.data as MarketPageData} onDataChanged={onDataChanged} />;
     case "task-board":
-      return <TaskBoardPageClient data={data.data as TaskBoardPageData} onDataChanged={onDataChanged} onInvalidation={onInvalidation} />;
+      return <TaskBoardPageClient data={data.data as TaskBoardPageData} workspaceSlug={workspaceSlug} onDataChanged={onDataChanged} onInvalidation={onInvalidation} />;
     case "templates":
       return <TemplatesPageClient data={data.data as TemplatesPageData} onDataChanged={onDataChanged} />;
   }

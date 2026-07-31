@@ -8,6 +8,7 @@ import {
   createManagedDaemonBootstrapTokenSync,
   createUserSync,
   createWorkspaceMembershipSync,
+  cancelQueuedTaskSync,
   enqueueNativeTaskSync,
   listRuntimeGrantsSync,
   listDaemonSnapshotsSync,
@@ -1528,6 +1529,30 @@ describe("daemon API routes", () => {
     const approval = workspaceState.approvals.find((item) => item.id === createPayload.approval.approvalId);
     expect(approval?.type).toBe("runtime_tool");
     expect(approval?.metadata?.toolName).toBe("Bash");
+
+    cancelQueuedTaskSync({ taskId: queued!.id, errorText: "Stopped by user." });
+    const lateCreateResponse = await runtimeApprovalPOST(
+      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/runtime-approvals`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          provider: "claude",
+          runtimeId,
+          sessionId: "session-1",
+          toolName: "WebSearch",
+          toolInput: { query: "late approval" },
+          contentPreview: "WebSearch: late approval",
+        }),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+
+    expect(lateCreateResponse.status).toBe(409);
+    expect(await lateCreateResponse.json()).toEqual({
+      error: "Runtime approval cannot be created for a cancelled task.",
+      errorCode: "task_cancelled",
+    });
+    expect(readWorkspaceStateSync().approvals.filter((item) => item.sourceId === queued!.id)).toHaveLength(1);
   });
 
   it("requires identity before Feishu external guests can approve runtime tools", async () => {

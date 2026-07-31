@@ -77,6 +77,8 @@ export {
 export {
   hasGitHubSkillDependenciesSync,
   queueGitHubSkillDependenciesForAgentSync,
+  readSkillDependencyInstallStatusSync,
+  type SkillDependencyInstallStatus,
 } from "./skills/dependency-install.ts";
 export type { SkillDependencyDeclaration } from "./skills/dependencies.ts";
 export {
@@ -84,6 +86,7 @@ export {
   getSkillRequirementBlockers,
   normalizeSkillRequirementConfiguration,
   parseSkillRequirementDeclarations,
+  readInvalidSkillRequirementDeclarations,
   readSkillRequirementConfiguration,
   readSkillRequirementDeclarations,
   serializeSkillRequirementConfiguration,
@@ -99,10 +102,11 @@ export {
   readAgentSkillRequirementConfigurationSync,
   readAgentSkillRequirementEnvSync,
   readAgentSkillRequirementSummarySync,
+  resolveSkillProjectWorkDirSync,
   setAgentSkillAssignmentsWithRequirementsValidationSync,
   upsertAgentSkillRequirementsSync,
 } from "./skills/agent-skill-requirements.ts";
-export type { AgentSkillRequirementSummary } from "./skills/agent-skill-requirements.ts";
+export type { AgentSkillRequirementSummary, AgentSkillRequirementStatusCode } from "./skills/agent-skill-requirements.ts";
 
 // Runtime access
 export {

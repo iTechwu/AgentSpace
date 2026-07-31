@@ -10,10 +10,12 @@ import {
 } from "@dofe-agent/db";
 import type { DaemonProvider } from "@dofe-agent/domain";
 import { readWorkspaceSkillSync } from "./skills.ts";
-import { setEmployeeSkillIdsSync } from "../employees/employees.ts";
+import { listEmployeeSkillIdsSync, setEmployeeSkillIdsSync } from "../employees/employees.ts";
+import { readSkillDependencyInstallStatusSync } from "./dependency-install.ts";
 import {
   getSkillRequirementBlockers,
   normalizeSkillRequirementConfiguration,
+  readInvalidSkillRequirementDeclarations,
   readSkillRequirementConfiguration,
   readSkillRequirementDeclarations,
   serializeSkillRequirementConfiguration,
@@ -49,6 +51,10 @@ export interface AgentSkillRequirementSummary {
   upgradeAddedKeys?: string[];
   /** Declarations that are stored but invalid (e.g. reserved DOFE_AGENT_* keys). */
   invalidDeclarations?: string[];
+  /** Declared `capability:` requirements (spec §6.4 — surfaces them for runtime matching). */
+  requiredCapabilities?: string[];
+  /** GitHub dependency install status for this skill (spec §5.3). */
+  dependencyInstallStatus?: import("./dependency-install.ts").SkillDependencyInstallStatus;
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -295,9 +301,21 @@ export function readAgentSkillRequirementSummarySync(input: {
     ? readUserSync(record.updatedByUserId)?.displayName
     : undefined;
 
-  return {
+  const statusDetailCode: AgentSkillRequirementStatusCode = status === "ready"
+    ? "skill_ready"
+    : status === "needs_configuration"
+      ? "skill_needs_configuration"
+      : status === "runtime_incompatible"
+        ? "skill_runtime_incompatible"
+        : status === "awaiting_validation"
+          ? "skill_awaiting_validation"
+          : "skill_expired";
+
+  const invalidDeclarations = readInvalidSkillRequirementDeclarations(skill.configJson);
+  const summary: AgentSkillRequirementSummary = {
     skillId: input.skillId,
     status,
+    statusDetail: { code: statusDetailCode },
     requiredCount: environment.length,
     configuredCount: environment.filter((item) => item.configured).length,
     blockers,
@@ -308,6 +326,45 @@ export function readAgentSkillRequirementSummarySync(input: {
     updatedAt: record?.updatedAt,
     updatedBy,
   };
+  if (invalidDeclarations.length > 0) {
+    summary.invalidDeclarations = invalidDeclarations;
+  }
+  const requiredCapabilities = requirements
+    .filter((requirement) => requirement.kind === "capability")
+    .map((requirement) => requirement.value);
+  if (requiredCapabilities.length > 0) {
+    summary.requiredCapabilities = requiredCapabilities;
+  }
+  const dependencyInstallStatus = readSkillDependencyInstallStatusSync({
+    workspaceId: input.workspaceId,
+    employeeName: input.employeeName,
+    skillId: input.skillId,
+  });
+  if (dependencyInstallStatus !== "none") {
+    summary.dependencyInstallStatus = dependencyInstallStatus;
+  }
+  return summary;
+}
+
+/**
+ * Resolves the project working directory declared by this employee's
+ * project-requiring skills. Mirrors model resolution: returns a value only when
+ * every project-requiring skill agrees on the same directory (unanimous
+ * consensus), otherwise `undefined` so the task keeps its default staged cwd.
+ */
+export function resolveSkillProjectWorkDirSync(workspaceId: string, employeeName: string): string | undefined {
+  const skillIds = listEmployeeSkillIdsSync(employeeName, workspaceId);
+  const projectDirs = new Set<string>();
+  for (const skillId of skillIds) {
+    const skill = readWorkspaceSkillSync(skillId, workspaceId);
+    if (!skill) continue;
+    const requirements = readSkillRequirementDeclarations(skill.configJson);
+    if (!requirements.some((requirement) => requirement.kind === "project")) continue;
+    const { configuration } = readAgentSkillRequirementConfigurationSync({ workspaceId, employeeName, skillId });
+    const dir = configuration?.projectWorkDir?.trim();
+    if (dir) projectDirs.add(dir);
+  }
+  return projectDirs.size === 1 ? [...projectDirs][0] : undefined;
 }
 
 export function readAgentSkillRequirementConfigurationSync(input: {

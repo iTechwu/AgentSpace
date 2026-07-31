@@ -352,6 +352,22 @@ export interface ChannelsPageData {
     meta: string;
     email?: string;
   }>;
+  composerAgents?: Array<{
+    id: string;
+    label: string;
+    provider?: string;
+    executionPolicy?: import("@dofe-agent/domain/workspace").EmployeeExecutionPolicy;
+    skills: Array<{
+      id: string;
+      name: string;
+      description: string;
+    }>;
+  }>;
+  composerSkills?: Array<{
+    id: string;
+    name: string;
+    description: string;
+  }>;
   totalChannels: number;
   detailScope?: string[];
 }
@@ -1966,6 +1982,12 @@ export function getChannelsPageData(
 ): ChannelsPageData {
   const state = readWorkspaceStateCached(workspaceId);
   const queuedTasks = listQueuedTasksCached(workspaceId);
+  const workspaceSkills = listWorkspaceSkillsCached(workspaceId);
+  const workspaceSkillById = new Map(workspaceSkills.map((skill) => [skill.id, skill]));
+  const skillIdsByAgentId = listEmployeeSkillIdsByAgentIdMapSync(workspaceId);
+  const runtimeBindingByEmployeeName = new Map(
+    listEmployeeRuntimeBindingsCached(workspaceId).map((binding) => [binding.employeeName, binding]),
+  );
   const channelScope = normalizeChannelScope(options?.channelNames);
   const channelScoped = channelScope !== null;
   const workspaceMembers = channelScoped ? [] : listWorkspaceMemberUsersCached(workspaceId);
@@ -2188,6 +2210,21 @@ export function getChannelsPageData(
     ]
       .sort((left, right) => left.label.localeCompare(right.label, "zh-CN", { sensitivity: "base" })),
     channelMemberCandidates,
+    composerAgents: visibleEmployees.map((employee) => ({
+      id: employee.name,
+      label: employee.remarkName?.trim() || employee.name,
+      provider: runtimeBindingByEmployeeName.get(employee.name)?.provider,
+      executionPolicy: employee.executionPolicy,
+      skills: (skillIdsByAgentId.get(buildLegacyAgentIdForEmployeeName(employee.name)) ?? [])
+        .map((skillId) => workspaceSkillById.get(skillId))
+        .filter((skill): skill is WorkspaceSkill => Boolean(skill))
+        .map((skill) => ({ id: skill.id, name: skill.name, description: skill.description })),
+    })),
+    composerSkills: workspaceSkills.map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description,
+    })),
     totalChannels: channels.length,
     detailScope: detailChannelScope ? [...detailChannelNames] : undefined,
   };
@@ -2622,6 +2659,12 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
       canManageFeishuAgentBot: canManageAllAgents,
       canManage: canManageAllAgents,
       canManageChannelMemberAccess: canManageAllAgents,
+      // Permission-restricted view (spec §3.3): non-managers see only aggregate
+      // readiness status, never variable names, blockers, values, or who last
+      // updated. They get "可用 / 需管理员处理", not the key inventory.
+      skillRequirements: canManageAllAgents
+        ? agent.skillRequirements
+        : redactSkillRequirementsForViewer(agent.skillRequirements),
     }))
     .sort(compareAgents);
   const workspaceAgents = allWorkspaceAgentRecords
@@ -3952,6 +3995,31 @@ function buildWorkspaceAgentRecord(
     knowledge,
     documentAccess,
   };
+}
+
+/**
+ * Returns a viewer-safe skill-requirements map for non-managers (spec §3.3).
+ * Keeps only the aggregate readiness signal (status + counts + dependency
+ * status) so a viewer can tell "可用 / 需管理员处理". Drops everything that
+ * carries a variable name, value, blocker detail, or actor identity.
+ */
+export function redactSkillRequirementsForViewer(
+  skillRequirements: Record<string, AgentSkillRequirementSummary>,
+): Record<string, AgentSkillRequirementSummary> {
+  return Object.fromEntries(Object.entries(skillRequirements).map(([skillId, summary]) => [
+    skillId,
+    {
+      skillId: summary.skillId,
+      status: summary.status,
+      statusDetail: summary.statusDetail,
+      requiredCount: summary.requiredCount,
+      configuredCount: summary.configuredCount,
+      blockers: [],
+      environment: [],
+      runtimeOnline: summary.runtimeOnline,
+      dependencyInstallStatus: summary.dependencyInstallStatus,
+    } satisfies AgentSkillRequirementSummary,
+  ]));
 }
 
 function buildNativeRuntimeRecord(
