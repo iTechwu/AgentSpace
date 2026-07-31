@@ -761,7 +761,7 @@ test("model catalog preflight rejects protocol-compatible non-LLM models", async
   assert.equal(preflight.code, "managed_runtime.no_compatible_models");
 });
 
-test("Codex preflight rejects an unverified Responses model", async () => {
+test("Codex preflight accepts a protocol-compatible Responses model before verification completes", async () => {
   activeClient = createMockClient({
     modelList: [
       {
@@ -770,7 +770,6 @@ test("Codex preflight rejects an unverified Responses model", async () => {
         model: "responses-unverified",
         modelType: "llm",
         supportedProtocols: ["openai_response"],
-        codexReady: false,
         isEnabled: true,
         isDeprecated: false,
       },
@@ -785,8 +784,10 @@ test("Codex preflight rejects an unverified Responses model", async () => {
     defaultModel: "responses-unverified",
   });
 
-  assert.equal(preflight.allowed, false);
-  assert.equal(preflight.code, "managed_runtime.no_compatible_models");
+  // The default-model catalog is filtered by runtime protocol, not by the
+  // model service's verification stamp. The gateway still blocks unverified
+  // openai_response routes at execution time.
+  assert.equal(preflight.allowed, true);
 });
 
 test("usage reconciliation keeps provisional billing pending until models finalizes it", async () => {
@@ -1473,7 +1474,7 @@ test("restores a Responses runtime credential to its protocol-compatible model c
   });
 });
 
-test("employee model binding rejects an unverified Responses model on an unrestricted credential", async () => {
+test("employee model binding accepts a protocol-compatible Responses model on an unrestricted credential", async () => {
   const task = requestManagedRuntimeProvisioningSync({
     workspaceId: TEAM_WS,
     actorUserId: OWNER,
@@ -1494,7 +1495,47 @@ test("employee model binding rejects an unverified Responses model on an unrestr
         model: "deepseek-unverified",
         modelType: "llm",
         supportedProtocols: ["openai_response"],
-        codexReady: false,
+        isEnabled: true,
+        isDeprecated: false,
+      },
+    ],
+  });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const updated = await ensureManagedRuntimeModelAllowedAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    runtimeId,
+    modelId: "deepseek-unverified",
+    operationId: "accept-unverified-employee-model",
+  });
+
+  // The unrestricted credential already covers the whole protocol catalog, so
+  // binding a protocol-compatible default model is a no-op credential change.
+  assert.equal(updated.managedCredentialId, "rtc-unrestricted-codex");
+});
+
+test("employee model binding rejects a protocol-incompatible model", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "codex",
+    idempotencyKey: "codex-protocol-runtime",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtimeId = provisioned.runtimeId!;
+
+  activeClient = createMockClient({
+    credentialId: "rtc-unrestricted-codex",
+    allowedModels: [],
+    credentialProtocols: ["openai_response"],
+    modelList: [
+      {
+        id: "anthropic-only",
+        alias: "anthropic-only",
+        model: "anthropic-only",
+        modelType: "llm",
+        supportedProtocols: ["anthropic"],
         isEnabled: true,
         isDeprecated: false,
       },
@@ -1507,8 +1548,8 @@ test("employee model binding rejects an unverified Responses model on an unrestr
       workspaceId: TEAM_WS,
       actorUserId: OWNER,
       runtimeId,
-      modelId: "deepseek-unverified",
-      operationId: "reject-unverified-employee-model",
+      modelId: "anthropic-only",
+      operationId: "reject-protocol-incompatible-employee-model",
     }),
     /managed_runtime\.no_compatible_models|managed_runtime\.model_unavailable/,
   );

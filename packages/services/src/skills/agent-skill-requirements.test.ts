@@ -144,6 +144,137 @@ test("readAgentSkillRequirementEnvSync returns empty object when no configuratio
   assert.deepEqual(env, {});
 });
 
+test("extra variables are persisted and injected alongside declared env vars", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createSkillWithRequirements();
+
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { NOTION_DATABASE_ID: "db-123", EXTRA_ANNOTATION: "notes" },
+    secrets: { NOTION_API_TOKEN: "secret-token-456" },
+    extraKeys: ["EXTRA_ANNOTATION"],
+  });
+
+  const env = readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: skill.id });
+  assert.equal(env.NOTION_DATABASE_ID, "db-123");
+  assert.equal(env.NOTION_API_TOKEN, "secret-token-456");
+  assert.equal(env.EXTRA_ANNOTATION, "notes");
+
+  const { configuration } = readAgentSkillRequirementConfigurationSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+  });
+  assert.deepEqual(configuration?.extraKeys, ["EXTRA_ANNOTATION"]);
+
+  const summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+  });
+  assert.ok(summary.environment.some((item) => item.key === "EXTRA_ANNOTATION" && item.configured));
+});
+
+test("sensitive extra variables are encrypted at rest and decrypted for the task env", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "minimal",
+    description: "Minimal",
+    configJson: JSON.stringify({ requirements: [] }),
+  });
+
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { MY_SERVICE_CODE: "s3cr3t" },
+    sensitiveKeys: ["MY_SERVICE_CODE"],
+    extraKeys: ["MY_SERVICE_CODE"],
+  });
+
+  const { configuration } = readAgentSkillRequirementConfigurationSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+  });
+  // Sensitive extra value must NOT be in plaintext values.
+  assert.equal(configuration?.values.MY_SERVICE_CODE, undefined);
+  assert.ok(configuration?.sensitiveKeys.includes("MY_SERVICE_CODE"));
+  assert.deepEqual(configuration?.extraKeys, ["MY_SERVICE_CODE"]);
+
+  const env = readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: skill.id });
+  assert.equal(env.MY_SERVICE_CODE, "s3cr3t");
+});
+
+test("extra variables reject reserved DOFE_AGENT_ prefix and duplicate declared keys", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createSkillWithRequirements();
+
+  assert.throws(
+    () => upsertAgentSkillRequirementsSync({
+      workspaceId: "default",
+      employeeName: "Researcher",
+      skillId: skill.id,
+      actorUserId: TEST_USER_ID,
+      values: { NOTION_DATABASE_ID: "db-123" },
+      secrets: { NOTION_API_TOKEN: "t" },
+      extraKeys: ["DOFE_AGENT_OVERRIDE"],
+    }),
+    /reserved by the runtime/,
+  );
+  assert.throws(
+    () => upsertAgentSkillRequirementsSync({
+      workspaceId: "default",
+      employeeName: "Researcher",
+      skillId: skill.id,
+      actorUserId: TEST_USER_ID,
+      values: { NOTION_DATABASE_ID: "db-123" },
+      secrets: { NOTION_API_TOKEN: "t" },
+      extraKeys: ["NOTION_DATABASE_ID"],
+    }),
+    /duplicates a declared requirement key/,
+  );
+});
+
+test("deleteAgentSkillRequirementKeySync removes an extra variable", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createSkillWithRequirements();
+
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { NOTION_DATABASE_ID: "db-123", EXTRA_ANNOTATION: "notes" },
+    secrets: { NOTION_API_TOKEN: "secret-token-456" },
+    extraKeys: ["EXTRA_ANNOTATION"],
+  });
+
+  const removed = deleteAgentSkillRequirementKeySync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    key: "EXTRA_ANNOTATION",
+    actorUserId: TEST_USER_ID,
+  });
+  assert.equal(removed.kind, "config");
+  assert.equal(removed.sensitive, false);
+
+  const { configuration } = readAgentSkillRequirementConfigurationSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+  });
+  assert.deepEqual(configuration?.extraKeys, []);
+  const env = readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: skill.id });
+  assert.equal(env.EXTRA_ANNOTATION, undefined);
+  assert.equal(env.NOTION_DATABASE_ID, "db-123");
+});
+
 test("readAgentSkillRequirementEnvSync throws when encryption key is missing and secret is stored", () => {
   createEmployeeSync({ name: "Researcher" });
   const skill = createSkillWithRequirements();

@@ -2085,4 +2085,59 @@ describe("SkillRequirementsModal", () => {
       capabilities: ["image_generation"],
     }));
   });
+
+  it("lets an administrator add an extra environment variable to the skill config", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <SkillRequirementsModal
+          configJson={JSON.stringify({
+            requirements: [{ kind: "config", value: "NOTION_DATABASE_ID" }],
+          })}
+          pending={false}
+          skillName="notion-skill"
+          onCancel={vi.fn()}
+          onConfirm={onConfirm}
+        />
+      </LanguageProvider>,
+    );
+
+    await user.type(screen.getByLabelText("新变量键名"), "EXTRA_FLAG");
+    await user.type(screen.getByLabelText("新变量值"), "enabled");
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    await user.click(screen.getByRole("button", { name: "保存配置" }));
+
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      extraKeys: ["EXTRA_FLAG"],
+      values: expect.objectContaining({ EXTRA_FLAG: "enabled" }),
+    }));
+  });
+
+  it("lets an administrator remove an extra variable before saving", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <SkillRequirementsModal
+          configJson={JSON.stringify({ requirements: [] })}
+          initialConfiguration={{ capabilities: [], values: { EXTRA_FLAG: "x" }, extraKeys: ["EXTRA_FLAG"] }}
+          pending={false}
+          skillName="notion-skill"
+          onCancel={vi.fn()}
+          onConfirm={onConfirm}
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "移除" }));
+    await user.click(screen.getByRole("button", { name: "保存配置" }));
+
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      extraKeys: [],
+      values: expect.not.objectContaining({ EXTRA_FLAG: "x" }),
+    }));
+  });
 });

@@ -1,7 +1,7 @@
 "use server";
 
 import { readAgentRuntimeSync, updateAgentRuntimeManagedFieldsSync } from "@dofe-agent/db";
-import { DAEMON_PROVIDER_PROTOCOLS } from "@dofe-agent/domain";
+import { DAEMON_PROVIDER_PROTOCOLS, resolveProviderProtocols } from "@dofe-agent/domain";
 import {
   cancelRuntimeProvisioningTaskAsync,
   deleteManagedRuntimeAsync,
@@ -235,25 +235,27 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
   const { tenantId } = resolveManagedRuntimeScopeSync(workspaceId);
   const client = getModelsInternalClient();
   const response = await client.models.list({ query: { tenantId } });
+  // Default-model pickers only need the models this runtime can actually
+  // speak. Availability is a protocol-intersection check: codex speaks
+  // openai_response, claudecode speaks anthropic, and everything else is not
+  // part of this runtime's catalog. The audit/verification stamps from the
+  // model service (`codexReady`, health probes) are intentionally NOT used
+  // here so the picker never empties out while verification is still running.
   const list = response.list
     .filter(isExecutionLanguageModel)
     .map((model) => {
       const effectivePricing = resolveEffectiveModelPricing(model);
       const supported = (model as { supportedProtocols?: string[] }).supportedProtocols ?? [];
       const protocol = protocols.find((p) => supported.includes(p));
-      const codexReady = (model as { codexReady?: boolean }).codexReady === true;
-      const isAvailable = Boolean(
-        protocol &&
-          (protocol !== "openai_response" || codexReady) &&
-          (model as { isEnabled?: boolean }).isEnabled !== false &&
-          (model as { isDeprecated?: boolean }).isDeprecated !== true,
-      );
+      const isEnabled = (model as { isEnabled?: boolean }).isEnabled !== false;
+      const isDeprecated = (model as { isDeprecated?: boolean }).isDeprecated === true;
+      const isAvailable = Boolean(protocol && isEnabled && !isDeprecated);
       return {
         alias: String((model as { alias?: string }).alias ?? (model as { id?: string }).id ?? ""),
         displayName: (model as { displayName?: string | null }).displayName,
         model: (model as { model?: string }).model,
         modelType: "llm" as const,
-        protocol: protocol ?? supported[0] ?? "",
+        protocol: protocol ?? "",
         contextLength: (model as { contextLength?: number }).contextLength,
         supportsVision: (model as { supportsVision?: boolean }).supportsVision,
         supportsFunctionCalling: (model as { supportsFunctionCalling?: boolean }).supportsFunctionCalling,
@@ -261,16 +263,10 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
         outputPrice: effectivePricing.outputPrice,
         priceCurrency: effectivePricing.currency,
         isAvailable,
-        unavailableReason: protocol
-          ? isAvailable
-            ? undefined
-            : protocol === "openai_response" && !codexReady
-              ? "Codex Responses verification required"
-              : "Model is disabled or deprecated"
-          : `Runtime protocol (${protocols.join(", ")}) not supported`,
+        unavailableReason: isAvailable ? undefined : "Model is disabled or deprecated",
       };
     })
-    .filter((item) => item.alias);
+    .filter((item) => item.alias && item.protocol);
   return { list, configured: true };
 }
 
@@ -317,29 +313,23 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
     };
     const effectivePricing = resolveEffectiveModelPricing(catalogModel);
     const supportedProtocols = catalogModel.supportedProtocols ?? [];
-    const runtimeProtocols = runtime.protocols ?? [];
+    const runtimeProtocols = runtime.protocols?.length
+      ? runtime.protocols
+      : resolveProviderProtocols(runtime.provider);
     const matchedProtocol = supportedProtocols.find((protocol) => runtimeProtocols.includes(protocol));
     // Collapse the credential, policy, deprecation, and protocol signals into a
-    // single availability flag. The picker shows every catalog entry (greyed
-    // out with a reason) instead of silently dropping unavailable ones — which
-    // left the dropdown empty when no model was currently usable.
+    // single availability flag. Only protocol-compatible models are part of the
+    // default-model catalog; the audit/verification stamp (`codexReady`) is not
+    // a selection criterion here so verification in progress never empties the
+    // picker. The gateway still blocks unverified openai_response routes.
     const credentialAvailable = catalogModel.isAvailable;
     const policyEnabled = model.isEnabled !== false;
     const deprecated = model.isDeprecated === true;
-    const codexReady = catalogModel.codexReady === true;
-    const isAvailable = Boolean(
-      credentialAvailable &&
-        policyEnabled &&
-        !deprecated &&
-        matchedProtocol &&
-        (matchedProtocol !== "openai_response" || codexReady),
-    );
+    const isAvailable = Boolean(credentialAvailable && policyEnabled && !deprecated && matchedProtocol);
     const unavailableReason = isAvailable
       ? undefined
       : !matchedProtocol
         ? `Runtime protocol (${runtimeProtocols.join(", ")}) not supported`
-        : matchedProtocol === "openai_response" && !codexReady
-          ? "Codex Responses verification required"
         : !credentialAvailable
           ? "Credential unavailable"
           : !policyEnabled
@@ -362,7 +352,8 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
       isEnabled: model.isEnabled,
       unavailableReason,
     };
-  });
+  })
+  .filter((item) => item.alias && item.protocol);
   return {
     list,
     total: list.length,

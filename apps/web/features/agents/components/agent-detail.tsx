@@ -48,10 +48,13 @@ interface AgentDetailProps {
     values: Record<string, string>;
     secrets: Record<string, string>;
     sensitiveKeys: string[];
+    extraKeys: string[];
     reuseValues: Record<string, string>;
   }) => void;
   readonly onRemoveSkillKey?: (skillId: string, key: string) => void;
   readonly onRotateSecret?: (skillId: string, key: string, value: string) => void;
+  /** Non-admin hand-off: request a workspace admin to configure this skill. */
+  readonly onRequestSkillConfiguration?: (skillId: string) => void;
   readonly onSetKnowledgePageIds?: (pageIds: string[]) => void;
   readonly onCreateForkInvitation?: (input: {
     targetUserId: string;
@@ -91,6 +94,7 @@ export function AgentDetail({
   onInstallSkill,
   onRemoveSkillKey,
   onRotateSecret,
+  onRequestSkillConfiguration,
   onSetKnowledgePageIds,
   onCreateForkInvitation,
   onRevokeForkInvitation,
@@ -529,6 +533,16 @@ export function AgentDetail({
                             type="button"
                           >
                             {tx("管理环境变量", "Manage environment variables")}
+                          </button>
+                        ) : null}
+                        {!canManage && onRequestSkillConfiguration && record.skillRequirements[skill.id]?.status !== "ready" ? (
+                          <button
+                            className="modal-secondary-button"
+                            disabled={pending}
+                            onClick={() => onRequestSkillConfiguration(skill.id)}
+                            type="button"
+                          >
+                            {tx("请求管理员配置", "Request admin to configure")}
                           </button>
                         ) : null}
                         <button

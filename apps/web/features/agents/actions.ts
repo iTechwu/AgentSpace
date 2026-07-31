@@ -46,6 +46,7 @@ import {
   readAgentSkillRequirementConfigurationSync,
   queueGitHubSkillDependenciesForAgentSync,
   rejectAgentAccessRequestForActorSync,
+  requestSkillRequirementConfigurationSync,
   revokeAgentForkInvitationForActorSync,
   revokeRuntimeUseFromUserForActorSync,
   resolveAgentRuntimeMode,
@@ -710,6 +711,8 @@ export async function installWorkspaceAgentSkillAction(input: {
   values?: Record<string, string>;
   secrets?: Record<string, string>;
   sensitiveKeys?: string[];
+  /** Admin-added extra env vars, scoped to this employee + skill (not declared). */
+  extraKeys?: string[];
   /** Map of declared key -> source skill id to copy an existing configured value from. */
   reuseValues?: Record<string, string>;
 }): Promise<ActionToastResult<void>> {
@@ -742,6 +745,7 @@ export async function installWorkspaceAgentSkillAction(input: {
       values: input.values,
       secrets: input.secrets,
       sensitiveKeys: input.sensitiveKeys,
+      extraKeys: input.extraKeys,
       reuseValues: input.reuseValues,
       ...(managedRuntimeCredentialKey ? { managedRuntimeCredentialKey } : {}),
       ...(boundRuntime?.provider ? { runtimeProvider: boundRuntime.provider } : {}),
@@ -917,6 +921,38 @@ export async function rotateWorkspaceAgentSkillSecretAction(input: {
     successToast(
       `已轮换密钥 ${input.key.trim()}。`,
       `Rotated secret ${input.key.trim()}.`,
+    ),
+    buildAgentInvalidation(workspaceId, input.employeeName.trim()),
+  );
+}
+
+export async function requestWorkspaceAgentSkillConfigurationAction(input: {
+  employeeName: string;
+  skillId: string;
+}): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  assertRequired(input.employeeName, "employee name");
+  assertRequired(input.skillId, "skill id");
+  if (isWorkspaceAdminOrOwnerSync({ workspaceId, userId: workspaceContext.currentUser.id })) {
+    throw new Error("Workspace admins can configure skill requirements directly; no hand-off request is needed.");
+  }
+  const result = requestSkillRequirementConfigurationSync({
+    workspaceId,
+    employeeName: input.employeeName.trim(),
+    skillId: input.skillId.trim(),
+    requesterUserId: workspaceContext.currentUser.id,
+  });
+  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+  return actionToastResult(
+    undefined,
+    successToast(
+      result.adminCount > 0
+        ? `已向 ${result.adminCount} 位管理员提交配置请求。`
+        : "已记录配置请求，待管理员处理。",
+      result.adminCount > 0
+        ? `Configuration request sent to ${result.adminCount} admin(s).`
+        : "Configuration request recorded for admins.",
     ),
     buildAgentInvalidation(workspaceId, input.employeeName.trim()),
   );

@@ -19,6 +19,13 @@ export interface SkillRequirementConfiguration {
    * encrypted secrets store alongside `secret:` values.
    */
   sensitiveKeys: string[];
+  /**
+   * Admin-added extra environment variables that are NOT declared in the
+   * skill's `requires`. They are scoped to this employee + skill, follow the
+   * same naming/length/secret policy as declared keys, and are injected into
+   * the task environment alongside declared variables.
+   */
+  extraKeys: string[];
 }
 
 const SECRET_KEY_PATTERN = /(secret|token|password|(?:api|app)[_-]?key|credential)/i;
@@ -109,7 +116,7 @@ export function readSkillRequirementConfiguration(configJson: string | undefined
   const config = readSkillConfig(configJson);
   const stored = config?.requirementConfiguration;
   if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
-    return { capabilities: [], values: {}, sensitiveKeys: [] };
+    return { capabilities: [], values: {}, sensitiveKeys: [], extraKeys: [] };
   }
   const record = stored as Record<string, unknown>;
   const values: Record<string, string> = {};
@@ -122,6 +129,9 @@ export function readSkillRequirementConfiguration(configJson: string | undefined
   }
   const sensitiveKeys = Array.isArray(record.sensitiveKeys)
     ? record.sensitiveKeys.filter((value): value is string => typeof value === "string" && CONFIG_KEY_PATTERN.test(value))
+    : [];
+  const extraKeys = Array.isArray(record.extraKeys)
+    ? record.extraKeys.filter((value): value is string => typeof value === "string" && CONFIG_KEY_PATTERN.test(value))
     : [];
   return {
     modelProvider: typeof record.modelProvider === "string" && isDaemonProvider(record.modelProvider)
@@ -136,6 +146,7 @@ export function readSkillRequirementConfiguration(configJson: string | undefined
       : undefined,
     values,
     sensitiveKeys,
+    extraKeys,
   };
 }
 
@@ -158,10 +169,13 @@ export function normalizeSkillRequirementConfiguration(input: {
   projectWorkDir?: string;
   values?: Record<string, string>;
   sensitiveKeys?: string[];
+  /** Admin-added extra environment variables, scoped to this employee + skill. */
+  extraKeys?: string[];
 }): SkillRequirementConfiguration {
   const providerRequirements = input.requirements.filter((item) => item.kind === "provider").map((item) => item.value);
   const modelRequirements = input.requirements.filter((item) => item.kind === "model").map((item) => item.value);
   const configRequirements = input.requirements.filter((item) => item.kind === "config").map((item) => item.value);
+  const secretRequirements = input.requirements.filter((item) => item.kind === "secret").map((item) => item.value);
   const capabilityRequirements = input.requirements.filter((item) => item.kind === "capability").map((item) => item.value);
   const needsProject = input.requirements.some((item) => item.kind === "project");
   const selectedProvider = input.modelProvider?.trim();
@@ -190,12 +204,32 @@ export function normalizeSkillRequirementConfiguration(input: {
     }
   }
 
+  const declaredKeys = new Set([...configRequirements, ...secretRequirements]);
+  const extraKeySet = new Set((input.extraKeys ?? []).filter((value): value is string => (
+    typeof value === "string" && CONFIG_KEY_PATTERN.test(value)
+  )));
+  for (const key of extraKeySet) {
+    if (key.startsWith("DOFE_AGENT_")) {
+      throw new Error(`Skill environment key ${key} is reserved by the runtime.`);
+    }
+    if (declaredKeys.has(key)) {
+      throw new Error(`Extra variable ${key} duplicates a declared requirement key.`);
+    }
+  }
+
   const sensitiveKeySet = new Set((input.sensitiveKeys ?? []).filter((value): value is string => (
     typeof value === "string" && CONFIG_KEY_PATTERN.test(value)
   )));
+  // Extra keys whose names match the secret pattern (TOKEN/SECRET/API_KEY/…)
+  // are forced encrypted, mirroring the config→secret promotion on declared keys.
+  for (const key of extraKeySet) {
+    if (SECRET_KEY_PATTERN.test(key)) {
+      sensitiveKeySet.add(key);
+    }
+  }
   for (const key of sensitiveKeySet) {
-    if (!configRequirements.includes(key)) {
-      throw new Error(`Sensitive flag can only be applied to declared configuration keys.`);
+    if (!configRequirements.includes(key) && !extraKeySet.has(key)) {
+      throw new Error(`Sensitive flag can only be applied to declared or extra configuration keys.`);
     }
   }
 
@@ -216,6 +250,20 @@ export function normalizeSkillRequirementConfiguration(input: {
     }
     values[key] = value;
   }
+  for (const key of extraKeySet) {
+    const value = input.values?.[key]?.trim();
+    if (!value) {
+      // A sensitive extra may be retained from encrypted storage on maintenance.
+      if (sensitiveKeySet.has(key)) {
+        continue;
+      }
+      throw new Error(`Configuration value ${key} is required.`);
+    }
+    if (value.length > 4096) {
+      throw new Error(`Configuration value ${key} is too long.`);
+    }
+    values[key] = value;
+  }
 
   return {
     modelProvider: selectedProvider as DaemonProvider | undefined,
@@ -224,6 +272,7 @@ export function normalizeSkillRequirementConfiguration(input: {
     projectWorkDir: selectedProject || undefined,
     values,
     sensitiveKeys: Array.from(sensitiveKeySet),
+    extraKeys: Array.from(extraKeySet),
   };
 }
 
@@ -310,6 +359,7 @@ export function buildSkillRequirementRuntimeContext(configJson: string | undefin
       capabilities: configuration.capabilities,
       projectWorkDir: configuration.projectWorkDir,
       sensitiveKeys: configuration.sensitiveKeys,
+      extraKeys: configuration.extraKeys,
     },
     credentialRequirements: requirements
       .filter((requirement) => requirement.kind === "secret")

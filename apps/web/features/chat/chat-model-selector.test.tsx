@@ -68,6 +68,81 @@ describe("ChatModelCommandDialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("shows a generic empty state when no protocol-compatible model is available", async () => {
+    mocks.getChatModelOverrideAction.mockResolvedValueOnce({
+      routerSessionId: "router-session-1",
+      agentName: "Atlas",
+      provider: "codex",
+    });
+    mocks.listProtocolFilteredRuntimeModelsAction.mockResolvedValueOnce({
+      configured: true,
+      list: [
+        {
+          alias: "deepseek-v4-pro",
+          displayName: "DeepSeek V4 Pro",
+          model: "deepseek-v4-pro",
+          modelType: "llm",
+          protocol: "openai_response",
+          isAvailable: false,
+          unavailableReason: "Disabled by team policy",
+        },
+      ],
+    });
+
+    render(
+      <LanguageProvider>
+        <ChatModelCommandDialog contactId="Atlas" displayName="Atlas" onClose={vi.fn()} />
+      </LanguageProvider>,
+    );
+
+    expect(await screen.findByText("暂无可用模型")).toBeInTheDocument();
+    expect(screen.getByText("0 个可切换模型")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /DeepSeek V4 Pro.*已被团队策略禁用/ })).toBeDisabled();
+    expect(mocks.setChatModelOverrideAction).not.toHaveBeenCalled();
+  });
+
+  it("searches a compact model catalog and avoids repeating identical aliases", async () => {
+    const user = userEvent.setup();
+    mocks.listProtocolFilteredRuntimeModelsAction.mockResolvedValueOnce({
+      configured: true,
+      list: [
+        {
+          alias: "seed-2.1-pro",
+          displayName: "seed-2.1-pro",
+          modelType: "llm",
+          protocol: "anthropic",
+          isAvailable: true,
+        },
+        {
+          alias: "claude-opus-4.7-thinking",
+          displayName: "Claude Opus 4.7 Thinking",
+          modelType: "llm",
+          protocol: "anthropic",
+          isAvailable: true,
+        },
+      ],
+    });
+    mocks.getChatModelOverrideAction.mockResolvedValueOnce({
+      routerSessionId: "router-session-1",
+      agentName: "Claude",
+      provider: "claude",
+    });
+
+    render(
+      <LanguageProvider>
+        <ChatModelCommandDialog contactId="Claude" displayName="Claude" onClose={vi.fn()} />
+      </LanguageProvider>,
+    );
+
+    const search = await screen.findByRole("searchbox", { name: "搜索模型" });
+    expect(screen.getAllByText("seed-2.1-pro")).toHaveLength(1);
+
+    await user.type(search, "opus");
+
+    expect(screen.queryByRole("option", { name: /seed-2.1-pro/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Claude Opus 4.7 Thinking/ })).toBeInTheDocument();
+  });
+
   it("shows a terminal error instead of loading forever when session resolution fails", async () => {
     mocks.getChatModelOverrideAction.mockRejectedValueOnce(new Error("session unavailable"));
 

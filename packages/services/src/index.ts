@@ -102,6 +102,7 @@ export {
   readAgentSkillRequirementConfigurationSync,
   readAgentSkillRequirementEnvSync,
   readAgentSkillRequirementSummarySync,
+  requestSkillRequirementConfigurationSync,
   resolveSkillProjectWorkDirSync,
   rotateAgentSkillRequirementSecretSync,
   setAgentSkillAssignmentsWithRequirementsValidationSync,

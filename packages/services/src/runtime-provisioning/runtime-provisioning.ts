@@ -2152,7 +2152,6 @@ async function assertManagedRuntimeModelSelectionAsync(input: {
     const model = item as {
       modelType?: string;
       supportedProtocols?: string[];
-      codexReady?: boolean;
       isEnabled?: boolean;
       isDeprecated?: boolean;
     };
@@ -2163,8 +2162,7 @@ async function assertManagedRuntimeModelSelectionAsync(input: {
       isExecutionLanguageModel(model) &&
       model.isEnabled !== false &&
       model.isDeprecated !== true &&
-      compatibleProtocols.length > 0 &&
-      (!compatibleProtocols.includes("openai_response") || model.codexReady === true)
+      compatibleProtocols.length > 0
     );
   });
   if (available.length === 0) {

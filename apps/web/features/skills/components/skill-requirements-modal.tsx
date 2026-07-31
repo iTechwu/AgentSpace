@@ -16,6 +16,7 @@ interface RequirementConfiguration {
   projectWorkDir?: string;
   values: Record<string, string>;
   sensitiveKeys?: string[];
+  extraKeys?: string[];
 }
 
 interface SkillRequirementsModalProps {
@@ -44,6 +45,7 @@ interface SkillRequirementsModalProps {
     values: Record<string, string>;
     secrets: Record<string, string>;
     sensitiveKeys: string[];
+    extraKeys: string[];
     reuseValues: Record<string, string>;
   }) => void;
   readonly onRemoveKey?: (key: string) => void;
@@ -91,6 +93,9 @@ export function SkillRequirementsModal({
   const projects = requirements.filter((item) => item.kind === "project");
   const configRequirements = requirements.filter((item) => item.kind === "config");
   const secretRequirements = requirements.filter((item) => item.kind === "secret");
+  const declaredKeySet = new Set(requirements
+    .filter((item) => item.kind === "config" || item.kind === "secret")
+    .map((item) => item.value));
   const providerOptions = providers.length > 0
     ? PROVIDERS.filter(([value]) => providers.includes(value))
     : PROVIDERS;
@@ -105,12 +110,63 @@ export function SkillRequirementsModal({
   const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
   const [rotatingKey, setRotatingKey] = useState<string | null>(null);
   const [rotationValue, setRotationValue] = useState<string>("");
+  const [extraKeys, setExtraKeys] = useState<string[]>(effectiveConfiguration.extraKeys ?? []);
+  const [draftExtraKey, setDraftExtraKey] = useState("");
+  const [draftExtraValue, setDraftExtraValue] = useState("");
+  const [draftExtraSensitive, setDraftExtraSensitive] = useState(false);
+  const [extraKeyError, setExtraKeyError] = useState<string | null>(null);
   const configuredKeySet = new Set(configuredSecretKeys);
 
   const toggleSensitive = (key: string, sensitive: boolean) => {
     setSensitiveKeys((current) => sensitive
       ? Array.from(new Set([...current, key]))
       : current.filter((value) => value !== key));
+  };
+
+  const addExtraKey = () => {
+    const key = draftExtraKey.trim();
+    if (!/^[A-Z][A-Z0-9_]{0,79}$/.test(key)) {
+      setExtraKeyError(tx("键名需以大写字母开头，仅含 A-Z、0-9、_", "Key must start with an uppercase letter and contain only A-Z, 0-9, _"));
+      return;
+    }
+    if (key.startsWith("DOFE_AGENT_")) {
+      setExtraKeyError(tx("DOFE_AGENT_* 为系统保留前缀", "DOFE_AGENT_* is reserved by the runtime"));
+      return;
+    }
+    if (declaredKeySet.has(key) || extraKeys.includes(key)) {
+      setExtraKeyError(tx("该键名已存在", "This key already exists"));
+      return;
+    }
+    const sensitive = draftExtraSensitive || /(secret|token|password|(?:api|app)[_-]?key|credential)/i.test(key);
+    if (!draftExtraValue.trim() && !sensitive) {
+      setExtraKeyError(tx("请输入变量值", "Enter a value"));
+      return;
+    }
+    if (draftExtraValue.trim().length > 4096) {
+      setExtraKeyError(tx("变量值过长（最多 4096 字符）", "Value is too long (max 4096 characters)"));
+      return;
+    }
+    setExtraKeys((current) => [...current, key]);
+    if (draftExtraValue.trim()) {
+      setValues((current) => ({ ...current, [key]: draftExtraValue }));
+    }
+    if (sensitive) {
+      setSensitiveKeys((current) => Array.from(new Set([...current, key])));
+    }
+    setDraftExtraKey("");
+    setDraftExtraValue("");
+    setDraftExtraSensitive(false);
+    setExtraKeyError(null);
+  };
+
+  const removeExtraKey = (key: string) => {
+    setExtraKeys((current) => current.filter((value) => value !== key));
+    setValues((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    setSensitiveKeys((current) => current.filter((value) => value !== key));
   };
 
   return (
@@ -130,6 +186,7 @@ export function SkillRequirementsModal({
             values,
             secrets: secretValues,
             sensitiveKeys,
+            extraKeys,
             reuseValues,
           });
         }}
@@ -519,6 +576,112 @@ export function SkillRequirementsModal({
               )}
             </section>
           ) : null}
+
+          <section className="skill-requirements-modal__section">
+            <h4>{tx("额外变量", "Extra variables")}</h4>
+            <p>
+              {tx(
+                "为此「员工 x Skill」额外添加未在 Skill 中声明的环境变量；遵循相同的命名、长度与密钥策略，仅在运行该 Skill 的任务时注入。",
+                "Add env vars not declared by the skill for this employee × skill. They follow the same naming/length/secret policy and only inject into this skill's tasks.",
+              )}
+            </p>
+            {extraKeys.map((key) => {
+              const sensitive = sensitiveKeys.includes(key);
+              const isConfiguredEncrypted = sensitive && configuredKeySet.has(key);
+              const reuse = reuseCandidates[key];
+              return (
+                <div className="form-field skill-requirements-modal__field" key={key}>
+                  <div className="skill-requirements-modal__field-head">
+                    <span>{key}</span>
+                    <label className="skill-requirements-modal__sensitive-toggle">
+                      <input
+                        checked={sensitive}
+                        onChange={(event) => toggleSensitive(key, event.currentTarget.checked)}
+                        type="checkbox"
+                      />
+                      {tx("敏感（加密保存）", "Sensitive (encrypted)")}
+                    </label>
+                    <button
+                      className="modal-secondary-button skill-requirements-modal__remove"
+                      disabled={pending}
+                      onClick={() => removeExtraKey(key)}
+                      type="button"
+                    >
+                      {tx("移除", "Remove")}
+                    </button>
+                  </div>
+                  <input
+                    autoComplete={sensitive ? "new-password" : "off"}
+                    disabled={pending}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setValues((current) => ({ ...current, [key]: value }));
+                    }}
+                    placeholder={isConfiguredEncrypted ? tx("输入新值以替换；留空保留当前值", "Enter a new value to replace; leave blank to keep") : undefined}
+                    type={sensitive ? "password" : "text"}
+                    value={values[key] ?? ""}
+                  />
+                  {isConfiguredEncrypted ? (
+                    <small className="form-field__hint">{tx("已加密保存；留空将保留当前值", "Encrypted; leave blank to keep the current value")}</small>
+                  ) : null}
+                  {reuse?.length ? (
+                    <small className="form-field__hint">
+                      {tx(
+                        `该员工其他 Skill 也配置了 ${key}（${reuse.map((item) => item.skillName).join("、")}）；同名异值会被拒绝。`,
+                        `Also configured by another skill (${reuse.map((item) => item.skillName).join(", ")}); a different value will be rejected.`,
+                      )}
+                    </small>
+                  ) : null}
+                  {credentialWarningSet.has(key) ? (
+                    <small className="form-field__hint">
+                      {tx(
+                        `${key} 是受管 Runtime 凭据 Key：绑定对应 Runtime 时会与 Runtime 注入的凭据冲突并被拒绝，建议改用其他 Key。`,
+                        `${key} is a managed-runtime credential key: binding a matching runtime will reject this as a conflict — use a different key.`,
+                      )}
+                    </small>
+                  ) : null}
+                </div>
+              );
+            })}
+            <div className="skill-requirements-modal__extra-add">
+              <input
+                aria-label={tx("新变量键名", "New variable key")}
+                disabled={pending}
+                onChange={(event) => setDraftExtraKey(event.currentTarget.value)}
+                placeholder={tx("如 MY_SERVICE_CODE", "e.g. MY_SERVICE_CODE")}
+                type="text"
+                value={draftExtraKey}
+              />
+              <input
+                aria-label={tx("新变量值", "New variable value")}
+                autoComplete={draftExtraSensitive ? "new-password" : "off"}
+                disabled={pending}
+                onChange={(event) => setDraftExtraValue(event.currentTarget.value)}
+                placeholder={tx("值", "Value")}
+                type={draftExtraSensitive ? "password" : "text"}
+                value={draftExtraValue}
+              />
+              <label className="skill-requirements-modal__sensitive-toggle">
+                <input
+                  checked={draftExtraSensitive}
+                  onChange={(event) => setDraftExtraSensitive(event.currentTarget.checked)}
+                  type="checkbox"
+                />
+                {tx("敏感", "Sensitive")}
+              </label>
+              <button
+                className="modal-secondary-button"
+                disabled={pending || !draftExtraKey.trim()}
+                onClick={addExtraKey}
+                type="button"
+              >
+                {tx("添加", "Add")}
+              </button>
+            </div>
+            {extraKeyError ? (
+              <small className="form-field__hint skill-requirements-modal__error" role="alert">{extraKeyError}</small>
+            ) : null}
+          </section>
         </div>
         <div className="modal-card__footer">
           <button className="modal-secondary-button" onClick={onCancel} type="button">
@@ -561,10 +724,13 @@ function readRequirements(configJson: string | undefined): { requirements: Requi
         sensitiveKeys: Array.isArray(record.sensitiveKeys)
           ? record.sensitiveKeys.filter((value): value is string => typeof value === "string")
           : [],
+        extraKeys: Array.isArray(record.extraKeys)
+          ? record.extraKeys.filter((value): value is string => typeof value === "string")
+          : [],
       },
     };
   } catch {
-    return { requirements: [], configuration: { capabilities: [], values: {} } };
+    return { requirements: [], configuration: { capabilities: [], values: {}, extraKeys: [] } };
   }
 }
 

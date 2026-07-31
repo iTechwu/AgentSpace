@@ -23,6 +23,7 @@ import {
   setWorkspaceAgentSkillAssignmentsAction,
   installWorkspaceAgentSkillAction,
   removeWorkspaceAgentSkillKeyAction,
+  requestWorkspaceAgentSkillConfigurationAction,
   rotateWorkspaceAgentSkillSecretAction,
   unbindWorkspaceAgentRuntimeAction,
   updateWorkspaceAgentDefaultModelAction,
@@ -937,6 +938,14 @@ export function AgentsPageClient({
                         skillId,
                         key,
                         value,
+                      }),
+                    )
+                  }
+                  onRequestSkillConfiguration={(skillId) =>
+                    runAction(
+                      () => requestWorkspaceAgentSkillConfigurationAction({
+                        employeeName: selectedAgent.internalName,
+                        skillId,
                       }),
                     )
                   }

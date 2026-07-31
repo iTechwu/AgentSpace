@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import {
   getChatModelOverrideAction,
@@ -10,9 +10,10 @@ import {
   listProtocolFilteredRuntimeModelsAction,
   type RuntimeModelCatalogItem,
 } from "@/features/runtimes/actions";
+import { translateUnavailableReason } from "@/features/runtimes/runtime-model-picker";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
-import type { DaemonProvider } from "@dofe-agent/domain";
+import { formatDaemonProviderLabel, type DaemonProvider } from "@dofe-agent/domain";
 
 export interface ChatModelSelectorProps {
   /** Direct-contact agent id. */
@@ -206,6 +207,7 @@ export function ChatModelCommandDialog({
   const [loading, setLoading] = useState(true);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -223,7 +225,7 @@ export function ChatModelCommandDialog({
         const catalog = await listProtocolFilteredRuntimeModelsAction(result.provider);
         if (cancelled) return;
         setConfigured(catalog.configured);
-        setItems(catalog.list.filter((item) => item.isAvailable));
+        setItems(catalog.list);
       })
       .catch((reason) => {
         if (!cancelled) {
@@ -239,6 +241,15 @@ export function ChatModelCommandDialog({
   }, [channelName, contactId, content, tx]);
 
   const selectedModelId = info?.sessionOverride?.modelId ?? "";
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleItems = useMemo(() => items.filter((item) => {
+    if (!normalizedQuery) return true;
+    return [item.displayName, item.alias, item.model, item.protocol, item.unavailableReason]
+      .some((value) => value?.toLowerCase().includes(normalizedQuery));
+  }), [items, normalizedQuery]);
+  const availableItems = visibleItems.filter((item) => item.isAvailable);
+  const unavailableItems = visibleItems.filter((item) => !item.isAvailable);
+  const totalAvailable = items.filter((item) => item.isAvailable).length;
 
   function selectModel(modelId: string): void {
     if (pending) return;
@@ -304,24 +315,102 @@ export function ChatModelCommandDialog({
               <span>{tx("该员工尚未配置可切换的受管模型。", "This employee has no managed models available to switch.")}</span>
             </div>
           ) : (
-            <div aria-label={tx("可用模型", "Available models")} className="chat-model-command-dialog__list" role="listbox">
-              <ModelCommandOption
-                description={tx("使用员工或 Runtime 的默认模型", "Use the employee or Runtime default")}
-                label={tx("继承默认", "Inherit default")}
-                pending={pending}
-                selected={selectedModelId === ""}
-                onSelect={() => selectModel("")}
-              />
-              {items.map((item) => (
-                <ModelCommandOption
-                  description={item.alias}
-                  key={item.alias}
-                  label={item.displayName ?? item.alias}
-                  pending={pending}
-                  selected={selectedModelId === item.alias}
-                  onSelect={() => selectModel(item.alias)}
+            <div className="chat-model-command-dialog__catalog">
+              <div className="chat-model-command-dialog__summary">
+                <span>{formatDaemonProviderLabel(info.provider)}</span>
+                <span>{tx(`${totalAvailable} 个可切换模型`, `${totalAvailable} switchable models`)}</span>
+              </div>
+
+              {totalAvailable === 0 ? (
+                <div className="chat-model-command-dialog__notice" role="status">
+                  <AppIcon name="info" />
+                  <span>
+                    <strong>{tx("暂无可用模型", "No available models yet")}</strong>
+                    <small>{tx("当前执行引擎没有可用的协议兼容模型，请联系管理员配置。", "The current runtime has no protocol-compatible models available. Contact an administrator to configure one.")}</small>
+                  </span>
+                </div>
+              ) : null}
+
+              <label className="chat-model-command-dialog__search">
+                <AppIcon name="search" />
+                <span className="sr-only">{tx("搜索模型", "Search models")}</span>
+                <input
+                  autoFocus
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={tx("搜索模型名称或别名", "Search model name or alias")}
+                  type="search"
+                  value={query}
                 />
-              ))}
+                {query ? (
+                  <button
+                    aria-label={tx("清除搜索", "Clear search")}
+                    onClick={() => setQuery("")}
+                    type="button"
+                  >
+                    <AppIcon name="close" />
+                  </button>
+                ) : null}
+              </label>
+
+              <div aria-label={tx("模型列表", "Model list")} className="chat-model-command-dialog__list" role="listbox">
+                {!normalizedQuery ? (
+                  <div aria-label={tx("会话默认", "Conversation default")} className="chat-model-command-dialog__group" role="group">
+                    <ModelCommandOption
+                      description={tx("使用员工或 Runtime 的默认模型", "Use the employee or Runtime default")}
+                      label={tx("继承默认", "Inherit default")}
+                      pending={pending}
+                      selected={selectedModelId === ""}
+                      onSelect={() => selectModel("")}
+                    />
+                  </div>
+                ) : null}
+
+                {availableItems.length > 0 ? (
+                  <div aria-label={tx("可用模型", "Available models")} className="chat-model-command-dialog__group" role="group">
+                    <p className="chat-model-command-dialog__group-title">
+                      {tx("可用模型", "Available")}
+                      <span>{availableItems.length}</span>
+                    </p>
+                    {availableItems.map((item) => (
+                      <ModelCommandOption
+                        description={modelOptionDescription(item)}
+                        key={item.alias}
+                        label={item.displayName ?? item.alias}
+                        pending={pending}
+                        selected={selectedModelId === item.alias || selectedModelId === item.model}
+                        onSelect={() => selectModel(item.alias)}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+
+                {unavailableItems.length > 0 ? (
+                  <div aria-label={tx("暂不可用模型", "Unavailable models")} className="chat-model-command-dialog__group" role="group">
+                    <p className="chat-model-command-dialog__group-title">
+                      {tx("暂不可用", "Unavailable")}
+                      <span>{unavailableItems.length}</span>
+                    </p>
+                    {unavailableItems.map((item) => (
+                      <ModelCommandOption
+                        description={modelOptionDescription(item)}
+                        key={item.alias}
+                        label={item.displayName ?? item.alias}
+                        pending={pending}
+                        selected={selectedModelId === item.alias || selectedModelId === item.model}
+                        unavailableReason={translateUnavailableReason(item.unavailableReason, tx)}
+                        onSelect={() => undefined}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+
+                {normalizedQuery && visibleItems.length === 0 ? (
+                  <div className="chat-model-command-dialog__empty">
+                    <AppIcon name="search" />
+                    <span>{tx(`没有找到“${query.trim()}”`, `No models found for “${query.trim()}”`)}</span>
+                  </div>
+                ) : null}
+              </div>
             </div>
           )}
         </div>
@@ -335,30 +424,50 @@ function ModelCommandOption({
   description,
   selected,
   pending,
+  unavailableReason,
   onSelect,
 }: {
   label: string;
-  description: string;
+  description?: string;
   selected: boolean;
   pending: boolean;
+  unavailableReason?: string;
   onSelect: () => void;
 }) {
+  const disabled = pending || Boolean(unavailableReason);
   return (
     <button
+      aria-disabled={disabled || undefined}
+      aria-label={[label, description, unavailableReason].filter(Boolean).join(" · ")}
       aria-selected={selected}
-      className={`chat-model-command-dialog__option${selected ? " chat-model-command-dialog__option--selected" : ""}`}
-      disabled={pending}
+      className={`chat-model-command-dialog__option${selected ? " chat-model-command-dialog__option--selected" : ""}${unavailableReason ? " chat-model-command-dialog__option--disabled" : ""}`}
+      disabled={disabled}
       onClick={onSelect}
       role="option"
       type="button"
     >
       <span>
         <strong>{label}</strong>
-        <small>{description}</small>
+        {description ? <small>{description}</small> : null}
       </span>
-      {selected ? <AppIcon name="checkCircle" /> : null}
+      {unavailableReason ? <em>{unavailableReason}</em> : selected ? <AppIcon name="checkCircle" /> : null}
     </button>
   );
+}
+
+function modelOptionDescription(item: RuntimeModelCatalogItem): string | undefined {
+  const identity = item.displayName && item.displayName !== item.alias ? item.alias : undefined;
+  const metadata = [
+    item.protocol,
+    item.contextLength ? formatContextLength(item.contextLength) : undefined,
+  ].filter(Boolean).join(" · ");
+  return [identity, metadata].filter(Boolean).join(" · ") || undefined;
+}
+
+function formatContextLength(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${Math.round(value / 1_000)}K`;
+  return String(value);
 }
 
 function formatModelDisplay(
