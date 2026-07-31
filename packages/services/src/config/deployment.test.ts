@@ -33,6 +33,7 @@ test("models base url falls back to the shared default and honors env overrides"
 });
 
 test("models gateway base url falls back to the shared default and honors env overrides", () => {
+  assert.equal(DEFAULT_MODELS_GATEWAY_BASE_URL, "https://model.local.dofe.ai/api");
   assert.equal(resolveModelsGatewayBaseUrl({}), DEFAULT_MODELS_GATEWAY_BASE_URL);
   assert.equal(resolveModelsGatewayBaseUrl({ MODELS_GATEWAY_BASE_URL: "https://gateway.example/api" }), "https://gateway.example/api");
   assert.equal(resolveModelsGatewayBaseUrl({ MODELS_GATEWAY_BASE_URL: "" }), DEFAULT_MODELS_GATEWAY_BASE_URL);

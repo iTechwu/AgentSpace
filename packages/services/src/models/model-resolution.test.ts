@@ -317,6 +317,32 @@ test("resolveEffectiveModelForBoundEmployeeAsync uses the bound runtime", async 
   assert.equal(result.source, "runtime_default");
 });
 
+test("uses the provisioned runtime default when its credential catalog is unavailable", async () => {
+  createManagedRuntime("bound-model");
+  createEmployee("employee-model");
+  bindEmployeeRuntimeSync({
+    workspaceId: WORKSPACE_ID,
+    employeeName: EMPLOYEE_NAME,
+    runtimeId: RUNTIME_ID,
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (getModelsInternalClient() as any).runtimeCredentials.models = async () => {
+    throw new Error("models.runtime_credential_catalog_unavailable");
+  };
+
+  const result = await resolveEffectiveModelForBoundEmployeeAsync({
+    workspaceId: WORKSPACE_ID,
+    employeeName: EMPLOYEE_NAME,
+  });
+
+  assert.deepEqual(result, {
+    modelId: "bound-model",
+    source: "runtime_default",
+    runtimeCredentialId: CREDENTIAL_ID,
+    validated: false,
+  });
+});
+
 test("chat overrides are validated against the enabled bound Runtime catalog", async () => {
   mockModelsClient([
     { alias: "available", model: "provider-model" },

@@ -680,15 +680,19 @@ export async function setManagedRuntimeDefaultModelAsync(
   const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
   const protocols = runtime.protocols?.length ? runtime.protocols : resolveProviderProtocols(runtime.provider);
   const client = clientProvider();
-  await assertManagedRuntimeModelSelectionAsync({
-    client,
-    tenantId: scope.tenantId,
-    protocols,
-    requestedModel: defaultModel,
-  });
-
   const previousCredentialId = runtime.managedCredentialId;
   const operationId = input.operationId?.trim() || crypto.randomUUID();
+  // The Models API enforces one active credential per runtime. Its rotate
+  // endpoint cannot change an allowlist, so retire the prior credential before
+  // issuing the replacement that carries the selected model.
+  await safeRevokeCredential({
+    credentialId: previousCredentialId,
+    tenantId: scope.tenantId,
+    teamId: scope.teamId,
+    reason: "manual",
+    idempotencyKey: `revoke:${previousCredentialId}:model-change:${operationId}`,
+    audit: { actorId: input.actorUserId },
+  });
   const result = await client.runtimeCredentials.create({
     body: {
       tenantId: scope.tenantId,

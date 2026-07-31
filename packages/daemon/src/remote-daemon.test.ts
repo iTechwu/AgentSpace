@@ -13,7 +13,7 @@ import {
   resolveRemoteTaskExecutionModel,
   resolveRemoteTaskProviderSessionId,
 } from "./remote-daemon.ts";
-import { DaemonAuthError, DaemonResourceGoneError } from "./daemon-client.ts";
+import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError } from "./daemon-client.ts";
 
 test("buildRemoteDaemonConfig reads env-backed defaults without repository state", () => {
   const config = buildRemoteDaemonConfig(
@@ -237,6 +237,10 @@ test("classifyRemoteLoopError routes auth failures to shutdown and 404 to skip-r
   // A deleted runtime is per-resource: drop it and keep polling the rest.
   assert.equal(
     classifyRemoteLoopError(new DaemonResourceGoneError('Runtime "x" does not exist.', 404)),
+    "skip-runtime",
+  );
+  assert.equal(
+    classifyRemoteLoopError(new DaemonRuntimeUnavailableError("Remote mode requires a managed, online runtime.", 409)),
     "skip-runtime",
   );
   // Transient / unknown errors stay on the existing "log and retry next tick" path.

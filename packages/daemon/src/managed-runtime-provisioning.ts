@@ -7,6 +7,7 @@ import type {
   ManagedProvisioningTask,
 } from "./daemon-api.ts";
 import {
+  buildManagedRuntimeDockerConnectivityArgs,
   getManagedProviderCredentialEnvironmentKey,
   resolveManagedRuntimeDockerNetwork,
   type ManagedCredentialResolver,
@@ -179,6 +180,7 @@ export function buildManagedContainerHealthCheckCommand(
       "--tmpfs", "/tmp:rw,nosuid,nodev,noexec",
       "--security-opt", "no-new-privileges",
       "--cap-drop", "ALL",
+      ...buildManagedRuntimeDockerConnectivityArgs(),
       "--network", resolveManagedRuntimeDockerNetwork(),
       "--user", user,
       "--mount", `type=bind,src=${profile.profileDir},dst=/dofe-profile,readonly`,

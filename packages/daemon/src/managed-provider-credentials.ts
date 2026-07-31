@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve as pathResolve } from "node:path";
+import { dirname, isAbsolute, join, resolve as pathResolve } from "node:path";
 import type { DaemonProvider } from "@dofe-agent/domain";
 import type { ManagedCredentialBundleDocument } from "./daemon-api.ts";
 import { cleanupCredentialProfile, writeCredentialProfile, type ProviderCredentialProfile } from "./provider-credentials.ts";
@@ -72,6 +72,8 @@ const ATTRIBUTION_ENVIRONMENT_KEYS = [
 ] as const;
 
 const ATTRIBUTION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+const MANAGED_RUNTIME_TLS_CA_CONTAINER_PATH = "/run/dofe-agent-runtime-ca.pem";
+const MANAGED_RUNTIME_EXTRA_HOST_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?:(?:host-gateway|(?:\d{1,3}\.){3}\d{1,3})$/;
 
 export interface ManagedGatewayUsage {
   inputTokens: number;
@@ -255,6 +257,9 @@ function buildDockerProviderLauncher(profileDir: string, runtimeId: string, prov
   const image = `dofe/agent-runtime-${provider}:${imageTag}`;
   const runtimeHomeDir = join(dirname(profileDir), "home");
   const dockerNetwork = resolveManagedRuntimeDockerNetwork();
+  const connectivityArgs = buildManagedRuntimeDockerConnectivityArgs()
+    .map((argument) => `  ${shellQuote(argument)} \\\n`)
+    .join("");
   const environmentArgs = [PROVIDER_BASE_URL_KEYS[provider], ...ATTRIBUTION_ENVIRONMENT_KEYS]
     .map((key) => `  --env ${key} \\\n`)
     .join("");
@@ -266,6 +271,7 @@ function buildDockerProviderLauncher(profileDir: string, runtimeId: string, prov
     "  --tmpfs /tmp:rw,nosuid,nodev,noexec \\",
     "  --security-opt no-new-privileges \\",
     "  --cap-drop ALL \\",
+    connectivityArgs.trimEnd(),
     `  --network ${shellQuote(dockerNetwork)} \\`,
     "  --user \"$(id -u):$(id -g)\" \\",
     `  --name ${shellQuote(`dofe-runtime-${normalizeRuntimeId(runtimeId)}`)} \\`,
@@ -293,6 +299,35 @@ export function resolveManagedRuntimeDockerNetwork(
     throw new Error("managed_runtime.docker_network_not_isolated");
   }
   return network;
+}
+
+export function buildManagedRuntimeDockerConnectivityArgs(
+  environment: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const extraHosts = (environment.MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (extraHosts.length > 16 || new Set(extraHosts).size !== extraHosts.length) {
+    throw new Error("managed_runtime.docker_extra_hosts_invalid");
+  }
+  for (const extraHost of extraHosts) {
+    if (!MANAGED_RUNTIME_EXTRA_HOST_PATTERN.test(extraHost)) {
+      throw new Error("managed_runtime.docker_extra_hosts_invalid");
+    }
+  }
+
+  const args = extraHosts.flatMap((extraHost) => ["--add-host", extraHost]);
+  const tlsCaPath = environment.MANAGED_RUNTIME_TLS_CA_PATH?.trim();
+  if (!tlsCaPath) return args;
+  if (!isAbsolute(tlsCaPath) || tlsCaPath.includes("\0")) {
+    throw new Error("managed_runtime.tls_ca_path_invalid");
+  }
+  return [
+    ...args,
+    "--mount", `type=bind,src=${tlsCaPath},dst=${MANAGED_RUNTIME_TLS_CA_CONTAINER_PATH},readonly`,
+    "--env", `NODE_EXTRA_CA_CERTS=${MANAGED_RUNTIME_TLS_CA_CONTAINER_PATH}`,
+  ];
 }
 
 function buildAttributionProxySource(): string {

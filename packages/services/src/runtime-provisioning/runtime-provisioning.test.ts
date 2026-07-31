@@ -1267,6 +1267,13 @@ test("changing a managed runtime default reissues a credential for the selected 
     idempotencyKey: `model-change:${runtimeId}:deepseek-v4-flash:model-change-1`,
     audit: { actorId: OWNER },
   });
+  assert.deepEqual(activeClient.lastRevokeBody, {
+    tenantId: "tenant-1",
+    teamId: "team-1",
+    reason: "manual",
+    idempotencyKey: `revoke:${previous.managedCredentialId}:model-change:model-change-1`,
+    audit: { actorId: OWNER },
+  });
   assert.equal(getRuntimeCredentialVault().retrieve(previousSecretRef), undefined);
   assert.equal(getRuntimeCredentialVault().retrieve(updated.credentialSecretRef!), "sk-model-change");
 });

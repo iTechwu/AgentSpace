@@ -9,6 +9,7 @@ import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { applyProviderCredentialProfile, resolveProviderCredentialProfile } from "./provider-credentials.ts";
 import {
+  buildManagedRuntimeDockerConnectivityArgs,
   buildManagedRuntimeAttributionHeaders,
   createManagedCredentialResolver,
   extractManagedGatewayUsage,
@@ -315,6 +316,25 @@ test("managed runtime network configuration fails closed for permissive Docker n
   assert.throws(
     () => resolveManagedRuntimeDockerNetwork({ MANAGED_RUNTIME_DOCKER_NETWORK: "host" }),
     /docker_network_not_isolated/,
+  );
+});
+
+test("managed runtime connectivity configuration injects only validated host and CA options", () => {
+  assert.deepEqual(buildManagedRuntimeDockerConnectivityArgs({
+    MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS: "model.local.dofe.ai:host-gateway",
+    MANAGED_RUNTIME_TLS_CA_PATH: "/Users/test/Library/Application Support/mkcert/rootCA.pem",
+  }), [
+    "--add-host", "model.local.dofe.ai:host-gateway",
+    "--mount", "type=bind,src=/Users/test/Library/Application Support/mkcert/rootCA.pem,dst=/run/dofe-agent-runtime-ca.pem,readonly",
+    "--env", "NODE_EXTRA_CA_CERTS=/run/dofe-agent-runtime-ca.pem",
+  ]);
+  assert.throws(
+    () => buildManagedRuntimeDockerConnectivityArgs({ MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS: "model.local.dofe.ai:host-gateway;touch" }),
+    /docker_extra_hosts_invalid/,
+  );
+  assert.throws(
+    () => buildManagedRuntimeDockerConnectivityArgs({ MANAGED_RUNTIME_TLS_CA_PATH: "relative/rootCA.pem" }),
+    /tls_ca_path_invalid/,
   );
 });
 

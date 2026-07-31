@@ -44,6 +44,15 @@ When `DOFE_AGENT_SERVER_URL` uses a private TLS certificate, set
 compose deployment mounts that CA read-only and sets Node's
 `NODE_EXTRA_CA_CERTS`; certificate verification remains enabled.
 
+Provider containers are separate Docker siblings, so their model-gateway
+connectivity is configured independently. For a local endpoint such as
+`https://model.local.dofe.ai/api`, set
+`MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS=model.local.dofe.ai:host-gateway` and set
+`MANAGED_RUNTIME_TLS_CA_PATH` to the absolute host path of its signing CA.
+The managed node passes the host mapping, a read-only CA mount, and
+`NODE_EXTRA_CA_CERTS` to both provisioning health checks and provider
+launchers. Leave both values empty for ordinary public endpoints.
+
 ### Build managed runtime images
 
 Before creating a managed runtime, build its approved wrapper image on the
@@ -59,6 +68,18 @@ MANAGED_RUNTIME_IMAGE_TAG=latest \
 
 docker image inspect dofe/agent-runtime-codex:latest
 docker image inspect dofe/agent-runtime-claude:latest
+```
+
+For the local Docker Desktop managed node, select the Mac-published provider
+images explicitly. The current managed-node compose service runs `linux/amd64`,
+so these images must keep that platform even when they are built on Apple
+Silicon:
+
+```sh
+CODEX_PROVIDER_BASE_IMAGE=uhub.service.ucloud.cn/techwu/codex-cli:0.145.0.mac \
+CLAUDE_PROVIDER_BASE_IMAGE=uhub.service.ucloud.cn/techwu/claude-code-cli:2.1.218.mac \
+MANAGED_RUNTIME_IMAGE_TAG=latest \
+  docker compose -f docker-compose.remote-images.yml build runtime-codex runtime-claude
 ```
 
 The remote-images Compose file now applies this canonical image name directly.

@@ -26,16 +26,17 @@ RUN apt-get update \
   && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent
 
 COPY --from=daemon-build /opt/daemon-package/dofe-agent-daemon-*.tgz /tmp/
+COPY deploy/daemon/managed-node-entrypoint.sh /usr/local/bin/managed-node-entrypoint
 
 RUN npm install --global /tmp/dofe-agent-daemon-*.tgz \
   && rm /tmp/dofe-agent-daemon-*.tgz \
   && mkdir -p /var/lib/dofe-agent-daemon \
-  && chown -R dofe-agent:dofe-agent /home/dofe-agent /var/lib/dofe-agent-daemon
+  && chown -R dofe-agent:dofe-agent /home/dofe-agent /var/lib/dofe-agent-daemon \
+  && chmod 0755 /usr/local/bin/managed-node-entrypoint
 
 ENV HOME=/home/dofe-agent \
     NODE_ENV=production \
     DOFE_AGENT_MANAGED_NODE=true
 
-USER dofe-agent
-
-ENTRYPOINT ["dofe-agent-daemon", "start", "--foreground", "--managed-node"]
+ENTRYPOINT ["/usr/local/bin/managed-node-entrypoint"]
+CMD ["dofe-agent-daemon", "start", "--foreground", "--managed-node"]

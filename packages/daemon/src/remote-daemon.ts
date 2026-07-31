@@ -11,7 +11,7 @@ import {
 import { getStringFlag, parseArgs } from "./args.ts";
 import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, RegisterDaemonResponse } from "./daemon-api.ts";
 import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputBundle } from "./bundle.ts";
-import { DaemonAuthError, DaemonResourceGoneError, HttpDaemonClient } from "./daemon-client.ts";
+import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
 import {
   type DetectedProvider,
@@ -84,7 +84,7 @@ interface DaemonStatusSummary {
  * function so the decision is unit-testable without driving real timers/exit.
  *
  * - `shutdown`:   fatal auth failure (401/403) — token is invalid/revoked; stop.
- * - `skip-runtime`: the targeted runtime is gone (404) — drop it, keep polling.
+ * - `skip-runtime`: the targeted runtime is gone (404) or offline (409) — keep polling.
  * - `log`:        transient / unknown — log and let the next tick retry.
  */
 export type RemoteLoopErrorAction = "shutdown" | "skip-runtime" | "log";
@@ -94,6 +94,9 @@ export function classifyRemoteLoopError(error: unknown): RemoteLoopErrorAction {
     return "shutdown";
   }
   if (error instanceof DaemonResourceGoneError) {
+    return "skip-runtime";
+  }
+  if (error instanceof DaemonRuntimeUnavailableError) {
     return "skip-runtime";
   }
   return "log";

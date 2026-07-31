@@ -74,10 +74,26 @@ export async function resolveEffectiveModelForTaskAsync(
 
   const scope = resolveManagedRuntimeScopeSync(workspaceId);
   const client = getModelsInternalClient();
-  const response = await client.runtimeCredentials.models({
-    params: { id: runtime.managedCredentialId },
-    query: { tenantId: scope.tenantId, teamId: scope.teamId },
-  });
+  let response: Awaited<ReturnType<typeof client.runtimeCredentials.models>>;
+  try {
+    response = await client.runtimeCredentials.models({
+      params: { id: runtime.managedCredentialId },
+      query: { tenantId: scope.tenantId, teamId: scope.teamId },
+    });
+  } catch (error) {
+    // The runtime default is written alongside the credential allowlist during
+    // provisioning. It remains a safe fallback when the control-plane catalog
+    // is temporarily unavailable; arbitrary employee/session overrides do not.
+    if (runtime.defaultModel) {
+      return {
+        modelId: runtime.defaultModel,
+        source: "runtime_default",
+        runtimeCredentialId: runtime.managedCredentialId,
+        validated: false,
+      };
+    }
+    throw error;
+  }
   const availableModels = response.list.filter(isExecutionLanguageModel);
 
   const ctx: ResolutionContext = {

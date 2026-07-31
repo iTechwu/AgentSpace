@@ -29,6 +29,31 @@ test("managed health check runs from the provider container with a read-only cre
   assert.equal(command.args.join(" ").includes("must-not-appear"), false);
 });
 
+test("managed health check passes configured local gateway connectivity into its container", () => {
+  const previousExtraHosts = process.env.MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS;
+  const previousCaPath = process.env.MANAGED_RUNTIME_TLS_CA_PATH;
+  process.env.MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS = "model.local.dofe.ai:host-gateway";
+  process.env.MANAGED_RUNTIME_TLS_CA_PATH = "/tmp/test-root-ca.pem";
+  try {
+    const command = buildManagedContainerHealthCheckCommand({
+      accountId: "runtime-1",
+      profileDir: "/srv/managed/runtime-1/current",
+      environment: {
+        OPENAI_API_KEY: "must-not-appear",
+        OPENAI_BASE_URL: "https://model.local.dofe.ai/api/v1",
+      },
+    }, "codex");
+    assert.ok(command.args.includes("model.local.dofe.ai:host-gateway"));
+    assert.ok(command.args.includes("type=bind,src=/tmp/test-root-ca.pem,dst=/run/dofe-agent-runtime-ca.pem,readonly"));
+    assert.ok(command.args.includes("NODE_EXTRA_CA_CERTS=/run/dofe-agent-runtime-ca.pem"));
+  } finally {
+    if (previousExtraHosts === undefined) delete process.env.MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS;
+    else process.env.MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS = previousExtraHosts;
+    if (previousCaPath === undefined) delete process.env.MANAGED_RUNTIME_TLS_CA_PATH;
+    else process.env.MANAGED_RUNTIME_TLS_CA_PATH = previousCaPath;
+  }
+});
+
 test("managed readiness starts the generated launcher, attribution proxy, and provider CLI", () => {
   const command = buildManagedProviderLauncherHealthCheckCommand({
     accountId: "runtime-1",

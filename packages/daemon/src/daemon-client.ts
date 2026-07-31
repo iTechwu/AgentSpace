@@ -81,6 +81,20 @@ export class DaemonResourceGoneError extends Error {
   }
 }
 
+/**
+ * Raised when a runtime is not currently eligible to claim work (HTTP 409).
+ * This is scoped to one runtime and must not prevent the node from polling
+ * other runtimes that may be online.
+ */
+export class DaemonRuntimeUnavailableError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "DaemonRuntimeUnavailableError";
+    this.status = status;
+  }
+}
+
 export class HttpDaemonClient {
   private readonly serverUrl: string;
   private readonly daemonToken: string;
@@ -301,6 +315,9 @@ export class HttpDaemonClient {
       }
       if (response.status === 404) {
         throw new DaemonResourceGoneError(message, response.status);
+      }
+      if (response.status === 409) {
+        throw new DaemonRuntimeUnavailableError(message, response.status);
       }
       throw new Error(message);
     }

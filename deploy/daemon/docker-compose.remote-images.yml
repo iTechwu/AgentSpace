@@ -10,11 +10,12 @@ x-daemon-healthcheck: &daemon-healthcheck
 
 services:
   runtime-codex:
+    platform: linux/amd64
     build:
       context: ../..
       dockerfile: deploy/daemon/Dockerfile.provider-runtime
       args:
-        PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/codex-cli:0.144.6
+        PROVIDER_BASE_IMAGE: ${CODEX_PROVIDER_BASE_IMAGE:-uhub.service.ucloud.cn/techwu/codex-cli:0.144.6}
     image: dofe/agent-runtime-codex:${MANAGED_RUNTIME_IMAGE_TAG:-latest}
     env_file: ./runtimes/codex.env
     environment:
@@ -36,11 +37,12 @@ services:
     restart: unless-stopped
 
   runtime-claude:
+    platform: linux/amd64
     build:
       context: ../..
       dockerfile: deploy/daemon/Dockerfile.provider-runtime
       args:
-        PROVIDER_BASE_IMAGE: uhub.service.ucloud.cn/techwu/claude-code-cli:2.1.216
+        PROVIDER_BASE_IMAGE: ${CLAUDE_PROVIDER_BASE_IMAGE:-uhub.service.ucloud.cn/techwu/claude-code-cli:2.1.216}
     image: dofe/agent-runtime-claude:${MANAGED_RUNTIME_IMAGE_TAG:-latest}
     env_file: ./runtimes/claude.env
     environment:
@@ -62,6 +64,7 @@ services:
     restart: unless-stopped
 
   runtime-openclaw:
+    platform: linux/amd64
     build:
       context: ../..
       dockerfile: deploy/daemon/Dockerfile.provider-runtime
@@ -88,6 +91,7 @@ services:
     restart: unless-stopped
 
   runtime-hermes:
+    platform: linux/amd64
     build:
       context: ../..
       dockerfile: deploy/daemon/Dockerfile.provider-runtime
