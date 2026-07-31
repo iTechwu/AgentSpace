@@ -77,6 +77,16 @@ export function ChatModelSelector({
       .then((result) => {
         if (!cancelled) {
           setInfo(result);
+          setError(null);
+        }
+      })
+      .catch((reason) => {
+        if (!cancelled) {
+          setInfo(null);
+          setError({
+            code: "load_failed",
+            message: reason instanceof Error ? reason.message : tx("模型信息加载失败。", "Failed to load model information."),
+          });
         }
       })
       .finally(() => {
@@ -87,7 +97,7 @@ export function ChatModelSelector({
     return () => {
       cancelled = true;
     };
-  }, [contactId, channelName, content]);
+  }, [contactId, channelName, content, tx]);
 
   useEffect(() => {
     return fetchInfo();
@@ -115,12 +125,29 @@ export function ChatModelSelector({
     });
   };
 
-  if (!info || loading) {
+  if (loading) {
     return (
       <span className="chat-model-selector chat-model-selector--loading">
         <span className="chat-model-selector__trigger">
           <span className="chat-model-selector__value">{displayName ?? tx("加载中…", "Loading…")}</span>
         </span>
+      </span>
+    );
+  }
+
+  if (!info) {
+    return (
+      <span className="chat-model-selector" title={error?.message}>
+        <span className="chat-model-selector__trigger">
+          <span className="chat-model-selector__value chat-model-selector__value--empty">
+            {displayName ?? tx("模型不可用", "Model unavailable")}
+          </span>
+        </span>
+        {error ? (
+          <span className="chat-model-selector__error" title={error.message}>
+            {errorLabel(error.code, tx)}
+          </span>
+        ) : null}
       </span>
     );
   }
@@ -406,6 +433,8 @@ function errorLabel(
       return tx("仅 remote 模式可用", "Remote mode required");
     case "model_required":
       return tx("需要模型 ID", "Model id required");
+    case "load_failed":
+      return tx("模型加载失败", "Failed to load model");
     default:
       return tx("设置失败", "Failed to set model");
   }

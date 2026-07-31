@@ -573,7 +573,7 @@ export function ConversationShell({
     }
 
     const submittedSlashCommand = resolveSubmittedSlashCommand(draft, composerRuntime?.provider, tx);
-    if (submittedSlashCommand && pendingFiles.length === 0 && selectedReferences.length === 0) {
+    if (submittedSlashCommand) {
       executeSlashCommand(submittedSlashCommand, { value: "", caretIndex: 0 });
       return;
     }
@@ -769,13 +769,6 @@ export function ConversationShell({
     if (!activeSlashQuery) {
       return;
     }
-    if (command.action === "clear") {
-      setDraft("");
-      setDraftCaretIndex(0);
-      setSelectedReferences([]);
-      return;
-    }
-
     const next = replaceDraftRange(draft, activeSlashQuery.start, draftCaretIndex, "");
     executeSlashCommand(command, next);
   }
@@ -784,6 +777,13 @@ export function ConversationShell({
     command: ConversationSlashCommand,
     next: { value: string; caretIndex: number },
   ): void {
+    if (command.action === "clear") {
+      setDraft("");
+      setDraftCaretIndex(0);
+      setSelectedReferences([]);
+      setFeedback(null);
+      return;
+    }
     if (command.action === "model") {
       setDraft(next.value);
       setDraftCaretIndex(next.caretIndex);

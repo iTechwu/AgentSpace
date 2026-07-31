@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LanguageProvider } from "@/features/i18n/language-provider";
-import { ChatModelCommandDialog } from "@/features/chat/chat-model-selector";
+import { ChatModelCommandDialog, ChatModelSelector } from "@/features/chat/chat-model-selector";
 
 const mocks = vi.hoisted(() => ({
   getChatModelOverrideAction: vi.fn(),
@@ -66,5 +66,18 @@ describe("ChatModelCommandDialog", () => {
     }));
     expect(onChanged).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a terminal error instead of loading forever when session resolution fails", async () => {
+    mocks.getChatModelOverrideAction.mockRejectedValueOnce(new Error("session unavailable"));
+
+    render(
+      <LanguageProvider>
+        <ChatModelSelector canManage contactId="Atlas" displayName="Atlas" />
+      </LanguageProvider>,
+    );
+
+    expect(await screen.findByText("模型加载失败")).toBeInTheDocument();
+    expect(screen.queryByText("加载中…")).not.toBeInTheDocument();
   });
 });
