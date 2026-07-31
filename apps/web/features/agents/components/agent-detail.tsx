@@ -42,8 +42,9 @@ interface AgentDetailProps {
   readonly onSetSkillIds: (skillIds: string[]) => void;
   readonly onInstallSkill: (skillId: string, input: {
     modelProvider?: string; modelId?: string; capabilities: string[]; projectWorkDir?: string;
-    values: Record<string, string>; secrets: Record<string, string>;
+    values: Record<string, string>; secrets: Record<string, string>; sensitiveKeys: string[];
   }) => void;
+  readonly onRemoveSkillKey?: (skillId: string, key: string) => void;
   readonly onSetKnowledgePageIds?: (pageIds: string[]) => void;
   readonly onCreateForkInvitation?: (input: {
     targetUserId: string;
@@ -81,6 +82,7 @@ export function AgentDetail({
   onSetChannelMemberAccess,
   onSetSkillIds,
   onInstallSkill,
+  onRemoveSkillKey,
   onSetKnowledgePageIds,
   onCreateForkInvitation,
   onRevokeForkInvitation,
@@ -95,6 +97,7 @@ export function AgentDetail({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showSkillPicker, setShowSkillPicker] = useState(false);
   const [skillToInstall, setSkillToInstall] = useState<WorkspaceSkill | null>(null);
+  const [removingKey, setRemovingKey] = useState<string | null>(null);
   const [showKnowledgePicker, setShowKnowledgePicker] = useState(false);
   const [forkTargetUserId, setForkTargetUserId] = useState("");
   const [forkContextNote, setForkContextNote] = useState("");
@@ -152,11 +155,34 @@ export function AgentDetail({
     setForkContextNote("");
   }, [record.id]);
 
+  // Clear the per-key "removing" spinner once the in-flight action settles.
+  useEffect(() => {
+    if (!pending) setRemovingKey(null);
+  }, [pending]);
+
   const assignedSkillIds = useMemo(() => record.skills.map((skill) => skill.id), [record.skills]);
   const availableSkills = useMemo(
     () => workspaceSkills.filter((skill) => !assignedSkillIds.includes(skill.id)),
     [assignedSkillIds, workspaceSkills],
   );
+  // Reuse candidates: for the skill currently being installed/managed, map each
+  // environment key to the OTHER assigned skills on this employee that already
+  // configure it (names only — never values). Lets the admin reuse a value and
+  // avoid a cross-skill conflict.
+  const reuseCandidates = useMemo(() => {
+    if (!skillToInstall) return {};
+    const candidates: Record<string, string[]> = {};
+    for (const skill of record.skills) {
+      if (skill.id === skillToInstall.id) continue;
+      const summary = record.skillRequirements[skill.id];
+      if (!summary) continue;
+      for (const item of summary.environment) {
+        if (!item.configured) continue;
+        (candidates[item.key] ??= []).push(skill.name);
+      }
+    }
+    return candidates;
+  }, [record.skillRequirements, record.skills, skillToInstall]);
   const knowledge = record.knowledge ?? {
     directPageIds: [],
     inheritedPages: [],
@@ -445,6 +471,14 @@ export function AgentDetail({
                         {hasInstallRequirements(skill.configJson) && record.skillRequirements[skill.id] ? (
                           <span className={`status-chip status-chip--${skillRequirementStatusTone(record.skillRequirements[skill.id]!.status)}`}>
                             {formatSkillRequirementStatus(record.skillRequirements[skill.id]!, tx)}
+                          </span>
+                        ) : null}
+                        {record.skillRequirements[skill.id]?.updatedAt ? (
+                          <span>
+                            {tx(
+                              `最近更新：${record.skillRequirements[skill.id]?.updatedBy ?? "—"}`,
+                              `Last updated: ${record.skillRequirements[skill.id]?.updatedBy ?? "—"}`,
+                            )}
                           </span>
                         ) : null}
                       </div>
@@ -751,7 +785,7 @@ export function AgentDetail({
                 <div className="detail-actions">
                   <button
                     className="primary-button"
-                    disabled={pending || !canManage || defaultModelDraft === (record.defaultModel ?? "")}
+                    disabled={pending || !canManage}
                     onClick={() => onSaveDefaultModel(defaultModelDraft.trim() || undefined)}
                     type="button"
                   >
@@ -1061,17 +1095,27 @@ export function AgentDetail({
           collectSecrets
           configJson={skillToInstall.configJson}
           configuredSecretKeys={record.skillRequirements[skillToInstall.id]?.environment
-            .filter((item) => item.kind === "secret" && item.configured)
+            .filter((item) => item.configured && (item.kind === "secret" || item.sensitive))
             .map((item) => item.key)}
           initialConfiguration={record.skillRequirements[skillToInstall.id]?.configuration}
           mode={assignedSkillIds.includes(skillToInstall.id) ? "manage" : "install"}
           pending={pending}
+          removingKey={removingKey}
+          reuseCandidates={reuseCandidates}
           skillName={skillToInstall.name}
+          updatedAt={record.skillRequirements[skillToInstall.id]?.updatedAt}
+          updatedBy={record.skillRequirements[skillToInstall.id]?.updatedBy}
           onCancel={() => setSkillToInstall(null)}
           onConfirm={(input) => {
             onInstallSkill(skillToInstall.id, input);
             setSkillToInstall(null);
           }}
+          onRemoveKey={onRemoveSkillKey
+            ? (key) => {
+                setRemovingKey(key);
+                onRemoveSkillKey(skillToInstall.id, key);
+              }
+            : undefined}
         />
       ) : null}
 

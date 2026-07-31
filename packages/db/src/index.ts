@@ -600,6 +600,7 @@ export {
   ensureDefaultPricingSync,
   listModelPricingSync,
   readModelPricingSync,
+  upsertModelPricingSync,
   computeCostUsd,
   recordTokenUsageSync,
   listTokenUsageSync,

@@ -123,6 +123,10 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
 }) {
   const { tx } = useLanguage();
   const [reviewingDecision, setReviewingDecision] = useState<"approved" | "rejected" | null>(null);
+  const [optimisticApproval, setOptimisticApproval] = useState<{
+    approvalId: string;
+    decision: "approved" | "rejected";
+  } | null>(null);
   const [copied, setCopied] = useState(false);
   const copiedResetTimerRef = useRef<number | null>(null);
   useEffect(() => () => {
@@ -139,9 +143,26 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
   const isFeishuMessage = message.data?.external_provider === "feishu";
   const replyToSpeakerLabel = replyToMessage ? translateSystemSpeaker(replyToMessage.speaker, tx) : "";
   const approvalAction = buildRuntimeApprovalAction(message, tx);
+  useEffect(() => {
+    if (
+      optimisticApproval &&
+      (!approvalAction ||
+        approvalAction.approvalId !== optimisticApproval.approvalId ||
+        approvalAction.status !== "pending")
+    ) {
+      setOptimisticApproval(null);
+    }
+  }, [approvalAction?.approvalId, approvalAction?.status, optimisticApproval]);
+  const displayedApprovalAction = approvalAction && optimisticApproval?.approvalId === approvalAction.approvalId
+    ? {
+        ...approvalAction,
+        status: optimisticApproval.decision,
+        label: translateInlineApprovalStatus(optimisticApproval.decision, tx),
+      }
+    : approvalAction;
   const canReviewApproval = Boolean(
-    approvalAction &&
-    approvalAction.status === "pending" &&
+    displayedApprovalAction &&
+    displayedApprovalAction.status === "pending" &&
     onReviewApproval &&
     !reviewingDecision,
   );
@@ -235,15 +256,15 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
         ) : (
           <p>{renderMessageContent(translateWorkspaceMessageSummary(message, tx), message.mentions, tx)}</p>
         )}
-        {approvalAction ? (
-          <div className={`runtime-approval-card runtime-approval-card--${approvalAction.status}`}>
+        {displayedApprovalAction ? (
+          <div className={`runtime-approval-card runtime-approval-card--${displayedApprovalAction.status}`}>
             <div className="runtime-approval-card__header">
-              <span>{approvalAction.label}</span>
-              <strong>{approvalAction.toolName}</strong>
+              <span>{displayedApprovalAction.label}</span>
+              <strong>{displayedApprovalAction.toolName}</strong>
             </div>
-            <pre>{approvalAction.preview}</pre>
-            {approvalAction.comment ? <small>{approvalAction.comment}</small> : null}
-            {approvalAction.status === "pending" && onReviewApproval ? (
+            <pre>{displayedApprovalAction.preview}</pre>
+            {displayedApprovalAction.comment ? <small>{displayedApprovalAction.comment}</small> : null}
+            {displayedApprovalAction.status === "pending" && onReviewApproval ? (
               <div className="runtime-approval-card__actions">
                 <button
                   className="runtime-approval-card__btn runtime-approval-card__btn--approve"
@@ -338,11 +359,15 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
       return;
     }
     setReviewingDecision(decision);
-    void Promise.resolve(onReviewApproval(approvalAction.approvalId, decision))
-      .finally(() => {
+    void Promise.resolve()
+      .then(() => onReviewApproval(approvalAction.approvalId, decision))
+      .then(() => {
+        setOptimisticApproval({ approvalId: approvalAction.approvalId, decision });
         setReviewingDecision(null);
       })
-      .catch(() => {});
+      .catch(() => {
+        setReviewingDecision(null);
+      });
   }
 
 });

@@ -15,6 +15,7 @@ interface RequirementConfiguration {
   capabilities: string[];
   projectWorkDir?: string;
   values: Record<string, string>;
+  sensitiveKeys?: string[];
 }
 
 interface SkillRequirementsModalProps {
@@ -24,7 +25,12 @@ interface SkillRequirementsModalProps {
   readonly initialConfiguration?: RequirementConfiguration;
   readonly mode?: "install" | "manage";
   readonly pending: boolean;
+  readonly removingKey?: string | null;
   readonly skillName: string;
+  readonly updatedAt?: string;
+  readonly updatedBy?: string;
+  /** key -> names of OTHER skills on the same employee that already configure it. */
+  readonly reuseCandidates?: Record<string, string[]>;
   readonly onCancel: () => void;
   readonly onConfirm: (input: {
     modelProvider?: string;
@@ -33,7 +39,9 @@ interface SkillRequirementsModalProps {
     projectWorkDir?: string;
     values: Record<string, string>;
     secrets: Record<string, string>;
+    sensitiveKeys: string[];
   }) => void;
+  readonly onRemoveKey?: (key: string) => void;
 }
 
 const PROVIDERS = [
@@ -54,9 +62,14 @@ export function SkillRequirementsModal({
   initialConfiguration,
   mode = "install",
   pending,
+  removingKey = null,
   skillName,
+  updatedAt,
+  updatedBy,
+  reuseCandidates = {},
   onCancel,
   onConfirm,
+  onRemoveKey,
 }: SkillRequirementsModalProps) {
   const { tx } = useLanguage();
   const { surfaceRef, handleBackdropMouseDown, labelId, descriptionId } = useDialogSurface<HTMLFormElement>(onCancel);
@@ -77,6 +90,14 @@ export function SkillRequirementsModal({
   const [projectWorkDir, setProjectWorkDir] = useState(effectiveConfiguration.projectWorkDir ?? "");
   const [values, setValues] = useState<Record<string, string>>(effectiveConfiguration.values);
   const [secretValues, setSecretValues] = useState<Record<string, string>>({});
+  const [sensitiveKeys, setSensitiveKeys] = useState<string[]>(effectiveConfiguration.sensitiveKeys ?? []);
+  const configuredKeySet = new Set(configuredSecretKeys);
+
+  const toggleSensitive = (key: string, sensitive: boolean) => {
+    setSensitiveKeys((current) => sensitive
+      ? Array.from(new Set([...current, key]))
+      : current.filter((value) => value !== key));
+  };
 
   return (
     <div className="modal-backdrop" onMouseDown={handleBackdropMouseDown} role="presentation">
@@ -94,6 +115,7 @@ export function SkillRequirementsModal({
             projectWorkDir: projectWorkDir || undefined,
             values,
             secrets: secretValues,
+            sensitiveKeys,
           });
         }}
         ref={surfaceRef}
@@ -104,6 +126,14 @@ export function SkillRequirementsModal({
           <div>
             <h3 id={labelId}>{mode === "manage" ? tx("管理 Skill 配置", "Manage skill configuration") : tx("配置 Skill 安装", "Configure skill installation")}</h3>
             <p id={descriptionId}>{skillName}</p>
+            {mode === "manage" && (updatedAt || updatedBy) ? (
+              <small className="form-field__hint">
+                {tx(
+                  `最近更新：${updatedBy ?? "—"} · ${updatedAt ?? ""}`,
+                  `Last updated: ${updatedBy ?? "—"} · ${updatedAt ?? ""}`,
+                )}
+              </small>
+            ) : null}
           </div>
           <button className="modal-close" onClick={onCancel} type="button">×</button>
         </div>
@@ -176,50 +206,111 @@ export function SkillRequirementsModal({
 
           {configRequirements.length > 0 ? (
             <section className="skill-requirements-modal__section">
-              <h4>{tx("普通配置", "Configuration")}</h4>
-              {configRequirements.map((requirement) => (
-                <label className="form-field" key={requirement.value}>
-                  <span>{requirement.value}</span>
-                  <input
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setValues((current) => ({ ...current, [requirement.value]: value }));
-                    }}
-                    required
-                    type="text"
-                    value={values[requirement.value] ?? ""}
-                  />
-                </label>
-              ))}
+              <h4>{tx("环境变量", "Environment variables")}</h4>
+              {configRequirements.map((requirement) => {
+                const key = requirement.value;
+                const sensitive = sensitiveKeys.includes(key);
+                const isConfiguredEncrypted = sensitive && configuredKeySet.has(key);
+                const reuse = reuseCandidates[key];
+                return (
+                  <div className="form-field skill-requirements-modal__field" key={key}>
+                    <div className="skill-requirements-modal__field-head">
+                      <span>{key}</span>
+                      <label className="skill-requirements-modal__sensitive-toggle">
+                        <input
+                          checked={sensitive}
+                          onChange={(event) => toggleSensitive(key, event.currentTarget.checked)}
+                          type="checkbox"
+                        />
+                        {tx("敏感（加密保存）", "Sensitive (encrypted)")}
+                      </label>
+                      {mode === "manage" && onRemoveKey ? (
+                        <button
+                          className="modal-secondary-button skill-requirements-modal__remove"
+                          disabled={pending || removingKey === key}
+                          onClick={() => onRemoveKey(key)}
+                          type="button"
+                        >
+                          {removingKey === key ? tx("删除中...", "Removing...") : tx("删除", "Remove")}
+                        </button>
+                      ) : null}
+                    </div>
+                    <input
+                      autoComplete={sensitive ? "new-password" : "off"}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        setValues((current) => ({ ...current, [key]: value }));
+                      }}
+                      placeholder={isConfiguredEncrypted ? tx("输入新值以替换；留空保留当前值", "Enter a new value to replace; leave blank to keep") : undefined}
+                      required={!isConfiguredEncrypted}
+                      type={sensitive ? "password" : "text"}
+                      value={values[key] ?? ""}
+                    />
+                    {isConfiguredEncrypted ? (
+                      <small className="form-field__hint">{tx("已加密保存；留空将保留当前值", "Encrypted; leave blank to keep the current value")}</small>
+                    ) : null}
+                    {reuse?.length ? (
+                      <small className="form-field__hint">
+                        {tx(
+                          `该员工其他 Skill 也配置了 ${key}（${reuse.join("、")}）；同名异值会被拒绝，请复用相同值。`,
+                          `Also configured by another skill (${reuse.join(", ")}); a different value will be rejected — reuse the same value.`,
+                        )}
+                      </small>
+                    ) : null}
+                  </div>
+                );
+              })}
             </section>
           ) : null}
 
           {secretRequirements.length > 0 ? (
             <section className="skill-requirements-modal__section skill-requirements-modal__section--blocked">
-              <h4>{tx("凭据", "Credentials")}</h4>
+              <h4>{tx("密钥环境变量", "Secret environment variables")}</h4>
               <p>{collectSecrets
                 ? tx("仅为当前 AI员工 加密保存；保存后不会再次显示原文。", "Encrypted only for this AI employee. The plaintext is never shown again after saving.")
                 : tx("以下项不会从 GitHub 导入，也不会保存在 Skill 配置中。", "These values are not imported from GitHub and are never stored in skill configuration.")}
               </p>
               {collectSecrets ? secretRequirements.map((requirement) => {
-                const isConfigured = configuredSecretKeys.includes(requirement.value);
+                const key = requirement.value;
+                const isConfigured = configuredKeySet.has(key);
+                const reuse = reuseCandidates[key];
                 return (
-                  <label className="form-field" key={requirement.value}>
-                    <span>{requirement.value}</span>
+                  <div className="form-field skill-requirements-modal__field" key={key}>
+                    <div className="skill-requirements-modal__field-head">
+                      <span>{key}</span>
+                      {mode === "manage" && onRemoveKey ? (
+                        <button
+                          className="modal-secondary-button skill-requirements-modal__remove"
+                          disabled={pending || removingKey === key || !isConfigured}
+                          onClick={() => onRemoveKey(key)}
+                          type="button"
+                        >
+                          {removingKey === key ? tx("删除中...", "Removing...") : tx("删除", "Remove")}
+                        </button>
+                      ) : null}
+                    </div>
                     <input
-                      aria-label={requirement.value}
+                      aria-label={key}
                       autoComplete="new-password"
                       onChange={(event) => {
                         const value = event.currentTarget.value;
-                        setSecretValues((current) => ({ ...current, [requirement.value]: value }));
+                        setSecretValues((current) => ({ ...current, [key]: value }));
                       }}
                       placeholder={isConfigured ? tx("输入新值以替换", "Enter a new value to replace") : undefined}
                       required={!isConfigured}
                       type="password"
-                      value={secretValues[requirement.value] ?? ""}
+                      value={secretValues[key] ?? ""}
                     />
                     {isConfigured ? <small className="form-field__hint">{tx("已配置；留空将保留当前值", "Configured; leave blank to keep the current value")}</small> : null}
-                  </label>
+                    {reuse?.length ? (
+                      <small className="form-field__hint">
+                        {tx(
+                          `该员工其他 Skill 也配置了 ${key}（${reuse.join("、")}）；同名异值会被拒绝，请复用相同值。`,
+                          `Also configured by another skill (${reuse.join(", ")}); a different value will be rejected — reuse the same value.`,
+                        )}
+                      </small>
+                    ) : null}
+                  </div>
                 );
               }) : (
                 <ul>{secretRequirements.map((requirement) => <li key={requirement.value}>{requirement.value} · {tx("需在凭据中心配置", "Configure in Credential Center")}</li>)}</ul>
@@ -265,6 +356,9 @@ function readRequirements(configJson: string | undefined): { requirements: Requi
           : [],
         projectWorkDir: typeof record.projectWorkDir === "string" ? record.projectWorkDir : undefined,
         values,
+        sensitiveKeys: Array.isArray(record.sensitiveKeys)
+          ? record.sensitiveKeys.filter((value): value is string => typeof value === "string")
+          : [],
       },
     };
   } catch {

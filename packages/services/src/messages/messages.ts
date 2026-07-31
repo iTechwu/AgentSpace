@@ -1227,11 +1227,11 @@ function formatUserFacingTaskFailure(errorText: string): string {
   if (/unexpected argument ['"]--sandbox['"]|exec resume[\s\S]*--sandbox/i.test(trimmed)) {
     return "绑定执行引擎上的 Codex CLI 不支持当前会话续接参数；已阻止跨引擎改派，请更新执行引擎后重试。";
   }
-  if (/model metadata[\s\S]*not found|model metadata[\s\S]*fallback metadata/i.test(trimmed)) {
-    return "所选模型的执行配置不完整，无法稳定建立流式连接。请切换到已验证的模型后重试。";
-  }
   if (/stream disconnected[\s\S]*(response\.completed|turn\.failed)|response\.completed[\s\S]*not received|turn\.failed/i.test(trimmed)) {
     return "模型的流式响应在完成前中断，自动重试后仍未完成。请检查模型连接或切换模型后重试。";
+  }
+  if (/model metadata[\s\S]*not found|model metadata[\s\S]*fallback metadata/i.test(trimmed)) {
+    return "所选模型的执行配置不完整，无法稳定建立流式连接。请切换到已验证的模型后重试。";
   }
   if (/runtime approval timed out|审批等待超时/i.test(trimmed)) {
     return "等待你的工具审批已超时，任务已停止。请重新发送任务，并在出现审批卡片后处理。";

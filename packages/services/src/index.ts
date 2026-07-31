@@ -95,6 +95,7 @@ export type {
 } from "./skills/requirements.ts";
 export {
   assertAgentSkillRequirementsReadySync,
+  deleteAgentSkillRequirementKeySync,
   readAgentSkillRequirementConfigurationSync,
   readAgentSkillRequirementEnvSync,
   readAgentSkillRequirementSummarySync,
@@ -991,6 +992,7 @@ export {
   completeManagedRuntimeCleanupSync,
   deleteManagedRuntimeAsync,
   ensureManagedRuntimeCapacitySync,
+  ensureManagedRuntimeModelAllowedAsync,
   failManagedRuntimeCleanupSync,
   finalizeManagedRuntimeProvisioningSync,
   getManagedRuntimeCredentialStatusAsync,
@@ -1013,6 +1015,7 @@ export {
   type GetManagedRuntimeCredentialStatusInput,
   type HandleManagedRuntimeProviderFailureInput,
   type EnsureManagedRuntimeCapacityInput,
+  type EnsureManagedRuntimeModelAllowedInput,
   type ManagedExecutionNode,
   type ManagedRuntimeCapacityResult,
   type ManagedRuntimeProviderFailureResult,

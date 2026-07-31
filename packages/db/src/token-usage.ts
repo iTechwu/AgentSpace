@@ -18,9 +18,6 @@ const DEFAULT_PRICING: Array<{ modelId: string; displayName: string; inputPer1M:
 export function ensureDefaultPricingSync(): void {
   const db = getDatabase();
   const now = new Date().toISOString();
-  const existing = db.prepare("SELECT COUNT(*) AS count FROM model_pricing").get() as { count: number };
-  if (existing.count > 0) return;
-
   const stmt = db.prepare(
     `INSERT INTO model_pricing (model_id, display_name, input_per_1m, output_per_1m, updated_at)
      VALUES (?, ?, ?, ?, ?)
@@ -29,6 +26,46 @@ export function ensureDefaultPricingSync(): void {
   for (const p of DEFAULT_PRICING) {
     stmt.run(p.modelId, p.displayName, p.inputPer1M, p.outputPer1M, now);
   }
+}
+
+/**
+ * Persist the current effective tenant price returned by models.dofe.ai.
+ * Existing usage keeps the authoritative settled amount in actual_cost_usd;
+ * cost_usd is refreshed because it is explicitly the current estimate.
+ */
+export function upsertModelPricingSync(input: {
+  modelId: string;
+  displayName?: string;
+  inputPer1M: number;
+  outputPer1M: number;
+  updatedAt?: string;
+}): ModelPricingRecord {
+  const modelId = input.modelId.trim();
+  if (!modelId) throw new Error("model_pricing.model_id_required");
+  if (![input.inputPer1M, input.outputPer1M].every((value) => Number.isFinite(value) && value >= 0)) {
+    throw new Error("model_pricing.invalid_price");
+  }
+
+  const db = getDatabase();
+  const updatedAt = input.updatedAt ?? new Date().toISOString();
+  const displayName = input.displayName?.trim() || modelId;
+  db.prepare(
+    `INSERT INTO model_pricing (model_id, display_name, input_per_1m, output_per_1m, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (model_id) DO UPDATE SET
+       display_name = excluded.display_name,
+       input_per_1m = excluded.input_per_1m,
+       output_per_1m = excluded.output_per_1m,
+       updated_at = excluded.updated_at`,
+  ).run(modelId, displayName, input.inputPer1M, input.outputPer1M, updatedAt);
+
+  db.prepare(
+    `UPDATE token_usage
+     SET cost_usd = (input_tokens / 1000000.0) * ? + (output_tokens / 1000000.0) * ?
+     WHERE model_id = ?`,
+  ).run(input.inputPer1M, input.outputPer1M, modelId);
+
+  return { modelId, displayName, inputPer1M: input.inputPer1M, outputPer1M: input.outputPer1M, updatedAt };
 }
 
 export function listModelPricingSync(): ModelPricingRecord[] {
@@ -339,6 +376,7 @@ export function getWorkspaceCostSummarySync(since?: string, workspaceId = DEFAUL
   agentId: string;
   modelId: string;
   providerAccountId?: string;
+  runtimeCredentialId?: string;
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCostUsd: number;
@@ -346,25 +384,28 @@ export function getWorkspaceCostSummarySync(since?: string, workspaceId = DEFAUL
 }> {
   const db = getDatabase();
   const params: string[] = [workspaceId];
-  let dateFilter = " WHERE workspace_id = ?";
+  // Unmatched remote charges are operational exceptions, not AI employees.
+  // They remain visible in billing summaries and recent usage diagnostics.
+  let dateFilter = " WHERE workspace_id = ? AND task_queue_id IS NOT NULL";
   if (since) {
     dateFilter += " AND created_at >= ?";
     params.push(since);
   }
 
   const rows = db.prepare(
-    `SELECT agent_id, model_id, provider_account_id,
+    `SELECT agent_id, model_id, provider_account_id, runtime_credential_id,
             COALESCE(SUM(input_tokens), 0) AS total_input,
             COALESCE(SUM(output_tokens), 0) AS total_output,
             COALESCE(SUM(cost_usd), 0) AS total_cost,
             COUNT(*) AS task_count
      FROM token_usage${dateFilter}
-     GROUP BY agent_id, model_id, provider_account_id
+     GROUP BY agent_id, model_id, provider_account_id, runtime_credential_id
      ORDER BY total_cost DESC`,
   ).all(...params) as Array<{
     agent_id: string;
     model_id: string;
     provider_account_id: string | null;
+    runtime_credential_id: string | null;
     total_input: number;
     total_output: number;
     total_cost: number;
@@ -375,6 +416,7 @@ export function getWorkspaceCostSummarySync(since?: string, workspaceId = DEFAUL
     agentId: row.agent_id,
     modelId: row.model_id,
     providerAccountId: row.provider_account_id ?? undefined,
+    runtimeCredentialId: row.runtime_credential_id ?? undefined,
     totalInputTokens: row.total_input,
     totalOutputTokens: row.total_output,
     totalCostUsd: row.total_cost,

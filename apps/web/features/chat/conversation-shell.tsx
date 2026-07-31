@@ -175,7 +175,7 @@ export function ConversationShell({
   const scrollAnchorsRef = useRef<Record<string, ConversationScrollAnchor>>({});
   const initialDraftHydratedRef = useRef(false);
   const hydratedQueueKeyRef = useRef<string | null>(null);
-  const previousAgentRunningRef = useRef(isAgentRunning);
+  const autoDispatchedQueueIdRef = useRef<string | null>(null);
   const hasCustomThreadContent = customThreadContent !== undefined && customThreadContent !== null;
   const queueStorageKey = draftStorageKey && selectedItemId
     ? `${draftStorageKey}:queue:${selectedItemId}`
@@ -276,10 +276,14 @@ export function ConversationShell({
   }, [queueStorageKey, queuedMessages]);
 
   useEffect(() => {
-    const wasRunning = previousAgentRunningRef.current;
-    previousAgentRunningRef.current = isAgentRunning;
-    if (wasRunning && !isAgentRunning && queuedMessages.length > 0 && !isPending) {
-      dispatchQueuedMessage(queuedMessages[0]!.id);
+    if (isAgentRunning) {
+      autoDispatchedQueueIdRef.current = null;
+      return;
+    }
+    const nextMessageId = queuedMessages[0]?.id;
+    if (nextMessageId && !isPending && autoDispatchedQueueIdRef.current !== nextMessageId) {
+      autoDispatchedQueueIdRef.current = nextMessageId;
+      dispatchQueuedMessage(nextMessageId);
     }
   }, [isAgentRunning, isPending, queuedMessages]);
 
@@ -493,26 +497,36 @@ export function ConversationShell({
       return;
     }
 
+    const submittedDraft = draft;
+    const submittedFiles = pendingFiles;
+    const submittedReplyToMessage = replyToMessage;
     setFeedback(null);
+    setDraft("");
+    setDraftCaretIndex(0);
+    setPendingFiles([]);
+    setShowPicker(false);
+    setReplyToMessage(null);
     startTransition(async () => {
       try {
         await onSubmit({
           content,
-          files: pendingFiles.map((item) => item.file),
-          replyToMessageId: replyToMessage?.id,
+          files: submittedFiles.map((item) => item.file),
+          replyToMessageId: submittedReplyToMessage?.id,
         });
         shouldStickToBottomRef.current = true;
-        setDraft("");
-        setDraftCaretIndex(0);
-        setPendingFiles([]);
-        setShowPicker(false);
-        setReplyToMessage(null);
         if (onDataChanged) {
           onDataChanged();
         } else {
           router.refresh();
         }
       } catch (error) {
+        setDraft((current) => current || submittedDraft);
+        setDraftCaretIndex((current) => current || submittedDraft.length);
+        setPendingFiles((current) => [
+          ...submittedFiles.filter((submitted) => current.every((item) => item.id !== submitted.id)),
+          ...current,
+        ]);
+        setReplyToMessage((current) => current ?? submittedReplyToMessage);
         setFeedback(error instanceof Error ? error.message : tx("发送失败，请稍后重试。", "Send failed. Please try again."));
       }
     });

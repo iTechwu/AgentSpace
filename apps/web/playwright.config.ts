@@ -15,7 +15,7 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: `pnpm run build && pnpm run start -- --hostname 127.0.0.1 --port ${port}`,
+    command: `pnpm run build && pnpm exec next start --hostname 127.0.0.1 --port ${port}`,
     env: webServerEnv,
     url: baseURL,
     reuseExistingServer: false,

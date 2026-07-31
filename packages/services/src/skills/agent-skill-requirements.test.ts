@@ -15,6 +15,7 @@ import {
   resetWorkspaceStateSync,
   setEmployeeSkillIdsSync,
   upsertAgentSkillRequirementsSync,
+  deleteAgentSkillRequirementKeySync,
 } from "../index.ts";
 
 const originalCwd = process.cwd();
@@ -337,8 +338,8 @@ test("readAgentSkillRequirementSummarySync reports missing requirements", () => 
   assert.equal(summary.configuredCount, 0);
   assert.equal(summary.requiredCount, 2);
   assert.deepEqual(summary.environment, [
-    { key: "NOTION_DATABASE_ID", kind: "config", configured: false },
-    { key: "NOTION_API_TOKEN", kind: "secret", configured: false },
+    { key: "NOTION_DATABASE_ID", kind: "config", sensitive: false, configured: false },
+    { key: "NOTION_API_TOKEN", kind: "secret", sensitive: true, configured: false },
   ]);
 });
 
@@ -465,4 +466,152 @@ test("readAgentSkillRequirementSummarySync reports awaiting validation when the 
     runtimeOnline: true,
   });
   assert.equal(online.status, "ready");
+});
+
+test("sensitive config values are encrypted, kept out of plaintext, and decrypt at runtime", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "webhook-skill",
+    description: "Webhook",
+    configJson: JSON.stringify({ requirements: [{ kind: "config", value: "WEBHOOK_URL" }] }),
+  });
+
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { WEBHOOK_URL: "https://example.com/hook/secret" },
+    sensitiveKeys: ["WEBHOOK_URL"],
+  });
+
+  const stored = readAgentSkillRequirementConfigurationSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+  });
+  assert.equal(stored.configuration?.values.WEBHOOK_URL, undefined);
+  assert.ok(stored.configuredSecretKeys.includes("WEBHOOK_URL"));
+  assert.ok(stored.configuration?.sensitiveKeys.includes("WEBHOOK_URL"));
+
+  const row = getDatabase()
+    .prepare(`SELECT config_json AS c, encrypted_secrets_json AS e FROM agent_skill_requirement_config WHERE skill_id = ?`)
+    .get(skill.id) as { c: string; e: string };
+  assert.ok(!row.c.includes("https://example.com/hook/secret"));
+  assert.ok(row.e.includes("WEBHOOK_URL"));
+  assert.ok(!row.e.includes("https://example.com/hook/secret"));
+
+  const env = readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: skill.id });
+  assert.equal(env.WEBHOOK_URL, "https://example.com/hook/secret");
+
+  const summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+  });
+  assert.equal(summary.status, "ready");
+  const item = summary.environment.find((entry) => entry.key === "WEBHOOK_URL");
+  assert.equal(item?.sensitive, true);
+  assert.equal(item?.configured, true);
+});
+
+test("sensitive config value is retained when re-saved without a new value", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "webhook-skill",
+    description: "Webhook",
+    configJson: JSON.stringify({ requirements: [{ kind: "config", value: "WEBHOOK_URL" }] }),
+  });
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { WEBHOOK_URL: "https://example.com/hook/secret" },
+    sensitiveKeys: ["WEBHOOK_URL"],
+  });
+
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { WEBHOOK_URL: "" },
+    sensitiveKeys: ["WEBHOOK_URL"],
+  });
+
+  const env = readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: skill.id });
+  assert.equal(env.WEBHOOK_URL, "https://example.com/hook/secret");
+});
+
+test("deleteAgentSkillRequirementKeySync removes a config value and recomputes status", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "config-skill",
+    description: "Config",
+    configJson: JSON.stringify({ requirements: [{ kind: "config", value: "REGION" }] }),
+  });
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { REGION: "us-east-1" },
+  });
+  assert.equal(
+    readAgentSkillRequirementSummarySync({ workspaceId: "default", employeeName: "Researcher", skillId: skill.id }).status,
+    "ready",
+  );
+
+  const removed = deleteAgentSkillRequirementKeySync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    key: "REGION",
+    actorUserId: TEST_USER_ID,
+  });
+  assert.equal(removed.kind, "config");
+
+  const after = readAgentSkillRequirementSummarySync({ workspaceId: "default", employeeName: "Researcher", skillId: skill.id });
+  assert.equal(after.status, "needs_configuration");
+  assert.equal(after.environment[0]?.configured, false);
+});
+
+test("deleteAgentSkillRequirementKeySync removes an encrypted secret and recomputes status", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "secret-skill",
+    description: "Secret",
+    configJson: JSON.stringify({ requirements: [{ kind: "secret", value: "API_TOKEN" }] }),
+  });
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    secrets: { API_TOKEN: "token-value-abc" },
+  });
+  assert.equal(
+    readAgentSkillRequirementSummarySync({ workspaceId: "default", employeeName: "Researcher", skillId: skill.id }).status,
+    "ready",
+  );
+
+  const removed = deleteAgentSkillRequirementKeySync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    key: "API_TOKEN",
+    actorUserId: TEST_USER_ID,
+  });
+  assert.equal(removed.kind, "secret");
+  assert.equal(removed.sensitive, true);
+
+  const stored = readAgentSkillRequirementConfigurationSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+  });
+  assert.ok(!stored.configuredSecretKeys.includes("API_TOKEN"));
+  const env = readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: skill.id });
+  assert.equal(env.API_TOKEN, undefined);
 });

@@ -654,6 +654,124 @@ export interface SetManagedRuntimeDefaultModelInput extends ManagedRuntimeActor 
   operationId?: string;
 }
 
+export interface EnsureManagedRuntimeModelAllowedInput extends ManagedRuntimeActor {
+  runtimeId: string;
+  modelId: string;
+  operationId?: string;
+}
+
+/**
+ * Employee defaults share the bound Runtime credential. When that credential
+ * has an explicit allowlist, add the requested employee model without changing
+ * the Runtime default or removing models already used by other employees.
+ */
+export async function ensureManagedRuntimeModelAllowedAsync(
+  input: EnsureManagedRuntimeModelAllowedInput,
+): Promise<AgentRuntimeRecord> {
+  assertRemoteRuntimeMode();
+  assertCanManageManagedRuntimes(input);
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (!runtime || runtime.workspaceId !== input.workspaceId || !runtime.managedCredentialId) {
+    throw new Error("managed_runtime.runtime_not_found");
+  }
+  if (runtime.provisioningState !== "managed" && runtime.provisioningState !== "needs_attention") {
+    throw new Error("managed_runtime.not_a_managed_runtime");
+  }
+
+  const modelId = input.modelId.trim();
+  if (!modelId) {
+    throw new Error("managed_runtime.model_required");
+  }
+
+  const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
+  const client = clientProvider();
+  const previousCredentialId = runtime.managedCredentialId;
+  const credential = await client.runtimeCredentials.get({
+    params: { id: previousCredentialId },
+    query: { tenantId: scope.tenantId, teamId: scope.teamId },
+  });
+  const allowedModels = credential.allowedModels
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (allowedModels.length === 0 || allowedModels.includes(modelId)) {
+    return runtime;
+  }
+
+  const operationId = input.operationId?.trim() || crypto.randomUUID();
+  const nextAllowedModels = [...new Set([...allowedModels, modelId])];
+  await safeRevokeCredential({
+    credentialId: previousCredentialId,
+    tenantId: scope.tenantId,
+    teamId: scope.teamId,
+    reason: "manual",
+    idempotencyKey: `revoke:${previousCredentialId}:model-allowlist:${operationId}`,
+    audit: { actorId: input.actorUserId },
+  });
+  const result = await client.runtimeCredentials.create({
+    body: {
+      tenantId: scope.tenantId,
+      teamId: scope.teamId,
+      runtimeId: runtime.id,
+      runtimeType: runtime.provider,
+      protocols: credential.protocols.length > 0
+        ? credential.protocols
+        : runtime.protocols?.length
+          ? runtime.protocols
+          : resolveProviderProtocols(runtime.provider),
+      allowedModels: nextAllowedModels,
+      defaultModel: runtime.defaultModel || undefined,
+      idempotencyKey: `model-allowlist:${runtime.id}:${modelId}:${operationId}`,
+      audit: { actorId: input.actorUserId },
+    },
+  });
+  if (!result.secretIssued || !result.secret?.apiKey) {
+    throw new Error("managed_runtime.model_allowlist_change_no_secret");
+  }
+
+  const vault = getRuntimeCredentialVault();
+  const previousSecretRef = runtime.credentialSecretRef;
+  const credentialScope = { tenantId: scope.tenantId, teamId: scope.teamId, runtimeId: runtime.id };
+  const secret = vault.store(result.credential.id, result.secret.apiKey, credentialScope);
+  markRuntimeCredentialReconciliationTargetDrainingSync({
+    workspaceId: input.workspaceId,
+    runtimeId: runtime.id,
+    runtimeCredentialId: previousCredentialId,
+    retireAfter: resolveCredentialReconciliationRetireAfter(),
+  });
+  upsertActiveRuntimeCredentialReconciliationTargetSync({
+    workspaceId: input.workspaceId,
+    runtimeId: runtime.id,
+    runtimeCredentialId: result.credential.id,
+  });
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId: runtime.id,
+    workspaceId: input.workspaceId,
+    provisioningState: "managed",
+    status: "online",
+    managedCredentialId: result.credential.id,
+    credentialSecretRef: secret.secretRef,
+  });
+  if (previousSecretRef && previousSecretRef !== secret.secretRef) {
+    vault.forget(previousSecretRef, credentialScope);
+  }
+  recordAuditLogSync({
+    workspaceId: input.workspaceId,
+    title: "Runtime model allowlist expanded",
+    note: `Runtime ${runtime.id} now allows employee model ${modelId}.`,
+    code: "runtime.model_allowlist.expanded",
+    source: "runtime_credential",
+    data: {
+      runtimeId: runtime.id,
+      previousCredentialId,
+      newCredentialId: result.credential.id,
+      modelId,
+      operationId,
+      actorId: input.actorUserId,
+    },
+  });
+  return readAgentRuntimeSync(runtime.id) ?? runtime;
+}
+
 /**
  * A runtime credential allowlist is enforced by the gateway. Selecting a new
  * default therefore needs a new credential, rather than only changing the

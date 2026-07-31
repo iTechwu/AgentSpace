@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConversationShell } from "@/features/chat/conversation-shell";
@@ -372,6 +372,84 @@ describe("ConversationShell", () => {
 
     await user.click(screen.getByRole("button", { name: /关闭面板|Close panel/i }));
     expect(onCloseSupplementaryPanel).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the composer immediately while a message submission is pending", async () => {
+    const user = userEvent.setup();
+    let resolveSubmit: (() => void) | undefined;
+    const onSubmit = vi.fn(() => new Promise<void>((resolve) => {
+      resolveSubmit = resolve;
+    }));
+
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={onSubmit}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    const composer = screen.getByRole("textbox");
+    await user.type(composer, "继续检查发送体验");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      content: "继续检查发送体验",
+      files: [],
+      replyToMessageId: undefined,
+    });
+    expect(composer).toHaveValue("");
+
+    await act(async () => {
+      resolveSubmit?.();
+    });
+  });
+
+  it("restores the submitted draft when an optimistic submission fails", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={vi.fn(async () => {
+            throw new Error("发送失败");
+          })}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    const composer = screen.getByRole("textbox");
+    await user.type(composer, "保留这条失败消息");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+
+    await waitFor(() => expect(screen.getByText("发送失败")).toBeInTheDocument());
+    expect(composer).toHaveValue("保留这条失败消息");
   });
 
   it("switches the composer between stop and queue actions while an agent is running", async () => {

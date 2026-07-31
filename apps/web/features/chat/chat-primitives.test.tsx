@@ -267,5 +267,45 @@ describe("ConversationMessageBubble", () => {
     await user.click(screen.getByRole("button", { name: "批准" }));
 
     expect(onReviewApproval).toHaveBeenCalledWith("approval-1", "approved");
+    expect(screen.queryByRole("button", { name: "批准" })).not.toBeInTheDocument();
+    expect(screen.getByText("已批准")).toBeInTheDocument();
+  });
+
+  it("restores inline runtime approval actions when review fails", async () => {
+    const user = userEvent.setup();
+    const onReviewApproval = vi.fn(async () => {
+      throw new Error("approval unavailable");
+    });
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <ConversationMessageBubble
+          message={{
+            id: "message-approval-failure",
+            speaker: "系统提示",
+            role: "agent",
+            content: "Atlas requested permission to run Bash",
+            code: "approval.created",
+            data: {
+              approval_id: "approval-failure",
+              approval_type: "runtime_tool",
+              approval_status: "pending",
+              agent_id: "Atlas",
+              tool_name: "Bash",
+              content_preview: "Bash: npm run test",
+            },
+            timestamp: "10:00",
+            status: "completed",
+          }}
+          onReviewApproval={onReviewApproval}
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "批准" }));
+
+    expect(onReviewApproval).toHaveBeenCalledWith("approval-failure", "approved");
+    expect(screen.getByRole("button", { name: "批准" })).toBeEnabled();
+    expect(screen.queryByText("已批准")).not.toBeInTheDocument();
   });
 });

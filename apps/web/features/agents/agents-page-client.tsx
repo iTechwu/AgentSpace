@@ -22,6 +22,7 @@ import {
   setWorkspaceAgentKnowledgeAssignmentsAction,
   setWorkspaceAgentSkillAssignmentsAction,
   installWorkspaceAgentSkillAction,
+  removeWorkspaceAgentSkillKeyAction,
   unbindWorkspaceAgentRuntimeAction,
   updateWorkspaceAgentDefaultModelAction,
   updateWorkspaceAgentExecutionPolicyAction,
@@ -916,6 +917,15 @@ export function AgentsPageClient({
                         employeeName: selectedAgent.internalName,
                         skillId,
                         ...input,
+                      }),
+                    )
+                  }
+                  onRemoveSkillKey={(skillId, key) =>
+                    runAction(
+                      () => removeWorkspaceAgentSkillKeyAction({
+                        employeeName: selectedAgent.internalName,
+                        skillId,
+                        key,
                       }),
                     )
                   }

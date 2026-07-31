@@ -55,3 +55,10 @@ Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
 2. Use `detect_changes_tool` for code review.
 3. Use `get_affected_flows_tool` to understand impact.
 4. Use `query_graph_tool` pattern="tests_for" to check coverage.
+
+## Test Administrator Account
+
+Use this account only for local or test-environment UI verification. Never use it against production or unrelated external systems.
+
+- Mobile: `13800138000`
+- Password: `!QAZxdr5`

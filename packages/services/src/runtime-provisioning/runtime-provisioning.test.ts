@@ -36,6 +36,7 @@ import {
   completeManagedRuntimeCleanupSync,
   deleteManagedRuntimeAsync,
   ensureManagedRuntimeCapacitySync,
+  ensureManagedRuntimeModelAllowedAsync,
   finalizeManagedRuntimeProvisioningSync,
   getManagedRuntimeCredentialStatusAsync,
   getRuntimeProvisioningTaskDetailSync,
@@ -81,6 +82,9 @@ function createMockClient(behavior: {
   plaintext?: string;
   nextPlaintext?: string;
   modelList?: unknown[];
+  allowedModels?: string[];
+  credentialDefaultModel?: string;
+  credentialProtocols?: string[];
 }): ModelsClientLike & { createCalls: number; preflightCalls: number; revokeCalls: number; rotateCalls: number; getCalls: number; lastCreateBody?: unknown; lastPreflightBody?: unknown; lastRevokeBody?: unknown; lastRotateBody?: unknown } {
   let createCalls = 0;
   let preflightCalls = 0;
@@ -142,8 +146,9 @@ function createMockClient(behavior: {
           teamId: "team-1",
           runtimeId: "runtime-managed-test",
           runtimeType: "claude",
-          protocols: ["anthropic"],
-          allowedModels: [],
+          protocols: behavior.credentialProtocols ?? ["anthropic"],
+          allowedModels: behavior.allowedModels ?? [],
+          defaultModel: behavior.credentialDefaultModel,
           status: "active",
           keyFingerprint: "sha256:mock",
           rotationVersion: 1,
@@ -1309,6 +1314,81 @@ test("clearing a managed runtime default reissues an unrestricted compatible cre
     allowedModels: [],
     defaultModel: undefined,
     idempotencyKey: `model-change:${runtimeId}:system:model-clear-1`,
+    audit: { actorId: OWNER },
+  });
+});
+
+test("expands a managed runtime credential allowlist for an employee default model", async () => {
+  activeClient = createMockClient({
+    credentialId: "rtc-employee-model-old",
+    modelList: [
+      {
+        id: "model-deepseek",
+        alias: "deepseek-v4-pro",
+        model: "deepseek-v4-pro",
+        modelType: "llm",
+        supportedProtocols: ["openai_response"],
+        isEnabled: true,
+        isDeprecated: false,
+      },
+      {
+        id: "model-terra",
+        alias: "gpt-5.6-terra",
+        model: "gpt-5.6-terra",
+        modelType: "llm",
+        supportedProtocols: ["openai_response"],
+        isEnabled: true,
+        isDeprecated: false,
+      },
+    ],
+  });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "codex",
+    defaultModel: "deepseek-v4-pro",
+    idempotencyKey: "employee-model-allowlist",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtimeId = provisioned.runtimeId!;
+  const previous = readAgentRuntimeSync(runtimeId)!;
+
+  activeClient = createMockClient({
+    credentialId: "rtc-employee-model",
+    plaintext: "sk-employee-model",
+    allowedModels: ["deepseek-v4-pro"],
+    credentialDefaultModel: "deepseek-v4-pro",
+    credentialProtocols: ["openai_response"],
+  });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const updated = await ensureManagedRuntimeModelAllowedAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    runtimeId,
+    modelId: "gpt-5.6-terra",
+    operationId: "employee-model-1",
+  });
+
+  assert.equal(updated.defaultModel, "deepseek-v4-pro");
+  assert.equal(updated.managedCredentialId, "rtc-employee-model");
+  assert.deepEqual(activeClient.lastCreateBody, {
+    tenantId: "tenant-1",
+    teamId: "team-1",
+    runtimeId,
+    runtimeType: "codex",
+    protocols: ["openai_response"],
+    allowedModels: ["deepseek-v4-pro", "gpt-5.6-terra"],
+    defaultModel: "deepseek-v4-pro",
+    idempotencyKey: `model-allowlist:${runtimeId}:gpt-5.6-terra:employee-model-1`,
+    audit: { actorId: OWNER },
+  });
+  assert.deepEqual(activeClient.lastRevokeBody, {
+    tenantId: "tenant-1",
+    teamId: "team-1",
+    reason: "manual",
+    idempotencyKey: `revoke:${previous.managedCredentialId}:model-allowlist:employee-model-1`,
     audit: { actorId: OWNER },
   });
 });

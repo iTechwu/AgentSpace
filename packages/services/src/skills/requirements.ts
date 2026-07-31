@@ -13,6 +13,12 @@ export interface SkillRequirementConfiguration {
   capabilities: string[];
   projectWorkDir?: string;
   values: Record<string, string>;
+  /**
+   * Config (`config:`) keys the admin chose to store encrypted at rest instead
+   * of as plaintext. Their values are NOT kept in `values`; they live in the
+   * encrypted secrets store alongside `secret:` values.
+   */
+  sensitiveKeys: string[];
 }
 
 const SECRET_KEY_PATTERN = /(secret|token|password|(?:api|app)[_-]?key|credential)/i;
@@ -66,7 +72,7 @@ export function readSkillRequirementConfiguration(configJson: string | undefined
   const config = readSkillConfig(configJson);
   const stored = config?.requirementConfiguration;
   if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
-    return { capabilities: [], values: {} };
+    return { capabilities: [], values: {}, sensitiveKeys: [] };
   }
   const record = stored as Record<string, unknown>;
   const values: Record<string, string> = {};
@@ -77,6 +83,9 @@ export function readSkillRequirementConfiguration(configJson: string | undefined
       }
     }
   }
+  const sensitiveKeys = Array.isArray(record.sensitiveKeys)
+    ? record.sensitiveKeys.filter((value): value is string => typeof value === "string" && CONFIG_KEY_PATTERN.test(value))
+    : [];
   return {
     modelProvider: typeof record.modelProvider === "string" && isDaemonProvider(record.modelProvider)
       ? record.modelProvider
@@ -89,6 +98,7 @@ export function readSkillRequirementConfiguration(configJson: string | undefined
       ? record.projectWorkDir
       : undefined,
     values,
+    sensitiveKeys,
   };
 }
 
@@ -110,6 +120,7 @@ export function normalizeSkillRequirementConfiguration(input: {
   capabilities?: string[];
   projectWorkDir?: string;
   values?: Record<string, string>;
+  sensitiveKeys?: string[];
 }): SkillRequirementConfiguration {
   const providerRequirements = input.requirements.filter((item) => item.kind === "provider").map((item) => item.value);
   const modelRequirements = input.requirements.filter((item) => item.kind === "model").map((item) => item.value);
@@ -142,10 +153,25 @@ export function normalizeSkillRequirementConfiguration(input: {
     }
   }
 
+  const sensitiveKeySet = new Set((input.sensitiveKeys ?? []).filter((value): value is string => (
+    typeof value === "string" && CONFIG_KEY_PATTERN.test(value)
+  )));
+  for (const key of sensitiveKeySet) {
+    if (!configRequirements.includes(key)) {
+      throw new Error(`Sensitive flag can only be applied to declared configuration keys.`);
+    }
+  }
+
   const values: Record<string, string> = {};
   for (const key of configRequirements) {
     const value = input.values?.[key]?.trim();
     if (!value) {
+      // A sensitive config key may be retained from encrypted storage when no
+      // new value is supplied (mirrors secret rotation). Its value is resolved
+      // from the encrypted store at the persistence layer, not here.
+      if (sensitiveKeySet.has(key)) {
+        continue;
+      }
       throw new Error(`Configuration value ${key} is required.`);
     }
     if (value.length > 4096) {
@@ -160,12 +186,20 @@ export function normalizeSkillRequirementConfiguration(input: {
     capabilities,
     projectWorkDir: selectedProject || undefined,
     values,
+    sensitiveKeys: Array.from(sensitiveKeySet),
   };
 }
 
 export function getSkillRequirementBlockers(input: {
   configJson: string | undefined;
   runtimeProvider?: DaemonProvider;
+  /**
+   * Keys whose encrypted values are present in the encrypted store. Used to tell
+   * whether a sensitive config key is configured, since its value is not held in
+   * plaintext `values`. Declared `secret:` keys are always handled by the caller
+   * (they unconditionally produce a blocker here and are filtered/re-added).
+   */
+  configuredEncryptedKeys?: string[];
 }): string[] {
   const requirements = readSkillRequirementDeclarations(input.configJson);
   if (requirements.length === 0) {
@@ -176,6 +210,7 @@ export function getSkillRequirementBlockers(input: {
   const requiredProviders = requirements.filter((item) => item.kind === "provider").map((item) => item.value);
   const requiresModel = requirements.some((item) => item.kind === "model");
   const requiresProject = requirements.some((item) => item.kind === "project");
+  const configuredEncrypted = new Set(input.configuredEncryptedKeys ?? []);
 
   if ((requiredProviders.length > 0 || requiresModel) && !configuration.modelProvider) {
     blockers.push("Select a model provider in the skill setup.");
@@ -192,7 +227,11 @@ export function getSkillRequirementBlockers(input: {
     }
   }
   for (const requirement of requirements.filter((item) => item.kind === "config")) {
-    if (!configuration.values[requirement.value]) {
+    const isSensitive = configuration.sensitiveKeys.includes(requirement.value);
+    const isConfigured = isSensitive
+      ? configuredEncrypted.has(requirement.value)
+      : Boolean(configuration.values[requirement.value]);
+    if (!isConfigured) {
       blockers.push(`Configure ${requirement.value} in the skill setup.`);
     }
   }
@@ -225,6 +264,7 @@ export function buildSkillRequirementRuntimeContext(configJson: string | undefin
       modelId: configuration.modelId,
       capabilities: configuration.capabilities,
       projectWorkDir: configuration.projectWorkDir,
+      sensitiveKeys: configuration.sensitiveKeys,
     },
     credentialRequirements: requirements
       .filter((requirement) => requirement.kind === "secret")

@@ -216,7 +216,8 @@ test("failure summaries hide provider diagnostics in user-visible chat text", ()
     title: "生成晨间简报",
     errorText: "Codex CLI exited with code 1. Model metadata for deepseek-v4-pro not found. Codex stream disconnected prior to response.completed; turn.failed after retry 5/5.",
   });
-  assert.match(codexStreamingSummary, /执行配置不完整/);
+  assert.match(codexStreamingSummary, /流式响应在完成前中断/);
+  assert.doesNotMatch(codexStreamingSummary, /执行配置不完整/);
   assert.doesNotMatch(codexStreamingSummary, /Codex CLI exited|deepseek-v4-pro|retry 5\/5/);
 
   const approvalTimeoutSummary = formatTaskFailureSummary({

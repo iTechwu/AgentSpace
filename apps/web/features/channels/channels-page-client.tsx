@@ -440,12 +440,14 @@ function useChannelRealtimeRefresh({
 function useChannelRouteState({
   activeTab,
   channelById,
+  navigateWorkspaceModule,
   routeSearch,
   setRouteSearch,
   workspaceHref,
 }: {
   activeTab: ChannelWorkspaceTab;
   channelById: Map<string, ChannelRecord>;
+  navigateWorkspaceModule: (href: string, options?: { replace?: boolean }) => boolean;
   routeSearch: string;
   setRouteSearch: (value: string) => void;
   workspaceHref: (path: string) => string;
@@ -474,14 +476,20 @@ function useChannelRouteState({
       }
       const nextRouteSearch = nextSearch.toString();
       const nextHref = workspaceHref(`/im?${nextRouteSearch}`);
-      if (historyMode === "push") {
-        window.history.pushState(window.history.state, "", nextHref);
-      } else {
-        window.history.replaceState(window.history.state, "", nextHref);
+      const handledByWorkspace = navigateWorkspaceModule(
+        nextHref,
+        historyMode === "replace" ? { replace: true } : undefined,
+      );
+      if (!handledByWorkspace) {
+        if (historyMode === "push") {
+          window.history.pushState(window.history.state, "", nextHref);
+        } else {
+          window.history.replaceState(window.history.state, "", nextHref);
+        }
       }
       setRouteSearch(nextRouteSearch);
     },
-    [activeTab, channelById, routeSearch, setRouteSearch, workspaceHref],
+    [activeTab, channelById, navigateWorkspaceModule, routeSearch, setRouteSearch, workspaceHref],
   );
 
   const replaceChannelRoute = useCallback(
@@ -628,6 +636,7 @@ export function ChannelsPageClient({
   } = useChannelRouteState({
     activeTab,
     channelById: indexes.channelById,
+    navigateWorkspaceModule,
     routeSearch,
     setRouteSearch,
     workspaceHref,
@@ -2044,6 +2053,7 @@ export function ChannelsPageClient({
           });
         }}
         onReviewApproval={async (approvalId, decision) => {
+          let reviewSucceeded = false;
           await runToastAction({
             action: () => reviewInlineApprovalAction(approvalId, decision),
             onSuccess: async (_data, result) => {
@@ -2051,10 +2061,14 @@ export function ChannelsPageClient({
                 onInvalidation?.(result.invalidation);
               }
               refreshChannelModule(selectedConversationChannelName);
+              reviewSucceeded = true;
             },
             pushToast,
             tx,
           });
+          if (!reviewSucceeded) {
+            throw new Error(tx("审批未完成，请重试。", "Approval was not completed. Please try again."));
+          }
         }}
         placeholder={
           selectedChannel

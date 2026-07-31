@@ -1388,6 +1388,35 @@ describe("ChannelsPageClient", () => {
     replaceStateSpy.mockRestore();
   });
 
+  it("keeps the workspace route synchronized so a refresh preserves direct conversation focus", async () => {
+    const user = userEvent.setup();
+    let canonicalHref = "/w/workspace-alpha/im";
+    const navigateWorkspaceModule = vi.fn((href: string) => {
+      canonicalHref = href;
+      window.history.replaceState(window.history.state, "", href);
+      return true;
+    });
+    window.history.replaceState(window.history.state, "", canonicalHref);
+
+    render(
+      <WorkspaceModuleNavigationProvider navigateWorkspaceModule={navigateWorkspaceModule}>
+        <TestProviders>
+          <ChannelsPageClient currentUserDisplayName="techwu" data={digitalContactData} />
+        </TestProviders>
+      </WorkspaceModuleNavigationProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Atlas/ }));
+    expect(new URL(window.location.href).searchParams.get("focus")).toBe("contact:Atlas");
+
+    window.history.replaceState(window.history.state, "", canonicalHref);
+    expect(new URL(window.location.href).searchParams.get("focus")).toBe("contact:Atlas");
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith(
+      "/w/workspace-alpha/im?focus=contact%3AAtlas",
+      { replace: true },
+    );
+  });
+
   it("opens channel document workspaces through local history transitions", async () => {
     const user = userEvent.setup();
     const pushStateSpy = vi.spyOn(window.history, "pushState");

@@ -10,6 +10,7 @@ import {
   readRuntimeProvisionRequestSync,
   readAgentRuntimeSync,
   readAgentRouterSessionSync,
+  readStoredEmployeeSync,
   readEmployeeRuntimeBindingSync,
   requestAgentRuntimeProviderVerificationSync,
   setAgentRouterSessionModelOverrideSync,
@@ -36,6 +37,7 @@ import {
   createEmployeeSync,
   createTaskSync,
   deleteEmployeeSync,
+  ensureManagedRuntimeModelAllowedAsync,
   grantRuntimeUseToUserForActorSync,
   getManagedRuntimeCredentialEnvKey,
   isWorkspaceAdminOrOwnerSync,
@@ -48,6 +50,8 @@ import {
   revokeRuntimeUseFromUserForActorSync,
   resolveAgentRuntimeMode,
   resolveSystemAgentTemplateForWorkspaceSync,
+  readSkillRequirementDeclarations,
+  readWorkspaceSkillSync,
   setEmployeeChannelMemberAccessSync,
   setEmployeeKnowledgePageIdsSync,
   setEmployeeSkillIdsSync,
@@ -55,6 +59,7 @@ import {
   tryRecordWorkspaceAuditEventSync,
   unbindEmployeeRuntimeSync,
   upsertAgentSkillRequirementsSync,
+  deleteAgentSkillRequirementKeySync,
   updateEmployeeDefaultModelSync,
   updateEmployeeExecutionPolicySync,
   updateEmployeeInstructionsSync,
@@ -65,6 +70,7 @@ import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permiss
 import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-invalidation";
 import {
   actionToastResult,
+  errorToast,
   successToast,
   type ActionToastResult,
 } from "@/shared/lib/toast-action";
@@ -220,6 +226,14 @@ export async function createWorkspaceAgentAction(input: {
       skillIds,
       runtimeProvider: boundRuntime.provider,
     });
+    if (input.defaultModel?.trim() && boundRuntime.managedCredentialId) {
+      await ensureManagedRuntimeModelAllowedAsync({
+        workspaceId,
+        actorUserId,
+        runtimeId: boundRuntime.id,
+        modelId: input.defaultModel.trim(),
+      });
+    }
   }
 
   createEmployeeSync({
@@ -322,6 +336,38 @@ export async function bindWorkspaceAgentRuntimeAction(input: {
     skillIds,
     runtimeProvider: runtime.provider,
   });
+  const employee = readStoredEmployeeSync(input.employeeName.trim(), workspaceId);
+  if (employee?.defaultModel && runtime.managedCredentialId) {
+    await ensureManagedRuntimeModelAllowedAsync({
+      workspaceId,
+      actorUserId: workspaceContext.currentUser.id,
+      runtimeId: runtime.id,
+      modelId: employee.defaultModel,
+    });
+  }
+  // Reverse-check: when binding a managed remote runtime, its credential env key
+  // must not collide with a key already declared by an installed skill. Install
+  // blocks this forward; bind must block it backward so an existing skill cannot
+  // silently shadow the runtime credential.
+  const managedRuntimeCredentialKey = resolveAgentRuntimeMode() === "remote"
+    ? getManagedRuntimeCredentialEnvKey(runtime.provider)
+    : undefined;
+  if (managedRuntimeCredentialKey) {
+    for (const skillId of skillIds) {
+      const skill = readWorkspaceSkillSync(skillId, workspaceId);
+      if (!skill) continue;
+      const declarations = readSkillRequirementDeclarations(skill.configJson);
+      const conflicts = declarations.some(
+        (declaration) => (declaration.kind === "config" || declaration.kind === "secret")
+          && declaration.value === managedRuntimeCredentialKey,
+      );
+      if (conflicts) {
+        throw new Error(
+          `${managedRuntimeCredentialKey} is reserved by the runtime being bound and conflicts with skill "${skill.name}". Remove the declaration from that skill or use a different key.`,
+        );
+      }
+    }
+  }
   const hasGitHubDependencies = hasGitHubSkillDependenciesSync({ workspaceId, skillIds });
   if (hasGitHubDependencies) {
     assertWorkspaceRoleForContext(workspaceContext, "admin");
@@ -432,9 +478,24 @@ export async function updateWorkspaceAgentDefaultModelAction(input: {
     employeeName: input.employeeName.trim(),
     actorUserId: workspaceContext.currentUser.id,
   });
+  const defaultModel = input.defaultModel?.trim() || undefined;
+  const binding = defaultModel && resolveAgentRuntimeMode() === "remote"
+    ? readEmployeeRuntimeBindingSync(input.employeeName.trim(), workspaceId)
+    : null;
+  if (binding && defaultModel) {
+    const runtime = readAgentRuntimeSync(binding.runtimeId);
+    if (runtime?.managedCredentialId) {
+      await ensureManagedRuntimeModelAllowedAsync({
+        workspaceId,
+        actorUserId: workspaceContext.currentUser.id,
+        runtimeId: runtime.id,
+        modelId: defaultModel,
+      });
+    }
+  }
   updateEmployeeDefaultModelSync(
     input.employeeName.trim(),
-    input.defaultModel?.trim() || undefined,
+    defaultModel,
     workspaceId,
   );
   revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
@@ -647,6 +708,7 @@ export async function installWorkspaceAgentSkillAction(input: {
   projectWorkDir?: string;
   values?: Record<string, string>;
   secrets?: Record<string, string>;
+  sensitiveKeys?: string[];
 }): Promise<ActionToastResult<void>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   const workspaceId = workspaceContext.currentWorkspace.id;
@@ -663,31 +725,63 @@ export async function installWorkspaceAgentSkillAction(input: {
   const managedRuntimeCredentialKey = boundRuntime && resolveAgentRuntimeMode() === "remote"
     ? getManagedRuntimeCredentialEnvKey(boundRuntime.provider)
     : undefined;
-  const skillIds = upsertAgentSkillRequirementsSync({
-    workspaceId,
-    employeeName: input.employeeName.trim(),
-    skillId: input.skillId.trim(),
-    actorUserId: workspaceContext.currentUser.id,
-    modelProvider: input.modelProvider,
-    modelId: input.modelId,
-    capabilities: input.capabilities,
-    projectWorkDir: input.projectWorkDir,
-    values: input.values,
-    secrets: input.secrets,
-    ...(managedRuntimeCredentialKey ? { managedRuntimeCredentialKey } : {}),
-    ...(boundRuntime?.provider ? { runtimeProvider: boundRuntime.provider } : {}),
-    assignSkill: true,
-  }) ?? [];
+  let skillIds: string[];
+  try {
+    skillIds = upsertAgentSkillRequirementsSync({
+      workspaceId,
+      employeeName: input.employeeName.trim(),
+      skillId: input.skillId.trim(),
+      actorUserId: workspaceContext.currentUser.id,
+      modelProvider: input.modelProvider,
+      modelId: input.modelId,
+      capabilities: input.capabilities,
+      projectWorkDir: input.projectWorkDir,
+      values: input.values,
+      secrets: input.secrets,
+      sensitiveKeys: input.sensitiveKeys,
+      ...(managedRuntimeCredentialKey ? { managedRuntimeCredentialKey } : {}),
+      ...(boundRuntime?.provider ? { runtimeProvider: boundRuntime.provider } : {}),
+      assignSkill: true,
+    }) ?? [];
+  } catch (error) {
+    // Directed handling for the platform encryption-key-missing case: never let
+    // a secret/sensitive value degrade to plaintext, and tell the admin exactly
+    // what to do instead of surfacing a generic failure.
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY") || message.includes("encryption key")) {
+      return actionToastResult(undefined, errorToast(
+        "平台加密密钥未配置，无法保存密钥或敏感变量。请联系管理员配置 DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY。",
+        "Platform encryption key is not configured, so secrets/sensitive values cannot be saved. Ask an admin to configure DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY.",
+      ));
+    }
+    throw error;
+  }
   const hasGitHubDependencies = hasGitHubSkillDependenciesSync({ workspaceId, skillIds });
   const dependencyQueue = hasGitHubDependencies
     ? queueGitHubSkillDependenciesForAgentSync({ workspaceId, employeeName: input.employeeName.trim(), skillIds, actorUserId: workspaceContext.currentUser.id, actorDisplayName: workspaceContext.currentUser.displayName })
     : { queued: 0, skipped: 0, waitingForRuntime: false };
+  // Key names + counts by source (never values) for the install/update audit.
+  const sensitiveKeySet = new Set((input.sensitiveKeys ?? []).map((key) => key.trim()));
+  const configKeysConfigured = Object.keys(input.values ?? {}).filter((key) => !sensitiveKeySet.has(key));
+  const secretKeysConfigured = Object.entries(input.secrets ?? {})
+    .filter(([, value]) => (value ?? "").trim().length > 0)
+    .map(([key]) => key);
   tryRecordWorkspaceAuditEventSync({
     workspaceId,
     title: isAlreadyAssigned ? "AI employee skill configuration updated" : "AI employee skill configured",
     note: `${workspaceContext.currentUser.displayName} ${isAlreadyAssigned ? "updated" : "configured"} skill requirements for ${input.employeeName.trim()}.`,
     code: isAlreadyAssigned ? "workspace.agent_skill_requirements_updated" : "workspace.agent_skill_requirements_configured",
-    data: { actorType: "session_user", resourceType: "agent_skill_requirement", resourceId: `${input.employeeName.trim()}:${input.skillId.trim()}` },
+    data: {
+      actorType: "session_user",
+      resourceType: "agent_skill_requirement",
+      resourceId: `${input.employeeName.trim()}:${input.skillId.trim()}`,
+      configKeys: configKeysConfigured.join(","),
+      configKeyCount: String(configKeysConfigured.length),
+      secretKeys: secretKeysConfigured.join(","),
+      secretKeyCount: String(secretKeysConfigured.length),
+      sensitiveKeys: Array.from(sensitiveKeySet).join(","),
+      sensitiveKeyCount: String(sensitiveKeySet.size),
+    },
   });
   // Secret rotation gets its own audit trail (key names + count only; never values). A secret
   // is "rotated" when a new value is supplied for a key that was already configured.
@@ -721,6 +815,50 @@ export async function installWorkspaceAgentSkillAction(input: {
     dependencyQueue.queued > 0 ? `Skill 已安装并已排队安装 ${dependencyQueue.queued} 个依赖。` : "Skill 已为该 AI员工 安装并完成配置。",
     dependencyQueue.queued > 0 ? `Skill installed; ${dependencyQueue.queued} dependency install(s) queued.` : "Skill installed and configured for this agent.",
   ), buildAgentInvalidation(workspaceId, input.employeeName.trim()));
+}
+
+export async function removeWorkspaceAgentSkillKeyAction(input: {
+  employeeName: string;
+  skillId: string;
+  key: string;
+}): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertRequired(input.employeeName, "employee name");
+  assertRequired(input.skillId, "skill id");
+  assertRequired(input.key, "key");
+  assertCanManageEmployeeForActorSync({ workspaceId, employeeName: input.employeeName.trim(), actorUserId: workspaceContext.currentUser.id });
+  const removed = deleteAgentSkillRequirementKeySync({
+    workspaceId,
+    employeeName: input.employeeName.trim(),
+    skillId: input.skillId.trim(),
+    key: input.key.trim(),
+    actorUserId: workspaceContext.currentUser.id,
+  });
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId,
+    title: "AI employee skill variable removed",
+    note: `${workspaceContext.currentUser.displayName} removed ${removed.kind} variable ${input.key.trim()}${removed.sensitive ? " (sensitive)" : ""} from ${input.employeeName.trim()}.`,
+    code: "workspace.agent_skill_requirement_key_deleted",
+    data: {
+      actorType: "session_user",
+      resourceType: "agent_skill_requirement",
+      resourceId: `${input.employeeName.trim()}:${input.skillId.trim()}`,
+      key: input.key.trim(),
+      kind: removed.kind,
+      sensitive: String(removed.sensitive),
+    },
+  });
+  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+  return actionToastResult(
+    undefined,
+    successToast(
+      `已删除变量 ${input.key.trim()}。`,
+      `Removed variable ${input.key.trim()}.`,
+    ),
+    buildAgentInvalidation(workspaceId, input.employeeName.trim()),
+  );
 }
 
 export async function setWorkspaceAgentKnowledgeAssignmentsAction(input: {
