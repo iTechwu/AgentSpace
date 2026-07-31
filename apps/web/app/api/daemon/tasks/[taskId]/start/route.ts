@@ -20,6 +20,9 @@ export async function POST(
   if (task instanceof Response) {
     return task;
   }
+  if (task.status === "cancelled") {
+    return Response.json({ task: { id: task.id, status: task.status }, ignored: true });
+  }
 
   const shouldPostStartNotice = task.status !== "running";
   const started = startQueuedTaskSync(task.id);

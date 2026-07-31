@@ -597,7 +597,7 @@ export function cancelQueuedTaskSync(input: {
          error_text = COALESCE(?, error_text),
          finished_at = ?,
          updated_at = ?
-     WHERE id = ? AND status = 'queued'`,
+     WHERE id = ? AND status IN ('queued', 'claimed', 'running')`,
   ).run(input.errorText ?? null, now, now, input.taskId);
 
   const task = readQueuedTaskSync(input.taskId);
@@ -605,6 +605,7 @@ export function cancelQueuedTaskSync(input: {
     throw new Error(`Queued task "${input.taskId}" does not exist.`);
   }
   if (previous?.status !== "cancelled" && task.status === "cancelled") {
+    const wasRunning = previous?.status === "claimed" || previous?.status === "running";
     const attempt = readLatestAgentTaskAttemptForTaskSync(task.id);
     if (attempt) {
       updateAgentTaskAttemptSync({
@@ -620,7 +621,11 @@ export function cancelQueuedTaskSync(input: {
       actorType: "system",
       runtimeId: task.runtimeId,
       provider: runtime?.provider,
-      summary: input.errorText ? truncateSummary(input.errorText) : "Task cancelled before execution.",
+      summary: input.errorText
+        ? truncateSummary(input.errorText)
+        : wasRunning
+          ? "Task execution was stopped."
+          : "Task cancelled before execution.",
       data: {
         attemptId: attempt?.id,
       },
@@ -628,7 +633,11 @@ export function cancelQueuedTaskSync(input: {
     recordQueueLifecycleEvent(task, {
       type: "cancelled",
       title: "Task cancelled",
-      summary: input.errorText ? truncateSummary(input.errorText) : "The queued task was cancelled before execution.",
+      summary: input.errorText
+        ? truncateSummary(input.errorText)
+        : wasRunning
+          ? "The running task was stopped."
+          : "The queued task was cancelled before execution.",
       severity: input.errorText ? "warning" : "info",
       status: "failed",
     });

@@ -951,6 +951,7 @@ function formatAgentProgressSummary(
 export function replacePendingChannelMessageSync(input: {
   channel: string;
   pendingSpeaker: string;
+  pendingTaskId?: string;
   speaker: string;
   role: "human" | "agent";
   summary: string;
@@ -965,7 +966,8 @@ export function replacePendingChannelMessageSync(input: {
         sameValue(message.channel ?? "", input.channel) &&
         message.role === "agent" &&
         message.status === "pending" &&
-        sameValue(message.speaker, input.pendingSpeaker)
+        sameValue(message.speaker, input.pendingSpeaker) &&
+        (!input.pendingTaskId || message.data?.source_task_queue_id === input.pendingTaskId)
       ),
   );
 

@@ -6,6 +6,7 @@ import test, { before, beforeEach } from "node:test";
 import {
   appendTaskMessageSync,
   bindEmployeeRuntimeSync,
+  cancelQueuedTaskSync,
   claimNextQueuedTaskForRuntimeSync,
   completeQueuedTaskSync,
   enqueueNativeTaskSync,
@@ -127,6 +128,26 @@ test("records actionable provider failures as blocked events with structured met
   const data = JSON.parse(failure!.dataJson) as { errorCode?: string; provider?: string };
   assert.equal(data.errorCode, "provider.profile_missing");
   assert.equal(data.provider, "openclaw");
+});
+
+test("cancels a running task and records the stopped lifecycle", () => {
+  const runtimeId = createRuntimeAndBinding();
+  const queued = enqueueNativeTaskSync({
+    assignee: "Atlas",
+    title: "Long analysis",
+    channel: "general",
+    priority: "medium",
+  });
+  assert.ok(queued);
+  claimNextQueuedTaskForRuntimeSync(runtimeId);
+  startQueuedTaskSync(queued.id);
+
+  const cancelled = cancelQueuedTaskSync({ taskId: queued.id });
+
+  assert.equal(cancelled.status, "cancelled");
+  const event = listTaskExecutionEventsSync({ taskId: queued.id }).at(-1);
+  assert.equal(event?.type, "cancelled");
+  assert.equal(event?.summary, "The running task was stopped.");
 });
 
 test("managed runtimes pause task claims while credential recovery needs work", () => {

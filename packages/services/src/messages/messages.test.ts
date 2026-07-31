@@ -1180,6 +1180,45 @@ test("replacePendingChannelMessageSync swaps pending messages without dropping a
   assert.match(history, /runtime-output\/chart\.png/);
 });
 
+test("replacePendingChannelMessageSync can stop one task without removing the next queued reply", () => {
+  seedWorkspace();
+  postMessageSync({
+    channel: "tour visit",
+    speaker: "Atlas",
+    role: "agent",
+    summary: "Thinking",
+    status: "pending",
+    data: { source_task_queue_id: "task-atlas-current" },
+  });
+  postMessageSync({
+    channel: "tour visit",
+    speaker: "Atlas",
+    role: "agent",
+    summary: "Thinking",
+    status: "pending",
+    data: { source_task_queue_id: "task-atlas-next" },
+  });
+
+  replacePendingChannelMessageSync({
+    channel: "tour visit",
+    pendingSpeaker: "Atlas",
+    pendingTaskId: "task-atlas-current",
+    speaker: "系统提示",
+    role: "agent",
+    summary: "Atlas 的执行已停止。",
+  });
+
+  const state = readWorkspaceStateSync();
+  assert.equal(
+    state.messages.some((message) => message.data?.source_task_queue_id === "task-atlas-current"),
+    false,
+  );
+  assert.equal(
+    state.messages.some((message) => message.data?.source_task_queue_id === "task-atlas-next" && message.status === "pending"),
+    true,
+  );
+});
+
 test("streaming task output only updates its own pending reply", () => {
   seedWorkspace();
   postMessageSync({

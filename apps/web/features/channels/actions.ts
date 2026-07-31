@@ -45,6 +45,8 @@ import {
   upsertChannelDocumentPresenceSync,
   updateChannelDocumentSync,
   reviewApprovalSync,
+  listApprovalsSync,
+  replacePendingChannelMessageSync,
   FEISHU_PROVIDER_ID,
   readFeishuChatMemberSnapshot,
   readFeishuIntegrationCredentials,
@@ -55,8 +57,10 @@ import {
   resolveChatModelOverrideAsync,
 } from "@dofe-agent/services";
 import {
+  cancelQueuedTaskSync,
   listExternalChannelBindingsSync,
   listExternalIntegrationsSync,
+  readQueuedTaskSync,
 } from "@dofe-agent/db";
 import { persistFormAttachments } from "@/features/chat/attachment-actions";
 import { parseModelCommand } from "@/features/chat/model-command";
@@ -254,6 +258,56 @@ export async function reviewInlineApprovalAction(
     ),
     buildInlineApprovalInvalidation(workspaceContext.currentWorkspace.id, approvalId.trim()),
   );
+}
+
+export async function stopChannelTaskAction(taskId: string): Promise<void> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertRequired(taskId, "task id");
+  const task = readQueuedTaskSync(taskId.trim());
+  if (!task || task.workspaceId !== workspaceContext.currentWorkspace.id) {
+    throw new Error("Task does not exist.");
+  }
+  if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
+    return;
+  }
+
+  const payload = parseQueuedTaskPayload(task.inputJson);
+  const channelName = readPayloadString(payload, "channelName") ?? readPayloadString(payload, "channel");
+  if (!channelName) {
+    throw new Error("Task is not attached to a conversation.");
+  }
+  assertChannelAccess(workspaceContext, channelName);
+  const canManageAllTasks = workspaceContext.currentMembership.role === "owner" || workspaceContext.currentMembership.role === "admin";
+  if (task.requestedByUserId && task.requestedByUserId !== workspaceContext.currentUser.id && !canManageAllTasks) {
+    throw new Error("Only the requester or a workspace administrator can stop this task.");
+  }
+
+  for (const approval of listApprovalsSync(task.workspaceId)) {
+    if (approval.status === "pending" && approval.sourceId === task.id) {
+      reviewApprovalSync(
+        approval.id,
+        "rejected",
+        "Task stopped by the user.",
+        task.workspaceId,
+      );
+    }
+  }
+
+  cancelQueuedTaskSync({
+    taskId: task.id,
+    errorText: `Stopped by ${workspaceContext.currentUser.displayName.trim() || "the user"}.`,
+  });
+  replacePendingChannelMessageSync({
+    channel: channelName,
+    pendingSpeaker: task.agentId,
+    pendingTaskId: task.id,
+    speaker: "系统提示",
+    role: "agent",
+    summary: `${task.agentId} 的执行已停止。`,
+    status: "completed",
+  }, task.workspaceId);
+
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals"]);
 }
 
 export async function addWorkspaceMembersToChannelAction(input: {
@@ -916,6 +970,22 @@ function getRequiredValue(formData: FormData, key: string): string {
     throw new Error(`Missing ${key}.`);
   }
   return value.trim();
+}
+
+function parseQueuedTaskPayload(inputJson: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(inputJson) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function readPayloadString(payload: Record<string, unknown>, key: string): string | undefined {
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function assertRequired(value: string | undefined, label: string): void {

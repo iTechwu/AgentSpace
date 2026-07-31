@@ -15,7 +15,10 @@ export interface ModelsInternalConfig {
   baseUrl: string;
   serviceName: string;
   secret: string;
+  timeoutMs: number;
 }
+
+const DEFAULT_MODELS_INTERNAL_API_TIMEOUT_MS = 15_000;
 
 let cachedClient: ModelsInternalDataClient | null = null;
 let cachedConfigKey: string | null = null;
@@ -28,6 +31,8 @@ export function resolveModelsInternalConfig(env: NodeJS.ProcessEnv = process.env
   // SSO_SERVICE_NAME identity by default; per-target overrides are optional.
   const serviceName = (env.MODELS_SERVICE_NAME ?? env.SSO_SERVICE_NAME ?? "").trim();
   const secret = (env.MODELS_INTERNAL_API_SECRET ?? env.INTERNAL_API_SECRET ?? "").trim();
+  const timeoutValue = env.MODELS_INTERNAL_API_TIMEOUT_MS?.trim();
+  const timeoutMs = timeoutValue ? Number(timeoutValue) : DEFAULT_MODELS_INTERNAL_API_TIMEOUT_MS;
   if (!serviceName || !secret) {
     throw new Error(
       "models.internal_config_missing: a service name " +
@@ -36,7 +41,10 @@ export function resolveModelsInternalConfig(env: NodeJS.ProcessEnv = process.env
         "validates with its INTERNAL_API_SECRET; the values must match.",
     );
   }
-  return { baseUrl, serviceName, secret };
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("models.internal_config_invalid: MODELS_INTERNAL_API_TIMEOUT_MS must be a positive number.");
+  }
+  return { baseUrl, serviceName, secret, timeoutMs };
 }
 
 export function buildModelsInternalAuthorization(config: ModelsInternalConfig): string {
@@ -52,7 +60,7 @@ export function buildModelsInternalAuthorization(config: ModelsInternalConfig): 
  */
 export function getModelsInternalClient(env: NodeJS.ProcessEnv = process.env): ModelsInternalDataClient {
   const config = resolveModelsInternalConfig(env);
-  const key = `${config.baseUrl}|${config.serviceName}|${config.secret}`;
+  const key = `${config.baseUrl}|${config.serviceName}|${config.secret}|${config.timeoutMs}`;
   if (cachedClient && key === cachedConfigKey) {
     return cachedClient;
   }
@@ -60,6 +68,7 @@ export function getModelsInternalClient(env: NodeJS.ProcessEnv = process.env): M
     baseUrl: config.baseUrl,
     serviceName: config.serviceName,
     getAuthorization: () => buildModelsInternalAuthorization(config),
+    timeoutMs: config.timeoutMs,
   });
   cachedConfigKey = key;
   return cachedClient;

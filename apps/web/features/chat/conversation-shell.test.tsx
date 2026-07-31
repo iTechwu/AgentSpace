@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConversationShell } from "@/features/chat/conversation-shell";
@@ -372,5 +372,94 @@ describe("ConversationShell", () => {
 
     await user.click(screen.getByRole("button", { name: /关闭面板|Close panel/i }));
     expect(onCloseSupplementaryPanel).toHaveBeenCalledTimes(1);
+  });
+
+  it("switches the composer between stop and queue actions while an agent is running", async () => {
+    const user = userEvent.setup();
+    const onStopActiveTask = vi.fn(async () => {});
+    const onSubmit = vi.fn(async () => {});
+
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          draftStorageKey="workspace-1:im:composer"
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          isAgentRunning
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onStopActiveTask={onStopActiveTask}
+          onSubmit={onSubmit}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "停止执行" }));
+    expect(onStopActiveTask).toHaveBeenCalledTimes(1);
+
+    await user.type(screen.getByRole("textbox"), "继续检查类型错误");
+    await user.click(screen.getByRole("button", { name: "加入消息队列" }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("region", { name: "消息队列" })).toHaveTextContent("继续检查类型错误");
+    expect(window.sessionStorage.getItem("workspace-1:im:composer:queue:direct-atlas")).toContain("继续检查类型错误");
+
+    await user.click(screen.getByRole("button", { name: /立即引导：继续检查类型错误/ }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({
+      content: "继续检查类型错误",
+      files: [],
+      replyToMessageId: undefined,
+    }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "消息队列" })).not.toBeInTheDocument());
+  });
+
+  it("automatically submits the first queued message when the active run finishes", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => {});
+    const commonProps = {
+      draftStorageKey: "workspace-1:im:composer",
+      emptyListBody: "empty",
+      emptyListTitle: "empty",
+      emptyThreadBody: "empty",
+      emptyThreadTitle: "empty",
+      items: [{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }],
+      listCount: 1,
+      listKicker: "Messages",
+      listTitle: "Messages",
+      messages: [],
+      onSelectItem: vi.fn(),
+      onSubmit,
+      placeholder: "Send a message",
+      selectedHeader: { title: "Atlas", subtitle: "Agent", avatar: "A" },
+      selectedItemId: "direct-atlas",
+    };
+    const { rerender } = render(
+      <LanguageProvider>
+        <ConversationShell {...commonProps} isAgentRunning />
+      </LanguageProvider>,
+    );
+
+    await user.type(screen.getByRole("textbox"), "下一步检查");
+    await user.click(screen.getByRole("button", { name: "加入消息队列" }));
+    rerender(
+      <LanguageProvider>
+        <ConversationShell {...commonProps} isAgentRunning={false} />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({
+      content: "下一步检查",
+      files: [],
+      replyToMessageId: undefined,
+    }));
   });
 });

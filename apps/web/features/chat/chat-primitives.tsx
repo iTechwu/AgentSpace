@@ -543,6 +543,13 @@ export function ChatComposer({
   onSubmit,
   replyToMessage,
   onCancelReply,
+  isAgentRunning = false,
+  queuedMessages = [],
+  onClearQueue,
+  onDeleteQueuedMessage,
+  onEditQueuedMessage,
+  onGuideQueuedMessage,
+  onStop,
 }: {
   draft: string;
   feedback: string | null;
@@ -565,11 +572,134 @@ export function ChatComposer({
   onSubmit: () => void;
   replyToMessage?: ConversationThreadMessage | null;
   onCancelReply?: () => void;
+  isAgentRunning?: boolean;
+  queuedMessages?: Array<{
+    id: string;
+    content: string;
+    createdAt: string;
+  }>;
+  onClearQueue?: () => void;
+  onDeleteQueuedMessage?: (id: string) => void;
+  onEditQueuedMessage?: (id: string, content: string) => void;
+  onGuideQueuedMessage?: (id: string) => void;
+  onStop?: () => void;
 }) {
   const { tx } = useLanguage();
+  const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
+  const [editingQueueValue, setEditingQueueValue] = useState("");
+  const hasDraft = draft.trim().length > 0 || files.length > 0;
+  const isStopAction = isAgentRunning && !hasDraft;
+
+  function beginQueueEdit(id: string, content: string): void {
+    setEditingQueueId(id);
+    setEditingQueueValue(content);
+  }
+
+  function commitQueueEdit(): void {
+    if (!editingQueueId || !editingQueueValue.trim()) {
+      return;
+    }
+    onEditQueuedMessage?.(editingQueueId, editingQueueValue.trim());
+    setEditingQueueId(null);
+    setEditingQueueValue("");
+  }
+
   return (
     <div className="inbox-composer">
       {feedback ? <FeedbackBanner feedback={{ tone: "error", message: feedback }} /> : null}
+      {queuedMessages.length > 0 ? (
+        <section aria-label={tx("消息队列", "Message queue")} className="conversation-message-queue">
+          <div className="conversation-message-queue__header">
+            <div>
+              <strong>{tx("消息队列", "Message queue")}</strong>
+              <span>{tx(`${queuedMessages.length} 条待处理`, `${queuedMessages.length} queued`)}</span>
+            </div>
+            {onClearQueue ? (
+              <button
+                aria-label={tx("关闭并清空消息队列", "Close and clear message queue")}
+                className="conversation-message-queue__clear"
+                onClick={onClearQueue}
+                title={tx("关闭排队", "Close queue")}
+                type="button"
+              >
+                <AppIcon name="close" />
+              </button>
+            ) : null}
+          </div>
+          <div className="conversation-message-queue__list">
+            {queuedMessages.map((message, index) => (
+              <article className="conversation-message-queue__item" key={message.id}>
+                <span aria-hidden="true" className="conversation-message-queue__handle">{index + 1}</span>
+                {editingQueueId === message.id ? (
+                  <div className="conversation-message-queue__editor">
+                    <textarea
+                      aria-label={tx("编辑排队消息", "Edit queued message")}
+                      autoFocus
+                      onChange={(event) => setEditingQueueValue(event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          setEditingQueueId(null);
+                          setEditingQueueValue("");
+                        }
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          commitQueueEdit();
+                        }
+                      }}
+                      rows={2}
+                      value={editingQueueValue}
+                    />
+                    <div className="conversation-message-queue__editor-actions">
+                      <button onClick={() => setEditingQueueId(null)} type="button">
+                        {tx("取消", "Cancel")}
+                      </button>
+                      <button disabled={!editingQueueValue.trim()} onClick={commitQueueEdit} type="button">
+                        {tx("保存", "Save")}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p>{message.content}</p>
+                )}
+                <div className="conversation-message-queue__actions">
+                  {onGuideQueuedMessage ? (
+                    <button
+                      aria-label={tx(`立即引导：${message.content}`, `Steer now: ${message.content}`)}
+                      className="conversation-message-queue__guide"
+                      disabled={isPending}
+                      onClick={() => onGuideQueuedMessage(message.id)}
+                      type="button"
+                    >
+                      <AppIcon name="send" />
+                      <span>{tx("引导", "Steer")}</span>
+                    </button>
+                  ) : null}
+                  {onEditQueuedMessage ? (
+                    <button
+                      aria-label={tx("编辑消息", "Edit message")}
+                      onClick={() => beginQueueEdit(message.id, message.content)}
+                      title={tx("编辑消息", "Edit message")}
+                      type="button"
+                    >
+                      <AppIcon name="edit" />
+                    </button>
+                  ) : null}
+                  {onDeleteQueuedMessage ? (
+                    <button
+                      aria-label={tx("删除排队消息", "Delete queued message")}
+                      onClick={() => onDeleteQueuedMessage(message.id)}
+                      title={tx("删除", "Delete")}
+                      type="button"
+                    >
+                      <AppIcon name="trash" />
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {replyToMessage ? (
         <div className="composer-reply-preview">
           <div className="composer-reply-preview__content">
@@ -745,13 +875,23 @@ export function ChatComposer({
           </div>
 
           <button
-            aria-label={tx("发送消息", "Send message")}
-            className="contacts-send-button"
-            disabled={isPending || (draft.trim().length === 0 && files.length === 0)}
-            onClick={onSubmit}
+            aria-label={
+              isStopAction
+                ? tx("停止执行", "Stop execution")
+                : isAgentRunning
+                  ? tx("加入消息队列", "Add to message queue")
+                  : tx("发送消息", "Send message")
+            }
+            className={`contacts-send-button${isStopAction ? " contacts-send-button--stop" : ""}`}
+            disabled={isPending || (isStopAction ? !onStop : !hasDraft)}
+            onClick={isStopAction ? onStop : onSubmit}
+            title={isStopAction ? tx("停止当前执行", "Stop current execution") : undefined}
             type="button"
           >
-            <AppIcon className={isPending ? "contacts-send-button__spinner" : undefined} name={isPending ? "loader" : "send"} />
+            <AppIcon
+              className={isPending ? "contacts-send-button__spinner" : undefined}
+              name={isPending ? "loader" : isStopAction ? "stop" : "send"}
+            />
           </button>
         </div>
     </div>

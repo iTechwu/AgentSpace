@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { preflightModelsBillingByScopeAsync } from "./client.ts";
+import {
+  getModelsInternalClient,
+  preflightModelsBillingByScopeAsync,
+  resetModelsInternalClientForTests,
+} from "./client.ts";
 
 test("tenant-first billing preflight uses the signed v2 internal route", async () => {
   const body = {
@@ -44,4 +48,33 @@ test("tenant-first billing preflight uses the signed v2 internal route", async (
   assert.match(new Headers(requestInit?.headers).get("authorization") ?? "", /^Bearer \d+:[a-f0-9]{64}:agents-dofe-ai$/);
   assert.deepEqual(JSON.parse(String(requestInit?.body)), body);
   assert.deepEqual(result, { allowed: true, availableBalance: "100.00", currency: "CNY" });
+});
+
+test("models internal client times out a stalled request", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => new Promise<Response>(() => undefined)) as typeof fetch;
+  resetModelsInternalClientForTests();
+
+  try {
+    const client = getModelsInternalClient({
+      MODELS_BASE_URL: "http://models.test/api/",
+      MODELS_SERVICE_NAME: "agents-dofe-ai",
+      MODELS_INTERNAL_API_SECRET: "test-secret",
+      MODELS_INTERNAL_API_TIMEOUT_MS: "10",
+    });
+    const testDeadline = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("test wait exceeded")), 100);
+    });
+
+    await assert.rejects(
+      Promise.race([
+        client.models.list({ query: { tenantId: "tenant-1" } }),
+        testDeadline,
+      ]),
+      /Models internal request timed out after 10ms/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    resetModelsInternalClientForTests();
+  }
 });

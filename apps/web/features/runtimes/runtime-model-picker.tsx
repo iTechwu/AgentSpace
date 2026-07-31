@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   listProtocolFilteredRuntimeModelsAction,
@@ -262,23 +262,32 @@ export interface RuntimeModelPickerProps {
 
 export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPickerProps) {
   const { tx } = useLanguage();
-  const [pending, startTransition] = useTransition();
+  const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<RuntimeModelCatalogItem[]>([]);
   const [configured, setConfigured] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let active = true;
     setError(null);
-    startTransition(async () => {
-      try {
-        const result = await listProtocolFilteredRuntimeModelsAction(provider);
+    setLoading(true);
+    void listProtocolFilteredRuntimeModelsAction(provider)
+      .then((result) => {
+        if (!active) return;
         setConfigured(result.configured);
         setItems(result.list);
-      } catch {
+      })
+      .catch(() => {
+        if (!active) return;
         setError(tx("无法加载模型目录。", "Model catalog could not be loaded."));
         setItems([]);
-      }
-    });
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [provider, tx]);
 
   const selected = items.find((item) => item.alias === value || item.model === value);
@@ -307,7 +316,7 @@ export function RuntimeModelPicker({ provider, value, onChange }: RuntimeModelPi
           disabled={!configured}
           label={tx("默认模型", "Default model")}
           labels={labels}
-          loading={pending}
+          loading={loading}
           onChange={onChange}
           options={llmItems}
           value={value}

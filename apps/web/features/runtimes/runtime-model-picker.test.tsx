@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { render as testingRender, screen } from "@testing-library/react";
+import { act, render as testingRender, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import { RuntimeModelPicker } from "@/features/runtimes/runtime-model-picker";
@@ -78,4 +78,50 @@ it("localizes known model availability reasons in Chinese", async () => {
 
   await userEvent.click(await screen.findByRole("button", { name: "默认模型" }));
   expect(await screen.findByRole("option", { name: /不支持执行引擎协议（anthropic）/ })).toBeDisabled();
+});
+
+it("finishes loading when the latest request resolves after the provider changes", async () => {
+  window.localStorage.clear();
+  const resolveRequests: Array<(value: Awaited<ReturnType<typeof listProtocolFilteredRuntimeModelsAction>>) => void> = [];
+  vi.mocked(listProtocolFilteredRuntimeModelsAction).mockClear();
+  vi.mocked(listProtocolFilteredRuntimeModelsAction).mockImplementation(
+    () => new Promise((resolve) => resolveRequests.push(resolve)),
+  );
+
+  const view = testingRender(
+    <LanguageProvider initialLanguage="en">
+      <RuntimeModelPicker provider="codex" value="openai_response" onChange={vi.fn()} />
+    </LanguageProvider>,
+  );
+
+  await waitFor(() => {
+    expect(listProtocolFilteredRuntimeModelsAction).toHaveBeenCalledTimes(1);
+  });
+  view.rerender(
+    <LanguageProvider initialLanguage="en">
+      <RuntimeModelPicker provider="claude" value="openai_response" onChange={vi.fn()} />
+    </LanguageProvider>,
+  );
+  await waitFor(() => {
+    expect(listProtocolFilteredRuntimeModelsAction).toHaveBeenCalledTimes(2);
+  });
+  await act(async () => {
+    resolveRequests[resolveRequests.length - 1]?.({
+      configured: true,
+      list: [
+        {
+          alias: "openai_response",
+          model: "openai_response",
+          modelType: "llm",
+          protocol: "openai",
+          isAvailable: true,
+        },
+      ],
+    });
+  });
+
+  expect((await screen.findAllByText("openai")).length).toBeGreaterThan(0);
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "Default model" })).toBeEnabled();
+  });
 });

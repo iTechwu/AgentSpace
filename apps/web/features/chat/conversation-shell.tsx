@@ -60,6 +60,13 @@ type PendingFile = {
   label: string;
 };
 
+interface QueuedConversationMessage {
+  id: string;
+  content: string;
+  replyToMessageId?: string;
+  createdAt: string;
+}
+
 export function ConversationShell({
   listKicker,
   listTitle,
@@ -92,6 +99,8 @@ export function ConversationShell({
   draftStorageKey,
   scrollAnchorStorageKey,
   onDataChanged,
+  isAgentRunning = false,
+  onStopActiveTask,
 }: {
   listKicker: string;
   listTitle: string;
@@ -133,6 +142,8 @@ export function ConversationShell({
   draftStorageKey?: string;
   scrollAnchorStorageKey?: string;
   onDataChanged?: () => void;
+  isAgentRunning?: boolean;
+  onStopActiveTask?: () => Promise<void>;
 }) {
   const { tx } = useLanguage();
   const router = useRouter();
@@ -143,6 +154,7 @@ export function ConversationShell({
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [replyToMessage, setReplyToMessage] = useState<ConversationThreadMessage | null>(null);
+  const [queuedMessages, setQueuedMessages] = useState<QueuedConversationMessage[]>([]);
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [mobilePane, setMobilePane] = useState<"list" | "thread">("list");
   const listPaneResize = useResizablePane({
@@ -162,7 +174,12 @@ export function ConversationShell({
   const threadViewportVisibleRef = useRef(false);
   const scrollAnchorsRef = useRef<Record<string, ConversationScrollAnchor>>({});
   const initialDraftHydratedRef = useRef(false);
+  const hydratedQueueKeyRef = useRef<string | null>(null);
+  const previousAgentRunningRef = useRef(isAgentRunning);
   const hasCustomThreadContent = customThreadContent !== undefined && customThreadContent !== null;
+  const queueStorageKey = draftStorageKey && selectedItemId
+    ? `${draftStorageKey}:queue:${selectedItemId}`
+    : undefined;
 
   useEffect(() => {
     if (!draftStorageKey || initialDraftHydratedRef.current || typeof window === "undefined") {
@@ -204,6 +221,67 @@ export function ConversationShell({
       }),
     );
   }, [draft, draftCaretIndex, draftStorageKey, pendingFiles.length, replyToMessage]);
+
+  useEffect(() => {
+    if (!queueStorageKey || typeof window === "undefined") {
+      hydratedQueueKeyRef.current = null;
+      setQueuedMessages([]);
+      return;
+    }
+    hydratedQueueKeyRef.current = queueStorageKey;
+    const raw = window.sessionStorage.getItem(queueStorageKey);
+    if (!raw) {
+      setQueuedMessages([]);
+      return;
+    }
+    try {
+      const saved = JSON.parse(raw) as unknown;
+      if (!Array.isArray(saved)) {
+        throw new Error("Invalid queue");
+      }
+      setQueuedMessages(saved.flatMap((item) => {
+        if (!item || typeof item !== "object") {
+          return [];
+        }
+        const value = item as Record<string, unknown>;
+        if (typeof value.id !== "string" || typeof value.content !== "string" || !value.content.trim()) {
+          return [];
+        }
+        return [{
+          id: value.id,
+          content: value.content,
+          replyToMessageId: typeof value.replyToMessageId === "string" ? value.replyToMessageId : undefined,
+          createdAt: typeof value.createdAt === "string" ? value.createdAt : new Date().toISOString(),
+        } satisfies QueuedConversationMessage];
+      }));
+    } catch {
+      window.sessionStorage.removeItem(queueStorageKey);
+      setQueuedMessages([]);
+    }
+  }, [queueStorageKey]);
+
+  useEffect(() => {
+    if (
+      !queueStorageKey ||
+      hydratedQueueKeyRef.current !== queueStorageKey ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+    if (queuedMessages.length === 0) {
+      window.sessionStorage.removeItem(queueStorageKey);
+      return;
+    }
+    window.sessionStorage.setItem(queueStorageKey, JSON.stringify(queuedMessages));
+  }, [queueStorageKey, queuedMessages]);
+
+  useEffect(() => {
+    const wasRunning = previousAgentRunningRef.current;
+    previousAgentRunningRef.current = isAgentRunning;
+    if (wasRunning && !isAgentRunning && queuedMessages.length > 0 && !isPending) {
+      dispatchQueuedMessage(queuedMessages[0]!.id);
+    }
+  }, [isAgentRunning, isPending, queuedMessages]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -397,11 +475,29 @@ export function ConversationShell({
       return;
     }
 
+    const content = draft.trim().length > 0 ? draft : tx("请查看我发送的附件。", "Please review the attachment I sent.");
+    if (isAgentRunning && pendingFiles.length === 0) {
+      setQueuedMessages((current) => [
+        ...current,
+        {
+          id: `queued-message-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          content,
+          replyToMessageId: replyToMessage?.id,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      setDraft("");
+      setDraftCaretIndex(0);
+      setReplyToMessage(null);
+      setFeedback(null);
+      return;
+    }
+
     setFeedback(null);
     startTransition(async () => {
       try {
         await onSubmit({
-          content: draft.trim().length > 0 ? draft : tx("请查看我发送的附件。", "Please review the attachment I sent."),
+          content,
           files: pendingFiles.map((item) => item.file),
           replyToMessageId: replyToMessage?.id,
         });
@@ -418,6 +514,51 @@ export function ConversationShell({
         }
       } catch (error) {
         setFeedback(error instanceof Error ? error.message : tx("发送失败，请稍后重试。", "Send failed. Please try again."));
+      }
+    });
+  }
+
+  function dispatchQueuedMessage(messageId: string): void {
+    const queued = queuedMessages.find((message) => message.id === messageId);
+    if (!queued || isPending) {
+      return;
+    }
+    setFeedback(null);
+    startTransition(async () => {
+      try {
+        await onSubmit({
+          content: queued.content,
+          files: [],
+          replyToMessageId: queued.replyToMessageId,
+        });
+        setQueuedMessages((current) => current.filter((message) => message.id !== messageId));
+        shouldStickToBottomRef.current = true;
+        if (onDataChanged) {
+          onDataChanged();
+        } else {
+          router.refresh();
+        }
+      } catch (error) {
+        setFeedback(error instanceof Error ? error.message : tx("排队消息发送失败，请重试。", "Queued message failed to send. Please try again."));
+      }
+    });
+  }
+
+  function stopActiveTask(): void {
+    if (!onStopActiveTask || isPending) {
+      return;
+    }
+    setFeedback(null);
+    startTransition(async () => {
+      try {
+        await onStopActiveTask();
+        if (onDataChanged) {
+          onDataChanged();
+        } else {
+          router.refresh();
+        }
+      } catch (error) {
+        setFeedback(error instanceof Error ? error.message : tx("停止执行失败，请重试。", "Failed to stop execution. Please try again."));
       }
     });
   }
@@ -653,6 +794,7 @@ export function ConversationShell({
                     files={pendingFiles.map((item) => ({ id: item.id, label: item.label }))}
                     folderInputRef={folderInputRef}
                     isPending={isPending}
+                    isAgentRunning={isAgentRunning}
                     mediaInputRef={mediaInputRef}
                     mentionSuggestions={mentionSuggestions}
                     onDraftChange={handleDraftChange}
@@ -661,6 +803,14 @@ export function ConversationShell({
                     onRemoveFile={(id) => setPendingFiles((current) => current.filter((entry) => entry.id !== id))}
                     onSelectMention={handleSelectMention}
                     onSubmit={submitMessage}
+                    onStop={onStopActiveTask ? stopActiveTask : undefined}
+                    queuedMessages={queuedMessages}
+                    onClearQueue={() => setQueuedMessages([])}
+                    onDeleteQueuedMessage={(id) => setQueuedMessages((current) => current.filter((message) => message.id !== id))}
+                    onEditQueuedMessage={(id, content) => setQueuedMessages((current) => current.map((message) => (
+                      message.id === id ? { ...message, content } : message
+                    )))}
+                    onGuideQueuedMessage={dispatchQueuedMessage}
                     onTogglePicker={() => setShowPicker((value) => !value)}
                     pickerRef={pickerRef}
                     placeholder={placeholder}

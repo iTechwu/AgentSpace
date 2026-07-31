@@ -29,6 +29,7 @@ import {
   saveChannelDocumentAction,
   sendContactMessageAction,
   sendChannelMessageAction,
+  stopChannelTaskAction,
   acknowledgeMessageAction,
 } from "@/features/channels/actions";
 import { CreateChannelModal } from "@/features/channels/create-channel-modal";
@@ -1000,6 +1001,12 @@ export function ChannelsPageClient({
     () => (selectedThread?.messages ?? []).some((message) => message.status === "pending"),
     [selectedThread],
   );
+  const activeConversationTaskId = useMemo(
+    () => (selectedThread?.messages ?? []).find(
+      (message) => message.status === "pending" && Boolean(message.data?.source_task_queue_id),
+    )?.data?.source_task_queue_id,
+    [selectedThread],
+  );
   const shouldPollChannelUpdates = useMemo(() => {
     if (isContactDirectoryContext || !selectedChannel || !selectedConversationChannelName) {
       return false;
@@ -1810,6 +1817,11 @@ export function ChannelsPageClient({
       ) : null}
 
       <ConversationShell
+        isAgentRunning={Boolean(activeConversationTaskId)}
+        onStopActiveTask={activeConversationTaskId ? async () => {
+          await stopChannelTaskAction(activeConversationTaskId);
+          refreshChannelModule(selectedConversationChannelName);
+        } : undefined}
         emptyListBody={
           isContactDirectoryContext
             ? tx("创建数字员工后，可在这里查看资料并发起私聊。", "Create a digital employee to view its profile and start a direct message here.")
