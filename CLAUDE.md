@@ -7,9 +7,22 @@ For pnpm, Turbo, and Jest monorepos, the root `test` script must use `turbo run 
 - For a single API Jest file, use `pnpm --filter @repo/api exec jest path/to/file.spec.ts --runInBand`.
 - A full test run must pass `--maxWorkers=2`, for example `pnpm test -- --maxWorkers=2`.
 
+## Local Jenkins Prohibition
+
+On this workstation, Jenkins is not a deployment path for `models.dofe.ai` or `AgentSpace`.
+
+- Never start a local Jenkins server or Jenkins container for either project.
+- Never trigger a local or remote Jenkins job for either project from this workstation.
+- Do not attempt to satisfy test-environment deployment requirements by installing, starting, or configuring Jenkins locally.
+- Local work stops after implementation, validation, and any explicitly requested commit/push. Report deployment as not performed unless the user supplies a separate, non-Jenkins deployment workflow.
+
+This section takes precedence over the test-environment deployment workflow below when operating on this workstation.
+
 ## Test Environment Deployment
 
-For every test-environment defect fix in this repository, use this order:
+The following workflow applies only when operating in the designated CI/test environment. It does not authorize Jenkins use from this workstation.
+
+For every test-environment defect fix deployed from that designated environment, use this order:
 
 1. Make and validate the change locally in `../agentspace.dofe.ai`.
 2. Commit the validated change and push it to the intended branch.
