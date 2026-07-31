@@ -13434,6 +13434,11 @@ textarea:focus {
   flex-direction: column;
 }
 
+.workspace-module-stage__content[hidden],
+.workspace-module-stage__preserved[hidden] {
+  display: none;
+}
+
 .workspace-module-stage {
   position: relative;
   overflow: hidden;

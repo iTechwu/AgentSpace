@@ -181,20 +181,16 @@ function parseExecutionPolicy(value: unknown): ActiveEmployee["executionPolicy"]
   if (typeof value !== "string") return undefined;
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
-    const policy = {
-      claudePermissionMode:
-        parsed.claudePermissionMode === "manual" || parsed.claudePermissionMode === "acceptEdits" || parsed.claudePermissionMode === "plan" || parsed.claudePermissionMode === "auto"
-          ? parsed.claudePermissionMode
-          : undefined,
-      codexApprovalPolicy:
-        parsed.codexApprovalPolicy === "untrusted" || parsed.codexApprovalPolicy === "on-request" || parsed.codexApprovalPolicy === "never"
-          ? parsed.codexApprovalPolicy
-          : undefined,
-      codexSandboxMode:
-        parsed.codexSandboxMode === "workspace-write" || parsed.codexSandboxMode === "danger-full-access"
-          ? parsed.codexSandboxMode
-          : undefined,
-    };
+    const policy: NonNullable<ActiveEmployee["executionPolicy"]> = {};
+    if (parsed.claudePermissionMode === "manual" || parsed.claudePermissionMode === "acceptEdits" || parsed.claudePermissionMode === "plan" || parsed.claudePermissionMode === "auto") {
+      policy.claudePermissionMode = parsed.claudePermissionMode;
+    }
+    if (parsed.codexApprovalPolicy === "untrusted" || parsed.codexApprovalPolicy === "on-request" || parsed.codexApprovalPolicy === "never") {
+      policy.codexApprovalPolicy = parsed.codexApprovalPolicy;
+    }
+    if (parsed.codexSandboxMode === "workspace-write" || parsed.codexSandboxMode === "danger-full-access") {
+      policy.codexSandboxMode = parsed.codexSandboxMode;
+    }
     return Object.values(policy).some(Boolean) ? policy : undefined;
   } catch {
     return undefined;

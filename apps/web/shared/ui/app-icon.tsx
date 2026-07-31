@@ -39,6 +39,7 @@ export type AppIconName =
   | "send"
   | "settings"
   | "skills"
+  | "stop"
   | "tables"
   | "taskBoard"
   | "templates"
@@ -203,6 +204,8 @@ function renderIcon(name: AppIconName) {
           strokeWidth="1.6"
         />
       );
+    case "stop":
+      return <rect x="5" y="5" width="8" height="8" rx="1.5" fill="currentColor" />;
     case "loader":
       return (
         <>

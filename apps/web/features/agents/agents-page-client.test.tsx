@@ -1769,6 +1769,46 @@ describe("AgentsPageClient", () => {
 });
 
 describe("AgentDetail", () => {
+  it("saves the selected Codex execution permission policy", async () => {
+    const user = userEvent.setup();
+    const onSaveExecutionPolicy = vi.fn();
+    const record = {
+      ...data.agents[0]!,
+      boundProvider: "codex",
+      executionPolicy: undefined,
+    };
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <AgentDetail
+          containerOptions={data.containerOptions}
+          pending={false}
+          record={record}
+          workspaceSkills={[]}
+          onBindContainer={vi.fn()}
+          onDeleteAgent={vi.fn()}
+          onInstallSkill={vi.fn()}
+          onSaveExecutionPolicy={onSaveExecutionPolicy}
+          onSaveInstructions={vi.fn()}
+          onSetSkillIds={vi.fn()}
+          onUnbindContainer={vi.fn()}
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    const accessLevel = screen.getByRole("combobox", { name: "Codex 访问级别" });
+    expect(accessLevel).toHaveValue("inherit");
+    await user.selectOptions(accessLevel, "full-access");
+    expect(screen.getByText(/完全访问会跳过 Codex 的审批与沙箱限制/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存执行权限" }));
+
+    expect(onSaveExecutionPolicy).toHaveBeenCalledWith({
+      codexApprovalPolicy: "never",
+      codexSandboxMode: "danger-full-access",
+    });
+  });
+
   it("shows installed skill readiness and opens maintenance without revealing secrets", async () => {
     const user = userEvent.setup();
     const onInstallSkill = vi.fn();

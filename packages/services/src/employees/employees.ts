@@ -297,11 +297,16 @@ export function updateEmployeeExecutionPolicySync(
 
 function normalizeExecutionPolicy(value: EmployeeExecutionPolicy | undefined): EmployeeExecutionPolicy | undefined {
   if (!value) return undefined;
-  const policy: EmployeeExecutionPolicy = {
-    claudePermissionMode: value.claudePermissionMode,
-    codexApprovalPolicy: value.codexApprovalPolicy,
-    codexSandboxMode: value.codexSandboxMode,
-  };
+  const policy: EmployeeExecutionPolicy = {};
+  if (value.claudePermissionMode === "manual" || value.claudePermissionMode === "acceptEdits" || value.claudePermissionMode === "plan" || value.claudePermissionMode === "auto") {
+    policy.claudePermissionMode = value.claudePermissionMode;
+  }
+  if (value.codexApprovalPolicy === "untrusted" || value.codexApprovalPolicy === "on-request" || value.codexApprovalPolicy === "never") {
+    policy.codexApprovalPolicy = value.codexApprovalPolicy;
+  }
+  if (value.codexSandboxMode === "workspace-write" || value.codexSandboxMode === "danger-full-access") {
+    policy.codexSandboxMode = value.codexSandboxMode;
+  }
   return Object.values(policy).some(Boolean) ? policy : undefined;
 }
 

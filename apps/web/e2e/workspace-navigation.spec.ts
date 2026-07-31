@@ -181,6 +181,17 @@ test("keeps the final active module after rapid desktop switching", async ({ pag
   await expect(page.getByRole("link", { name: /员工管理|Agent Management/i })).toHaveClass(/workspace-sidebar__section-link--active/);
 });
 
+test("removes the message page from layout after navigating to employee management", async ({ page }) => {
+  const session = await openSeededWorkspacePage(page, "/im");
+
+  await expect(page.getByRole("heading", { name: session.channelName })).toBeVisible();
+  await page.getByRole("link", { name: /员工管理|Agent Management/i }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/agents\\?mode=agent$`));
+  await expect(page.getByRole("heading", { name: /全部 AI员工|All AI employees/i })).toBeVisible();
+  await expect(page.locator(".workspace-module-stage__preserved[hidden]")).toBeHidden();
+});
+
 test("keeps workspace chrome mounted during client module switches", async ({ page }) => {
   const session = await openSeededWorkspacePage(page, "/im");
   await page.locator("[data-testid='workspace-layout']").evaluate((element) => {
