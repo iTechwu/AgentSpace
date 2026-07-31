@@ -179,7 +179,7 @@ test("collectSkillReadinessBlockers flags a missing runtime capability when a ca
   assert.deepEqual(collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined), []);
   // Catalog supplied but missing the capability → blocker.
   const blocked = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined, ["git", "gh"]);
-  assert.ok(blocked.some((b) => b.includes("ffmpeg") && b.includes("not available")));
+  assert.ok(blocked.some((b) => b.includes("ffmpeg") && b.includes("does not support capability")));
   // Catalog includes it → no blocker.
   assert.deepEqual(collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined, ["ffmpeg"]), []);
 });

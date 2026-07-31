@@ -17705,7 +17705,7 @@ textarea:focus {
   pointer-events: none;
 }
 
-.chat-model-command-dialog {
+.modal-card.chat-model-command-dialog {
   width: min(560px, 100%);
   border-radius: 8px;
 }

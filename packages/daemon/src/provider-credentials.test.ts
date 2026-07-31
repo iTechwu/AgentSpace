@@ -268,6 +268,8 @@ test("managed runtime attribution follows the models HMAC contract", () => {
     timestampSeconds: 1_800_000_000,
   });
   assert.deepEqual(headers, {
+    "x-dofe-runtime-credential-id": "credential-1",
+    "x-dofe-runtime-id": "runtime-1",
     "x-dofe-employee-id": "employee-1",
     "x-dofe-conversation-id": "conversation-1",
     "x-dofe-attribution-timestamp": "1800000000",

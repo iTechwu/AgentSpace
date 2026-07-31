@@ -155,6 +155,8 @@ export function buildManagedRuntimeAttributionHeaders(input: {
   const timestamp = String(input.timestampSeconds);
   const content = [input.runtimeCredentialId, input.runtimeId, employeeId, conversationId, timestamp].join("\n");
   return {
+    "x-dofe-runtime-credential-id": input.runtimeCredentialId,
+    "x-dofe-runtime-id": input.runtimeId,
     "x-dofe-employee-id": employeeId,
     "x-dofe-conversation-id": conversationId,
     "x-dofe-attribution-timestamp": timestamp,
@@ -390,6 +392,8 @@ const server = http.createServer((request, response) => {
   if (credentialId && runtimeId && idPattern.test(employeeId) && idPattern.test(conversationId)) {
     const timestamp = String(Math.floor(Date.now() / 1000));
     const content = [credentialId, runtimeId, employeeId, conversationId, timestamp].join("\\n");
+    headers["x-dofe-runtime-credential-id"] = credentialId;
+    headers["x-dofe-runtime-id"] = runtimeId;
     headers["x-dofe-employee-id"] = employeeId;
     headers["x-dofe-conversation-id"] = conversationId;
     headers["x-dofe-attribution-timestamp"] = timestamp;
