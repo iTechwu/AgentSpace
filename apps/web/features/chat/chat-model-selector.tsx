@@ -10,6 +10,7 @@ import {
   listProtocolFilteredRuntimeModelsAction,
   type RuntimeModelCatalogItem,
 } from "@/features/runtimes/actions";
+import { AppIcon } from "@/shared/ui/app-icon";
 import type { DaemonProvider } from "@dofe-agent/domain";
 
 export interface ChatModelSelectorProps {
@@ -102,31 +103,47 @@ export function ChatModelSelector({
 
   if (!info || loading) {
     return (
-      <span className="chat-model-selector chat-model-selector--loading">
-        {tx("加载模型…", "Loading model…")}
-      </span>
+      <div className="chat-model-selector chat-model-selector--loading">
+        <span className="chat-model-selector__trigger">
+          <span className="chat-model-selector__label">{tx("模型", "Model")}</span>
+          <span className="chat-model-selector__value">{tx("加载中…", "Loading…")}</span>
+        </span>
+      </div>
     );
   }
 
+  const provider = info.provider;
+  const canPick = canManage && provider != null;
+
   return (
-    <div className="chat-model-selector" title={sourceLabel(activeModel?.source, tx)}>
-      <span className="chat-model-selector__label">{tx("模型", "Model")}</span>
-      {activeModel ? (
-        <span className="chat-model-selector__value">
-          {activeModel.modelId}
-          <span className="chat-model-selector__source">
+    <div
+      className={`chat-model-selector${canPick ? " chat-model-selector--interactive" : ""}`}
+      title={sourceLabel(activeModel?.source, tx)}
+    >
+      <div className="chat-model-selector__trigger">
+        <span className="chat-model-selector__label">{tx("模型", "Model")}</span>
+        {activeModel ? (
+          <span className="chat-model-selector__value" title={activeModel.modelId}>
+            {activeModel.modelId}
+          </span>
+        ) : (
+          <span className="chat-model-selector__value chat-model-selector__value--empty">
+            {tx("未配置", "Not set")}
+          </span>
+        )}
+        {activeModel ? (
+          <span
+            className={`chat-model-selector__source chat-model-selector__source--${activeModel.source}`}
+          >
             {sourceLabel(activeModel.source, tx)}
           </span>
-        </span>
-      ) : (
-        <span className="chat-model-selector__value chat-model-selector__value--empty">
-          {tx("未配置", "Not set")}
-        </span>
-      )}
-      {canManage && info.provider ? (
+        ) : null}
+        {canPick ? <AppIcon className="chat-model-selector__chevron" name="chevronDown" /> : null}
+      </div>
+      {canPick ? (
         <CompactModelPicker
           pending={pending}
-          provider={info.provider}
+          provider={provider}
           value={sessionValue}
           onChange={handleChange}
         />
