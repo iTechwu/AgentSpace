@@ -23,6 +23,7 @@ import {
   setWorkspaceAgentSkillAssignmentsAction,
   installWorkspaceAgentSkillAction,
   removeWorkspaceAgentSkillKeyAction,
+  rotateWorkspaceAgentSkillSecretAction,
   unbindWorkspaceAgentRuntimeAction,
   updateWorkspaceAgentDefaultModelAction,
   updateWorkspaceAgentExecutionPolicyAction,
@@ -926,6 +927,16 @@ export function AgentsPageClient({
                         employeeName: selectedAgent.internalName,
                         skillId,
                         key,
+                      }),
+                    )
+                  }
+                  onRotateSecret={(skillId, key, value) =>
+                    runAction(
+                      () => rotateWorkspaceAgentSkillSecretAction({
+                        employeeName: selectedAgent.internalName,
+                        skillId,
+                        key,
+                        value,
                       }),
                     )
                   }

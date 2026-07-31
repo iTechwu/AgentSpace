@@ -18,7 +18,7 @@ vi.mock("@/features/costs/actions", () => ({
   upsertBudgetAction: vi.fn(async () => {}),
   toggleBudgetAction: vi.fn(async () => {}),
   deleteBudgetAction: vi.fn(async () => {}),
-  getTeamBillingBalanceAction: vi.fn(async () => ({ balance: "100.00", reservedBalance: "10.00", availableBalance: "90.00", currency: "USD", status: "active" })),
+  getTeamBillingBalanceAction: vi.fn(async () => ({ balance: "100.00", reservedBalance: "10.00", availableBalance: "90.00", currency: "CNY", status: "active" })),
 }));
 
 function mockMatchMedia(matches: boolean): void {
@@ -64,7 +64,7 @@ const costs: CostPageData = {
   totalActualCostUsd: 0,
   billingByCurrency: [
     {
-      currency: "EUR",
+      currency: "CNY",
       estimatedCost: 0.1234,
       pendingReconciliationCost: 0.02,
       reconciledCost: 0,
@@ -84,7 +84,7 @@ const costs: CostPageData = {
       costUsd: 0.01,
       billingStatus: "pending_reconciliation",
       actualCostUsd: 0.02,
-      currency: "EUR",
+      currency: "CNY",
       sourceUpdatedAt: "2026-04-10T08:05:00.000Z",
       createdAt: "2026-04-10T08:00:00.000Z",
     },
@@ -103,7 +103,7 @@ describe("CostsPageClient", () => {
     routerRefresh.mockClear();
     vi.mocked(upsertBudgetAction).mockClear();
     vi.mocked(getTeamBillingBalanceAction).mockClear();
-    vi.mocked(getTeamBillingBalanceAction).mockResolvedValue({ balance: "100.00", reservedBalance: "10.00", availableBalance: "90.00", currency: "USD", status: "active" });
+    vi.mocked(getTeamBillingBalanceAction).mockResolvedValue({ balance: "100.00", reservedBalance: "10.00", availableBalance: "90.00", currency: "CNY", status: "active" });
   });
 
   it("renders cost overview as cards instead of a table on compact layouts", async () => {
@@ -118,23 +118,23 @@ describe("CostsPageClient", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByText("Atlas")).toBeInTheDocument();
     expect(screen.getAllByText("gpt-5")).toHaveLength(2);
-    expect(screen.getByText("0.1234 EUR")).toBeInTheDocument();
-    await screen.findByText("100.00 USD");
+    expect(screen.getByText("¥0.1234")).toBeInTheDocument();
+    await screen.findByText("100.00 CNY");
   });
 
   it("shows the actual team billing balance returned by models", async () => {
     render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
-    expect(await screen.findByText("100.00 USD")).toBeInTheDocument();
-    expect(screen.getByText("可用: 90.00 USD")).toBeInTheDocument();
+    expect(await screen.findByText("100.00 CNY")).toBeInTheDocument();
+    expect(screen.getByText("可用: 90.00 CNY")).toBeInTheDocument();
   });
 
-  it("shows pending usage with its billing currency and update state", async () => {
+  it("shows pending usage in the settlement currency and update state", async () => {
     render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
 
-    await screen.findByText("100.00 USD");
+    await screen.findByText("100.00 CNY");
     expect(screen.getAllByText("等待账单").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("0.0200 EUR").length).toBeGreaterThan(0);
-    expect(screen.queryByText(/¥0\.0100/)).not.toBeInTheDocument();
+    expect(screen.getAllByText("¥0.0200").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/EUR|USD/)).not.toBeInTheDocument();
     expect(screen.getByText(/更新时间/)).toBeInTheDocument();
   });
 
@@ -150,7 +150,7 @@ describe("CostsPageClient", () => {
 
     render(<LanguageProvider><CostsPageClient budgets={budgets} costs={unattributedCosts} /></LanguageProvider>);
 
-    await screen.findByText("100.00 USD");
+    await screen.findByText("100.00 CNY");
     expect(screen.getByText("未归属用量")).toBeInTheDocument();
     expect(screen.queryByText(/^unknown$/i)).not.toBeInTheDocument();
   });

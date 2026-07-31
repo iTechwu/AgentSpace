@@ -133,7 +133,15 @@ function ensureChatRouterSessionIdSync(
     )
     : readLatestChannelExecutionSync(agentName, input.channelName!, workspaceId);
 
-  let routerSessionId = existingExecutionWorkspace?.sessionId ?? lastExecution?.routerSessionId;
+  const routerSessionCandidates = [
+    lastExecution?.routerSessionId,
+    // Compatibility only: execution-workspace sessionId normally identifies
+    // the provider session, so never trust it without a router-table lookup.
+    existingExecutionWorkspace?.sessionId,
+  ];
+  let routerSessionId = routerSessionCandidates.find(
+    (candidate): candidate is string => Boolean(candidate && readAgentRouterSessionSync(candidate)),
+  );
 
   if (!routerSessionId) {
     const session = upsertAgentRouterSessionSync({

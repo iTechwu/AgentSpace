@@ -113,3 +113,47 @@ test("requirement context excludes secrets and reports Credential Center blocker
     "OPENAI_API_KEY must be configured in Credential Center.",
   ]);
 });
+
+test("getSkillRequirementBlockers flags a missing runtime capability when a capability catalog is supplied", () => {
+  const requirements = parseSkillRequirementDeclarations(skillMarkdown);
+  const configJson = serializeSkillRequirementConfiguration({
+    configJson: JSON.stringify({ requirements }),
+    configuration: normalizeSkillRequirementConfiguration({
+      requirements,
+      modelProvider: "codex",
+      modelId: "gpt-5",
+      capabilities: ["tool_use"],
+      projectWorkDir: "/workspace/repository",
+      values: { API_BASE_URL: "https://api.example.test" },
+    }),
+  });
+  assert.deepEqual(getSkillRequirementBlockers({ configJson, runtimeProvider: "codex", runtimeCapabilities: ["tool_use"] }), [
+    "OPENAI_API_KEY must be configured in Credential Center.",
+  ]);
+  assert.deepEqual(
+    getSkillRequirementBlockers({ configJson, runtimeProvider: "codex", runtimeCapabilities: ["image_generation"] }),
+    [
+      "Runtime does not support capability tool_use.",
+      "OPENAI_API_KEY must be configured in Credential Center.",
+    ],
+  );
+});
+
+test("getSkillRequirementBlockers matches a declared app name against a clihub capability id", () => {
+  const declarations = parseSkillRequirementDeclarations(`---
+requires:
+  - capability:ffmpeg
+---`);
+  const configJson = serializeSkillRequirementConfiguration({
+    configJson: JSON.stringify({ requirements: declarations }),
+    configuration: normalizeSkillRequirementConfiguration({
+      requirements: declarations,
+      capabilities: ["ffmpeg"],
+    }),
+  });
+  assert.deepEqual(getSkillRequirementBlockers({ configJson, runtimeCapabilities: ["clihub:homebrew:ffmpeg"] }), []);
+  assert.deepEqual(getSkillRequirementBlockers({ configJson, runtimeCapabilities: ["clihub:apt:ffmpeg"] }), []);
+  assert.deepEqual(getSkillRequirementBlockers({ configJson, runtimeCapabilities: ["clihub:homebrew:git"] }), [
+    "Runtime does not support capability ffmpeg.",
+  ]);
+});

@@ -4,6 +4,8 @@ import {
   buildFeishuInteractiveCardOutboundMessage,
   createRuntimeToolApprovalRequestSync,
   evaluateFeishuExternalGuestRuntimeToolIdentityRequirementFromTaskInput,
+  listApprovalsSync,
+  reviewApprovalSync,
   type FeishuRuntimeToolIdentityRequirement,
 } from "@dofe-agent/services";
 import type { CreateRuntimeApprovalRequest } from "@dofe-agent/domain";
@@ -74,6 +76,22 @@ export async function POST(
     runtimeId: body.runtimeId,
     sessionId: body.sessionId,
   }, auth.workspaceId);
+
+  const taskAfterApproval = readQueuedTaskSync(task.id);
+  const postCreateTerminalResponse = rejectApprovalForTerminalTask(taskAfterApproval?.status);
+  if (postCreateTerminalResponse) {
+    const currentApproval = listApprovalsSync(auth.workspaceId).find((item) => item.id === approval.id);
+    if (currentApproval?.status === "pending") {
+      reviewApprovalSync(
+        approval.id,
+        "rejected",
+        "Task stopped before the approval request was delivered.",
+        auth.workspaceId,
+        { suppressConversationMessage: true },
+      );
+    }
+    return postCreateTerminalResponse;
+  }
 
   return Response.json({
     approval: {

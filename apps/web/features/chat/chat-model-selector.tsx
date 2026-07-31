@@ -11,6 +11,7 @@ import {
   type RuntimeModelCatalogItem,
 } from "@/features/runtimes/actions";
 import { AppIcon } from "@/shared/ui/app-icon";
+import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import type { DaemonProvider } from "@dofe-agent/domain";
 
 export interface ChatModelSelectorProps {
@@ -20,8 +21,19 @@ export interface ChatModelSelectorProps {
   channelName?: string;
   /** Message content used to pick the agent in a group channel. */
   content?: string;
+  /** The direct-chat name shown in the conversation header. */
+  displayName?: string;
   /** Whether the current user is allowed to change the session override. */
   canManage: boolean;
+}
+
+export interface ChatModelCommandDialogProps {
+  contactId?: string;
+  channelName?: string;
+  content?: string;
+  displayName: string;
+  onClose: () => void;
+  onChanged?: () => void;
 }
 
 interface ModelOverrideInfo {
@@ -45,6 +57,7 @@ export function ChatModelSelector({
   contactId,
   channelName,
   content,
+  displayName,
   canManage,
 }: ChatModelSelectorProps) {
   const { tx } = useLanguage();
@@ -104,29 +117,24 @@ export function ChatModelSelector({
 
   if (!info || loading) {
     return (
-      <div className="chat-model-selector chat-model-selector--loading">
+      <span className="chat-model-selector chat-model-selector--loading">
         <span className="chat-model-selector__trigger">
-          <span className="chat-model-selector__label">{tx("使用模型", "Model")}</span>
-          <span className="chat-model-selector__value">{tx("加载中…", "Loading…")}</span>
+          <span className="chat-model-selector__value">{displayName ?? tx("加载中…", "Loading…")}</span>
         </span>
-      </div>
+      </span>
     );
   }
 
   const provider = info.provider;
   const canPick = canManage && provider != null;
-  const sessionModelOverride = activeModel?.source === "session_override" || activeModel?.source === "manual";
-  const modelDisplay = formatModelDisplay(info.agentName, activeModel?.modelId, tx);
+  const modelDisplay = formatModelDisplay(displayName ?? info.agentName, activeModel?.modelId, tx);
 
   return (
-    <div
+    <span
       className={`chat-model-selector${canPick ? " chat-model-selector--interactive" : ""}`}
       title={modelDisplay}
     >
-      <div className="chat-model-selector__trigger">
-        <span className="chat-model-selector__label">
-          {sessionModelOverride ? tx("本次会话已切换", "Changed for this chat") : tx("使用模型", "Model")}
-        </span>
+      <span className="chat-model-selector__trigger">
         {activeModel ? (
           <span className="chat-model-selector__value" title={modelDisplay}>
             {modelDisplay}
@@ -137,7 +145,7 @@ export function ChatModelSelector({
           </span>
         )}
         {canPick ? <AppIcon className="chat-model-selector__chevron" name="chevronDown" /> : null}
-      </div>
+      </span>
       {canPick ? (
         <CompactModelPicker
           pending={pending}
@@ -151,7 +159,178 @@ export function ChatModelSelector({
           {errorLabel(error.code, tx)}
         </span>
       ) : null}
+    </span>
+  );
+}
+
+export function ChatModelCommandDialog({
+  contactId,
+  channelName,
+  content,
+  displayName,
+  onClose,
+  onChanged,
+}: ChatModelCommandDialogProps) {
+  const { tx } = useLanguage();
+  const { surfaceRef, handleBackdropMouseDown, labelId } = useDialogSurface<HTMLDivElement>(onClose);
+  const [info, setInfo] = useState<ModelOverrideInfo | null>(null);
+  const [items, setItems] = useState<RuntimeModelCatalogItem[]>([]);
+  const [configured, setConfigured] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    void getChatModelOverrideAction({ contactId, channelName, content })
+      .then(async (result) => {
+        if (cancelled) return;
+        setInfo(result);
+        if (!result?.provider) {
+          setConfigured(false);
+          setItems([]);
+          return;
+        }
+        const catalog = await listProtocolFilteredRuntimeModelsAction(result.provider);
+        if (cancelled) return;
+        setConfigured(catalog.configured);
+        setItems(catalog.list.filter((item) => item.isAvailable));
+      })
+      .catch((reason) => {
+        if (!cancelled) {
+          setError(reason instanceof Error ? reason.message : tx("模型列表加载失败。", "Failed to load models."));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [channelName, contactId, content, tx]);
+
+  const selectedModelId = info?.sessionOverride?.modelId ?? "";
+
+  function selectModel(modelId: string): void {
+    if (pending) return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        const result = await setChatModelOverrideAction({
+          contactId,
+          channelName,
+          content,
+          modelId: modelId || undefined,
+        });
+        if (!result.ok) {
+          setError(result.message);
+          return;
+        }
+        onChanged?.();
+        onClose();
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : tx("模型切换失败。", "Failed to switch model."));
+      }
+    });
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={handleBackdropMouseDown} role="presentation">
+      <div
+        aria-labelledby={labelId}
+        aria-modal="true"
+        className="modal-card modal-card--compact chat-model-command-dialog"
+        ref={surfaceRef}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <div className="modal-card__header">
+          <div>
+            <h3 id={labelId}>{tx("切换模型", "Switch model")}</h3>
+            <p>{tx(`为 ${displayName} 的当前会话选择模型`, `Choose a model for ${displayName}'s current conversation`)}</p>
+          </div>
+          <button
+            aria-label={tx("关闭模型选择", "Close model picker")}
+            className="modal-close"
+            onClick={onClose}
+            type="button"
+          >
+            <AppIcon name="close" />
+          </button>
+        </div>
+        <div className="modal-card__body chat-model-command-dialog__body">
+          {loading ? (
+            <div className="chat-model-command-dialog__state">
+              <AppIcon name="loader" />
+              <span>{tx("正在加载可用模型…", "Loading available models…")}</span>
+            </div>
+          ) : error ? (
+            <div className="chat-model-command-dialog__state chat-model-command-dialog__state--error" role="alert">
+              <AppIcon name="alertCircle" />
+              <span>{error}</span>
+            </div>
+          ) : !configured || !info?.provider ? (
+            <div className="chat-model-command-dialog__state">
+              <AppIcon name="info" />
+              <span>{tx("该员工尚未配置可切换的受管模型。", "This employee has no managed models available to switch.")}</span>
+            </div>
+          ) : (
+            <div aria-label={tx("可用模型", "Available models")} className="chat-model-command-dialog__list" role="listbox">
+              <ModelCommandOption
+                description={tx("使用员工或 Runtime 的默认模型", "Use the employee or Runtime default")}
+                label={tx("继承默认", "Inherit default")}
+                pending={pending}
+                selected={selectedModelId === ""}
+                onSelect={() => selectModel("")}
+              />
+              {items.map((item) => (
+                <ModelCommandOption
+                  description={item.alias}
+                  key={item.alias}
+                  label={item.displayName ?? item.alias}
+                  pending={pending}
+                  selected={selectedModelId === item.alias}
+                  onSelect={() => selectModel(item.alias)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
+  );
+}
+
+function ModelCommandOption({
+  label,
+  description,
+  selected,
+  pending,
+  onSelect,
+}: {
+  label: string;
+  description: string;
+  selected: boolean;
+  pending: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      aria-selected={selected}
+      className={`chat-model-command-dialog__option${selected ? " chat-model-command-dialog__option--selected" : ""}`}
+      disabled={pending}
+      onClick={onSelect}
+      role="option"
+      type="button"
+    >
+      <span>
+        <strong>{label}</strong>
+        <small>{description}</small>
+      </span>
+      {selected ? <AppIcon name="checkCircle" /> : null}
+    </button>
   );
 }
 

@@ -45,6 +45,7 @@ import {
   initializeOrganizationSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
+  reviewApprovalSync,
   sendChannelHumanMessageSync,
   sendContactMessageSync,
   setEmployeeSkillIdsSync,
@@ -1531,6 +1532,11 @@ describe("daemon API routes", () => {
     expect(approval?.metadata?.toolName).toBe("Bash");
 
     cancelQueuedTaskSync({ taskId: queued!.id, errorText: "Stopped by user." });
+    reviewApprovalSync(createPayload.approval.approvalId, "rejected");
+    expect(readWorkspaceStateSync().messages.some((message) =>
+      message.data?.approval_id === createPayload.approval.approvalId
+    )).toBe(false);
+
     const lateCreateResponse = await runtimeApprovalPOST(
       new Request(`http://localhost/api/daemon/tasks/${queued?.id}/runtime-approvals`, {
         method: "POST",

@@ -52,6 +52,7 @@ import {
   resolveSystemAgentTemplateForWorkspaceSync,
   readSkillRequirementDeclarations,
   readWorkspaceSkillSync,
+  rotateAgentSkillRequirementSecretSync,
   setEmployeeChannelMemberAccessSync,
   setEmployeeKnowledgePageIdsSync,
   setEmployeeSkillIdsSync,
@@ -859,6 +860,63 @@ export async function removeWorkspaceAgentSkillKeyAction(input: {
     successToast(
       `已删除变量 ${input.key.trim()}。`,
       `Removed variable ${input.key.trim()}.`,
+    ),
+    buildAgentInvalidation(workspaceId, input.employeeName.trim()),
+  );
+}
+
+export async function rotateWorkspaceAgentSkillSecretAction(input: {
+  employeeName: string;
+  skillId: string;
+  key: string;
+  value: string;
+}): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertRequired(input.employeeName, "employee name");
+  assertRequired(input.skillId, "skill id");
+  assertRequired(input.key, "key");
+  assertRequired(input.value, "value");
+  assertCanManageEmployeeForActorSync({ workspaceId, employeeName: input.employeeName.trim(), actorUserId: workspaceContext.currentUser.id });
+  try {
+    rotateAgentSkillRequirementSecretSync({
+      workspaceId,
+      employeeName: input.employeeName.trim(),
+      skillId: input.skillId.trim(),
+      key: input.key.trim(),
+      value: input.value.trim(),
+      actorUserId: workspaceContext.currentUser.id,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY") || message.includes("encryption key")) {
+      return actionToastResult(undefined, errorToast(
+        "平台加密密钥未配置，无法保存密钥。请联系管理员配置 DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY。",
+        "Platform encryption key is not configured, so the secret cannot be saved. Ask an admin to configure DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY.",
+      ));
+    }
+    throw error;
+  }
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId,
+    title: "AI employee skill secret rotated",
+    note: `${workspaceContext.currentUser.displayName} rotated secret ${input.key.trim()} for ${input.employeeName.trim()}.`,
+    code: "workspace.agent_skill_secret_rotated",
+    data: {
+      actorType: "session_user",
+      resourceType: "agent_skill_requirement",
+      resourceId: `${input.employeeName.trim()}:${input.skillId.trim()}`,
+      key: input.key.trim(),
+      secretCount: "1",
+    },
+  });
+  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+  return actionToastResult(
+    undefined,
+    successToast(
+      `已轮换密钥 ${input.key.trim()}。`,
+      `Rotated secret ${input.key.trim()}.`,
     ),
     buildAgentInvalidation(workspaceId, input.employeeName.trim()),
   );

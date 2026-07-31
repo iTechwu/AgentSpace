@@ -31,6 +31,8 @@ interface SkillRequirementsModalProps {
   readonly updatedBy?: string;
   /** Declared keys that collide with a managed runtime credential key. */
   readonly credentialKeyWarnings?: string[];
+  /** Declarations that are stored but invalid (e.g. reserved DOFE_AGENT_* keys). */
+  readonly invalidDeclarations?: string[];
   /** key -> OTHER skills on the same employee that already configure it. */
   readonly reuseCandidates?: Record<string, Array<{ skillId: string; skillName: string }>>;
   readonly onCancel: () => void;
@@ -45,6 +47,7 @@ interface SkillRequirementsModalProps {
     reuseValues: Record<string, string>;
   }) => void;
   readonly onRemoveKey?: (key: string) => void;
+  readonly onRotateSecret?: (key: string, value: string) => void;
 }
 
 const PROVIDERS = [
@@ -70,10 +73,12 @@ export function SkillRequirementsModal({
   updatedAt,
   updatedBy,
   credentialKeyWarnings = [],
+  invalidDeclarations = [],
   reuseCandidates = {},
   onCancel,
   onConfirm,
   onRemoveKey,
+  onRotateSecret,
 }: SkillRequirementsModalProps) {
   const { tx } = useLanguage();
   const { surfaceRef, handleBackdropMouseDown, labelId, descriptionId } = useDialogSurface<HTMLFormElement>(onCancel);
@@ -97,6 +102,9 @@ export function SkillRequirementsModal({
   const [secretValues, setSecretValues] = useState<Record<string, string>>({});
   const [sensitiveKeys, setSensitiveKeys] = useState<string[]>(effectiveConfiguration.sensitiveKeys ?? []);
   const [reuseValues, setReuseValues] = useState<Record<string, string>>({});
+  const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
+  const [rotatingKey, setRotatingKey] = useState<string | null>(null);
+  const [rotationValue, setRotationValue] = useState<string>("");
   const configuredKeySet = new Set(configuredSecretKeys);
 
   const toggleSensitive = (key: string, sensitive: boolean) => {
@@ -145,6 +153,17 @@ export function SkillRequirementsModal({
           <button className="modal-close" onClick={onCancel} type="button">×</button>
         </div>
         <div className="modal-card__body skill-requirements-modal__body">
+          {invalidDeclarations.length > 0 ? (
+            <div className="skill-requirements-modal__banner skill-requirements-modal__banner--warning" role="alert">
+              <strong>{tx("声明包含保留 Key", "Declaration contains reserved keys")}</strong>
+              <p>
+                {tx(
+                  `以下声明无效，需 Skill 作者修正：${invalidDeclarations.join("、")}。`,
+                  `The following declarations are invalid and must be fixed by the skill author: ${invalidDeclarations.join(", ")}.`,
+                )}
+              </p>
+            </div>
+          ) : null}
           {(providers.length > 0 || models.length > 0 || capabilities.length > 0) ? (
             <section className="skill-requirements-modal__section">
               <h4>{tx("模型运行时", "Model runtime")}</h4>
@@ -235,14 +254,38 @@ export function SkillRequirementsModal({
                         {tx("敏感（加密保存）", "Sensitive (encrypted)")}
                       </label>
                       {mode === "manage" && onRemoveKey ? (
-                        <button
-                          className="modal-secondary-button skill-requirements-modal__remove"
-                          disabled={pending || removingKey === key}
-                          onClick={() => onRemoveKey(key)}
-                          type="button"
-                        >
-                          {removingKey === key ? tx("删除中...", "Removing...") : tx("删除", "Remove")}
-                        </button>
+                        pendingDeleteKey === key ? (
+                          <div className="skill-requirements-modal__delete-confirm">
+                            <button
+                              className="modal-secondary-button skill-requirements-modal__remove"
+                              disabled={pending || removingKey === key}
+                              onClick={() => {
+                                setPendingDeleteKey(null);
+                                onRemoveKey(key);
+                              }}
+                              type="button"
+                            >
+                              {removingKey === key ? tx("删除中...", "Removing...") : tx("确认删除", "Confirm remove")}
+                            </button>
+                            <button
+                              className="modal-secondary-button"
+                              disabled={pending || removingKey === key}
+                              onClick={() => setPendingDeleteKey(null)}
+                              type="button"
+                            >
+                              {tx("取消", "Cancel")}
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="modal-secondary-button skill-requirements-modal__remove"
+                            disabled={pending || removingKey === key}
+                            onClick={() => setPendingDeleteKey(key)}
+                            type="button"
+                          >
+                            {tx("删除", "Remove")}
+                          </button>
+                        )
                       ) : null}
                     </div>
                     {reuse && reuse.length > 0 ? (
@@ -326,17 +369,92 @@ export function SkillRequirementsModal({
                   <div className="form-field skill-requirements-modal__field" key={key}>
                     <div className="skill-requirements-modal__field-head">
                       <span>{key}</span>
-                      {mode === "manage" && onRemoveKey ? (
+                      {mode === "manage" && onRotateSecret && isConfigured && rotatingKey !== key ? (
                         <button
-                          className="modal-secondary-button skill-requirements-modal__remove"
-                          disabled={pending || removingKey === key || !isConfigured || Boolean(reusedSkillId)}
-                          onClick={() => onRemoveKey(key)}
+                          className="modal-secondary-button skill-requirements-modal__rotate"
+                          disabled={pending || removingKey === key || Boolean(reusedSkillId)}
+                          onClick={() => {
+                            setRotatingKey(key);
+                            setRotationValue("");
+                          }}
                           type="button"
                         >
-                          {removingKey === key ? tx("删除中...", "Removing...") : tx("删除", "Remove")}
+                          {tx("轮换", "Rotate")}
                         </button>
                       ) : null}
+                      {mode === "manage" && onRemoveKey ? (
+                        pendingDeleteKey === key ? (
+                          <div className="skill-requirements-modal__delete-confirm">
+                            <button
+                              className="modal-secondary-button skill-requirements-modal__remove"
+                              disabled={pending || removingKey === key || !isConfigured || Boolean(reusedSkillId)}
+                              onClick={() => {
+                                setPendingDeleteKey(null);
+                                onRemoveKey(key);
+                              }}
+                              type="button"
+                            >
+                              {removingKey === key ? tx("删除中...", "Removing...") : tx("确认删除", "Confirm remove")}
+                            </button>
+                            <button
+                              className="modal-secondary-button"
+                              disabled={pending || removingKey === key}
+                              onClick={() => setPendingDeleteKey(null)}
+                              type="button"
+                            >
+                              {tx("取消", "Cancel")}
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="modal-secondary-button skill-requirements-modal__remove"
+                            disabled={pending || removingKey === key || !isConfigured || Boolean(reusedSkillId) || rotatingKey === key}
+                            onClick={() => setPendingDeleteKey(key)}
+                            type="button"
+                          >
+                            {tx("删除", "Remove")}
+                          </button>
+                        )
+                      ) : null}
                     </div>
+                    {rotatingKey === key ? (
+                      <div className="form-field skill-requirements-modal__rotation">
+                        <input
+                          aria-label={tx(`新 ${key} 值`, `New ${key} value`)}
+                          autoComplete="new-password"
+                          disabled={pending}
+                          onChange={(event) => setRotationValue(event.currentTarget.value)}
+                          placeholder={tx("输入新密钥值", "Enter new secret value")}
+                          type="password"
+                          value={rotationValue}
+                        />
+                        <div className="skill-requirements-modal__rotation-actions">
+                          <button
+                            className="primary-button"
+                            disabled={pending || !rotationValue.trim()}
+                            onClick={() => {
+                              onRotateSecret?.(key, rotationValue);
+                              setRotatingKey(null);
+                              setRotationValue("");
+                            }}
+                            type="button"
+                          >
+                            {tx("保存新密钥", "Save new secret")}
+                          </button>
+                          <button
+                            className="modal-secondary-button"
+                            disabled={pending}
+                            onClick={() => {
+                              setRotatingKey(null);
+                              setRotationValue("");
+                            }}
+                            type="button"
+                          >
+                            {tx("取消", "Cancel")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                     {reuse && reuse.length > 0 ? (
                       <label className="form-field skill-requirements-modal__reuse">
                         <span>{tx("复用已有值", "Reuse existing value")}</span>

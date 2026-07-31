@@ -327,6 +327,11 @@ export function readAgentSkillRequirementSummarySync(input: {
   employeeName: string;
   skillId: string;
   runtimeProvider?: DaemonProvider;
+  /**
+   * Capability ids the bound runtime actually exposes. When supplied, declared
+   * `capability:` requirements are checked against this catalog.
+   */
+  runtimeCapabilities?: readonly string[];
   runtimeOnline?: boolean;
 }): AgentSkillRequirementSummary {
   const skill = readWorkspaceSkillSync(input.skillId, input.workspaceId);
@@ -343,6 +348,7 @@ export function readAgentSkillRequirementSummarySync(input: {
   const blockers = getSkillRequirementBlockers({
     configJson: effectiveConfigJson,
     runtimeProvider: input.runtimeProvider,
+    runtimeCapabilities: input.runtimeCapabilities,
     configuredEncryptedKeys,
   }).filter((blocker) => !configuredEncryptedKeys.some((name) => blocker.startsWith(`${name} must be configured`)));
   blockers.push(...requirements
@@ -363,7 +369,9 @@ export function readAgentSkillRequirementSummarySync(input: {
       return { key: requirement.value, kind: requirement.kind, sensitive, configured };
     });
   const runtimeIncompatible = blockers.some((blocker) => (
-    blocker.includes("bound runtime uses") || blocker.includes("does not match the bound runtime provider")
+    blocker.includes("bound runtime uses")
+    || blocker.includes("does not match the bound runtime provider")
+    || blocker.includes("does not support capability")
   ));
   const currentSignature = requirementSignatureFor(requirements);
   const savedSignature = record ? readSavedRequirementSignature(record.configJson) : [];
@@ -535,6 +543,58 @@ export function deleteAgentSkillRequirementKeySync(input: {
       actorUserId: input.actorUserId,
     });
     return { kind: declaration.kind === "secret" ? "secret" : "config", sensitive };
+  });
+}
+
+/**
+ * Rotates a single declared secret for an installed skill. The new value is
+ * encrypted and the previous plaintext is discarded. This is the dedicated
+ * rotation path; it does not re-validate or alter other configuration.
+ */
+export function rotateAgentSkillRequirementSecretSync(input: {
+  workspaceId: string;
+  employeeName: string;
+  skillId: string;
+  key: string;
+  value: string;
+  actorUserId: string;
+}): void {
+  return withEmployeeSkillMutationLockSync(input.workspaceId, input.employeeName, () => {
+    const skill = readWorkspaceSkillSync(input.skillId, input.workspaceId);
+    if (!skill) throw new Error("Skill does not exist.");
+    const requirements = readSkillRequirementDeclarations(skill.configJson);
+    const declaration = requirements.find(
+      (requirement) => requirement.kind === "secret" && requirement.value === input.key,
+    );
+    if (!declaration) {
+      throw new Error(`${input.key} is not a declared secret for this skill.`);
+    }
+
+    const record = readAgentSkillRequirementConfigSync({
+      workspaceId: input.workspaceId,
+      employeeName: input.employeeName,
+      skillId: input.skillId,
+    });
+    if (!record) throw new Error("No configuration stored for this skill.");
+
+    const trimmedValue = input.value.trim();
+    if (!trimmedValue) {
+      throw new Error(`${input.key} cannot be empty.`);
+    }
+    if (trimmedValue.length > 4096) {
+      throw new Error(`${input.key} is too long.`);
+    }
+
+    const encryptedStore = safeJson(record.encryptedSecretsJson ?? "{}");
+    encryptedStore[input.key] = encrypt(trimmedValue);
+    upsertAgentSkillRequirementConfigSync({
+      workspaceId: input.workspaceId,
+      employeeName: input.employeeName,
+      skillId: input.skillId,
+      configJson: record.configJson,
+      encryptedSecretsJson: JSON.stringify(encryptedStore),
+      actorUserId: input.actorUserId,
+    });
   });
 }
 

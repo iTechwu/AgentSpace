@@ -51,6 +51,7 @@ interface AgentDetailProps {
     reuseValues: Record<string, string>;
   }) => void;
   readonly onRemoveSkillKey?: (skillId: string, key: string) => void;
+  readonly onRotateSecret?: (skillId: string, key: string, value: string) => void;
   readonly onSetKnowledgePageIds?: (pageIds: string[]) => void;
   readonly onCreateForkInvitation?: (input: {
     targetUserId: string;
@@ -89,6 +90,7 @@ export function AgentDetail({
   onSetSkillIds,
   onInstallSkill,
   onRemoveSkillKey,
+  onRotateSecret,
   onSetKnowledgePageIds,
   onCreateForkInvitation,
   onRevokeForkInvitation,
@@ -1154,6 +1156,7 @@ export function AgentDetail({
           updatedAt={record.skillRequirements[skillToInstall.id]?.updatedAt}
           updatedBy={record.skillRequirements[skillToInstall.id]?.updatedBy}
           credentialKeyWarnings={record.skillRequirements[skillToInstall.id]?.credentialKeyWarnings}
+          invalidDeclarations={record.skillRequirements[skillToInstall.id]?.invalidDeclarations}
           onCancel={() => setSkillToInstall(null)}
           onConfirm={(input) => {
             onInstallSkill(skillToInstall.id, input);
@@ -1163,6 +1166,11 @@ export function AgentDetail({
             ? (key) => {
                 setRemovingKey(key);
                 onRemoveSkillKey(skillToInstall.id, key);
+              }
+            : undefined}
+          onRotateSecret={onRotateSecret
+            ? (key, value) => {
+                onRotateSecret(skillToInstall.id, key, value);
               }
             : undefined}
         />

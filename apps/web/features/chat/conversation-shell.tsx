@@ -69,7 +69,7 @@ export interface ConversationSlashCommand {
   command: string;
   label: string;
   description: string;
-  action: "insert" | "clear" | "permissions" | "claude-plan" | "claude-auto" | "codex-review";
+  action: "model" | "resume" | "clear" | "permissions" | "claude-plan" | "claude-auto" | "codex-review";
 }
 
 interface SelectedComposerReference {
@@ -130,6 +130,7 @@ export function ConversationShell({
   onStopActiveTask,
   composerRuntime,
   onUpdateExecutionPolicy,
+  onOpenModelSelector,
 }: {
   listKicker: string;
   listTitle: string;
@@ -181,6 +182,7 @@ export function ConversationShell({
   onStopActiveTask?: () => Promise<void>;
   composerRuntime?: ConversationComposerRuntime;
   onUpdateExecutionPolicy?: (employeeId: string, policy?: EmployeeExecutionPolicy) => Promise<void>;
+  onOpenModelSelector?: () => void;
 }) {
   const { tx } = useLanguage();
   const router = useRouter();
@@ -570,6 +572,12 @@ export function ConversationShell({
       return;
     }
 
+    const submittedSlashCommand = resolveSubmittedSlashCommand(draft, composerRuntime?.provider, tx);
+    if (submittedSlashCommand && pendingFiles.length === 0 && selectedReferences.length === 0) {
+      executeSlashCommand(submittedSlashCommand, { value: "", caretIndex: 0 });
+      return;
+    }
+
     const content = draft.trim().length > 0
       ? draft
       : tx("请查看我发送或引用的内容。", "Please review the content I sent or referenced.");
@@ -769,29 +777,43 @@ export function ConversationShell({
     }
 
     const next = replaceDraftRange(draft, activeSlashQuery.start, draftCaretIndex, "");
+    executeSlashCommand(command, next);
+  }
+
+  function executeSlashCommand(
+    command: ConversationSlashCommand,
+    next: { value: string; caretIndex: number },
+  ): void {
+    if (command.action === "model") {
+      setDraft(next.value);
+      setDraftCaretIndex(next.caretIndex);
+      setFeedback(null);
+      if (onOpenModelSelector) {
+        onOpenModelSelector();
+      } else {
+        setFeedback(tx("当前会话暂时无法切换模型。", "Model switching is not available for this conversation."));
+      }
+      return;
+    }
+    if (command.action === "resume") {
+      setDraft(next.value);
+      setDraftCaretIndex(next.caretIndex);
+      setFeedback(tx("当前运行时会话会在下一条消息中自动续接。", "The current runtime session will resume automatically with your next message."));
+      scheduleComposerFocus(next.caretIndex);
+      return;
+    }
     if (command.action === "permissions") {
       setDraft(next.value);
       setDraftCaretIndex(next.caretIndex);
       setShowExecutionPolicyMenu(true);
       return;
     }
-    if (command.action !== "insert") {
-      setDraft(next.value);
-      setDraftCaretIndex(next.caretIndex);
-      const policy = policyForSlashCommand(command.action);
-      if (policy) {
-        void updateExecutionPolicy(policy);
-      }
-      return;
+    setDraft(next.value);
+    setDraftCaretIndex(next.caretIndex);
+    const policy = policyForSlashCommand(command.action);
+    if (policy) {
+      void updateExecutionPolicy(policy);
     }
-
-    const commandText = command.id === "resume" && composerRuntime?.requiresMentionForCommands
-      ? `${command.command} @${composerRuntime.employeeLabel} `
-      : `${command.command} `;
-    const inserted = replaceDraftRange(draft, activeSlashQuery.start, draftCaretIndex, commandText);
-    setDraft(inserted.value);
-    setDraftCaretIndex(inserted.caretIndex);
-    scheduleComposerFocus(inserted.caretIndex);
   }
 
   async function updateExecutionPolicy(policy?: EmployeeExecutionPolicy): Promise<void> {
@@ -1320,7 +1342,7 @@ function buildComposerSlashCommands(
       command: "/model",
       label: tx("切换模型", "Switch model"),
       description: tx("为当前会话选择模型", "Choose a model for this conversation"),
-      action: "insert",
+      action: "model",
     },
   ];
   if (provider) {
@@ -1329,7 +1351,7 @@ function buildComposerSlashCommands(
       command: "/resume",
       label: tx("继续会话", "Resume session"),
       description: tx("沿用当前运行时会话继续处理", "Continue with the current runtime session"),
-      action: "insert",
+      action: "resume",
     });
     commands.push({
       id: "permissions",
@@ -1374,6 +1396,20 @@ function buildComposerSlashCommands(
     action: "clear",
   });
   return commands;
+}
+
+function resolveSubmittedSlashCommand(
+  draft: string,
+  provider: ConversationComposerRuntime["provider"] | undefined,
+  tx: (zh: string, en: string) => string,
+): ConversationSlashCommand | undefined {
+  const commandToken = draft.trim().split(/\s+/, 1)[0]?.toLocaleLowerCase("zh-CN");
+  if (!commandToken?.startsWith("/")) {
+    return undefined;
+  }
+  return buildComposerSlashCommands(provider, tx).find(
+    (command) => command.command.toLocaleLowerCase("zh-CN") === commandToken,
+  );
 }
 
 function policyForSlashCommand(action: ConversationSlashCommand["action"]): EmployeeExecutionPolicy | undefined {

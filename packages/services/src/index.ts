@@ -103,6 +103,7 @@ export {
   readAgentSkillRequirementEnvSync,
   readAgentSkillRequirementSummarySync,
   resolveSkillProjectWorkDirSync,
+  rotateAgentSkillRequirementSecretSync,
   setAgentSkillAssignmentsWithRequirementsValidationSync,
   upsertAgentSkillRequirementsSync,
 } from "./skills/agent-skill-requirements.ts";

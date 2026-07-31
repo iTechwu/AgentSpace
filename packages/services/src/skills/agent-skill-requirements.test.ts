@@ -17,6 +17,7 @@ import {
   upsertAgentSkillRequirementsSync,
   deleteAgentSkillRequirementKeySync,
   resolveSkillProjectWorkDirSync,
+  rotateAgentSkillRequirementSecretSync,
   updateWorkspaceSkillSync,
 } from "../index.ts";
 
@@ -763,6 +764,96 @@ test("deleteAgentSkillRequirementKeySync removes an encrypted secret and recompu
   assert.equal(env.API_TOKEN, undefined);
 });
 
+test("rotateAgentSkillRequirementSecretSync updates a single secret without touching other configuration", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "multi-secret-skill",
+    description: "Multiple secrets",
+    configJson: JSON.stringify({
+      requirements: [
+        { kind: "secret", value: "FIRST_TOKEN" },
+        { kind: "secret", value: "SECOND_TOKEN" },
+      ],
+    }),
+  });
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    secrets: { FIRST_TOKEN: "first-old", SECOND_TOKEN: "second-old" },
+  });
+
+  rotateAgentSkillRequirementSecretSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    key: "FIRST_TOKEN",
+    value: "first-new",
+    actorUserId: TEST_USER_ID,
+  });
+
+  const env = readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: skill.id });
+  assert.equal(env.FIRST_TOKEN, "first-new");
+  assert.equal(env.SECOND_TOKEN, "second-old");
+});
+
+test("rotateAgentSkillRequirementSecretSync rejects empty values and non-secret keys", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "rotate-validation-skill",
+    description: "Validation",
+    configJson: JSON.stringify({
+      requirements: [
+        { kind: "secret", value: "API_SECRET" },
+        { kind: "config", value: "API_CONFIG" },
+      ],
+    }),
+  });
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { API_CONFIG: "config-value" },
+    secrets: { API_SECRET: "secret-value" },
+  });
+
+  assert.throws(
+    () => rotateAgentSkillRequirementSecretSync({
+      workspaceId: "default",
+      employeeName: "Researcher",
+      skillId: skill.id,
+      key: "API_SECRET",
+      value: "   ",
+      actorUserId: TEST_USER_ID,
+    }),
+    /cannot be empty/,
+  );
+  assert.throws(
+    () => rotateAgentSkillRequirementSecretSync({
+      workspaceId: "default",
+      employeeName: "Researcher",
+      skillId: skill.id,
+      key: "API_CONFIG",
+      value: "new-config",
+      actorUserId: TEST_USER_ID,
+    }),
+    /is not a declared secret/,
+  );
+  assert.throws(
+    () => rotateAgentSkillRequirementSecretSync({
+      workspaceId: "default",
+      employeeName: "Researcher",
+      skillId: skill.id,
+      key: "MISSING_SECRET",
+      value: "value",
+      actorUserId: TEST_USER_ID,
+    }),
+    /is not a declared secret/,
+  );
+});
+
 test("summary exposes a stable queryable statusDetail code per status", () => {
   createEmployeeSync({ name: "Researcher" });
   const skill = createSkillWithRequirements();
@@ -786,6 +877,33 @@ test("summary exposes a stable queryable statusDetail code per status", () => {
     workspaceId: "default", employeeName: "Researcher", skillId: skill.id, runtimeOnline: false,
   });
   assert.equal(summary.statusDetail.code, "skill_awaiting_validation");
+});
+
+test("summary reports runtime_incompatible when a required capability is missing on the bound runtime", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "needs-ffmpeg",
+    description: "Needs ffmpeg",
+    configJson: JSON.stringify({ requirements: [{ kind: "capability", value: "ffmpeg" }] }),
+  });
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skill.id, actorUserId: TEST_USER_ID,
+    capabilities: ["ffmpeg"],
+  });
+
+  let summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skill.id,
+    runtimeCapabilities: ["clihub:homebrew:ffmpeg"],
+  });
+  assert.equal(summary.status, "ready");
+
+  summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default", employeeName: "Researcher", skillId: skill.id,
+    runtimeCapabilities: ["clihub:homebrew:git"],
+  });
+  assert.equal(summary.status, "runtime_incompatible");
+  assert.equal(summary.statusDetail.code, "skill_runtime_incompatible");
+  assert.ok(summary.blockers.some((b) => b.includes("does not support capability ffmpeg")));
 });
 
 test("summary surfaces historically-stored reserved DOFE_AGENT_ declarations as invalid", () => {

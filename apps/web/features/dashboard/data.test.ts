@@ -11,6 +11,7 @@ import {
   createUserSync,
   createWorkspaceSync,
   createWorkspaceMembershipSync,
+  cancelQueuedTaskSync,
   enqueueNativeTaskSync,
   getDatabase,
   readWorkspaceStateRecordSync,
@@ -30,6 +31,7 @@ import {
   createChannelDocumentSync,
   createEmployeeSync,
   createKnowledgePageFromSharedDocumentSync,
+  createRuntimeToolApprovalRequestSync,
   createWorkspaceSkillSync,
   grantRuntimeUseToUserForActorSync,
   readWorkspaceStateSync,
@@ -496,6 +498,48 @@ describe("dashboard data", () => {
     expect(planner?.workAreas[0]?.channel).toBe("travel");
     expect(planner?.workAreas[0]?.workDir).toBe("/tmp/travel-workdir");
     expect(planner?.workAreas[0]?.sessionId).toBe("sess-travel-1");
+  });
+
+  it("does not project runtime approval cards after their task is cancelled", () => {
+    createEmployeeSync({ name: "Atlas", remarkName: "Atlas" });
+    createChannelSync({
+      name: "research",
+      humanMemberNames: [],
+      employeeNames: ["Atlas"],
+      kind: "group",
+    });
+    const runtime = registerDaemonRuntimesSync({
+      daemonKey: "approval-projection-box",
+      deviceName: "Approval Projection Box",
+      runtimes: [{ provider: "claude", name: "Remote Claude", version: "test" }],
+    }).runtimes[0];
+    expect(runtime?.id).toBeTruthy();
+    bindEmployeeRuntimeSync("Atlas", runtime!.id);
+    const queued = enqueueNativeTaskSync({
+      assignee: "Atlas",
+      title: "Research",
+      channel: "research",
+      priority: "medium",
+      triggerType: "mention_chat",
+      metadata: { channelName: "research" },
+    });
+    expect(queued?.id).toBeTruthy();
+    const approval = createRuntimeToolApprovalRequestSync({
+      sourceId: queued!.id,
+      agentId: "Atlas",
+      channelName: "research",
+      toolName: "WebSearch",
+      contentPreview: "WebSearch: trending projects",
+      provider: "claude",
+      runtimeId: "runtime-test",
+    });
+
+    cancelQueuedTaskSync({ taskId: queued!.id, errorText: "Stopped by user." });
+
+    const channelsPage = getChannelsPageData("techwu");
+    const messages = channelsPage.threads.find((thread) => thread.channelName === "research")?.messages ?? [];
+    expect(messages.some((message) => message.data?.approval_id === approval.id)).toBe(false);
+    expect(readWorkspaceStateSync().approvals.some((item) => item.id === approval.id)).toBe(true);
   });
 
   it("adds Feishu group binding summaries to channel page data for workspace managers", () => {

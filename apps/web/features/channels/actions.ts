@@ -285,6 +285,15 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
     throw new Error("Only the requester or a workspace administrator can stop this task.");
   }
 
+  const cancelledTask = cancelQueuedTaskSync({
+    taskId: task.id,
+    errorText: `Stopped by ${workspaceContext.currentUser.displayName.trim() || "the user"}.`,
+  });
+  if (cancelledTask.status !== "cancelled") {
+    revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/im", "/inbox", "/agents", "/approvals"]);
+    return;
+  }
+
   for (const approval of listApprovalsSync(task.workspaceId)) {
     if (approval.status === "pending" && approval.sourceId === task.id) {
       reviewApprovalSync(
@@ -296,11 +305,6 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
       );
     }
   }
-
-  cancelQueuedTaskSync({
-    taskId: task.id,
-    errorText: `Stopped by ${workspaceContext.currentUser.displayName.trim() || "the user"}.`,
-  });
   replacePendingChannelMessageSync({
     channel: channelName,
     pendingSpeaker: task.agentId,

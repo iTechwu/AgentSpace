@@ -42,7 +42,7 @@ import {
 } from "@/features/chat/conversation-shell";
 import { updateWorkspaceAgentExecutionPolicyAction } from "@/features/agents/actions";
 import { CommunicationListActions } from "@/features/chat/communication-list-actions";
-import { ChatModelSelector } from "@/features/chat/chat-model-selector";
+import { ChatModelCommandDialog, ChatModelSelector } from "@/features/chat/chat-model-selector";
 import type { ChannelsPageData } from "@/features/dashboard/data";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useWorkspaceModuleNavigation } from "@/features/dashboard/workspace-module-navigation";
@@ -577,6 +577,7 @@ export function ChannelsPageClient({
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [showContactRemarkEditor, setShowContactRemarkEditor] = useState(false);
   const [showAddMembers, setShowAddMembers] = useState(false);
+  const [showModelCommandDialog, setShowModelCommandDialog] = useState(false);
   const [addMembersFeedback, setAddMembersFeedback] = useState<string | null>(null);
   const [accessRequestFeedback, setAccessRequestFeedback] = useState<string | null>(null);
   const [detailDataByChannelName, setDetailDataByChannelName] = useState<Map<string, ChannelDetailData>>(() =>
@@ -833,6 +834,7 @@ export function ChannelsPageClient({
   useEffect(() => {
     setAccessRequestFeedback(null);
     setFileFeedback(null);
+    setShowModelCommandDialog(false);
   }, [selectedChannelId]);
 
   useEffect(() => {
@@ -1877,6 +1879,17 @@ export function ChannelsPageClient({
         />
       ) : null}
 
+      {showModelCommandDialog && selectedChannel && composerRuntime ? (
+        <ChatModelCommandDialog
+          channelName={selectedChannel.kind === "direct" ? undefined : selectedConversationChannelName ?? undefined}
+          contactId={selectedChannel.kind === "direct" ? selectedChannel.contactId : undefined}
+          content={selectedChannel.kind === "direct" ? undefined : `@${composerRuntime.employeeId}`}
+          displayName={selectedChannel.displayName ?? composerRuntime.employeeLabel}
+          onChanged={() => refreshChannelModule(selectedConversationChannelName)}
+          onClose={() => setShowModelCommandDialog(false)}
+        />
+      ) : null}
+
       <ConversationShell
         isAgentRunning={Boolean(activeConversationTaskId)}
         onStopActiveTask={activeConversationTaskId ? async () => {
@@ -2045,6 +2058,7 @@ export function ChannelsPageClient({
           measureInteraction("conversation-switch");
         }}
         composerRuntime={composerRuntime}
+        onOpenModelSelector={composerRuntime ? () => setShowModelCommandDialog(true) : undefined}
         onUpdateExecutionPolicy={async (employeeId, executionPolicy: EmployeeExecutionPolicy | undefined) => {
           let updateSucceeded = false;
           await runToastAction({
@@ -2866,7 +2880,17 @@ function ChannelWorkspaceHeader({
           />
           <div className="channel-workspace-header__copy">
             <div className="channel-workspace-header__title-row">
-              <h2>{selectedChannel.displayName ?? selectedChannel.name}</h2>
+              <h2>
+                {isDirect && selectedChannel.contactId ? (
+                  <ChatModelSelector
+                    canManage={selectedChannel.canManage !== false}
+                    contactId={selectedChannel.contactId}
+                    displayName={selectedChannel.displayName ?? selectedChannel.name}
+                  />
+                ) : (
+                  selectedChannel.displayName ?? selectedChannel.name
+                )}
+              </h2>
               {canRenameChannel ? (
                 <HoverTooltip align="center" content={tx("修改群名", "Rename group")}>
                   {({ describedBy }) => (
@@ -2919,12 +2943,6 @@ function ChannelWorkspaceHeader({
             <HeaderIconButton label={tx("编辑备注", "Edit remark")} onClick={onOpenContactRemark}>
               <EditIcon />
             </HeaderIconButton>
-          ) : null}
-          {isDirect && selectedChannel.contactId ? (
-            <ChatModelSelector
-              canManage={selectedChannel.canManage !== false}
-              contactId={selectedChannel.contactId}
-            />
           ) : null}
           <HeaderIconButton label={tx("搜索", "Search")} onClick={onSearchAction}>
             <SearchIcon />

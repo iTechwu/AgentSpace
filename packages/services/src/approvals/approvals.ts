@@ -150,7 +150,10 @@ export function reviewApprovalSync(
   approval.status = decision;
   approval.reviewerComment = comment;
   approval.reviewedAt = new Date().toISOString();
-  if (options?.suppressConversationMessage) {
+  const sourceTaskWasCancelled = approval.type === "runtime_tool"
+    && readQueuedTaskSync(approval.sourceId)?.status === "cancelled";
+  const suppressConversationMessage = options?.suppressConversationMessage || sourceTaskWasCancelled;
+  if (suppressConversationMessage) {
     state.messages = state.messages.filter((message) =>
       message.code !== "approval.created" || message.data?.approval_id !== approval.id
     );
@@ -162,10 +165,12 @@ export function reviewApprovalSync(
     title: `Approval ${decision}`,
     note: `${approval.agentId}'s ${approval.type} was ${decision}${comment ? `: ${comment}` : ""}.`,
   });
-  createApprovalDecisionNotifications(approval, decision, workspaceId ?? DEFAULT_WORKSPACE_ID, state);
+  if (!suppressConversationMessage) {
+    createApprovalDecisionNotifications(approval, decision, workspaceId ?? DEFAULT_WORKSPACE_ID, state);
+  }
 
   writeWorkspaceStateSync(state, workspaceId);
-  if (!options?.suppressConversationMessage) {
+  if (!suppressConversationMessage) {
     postNotificationChannelMessageSync({
       workspaceId: workspaceId ?? DEFAULT_WORKSPACE_ID,
       channelName: approval.channelName,

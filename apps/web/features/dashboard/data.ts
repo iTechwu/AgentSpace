@@ -1984,6 +1984,9 @@ export function getChannelsPageData(
 ): ChannelsPageData {
   const state = readWorkspaceStateCached(workspaceId);
   const queuedTasks = listQueuedTasksCached(workspaceId);
+  const cancelledTaskIds = new Set(
+    queuedTasks.filter((task) => task.status === "cancelled").map((task) => task.id),
+  );
   const workspaceSkills = listWorkspaceSkillsCached(workspaceId);
   const workspaceSkillById = new Map(workspaceSkills.map((skill) => [skill.id, skill]));
   const skillIdsByAgentId = listEmployeeSkillIdsByAgentIdMapSync(workspaceId);
@@ -1998,6 +2001,13 @@ export function getChannelsPageData(
   for (const [index, message] of (state.messages ?? []).entries()) {
     const channelName = message.channel;
     if (!channelName) {
+      continue;
+    }
+    if (
+      message.code === "approval.created"
+      && message.data?.source_id
+      && cancelledTaskIds.has(message.data.source_id)
+    ) {
       continue;
     }
     const messages = messagesByChannelName.get(channelName) ?? [];
@@ -3875,6 +3885,14 @@ function buildWorkspaceAgentRecord(
     : undefined;
   const runtime = binding?.runtimeId ? runtimeIndex.get(binding.runtimeId) : undefined;
   const runtimeOnline = runtime ? runtime.status === "linked" : undefined;
+  const runtimeCapabilities = runtime
+    ? [
+        "dofe-agent-output",
+        ...runtime.installedApps
+          .filter((app) => app.enabled && app.entryPoint?.trim())
+          .map((app) => `clihub:${app.source}:${app.name}`),
+      ]
+    : undefined;
   const skillRequirements = Object.fromEntries(assignedSkills.map((skill) => [
     skill.id,
     readAgentSkillRequirementSummarySync({
@@ -3882,6 +3900,7 @@ function buildWorkspaceAgentRecord(
       employeeName: employee.name,
       skillId: skill.id,
       runtimeProvider,
+      runtimeCapabilities,
       runtimeOnline,
     }),
   ]));

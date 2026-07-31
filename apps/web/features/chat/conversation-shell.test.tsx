@@ -622,10 +622,55 @@ describe("ConversationShell", () => {
     expect(screen.getByText("/resume")).toBeInTheDocument();
     expect(screen.getByText("/plan")).toBeInTheDocument();
     await user.keyboard("{ArrowDown}{Enter}");
-    expect(composer).toHaveValue("/resume ");
+    expect(composer).toHaveValue("");
+    expect(screen.getByText("当前运行时会话会在下一条消息中自动续接。")).toBeInTheDocument();
   });
 
-  it("targets the active employee when resuming from a group conversation", async () => {
+  it("handles /model as a local command instead of sending it as message context", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => {});
+    const onOpenModelSelector = vi.fn();
+
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          composerRuntime={{ employeeId: "Atlas", employeeLabel: "Atlas", provider: "claude" }}
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={onSubmit}
+          onOpenModelSelector={onOpenModelSelector}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    const composer = screen.getByRole("textbox");
+    await user.type(composer, "/model");
+    await user.keyboard("{Enter}{Enter}");
+
+    expect(composer).toHaveValue("");
+    expect(onOpenModelSelector).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.type(composer, "/model");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "发送消息" }));
+    expect(composer).toHaveValue("");
+    expect(onOpenModelSelector).toHaveBeenCalledTimes(2);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("handles resume locally in a group conversation", async () => {
     const user = userEvent.setup();
 
     render(
@@ -653,7 +698,8 @@ describe("ConversationShell", () => {
     const composer = screen.getByRole("textbox");
     await user.type(composer, "/res");
     await user.keyboard("{Enter}");
-    expect(composer).toHaveValue("/resume @Atlas ");
+    expect(composer).toHaveValue("");
+    expect(screen.getByText("当前运行时会话会在下一条消息中自动续接。")).toBeInTheDocument();
   });
 
   it("opens the unified references and attachments menu from the plus button", async () => {

@@ -11,7 +11,9 @@ import {
   readAgentRouterSessionSync,
 } from "@dofe-agent/db";
 import { createEmployeeSync } from "../employees/employees.ts";
-import { createChannelSync } from "../channels/channels.ts";
+import { createChannelSync, ensureDirectChannelRecord } from "../channels/channels.ts";
+import { upsertConversationExecutionWorkspaceState } from "../shared/conversation-execution-workspaces.ts";
+import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { setSessionModelOverrideForChatCommandSync } from "./model-override.ts";
 
 const originalCwd = process.cwd();
@@ -132,6 +134,35 @@ test("clears session model override for a direct contact", () => {
   const session = readAgentRouterSessionSync(second.routerSessionId);
   assert.ok(session);
   assert.equal(session!.modelOverride, undefined);
+});
+
+test("repairs a stale direct-chat router session before setting a model override", () => {
+  const state = ensureWorkspaceStateSync(WORKSPACE_ID);
+  const directChannel = ensureDirectChannelRecord(state, {
+    humanMemberName: OWNER,
+    employeeName: EMPLOYEE_NAME,
+  });
+  upsertConversationExecutionWorkspaceState(state, {
+    channelName: directChannel.name,
+    agentId: EMPLOYEE_NAME,
+    contactId: EMPLOYEE_NAME,
+    humanMemberName: OWNER,
+    sessionId: "missing-router-session",
+  });
+  writeWorkspaceStateSync(state, WORKSPACE_ID);
+
+  const result = setSessionModelOverrideForChatCommandSync({
+    workspaceId: WORKSPACE_ID,
+    contactId: EMPLOYEE_NAME,
+    humanMemberName: OWNER,
+    content: "",
+    modelId: "claude-opus",
+  });
+
+  assert.notEqual(result.routerSessionId, "missing-router-session");
+  const session = readAgentRouterSessionSync(result.routerSessionId);
+  assert.ok(session);
+  assert.equal(session!.modelOverride, "claude-opus");
 });
 
 test("group channel requires exactly one agent mention", () => {

@@ -463,6 +463,7 @@ export function prepareDaemonTaskContext(input: {
     agentName,
     agentSkills,
     input.runtime.provider,
+    buildRuntimeCapabilityIds(runtimeApps),
   );
   const knowledgeContextDir = materializeAgentKnowledgePages(agentKnowledgePages, input.workDir);
   const channelDocumentsContextDir =
@@ -1144,7 +1145,6 @@ export function collectSkillReadinessBlockers(
     return [];
   }
   const blockers: string[] = [];
-  const availableCapabilities = availableCapabilityIds ? new Set(availableCapabilityIds) : undefined;
   for (const skill of agentSkills) {
     if (skill.sourceType === "builtin") {
       continue;
@@ -1154,22 +1154,22 @@ export function collectSkillReadinessBlockers(
       employeeName: agentName,
       skillId: skill.id,
       runtimeProvider,
+      runtimeCapabilities: availableCapabilityIds,
     });
-    if (summary.requiredCount === 0 && !(availableCapabilities && summary.requiredCapabilities?.length)) {
-      continue;
-    }
     for (const blocker of summary.blockers) {
       blockers.push(`"${skill.name}": ${blocker}`);
     }
-    if (availableCapabilities && summary.requiredCapabilities) {
-      for (const capability of summary.requiredCapabilities) {
-        if (!availableCapabilities.has(capability)) {
-          blockers.push(`"${skill.name}": required capability ${capability} is not available on the bound runtime.`);
-        }
-      }
-    }
   }
   return blockers;
+}
+
+function buildRuntimeCapabilityIds(runtimeApps: RuntimeAppContextEntry[]): string[] {
+  return [
+    "dofe-agent-output",
+    ...runtimeApps
+      .filter((app) => app.entryPoint?.trim())
+      .map((app) => `clihub:${app.source}:${app.name}`),
+  ];
 }
 
 export function resolveAgentSkillEnvironment(

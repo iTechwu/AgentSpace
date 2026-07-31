@@ -231,6 +231,12 @@ export function getSkillRequirementBlockers(input: {
   configJson: string | undefined;
   runtimeProvider?: DaemonProvider;
   /**
+   * Capability ids the bound runtime actually exposes. When supplied, declared
+   * `capability:` requirements are validated against this catalog instead of only
+   * checking that they were confirmed in the setup form.
+   */
+  runtimeCapabilities?: readonly string[];
+  /**
    * Keys whose encrypted values are present in the encrypted store. Used to tell
    * whether a sensitive config key is configured, since its value is not held in
    * plaintext `values`. Declared `secret:` keys are always handled by the caller
@@ -261,6 +267,8 @@ export function getSkillRequirementBlockers(input: {
   for (const requirement of requirements.filter((item) => item.kind === "capability")) {
     if (!configuration.capabilities.includes(requirement.value)) {
       blockers.push(`Confirm model capability ${requirement.value} in the skill setup.`);
+    } else if (input.runtimeCapabilities && !runtimeHasCapability(input.runtimeCapabilities, requirement.value)) {
+      blockers.push(`Runtime does not support capability ${requirement.value}.`);
     }
   }
   for (const requirement of requirements.filter((item) => item.kind === "config")) {
@@ -393,6 +401,15 @@ function isSafeValue(value: string): boolean {
 
 function isSafeProjectWorkDir(value: string): boolean {
   return value.length > 0 && value.length <= 1024 && !/[\u0000-\u001f]/.test(value);
+}
+
+function runtimeHasCapability(runtimeCapabilities: readonly string[], required: string): boolean {
+  if (runtimeCapabilities.includes(required)) {
+    return true;
+  }
+  // Allow declaring just the app name (e.g. "ffmpeg") to match a CLI Hub id
+  // such as "clihub:homebrew:ffmpeg".
+  return runtimeCapabilities.some((id) => id.endsWith(`:${required}`));
 }
 
 function stripYamlScalar(value: string): string {
