@@ -34,17 +34,17 @@
     "node": ">=20.20.0"
   },
   "scripts": {
-    "pretypes": "npm --prefix ../domain run types && npm --prefix ../db run types && npm --prefix ../services run types && ../../apps/web/node_modules/.bin/tsc -p ../sandbox/tsconfig.types.json --incremental false",
+    "pretypes": "pnpm --dir ../domain run types && pnpm --dir ../db run types && pnpm --dir ../services run types && ../../apps/web/node_modules/.bin/tsc -p ../sandbox/tsconfig.types.json --incremental false",
     "types": "../../apps/web/node_modules/.bin/tsc -p tsconfig.types.json --incremental false",
     "build": "node ./scripts/build.mjs",
-    "prepack": "npm run types && npm run build",
+    "prepack": "pnpm run types && pnpm run build",
     "dofe-agent-daemon": "node ./bin/dofe-agent-daemon.js"
   },
   "dependencies": {
-    "@dofe-agent/db": "file:../db",
-    "@dofe-agent/domain": "file:../domain",
-    "@dofe-agent/sandbox": "file:../sandbox",
-    "@dofe-agent/services": "file:../services"
+    "@dofe-agent/db": "workspace:*",
+    "@dofe-agent/domain": "workspace:*",
+    "@dofe-agent/sandbox": "workspace:*",
+    "@dofe-agent/services": "workspace:*"
   },
   "devDependencies": {
     "esbuild": "^0.27.7"

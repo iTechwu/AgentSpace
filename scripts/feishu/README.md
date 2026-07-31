@@ -5,7 +5,7 @@ This folder is an isolated throwaway smoke harness for Feishu OpenAPI evidence. 
 Run dry-run checks without credentials:
 
 ```bash
-npm run smoke:feishu
+pnpm run smoke:feishu
 ```
 
 Dry-run mode does not call Feishu. It validates SDK import/construction, local event dispatch, challenge response, and DofeAgent request builders for IM, Docs, Sheets, and Base/Bitable. Its JSON summary marks live checks as skipped and `strictLiveSatisfied=false`; only `--live --strict-live` can produce live smoke evidence.
@@ -15,7 +15,7 @@ Run DofeAgent-side Feishu integration tests with `DOFE_AGENT_TEST_DATABASE_URL` 
 Generate the DofeAgent-side live smoke plan before filling credentials:
 
 ```bash
-npm run cli -- integrations feishu smoke-plan --workspace-id default --app-url https://dofe-agent.example.com
+pnpm run cli -- integrations feishu smoke-plan --workspace-id default --app-url https://dofe-agent.example.com
 ```
 
 The smoke plan checks local DofeAgent readiness first, then prints readable blockers, next actions, and the key Feishu Open Platform / smoke / evidence commands. Append `--json` when automation needs the full machine-readable `appSetup`, final `evidenceGates`, env template path, strict live smoke command, and redacted evidence path. `appSetup` includes the DofeAgent callback URL status, required events, bot scopes, and Docs/Sheets/Base scopes without external chat/user/resource tokens. OpenAPI strict-live evidence and bot-added payload evidence are final-gate artifacts only for 24 hours after their `generatedAt`; bot-added payload verification also requires the Feishu callback `create_time` / `createTime` itself to be within 24 hours, so regenerate from a fresh bot-added callback if final DofeAgent evidence will run later. The final DofeAgent evidence gate also only counts local DB evidence rows from the last 24 hours, and `evidenceGates` includes `fresh_24h_dofe-agent_local_evidence_rows` as a reminder to rerun the native bot, guest-policy, data-plane, worker, and failure smoke steps if those local rows are older. Disabled or archived Feishu bot bindings are treated as unavailable for live smoke setup and final evidence, even if they still have historical local evidence.
@@ -115,18 +115,18 @@ Run live checks against a Feishu/Lark self-built app:
 
 ```bash
 dofe-agent integrations feishu smoke-env --workspace-id default --integration feishu-1 --app-url https://dofe-agent.example.com > scripts/feishu/.env
-npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native
-npm run smoke:feishu -- --env-file scripts/feishu/.env --live
+pnpm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native
+pnpm run smoke:feishu -- --env-file scripts/feishu/.env --live
 ```
 
 `smoke-env` fills the DofeAgent callback URL from the workspace/integration id, emits the saved optional tenant key when present, and leaves app secrets, verification token, optional second-agent bot credentials, chat ids, and resource tokens as placeholders. If you prepare `scripts/feishu/.env` by hand, only uncomment `FEISHU_TENANT_KEY` when the same tenant key is saved on the DofeAgent integration. `--check-env` performs a no-network readiness check for the strict live smoke env and exits non-zero until required app, DofeAgent Feishu callback route, IM, Docs, Sheets, and Base values are present, well formed, and no longer template placeholders such as `CHANGE_ME_*`, `REPLACE_ME_*`, `xxx`, or `example.com`. The JSON output also includes `todo120NativeSmoke`, which reports whether `FEISHU_SECOND_AGENT_APP_ID` and `FEISHU_SECOND_AGENT_APP_SECRET` are configured for TODO120's required two-bot native multi-agent smoke; final Phase 6 evidence requires the strict-live artifact to include `todo120NativeSmoke.requiredForCommand=true` and `ready=true`. The callback URL must point at `/api/integrations/feishu/events` with `workspaceId` and `integrationId` query values. Non-strict live mode can skip checks whose credentials or resource tokens are missing; `--live --strict-live` fails before network calls unless every required env is ready. A complete live run needs the DofeAgent callback URL, verification token, a bot chat id, plus authorized Docx, Sheet, and Base/Bitable resources. The Docx append check mutates a disposable parent block configured by `FEISHU_SMOKE_DOC_PARENT_BLOCK_ID` and `FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON`.
 
-For TODO120 Phase 6, add `--require-todo120-native` to `--check-env` and strict live commands. With that flag, missing or placeholder second-agent bot env fails before any Feishu network call, and `FEISHU_SECOND_AGENT_APP_ID` / `FEISHU_SECOND_AGENT_APP_SECRET` must differ from the primary app credentials. The evidence artifact stores only safe TODO120 readiness booleans/counts plus app/tenant hashes, and both `npm run smoke:feishu -- --verify-evidence ...` and `dofe-agent integrations feishu evidence --require all --openapi-evidence ...` reject artifacts that were not generated with TODO120 native smoke required, do not match the scoped DofeAgent Feishu integration, or contain a tenant hash when the scoped integration has no saved tenant key. This prevents a single-bot, unrelated-app, or unbound-tenant OpenAPI smoke from being mistaken for native multi-agent completion.
+For TODO120 Phase 6, add `--require-todo120-native` to `--check-env` and strict live commands. With that flag, missing or placeholder second-agent bot env fails before any Feishu network call, and `FEISHU_SECOND_AGENT_APP_ID` / `FEISHU_SECOND_AGENT_APP_SECRET` must differ from the primary app credentials. The evidence artifact stores only safe TODO120 readiness booleans/counts plus app/tenant hashes, and both `pnpm run smoke:feishu -- --verify-evidence ...` and `dofe-agent integrations feishu evidence --require all --openapi-evidence ...` reject artifacts that were not generated with TODO120 native smoke required, do not match the scoped DofeAgent Feishu integration, or contain a tenant hash when the scoped integration has no saved tenant key. This prevents a single-bot, unrelated-app, or unbound-tenant OpenAPI smoke from being mistaken for native multi-agent completion.
 
 When collecting real bot-added callback samples from disposable Feishu tenant/apps, verify the payload shape offline before treating it as Phase 6 evidence:
 
 ```bash
-npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json
+pnpm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json
 ```
 
 The verifier does not call Feishu or DofeAgent. It reuses DofeAgent's bot-added event detector and chat descriptor resolver, then prints and writes only event type, field source, redacted chat/event references, app/tenant hashes, payload hashes, lengths, and booleans. The safe artifact at `runtime-output/feishu-smoke/bot-added-payload-evidence.json` is consumed by the final DofeAgent `--require all` evidence gate, which matches the artifact's app hash and configured tenant hash back to the scoped DofeAgent Feishu integration; if the scoped integration has no saved tenant key, an artifact that carries a tenant hash is rejected as unbound to DofeAgent. `smoke-plan` includes this command as the `verify_real_bot_added_payload_sample` checklist step, and Settings / Agent Settings show the same command in the setup guide. It exits non-zero if the sample is not recognized as `im.chat.member.bot.added_v1` or if no chat descriptor can be resolved, and failed verification does not overwrite an existing bot-added payload evidence artifact. Do not commit the raw callback file; keep it under `runtime-output/` or another local scratch path.
@@ -138,7 +138,7 @@ Malformed env files or JSON env values return structured `{"ok":false,"errorCode
 Use the strict gate when you want the command itself to prove the isolated OpenAPI live smoke is complete:
 
 ```bash
-npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --require-todo120-native
+pnpm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --require-todo120-native
 ```
 
 `--strict-live` exits non-zero if any live check is skipped or failed. `--env-file` fills missing process env values from a local `KEY=value` file; shell env values still win. Before any live network call, the harness rejects invalid, placeholder, or missing required values and tells you to rerun `--check-env`, so `CHANGE_ME_*` templates and incomplete strict-live env files are not sent to Feishu. `--json` adds a machine-readable summary with missing env names, live coverage, and which checks write external data.
@@ -146,7 +146,7 @@ npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --re
 Write a safe evidence artifact for PRs or Feishu evidence verification. Evidence output is strict-live-success only: `--evidence` refuses dry-run commands and non-strict live runs, and a failed strict-live run prints diagnostics without writing the target file, so an existing live artifact is not overwritten by a local request-shape check or failed partial smoke. Before writing, the harness runs the same redaction and coverage verifier used by `--verify-evidence`; if the generated output contains unsafe callback URLs, raw Feishu identifiers, token-like text, or incomplete coverage, it fails with issue codes and writes nothing.
 
 ```bash
-npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --require-todo120-native
+pnpm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --require-todo120-native
 ```
 
 The evidence file uses the same redacted schema as `--json`: request paths are tokenized, request bodies only list top-level keys, response data is summarized by code/message/data keys, and the callback probe records only the DofeAgent callback route plus a short route fingerprint instead of the full callback URL.
@@ -154,7 +154,7 @@ The evidence file uses the same redacted schema as `--json`: request paths are t
 Verify an existing evidence artifact before using it in the final DofeAgent evidence gate:
 
 ```bash
-npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json
+pnpm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json
 ```
 
 The verifier checks that the artifact came from a strict live run, every required DofeAgent callback, IM, Docs, Sheets, and Base live check passed, the callback step includes a safe DofeAgent route proof, the app identity is represented only by hashes, Docs/Sheets/Base write checks are marked destructive, request paths still use token placeholders, and step details do not contain raw Feishu ids, resource tokens, Sheets ranges, callback URLs, or secrets.

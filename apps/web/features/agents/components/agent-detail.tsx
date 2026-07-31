@@ -21,7 +21,10 @@ import {
 import type { AgentsPageData, RouterExecutionView, WorkspaceAgentRecord } from "@/features/dashboard/data";
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 
+export type AgentDetailTab = "instructions" | "skills" | "knowledge" | "documents" | "workspaces" | "settings";
+
 interface AgentDetailProps {
+  readonly activeTab?: AgentDetailTab;
   readonly containerOptions: AgentsPageData["containerOptions"];
   readonly pending: boolean;
   readonly providerVerificationPending?: boolean;
@@ -56,9 +59,11 @@ interface AgentDetailProps {
   readonly onStartConversation?: () => void;
   readonly onCreateKnowledge?: () => void;
   readonly onOpenDocumentWorkspace?: () => void;
+  readonly onActiveTabChange?: (tab: AgentDetailTab) => void;
 }
 
 export function AgentDetail({
+  activeTab: controlledActiveTab,
   containerOptions,
   pending,
   providerVerificationPending = false,
@@ -81,9 +86,10 @@ export function AgentDetail({
   onStartConversation,
   onCreateKnowledge,
   onOpenDocumentWorkspace,
+  onActiveTabChange,
 }: AgentDetailProps) {
   const { tx } = useLanguage();
-  const [activeTab, setActiveTab] = useState<"instructions" | "skills" | "knowledge" | "documents" | "workspaces" | "settings">("instructions");
+  const [uncontrolledActiveTab, setUncontrolledActiveTab] = useState<AgentDetailTab>("instructions");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showSkillPicker, setShowSkillPicker] = useState(false);
   const [skillToInstall, setSkillToInstall] = useState<WorkspaceSkill | null>(null);
@@ -100,6 +106,14 @@ export function AgentDetail({
     recordId: record.id,
     runtimeId: record.boundContainerId ?? "",
   });
+  const activeTab = controlledActiveTab ?? uncontrolledActiveTab;
+
+  function selectTab(tab: AgentDetailTab): void {
+    if (controlledActiveTab === undefined) {
+      setUncontrolledActiveTab(tab);
+    }
+    onActiveTabChange?.(tab);
+  }
 
   useEffect(() => {
     setInstructionDraft(record.instructions ?? "");
@@ -222,7 +236,7 @@ export function AgentDetail({
               aria-label={tab.label}
               className={`agent-tab${activeTab === tab.key ? " agent-tab--active" : ""}`}
               key={tab.key}
-              onClick={() => setActiveTab(tab.key as typeof activeTab)}
+              onClick={() => selectTab(tab.key as AgentDetailTab)}
               type="button"
             >
               <span>{tab.label}</span>
@@ -609,7 +623,7 @@ export function AgentDetail({
                           : tx("请先为该 AI员工 绑定可用的执行引擎。", "Bind an available execution engine for this AI employee first.")}
                       </p>
                     </div>
-                    <button className="action-button" onClick={() => setActiveTab("settings")} type="button">
+                    <button className="action-button" onClick={() => selectTab("settings")} type="button">
                       <AppIcon name="settings" />
                       {record.boundContainerId ? tx("查看设置", "View settings") : tx("配置执行引擎", "Configure engine")}
                     </button>

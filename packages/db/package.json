@@ -27,7 +27,7 @@
     "postgres:cutover-plan": "node --experimental-strip-types ./src/postgres-cli.ts cutover-plan"
   },
   "dependencies": {
-    "@dofe-agent/domain": "file:../domain",
+    "@dofe-agent/domain": "workspace:*",
     "pg": "^8.20.0"
   },
   "devDependencies": {

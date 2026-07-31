@@ -96,7 +96,7 @@ test("install script readiness hook warns but passes when bwrap does not support
 test("install script prints installed daemon version in bootstrap summary", () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-install-version-"));
   const packagePath = join(tempRoot, "dofe-agent-daemon-test.tgz");
-  const npmDir = join(tempRoot, "npm-bin");
+  const pnpmDir = join(tempRoot, "pnpm-bin");
   const providerBinDir = join(tempRoot, "provider-bin");
   const baseDir = join(tempRoot, "state");
   const installRoot = join(baseDir, "runtime");
@@ -104,16 +104,16 @@ test("install script prints installed daemon version in bootstrap summary", () =
   const launcherPath = join(baseDir, "start-daemon.sh");
 
   try {
-    mkdirSync(npmDir, { recursive: true });
+    mkdirSync(pnpmDir, { recursive: true });
     mkdirSync(providerBinDir, { recursive: true });
     writeFileSync(packagePath, "not-a-real-tarball", "utf8");
     writeDofeAgentOutput(providerBinDir);
     writeCompatibleBwrap(providerBinDir);
-    writeExecutable(npmDir, "npm", [
+    writeExecutable(pnpmDir, "pnpm", [
       "#!/bin/sh",
       "prefix=''",
       "while [ $# -gt 0 ]; do",
-      "  if [ \"$1\" = \"--prefix\" ]; then",
+      "  if [ \"$1\" = \"--global-dir\" ]; then",
       "    prefix=\"$2\"",
       "    shift 2",
       "    continue",
@@ -141,7 +141,7 @@ test("install script prints installed daemon version in bootstrap summary", () =
     ].join("\n"));
     // Match BSD install: it does not support GNU's -D flag. The installer
     // already creates parent directories, so plain install must be enough.
-    writeExecutable(npmDir, "install", [
+    writeExecutable(pnpmDir, "install", [
       "#!/bin/sh",
       "if [ \"$1\" = \"-D\" ]; then exit 64; fi",
       "mode=''",
@@ -166,7 +166,7 @@ test("install script prints installed daemon version in bootstrap summary", () =
     ], {
       env: {
         ...process.env,
-        PATH: `${npmDir}:${process.env.PATH ?? ""}`,
+        PATH: `${pnpmDir}:${process.env.PATH ?? ""}`,
       },
       encoding: "utf8",
     });
@@ -196,11 +196,11 @@ test("managed-node install requires Docker but not a host provider CLI", () => {
     mkdirSync(toolDir, { recursive: true });
     writeFileSync(packagePath, "not-a-real-tarball", "utf8");
     writeExecutable(toolDir, "docker", "#!/bin/sh\nexit 0\n");
-    writeExecutable(toolDir, "npm", [
+    writeExecutable(toolDir, "pnpm", [
       "#!/bin/sh",
       "prefix=''",
       "while [ $# -gt 0 ]; do",
-      "  if [ \"$1\" = \"--prefix\" ]; then prefix=\"$2\"; shift 2; continue; fi",
+      "  if [ \"$1\" = \"--global-dir\" ]; then prefix=\"$2\"; shift 2; continue; fi",
       "  shift",
       "done",
       "mkdir -p \"$prefix/bin\"",
@@ -239,7 +239,7 @@ test("managed-node install requires Docker but not a host provider CLI", () => {
 test("install script update-existing reinstalls into the existing daemon binary root", () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-install-update-root-"));
   const packagePath = join(tempRoot, "dofe-agent-daemon-test.tgz");
-  const npmDir = join(tempRoot, "npm-bin");
+  const pnpmDir = join(tempRoot, "pnpm-bin");
   const providerBinDir = join(tempRoot, "provider-bin");
   const baseDir = join(tempRoot, "state");
   const existingRoot = join(tempRoot, "existing-runtime");
@@ -248,7 +248,7 @@ test("install script update-existing reinstalls into the existing daemon binary 
   const launcherPath = join(baseDir, "start-daemon.sh");
 
   try {
-    mkdirSync(npmDir, { recursive: true });
+    mkdirSync(pnpmDir, { recursive: true });
     mkdirSync(providerBinDir, { recursive: true });
     mkdirSync(join(existingRoot, "bin"), { recursive: true });
     mkdirSync(baseDir, { recursive: true });
@@ -271,18 +271,18 @@ test("install script update-existing reinstalls into the existing daemon binary 
       `DOFE_AGENT_DAEMON_BIN=${shellQuote(join(existingRoot, "bin", "dofe-agent-daemon"))}`,
       "",
     ].join("\n"), "utf8");
-    writeExecutable(npmDir, "npm", [
+    writeExecutable(pnpmDir, "pnpm", [
       "#!/bin/sh",
       "prefix=''",
       "while [ $# -gt 0 ]; do",
-      "  if [ \"$1\" = \"--prefix\" ]; then",
+      "  if [ \"$1\" = \"--global-dir\" ]; then",
       "    prefix=\"$2\"",
       "    shift 2",
       "    continue",
       "  fi",
       "  shift",
       "done",
-      "printf '%s\\n' \"$prefix\" > " + shellQuote(join(tempRoot, "npm-prefix.txt")),
+      "printf '%s\\n' \"$prefix\" > " + shellQuote(join(tempRoot, "pnpm-global-dir.txt")),
       "mkdir -p \"$prefix/bin\"",
       "cat > \"$prefix/bin/dofe-agent-daemon\" <<'DAEMON'",
       "#!/bin/sh",
@@ -315,13 +315,13 @@ test("install script update-existing reinstalls into the existing daemon binary 
     ], {
       env: {
         ...process.env,
-        PATH: `${npmDir}:${process.env.PATH ?? ""}`,
+        PATH: `${pnpmDir}:${process.env.PATH ?? ""}`,
       },
       encoding: "utf8",
     });
 
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(readText(join(tempRoot, "npm-prefix.txt")).trim(), existingRoot);
+    assert.equal(readText(join(tempRoot, "pnpm-global-dir.txt")).trim(), existingRoot);
     assert.equal(exists(defaultRoot), false);
     const updatedEnv = readText(envFile);
     assert.match(updatedEnv, new RegExp(`DOFE_AGENT_DAEMON_INSTALL_ROOT=${escapeRegExp(existingRoot)}`));

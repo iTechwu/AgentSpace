@@ -456,7 +456,8 @@ describe("WorkspaceFrame", () => {
 
     expect(routerPushMock).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: /绩效看板/ })).toHaveClass("workspace-sidebar__section-link--active");
-    expect(await screen.findByText("正在加载")).toBeInTheDocument();
+    expect(await screen.findByRole("progressbar", { name: "正在加载内容" })).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-page-skeleton")).toHaveAttribute("aria-hidden", "true");
 
     resolveFetch?.(moduleResponse());
 

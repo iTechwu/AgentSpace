@@ -76,7 +76,7 @@ const WORKSPACE_MODULE_PATHS: Record<WorkspaceModuleId, string> = {
 const MODULE_QUERY_KEY_ORDER: Partial<Record<WorkspaceModuleId, string[]>> = {
   im: ["view", "context", "focus", "tab", "doc"],
   contacts: ["view", "focus", "tab", "doc"],
-  agents: ["mode", "create", "focus"],
+  agents: ["mode", "create", "focus", "tab"],
   knowledge: ["view", "page", "document"],
   inbox: ["filter", "focus"],
   settings: ["section"],
@@ -237,6 +237,13 @@ function shouldKeepWorkspaceModuleQueryValue(moduleId: WorkspaceModuleId, key: s
   }
   if (moduleId === "agents" && key === "mode") {
     return value === "agent" || value === "showcase" || value === "container";
+  }
+  if (moduleId === "agents" && key === "tab") {
+    return value === "skills"
+      || value === "knowledge"
+      || value === "documents"
+      || value === "workspaces"
+      || value === "settings";
   }
   if (moduleId === "knowledge" && key === "view") {
     return value === "documents";

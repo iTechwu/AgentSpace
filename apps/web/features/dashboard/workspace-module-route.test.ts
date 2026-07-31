@@ -40,12 +40,13 @@ describe("workspace module route", () => {
       "view=direct&context=contacts&focus=contact%3Aa",
     );
     expect(normalizeWorkspaceModuleQuery("im", "context=unknown&view=direct").toString()).toBe("view=direct");
-    expect(normalizeWorkspaceModuleQuery("agents", "mode=showcase&create=server&focus=agent%3Aops").toString()).toBe(
-      "mode=showcase&create=server&focus=agent%3Aops",
+    expect(normalizeWorkspaceModuleQuery("agents", "mode=showcase&create=server&focus=agent%3Aops&tab=settings").toString()).toBe(
+      "mode=showcase&create=server&focus=agent%3Aops&tab=settings",
     );
     expect(normalizeWorkspaceModuleQuery("agents", "mode=bogus&create=server&focus=agent%3Aops").toString()).toBe(
       "create=server&focus=agent%3Aops",
     );
+    expect(normalizeWorkspaceModuleQuery("agents", "mode=agent&tab=bogus").toString()).toBe("mode=agent");
     expect(normalizeWorkspaceModuleQuery("knowledge", "view=knowledge&page=page-1").toString()).toBe("page=page-1");
     expect(normalizeWorkspaceModuleQuery("inbox", "filter=task&focus=item-1&debug=1").toString()).toBe("filter=task&focus=item-1&debug=1");
     expect(normalizeWorkspaceModuleQuery("inbox", "filter=bogus&focus=item-1").toString()).toBe("focus=item-1");

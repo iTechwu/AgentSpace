@@ -323,17 +323,17 @@ export function InboxPageClient({
                   <div>
                     <h3>{renderInboxTitle(selectedItem, tx)}</h3>
                     <p>{renderInboxSubtitle(selectedItem, tx)}</p>
+                    <span className="inbox-chat-header__context">{renderInboxMeta(selectedItem, tx)}</span>
                   </div>
                 </div>
                 <div className="inbox-chat-header__meta">
                   <span className={`status-chip status-chip--${selectedItem.statusTone}`}>{translateStatusLabel(selectedItem.statusLabel, tx)}</span>
-                  <span className="panel-note">{renderInboxMeta(selectedItem, tx)}</span>
                 </div>
               </header>
 
               {selectedItem.execution ? (
-                <div className="meta-strip inbox-execution-strip">
-                  <span>
+                <section className="inbox-execution-summary" aria-label={tx("执行状态", "Execution status")}>
+                  <span className="inbox-execution-summary__label">
                     {selectedItem.kind === "task"
                       ? tx(`执行状态: ${translateQueueStatus(selectedItem.execution.queueStatus, tx)}`, `Execution: ${translateQueueStatus(selectedItem.execution.queueStatus, tx)}`)
                       : tx(`最近执行: ${translateQueueStatus(selectedItem.execution.queueStatus, tx)}`, `Last execution: ${translateQueueStatus(selectedItem.execution.queueStatus, tx)}`)}
@@ -345,11 +345,13 @@ export function InboxPageClient({
                     <span>{`Provider: ${selectedItem.execution.provider}`}</span>
                   ) : null}
                   {selectedItem.kind === "task" ? <span>Task Messages: {selectedItem.execution.messageCount}</span> : null}
-                </div>
+                </section>
               ) : null}
 
               {selectedItem.execution?.workDir || selectedItem.execution?.sessionId || selectedItem.execution?.router ? (
-                <div className="meta-strip inbox-execution-strip">
+                <details className="inbox-execution-details">
+                  <summary>{tx("查看运行详情", "View run details")}</summary>
+                  <div className="inbox-execution-details__content">
                   {selectedItem.execution.router ? (
                     <span>
                       {tx(
@@ -374,7 +376,8 @@ export function InboxPageClient({
                     </span>
                   ) : null}
                   {selectedItem.execution.workDir ? <span>{renderExecutionWorkArea(selectedItem.execution, tx)}</span> : null}
-                </div>
+                  </div>
+                </details>
               ) : null}
 
               {selectedItem.execution?.errorText ? (
@@ -415,7 +418,8 @@ export function InboxPageClient({
                 )}
               </div>
 
-              <div className="inbox-composer">
+              {selectedItem.kind === "task" || (selectedItem.kind === "notification" && selectedItem.notification) ? (
+                <footer className="inbox-item-actions">
                 {selectedItem.kind === "task" && selectedItem.task ? (
                   <div className="detail-actions">
                     {(["todo", "in_progress", "blocked", "done"] as const).map((status) => (
@@ -460,14 +464,8 @@ export function InboxPageClient({
                     ) : null}
                   </div>
                 ) : null}
-
-                <div className="inbox-composer__box">
-                  <span>{tx(`发送给 ${selectedItem.title}`, `Send to ${selectedItem.title}`)}</span>
-                  <button className="inbox-composer__send" disabled type="button">
-                    {tx("发送", "Send")}
-                  </button>
-                </div>
-              </div>
+                </footer>
+              ) : null}
             </>
           ) : (
             <EmptyState body={tx("中栏还没有任何会话。", "There is no conversation in the main pane yet.")} title={tx("没有选中内容", "Nothing selected")} />
@@ -546,33 +544,18 @@ function ExecutionTimelinePanel({
           {currentEvent ? translateExecutionStatus(currentEvent, tx) : tx("未开始", "Not started")}
         </span>
       </div>
-      <div className="filter-row execution-timeline-filter-row">
-        {timelineFilterLabels.map((item) => (
-          <button
-            className={`filter-pill${filter === item.key ? " filter-pill--active" : ""}`}
-            key={item.key}
-            onClick={() => onFilterChange(item.key)}
-            type="button"
-          >
-            {tx(item.zh, item.en)}
-          </button>
-        ))}
-      </div>
-      {execution.router ? (
-        <div className="meta-strip inbox-execution-strip">
-          <span>{`Router: ${execution.router.routerSessionId}`}</span>
-          <span>{tx(`尝试: ${execution.router.attempts.length}`, `Attempts: ${execution.router.attempts.length}`)}</span>
-          <span>{translateContinuationMode(execution.router.continuationMode, tx)}</span>
-          {execution.router.providerSessions.length > 0 ? (
-            <span>
-              {tx(
-                `Provider sessions: ${execution.router.providerSessions.map((session) => `${session.provider}/${session.status}`).join(", ")}`,
-                `Provider sessions: ${execution.router.providerSessions.map((session) => `${session.provider}/${session.status}`).join(", ")}`,
-              )}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
+      <label className="execution-timeline-filter">
+        <span>{tx("筛选", "Filter")}</span>
+        <select
+          aria-label={tx("筛选执行事件", "Filter execution events")}
+          onChange={(event) => onFilterChange(event.target.value as TimelineFilterKey)}
+          value={filter}
+        >
+          {timelineFilterLabels.map((item) => (
+            <option key={item.key} value={item.key}>{tx(item.zh, item.en)}</option>
+          ))}
+        </select>
+      </label>
       <ol className="execution-timeline-list">
         {filteredEvents.length > 0 ? (
           filteredEvents.map((event) => (

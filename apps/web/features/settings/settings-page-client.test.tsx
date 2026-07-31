@@ -1020,14 +1020,14 @@ describe("SettingsPageClient", () => {
     expect(screen.getByText(
       "dofe-agent integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-1 --json",
     )).toBeInTheDocument();
-    expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native")).toBeInTheDocument();
+    expect(screen.getByText("pnpm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native")).toBeInTheDocument();
     expect(screen.getByText("严格实测")).toBeInTheDocument();
     expect(screen.getByText(
-      "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
+      "pnpm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
     )).toBeInTheDocument();
     expect(screen.getByText("校验 24 小时 OpenAPI 证据")).toBeInTheDocument();
     expect(screen.getByText(
-      "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
+      "pnpm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
     )).toBeInTheDocument();
   });
 
@@ -1093,8 +1093,8 @@ describe("SettingsPageClient", () => {
       dataPlaneReadiness: "dofe-agent integrations feishu readiness --workspace-id workspace-1 --integration feishu-created --strict --require data-plane --json",
       workerReadiness: "dofe-agent integrations feishu readiness --workspace-id workspace-1 --integration feishu-created --strict --require worker --json",
       smokeEnv: "dofe-agent integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-created --app-url https://agent.test > scripts/feishu/.env",
-      strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
-      verifyOpenApiEvidence: "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
+      strictLiveSmoke: "pnpm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
+      verifyOpenApiEvidence: "pnpm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
       smokePlan: "dofe-agent integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-created --app-url https://agent.test",
       evidence: "dofe-agent integrations feishu evidence --workspace-id workspace-1 --integration feishu-created --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
     };
@@ -1178,13 +1178,13 @@ describe("SettingsPageClient", () => {
       "dofe-agent integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-created --app-url https://agent.test > scripts/feishu/.env",
     )).toBeInTheDocument();
     expect(within(checklist).getByText(
-      "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
+      "pnpm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
     )).toBeInTheDocument();
     expect(within(checklist).getByText(
-      "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
+      "pnpm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
     )).toBeInTheDocument();
     expect(within(checklist).getByText(
-      "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
+      "pnpm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
     )).toBeInTheDocument();
     expect(within(checklist).getByText(
       "dofe-agent integrations feishu evidence --workspace-id workspace-1 --integration feishu-created --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
@@ -1876,10 +1876,10 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
         }
         : {}),
       smokeEnv: "dofe-agent integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test > scripts/feishu/.env",
-      checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
-      strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
-      verifyOpenApiEvidence: "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
-      verifyBotAddedPayload: "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
+      checkEnv: "pnpm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
+      strictLiveSmoke: "pnpm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
+      verifyOpenApiEvidence: "pnpm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
+      verifyBotAddedPayload: "pnpm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
       smokePlan: "dofe-agent integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-1 --app-url https://agent.test",
       evidence: "dofe-agent integrations feishu evidence --workspace-id workspace-1 --integration feishu-1 --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
     },

@@ -255,6 +255,8 @@ export interface DaemonTaskInputBundle {
     taskTriggerType: string;
     channelName?: string;
     contactId?: string;
+    skillEnv?: Record<string, string>;
+    skillEnvConflicts?: string[];
     effectiveModel?: {
       modelId: string;
       source: "session_override" | "employee_default" | "runtime_default" | "team_policy_default" | "protocol_fallback";

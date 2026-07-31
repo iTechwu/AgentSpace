@@ -8638,7 +8638,7 @@ function buildFeishuOpenApiEvidenceRemediationSteps(input: {
     issues: uniqueStrings([...input.issues]),
     command: harness
       ? `${harness.strictLiveCommand}\n${harness.verifyEvidenceCommand}`
-    : "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native\nnpm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
+    : "pnpm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native\npnpm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
   }];
 }
 
@@ -8855,7 +8855,7 @@ function buildFeishuBotAddedPayloadEvidenceRemediationSteps(input: {
     issues: uniqueStrings([...input.issues]),
     command: harness
       ? harness.verifyBotAddedPayloadCommand
-      : "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
+      : "pnpm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
   }];
 }
 
@@ -9994,10 +9994,10 @@ function buildFeishuSmokeHarnessSummary(input: {
     destructiveLiveChecks: FEISHU_OPENAPI_REQUIRED_DESTRUCTIVE_LIVE_SMOKE_STEPS.length,
     destructiveLiveStepNames: [...FEISHU_OPENAPI_REQUIRED_DESTRUCTIVE_LIVE_SMOKE_STEPS],
     prepareEnvCommand: `dofe-agent integrations feishu smoke-env --workspace-id ${input.workspaceId}${integrationFlag} --app-url ${appUrlFlag} > ${envFilePath}`,
-    checkEnvCommand: `npm run smoke:feishu -- --env-file ${envFilePath} --check-env --json --require-todo120-native`,
-    strictLiveCommand: `npm run smoke:feishu -- --env-file ${envFilePath} --live --strict-live --evidence ${evidencePath} --json --require-todo120-native`,
-    verifyEvidenceCommand: `npm run smoke:feishu -- --verify-evidence ${evidencePath} --json`,
-    verifyBotAddedPayloadCommand: `npm run smoke:feishu -- --verify-bot-added-payload ${botAddedPayloadPath} --bot-added-payload-evidence ${botAddedPayloadEvidencePath} --json`,
+    checkEnvCommand: `pnpm run smoke:feishu -- --env-file ${envFilePath} --check-env --json --require-todo120-native`,
+    strictLiveCommand: `pnpm run smoke:feishu -- --env-file ${envFilePath} --live --strict-live --evidence ${evidencePath} --json --require-todo120-native`,
+    verifyEvidenceCommand: `pnpm run smoke:feishu -- --verify-evidence ${evidencePath} --json`,
+    verifyBotAddedPayloadCommand: `pnpm run smoke:feishu -- --verify-bot-added-payload ${botAddedPayloadPath} --bot-added-payload-evidence ${botAddedPayloadEvidencePath} --json`,
   };
 }
 
@@ -10589,8 +10589,8 @@ Options:
   bind-channel             Create/update a Feishu chat -> DofeAgent channel binding; output redacts chat id
   bind-user                Create/update a Feishu Open ID -> DofeAgent user binding; output redacts external ids
   bind-resource            Create/update a Feishu Docs/Sheets/Base resource binding; output redacts resource tokens
-  --openapi-evidence <path> Evidence: required for --require all; verifies redacted strict live smoke artifact from npm run smoke:feishu
-  --bot-added-payload-evidence <path> Evidence: required for --require all; verifies redacted bot-added callback payload artifact from npm run smoke:feishu
+  --openapi-evidence <path> Evidence: required for --require all; verifies redacted strict live smoke artifact from pnpm run smoke:feishu
+  --bot-added-payload-evidence <path> Evidence: required for --require all; verifies redacted bot-added callback payload artifact from pnpm run smoke:feishu
   --strict                 Readiness/smoke-plan/evidence: require matching proof; health-check: require all healthy
   --require <kind>         Readiness/smoke-plan gate: bot, data-plane, worker; evidence gate: bot, native, guest-policy, data-plane, worker, failure, all
   --json                   Print machine-readable output`);

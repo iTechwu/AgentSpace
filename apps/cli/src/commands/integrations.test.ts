@@ -324,12 +324,12 @@ test("Feishu create CLI stores encrypted credentials and returns redacted setup 
   assert.match(report.nextCommands.smokePlan, /smoke-plan --workspace-id workspace-1 --integration integration-created --app-url https:\/\/dofe-agent\.example\.com$/);
   assert.doesNotMatch(report.nextCommands.smokePlan, /--json/);
   assert.match(report.nextCommands.smokeEnv, /smoke-env --workspace-id workspace-1 --integration integration-created --app-url https:\/\/dofe-agent\.example\.com > scripts\/feishu\/\.env/);
-  assert.match(report.nextCommands.checkEnv, /npm run smoke:feishu -- --env-file scripts\/feishu\/\.env --check-env --json/);
+  assert.match(report.nextCommands.checkEnv, /pnpm run smoke:feishu -- --env-file scripts\/feishu\/\.env --check-env --json/);
   assert.match(report.nextCommands.checkEnv, /--require-todo120-native/);
-  assert.match(report.nextCommands.strictLiveSmoke, /npm run smoke:feishu -- --env-file scripts\/feishu\/\.env --live --strict-live --evidence runtime-output\/feishu-smoke\/live\.json --json/);
+  assert.match(report.nextCommands.strictLiveSmoke, /pnpm run smoke:feishu -- --env-file scripts\/feishu\/\.env --live --strict-live --evidence runtime-output\/feishu-smoke\/live\.json --json/);
   assert.match(report.nextCommands.strictLiveSmoke, /--require-todo120-native/);
-  assert.match(report.nextCommands.verifyOpenApiEvidence, /npm run smoke:feishu -- --verify-evidence runtime-output\/feishu-smoke\/live\.json --json/);
-  assert.match(report.nextCommands.verifyBotAddedPayload, /npm run smoke:feishu -- --verify-bot-added-payload runtime-output\/feishu-smoke\/bot-added-callback\.json --bot-added-payload-evidence runtime-output\/feishu-smoke\/bot-added-payload-evidence\.json --json/);
+  assert.match(report.nextCommands.verifyOpenApiEvidence, /pnpm run smoke:feishu -- --verify-evidence runtime-output\/feishu-smoke\/live\.json --json/);
+  assert.match(report.nextCommands.verifyBotAddedPayload, /pnpm run smoke:feishu -- --verify-bot-added-payload runtime-output\/feishu-smoke\/bot-added-callback\.json --bot-added-payload-evidence runtime-output\/feishu-smoke\/bot-added-payload-evidence\.json --json/);
   assert.match(report.nextCommands.finalEvidence, /evidence --workspace-id workspace-1 --integration integration-created --openapi-evidence runtime-output\/feishu-smoke\/live\.json --bot-added-payload-evidence runtime-output\/feishu-smoke\/bot-added-payload-evidence\.json --strict --require all$/);
   assert.doesNotMatch(report.nextCommands.finalEvidence, /--json/);
   assert.match(report.nextCommands.bindSecondAgentBot, /bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME/);
@@ -6685,10 +6685,10 @@ test("Feishu agent bot CLI returns redacted JSON for successful bindings", () =>
       agentChannelAccessRestore: "dofe-agent integrations feishu agent-channel-access --workspace-id workspace-1 --agent Codex --access enabled --json",
       channelBindings: "dofe-agent integrations feishu channel-bindings --workspace-id workspace-1 --integration agent-bot-codex --json",
       smokeEnv: "dofe-agent integrations feishu smoke-env --workspace-id workspace-1 --integration agent-bot-codex --app-url CHANGE_ME_PUBLIC_DOFE_AGENT_URL > scripts/feishu/.env",
-      checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
-      strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
-      verifyOpenApiEvidence: "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
-      verifyBotAddedPayload: "npm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
+      checkEnv: "pnpm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
+      strictLiveSmoke: "pnpm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
+      verifyOpenApiEvidence: "pnpm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
+      verifyBotAddedPayload: "pnpm run smoke:feishu -- --verify-bot-added-payload runtime-output/feishu-smoke/bot-added-callback.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --json",
       smokePlan: "dofe-agent integrations feishu smoke-plan --workspace-id workspace-1 --integration agent-bot-codex --app-url CHANGE_ME_PUBLIC_DOFE_AGENT_URL",
       finalEvidence: "dofe-agent integrations feishu evidence --workspace-id workspace-1 --integration agent-bot-codex --openapi-evidence runtime-output/feishu-smoke/live.json --bot-added-payload-evidence runtime-output/feishu-smoke/bot-added-payload-evidence.json --strict --require all",
       bindSecondAgentBot: "dofe-agent integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
@@ -8476,11 +8476,11 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     "https://dofe-agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=integration-ready",
   );
   assert.match(report.smokeHarness.prepareEnvCommand, /--app-url https:\/\/dofe-agent\.test\/root/);
-  assert.match(report.smokeHarness.checkEnvCommand, /npm run smoke:feishu/);
+  assert.match(report.smokeHarness.checkEnvCommand, /pnpm run smoke:feishu/);
   assert.match(report.smokeHarness.checkEnvCommand, /--check-env/);
   assert.match(report.smokeHarness.checkEnvCommand, /--require-todo120-native/);
   assert.match(report.smokeHarness.checkEnvCommand, /--env-file scripts\/feishu\/\.env/);
-  assert.match(report.smokeHarness.strictLiveCommand, /npm run smoke:feishu/);
+  assert.match(report.smokeHarness.strictLiveCommand, /pnpm run smoke:feishu/);
   assert.match(report.smokeHarness.strictLiveCommand, /--strict-live/);
   assert.match(report.smokeHarness.strictLiveCommand, /--evidence runtime-output\/feishu-smoke\/live\.json/);
   assert.match(report.smokeHarness.strictLiveCommand, /--require-todo120-native/);
@@ -8599,7 +8599,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(env?.command ?? "", /--app-url https:\/\/dofe-agent\.test\/root/);
   assert.match(env?.command ?? "", /> scripts\/feishu\/\.env/);
   assert.equal(checkEnv?.status, "pending");
-  assert.match(checkEnv?.command ?? "", /npm run smoke:feishu/);
+  assert.match(checkEnv?.command ?? "", /pnpm run smoke:feishu/);
   assert.match(checkEnv?.command ?? "", /--check-env/);
   assert.match(bindChat?.command ?? "", /integrations feishu bind-channel --workspace-id workspace-1 --integration integration-ready/);
   assert.match(bindChat?.command ?? "", /--channel CHANGE_ME_DOFE_AGENT_CHANNEL --chat-id CHANGE_ME_FEISHU_CHAT_ID/);
@@ -8759,7 +8759,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveBase?.command ?? "", /--approval-agent CHANGE_ME_AGENT_NAME --approval-channel CHANGE_ME_DOFE_AGENT_CHANNEL/);
   assert.match(liveBase?.command ?? "", /review-data-operation --workspace-id workspace-1 --approval-id CHANGE_ME_FEISHU_APPROVAL_ID --decision approved --json/);
   assert.equal(liveHarness?.status, "pending");
-  assert.match(liveHarness?.command ?? "", /npm run smoke:feishu/);
+  assert.match(liveHarness?.command ?? "", /pnpm run smoke:feishu/);
   assert.match(liveHarness?.detail ?? "", /after check-env passes/);
   assert.match(liveHarness?.detail ?? "", /final DofeAgent evidence gate/);
   assert.match(liveHarness?.detail ?? "", /24 hours/);
@@ -9392,7 +9392,7 @@ test("Feishu smoke plan text output summarizes blockers and next commands", () =
   assert.match(output, /command: export DOFE_AGENT_FEISHU_CREDENTIAL_ENCRYPTION_KEY/);
   assert.match(output, /Smoke commands:/);
   assert.match(output, /prepare env: dofe-agent integrations feishu smoke-env --workspace-id workspace-1/);
-  assert.match(output, /check env: npm run smoke:feishu -- --env-file scripts\/feishu\/\.env --check-env --json --require-todo120-native/);
+  assert.match(output, /check env: pnpm run smoke:feishu -- --env-file scripts\/feishu\/\.env --check-env --json --require-todo120-native/);
   assert.match(output, /final DofeAgent evidence: dofe-agent integrations feishu evidence --workspace-id workspace-1/);
   assert.match(output, /Use --json for machine-readable blockers/);
   assert.doesNotMatch(output, /\[object Object\]/);

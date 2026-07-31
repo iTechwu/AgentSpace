@@ -193,15 +193,16 @@ describe("InboxPageClient", () => {
 
     expect(screen.getByRole("button", { name: /旅行计划/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "返回列表" })).not.toBeInTheDocument();
-    expect(screen.queryByText("发送给 旅行计划")).not.toBeInTheDocument();
+    expect(screen.queryByText("查看运行详情")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /旅行计划/i }));
 
     expect(await screen.findByRole("button", { name: "返回列表" })).toBeInTheDocument();
-    expect(screen.getByText("发送给 旅行计划")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "设为待开始" })).toBeInTheDocument();
     expect(screen.getByAltText("preview.png")).toHaveAttribute("src", "/api/attachments/att-image");
     expect(screen.getByRole("link", { name: /summary\.pdf/i })).toHaveAttribute("href", "/api/attachments/att-file");
+    expect(screen.getByText(/远程执行工作区: Build Box 1/)).not.toBeVisible();
+    await user.click(screen.getByText("查看运行详情"));
     expect(screen.getByText(/远程执行工作区: Build Box 1/)).toBeInTheDocument();
     expect(screen.getByText("执行时间线")).toBeInTheDocument();
     expect(screen.getByText(/附件已回收/)).toBeInTheDocument();
@@ -255,12 +256,12 @@ describe("InboxPageClient", () => {
     expect(screen.getByText("建议重试")).toBeInTheDocument();
     expect(screen.getByText("转交")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "工具" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "筛选执行事件" }), "tool");
 
     expect(screen.getByText("bash: npm test")).toBeInTheDocument();
     expect(screen.queryByText(/OpenClaw auth profile/)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "错误" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "筛选执行事件" }), "error");
 
     expect(screen.getByText(/OpenClaw auth profile/)).toBeInTheDocument();
     expect(screen.queryByText("bash: npm test")).not.toBeInTheDocument();

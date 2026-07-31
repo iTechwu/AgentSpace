@@ -30,16 +30,16 @@ export function buildDaemonPackageTarball(): { fileName: string; content: Buffer
 
   const packageDir = getDaemonPackageDirectory();
   const packDestination = join("/tmp", "dofe-agent-daemon-dist");
-  const npmCacheDir = join("/tmp", "dofe-agent-npm-cache");
+  const pnpmStoreDir = join("/tmp", "dofe-agent-pnpm-store");
   mkdirSync(packDestination, { recursive: true });
-  mkdirSync(npmCacheDir, { recursive: true });
+  mkdirSync(pnpmStoreDir, { recursive: true });
 
   const result = spawnSync(
-    "npm",
+    "pnpm",
     ["pack", "--pack-destination", packDestination],
     {
       cwd: packageDir,
-      env: { ...process.env, npm_config_cache: npmCacheDir },
+      env: { ...process.env, pnpm_config_store_dir: pnpmStoreDir },
       encoding: "utf8",
     },
   );
@@ -49,7 +49,7 @@ export function buildDaemonPackageTarball(): { fileName: string; content: Buffer
   }
   if (result.status !== 0) {
     const stderr = `${result.stderr ?? ""}`.trim();
-    throw new Error(stderr || `npm pack failed with exit code ${result.status ?? "unknown"}.`);
+    throw new Error(stderr || `pnpm pack failed with exit code ${result.status ?? "unknown"}.`);
   }
 
   const fileName = `${result.stdout ?? ""}`
@@ -58,7 +58,7 @@ export function buildDaemonPackageTarball(): { fileName: string; content: Buffer
     .filter((line) => line.length > 0)
     .at(-1);
   if (!fileName) {
-    throw new Error("npm pack did not return a tarball filename.");
+    throw new Error("pnpm pack did not return a tarball filename.");
   }
 
   const tarballPath = join(packDestination, fileName);

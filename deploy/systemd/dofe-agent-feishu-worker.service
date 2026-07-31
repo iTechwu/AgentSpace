@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/srv/DofeAgent
-ExecStart=/usr/bin/npm run cli -- integrations feishu worker --workspace-id ${DOFE_AGENT_WORKSPACE_ID}
+ExecStart=/usr/local/bin/pnpm run cli -- integrations feishu worker --workspace-id ${DOFE_AGENT_WORKSPACE_ID}
 Restart=always
 RestartSec=5
 TimeoutStopSec=20

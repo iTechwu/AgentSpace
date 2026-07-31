@@ -156,7 +156,7 @@ test("built library surface exports HttpDaemonClient", async (t) => {
   const builtClientPath = resolve(sourceDir, "../dist/daemon-client.js");
 
   if (!existsSync(builtIndexPath) || !existsSync(builtClientPath)) {
-    t.skip("Run `npm --prefix packages/daemon run build` to verify the built daemon client surface.");
+    t.skip("Run `pnpm --filter dofe-agent-daemon run build` to verify the built daemon client surface.");
     return;
   }
 

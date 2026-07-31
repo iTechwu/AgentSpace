@@ -77,25 +77,29 @@ test("materializeWorkspaceSkillsForProvider falls back to compatibility-only pat
   }
 });
 
-test("materializeWorkspaceSkillsForProvider writes configured requirements without secret values", () => {
+test("materializeWorkspaceSkillsForProvider writes requirement context without config or secret values", () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-skill-injection-"));
   try {
     const skill = createSkill();
     skill.configJson = JSON.stringify({
       requirements: [
         { kind: "project", value: "repository" },
-        { kind: "secret", value: "API_KEY" },
+        { kind: "config", value: "NOTION_DATABASE_ID" },
+        { kind: "secret", value: "NOTION_API_TOKEN" },
       ],
       requirementConfiguration: {
         projectWorkDir: "/workspace/repository",
-        values: {},
+        values: {
+          NOTION_DATABASE_ID: "db-123",
+        },
       },
     });
     const result = materializeWorkspaceSkillsForProvider({ skills: [skill], workDir, provider: "codex" });
     const config = readFileSync(join(result.nativeDir!, "research-pack-123456", "skill.config.json"), "utf8");
     assert.match(config, /\/workspace\/repository/);
     assert.match(config, /credential_center_required/);
-    assert.equal(config.includes("not-stored"), false);
+    assert.equal(config.includes("db-123"), false);
+    assert.equal(config.includes("secret-token"), false);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

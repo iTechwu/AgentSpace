@@ -54,6 +54,7 @@ import { KnowledgePageClient } from "@/features/knowledge/knowledge-page-client"
 import { MarketPageClient, type MarketPageData } from "@/features/market/market-page-client";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { FeedbackBanner } from "@/shared/ui/feedback-banner";
+import { WorkspacePageLoading, WorkspacePageLoadingProgress } from "@/shared/ui/workspace-page-loading";
 import { SettingsPageClient } from "@/features/settings/settings-page-client";
 import type { SettingsPageData } from "@/features/settings/settings-page-loader";
 import { isSettingsDetailSectionId } from "@/features/settings/settings-sections";
@@ -269,6 +270,7 @@ function renderActiveModuleContent({
   if (cachedEntry?.data) {
     return (
       <>
+        {cachedEntry.status === "refreshing" ? <WorkspacePageLoadingProgress label={tx("正在加载内容", "Loading content")} /> : null}
         {cachedEntry.status === "error" ? (
           <FeedbackBanner
             message={tx("模块数据刷新失败，当前显示的是上一次成功加载的内容。", "Module refresh failed. Showing the last successfully loaded content.")}
@@ -300,11 +302,7 @@ function renderActiveModuleContent({
     );
   }
 
-  return (
-    <section className="page-shell" aria-busy="true">
-      <EmptyState title={tx("正在加载", "Loading")} variant="cool" />
-    </section>
-  );
+  return <WorkspacePageLoading loadingLabel={tx("正在加载内容", "Loading content")} moduleId={routeState.moduleId} />;
 }
 
 function renderWorkspaceModuleData(

@@ -121,11 +121,11 @@ export function FeishuAgentBotAgentSettingsPanel({
           </p>
         </div>
         {currentIntegration ? (
-          <span className={`status-chip status-chip--${statusTone(currentIntegration.status)}`}>
+          <span className={`status-chip feishu-agent-settings-panel__status status-chip--${statusTone(currentIntegration.status)}`}>
             {formatIntegrationStatus(currentIntegration.status, tx)}
           </span>
         ) : (
-          <span className="status-chip status-chip--neutral">{tx("未绑定", "Unbound")}</span>
+          <span className="status-chip feishu-agent-settings-panel__status status-chip--neutral">{tx("未绑定", "Unbound")}</span>
         )}
       </div>
 

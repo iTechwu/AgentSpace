@@ -113,6 +113,8 @@ export async function GET(
         taskTriggerType: task.triggerType,
         channelName: prepared.payload.channelName,
         contactId: prepared.payload.contactId,
+        skillEnv: prepared.skillEnv,
+        skillEnvConflicts: prepared.skillEnvConflicts,
         effectiveModel,
         runtimeApps: {
           status: prepared.runtimeApps.length > 0 ? "available" : "none",

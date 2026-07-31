@@ -45,7 +45,7 @@ import { ContainerOverview } from "@/features/agents/components/container-overvi
 import { DaemonManagementPanel } from "@/features/agents/components/daemon-management-panel";
 import { DigitalEmployeeShowcase } from "@/features/agents/components/digital-employee-showcase";
 import { AgentAccessRequestModal } from "@/features/agents/components/agent-access-request-modal";
-import { AgentDetail } from "@/features/agents/components/agent-detail";
+import { AgentDetail, type AgentDetailTab } from "@/features/agents/components/agent-detail";
 import { toneForStatus, translateManagementStatus } from "@/features/agents/lib/translate";
 import { buildWorkspacePath, parseWorkspacePathname } from "@/features/auth/workspace-paths";
 import type { AgentsPageData, WorkspaceAgentForkInvitationView } from "@/features/dashboard/data";
@@ -109,6 +109,16 @@ function resolveFocusedContainerId({
   return fallbackSelection;
 }
 
+function parseAgentDetailTab(value: string | null): AgentDetailTab {
+  return value === "skills"
+    || value === "knowledge"
+    || value === "documents"
+    || value === "workspaces"
+    || value === "settings"
+    ? value
+    : "instructions";
+}
+
 export function AgentsPageClient({
   data,
   moduleSearchParams,
@@ -139,6 +149,7 @@ export function AgentsPageClient({
     : canViewContainers && requestedMode === "container"
       ? "container"
       : "agent";
+  const activeAgentDetailTab = parseAgentDetailTab(searchParams.get("tab"));
   const [selectedContainerId, setSelectedContainerId] = useState<string | null>(
     () => resolveFocusedContainerId({
       canManageRuntimes: data.canManageRuntimes,
@@ -400,10 +411,29 @@ export function AgentsPageClient({
   }
 
   function replaceManagementFocus(focus: string): void {
+    replaceManagementRoute((nextSearch) => {
+      nextSearch.set("focus", focus);
+    });
+  }
+
+  function replaceManagementAgentDetailTab(tab: AgentDetailTab): void {
+    replaceManagementRoute((nextSearch) => {
+      if (selectedAgentId) {
+        nextSearch.set("focus", selectedAgentId);
+      }
+      if (tab === "instructions") {
+        nextSearch.delete("tab");
+      } else {
+        nextSearch.set("tab", tab);
+      }
+    });
+  }
+
+  function replaceManagementRoute(updateSearch: (search: URLSearchParams) => void): void {
     const nextSearch = new URLSearchParams(
       typeof window !== "undefined" ? window.location.search : searchParams.toString(),
     );
-    nextSearch.set("focus", focus);
+    updateSearch(nextSearch);
     const query = nextSearch.toString();
     const nextHref = workspaceHref(`/agents${query ? `?${query}` : ""}`);
 
@@ -761,6 +791,7 @@ export function AgentsPageClient({
               ) : null}
               {selectedAgent ? (
                 <AgentDetail
+                  activeTab={activeAgentDetailTab}
                   containerOptions={data.containerOptions}
                   pending={isPending}
                   providerVerificationPending={Boolean(
@@ -802,6 +833,7 @@ export function AgentsPageClient({
                       () => setSelectedAgentId(null),
                     )
                   }
+                  onActiveTabChange={replaceManagementAgentDetailTab}
                   onStartConversation={() => {
                     const href = workspaceHref(`/im?view=direct&focus=${encodeURIComponent(`contact:${selectedAgent.internalName}`)}`);
                     if (!navigateWorkspaceModule(href)) {

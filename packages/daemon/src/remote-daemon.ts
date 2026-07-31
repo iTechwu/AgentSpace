@@ -799,6 +799,12 @@ async function executeRemoteTask(
 
     const managedProfile = await resolveManagedCredentialProfile(runtime, credentialResolver);
     const managedCredentialEnv = managedProfile?.environment ?? {};
+    if (bundle.metadata.skillEnvConflicts && bundle.metadata.skillEnvConflicts.length > 0) {
+      throw new Error(
+        `Skill environment variable conflicts detected: ${bundle.metadata.skillEnvConflicts.join(", ")}. ` +
+          "Resolve by using the same value across skills or uninstalling conflicting skills.",
+      );
+    }
     const managedCredentialId = typeof runtime.metadata.managedCredentialId === "string"
       ? runtime.metadata.managedCredentialId
       : undefined;
@@ -825,6 +831,7 @@ async function executeRemoteTask(
         modelId: effectiveModelId,
         taskTimeoutMs: config.taskTimeoutMs,
         contextEnv: {
+          ...bundle.metadata.skillEnv,
           ...managedCredentialEnv,
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
           DOFE_AGENT_CONTEXT_AGENT_NAME: readRemoteTaskAgentName(task),

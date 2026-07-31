@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/srv/DofeAgent
-ExecStart=/usr/bin/npm run start:web
+ExecStart=/usr/local/bin/pnpm run start:web
 Restart=always
 RestartSec=5
 TimeoutStopSec=20

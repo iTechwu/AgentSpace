@@ -95,6 +95,7 @@ export type {
 export {
   assertAgentSkillRequirementsReadySync,
   readAgentSkillRequirementConfigurationSync,
+  readAgentSkillRequirementEnvSync,
   upsertAgentSkillRequirementsSync,
 } from "./skills/agent-skill-requirements.ts";
 

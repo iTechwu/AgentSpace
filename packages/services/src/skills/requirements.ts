@@ -225,7 +225,6 @@ export function buildSkillRequirementRuntimeContext(configJson: string | undefin
       modelId: configuration.modelId,
       capabilities: configuration.capabilities,
       projectWorkDir: configuration.projectWorkDir,
-      values: configuration.values,
     },
     credentialRequirements: requirements
       .filter((requirement) => requirement.kind === "secret")

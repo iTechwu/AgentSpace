@@ -777,6 +777,6 @@ test("redactPostgresDatabaseUrl hides passwords and cutover plan references the 
     redactPostgresDatabaseUrl("postgres://agent:secret@example.com:5432/dofe_agent"),
     "postgres://agent:***@example.com:5432/dofe_agent",
   );
-  assert.match(renderPostgresCutoverPlan(), /npm run db:pg:init/);
-  assert.match(renderPostgresCutoverPlan(), /npm run db:pg:migrate/);
+  assert.match(renderPostgresCutoverPlan(), /pnpm run db:pg:init/);
+  assert.match(renderPostgresCutoverPlan(), /pnpm run db:pg:migrate/);
 });

@@ -60,15 +60,15 @@ import { HttpDaemonClient } from "dofe-agent-daemon/daemon-client";
 
 ```bash
 cd packages/daemon
-npm pack
+pnpm pack
 ```
 
-`npm pack` 前会自动构建 `dist/cli.js`，发布产物运行的是编译后的 JS，不再依赖 `node --experimental-strip-types` 去执行 `node_modules` 里的 TypeScript 源码。
+`pnpm pack` 前会自动构建 `dist/cli.js`，发布产物运行的是编译后的 JS，不再依赖 `node --experimental-strip-types` 去执行 `node_modules` 里的 TypeScript 源码。
 
 在远端机器安装：
 
 ```bash
-npm install -g ./dofe-agent-daemon-<version>.tgz
+pnpm add --global ./dofe-agent-daemon-<version>.tgz
 ```
 
 ## 使用

@@ -12,10 +12,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dofe-agent/db": "file:../../packages/db",
-    "@dofe-agent/domain": "file:../../packages/domain",
-    "@dofe-agent/services": "file:../../packages/services",
-    "dofe-agent-daemon": "file:../../packages/daemon"
+    "@dofe-agent/db": "workspace:*",
+    "@dofe-agent/domain": "workspace:*",
+    "@dofe-agent/services": "workspace:*",
+    "dofe-agent-daemon": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",

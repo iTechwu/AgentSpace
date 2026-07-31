@@ -892,6 +892,12 @@ async function executeRemoteQueuedTask(
   try {
     await client.startTask(task.id);
     const bundle = await client.getInputBundle(task.id);
+    if (bundle.metadata.skillEnvConflicts && bundle.metadata.skillEnvConflicts.length > 0) {
+      throw new Error(
+        `Skill environment variable conflicts detected: ${bundle.metadata.skillEnvConflicts.join(", ")}. ` +
+          "Resolve by using the same value across skills or uninstalling conflicting skills.",
+      );
+    }
     materializeInputBundle(workDir, bundle);
 
     const result = await runProviderTask(
@@ -901,6 +907,7 @@ async function executeRemoteQueuedTask(
       {
         sessionId: (bundle.metadata.routerSession?.providerSessionId ?? payload.channelSessionId?.trim()) || undefined,
         contextEnv: {
+          ...bundle.metadata.skillEnv,
           DOFE_AGENT_CONTEXT_AGENT_NAME: payload.assignee ?? task.agentId,
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
           DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
@@ -1060,6 +1067,13 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
     feishuLarkCliResourceGrants,
   });
 
+  if (preparedContext.skillEnvConflicts.length > 0) {
+    throw new Error(
+      `Skill environment variable conflicts detected: ${preparedContext.skillEnvConflicts.join(", ")}. ` +
+        "Resolve by using the same value across skills or uninstalling conflicting skills.",
+    );
+  }
+
   const isManagedRemoteRuntime = Boolean(
     runtime.managedCredentialId && resolveAgentRuntimeMode() === "remote",
   );
@@ -1097,6 +1111,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       {
         sessionId: providerSession?.providerSessionId ?? effectivePayload.channelSessionId,
         contextEnv: {
+          ...preparedContext.skillEnv,
           DOFE_AGENT_CONTEXT_AGENT_NAME: agentName,
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
           DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,

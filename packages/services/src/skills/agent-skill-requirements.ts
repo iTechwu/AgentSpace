@@ -1,4 +1,4 @@
-import { createCipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import {
   readAgentSkillRequirementConfigSync,
   readEffectiveRuntimeEnv,
@@ -87,6 +87,70 @@ export function readAgentSkillRequirementConfigurationSync(input: {
   if (!record) return { configuredSecretKeys: [] };
   const configuration = readSkillRequirementConfiguration(record.configJson);
   return { configuration, configuredSecretKeys: readEncryptedSecretNames(record.encryptedSecretsJson) };
+}
+
+export function readAgentSkillRequirementEnvSync(input: {
+  workspaceId?: string;
+  employeeName: string;
+  skillId: string;
+}): Record<string, string> {
+  const skill = readWorkspaceSkillSync(input.skillId, input.workspaceId);
+  if (!skill) return {};
+
+  const requirements = readSkillRequirementDeclarations(skill.configJson);
+  const allowedKeys = new Set(
+    requirements
+      .filter((requirement) => requirement.kind === "config" || requirement.kind === "secret")
+      .map((requirement) => requirement.value),
+  );
+  if (allowedKeys.size === 0) return {};
+
+  const record = readAgentSkillRequirementConfigSync(input);
+  const configuration = record ? readSkillRequirementConfiguration(record.configJson) : undefined;
+  const encryptedSecrets = record ? safeJson(record.encryptedSecretsJson ?? "{}") : {};
+  const env: Record<string, string> = {};
+
+  for (const key of allowedKeys) {
+    if (key.startsWith("DOFE_AGENT_")) continue;
+
+    const configValue = configuration?.values[key];
+    if (typeof configValue === "string") {
+      env[key] = configValue;
+      continue;
+    }
+
+    const encryptedValue = encryptedSecrets[key];
+    if (typeof encryptedValue === "string" && encryptedValue.startsWith(`${CREDENTIAL_VERSION}:`)) {
+      env[key] = decrypt(encryptedValue);
+    }
+  }
+
+  return env;
+}
+
+function decrypt(value: string): string {
+  const parts = value.split(":");
+  if (parts.length !== 4 || parts[0] !== CREDENTIAL_VERSION) {
+    throw new Error("Unsupported agent skill credential encryption version.");
+  }
+  const [version, ivBase64, authTagBase64, ciphertextBase64] = parts;
+  if (!ivBase64 || !authTagBase64 || !ciphertextBase64) {
+    throw new Error("Invalid encrypted agent skill credential format.");
+  }
+  const key = readEncryptionKey();
+  const iv = Buffer.from(ivBase64, "base64url");
+  const authTag = Buffer.from(authTagBase64, "base64url");
+  const ciphertext = Buffer.from(ciphertextBase64, "base64url");
+  if (iv.length !== 12) {
+    throw new Error("Invalid agent skill credential initialization vector.");
+  }
+  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(authTag);
+  try {
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+  } catch {
+    throw new Error("Failed to decrypt agent skill credential.");
+  }
 }
 
 function encryptDeclaredSecrets(secretNames: string[], input: Record<string, string> | undefined): Record<string, string> {

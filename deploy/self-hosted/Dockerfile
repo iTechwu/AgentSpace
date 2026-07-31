@@ -1,33 +1,38 @@
 FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS build
 
-ENV NPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
-    NPM_CONFIG_REPLACE_REGISTRY_HOST=always
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    PNPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
+    PNPM_CONFIG_REPLACE_REGISTRY_HOST=always
 
 WORKDIR /srv/DofeAgent
 
-COPY package.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY tsconfig.base.json ./
 COPY apps ./apps
 COPY packages ./packages
 COPY deploy ./deploy
 
-RUN npm --prefix apps/web ci --ignore-scripts \
-  && npm --prefix apps/cli ci --ignore-scripts \
-  && npm --prefix packages/db ci --ignore-scripts \
-  && npm --prefix packages/services ci --ignore-scripts \
-  && npm --prefix packages/daemon ci --ignore-scripts
+RUN corepack enable \
+  && corepack prepare pnpm@10.26.2 --activate \
+  && pnpm install --frozen-lockfile --ignore-scripts
 
 ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
 ENV NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
 
-RUN npm --prefix packages/daemon run build \
-  && npm --prefix apps/web run build
+RUN pnpm --filter dofe-agent-daemon run build \
+  && pnpm --filter @dofe-agent/web run build
 
 FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS runtime
 
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    NODE_ENV=production
+
 WORKDIR /srv/DofeAgent
 
-ENV NODE_ENV=production
+RUN corepack enable \
+  && corepack prepare pnpm@10.26.2 --activate
 
 COPY --from=build /srv/DofeAgent /srv/DofeAgent
 
@@ -40,7 +45,7 @@ FROM runtime AS web
 
 EXPOSE 1455
 
-CMD ["npm", "run", "start:web"]
+CMD ["pnpm", "run", "start:web"]
 
 FROM runtime AS daemon
 

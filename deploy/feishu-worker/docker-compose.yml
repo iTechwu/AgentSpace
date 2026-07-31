@@ -5,7 +5,7 @@ services:
     image: uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
     restart: unless-stopped
     working_dir: /srv/DofeAgent
-    command: ["npm", "run", "cli", "--", "integrations", "feishu", "worker"]
+    command: ["sh", "-c", "corepack enable && corepack prepare pnpm@10.26.2 --activate && pnpm run cli -- integrations feishu worker"]
     env_file:
       - ./feishu-worker.env
     volumes:

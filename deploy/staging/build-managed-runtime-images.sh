@@ -13,7 +13,7 @@
 #   # provider defaults to all four: codex claude openclaw hermes
 #
 # Provider install commands are taken from *_PROVIDER_INSTALL_COMMAND env vars
-# (see deploy/daemon/.env.example). If unset, sensible npm-install defaults are used.
+# (see deploy/daemon/.env.example). If unset, sensible pnpm defaults are used.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -25,9 +25,9 @@ if [ $# -eq 0 ]; then PROVIDERS=(codex claude openclaw hermes); fi
 
 default_install_command() {
   case "$1" in
-    codex)    echo "npm install --global @openai/codex@latest" ;;
-    claude)   echo "npm install --global @anthropic-ai/claude-code@latest" ;;
-    openclaw) echo "npm install --global @openai/codex@latest" ;; # placeholder; replace with real openclaw package
+    codex)    echo "pnpm add --global @openai/codex@latest" ;;
+    claude)   echo "pnpm add --global @anthropic-ai/claude-code@latest" ;;
+    openclaw) echo "pnpm add --global @openai/codex@latest" ;; # placeholder; replace with real openclaw package
     hermes)   echo "pip install --break-system-packages dofe-hermes" ;; # placeholder; replace with real hermes install
     *) echo ""; return 1 ;;
   esac

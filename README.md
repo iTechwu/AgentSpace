@@ -61,7 +61,7 @@ Agent 不只是被调用的工具，而是可以一起工作、被管理、被�
 - 🔄 **共享和转移 Agent** — 让数字员工跨团队、跨部门流转
 
 ```bash
-npm run setup && pnpm dev
+pnpm run setup && pnpm dev
 ```
 
 ---
@@ -236,7 +236,7 @@ agent.dofe 为 Agent 组织提供四个关键能力：调度、能力共享、�
 ### 环境要求
 
 - 推荐 Node.js 24。remote daemon package 要求 Node.js `>=20.20.0`。
-- npm 11.x。
+- pnpm 10.26.2。
 - 推荐 PostgreSQL 16。仓库内包含本地 Docker Compose 配置。
 - 可选 provider CLI：`codex`、`claude`、`agy`（Antigravity）、`gemini`（legacy）、`opencode`、`openclaw`、`nanobot`、`hermes`。
 - 可选飞书自建应用和 Bot 配置。
@@ -247,10 +247,10 @@ agent.dofe 为 Agent 组织提供四个关键能力：调度、能力共享、�
 git clone <your-dofe-agent-repo-url>
 cd DofeAgent
 
-npm run setup
+pnpm run setup
 cp .env.example .env
 docker compose -f deploy/postgres/docker-compose.yml up -d
-npm run db:pg:init
+pnpm run db:pg:init
 pnpm dev
 ```
 
@@ -265,10 +265,10 @@ http://127.0.0.1:1455
 
 ### Path B：使用 CLI
 
-首次使用时，在项目根目录执行一次 `npm link`，将 `dofe-agent` 添加到终端 `PATH`：
+首次使用时，在项目根目录执行一次 `pnpm --filter @dofe-agent/cli link --global`，将 `dofe-agent` 添加到终端 `PATH`：
 
 ```bash
-npm link
+pnpm --filter @dofe-agent/cli link --global
 dofe-agent help
 dofe-agent doctor --json
 dofe-agent workspace status --json
@@ -282,9 +282,9 @@ dofe-agent daemon status --json
 数据库命令：
 
 ```bash
-npm run db:pg:status -- --json
-npm run db:pg:init
-npm run db:pg:migrate -- --dry-run --sqlite-path data/dofe-agent.sqlite --json
+pnpm run db:pg:status -- --json
+pnpm run db:pg:init
+pnpm run db:pg:migrate -- --dry-run --sqlite-path data/dofe-agent.sqlite --json
 ```
 
 ### Path C：接入远程 Daemon
@@ -292,13 +292,13 @@ npm run db:pg:migrate -- --dry-run --sqlite-path data/dofe-agent.sqlite --json
 打包 daemon：
 
 ```bash
-npm run daemon:pack
+pnpm run daemon:pack
 ```
 
 在远端主机安装并启动：
 
 ```bash
-npm install -g ./dofe-agent-daemon-0.1.3.tgz
+pnpm add --global ./dofe-agent-daemon-0.1.3.tgz
 
 dofe-agent-daemon start \
   --foreground \
@@ -425,12 +425,12 @@ agent.dofe 包含可复用的执行构件：
 质量检查命令：
 
 ```bash
-npm run build
-npm run typecheck
-npm run lint:web
-npm run test:web
-npm run test:e2e:web
-npm run quality:web
+pnpm run build
+pnpm run typecheck
+pnpm run lint:web
+pnpm run test:web
+pnpm run test:e2e:web
+pnpm run quality:web
 ```
 
 ## 代码结构

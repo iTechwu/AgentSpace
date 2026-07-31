@@ -395,7 +395,7 @@ if [[ -z "$PACKAGE_PATH" && -z "$PACKAGE_URL" ]]; then
   fail "One of --package or --package-url is required"
 fi
 
-require_command npm
+require_command pnpm
 require_command mktemp
 require_command install
 if [[ "$MANAGED_NODE" == "true" ]]; then
@@ -428,11 +428,11 @@ if [[ -x "$OLD_BIN_PATH" ]]; then
   env PATH="$PROVIDER_PATH" "$OLD_BIN_PATH" stop --state-dir "$STATE_DIR" >/dev/null 2>&1 || true
 fi
 
-NPM_CACHE_DIR="${TMPDIR:-/tmp}/dofe-agent-npm-cache"
-mkdir -p "$NPM_CACHE_DIR"
+PNPM_STORE_DIR="${TMPDIR:-/tmp}/dofe-agent-pnpm-store"
+mkdir -p "$PNPM_STORE_DIR"
 
 log "Installing standalone daemon package into $INSTALL_ROOT"
-npm --cache "$NPM_CACHE_DIR" --prefix "$INSTALL_ROOT" install -g "$PACKAGE_PATH"
+PATH="$INSTALL_ROOT/bin:$PATH" pnpm --store-dir "$PNPM_STORE_DIR" add --global --global-dir "$INSTALL_ROOT" --global-bin-dir "$INSTALL_ROOT/bin" "$PACKAGE_PATH"
 
 BIN_PATH="${INSTALL_ROOT%/}/bin/dofe-agent-daemon"
 [[ -x "$BIN_PATH" ]] || fail "Installed binary not found at $BIN_PATH"

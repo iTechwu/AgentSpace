@@ -16,6 +16,7 @@ import {
   listDocumentPermissionRequestsSync,
   listNotificationsForRecipientSync,
   materializeWorkspaceSkillsForProvider,
+  readAgentSkillRequirementEnvSync,
   readWorkspaceStateSync,
   readWorkspaceAttachmentBytesSync,
   sameValue,
@@ -130,6 +131,8 @@ export interface PreparedDaemonTaskContext {
   providerSkillContextDir?: string;
   channelDocumentsContextDir?: string;
   knowledgeContextDir?: string;
+  skillEnv: Record<string, string>;
+  skillEnvConflicts: string[];
 }
 
 export interface RouterSessionPromptContext {
@@ -444,6 +447,11 @@ export function prepareDaemonTaskContext(input: {
   agentSkills = filterRuntimeAppSkillsByRuntimeAvailability(agentSkills, runtimeApps);
   const agentKnowledgePages = resolveAgentKnowledgePages(workspaceState, input.agentProfile, input.task.workspaceId);
   const skillDirectories = materializeAgentSkills(agentSkills, input.workDir, input.runtime.provider);
+  const { env: skillEnv, conflicts: skillEnvConflicts } = resolveAgentSkillEnvironment(
+    input.task.workspaceId,
+    agentName,
+    agentSkills,
+  );
   const knowledgeContextDir = materializeAgentKnowledgePages(agentKnowledgePages, input.workDir);
   const channelDocumentsContextDir =
     agentDocumentContexts.length > 0
@@ -482,6 +490,8 @@ export function prepareDaemonTaskContext(input: {
     providerSkillContextDir: skillDirectories.nativeDir,
     channelDocumentsContextDir,
     knowledgeContextDir,
+    skillEnv,
+    skillEnvConflicts,
   };
 }
 
@@ -1087,6 +1097,38 @@ export function resolveAgentSkills(
   }
 
   return assignedSkills;
+}
+
+export function resolveAgentSkillEnvironment(
+  workspaceId: string | undefined,
+  agentName: string | undefined,
+  agentSkills: WorkspaceSkill[],
+): { env: Record<string, string>; conflicts: string[] } {
+  const env: Record<string, string> = {};
+  const conflicts: string[] = [];
+  if (!agentName) {
+    return { env, conflicts };
+  }
+
+  for (const skill of agentSkills) {
+    const skillEnv = readAgentSkillRequirementEnvSync({
+      workspaceId,
+      employeeName: agentName,
+      skillId: skill.id,
+    });
+    for (const [key, value] of Object.entries(skillEnv)) {
+      if (key.startsWith("DOFE_AGENT_")) {
+        continue;
+      }
+      if (env[key] === undefined) {
+        env[key] = value;
+      } else if (env[key] !== value) {
+        conflicts.push(key);
+      }
+    }
+  }
+
+  return { env, conflicts };
 }
 
 function filterRuntimeAppSkillsByRuntimeAvailability(
