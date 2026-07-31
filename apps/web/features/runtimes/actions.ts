@@ -241,8 +241,10 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
       const effectivePricing = resolveEffectiveModelPricing(model);
       const supported = (model as { supportedProtocols?: string[] }).supportedProtocols ?? [];
       const protocol = protocols.find((p) => supported.includes(p));
+      const codexReady = (model as { codexReady?: boolean }).codexReady === true;
       const isAvailable = Boolean(
         protocol &&
+          (protocol !== "openai_response" || codexReady) &&
           (model as { isEnabled?: boolean }).isEnabled !== false &&
           (model as { isDeprecated?: boolean }).isDeprecated !== true,
       );
@@ -262,7 +264,9 @@ export async function listProtocolFilteredRuntimeModelsAction(provider: DaemonPr
         unavailableReason: protocol
           ? isAvailable
             ? undefined
-            : "Model is disabled or deprecated"
+            : protocol === "openai_response" && !codexReady
+              ? "Codex Responses verification required"
+              : "Model is disabled or deprecated"
           : `Runtime protocol (${protocols.join(", ")}) not supported`,
       };
     })
@@ -309,6 +313,7 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
       outputPriceCurrency?: string | null;
       pricing?: unknown;
       isAvailable?: boolean;
+      codexReady?: boolean;
     };
     const effectivePricing = resolveEffectiveModelPricing(catalogModel);
     const supportedProtocols = catalogModel.supportedProtocols ?? [];
@@ -321,11 +326,20 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
     const credentialAvailable = catalogModel.isAvailable;
     const policyEnabled = model.isEnabled !== false;
     const deprecated = model.isDeprecated === true;
-    const isAvailable = Boolean(credentialAvailable && policyEnabled && !deprecated && matchedProtocol);
+    const codexReady = catalogModel.codexReady === true;
+    const isAvailable = Boolean(
+      credentialAvailable &&
+        policyEnabled &&
+        !deprecated &&
+        matchedProtocol &&
+        (matchedProtocol !== "openai_response" || codexReady),
+    );
     const unavailableReason = isAvailable
       ? undefined
       : !matchedProtocol
         ? `Runtime protocol (${runtimeProtocols.join(", ")}) not supported`
+        : matchedProtocol === "openai_response" && !codexReady
+          ? "Codex Responses verification required"
         : !credentialAvailable
           ? "Credential unavailable"
           : !policyEnabled

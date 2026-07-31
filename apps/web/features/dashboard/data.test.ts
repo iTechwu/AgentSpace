@@ -1078,13 +1078,16 @@ describe("dashboard data", () => {
     expect(marsCosts.agents).toHaveLength(1);
     expect(marsCosts.agents[0]?.displayName).toBe("Mars Planner");
     expect(marsCosts.recentUsage[0]?.channelName).toBe("mars-ops");
-    expect(marsCosts.totalCostUsd).toBeGreaterThan(defaultCosts.totalCostUsd);
+    expect(marsCosts.totalInputTokens).toBeGreaterThan(defaultCosts.totalInputTokens);
+    expect(marsCosts.totalCostUsd).toBe(0);
+    expect(defaultCosts.totalCostUsd).toBe(0);
 
     expect(defaultBudgets.budgets).toHaveLength(1);
     expect(defaultBudgets.budgets[0]?.limitUsd).toBe(10);
     expect(marsBudgets.budgets).toHaveLength(1);
     expect(marsBudgets.budgets[0]?.limitUsd).toBe(20);
-    expect(marsBudgets.budgets[0]?.spentUsd).toBeGreaterThan(defaultBudgets.budgets[0]?.spentUsd ?? 0);
+    expect(marsBudgets.budgets[0]?.spentUsd).toBe(0);
+    expect(defaultBudgets.budgets[0]?.spentUsd).toBe(0);
   });
 
   it("lists active employees in direct view before any direct channel exists", () => {

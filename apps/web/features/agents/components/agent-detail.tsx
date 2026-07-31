@@ -41,8 +41,14 @@ interface AgentDetailProps {
   readonly onSetChannelMemberAccess?: (access: WorkspaceAgentRecord["channelMemberAccess"]) => void;
   readonly onSetSkillIds: (skillIds: string[]) => void;
   readonly onInstallSkill: (skillId: string, input: {
-    modelProvider?: string; modelId?: string; capabilities: string[]; projectWorkDir?: string;
-    values: Record<string, string>; secrets: Record<string, string>; sensitiveKeys: string[];
+    modelProvider?: string;
+    modelId?: string;
+    capabilities: string[];
+    projectWorkDir?: string;
+    values: Record<string, string>;
+    secrets: Record<string, string>;
+    sensitiveKeys: string[];
+    reuseValues: Record<string, string>;
   }) => void;
   readonly onRemoveSkillKey?: (skillId: string, key: string) => void;
   readonly onSetKnowledgePageIds?: (pageIds: string[]) => void;
@@ -176,18 +182,18 @@ export function AgentDetail({
   );
   // Reuse candidates: for the skill currently being installed/managed, map each
   // environment key to the OTHER assigned skills on this employee that already
-  // configure it (names only — never values). Lets the admin reuse a value and
+  // configure it (id + name — never values). Lets the admin reuse a value and
   // avoid a cross-skill conflict.
   const reuseCandidates = useMemo(() => {
     if (!skillToInstall) return {};
-    const candidates: Record<string, string[]> = {};
+    const candidates: Record<string, Array<{ skillId: string; skillName: string }>> = {};
     for (const skill of record.skills) {
       if (skill.id === skillToInstall.id) continue;
       const summary = record.skillRequirements[skill.id];
       if (!summary) continue;
       for (const item of summary.environment) {
         if (!item.configured) continue;
-        (candidates[item.key] ??= []).push(skill.name);
+        (candidates[item.key] ??= []).push({ skillId: skill.id, skillName: skill.name });
       }
     }
     return candidates;

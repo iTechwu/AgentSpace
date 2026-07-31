@@ -787,6 +787,7 @@ export {
 // Costs
 export {
   getCostDashboardDataSync,
+  getCostDashboardDataAsync,
   getAgentCostProfileSync,
   getRuntimeCostProfileSync,
   listRuntimeCostProfilesSync,
@@ -966,10 +967,16 @@ export {
 export {
   buildModelsInternalAuthorization,
   getModelsInternalClient,
+  getModelsTenantBillingReportAsync,
   isModelsInternalConfigured,
   resetModelsInternalClientForTests,
   resolveModelsInternalConfig,
   type ModelsInternalConfig,
+  type ModelsBillingAggregate,
+  type ModelsBillingDimensionAggregate,
+  type ModelsBillingLifecycleStatus,
+  type ModelsTenantBillingReport,
+  type ModelsTenantBillingReportInput,
 } from "./models/client.ts";
 export { isExecutionLanguageModel } from "./models/execution-models.ts";
 export {

@@ -1393,6 +1393,32 @@ test("runtime tool approval requests are visible and reviewable in channel messa
   assert.equal(reviewedMessage?.data?.reviewer_comment, "ok");
 });
 
+test("cancelled task approvals keep their audit state without appearing after the stop message", () => {
+  seedWorkspace();
+  const approval = createRuntimeToolApprovalRequestSync({
+    sourceId: "queue-cancelled-approval",
+    agentId: "Atlas",
+    channelName: "tour visit",
+    toolName: "WebSearch",
+    contentPreview: "WebSearch: trending projects",
+    provider: "claude",
+    runtimeId: "runtime-1",
+  });
+
+  reviewApprovalSync(
+    approval.id,
+    "rejected",
+    "Task stopped by the user.",
+    undefined,
+    { suppressConversationMessage: true },
+  );
+
+  const state = readWorkspaceStateSync();
+  assert.equal(state.approvals.find((item) => item.id === approval.id)?.status, "rejected");
+  assert.equal(state.approvals.find((item) => item.id === approval.id)?.reviewerComment, "Task stopped by the user.");
+  assert.equal(state.messages.some((message) => message.data?.approval_id === approval.id), false);
+});
+
 test("runtime tool approvals remain actionable in direct conversations", () => {
   seedWorkspace();
   sendContactMessageSync("Atlas", "请检索资料。");

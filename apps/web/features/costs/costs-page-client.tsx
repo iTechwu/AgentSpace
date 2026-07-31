@@ -152,17 +152,26 @@ function CostOverview({
           <span>{tx("每任务均价", "Avg per task")}</span>
           <strong>{data.totalInputTokens + data.totalOutputTokens > 0 && data.totalCostUsd === 0
             ? tx("尚未计价", "Pricing pending")
-            : formatCny(averagePerTask)}</strong>
+            : formatBillingAmount(averagePerTask, data.reportCurrency ?? "CNY")}</strong>
         </article>
         <article className="costs-insight-card" role="listitem">
           <span>{tx("模型数", "Models")}</span>
-          <strong>{new Set(data.agents.map((agent) => agent.modelId)).size}</strong>
+          <strong>{data.modelCount ?? new Set(data.agents.map((agent) => agent.modelId)).size}</strong>
         </article>
         <article className="costs-insight-card" role="listitem">
           <span>{tx("Token 用量", "Token usage")}</span>
           <strong>{formatTokens(data.totalInputTokens + data.totalOutputTokens)}</strong>
         </article>
       </div>
+
+      {data.billingReportState && data.billingReportState !== "authoritative" ? (
+        <div className="costs-empty" role="status">
+          {tx(
+            "models 权威账单暂不可用；当前仅展示本地任务关联，不显示本地推算金额。",
+            "The authoritative models billing report is unavailable. Local task attribution remains visible, but locally calculated money is hidden.",
+          )}
+        </div>
+      ) : null}
 
       <div className="costs-summary-cards">
         <div className="costs-summary-card">
@@ -175,19 +184,19 @@ function CostOverview({
           ) : null}
         </div>
         <div className="costs-summary-card">
-          <span className="costs-summary-card__label">{tx("估算费用", "Estimated")}</span>
+          <span className="costs-summary-card__label">{tx("应计费用", "Accrued charge")}</span>
           <span className="costs-summary-card__value">{formatCurrencyBreakdown(data, "estimatedCost")}</span>
         </div>
         <div className="costs-summary-card">
-          <span className="costs-summary-card__label">{tx("待对账", "Pending reconciliation")}</span>
+          <span className="costs-summary-card__label">{tx("待结算", "Pending settlement")}</span>
           <span className="costs-summary-card__value">{formatCurrencyBreakdown(data, "pendingReconciliationCost")}</span>
         </div>
         <div className="costs-summary-card">
-          <span className="costs-summary-card__label">{tx("已对账", "Reconciled")}</span>
+          <span className="costs-summary-card__label">{tx("已结算", "Settled")}</span>
           <span className="costs-summary-card__value">{formatCurrencyBreakdown(data, "reconciledCost")}</span>
         </div>
         <div className="costs-summary-card">
-          <span className="costs-summary-card__label">{tx("未分配", "Unallocated")}</span>
+          <span className="costs-summary-card__label">{tx("需对账", "Needs reconciliation")}</span>
           <span className="costs-summary-card__value">{formatCurrencyBreakdown(data, "unallocatedCost")}</span>
         </div>
         <div className="costs-summary-card">
@@ -203,7 +212,7 @@ function CostOverview({
           disabled={isPending}
           onClick={handleReconcile}
         >
-          {isPending ? tx("对账中...", "Reconciling...") : tx("与 models 对账", "Reconcile with models")}
+          {isPending ? tx("同步中...", "Syncing...") : tx("同步用量明细", "Sync usage details")}
         </button>
         {data.lastReconciledAt ? (
           <span className="costs-reconcile-meta">
@@ -214,7 +223,7 @@ function CostOverview({
           <span className="costs-reconcile-meta">
             {lastResult.reconciledCount === -1
               ? tx("对账失败", "Reconciliation failed")
-              : tx(`已对账 ${lastResult.reconciledCount} 条，未分配 ${lastResult.unallocatedCount} 条`, `Reconciled ${lastResult.reconciledCount}, unallocated ${lastResult.unallocatedCount}`)}
+              : tx(`已同步 ${lastResult.reconciledCount} 条，未归属 ${lastResult.unallocatedCount} 条`, `Synced ${lastResult.reconciledCount}, unattributed ${lastResult.unallocatedCount}`)}
           </span>
         ) : null}
       </div>
@@ -234,8 +243,8 @@ function CostOverview({
                   <span>{tx("计费来源", "Billing source")}: {formatBillingSource(agent, tx)}</span>
                   <span>{tx("输入", "Input")}: {formatTokens(agent.totalInputTokens)}</span>
                   <span>{tx("输出", "Output")}: {formatTokens(agent.totalOutputTokens)}</span>
-                  <span>{tx("总费用", "Cost")}: {formatEstimatedCost(agent.totalCostUsd, agent.totalInputTokens + agent.totalOutputTokens, tx)}</span>
-                  <span>{tx("均价", "Avg")}: {formatEstimatedCost(agent.avgCostPerTask, agent.totalInputTokens + agent.totalOutputTokens, tx)}</span>
+                  <span>{tx("总费用", "Cost")}: {formatBillingAmount(agent.totalCostUsd, agent.currency ?? data.reportCurrency ?? "CNY")}</span>
+                  <span>{tx("均价", "Avg")}: {formatBillingAmount(agent.avgCostPerTask, agent.currency ?? data.reportCurrency ?? "CNY")}</span>
                 </div>
               </article>
             ))}
@@ -260,8 +269,8 @@ function CostOverview({
                 <span>{agent.taskCount}</span>
                 <span>{formatTokens(agent.totalInputTokens)}</span>
                 <span>{formatTokens(agent.totalOutputTokens)}</span>
-                <span>{formatEstimatedCost(agent.totalCostUsd, agent.totalInputTokens + agent.totalOutputTokens, tx)}</span>
-                <span>{formatEstimatedCost(agent.avgCostPerTask, agent.totalInputTokens + agent.totalOutputTokens, tx)}</span>
+                <span>{formatBillingAmount(agent.totalCostUsd, agent.currency ?? data.reportCurrency ?? "CNY")}</span>
+                <span>{formatBillingAmount(agent.avgCostPerTask, agent.currency ?? data.reportCurrency ?? "CNY")}</span>
               </div>
             ))}
           </div>
@@ -281,6 +290,7 @@ function CostOverview({
           totalCostUsd: runtime.totalCostUsd,
           totalActualCostUsd: runtime.totalActualCostUsd,
           avgCostPerTask: runtime.avgCostPerTask,
+          currency: runtime.currency,
         }))}
         compact={compact}
         emptyMessage={tx(
@@ -301,6 +311,7 @@ function CostOverview({
           totalCostUsd: credential.totalCostUsd,
           totalActualCostUsd: credential.totalActualCostUsd,
           avgCostPerTask: credential.avgCostPerTask,
+          currency: credential.currency,
         }))}
         compact={compact}
         emptyMessage={tx(
@@ -321,6 +332,7 @@ function CostOverview({
           totalCostUsd: session.totalCostUsd,
           totalActualCostUsd: session.totalActualCostUsd,
           avgCostPerTask: session.avgCostPerTask,
+          currency: session.currency,
         }))}
         compact={compact}
         emptyMessage={tx(
@@ -401,6 +413,7 @@ function CostDimensionTable({
     totalCostUsd: number;
     totalActualCostUsd: number;
     avgCostPerTask: number;
+    currency?: string;
   }>;
   compact: boolean;
   emptyMessage?: string;
@@ -414,7 +427,7 @@ function CostDimensionTable({
       ) : compact ? (
         <div className="costs-agent-cards">
           {rows.map((row) => (
-            <article className="costs-agent-card" key={row.id}>
+            <article className="costs-agent-card" key={`${row.id}-${row.currency ?? "CNY"}`}>
               <div className="costs-agent-card__header">
                 <strong>{row.label}</strong>
               </div>
@@ -422,8 +435,8 @@ function CostDimensionTable({
                 <span>{tx("任务数", "Tasks")}: {row.taskCount}</span>
                 <span>{tx("输入", "Input")}: {formatTokens(row.totalInputTokens)}</span>
                 <span>{tx("输出", "Output")}: {formatTokens(row.totalOutputTokens)}</span>
-                <span>{tx("总费用", "Cost")}: {formatCny(row.totalCostUsd)}{row.totalActualCostUsd > 0 ? ` → ${formatCny(row.totalActualCostUsd)}` : ""}</span>
-                <span>{tx("均价", "Avg")}: {formatCny(row.avgCostPerTask)}</span>
+                <span>{tx("总费用", "Cost")}: {formatBillingAmount(row.totalCostUsd, row.currency ?? "CNY")}{row.totalActualCostUsd > 0 ? ` → ${formatBillingAmount(row.totalActualCostUsd, row.currency ?? "CNY")}` : ""}</span>
+                <span>{tx("均价", "Avg")}: {formatBillingAmount(row.avgCostPerTask, row.currency ?? "CNY")}</span>
               </div>
             </article>
           ))}
@@ -439,13 +452,13 @@ function CostDimensionTable({
             <span>{tx("均价", "Avg")}</span>
           </div>
           {rows.map((row) => (
-            <div className="costs-agent-row" key={row.id}>
+            <div className="costs-agent-row" key={`${row.id}-${row.currency ?? "CNY"}`}>
               <span className="costs-agent-name" title={row.id}>{row.label}</span>
               <span>{row.taskCount}</span>
               <span>{formatTokens(row.totalInputTokens)}</span>
               <span>{formatTokens(row.totalOutputTokens)}</span>
-              <span>{formatCny(row.totalCostUsd)}{row.totalActualCostUsd > 0 ? ` → ${formatCny(row.totalActualCostUsd)}` : ""}</span>
-              <span>{formatCny(row.avgCostPerTask)}</span>
+              <span>{formatBillingAmount(row.totalCostUsd, row.currency ?? "CNY")}{row.totalActualCostUsd > 0 ? ` → ${formatBillingAmount(row.totalActualCostUsd, row.currency ?? "CNY")}` : ""}</span>
+              <span>{formatBillingAmount(row.avgCostPerTask, row.currency ?? "CNY")}</span>
             </div>
           ))}
         </div>
@@ -462,12 +475,12 @@ function BillingStatusBadge({
   tx: (zh: string, en: string) => string;
 }) {
   const label = status === "reconciled"
-    ? tx("已对账", "Reconciled")
+    ? tx("已同步", "Synced")
     : status === "unallocated"
-      ? tx("未分配", "Unallocated")
+      ? tx("未归属", "Unattributed")
       : status === "pending_reconciliation"
-        ? tx("待对账", "Pending reconciliation")
-        : tx("估算", "Estimated");
+        ? tx("等待账单", "Awaiting charge")
+        : tx("等待账单", "Awaiting charge");
   const className = `costs-status costs-status--${status}`;
   return <span className={className}>{label}</span>;
 }
@@ -481,12 +494,9 @@ function formatUsageCost(
   usage: CostPageData["recentUsage"][number],
   tx: (zh: string, en: string) => string,
 ): string {
-  const estimated = usage.costUsd === 0 && usage.inputTokens + usage.outputTokens > 0
-    ? tx("尚未计价", "Pricing pending")
-    : formatCny(usage.costUsd);
   return usage.actualCostUsd == null
-    ? estimated
-    : `${estimated} → ${formatBillingAmount(usage.actualCostUsd, usage.currency)}`;
+    ? tx("等待 models 账单", "Awaiting models charge")
+    : formatBillingAmount(usage.actualCostUsd, usage.currency);
 }
 
 function formatUsageOwner(
@@ -506,14 +516,6 @@ function formatBillingSource(
   if (agent.providerAccountId) return agent.providerAccountId;
   if (agent.runtimeCredentialId) return tx("models 托管凭据", "Managed models credential");
   return tx("历史记录", "Historical record");
-}
-
-function formatEstimatedCost(
-  value: number,
-  tokenCount: number,
-  tx: (zh: string, en: string) => string,
-): string {
-  return value === 0 && tokenCount > 0 ? tx("尚未计价", "Pricing pending") : formatCny(value);
 }
 
 function formatBalanceError(

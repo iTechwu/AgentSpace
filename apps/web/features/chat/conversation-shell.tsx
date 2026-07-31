@@ -61,6 +61,7 @@ export interface ConversationComposerRuntime {
   employeeLabel: string;
   provider: "claude" | "codex";
   executionPolicy?: EmployeeExecutionPolicy;
+  requiresMentionForCommands?: boolean;
 }
 
 export interface ConversationSlashCommand {
@@ -209,6 +210,7 @@ export function ConversationShell({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const focusComposerRequestRef = useRef<number | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const previousSelectedIdRef = useRef<string | null>(null);
   const threadViewportVisibleRef = useRef(false);
@@ -388,6 +390,12 @@ export function ConversationShell({
 
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
+
+  useEffect(() => () => {
+    if (focusComposerRequestRef.current !== null) {
+      window.cancelAnimationFrame(focusComposerRequestRef.current);
+    }
   }, []);
 
   useLayoutEffect(() => {
@@ -679,8 +687,27 @@ export function ConversationShell({
   }
 
   function handleDraftChange(nextDraft: string, caretIndex: number): void {
+    if (focusComposerRequestRef.current !== null) {
+      window.cancelAnimationFrame(focusComposerRequestRef.current);
+      focusComposerRequestRef.current = null;
+    }
     setDraft(nextDraft);
     setDraftCaretIndex(caretIndex);
+  }
+
+  function scheduleComposerFocus(caretIndex: number): void {
+    if (focusComposerRequestRef.current !== null) {
+      window.cancelAnimationFrame(focusComposerRequestRef.current);
+    }
+    focusComposerRequestRef.current = window.requestAnimationFrame(() => {
+      focusComposerRequestRef.current = null;
+      const target = textareaRef.current;
+      if (!target) {
+        return;
+      }
+      target.focus();
+      target.setSelectionRange(caretIndex, caretIndex);
+    });
   }
 
   function handleInsertMentionTrigger(): void {
@@ -701,13 +728,7 @@ export function ConversationShell({
     setShowPicker(false);
     setFeedback(null);
 
-    window.requestAnimationFrame(() => {
-      if (!target) {
-        return;
-      }
-      target.focus();
-      target.setSelectionRange(nextCaretIndex, nextCaretIndex);
-    });
+    scheduleComposerFocus(nextCaretIndex);
   }
 
   function handleSelectMention(candidate: ConversationMentionCandidate): void {
@@ -733,14 +754,7 @@ export function ConversationShell({
     }
     setFeedback(null);
 
-    window.requestAnimationFrame(() => {
-      const target = textareaRef.current;
-      if (!target) {
-        return;
-      }
-      target.focus();
-      target.setSelectionRange(next.caretIndex, next.caretIndex);
-    });
+    scheduleComposerFocus(next.caretIndex);
   }
 
   function handleSelectSlashCommand(command: ConversationSlashCommand): void {
@@ -771,13 +785,13 @@ export function ConversationShell({
       return;
     }
 
-    const inserted = replaceDraftRange(draft, activeSlashQuery.start, draftCaretIndex, `${command.command} `);
+    const commandText = command.id === "resume" && composerRuntime?.requiresMentionForCommands
+      ? `${command.command} @${composerRuntime.employeeLabel} `
+      : `${command.command} `;
+    const inserted = replaceDraftRange(draft, activeSlashQuery.start, draftCaretIndex, commandText);
     setDraft(inserted.value);
     setDraftCaretIndex(inserted.caretIndex);
-    window.requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(inserted.caretIndex, inserted.caretIndex);
-    });
+    scheduleComposerFocus(inserted.caretIndex);
   }
 
   async function updateExecutionPolicy(policy?: EmployeeExecutionPolicy): Promise<void> {
@@ -817,14 +831,7 @@ export function ConversationShell({
     setDraft(nextDraft);
     setDraftCaretIndex(nextDraft.length);
 
-    window.requestAnimationFrame(() => {
-      const target = textareaRef.current;
-      if (!target) {
-        return;
-      }
-      target.focus();
-      target.setSelectionRange(nextDraft.length, nextDraft.length);
-    });
+    scheduleComposerFocus(nextDraft.length);
   }
 
   const pinnedMessages = useMemo(() => messages.filter((m) => m.pinned), [messages]);
@@ -1010,14 +1017,20 @@ export function ConversationShell({
                       message.id === id ? { ...message, content } : message
                     )))}
                     onGuideQueuedMessage={dispatchQueuedMessage}
-                    onTogglePicker={() => setShowPicker((value) => !value)}
+                    onTogglePicker={() => {
+                      setShowExecutionPolicyMenu(false);
+                      setShowPicker((value) => !value);
+                    }}
                     pickerRef={pickerRef}
                     placeholder={placeholder}
                     replyToMessage={replyToMessage}
                     onCancelReply={() => setReplyToMessage(null)}
                     showPicker={showPicker}
                     showExecutionPolicyMenu={showExecutionPolicyMenu}
-                    onToggleExecutionPolicyMenu={() => setShowExecutionPolicyMenu((value) => !value)}
+                    onToggleExecutionPolicyMenu={() => {
+                      setShowPicker(false);
+                      setShowExecutionPolicyMenu((value) => !value);
+                    }}
                     textareaRef={textareaRef}
                   />
                 </>

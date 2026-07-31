@@ -23,7 +23,6 @@ import {
   listRuntimeProvisioningTaskEventsSync,
   readAgentRuntimeSync,
   readRuntimeProvisioningTaskSync,
-  readModelPricingSync,
   markManagedRuntimeCleanupRequestRunningSync,
   registerDaemonRuntimesSync,
   recordTokenUsageSync,
@@ -60,7 +59,6 @@ import {
 import {
   isRuntimeCredentialTerminalForReconciliation,
   reconcileRuntimeCredentialUsageEntrySync,
-  syncEffectiveModelPricing,
 } from "../models/usage-sync.ts";
 import { resetRuntimeCredentialVaultForTests, getRuntimeCredentialVault } from "./credential-vault.ts";
 
@@ -118,6 +116,7 @@ function createMockClient(behavior: {
               model: "gpt-5.6-terra",
               modelType: "llm",
               supportedProtocols: ["openai_response"],
+              codexReady: true,
               isEnabled: true,
               isDeprecated: false,
             },
@@ -552,15 +551,7 @@ test("happy path: pipeline reaches ready and binds a managed credential", async 
   assert.equal(managed.unallocatedCostUsd, 0);
 });
 
-test("models effective tenant prices backfill zero estimates without changing settled charges", () => {
-  syncEffectiveModelPricing([{
-    alias: "glm-5.2",
-    model: "zhipu/glm-5.2",
-    displayName: "GLM 5.2",
-    inputPrice: 0,
-    outputPrice: 0,
-    pricing: { actualInputPrice: 0, actualOutputPrice: 0, currency: "CNY" },
-  }]);
+test("local usage correlation never recalculates models charges", () => {
   recordTokenUsageSync({
     workspaceId: TEAM_WS,
     taskQueueId: undefined,
@@ -574,19 +565,6 @@ test("models effective tenant prices backfill zero estimates without changing se
     billingStatus: "reconciled",
   });
   assert.equal(findTokenUsageByGatewayRequestIdSync("gateway-price-sync", TEAM_WS)?.costUsd, 0);
-
-  syncEffectiveModelPricing([{
-    alias: "glm-5.2",
-    model: "zhipu/glm-5.2",
-    displayName: "GLM 5.2",
-    inputPrice: 1,
-    outputPrice: 2,
-    pricing: { actualInputPrice: 8, actualOutputPrice: 28, currency: "CNY" },
-  }]);
-
-  assert.equal(readModelPricingSync("glm-5.2")?.inputPer1M, 8);
-  assert.equal(readModelPricingSync("zhipu/glm-5.2")?.outputPer1M, 28);
-  assert.equal(findTokenUsageByGatewayRequestIdSync("gateway-price-sync", TEAM_WS)?.costUsd, 22);
   assert.equal(findTokenUsageByGatewayRequestIdSync("gateway-price-sync", TEAM_WS)?.actualCostUsd, 0.5);
 });
 
@@ -777,6 +755,34 @@ test("model catalog preflight rejects protocol-compatible non-LLM models", async
     actorUserId: OWNER,
     provider: "claude",
     defaultModel: "image-model",
+  });
+
+  assert.equal(preflight.allowed, false);
+  assert.equal(preflight.code, "managed_runtime.no_compatible_models");
+});
+
+test("Codex preflight rejects an unverified Responses model", async () => {
+  activeClient = createMockClient({
+    modelList: [
+      {
+        id: "responses-unverified",
+        alias: "responses-unverified",
+        model: "responses-unverified",
+        modelType: "llm",
+        supportedProtocols: ["openai_response"],
+        codexReady: false,
+        isEnabled: true,
+        isDeprecated: false,
+      },
+    ],
+  });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  const preflight = await preflightManagedRuntimeCreationAsync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "codex",
+    defaultModel: "responses-unverified",
   });
 
   assert.equal(preflight.allowed, false);
@@ -1400,6 +1406,7 @@ test("restores a Responses runtime credential to its protocol-compatible model c
         model: "deepseek-v4-pro",
         modelType: "llm",
         supportedProtocols: ["openai_response"],
+        codexReady: true,
         isEnabled: true,
         isDeprecated: false,
       },
@@ -1409,6 +1416,7 @@ test("restores a Responses runtime credential to its protocol-compatible model c
         model: "gpt-5.6-terra",
         modelType: "llm",
         supportedProtocols: ["openai_response"],
+        codexReady: true,
         isEnabled: true,
         isDeprecated: false,
       },
@@ -1465,6 +1473,47 @@ test("restores a Responses runtime credential to its protocol-compatible model c
   });
 });
 
+test("employee model binding rejects an unverified Responses model on an unrestricted credential", async () => {
+  const task = requestManagedRuntimeProvisioningSync({
+    workspaceId: TEAM_WS,
+    actorUserId: OWNER,
+    provider: "codex",
+    idempotencyKey: "codex-verified-runtime",
+  });
+  const provisioned = await awaitTaskTerminal(task.id);
+  const runtimeId = provisioned.runtimeId!;
+
+  activeClient = createMockClient({
+    credentialId: "rtc-unrestricted-codex",
+    allowedModels: [],
+    credentialProtocols: ["openai_response"],
+    modelList: [
+      {
+        id: "deepseek-unverified",
+        alias: "deepseek-unverified",
+        model: "deepseek-unverified",
+        modelType: "llm",
+        supportedProtocols: ["openai_response"],
+        codexReady: false,
+        isEnabled: true,
+        isDeprecated: false,
+      },
+    ],
+  });
+  setProvisioningModelsClientProviderForTests(() => activeClient);
+
+  await assert.rejects(
+    ensureManagedRuntimeModelAllowedAsync({
+      workspaceId: TEAM_WS,
+      actorUserId: OWNER,
+      runtimeId,
+      modelId: "deepseek-unverified",
+      operationId: "reject-unverified-employee-model",
+    }),
+    /managed_runtime\.no_compatible_models|managed_runtime\.model_unavailable/,
+  );
+});
+
 test("Codex provisioning defaults to Terra without narrowing the Responses model catalog", async () => {
   activeClient = createMockClient({
     modelList: [
@@ -1474,6 +1523,7 @@ test("Codex provisioning defaults to Terra without narrowing the Responses model
         model: "gpt-5.6-terra",
         modelType: "llm",
         supportedProtocols: ["openai_response"],
+        codexReady: true,
         isEnabled: true,
         isDeprecated: false,
       },

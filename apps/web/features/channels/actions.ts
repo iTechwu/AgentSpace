@@ -292,6 +292,7 @@ export async function stopChannelTaskAction(taskId: string): Promise<void> {
         "rejected",
         "Task stopped by the user.",
         task.workspaceId,
+        { suppressConversationMessage: true },
       );
     }
   }
@@ -468,7 +469,7 @@ export async function sendChannelMessageAction(formData: FormData): Promise<void
   const resolvedContent = appendReferencedSkillDirective({
     workspaceId: workspaceContext.currentWorkspace.id,
     employeeNames: channel.employeeNames,
-    content,
+    content: resolveResumeCommand(content),
     skillIds: skillReferenceIds,
   });
 
@@ -563,7 +564,7 @@ export async function sendContactMessageAction(formData: FormData): Promise<void
   const resolvedContent = appendReferencedSkillDirective({
     workspaceId: workspaceContext.currentWorkspace.id,
     employeeNames: [contactId],
-    content,
+    content: resolveResumeCommand(content),
     skillIds: skillReferenceIds,
   });
 
@@ -1072,7 +1073,7 @@ function mergeMessageAttachments(
   referenced: MessageAttachment[],
 ): MessageAttachment[] | undefined {
   const attachments = [...(uploaded ?? []), ...referenced];
-  return attachments.length > 0 ? attachments : undefined;
+  return attachments.length > 0 || uploaded !== undefined ? attachments : undefined;
 }
 
 function appendReferencedSkillDirective(input: {
@@ -1096,6 +1097,21 @@ function appendReferencedSkillDirective(input: {
     return skill.name;
   });
   return `${input.content.trim()}\n\n[Use assigned skills: ${skillNames.join(", ")}]`;
+}
+
+function resolveResumeCommand(content: string): string {
+  const match = /^\/resume(?:\s+([\s\S]*))?$/i.exec(content.trim());
+  if (!match) {
+    return content;
+  }
+  const remainingContent = match[1]?.trim() ?? "";
+  if (!remainingContent) {
+    return "请继续上一项任务。";
+  }
+  if (/^@\S+$/.test(remainingContent)) {
+    return `${remainingContent} 请继续上一项任务。`;
+  }
+  return remainingContent;
 }
 
 function parseQueuedTaskPayload(inputJson: string): Record<string, unknown> {

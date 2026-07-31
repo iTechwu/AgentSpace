@@ -760,6 +760,15 @@ export async function ensureManagedRuntimeModelAllowedAsync(
 
   const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
   const client = clientProvider();
+  const runtimeProtocols = runtime.protocols?.length
+    ? runtime.protocols
+    : resolveProviderProtocols(runtime.provider);
+  await assertManagedRuntimeModelSelectionAsync({
+    client,
+    tenantId: scope.tenantId,
+    protocols: runtimeProtocols,
+    requestedModel: modelId,
+  });
   const previousCredentialId = runtime.managedCredentialId;
   const credential = await client.runtimeCredentials.get({
     params: { id: previousCredentialId },
@@ -794,9 +803,7 @@ export async function ensureManagedRuntimeModelAllowedAsync(
       runtimeType: runtime.provider,
       protocols: credential.protocols.length > 0
         ? credential.protocols
-        : runtime.protocols?.length
-          ? runtime.protocols
-          : resolveProviderProtocols(runtime.provider),
+        : runtimeProtocols,
       allowedModels: nextAllowedModels,
       defaultModel: runtime.defaultModel || undefined,
       idempotencyKey: `model-allowlist:${runtime.id}:${modelId}:${operationId}`,
@@ -2145,14 +2152,19 @@ async function assertManagedRuntimeModelSelectionAsync(input: {
     const model = item as {
       modelType?: string;
       supportedProtocols?: string[];
+      codexReady?: boolean;
       isEnabled?: boolean;
       isDeprecated?: boolean;
     };
+    const compatibleProtocols = (model.supportedProtocols ?? []).filter((protocol) =>
+      input.protocols.includes(protocol),
+    );
     return (
       isExecutionLanguageModel(model) &&
       model.isEnabled !== false &&
       model.isDeprecated !== true &&
-      (model.supportedProtocols ?? []).some((protocol) => input.protocols.includes(protocol))
+      compatibleProtocols.length > 0 &&
+      (!compatibleProtocols.includes("openai_response") || model.codexReady === true)
     );
   });
   if (available.length === 0) {

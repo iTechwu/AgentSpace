@@ -132,9 +132,10 @@ describe("CostsPageClient", () => {
     render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
 
     await screen.findByText("100.00 USD");
-    expect(screen.getAllByText("待对账").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("等待账单").length).toBeGreaterThan(0);
     expect(screen.getByText("0.0200 EUR")).toBeInTheDocument();
-    expect(screen.getByText(/¥0\.0100.*0\.0200 EUR/)).toBeInTheDocument();
+    expect(screen.getAllByText("0.0200 EUR").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/¥0\.0100/)).not.toBeInTheDocument();
     expect(screen.getByText(/更新时间/)).toBeInTheDocument();
   });
 

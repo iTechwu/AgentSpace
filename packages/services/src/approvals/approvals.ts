@@ -134,6 +134,7 @@ export function reviewApprovalSync(
   decision: "approved" | "rejected",
   comment?: string,
   workspaceId?: string,
+  options?: { suppressConversationMessage?: boolean },
 ): DofeAgentState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const approval = state.approvals.find((item) => item.id === approvalId);
@@ -149,7 +150,13 @@ export function reviewApprovalSync(
   approval.status = decision;
   approval.reviewerComment = comment;
   approval.reviewedAt = new Date().toISOString();
-  updateApprovalConversationMessages(state, approval);
+  if (options?.suppressConversationMessage) {
+    state.messages = state.messages.filter((message) =>
+      message.code !== "approval.created" || message.data?.approval_id !== approval.id
+    );
+  } else {
+    updateApprovalConversationMessages(state, approval);
+  }
 
   state.ledger.unshift({
     title: `Approval ${decision}`,
@@ -158,14 +165,16 @@ export function reviewApprovalSync(
   createApprovalDecisionNotifications(approval, decision, workspaceId ?? DEFAULT_WORKSPACE_ID, state);
 
   writeWorkspaceStateSync(state, workspaceId);
-  postNotificationChannelMessageSync({
-    workspaceId: workspaceId ?? DEFAULT_WORKSPACE_ID,
-    channelName: approval.channelName,
-    summary: `Approval for ${approval.agentId}'s ${approval.type} was ${decision}.${comment ? ` Comment: ${comment}` : ""}`,
-    code: `approval.${decision}`,
-    data: { ...buildApprovalMessageData(approval), decision },
-    speaker: SYSTEM_SPEAKER,
-  });
+  if (!options?.suppressConversationMessage) {
+    postNotificationChannelMessageSync({
+      workspaceId: workspaceId ?? DEFAULT_WORKSPACE_ID,
+      channelName: approval.channelName,
+      summary: `Approval for ${approval.agentId}'s ${approval.type} was ${decision}.${comment ? ` Comment: ${comment}` : ""}`,
+      code: `approval.${decision}`,
+      data: { ...buildApprovalMessageData(approval), decision },
+      speaker: SYSTEM_SPEAKER,
+    });
+  }
   return ensureWorkspaceStateSync(workspaceId);
 }
 

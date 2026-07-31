@@ -77,6 +77,8 @@ export function upsertAgentSkillRequirementsSync(input: {
   values?: Record<string, string>;
   secrets?: Record<string, string>;
   sensitiveKeys?: string[];
+  /** Map of declared key -> source skill id to copy an existing configured value from. */
+  reuseValues?: Record<string, string>;
   managedRuntimeCredentialKey?: string;
   runtimeProvider?: DaemonProvider;
   assignSkill?: boolean;
@@ -98,6 +100,75 @@ export function upsertAgentSkillRequirementsSync(input: {
   return undefined;
 }
 
+function resolveReusedAgentSkillRequirementValuesSync(input: {
+  workspaceId: string;
+  employeeName: string;
+  skillId: string;
+  values?: Record<string, string>;
+  secrets?: Record<string, string>;
+  sensitiveKeys?: string[];
+  reuseValues?: Record<string, string>;
+}): { values: Record<string, string>; secrets: Record<string, string>; sensitiveKeys: string[] } {
+  const values = { ...input.values };
+  const secrets = { ...input.secrets };
+  const sensitiveKeys = new Set(input.sensitiveKeys ?? []);
+
+  if (!input.reuseValues || Object.keys(input.reuseValues).length === 0) {
+    return { values, secrets, sensitiveKeys: Array.from(sensitiveKeys) };
+  }
+
+  const targetSkill = readWorkspaceSkillSync(input.skillId, input.workspaceId);
+  if (!targetSkill) {
+    return { values, secrets, sensitiveKeys: Array.from(sensitiveKeys) };
+  }
+  const targetRequirements = readSkillRequirementDeclarations(targetSkill.configJson);
+  const targetKinds = new Map(
+    targetRequirements
+      .filter((requirement) => requirement.kind === "config" || requirement.kind === "secret")
+      .map((requirement) => [requirement.value, requirement.kind]),
+  );
+
+  for (const [key, sourceSkillId] of Object.entries(input.reuseValues)) {
+    const targetKind = targetKinds.get(key);
+    if (!targetKind) continue;
+
+    const sourceSkill = readWorkspaceSkillSync(sourceSkillId, input.workspaceId);
+    if (!sourceSkill) continue;
+    const sourceRequirements = readSkillRequirementDeclarations(sourceSkill.configJson);
+    const sourceDeclaration = sourceRequirements.find(
+      (requirement) => (requirement.kind === "config" || requirement.kind === "secret") && requirement.value === key,
+    );
+    if (!sourceDeclaration || sourceDeclaration.kind !== targetKind) continue;
+
+    const sourceEnv = readAgentSkillRequirementEnvSync({
+      workspaceId: input.workspaceId,
+      employeeName: input.employeeName,
+      skillId: sourceSkillId,
+    });
+    const sourceValue = sourceEnv[key];
+    if (sourceValue === undefined) continue;
+
+    if (targetKind === "secret") {
+      secrets[key] = sourceValue;
+      delete values[key];
+      sensitiveKeys.delete(key);
+    } else {
+      const { configuration: sourceConfiguration } = readAgentSkillRequirementConfigurationSync({
+        workspaceId: input.workspaceId,
+        employeeName: input.employeeName,
+        skillId: sourceSkillId,
+      });
+      values[key] = sourceValue;
+      delete secrets[key];
+      if (sourceConfiguration?.sensitiveKeys.includes(key)) {
+        sensitiveKeys.add(key);
+      }
+    }
+  }
+
+  return { values, secrets, sensitiveKeys: Array.from(sensitiveKeys) };
+}
+
 function persistAgentSkillRequirementsSync(input: {
   workspaceId: string;
   employeeName: string;
@@ -110,6 +181,7 @@ function persistAgentSkillRequirementsSync(input: {
   values?: Record<string, string>;
   secrets?: Record<string, string>;
   sensitiveKeys?: string[];
+  reuseValues?: Record<string, string>;
   managedRuntimeCredentialKey?: string;
   runtimeProvider?: DaemonProvider;
 }): void {
@@ -125,14 +197,23 @@ function persistAgentSkillRequirementsSync(input: {
   ) {
     throw new Error(`${input.managedRuntimeCredentialKey} is managed by the bound runtime and cannot be configured by a Skill.`);
   }
+  const reused = resolveReusedAgentSkillRequirementValuesSync({
+    workspaceId: input.workspaceId,
+    employeeName: input.employeeName,
+    skillId: input.skillId,
+    values: input.values,
+    secrets: input.secrets,
+    sensitiveKeys: input.sensitiveKeys,
+    reuseValues: input.reuseValues,
+  });
   const configuration = normalizeSkillRequirementConfiguration({
     requirements,
     modelProvider: input.modelProvider,
     modelId: input.modelId,
     capabilities: input.capabilities,
     projectWorkDir: input.projectWorkDir,
-    values: input.values,
-    sensitiveKeys: input.sensitiveKeys,
+    values: reused.values,
+    sensitiveKeys: reused.sensitiveKeys,
   });
   const secretNames = requirements.filter((requirement) => requirement.kind === "secret").map((requirement) => requirement.value);
   // Sensitive config keys are stored encrypted alongside declared secrets; their
@@ -141,10 +222,10 @@ function persistAgentSkillRequirementsSync(input: {
   const encryptedNames = Array.from(new Set([...secretNames, ...sensitiveConfigKeys]));
   const newEncryptedValues: Record<string, string> = {};
   for (const name of secretNames) {
-    newEncryptedValues[name] = input.secrets?.[name] ?? "";
+    newEncryptedValues[name] = reused.secrets?.[name] ?? "";
   }
   for (const name of sensitiveConfigKeys) {
-    newEncryptedValues[name] = input.values?.[name] ?? "";
+    newEncryptedValues[name] = reused.values?.[name] ?? "";
   }
   const existingRecord = readAgentSkillRequirementConfigSync({
     workspaceId: input.workspaceId,

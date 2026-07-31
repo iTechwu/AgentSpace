@@ -13,7 +13,6 @@ import {
   recordRuntimeCredentialReconciliationFailureSync,
   recordRuntimeCredentialReconciliationSuccessSync,
   upsertActiveRuntimeCredentialReconciliationTargetSync,
-  upsertModelPricingSync,
   upsertTokenUsageReconciliationCursorSync,
 } from "@dofe-agent/db";
 import { readAgentRuntimeSync } from "@dofe-agent/db";
@@ -226,17 +225,6 @@ export async function syncRuntimeCredentialUsageAsync(
 
   const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
   const client = getModelsInternalClient();
-
-  // models.dofe.ai owns tenant pricing. Refresh the local estimate cache before
-  // reconciling so newly configured aliases and existing zero estimates use the
-  // same effective prices shown by the models catalog.
-  try {
-    const catalog = await client.models.list({ query: { tenantId: scope.tenantId } });
-    syncEffectiveModelPricing(catalog.list ?? []);
-  } catch {
-    // Settled usage remains auditable through totalSalePrice even when the
-    // catalog endpoint is temporarily unavailable.
-  }
 
   recordAuditLogSync({
     workspaceId: input.workspaceId,
@@ -457,43 +445,6 @@ function parseBillableAmount(entry: ReconciliationUsageLogEntry): number {
   // totalSalePrice is the tenant charge calculated from the immutable models
   // pricing snapshot. totalCost is retained only for older models deployments.
   return parseCost(entry.totalSalePrice ?? entry.totalCost);
-}
-
-export function syncEffectiveModelPricing(models: unknown[]): void {
-  const updatedAt = new Date().toISOString();
-  for (const value of models) {
-    if (!isRecord(value)) continue;
-    const model = value;
-    const alias = readNonEmptyString(model.alias);
-    if (!alias) continue;
-    const pricing = isRecord(model.pricing) ? model.pricing : undefined;
-    const inputPer1M = readFiniteNonNegative(pricing?.actualInputPrice)
-      ?? readFiniteNonNegative(model.inputPrice);
-    const outputPer1M = readFiniteNonNegative(pricing?.actualOutputPrice)
-      ?? readFiniteNonNegative(model.outputPrice);
-    if (inputPer1M == null || outputPer1M == null) continue;
-    const displayName = readNonEmptyString(model.displayName) ?? alias;
-    const currency = readNonEmptyString(pricing?.currency)
-      ?? readNonEmptyString(model.inputPriceCurrency)
-      ?? readNonEmptyString(model.outputPriceCurrency)
-      ?? "USD";
-    const ids = new Set([alias, readNonEmptyString(model.model)].filter(Boolean) as string[]);
-    for (const modelId of ids) {
-      upsertModelPricingSync({ modelId, displayName, inputPer1M, outputPer1M, currency, updatedAt });
-    }
-  }
-}
-
-function readFiniteNonNegative(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
-function readNonEmptyString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function decodeAttributionIdentifier(value: string | null | undefined): string | undefined {

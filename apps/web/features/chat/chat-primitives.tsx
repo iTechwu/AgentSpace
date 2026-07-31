@@ -639,6 +639,7 @@ export function ChatComposer({
   const [editingQueueValue, setEditingQueueValue] = useState("");
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
+  const executionPolicyRef = useRef<HTMLDivElement>(null);
   const hasDraft = draft.trim().length > 0 || files.length > 0 || references.length > 0;
   const isStopAction = isAgentRunning && !hasDraft;
   const activeSuggestions = slashSuggestions.length > 0 ? slashSuggestions : mentionSuggestions;
@@ -658,6 +659,19 @@ export function ChatComposer({
       setActiveSuggestionIndex(0);
     }
   }, [activeSuggestionIndex, activeSuggestions.length]);
+
+  useEffect(() => {
+    if (!showExecutionPolicyMenu || !onToggleExecutionPolicyMenu) {
+      return;
+    }
+    function handlePointerDown(event: MouseEvent): void {
+      if (!executionPolicyRef.current?.contains(event.target as Node)) {
+        onToggleExecutionPolicyMenu?.();
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [onToggleExecutionPolicyMenu, showExecutionPolicyMenu]);
 
   function beginQueueEdit(id: string, content: string): void {
     setEditingQueueId(id);
@@ -823,6 +837,11 @@ export function ChatComposer({
           className="contacts-composer__textarea"
           onChange={(event) => onDraftChange(event.currentTarget.value, event.currentTarget.selectionStart ?? event.currentTarget.value.length)}
           onKeyDown={(event) => {
+            if (showExecutionPolicyMenu && event.key === "Escape") {
+              event.preventDefault();
+              onToggleExecutionPolicyMenu?.();
+              return;
+            }
             const nativeEvent = event.nativeEvent as KeyboardEvent;
             if (nativeEvent.isComposing || nativeEvent.keyCode === 229) {
               return;
@@ -943,20 +962,20 @@ export function ChatComposer({
               {showPicker ? (
                 <div className="contacts-picker-menu" role="menu">
                   <button className="contacts-picker-item" onClick={onInsertMentionTrigger} type="button">
-                    <span className="contacts-picker-item__icon">@</span>
+                    <span className="contacts-picker-item__icon"><AppIcon name="atSign" /></span>
                     <span>{tx("引用成员、文件或技能", "Reference people, files, or skills")}</span>
                   </button>
                   <div className="contacts-picker-divider" />
                   <button className="contacts-picker-item" onClick={() => mediaInputRef.current?.click()} type="button">
-                    <span className="contacts-picker-item__icon">IMG</span>
+                    <span className="contacts-picker-item__icon"><AppIcon name="open" /></span>
                     <span>{tx("图片/视频", "Images / Videos")}</span>
                   </button>
                   <button className="contacts-picker-item" onClick={() => fileInputRef.current?.click()} type="button">
-                    <span className="contacts-picker-item__icon">FILE</span>
+                    <span className="contacts-picker-item__icon"><AppIcon name="knowledge" /></span>
                     <span>{tx("本地文件", "Local files")}</span>
                   </button>
                   <button className="contacts-picker-item" onClick={() => folderInputRef.current?.click()} type="button">
-                    <span className="contacts-picker-item__icon">DIR</span>
+                    <span className="contacts-picker-item__icon"><AppIcon name="templates" /></span>
                     <span>{tx("本地文件夹", "Local folder")}</span>
                   </button>
                 </div>
@@ -989,7 +1008,7 @@ export function ChatComposer({
           </div>
 
           {runtime && onSelectExecutionPolicy && selectedExecutionOption ? (
-            <div className="contacts-execution-policy">
+            <div className="contacts-execution-policy" ref={executionPolicyRef}>
               <button
                 aria-expanded={showExecutionPolicyMenu}
                 aria-haspopup="listbox"

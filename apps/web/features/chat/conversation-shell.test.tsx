@@ -625,6 +625,68 @@ describe("ConversationShell", () => {
     expect(composer).toHaveValue("/resume ");
   });
 
+  it("targets the active employee when resuming from a group conversation", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          composerRuntime={{ employeeId: "Atlas", employeeLabel: "Atlas", provider: "claude", requiresMentionForCommands: true }}
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "general", title: "General", subtitle: "Group", meta: "meta", avatar: "G" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={vi.fn(async () => {})}
+          placeholder="Send a message"
+          selectedHeader={{ title: "General", subtitle: "Group", avatar: "G" }}
+          selectedItemId="general"
+        />
+      </LanguageProvider>,
+    );
+
+    const composer = screen.getByRole("textbox");
+    await user.type(composer, "/res");
+    await user.keyboard("{Enter}");
+    expect(composer).toHaveValue("/resume @Atlas ");
+  });
+
+  it("opens the unified references and attachments menu from the plus button", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[{ id: "direct-atlas", title: "Atlas", subtitle: "Agent", meta: "meta", avatar: "A" }]}
+          listCount={1}
+          listKicker="Messages"
+          listTitle="Messages"
+          messages={[]}
+          onSelectItem={vi.fn()}
+          onSubmit={vi.fn(async () => {})}
+          placeholder="Send a message"
+          selectedHeader={{ title: "Atlas", subtitle: "Agent", avatar: "A" }}
+          selectedItemId="direct-atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "打开附件与快捷内容菜单" }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "引用成员、文件或技能" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "本地文件" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "本地文件夹" })).toBeInTheDocument();
+  });
+
   it("offers all Claude Code permission modes and saves the selected mode", async () => {
     const user = userEvent.setup();
     const onUpdateExecutionPolicy = vi.fn(async () => {});

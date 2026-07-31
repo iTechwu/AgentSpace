@@ -31,8 +31,8 @@ interface SkillRequirementsModalProps {
   readonly updatedBy?: string;
   /** Declared keys that collide with a managed runtime credential key. */
   readonly credentialKeyWarnings?: string[];
-  /** key -> names of OTHER skills on the same employee that already configure it. */
-  readonly reuseCandidates?: Record<string, string[]>;
+  /** key -> OTHER skills on the same employee that already configure it. */
+  readonly reuseCandidates?: Record<string, Array<{ skillId: string; skillName: string }>>;
   readonly onCancel: () => void;
   readonly onConfirm: (input: {
     modelProvider?: string;
@@ -42,6 +42,7 @@ interface SkillRequirementsModalProps {
     values: Record<string, string>;
     secrets: Record<string, string>;
     sensitiveKeys: string[];
+    reuseValues: Record<string, string>;
   }) => void;
   readonly onRemoveKey?: (key: string) => void;
 }
@@ -95,6 +96,7 @@ export function SkillRequirementsModal({
   const [values, setValues] = useState<Record<string, string>>(effectiveConfiguration.values);
   const [secretValues, setSecretValues] = useState<Record<string, string>>({});
   const [sensitiveKeys, setSensitiveKeys] = useState<string[]>(effectiveConfiguration.sensitiveKeys ?? []);
+  const [reuseValues, setReuseValues] = useState<Record<string, string>>({});
   const configuredKeySet = new Set(configuredSecretKeys);
 
   const toggleSensitive = (key: string, sensitive: boolean) => {
@@ -120,6 +122,7 @@ export function SkillRequirementsModal({
             values,
             secrets: secretValues,
             sensitiveKeys,
+            reuseValues,
           });
         }}
         ref={surfaceRef}
@@ -216,6 +219,8 @@ export function SkillRequirementsModal({
                 const sensitive = sensitiveKeys.includes(key);
                 const isConfiguredEncrypted = sensitive && configuredKeySet.has(key);
                 const reuse = reuseCandidates[key];
+                const reusedSkillId = reuseValues[key];
+                const reusedSkillName = reusedSkillId ? reuse?.find((item) => item.skillId === reusedSkillId)?.skillName : undefined;
                 return (
                   <div className="form-field skill-requirements-modal__field" key={key}>
                     <div className="skill-requirements-modal__field-head">
@@ -223,6 +228,7 @@ export function SkillRequirementsModal({
                       <label className="skill-requirements-modal__sensitive-toggle">
                         <input
                           checked={sensitive}
+                          disabled={Boolean(reusedSkillId)}
                           onChange={(event) => toggleSensitive(key, event.currentTarget.checked)}
                           type="checkbox"
                         />
@@ -239,25 +245,53 @@ export function SkillRequirementsModal({
                         </button>
                       ) : null}
                     </div>
+                    {reuse && reuse.length > 0 ? (
+                      <label className="form-field skill-requirements-modal__reuse">
+                        <span>{tx("复用已有值", "Reuse existing value")}</span>
+                        <select
+                          disabled={pending}
+                          onChange={(event) => {
+                            const skillId = event.currentTarget.value;
+                            setReuseValues((current) => {
+                              if (!skillId) {
+                                const next = { ...current };
+                                delete next[key];
+                                return next;
+                              }
+                              return { ...current, [key]: skillId };
+                            });
+                          }}
+                          value={reusedSkillId ?? ""}
+                        >
+                          <option value="">{tx("不复用 / 手动输入", "Do not reuse / enter manually")}</option>
+                          {reuse.map((item) => (
+                            <option key={item.skillId} value={item.skillId}>{item.skillName}</option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
                     <input
                       autoComplete={sensitive ? "new-password" : "off"}
+                      disabled={pending || Boolean(reusedSkillId)}
                       onChange={(event) => {
                         const value = event.currentTarget.value;
                         setValues((current) => ({ ...current, [key]: value }));
                       }}
                       placeholder={isConfiguredEncrypted ? tx("输入新值以替换；留空保留当前值", "Enter a new value to replace; leave blank to keep") : undefined}
-                      required={!isConfiguredEncrypted}
+                      required={!isConfiguredEncrypted && !reusedSkillId}
                       type={sensitive ? "password" : "text"}
                       value={values[key] ?? ""}
                     />
-                    {isConfiguredEncrypted ? (
+                    {reusedSkillName ? (
+                      <small className="form-field__hint">{tx(`将从 "${reusedSkillName}" 复用该变量的已保存值。`, `The saved value from "${reusedSkillName}" will be reused for this variable.`)}</small>
+                    ) : isConfiguredEncrypted ? (
                       <small className="form-field__hint">{tx("已加密保存；留空将保留当前值", "Encrypted; leave blank to keep the current value")}</small>
                     ) : null}
-                    {reuse?.length ? (
+                    {reuse?.length && !reusedSkillId ? (
                       <small className="form-field__hint">
                         {tx(
-                          `该员工其他 Skill 也配置了 ${key}（${reuse.join("、")}）；同名异值会被拒绝，请复用相同值。`,
-                          `Also configured by another skill (${reuse.join(", ")}); a different value will be rejected — reuse the same value.`,
+                          `该员工其他 Skill 也配置了 ${key}（${reuse.map((item) => item.skillName).join("、")}）；同名异值会被拒绝，建议复用相同值。`,
+                          `Also configured by another skill (${reuse.map((item) => item.skillName).join(", ")}); a different value will be rejected — reuse the same value.`,
                         )}
                       </small>
                     ) : null}
@@ -286,6 +320,8 @@ export function SkillRequirementsModal({
                 const key = requirement.value;
                 const isConfigured = configuredKeySet.has(key);
                 const reuse = reuseCandidates[key];
+                const reusedSkillId = reuseValues[key];
+                const reusedSkillName = reusedSkillId ? reuse?.find((item) => item.skillId === reusedSkillId)?.skillName : undefined;
                 return (
                   <div className="form-field skill-requirements-modal__field" key={key}>
                     <div className="skill-requirements-modal__field-head">
@@ -293,7 +329,7 @@ export function SkillRequirementsModal({
                       {mode === "manage" && onRemoveKey ? (
                         <button
                           className="modal-secondary-button skill-requirements-modal__remove"
-                          disabled={pending || removingKey === key || !isConfigured}
+                          disabled={pending || removingKey === key || !isConfigured || Boolean(reusedSkillId)}
                           onClick={() => onRemoveKey(key)}
                           type="button"
                         >
@@ -301,24 +337,52 @@ export function SkillRequirementsModal({
                         </button>
                       ) : null}
                     </div>
+                    {reuse && reuse.length > 0 ? (
+                      <label className="form-field skill-requirements-modal__reuse">
+                        <span>{tx("复用已有值", "Reuse existing value")}</span>
+                        <select
+                          disabled={pending}
+                          onChange={(event) => {
+                            const skillId = event.currentTarget.value;
+                            setReuseValues((current) => {
+                              if (!skillId) {
+                                const next = { ...current };
+                                delete next[key];
+                                return next;
+                              }
+                              return { ...current, [key]: skillId };
+                            });
+                          }}
+                          value={reusedSkillId ?? ""}
+                        >
+                          <option value="">{tx("不复用 / 手动输入", "Do not reuse / enter manually")}</option>
+                          {reuse.map((item) => (
+                            <option key={item.skillId} value={item.skillId}>{item.skillName}</option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
                     <input
                       aria-label={key}
                       autoComplete="new-password"
+                      disabled={pending || Boolean(reusedSkillId)}
                       onChange={(event) => {
                         const value = event.currentTarget.value;
                         setSecretValues((current) => ({ ...current, [key]: value }));
                       }}
                       placeholder={isConfigured ? tx("输入新值以替换", "Enter a new value to replace") : undefined}
-                      required={!isConfigured}
+                      required={!isConfigured && !reusedSkillId}
                       type="password"
                       value={secretValues[key] ?? ""}
                     />
-                    {isConfigured ? <small className="form-field__hint">{tx("已配置；留空将保留当前值", "Configured; leave blank to keep the current value")}</small> : null}
-                    {reuse?.length ? (
+                    {reusedSkillName ? (
+                      <small className="form-field__hint">{tx(`将从 "${reusedSkillName}" 复用该密钥的已保存值。`, `The saved secret from "${reusedSkillName}" will be reused for this variable.`)}</small>
+                    ) : isConfigured ? <small className="form-field__hint">{tx("已配置；留空将保留当前值", "Configured; leave blank to keep the current value")}</small> : null}
+                    {reuse?.length && !reusedSkillId ? (
                       <small className="form-field__hint">
                         {tx(
-                          `该员工其他 Skill 也配置了 ${key}（${reuse.join("、")}）；同名异值会被拒绝，请复用相同值。`,
-                          `Also configured by another skill (${reuse.join(", ")}); a different value will be rejected — reuse the same value.`,
+                          `该员工其他 Skill 也配置了 ${key}（${reuse.map((item) => item.skillName).join("、")}）；同名异值会被拒绝，建议复用相同值。`,
+                          `Also configured by another skill (${reuse.map((item) => item.skillName).join(", ")}); a different value will be rejected — reuse the same value.`,
                         )}
                       </small>
                     ) : null}

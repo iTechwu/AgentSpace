@@ -228,6 +228,151 @@ test("upsertAgentSkillRequirementsSync accepts the same value used by an install
   );
 });
 
+test("upsertAgentSkillRequirementsSync copies a config value from another skill via reuseValues", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const sourceSkill = createSkillWithConfig("source-skill", "SHARED_KEY");
+  const targetSkill = createSkillWithConfig("target-skill", "SHARED_KEY");
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: sourceSkill.id,
+    actorUserId: TEST_USER_ID,
+    values: { SHARED_KEY: "reused-value" },
+  });
+  setEmployeeSkillIdsSync("Researcher", [sourceSkill.id]);
+
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: targetSkill.id,
+    actorUserId: TEST_USER_ID,
+    reuseValues: { SHARED_KEY: sourceSkill.id },
+  });
+
+  assert.equal(
+    readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: targetSkill.id }).SHARED_KEY,
+    "reused-value",
+  );
+});
+
+test("upsertAgentSkillRequirementsSync copies a secret value from another skill via reuseValues", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const sourceSkill = createWorkspaceSkillSync({
+    name: "source-secret-skill",
+    description: "Source",
+    configJson: JSON.stringify({ requirements: [{ kind: "secret", value: "SHARED_SECRET" }] }),
+  });
+  const targetSkill = createWorkspaceSkillSync({
+    name: "target-secret-skill",
+    description: "Target",
+    configJson: JSON.stringify({ requirements: [{ kind: "secret", value: "SHARED_SECRET" }] }),
+  });
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: sourceSkill.id,
+    actorUserId: TEST_USER_ID,
+    secrets: { SHARED_SECRET: "reused-secret" },
+  });
+  setEmployeeSkillIdsSync("Researcher", [sourceSkill.id]);
+
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: targetSkill.id,
+    actorUserId: TEST_USER_ID,
+    reuseValues: { SHARED_SECRET: sourceSkill.id },
+  });
+
+  assert.equal(
+    readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: targetSkill.id }).SHARED_SECRET,
+    "reused-secret",
+  );
+});
+
+test("upsertAgentSkillRequirementsSync preserves sensitive flag when reusing a sensitive config", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const sourceSkill = createSkillWithConfig("source-sensitive-skill", "SENSITIVE_KEY");
+  const targetSkill = createSkillWithConfig("target-sensitive-skill", "SENSITIVE_KEY");
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: sourceSkill.id,
+    actorUserId: TEST_USER_ID,
+    values: { SENSITIVE_KEY: "secret-value" },
+    sensitiveKeys: ["SENSITIVE_KEY"],
+  });
+  setEmployeeSkillIdsSync("Researcher", [sourceSkill.id]);
+
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: targetSkill.id,
+    actorUserId: TEST_USER_ID,
+    reuseValues: { SENSITIVE_KEY: sourceSkill.id },
+  });
+
+  const { configuration, configuredSecretKeys } = readAgentSkillRequirementConfigurationSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: targetSkill.id,
+  });
+  assert.ok(configuration);
+  assert.deepEqual(configuration!.sensitiveKeys, ["SENSITIVE_KEY"]);
+  assert.ok(configuredSecretKeys.includes("SENSITIVE_KEY"));
+  assert.equal(
+    readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: targetSkill.id }).SENSITIVE_KEY,
+    "secret-value",
+  );
+});
+
+test("upsertAgentSkillRequirementsSync skips reuse when source and target kinds mismatch", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const sourceSkill = createWorkspaceSkillSync({
+    name: "source-secret-skill",
+    description: "Source",
+    configJson: JSON.stringify({ requirements: [{ kind: "secret", value: "MIXED_KEY" }] }),
+  });
+  const targetSkill = createSkillWithConfig("target-config-skill", "MIXED_KEY");
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: sourceSkill.id,
+    actorUserId: TEST_USER_ID,
+    secrets: { MIXED_KEY: "secret-value" },
+  });
+  setEmployeeSkillIdsSync("Researcher", [sourceSkill.id]);
+
+  assert.throws(
+    () => upsertAgentSkillRequirementsSync({
+      workspaceId: "default",
+      employeeName: "Researcher",
+      skillId: targetSkill.id,
+      actorUserId: TEST_USER_ID,
+      reuseValues: { MIXED_KEY: sourceSkill.id },
+    }),
+    /Configuration value MIXED_KEY is required/,
+  );
+});
+
+test("upsertAgentSkillRequirementsSync skips reuse when source is not configured", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const sourceSkill = createSkillWithConfig("source-empty-skill", "EMPTY_KEY");
+  const targetSkill = createSkillWithConfig("target-empty-skill", "EMPTY_KEY");
+  setEmployeeSkillIdsSync("Researcher", [sourceSkill.id]);
+
+  assert.throws(
+    () => upsertAgentSkillRequirementsSync({
+      workspaceId: "default",
+      employeeName: "Researcher",
+      skillId: targetSkill.id,
+      actorUserId: TEST_USER_ID,
+      reuseValues: { EMPTY_KEY: sourceSkill.id },
+    }),
+    /Configuration value EMPTY_KEY is required/,
+  );
+});
+
 test("upsertAgentSkillRequirementsSync can save and assign the skill atomically", () => {
   createEmployeeSync({ name: "Researcher" });
   const skill = createSkillWithConfig("atomic-install", "INSTALL_KEY");

@@ -6,6 +6,8 @@ const {
   mockAcknowledgeMessageSync,
   mockAssertCanUseEmployeeForActorSync,
   mockDeleteChannelSync,
+  mockListEmployeeSkillIdsSync,
+  mockListWorkspaceSkillsSync,
   mockPersistFormAttachments,
   mockPinMessageSync,
   mockCanViewChannelDocumentSync,
@@ -34,6 +36,8 @@ const {
   mockAcknowledgeMessageSync: vi.fn(),
   mockAssertCanUseEmployeeForActorSync: vi.fn(),
   mockDeleteChannelSync: vi.fn(),
+  mockListEmployeeSkillIdsSync: vi.fn(),
+  mockListWorkspaceSkillsSync: vi.fn(),
   mockPersistFormAttachments: vi.fn(),
   mockPinMessageSync: vi.fn(),
   mockCanViewChannelDocumentSync: vi.fn(),
@@ -64,6 +68,8 @@ vi.mock("@dofe-agent/services", () => ({
   acknowledgeMessageSync: mockAcknowledgeMessageSync,
   assertCanUseEmployeeForActorSync: mockAssertCanUseEmployeeForActorSync,
   deleteChannelSync: mockDeleteChannelSync,
+  listEmployeeSkillIdsSync: mockListEmployeeSkillIdsSync,
+  listWorkspaceSkillsSync: mockListWorkspaceSkillsSync,
   deleteChannelAttachmentSync: mockDeleteChannelAttachmentSync,
   renameChannelSync: mockRenameChannelSync,
   sendChannelHumanMessageSync: mockSendChannelHumanMessageSync,
@@ -143,6 +149,8 @@ describe("channel actions", () => {
     mockAddChannelEmployeesSync.mockReset();
     mockAddWorkspaceMemberToChannelForActorSync.mockReset();
     mockDeleteChannelSync.mockReset();
+    mockListEmployeeSkillIdsSync.mockReset();
+    mockListWorkspaceSkillsSync.mockReset();
     mockDeleteChannelAttachmentSync.mockReset();
     mockPersistFormAttachments.mockReset();
     mockAcknowledgeMessageSync.mockReset();
@@ -169,6 +177,8 @@ describe("channel actions", () => {
     mockValidateSessionModelOverrideForChatCommandAsync.mockReset();
 
     mockPersistFormAttachments.mockResolvedValue([]);
+    mockListEmployeeSkillIdsSync.mockReturnValue([]);
+    mockListWorkspaceSkillsSync.mockReturnValue([]);
     mockResolveAgentRuntimeMode.mockReturnValue("remote");
     mockValidateSessionModelOverrideForChatCommandAsync.mockResolvedValue({
       agentName: "Atlas",
@@ -251,6 +261,94 @@ describe("channel actions", () => {
       "general",
       "techwu",
       "hello",
+      [],
+      undefined,
+      "workspace-1",
+      "user-1",
+    );
+  });
+
+  it("copies referenced channel files into the outgoing message with a distinct attachment id", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
+    mockReadWorkspaceStateSync.mockReturnValue({
+      channels: [{ name: "general", kind: "group", humanMemberNames: ["techwu"], humanMembers: 1, employeeNames: ["Atlas"] }],
+      messages: [{
+        id: "message-source",
+        channel: "general",
+        attachments: [{
+          id: "att-source",
+          fileName: "quarterly.csv",
+          mediaType: "text/csv",
+          sizeBytes: 42,
+          kind: "file",
+          storedPath: "tos://bucket/quarterly.csv",
+          storageKey: "workspaces/workspace-1/attachments/att-source/quarterly.csv",
+        }],
+      }],
+    });
+
+    const formData = new FormData();
+    formData.set("channelName", "general");
+    formData.set("content", "analyze");
+    formData.append("attachmentReferences", "att-source");
+
+    await sendChannelMessageAction(formData);
+
+    const attachments = mockSendChannelHumanMessageSync.mock.calls[0]?.[3];
+    expect(attachments).toEqual([
+      expect.objectContaining({
+        id: expect.stringMatching(/^att-ref-/),
+        fileName: "quarterly.csv",
+        storedPath: "tos://bucket/quarterly.csv",
+      }),
+    ]);
+    expect(attachments[0]?.id).not.toBe("att-source");
+  });
+
+  it("accepts only skills assigned to a channel employee and adds a runtime directive", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
+    mockReadWorkspaceStateSync.mockReturnValue({
+      channels: [{ name: "general", kind: "group", humanMemberNames: ["techwu"], humanMembers: 1, employeeNames: ["Atlas"] }],
+      messages: [],
+    });
+    mockListEmployeeSkillIdsSync.mockReturnValue(["skill-finance"]);
+    mockListWorkspaceSkillsSync.mockReturnValue([{ id: "skill-finance", name: "Finance review" }]);
+
+    const formData = new FormData();
+    formData.set("channelName", "general");
+    formData.set("content", "analyze");
+    formData.append("skillReferences", "skill-finance");
+
+    await sendChannelMessageAction(formData);
+
+    expect(mockSendChannelHumanMessageSync).toHaveBeenCalledWith(
+      "general",
+      "techwu",
+      "analyze\n\n[Use assigned skills: Finance review]",
+      [],
+      undefined,
+      "workspace-1",
+      "user-1",
+    );
+  });
+
+  it("turns a group /resume command into a continued task for the selected employee", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member"));
+    mockReadWorkspaceStateSync.mockReturnValue({
+      channels: [{ name: "general", kind: "group", humanMemberNames: ["techwu"], humanMembers: 1, employeeNames: ["Atlas"] }],
+      messages: [],
+    });
+
+    const formData = new FormData();
+    formData.set("channelName", "general");
+    formData.set("content", "/resume @Atlas");
+
+    await sendChannelMessageAction(formData);
+
+    expect(mockSendChannelHumanMessageSync).toHaveBeenCalledWith(
+      "general",
+      "techwu",
+      "@Atlas 请继续上一项任务。",
       [],
       undefined,
       "workspace-1",

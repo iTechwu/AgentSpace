@@ -1,7 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
-import { listManagedRuntimesForWorkspaceSync, resolveAgentRuntimeMode } from "@dofe-agent/services";
+import {
+  getModelsTenantBillingReportAsync,
+  isModelsInternalConfigured,
+  listManagedRuntimesForWorkspaceSync,
+  resolveAgentRuntimeMode,
+  resolveManagedRuntimeScopeSync,
+  type ModelsTenantBillingReport,
+} from "@dofe-agent/services";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 import { getWorkspacePageContext } from "../../../_lib/workspace-page-context";
@@ -26,6 +33,23 @@ export default async function ManagedRuntimeDetailPage({
     actorUserId: workspaceContext.currentUser.id,
   }).find((item) => item.id === runtimeId);
   if (!runtime) notFound();
+
+  let billingReport: ModelsTenantBillingReport | null = null;
+  if (isModelsInternalConfigured()) {
+    try {
+      const scope = resolveManagedRuntimeScopeSync(workspaceContext.currentWorkspace.id);
+      billingReport = await getModelsTenantBillingReportAsync({
+        tenantId: scope.tenantId,
+        ssoTeamId: scope.teamId,
+        runtimeId: runtime.id,
+        startDate: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString(),
+        endDate: new Date().toISOString(),
+      });
+    } catch {
+      billingReport = null;
+    }
+  }
+  const authoritativeUsage = summarizeRuntimeBilling(billingReport);
 
   const presentation = presentRuntimeState(runtime.provisioningState, runtime.status);
 
@@ -78,34 +102,30 @@ export default async function ManagedRuntimeDetailPage({
               <span>容量与费用</span>
               <h2 id="runtime-usage-title">当前周期</h2>
             </div>
-            <p>Token 用量为本地采集，费用以 models 对账结果为准。</p>
+            <p>Token 与费用均来自 models 权威账单，任务数保留 AgentSpace 业务口径。</p>
           </div>
           <dl className="runtime-detail__metrics">
             <RuntimeMetric label="AI 员工" value={String(runtime.assignedEmployeeCount)} />
             <RuntimeMetric label="任务" value={String(runtime.periodTaskCount ?? 0)} />
-            <RuntimeMetric label="输入 Token" value={formatTokens(runtime.periodInputTokens ?? 0)} />
-            <RuntimeMetric label="输出 Token" value={formatTokens(runtime.periodOutputTokens ?? 0)} />
+            <RuntimeMetric label="输入 Token" value={authoritativeUsage ? formatTokens(authoritativeUsage.inputTokens) : "暂不可用"} />
+            <RuntimeMetric label="输出 Token" value={authoritativeUsage ? formatTokens(authoritativeUsage.outputTokens) : "暂不可用"} />
             <RuntimeMetric
-              label="当前估算"
-              value={(runtime.unpricedUsageCount ?? 0) > 0 && (runtime.periodEstimatedCostUsd ?? 0) === 0
-                ? "尚未计价"
-                : formatMoney(runtime.periodEstimatedCostUsd ?? 0, runtime.periodCurrency)}
-              warning={(runtime.unpricedUsageCount ?? 0) > 0}
+              label="应计费用"
+              value={authoritativeUsage ? formatMoney(authoritativeUsage.accruedCharge, authoritativeUsage.currency) : "暂不可用"}
+              warning={!authoritativeUsage || authoritativeUsage.reconciliationCount > 0}
             />
             <RuntimeMetric
               label="实际扣费"
-              value={(runtime.pendingUsageCount ?? 0) > 0 && runtime.periodActualCostUsd === 0
-                ? "待对账"
-                : formatMoney(runtime.periodActualCostUsd, runtime.periodCurrency)}
+              value={authoritativeUsage ? formatMoney(authoritativeUsage.settledCharge, authoritativeUsage.currency) : "暂不可用"}
             />
           </dl>
-          {(runtime.unpricedUsageCount ?? 0) > 0 || (runtime.pendingUsageCount ?? 0) > 0 || (runtime.unallocatedUsageCount ?? 0) > 0 ? (
+          {!authoritativeUsage || authoritativeUsage.pendingCount > 0 || authoritativeUsage.reconciliationCount > 0 ? (
             <div className="runtime-detail__usage-status" role="status">
-              {(runtime.unpricedUsageCount ?? 0) > 0 ? <span>{runtime.unpricedUsageCount} 条用量尚未取得 models 生效价</span> : null}
-              {(runtime.pendingUsageCount ?? 0) > 0 ? <span>{runtime.pendingUsageCount} 条用量等待对账</span> : null}
-              {(runtime.unallocatedUsageCount ?? 0) > 0 ? (
+              {!authoritativeUsage ? <span>models 权威账单暂不可用，本页不展示本地推算金额</span> : null}
+              {(authoritativeUsage?.pendingCount ?? 0) > 0 ? <span>{authoritativeUsage!.pendingCount} 条用量尚未结算</span> : null}
+              {(authoritativeUsage?.reconciliationCount ?? 0) > 0 ? (
                 <span className="runtime-detail__usage-status--warning">
-                  {runtime.unallocatedUsageCount} 条用量未归属{runtime.unallocatedCostUsd > 0 ? `，涉及 ${formatMoney(runtime.unallocatedCostUsd, runtime.periodCurrency)}` : ""}
+                  {authoritativeUsage!.reconciliationCount} 条用量需要对账
                 </span>
               ) : null}
             </div>
@@ -141,6 +161,42 @@ export default async function ManagedRuntimeDetailPage({
       </div>
     </section>
   );
+}
+
+function summarizeRuntimeBilling(report: ModelsTenantBillingReport | null): {
+  inputTokens: number;
+  outputTokens: number;
+  accruedCharge: number;
+  settledCharge: number;
+  pendingCount: number;
+  reconciliationCount: number;
+  currency: string;
+} | null {
+  if (!report) return null;
+  const currencies = new Set(report.totals.map((row) => row.currency));
+  if (currencies.size > 1) return null;
+  return report.totals.reduce((summary, row) => {
+    const charge = row.billingStatus === "released" ? 0 : Number(row.tenantCharge);
+    summary.inputTokens += row.inputTokens;
+    summary.outputTokens += row.outputTokens;
+    summary.accruedCharge += charge;
+    if (row.billingStatus === "settled") summary.settledCharge += charge;
+    if (row.billingStatus === "created" || row.billingStatus === "reserved") {
+      summary.pendingCount += row.requestCount;
+    }
+    if (row.billingStatus === "reconciliation_required" || row.billingStatus === "untracked") {
+      summary.reconciliationCount += row.requestCount;
+    }
+    return summary;
+  }, {
+    inputTokens: 0,
+    outputTokens: 0,
+    accruedCharge: 0,
+    settledCharge: 0,
+    pendingCount: 0,
+    reconciliationCount: 0,
+    currency: [...currencies][0] ?? "CNY",
+  });
 }
 
 function RuntimeField({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {

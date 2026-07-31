@@ -1204,6 +1204,7 @@ export function ChannelsPageClient({
           employeeLabel: selectedComposerAgent.label,
           provider: selectedComposerAgent.provider,
           executionPolicy: selectedComposerAgent.executionPolicy,
+          requiresMentionForCommands: selectedChannel?.kind !== "direct",
         }
       : undefined;
   const mentionCandidates: ConversationMentionCandidate[] = useMemo(() => {

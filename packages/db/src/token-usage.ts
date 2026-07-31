@@ -162,9 +162,10 @@ export function recordTokenUsageSync(input: RecordTokenUsageInput): TokenUsageRe
   const db = getDatabase();
   const id = randomLikeId();
   const now = new Date().toISOString();
-  const pricing = readModelPricingSync(input.modelId);
-  const costUsd = pricing ? computeCostUsd(input.inputTokens, input.outputTokens, pricing) : 0;
-  const usageCurrency = input.currency?.trim().toUpperCase() || pricing?.currency;
+  // Monetary calculation belongs to models.dofe.ai. This row only preserves
+  // AgentSpace correlation until the authoritative charge is reconciled.
+  const costUsd = 0;
+  const usageCurrency = input.currency?.trim().toUpperCase();
   const workspaceId = input.workspaceId ?? (input.taskQueueId ? readWorkspaceIdForTaskQueueSync(input.taskQueueId) : null) ?? DEFAULT_WORKSPACE_ID;
   const billingStatus = input.billingStatus ?? "estimated";
 
@@ -772,8 +773,7 @@ export function markTokenUsageReconciledSync(
 ): TokenUsageRecord | null {
   const db = getDatabase();
   const now = new Date().toISOString();
-  const pricing = readModelPricingSync(input.modelId);
-  const costUsd = pricing ? computeCostUsd(input.inputTokens, input.outputTokens, pricing) : 0;
+  const costUsd = 0;
   db.prepare(
     `UPDATE token_usage
      SET billing_status = ?,

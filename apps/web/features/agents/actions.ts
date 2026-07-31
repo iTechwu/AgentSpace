@@ -709,6 +709,8 @@ export async function installWorkspaceAgentSkillAction(input: {
   values?: Record<string, string>;
   secrets?: Record<string, string>;
   sensitiveKeys?: string[];
+  /** Map of declared key -> source skill id to copy an existing configured value from. */
+  reuseValues?: Record<string, string>;
 }): Promise<ActionToastResult<void>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   const workspaceId = workspaceContext.currentWorkspace.id;
@@ -739,6 +741,7 @@ export async function installWorkspaceAgentSkillAction(input: {
       values: input.values,
       secrets: input.secrets,
       sensitiveKeys: input.sensitiveKeys,
+      reuseValues: input.reuseValues,
       ...(managedRuntimeCredentialKey ? { managedRuntimeCredentialKey } : {}),
       ...(boundRuntime?.provider ? { runtimeProvider: boundRuntime.provider } : {}),
       assignSkill: true,

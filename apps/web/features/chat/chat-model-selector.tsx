@@ -106,7 +106,7 @@ export function ChatModelSelector({
     return (
       <div className="chat-model-selector chat-model-selector--loading">
         <span className="chat-model-selector__trigger">
-          <span className="chat-model-selector__label">{tx("模型", "Model")}</span>
+          <span className="chat-model-selector__label">{tx("使用模型", "Model")}</span>
           <span className="chat-model-selector__value">{tx("加载中…", "Loading…")}</span>
         </span>
       </div>
@@ -115,30 +115,27 @@ export function ChatModelSelector({
 
   const provider = info.provider;
   const canPick = canManage && provider != null;
+  const sessionModelOverride = activeModel?.source === "session_override" || activeModel?.source === "manual";
+  const modelDisplay = formatModelDisplay(info.agentName, activeModel?.modelId, tx);
 
   return (
     <div
       className={`chat-model-selector${canPick ? " chat-model-selector--interactive" : ""}`}
-      title={sourceLabel(activeModel?.source, tx)}
+      title={modelDisplay}
     >
       <div className="chat-model-selector__trigger">
-        <span className="chat-model-selector__label">{tx("模型", "Model")}</span>
+        <span className="chat-model-selector__label">
+          {sessionModelOverride ? tx("本次会话已切换", "Changed for this chat") : tx("使用模型", "Model")}
+        </span>
         {activeModel ? (
-          <span className="chat-model-selector__value" title={activeModel.modelId}>
-            {activeModel.modelId}
+          <span className="chat-model-selector__value" title={modelDisplay}>
+            {modelDisplay}
           </span>
         ) : (
-          <span className="chat-model-selector__value chat-model-selector__value--empty">
-            {tx("未配置", "Not set")}
+          <span className="chat-model-selector__value chat-model-selector__value--empty" title={modelDisplay}>
+            {modelDisplay}
           </span>
         )}
-        {activeModel ? (
-          <span
-            className={`chat-model-selector__source chat-model-selector__source--${activeModel.source}`}
-          >
-            {sourceLabel(activeModel.source, tx)}
-          </span>
-        ) : null}
         {canPick ? <AppIcon className="chat-model-selector__chevron" name="chevronDown" /> : null}
       </div>
       {canPick ? (
@@ -156,6 +153,16 @@ export function ChatModelSelector({
       ) : null}
     </div>
   );
+}
+
+function formatModelDisplay(
+  agentName: string,
+  modelId: string | undefined,
+  tx: (zh: string, en: string) => string,
+): string {
+  return modelId
+    ? tx(`${agentName}（${modelId}）`, `${agentName} (${modelId})`)
+    : tx(`${agentName}（未配置）`, `${agentName} (Not set)`);
 }
 
 function CompactModelPicker({
@@ -203,29 +210,6 @@ function CompactModelPicker({
       ))}
     </select>
   );
-}
-
-function sourceLabel(
-  source: string | undefined,
-  tx: (zh: string, en: string) => string,
-): string {
-  switch (source) {
-    case "session_override":
-    case "manual":
-      return tx("会话覆盖", "Session override");
-    case "employee_default":
-      return tx("AI员工默认", "Employee default");
-    case "skill_requirement":
-      return tx("Skill 要求", "Skill requirement");
-    case "runtime_default":
-      return tx("Runtime 默认", "Runtime default");
-    case "team_policy_default":
-      return tx("团队策略", "Team policy");
-    case "protocol_fallback":
-      return tx("协议兜底", "Protocol fallback");
-    default:
-      return tx("未配置", "Not set");
-  }
 }
 
 function errorLabel(

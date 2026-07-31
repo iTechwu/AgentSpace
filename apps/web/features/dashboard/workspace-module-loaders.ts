@@ -22,7 +22,7 @@ import {
   getCalendarPageData,
   getChannelListPageData,
   getChannelsPageData,
-  getCostPageData,
+  getCostPageDataAsync,
   getDataTablesPageData,
   getInboxPageData,
   getKnowledgePageData,
@@ -218,7 +218,7 @@ async function loadWorkspaceModuleDataUncached(
       return {
         moduleId,
         budgets: getBudgetPageData(workspaceId),
-        costs: getCostPageData("monthly", workspaceId),
+        costs: await getCostPageDataAsync("monthly", workspaceId),
       };
     case "im":
       return loadImWorkspaceModuleData(workspaceId, viewer, options);

@@ -372,6 +372,9 @@ export function translateUnavailableReason(reason: string | undefined, tx: (zh: 
   if (protocolMatch?.[1]) return tx(`不支持执行引擎协议（${protocolMatch[1]}）`, reason);
   if (reason === "Disabled by team policy") return tx("已被团队策略禁用", reason);
   if (reason === "Credential unavailable") return tx("模型凭据暂不可用", reason);
+  if (reason === "Codex Responses verification required") {
+    return tx("未通过 Codex Responses 流式与工具验证", reason);
+  }
   if (reason === "Model is deprecated") return tx("模型已弃用", reason);
   return reason;
 }

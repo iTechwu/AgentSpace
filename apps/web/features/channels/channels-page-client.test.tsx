@@ -1045,7 +1045,7 @@ describe("ChannelsPageClient", () => {
     expect(within(mentionMenu).getByText("Mina")).toBeInTheDocument();
     expect(within(mentionMenu).getByText("群成员")).toBeInTheDocument();
     expect(within(mentionMenu).queryByText("Nova")).not.toBeInTheDocument();
-    await user.click(within(mentionMenu).getByRole("button", { name: /Mina/ }));
+    await user.click(within(mentionMenu).getByRole("option", { name: /Mina/ }));
     expect(screen.getByRole("textbox")).toHaveValue("@Mina ");
   });
 

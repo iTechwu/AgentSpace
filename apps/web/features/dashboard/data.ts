@@ -14,6 +14,7 @@ import {
   resolveChannelHumanMemberNames,
   resolveAttachmentMediaType,
   getCostDashboardDataSync,
+  getCostDashboardDataAsync,
   getChannelAccessSummaryForActorSync,
   canReadChannelForActorSync,
   listBudgetsWithSpentSync,
@@ -138,6 +139,7 @@ const listProviderAccountsCached = cache((workspaceId: string) => listProviderAc
 const listRuntimeProvisionRequestsCached = cache((workspaceId: string) => listRuntimeProvisionRequestsSync(workspaceId));
 const listStoredSkillImportEventsCached = cache((workspaceId: string, limit: number) => listStoredSkillImportEventsSync(workspaceId, limit));
 const getCostDashboardDataCached = cache((period: BudgetPeriod, workspaceId: string) => getCostDashboardDataSync(period, workspaceId));
+const getAuthoritativeCostDashboardDataCached = cache((period: BudgetPeriod, workspaceId: string) => getCostDashboardDataAsync(period, workspaceId));
 const listBudgetsWithSpentCached = cache((workspaceId: string) => listBudgetsWithSpentSync(workspaceId));
 const getPerformanceDashboardDataCached = cache((workspaceId: string) => getPerformanceDashboardDataSync(workspaceId));
 const INBOX_TASK_ITEM_LIMIT = 60;
@@ -4952,6 +4954,13 @@ export function getCostPageData(
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): CostPageData {
   return getCostDashboardDataCached(period, workspaceId);
+}
+
+export async function getCostPageDataAsync(
+  period: "monthly" | "total" = "monthly",
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): Promise<CostPageData> {
+  return getAuthoritativeCostDashboardDataCached(period, workspaceId);
 }
 
 // ── Budgets ──
