@@ -14,6 +14,8 @@ import {
 } from "@dofe-agent/db";
 import type { ActiveEmployee } from "@dofe-agent/domain/workspace";
 import { createEmployeeSync } from "../employees/employees.ts";
+import { createWorkspaceSkillSync } from "../skills/skills.ts";
+import { upsertAgentSkillRequirementsSync } from "../skills/agent-skill-requirements.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import {
   resolveEffectiveModelForTaskAsync,
@@ -203,6 +205,59 @@ test("employee default wins when no session override", async () => {
 
   assert.equal(result.modelId, "coding-pro");
   assert.equal(result.source, "employee_default");
+});
+
+test("skill-declared model wins over runtime default when a single model-requiring skill is installed", async () => {
+  mockModelsClient([{ alias: "gpt-image-1" }, { alias: "general" }]);
+  createManagedRuntime("general");
+  createEmployee();
+  const skill = createWorkspaceSkillSync({
+    name: "image-gen",
+    description: "Image generation",
+    configJson: JSON.stringify({
+      requirements: [
+        { kind: "provider", value: "codex" },
+        { kind: "model", value: "gpt-image-1" },
+      ],
+    }),
+  }, WORKSPACE_ID);
+  upsertAgentSkillRequirementsSync({
+    workspaceId: WORKSPACE_ID,
+    employeeName: EMPLOYEE_NAME,
+    skillId: skill.id,
+    actorUserId: OWNER,
+    modelProvider: "codex",
+    modelId: "gpt-image-1",
+    runtimeProvider: "codex",
+    assignSkill: true,
+  });
+
+  const result = await resolve({ employeeName: EMPLOYEE_NAME });
+
+  assert.equal(result.modelId, "gpt-image-1");
+  assert.equal(result.source, "skill_requirement");
+  assert.equal(result.validated, true);
+});
+
+test("conflicting skill-declared models fall back to runtime default instead of guessing", async () => {
+  mockModelsClient([{ alias: "model-a" }, { alias: "model-b" }, { alias: "general" }]);
+  createManagedRuntime("general");
+  createEmployee();
+  const skillA = createWorkspaceSkillSync({
+    name: "skill-a",
+    configJson: JSON.stringify({ requirements: [{ kind: "provider", value: "codex" }, { kind: "model", value: "model-a" }] }),
+  }, WORKSPACE_ID);
+  const skillB = createWorkspaceSkillSync({
+    name: "skill-b",
+    configJson: JSON.stringify({ requirements: [{ kind: "provider", value: "codex" }, { kind: "model", value: "model-b" }] }),
+  }, WORKSPACE_ID);
+  upsertAgentSkillRequirementsSync({ workspaceId: WORKSPACE_ID, employeeName: EMPLOYEE_NAME, skillId: skillA.id, actorUserId: OWNER, modelProvider: "codex", modelId: "model-a", runtimeProvider: "codex", assignSkill: true });
+  upsertAgentSkillRequirementsSync({ workspaceId: WORKSPACE_ID, employeeName: EMPLOYEE_NAME, skillId: skillB.id, actorUserId: OWNER, modelProvider: "codex", modelId: "model-b", runtimeProvider: "codex", assignSkill: true });
+
+  const result = await resolve({ employeeName: EMPLOYEE_NAME });
+
+  assert.equal(result.source, "runtime_default");
+  assert.equal(result.modelId, "general");
 });
 
 test("runtime default wins when no employee default", async () => {

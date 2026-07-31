@@ -261,7 +261,7 @@ export interface DaemonTaskInputBundle {
     skillReadinessBlockers?: string[];
     effectiveModel?: {
       modelId: string;
-      source: "session_override" | "employee_default" | "runtime_default" | "team_policy_default" | "protocol_fallback";
+      source: "session_override" | "employee_default" | "skill_requirement" | "runtime_default" | "team_policy_default" | "protocol_fallback";
       runtimeCredentialId: string;
     };
     executionPolicy?: EmployeeExecutionPolicy;

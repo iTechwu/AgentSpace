@@ -17,6 +17,10 @@ const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-task-context-skill-env-"));
 const originalEncryptionKey = process.env.DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY;
 const TEST_USER_ID = "user-1";
+// Dedicated workspace so this file does not collide with other skill test files
+// (e.g. packages/services/.../agent-skill-requirements.test.ts) when both run concurrently
+// against the shared test database. resetWorkspaceStateSync is workspace-scoped.
+const WORKSPACE_ID = "daemon-skill-env-test";
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -26,7 +30,7 @@ before(() => {
 });
 
 beforeEach(() => {
-  resetWorkspaceStateSync();
+  resetWorkspaceStateSync(WORKSPACE_ID);
   const db = getDatabase();
   db.exec("DELETE FROM users");
   const now = new Date().toISOString();
@@ -52,83 +56,83 @@ function createSkillWithConfig(name: string, key: string) {
     configJson: JSON.stringify({
       requirements: [{ kind: "config", value: key }],
     }),
-  });
+  }, WORKSPACE_ID);
 }
 
 test("resolveAgentSkillEnvironment merges env from multiple skills", () => {
-  createEmployeeSync({ name: "Researcher" });
+  createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
   const skillA = createSkillWithConfig("skill-a", "KEY_A");
   const skillB = createSkillWithConfig("skill-b", "KEY_B");
 
   upsertAgentSkillRequirementsSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     employeeName: "Researcher",
     skillId: skillA.id,
     actorUserId: TEST_USER_ID,
     values: { KEY_A: "value-a" },
   });
   upsertAgentSkillRequirementsSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     employeeName: "Researcher",
     skillId: skillB.id,
     actorUserId: TEST_USER_ID,
     values: { KEY_B: "value-b" },
   });
 
-  const { env, conflicts } = resolveAgentSkillEnvironment("default", "Researcher", [skillA, skillB]);
+  const { env, conflicts } = resolveAgentSkillEnvironment(WORKSPACE_ID, "Researcher", [skillA, skillB]);
   assert.deepEqual(env, { KEY_A: "value-a", KEY_B: "value-b" });
   assert.deepEqual(conflicts, []);
 });
 
 test("resolveAgentSkillEnvironment detects conflicts for same key with different values", () => {
-  createEmployeeSync({ name: "Researcher" });
+  createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
   const skillA = createSkillWithConfig("skill-a", "SHARED_KEY");
   const skillB = createSkillWithConfig("skill-b", "SHARED_KEY");
 
   upsertAgentSkillRequirementsSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     employeeName: "Researcher",
     skillId: skillA.id,
     actorUserId: TEST_USER_ID,
     values: { SHARED_KEY: "value-a" },
   });
   upsertAgentSkillRequirementsSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     employeeName: "Researcher",
     skillId: skillB.id,
     actorUserId: TEST_USER_ID,
     values: { SHARED_KEY: "value-b" },
   });
 
-  const { env, conflicts } = resolveAgentSkillEnvironment("default", "Researcher", [skillA, skillB]);
+  const { env, conflicts } = resolveAgentSkillEnvironment(WORKSPACE_ID, "Researcher", [skillA, skillB]);
   assert.equal(env.SHARED_KEY, "value-a");
   assert.deepEqual(conflicts, ["SHARED_KEY"]);
 });
 
 test("resolveAgentSkillEnvironment ignores DOFE_AGENT_ prefixed keys", () => {
-  createEmployeeSync({ name: "Researcher" });
+  createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
   const skill = createWorkspaceSkillSync({
     name: "bad-prefix-skill",
     description: "Bad",
     configJson: JSON.stringify({
       requirements: [{ kind: "config", value: "DOFE_AGENT_OVERRIDDEN" }],
     }),
-  });
+  }, WORKSPACE_ID);
 
   upsertAgentSkillRequirementsSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     employeeName: "Researcher",
     skillId: skill.id,
     actorUserId: TEST_USER_ID,
     values: { DOFE_AGENT_OVERRIDDEN: "bad-value" },
   });
 
-  const { env } = resolveAgentSkillEnvironment("default", "Researcher", [skill]);
+  const { env } = resolveAgentSkillEnvironment(WORKSPACE_ID, "Researcher", [skill]);
   assert.equal(env.DOFE_AGENT_OVERRIDDEN, undefined);
 });
 
 test("collectSkillReadinessBlockers reports missing required configuration and clears once configured", () => {
-  createEmployeeSync({ name: "Researcher" });
+  createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
   const skill = createWorkspaceSkillSync({
     name: "notion-sync",
     description: "Sync",
@@ -138,15 +142,15 @@ test("collectSkillReadinessBlockers reports missing required configuration and c
         { kind: "secret", value: "NOTION_API_TOKEN" },
       ],
     }),
-  });
+  }, WORKSPACE_ID);
 
-  let blockers = collectSkillReadinessBlockers("default", "Researcher", [skill], undefined);
+  let blockers = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined);
   assert.ok(blockers.length >= 2, "expected missing-config and missing-secret blockers");
   assert.ok(blockers.some((b) => b.includes("NOTION_DATABASE_ID")));
   assert.ok(blockers.some((b) => b.includes("NOTION_API_TOKEN")));
 
   upsertAgentSkillRequirementsSync({
-    workspaceId: "default",
+    workspaceId: WORKSPACE_ID,
     employeeName: "Researcher",
     skillId: skill.id,
     actorUserId: TEST_USER_ID,
@@ -154,6 +158,6 @@ test("collectSkillReadinessBlockers reports missing required configuration and c
     secrets: { NOTION_API_TOKEN: "tok" },
   });
 
-  blockers = collectSkillReadinessBlockers("default", "Researcher", [skill], undefined);
+  blockers = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined);
   assert.deepEqual(blockers, []);
 });

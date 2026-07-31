@@ -626,6 +626,7 @@ test("runProviderTask passes one-shot Claude prompts as a CLI argument", async (
     await withProcessGetuid(1000, async () => {
       const events: Array<{ type: string; inputJson?: Record<string, unknown> }> = [];
       const result = await runProviderTask(runtime, "write a short reply", workDir, {
+        executionPolicy: { claudePermissionMode: "plan" },
         contextEnv: {
           CLAUDE_ARGS_PATH: argsPath,
           CLAUDE_STDIN_PATH: stdinPath,
@@ -642,7 +643,7 @@ test("runProviderTask passes one-shot Claude prompts as a CLI argument", async (
       assert.deepEqual(args.slice(0, 6), ["-p", "write a short reply", "--output-format", "stream-json", "--verbose", "--max-turns"]);
       assert.equal(args.includes("--input-format"), false);
       assert.equal(args.includes("--permission-mode"), true);
-      assert.equal(args.includes("auto"), true);
+      assert.equal(args.includes("plan"), true);
       assert.equal(args.includes("bypassPermissions"), false);
       assert.equal(args.includes("--dangerously-skip-permissions"), false);
       assert.deepEqual(args.slice(-2), ["--tools", "default"]);
@@ -651,6 +652,68 @@ test("runProviderTask passes one-shot Claude prompts as a CLI argument", async (
     });
   } finally {
     rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask maps Codex employee access levels to CLI approval and sandbox flags", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-codex-policy-"));
+  const binPath = join(root, "codex");
+  const argsPath = join(root, "codex-args.txt");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      ": > \"$CODEX_ARGS_PATH\"",
+      "for arg in \"$@\"; do printf '%s\\n' \"$arg\" >> \"$CODEX_ARGS_PATH\"; done",
+      "previous_arg=\"\"",
+      "for arg in \"$@\"; do",
+      "  if [ \"$previous_arg\" = \"-o\" ]; then printf '%s' 'policy applied' > \"$arg\"; fi",
+      "  previous_arg=\"$arg\"",
+      "done",
+      "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"session-policy\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-codex-policy-test",
+    workspaceId: "default",
+    provider: "codex",
+    name: "Codex",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    await runProviderTask(runtime, "review this change", root, {
+      executionPolicy: {
+        codexApprovalPolicy: "untrusted",
+        codexSandboxMode: "workspace-write",
+      },
+      contextEnv: { CODEX_ARGS_PATH: argsPath },
+      taskTimeoutMs: 5_000,
+    });
+    let args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    assert.equal(args.includes('approval_policy="untrusted"'), true);
+    assert.equal(args.includes("--sandbox"), true);
+    assert.equal(args.includes("workspace-write"), true);
+    assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
+
+    await runProviderTask(runtime, "apply this change", root, {
+      executionPolicy: {
+        codexApprovalPolicy: "never",
+        codexSandboxMode: "danger-full-access",
+      },
+      contextEnv: { CODEX_ARGS_PATH: argsPath },
+      taskTimeoutMs: 5_000,
+    });
+    args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    assert.equal(args.includes('approval_policy="never"'), true);
+    assert.equal(args.includes("danger-full-access"), true);
+    assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

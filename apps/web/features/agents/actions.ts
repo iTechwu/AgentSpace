@@ -474,6 +474,30 @@ function assertExecutionPolicyMatchesProvider(
   provider: DaemonProvider | undefined,
 ): void {
   if (!policy) return;
+  if (
+    policy.claudePermissionMode !== undefined &&
+    policy.claudePermissionMode !== "manual" &&
+    policy.claudePermissionMode !== "acceptEdits" &&
+    policy.claudePermissionMode !== "plan" &&
+    policy.claudePermissionMode !== "auto"
+  ) {
+    throw new Error("Invalid Claude Code permission mode.");
+  }
+  if (
+    policy.codexApprovalPolicy !== undefined &&
+    policy.codexApprovalPolicy !== "untrusted" &&
+    policy.codexApprovalPolicy !== "on-request" &&
+    policy.codexApprovalPolicy !== "never"
+  ) {
+    throw new Error("Invalid Codex approval policy.");
+  }
+  if (
+    policy.codexSandboxMode !== undefined &&
+    policy.codexSandboxMode !== "workspace-write" &&
+    policy.codexSandboxMode !== "danger-full-access"
+  ) {
+    throw new Error("Invalid Codex sandbox mode.");
+  }
   if (provider === "claude" && (policy.codexApprovalPolicy || policy.codexSandboxMode)) {
     throw new Error("Codex execution settings cannot be saved for a Claude Code runtime.");
   }
@@ -482,6 +506,9 @@ function assertExecutionPolicyMatchesProvider(
   }
   if (provider && provider !== "claude" && provider !== "codex") {
     throw new Error("Execution permission settings are only available for Claude Code and Codex runtimes.");
+  }
+  if (!provider) {
+    throw new Error("Bind a Claude Code or Codex runtime before saving execution permissions.");
   }
 }
 

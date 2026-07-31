@@ -11,6 +11,8 @@ import { resolveAgentRuntimeMode } from "../config/deployment.ts";
 import { resolveManagedRuntimeScopeSync } from "../runtime-provisioning/runtime-provisioning.ts";
 import { recordAuditLogSync } from "@dofe-agent/db";
 import { ensureWorkspaceStateSync } from "../shared/state-io.ts";
+import { listEmployeeSkillIdsSync } from "../employees/employees.ts";
+import { readAgentSkillRequirementConfigurationSync } from "../skills/agent-skill-requirements.ts";
 import type { ModelsInternalRuntimeCredentialModel } from "@dofe/models-sdk";
 
 export interface ResolveEffectiveModelInput {
@@ -25,6 +27,7 @@ export interface EffectiveModelResolution {
   source:
     | "session_override"
     | "employee_default"
+    | "skill_requirement"
     | "runtime_default"
     | "team_policy_default"
     | "protocol_fallback";
@@ -42,12 +45,36 @@ interface ResolutionContext {
 }
 
 /**
+ * Returns the model id declared by this employee's installed Skills, but ONLY
+ * when every model-requiring Skill agrees on the same id. Conflicting or absent
+ * declarations yield `undefined` so model resolution falls back to lower-priority
+ * sources instead of guessing. Each candidate is still availability-checked by
+ * the caller, so an unavailable skill-declared model safely falls through.
+ */
+function readSingleSkillRequiredModelIdSync(workspaceId: string, employeeName: string): string | undefined {
+  const skillIds = listEmployeeSkillIdsSync(employeeName, workspaceId);
+  const modelIds = new Set<string>();
+  for (const skillId of skillIds) {
+    const { configuration } = readAgentSkillRequirementConfigurationSync({ workspaceId, employeeName, skillId });
+    const modelId = configuration?.modelId?.trim();
+    if (modelId) {
+      modelIds.add(modelId);
+    }
+  }
+  if (modelIds.size === 1) {
+    return [...modelIds][0];
+  }
+  return undefined;
+}
+
+/**
  * Resolve the effective model for a task using the priority hierarchy:
  *   1. session `/model` override
  *   2. AI employee default model
- *   3. Runtime default model
- *   4. workspace team policy default model (read from workspace_state)
- *   5. first protocol-compatible model from the active RuntimeCredential catalog
+ *   3. Skill-declared model (only when every model-requiring Skill on this employee agrees on the same id)
+ *   4. Runtime default model
+ *   5. workspace team policy default model (read from workspace_state)
+ *   6. first protocol-compatible model from the active RuntimeCredential catalog
  *
  * Each candidate is validated against `runtimeCredentials.models`; an invalid
  * candidate falls back to the next level and emits a warning audit event.
@@ -104,9 +131,12 @@ export async function resolveEffectiveModelForTaskAsync(
     availableModels,
   };
 
+  const skillRequiredModelId = readSingleSkillRequiredModelIdSync(workspaceId, input.employeeName);
+
   const candidates: Array<{ modelId: string; source: EffectiveModelResolution["source"] }> = [
     session?.modelOverride ? { modelId: session.modelOverride, source: "session_override" } : null,
     employee?.defaultModel ? { modelId: employee.defaultModel, source: "employee_default" } : null,
+    skillRequiredModelId ? { modelId: skillRequiredModelId, source: "skill_requirement" } : null,
     runtime.defaultModel ? { modelId: runtime.defaultModel, source: "runtime_default" } : null,
     { modelId: readTeamPolicyDefaultModelSync(workspaceId), source: "team_policy_default" },
     { modelId: firstAvailableModelAlias(availableModels), source: "protocol_fallback" },

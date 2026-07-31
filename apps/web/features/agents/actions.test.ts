@@ -16,7 +16,10 @@ const {
   mockQueueGitHubSkillDependenciesForAgentSync,
   mockRevalidateWorkspacePaths,
   mockSetEmployeeSkillIdsSync,
+  mockSetAgentSkillAssignmentsWithRequirementsValidationSync,
+  mockReadAgentSkillRequirementConfigurationSync,
   mockUpsertAgentSkillRequirementsSync,
+  mockTryRecordWorkspaceAuditEventSync,
 } = vi.hoisted(() => ({
   mockAssertCanUseEmployeeInChannelForActorSync: vi.fn(),
   mockAssertAgentSkillRequirementsReadySync: vi.fn(),
@@ -33,7 +36,10 @@ const {
   mockQueueGitHubSkillDependenciesForAgentSync: vi.fn(),
   mockRevalidateWorkspacePaths: vi.fn(),
   mockSetEmployeeSkillIdsSync: vi.fn(),
+  mockSetAgentSkillAssignmentsWithRequirementsValidationSync: vi.fn(),
+  mockReadAgentSkillRequirementConfigurationSync: vi.fn(() => ({ configuredSecretKeys: [] as string[] })),
   mockUpsertAgentSkillRequirementsSync: vi.fn(),
+  mockTryRecordWorkspaceAuditEventSync: vi.fn(),
 }));
 
 vi.mock("@dofe-agent/db", () => ({
@@ -62,7 +68,7 @@ vi.mock("@dofe-agent/services", () => ({
   hasGitHubSkillDependenciesSync: mockHasGitHubSkillDependenciesSync,
   isWorkspaceAdminOrOwnerSync: mockIsWorkspaceAdminOrOwnerSync,
   listEmployeeSkillIdsSync: mockListEmployeeSkillIdsSync,
-  readAgentSkillRequirementConfigurationSync: vi.fn(() => ({ configuredSecretKeys: [] })),
+  readAgentSkillRequirementConfigurationSync: mockReadAgentSkillRequirementConfigurationSync,
   resolveSystemAgentTemplateForWorkspaceSync: mockResolveSystemAgentTemplateForWorkspaceSync,
   queueGitHubSkillDependenciesForAgentSync: mockQueueGitHubSkillDependenciesForAgentSync,
   resolveAgentRuntimeMode: mockResolveAgentRuntimeMode,
@@ -71,7 +77,8 @@ vi.mock("@dofe-agent/services", () => ({
   setEmployeeChannelMemberAccessSync: vi.fn(),
   setEmployeeKnowledgePageIdsSync: vi.fn(),
   setEmployeeSkillIdsSync: mockSetEmployeeSkillIdsSync,
-  tryRecordWorkspaceAuditEventSync: vi.fn(),
+  setAgentSkillAssignmentsWithRequirementsValidationSync: mockSetAgentSkillAssignmentsWithRequirementsValidationSync,
+  tryRecordWorkspaceAuditEventSync: mockTryRecordWorkspaceAuditEventSync,
   unbindEmployeeRuntimeSync: vi.fn(),
   upsertAgentSkillRequirementsSync: mockUpsertAgentSkillRequirementsSync,
   updateEmployeeInstructionsSync: vi.fn(),
@@ -114,6 +121,8 @@ describe("agent actions", () => {
     mockRevalidateWorkspacePaths.mockReset();
     mockSetEmployeeSkillIdsSync.mockReset();
     mockUpsertAgentSkillRequirementsSync.mockReset();
+    mockReadAgentSkillRequirementConfigurationSync.mockReset();
+    mockTryRecordWorkspaceAuditEventSync.mockReset();
     mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext());
     mockIsWorkspaceAdminOrOwnerSync.mockReturnValue(true);
     mockListEmployeeSkillIdsSync.mockReturnValue([]);
@@ -122,6 +131,7 @@ describe("agent actions", () => {
     mockUpsertAgentSkillRequirementsSync.mockReturnValue(["skill-image"]);
     mockGetManagedRuntimeCredentialEnvKey.mockReturnValue("OPENAI_API_KEY");
     mockHasGitHubSkillDependenciesSync.mockReturnValue(false);
+    mockReadAgentSkillRequirementConfigurationSync.mockReturnValue({ configuredSecretKeys: [] });
     mockQueueGitHubSkillDependenciesForAgentSync.mockReturnValue({ queued: 0, skipped: 0, waitingForRuntime: false });
     mockCreateTaskSync.mockReturnValue({
       tasks: [
@@ -288,7 +298,12 @@ describe("agent actions", () => {
       skillIds: ["skill-github"],
     });
 
-    expect(mockSetEmployeeSkillIdsSync).toHaveBeenCalledWith("Atlas", ["skill-github"], "workspace-1");
+    expect(mockSetAgentSkillAssignmentsWithRequirementsValidationSync).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      employeeName: "Atlas",
+      skillIds: ["skill-github"],
+      runtimeProvider: undefined,
+    });
     expect(mockQueueGitHubSkillDependenciesForAgentSync).toHaveBeenCalledWith({
       workspaceId: "workspace-1",
       employeeName: "Atlas",
@@ -326,6 +341,27 @@ describe("agent actions", () => {
     });
     expect(mockAssertAgentSkillRequirementsReadySync).not.toHaveBeenCalled();
     expect(result.toast?.en).toContain("installed and configured for this agent");
+  });
+
+  it("emits an independent audit event when a configured secret is rotated", async () => {
+    mockListEmployeeSkillIdsSync.mockReturnValue(["skill-image"]); // already assigned → manage/rotate path
+    mockReadAgentSkillRequirementConfigurationSync.mockReturnValue({ configuredSecretKeys: ["IMAGE_APPKEY"] });
+
+    await installWorkspaceAgentSkillAction({
+      employeeName: "Atlas",
+      skillId: "skill-image",
+      values: { IMAGE_BASE_URL: "https://images.example.test" },
+      secrets: { IMAGE_APPKEY: "rotated-value" },
+    });
+
+    expect(mockTryRecordWorkspaceAuditEventSync).toHaveBeenCalledWith(expect.objectContaining({
+      code: "workspace.agent_skill_secret_rotated",
+      data: expect.objectContaining({ secretKeys: "IMAGE_APPKEY", secretCount: "1" }),
+    }));
+    // The secret value must never appear in any audit event payload.
+    for (const call of mockTryRecordWorkspaceAuditEventSync.mock.calls) {
+      expect(JSON.stringify(call)).not.toContain("rotated-value");
+    }
   });
 
   it("passes the bound managed runtime credential key to skill validation", async () => {

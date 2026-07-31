@@ -33,6 +33,7 @@ interface ModelOverrideInfo {
     source:
       | "session_override"
       | "employee_default"
+      | "skill_requirement"
       | "runtime_default"
       | "team_policy_default"
       | "protocol_fallback";
@@ -214,6 +215,8 @@ function sourceLabel(
       return tx("会话覆盖", "Session override");
     case "employee_default":
       return tx("AI员工默认", "Employee default");
+    case "skill_requirement":
+      return tx("Skill 要求", "Skill requirement");
     case "runtime_default":
       return tx("Runtime 默认", "Runtime default");
     case "team_policy_default":

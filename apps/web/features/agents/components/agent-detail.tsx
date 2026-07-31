@@ -19,7 +19,7 @@ import {
   translateQueueValue,
 } from "@/features/agents/lib/translate";
 import type { AgentsPageData, RouterExecutionView, WorkspaceAgentRecord } from "@/features/dashboard/data";
-import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
+import type { EmployeeExecutionPolicy, WorkspaceSkill } from "@dofe-agent/domain/workspace";
 
 export type AgentDetailTab = "instructions" | "skills" | "knowledge" | "documents" | "workspaces" | "settings";
 
@@ -37,6 +37,7 @@ interface AgentDetailProps {
   readonly onDeleteAgent: () => void;
   readonly onSaveInstructions: (instructions: string) => void;
   readonly onSaveDefaultModel?: (defaultModel: string | undefined) => void;
+  readonly onSaveExecutionPolicy?: (executionPolicy: EmployeeExecutionPolicy | undefined) => void;
   readonly onSetChannelMemberAccess?: (access: WorkspaceAgentRecord["channelMemberAccess"]) => void;
   readonly onSetSkillIds: (skillIds: string[]) => void;
   readonly onInstallSkill: (skillId: string, input: {
@@ -76,6 +77,7 @@ export function AgentDetail({
   onDeleteAgent,
   onSaveInstructions,
   onSaveDefaultModel,
+  onSaveExecutionPolicy,
   onSetChannelMemberAccess,
   onSetSkillIds,
   onInstallSkill,
@@ -99,6 +101,7 @@ export function AgentDetail({
   const [instructionDraft, setInstructionDraft] = useState(record.instructions ?? "");
   const [isEditingInstructions, setIsEditingInstructions] = useState(false);
   const [defaultModelDraft, setDefaultModelDraft] = useState(record.defaultModel ?? "");
+  const [executionPolicyDraft, setExecutionPolicyDraft] = useState<EmployeeExecutionPolicy | undefined>(record.executionPolicy);
   const [selectedRuntimeId, setSelectedRuntimeId] = useState(() =>
     resolveExecutionEngineValue(record.boundContainerId, containerOptions),
   );
@@ -123,6 +126,10 @@ export function AgentDetail({
   useEffect(() => {
     setDefaultModelDraft(record.defaultModel ?? "");
   }, [record.id, record.defaultModel]);
+
+  useEffect(() => {
+    setExecutionPolicyDraft(record.executionPolicy);
+  }, [record.executionPolicy, record.id]);
 
   useEffect(() => {
     setSelectedRuntimeId((current) => {
@@ -754,6 +761,68 @@ export function AgentDetail({
               </section>
             ) : null}
 
+            {onSaveExecutionPolicy && (record.boundProvider === "claude" || record.boundProvider === "codex") ? (
+              <section className="form-panel form-panel--nested" aria-label={tx("执行权限", "Execution permissions")}>
+                <div className="panel-header">
+                  <div>
+                    <h3>{tx("执行权限", "Execution permissions")}</h3>
+                  </div>
+                </div>
+                {record.boundProvider === "claude" ? (
+                  <label className="form-field form-field--full">
+                    <span>{tx("Claude Code 模式", "Claude Code mode")}</span>
+                    <select
+                      aria-label={tx("Claude Code 模式", "Claude Code mode")}
+                      disabled={pending || !canManage}
+                      onChange={(event) => setExecutionPolicyDraft(
+                        event.currentTarget.value
+                          ? { claudePermissionMode: event.currentTarget.value as EmployeeExecutionPolicy["claudePermissionMode"] }
+                          : undefined,
+                      )}
+                      value={executionPolicyDraft?.claudePermissionMode ?? ""}
+                    >
+                      <option value="">{tx("继承运行时默认", "Inherit runtime default")}</option>
+                      <option value="manual">{tx("Manual", "Manual")}</option>
+                      <option value="acceptEdits">{tx("Edit automatically", "Edit automatically")}</option>
+                      <option value="plan">{tx("Plan", "Plan")}</option>
+                      <option value="auto">{tx("Auto", "Auto")}</option>
+                    </select>
+                    <p className="form-help">{tx("每次工具调用均按 Claude Code 的权限模式执行；需要人工处理时会在对话中暂停并显示审批卡片。", "Every tool call follows Claude Code's permission mode; requests that need you pause in the conversation with an approval card.")}</p>
+                  </label>
+                ) : (
+                  <label className="form-field form-field--full">
+                    <span>{tx("Codex 访问级别", "Codex access level")}</span>
+                    <select
+                      aria-label={tx("Codex 访问级别", "Codex access level")}
+                      disabled={pending || !canManage}
+                      onChange={(event) => setExecutionPolicyDraft(codexPolicyFromSelection(event.currentTarget.value))}
+                      value={codexPolicySelection(executionPolicyDraft)}
+                    >
+                      <option value="inherit">{tx("继承运行时默认", "Inherit runtime default")}</option>
+                      <option value="untrusted">{tx("请求批准", "Request approval")}</option>
+                      <option value="on-request">{tx("帮我审批", "Ask me when needed")}</option>
+                      <option value="full-access">{tx("完全访问", "Full access")}</option>
+                    </select>
+                    <p className={codexPolicySelection(executionPolicyDraft) === "full-access" ? "form-help form-help--warning" : "form-help"}>
+                      {codexPolicySelection(executionPolicyDraft) === "full-access"
+                        ? tx("完全访问会跳过 Codex 的审批与沙箱限制，只适用于已隔离且可信的执行环境。", "Full access bypasses Codex approvals and sandboxing. Use it only in an isolated, trusted runtime.")
+                        : tx("该策略会在新任务启动时传给 Codex；运行时提供的审批与工具事件会写入任务执行记录。", "This policy is passed to Codex when a new task starts; approval and tool events exposed by the runtime are recorded in the task activity.")}
+                    </p>
+                  </label>
+                )}
+                <div className="detail-actions">
+                  <button
+                    className="primary-button"
+                    disabled={pending || !canManage || JSON.stringify(executionPolicyDraft ?? {}) === JSON.stringify(record.executionPolicy ?? {})}
+                    onClick={() => onSaveExecutionPolicy(executionPolicyDraft)}
+                    type="button"
+                  >
+                    {tx("保存执行权限", "Save execution permissions")}
+                  </button>
+                </div>
+              </section>
+            ) : null}
+
             {canManage && onCreateForkInvitation ? (
               <section className="form-panel form-panel--nested agent-fork-panel">
                 <div className="panel-header">
@@ -1019,6 +1088,29 @@ export function AgentDetail({
       ) : null}
     </div>
   );
+}
+
+function codexPolicySelection(policy: EmployeeExecutionPolicy | undefined): "inherit" | "untrusted" | "on-request" | "full-access" {
+  if (!policy?.codexApprovalPolicy && !policy?.codexSandboxMode) {
+    return "inherit";
+  }
+  if (policy?.codexSandboxMode === "danger-full-access" || policy?.codexApprovalPolicy === "never") {
+    return "full-access";
+  }
+  return policy?.codexApprovalPolicy === "on-request" ? "on-request" : "untrusted";
+}
+
+function codexPolicyFromSelection(value: string): EmployeeExecutionPolicy | undefined {
+  if (value === "inherit") {
+    return undefined;
+  }
+  if (value === "full-access") {
+    return { codexApprovalPolicy: "never", codexSandboxMode: "danger-full-access" };
+  }
+  return {
+    codexApprovalPolicy: value === "on-request" ? "on-request" : "untrusted",
+    codexSandboxMode: "workspace-write",
+  };
 }
 
 function hasInstallRequirements(configJson: string | undefined): boolean {

@@ -57,6 +57,7 @@ export interface ChatModelOverrideInfo {
     source:
       | "session_override"
       | "employee_default"
+      | "skill_requirement"
       | "runtime_default"
       | "team_policy_default"
       | "protocol_fallback";
