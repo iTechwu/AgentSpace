@@ -25,6 +25,7 @@ import {
   resolveCompatibleDirectChannelRecord,
   resolveEffectiveModelForTaskAsync,
   sameValue,
+  type EffectiveModelResolution,
 } from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
@@ -104,14 +105,25 @@ export async function GET(
       ...buildRuntimeToolCapabilitiesForBundle(prepared.runtimeApps),
       ...buildDocumentRuntimeToolCapabilities(prepared.agentDocumentContexts),
     ];
-    const effectiveModel = runtime.managedCredentialId && resolveAgentRuntimeMode() === "remote"
-      ? await resolveEffectiveModelForTaskAsync({
+    let effectiveModel: EffectiveModelResolution | undefined;
+    if (runtime.managedCredentialId && resolveAgentRuntimeMode() === "remote") {
+      try {
+        effectiveModel = await resolveEffectiveModelForTaskAsync({
           workspaceId: auth.workspaceId,
           employeeName: agentName,
           runtimeId: runtime.id,
           routerSessionId: task.routerSessionId,
-        })
-      : undefined;
+        });
+      } catch (error) {
+        // Model resolution failed — return a structured error so the daemon
+        // can surface a user-facing message instead of a bare 500.
+        const message = error instanceof Error ? error.message : String(error);
+        return Response.json(
+          { error: `无法为 AI员工 "${agentName}" 解析模型：${message}`, code: "model_resolution_failed", detail: message },
+          { status: 424 },
+        );
+      }
+    }
     const bundle: DaemonTaskInputBundle = {
       version: 1,
       format: "json-inline-v1",

@@ -185,7 +185,12 @@ export function FeishuChannelBindingsPanel({
         {bindings.length > 0 ? bindings.map((binding) => (
           <article className="feishu-binding-card" key={binding.id}>
             <div>
-              <strong>{binding.channelName}</strong>
+              <div className="feishu-binding-card__identity">
+                <strong>{binding.channelName}</strong>
+                <span className={`status-chip ${resolveChannelBindingStatusClass(binding.status)}`}>
+                  {translateChannelBindingStatus(binding.status, tx)}
+                </span>
+              </div>
               <p>{binding.integrationName}</p>
             </div>
             <div className="feishu-binding-card__meta">
@@ -198,8 +203,7 @@ export function FeishuChannelBindingsPanel({
                 <span>{tx("审核", "Review")}: {translateReviewStatus(binding.reviewStatus, tx)}</span>
               ) : null}
               {binding.agentId ? <span>{tx("AI员工", "AI employee")}: {binding.agentId}</span> : null}
-              <span>{tx("状态", "Status")}: {binding.status}</span>
-              <span>{tx("同步", "Sync")}: {binding.syncMode}</span>
+              <span>{tx("同步", "Sync")}: {translateSyncMode(binding.syncMode, tx)}</span>
             </div>
             <div className="feishu-binding-card__actions">
               {binding.status === "active" ? (
@@ -284,5 +288,46 @@ function translateReviewStatus(
       return tx("需要身份绑定", "Needs identity binding");
     default:
       return value;
+  }
+}
+
+function translateChannelBindingStatus(
+  status: FeishuIntegrationSettingsItem["channelBindings"][number]["status"],
+  tx: SettingsTx,
+): string {
+  switch (status) {
+    case "active":
+      return tx("已启用", "Active");
+    case "disabled":
+      return tx("已暂停", "Paused");
+    case "archived":
+      return tx("已撤销", "Revoked");
+  }
+}
+
+function resolveChannelBindingStatusClass(
+  status: FeishuIntegrationSettingsItem["channelBindings"][number]["status"],
+): string {
+  switch (status) {
+    case "active":
+      return "status-chip--positive";
+    case "disabled":
+      return "status-chip--warning";
+    case "archived":
+      return "status-chip--neutral";
+  }
+}
+
+function translateSyncMode(
+  mode: FeishuIntegrationSettingsItem["channelBindings"][number]["syncMode"],
+  tx: SettingsTx,
+): string {
+  switch (mode) {
+    case "mirror":
+      return tx("双向同步", "Mirror");
+    case "ingest_only":
+      return tx("只读接收", "Ingest only");
+    case "send_only":
+      return tx("只发不读", "Send only");
   }
 }

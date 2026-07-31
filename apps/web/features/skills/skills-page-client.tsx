@@ -401,6 +401,7 @@ export function SkillsPageClient({
                 <SkillEditor
                   assignedAgentCount={assignmentCountBySkill.get(selectedSkill.id) ?? 0}
                   assignedAgents={selectedAgents}
+                  canEditBuiltin={data.currentMembershipRole === "owner" || data.currentMembershipRole === "admin"}
                   file={selectedFile}
                   pending={isPending}
                   skill={selectedSkill}

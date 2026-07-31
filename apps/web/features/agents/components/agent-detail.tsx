@@ -7,7 +7,7 @@ import { DeleteAgentModal } from "@/features/agents/components/delete-agent-moda
 import { ExecutionEngineSelect, resolveExecutionEngineValue } from "@/features/agents/components/execution-engine-select";
 import { RuntimeModelPicker } from "@/features/runtimes/runtime-model-picker";
 import { isDaemonProvider } from "@dofe-agent/domain";
-import { SkillPickerModal } from "@/features/agents/components/skill-picker-modal";
+import { SkillPickerModal, type SkillPickerRequirementStatus } from "@/features/agents/components/skill-picker-modal";
 import { SkillRequirementsModal } from "@/features/skills/components/skill-requirements-modal";
 import { FeishuAgentBotAgentSettingsPanel } from "@/features/integrations/feishu/feishu-agent-bot-agent-settings-panel";
 import { GeneratedAvatar } from "@/shared/ui/generated-avatar";
@@ -185,6 +185,16 @@ export function AgentDetail({
   const availableSkills = useMemo(
     () => workspaceSkills.filter((skill) => !assignedSkillIds.includes(skill.id)),
     [assignedSkillIds, workspaceSkills],
+  );
+  // Pre-install requirement preview for the add-skill picker (spec §5.1.1): shows
+  // `就绪，可安装` / `需配置 N 项` / `运行环境不兼容` before the admin opens a
+  // skill. Provider compatibility is judged against the bound runtime.
+  const skillPickerStatuses = useMemo(
+    () => Object.fromEntries(availableSkills.map((skill) => [
+      skill.id,
+      formatSkillPickerRequirementStatus(skill, record.boundProvider, tx),
+    ])),
+    [availableSkills, record.boundProvider, tx],
   );
   // Reuse candidates: for the skill currently being installed/managed, map each
   // environment key to the OTHER assigned skills on this employee that already
@@ -774,6 +784,43 @@ export function AgentDetail({
 
         {activeTab === "settings" ? (
           <>
+            {record.skills.some((skill) => {
+              const summary = record.skillRequirements[skill.id];
+              return Boolean(summary) && summary?.status !== "ready";
+            }) ? (
+              <section className="form-panel form-panel--nested agent-env-overview">
+                <div className="panel-header">
+                  <div>
+                    <h3>{tx("环境变量概览", "Environment variables overview")}</h3>
+                    <p>{tx("以下 Skill 的环境变量尚未就绪，需管理员处理。", "The following skills' environment variables are not ready and need attention.")}</p>
+                  </div>
+                </div>
+                <div className="agent-env-overview__list">
+                  {record.skills.map((skill) => {
+                    const summary = record.skillRequirements[skill.id];
+                    if (!summary || summary.status === "ready") return null;
+                    return (
+                      <div className="agent-env-overview__row" key={skill.id}>
+                        <div className="agent-env-overview__row-copy">
+                          <strong>{skill.name}</strong>
+                          <span className={`status-chip status-chip--${skillRequirementStatusTone(summary.status)}`}>
+                            {formatSkillRequirementStatus(summary, tx)}
+                          </span>
+                        </div>
+                        <button
+                          className="modal-secondary-button"
+                          onClick={() => onActiveTabChange?.("skills")}
+                          type="button"
+                        >
+                          {tx("查看", "View")}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null}
+
             <FeishuAgentBotAgentSettingsPanel
               agentId={record.internalName}
               agentName={record.name}
@@ -1141,6 +1188,7 @@ export function AgentDetail({
         <SkillPickerModal
           pending={pending}
           skills={availableSkills}
+          statusBySkillId={skillPickerStatuses}
           onCancel={() => setShowSkillPicker(false)}
           onSelect={(skillId) => {
             const skill = availableSkills.find((item) => item.id === skillId);
@@ -1171,6 +1219,8 @@ export function AgentDetail({
           updatedBy={record.skillRequirements[skillToInstall.id]?.updatedBy}
           credentialKeyWarnings={record.skillRequirements[skillToInstall.id]?.credentialKeyWarnings}
           invalidDeclarations={record.skillRequirements[skillToInstall.id]?.invalidDeclarations}
+          upgradeAddedKeys={record.skillRequirements[skillToInstall.id]?.upgradeAddedKeys}
+          upgradeRemovedKeys={record.skillRequirements[skillToInstall.id]?.upgradeRemovedKeys}
           onCancel={() => setSkillToInstall(null)}
           onConfirm={(input) => {
             onInstallSkill(skillToInstall.id, input);
@@ -1235,6 +1285,39 @@ function hasInstallRequirements(configJson: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+function skillRequirementPreview(configJson: string | undefined): { requiredCount: number; providers: string[] } {
+  try {
+    const requirements = (JSON.parse(configJson ?? "{}") as { requirements?: unknown }).requirements;
+    if (!Array.isArray(requirements)) {
+      return { requiredCount: 0, providers: [] };
+    }
+    const items = requirements.filter((item): item is { kind?: string; value?: string } => (
+      Boolean(item) && typeof item === "object" && !Array.isArray(item)
+    ));
+    return {
+      requiredCount: items.filter((item) => item.kind === "config" || item.kind === "secret").length,
+      providers: items.filter((item) => item.kind === "provider").map((item) => item.value ?? "").filter(Boolean),
+    };
+  } catch {
+    return { requiredCount: 0, providers: [] };
+  }
+}
+
+function formatSkillPickerRequirementStatus(
+  skill: WorkspaceSkill,
+  boundProvider: string | undefined,
+  tx: (zh: string, en: string) => string,
+): SkillPickerRequirementStatus | undefined {
+  const { requiredCount, providers } = skillRequirementPreview(skill.configJson);
+  if (providers.length > 0 && boundProvider && !providers.includes(boundProvider)) {
+    return { tone: "danger", label: tx("运行环境不兼容", "Runtime incompatible") };
+  }
+  if (requiredCount === 0) {
+    return { tone: "positive", label: tx("就绪，可安装", "Ready to install") };
+  }
+  return { tone: "warning", label: tx(`需配置 ${requiredCount} 项`, `Needs ${requiredCount} item(s) configured`) };
 }
 
 const AUTH_ERROR_PATTERN = /(^|\W)(auth|unauthor|forbidden|401|403|token|secret|api[_-]?key|credential|expired|invalid[_ ]?key)(\W|$)/i;

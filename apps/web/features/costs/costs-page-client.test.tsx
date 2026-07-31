@@ -77,6 +77,7 @@ const costs: CostPageData = {
     {
       id: "usage-1",
       agentId: "atlas",
+      displayName: "Atlas",
       modelId: "gpt-5",
       inputTokens: 1000,
       outputTokens: 500,
@@ -116,7 +117,7 @@ describe("CostsPageClient", () => {
     );
 
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
-    expect(screen.getByText("Atlas")).toBeInTheDocument();
+    expect(screen.getAllByText("Atlas").length).toBeGreaterThan(0);
     expect(screen.getAllByText("gpt-5")).toHaveLength(2);
     expect(screen.getByText("¥0.1234")).toBeInTheDocument();
     await screen.findByText("100.00 CNY");
@@ -132,7 +133,7 @@ describe("CostsPageClient", () => {
     render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
 
     await screen.findByText("100.00 CNY");
-    expect(screen.getAllByText("等待账单").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("等待对账").length).toBeGreaterThan(0);
     expect(screen.getAllByText("¥0.0200").length).toBeGreaterThan(0);
     expect(screen.queryByText(/EUR|USD/)).not.toBeInTheDocument();
     expect(screen.getByText(/更新时间/)).toBeInTheDocument();

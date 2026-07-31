@@ -25,7 +25,7 @@ export function formatFrontmatterDescription(description: string): string {
 
 export function createDefaultSkillFileContent(name: string, description: string): string {
   const skillName = slugifyName(name);
-  const summary = description || `Use when Codex should apply the ${name} workflow.`;
+  const summary = description || `当 Codex 需要应用 ${name} 工作流时使用。`;
   return `---
 name: ${skillName}
 ${formatFrontmatterDescription(summary)}
@@ -33,6 +33,6 @@ ${formatFrontmatterDescription(summary)}
 
 # ${name}
 
-Describe the workflow, constraints, and reusable resources for this skill here.
+在此描述该技能的工作流、约束条件和可复用资源。
 `;
 }

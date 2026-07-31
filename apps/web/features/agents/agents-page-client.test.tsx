@@ -1,10 +1,11 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentsPageClient } from "@/features/agents/agents-page-client";
 import { AgentDetail } from "@/features/agents/components/agent-detail";
 import { SkillRequirementsModal } from "@/features/skills/components/skill-requirements-modal";
+import { SkillPickerModal } from "@/features/agents/components/skill-picker-modal";
 import { WorkspaceModuleNavigationProvider } from "@/features/dashboard/workspace-module-navigation";
 import {
   approveAgentAccessRequestAction,
@@ -2093,6 +2094,33 @@ describe("SkillRequirementsModal", () => {
     render(
       <LanguageProvider initialLanguage="zh">
         <SkillRequirementsModal
+          configJson={JSON.stringify({ requirements: [] })}
+          pending={false}
+          skillName="notion-skill"
+          onCancel={vi.fn()}
+          onConfirm={onConfirm}
+        />
+      </LanguageProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("新变量键名"), { target: { value: "EXTRA_FLAG" } });
+    fireEvent.change(screen.getByLabelText("新变量值"), { target: { value: "enabled" } });
+    await user.click(screen.getByRole("button", { name: "添加" }));
+    await user.click(screen.getByRole("button", { name: "保存配置" }));
+
+    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      extraKeys: ["EXTRA_FLAG"],
+      values: expect.objectContaining({ EXTRA_FLAG: "enabled" }),
+    }));
+  });
+
+  it("keeps the modal open and flags a missing required declared value before saving", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <SkillRequirementsModal
           configJson={JSON.stringify({
             requirements: [{ kind: "config", value: "NOTION_DATABASE_ID" }],
           })}
@@ -2104,15 +2132,40 @@ describe("SkillRequirementsModal", () => {
       </LanguageProvider>,
     );
 
-    await user.type(screen.getByLabelText("新变量键名"), "EXTRA_FLAG");
-    await user.type(screen.getByLabelText("新变量值"), "enabled");
-    await user.click(screen.getByRole("button", { name: "添加" }));
     await user.click(screen.getByRole("button", { name: "保存配置" }));
 
-    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({
-      extraKeys: ["EXTRA_FLAG"],
-      values: expect.objectContaining({ EXTRA_FLAG: "enabled" }),
-    }));
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(screen.getByText(/以下字段需要补全/)).toBeTruthy();
+    expect(document.querySelector('[aria-invalid="true"]')).toBeTruthy();
+  });
+
+  it("shows an upgrade diff banner with the added requirement keys", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <SkillRequirementsModal
+          configJson={JSON.stringify({
+            requirements: [
+              { kind: "config", value: "NEW_REQUIREMENT" },
+              { kind: "config", value: "KEPT_KEY" },
+            ],
+          })}
+          initialConfiguration={{ capabilities: [], values: { KEPT_KEY: "x" }, extraKeys: [] }}
+          mode="manage"
+          pending={false}
+          skillName="notion-skill"
+          upgradeAddedKeys={["NEW_REQUIREMENT"]}
+          upgradeRemovedKeys={["OLD_KEY"]}
+          onCancel={vi.fn()}
+          onConfirm={onConfirm}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByText(/新增要求（需补配）：NEW_REQUIREMENT/)).toBeTruthy();
+    expect(screen.getByText(/移除要求（旧值已保留，可删除）：OLD_KEY/)).toBeTruthy();
   });
 
   it("lets an administrator remove an extra variable before saving", async () => {
@@ -2139,5 +2192,53 @@ describe("SkillRequirementsModal", () => {
       extraKeys: [],
       values: expect.not.objectContaining({ EXTRA_FLAG: "x" }),
     }));
+  });
+});
+
+describe("SkillPickerModal", () => {
+  const baseSkill = {
+    id: "skill-a",
+    name: "notion-sync",
+    description: "Sync to Notion",
+    sourceType: "manual" as const,
+    configJson: "{}",
+    files: [],
+    createdAt: "2026-04-10T08:00:00.000Z",
+    updatedAt: "2026-04-10T08:00:00.000Z",
+  };
+
+  it("shows the requirement status chip for each available skill", async () => {
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <SkillPickerModal
+          pending={false}
+          skills={[
+            {
+              ...baseSkill,
+              id: "skill-ready",
+              name: "simple-skill",
+              configJson: JSON.stringify({ requirements: [] }),
+            },
+            {
+              ...baseSkill,
+              id: "skill-config",
+              name: "needs-config-skill",
+              configJson: JSON.stringify({
+                requirements: [{ kind: "config", value: "NOTION_DATABASE_ID" }],
+              }),
+            },
+          ]}
+          statusBySkillId={{
+            "skill-ready": { tone: "positive", label: "就绪，可安装" },
+            "skill-config": { tone: "warning", label: "需配置 1 项" },
+          }}
+          onCancel={vi.fn()}
+          onSelect={vi.fn()}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByText("就绪，可安装")).toBeTruthy();
+    expect(screen.getByText("需配置 1 项")).toBeTruthy();
   });
 });

@@ -1014,6 +1014,7 @@ export interface SkillsPageData {
   }>;
   totalSkills: number;
   assignedSkillCount: number;
+  currentMembershipRole?: WorkspaceRole;
   recentImports: Array<{
     id: string;
     skillId?: string;
@@ -3525,7 +3526,7 @@ export function listRuntimeProvisionRequestViews(workspaceId = DEFAULT_WORKSPACE
   }));
 }
 
-export function getSkillsPageData(workspaceId = DEFAULT_WORKSPACE_ID): SkillsPageData {
+export function getSkillsPageData(workspaceId = DEFAULT_WORKSPACE_ID, currentMembershipRole?: WorkspaceRole): SkillsPageData {
   const state = readWorkspaceStateCached(workspaceId);
   const workspaceSkills = listWorkspaceSkillsCached(workspaceId);
   const skillIdsByAgentId = listEmployeeSkillIdsByAgentIdMapSync(workspaceId);
@@ -3548,6 +3549,7 @@ export function getSkillsPageData(workspaceId = DEFAULT_WORKSPACE_ID): SkillsPag
     })),
     totalSkills: workspaceSkills.length,
     assignedSkillCount,
+    currentMembershipRole,
     recentImports,
     agents: state.activeEmployees.map((employee) => ({
       id: buildLegacyAgentIdForEmployeeName(employee.name),

@@ -3966,6 +3966,19 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.skill-picker-row__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.skill-picker-row__meta .status-chip {
+  font-size: 0.74rem;
+  padding: 0.18rem 0.5rem;
+}
+
 .skills-studio {
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
@@ -4304,6 +4317,102 @@ textarea:focus {
   color: #1d1d1f;
   font: 0.92rem/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   resize: vertical;
+}
+
+.skills-editor__md-container {
+  border: 1px solid var(--line, #d2d2d7);
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.skills-editor__md-preview {
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.skills-editor__md-container .w-md-editor {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.skills-editor__md-container .w-md-editor-toolbar {
+  border-bottom: 1px solid var(--line, #e0e0e0);
+  background: #fafafa;
+}
+
+.skills-editor__md-container .wmde-markdown {
+  background: #fff;
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+.skills-editor__file-name {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: 2px;
+}
+
+.skills-editor__frontmatter {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(251, 247, 240, 0.64);
+}
+
+.skills-editor__frontmatter-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.skills-editor__frontmatter-fields {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.skills-editor__frontmatter-field {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.skills-editor__frontmatter-key {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.skills-editor__frontmatter-field > code {
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: rgba(36, 36, 38, 0.06);
+  font-size: 0.78rem;
+}
+
+.skills-editor__frontmatter-value {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.skills-editor__frontmatter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.skills-editor__frontmatter-tags code {
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: rgba(36, 36, 38, 0.06);
+  font-size: 0.74rem;
 }
 
 .skills-editor__dependencies {
@@ -7741,6 +7850,60 @@ textarea:focus {
   display: block;
   margin-top: 0.35rem;
   color: #c0392b;
+}
+
+.skill-requirements-modal__banner {
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin-bottom: 0.8rem;
+}
+
+.skill-requirements-modal__banner strong {
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+.skill-requirements-modal__banner p {
+  margin: 0.15rem 0 0;
+}
+
+.skill-requirements-modal__banner--warning {
+  border: 1px solid rgba(199, 139, 44, 0.35);
+  background: rgba(199, 139, 44, 0.1);
+  color: #8a5a1c;
+}
+
+.skill-requirements-modal__banner--error {
+  border: 1px solid rgba(192, 57, 43, 0.35);
+  background: rgba(192, 57, 43, 0.08);
+  color: #a93226;
+}
+
+.agent-env-overview__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.agent-env-overview__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid rgba(71, 56, 42, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.agent-env-overview__row-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
 @media (max-width: 640px) {
@@ -15418,6 +15581,39 @@ textarea:focus {
   color: var(--muted);
   padding: 2rem;
   text-align: center;
+}
+
+/* ── Billing Status Badges ── */
+
+.costs-status {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.68rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.costs-status--reconciled {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+.costs-status--estimated {
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  color: var(--color-warning);
+}
+
+.costs-status--pending_reconciliation,
+.costs-status--created,
+.costs-status--reserved {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+}
+
+.costs-status--unallocated {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
 }
 
 /* ── Budget Manager ── */
@@ -30673,5 +30869,642 @@ button[aria-disabled="true"] svg {
   .notification-timeline__entry:not(:last-child)::before {
     top: 2rem;
     left: 0.98rem;
+  }
+}
+
+/* ==========================================================================
+   Feishu integrations — redesigned surfaces (settings page + agent detail)
+   Consistent 18px-radius cards, 2-col forms, accordions, stat tiles.
+   ========================================================================== */
+
+/* ---- Overview stat tiles ---- */
+.feishu-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+}
+
+.feishu-stat-card {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-height: 4.6rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(23, 24, 29, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow);
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+.feishu-stat-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+.feishu-stat-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: none;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.feishu-stat-card--success .feishu-stat-card__icon { background: var(--success-soft); color: var(--success); }
+.feishu-stat-card--warning .feishu-stat-card__icon { background: var(--warning-soft); color: var(--warning); }
+.feishu-stat-card--danger  .feishu-stat-card__icon { background: var(--danger-soft); color: var(--danger); }
+.feishu-stat-card__body { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.feishu-stat-card__value { color: #1d1d1f; font-size: 1.3rem; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; }
+.feishu-stat-card__label { color: rgba(0, 0, 0, 0.6); font-size: 0.8rem; line-height: 1.35; }
+
+/* ---- Grouped sections ---- */
+.feishu-group { display: flex; flex-direction: column; gap: 0.8rem; }
+.feishu-group__header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.35rem 0.15rem 0.1rem;
+}
+.feishu-group__header::before {
+  content: "";
+  flex: none;
+  align-self: center;
+  width: 4px;
+  height: 1.05rem;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0.7;
+}
+.feishu-group__header h3 { margin: 0; color: #1d1d1f; font-size: 0.98rem; font-weight: 650; letter-spacing: -0.01em; }
+.feishu-group__header p { margin: 0; color: rgba(0, 0, 0, 0.55); font-size: 0.82rem; line-height: 1.4; }
+
+/* ---- Feedback banner ---- */
+.feishu-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid rgba(23, 24, 29, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(0, 0, 0, 0.7);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  box-shadow: var(--shadow);
+}
+.feishu-feedback--success { border-color: rgba(23, 114, 87, 0.24); background: var(--success-soft); color: #0f5a44; }
+.feishu-feedback--error { border-color: rgba(189, 60, 41, 0.24); background: var(--danger-soft); color: #942e1f; }
+
+/* ---- Inline create/bind forms (2-col grid) ---- */
+.feishu-integration-form,
+.feishu-binding-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem 0.9rem;
+  padding: 0.2rem 0 0.4rem;
+  border-bottom: 0;
+}
+.feishu-agent-bot-form { border-bottom: 0; }
+
+.feishu-integration-form .form-field,
+.feishu-binding-form .form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+  min-width: 0;
+}
+.feishu-integration-form .form-field > span,
+.feishu-binding-form .form-field > span {
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.feishu-integration-form .form-field input,
+.feishu-integration-form .form-field select,
+.feishu-binding-form .form-field input,
+.feishu-binding-form .form-field select {
+  width: 100%;
+  min-width: 0;
+}
+
+.feishu-integration-form .settings-panel-note,
+.feishu-binding-form .settings-panel-note,
+.feishu-integration-form .feishu-advanced-settings,
+.feishu-binding-form .feishu-advanced-settings,
+.feishu-integration-form .feishu-connection-summary,
+.feishu-binding-form .feishu-connection-summary,
+.feishu-integration-form .feishu-setup-summary,
+.feishu-binding-form .feishu-setup-summary,
+.feishu-integration-form .feishu-resource-scope-hint,
+.feishu-binding-form .feishu-resource-scope-hint,
+.feishu-binding-form .feishu-binding-coverage,
+.feishu-binding-form .feishu-resource-health,
+.feishu-binding-form .feishu-integration-form__actions,
+.feishu-integration-form .feishu-integration-form__actions {
+  grid-column: 1 / -1;
+}
+.feishu-integration-form__actions,
+.feishu-binding-form .primary-button,
+.feishu-integration-form .primary-button {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+
+/* ---- Accordion (details) primitives ---- */
+.feishu-advanced-settings,
+.feishu-agent-bot-policy-editor {
+  display: block;
+  padding: 0;
+  border: 1px solid rgba(23, 24, 29, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+  transition: border-color var(--transition), background-color var(--transition);
+}
+.feishu-advanced-settings[open],
+.feishu-agent-bot-policy-editor[open] {
+  border-color: rgba(23, 24, 29, 0.13);
+  background: rgba(255, 255, 255, 0.84);
+}
+.feishu-advanced-settings > summary,
+.feishu-agent-bot-policy-editor > summary {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.14rem;
+  padding: 0.85rem 2.5rem 0.85rem 0.95rem;
+  cursor: pointer;
+  color: #1d1d1f;
+  font-size: 0.86rem;
+  font-weight: 650;
+  list-style: none;
+  transition: background-color var(--transition);
+}
+.feishu-advanced-settings > summary::-webkit-details-marker,
+.feishu-agent-bot-policy-editor > summary::-webkit-details-marker { display: none; }
+.feishu-advanced-settings > summary:hover,
+.feishu-agent-bot-policy-editor > summary:hover { background: rgba(0, 0, 0, 0.03); }
+.feishu-advanced-settings > summary small,
+.feishu-agent-bot-policy-editor > summary small {
+  color: rgba(0, 0, 0, 0.54);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.feishu-advanced-settings > summary::after,
+.feishu-agent-bot-policy-editor > summary::after {
+  content: "";
+  position: absolute;
+  right: 1.1rem;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -5px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.5;
+  transition: transform var(--transition);
+}
+.feishu-advanced-settings[open] > summary::after,
+.feishu-agent-bot-policy-editor[open] > summary::after { transform: rotate(-135deg); }
+
+.feishu-advanced-settings__body,
+.feishu-agent-bot-policy-editor__body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem 0.9rem;
+  padding: 0.9rem 0.95rem 0.95rem;
+  border-top: 1px solid rgba(23, 24, 29, 0.07);
+}
+.feishu-advanced-settings__body .form-field,
+.feishu-agent-bot-policy-editor__body .form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+  min-width: 0;
+}
+.feishu-advanced-settings__body .form-field > span,
+.feishu-agent-bot-policy-editor__body .form-field > span {
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.feishu-advanced-settings__body .form-field input,
+.feishu-advanced-settings__body .form-field select,
+.feishu-agent-bot-policy-editor__body .form-field input,
+.feishu-agent-bot-policy-editor__body .form-field select {
+  width: 100%;
+  min-width: 0;
+}
+
+.feishu-agent-bot-policy-editor__checks {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 0.55rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid rgba(23, 24, 29, 0.08);
+  border-radius: 12px;
+  background: rgba(245, 245, 247, 0.6);
+}
+.feishu-agent-bot-policy-editor__checks legend {
+  padding: 0;
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+.feishu-agent-bot-policy-editor__check-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.5rem;
+  min-width: 0;
+}
+.feishu-agent-bot-policy-editor__checks .feishu-agent-bot-policy-editor__check {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  min-height: 2.65rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(23, 24, 29, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.88);
+  color: rgba(0, 0, 0, 0.68);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.feishu-agent-bot-policy-editor__checks .feishu-agent-bot-policy-editor__check:hover {
+  border-color: rgba(0, 122, 92, 0.24);
+  background: rgba(0, 122, 92, 0.045);
+}
+.feishu-agent-bot-policy-editor__checks .feishu-agent-bot-policy-editor__check--selected {
+  border-color: rgba(0, 122, 92, 0.22);
+  background: rgba(0, 122, 92, 0.075);
+  color: #173f35;
+}
+.feishu-agent-bot-policy-editor__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+/* ---- Connection summary ---- */
+.feishu-connection-summary {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgba(23, 24, 29, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+  color: rgba(0, 0, 0, 0.68);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+.feishu-connection-summary div { display: flex; flex-wrap: wrap; gap: 0.45rem 0.75rem; align-items: baseline; }
+.feishu-connection-summary strong { color: #1d1d1f; font-weight: 650; }
+.feishu-connection-summary p { margin: 0; overflow-wrap: anywhere; }
+.feishu-connection-summary ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.feishu-connection-summary li code,
+.feishu-connection-summary code {
+  color: #4b3f83;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Integration cards ---- */
+.feishu-integration-list,
+.feishu-binding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.feishu-integration-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1.05rem 1.15rem;
+  border: 1px solid rgba(23, 24, 29, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow);
+}
+.feishu-integration-card__header,
+.feishu-integration-card__actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+.feishu-integration-card__header strong { color: #1d1d1f; font-size: 0.95rem; font-weight: 650; letter-spacing: -0.01em; }
+.feishu-integration-card__header p { margin: 0.2rem 0 0; color: rgba(0, 0, 0, 0.62); font-size: 0.84rem; }
+.feishu-integration-card__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.42rem 0.9rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(23, 24, 29, 0.06);
+  border-radius: 12px;
+  background: rgba(245, 245, 247, 0.55);
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 0.82rem;
+}
+.feishu-integration-card__meta span { min-width: 0; overflow-wrap: anywhere; }
+
+/* ---- Binding cards ---- */
+.feishu-binding-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.95rem 1.05rem;
+  border: 1px solid rgba(23, 24, 29, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow);
+}
+.feishu-binding-card > div:first-child { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.feishu-binding-card strong { color: #1d1d1f; font-size: 0.9rem; font-weight: 650; letter-spacing: -0.01em; }
+.feishu-binding-card p { margin: 0; color: rgba(0, 0, 0, 0.62); font-size: 0.82rem; }
+.feishu-binding-card__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.38rem 0.9rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(23, 24, 29, 0.06);
+  border-radius: 12px;
+  background: rgba(245, 245, 247, 0.55);
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 0.82rem;
+}
+.feishu-binding-card__meta span { min-width: 0; overflow-wrap: anywhere; }
+.feishu-binding-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+/* ---- Channel group (resource bindings) ---- */
+.feishu-binding-channel-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid rgba(23, 24, 29, 0.07);
+  border-radius: 16px;
+  background: rgba(245, 245, 247, 0.45);
+}
+.feishu-binding-channel-group__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 0.8rem;
+}
+.feishu-binding-channel-group__header strong { color: #1d1d1f; font-size: 0.86rem; font-weight: 650; }
+
+/* ---- Outbound failure / inbound event alerts ---- */
+.feishu-outbox-failure-list {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgba(189, 60, 41, 0.2);
+  border-left: 3px solid var(--danger);
+  border-radius: 12px;
+  background: rgba(255, 241, 242, 0.72);
+}
+.feishu-outbox-failure-list > strong { color: #1d1d1f; font-size: 0.84rem; font-weight: 650; }
+.feishu-outbox-failure { display: grid; gap: 0.35rem; }
+.feishu-outbox-failure > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.7rem;
+  align-items: center;
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 0.8rem;
+}
+.feishu-outbox-failure p { margin: 0; color: rgba(0, 0, 0, 0.68); font-size: 0.82rem; overflow-wrap: anywhere; }
+
+.feishu-inbound-event-list {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgba(157, 106, 29, 0.2);
+  border-left: 3px solid var(--warning);
+  border-radius: 12px;
+  background: rgba(254, 252, 232, 0.78);
+}
+.feishu-inbound-event-list > div:first-child { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.45rem; align-items: center; color: rgba(0, 0, 0, 0.62); font-size: 0.8rem; }
+.feishu-inbound-event-list strong { color: #1d1d1f; font-size: 0.84rem; font-weight: 650; }
+.feishu-inbound-event { display: flex; flex-direction: column; gap: 0.35rem; }
+.feishu-inbound-event > div { display: flex; flex-wrap: wrap; gap: 0.45rem 0.7rem; align-items: center; color: rgba(0, 0, 0, 0.62); font-size: 0.8rem; }
+.feishu-inbound-event p, .feishu-inbound-event small { margin: 0; color: rgba(0, 0, 0, 0.68); font-size: 0.82rem; overflow-wrap: anywhere; }
+.feishu-inbound-event small { color: rgba(0, 0, 0, 0.48); font-size: 0.76rem; }
+
+.feishu-inbound-binding-suggestion {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.55rem;
+  align-items: center;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.8);
+}
+.feishu-inbound-binding-suggestion span { color: rgba(0, 0, 0, 0.62); font-size: 0.78rem; font-weight: 650; }
+.feishu-inbound-binding-suggestion code { min-width: 0; color: #4b3f83; font-size: 0.78rem; overflow-wrap: anywhere; }
+
+/* ---- Callback URL ---- */
+.feishu-callback-url {
+  display: block;
+  max-width: 100%;
+  padding: 0.75rem 0.85rem;
+  border-radius: 10px;
+  background: #111827;
+  color: #f9fafb;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+/* ---- Setup guide / checks / commands ---- */
+.feishu-setup-guide {
+  display: grid;
+  gap: 0.85rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(23, 24, 29, 0.07);
+}
+.feishu-setup-guide__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+.feishu-setup-guide__grid section { display: grid; min-width: 0; gap: 0.45rem; align-content: start; }
+.feishu-setup-guide strong { color: #1d1d1f; font-size: 0.82rem; font-weight: 650; }
+.feishu-setup-guide ul, .feishu-setup-guide ol { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
+.feishu-setup-guide li { color: rgba(0, 0, 0, 0.62); font-size: 0.8rem; line-height: 1.45; }
+.feishu-setup-guide li code, .feishu-setup-command code { color: #4b3f83; font-size: 0.78rem; overflow-wrap: anywhere; }
+.feishu-setup-guide a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+
+.feishu-setup-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.55rem;
+}
+.feishu-setup-check {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(23, 24, 29, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+.feishu-setup-check .status-chip { justify-self: start; }
+.feishu-setup-check strong { font-size: 0.82rem; }
+.feishu-setup-check small { color: #6b7280; font-size: 0.75rem; overflow-wrap: anywhere; }
+
+.feishu-setup-command-list { display: grid; gap: 0.5rem; }
+.feishu-setup-command {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 0.32fr) minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(23, 24, 29, 0.07);
+  border-radius: 12px;
+  background: rgba(245, 245, 247, 0.55);
+}
+.feishu-setup-command > span { color: #1d1d1f; font-size: 0.82rem; font-weight: 650; }
+.feishu-setup-command__body { display: grid; gap: 0.28rem; min-width: 0; }
+.feishu-setup-command code {
+  min-width: 0;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.8);
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.feishu-setup-command__body small { color: #6b7280; font-size: 0.75rem; line-height: 1.45; overflow-wrap: anywhere; }
+
+/* ---- Credential rotation form ---- */
+.feishu-credential-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(23, 24, 29, 0.07);
+}
+.feishu-credential-form__header { grid-column: 1 / -1; display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; color: rgba(0, 0, 0, 0.62); font-size: 0.82rem; }
+.feishu-credential-form__header strong { color: #1d1d1f; font-size: 0.88rem; font-weight: 650; }
+.feishu-credential-form .form-field { display: flex; flex-direction: column; gap: 0.32rem; min-width: 0; }
+.feishu-credential-form .form-field > span { color: rgba(0, 0, 0, 0.62); font-size: 0.8rem; font-weight: 600; }
+.feishu-credential-form .form-field input { width: 100%; min-width: 0; }
+.feishu-credential-form .action-button { grid-column: 1 / -1; justify-self: end; }
+
+/* ---- Resource scope hint / binding coverage / resource health ---- */
+.feishu-resource-scope-hint,
+.feishu-binding-coverage,
+.feishu-resource-health {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgba(23, 24, 29, 0.08);
+  border-radius: 14px;
+  background: rgba(245, 245, 247, 0.6);
+  color: rgba(0, 0, 0, 0.68);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+.feishu-resource-scope-hint div,
+.feishu-binding-coverage div,
+.feishu-resource-health div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  align-items: baseline;
+}
+.feishu-resource-scope-hint strong,
+.feishu-binding-coverage strong,
+.feishu-resource-health strong { color: #1d1d1f; font-weight: 650; }
+.feishu-resource-scope-hint p,
+.feishu-binding-coverage p,
+.feishu-resource-health p { margin: 0; overflow-wrap: anywhere; }
+.feishu-resource-scope-hint code { color: #4b3f83; font-size: 0.78rem; overflow-wrap: anywhere; }
+
+/* ---- Operation diagnostics / run preview ---- */
+.feishu-operation-diagnostics {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(157, 106, 29, 0.2);
+  border-left: 3px solid var(--warning);
+  border-radius: 12px;
+  background: rgba(255, 247, 237, 0.76);
+  color: rgba(0, 0, 0, 0.68);
+  font-size: 0.82rem;
+}
+.feishu-operation-diagnostics > div,
+.feishu-operation-diagnostics dl,
+.feishu-operation-diagnostics dl div { display: flex; flex-wrap: wrap; gap: 0.45rem 0.6rem; align-items: baseline; }
+.feishu-operation-diagnostics strong { color: #1d1d1f; font-weight: 650; }
+.feishu-operation-diagnostics span { color: #9a3412; font-weight: 650; }
+.feishu-operation-diagnostics p, .feishu-operation-diagnostics dl { margin: 0; overflow-wrap: anywhere; }
+.feishu-operation-diagnostics dt { color: rgba(0, 0, 0, 0.48); font-size: 0.72rem; font-weight: 650; text-transform: uppercase; }
+.feishu-operation-diagnostics dd { margin: 0; overflow-wrap: anywhere; }
+
+.feishu-operation-run-preview {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.5rem;
+  padding-top: 0.35rem;
+}
+.feishu-operation-run-preview p { display: grid; gap: 0.2rem; margin: 0; color: rgba(0, 0, 0, 0.68); font-size: 0.82rem; }
+.feishu-operation-run-preview p span { color: rgba(0, 0, 0, 0.48); font-size: 0.72rem; font-weight: 650; text-transform: uppercase; }
+.feishu-operation-run-preview pre {
+  max-height: 14rem;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 10px;
+  border: 1px solid rgba(23, 24, 29, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+  color: rgba(0, 0, 0, 0.72);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  padding: 0.7rem;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 720px) {
+  .feishu-integration-form,
+  .feishu-binding-form,
+  .feishu-advanced-settings__body,
+  .feishu-agent-bot-policy-editor__body,
+  .feishu-credential-form,
+  .feishu-setup-guide__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .feishu-setup-command {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .feishu-setup-command .action-button {
+    justify-self: start;
   }
 }

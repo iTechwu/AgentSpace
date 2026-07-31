@@ -34,6 +34,10 @@ interface SkillRequirementsModalProps {
   readonly credentialKeyWarnings?: string[];
   /** Declarations that are stored but invalid (e.g. reserved DOFE_AGENT_* keys). */
   readonly invalidDeclarations?: string[];
+  /** Requirement keys added by a skill upgrade (spec §5.2 expired diff detail). */
+  readonly upgradeAddedKeys?: string[];
+  /** Requirement keys removed by a skill upgrade (spec §5.2 expired diff detail). */
+  readonly upgradeRemovedKeys?: string[];
   /** key -> OTHER skills on the same employee that already configure it. */
   readonly reuseCandidates?: Record<string, Array<{ skillId: string; skillName: string }>>;
   readonly onCancel: () => void;
@@ -76,6 +80,8 @@ export function SkillRequirementsModal({
   updatedBy,
   credentialKeyWarnings = [],
   invalidDeclarations = [],
+  upgradeAddedKeys = [],
+  upgradeRemovedKeys = [],
   reuseCandidates = {},
   onCancel,
   onConfirm,
@@ -115,7 +121,35 @@ export function SkillRequirementsModal({
   const [draftExtraValue, setDraftExtraValue] = useState("");
   const [draftExtraSensitive, setDraftExtraSensitive] = useState(false);
   const [extraKeyError, setExtraKeyError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const configuredKeySet = new Set(configuredSecretKeys);
+
+  const validateBeforeSubmit = (): boolean => {
+    const errors: Record<string, string> = {};
+    for (const requirement of configRequirements) {
+      const key = requirement.value;
+      if (reuseValues[key]) continue;
+      if (sensitiveKeys.includes(key) && configuredKeySet.has(key)) continue;
+      if (values[key]?.trim()) continue;
+      errors[key] = tx("请填写该变量，或选择复用已有值", "Fill this variable or reuse an existing value");
+    }
+    if (collectSecrets) {
+      for (const requirement of secretRequirements) {
+        const key = requirement.value;
+        if (reuseValues[key]) continue;
+        if (configuredKeySet.has(key)) continue;
+        if (secretValues[key]?.trim()) continue;
+        errors[key] = tx("请填写该密钥，或选择复用已有值", "Fill this secret or reuse an existing value");
+      }
+    }
+    for (const key of extraKeys) {
+      if (sensitiveKeys.includes(key) && configuredKeySet.has(key)) continue;
+      if (values[key]?.trim()) continue;
+      errors[key] = tx("请填写该额外变量的值", "Fill this extra variable");
+    }
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   const toggleSensitive = (key: string, sensitive: boolean) => {
     setSensitiveKeys((current) => sensitive
@@ -176,8 +210,12 @@ export function SkillRequirementsModal({
         aria-labelledby={labelId}
         aria-modal="true"
         className="modal-card modal-card--skill-requirements"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
+          if (!validateBeforeSubmit()) {
+            return;
+          }
           onConfirm({
             modelProvider: modelProvider || undefined,
             modelId: modelId || undefined,
@@ -219,6 +257,32 @@ export function SkillRequirementsModal({
                   `The following declarations are invalid and must be fixed by the skill author: ${invalidDeclarations.join(", ")}.`,
                 )}
               </p>
+            </div>
+          ) : null}
+          {mode === "manage" && (upgradeAddedKeys.length > 0 || upgradeRemovedKeys.length > 0) ? (
+            <div className="skill-requirements-modal__banner skill-requirements-modal__banner--warning" role="alert">
+              <strong>{tx("Skill 需求已更新", "Skill requirements updated")}</strong>
+              {upgradeAddedKeys.length > 0 ? (
+                <p>
+                  {tx(
+                    `新增要求（需补配）：${upgradeAddedKeys.join("、")}`,
+                    `New requirements (must configure): ${upgradeAddedKeys.join(", ")}`,
+                  )}
+                </p>
+              ) : null}
+              {upgradeRemovedKeys.length > 0 ? (
+                <p>
+                  {tx(
+                    `移除要求（旧值已保留，可删除）：${upgradeRemovedKeys.join("、")}`,
+                    `Removed requirements (old values kept; may be deleted): ${upgradeRemovedKeys.join(", ")}`,
+                  )}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {Object.keys(fieldErrors).length > 0 ? (
+            <div className="skill-requirements-modal__banner skill-requirements-modal__banner--error" role="alert">
+              <strong>{tx("以下字段需要补全后再保存", "Fill in the marked fields before saving")}</strong>
             </div>
           ) : null}
           {(providers.length > 0 || models.length > 0 || capabilities.length > 0) ? (
@@ -371,17 +435,28 @@ export function SkillRequirementsModal({
                       </label>
                     ) : null}
                     <input
+                      aria-invalid={Boolean(fieldErrors[key])}
                       autoComplete={sensitive ? "new-password" : "off"}
                       disabled={pending || Boolean(reusedSkillId)}
                       onChange={(event) => {
                         const value = event.currentTarget.value;
                         setValues((current) => ({ ...current, [key]: value }));
+                        if (fieldErrors[key]) {
+                          setFieldErrors((current) => {
+                            const next = { ...current };
+                            delete next[key];
+                            return next;
+                          });
+                        }
                       }}
                       placeholder={isConfiguredEncrypted ? tx("输入新值以替换；留空保留当前值", "Enter a new value to replace; leave blank to keep") : undefined}
                       required={!isConfiguredEncrypted && !reusedSkillId}
                       type={sensitive ? "password" : "text"}
                       value={values[key] ?? ""}
                     />
+                    {fieldErrors[key] ? (
+                      <small className="form-field__hint skill-requirements-modal__error" role="alert">{fieldErrors[key]}</small>
+                    ) : null}
                     {reusedSkillName ? (
                       <small className="form-field__hint">{tx(`将从 "${reusedSkillName}" 复用该变量的已保存值。`, `The saved value from "${reusedSkillName}" will be reused for this variable.`)}</small>
                     ) : isConfiguredEncrypted ? (
@@ -538,18 +613,29 @@ export function SkillRequirementsModal({
                       </label>
                     ) : null}
                     <input
+                      aria-invalid={Boolean(fieldErrors[key])}
                       aria-label={key}
                       autoComplete="new-password"
                       disabled={pending || Boolean(reusedSkillId)}
                       onChange={(event) => {
                         const value = event.currentTarget.value;
                         setSecretValues((current) => ({ ...current, [key]: value }));
+                        if (fieldErrors[key]) {
+                          setFieldErrors((current) => {
+                            const next = { ...current };
+                            delete next[key];
+                            return next;
+                          });
+                        }
                       }}
                       placeholder={isConfigured ? tx("输入新值以替换", "Enter a new value to replace") : undefined}
                       required={!isConfigured && !reusedSkillId}
                       type="password"
                       value={secretValues[key] ?? ""}
                     />
+                    {fieldErrors[key] ? (
+                      <small className="form-field__hint skill-requirements-modal__error" role="alert">{fieldErrors[key]}</small>
+                    ) : null}
                     {reusedSkillName ? (
                       <small className="form-field__hint">{tx(`将从 "${reusedSkillName}" 复用该密钥的已保存值。`, `The saved secret from "${reusedSkillName}" will be reused for this variable.`)}</small>
                     ) : isConfigured ? <small className="form-field__hint">{tx("已配置；留空将保留当前值", "Configured; leave blank to keep the current value")}</small> : null}
@@ -611,16 +697,27 @@ export function SkillRequirementsModal({
                     </button>
                   </div>
                   <input
+                    aria-invalid={Boolean(fieldErrors[key])}
                     autoComplete={sensitive ? "new-password" : "off"}
                     disabled={pending}
                     onChange={(event) => {
                       const value = event.currentTarget.value;
                       setValues((current) => ({ ...current, [key]: value }));
+                      if (fieldErrors[key]) {
+                        setFieldErrors((current) => {
+                          const next = { ...current };
+                          delete next[key];
+                          return next;
+                        });
+                      }
                     }}
                     placeholder={isConfiguredEncrypted ? tx("输入新值以替换；留空保留当前值", "Enter a new value to replace; leave blank to keep") : undefined}
                     type={sensitive ? "password" : "text"}
                     value={values[key] ?? ""}
                   />
+                  {fieldErrors[key] ? (
+                    <small className="form-field__hint skill-requirements-modal__error" role="alert">{fieldErrors[key]}</small>
+                  ) : null}
                   {isConfiguredEncrypted ? (
                     <small className="form-field__hint">{tx("已加密保存；留空将保留当前值", "Encrypted; leave blank to keep the current value")}</small>
                   ) : null}

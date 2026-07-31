@@ -240,7 +240,7 @@ async function loadWorkspaceModuleDataUncached(
     case "skills":
       return {
         moduleId,
-        data: getSkillsPageData(workspaceId),
+        data: getSkillsPageData(workspaceId, viewer?.role),
       };
     case "tables":
       return {

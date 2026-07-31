@@ -1,28 +1,28 @@
 ---
 name: refactor-safely
-description: Plan and execute safe refactoring using dependency analysis
+description: 使用依赖分析规划和执行安全重构
 ---
 
-## Refactor Safely
+## 安全重构
 
-Use the knowledge graph to plan and execute refactoring with confidence.
+使用知识图谱自信地规划和执行重构。
 
-### Steps
+### 步骤
 
-1. Use `refactor_tool` with mode="suggest" for community-driven refactoring suggestions.
-2. Use `refactor_tool` with mode="dead_code" to find unreferenced code.
-3. For renames, use `refactor_tool` with mode="rename" to preview all affected locations.
-4. Use `apply_refactor_tool` with the refactor_id to apply renames.
-5. After changes, run `detect_changes_tool` to verify the refactoring impact.
+1. 使用 `refactor_tool`，mode="suggest" 获取社区驱动的重构建议。
+2. 使用 `refactor_tool`，mode="dead_code" 查找未被引用的代码。
+3. 对于重命名，使用 `refactor_tool`，mode="rename" 预览所有受影响的位置。
+4. 使用 `apply_refactor_tool` 并传入 refactor_id 来应用重命名。
+5. 变更后，运行 `detect_changes_tool` 验证重构影响。
 
-### Safety Checks
+### 安全检查
 
-- Always preview before applying (rename mode gives you an edit list).
-- Check `get_impact_radius_tool` before major refactors.
-- Use `get_affected_flows_tool` to ensure no critical paths are broken.
-- Run `find_large_functions` to identify decomposition targets.
+- 应用前始终预览（rename 模式会给出编辑列表）。
+- 重大重构前检查 `get_impact_radius_tool`。
+- 使用 `get_affected_flows_tool` 确保没有关键路径被破坏。
+- 运行 `find_large_functions` 识别可分解的目标。
 
-## Token Efficiency Rules
-- ALWAYS start with `get_minimal_context(task="<your task>")` before any other graph tool.
-- Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.
-- Target: complete any review/debug/refactor task in ≤5 tool calls and ≤800 total output tokens.
+## Token 效率规则
+- 在使用任何其他图谱工具之前，始终先执行 `get_minimal_context(task="<你的任务>")`。
+- 所有调用使用 `detail_level="minimal"`。仅当 minimal 不足时升级为 "standard"。
+- 目标：在 ≤5 次工具调用且 ≤800 总输出 token 内完成任何 review/debug/refactor 任务。

@@ -3,6 +3,7 @@
 import { type FormEvent, type TransitionStartFunction, useState } from "react";
 import type { SettingsTx } from "@/features/settings/settings-types";
 import { translateSettingsActionError } from "@/features/settings/settings-utils";
+import { AppIcon } from "@/shared/ui/app-icon";
 import { EmptyState } from "@/shared/ui/empty-state";
 import {
   checkFeishuIntegrationHealthAction,
@@ -163,6 +164,7 @@ export function FeishuHealthPanel({
                     }}
                     type="button"
                   >
+                    <AppIcon name="copy" />
                     {tx("复制回调地址", "Copy Callback URL")}
                   </button>
                   <button
@@ -183,6 +185,7 @@ export function FeishuHealthPanel({
                     }}
                     type="button"
                   >
+                    <AppIcon name="refresh" />
                     {tx("检查连接", "Check Connection")}
                   </button>
                   {integration.status === "disabled" ? (
@@ -202,6 +205,7 @@ export function FeishuHealthPanel({
                       }}
                       type="button"
                     >
+                      <AppIcon name="checkCircle" />
                       {tx("启用", "Enable")}
                     </button>
                   ) : (
@@ -221,6 +225,7 @@ export function FeishuHealthPanel({
                       }}
                       type="button"
                     >
+                      <AppIcon name="stop" />
                       {tx("停用", "Disable")}
                     </button>
                   )}
@@ -240,6 +245,7 @@ export function FeishuHealthPanel({
                     }}
                     type="button"
                   >
+                    <AppIcon name="trash" />
                     {tx("删除", "Delete")}
                   </button>
                 </div>
@@ -448,7 +454,17 @@ function FeishuSetupGuide({
   ];
 
   return (
-    <div className="feishu-setup-guide" aria-label={tx("飞书联调清单", "Feishu integration checklist")}>
+    <details
+      className="feishu-advanced-settings"
+      open={integration.status === "error" ? true : undefined}
+    >
+      <summary>
+        <span>{tx("配置与联调指南", "Setup & Smoke Guide")}</span>
+        <small>
+          {tx("回调地址、事件、权限、联调命令与证据门禁。", "Callback URL, events, scopes, smoke commands, and evidence gates.")}
+        </small>
+      </summary>
+      <div className="feishu-advanced-settings__body feishu-setup-guide" aria-label={tx("飞书联调清单", "Feishu integration checklist")}>
       <div className="feishu-setup-guide__grid">
         <section>
           <strong>{tx("凭据", "Credentials")}</strong>
@@ -532,19 +548,21 @@ function FeishuSetupGuide({
               {command.note ? <small>{command.note}</small> : null}
             </div>
             <button
-              className="action-button"
+              className="action-button action-button--compact"
               onClick={() => {
                 copyToClipboard(command.value);
                 setFeedback(tx("命令已复制。", "Command copied."));
               }}
               type="button"
             >
+              <AppIcon name="copy" />
               {tx("复制", "Copy")}
             </button>
           </div>
         ))}
       </div>
-    </div>
+      </div>
+      </details>
   );
 }
 

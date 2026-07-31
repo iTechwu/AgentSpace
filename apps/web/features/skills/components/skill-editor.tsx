@@ -1,10 +1,15 @@
-import { useEffect, useState } from "react";
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import type { SkillsPageData } from "@/features/dashboard/data";
+import MDEditor, { commands } from "@uiw/react-md-editor";
+import "@uiw/react-md-editor/markdown-editor.css";
 
 interface SkillEditorProps {
   readonly assignedAgentCount: number;
   readonly assignedAgents: SkillsPageData["agents"];
+  readonly canEditBuiltin: boolean;
   readonly file: SkillsPageData["skills"][number]["files"][number];
   readonly pending: boolean;
   readonly skill: SkillsPageData["skills"][number];
@@ -12,9 +17,19 @@ interface SkillEditorProps {
   readonly onSaveSkill: (input: { name: string; content: string }) => void;
 }
 
+interface SkillFrontmatter {
+  name?: string;
+  description?: string;
+  license?: string;
+  metadata?: Record<string, unknown>;
+  tags?: string[];
+  [key: string]: unknown;
+}
+
 export function SkillEditor({
   assignedAgentCount,
   assignedAgents,
+  canEditBuiltin,
   file,
   pending,
   skill,
@@ -24,6 +39,7 @@ export function SkillEditor({
   const { tx } = useLanguage();
   const [nameDraft, setNameDraft] = useState(skill.name);
   const [contentDraft, setContentDraft] = useState(file.content);
+  const [editorMode, setEditorMode] = useState<"preview" | "edit">("preview");
 
   useEffect(() => {
     setNameDraft(skill.name);
@@ -33,9 +49,25 @@ export function SkillEditor({
     setContentDraft(file.content);
   }, [file.id, file.content]);
 
+  useEffect(() => {
+    setEditorMode("preview");
+  }, [file.id]);
+
   const isSkillDirty = nameDraft !== skill.name || contentDraft !== file.content;
+  const isReadonly = skill.isBuiltin && !canEditBuiltin;
+
+  const { bodyContent, frontmatter } = useMemo(
+    () => parseSkillContent(file.content),
+    [file.content],
+  );
+
   const dependencies = readSkillDependencies(skill.configJson);
   const requirements = readSkillRequirements(skill.configJson);
+
+  const fileName = file.path === "SKILL.md" ? "SKILL.md" : file.path;
+  const hasFrontmatter = frontmatter !== null && Object.keys(frontmatter).filter(
+    (k) => k !== "name" || frontmatter[k],
+  ).length > 0;
 
   return (
     <div className="skills-editor">
@@ -45,21 +77,41 @@ export function SkillEditor({
           <div className="skills-editor__meta">
             <input
               className="skill-editor-input skill-editor-input--title"
-              disabled={skill.isBuiltin}
+              disabled={isReadonly}
               onChange={(event) => setNameDraft(event.currentTarget.value)}
               placeholder="Skill name"
               type="text"
               value={nameDraft}
             />
+            <span className="skills-editor__file-name">{fileName}</span>
           </div>
         </div>
         <div className="skills-editor__actions">
-          <button className="modal-secondary-button" disabled={pending || skill.isBuiltin} onClick={onDeleteSkill} type="button">
-            {tx("删除 Skill", "Delete skill")}
+          {!isReadonly ? (
+            <button
+              className="modal-secondary-button"
+              disabled={pending || skill.isBuiltin}
+              onClick={() => onDeleteSkill()}
+              type="button"
+            >
+              {tx("删除 Skill", "Delete skill")}
+            </button>
+          ) : null}
+          <button
+            className="modal-secondary-button"
+            disabled={pending || isReadonly}
+            onClick={() => setEditorMode(editorMode === "preview" ? "edit" : "preview")}
+            type="button"
+          >
+            {isReadonly
+              ? tx("只读预览", "Read-only preview")
+              : editorMode === "preview"
+                ? tx("编辑 Markdown", "Edit Markdown")
+                : tx("预览 Markdown", "Preview Markdown")}
           </button>
           <button
             className="primary-button"
-            disabled={pending || skill.isBuiltin || nameDraft.trim().length === 0 || !isSkillDirty}
+            disabled={pending || isReadonly || nameDraft.trim().length === 0 || !isSkillDirty}
             onClick={() => onSaveSkill({ name: nameDraft, content: contentDraft })}
             type="button"
           >
@@ -68,14 +120,61 @@ export function SkillEditor({
         </div>
       </div>
 
-      <textarea
-        className="skills-editor__textarea"
-        disabled={skill.isBuiltin}
-        onChange={(event) => setContentDraft(event.currentTarget.value)}
-        placeholder={tx("编辑文件内容", "Edit file content")}
-        rows={24}
-        value={contentDraft}
-      />
+      {hasFrontmatter ? (
+        <div className="skills-editor__frontmatter">
+          <span className="skills-editor__frontmatter-label">
+            {tx("Skill 元数据", "Skill metadata")}
+          </span>
+          <div className="skills-editor__frontmatter-fields">
+            {frontmatter?.name ? (
+              <div className="skills-editor__frontmatter-field">
+                <span className="skills-editor__frontmatter-key">名称</span>
+                <code>{frontmatter.name}</code>
+              </div>
+            ) : null}
+            {frontmatter?.description ? (
+              <div className="skills-editor__frontmatter-field">
+                <span className="skills-editor__frontmatter-key">描述</span>
+                <span className="skills-editor__frontmatter-value">
+                  {typeof frontmatter.description === "string"
+                    ? frontmatter.description.replace(/\n/g, " ").replace(/\s+/g, " ").trim()
+                    : String(frontmatter.description)}
+                </span>
+              </div>
+            ) : null}
+            {frontmatter?.tags && Array.isArray(frontmatter.tags) && frontmatter.tags.length > 0 ? (
+              <div className="skills-editor__frontmatter-field">
+                <span className="skills-editor__frontmatter-key">标签</span>
+                <div className="skills-editor__frontmatter-tags">
+                  {frontmatter.tags.map((tag: string) => (
+                    <code key={tag}>{tag}</code>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="skills-editor__md-container" data-color-mode="light">
+        {editorMode === "edit" ? (
+          <MDEditor
+            commands={commands.getCommands()}
+            height={520}
+            onChange={(value) => setContentDraft(value ?? "")}
+            preview="live"
+            value={contentDraft}
+            visibleDragbar={false}
+          />
+        ) : (
+          <div className="skills-editor__md-preview">
+            <MDEditor.Markdown
+              source={bodyContent || tx("*（此 Skill 暂无内容）*", "*(This skill has no content yet)*")}
+              style={{ minHeight: 120, padding: "16px 20px" }}
+            />
+          </div>
+        )}
+      </div>
 
       {dependencies.length > 0 ? (
         <div className="skills-editor__dependencies" aria-label={tx("Skill 依赖", "Skill dependencies")}>
@@ -120,6 +219,72 @@ export function SkillEditor({
       </div>
     </div>
   );
+}
+
+function parseSkillContent(content: string): {
+  frontmatter: SkillFrontmatter | null;
+  bodyContent: string;
+} {
+  const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*/);
+  if (!frontmatterMatch) {
+    return { frontmatter: null, bodyContent: content };
+  }
+
+  const frontmatter: SkillFrontmatter = {};
+  const lines = frontmatterMatch[1].split(/\r?\n/);
+  let currentKey = "";
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!;
+
+    if (/^\s/.test(line) && currentKey) {
+      if (currentKey === "description" && typeof frontmatter.description === "string") {
+        frontmatter.description += "\n" + line.trimStart();
+      }
+      continue;
+    }
+
+    if (line.trim().startsWith("-") && currentKey === "tags") {
+      const tag = line.trim().replace(/^-\s*/, "").trim();
+      if (tag) {
+        if (!frontmatter.tags) frontmatter.tags = [];
+        frontmatter.tags.push(tag);
+      }
+      continue;
+    }
+
+    const colonIndex = line.indexOf(":");
+    if (colonIndex <= 0) continue;
+
+    currentKey = line.slice(0, colonIndex).trim();
+    let value = line.slice(colonIndex + 1).trim();
+
+    if (!currentKey || !value) continue;
+
+    if (value === ">" || value === "|" || value.startsWith(">-") || value.startsWith("|-")) {
+      frontmatter[currentKey] = "";
+      continue;
+    }
+    if (value === "" && (currentKey === "tags")) {
+      frontmatter.tags = [];
+      continue;
+    }
+
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+
+    if (value.startsWith("[")) {
+      frontmatter[currentKey] = value.slice(1, -1).split(",").map((s) => s.trim());
+      continue;
+    }
+
+    frontmatter[currentKey] = value;
+  }
+
+  const bodyContent = content.slice(frontmatterMatch[0].length);
+
+  return { frontmatter: Object.keys(frontmatter).length > 0 ? frontmatter : null, bodyContent };
 }
 
 function readSkillRequirements(configJson: string | undefined): Array<{ kind: string; value: string }> {

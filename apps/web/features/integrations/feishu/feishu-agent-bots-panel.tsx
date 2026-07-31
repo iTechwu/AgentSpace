@@ -368,11 +368,15 @@ export function FeishuAgentBotsPanel({
         ) : agentBots.map((integration) => (
             <article className="feishu-binding-card" key={integration.id}>
               <div>
-                <strong>{integration.displayName}</strong>
+                <div className="feishu-binding-card__identity">
+                  <strong>{integration.displayName}</strong>
+                  <span className={`status-chip ${integration.status === "active" ? "status-chip--positive" : "status-chip--neutral"}`}>
+                    {translateBotBindingStatus(integration.status, tx)}
+                  </span>
+                </div>
                 <div className="feishu-binding-card__meta">
                   <span>{tx("AI员工", "AI employee")}: {integration.agentId}</span>
-                  <span>{tx("连接方式", "Transport")}: {integration.transportMode}</span>
-                  <span>{tx("状态", "Status")}: {integration.status}</span>
+                  <span>{tx("连接方式", "Transport")}: {translateBotTransportMode(integration.transportMode, tx)}</span>
                   {integration.appId ? <span>App ID: {integration.appId}</span> : null}
                 </div>
                 {integration.externalGuestPolicy || integration.channelAutoProvisioning ? (
@@ -530,6 +534,29 @@ function translateHealthStatus(
     case "unknown":
       return tx("未知", "Unknown");
   }
+}
+
+function translateBotBindingStatus(
+  status: FeishuIntegrationSettingsItem["status"],
+  tx: SettingsTx,
+): string {
+  switch (status) {
+    case "active":
+      return tx("启用", "Active");
+    case "disabled":
+      return tx("停用", "Disabled");
+    case "error":
+      return tx("异常", "Error");
+  }
+}
+
+function translateBotTransportMode(
+  mode: FeishuIntegrationSettingsItem["transportMode"],
+  tx: SettingsTx,
+): string {
+  return mode === "http_webhook"
+    ? tx("事件回调", "Event callback")
+    : tx("长连接", "WebSocket worker");
 }
 
 function translateScopeReadiness(

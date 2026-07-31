@@ -362,7 +362,7 @@ function CostOverview({
                   </div>
                   <div className="costs-recent-card__stats">
                     <span>{formatUsageTokens(usage)}</span>
-                    <span>{formatUsageCost(usage, tx)}</span>
+                    <span>{formatUsageCost(usage, billingUnavailable, tx)}</span>
                   </div>
                   <div className="costs-recent-time">
                     {tx("更新时间", "Updated")}: {formatCompactTimestamp(usage.sourceUpdatedAt ?? usage.reconciledAt ?? usage.createdAt, { emptyFallback: usage.createdAt })}
@@ -377,7 +377,7 @@ function CostOverview({
                   <span className="costs-recent-agent">{formatUsageOwner(usage, tx)}</span>
                   <span className="costs-recent-model">{usage.modelId}</span>
                   <span>{formatUsageTokens(usage)}</span>
-                  <span>{formatUsageCost(usage, tx)}</span>
+                  <span>{formatUsageCost(usage, billingUnavailable, tx)}</span>
                   <BillingStatusBadge status={usage.billingStatus} tx={tx} />
                   <span className="costs-recent-time">
                     {tx("更新时间", "Updated")}: {formatCompactTimestamp(usage.sourceUpdatedAt ?? usage.reconciledAt ?? usage.createdAt, { emptyFallback: usage.createdAt })}
@@ -491,8 +491,12 @@ function BillingStatusBadge({
     : status === "unallocated"
       ? tx("未归属", "Unattributed")
       : status === "pending_reconciliation"
-        ? tx("等待账单", "Awaiting charge")
-        : tx("等待账单", "Awaiting charge");
+        ? tx("等待对账", "Awaiting reconciliation")
+        : status === "estimated"
+          ? tx("预估", "Estimated")
+          : status === "created" || status === "reserved"
+            ? tx("待结算", "Pending settlement")
+            : tx("等待账单", "Awaiting charge");
   const className = `costs-status costs-status--${status}`;
   return <span className={className}>{label}</span>;
 }
@@ -504,11 +508,20 @@ function formatUsageTokens(usage: CostPageData["recentUsage"][number]): string {
 
 function formatUsageCost(
   usage: CostPageData["recentUsage"][number],
+  billingUnavailable: boolean,
   tx: (zh: string, en: string) => string,
 ): string {
-  return usage.actualCostUsd == null
-    ? tx("等待 models 账单", "Awaiting models charge")
-    : formatBillingAmount(usage.actualCostUsd, usage.currency);
+  if (usage.actualCostUsd != null) {
+    return formatBillingAmount(usage.actualCostUsd, usage.currency);
+  }
+  // When models billing is authoritative but this entry hasn't been individually
+  // reconciled yet, the billing report already covers the aggregated charge.
+  // Show "pending sync" instead of "awaiting models charge" so users understand
+  // billing IS working — it's the per-row sync that hasn't caught up yet.
+  if (!billingUnavailable) {
+    return tx("待同步", "Pending sync");
+  }
+  return tx("等待 models 账单", "Awaiting models charge");
 }
 
 function formatUsageOwner(
@@ -518,7 +531,7 @@ function formatUsageOwner(
   if (usage.billingStatus === "unallocated" || usage.agentId === "unknown" || usage.agentId === "__unattributed__") {
     return tx("未归属用量", "Unattributed usage");
   }
-  return usage.agentId;
+  return usage.displayName ?? usage.agentId;
 }
 
 function formatBillingSource(

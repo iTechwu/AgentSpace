@@ -6,9 +6,16 @@ import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { AppIcon } from "@/shared/ui/app-icon";
 
+export interface SkillPickerRequirementStatus {
+  tone: "positive" | "warning" | "danger";
+  label: string;
+}
+
 interface SkillPickerModalProps {
   readonly pending: boolean;
   readonly skills: WorkspaceSkill[];
+  /** Pre-install requirement preview per skill id (spec §5.1.1). */
+  readonly statusBySkillId?: Record<string, SkillPickerRequirementStatus | undefined>;
   readonly onCancel: () => void;
   readonly onSelect: (skillId: string) => void;
 }
@@ -16,6 +23,7 @@ interface SkillPickerModalProps {
 export function SkillPickerModal({
   pending,
   skills,
+  statusBySkillId = {},
   onCancel,
   onSelect,
 }: SkillPickerModalProps) {
@@ -51,7 +59,14 @@ export function SkillPickerModal({
                     <p>{skill.description || tx("暂无描述", "No description")}</p>
                     <p>{translateSkillSourceLabel(skill, tx)}</p>
                   </div>
-                  <span>{tx(`${skill.files.length} 文件`, `${skill.files.length} files`)}</span>
+                  <span className="skill-picker-row__meta">
+                    {tx(`${skill.files.length} 文件`, `${skill.files.length} files`)}
+                    {statusBySkillId[skill.id] ? (
+                      <span className={`status-chip status-chip--${statusBySkillId[skill.id]!.tone}`}>
+                        {statusBySkillId[skill.id]!.label}
+                      </span>
+                    ) : null}
+                  </span>
                 </button>
               ))}
             </div>

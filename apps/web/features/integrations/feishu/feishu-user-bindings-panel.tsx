@@ -260,12 +260,16 @@ export function FeishuUserBindingsPanel({
         {bindings.length > 0 ? bindings.map((binding) => (
           <article className="feishu-binding-card" key={binding.id}>
             <div>
-              <strong>{binding.userName}</strong>
+              <div className="feishu-binding-card__identity">
+                <strong>{binding.userName}</strong>
+                <span className={`status-chip ${resolveUserBindingStatusClass(binding.status)}`}>
+                  {translateUserBindingStatus(binding.status, tx)}
+                </span>
+              </div>
               <p>{binding.integrationName}</p>
             </div>
             <div className="feishu-binding-card__meta">
               <span>{tx("Open ID", "Open ID")}: {binding.externalUserReference}</span>
-              <span>{tx("状态", "Status")}: {binding.status}</span>
               {binding.externalUnionReference ? <span>{tx("Union ID", "Union ID")}: {binding.externalUnionReference}</span> : null}
               {binding.externalEmailReference ? <span>{tx("邮箱", "Email")}: {binding.externalEmailReference}</span> : null}
             </div>

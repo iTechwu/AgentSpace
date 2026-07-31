@@ -110,11 +110,31 @@ export async function resolveEffectiveModelForTaskAsync(
   } catch (error) {
     // The runtime default is written alongside the credential allowlist during
     // provisioning. It remains a safe fallback when the control-plane catalog
-    // is temporarily unavailable; arbitrary employee/session overrides do not.
+    // is temporarily unavailable.
     if (runtime.defaultModel) {
       return {
         modelId: runtime.defaultModel,
         source: "runtime_default",
+        runtimeCredentialId: runtime.managedCredentialId,
+        validated: false,
+      };
+    }
+    // When the control-plane catalog is unavailable AND the runtime has no
+    // provisioned default, fall back to the employee-configured model so the
+    // task can still execute. The credential will be validated on the next
+    // successful catalog fetch. If the employee has no default either, the
+    // error propagates — there is nothing left to try.
+    if (employee?.defaultModel) {
+      recordModelCatalogFallbackWarning({
+        workspaceId,
+        runtimeId: runtime.id,
+        managedCredentialId: runtime.managedCredentialId,
+        fallbackModelId: employee.defaultModel,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        modelId: employee.defaultModel,
+        source: "employee_default",
         runtimeCredentialId: runtime.managedCredentialId,
         validated: false,
       };
@@ -193,6 +213,33 @@ function readTeamPolicyDefaultModelSync(workspaceId: string): string {
   const state = ensureWorkspaceStateSync(workspaceId);
   const policy = (state as unknown as { runtimePolicy?: { defaultModel?: string } }).runtimePolicy;
   return policy?.defaultModel ?? "";
+}
+
+function recordModelCatalogFallbackWarning(input: {
+  workspaceId: string;
+  runtimeId: string;
+  managedCredentialId: string;
+  fallbackModelId: string;
+  reason: string;
+}): void {
+  try {
+    recordAuditLogSync({
+      workspaceId: input.workspaceId,
+      title: "Model catalog unavailable — fallback to employee default",
+      note: `Models catalog for credential "${input.managedCredentialId}" (runtime ${input.runtimeId}) is unavailable. Falling back to employee default model "${input.fallbackModelId}". Reason: ${input.reason}`,
+      code: "model.catalog_fallback",
+      source: "runtime_model",
+      data: {
+        actorType: "system",
+        resourceType: "runtime",
+        resourceId: input.runtimeId,
+        credentialId: input.managedCredentialId,
+        fallbackModelId: input.fallbackModelId,
+      },
+    });
+  } catch {
+    // Best-effort audit; do not fail model resolution because of logging.
+  }
 }
 
 function recordModelFallbackWarning(

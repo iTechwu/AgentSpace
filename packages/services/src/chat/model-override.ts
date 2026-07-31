@@ -7,6 +7,7 @@ import {
   readEmployeeRuntimeBindingSync,
   readLatestChannelExecutionSync,
   readLatestConversationExecutionSync,
+  readStoredEmployeeSync,
   recordAuditLogSync,
   setAgentRouterSessionModelOverrideSync,
   upsertAgentRouterSessionSync,
@@ -323,9 +324,26 @@ export async function resolveChatModelOverrideAsync(
       modelId: session.modelOverride,
       source: session.modelOverrideSource ?? "manual",
     };
+    // 有会话覆盖时，会话覆盖即为当前生效模型，无需异步验证。
+    info.effectiveModel = {
+      modelId: session.modelOverride,
+      source: "session_override",
+    };
   }
 
   const binding = readEmployeeRuntimeBindingSync(resolution.agentName, resolution.workspaceId);
+  // 当没有会话覆盖时，先从数据库同步读取员工已配置的默认模型，
+  // 确保 UI 即时显示模型名，无需等待 models API 异步调用返回。
+  if (!info.effectiveModel) {
+    const employee = readStoredEmployeeSync(resolution.agentName, resolution.workspaceId);
+    if (employee?.defaultModel) {
+      info.effectiveModel = {
+        modelId: employee.defaultModel,
+        source: "employee_default",
+      };
+    }
+  }
+
   if (binding) {
     const runtime = readAgentRuntimeSync(binding.runtimeId);
     if (runtime?.managedCredentialId) {
@@ -333,20 +351,35 @@ export async function resolveChatModelOverrideAsync(
     }
 
     if (resolveAgentRuntimeMode() === "remote" && runtime?.managedCredentialId) {
-      try {
-        const effective = await resolveEffectiveModelForBoundEmployeeAsync({
-          workspaceId: resolution.workspaceId,
-          employeeName: resolution.agentName,
-          routerSessionId: resolution.routerSessionId,
-        });
-        info.effectiveModel = {
-          modelId: effective.modelId,
-          source: effective.source,
-        };
-      } catch {
-        // Effective model resolution is best-effort for the UI preview.
-        // The actual task execution will surface the real error.
-      }
+      // 在后台异步验证模型是否在 RuntimeCredential 允许列表中可用，
+      // 这不阻塞 UI 渲染——默认模型已同步返回。
+      resolveEffectiveModelForBoundEmployeeAsync({
+        workspaceId: resolution.workspaceId,
+        employeeName: resolution.agentName,
+        routerSessionId: resolution.routerSessionId,
+      }).then((effective) => {
+        // 后台验证成功后无需更新 UI——当前函数已返回。
+        // 后续 getChatModelOverrideAction 再次调用时会
+        // 拿到验证后的结果。
+      }).catch((error) => {
+        try {
+          recordAuditLogSync({
+            workspaceId: resolution.workspaceId,
+            title: "Chat model resolution preview failed",
+            note: `Failed to resolve effective model for "${resolution.agentName}" in chat preview. Reason: ${error instanceof Error ? error.message : String(error)}`,
+            code: "chat.model_resolution_preview_failed",
+            source: "runtime_model",
+            data: {
+              actorType: "system",
+              resourceType: "employee",
+              resourceId: resolution.agentName,
+              reason: error instanceof Error ? error.message : String(error),
+            },
+          });
+        } catch {
+          // Best-effort audit; do not surface audit failure.
+        }
+      });
     }
   }
 

@@ -67,6 +67,7 @@ export interface CostDashboardData {
   recentUsage: Array<{
     id: string;
     agentId: string;
+    displayName: string;
     modelId: string;
     providerAccountId?: string;
     inputTokens: number;
@@ -143,6 +144,7 @@ export function getCostDashboardDataSync(
     recentUsage: recentUsage.map((u: (typeof recentUsage)[number]) => ({
       id: u.id,
       agentId: u.agentId,
+      displayName: employeeIndex.get(u.agentId) ?? u.agentId,
       modelId: u.modelId,
       providerAccountId: u.providerAccountId,
       inputTokens: u.inputTokens,

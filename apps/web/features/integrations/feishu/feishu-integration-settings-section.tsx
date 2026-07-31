@@ -5,6 +5,7 @@ import type { WorkspaceRole } from "@dofe-agent/db";
 import { SettingsSectionShell } from "@/features/settings/components/settings-chrome";
 import type { SettingsSectionMeta } from "@/features/settings/settings-meta";
 import type { SettingsTx } from "@/features/settings/settings-types";
+import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
 import { FeishuAgentBotsPanel } from "./feishu-agent-bots-panel";
 import { FeishuChannelBindingsPanel } from "./feishu-channel-bindings-panel";
 import { FeishuCreateIntegrationDialog } from "./feishu-create-integration-dialog";
@@ -19,6 +20,13 @@ import type {
   FeishuIntegrationCreationGuide,
   FeishuIntegrationSettingsItem,
 } from "./feishu-types";
+
+interface FeishuStatCardItem {
+  label: string;
+  value: number;
+  icon: AppIconName;
+  tone: "accent" | "success" | "warning" | "danger";
+}
 
 export function SettingsIntegrationsSection({
   availableChannels,
@@ -74,52 +82,96 @@ export function SettingsIntegrationsSection({
     refreshSettingsData();
   }
 
+  const overviewStats: FeishuStatCardItem[] = canManageIntegrations
+    ? [
+      {
+        label: tx("用户绑定", "User Bindings"),
+        value: totalUserBindings,
+        icon: "contacts",
+        tone: "success",
+      },
+      {
+        label: tx("会话映射", "Chat Mappings"),
+        value: totalChannelBindings,
+        icon: "messages",
+        tone: "accent",
+      },
+      {
+        label: tx("Docs / Sheets / Base", "Docs / Sheets / Base"),
+        value: totalResourceBindings,
+        icon: "tables",
+        tone: "accent",
+      },
+      {
+        label: tx("数据操作", "Data Operations"),
+        value: totalOperationRuns,
+        icon: "automations",
+        tone: "accent",
+      },
+      {
+        label: tx("出站失败", "Outbound Failures"),
+        value: totalOutboxFailures,
+        icon: "alertCircle",
+        tone: "danger",
+      },
+    ]
+    : [
+      {
+        label: tx("我的飞书绑定", "My Feishu Binding"),
+        value: totalUserBindings,
+        icon: "feishu",
+        tone: "success",
+      },
+      {
+        label: tx("可用集成", "Available Integrations"),
+        value: integrations.filter((integration) => integration.status !== "disabled").length,
+        icon: "market",
+        tone: "accent",
+      },
+    ];
+
   return (
     <SettingsSectionShell meta={meta}>
-      <div className="feishu-mini-panel-grid">
-        <section className="feishu-mini-panel">
-          <strong>{canManageIntegrations ? tx("用户绑定", "User Bindings") : tx("我的飞书绑定", "My Feishu Binding")}</strong>
-          <span>{totalUserBindings}</span>
-        </section>
-        {canManageIntegrations ? (
-          <>
-            <section className="feishu-mini-panel">
-              <strong>{tx("会话映射", "Chat Mappings")}</strong>
-              <span>{totalChannelBindings}</span>
-            </section>
-            <section className="feishu-mini-panel">
-              <strong>{tx("Docs / Sheets / Base", "Docs / Sheets / Base")}</strong>
-              <span>{totalResourceBindings}</span>
-            </section>
-            <section className="feishu-mini-panel">
-              <strong>{tx("数据操作", "Data Operations")}</strong>
-              <span>{totalOperationRuns}</span>
-            </section>
-            <section className="feishu-mini-panel">
-              <strong>{tx("出站失败", "Outbound Failures")}</strong>
-              <span>{totalOutboxFailures}</span>
-            </section>
-          </>
-        ) : (
-          <section className="feishu-mini-panel">
-            <strong>{tx("可用集成", "Available Integrations")}</strong>
-            <span>{integrations.filter((integration) => integration.status !== "disabled").length}</span>
-          </section>
-        )}
+      <div className="feishu-overview" aria-label={tx("飞书集成概览", "Feishu integration overview")}>
+        {overviewStats.map((stat) => (
+          <div
+            className={`feishu-stat-card feishu-stat-card--${stat.tone}`}
+            key={stat.label}
+          >
+            <span className="feishu-stat-card__icon" aria-hidden="true">
+              <AppIcon name={stat.icon} />
+            </span>
+            <span className="feishu-stat-card__body">
+              <strong className="feishu-stat-card__value">{stat.value}</strong>
+              <span className="feishu-stat-card__label">{stat.label}</span>
+            </span>
+          </div>
+        ))}
       </div>
 
-      {canManageIntegrations ? (
-        <>
-          <FeishuAgentBotsPanel
-            availableAgents={availableAgents}
-            integrations={integrations}
-            isPending={isPending}
-            onUpdated={mergeIntegration}
-            setFeedback={setFeedback}
-            startTransition={startTransition}
-            tx={tx}
-          />
+      {feedback ? (
+        <p aria-live="polite" className="feishu-feedback" role="status">{feedback}</p>
+      ) : null}
 
+      <div className="feishu-group">
+        <div className="feishu-group__header">
+          <h3>{tx("连接", "Connections")}</h3>
+          <p>
+            {tx("绑定 AI员工 飞书 Bot，或为共享数据面创建工作区级集成。", "Bind a Feishu bot to an AI employee, or create a workspace-level integration for the shared data plane.")}
+          </p>
+        </div>
+
+        <FeishuAgentBotsPanel
+          availableAgents={availableAgents}
+          integrations={integrations}
+          isPending={isPending}
+          onUpdated={mergeIntegration}
+          setFeedback={setFeedback}
+          startTransition={startTransition}
+          tx={tx}
+        />
+
+        {canManageIntegrations ? (
           <FeishuCreateIntegrationDialog
             creationGuide={feishuIntegrationCreationGuide}
             isPending={isPending}
@@ -128,59 +180,76 @@ export function SettingsIntegrationsSection({
             startTransition={startTransition}
             tx={tx}
           />
-        </>
-      ) : null}
+        ) : null}
 
-      {feedback ? <p aria-live="polite" className="settings-feedback" role="status">{feedback}</p> : null}
+        {canManageIntegrations ? (
+          <FeishuHealthPanel
+            integrations={integrations}
+            isPending={isPending}
+            onDeleted={removeIntegration}
+            onUpdated={mergeIntegration}
+            setFeedback={setFeedback}
+            startTransition={startTransition}
+            tx={tx}
+          />
+        ) : null}
+      </div>
 
-      {canManageIntegrations ? (
-        <FeishuHealthPanel
+      <div className="feishu-group">
+        <div className="feishu-group__header">
+          <h3>{tx("绑定与映射", "Bindings")}</h3>
+          <p>
+            {tx("把飞书用户、会话和文档映射到 agent.dofe 身份与资源。", "Map Feishu users, chats, and documents to agent.dofe identities and resources.")}
+          </p>
+        </div>
+
+        <FeishuUserBindingsPanel
+          availableUsers={availableUsers}
+          currentMembershipRole={currentMembershipRole}
+          currentUserId={currentUserId}
           integrations={integrations}
           isPending={isPending}
-          onDeleted={removeIntegration}
           onUpdated={mergeIntegration}
           setFeedback={setFeedback}
           startTransition={startTransition}
           tx={tx}
         />
-      ) : null}
 
-      <FeishuUserBindingsPanel
-        availableUsers={availableUsers}
-        currentMembershipRole={currentMembershipRole}
-        currentUserId={currentUserId}
-        integrations={integrations}
-        isPending={isPending}
-        onUpdated={mergeIntegration}
-        setFeedback={setFeedback}
-        startTransition={startTransition}
-        tx={tx}
-      />
+        {canManageIntegrations ? (
+          <>
+            <FeishuChannelBindingsPanel
+              availableChannels={availableChannels}
+              integrations={integrations}
+              isPending={isPending}
+              onUpdated={mergeIntegration}
+              setFeedback={setFeedback}
+              startTransition={startTransition}
+              tx={tx}
+            />
+
+            <FeishuResourceBindingsPanel
+              availableChannels={availableChannels}
+              integrations={integrations}
+              isPending={isPending}
+              onUpdated={mergeIntegration}
+              setFeedback={setFeedback}
+              startTransition={startTransition}
+              tx={tx}
+            />
+          </>
+        ) : null}
+      </div>
 
       {canManageIntegrations ? (
-        <>
-          <FeishuChannelBindingsPanel
-            availableChannels={availableChannels}
-            integrations={integrations}
-            isPending={isPending}
-            onUpdated={mergeIntegration}
-            setFeedback={setFeedback}
-            startTransition={startTransition}
-            tx={tx}
-          />
-
-          <FeishuResourceBindingsPanel
-            availableChannels={availableChannels}
-            integrations={integrations}
-            isPending={isPending}
-            onUpdated={mergeIntegration}
-            setFeedback={setFeedback}
-            startTransition={startTransition}
-            tx={tx}
-          />
-
+        <div className="feishu-group">
+          <div className="feishu-group__header">
+            <h3>{tx("运行记录", "Activity")}</h3>
+            <p>
+              {tx("Docs、Sheets、Base 读写操作的策略决策、状态与错误。", "Policy decisions, status, and errors for Docs, Sheets, and Base operations.")}
+            </p>
+          </div>
           <FeishuOperationRunsPanel integrations={integrations} tx={tx} />
-        </>
+        </div>
       ) : null}
     </SettingsSectionShell>
   );
