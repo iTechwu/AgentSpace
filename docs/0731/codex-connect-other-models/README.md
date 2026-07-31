@@ -20,7 +20,7 @@ Codex 默认模型保持为 `gpt-5.6-terra`，但默认值只负责兜底。当�
 
 ## 实施状态
 
-本地实现已完成，尚未部署测试环境：
+本地实现、验证、提交和 `dev` 分支推送已完成：
 
 - Models 对每条 Provider/model 路由执行非流式、流式函数调用、工具结果回传三阶段探测。
 - 只有 24 小时内通过 `responses_stream_smoke` 的路由才产生 `codexReady=true`。
@@ -36,4 +36,4 @@ Codex 默认模型保持为 `gpt-5.6-terra`，但默认值只负责兜底。当�
 - [实施与验收](./03-implementation-and-acceptance.md)
 - [本地可控复现器](./repro-responses-stream.mjs)
 
-本次已完成本地业务代码实施和相关验证；测试环境部署仍需在提交并推送两个仓库后通过 Jenkins 执行。
+本次已完成本地业务代码实施、相关验证以及两个仓库的提交和推送。按照当前机器的发布约束，本机不使用 Jenkins 部署 `models.dofe.ai` 或 `AgentSpace`，本次也未执行任何部署操作。

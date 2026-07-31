@@ -12,7 +12,7 @@
 6. Responses 验证失败只写协议验证失败，不覆盖模型级 Chat 可用性和健康分数。
 7. Models 内部列表/详情、SDK、AgentSpace Runtime picker、创建前校验和员工绑定统一消费 `codexReady`。
 
-尚未执行 Jenkins 测试环境部署；Chat-only 模型到 Responses 的完整 Facade 仍属于 P2 独立工作，不会被本次原生 Responses 准入伪装为已支持。
+两个仓库的本地验证、提交和 `dev` 分支推送已经完成。按照当前机器的发布约束，本机不使用 Jenkins 部署 `models.dofe.ai` 或 `AgentSpace`，本次未执行任何部署操作。Chat-only 模型到 Responses 的完整 Facade 仍属于 P2 独立工作，不会被本次原生 Responses 准入伪装为已支持。
 
 ## 1. 建议实施顺序
 
@@ -154,4 +154,5 @@
 - 已只读检查本地测试环境模型网关日志，未读取或记录密钥。
 - 官方 OpenAI 文档站和已安装的文档 MCP 在当前会话中无法访问（HTTP 403/MCP 需重启后加载），所以本报告没有依赖未验证的远程文档表述；最终契约以本地 Codex 黑盒行为为直接证据。
 - 已修改并本地验证模型网关与 AgentSpace 业务代码。
-- 尚未完成两个仓库的独立功能提交、推送和 Jenkins 测试环境部署。
+- 已将两个仓库的改动提交并推送到各自 `dev` 分支。
+- 按照当前机器的发布约束，本机不使用 Jenkins 部署 `models.dofe.ai` 或 `AgentSpace`；本次未执行部署。
