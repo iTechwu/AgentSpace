@@ -1,5 +1,12 @@
 import { createHmac } from "node:crypto";
-import { createModelsInternalDataClient, type ModelsInternalDataClient } from "@dofe/models-sdk";
+import {
+  createModelsInternalDataClient,
+  type ModelsInternalBillingAggregate,
+  type ModelsInternalBillingDimensionAggregate,
+  type ModelsInternalBillingLifecycleStatus,
+  type ModelsInternalDataClient,
+  type ModelsInternalTenantBillingReport,
+} from "@dofe/models-sdk";
 import { unwrapModelsInternalResponse } from "@dofe/models-sdk/response";
 import { resolveModelsBaseUrl } from "../config/deployment.ts";
 
@@ -95,45 +102,10 @@ export interface ModelsBillingScopePreflightResult {
   message?: string;
 }
 
-export type ModelsBillingLifecycleStatus =
-  | "created"
-  | "reserved"
-  | "settled"
-  | "released"
-  | "reconciliation_required"
-  | "untracked";
-
-export interface ModelsBillingAggregate {
-  currency: string;
-  billingStatus: ModelsBillingLifecycleStatus;
-  requestCount: number;
-  successCount: number;
-  inputTokens: number;
-  outputTokens: number;
-  thinkingTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
-  providerCost: string;
-  tenantCharge: string;
-}
-
-export interface ModelsBillingDimensionAggregate extends ModelsBillingAggregate {
-  id: string | null;
-}
-
-export interface ModelsTenantBillingReport {
-  tenantId: string;
-  period: { startDate: string; endDate: string };
-  totals: ModelsBillingAggregate[];
-  breakdowns: {
-    models: ModelsBillingDimensionAggregate[];
-    employees: ModelsBillingDimensionAggregate[];
-    runtimes: ModelsBillingDimensionAggregate[];
-    runtimeCredentials: ModelsBillingDimensionAggregate[];
-    teams: ModelsBillingDimensionAggregate[];
-    conversations: ModelsBillingDimensionAggregate[];
-  };
-}
+export type ModelsBillingLifecycleStatus = ModelsInternalBillingLifecycleStatus;
+export type ModelsBillingAggregate = ModelsInternalBillingAggregate;
+export type ModelsBillingDimensionAggregate = ModelsInternalBillingDimensionAggregate;
+export type ModelsTenantBillingReport = ModelsInternalTenantBillingReport;
 
 export interface ModelsTenantBillingReportInput {
   tenantId: string;
@@ -146,47 +118,15 @@ export interface ModelsTenantBillingReportInput {
   conversationId?: string;
 }
 
-/**
- * Compatibility adapter until the models SDK release containing
- * usage.tenantBillingReport is consumed by this workspace.
- */
 export async function getModelsTenantBillingReportAsync(
   input: ModelsTenantBillingReportInput,
   env: NodeJS.ProcessEnv = process.env,
-  request: typeof fetch = fetch,
 ): Promise<ModelsTenantBillingReport> {
-  const config = resolveModelsInternalConfig(env);
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries({
-    startDate: input.startDate,
-    endDate: input.endDate,
-    ssoTeamId: input.ssoTeamId,
-    runtimeCredentialId: input.runtimeCredentialId,
-    runtimeId: input.runtimeId,
-    employeeId: input.employeeId,
-    conversationId: input.conversationId,
-  })) {
-    if (value) query.set(key, value);
-  }
-  const suffix = query.size > 0 ? `?${query.toString()}` : "";
-  const response = await request(
-    `${config.baseUrl.replace(/\/+$/, "")}/internal/usage/tenant/${encodeURIComponent(input.tenantId)}/billing-report${suffix}`,
-    {
-      method: "GET",
-      headers: {
-        authorization: buildModelsInternalAuthorization(config),
-        "x-service-name": config.serviceName,
-      },
-    },
-  );
-  const contentType = response.headers.get("content-type") ?? "";
-  const responseBody = contentType.includes("application/json")
-    ? await response.json()
-    : await response.text();
-  return unwrapModelsInternalResponse<ModelsTenantBillingReport>(
-    { status: response.status, body: responseBody },
-    "GET /internal/usage/tenant/:tenantId/billing-report",
-  );
+  const { tenantId, ...query } = input;
+  return getModelsInternalClient(env).usage.tenantBillingReport({
+    params: { tenantId },
+    query,
+  });
 }
 
 /**
