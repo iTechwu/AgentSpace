@@ -94,6 +94,17 @@ export function readInvalidSkillRequirementDeclarations(configJson: string | und
   return invalid;
 }
 
+/**
+ * Returns true when the skill declares a `config:` or `secret:` requirement with
+ * the given key. Used to detect collisions with managed runtime credentials at
+ * install and runtime-binding time.
+ */
+export function skillDeclaresRequirementKey(configJson: string | undefined, key: string): boolean {
+  return readSkillRequirementDeclarations(configJson).some(
+    (requirement) => (requirement.kind === "config" || requirement.kind === "secret") && requirement.value === key,
+  );
+}
+
 export function readSkillRequirementConfiguration(configJson: string | undefined): SkillRequirementConfiguration {
   const config = readSkillConfig(configJson);
   const stored = config?.requirementConfiguration;

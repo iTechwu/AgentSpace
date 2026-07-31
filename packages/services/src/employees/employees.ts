@@ -26,7 +26,9 @@ import {
 } from "@dofe-agent/domain/workspace";
 import { deleteUnreferencedWorkspaceAttachmentsSync } from "../attachments/attachments.ts";
 import { isDirectChannel, removeChannelArtifactsFromState } from "../channels/channels.ts";
-import { listWorkspaceSkillsSync } from "../skills/skills.ts";
+import { listWorkspaceSkillsSync, readWorkspaceSkillSync } from "../skills/skills.ts";
+import { skillDeclaresRequirementKey } from "../skills/requirements.ts";
+import { getManagedRuntimeCredentialEnvKey } from "../runtime-provisioning/provider-templates.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { sameValue, normalizeSkillIds, uniqueStringValues } from "../shared/helpers.ts";
 import { normalizeWorkspaceState } from "../shared/normalizers.ts";
@@ -119,6 +121,19 @@ export function bindEmployeeRuntimeSync(
     const existingBinding = readEmployeeRuntimeBindingSync(employee.name, workspaceId);
     if (!existingBinding || existingBinding.runtimeId !== runtimeId) {
       throw new Error("runtime.sharing_closed");
+    }
+  }
+
+  if (runtimeRecord?.managedCredentialId) {
+    const credentialEnvKey = getManagedRuntimeCredentialEnvKey(runtimeRecord.provider);
+    const assignedSkillIds = listEmployeeSkillIdsSync(employee.name, workspaceId);
+    for (const skillId of assignedSkillIds) {
+      const skill = readWorkspaceSkillSync(skillId, workspaceId);
+      if (skill && skillDeclaresRequirementKey(skill.configJson, credentialEnvKey)) {
+        throw new Error(
+          `runtime.credential_key_conflict:${credentialEnvKey}:skill:${skill.name}`,
+        );
+      }
     }
   }
 
