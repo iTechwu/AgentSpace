@@ -18,7 +18,7 @@ export interface TeamBillingBalance {
 }
 
 export type TeamBillingBalanceResult = TeamBillingBalance | {
-  errorCode: "remote_mode_required" | "models_not_configured" | "team_scope_missing" | "upstream_unavailable";
+  errorCode: "remote_mode_required" | "models_not_configured" | "tenant_scope_missing" | "upstream_unavailable";
 };
 
 export async function getTeamBillingBalanceAction(): Promise<TeamBillingBalanceResult> {
@@ -27,9 +27,9 @@ export async function getTeamBillingBalanceAction(): Promise<TeamBillingBalanceR
   if (resolveAgentRuntimeMode() !== "remote") return { errorCode: "remote_mode_required" };
   if (!isModelsInternalConfigured()) return { errorCode: "models_not_configured" };
   const binding = readWorkspaceSsoBindingSync(workspaceContext.currentWorkspace.id);
-  if (!binding?.teamId) return { errorCode: "team_scope_missing" };
+  if (!binding?.tenantId) return { errorCode: "tenant_scope_missing" };
   try {
-    const response = await getModelsInternalClient().billing.balanceByTeam({ params: { teamId: binding.teamId } });
+    const response = await getModelsInternalClient().billing.balanceByTenant({ params: { tenantId: binding.tenantId } });
     const balance = response as TeamBillingBalance;
     return {
       balance: balance.balance,

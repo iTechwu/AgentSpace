@@ -118,7 +118,7 @@ describe("CostsPageClient", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByText("Atlas")).toBeInTheDocument();
     expect(screen.getAllByText("gpt-5")).toHaveLength(2);
-    expect(screen.getByText("¥0.1234")).toBeInTheDocument();
+    expect(screen.getByText("0.1234 EUR")).toBeInTheDocument();
     await screen.findByText("100.00 USD");
   });
 
@@ -136,6 +136,23 @@ describe("CostsPageClient", () => {
     expect(screen.getByText("0.0200 EUR")).toBeInTheDocument();
     expect(screen.getByText(/¥0\.0100.*0\.0200 EUR/)).toBeInTheDocument();
     expect(screen.getByText(/更新时间/)).toBeInTheDocument();
+  });
+
+  it("labels legacy unknown usage as unattributed instead of an AI employee", async () => {
+    const unattributedCosts: CostPageData = {
+      ...costs,
+      recentUsage: costs.recentUsage.map((usage) => ({
+        ...usage,
+        agentId: "unknown",
+        billingStatus: "unallocated",
+      })),
+    };
+
+    render(<LanguageProvider><CostsPageClient budgets={budgets} costs={unattributedCosts} /></LanguageProvider>);
+
+    await screen.findByText("100.00 USD");
+    expect(screen.getByText("未归属用量")).toBeInTheDocument();
+    expect(screen.queryByText(/^unknown$/i)).not.toBeInTheDocument();
   });
 
   it("shows an actionable reason when models billing is unavailable", async () => {

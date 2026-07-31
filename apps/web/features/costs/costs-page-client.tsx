@@ -522,7 +522,7 @@ function formatBalanceError(
 ): string {
   if (code === "remote_mode_required") return tx("仅服务器模式提供 models 余额", "Models balance is available in remote mode only");
   if (code === "models_not_configured") return tx("models 服务尚未配置", "Models billing is not configured");
-  if (code === "team_scope_missing") return tx("工作区尚未绑定 models 团队", "Workspace is not linked to a models team");
+  if (code === "tenant_scope_missing") return tx("工作区尚未绑定 models 租户", "Workspace is not linked to a models tenant");
   return tx("models 账单服务不可用", "Models billing service unavailable");
 }
 
