@@ -665,6 +665,45 @@ describe("AgentsPageClient", () => {
     expect(screen.queryByRole("button", { name: "返回列表" })).not.toBeInTheDocument();
   });
 
+  it("restores the selected employee from the URL after a page refresh", async () => {
+    const user = userEvent.setup();
+    const navigateWorkspaceModule = vi.fn((href: string) => {
+      window.history.replaceState(window.history.state, "", href);
+      return true;
+    });
+    const secondAgent = {
+      ...data.agents[0]!,
+      id: "agent:designer",
+      internalName: "designer",
+      name: "Designer",
+    };
+    const pageData = {
+      ...data,
+      agents: [data.agents[0]!, secondAgent],
+      totalAgents: 2,
+    };
+
+    window.history.replaceState(window.history.state, "", "/w/workspace-alpha/agents?mode=agent");
+    const view = renderAgentsPage(pageData, { navigateWorkspaceModule });
+    const secondAgentButton = screen.getByRole("button", { name: /Designer/i });
+
+    await user.click(secondAgentButton);
+
+    expect(secondAgentButton).toHaveClass("agent-contact-row--active");
+    expect(new URL(window.location.href).searchParams.get("focus")).toBe("agent:designer");
+    expect(navigateWorkspaceModule).toHaveBeenCalledWith(
+      "/w/workspace-alpha/agents?mode=agent&focus=agent%3Adesigner",
+      { replace: true },
+    );
+
+    view.unmount();
+    searchParams.set("focus", "agent:designer");
+    renderAgentsPage(pageData);
+
+    expect(screen.getByRole("button", { name: /Designer/i })).toHaveClass("agent-contact-row--active");
+    window.history.replaceState(window.history.state, "", "/w/workspace-alpha/agents");
+  });
+
   it("renders a help hint beside the new agent action", async () => {
     const user = userEvent.setup();
 

@@ -64,6 +64,51 @@ const DAEMON_MANAGEMENT_SELECTION = "__daemon-management__";
 const AGENTS_REFRESH_POLL_MS = 3000;
 type GeneratedInstallCommandMode = "connect" | "update";
 
+function resolveFocusedAgentId(agents: AgentsPageData["agents"], focus: string | null): string | null {
+  if (!focus) {
+    return null;
+  }
+
+  const agentFocus = focus.startsWith("agent:")
+    ? focus
+    : focus.startsWith("workspace:")
+      ? `agent:${focus.slice("workspace:".length)}`
+      : null;
+  if (!agentFocus) {
+    return null;
+  }
+
+  const agentKey = agentFocus.slice("agent:".length);
+  return agents.find((agent) =>
+    agent.id === agentFocus || agent.name === agentKey || agent.internalName === agentKey,
+  )?.id ?? null;
+}
+
+function resolveFocusedContainerId({
+  canManageRuntimes,
+  containers,
+  fallbackSelection,
+  focus,
+}: {
+  canManageRuntimes: boolean;
+  containers: AgentsPageData["containers"];
+  fallbackSelection: string | null;
+  focus: string | null;
+}): string | null {
+  if (focus === "daemon-management" && canManageRuntimes) {
+    return DAEMON_MANAGEMENT_SELECTION;
+  }
+
+  if (focus?.startsWith("runtime:")) {
+    const runtimeId = focus.slice("runtime:".length);
+    if (containers.some((container) => container.runtimeId === runtimeId)) {
+      return runtimeId;
+    }
+  }
+
+  return fallbackSelection;
+}
+
 export function AgentsPageClient({
   data,
   moduleSearchParams,
@@ -95,9 +140,16 @@ export function AgentsPageClient({
       ? "container"
       : "agent";
   const [selectedContainerId, setSelectedContainerId] = useState<string | null>(
-    fallbackContainerSelection,
+    () => resolveFocusedContainerId({
+      canManageRuntimes: data.canManageRuntimes,
+      containers: data.containers,
+      fallbackSelection: fallbackContainerSelection,
+      focus: searchParams.get("focus"),
+    }),
   );
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(data.agents[0]?.id ?? null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
+    () => resolveFocusedAgentId(data.agents, searchParams.get("focus")) ?? data.agents[0]?.id ?? null,
+  );
   const [showCreateAgent, setShowCreateAgent] = useState(false);
   const [requestingShowcaseAgent, setRequestingShowcaseAgent] = useState<AgentsPageData["showcaseAgents"][number] | null>(null);
   const [generatedInstallCommand, setGeneratedInstallCommand] = useState<{
@@ -215,20 +267,12 @@ export function AgentsPageClient({
       return;
     }
 
-    const agentFocus = focus.startsWith("agent:")
-      ? focus
-      : focus.startsWith("workspace:")
-        ? `agent:${focus.slice("workspace:".length)}`
-        : null;
+    const targetAgentId = resolveFocusedAgentId(data.agents, focus);
+    if (!targetAgentId) return;
 
-    if (!agentFocus) return;
-
-    const targetAgent = data.agents.find(
-      (agent) => agent.id === agentFocus || agent.name === agentFocus.slice("agent:".length),
-    );
+    setSelectedAgentId(targetAgentId);
+    const targetAgent = data.agents.find((agent) => agent.id === targetAgentId);
     if (!targetAgent) return;
-
-    setSelectedAgentId(targetAgent.id);
     if (targetAgent.boundContainerId && data.containers.some((container) => container.runtimeId === targetAgent.boundContainerId)) {
       setSelectedContainerId(targetAgent.boundContainerId);
     }
@@ -293,6 +337,7 @@ export function AgentsPageClient({
 
   function handleSelectAgent(agentId: string): void {
     setSelectedAgentId(agentId);
+    replaceManagementFocus(agentId);
     if (isCompactLayout) {
       setMobilePane("detail");
     }
@@ -300,6 +345,7 @@ export function AgentsPageClient({
 
   function handleSelectContainer(runtimeId: string): void {
     setSelectedContainerId(runtimeId);
+    replaceManagementFocus(`runtime:${runtimeId}`);
     if (isCompactLayout) {
       setMobilePane("detail");
     }
@@ -347,9 +393,31 @@ export function AgentsPageClient({
       return;
     }
     setSelectedContainerId(DAEMON_MANAGEMENT_SELECTION);
+    replaceManagementFocus("daemon-management");
     if (isCompactLayout) {
       setMobilePane("detail");
     }
+  }
+
+  function replaceManagementFocus(focus: string): void {
+    const nextSearch = new URLSearchParams(
+      typeof window !== "undefined" ? window.location.search : searchParams.toString(),
+    );
+    nextSearch.set("focus", focus);
+    const query = nextSearch.toString();
+    const nextHref = workspaceHref(`/agents${query ? `?${query}` : ""}`);
+
+    if (navigateWorkspaceModule(nextHref, { replace: true })) {
+      return;
+    }
+
+    if (moduleSearchParams && typeof window !== "undefined") {
+      window.history.replaceState(window.history.state, "", nextHref);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+      return;
+    }
+
+    router.replace(nextHref, { scroll: false });
   }
 
   function handleCreateContainerCommand(): void {
