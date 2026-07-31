@@ -996,19 +996,22 @@ export function ChannelsPageClient({
       return haystack.includes(query);
     });
   }, [channelDocuments, documentSearch]);
+  const hasPendingThreadMessages = useMemo(
+    () => (selectedThread?.messages ?? []).some((message) => message.status === "pending"),
+    [selectedThread],
+  );
   const shouldPollChannelUpdates = useMemo(() => {
     if (isContactDirectoryContext || !selectedChannel || !selectedConversationChannelName) {
       return false;
     }
 
-    const hasPendingThreadMessages = (selectedThread?.messages ?? []).some((message) => message.status === "pending");
     const hasRunningDocumentWorkflow = channelDocumentRuns.some((run) => run.status === "pending" || run.status === "running");
     const hasProcessingAgentPresence = channelDocuments.some((document) =>
       document.activePresences.some((presence) => presence.actorType === "agent" && presence.status === "processing"),
     );
 
     return hasPendingThreadMessages || hasRunningDocumentWorkflow || hasProcessingAgentPresence;
-  }, [channelDocumentRuns, channelDocuments, isContactDirectoryContext, selectedChannel, selectedConversationChannelName, selectedThread]);
+  }, [channelDocumentRuns, channelDocuments, hasPendingThreadMessages, isContactDirectoryContext, selectedChannel, selectedConversationChannelName]);
 
   useChannelRealtimeRefresh({
     workspaceId: data.workspaceId,
@@ -1159,12 +1162,13 @@ export function ChannelsPageClient({
       return;
     }
 
+    // SSE reduces latency; pending-message polling guarantees convergence if an event is missed.
     const timer = window.setInterval(() => {
-      refreshChannelData();
+      refreshChannelData({ allowWhileInputActive: hasPendingThreadMessages });
     }, CHANNEL_REFRESH_POLL_MS);
 
     return () => window.clearInterval(timer);
-  }, [refreshChannelData, shouldPollChannelUpdates]);
+  }, [hasPendingThreadMessages, refreshChannelData, shouldPollChannelUpdates]);
   const mentionCandidates: ConversationMentionCandidate[] = useMemo(() => {
     if (!selectedChannel || selectedChannel.kind === "direct") {
       return [];

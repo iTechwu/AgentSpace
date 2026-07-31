@@ -39,6 +39,7 @@ import {
   stopAutoContinuationSync,
   subscribeWorkspaceRealtimeEvents,
   unpinMessageSync,
+  updatePendingAgentChannelReplySync,
   writeWorkspaceStateSync,
 } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
@@ -1163,6 +1164,58 @@ test("replacePendingChannelMessageSync swaps pending messages without dropping a
     "utf8",
   );
   assert.match(history, /runtime-output\/chart\.png/);
+});
+
+test("streaming task output only updates its own pending reply", () => {
+  seedWorkspace();
+  postMessageSync({
+    channel: "tour visit",
+    speaker: "Atlas",
+    role: "agent",
+    summary: "Thinking",
+    status: "pending",
+    data: { source_task_queue_id: "task-atlas-1" },
+  });
+  postMessageSync({
+    channel: "tour visit",
+    speaker: "Atlas",
+    role: "agent",
+    summary: "Thinking",
+    status: "pending",
+    data: { source_task_queue_id: "task-atlas-2" },
+  });
+
+  const updated = updatePendingAgentChannelReplySync({
+    channel: "tour visit",
+    sourceTaskQueueId: "task-atlas-1",
+    pendingSpeaker: "Atlas",
+    delta: "第一段",
+  });
+  updatePendingAgentChannelReplySync({
+    channel: "tour visit",
+    sourceTaskQueueId: "task-atlas-1",
+    pendingSpeaker: "Atlas",
+    delta: "，第二段",
+  });
+  completeAgentChannelReplySync({
+    channel: "tour visit",
+    pendingSpeaker: "Atlas",
+    speaker: "Atlas",
+    sourceTaskQueueId: "task-atlas-1",
+    summary: "最终回复",
+  });
+
+  const state = readWorkspaceStateSync();
+  assert.equal(updated?.summary, "第一段");
+  assert.equal(
+    state.messages.some((message) => message.data?.source_task_queue_id === "task-atlas-2" && message.status === "pending"),
+    true,
+  );
+  assert.equal(
+    state.messages.some((message) => message.data?.source_task_queue_id === "task-atlas-1" && message.status === "pending"),
+    false,
+  );
+  assert.equal(state.messages[0]?.summary, "最终回复");
 });
 
 test("postMessageSync publishes realtime message events", () => {

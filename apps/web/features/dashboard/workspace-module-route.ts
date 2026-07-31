@@ -147,12 +147,18 @@ export function buildWorkspaceModuleHref(
 }
 
 export function buildWorkspaceModuleDataQuery(routeState: Pick<WorkspaceModuleRouteState, "moduleId" | "searchParams" | "settingsPath">): URLSearchParams {
-  const params = new URLSearchParams(routeState.searchParams.toString());
+  const params = new URLSearchParams();
+  if (routeState.moduleId === "im") {
+    const focus = routeState.searchParams.get("focus");
+    if (focus) {
+      params.set("focus", focus);
+    }
+  }
   if (routeState.moduleId === "settings") {
     params.set("section", routeState.settingsPath[0] ?? "account");
   }
 
-  return normalizeWorkspaceModuleQuery(routeState.moduleId, params);
+  return params;
 }
 
 export function normalizeWorkspaceModuleQuery(

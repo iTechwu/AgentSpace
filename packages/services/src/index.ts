@@ -96,8 +96,10 @@ export {
   assertAgentSkillRequirementsReadySync,
   readAgentSkillRequirementConfigurationSync,
   readAgentSkillRequirementEnvSync,
+  readAgentSkillRequirementSummarySync,
   upsertAgentSkillRequirementsSync,
 } from "./skills/agent-skill-requirements.ts";
+export type { AgentSkillRequirementSummary } from "./skills/agent-skill-requirements.ts";
 
 // Runtime access
 export {
@@ -291,6 +293,7 @@ export {
   postMessageSync,
   sendChannelHumanMessageSync,
   replacePendingChannelMessageSync,
+  updatePendingAgentChannelReplySync,
   pinMessageSync,
   unpinMessageSync,
   acknowledgeMessageSync,

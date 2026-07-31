@@ -112,6 +112,18 @@ export function WorkspaceModuleHost({
     [cacheScope, moduleId, queryKey, workspaceId],
   );
   const cachedEntry = cacheKey ? cache.get<WorkspaceModuleLoaderData>(cacheKey) : undefined;
+  const lastResolvedModuleRef = useRef<ResolvedWorkspaceModuleSnapshot | null>(null);
+  useEffect(() => {
+    if (!shouldRenderClientModule || !cachedEntry?.data) {
+      return;
+    }
+    lastResolvedModuleRef.current = {
+      cacheScopeSignature,
+      data: cachedEntry.data,
+      routeSignature,
+      routeState,
+    };
+  }, [cacheScopeSignature, cachedEntry?.data, routeSignature, routeState, shouldRenderClientModule]);
   const hadCachedEntryAtNavigation = useRef(false);
   const routeSignatureSnapshotRef = useRef<string | null>(null);
   if (routeSignatureSnapshotRef.current !== routeSignature) {
@@ -205,7 +217,11 @@ export function WorkspaceModuleHost({
   }, [cacheKey, cachedEntry?.metadata.stale, cachedEntry?.status, loadActiveModuleData, moduleId]);
 
   if (!shouldRenderClientModule) {
-    return renderPreservedChildren(children);
+    return (
+      <div className="workspace-module-stage">
+        {renderPreservedChildren(children)}
+      </div>
+    );
   }
 
   const preservedChildren = preservedChildrenRef.current;
@@ -215,44 +231,93 @@ export function WorkspaceModuleHost({
     preservedChildrenRouteSignatureRef.current === routeSignature &&
     preservedChildrenScopeSignatureRef.current === cacheScopeSignature
   ) {
-    return renderPreservedChildren(preservedChildren);
-  }
-
-  if (preservedChildren && routeStateSource === "client") {
     return (
-      <>
-        {renderPreservedChildren(preservedChildren, { hidden: true })}
-        {renderActiveModuleContent({
-          cachedEntry,
-          onInvalidation: handleWorkspaceInvalidation,
-          onDataChanged: refreshActiveModuleData,
-          routeState,
-          tx,
-        })}
-      </>
+      <div className="workspace-module-stage">
+        {renderPreservedChildren(preservedChildren)}
+      </div>
     );
   }
 
-  return renderActiveModuleContent({
+  const activeContent = renderActiveModuleContent({
     cachedEntry,
     onInvalidation: handleWorkspaceInvalidation,
     onDataChanged: refreshActiveModuleData,
     routeState,
     tx,
   });
-}
+  const isColdLoading = !cachedEntry?.data && cachedEntry?.status !== "error" && cachedEntry?.status !== "forbidden";
+  const lastResolvedModule = lastResolvedModuleRef.current?.cacheScopeSignature === cacheScopeSignature
+    ? lastResolvedModuleRef.current
+    : null;
+  const retainedModuleContent = isColdLoading && lastResolvedModule
+    ? renderWorkspaceModuleData(
+        lastResolvedModule.data,
+        lastResolvedModule.routeState,
+        refreshActiveModuleData,
+        handleWorkspaceInvalidation,
+      )
+    : null;
+  const showPreservedContent = Boolean(
+    isColdLoading &&
+    !retainedModuleContent &&
+    preservedChildren &&
+    routeStateSource === "client",
+  );
+  const displayedModuleContent = isColdLoading ? retainedModuleContent : activeContent;
 
-function renderPreservedChildren(children: React.ReactNode, options: { hidden?: boolean } = {}): React.ReactNode {
   return (
     <div
-      aria-hidden={options.hidden ? "true" : undefined}
+      aria-busy={isColdLoading ? "true" : undefined}
+      className={`workspace-module-stage${isColdLoading ? " workspace-module-stage--loading" : ""}`}
+      data-retained-content={showPreservedContent || retainedModuleContent ? "true" : "false"}
+    >
+      {preservedChildren && routeStateSource === "client"
+        ? renderPreservedChildren(preservedChildren, {
+            hidden: !showPreservedContent,
+            transitioning: showPreservedContent,
+          })
+        : null}
+      <div
+        aria-hidden={isColdLoading ? "true" : undefined}
+        className="workspace-module-stage__content"
+        hidden={!displayedModuleContent || showPreservedContent}
+        inert={isColdLoading}
+        style={!displayedModuleContent || showPreservedContent || isColdLoading ? undefined : { display: "contents" }}
+      >
+        {displayedModuleContent}
+      </div>
+      {isColdLoading ? (
+        <div className="workspace-module-stage__loading">
+          {activeContent}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function renderPreservedChildren(
+  children: React.ReactNode,
+  options: { hidden?: boolean; transitioning?: boolean } = {},
+): React.ReactNode {
+  return (
+    <div
+      aria-hidden={options.hidden || options.transitioning ? "true" : undefined}
+      className="workspace-module-stage__preserved"
       hidden={options.hidden}
-      style={options.hidden ? undefined : { display: "contents" }}
+      inert={options.transitioning}
+      style={options.hidden || options.transitioning ? undefined : { display: "contents" }}
     >
       {children}
     </div>
   );
 }
+
+type ResolvedWorkspaceModuleSnapshot = {
+  cacheScopeSignature: string;
+  data: WorkspaceModuleLoaderData;
+  routeSignature: string;
+  routeState: WorkspaceModuleRouteState;
+};
 
 function renderActiveModuleContent({
   cachedEntry,

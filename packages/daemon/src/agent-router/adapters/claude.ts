@@ -131,6 +131,7 @@ async function runClaude(
   let discoveredSessionId = request.sessionId;
   let stdinController: ExecController | undefined;
   let stdoutBuffer = "";
+  let streamedTextEvent = false;
   const processLine = (line: string, runObserver: AgentRouterObserver): void => {
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) {
@@ -151,6 +152,12 @@ async function runClaude(
             output: `Runtime approval failed: ${error instanceof Error ? error.message : String(error)}`,
           });
         });
+      }
+      for (const mapped of mapClaudeNativeEvent(event)) {
+        if (mapped.type === "text_delta") {
+          streamedTextEvent = true;
+        }
+        runObserver.emit(mapped);
       }
       if (event.type === "result") {
         stdinController?.closeStdin();
@@ -198,10 +205,13 @@ async function runClaude(
         }));
       }
 
-      for (const event of events) {
-        for (const mapped of mapClaudeNativeEvent(event)) {
-          runObserver.emit(mapped);
-        }
+        for (const event of events) {
+          for (const mapped of mapClaudeNativeEvent(event)) {
+            if (streamedTextEvent && mapped.type === "text_delta") {
+              continue;
+            }
+            runObserver.emit(mapped);
+          }
         diagnostics.push(...buildClaudePermissionDenialDiagnostics(event));
         const text = extractClaudeFallbackText(event);
         if (text) {

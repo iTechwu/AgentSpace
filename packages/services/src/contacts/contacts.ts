@@ -197,6 +197,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
       data: {
         agent_name: contact.name,
         source_message_id: humanMessage.id,
+        source_task_queue_id: queued.id,
       },
       status: "pending",
     }, effectiveWorkspaceId);

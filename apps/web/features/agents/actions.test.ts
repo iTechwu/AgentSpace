@@ -6,6 +6,7 @@ const {
   mockAssertRuntimeCanBindEmployeeSync,
   mockCreateEmployeeSync,
   mockCreateTaskSync,
+  mockGetManagedRuntimeCredentialEnvKey,
   mockHasGitHubSkillDependenciesSync,
   mockIsWorkspaceAdminOrOwnerSync,
   mockListEmployeeSkillIdsSync,
@@ -22,6 +23,7 @@ const {
   mockAssertRuntimeCanBindEmployeeSync: vi.fn(),
   mockCreateEmployeeSync: vi.fn(),
   mockCreateTaskSync: vi.fn(),
+  mockGetManagedRuntimeCredentialEnvKey: vi.fn(),
   mockHasGitHubSkillDependenciesSync: vi.fn(),
   mockIsWorkspaceAdminOrOwnerSync: vi.fn(),
   mockListEmployeeSkillIdsSync: vi.fn(),
@@ -56,6 +58,7 @@ vi.mock("@dofe-agent/services", () => ({
   createTaskSync: mockCreateTaskSync,
   deleteEmployeeSync: vi.fn(),
   grantRuntimeUseToUserForActorSync: vi.fn(),
+  getManagedRuntimeCredentialEnvKey: mockGetManagedRuntimeCredentialEnvKey,
   hasGitHubSkillDependenciesSync: mockHasGitHubSkillDependenciesSync,
   isWorkspaceAdminOrOwnerSync: mockIsWorkspaceAdminOrOwnerSync,
   listEmployeeSkillIdsSync: mockListEmployeeSkillIdsSync,
@@ -89,7 +92,7 @@ import {
   installWorkspaceAgentSkillAction,
   setWorkspaceAgentSkillAssignmentsAction,
 } from "@/features/agents/actions";
-import { readAgentRuntimeSync } from "@dofe-agent/db";
+import { readAgentRuntimeSync, readEmployeeRuntimeBindingSync } from "@dofe-agent/db";
 import { bindEmployeeRuntimeSync } from "@dofe-agent/services";
 
 describe("agent actions", () => {
@@ -99,6 +102,7 @@ describe("agent actions", () => {
     mockAssertRuntimeCanBindEmployeeSync.mockReset();
     mockCreateEmployeeSync.mockReset();
     mockCreateTaskSync.mockReset();
+    mockGetManagedRuntimeCredentialEnvKey.mockReset();
     mockHasGitHubSkillDependenciesSync.mockReset();
     mockIsWorkspaceAdminOrOwnerSync.mockReset();
     mockListEmployeeSkillIdsSync.mockReset();
@@ -114,6 +118,7 @@ describe("agent actions", () => {
     mockListEmployeeSkillIdsSync.mockReturnValue([]);
     mockResolveSystemAgentTemplateForWorkspaceSync.mockReturnValue(null);
     mockResolveAgentRuntimeMode.mockReturnValue("local");
+    mockGetManagedRuntimeCredentialEnvKey.mockReturnValue("OPENAI_API_KEY");
     mockHasGitHubSkillDependenciesSync.mockReturnValue(false);
     mockQueueGitHubSkillDependenciesForAgentSync.mockReturnValue({ queued: 0, skipped: 0, waitingForRuntime: false });
     mockCreateTaskSync.mockReturnValue({
@@ -324,6 +329,38 @@ describe("agent actions", () => {
     });
     expect(mockSetEmployeeSkillIdsSync).toHaveBeenCalledWith("Atlas", ["skill-image"], "workspace-1");
     expect(result.toast?.en).toContain("installed and configured for this agent");
+  });
+
+  it("passes the bound managed runtime credential key to skill validation", async () => {
+    mockResolveAgentRuntimeMode.mockReturnValue("remote");
+    vi.mocked(readEmployeeRuntimeBindingSync).mockReturnValue({ provider: "codex" } as never);
+
+    await installWorkspaceAgentSkillAction({
+      employeeName: "Atlas",
+      skillId: "skill-openai",
+      secrets: { OPENAI_API_KEY: "skill-secret" },
+    });
+
+    expect(mockGetManagedRuntimeCredentialEnvKey).toHaveBeenCalledWith("codex");
+    expect(mockUpsertAgentSkillRequirementsSync).toHaveBeenCalledWith(expect.objectContaining({
+      employeeName: "Atlas",
+      skillId: "skill-openai",
+      managedRuntimeCredentialKey: "OPENAI_API_KEY",
+    }));
+  });
+
+  it("reports configuration maintenance without claiming the skill was installed again", async () => {
+    mockListEmployeeSkillIdsSync.mockReturnValue(["skill-image"]);
+
+    const result = await installWorkspaceAgentSkillAction({
+      employeeName: "Atlas",
+      skillId: "skill-image",
+      values: { IMAGE_BASE_URL: "https://images.example.test/v2" },
+      secrets: {},
+    });
+
+    expect(mockSetEmployeeSkillIdsSync).toHaveBeenCalledWith("Atlas", ["skill-image"], "workspace-1");
+    expect(result.toast?.en).toBe("Skill configuration updated for this agent.");
   });
 });
 

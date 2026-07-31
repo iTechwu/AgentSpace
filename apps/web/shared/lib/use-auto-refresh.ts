@@ -54,7 +54,12 @@ function isEditableElement(element: Element | null): boolean {
   return false;
 }
 
-export function useAutoRefresh(enabled: boolean, intervalMs: number, onRefresh?: () => void): void {
+export function useAutoRefresh(
+  enabled: boolean,
+  intervalMs: number,
+  onRefresh?: () => void,
+  options?: { allowWhileInputActive?: boolean },
+): void {
   const router = useRouter();
 
   useEffect(() => {
@@ -66,7 +71,7 @@ export function useAutoRefresh(enabled: boolean, intervalMs: number, onRefresh?:
       if (document.visibilityState === "hidden") {
         return;
       }
-      if (isDocumentInputActive()) {
+      if (!options?.allowWhileInputActive && isDocumentInputActive()) {
         return;
       }
       if (onRefresh) {
@@ -77,5 +82,5 @@ export function useAutoRefresh(enabled: boolean, intervalMs: number, onRefresh?:
     }, intervalMs);
 
     return () => window.clearInterval(timer);
-  }, [enabled, intervalMs, onRefresh, router]);
+  }, [enabled, intervalMs, onRefresh, options?.allowWhileInputActive, router]);
 }

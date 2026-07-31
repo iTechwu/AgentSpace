@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,6 +36,7 @@ import {
   resetWorkspaceStateSync,
   setAttachmentStorageClientForTests,
   setEmployeeSkillIdsSync,
+  upsertAgentSkillRequirementsSync,
   writeWorkspaceStateSync,
 } from "@dofe-agent/services";
 import { createTestTosAttachmentStorage } from "@/test-utils/tos-attachment-storage";
@@ -176,6 +178,7 @@ describe("dashboard data", () => {
     name: "research-pack",
     description: "Research helper",
   });
+
   setEmployeeSkillIdsSync("Planner", [skill.id]);
 
   const persisted = readWorkspaceStateRecordSync();
@@ -203,6 +206,49 @@ describe("dashboard data", () => {
   expect(
     agentsPage.agents.find((agent) => agent.internalName === "Planner")?.skills.map((item) => item.id),
   ).toEqual([skill.id]);
+  });
+
+  it("returns per-skill requirement status without credential plaintext", () => {
+    const previousEncryptionKey = process.env.DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY;
+    process.env.DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+    try {
+      const actor = createUserSync({
+        displayName: "Skill Admin",
+        primaryEmail: `skill-admin-${Date.now()}@example.com`,
+      });
+      createEmployeeSync({ name: "Researcher" });
+      const skill = createWorkspaceSkillSync({
+        name: "notion-sync",
+        description: "Sync to Notion",
+        configJson: JSON.stringify({
+          requirements: [
+            { kind: "config", value: "NOTION_DATABASE_ID" },
+            { kind: "secret", value: "NOTION_API_TOKEN" },
+          ],
+        }),
+      });
+      upsertAgentSkillRequirementsSync({
+        workspaceId: "default",
+        employeeName: "Researcher",
+        skillId: skill.id,
+        actorUserId: actor.id,
+        values: { NOTION_DATABASE_ID: "db-123" },
+        secrets: { NOTION_API_TOKEN: "secret-never-returned" },
+      });
+      setEmployeeSkillIdsSync("Researcher", [skill.id]);
+
+      const agent = getAgentsPageData().agents.find((item) => item.internalName === "Researcher");
+      const summary = agent?.skillRequirements[skill.id];
+      expect(summary?.status).toBe("ready");
+      expect(summary?.configuredCount).toBe(2);
+      expect(JSON.stringify(agent).includes("secret-never-returned")).toBe(false);
+    } finally {
+      if (previousEncryptionKey === undefined) {
+        delete process.env.DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY;
+      } else {
+        process.env.DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY = previousEncryptionKey;
+      }
+    }
   });
 
   it("filters daemon snapshots and tokens by workspace", () => {

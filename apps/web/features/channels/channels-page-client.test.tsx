@@ -703,6 +703,37 @@ describe("ChannelsPageClient", () => {
     expect(routerRefreshMock).not.toHaveBeenCalled();
   });
 
+  it("keeps polling pending messages while the composer is focused", () => {
+    vi.useFakeTimers();
+
+    render(
+      <TestProviders>
+        <ChannelsPageClient
+          currentUserDisplayName="techwu"
+          data={{
+            ...data,
+            threads: [
+              {
+                channelName: "tour visit",
+                messages: data.threads[0]!.messages.map((message) => ({
+                  ...message,
+                  status: "pending",
+                })),
+              },
+            ],
+          }}
+        />
+      </TestProviders>,
+    );
+
+    screen.getByPlaceholderText("发送到 tour visit").focus();
+    act(() => {
+      vi.advanceTimersByTime(2500);
+    });
+
+    expect(routerRefreshMock).toHaveBeenCalledTimes(1);
+  });
+
   it("turns channel realtime events into targeted workspace invalidation hints", async () => {
     const eventSources: MockEventSource[] = [];
     const onInvalidation = vi.fn();
@@ -739,47 +770,6 @@ describe("ChannelsPageClient", () => {
         shell: "counters",
       });
     });
-  });
-
-  it("pauses polling refreshes while the composer is focused", () => {
-    vi.useFakeTimers();
-
-    render(
-      <TestProviders>
-        <ChannelsPageClient
-          currentUserDisplayName="techwu"
-          data={{
-            ...data,
-            threads: [
-              {
-                channelName: "tour visit",
-                messages: data.threads[0]!.messages.map((message) => ({
-                  ...message,
-                  status: "pending",
-                })),
-              },
-            ],
-          }}
-        />
-      </TestProviders>,
-    );
-
-    const composer = screen.getByPlaceholderText("发送到 tour visit");
-    composer.focus();
-
-    act(() => {
-      vi.advanceTimersByTime(2500);
-    });
-
-    expect(routerRefreshMock).not.toHaveBeenCalled();
-
-    composer.blur();
-
-    act(() => {
-      vi.advanceTimersByTime(2500);
-    });
-
-    expect(routerRefreshMock).toHaveBeenCalledTimes(1);
   });
 
   it("keeps mobile drill-down state stable when entering and returning from a thread", async () => {

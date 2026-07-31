@@ -435,15 +435,32 @@ export function AgentDetail({
                         <p>{skill.description || tx("暂无描述", "No description")}</p>
                         <span>{tx(`${skill.files.length} 个文件`, `${skill.files.length} files`)}</span>
                         <span>{translateSkillSourceLabel(skill, tx)}</span>
+                        {hasInstallRequirements(skill.configJson) && record.skillRequirements[skill.id] ? (
+                          <span className={`status-chip status-chip--${skillRequirementStatusTone(record.skillRequirements[skill.id]!.status)}`}>
+                            {formatSkillRequirementStatus(record.skillRequirements[skill.id]!, tx)}
+                          </span>
+                        ) : null}
                       </div>
-                      <button
-                        className="modal-secondary-button"
-                        disabled={pending || !canManage}
-                        onClick={() => onSetSkillIds(assignedSkillIds.filter((skillId) => skillId !== skill.id))}
-                        type="button"
-                      >
-                        {tx("解绑", "Unassign")}
-                      </button>
+                      <div className="toolbar-actions">
+                        {hasInstallRequirements(skill.configJson) ? (
+                          <button
+                            className="modal-secondary-button"
+                            disabled={pending || !canManage}
+                            onClick={() => setSkillToInstall(skill)}
+                            type="button"
+                          >
+                            {tx("管理环境变量", "Manage environment variables")}
+                          </button>
+                        ) : null}
+                        <button
+                          className="modal-secondary-button"
+                          disabled={pending || !canManage}
+                          onClick={() => onSetSkillIds(assignedSkillIds.filter((skillId) => skillId !== skill.id))}
+                          type="button"
+                        >
+                          {tx("解绑", "Unassign")}
+                        </button>
+                      </div>
                     </article>
                   ))}
                 </div>
@@ -841,7 +858,7 @@ export function AgentDetail({
                 const formData = new FormData(event.currentTarget);
                 const runtimeId = (formData.get("runtimeId") as string)?.trim();
                 if (!runtimeId) return;
-                if (!canManage) return;
+                if (!canManage || providerVerificationPending) return;
                 onBindContainer(runtimeId);
               }}
             >
@@ -869,7 +886,7 @@ export function AgentDetail({
                         onClick={onVerifyProvider}
                         type="button"
                       >
-                        {pending || providerVerificationPending ? tx("验证中...", "Verifying...") : tx("验证 Provider", "Verify provider")}
+                        {providerVerificationPending ? tx("验证中...", "Verifying...") : tx("验证 Provider", "Verify provider")}
                       </button>
                     ) : null}
                   </div>
@@ -908,11 +925,11 @@ export function AgentDetail({
               </div>
               <div className="runtime-binding-control">
                 <div className="form-field form-field--full">
-                  <span>{tx("当前绑定", "Current binding")}</span>
+                  <span>{tx("选择执行引擎", "Select execution engine")}</span>
                   <ExecutionEngineSelect
-                    label={tx("当前绑定", "Current binding")}
+                    label={tx("选择执行引擎", "Select execution engine")}
                     name="runtimeId"
-                    disabled={!canManage}
+                    disabled={!canManage || providerVerificationPending}
                     emptyDescription={tx("没有可用执行引擎", "No available execution engines")}
                     onChange={setSelectedRuntimeId}
                     options={containerOptions}
@@ -922,12 +939,16 @@ export function AgentDetail({
                 </div>
               </div>
               <div className="detail-actions">
-                <button className="primary-button" disabled={pending || !canManage || containerOptions.length === 0} type="submit">
+                <button
+                  className="primary-button"
+                  disabled={pending || providerVerificationPending || !canManage || containerOptions.length === 0}
+                  type="submit"
+                >
                   {pending ? tx("更新中...", "Updating...") : tx("绑定执行引擎", "Bind execution engine")}
                 </button>
                 <button
                   className="action-button"
-                  disabled={pending || !canManage || !record.boundContainerId}
+                  disabled={pending || providerVerificationPending || !canManage || !record.boundContainerId}
                   onClick={onUnbindContainer}
                   type="button"
                 >
@@ -970,6 +991,11 @@ export function AgentDetail({
         <SkillRequirementsModal
           collectSecrets
           configJson={skillToInstall.configJson}
+          configuredSecretKeys={record.skillRequirements[skillToInstall.id]?.environment
+            .filter((item) => item.kind === "secret" && item.configured)
+            .map((item) => item.key)}
+          initialConfiguration={record.skillRequirements[skillToInstall.id]?.configuration}
+          mode={assignedSkillIds.includes(skillToInstall.id) ? "manage" : "install"}
           pending={pending}
           skillName={skillToInstall.name}
           onCancel={() => setSkillToInstall(null)}
@@ -1002,6 +1028,33 @@ function hasInstallRequirements(configJson: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+function skillRequirementStatusTone(
+  status: WorkspaceAgentRecord["skillRequirements"][string]["status"],
+): "positive" | "warning" | "danger" {
+  if (status === "ready") return "positive";
+  if (status === "runtime_incompatible") return "danger";
+  return "warning";
+}
+
+function formatSkillRequirementStatus(
+  summary: WorkspaceAgentRecord["skillRequirements"][string],
+  tx: (zh: string, en: string) => string,
+): string {
+  if (summary.status === "runtime_incompatible") {
+    return tx("Runtime 不兼容", "Runtime incompatible");
+  }
+  if (summary.status === "needs_configuration") {
+    return tx(
+      `需配置 · ${summary.configuredCount}/${summary.requiredCount} 环境变量`,
+      `Needs configuration · ${summary.configuredCount}/${summary.requiredCount} environment variables`,
+    );
+  }
+  return tx(
+    `已就绪 · ${summary.configuredCount}/${summary.requiredCount} 环境变量`,
+    `Ready · ${summary.configuredCount}/${summary.requiredCount} environment variables`,
+  );
 }
 
 function KnowledgePickerModal({

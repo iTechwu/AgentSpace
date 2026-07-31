@@ -308,7 +308,7 @@ function WorkspaceFrameContent({
       (parsedRouteState.workspaceSlug && parsedRouteState.workspaceSlug !== currentWorkspace.slug) ||
       !isWorkspaceModuleLoaderId(parsedRouteState.moduleId)
     ) {
-      return;
+      return null;
     }
 
     const dataQuery = buildWorkspaceModuleDataQuery(parsedRouteState);
@@ -323,7 +323,7 @@ function WorkspaceFrameContent({
       moduleCacheScope,
     );
 
-    void moduleCache.load({
+    const loadPromise = moduleCache.load({
       cacheKey,
       loader: async ({ signal }) => {
         const response = await fetch(
@@ -337,7 +337,9 @@ function WorkspaceFrameContent({
         return payload.data;
       },
       forbidden: (error) => error instanceof WorkspaceModulePrefetchError && error.status === 403,
-    }).catch(() => {});
+    });
+    void loadPromise.catch(() => {});
+    return loadPromise;
   }, [currentWorkspace.id, currentWorkspace.slug, moduleCache, moduleCacheScope]);
   const handleWorkspaceModuleLinkPrefetch = useCallback((
     event: FocusEvent<HTMLAnchorElement> | MouseEvent<HTMLAnchorElement>,
@@ -370,6 +372,26 @@ function WorkspaceFrameContent({
     }
 
     const prefetchedHrefs = new Set<string>();
+    const prefetchQueue: string[] = [];
+    let activePrefetches = 0;
+    let disposed = false;
+    const drainPrefetchQueue = (): void => {
+      while (!disposed && activePrefetches < 2 && prefetchQueue.length > 0) {
+        const href = prefetchQueue.shift();
+        if (!href) {
+          continue;
+        }
+        const loadPromise = prefetchWorkspaceModuleHref(href);
+        if (!loadPromise) {
+          continue;
+        }
+        activePrefetches += 1;
+        void loadPromise.catch(() => {}).finally(() => {
+          activePrefetches -= 1;
+          drainPrefetchQueue();
+        });
+      }
+    };
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
         if (!entry.isIntersecting || !(entry.target instanceof HTMLAnchorElement)) {
@@ -380,8 +402,9 @@ function WorkspaceFrameContent({
           continue;
         }
         prefetchedHrefs.add(entry.target.href);
-        prefetchWorkspaceModuleHref(entry.target.href);
+        prefetchQueue.push(entry.target.href);
       }
+      drainPrefetchQueue();
     }, {
       root: sidebar,
       rootMargin: "160px 0px",
@@ -402,6 +425,8 @@ function WorkspaceFrameContent({
     mutationObserver?.observe(sidebar, { childList: true, subtree: true });
 
     return () => {
+      disposed = true;
+      prefetchQueue.length = 0;
       mutationObserver?.disconnect();
       observer.disconnect();
     };

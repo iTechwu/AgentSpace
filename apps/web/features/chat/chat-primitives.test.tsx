@@ -134,6 +134,81 @@ describe("ConversationMessageBubble", () => {
     expect(screen.getByRole("img", { name: "来自飞书" })).toBeInTheDocument();
   });
 
+  it("renders compact message actions without reserving reading space", () => {
+    const { container } = render(
+      <LanguageProvider initialLanguage="zh">
+        <ConversationMessageBubble
+          message={{
+            id: "message-actions",
+            speaker: "Atlas",
+            role: "agent",
+            content: "请确认这条消息。",
+            timestamp: "10:00",
+            status: "completed",
+          }}
+          onAcknowledge={vi.fn()}
+          onPin={vi.fn()}
+          onReply={vi.fn()}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(container.querySelector(".inbox-bubble")).toHaveAttribute("tabindex", "0");
+    expect(container.querySelector(".inbox-bubble__actions")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "回复" }).querySelector("svg")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "置顶" }).querySelector("svg")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "OK，标记已读" }).querySelector("svg")).toBeInTheDocument();
+  });
+
+  it("copies a completed message through the clipboard action", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <ConversationMessageBubble
+          message={{
+            id: "message-copy",
+            speaker: "Atlas",
+            role: "agent",
+            content: "可复制的回复内容",
+            timestamp: "10:00",
+            status: "completed",
+          }}
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "复制" }));
+
+    expect(writeText).toHaveBeenCalledWith("可复制的回复内容");
+    expect(screen.getByRole("button", { name: "已复制" })).toBeInTheDocument();
+  });
+
+  it("renders partial output inside a pending reply", () => {
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <ConversationMessageBubble
+          message={{
+            id: "message-streaming",
+            speaker: "Atlas",
+            role: "agent",
+            content: "正在整理第一部分结果",
+            timestamp: "10:00",
+            status: "pending",
+          }}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByText("正在整理第一部分结果")).toBeInTheDocument();
+    expect(screen.getByLabelText("正在生成")).toBeInTheDocument();
+  });
+
   it("renders inline runtime approval actions", async () => {
     const user = userEvent.setup();
     const onReviewApproval = vi.fn(async () => {});

@@ -63,6 +63,8 @@ function OverviewSkeleton() {
         <LoadingRow />
         <LoadingRow />
         <LoadingRow />
+        <LoadingRow />
+        <LoadingRow />
       </div>
     </div>
   );
@@ -113,6 +115,8 @@ function ConversationSkeleton() {
           <LoadingBlock className="workspace-page-loading__message workspace-page-loading__message--right" />
           <LoadingBlock className="workspace-page-loading__message" />
           <LoadingBlock className="workspace-page-loading__message workspace-page-loading__message--right workspace-page-loading__message--short" />
+          <LoadingBlock className="workspace-page-loading__message workspace-page-loading__message--short" />
+          <LoadingBlock className="workspace-page-loading__message workspace-page-loading__message--right" />
         </div>
         <LoadingBlock className="workspace-page-loading__composer" />
       </div>

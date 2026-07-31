@@ -30,8 +30,10 @@ export type AppIconName =
   | "open"
   | "orgChart"
   | "performance"
+  | "pin"
   | "plus"
   | "refresh"
+  | "reply"
   | "search"
   | "scissors"
   | "send"
@@ -93,6 +95,16 @@ function renderIcon(name: AppIconName) {
           strokeWidth="1.6"
         />
       );
+    case "reply":
+      return (
+        <path
+          d="m7 5-3.5 4L7 13m-3.25-4H10a4 4 0 0 1 4 4"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.6"
+        />
+      );
     case "search":
       return (
         <>
@@ -121,6 +133,16 @@ function renderIcon(name: AppIconName) {
             strokeWidth="1.6"
           />
         </>
+      );
+    case "pin":
+      return (
+        <path
+          d="m6.25 4.5 5.5 5.5m-5-3.5 3 3m-4.75-2.75 4.5 4.5m-4.1-.1-1.7 1.7m4.35-3.6 3.1-3.1-3.6-3.6-3.1 3.1"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.45"
+        />
       );
     case "alertCircle":
       return (

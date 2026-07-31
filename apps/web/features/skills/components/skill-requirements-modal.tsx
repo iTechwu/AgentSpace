@@ -20,6 +20,9 @@ interface RequirementConfiguration {
 interface SkillRequirementsModalProps {
   readonly configJson?: string;
   readonly collectSecrets?: boolean;
+  readonly configuredSecretKeys?: string[];
+  readonly initialConfiguration?: RequirementConfiguration;
+  readonly mode?: "install" | "manage";
   readonly pending: boolean;
   readonly skillName: string;
   readonly onCancel: () => void;
@@ -47,6 +50,9 @@ const PROVIDERS = [
 export function SkillRequirementsModal({
   configJson,
   collectSecrets = false,
+  configuredSecretKeys = [],
+  initialConfiguration,
+  mode = "install",
   pending,
   skillName,
   onCancel,
@@ -55,6 +61,7 @@ export function SkillRequirementsModal({
   const { tx } = useLanguage();
   const { surfaceRef, handleBackdropMouseDown, labelId, descriptionId } = useDialogSurface<HTMLFormElement>(onCancel);
   const { requirements, configuration } = useMemo(() => readRequirements(configJson), [configJson]);
+  const effectiveConfiguration = initialConfiguration ?? configuration;
   const providers = requirements.filter((item) => item.kind === "provider").map((item) => item.value);
   const models = requirements.filter((item) => item.kind === "model").map((item) => item.value);
   const capabilities = requirements.filter((item) => item.kind === "capability").map((item) => item.value);
@@ -64,11 +71,11 @@ export function SkillRequirementsModal({
   const providerOptions = providers.length > 0
     ? PROVIDERS.filter(([value]) => providers.includes(value))
     : PROVIDERS;
-  const [modelProvider, setModelProvider] = useState(configuration.modelProvider ?? providerOptions[0]?.[0] ?? "");
-  const [modelId, setModelId] = useState(configuration.modelId ?? models[0] ?? "");
-  const [selectedCapabilities, setSelectedCapabilities] = useState<string[]>(configuration.capabilities);
-  const [projectWorkDir, setProjectWorkDir] = useState(configuration.projectWorkDir ?? "");
-  const [values, setValues] = useState<Record<string, string>>(configuration.values);
+  const [modelProvider, setModelProvider] = useState(effectiveConfiguration.modelProvider ?? providerOptions[0]?.[0] ?? "");
+  const [modelId, setModelId] = useState(effectiveConfiguration.modelId ?? models[0] ?? "");
+  const [selectedCapabilities, setSelectedCapabilities] = useState<string[]>(effectiveConfiguration.capabilities);
+  const [projectWorkDir, setProjectWorkDir] = useState(effectiveConfiguration.projectWorkDir ?? "");
+  const [values, setValues] = useState<Record<string, string>>(effectiveConfiguration.values);
   const [secretValues, setSecretValues] = useState<Record<string, string>>({});
 
   return (
@@ -95,7 +102,7 @@ export function SkillRequirementsModal({
       >
         <div className="modal-card__header">
           <div>
-            <h3 id={labelId}>{tx("配置 Skill 安装", "Configure skill installation")}</h3>
+            <h3 id={labelId}>{mode === "manage" ? tx("管理 Skill 配置", "Manage skill configuration") : tx("配置 Skill 安装", "Configure skill installation")}</h3>
             <p id={descriptionId}>{skillName}</p>
           </div>
           <button className="modal-close" onClick={onCancel} type="button">×</button>
@@ -192,21 +199,27 @@ export function SkillRequirementsModal({
                 ? tx("仅为当前 AI员工 加密保存；保存后不会再次显示原文。", "Encrypted only for this AI employee. The plaintext is never shown again after saving.")
                 : tx("以下项不会从 GitHub 导入，也不会保存在 Skill 配置中。", "These values are not imported from GitHub and are never stored in skill configuration.")}
               </p>
-              {collectSecrets ? secretRequirements.map((requirement) => (
-                <label className="form-field" key={requirement.value}>
-                  <span>{requirement.value}</span>
-                  <input
-                    autoComplete="new-password"
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setSecretValues((current) => ({ ...current, [requirement.value]: value }));
-                    }}
-                    required
-                    type="password"
-                    value={secretValues[requirement.value] ?? ""}
-                  />
-                </label>
-              )) : (
+              {collectSecrets ? secretRequirements.map((requirement) => {
+                const isConfigured = configuredSecretKeys.includes(requirement.value);
+                return (
+                  <label className="form-field" key={requirement.value}>
+                    <span>{requirement.value}</span>
+                    <input
+                      aria-label={requirement.value}
+                      autoComplete="new-password"
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        setSecretValues((current) => ({ ...current, [requirement.value]: value }));
+                      }}
+                      placeholder={isConfigured ? tx("输入新值以替换", "Enter a new value to replace") : undefined}
+                      required={!isConfigured}
+                      type="password"
+                      value={secretValues[requirement.value] ?? ""}
+                    />
+                    {isConfigured ? <small className="form-field__hint">{tx("已配置；留空将保留当前值", "Configured; leave blank to keep the current value")}</small> : null}
+                  </label>
+                );
+              }) : (
                 <ul>{secretRequirements.map((requirement) => <li key={requirement.value}>{requirement.value} · {tx("需在凭据中心配置", "Configure in Credential Center")}</li>)}</ul>
               )}
             </section>
@@ -214,7 +227,9 @@ export function SkillRequirementsModal({
         </div>
         <div className="modal-card__footer">
           <button className="modal-secondary-button" onClick={onCancel} type="button">{tx("稍后配置", "Configure later")}</button>
-          <button className="primary-button" disabled={pending} type="submit">{pending ? tx("保存中...", "Saving...") : tx("保存配置", "Save configuration")}</button>
+          <button className="primary-button" disabled={pending} type="submit">
+            {pending ? tx("保存中...", "Saving...") : mode === "manage" ? tx("保存更改", "Save changes") : tx("保存配置", "Save configuration")}
+          </button>
         </div>
       </form>
     </div>

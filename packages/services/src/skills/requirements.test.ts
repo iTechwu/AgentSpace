@@ -44,6 +44,30 @@ requires:
   ]);
 });
 
+test("parseSkillRequirementDeclarations rejects reserved config keys", () => {
+  const reservedConfigSkill = `---
+requires:
+  - config:DOFE_AGENT_CONTEXT_TASK_ID
+---`;
+
+  assert.throws(
+    () => parseSkillRequirementDeclarations(reservedConfigSkill),
+    /DOFE_AGENT_CONTEXT_TASK_ID is reserved by the runtime/,
+  );
+});
+
+test("parseSkillRequirementDeclarations rejects reserved secret keys", () => {
+  const reservedSecretSkill = `---
+requires:
+  - secret:DOFE_AGENT_RUNTIME_TOKEN
+---`;
+
+  assert.throws(
+    () => parseSkillRequirementDeclarations(reservedSecretSkill),
+    /DOFE_AGENT_RUNTIME_TOKEN is reserved by the runtime/,
+  );
+});
+
 test("normalizeSkillRequirementConfiguration rejects an unapproved provider and does not accept secret values", () => {
   const requirements = parseSkillRequirementDeclarations(skillMarkdown);
   assert.throws(

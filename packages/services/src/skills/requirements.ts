@@ -246,6 +246,9 @@ function parseSkillRequirementDeclaration(value: string): SkillRequirementDeclar
   if ((kind === "config" || kind === "secret") && !CONFIG_KEY_PATTERN.test(requirementValue)) {
     throw new Error(`Skill ${kind} requirement "${requirementValue}" must be an uppercase key.`);
   }
+  if ((kind === "config" || kind === "secret") && requirementValue.startsWith("DOFE_AGENT_")) {
+    throw new Error(`Skill environment key ${requirementValue} is reserved by the runtime.`);
+  }
   if (kind === "config" && SECRET_KEY_PATTERN.test(requirementValue)) {
     kind = "secret";
   }

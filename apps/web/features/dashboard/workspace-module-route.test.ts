@@ -73,7 +73,7 @@ describe("workspace module route", () => {
     ["calendar", "/calendar", ""],
     ["templates", "/templates", ""],
     ["settings", "/settings/preferences", ""],
-  ] satisfies Array<[WorkspaceModuleId, string, string]>)("round-trips %s deep links into module data query state", (moduleId, path, query) => {
+  ] satisfies Array<[WorkspaceModuleId, string, string]>)("keeps only loader-sensitive query state for %s", (moduleId, path, query) => {
     const routeState = parseWorkspaceModulePath(`/w/acme${path}`, query);
 
     expect(routeState.moduleId).toBe(moduleId);
@@ -135,5 +135,9 @@ function expectedDataQuery(moduleId: WorkspaceModuleId, query: string): string {
   if (moduleId === "settings") {
     return "section=preferences";
   }
-  return normalizeWorkspaceModuleQuery(moduleId, query).toString();
+  if (moduleId === "im") {
+    const focus = normalizeWorkspaceModuleQuery(moduleId, query).get("focus");
+    return focus ? new URLSearchParams({ focus }).toString() : "";
+  }
+  return "";
 }

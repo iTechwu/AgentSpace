@@ -14,12 +14,14 @@ function AutoRefreshProbe({
   enabled = true,
   intervalMs = 1000,
   onRefresh,
+  allowWhileInputActive = false,
 }: {
   enabled?: boolean;
   intervalMs?: number;
   onRefresh?: () => void;
+  allowWhileInputActive?: boolean;
 }) {
-  useAutoRefresh(enabled, intervalMs, onRefresh);
+  useAutoRefresh(enabled, intervalMs, onRefresh, { allowWhileInputActive });
   return null;
 }
 
@@ -65,6 +67,21 @@ describe("useAutoRefresh", () => {
     expect(onRefresh).not.toHaveBeenCalled();
 
     (document.activeElement as HTMLElement | null)?.blur();
+    vi.advanceTimersByTime(1000);
+
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes a live view while an editable field is focused when explicitly allowed", () => {
+    const onRefresh = vi.fn();
+    render(
+      <>
+        <input aria-label="Draft" />
+        <AutoRefreshProbe allowWhileInputActive onRefresh={onRefresh} />
+      </>,
+    );
+
+    document.querySelector("input")?.focus();
     vi.advanceTimersByTime(1000);
 
     expect(onRefresh).toHaveBeenCalledTimes(1);

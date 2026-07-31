@@ -5,6 +5,8 @@ import {
   type QueuedTaskRecord,
 } from "@dofe-agent/db";
 import type { DaemonProvider, DaemonTaskMessageInput, ReportTaskMessagesRequest } from "@dofe-agent/domain";
+import { parseTaskPayload } from "dofe-agent-daemon";
+import { updatePendingAgentChannelReplySync } from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -31,6 +33,21 @@ export async function POST(
   }
 
   const appended = body.messages.map((message) => appendSingleMessage(task, message));
+  const payload = parseTaskPayload(task);
+  const channelName = payload.channelName ?? payload.channel;
+  if (channelName) {
+    for (const message of body.messages) {
+      if (message.type !== "text_delta" || !message.content?.trim()) {
+        continue;
+      }
+      updatePendingAgentChannelReplySync({
+        channel: channelName,
+        sourceTaskQueueId: task.id,
+        pendingSpeaker: payload.assignee ?? task.agentId,
+        delta: message.content,
+      }, task.workspaceId);
+    }
+  }
   return Response.json({ messages: appended });
 }
 

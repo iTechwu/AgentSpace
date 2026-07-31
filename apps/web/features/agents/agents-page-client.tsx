@@ -175,6 +175,7 @@ export function AgentsPageClient({
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [mobilePane, setMobilePane] = useState<"list" | "detail">("list");
   const [isPending, startTransition] = useTransition();
+  const [isProviderVerificationRequestPending, startProviderVerificationTransition] = useTransition();
   const [isGeneratingContainerCommand, startGeneratingContainerCommand] = useTransition();
   const { pushToast } = useFeedbackToast();
   const pendingForkInvitations = data.pendingForkInvitations ?? [];
@@ -325,8 +326,12 @@ export function AgentsPageClient({
 
   useAutoRefresh(shouldPollAgentUpdates, AGENTS_REFRESH_POLL_MS, onDataChanged);
 
-  function runAction<T>(work: () => Promise<ActionToastResult<T>>, onDone?: (data: T) => void): void {
-    startTransition(async () => {
+  function runAction<T>(
+    work: () => Promise<ActionToastResult<T>>,
+    onDone?: (data: T) => void,
+    transition: typeof startTransition = startTransition,
+  ): void {
+    transition(async () => {
       await runToastAction({
         action: work,
         onSuccess: async (data, result) => {
@@ -795,8 +800,11 @@ export function AgentsPageClient({
                   containerOptions={data.containerOptions}
                   pending={isPending}
                   providerVerificationPending={Boolean(
-                    selectedAgent.boundContainerId
-                    && providerVerificationPendingRuntimeIds.has(selectedAgent.boundContainerId),
+                    isProviderVerificationRequestPending
+                    || (
+                      selectedAgent.boundContainerId
+                      && providerVerificationPendingRuntimeIds.has(selectedAgent.boundContainerId)
+                    ),
                   )}
                   record={selectedAgent}
                   workspaceMembers={data.workspaceMembers}
@@ -825,6 +833,7 @@ export function AgentsPageClient({
                       () => setProviderVerificationPendingRuntimeIds((current) =>
                         new Set([...current, selectedAgent.boundContainerId!]),
                       ),
+                      startProviderVerificationTransition,
                     );
                   }}
                   onDeleteAgent={() =>

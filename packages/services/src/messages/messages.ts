@@ -522,6 +522,7 @@ export function sendChannelHumanMessageSync(
         data: {
           agent_name: agent.name,
           source_message_id: humanMessage.id,
+          source_task_queue_id: queued.id,
         },
         status: "pending",
       }, effectiveWorkspaceId);
@@ -674,15 +675,29 @@ export function completeAgentChannelReplySync(input: {
   }
 
   if (input.pendingSpeaker?.trim()) {
-    state.messages = state.messages.filter(
-      (message) =>
-        !(
-          sameValue(message.channel ?? "", channel.name) &&
-          message.role === "agent" &&
-          message.status === "pending" &&
-          sameValue(message.speaker, input.pendingSpeaker ?? "")
-        ),
+    const pendingReplies = state.messages.filter((message) =>
+      sameValue(message.channel ?? "", channel.name) &&
+      message.role === "agent" &&
+      message.status === "pending",
     );
+    const sourceTaskQueueId = input.sourceTaskQueueId?.trim();
+    const taskBoundReplies = sourceTaskQueueId
+      ? pendingReplies.filter((message) => message.data?.source_task_queue_id === sourceTaskQueueId)
+      : [];
+    const legacySpeakerReplies = pendingReplies.filter((message) =>
+      sameValue(message.speaker, input.pendingSpeaker ?? ""),
+    );
+    // During a rolling deployment, existing pending bubbles have no task ID. Remove a
+    // legacy bubble only when it is unambiguous; task-bound bubbles are always exact.
+    const repliesToReplace = taskBoundReplies.length > 0
+      ? taskBoundReplies
+      : sourceTaskQueueId && legacySpeakerReplies.length === 1
+        ? legacySpeakerReplies
+        : !sourceTaskQueueId
+          ? legacySpeakerReplies
+          : [];
+    const replyIdsToReplace = new Set(repliesToReplace.map((message) => message.id));
+    state.messages = state.messages.filter((message) => !replyIdsToReplace.has(message.id));
   }
 
   const shouldProcessMentions = channel.kind !== "direct";
@@ -759,6 +774,61 @@ export function completeAgentChannelReplySync(input: {
     queuedTaskIds: dispatchResult.queuedTaskIds,
     dispatchedAgentIds: dispatchResult.dispatchedAgentIds,
   };
+}
+
+/**
+ * Replaces the visible contents of a task-bound pending reply without finalizing it.
+ * The task ID prevents concurrent requests to the same employee from sharing a bubble.
+ */
+export function updatePendingAgentChannelReplySync(input: {
+  channel: string;
+  sourceTaskQueueId: string;
+  delta: string;
+  pendingSpeaker?: string;
+}, workspaceId?: string): WorkspaceMessage | null {
+  const sourceTaskQueueId = input.sourceTaskQueueId.trim();
+  if (!sourceTaskQueueId || !input.delta.trim()) {
+    return null;
+  }
+
+  const state = ensureWorkspaceStateSync(workspaceId);
+  const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const pendingMessages = state.messages.filter((message) =>
+    sameValue(message.channel ?? "", input.channel) &&
+    message.role === "agent" &&
+    message.status === "pending",
+  );
+  const taskBoundMessage = pendingMessages.find((message) => message.data?.source_task_queue_id === sourceTaskQueueId);
+  const legacyMatches = input.pendingSpeaker?.trim()
+    ? pendingMessages.filter((message) => sameValue(message.speaker, input.pendingSpeaker ?? ""))
+    : [];
+  const pendingMessage = taskBoundMessage ?? (legacyMatches.length === 1 ? legacyMatches[0] : undefined);
+  if (!pendingMessage) {
+    return null;
+  }
+  const summary = pendingMessage.summary === "Thinking"
+    ? input.delta
+    : `${pendingMessage.summary}${input.delta}`;
+  if (pendingMessage.summary === summary) {
+    return pendingMessage;
+  }
+
+  const message: WorkspaceMessage = {
+    ...pendingMessage,
+    data: {
+      ...pendingMessage.data,
+      source_task_queue_id: sourceTaskQueueId,
+    },
+    summary,
+  };
+  state.messages = state.messages.map((candidate) => candidate.id === message.id ? message : candidate);
+  writeWorkspaceStateSync(state, effectiveWorkspaceId);
+  publishChannelThreadChangedEvent({
+    workspaceId: effectiveWorkspaceId,
+    channelName: input.channel,
+    changedAt: new Date().toISOString(),
+  });
+  return message;
 }
 
 export function replacePendingChannelMessageSync(input: {
@@ -981,6 +1051,7 @@ function dispatchAgentOutputMentionsSync(
         agent_name: agent.name,
         source_message_id: input.sourceMessage.id,
         mention_source: "agent_output",
+        source_task_queue_id: queued.id,
       },
       status: "pending",
     }, input.workspaceId);

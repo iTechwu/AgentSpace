@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -278,6 +278,7 @@ const data: AgentsPageData = {
       fit: "Great for planning",
       summary: "Plans itineraries and travel docs",
       skills: [],
+      skillRequirements: {},
       channels: ["travel"],
       tasks: [],
       recentMessages: [],
@@ -985,6 +986,7 @@ describe("AgentsPageClient", () => {
 
   it("requests provider verification from the bound execution engine", async () => {
     const user = userEvent.setup();
+    searchParams.set("tab", "settings");
     renderAgentsPage({
       ...data,
       agents: [
@@ -995,7 +997,6 @@ describe("AgentsPageClient", () => {
       ],
     });
 
-    await user.click(screen.getByRole("button", { name: "设置" }));
     expect(screen.getByText("点击上方按钮执行本机 CLI 预检。")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "验证 Provider" }));
 
@@ -1007,6 +1008,49 @@ describe("AgentsPageClient", () => {
     });
     expect(screen.getAllByText("验证中")).toHaveLength(2);
     expect(screen.getByText("正在等待执行引擎回传验证结果。")).toBeInTheDocument();
+  });
+
+  it("keeps runtime binding controls isolated while provider verification is pending", async () => {
+    const user = userEvent.setup();
+    let finishVerification!: (result: { data: undefined }) => void;
+    const verificationRequest = new Promise<{ data: undefined }>((resolve) => {
+      finishVerification = resolve;
+    });
+    vi.mocked(verifyWorkspaceAgentRuntimeProviderAction).mockReturnValueOnce(verificationRequest);
+    searchParams.set("tab", "settings");
+
+    renderAgentsPage({
+      ...data,
+      agents: [
+        {
+          ...data.agents[0]!,
+          boundProviderHealth: undefined,
+        },
+      ],
+    });
+
+    const selectedEngineText = screen.getByRole("button", { name: "选择执行引擎" }).textContent;
+    await user.click(screen.getByRole("button", { name: "验证 Provider" }));
+
+    await waitFor(() => {
+      expect(verifyWorkspaceAgentRuntimeProviderAction).toHaveBeenCalledWith({
+        employeeName: "planner",
+        runtimeId: "runtime-1",
+      });
+    });
+    expect(screen.getByRole("button", { name: "验证中..." })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "更新中..." })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "绑定执行引擎" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "选择执行引擎" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "解除绑定" })).toBeDisabled();
+
+    await act(async () => {
+      finishVerification({ data: undefined });
+      await verificationRequest;
+    });
+
+    expect(screen.getByRole("button", { name: "绑定执行引擎" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "选择执行引擎" })).toHaveTextContent(selectedEngineText ?? "");
   });
 
   it("shows an agent-scoped Feishu bot in agent settings", async () => {
@@ -1724,6 +1768,80 @@ describe("AgentsPageClient", () => {
 });
 
 describe("AgentDetail", () => {
+  it("shows installed skill readiness and opens maintenance without revealing secrets", async () => {
+    const user = userEvent.setup();
+    const onInstallSkill = vi.fn();
+    const skill = {
+      id: "skill-notion",
+      name: "notion-sync",
+      description: "Sync to Notion",
+      sourceType: "manual" as const,
+      configJson: JSON.stringify({
+        requirements: [
+          { kind: "config", value: "NOTION_DATABASE_ID" },
+          { kind: "secret", value: "NOTION_API_TOKEN" },
+        ],
+      }),
+      files: [],
+      createdAt: "2026-04-10T08:00:00.000Z",
+      updatedAt: "2026-04-10T08:00:00.000Z",
+    };
+    const record = {
+      ...data.agents[0]!,
+      skills: [skill],
+      skillRequirements: {
+        [skill.id]: {
+          skillId: skill.id,
+          status: "ready" as const,
+          requiredCount: 2,
+          configuredCount: 2,
+          blockers: [],
+          environment: [
+            { key: "NOTION_DATABASE_ID", kind: "config" as const, configured: true },
+            { key: "NOTION_API_TOKEN", kind: "secret" as const, configured: true },
+          ],
+          configuration: {
+            capabilities: [],
+            values: { NOTION_DATABASE_ID: "db-123" },
+          },
+        },
+      },
+    };
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <AgentDetail
+          containerOptions={data.containerOptions}
+          pending={false}
+          record={record}
+          workspaceSkills={[skill]}
+          onBindContainer={vi.fn()}
+          onDeleteAgent={vi.fn()}
+          onInstallSkill={onInstallSkill}
+          onSaveInstructions={vi.fn()}
+          onSetSkillIds={vi.fn()}
+          onUnbindContainer={vi.fn()}
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "技能" }));
+    expect(screen.getByText("已就绪 · 2/2 环境变量")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "管理环境变量" }));
+
+    expect(screen.getByDisplayValue("db-123")).toBeInTheDocument();
+    const secretInput = screen.getByLabelText("NOTION_API_TOKEN");
+    expect(secretInput).toHaveValue("");
+    expect(secretInput).not.toBeRequired();
+    expect(screen.getByText("已配置；留空将保留当前值")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "保存更改" }));
+    expect(onInstallSkill).toHaveBeenCalledWith(skill.id, expect.objectContaining({
+      values: { NOTION_DATABASE_ID: "db-123" },
+      secrets: {},
+    }));
+  });
+
   it("keeps a pending execution engine selection while the same employee refreshes", async () => {
     const user = userEvent.setup();
     const record = {
@@ -1762,9 +1880,9 @@ describe("AgentDetail", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "设置" }));
-    await user.click(screen.getByRole("button", { name: "当前绑定" }));
+    await user.click(screen.getByRole("button", { name: "选择执行引擎" }));
     await user.click(screen.getByRole("option", { name: /Second runtime/ }));
-    expect(screen.getByRole("button", { name: "当前绑定" })).toHaveTextContent("Second runtime");
+    expect(screen.getByRole("button", { name: "选择执行引擎" })).toHaveTextContent("Second runtime");
 
     view.rerender(
       <LanguageProvider initialLanguage="zh">
@@ -1783,7 +1901,7 @@ describe("AgentDetail", () => {
       </LanguageProvider>,
     );
 
-    expect(screen.getByRole("button", { name: "当前绑定" })).toHaveTextContent("Second runtime");
+    expect(screen.getByRole("button", { name: "选择执行引擎" })).toHaveTextContent("Second runtime");
   });
 
   it("guides an employee with no workspaces to configure an engine or start a conversation", async () => {

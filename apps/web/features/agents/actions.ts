@@ -37,6 +37,7 @@ import {
   createTaskSync,
   deleteEmployeeSync,
   grantRuntimeUseToUserForActorSync,
+  getManagedRuntimeCredentialEnvKey,
   isWorkspaceAdminOrOwnerSync,
   hasGitHubSkillDependenciesSync,
   listEmployeeSkillIdsSync,
@@ -584,6 +585,10 @@ export async function installWorkspaceAgentSkillAction(input: {
   assertRequired(input.employeeName, "employee name");
   assertRequired(input.skillId, "skill id");
   assertCanManageEmployeeForActorSync({ workspaceId, employeeName: input.employeeName.trim(), actorUserId: workspaceContext.currentUser.id });
+  const boundRuntime = readEmployeeRuntimeBindingSync(input.employeeName.trim(), workspaceId);
+  const managedRuntimeCredentialKey = boundRuntime && resolveAgentRuntimeMode() === "remote"
+    ? getManagedRuntimeCredentialEnvKey(boundRuntime.provider)
+    : undefined;
   upsertAgentSkillRequirementsSync({
     workspaceId,
     employeeName: input.employeeName.trim(),
@@ -595,9 +600,9 @@ export async function installWorkspaceAgentSkillAction(input: {
     projectWorkDir: input.projectWorkDir,
     values: input.values,
     secrets: input.secrets,
+    ...(managedRuntimeCredentialKey ? { managedRuntimeCredentialKey } : {}),
   });
   const skillIds = [...new Set([...listEmployeeSkillIdsSync(input.employeeName.trim(), workspaceId), input.skillId.trim()])];
-  const boundRuntime = readEmployeeRuntimeBindingSync(input.employeeName.trim(), workspaceId);
   assertAgentSkillRequirementsReadySync({ workspaceId, employeeName: input.employeeName.trim(), skillIds, runtimeProvider: boundRuntime?.provider });
   setEmployeeSkillIdsSync(input.employeeName.trim(), skillIds, workspaceId);
   const hasGitHubDependencies = hasGitHubSkillDependenciesSync({ workspaceId, skillIds });

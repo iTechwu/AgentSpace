@@ -9,7 +9,10 @@ import {
   createEmployeeSync,
   createWorkspaceSkillSync,
   readAgentSkillRequirementEnvSync,
+  readAgentSkillRequirementConfigurationSync,
+  readAgentSkillRequirementSummarySync,
   resetWorkspaceStateSync,
+  setEmployeeSkillIdsSync,
   upsertAgentSkillRequirementsSync,
 } from "../index.ts";
 
@@ -54,6 +57,16 @@ function createSkillWithRequirements() {
         { kind: "config", value: "NOTION_DATABASE_ID" },
         { kind: "secret", value: "NOTION_API_TOKEN" },
       ],
+    }),
+  });
+}
+
+function createSkillWithConfig(name: string, key: string) {
+  return createWorkspaceSkillSync({
+    name,
+    description: "Test config",
+    configJson: JSON.stringify({
+      requirements: [{ kind: "config", value: key }],
     }),
   });
 }
@@ -139,9 +152,167 @@ test("readAgentSkillRequirementEnvSync throws when encryption key is missing and
     secrets: { NOTION_API_TOKEN: "secret-token-456" },
   });
 
-  delete process.env.DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY;
+  const encryptionKey = process.env.DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY;
+  try {
+    delete process.env.DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY;
+    assert.throws(
+      () => readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: skill.id }),
+      /DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY/,
+    );
+  } finally {
+    process.env.DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY = encryptionKey;
+  }
+});
+
+test("upsertAgentSkillRequirementsSync rejects a conflicting installed skill before saving", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const installedSkill = createSkillWithConfig("installed-skill", "SHARED_KEY");
+  const candidateSkill = createSkillWithConfig("candidate-skill", "SHARED_KEY");
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: installedSkill.id,
+    actorUserId: TEST_USER_ID,
+    values: { SHARED_KEY: "existing-value" },
+  });
+  setEmployeeSkillIdsSync("Researcher", [installedSkill.id]);
+
   assert.throws(
-    () => readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: skill.id }),
-    /DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY/,
+    () => upsertAgentSkillRequirementsSync({
+      workspaceId: "default",
+      employeeName: "Researcher",
+      skillId: candidateSkill.id,
+      actorUserId: TEST_USER_ID,
+      values: { SHARED_KEY: "different-value" },
+    }),
+    /SHARED_KEY.*installed-skill/,
   );
+  assert.equal(
+    readAgentSkillRequirementConfigurationSync({
+      workspaceId: "default",
+      employeeName: "Researcher",
+      skillId: candidateSkill.id,
+    }).configuration,
+    undefined,
+  );
+});
+
+test("upsertAgentSkillRequirementsSync accepts the same value used by an installed skill", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const installedSkill = createSkillWithConfig("installed-skill", "SHARED_KEY");
+  const candidateSkill = createSkillWithConfig("candidate-skill", "SHARED_KEY");
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: installedSkill.id,
+    actorUserId: TEST_USER_ID,
+    values: { SHARED_KEY: "shared-value" },
+  });
+  setEmployeeSkillIdsSync("Researcher", [installedSkill.id]);
+
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: candidateSkill.id,
+    actorUserId: TEST_USER_ID,
+    values: { SHARED_KEY: "shared-value" },
+  });
+
+  assert.equal(
+    readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: candidateSkill.id }).SHARED_KEY,
+    "shared-value",
+  );
+});
+
+test("upsertAgentSkillRequirementsSync preserves an existing secret when it is not replaced", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createSkillWithRequirements();
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { NOTION_DATABASE_ID: "db-before" },
+    secrets: { NOTION_API_TOKEN: "secret-before" },
+  });
+
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { NOTION_DATABASE_ID: "db-after" },
+    secrets: {},
+  });
+
+  assert.deepEqual(readAgentSkillRequirementEnvSync({ employeeName: "Researcher", skillId: skill.id }), {
+    NOTION_DATABASE_ID: "db-after",
+    NOTION_API_TOKEN: "secret-before",
+  });
+});
+
+test("upsertAgentSkillRequirementsSync rejects managed runtime credential keys", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createWorkspaceSkillSync({
+    name: "managed-credential-conflict",
+    description: "Conflict",
+    configJson: JSON.stringify({
+      requirements: [{ kind: "secret", value: "OPENAI_API_KEY" }],
+    }),
+  });
+
+  assert.throws(
+    () => upsertAgentSkillRequirementsSync({
+      workspaceId: "default",
+      employeeName: "Researcher",
+      skillId: skill.id,
+      actorUserId: TEST_USER_ID,
+      secrets: { OPENAI_API_KEY: "skill-key" },
+      managedRuntimeCredentialKey: "OPENAI_API_KEY",
+    }),
+    /OPENAI_API_KEY is managed by the bound runtime/,
+  );
+});
+
+test("readAgentSkillRequirementSummarySync reports missing requirements", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createSkillWithRequirements();
+
+  const summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+  });
+
+  assert.equal(summary.status, "needs_configuration");
+  assert.equal(summary.configuredCount, 0);
+  assert.equal(summary.requiredCount, 2);
+  assert.deepEqual(summary.environment, [
+    { key: "NOTION_DATABASE_ID", kind: "config", configured: false },
+    { key: "NOTION_API_TOKEN", kind: "secret", configured: false },
+  ]);
+});
+
+test("readAgentSkillRequirementSummarySync exposes metadata without secret values", () => {
+  createEmployeeSync({ name: "Researcher" });
+  const skill = createSkillWithRequirements();
+  upsertAgentSkillRequirementsSync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+    actorUserId: TEST_USER_ID,
+    values: { NOTION_DATABASE_ID: "db-123" },
+    secrets: { NOTION_API_TOKEN: "secret-never-returned" },
+  });
+
+  const summary = readAgentSkillRequirementSummarySync({
+    workspaceId: "default",
+    employeeName: "Researcher",
+    skillId: skill.id,
+  });
+
+  assert.equal(summary.status, "ready");
+  assert.equal(summary.configuredCount, 2);
+  assert.equal(summary.configuration?.values.NOTION_DATABASE_ID, "db-123");
+  assert.equal(JSON.stringify(summary).includes("secret-never-returned"), false);
 });

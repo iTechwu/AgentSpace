@@ -458,6 +458,7 @@ describe("WorkspaceFrame", () => {
     expect(screen.getByRole("link", { name: /绩效看板/ })).toHaveClass("workspace-sidebar__section-link--active");
     expect(await screen.findByRole("progressbar", { name: "正在加载内容" })).toBeInTheDocument();
     expect(screen.getByTestId("workspace-page-skeleton")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByText("Workspace content")).toBeVisible();
 
     resolveFetch?.(moduleResponse());
 
@@ -1141,7 +1142,7 @@ describe("WorkspaceFrame", () => {
     );
   });
 
-  it("passes local URL query state into workbench-rendered modules", async () => {
+  it("passes local URL query state into the notification category filter", async () => {
     pathname = "/w/workspace-alpha/im";
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({
@@ -1205,9 +1206,8 @@ describe("WorkspaceFrame", () => {
     inboxLink.setAttribute("href", "/w/workspace-alpha/inbox?filter=task");
     await userEventApi.click(inboxLink);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "任务" })).toHaveClass("filter-pill--active");
-    });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "通知" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "任务" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getAllByText("任务条目").length).toBeGreaterThan(0);
     expect(screen.queryByText("系统通知")).not.toBeInTheDocument();
   });

@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import {
+  listStoredAgentSkillAssignmentsSync,
   readAgentSkillRequirementConfigSync,
   readEffectiveRuntimeEnv,
   upsertAgentSkillRequirementConfigSync,
@@ -17,6 +18,21 @@ import {
 
 const CREDENTIAL_VERSION = "v1";
 
+export interface AgentSkillRequirementSummary {
+  skillId: string;
+  status: "ready" | "needs_configuration" | "runtime_incompatible";
+  requiredCount: number;
+  configuredCount: number;
+  blockers: string[];
+  environment: Array<{
+    key: string;
+    kind: "config" | "secret";
+    configured: boolean;
+  }>;
+  configuration?: SkillRequirementConfiguration;
+  updatedAt?: string;
+}
+
 export function upsertAgentSkillRequirementsSync(input: {
   workspaceId: string;
   employeeName: string;
@@ -28,10 +44,20 @@ export function upsertAgentSkillRequirementsSync(input: {
   projectWorkDir?: string;
   values?: Record<string, string>;
   secrets?: Record<string, string>;
+  managedRuntimeCredentialKey?: string;
 }): void {
   const skill = readWorkspaceSkillSync(input.skillId, input.workspaceId);
   if (!skill) throw new Error("Skill does not exist.");
   const requirements = readSkillRequirementDeclarations(skill.configJson);
+  if (
+    input.managedRuntimeCredentialKey
+    && requirements.some((requirement) => (
+      (requirement.kind === "config" || requirement.kind === "secret")
+      && requirement.value === input.managedRuntimeCredentialKey
+    ))
+  ) {
+    throw new Error(`${input.managedRuntimeCredentialKey} is managed by the bound runtime and cannot be configured by a Skill.`);
+  }
   const configuration = normalizeSkillRequirementConfiguration({
     requirements,
     modelProvider: input.modelProvider,
@@ -41,13 +67,24 @@ export function upsertAgentSkillRequirementsSync(input: {
     values: input.values,
   });
   const secretNames = requirements.filter((requirement) => requirement.kind === "secret").map((requirement) => requirement.value);
-  const encryptedSecrets = encryptDeclaredSecrets(secretNames, input.secrets);
+  const existingRecord = readAgentSkillRequirementConfigSync({
+    workspaceId: input.workspaceId,
+    employeeName: input.employeeName,
+    skillId: input.skillId,
+  });
+  const secrets = resolveDeclaredSecrets(secretNames, input.secrets, existingRecord?.encryptedSecretsJson);
+  assertNoInstalledSkillEnvironmentConflicts({
+    workspaceId: input.workspaceId,
+    employeeName: input.employeeName,
+    skillId: input.skillId,
+    candidateEnv: { ...configuration.values, ...secrets.plaintext },
+  });
   upsertAgentSkillRequirementConfigSync({
     workspaceId: input.workspaceId,
     employeeName: input.employeeName,
     skillId: input.skillId,
     configJson: serializeSkillRequirementConfiguration({ configJson: "{}", configuration }),
-    encryptedSecretsJson: JSON.stringify(encryptedSecrets),
+    encryptedSecretsJson: JSON.stringify(secrets.encrypted),
     actorUserId: input.actorUserId,
   });
 }
@@ -61,21 +98,64 @@ export function assertAgentSkillRequirementsReadySync(input: {
   for (const skillId of new Set(input.skillIds)) {
     const skill = readWorkspaceSkillSync(skillId, input.workspaceId);
     if (!skill) continue;
-    const requirements = readSkillRequirementDeclarations(skill.configJson);
-    if (requirements.length === 0) continue;
-    const record = readAgentSkillRequirementConfigSync({ workspaceId: input.workspaceId, employeeName: input.employeeName, skillId });
-    const configuredSecretNames = readEncryptedSecretNames(record?.encryptedSecretsJson);
-    const effectiveConfigJson = record?.configJson
-      ? JSON.stringify({ ...safeJson(record.configJson), requirements })
-      : JSON.stringify({ requirements });
-    const blockers = getSkillRequirementBlockers({ configJson: effectiveConfigJson, runtimeProvider: input.runtimeProvider })
-      .filter((blocker) => !configuredSecretNames.some((name) => blocker.startsWith(`${name} must be configured`)));
-    const missingSecret = requirements
-      .filter((requirement) => requirement.kind === "secret" && !configuredSecretNames.includes(requirement.value))
-      .map((requirement) => `${requirement.value} must be configured for this agent in Credential Center.`);
-    const blocker = [...blockers, ...missingSecret][0];
+    const blocker = readAgentSkillRequirementSummarySync({
+      workspaceId: input.workspaceId,
+      employeeName: input.employeeName,
+      skillId,
+      runtimeProvider: input.runtimeProvider,
+    }).blockers[0];
     if (blocker) throw new Error(`Skill "${skill.name}" is not ready for this agent: ${blocker}`);
   }
+}
+
+export function readAgentSkillRequirementSummarySync(input: {
+  workspaceId: string;
+  employeeName: string;
+  skillId: string;
+  runtimeProvider?: DaemonProvider;
+}): AgentSkillRequirementSummary {
+  const skill = readWorkspaceSkillSync(input.skillId, input.workspaceId);
+  if (!skill) throw new Error("Skill does not exist.");
+  const requirements = readSkillRequirementDeclarations(skill.configJson);
+  const record = readAgentSkillRequirementConfigSync(input);
+  const configuredSecretNames = readEncryptedSecretNames(record?.encryptedSecretsJson);
+  const configuration = record ? readSkillRequirementConfiguration(record.configJson) : undefined;
+  const effectiveConfigJson = record?.configJson
+    ? JSON.stringify({ ...safeJson(record.configJson), requirements })
+    : JSON.stringify({ requirements });
+  const blockers = getSkillRequirementBlockers({
+    configJson: effectiveConfigJson,
+    runtimeProvider: input.runtimeProvider,
+  }).filter((blocker) => !configuredSecretNames.some((name) => blocker.startsWith(`${name} must be configured`)));
+  blockers.push(...requirements
+    .filter((requirement) => requirement.kind === "secret" && !configuredSecretNames.includes(requirement.value))
+    .map((requirement) => `${requirement.value} must be configured for this agent in Credential Center.`));
+
+  const environment = requirements
+    .filter((requirement): requirement is typeof requirement & { kind: "config" | "secret" } => (
+      requirement.kind === "config" || requirement.kind === "secret"
+    ))
+    .map((requirement) => ({
+      key: requirement.value,
+      kind: requirement.kind,
+      configured: requirement.kind === "config"
+        ? Boolean(configuration?.values[requirement.value])
+        : configuredSecretNames.includes(requirement.value),
+    }));
+  const runtimeIncompatible = blockers.some((blocker) => (
+    blocker.includes("bound runtime uses") || blocker.includes("does not match the bound runtime provider")
+  ));
+
+  return {
+    skillId: input.skillId,
+    status: runtimeIncompatible ? "runtime_incompatible" : blockers.length > 0 ? "needs_configuration" : "ready",
+    requiredCount: environment.length,
+    configuredCount: environment.filter((item) => item.configured).length,
+    blockers,
+    environment,
+    configuration,
+    updatedAt: record?.updatedAt,
+  };
 }
 
 export function readAgentSkillRequirementConfigurationSync(input: {
@@ -153,15 +233,55 @@ function decrypt(value: string): string {
   }
 }
 
-function encryptDeclaredSecrets(secretNames: string[], input: Record<string, string> | undefined): Record<string, string> {
-  const result: Record<string, string> = {};
+function assertNoInstalledSkillEnvironmentConflicts(input: {
+  workspaceId: string;
+  employeeName: string;
+  skillId: string;
+  candidateEnv: Record<string, string>;
+}): void {
+  const assignedSkills = listStoredAgentSkillAssignmentsSync(input.workspaceId)
+    .filter((assignment) => assignment.employeeName === input.employeeName.trim() && assignment.skillId !== input.skillId);
+  for (const assignment of assignedSkills) {
+    const installedEnv = readAgentSkillRequirementEnvSync({
+      workspaceId: input.workspaceId,
+      employeeName: input.employeeName,
+      skillId: assignment.skillId,
+    });
+    for (const [key, value] of Object.entries(input.candidateEnv)) {
+      if (installedEnv[key] === undefined || installedEnv[key] === value) continue;
+      const installedSkill = readWorkspaceSkillSync(assignment.skillId, input.workspaceId);
+      throw new Error(
+        `Skill environment variable ${key} conflicts with installed Skill "${installedSkill?.name ?? assignment.skillId}". `
+        + "Use the same value or update the installed Skill first.",
+      );
+    }
+  }
+}
+
+function resolveDeclaredSecrets(
+  secretNames: string[],
+  input: Record<string, string> | undefined,
+  storedSecretsJson: string | undefined,
+): { encrypted: Record<string, string>; plaintext: Record<string, string> } {
+  const storedSecrets = safeJson(storedSecretsJson ?? "{}");
+  const encrypted: Record<string, string> = {};
+  const plaintext: Record<string, string> = {};
   for (const name of secretNames) {
     const value = input?.[name]?.trim();
-    if (!value) throw new Error(`${name} must be configured for this agent in Credential Center.`);
-    if (value.length > 4096) throw new Error(`${name} is too long.`);
-    result[name] = encrypt(value);
+    if (value) {
+      if (value.length > 4096) throw new Error(`${name} is too long.`);
+      encrypted[name] = encrypt(value);
+      plaintext[name] = value;
+      continue;
+    }
+    const storedValue = storedSecrets[name];
+    if (typeof storedValue !== "string" || !storedValue.startsWith(`${CREDENTIAL_VERSION}:`)) {
+      throw new Error(`${name} must be configured for this agent in Credential Center.`);
+    }
+    encrypted[name] = storedValue;
+    plaintext[name] = decrypt(storedValue);
   }
-  return result;
+  return { encrypted, plaintext };
 }
 
 function encrypt(value: string): string {

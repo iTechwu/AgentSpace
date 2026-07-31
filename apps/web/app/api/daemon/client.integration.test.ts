@@ -178,11 +178,23 @@ describe("remote daemon client integration", () => {
       await client.reportMessages(claimed.task.id, {
         messages: [
           {
-            type: "thinking",
-            content: "正在整理大阪行程。",
+            type: "text_delta",
+            content: "正在整理大阪",
+          },
+          {
+            type: "text_delta",
+            content: "行程。",
           },
         ],
       });
+
+      const streamingState = readWorkspaceStateSync();
+      const streamingDirectChannel = streamingState.channels.find(
+        (channel) => channel.kind === "direct" && channel.employeeNames.some((name) => name === "Atlas"),
+      );
+      expect(
+        streamingState.messages.find((message) => message.channel === streamingDirectChannel?.name && message.status === "pending")?.summary,
+      ).toBe("正在整理大阪行程。");
 
       await client.uploadOutputBundle(claimed.task.id, {
         version: 1,
@@ -217,7 +229,7 @@ describe("remote daemon client integration", () => {
       });
 
       const taskMessages = listTaskMessagesForTaskSync(claimed.task.id);
-      expect(taskMessages.some((message) => message.type === "thinking")).toBe(true);
+      expect(taskMessages.filter((message) => message.type === "text_delta")).toHaveLength(2);
 
       const state = readWorkspaceStateSync();
       const directChannel = state.channels.find(

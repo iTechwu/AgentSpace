@@ -1,10 +1,15 @@
-import { canReadChannelForActorSync, subscribeWorkspaceRealtimeEvents } from "@dofe-agent/services";
+import {
+  canReadChannelForActorSync,
+  readWorkspaceStateSnapshotSync,
+  subscribeWorkspaceRealtimeEvents,
+} from "@dofe-agent/services";
 import { getWorkspaceAccessForIdentifier } from "@/features/auth/server-workspace";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const HEARTBEAT_MS = 25_000;
+const PERSISTED_CHANNEL_POLL_MS = 750;
 
 export async function GET(
   _request: Request,
@@ -33,6 +38,7 @@ export async function GET(
 
   const encoder = new TextEncoder();
   let heartbeat: ReturnType<typeof setInterval> | null = null;
+  let persistedChannelPoll: ReturnType<typeof setInterval> | null = null;
   let closed = false;
   let unsubscribe: (() => void) | null = null;
 
@@ -46,6 +52,9 @@ export async function GET(
         unsubscribe?.();
         if (heartbeat) {
           clearInterval(heartbeat);
+        }
+        if (persistedChannelPoll) {
+          clearInterval(persistedChannelPoll);
         }
         controller.close();
       };
@@ -98,12 +107,29 @@ export async function GET(
         }
         send(`: heartbeat ${Date.now()}\n\n`);
       }, HEARTBEAT_MS);
+      let persistedSignature = channelMessageSignature(workspaceId, channelName);
+      persistedChannelPoll = setInterval(() => {
+        const nextSignature = channelMessageSignature(workspaceId, channelName);
+        if (nextSignature === persistedSignature) {
+          return;
+        }
+        persistedSignature = nextSignature;
+        send(`event: channel.thread.changed\ndata: ${JSON.stringify({
+          type: "channel.thread.changed",
+          channelName,
+          changedAt: new Date().toISOString(),
+          source: "persisted_state",
+        })}\n\n`);
+      }, PERSISTED_CHANNEL_POLL_MS);
     },
     cancel() {
       closed = true;
       unsubscribe?.();
       if (heartbeat) {
         clearInterval(heartbeat);
+      }
+      if (persistedChannelPoll) {
+        clearInterval(persistedChannelPoll);
       }
     },
   });
@@ -116,4 +142,17 @@ export async function GET(
       "X-Accel-Buffering": "no",
     },
   });
+}
+
+function channelMessageSignature(workspaceId: string, channelName: string): string {
+  try {
+    return readWorkspaceStateSnapshotSync(workspaceId)
+      .messages
+      .filter((message) => message.channel === channelName)
+      .map((message) => `${message.id}:${message.status ?? "completed"}:${message.time}:${message.summary}`)
+      .join("\u0001");
+  } catch {
+    // The regular client polling remains the reliability fallback if a state read is transiently unavailable.
+    return "";
+  }
 }

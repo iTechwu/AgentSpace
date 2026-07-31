@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { MessageAttachment, MessageMention } from "@/shared/types/workspace";
 import { useLanguage } from "@/features/i18n/language-provider";
@@ -123,8 +123,16 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
 }) {
   const { tx } = useLanguage();
   const [reviewingDecision, setReviewingDecision] = useState<"approved" | "rejected" | null>(null);
+  const [copied, setCopied] = useState(false);
+  const copiedResetTimerRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (copiedResetTimerRef.current !== null) {
+      window.clearTimeout(copiedResetTimerRef.current);
+    }
+  }, []);
   const own = isOwn ?? message.role === "human";
   const isPendingMessage = message.status === "pending";
+  const hasStreamedPendingContent = isPendingMessage && message.content.trim() !== "" && message.content.trim() !== "Thinking";
   const isError = message.status === "error";
   const isProcessMessage = message.kind === "process";
   const speakerLabel = translateSystemSpeaker(message.speaker, tx);
@@ -158,7 +166,7 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
     );
   }
 
-  const hasActions = onReply || onPin || onUnpin || onAcknowledge;
+  const hasActions = true;
   const acknowledgements = message.acknowledgements ?? [];
   const acknowledgementLabelForCurrentUser = acknowledgementActorLabel ?? ownSpeakerLabel;
   const acknowledgedByCurrentUser = acknowledgements.some((acknowledgement) =>
@@ -182,6 +190,7 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
         className={`inbox-bubble${own ? " inbox-bubble--own" : ""}${isError ? " inbox-bubble--error" : ""}${
           isPendingMessage ? " inbox-bubble--pending" : ""
         }${message.pinned ? " inbox-bubble--pinned" : ""}`}
+        tabIndex={hasActions && !isPendingMessage ? 0 : undefined}
       >
         {replyToMessage ? (
           <div className="inbox-bubble__reply-quote">
@@ -202,11 +211,22 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
           <span>{isPendingMessage ? tx("思考中", "Thinking") : renderMessageTimestamp(message.timestamp)}</span>
         </div>
         {isPendingMessage ? (
-          <div className="contacts-pending-dots">
-            <span />
-            <span />
-            <span />
-          </div>
+          hasStreamedPendingContent ? (
+            <p className="inbox-bubble__streaming-content">
+              {renderMessageContent(translateWorkspaceMessageSummary(message, tx), message.mentions, tx)}
+              <span aria-label={tx("正在生成", "Generating")} className="contacts-pending-dots contacts-pending-dots--inline">
+                <span />
+                <span />
+                <span />
+              </span>
+            </p>
+          ) : (
+            <div className="contacts-pending-dots">
+              <span />
+              <span />
+              <span />
+            </div>
+          )
         ) : (
           <p>{renderMessageContent(translateWorkspaceMessageSummary(message, tx), message.mentions, tx)}</p>
         )}
@@ -258,18 +278,38 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
         {hasActions && !isPendingMessage ? (
           <div className="inbox-bubble__actions">
             {onReply ? (
-              <button className="inbox-bubble__action-btn" onClick={onReply} title={tx("回复", "Reply")} type="button">
-                {tx("回复", "Reply")}
+              <button aria-label={tx("回复", "Reply")} className="inbox-bubble__action-btn" onClick={onReply} title={tx("回复", "Reply")} type="button">
+                <AppIcon name="reply" />
               </button>
             ) : null}
+            <button
+              aria-label={copied ? tx("已复制", "Copied") : tx("复制", "Copy")}
+              className={`inbox-bubble__action-btn${copied ? " inbox-bubble__action-btn--active" : ""}`}
+              onClick={() => {
+                void copyMessageContent(message.content).then(() => {
+                  setCopied(true);
+                  if (copiedResetTimerRef.current !== null) {
+                    window.clearTimeout(copiedResetTimerRef.current);
+                  }
+                  copiedResetTimerRef.current = window.setTimeout(() => {
+                    setCopied(false);
+                    copiedResetTimerRef.current = null;
+                  }, 1600);
+                }).catch(() => {});
+              }}
+              title={copied ? tx("已复制", "Copied") : tx("复制", "Copy")}
+              type="button"
+            >
+              <AppIcon name="copy" />
+            </button>
             {onPin ? (
-              <button className="inbox-bubble__action-btn" onClick={onPin} title={tx("置顶", "Pin")} type="button">
-                {tx("置顶", "Pin")}
+              <button aria-label={tx("置顶", "Pin")} className="inbox-bubble__action-btn" onClick={onPin} title={tx("置顶", "Pin")} type="button">
+                <AppIcon name="pin" />
               </button>
             ) : null}
             {onUnpin ? (
-              <button className="inbox-bubble__action-btn" onClick={onUnpin} title={tx("取消置顶", "Unpin")} type="button">
-                {tx("取消置顶", "Unpin")}
+              <button aria-label={tx("取消置顶", "Unpin")} className="inbox-bubble__action-btn" onClick={onUnpin} title={tx("取消置顶", "Unpin")} type="button">
+                <AppIcon name="pin" />
               </button>
             ) : null}
             {onAcknowledge ? (
@@ -279,7 +319,7 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
                 title={tx("OK，标记已读", "OK, mark as read")}
                 type="button"
               >
-                OK
+                <AppIcon name="checkCircle" />
               </button>
             ) : null}
           </div>
@@ -299,7 +339,27 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
       })
       .catch(() => {});
   }
+
 });
+
+async function copyMessageContent(content: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(content);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = content;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) {
+    throw new Error("Clipboard access is unavailable.");
+  }
+}
 
 function renderMessageTimestamp(value: string): string {
   return formatCompactTimestamp(value, { emptyFallback: value });

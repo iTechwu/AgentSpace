@@ -20,6 +20,7 @@ import {
   getPerformanceDashboardDataSync,
   normalizeRuntimeProviderHealth,
   normalizeCliHubReadiness,
+  readAgentSkillRequirementSummarySync,
   listNotificationsForRecipientSync,
   listAgentForkInvitationsForActorSync,
   listAgentForkInvitationsForSourceAgentSync,
@@ -35,6 +36,7 @@ import type {
   PerformanceDashboardData,
   WorkspaceNotificationRecord,
   CostDashboardData,
+  AgentSkillRequirementSummary,
 } from "@dofe-agent/services";
 import {
   DEFAULT_WORKSPACE_ID,
@@ -86,7 +88,7 @@ import type {
   ChannelDocumentRun,
   ChannelDocumentRunStep,
 } from "@dofe-agent/domain";
-import { formatDaemonProviderLabel } from "@dofe-agent/domain";
+import { formatDaemonProviderLabel, isDaemonProvider } from "@dofe-agent/domain";
 import type { RuntimeProviderHealth } from "@dofe-agent/domain";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import {
@@ -710,6 +712,7 @@ export interface WorkspaceAgentRecord extends ManagementRecordBase {
   fit: string;
   summary: string;
   skills: WorkspaceSkill[];
+  skillRequirements: Record<string, AgentSkillRequirementSummary>;
   channels: string[];
   tasks: TaskRecord[];
   recentMessages: WorkspaceMessage[];
@@ -2599,6 +2602,7 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
       buildWorkspaceAgentRecord(
         employee,
         state,
+        workspaceId,
         workspaceSkillIndex,
         skillIdsByAgentId,
         bindingIndex.get(employee.name),
@@ -3800,6 +3804,7 @@ function buildActivityInboxItems(
 function buildWorkspaceAgentRecord(
   employee: ActiveEmployee,
   state: DofeAgentState,
+  workspaceId: string,
   workspaceSkillIndex: Map<string, WorkspaceSkill>,
   skillIdsByAgentId: Map<string, string[]>,
   binding:
@@ -3819,6 +3824,18 @@ function buildWorkspaceAgentRecord(
   const assignedSkills = assignedSkillIds
     .map((skillId) => workspaceSkillIndex.get(skillId))
     .filter((skill): skill is WorkspaceSkill => Boolean(skill));
+  const runtimeProvider = binding?.provider && isDaemonProvider(binding.provider)
+    ? binding.provider
+    : undefined;
+  const skillRequirements = Object.fromEntries(assignedSkills.map((skill) => [
+    skill.id,
+    readAgentSkillRequirementSummarySync({
+      workspaceId,
+      employeeName: employee.name,
+      skillId: skill.id,
+      runtimeProvider,
+    }),
+  ]));
   const tasks = state.tasks.filter((task) => task.assignee === employee.name);
   const taskPreview = limitLoadtestDashboardPayload(tasks, AGENT_TASK_PREVIEW_LIMIT);
   const recentMessages = state.messages.filter((message) => isMessageRelevantToAgent(message, employee.name, tasks)).slice(0, 6);
@@ -3915,6 +3932,7 @@ function buildWorkspaceAgentRecord(
     fit: employee.fit,
     summary: employee.summary,
     skills: assignedSkills,
+    skillRequirements,
     channels: employee.channels,
     tasks: taskPreview,
     recentMessages,

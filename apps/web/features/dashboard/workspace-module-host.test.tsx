@@ -55,4 +55,25 @@ describe("WorkspaceModuleHost", () => {
     expect(screen.getByText("Message route child")).toBeInTheDocument();
     expect(screen.queryByText("Notification route child")).not.toBeInTheDocument();
   });
+
+  it("keeps the current page visible while an uncached client module shows its skeleton", () => {
+    const view = render(renderHost({
+      routePath: "/w/workspace-alpha/im",
+      routeStateSource: "url",
+      children: <div>Current message page</div>,
+    }));
+
+    view.rerender(renderHost({
+      routePath: "/w/workspace-alpha/performance",
+      routeStateSource: "client",
+      children: <div>Pending performance page</div>,
+    }));
+
+    expect(screen.getByText("Current message page")).toBeVisible();
+    expect(screen.getByTestId("workspace-page-skeleton")).toBeInTheDocument();
+    expect(screen.getByText("Current message page").closest(".workspace-module-stage")).toHaveAttribute(
+      "data-retained-content",
+      "true",
+    );
+  });
 });
