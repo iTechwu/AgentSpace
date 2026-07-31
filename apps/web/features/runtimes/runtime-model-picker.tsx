@@ -356,11 +356,13 @@ function formatModelMeta(option: ModelCatalogOption, labels: ModelCatalogSelectL
   ].filter(Boolean).join(" · ") || labels.available;
 }
 
-function translateUnavailableReason(reason: string | undefined, tx: (zh: string, en: string) => string): string {
+export function translateUnavailableReason(reason: string | undefined, tx: (zh: string, en: string) => string): string {
   if (!reason) return tx("不可用", "Unavailable");
   const protocolMatch = reason.match(/^Runtime protocol \((.+)\) not supported$/);
   if (protocolMatch?.[1]) return tx(`不支持执行引擎协议（${protocolMatch[1]}）`, reason);
   if (reason === "Disabled by team policy") return tx("已被团队策略禁用", reason);
+  if (reason === "Credential unavailable") return tx("模型凭据暂不可用", reason);
+  if (reason === "Model is deprecated") return tx("模型已弃用", reason);
   return reason;
 }
 

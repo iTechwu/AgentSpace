@@ -302,27 +302,43 @@ export async function getManagedRuntimeModelsAction(runtimeId: string) {
       supportsFunctionCalling?: boolean;
       inputPrice?: number | null;
       outputPrice?: number | null;
+      isAvailable?: boolean;
     };
     const supportedProtocols = catalogModel.supportedProtocols ?? [];
+    const runtimeProtocols = runtime.protocols ?? [];
+    const matchedProtocol = supportedProtocols.find((protocol) => runtimeProtocols.includes(protocol));
+    // Collapse the credential, policy, deprecation, and protocol signals into a
+    // single availability flag. The picker shows every catalog entry (greyed
+    // out with a reason) instead of silently dropping unavailable ones — which
+    // left the dropdown empty when no model was currently usable.
+    const credentialAvailable = catalogModel.isAvailable;
+    const policyEnabled = model.isEnabled !== false;
+    const deprecated = model.isDeprecated === true;
+    const isAvailable = Boolean(credentialAvailable && policyEnabled && !deprecated && matchedProtocol);
+    const unavailableReason = isAvailable
+      ? undefined
+      : !matchedProtocol
+        ? `Runtime protocol (${runtimeProtocols.join(", ")}) not supported`
+        : !credentialAvailable
+          ? "Credential unavailable"
+          : !policyEnabled
+            ? "Disabled by team policy"
+            : "Model is deprecated";
     return {
       id: model.id ?? model.alias,
       alias: model.alias,
       model: model.model,
       displayName: model.displayName,
       modelType: "llm" as const,
-      protocol: supportedProtocols.find((protocol) => (runtime.protocols ?? []).includes(protocol)) ?? supportedProtocols[0],
+      protocol: matchedProtocol ?? supportedProtocols[0],
       contextLength: catalogModel.contextLength,
       supportsVision: catalogModel.supportsVision,
       supportsFunctionCalling: catalogModel.supportsFunctionCalling,
       inputPrice: catalogModel.inputPrice,
       outputPrice: catalogModel.outputPrice,
-      isAvailable: Boolean(
-        (model as { isAvailable?: boolean }).isAvailable &&
-        model.isEnabled !== false &&
-        model.isDeprecated !== true &&
-        supportedProtocols.some((protocol) => (runtime.protocols ?? []).includes(protocol)),
-      ),
+      isAvailable,
       isEnabled: model.isEnabled,
+      unavailableReason,
     };
   });
   return {

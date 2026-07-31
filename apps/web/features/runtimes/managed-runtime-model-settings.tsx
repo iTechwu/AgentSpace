@@ -7,7 +7,7 @@ import {
   rotateManagedRuntimeCredentialAction,
   updateManagedRuntimeDefaultModelAction,
 } from "@/features/runtimes/actions";
-import { ModelCatalogSelect, type ModelCatalogOption } from "@/features/runtimes/runtime-model-picker";
+import { ModelCatalogSelect, translateUnavailableReason, type ModelCatalogOption } from "@/features/runtimes/runtime-model-picker";
 
 type RuntimeModelOption = ModelCatalogOption & {
   modelType?: string | null;
@@ -55,8 +55,11 @@ export function ManagedRuntimeModelSettings({
     return () => { active = false; };
   }, [reloadKey, runtimeId]);
 
-  const availableModels = models.filter(
-    (model) => model.modelType === "llm" && model.alias && model.isAvailable && model.isEnabled !== false,
+  // Show every language model in the catalog so admins can see — and diagnose —
+  // why a model is unavailable, instead of an empty dropdown. Unavailable entries
+  // are greyed out (and unselectable) inside ModelCatalogSelect.
+  const catalogModels = models.filter(
+    (model) => model.modelType === "llm" && Boolean(model.alias),
   );
   const changed = value !== (defaultModel ?? "");
   const unavailable = loading || pending || !configured;
@@ -104,17 +107,17 @@ export function ManagedRuntimeModelSettings({
             search: "搜索模型",
             searchPlaceholder: "搜索模型、别名或供应商...",
             empty: "没有匹配的模型",
-            resultCount: (count) => `可用模型 ${count} 个`,
+            resultCount: (count) => `模型 ${count} 个`,
             context: "上下文",
             tools: "工具调用",
             vision: "视觉",
             perMillion: "每百万 Token",
             available: "可用",
-            unavailable: (reason) => reason || "不可用",
+            unavailable: (reason) => translateUnavailableReason(reason, (zh) => zh),
           }}
           loading={loading}
           onChange={setValue}
-          options={availableModels}
+          options={catalogModels}
           value={value}
         />
       </div>
