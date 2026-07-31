@@ -1,5 +1,19 @@
 # 实施与验收
 
+## 0. 当前落地结果
+
+截至 2026-07-31，本地已实现：
+
+1. `responses_stream_smoke` 三阶段探测：非流式基线、强制 function call 流、回传 `function_call_output` 后的最终流。
+2. 独立 `responsesVerifiedAt` 时间戳和 24 小时新鲜度门禁；普通健康检查不会延长 Codex 验证有效期。
+3. route 级门禁：每个 Provider/model availability 必须独立验证，其他 Provider 的成功不能为该路由背书。
+4. endpoint 更新/删除后立即失效该 Provider 的既有 Codex 验证。
+5. ProxyCore 严格、不可逆的 Responses 终态机；客户端流在上游 EOF 后先关闭，记账和健康更新在后处理完成。
+6. Responses 验证失败只写协议验证失败，不覆盖模型级 Chat 可用性和健康分数。
+7. Models 内部列表/详情、SDK、AgentSpace Runtime picker、创建前校验和员工绑定统一消费 `codexReady`。
+
+尚未执行 Jenkins 测试环境部署；Chat-only 模型到 Responses 的完整 Facade 仍属于 P2 独立工作，不会被本次原生 Responses 准入伪装为已支持。
+
 ## 1. 建议实施顺序
 
 ### P0：阻止继续误选和错误记账
@@ -134,9 +148,10 @@
 
 灰度建议先只对测试租户发布 `codexReady` 模型，再开启 10%/50%/100% 路由流量。任一阶段出现 Responses incomplete 或重试放大立即回退该模型路由的 Codex-ready 状态，无需回退其 Chat 能力。
 
-## 6. 本次审查边界
+## 6. 本次实施边界
 
 - 已用 Codex CLI 0.145.0 完成本地黑盒复现。
 - 已只读检查本地测试环境模型网关日志，未读取或记录密钥。
 - 官方 OpenAI 文档站和已安装的文档 MCP 在当前会话中无法访问（HTTP 403/MCP 需重启后加载），所以本报告没有依赖未验证的远程文档表述；最终契约以本地 Codex 黑盒行为为直接证据。
-- 本次未修改模型网关业务代码、未提交、未部署。
+- 已修改并本地验证模型网关与 AgentSpace 业务代码。
+- 尚未完成两个仓库的独立功能提交、推送和 Jenkins 测试环境部署。

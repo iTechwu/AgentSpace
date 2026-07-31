@@ -16,7 +16,18 @@
 
 因此，当前所谓 Runtime “白名单”并不是写死的模型列表，而是动态条件：模型必须是启用、未废弃的语言模型，并且模型目录的 `supportedProtocols` 与 Codex Runtime 的 `openai_response` 相交。只有 DeepSeek 时，说明模型服务当时只向该租户发布了 DeepSeek 的 `openai_response` 可用记录；这条记录目前只证明非流式可用，不能证明 Codex 可用。
 
-建议把 Codex 默认模型保持为 `gpt-5.6-terra`，但默认值只能止血。最终准入条件必须从“声明支持 `/responses`”升级为“通过流式 Responses 与工具调用一致性验证”。
+Codex 默认模型保持为 `gpt-5.6-terra`，但默认值只负责兜底。当前实现已把准入条件从“声明支持 `/responses`”升级为“当前 Provider 路由通过流式 Responses 与完整工具调用闭环验证”，模型名称不参与白名单判断。
+
+## 实施状态
+
+本地实现已完成，尚未部署测试环境：
+
+- Models 对每条 Provider/model 路由执行非流式、流式函数调用、工具结果回传三阶段探测。
+- 只有 24 小时内通过 `responses_stream_smoke` 的路由才产生 `codexReady=true`。
+- AgentSpace 的 Codex 选择器、Runtime 创建、默认模型修改和员工模型绑定均服务端校验 `codexReady`。
+- ProxyCore 只把 `response.completed` 且 `response.status=completed` 视为成功；Chat chunks、`[DONE]`-only、malformed、failed、incomplete 与无终态 EOF 均失败。
+- Responses 验证失败只撤销 Codex/Responses 准入，不关闭同一模型的 Chat 路由。
+- Provider endpoint 变更会立即把既有 Responses 验证置为 `needs_validation`。
 
 ## 文档
 
@@ -25,4 +36,4 @@
 - [实施与验收](./03-implementation-and-acceptance.md)
 - [本地可控复现器](./repro-responses-stream.mjs)
 
-本次只完成审查、复现器和解决方案文档，没有修改 `models.dofe.ai` 业务代码，也没有触发测试环境部署。
+本次已完成本地业务代码实施和相关验证；测试环境部署仍需在提交并推送两个仓库后通过 Jenkins 执行。
