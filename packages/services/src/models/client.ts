@@ -26,12 +26,13 @@ export interface ModelsInternalConfig {
 }
 
 const DEFAULT_MODELS_INTERNAL_API_TIMEOUT_MS = 15_000;
+const HTTPS_ONLY_MODELS_HOSTS = new Set(["model.local.dofe.ai"]);
 
 let cachedClient: ModelsInternalDataClient | null = null;
 let cachedConfigKey: string | null = null;
 
 export function resolveModelsInternalConfig(env: NodeJS.ProcessEnv = process.env): ModelsInternalConfig {
-  const baseUrl = resolveModelsBaseUrl(env);
+  const baseUrl = normalizeModelsInternalBaseUrl(resolveModelsBaseUrl(env));
   // models.dofe.ai validates the HMAC with its INTERNAL_API_SECRET and allowlists
   // caller service names in MODELS_RUNTIME_CREDENTIAL_SERVICE_NAMES. AgentSpace
   // therefore reuses the platform's shared INTERNAL_API_SECRET and its existing
@@ -52,6 +53,15 @@ export function resolveModelsInternalConfig(env: NodeJS.ProcessEnv = process.env
     throw new Error("models.internal_config_invalid: MODELS_INTERNAL_API_TIMEOUT_MS must be a positive number.");
   }
   return { baseUrl, serviceName, secret, timeoutMs };
+}
+
+function normalizeModelsInternalBaseUrl(value: string): string {
+  const url = new URL(value);
+  if (url.protocol === "http:" && HTTPS_ONLY_MODELS_HOSTS.has(url.hostname)) {
+    url.protocol = "https:";
+    return url.toString().replace(/\/$/, "");
+  }
+  return value;
 }
 
 export function buildModelsInternalAuthorization(config: ModelsInternalConfig): string {

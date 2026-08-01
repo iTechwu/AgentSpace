@@ -350,7 +350,7 @@ describe("SkillsPageClient", () => {
     expect(screen.getByRole("button", { name: "保存 Skill" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "返回文件列表" })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("SKILL.md")).not.toBeInTheDocument();
-    expect(screen.getByDisplayValue("# Workspace Context")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Workspace Context" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "返回技能列表" }));
     expect(screen.getByRole("button", { name: /workspace-context/i })).toBeInTheDocument();
@@ -372,7 +372,7 @@ describe("SkillsPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: /添加技能|Add skill/i }));
     expect(await screen.findByRole("heading", { name: /创建 Skill|Create Skill/i })).toBeInTheDocument();
-    expect(screen.getByText("Financial Analysis Agent")).toBeInTheDocument();
+    expect(screen.getByText("财务分析智能体")).toBeInTheDocument();
 
     await user.click(screen.getAllByRole("button", { name: /导入预设|Import preset/i })[0]!);
 
@@ -414,8 +414,9 @@ describe("SkillsPageClient", () => {
     await user.click(screen.getByRole("button", { name: /workspace-context/i }));
 
     expect(screen.getByDisplayValue("workspace-context")).toBeDisabled();
-    expect(screen.getByDisplayValue("# Workspace Context")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "删除 Skill" })).toBeDisabled();
+    expect(screen.getByRole("heading", { name: "Workspace Context" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "删除 Skill" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "只读预览" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "保存 Skill" })).toBeDisabled();
     expect(screen.queryByDisplayValue("Inspect workspace context")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "新建 Skill 文件" })).not.toBeInTheDocument();
@@ -430,7 +431,8 @@ describe("SkillsPageClient", () => {
     await user.click(screen.getAllByRole("button", { name: /research-pack/i })[0]!);
 
     expect(screen.getByDisplayValue("research-pack")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("# Research Pack")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Research Pack" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "编辑 Markdown" })).toBeEnabled();
     expect(screen.getByText("Atlas")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "删除 Skill" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "保存 Skill" })).toBeDisabled();

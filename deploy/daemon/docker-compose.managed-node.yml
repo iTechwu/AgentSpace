@@ -25,6 +25,9 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - SETGID
+      - SETUID
     healthcheck:
       test: ["CMD", "dofe-agent-daemon", "status", "--json"]
       interval: 30s

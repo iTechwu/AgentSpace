@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CostsPageClient } from "@/features/costs/costs-page-client";
-import { getTeamBillingBalanceAction, upsertBudgetAction } from "@/features/costs/actions";
+import { getTeamBillingBalanceAction, reconcileWorkspaceUsageAction, upsertBudgetAction } from "@/features/costs/actions";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 import type { BudgetPageData, CostPageData } from "@/features/dashboard/data";
 
@@ -19,6 +19,7 @@ vi.mock("@/features/costs/actions", () => ({
   toggleBudgetAction: vi.fn(async () => {}),
   deleteBudgetAction: vi.fn(async () => {}),
   getTeamBillingBalanceAction: vi.fn(async () => ({ balance: "100.00", reservedBalance: "10.00", availableBalance: "90.00", currency: "CNY", status: "active" })),
+  reconcileWorkspaceUsageAction: vi.fn(async () => ({ reconciledCount: 2, unallocatedCount: 1 })),
 }));
 
 function mockMatchMedia(matches: boolean): void {
@@ -103,6 +104,7 @@ describe("CostsPageClient", () => {
     mockMatchMedia(false);
     routerRefresh.mockClear();
     vi.mocked(upsertBudgetAction).mockClear();
+    vi.mocked(reconcileWorkspaceUsageAction).mockClear();
     vi.mocked(getTeamBillingBalanceAction).mockClear();
     vi.mocked(getTeamBillingBalanceAction).mockResolvedValue({ balance: "100.00", reservedBalance: "10.00", availableBalance: "90.00", currency: "CNY", status: "active" });
   });
@@ -137,6 +139,17 @@ describe("CostsPageClient", () => {
     expect(screen.getAllByText("¥0.0200").length).toBeGreaterThan(0);
     expect(screen.queryByText(/EUR|USD/)).not.toBeInTheDocument();
     expect(screen.getByText(/更新时间/)).toBeInTheDocument();
+  });
+
+  it("syncs usage from the primary reconciliation action and reports the result", async () => {
+    const user = userEvent.setup();
+    render(<LanguageProvider><CostsPageClient budgets={budgets} costs={costs} /></LanguageProvider>);
+
+    await user.click(screen.getByRole("button", { name: "同步用量明细" }));
+
+    expect(reconcileWorkspaceUsageAction).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("已同步 2 条，未归属 1 条")).toBeInTheDocument();
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
   });
 
   it("labels legacy unknown usage as unattributed instead of an AI employee", async () => {

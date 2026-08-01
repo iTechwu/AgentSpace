@@ -9,12 +9,11 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/cli ./apps/cli
 COPY packages ./packages
 
-RUN corepack enable \
-  && corepack prepare pnpm@10.26.2 --activate \
+RUN npm install --global pnpm@10.26.2 \
   && pnpm install --frozen-lockfile --ignore-scripts \
   && pnpm --filter dofe-agent-daemon run build \
   && mkdir -p /opt/daemon-package \
-  && pnpm --filter dofe-agent-daemon pack --ignore-scripts --pack-destination /opt/daemon-package
+  && npm_config_ignore_scripts=true pnpm --filter dofe-agent-daemon pack --pack-destination /opt/daemon-package
 
 FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
 
@@ -28,14 +27,17 @@ RUN groupadd --gid 10001 dofe-agent \
 
 COPY --from=daemon-build /opt/daemon-package/dofe-agent-daemon-*.tgz /tmp/
 
-RUN corepack enable \
-  && corepack prepare pnpm@10.26.2 --activate \
-  && pnpm add --global /tmp/dofe-agent-daemon-*.tgz \
+RUN mkdir -p /opt/dofe-agent-daemon \
+  && tar -xzf /tmp/dofe-agent-daemon-*.tgz -C /opt/dofe-agent-daemon --strip-components=1 \
   && rm /tmp/dofe-agent-daemon-*.tgz \
+  && ln -s /opt/dofe-agent-daemon/bin/agent-router.js /usr/local/bin/agent-router \
+  && ln -s /opt/dofe-agent-daemon/bin/dofe-agent.js /usr/local/bin/dofe-agent \
+  && ln -s /opt/dofe-agent-daemon/bin/dofe-agent-daemon.js /usr/local/bin/dofe-agent-daemon \
   && test -n "$PROVIDER_INSTALL_COMMAND" \
   && /bin/sh -ceu "$PROVIDER_INSTALL_COMMAND" \
   && mkdir -p /var/lib/dofe-agent-daemon \
-  && chown -R dofe-agent:dofe-agent /home/dofe-agent /var/lib/dofe-agent-daemon
+  && chown -R dofe-agent:dofe-agent /home/dofe-agent /var/lib/dofe-agent-daemon \
+  && chmod 0755 /opt/dofe-agent-daemon/bin/*.js
 
 ENV HOME=/home/dofe-agent \
     DOFE_AGENT_DAEMON_STATE_DIR=/var/lib/dofe-agent-daemon \

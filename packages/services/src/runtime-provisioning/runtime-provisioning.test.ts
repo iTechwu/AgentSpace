@@ -770,6 +770,7 @@ test("Codex preflight accepts a protocol-compatible Responses model before verif
         model: "responses-unverified",
         modelType: "llm",
         supportedProtocols: ["openai_response"],
+        codexReady: false,
         isEnabled: true,
         isDeprecated: false,
       },
@@ -784,9 +785,8 @@ test("Codex preflight accepts a protocol-compatible Responses model before verif
     defaultModel: "responses-unverified",
   });
 
-  // The default-model catalog is filtered by runtime protocol, not by the
-  // model service's verification stamp. The gateway still blocks unverified
-  // openai_response routes at execution time.
+  // Selection is filtered by runtime protocol, not by the independent
+  // verification stamp. Gateway verification remains visible as evidence.
   assert.equal(preflight.allowed, true);
 });
 

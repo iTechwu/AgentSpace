@@ -16,8 +16,8 @@ test("managed credential bundles use the gateway endpoint required by each proto
     const codex = buildManagedCredentialBundleDocument(runtime("codex"), "codex-key");
     const gemini = buildManagedCredentialBundleDocument(runtime("gemini"), "gemini-key");
 
-    assert.equal(claude.environment.ANTHROPIC_BASE_URL, "http://model.local.dofe.ai/api/anthropic");
-    assert.equal(codex.environment.OPENAI_BASE_URL, "http://model.local.dofe.ai/api/v1");
+    assert.equal(claude.environment.ANTHROPIC_BASE_URL, "https://model.local.dofe.ai/api/anthropic");
+    assert.equal(codex.environment.OPENAI_BASE_URL, "https://model.local.dofe.ai/api/v1");
     assert.equal(gemini.environment.GEMINI_BASE_URL, "https://model.local.dofe.ai/api/gemini");
   } finally {
     if (originalModelsBaseUrl === undefined) delete process.env.MODELS_BASE_URL;

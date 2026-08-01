@@ -30,6 +30,10 @@ export function useDialogSurface<T extends HTMLElement>(onClose: () => void) {
     }
 
     const frame = window.requestAnimationFrame(() => {
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement && surface.contains(activeElement)) {
+        return;
+      }
       const autoFocusTarget = surface.querySelector<HTMLElement>("[autofocus]");
       const firstFocusable = getFocusableElements(surface)[0];
       (autoFocusTarget ?? firstFocusable ?? surface).focus();

@@ -65,6 +65,7 @@ export function ChatModelSelector({
   content,
   displayName,
   canManage,
+  initialModelId,
 }: ChatModelSelectorProps) {
   const { tx } = useLanguage();
   const [info, setInfo] = useState<ModelOverrideInfo | null>(null);
@@ -322,15 +323,17 @@ export function ChatModelCommandDialog({
                   type="search"
                   value={query}
                 />
-                {query ? (
-                  <button
-                    aria-label={tx("清除搜索", "Clear search")}
-                    onClick={() => setQuery("")}
-                    type="button"
-                  >
-                    <AppIcon name="close" />
-                  </button>
-                ) : null}
+                <button
+                  aria-hidden={!query}
+                  aria-label={tx("清除搜索", "Clear search")}
+                  className={query ? "chat-model-command-dialog__search-clear--visible" : undefined}
+                  disabled={!query}
+                  onClick={() => setQuery("")}
+                  tabIndex={query ? 0 : -1}
+                  type="button"
+                >
+                  <AppIcon name="close" />
+                </button>
               </label>
 
               <div aria-label={tx("模型列表", "Model list")} className="chat-model-command-dialog__list" role="listbox">

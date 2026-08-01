@@ -139,7 +139,9 @@ describe("ChatModelCommandDialog", () => {
 
     await user.type(search, "opus");
 
-    expect(screen.queryByRole("option", { name: /seed-2.1-pro/ })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole("option", { name: /seed-2.1-pro/ })).not.toBeInTheDocument();
+    });
     expect(screen.getByRole("option", { name: /Claude Opus 4.7 Thinking/ })).toBeInTheDocument();
   });
 

@@ -57,6 +57,43 @@ test("tenant billing report uses the signed authoritative models route", async (
   }
 });
 
+test("tenant usage logs avoid the HTTP redirect that strips service authorization", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestUrl = "";
+  globalThis.fetch = (async (input, init) => {
+    requestUrl = String(input);
+    assert.equal(init?.method, "GET");
+    assert.match(new Headers(init?.headers).get("authorization") ?? "", /^Bearer /);
+    return new Response(JSON.stringify({
+      code: 0,
+      msg: "ok",
+      data: { list: [], total: 0, page: 1, limit: 100 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  resetModelsInternalClientForTests();
+
+  try {
+    const client = getModelsInternalClient({
+      MODELS_BASE_URL: "http://model.local.dofe.ai/api",
+      MODELS_SERVICE_NAME: "agents-dofe-ai",
+      MODELS_INTERNAL_API_SECRET: "test-secret",
+    });
+
+    await client.usage.tenantLogs({
+      params: { tenantId: "tenant-1" },
+      query: { runtimeCredentialId: "credential-1", page: 1, limit: 100 },
+    });
+
+    assert.equal(
+      requestUrl,
+      "https://model.local.dofe.ai/api/internal/usage/tenant/tenant-1/logs?runtimeCredentialId=credential-1&page=1&limit=100",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    resetModelsInternalClientForTests();
+  }
+});
+
 test("tenant-first billing preflight uses the signed v2 internal route", async () => {
   const body = {
     scope: {

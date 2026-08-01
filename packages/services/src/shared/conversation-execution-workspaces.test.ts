@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { before } from "node:test";
@@ -14,6 +14,7 @@ import {
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-conversation-execution-"));
+const resolvedTempRoot = realpathSync(tempRoot);
 
 before(() => {
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
@@ -127,7 +128,7 @@ test("resolveConversationExecutionWorkspacePath uses the conversation-scoped dae
       agentId: "Atlas Planner",
     }),
     join(
-      tempRoot,
+      resolvedTempRoot,
       "data",
       "daemon",
       "workspaces",

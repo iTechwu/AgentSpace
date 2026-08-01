@@ -158,6 +158,9 @@ vi.mock("@/features/integrations/feishu/feishu-actions", () => ({
     recentOutboxFailures: [],
     recentInboundEvents: [],
   })),
+  inspectFeishuAgentBotBindingAvailabilityAction: vi.fn(async () => ({
+    state: "available",
+  })),
   rotateFeishuAgentBotCredentialsAction: vi.fn(async () => ({
     id: "feishu-agent-bot-planner",
     displayName: "Planner Feishu Bot",
@@ -1172,6 +1175,7 @@ describe("AgentsPageClient", () => {
         verificationToken: "",
         encryptKey: "",
         tenantKey: "",
+        transferDisabledBindingId: undefined,
         channelAutoProvisioning: {
           botAdded: "auto_create_channel",
           firstMessage: "auto_create_if_bot_mentioned",
@@ -1230,6 +1234,7 @@ describe("AgentsPageClient", () => {
         verificationToken: "verify_planner",
         encryptKey: "encrypt_planner",
         tenantKey: "tenant_planner",
+        transferDisabledBindingId: undefined,
         channelAutoProvisioning: {
           botAdded: "pending_admin_review",
           firstMessage: "reply_with_setup_card",
@@ -2140,7 +2145,6 @@ describe("SkillRequirementsModal", () => {
   });
 
   it("shows an upgrade diff banner with the added requirement keys", async () => {
-    const user = userEvent.setup();
     const onConfirm = vi.fn();
 
     render(

@@ -209,9 +209,9 @@ export function buildRecoveredActiveEmployee(
     role: "Agent",
     remarkName: employeeName,
     origin: "runtime-recovered",
-    summary: `${employeeName} was recovered from runtime binding ${runtimeName}.`,
+    summary: `${employeeName} 从运行时绑定 ${runtimeName} 恢复。`,
     traits: [],
-    fit: `Recovered from runtime binding ${runtimeName}.`,
+    fit: `从运行时绑定 ${runtimeName} 恢复。`,
     skillIds: [],
     channels,
     status: "active",
@@ -344,7 +344,7 @@ function mergeBuiltinWorkspaceSkill(
 }
 
 export function createUniqueWorkspaceSkillName(skills: WorkspaceSkill[], baseName: string): string {
-  const trimmedBaseName = baseName.trim() || "New Skill";
+  const trimmedBaseName = baseName.trim() || "新建 Skill";
   if (!skills.some((skill) => sameValue(skill.name, trimmedBaseName))) {
     return trimmedBaseName;
   }
@@ -1336,12 +1336,12 @@ function createLegacySkillFileContent(input: {
   enabled: boolean;
 }): string {
   const metadataLines = [
-    input.category ? `- Legacy category: ${input.category}` : "",
-    input.level ? `- Legacy level: ${input.level}` : "",
-    input.enabled ? "" : "- Legacy state: disabled",
+    input.category ? `- 旧版分类：${input.category}` : "",
+    input.level ? `- 旧版级别：${input.level}` : "",
+    input.enabled ? "" : "- 旧版状态：已禁用",
   ].filter(Boolean);
   const summary =
-    input.description || `Use when Codex should apply the ${input.name} workflow.`;
+    input.description || `当 Codex 需要应用 ${input.name} 工作流时使用。`;
 
   return `---
 name: ${slugify(input.name)}
@@ -1350,9 +1350,9 @@ ${formatFrontmatterDescription(summary)}
 
 # ${input.name}
 
-${input.description || "Migrated from the previous agent-local skill configuration."}
+${input.description || "从之前的 agent 本地 skill 配置迁移而来。"}
 
-${metadataLines.length > 0 ? `## Migration Notes\n\n${metadataLines.join("\n")}\n` : ""}`;
+${metadataLines.length > 0 ? `## 迁移说明\n\n${metadataLines.join("\n")}\n` : ""}`;
 }
 
 function createBuiltinReturnOutputFilesSkill(): WorkspaceSkill {

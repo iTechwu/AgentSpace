@@ -346,12 +346,8 @@ export function FeishuAgentBotAgentSettingsPanel({
               disabled={disabled}
               onBlur={() => {
                 if (!appId.trim()) return;
-                startTransition(async () => {
-                  try {
-                    await inspectBindingAvailability();
-                  } catch (error) {
-                    setFeedback(translateSettingsActionError(error, tx));
-                  }
+                void inspectBindingAvailability().catch((error) => {
+                  setFeedback(translateSettingsActionError(error, tx));
                 });
               }}
               onChange={(event) => {

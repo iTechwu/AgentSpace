@@ -21,11 +21,11 @@ export async function syncRuntimeAppSkill(input: {
 }): Promise<RuntimeAppSkillSyncResult> {
   const installed = readRuntimeInstalledAppSync(input);
   if (!installed || installed.status !== "installed" || !installed.enabled) {
-    return { status: "not_available", warning: "Runtime app is not installed on the selected runtime." };
+    return { status: "not_available", warning: "运行时应用未安装在所选运行时上。" };
   }
   const catalog = readRuntimeAppCatalogItemSync(input.source, input.name);
   if (!catalog?.skillMd?.trim()) {
-    return { status: "not_available", warning: "Catalog item does not declare SKILL.md." };
+    return { status: "not_available", warning: "目录项未声明 SKILL.md。" };
   }
 
   const skillName = `clihub-${catalog.name}`;
@@ -48,7 +48,7 @@ export async function syncRuntimeAppSkill(input: {
   const skillContent = await resolveSkillMdContent(catalog.skillMd, input.fetchImpl ?? fetch);
   const skill = createWorkspaceSkillSync({
     name: skillName,
-    description: catalog.description || `${catalog.displayName} CLI-Hub runtime app usage notes.`,
+    description: catalog.description || `${catalog.displayName} CLI-Hub 运行时应用使用说明。`,
     content: skillContent.content,
     sourceType: "clihub_runtime_app",
     sourceUrl: skillContent.sourceUrl,
@@ -87,20 +87,20 @@ async function resolveSkillMdContent(
   if (/^https?:\/\//i.test(trimmed)) {
     const response = await fetchImpl(trimmed, { cache: "no-store" });
     if (!response.ok) {
-      throw new Error(`Failed to fetch SKILL.md: ${response.status} ${response.statusText}`);
+      throw new Error(`获取 SKILL.md 失败: ${response.status} ${response.statusText}`);
     }
     return { content: await response.text(), sourceUrl: trimmed };
   }
   return {
     content: [
-      "# CLI-Hub runtime app",
+      "# CLI-Hub 运行时应用",
       "",
-      `The CLI-Hub catalog references SKILL.md at: ${trimmed}`,
+      `CLI-Hub 目录引用的 SKILL.md 位于：${trimmed}`,
       "",
-      "This skill only describes how to use the tool. It is not proof that the software is installed.",
-      "DofeAgent will expose this skill in task context only when the bound runtime reports the app as installed and enabled.",
+      "此技能仅描述如何使用该工具，不证明软件已安装。",
+      "DofeAgent 仅在绑定的运行时报告该应用已安装并启用时，才在任务上下文中暴露此技能。",
     ].join("\n"),
-    warning: "Catalog SKILL.md is a relative path; a placeholder skill was created until the source file can be resolved.",
+    warning: "目录 SKILL.md 是相对路径；已创建占位技能，待源文件可解析后替换。",
   };
 }
 

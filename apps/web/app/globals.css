@@ -15471,6 +15471,107 @@ textarea:focus {
   margin: 1.2rem 0 0.6rem;
 }
 
+.costs-reconcile-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  min-height: 3.5rem;
+  margin: 0 0 1.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.costs-reconcile-btn {
+  display: inline-flex;
+  min-height: 2.5rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 650;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition), box-shadow var(--transition), transform var(--transition), opacity var(--transition);
+}
+
+.costs-reconcile-btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 82%, #000000);
+  background: color-mix(in srgb, var(--accent) 88%, #000000);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 20%, transparent);
+  transform: translateY(-1px);
+}
+
+.costs-reconcile-btn:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  outline-offset: 2px;
+}
+
+.costs-reconcile-btn:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.costs-reconcile-btn__icon,
+.costs-reconcile-result svg {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+}
+
+.costs-reconcile-btn__icon--loading {
+  animation: costs-reconcile-spin 0.85s linear infinite;
+}
+
+.costs-reconcile-details {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+}
+
+.costs-reconcile-meta,
+.costs-reconcile-result {
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.costs-reconcile-meta {
+  color: var(--muted);
+}
+
+.costs-reconcile-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 600;
+}
+
+.costs-reconcile-result--success {
+  color: var(--color-success);
+}
+
+.costs-reconcile-result--error {
+  color: var(--color-danger);
+}
+
+@keyframes costs-reconcile-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .costs-reconcile-btn__icon--loading {
+    animation: none;
+  }
+}
+
 .costs-agent-table {
   display: flex;
   flex-direction: column;
@@ -18045,6 +18146,14 @@ textarea:focus {
   border-radius: 4px;
   background: transparent;
   color: var(--muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: background 160ms ease, color 160ms ease, opacity 160ms ease;
+}
+
+.chat-model-command-dialog__search .chat-model-command-dialog__search-clear--visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .chat-model-command-dialog__search button:hover {
@@ -31533,96 +31642,184 @@ button[aria-disabled="true"] svg {
   flex: none;
 }
 
-/* ==========================================================================
-   Feishu integrations — layout & spacing polish (unified vertical rhythm)
-   Rhythm: shell 1.25 · panel-internal 1.1 · group 0.9 · card-gap 0.9 · field 0.9
-   ========================================================================== */
-
-/* Top-level blocks (overview / feedback / groups) get one consistent gap */
-.settings-group__grid {
-  gap: 1.25rem;
+/* Feishu integration settings: 4px-based spacing rhythm. */
+.settings-group--integration .settings-page__title {
+  margin-bottom: 1.5rem;
 }
 
-/* Every Feishu panel: uniform internal column rhythm */
-.feishu-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
-}
-
-/* Grouped sections */
-.feishu-group {
-  gap: 0.9rem;
-}
-.feishu-group__header {
-  padding: 0 0.15rem;
-}
-
-/* Card lists */
-.feishu-integration-list,
-.feishu-binding-list {
-  gap: 0.9rem;
-}
-
-/* Inline forms: consistent grid gap, no leftover chrome */
-.feishu-integration-form,
-.feishu-binding-form {
-  gap: 0.9rem 1rem;
+.settings-group--integration > .settings-group__header {
   padding: 0;
 }
 
-/* Cards: uniform horizontal padding + internal gaps */
-.feishu-integration-card {
-  gap: 0.95rem;
-  padding: 1.05rem 1.1rem;
-}
-.feishu-binding-card {
-  gap: 0.85rem;
-  padding: 1rem 1.1rem;
-}
-.feishu-integration-card__meta,
-.feishu-binding-card__meta {
-  gap: 0.4rem 0.9rem;
-  padding: 0.7rem 0.85rem;
+.settings-group--integration .settings-group__grid {
+  gap: 1.5rem;
 }
 
-/* Accordions: consistent summary/body padding */
-.feishu-advanced-settings > summary,
-.feishu-agent-bot-policy-editor > summary {
-  padding: 0.85rem 2.5rem 0.85rem 1rem;
+.settings-group--integration .feishu-overview {
+  gap: 0.75rem;
 }
-.feishu-advanced-settings__body,
-.feishu-agent-bot-policy-editor__body {
-  gap: 0.85rem 0.9rem;
-  padding: 0.95rem 1rem 1rem;
+
+.settings-group--integration .feishu-stat-card {
+  min-height: 4.75rem;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: none;
 }
-.feishu-setup-guide {
+
+.settings-group--integration .feishu-stat-card__icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 8px;
+}
+
+.settings-group--integration .feishu-group {
+  gap: 0.75rem;
+}
+
+.settings-group--integration .feishu-group__header {
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.5rem;
+  padding: 0;
+}
+
+.settings-group--integration .feishu-group__header::before {
+  width: 3px;
+  height: 1rem;
+}
+
+.settings-group--integration .feishu-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.settings-group--integration .feishu-panel > .panel-header {
+  padding: 1rem;
+}
+
+.settings-group--integration .feishu-integration-form,
+.settings-group--integration .feishu-binding-form {
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.settings-group--integration .feishu-integration-form .form-field,
+.settings-group--integration .feishu-binding-form .form-field {
+  gap: 0.5rem;
+}
+
+.settings-group--integration .feishu-integration-form .form-field input,
+.settings-group--integration .feishu-integration-form .form-field select,
+.settings-group--integration .feishu-binding-form .form-field input,
+.settings-group--integration .feishu-binding-form .form-field select {
+  min-height: 2.5rem;
+  padding-inline: 0.75rem;
+}
+
+.settings-group--integration .feishu-advanced-settings,
+.settings-group--integration .feishu-agent-bot-policy-editor,
+.settings-group--integration .feishu-connection-summary,
+.settings-group--integration .feishu-integration-card,
+.settings-group--integration .feishu-binding-card,
+.settings-group--integration .feishu-binding-channel-group {
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.settings-group--integration .feishu-advanced-settings > summary,
+.settings-group--integration .feishu-agent-bot-policy-editor > summary {
+  gap: 0.25rem;
+  min-height: 4rem;
+  justify-content: center;
+  padding: 0.75rem 2.75rem 0.75rem 1rem;
+}
+
+.settings-group--integration .feishu-advanced-settings__body,
+.settings-group--integration .feishu-agent-bot-policy-editor__body {
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.settings-group--integration .feishu-integration-form__actions {
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+}
+
+.settings-group--integration .feishu-integration-form__actions :is(.action-button, .primary-button) {
+  min-height: 2.5rem;
+  padding: 0.6rem 0.9rem;
+}
+
+.settings-group--integration .feishu-integration-list,
+.settings-group--integration .feishu-binding-list {
+  gap: 0.75rem;
+  padding: 0 1rem 1rem;
+}
+
+.settings-group--integration .feishu-integration-form + .feishu-binding-list {
+  border-top: 1px solid #eeeeef;
+  padding-top: 1rem;
+}
+
+.settings-group--integration .feishu-integration-card,
+.settings-group--integration .feishu-binding-card {
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.settings-group--integration .feishu-integration-card__meta,
+.settings-group--integration .feishu-binding-card__meta {
+  gap: 0.5rem 1rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+}
+
+.settings-group--integration .feishu-setup-guide {
   padding-top: 0;
   border-top: 0;
 }
 
-/* Setup-guide sections must span full width inside the 2-col accordion body */
-.feishu-setup-guide > .feishu-setup-guide__grid,
-.feishu-setup-guide > .feishu-setup-checks,
-.feishu-setup-guide > .feishu-setup-command-list {
+.settings-group--integration .feishu-setup-guide > .feishu-setup-guide__grid,
+.settings-group--integration .feishu-setup-guide > .feishu-setup-checks,
+.settings-group--integration .feishu-setup-guide > .feishu-setup-command-list,
+.settings-group--integration .feishu-advanced-settings__body .panel-header,
+.settings-group--integration .feishu-advanced-settings__body .feishu-integration-form {
   grid-column: 1 / -1;
 }
 
-/* Create-integration: header + form span full width in the 2-col body */
-.feishu-advanced-settings__body .panel-header,
-.feishu-advanced-settings__body .feishu-integration-form {
-  grid-column: 1 / -1;
+.settings-group--integration :is(.feishu-resource-scope-hint, .feishu-binding-coverage, .feishu-resource-health) {
+  gap: 0.5rem;
+  padding: 1rem;
+  border-radius: 8px;
 }
 
-/* Command list density */
-.feishu-setup-command-list {
-  gap: 0.55rem;
-}
+@media (max-width: 720px) {
+  .costs-reconcile-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
 
-/* Resource hint / coverage / health callouts */
-.feishu-resource-scope-hint,
-.feishu-binding-coverage,
-.feishu-resource-health {
-  gap: 0.55rem;
-  padding: 0.9rem 1rem;
+  .costs-reconcile-btn {
+    width: 100%;
+  }
+
+  .settings-group--integration .feishu-group__header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding-left: 0.75rem;
+  }
+
+  .settings-group--integration .feishu-group__header::before {
+    position: absolute;
+    margin-left: -0.75rem;
+    margin-top: 0.15rem;
+  }
+
+  .settings-group--integration .feishu-integration-form__actions :is(.action-button, .primary-button) {
+    flex: 1 1 8rem;
+  }
 }

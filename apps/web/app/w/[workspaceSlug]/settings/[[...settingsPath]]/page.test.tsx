@@ -68,6 +68,7 @@ vi.mock("@/features/auth/sso-directory", () => ({
 
 vi.mock("@dofe-agent/services", () => ({
   getWorkspacePermissionCenterSync: mockGetWorkspacePermissionCenterSync,
+  resolveAgentRuntimeMode: () => "local",
 }));
 
 vi.mock("@/features/auth/server-auth", () => ({

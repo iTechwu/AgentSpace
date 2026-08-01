@@ -119,7 +119,7 @@ import {
   setWorkspaceAgentSkillAssignmentsAction,
   updateWorkspaceAgentDefaultModelAction,
 } from "@/features/agents/actions";
-import { readAgentRuntimeSync, readEmployeeRuntimeBindingSync, readStoredEmployeeSync } from "@dofe-agent/db";
+import { readAgentRuntimeSync, readEmployeeRuntimeBindingSync } from "@dofe-agent/db";
 import { bindEmployeeRuntimeSync } from "@dofe-agent/services";
 
 describe("agent actions", () => {

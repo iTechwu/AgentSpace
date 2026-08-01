@@ -39,6 +39,17 @@ test("models gateway base url falls back to the shared default and honors env ov
   assert.equal(resolveModelsGatewayBaseUrl({ MODELS_GATEWAY_BASE_URL: "" }), DEFAULT_MODELS_GATEWAY_BASE_URL);
 });
 
+test("models gateway avoids redirecting streamed POST requests on the local public host", () => {
+  assert.equal(
+    resolveModelsGatewayBaseUrl({ MODELS_GATEWAY_BASE_URL: "http://model.local.dofe.ai/api" }),
+    "https://model.local.dofe.ai/api",
+  );
+  assert.equal(
+    resolveModelsGatewayBaseUrl({ MODELS_GATEWAY_BASE_URL: "http://models.internal/api" }),
+    "http://models.internal/api",
+  );
+});
+
 test("runtime config reads PostgreSQL and TOS configuration from repository .env", () => {
   const originalCwd = process.cwd();
   const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-deployment-config-"));

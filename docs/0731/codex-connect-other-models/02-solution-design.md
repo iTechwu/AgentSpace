@@ -1,8 +1,23 @@
 # 解决方案设计
 
+## 0. 2026-08-01 现场复测修订
+
+本页原设计把 `codexReady` 同时用于“是否可选”和“是否已验证”。现场复测证明这会
+把 149 个声明 `openai_response` 的模型全部置灰，因此修订为两个独立维度：
+
+- 选择资格：LLM、启用、未废弃，并声明 `openai_response`。
+- 验证证据：经 Models 网关完成 Responses 流式终态和工具闭环；用于状态展示、告警和路由质量，不用于清空选择器。
+
+Codex Runtime 的外部 base URL 是 `https://model.local.dofe.ai/api/v1`；容器内受信任
+调用可使用 `http://dofe-models-api:3101/internal/v1`。管理 API
+`https://model.local.dofe.ai/api` 和供应商 endpoint 都不是 Codex 的 base URL。
+
+原生 Responses-only 端点可能只实现流式请求。`stream=false` 基线应作为独立诊断项，
+不得在真正的流式探测前直接判定 Codex 不可用。
+
 ## 1. 目标与原则
 
-目标不是把白名单简单扩大为“所有声明支持 OpenAI Responses 的模型”，而是只向 Codex 暴露经过实际验证的模型路由。
+模型选择范围是所有声明支持 OpenAI Responses 的语言模型；验证结果与选择资格分离。
 
 准入定义应为：
 
@@ -64,17 +79,18 @@ codexReady = route available
   && verification fresh
 ```
 
-`supportedProtocols` 可以继续服务通用协议路由，但 Codex 模型列表与任务启动校验必须使用 `codexReady`，不能只判断数组是否包含 `openai_response`。
+`supportedProtocols` 决定 Codex 模型列表与任务启动时的协议兼容性。`codexReady` 是路由验证证据，不能再作为选择器硬门禁。
 
 ## 4. 流式 Responses 探测
 
-将 `OpenAiResponsesProbeClient` 从单一非流式探测升级为两阶段探测。
+将探测拆成互不替代的诊断项；Codex 准入探测从流式阶段开始。
 
 ### 阶段 A：基础响应
 
-保留现有 `stream=false` 探测，验证请求体和完整 JSON 响应。
+可保留 `stream=false` 探测，验证完整 JSON 响应，但失败只记录
+`responses.nonStreaming=false`，不得跳过后续流式探测。
 
-### 阶段 B：流式一致性
+### 阶段 A：流式一致性
 
 发送 `stream=true` 并验证：
 
@@ -89,7 +105,7 @@ codexReady = route available
 
 验证结果应使用新版本标识，例如 `responses_stream_smoke_v1`，避免旧的非流式验证记录继续被误用。
 
-### 阶段 C：工具调用
+### 阶段 B：工具调用
 
 Codex 不是纯文本客户端。对拟标记 `codexReady` 的路由，再执行一个低成本工具探测：
 

@@ -56,7 +56,6 @@ import {
   rotateAgentSkillRequirementSecretSync,
   setEmployeeChannelMemberAccessSync,
   setEmployeeKnowledgePageIdsSync,
-  setEmployeeSkillIdsSync,
   setAgentSkillAssignmentsWithRequirementsValidationSync,
   tryRecordWorkspaceAuditEventSync,
   unbindEmployeeRuntimeSync,

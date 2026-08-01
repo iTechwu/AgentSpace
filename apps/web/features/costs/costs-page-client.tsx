@@ -8,6 +8,7 @@ import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-re
 import type { BudgetAction, BudgetPeriod, BudgetScope } from "@dofe-agent/db";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
+import { AppIcon } from "@/shared/ui/app-icon";
 
 type ActiveTab = "costs" | "budgets";
 
@@ -215,20 +216,27 @@ function CostOverview({
           disabled={isPending}
           onClick={handleReconcile}
         >
-          {isPending ? tx("同步中...", "Syncing...") : tx("同步用量明细", "Sync usage details")}
+          <AppIcon
+            className={isPending ? "costs-reconcile-btn__icon costs-reconcile-btn__icon--loading" : "costs-reconcile-btn__icon"}
+            name={isPending ? "loader" : "refresh"}
+          />
+          <span>{isPending ? tx("同步中...", "Syncing...") : tx("同步用量明细", "Sync usage details")}</span>
         </button>
-        {data.lastReconciledAt ? (
-          <span className="costs-reconcile-meta">
-            {tx("上次对账:", "Last reconciled:")} {formatCompactTimestamp(data.lastReconciledAt, { emptyFallback: data.lastReconciledAt })}
-          </span>
-        ) : null}
-        {lastResult ? (
-          <span className="costs-reconcile-meta">
-            {lastResult.reconciledCount === -1
-              ? tx("对账失败", "Reconciliation failed")
-              : tx(`已同步 ${lastResult.reconciledCount} 条，未归属 ${lastResult.unallocatedCount} 条`, `Synced ${lastResult.reconciledCount}, unattributed ${lastResult.unallocatedCount}`)}
-          </span>
-        ) : null}
+        <div aria-live="polite" className="costs-reconcile-details">
+          {data.lastReconciledAt ? (
+            <span className="costs-reconcile-meta">
+              {tx("上次对账:", "Last reconciled:")} {formatCompactTimestamp(data.lastReconciledAt, { emptyFallback: data.lastReconciledAt })}
+            </span>
+          ) : null}
+          {lastResult ? (
+            <span className={`costs-reconcile-result costs-reconcile-result--${lastResult.reconciledCount === -1 ? "error" : "success"}`}>
+              <AppIcon name={lastResult.reconciledCount === -1 ? "alertCircle" : "checkCircle"} />
+              {lastResult.reconciledCount === -1
+                ? tx("对账失败，请稍后重试", "Reconciliation failed. Try again later.")
+                : tx(`已同步 ${lastResult.reconciledCount} 条，未归属 ${lastResult.unallocatedCount} 条`, `Synced ${lastResult.reconciledCount}, unattributed ${lastResult.unallocatedCount}`)}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <h3>{tx("AI员工 费用明细", "AI employee Cost Breakdown")}</h3>

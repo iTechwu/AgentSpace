@@ -1,16 +1,23 @@
 # 实施与验收
 
+## 0.1 2026-08-01 修订
+
+现场复测推翻了“非流式基线必须先成功”和“选择器必须以 `codexReady` 为硬门禁”两项假设。
+修订后的实施要求以 [04-live-retest-and-correction.md](./04-live-retest-and-correction.md)
+为准：选择器按协议声明开放；端到端验证使用 Models
+`https://model.local.dofe.ai/api/v1/responses`；`stream=false` 失败不能阻止流式和工具探测。
+
 ## 0. 当前落地结果
 
 截至 2026-07-31，本地已实现：
 
-1. `responses_stream_smoke` 三阶段探测：非流式基线、强制 function call 流、回传 `function_call_output` 后的最终流。
+1. `responses_stream_smoke` 当前实现包含非流式基线、强制 function call 流、回传 `function_call_output` 后的最终流；现场复测确认第一阶段会产生 Responses-only 假阴性，需按 0.1 修订。
 2. 独立 `responsesVerifiedAt` 时间戳和 24 小时新鲜度门禁；普通健康检查不会延长 Codex 验证有效期。
 3. route 级门禁：每个 Provider/model availability 必须独立验证，其他 Provider 的成功不能为该路由背书。
 4. endpoint 更新/删除后立即失效该 Provider 的既有 Codex 验证。
 5. ProxyCore 严格、不可逆的 Responses 终态机；客户端流在上游 EOF 后先关闭，记账和健康更新在后处理完成。
 6. Responses 验证失败只写协议验证失败，不覆盖模型级 Chat 可用性和健康分数。
-7. Models 内部列表/详情、SDK、AgentSpace Runtime picker、创建前校验和员工绑定统一消费 `codexReady`。
+7. Models 内部列表/详情和 SDK 暴露 `codexReady` 证据；AgentSpace Runtime picker、创建前校验和员工绑定按 `openai_response` 协议交集开放，不以该证据清空列表。
 
 两个仓库的本地验证、提交和 `dev` 分支推送已经完成。按照当前机器的发布约束，本机不使用 Jenkins 部署 `models.dofe.ai` 或 `AgentSpace`，本次未执行任何部署操作。Chat-only 模型到 Responses 的完整 Facade 仍属于 P2 独立工作，不会被本次原生 Responses 准入伪装为已支持。
 
@@ -55,8 +62,8 @@
 
 | 文件 | 修改 |
 | --- | --- |
-| `packages/services/src/runtime-provisioning/runtime-provisioning.ts` | Codex 模型校验从 protocol 交集升级为 Codex-ready；服务端必须再次校验，不能只靠 UI |
-| `apps/web/features/runtimes/runtime-model-picker.tsx` | 只展示已验证模型，或把未验证模型置灰并显示具体能力缺口 |
+| `packages/services/src/runtime-provisioning/runtime-provisioning.ts` | Codex 模型校验使用 `openai_response` 协议交集；验证状态作为独立证据展示 |
+| `apps/web/features/runtimes/runtime-model-picker.tsx` | 展示所有协议兼容模型；验证状态可提示但不得使整个列表不可选 |
 | `packages/services/src/messages/messages.ts` | 保留当前中断提示，同时按网关错误码区分协议不匹配、终态缺失、上游失败 |
 | `packages/domain/src/daemon-provider.ts` | 保持 Codex 默认 `gpt-5.6-terra` 和 `openai_response` Runtime 协议 |
 
@@ -90,6 +97,7 @@
 
 ### 探测测试
 
+- 非流式失败时仍必须继续执行流式与工具探测；非流式能力单独记录。
 - 非流式成功、流式失败时，`codexReady=false`。
 - 流式文本成功、工具失败时，`codexReady=false`。
 - 文本与工具均成功时，`codexReady=true`。
@@ -114,7 +122,7 @@
 
 - Codex 新建 Runtime 的默认模型是 `gpt-5.6-terra`。
 - 员工设置默认模型后，新任务的实际执行模型和消息页显示一致。
-- DeepSeek 只有在当前路由通过 stream + tools 探测后才可选。
+- DeepSeek 和其他模型只要声明 `openai_response` 且满足模型策略即可选择；验证状态独立展示。
 - 合规的非 GPT 模型可以完成文本与工具任务，不再出现 completion 缺失错误。
 
 ### 正确性

@@ -13,8 +13,7 @@ COPY apps ./apps
 COPY packages ./packages
 COPY deploy ./deploy
 
-RUN corepack enable \
-  && corepack prepare pnpm@10.26.2 --activate \
+RUN npm install --global pnpm@10.26.2 \
   && pnpm install --frozen-lockfile --ignore-scripts
 
 ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
@@ -31,8 +30,7 @@ ENV PNPM_HOME=/pnpm \
 
 WORKDIR /srv/DofeAgent
 
-RUN corepack enable \
-  && corepack prepare pnpm@10.26.2 --activate
+RUN npm install --global pnpm@10.26.2
 
 COPY --from=build /srv/DofeAgent /srv/DofeAgent
 

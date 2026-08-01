@@ -153,7 +153,8 @@ export function AgentsPageClient({
     : canViewContainers && requestedMode === "container"
       ? "container"
       : "agent";
-  const activeAgentDetailTab = parseAgentDetailTab(searchParams.get("tab"));
+  const routeAgentDetailTab = parseAgentDetailTab(searchParams.get("tab"));
+  const [activeAgentDetailTab, setActiveAgentDetailTab] = useState<AgentDetailTab>(routeAgentDetailTab);
   const [selectedContainerId, setSelectedContainerId] = useState<string | null>(
     () => resolveFocusedContainerId({
       canManageRuntimes: data.canManageRuntimes,
@@ -197,6 +198,10 @@ export function AgentsPageClient({
     minWidth: 300,
     storageKey: "dofe-agent.execution-engine-list-width",
   });
+
+  useEffect(() => {
+    setActiveAgentDetailTab(routeAgentDetailTab);
+  }, [routeAgentDetailTab]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -426,6 +431,7 @@ export function AgentsPageClient({
   }
 
   function replaceManagementAgentDetailTab(tab: AgentDetailTab): void {
+    setActiveAgentDetailTab(tab);
     replaceManagementRoute((nextSearch) => {
       if (selectedAgentId) {
         nextSearch.set("focus", selectedAgentId);
