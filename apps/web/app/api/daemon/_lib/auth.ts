@@ -1,6 +1,7 @@
 import {
   readAgentRuntimeSync,
   readDaemonConnectionSync,
+  readMcpOperationSync,
   readQueuedTaskSync,
   readRuntimeAppOperationSync,
   validateDaemonApiTokenSync,
@@ -8,6 +9,7 @@ import {
   type DaemonApiTokenRecord,
   type DaemonConnectionRecord,
   type QueuedTaskRecord,
+  type RuntimeMcpOperationRecord,
 } from "@dofe-agent/db";
 import { resolveAgentRuntimeMode, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 
@@ -147,6 +149,21 @@ export function readRuntimeAppOperationForDaemon(
   const operation = readRuntimeAppOperationSync(operationId, auth.workspaceId);
   if (!operation) {
     return Response.json({ error: `Runtime app operation "${operationId}" does not exist.` }, { status: 404 });
+  }
+  const runtime = readRuntimeForDaemon(operation.runtimeId, auth);
+  if (runtime instanceof Response) {
+    return runtime;
+  }
+  return operation;
+}
+
+export function readMcpOperationForDaemon(
+  operationId: string,
+  auth: DaemonAuthContext,
+): RuntimeMcpOperationRecord | Response {
+  const operation = readMcpOperationSync(operationId, auth.workspaceId);
+  if (!operation) {
+    return Response.json({ error: `MCP operation "${operationId}" does not exist.` }, { status: 404 });
   }
   const runtime = readRuntimeForDaemon(operation.runtimeId, auth);
   if (runtime instanceof Response) {

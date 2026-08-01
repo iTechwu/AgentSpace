@@ -1,0 +1,313 @@
+import { createHash } from "node:crypto";
+import {
+  commitWorkspaceRevisionSync,
+  createWorkspaceRevisionSync,
+  ensureEmployeePersistentWorkspaceSync,
+  listEmployeeArtifactDigestsSync,
+  listEmployeeArtifactsSync,
+  listOrphanContentBlobsSync,
+  listSkillArtifactFileDigestsSync,
+  listWorkspaceRevisionDigestsSync,
+  publishEmployeeArtifactSync,
+  readEmployeePersistentWorkspaceSync,
+  readHeadRevisionSync,
+  softDeleteEmployeeArtifactSync,
+  upsertContentBlobSync,
+  deleteContentBlobSync,
+  type EmployeeArtifactRecord,
+  type EmployeePersistentWorkspaceRecord,
+  type EmployeeWorkspaceRevisionRecord,
+} from "@dofe-agent/db";
+import { createAttachmentStorageClient, sha256Hex } from "../attachments/storage.ts";
+import { mediaTypeForPath } from "../skills/skill-artifacts.ts";
+
+/* ------------------------------------------------------------------ */
+/* Types                                                               */
+/* ------------------------------------------------------------------ */
+
+export interface WorkspaceRevisionFileEntry {
+  path: string;
+  sha256: string;
+  size: number;
+  mediaType: string;
+}
+
+export interface WorkspaceRevisionManifest {
+  taskId?: string;
+  files: WorkspaceRevisionFileEntry[];
+}
+
+export interface TaskOutputFile {
+  path: string;
+  bytes: Uint8Array;
+  mediaType?: string;
+}
+
+export interface PromoteTaskOutputsResult {
+  revision: EmployeeWorkspaceRevisionRecord;
+  artifactIds: string[];
+  created: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/* Promote task outputs → persistent workspace revision                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Promotes a task's durable outputs into the employee's persistent workspace
+ * as an immutable, content-addressed revision. Idempotent by (task, content):
+ * re-running a recovered task produces the same manifest digest and returns
+ * the existing revision rather than publishing a duplicate (EAD §7, D-05).
+ *
+ * Formal artifacts (publishArtifact=true) are also published as
+ * employee_artifact rows referencing the same content-addressed blobs.
+ */
+export function promoteTaskOutputsToWorkspaceSync(input: {
+  workspaceId?: string;
+  taskId: string;
+  employeeName: string;
+  outputs: TaskOutputFile[];
+  publishArtifacts?: boolean;
+  createdBy?: string;
+}): PromoteTaskOutputsResult {
+  const workspaceId = input.workspaceId ?? "default";
+  const employeeName = input.employeeName.trim();
+  if (!employeeName) {
+    throw new Error("Employee name is required to promote task outputs.");
+  }
+
+  const workspace = ensureEmployeePersistentWorkspaceSync({ workspaceId, employeeName });
+  const head = readHeadRevisionSync(employeeName, workspaceId);
+  const storage = createAttachmentStorageClient();
+
+  const manifestFiles: WorkspaceRevisionFileEntry[] = [];
+  const artifactIds: string[] = [];
+
+  for (const output of input.outputs) {
+    const path = output.path.trim();
+    if (!path) {
+      continue;
+    }
+    const sha256 = sha256Hex(output.bytes);
+    const mediaType = output.mediaType ?? mediaTypeForPath(path);
+    const size = output.bytes.byteLength;
+
+    // Upload content-addressed blob (dedup at storage + index layers).
+    if (!storage.contentAddressedBlobExistsSync({ workspaceId, sha256 })) {
+      storage.putContentAddressedBlobSync({ workspaceId, sha256, contentBytes: output.bytes, mediaType });
+    }
+    upsertContentBlobSync({
+      workspaceId,
+      sha256,
+      storageProvider: "local",
+      storageKey: `workspaces/${workspaceId}/content-blobs/${sha256.slice(0, 2)}/${sha256}`,
+      sizeBytes: size,
+      mediaType,
+    });
+
+    manifestFiles.push({ path, sha256, size, mediaType });
+
+    if (input.publishArtifacts) {
+      const artifact = publishEmployeeArtifactSync({
+        workspaceId,
+        employeeName,
+        contentDigest: sha256,
+        mediaType,
+        fileName: path.split("/").pop() || path,
+        sizeBytes: size,
+        sourceTaskId: input.taskId,
+      });
+      artifactIds.push(artifact.id);
+    }
+  }
+
+  const manifest: WorkspaceRevisionManifest = {
+    taskId: input.taskId,
+    files: manifestFiles.sort((left, right) => left.path.localeCompare(right.path, "en-US")),
+  };
+  const manifestDigest = computeRevisionManifestDigest(manifest);
+
+  // createWorkspaceRevisionSync is idempotent on (workspace, manifestDigest).
+  const revision = createWorkspaceRevisionSync({
+    workspaceId,
+    employeeName,
+    parentRevisionId: head?.id,
+    manifestDigest,
+    manifestJson: JSON.stringify(manifest),
+    sourceTaskId: input.taskId,
+    status: "pending",
+    createdBy: input.createdBy,
+  });
+
+  const wasCreated = revision.status === "pending";
+  const committed = wasCreated
+    ? commitWorkspaceRevisionSync(revision.id, workspaceId)
+    : revision;
+
+  return {
+    revision: committed,
+    artifactIds,
+    created: wasCreated,
+  };
+}
+
+/**
+ * Publishes a single formal artifact (report, code package, presentation) to
+ * the employee's persistent workspace. The bytes become a content-addressed
+ * blob; the employee_artifact row is the published reference.
+ */
+export function promoteArtifactSync(input: {
+  workspaceId?: string;
+  employeeName: string;
+  fileName: string;
+  bytes: Uint8Array;
+  mediaType?: string;
+  sourceTaskId?: string;
+}): { artifact: EmployeeArtifactRecord; digest: string } {
+  const workspaceId = input.workspaceId ?? "default";
+  ensureEmployeePersistentWorkspaceSync({ workspaceId, employeeName: input.employeeName });
+  const storage = createAttachmentStorageClient();
+  const sha256 = sha256Hex(input.bytes);
+  const mediaType = input.mediaType ?? mediaTypeForPath(input.fileName);
+
+  if (!storage.contentAddressedBlobExistsSync({ workspaceId, sha256 })) {
+    storage.putContentAddressedBlobSync({ workspaceId, sha256, contentBytes: input.bytes, mediaType });
+  }
+  upsertContentBlobSync({
+    workspaceId,
+    sha256,
+    storageProvider: "local",
+    storageKey: `workspaces/${workspaceId}/content-blobs/${sha256.slice(0, 2)}/${sha256}`,
+    sizeBytes: input.bytes.byteLength,
+    mediaType,
+  });
+
+  const artifact = publishEmployeeArtifactSync({
+    workspaceId,
+    employeeName: input.employeeName,
+    contentDigest: sha256,
+    mediaType,
+    fileName: input.fileName,
+    sizeBytes: input.bytes.byteLength,
+    sourceTaskId: input.sourceTaskId,
+  });
+  return { artifact, digest: sha256 };
+}
+
+/* ------------------------------------------------------------------ */
+/* Orphan blob reclamation                                             */
+/* ------------------------------------------------------------------ */
+
+export interface OrphanBlobScanResult {
+  orphanCount: number;
+  reclaimedCount: number;
+  orphans: Array<{ sha256: string; storageKey: string }>;
+}
+
+/**
+ * Scans for content blobs no longer referenced by any skill artifact,
+ * committed workspace revision, or live employee artifact, and (optionally)
+ * deletes them. Per EAD §10 / P2-step-5: delayed reclamation with a grace
+ * window so in-flight uploads are not collected.
+ */
+export function reclaimOrphanContentBlobsSync(input: {
+  workspaceId?: string;
+  retainRecentSeconds?: number;
+  now?: string;
+  delete?: boolean;
+  limit?: number;
+}): OrphanBlobScanResult {
+  const workspaceId = input.workspaceId ?? "default";
+
+  const orphans = listOrphanContentBlobsSync(
+    workspaceId,
+    {
+      skillArtifactFileDigests: listSkillArtifactFileDigestsSync(workspaceId),
+      workspaceRevisionDigests: listWorkspaceRevisionDigestsSync(workspaceId),
+      employeeArtifactDigests: listEmployeeArtifactDigestsSync(workspaceId),
+    },
+    {
+      retainRecentSeconds: input.retainRecentSeconds ?? 3600,
+      now: input.now,
+      limit: input.limit ?? 500,
+    },
+  );
+
+  let reclaimedCount = 0;
+  if (input.delete) {
+    for (const orphan of orphans) {
+      if (deleteContentBlobSync(orphan.sha256, workspaceId)) {
+        reclaimedCount += 1;
+      }
+    }
+  }
+
+  return {
+    orphanCount: orphans.length,
+    reclaimedCount,
+    orphans: orphans.map((blob) => ({ sha256: blob.sha256, storageKey: blob.storageKey })),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Read helpers (for UI / data-protection panel)                        */
+/* ------------------------------------------------------------------ */
+
+export interface EmployeeDataProtectionSnapshot {
+  workspace: EmployeePersistentWorkspaceRecord | null;
+  headRevision: EmployeeWorkspaceRevisionRecord | null;
+  recentArtifacts: EmployeeArtifactRecord[];
+}
+
+export function readEmployeeDataProtectionSnapshotSync(input: {
+  workspaceId?: string;
+  employeeName: string;
+}): EmployeeDataProtectionSnapshot {
+  const workspaceId = input.workspaceId ?? "default";
+  const workspace = readEmployeePersistentWorkspaceSync(input.employeeName, workspaceId);
+  return {
+    workspace,
+    headRevision: workspace ? readHeadRevisionSync(input.employeeName, workspaceId) : null,
+    recentArtifacts: listEmployeeArtifactsSync({ employeeName: input.employeeName, workspaceId, limit: 10 }),
+  };
+}
+
+export { softDeleteEmployeeArtifactSync };
+
+/* ------------------------------------------------------------------ */
+/* Digest                                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Revision manifest digest = sha256 of canonical (keys-sorted, no-whitespace)
+ * JSON of {taskId, files sorted by path}. Excludes timestamps and parent so
+ * re-running a recovered task yields the same digest → idempotent publish.
+ */
+export function computeRevisionManifestDigest(manifest: WorkspaceRevisionManifest): string {
+  const canonical = stableStringify({
+    taskId: manifest.taskId ?? "",
+    files: manifest.files
+      .slice()
+      .sort((left, right) => left.path.localeCompare(right.path, "en-US"))
+      .map((entry) => ({ path: entry.path, sha256: entry.sha256, size: entry.size, mediaType: entry.mediaType })),
+  });
+  return createHash("sha256").update(canonical).digest("hex");
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortKeysDeep(value));
+}
+
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortKeysDeep);
+  }
+  if (value && typeof value === "object") {
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      sorted[key] = sortKeysDeep((value as Record<string, unknown>)[key]);
+    }
+    return sorted;
+  }
+  return value;
+}

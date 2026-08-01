@@ -210,6 +210,47 @@ export {
   type RuntimeAppSkillSyncResult,
 } from "./clihub/skill-sync.ts";
 
+// MCP center
+export {
+  assertCanManageMcpCenterSync,
+  createMcpCatalogItemSync,
+  deleteMcpCatalogItemForWorkspaceSync,
+  listMcpCatalogItemsForWorkspaceSync,
+  readMcpCatalogItemForWorkspaceSync,
+  type CreateMcpCatalogItemInput,
+  type McpDeclaredTool,
+} from "./mcp-center/catalog.ts";
+export {
+  classifyVerificationOutcome,
+  disableMcpConnectionSync,
+  enableMcpConnectionSync,
+  listMcpConnectionActivitySync,
+  listMcpConnectionsForRuntimeServiceSync,
+  listReadyMcpConnectionsForTaskSync,
+  readMcpConnectionDetailSync,
+  removeMcpConnectionSync,
+  requestMcpConnectionSync,
+  resolveClaimedMcpOperationSync,
+  reverifyMcpConnectionSync,
+  rotateMcpSecretSync,
+  updateMcpConnectionConfigServiceSync,
+  type McpConnectionActivity,
+  type McpConnectionDetail,
+  type McpSecretFieldStatus,
+  type RequestMcpConnectionInput,
+  type RequestMcpConnectionResult,
+  type UpdateMcpConnectionConfigServiceInput,
+} from "./mcp-center/connections.ts";
+export {
+  MCP_SECRET_KEY_VERSION,
+  decryptMcpSecret,
+  encryptMcpSecret,
+  redactMcpText,
+  redactToolInputSchema,
+  validateMcpEndpoint,
+  validateMcpResolvedAddresses,
+} from "./mcp-center/security.ts";
+
 // Skills
 export {
   BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME,
@@ -240,6 +281,20 @@ export {
   type SkillImportConflict,
   type SkillImportResult,
 } from "./skills/import.ts";
+export {
+  buildAndPersistSkillArtifactSync,
+  buildLegacyArtifactFromSkillSync,
+  verifySkillArtifactIntegritySync,
+  materializeSkillArtifactFilesSync,
+  computeArtifactDigest,
+  mediaTypeForPath,
+  isTextMediaType,
+  type SkillArtifactManifest,
+  type SkillArtifactManifestFile,
+  type ArtifactFileInput,
+  type BuildArtifactResult,
+  type ArtifactIntegrityResult,
+} from "./skills/skill-artifacts.ts";
 export {
   resolveSystemAgentTemplateForWorkspaceSync,
   type ResolvedAgentTemplateForWorkspace,

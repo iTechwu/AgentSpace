@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import { TosClient } from "@volcengine/tos-sdk";
@@ -62,6 +62,46 @@ export interface AttachmentStorageClient {
   deleteObject(input: AttachmentStorageReadInput): Promise<void>;
   deleteObjectSync(input: AttachmentStorageReadInput): void;
   createReadUrl(input: AttachmentStorageReadInput): Promise<string | null>;
+  putContentAddressedBlobSync(input: ContentAddressedBlobPutInput): ContentAddressedBlobRef;
+  getContentAddressedBlobSync(input: ContentAddressedBlobReadInput): Uint8Array;
+  contentAddressedBlobExistsSync(input: ContentAddressedBlobReadInput): boolean;
+  deleteContentAddressedBlobSync(input: ContentAddressedBlobReadInput): void;
+}
+
+export interface ContentAddressedBlobPutInput {
+  workspaceId: string;
+  sha256: string;
+  contentBytes: Uint8Array;
+  mediaType?: string;
+}
+
+export interface ContentAddressedBlobReadInput {
+  workspaceId: string;
+  sha256: string;
+}
+
+export interface ContentAddressedBlobRef {
+  workspaceId: string;
+  sha256: string;
+  storageProvider: "tos" | "local";
+  storageBucket?: string;
+  storageRegion?: string;
+  storageEndpoint?: string;
+  storageKey: string;
+  storedPath: string;
+  sizeBytes: number;
+}
+
+/** Deterministic content-addressed key shared with packages/db content_blob index. */
+export function buildContentAddressedBlobKey(workspaceId: string, sha256: string): string {
+  const normalized = sha256.trim().toLowerCase();
+  return [
+    "workspaces",
+    sanitizeObjectKeySegment(workspaceId),
+    "content-blobs",
+    normalized.slice(0, 2) || "00",
+    normalized,
+  ].join("/");
 }
 
 let testStorageClient: AttachmentStorageClient | undefined;
@@ -300,6 +340,72 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     return this.createPresignedUrl(key, "GET");
   }
 
+  putContentAddressedBlobSync(input: ContentAddressedBlobPutInput): ContentAddressedBlobRef {
+    const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
+    const body = Buffer.from(input.contentBytes);
+    const signedUrl = this.createPresignedUrl(key, "PUT");
+    const args = ["--fail", "-sS", "-X", "PUT", signedUrl, "--data-binary", "@-"];
+    if (input.mediaType) {
+      args.splice(args.length - 2, 0, "-H", `Content-Type: ${input.mediaType}`);
+    }
+    const result = spawnSync("curl", args, { input: body, maxBuffer: 1024 * 1024 });
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.status !== 0) {
+      const output = Buffer.concat([
+        Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? ""),
+        Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(result.stderr ?? ""),
+      ]).toString("utf8");
+      throw new Error(`TOS content blob upload failed: ${output.trim() || `curl exited with status ${result.status}`}`);
+    }
+    return {
+      workspaceId: input.workspaceId,
+      sha256: input.sha256.trim().toLowerCase(),
+      storageProvider: "tos",
+      storageBucket: this.config.bucket,
+      storageRegion: this.config.region,
+      storageEndpoint: this.config.endpoint,
+      storageKey: key,
+      storedPath: `tos://${this.config.bucket}/${key}`,
+      sizeBytes: input.contentBytes.byteLength,
+    };
+  }
+
+  getContentAddressedBlobSync(input: ContentAddressedBlobReadInput): Uint8Array {
+    const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
+    const result = spawnSync("curl", ["--fail", "-sS", this.createPresignedUrl(key, "GET")], {
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.status !== 0) {
+      const output = Buffer.isBuffer(result.stderr) ? result.stderr.toString("utf8") : String(result.stderr ?? "");
+      throw new Error(`TOS content blob read failed: ${output.trim() || `curl exited with status ${result.status}`}`);
+    }
+    return new Uint8Array(Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? ""));
+  }
+
+  contentAddressedBlobExistsSync(input: ContentAddressedBlobReadInput): boolean {
+    const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
+    const signedUrl = this.createPresignedUrl(key, "GET");
+    // HEAD via curl; 2xx = exists, 404 = missing, anything else = treat as missing.
+    const result = spawnSync("curl", ["-sS", "-o", "/dev/null", "-w", "%{http_code}", "-I", signedUrl], {
+      maxBuffer: 1024 * 1024,
+    });
+    if (result.error || result.status !== 0) {
+      return false;
+    }
+    const code = Number(Buffer.isBuffer(result.stdout) ? result.stdout.toString("utf8") : String(result.stdout ?? ""));
+    return Number.isFinite(code) && code >= 200 && code < 300;
+  }
+
+  deleteContentAddressedBlobSync(input: ContentAddressedBlobReadInput): void {
+    const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
+    this.deleteObjectSync({ storageKey: key, storedPath: `tos://${this.config.bucket}/${key}` });
+  }
+
   private createPresignedUrl(key: string, method: "GET" | "PUT" | "DELETE"): string {
     // The SDK runtime supports all HTTP methods; its current type declaration omits DELETE.
     return this.client.getPreSignedUrl({
@@ -370,6 +476,56 @@ class LocalAttachmentStorageClient implements AttachmentStorageClient {
 
   async createReadUrl(_input: AttachmentStorageReadInput): Promise<string | null> {
     return null;
+  }
+
+  putContentAddressedBlobSync(input: ContentAddressedBlobPutInput): ContentAddressedBlobRef {
+    const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
+    const targetPath = this.resolveObjectPath(key);
+    mkdirSync(dirname(targetPath), { recursive: true });
+    // Content-addressed dedup: if the blob already exists, the bytes are identical — skip.
+    if (!existsSync(targetPath)) {
+      writeFileSync(targetPath, input.contentBytes, { flag: "wx" });
+    }
+    return this.toContentAddressedRef(input.workspaceId, input.sha256, key, input.contentBytes.byteLength);
+  }
+
+  getContentAddressedBlobSync(input: ContentAddressedBlobReadInput): Uint8Array {
+    const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
+    return new Uint8Array(readFileSync(this.resolveObjectPath(key)));
+  }
+
+  contentAddressedBlobExistsSync(input: ContentAddressedBlobReadInput): boolean {
+    const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
+    try {
+      return existsSync(this.resolveObjectPath(key));
+    } catch {
+      return false;
+    }
+  }
+
+  deleteContentAddressedBlobSync(input: ContentAddressedBlobReadInput): void {
+    const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
+    try {
+      rmSync(this.resolveObjectPath(key), { force: true });
+    } catch {
+      // Ignore missing-blob deletions during GC.
+    }
+  }
+
+  private toContentAddressedRef(
+    workspaceId: string,
+    sha256: string,
+    key: string,
+    sizeBytes: number,
+  ): ContentAddressedBlobRef {
+    return {
+      workspaceId,
+      sha256: sha256.trim().toLowerCase(),
+      storageProvider: "local",
+      storageKey: key,
+      storedPath: `local:///${key}`,
+      sizeBytes,
+    };
   }
 
   private toStoredObject(key: string, contentBytes: Uint8Array): StoredAttachmentObject {

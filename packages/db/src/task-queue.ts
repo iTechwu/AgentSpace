@@ -15,6 +15,7 @@ import {
   upsertAgentRouterProviderSessionSync,
 } from "./agent-router-sessions.ts";
 import { readAgentRuntimeSync } from "./daemons.ts";
+import { readTaskCommitJournalSync, upsertTaskCommitJournalSync } from "./task-commit-journal.ts";
 
 export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord | null {
   const db = getDatabase();
@@ -365,6 +366,92 @@ export function completeQueuedTaskSync(input: {
   sessionId?: string;
   workDir?: string;
 }): QueuedTaskRecord {
+  return completeQueuedTaskInternalSync(input, { viaCommitJournal: false });
+}
+
+/**
+ * Phase 1 of the durability commit split (EAD §7): running → preparing_commit.
+ * Signals that the provider has finished and outputs are about to be promoted
+ * to the persistent workspace. Idempotent if already preparing_commit.
+ */
+export function markTaskPreparingCommitSync(taskId: string): QueuedTaskRecord {
+  const db = getDatabase();
+  const previous = readQueuedTaskSync(taskId);
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE agent_task_queue SET status = 'preparing_commit', updated_at = ?
+     WHERE id = ? AND status IN ('running', 'preparing_commit')`,
+  ).run(now, taskId);
+  const task = readQueuedTaskSync(taskId);
+  if (!task) {
+    throw new Error(`Queued task "${taskId}" does not exist.`);
+  }
+  if (previous && previous.status !== "preparing_commit" && task.status === "preparing_commit") {
+    recordQueueLifecycleEvent(task, {
+      type: "commit_preparing",
+      title: "Preparing commit",
+      summary: "Promoting task outputs to the persistent workspace before completion.",
+      status: "running",
+    });
+  }
+  return task;
+}
+
+/**
+ * Phase 2 of the durability commit split: preparing_commit → committed, with a
+ * task_commit_journal row recording the workspace revision + published artifacts.
+ * The journal row is the durable "data has been persisted" marker; only after it
+ * exists may a task be reported as successful to the user (EAD §7).
+ */
+export function markTaskCommittedSync(input: {
+  taskId: string;
+  employeeName?: string;
+  workspaceRevisionId?: string;
+  artifactIds?: string[];
+}): QueuedTaskRecord {
+  const db = getDatabase();
+  const previous = readQueuedTaskSync(input.taskId);
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE agent_task_queue SET status = 'committed', updated_at = ?
+     WHERE id = ? AND status IN ('preparing_commit', 'committed', 'running')`,
+  ).run(now, input.taskId);
+  const task = readQueuedTaskSync(input.taskId);
+  if (!task) {
+    throw new Error(`Queued task "${input.taskId}" does not exist.`);
+  }
+  upsertTaskCommitJournalSync({
+    taskId: task.id,
+    workspaceId: task.workspaceId,
+    employeeName: input.employeeName,
+    workspaceRevisionId: input.workspaceRevisionId,
+    artifactIdsJson: JSON.stringify(input.artifactIds ?? []),
+    commitState: "committed",
+  });
+  if (previous && previous.status !== "committed" && task.status === "committed") {
+    recordQueueLifecycleEvent(task, {
+      type: "commit_committed",
+      title: "Outputs committed",
+      summary: "Task results were atomically committed to the persistent workspace.",
+      status: "succeeded",
+      data: {
+        workspaceRevisionId: input.workspaceRevisionId,
+        artifactCount: input.artifactIds?.length ?? 0,
+      },
+    });
+  }
+  return task;
+}
+
+function completeQueuedTaskInternalSync(
+  input: {
+    taskId: string;
+    resultJson?: Record<string, unknown>;
+    sessionId?: string;
+    workDir?: string;
+  },
+  options: { viaCommitJournal: boolean },
+): QueuedTaskRecord {
   const db = getDatabase();
   const now = new Date().toISOString();
   const previous = readQueuedTaskSync(input.taskId);
@@ -445,6 +532,18 @@ export function completeQueuedTaskSync(input: {
         workDir: input.workDir,
       },
     });
+    // Backward compatibility: callers that did not drive the explicit
+    // prepare→commit phases still get a committed journal row so every
+    // completed task has a durable "data persisted" marker. Explicit callers
+    // (markTaskCommittedSync) already wrote one; don't bump their attempt count.
+    if (!options.viaCommitJournal && !readTaskCommitJournalSync(task.id, task.workspaceId)) {
+      upsertTaskCommitJournalSync({
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        commitState: "committed",
+        artifactIdsJson: "[]",
+      });
+    }
   }
   return task;
 }

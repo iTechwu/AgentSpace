@@ -137,14 +137,18 @@ test("importWorkspaceSkillFromUrl imports a ClawHub zip package", async () => {
 test("importWorkspaceSkillFromUrl imports a local skill directory", async () => {
   const localSkillDir = join(tempRoot, "local-skill");
   mkdirSync(join(localSkillDir, "references"), { recursive: true });
+  mkdirSync(join(localSkillDir, "bin"), { recursive: true });
+  mkdirSync(join(localSkillDir, "assets"), { recursive: true });
   writeFileSync(join(localSkillDir, "SKILL.md"), `---
 name: local-research
 description: Local skill
 ---
 
 # Local Research
-`);
+  `);
   writeFileSync(join(localSkillDir, "references", "notes.md"), "- local notes\n");
+  writeFileSync(join(localSkillDir, "bin", "render.mjs"), "export default {};\n");
+  writeFileSync(join(localSkillDir, "assets", "template.html"), "<main>template</main>\n");
 
   const result = await importWorkspaceSkillFromUrl({
     url: localSkillDir,
@@ -154,6 +158,8 @@ description: Local skill
   assert.ok(skill);
   assert.equal(skill?.sourceType, "local");
   assert.equal(skill?.files.some((file) => file.path === "references/notes.md"), true);
+  assert.equal(skill?.files.some((file) => file.path === "bin/render.mjs"), true);
+  assert.equal(skill?.files.some((file) => file.path === "assets/template.html"), true);
 });
 
 test("imports an uploaded zip by reading the persisted TOS object", async () => {

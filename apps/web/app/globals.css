@@ -22359,6 +22359,134 @@ textarea:focus {
   white-space: pre-wrap;
 }
 
+.market-tab-switcher {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0 0 0.9rem;
+  border-bottom: 1px solid rgba(39, 58, 43, 0.12);
+}
+.market-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.9rem;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: rgba(20, 33, 26, 0.65);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.market-tab--active {
+  color: #147a5e;
+  border-bottom-color: #147a5e;
+}
+.market-tab-suffix {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: rgba(20, 33, 26, 0.45);
+}
+.market-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.market-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.mcp-subtitle {
+  font-size: 1rem;
+  font-weight: 700;
+}
+.mcp-subtitle-note {
+  font-size: 0.82rem;
+  color: rgba(20, 33, 26, 0.6);
+}
+.market-empty {
+  padding: 1rem;
+  color: rgba(20, 33, 26, 0.55);
+  font-size: 0.85rem;
+}
+.mcp-section-label {
+  display: block;
+  margin: 0.4rem 0 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(20, 33, 26, 0.7);
+}
+.mcp-tool-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.6rem 0;
+}
+.mcp-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid rgba(39, 58, 43, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.6);
+}
+.mcp-tool-row span {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.mcp-tool-row small {
+  color: rgba(20, 33, 26, 0.55);
+  font-size: 0.76rem;
+}
+.mcp-connections-section {
+  margin-top: 0.4rem;
+}
+.mcp-connections-section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+.mcp-connection-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.mcp-connection-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid rgba(39, 58, 43, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+}
+.mcp-connection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.mcp-connection-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  font-size: 0.78rem;
+  color: rgba(20, 33, 26, 0.6);
+}
+.mcp-connection-error {
+  color: #b42318;
+}
+.mcp-danger-button {
+  color: #b42318;
+}
+
 @media (max-width: 1180px) {
   .market-workbench {
     grid-template-columns: 14rem minmax(0, 1fr);

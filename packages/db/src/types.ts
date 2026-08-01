@@ -916,6 +916,121 @@ export interface RuntimeAppSkillBindingRecord {
   createdAt: string;
 }
 
+export type McpTransport = "streamable_http" | "sse" | "managed_service" | "managed_stdio";
+export type McpRisk = "low" | "medium" | "high";
+export type McpCatalogSource = "official" | "verified_partner" | "workspace_private";
+export type McpConnectionStatus =
+  | "pending_configuration"
+  | "queued_verification"
+  | "verifying"
+  | "ready"
+  | "degraded"
+  | "failed"
+  | "disabled";
+export type McpConnectionOperationType = "verify" | "enable" | "disable" | "remove";
+export type McpConnectionOperationStatus = "pending" | "claimed" | "running" | "succeeded" | "failed" | "cancelled";
+export type McpToolCallOutcome = "succeeded" | "failed";
+export type McpErrorCode =
+  | "mcp.policy_denied"
+  | "mcp.network_unreachable"
+  | "mcp.authentication_failed"
+  | "mcp.protocol_invalid"
+  | "mcp.timeout"
+  | "mcp.tool_not_approved";
+
+export interface McpCatalogItemRecord {
+  id: string;
+  workspaceId: string;
+  source: McpCatalogSource;
+  slug: string;
+  version: string;
+  transport: McpTransport;
+  displayName: string;
+  description: string;
+  allowedHostsJson: string;
+  configurationSchemaJson: string;
+  declaredToolsJson: string;
+  defaultApprovedToolsJson: string;
+  secretFieldsJson: string;
+  requiredRuntimeCapabilitiesJson: string;
+  dataDomainsJson: string;
+  risk: McpRisk;
+  endpointTemplate?: string;
+  documentationUrl?: string;
+  syncedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RuntimeMcpConnectionRecord {
+  id: string;
+  workspaceId: string;
+  runtimeId: string;
+  catalogItemId: string;
+  status: McpConnectionStatus;
+  approvedToolsJson: string;
+  endpoint: string;
+  nonSecretParamsJson: string;
+  endpointFingerprint?: string;
+  lastVerifiedAt?: string;
+  lastStatus?: string;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
+  createdByUserId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RuntimeMcpSecretRecord {
+  connectionId: string;
+  fieldName: string;
+  encryptedValue: string;
+  keyVersion: string;
+  rotatedAt: string;
+  rotatedByUserId?: string;
+}
+
+export interface RuntimeMcpDiscoverySnapshotRecord {
+  id: string;
+  workspaceId: string;
+  connectionId: string;
+  protocolVersion?: string;
+  toolsMetadataJson: string;
+  toolsFingerprint: string;
+  discoveredAt: string;
+  verificationLatencyMs?: number;
+}
+
+export interface RuntimeMcpOperationRecord {
+  id: string;
+  workspaceId: string;
+  runtimeId: string;
+  connectionId: string;
+  operation: McpConnectionOperationType;
+  status: McpConnectionOperationStatus;
+  requestSnapshotJson: string;
+  safeStdoutTail?: string;
+  safeStderrTail?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  requestedByUserId?: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface RuntimeMcpToolAuditRecord {
+  id: string;
+  workspaceId: string;
+  connectionId: string;
+  taskId?: string;
+  toolName: string;
+  outcome: McpToolCallOutcome;
+  latencyMs?: number;
+  safeSummary?: string;
+  createdAt: string;
+}
+
 export interface StoredSkillRecord {
   id: string;
   workspaceId: string;
@@ -1030,7 +1145,15 @@ export interface StoredChannelInvitationRecord {
   respondedBy?: string;
 }
 
-export type NativeTaskStatus = "queued" | "claimed" | "running" | "completed" | "failed" | "cancelled";
+export type NativeTaskStatus =
+  | "queued"
+  | "claimed"
+  | "running"
+  | "preparing_commit"
+  | "committed"
+  | "completed"
+  | "failed"
+  | "cancelled";
 export const TASK_EXECUTION_EVENT_TYPES = [
   "queued",
   "assigned",
@@ -1045,6 +1168,12 @@ export const TASK_EXECUTION_EVENT_TYPES = [
   "blocked",
   "handoff_created",
   "message_posted",
+  "commit_preparing",
+  "commit_committed",
+  "commit_failed",
+  "recovery_started",
+  "recovery_completed",
+  "recovery_failed",
   "completed",
   "failed",
   "cancelled",
@@ -1125,6 +1254,8 @@ export function isNativeTaskStatus(value: unknown): value is NativeTaskStatus {
     value === "queued" ||
     value === "claimed" ||
     value === "running" ||
+    value === "preparing_commit" ||
+    value === "committed" ||
     value === "completed" ||
     value === "failed" ||
     value === "cancelled"
@@ -1208,4 +1339,184 @@ export function priorityToNumber(priority: EnqueueTaskInput["priority"]): number
     return 2;
   }
   return 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* Employee data durability (EAD-001 .. EAD-005)                      */
+/* ------------------------------------------------------------------ */
+
+export interface ContentBlobRecord {
+  sha256: string;
+  workspaceId: string;
+  storageProvider: string;
+  storageBucket?: string;
+  storageRegion?: string;
+  storageEndpoint?: string;
+  storageKey: string;
+  sizeBytes: number;
+  mediaType: string;
+  createdAt: string;
+}
+
+export type SkillArtifactSource =
+  | "manual"
+  | "github"
+  | "skills.sh"
+  | "clawhub"
+  | "local"
+  | "tos"
+  | "legacy";
+
+export interface SkillArtifactRecord {
+  id: string;
+  workspaceId: string;
+  digest: string;
+  skillId?: string;
+  name: string;
+  version: string;
+  manifestVersion: number;
+  manifestJson: string;
+  sourceType: string;
+  sourceUrl?: string;
+  provenanceJson: string;
+  fileCount: number;
+  totalSizeBytes: number;
+  legacyIncomplete: boolean;
+  createdAt: string;
+}
+
+export interface SkillArtifactFileRecord {
+  id: string;
+  artifactId: string;
+  workspaceId: string;
+  path: string;
+  sha256: string;
+  sizeBytes: number;
+  mediaType: string;
+  mode: string;
+  isText: boolean;
+  createdAt: string;
+}
+
+export interface EmployeePersistentWorkspaceRecord {
+  id: string;
+  workspaceId: string;
+  employeeName: string;
+  headRevisionId?: string;
+  storageRef?: string;
+  retentionPolicyJson: string;
+  storageHealth: string;
+  lastSnapshotAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type WorkspaceRevisionStatus = "pending" | "committed" | "needs_attention";
+
+export interface EmployeeWorkspaceRevisionRecord {
+  id: string;
+  workspaceId: string;
+  workspaceIdRef: string;
+  employeeName: string;
+  parentRevisionId?: string;
+  manifestDigest: string;
+  manifestJson: string;
+  sourceTaskId?: string;
+  status: WorkspaceRevisionStatus;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface EmployeeArtifactRecord {
+  id: string;
+  workspaceId: string;
+  workspaceIdRef: string;
+  employeeName: string;
+  contentDigest: string;
+  mediaType: string;
+  fileName: string;
+  sizeBytes: number;
+  sourceTaskId?: string;
+  publishedAt: string;
+  deletedAt?: string;
+}
+
+export type TaskCommitState = "preparing" | "committed" | "rolled_back";
+
+export interface TaskCommitJournalRecord {
+  taskId: string;
+  workspaceId: string;
+  employeeName?: string;
+  workspaceRevisionId?: string;
+  artifactIdsJson: string;
+  commitState: TaskCommitState;
+  attempt: number;
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type EmployeeBindingStatus =
+  | "online"
+  | "degraded"
+  | "offline"
+  | "recovering"
+  | "needs_attention";
+
+export type RecoveryPhase =
+  | "allocate"
+  | "mount_workspace"
+  | "install_skills"
+  | "resolve_secrets"
+  | "health_check"
+  | "activate"
+  | "completed"
+  | "failed";
+
+export interface EmployeeRecoveryOperationRecord {
+  id: string;
+  workspaceId: string;
+  employeeName: string;
+  fromGeneration?: number;
+  toGeneration: number;
+  phase: RecoveryPhase;
+  targetRevisionId?: string;
+  requestedByUserId?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  contextJson: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function isWorkspaceRevisionStatus(value: unknown): value is WorkspaceRevisionStatus {
+  return value === "pending" || value === "committed" || value === "needs_attention";
+}
+
+export function isTaskCommitState(value: unknown): value is TaskCommitState {
+  return value === "preparing" || value === "committed" || value === "rolled_back";
+}
+
+export function isEmployeeBindingStatus(value: unknown): value is EmployeeBindingStatus {
+  return (
+    value === "online" ||
+    value === "degraded" ||
+    value === "offline" ||
+    value === "recovering" ||
+    value === "needs_attention"
+  );
+}
+
+export function isRecoveryPhase(value: unknown): value is RecoveryPhase {
+  return (
+    value === "allocate" ||
+    value === "mount_workspace" ||
+    value === "install_skills" ||
+    value === "resolve_secrets" ||
+    value === "health_check" ||
+    value === "activate" ||
+    value === "completed" ||
+    value === "failed"
+  );
 }

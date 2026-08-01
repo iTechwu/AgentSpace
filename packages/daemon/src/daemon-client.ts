@@ -1,10 +1,12 @@
 import type {
   ClaimManagedProvisioningTaskResponse,
+  ClaimMcpConnectionOperationResponse,
   ClaimRuntimeAppOperationResponse,
   ClaimTaskResponse,
   CompleteManagedProvisioningStageRequest,
   CompleteManagedProvisioningStageResponse,
   CompleteManagedRuntimeCleanupRequest,
+  CompleteMcpConnectionOperationRequest,
   CompleteRuntimeAppOperationRequest,
   CompleteTaskRequest,
   CreateRuntimeApprovalRequest,
@@ -13,6 +15,7 @@ import type {
   DaemonTaskOutputBundle,
   FailManagedProvisioningStageRequest,
   FailManagedProvisioningStageResponse,
+  FailMcpConnectionOperationRequest,
   FailRuntimeAppOperationRequest,
   FailTaskRequest,
   GetRuntimeApprovalResponse,
@@ -22,16 +25,19 @@ import type {
   RegisterDaemonRequest,
   RegisterDaemonResponse,
   ReportTaskMessagesRequest,
+  StartMcpConnectionOperationRequest,
   StartRuntimeAppOperationRequest,
 } from "./daemon-api.ts";
 
 export type {
   ClaimManagedProvisioningTaskResponse,
+  ClaimMcpConnectionOperationResponse,
   ClaimRuntimeAppOperationResponse,
   ClaimTaskResponse,
   CompleteManagedProvisioningStageRequest,
   CompleteManagedProvisioningStageResponse,
   CompleteManagedRuntimeCleanupRequest,
+  CompleteMcpConnectionOperationRequest,
   CompleteRuntimeAppOperationRequest,
   CompleteTaskRequest,
   CreateRuntimeApprovalRequest,
@@ -40,6 +46,7 @@ export type {
   DaemonTaskOutputBundle,
   FailManagedProvisioningStageRequest,
   FailManagedProvisioningStageResponse,
+  FailMcpConnectionOperationRequest,
   FailRuntimeAppOperationRequest,
   FailTaskRequest,
   GetRuntimeApprovalResponse,
@@ -47,6 +54,7 @@ export type {
   HeartbeatDaemonRequest,
   ManagedCredentialBundleDocument,
   RegisterDaemonRequest,
+  StartMcpConnectionOperationRequest,
   RegisterDaemonResponse,
   ReportTaskMessagesRequest,
   StartRuntimeAppOperationRequest,
@@ -149,6 +157,22 @@ export class HttpDaemonClient {
 
   async failRuntimeAppOperation(operationId: string, body: FailRuntimeAppOperationRequest): Promise<void> {
     await this.postJson(`/api/daemon/runtime-app-operations/${encodeURIComponent(operationId)}/fail`, body);
+  }
+
+  async claimMcpConnectionOperation(runtimeId: string): Promise<ClaimMcpConnectionOperationResponse> {
+    return this.postJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/mcp-operations/claim`, {}, { retryable: true });
+  }
+
+  async startMcpConnectionOperation(operationId: string, body: StartMcpConnectionOperationRequest = {}): Promise<void> {
+    await this.postJson(`/api/daemon/mcp-operations/${encodeURIComponent(operationId)}/start`, body);
+  }
+
+  async completeMcpConnectionOperation(operationId: string, body: CompleteMcpConnectionOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/mcp-operations/${encodeURIComponent(operationId)}/complete`, body);
+  }
+
+  async failMcpConnectionOperation(operationId: string, body: FailMcpConnectionOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/mcp-operations/${encodeURIComponent(operationId)}/fail`, body);
   }
 
   async startTask(taskId: string): Promise<void> {

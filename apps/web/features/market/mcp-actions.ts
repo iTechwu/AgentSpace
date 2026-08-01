@@ -1,0 +1,173 @@
+"use server";
+
+import type { McpRisk, McpTransport } from "@dofe-agent/db";
+import {
+  createMcpCatalogItemSync,
+  disableMcpConnectionSync,
+  enableMcpConnectionSync,
+  removeMcpConnectionSync,
+  requestMcpConnectionSync,
+  reverifyMcpConnectionSync,
+  rotateMcpSecretSync,
+  updateMcpConnectionConfigServiceSync,
+  type McpDeclaredTool,
+} from "@dofe-agent/services";
+import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
+import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
+import { revalidateWorkspacePaths } from "@/features/auth/workspace-revalidation";
+import {
+  actionToastResult,
+  successToast,
+  type ActionToastResult,
+} from "@/shared/lib/toast-action";
+
+export interface CreateMcpCatalogItemActionInput {
+  slug: string;
+  displayName: string;
+  description?: string;
+  version?: string;
+  transport: McpTransport;
+  allowedHosts: string[];
+  configurationSchema: Record<string, unknown>;
+  declaredTools: McpDeclaredTool[];
+  defaultApprovedTools?: string[];
+  secretFields?: string[];
+  dataDomains?: string[];
+  risk?: McpRisk;
+  endpointTemplate?: string;
+  documentationUrl?: string;
+}
+
+export async function createMcpCatalogItemAction(
+  input: CreateMcpCatalogItemActionInput,
+): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  createMcpCatalogItemSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+    ...input,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market"]);
+  return actionToastResult(undefined, successToast("MCP 服务已添加到目录。", "MCP service added to the catalog."));
+}
+
+export interface RequestMcpConnectionActionInput {
+  runtimeId: string;
+  catalogItemId: string;
+  endpoint: string;
+  nonSecretParams?: Record<string, unknown>;
+  secrets?: Record<string, string>;
+  approvedTools?: string[];
+  confirmHighRisk?: boolean;
+}
+
+export async function requestMcpConnectionAction(
+  input: RequestMcpConnectionActionInput,
+): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  requestMcpConnectionSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+    runtimeId: input.runtimeId.trim(),
+    catalogItemId: input.catalogItemId,
+    endpoint: input.endpoint.trim(),
+    nonSecretParams: input.nonSecretParams,
+    secrets: input.secrets,
+    approvedTools: input.approvedTools,
+    confirmHighRisk: input.confirmHighRisk,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents"]);
+  return actionToastResult(undefined, successToast("MCP 连接已创建，正在验证。", "MCP connection created; verifying."));
+}
+
+export interface UpdateMcpConnectionConfigActionInput {
+  connectionId: string;
+  endpoint?: string;
+  nonSecretParams?: Record<string, unknown>;
+  approvedTools?: string[];
+}
+
+export async function updateMcpConnectionConfigAction(
+  input: UpdateMcpConnectionConfigActionInput,
+): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  updateMcpConnectionConfigServiceSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+    connectionId: input.connectionId,
+    endpoint: input.endpoint?.trim(),
+    nonSecretParams: input.nonSecretParams,
+    approvedTools: input.approvedTools,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents"]);
+  return actionToastResult(undefined, successToast("配置已更新，需要重新验证。", "Configuration updated; re-verification required."));
+}
+
+export async function rotateMcpSecretAction(input: {
+  connectionId: string;
+  fieldName: string;
+  value: string;
+}): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  rotateMcpSecretSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+    connectionId: input.connectionId,
+    fieldName: input.fieldName,
+    value: input.value,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents"]);
+  return actionToastResult(undefined, successToast("密钥已轮换，需要重新验证。", "Secret rotated; re-verification required."));
+}
+
+export async function reverifyMcpConnectionAction(input: { connectionId: string }): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  reverifyMcpConnectionSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+    connectionId: input.connectionId,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents"]);
+  return actionToastResult(undefined, successToast("已发起重新验证。", "Re-verification requested."));
+}
+
+export async function disableMcpConnectionAction(input: { connectionId: string }): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  disableMcpConnectionSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+    connectionId: input.connectionId,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents"]);
+  return actionToastResult(undefined, successToast("连接已停用。", "Connection disabled."));
+}
+
+export async function enableMcpConnectionAction(input: { connectionId: string }): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  enableMcpConnectionSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+    connectionId: input.connectionId,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents"]);
+  return actionToastResult(undefined, successToast("连接正在重新验证后启用。", "Connection re-verifying before enable."));
+}
+
+export async function removeMcpConnectionAction(input: { connectionId: string }): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  removeMcpConnectionSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+    connectionId: input.connectionId,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents"]);
+  return actionToastResult(undefined, successToast("连接移除已排队。", "Connection removal queued."));
+}

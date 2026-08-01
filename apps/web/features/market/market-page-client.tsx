@@ -2,8 +2,9 @@
 
 import type { RuntimeAppCatalogSource, RuntimeAppOperationType } from "@dofe-agent/db";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { requestRuntimeAppOperationAction, refreshRuntimeAppCatalogAction, syncRuntimeAppSkillAction } from "@/features/market/actions";
+import { McpMarketPanel } from "@/features/market/mcp-market-panel";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-action";
@@ -59,10 +60,108 @@ export interface MarketPageData {
     createdAt: string;
     errorMessage?: string;
   }>;
+  mcpCatalog: Array<{
+    id: string;
+    slug: string;
+    displayName: string;
+    description: string;
+    version: string;
+    transport: "streamable_http" | "sse" | "managed_service" | "managed_stdio";
+    risk: "low" | "medium" | "high";
+    allowedHosts: string[];
+    dataDomains: string[];
+    declaredTools: Array<{ name: string; description: string; risk: "low" | "medium" | "high" }>;
+    defaultApprovedTools: string[];
+    secretFields: string[];
+    endpointTemplate?: string;
+    documentationUrl?: string;
+  }>;
+  mcpConnections: Array<{
+    id: string;
+    runtimeId: string;
+    catalogItemId: string;
+    catalogSlug: string;
+    catalogDisplayName: string;
+    status: string;
+    transport: "streamable_http" | "sse" | "managed_service" | "managed_stdio";
+    endpoint: string;
+    approvedTools: string[];
+    declaredToolCount: number;
+    lastVerifiedAt?: string;
+    lastErrorCode?: string;
+    lastErrorMessage?: string;
+  }>;
+  mcpOperations: Array<{
+    id: string;
+    runtimeId: string;
+    connectionId: string;
+    operation: "verify" | "enable" | "disable" | "remove";
+    status: string;
+    createdAt: string;
+    errorMessage?: string;
+  }>;
   canManage: boolean;
 }
 
 export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData; onDataChanged?: () => void }) {
+  const { tx } = useLanguage();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<"cli" | "mcp">(() => (searchParams.get("tab") === "mcp" ? "mcp" : "cli"));
+
+  function selectTab(next: "cli" | "mcp"): void {
+    setTab(next);
+    const params = new URLSearchParams(Array.from(searchParams.entries()));
+    if (next === "mcp") {
+      params.set("tab", "mcp");
+    } else {
+      params.delete("tab");
+    }
+    const qs = params.toString();
+    router.replace(qs ? `?${qs}` : "?", { scroll: false });
+  }
+
+  return (
+    <main className="market-page-shell">
+      <section className="market-toolbar">
+        <div>
+          <h1>{tx("应用市场", "App Market")}</h1>
+          <p>{tx("为 Runtime 安装 CLI 应用，或连接审核过的 MCP 服务。", "Install CLI apps or connect reviewed MCP services to your runtimes.")}</p>
+        </div>
+      </section>
+
+      <div className="market-tab-switcher" role="tablist">
+        <button
+          aria-current={tab === "cli" ? "page" : undefined}
+          className={`market-tab${tab === "cli" ? " market-tab--active" : ""}`}
+          onClick={() => selectTab("cli")}
+          role="tab"
+          type="button"
+        >
+          {tx("CLI 市场", "CLI Market")}
+        </button>
+        <button
+          aria-current={tab === "mcp" ? "page" : undefined}
+          className={`market-tab${tab === "mcp" ? " market-tab--active" : ""}`}
+          onClick={() => selectTab("mcp")}
+          role="tab"
+          type="button"
+        >
+          {tx("MCP 市场", "MCP Market")}
+          <span className="market-tab-suffix">MCP 中心</span>
+        </button>
+      </div>
+
+      {tab === "cli" ? (
+        <CliHubPanel data={data} onDataChanged={onDataChanged} />
+      ) : (
+        <McpMarketPanel data={data} onDataChanged={onDataChanged} />
+      )}
+    </main>
+  );
+}
+
+function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChanged?: () => void }) {
   const { tx } = useLanguage();
   const router = useRouter();
   const { pushToast } = useFeedbackToast();
@@ -156,12 +255,8 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
   }
 
   return (
-    <main className="market-page-shell">
-      <section className="market-toolbar">
-        <div>
-          <h1>Cli-anything Hub</h1>
-          <p>{tx("让你的数字员工掌握任何软件。任何代码库。任何 Web API。", "Let your digital employees master any software. Any codebase. Any Web API.")}</p>
-        </div>
+    <div className="market-tab-panel">
+      <div className="market-panel-actions">
         <button
           className="action-button"
           disabled={isPending || !data.canManage}
@@ -171,7 +266,7 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
           <AppIcon name="refresh" />
           <span>{tx("刷新目录", "Refresh catalog")}</span>
         </button>
-      </section>
+      </div>
 
       <div className="market-workbench">
         <aside className="market-filter-panel" aria-label={tx("应用筛选", "App filters")}>
@@ -324,7 +419,7 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
           )}
         </aside>
       </div>
-    </main>
+    </div>
   );
 }
 

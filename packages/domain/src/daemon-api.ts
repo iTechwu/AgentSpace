@@ -273,6 +273,10 @@ export interface DaemonTaskInputBundle {
       status: "available" | "none";
       capabilities: RuntimeToolCapability[];
     };
+    mcpConnections?: {
+      status: "available" | "none";
+      connections: RuntimeMcpConnectionContextEntry[];
+    };
     routerSession?: {
       routerSessionId: string;
       conversationKey?: string;
@@ -372,6 +376,139 @@ export interface FailRuntimeAppOperationRequest {
   safeStdoutTail?: string;
   safeStderrTail?: string;
   errorCode?: string;
+  errorMessage: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* MCP center — daemon operation contract + runtime bridge abstraction  */
+/* ------------------------------------------------------------------ */
+
+export type McpConnectionOperationType = "verify" | "enable" | "disable" | "remove";
+export type McpConnectionOperationStatus = "pending" | "claimed" | "running" | "succeeded" | "failed" | "cancelled";
+export type McpConnectionStatus =
+  | "pending_configuration"
+  | "queued_verification"
+  | "verifying"
+  | "ready"
+  | "degraded"
+  | "failed"
+  | "disabled";
+export type McpTransport = "streamable_http" | "sse" | "managed_service" | "managed_stdio";
+export type McpVerificationOutcome = "ready" | "failed" | "degraded";
+export type McpErrorCode =
+  | "mcp.policy_denied"
+  | "mcp.network_unreachable"
+  | "mcp.authentication_failed"
+  | "mcp.protocol_invalid"
+  | "mcp.timeout"
+  | "mcp.tool_not_approved";
+
+/** A discovered tool's metadata. The input schema is persisted (secret-like example values are redacted by the daemon before this is stored) so the provider bridge can expose a native tool definition. */
+export interface McpDiscoveredTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  inputSchemaDigest: string;
+}
+
+/** Result returned by the daemon after a `verify` operation (initialize + tools/list). */
+export interface McpVerificationResult {
+  status: McpVerificationOutcome;
+  protocolVersion?: string;
+  discoveredTools?: McpDiscoveredTool[];
+  toolsFingerprint?: string;
+  latencyMs?: number;
+  error?: { code: McpErrorCode; safeMessage: string };
+}
+
+/**
+ * Non-secret MCP tool manifest eligible for task-context injection.
+ *
+ * This contract intentionally carries no endpoint, request configuration, or
+ * credential material. A future Runtime gateway must resolve those values in
+ * its own protected process, never from a Provider-visible task bundle.
+ */
+export interface RuntimeMcpConnectionContextEntry {
+  connectionId: string;
+  catalogItemSlug: string;
+  displayName: string;
+  transport: McpTransport;
+  approvedTools: string[];
+  /** Approved ∩ discovered tools, each carrying its real input schema for a future gateway. */
+  tools: RuntimeMcpTool[];
+}
+
+/** A single MCP tool exposed to the provider bridge. Stable id: `mcp:<connectionId>:<toolName>`. */
+export interface RuntimeMcpTool {
+  id: `mcp:${string}:${string}`;
+  connectionId: string;
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+/** Connection with enough resolved, in-memory state for the daemon client to call the remote server. */
+export interface ResolvedMcpConnection {
+  connectionId: string;
+  runtimeId: string;
+  workspaceId: string;
+  transport: McpTransport;
+  endpoint: string;
+  allowedHosts: string[];
+  approvedTools: string[];
+  /** Decrypted header / OAuth / env values keyed by secret field name. Held in-process only. */
+  secrets: Record<string, string>;
+  nonSecretParams: Record<string, unknown>;
+}
+
+/** Protocol-agnostic MCP client used by the verify executor and future protected gateway. */
+export interface RuntimeMcpClient {
+  verify(connection: ResolvedMcpConnection): Promise<McpVerificationResult>;
+  call(input: {
+    connection: ResolvedMcpConnection;
+    toolName: string;
+    arguments: unknown;
+    taskId: string;
+  }): Promise<{ ok: true; result: unknown } | { ok: false; error: { code: McpErrorCode; safeMessage: string } }>;
+}
+
+/** Claim shape delivered to the daemon for a connection operation. */
+export interface ClaimedMcpConnectionOperation {
+  id: string;
+  workspaceId: string;
+  runtimeId: string;
+  connectionId: string;
+  operation: McpConnectionOperationType;
+  status: McpConnectionOperationStatus;
+  transport: McpTransport;
+  endpoint: string;
+  allowedHosts: string[];
+  approvedTools: string[];
+  declaredTools: string[];
+  /** Plaintext is delivered only in this one-time, authenticated daemon claim response. */
+  secrets: Record<string, string>;
+  nonSecretParams: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface ClaimMcpConnectionOperationResponse {
+  operation: ClaimedMcpConnectionOperation | null;
+}
+
+export interface StartMcpConnectionOperationRequest {
+  status?: "running";
+}
+
+export interface CompleteMcpConnectionOperationRequest {
+  safeStdoutTail?: string;
+  safeStderrTail?: string;
+  verification?: McpVerificationResult;
+}
+
+export interface FailMcpConnectionOperationRequest {
+  safeStdoutTail?: string;
+  safeStderrTail?: string;
+  errorCode?: McpErrorCode;
   errorMessage: string;
 }
 

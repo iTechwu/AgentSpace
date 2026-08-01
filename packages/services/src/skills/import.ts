@@ -25,6 +25,11 @@ import {
   persistWorkspaceAttachmentFromBytesSync,
   readWorkspaceAttachmentBytesSync,
 } from "../attachments/attachments.ts";
+import {
+  buildAndPersistSkillArtifactSync,
+  isTextMediaType,
+  mediaTypeForPath,
+} from "./skill-artifacts.ts";
 
 export type SkillImportConflict = "reject" | "rename" | "replace" | "skip";
 export type SkillImportSourceType = "github" | "skills.sh" | "clawhub" | "local" | "tos";
@@ -39,12 +44,19 @@ export interface SkillImportResult {
   skipped: boolean;
   sourceType: SkillImportSourceType;
   requiresConfiguration: boolean;
+  /** Immutable content-addressed artifact digest pinned to this skill (EAD-004). */
+  artifactDigest?: string;
   warnings: string[];
 }
 
+/**
+ * An imported file carried as raw bytes (binary-safe). Text files additionally
+ * decode to a UTF-8 string for the legacy text projection (skill_file); binary
+ * files live only in the immutable artifact + content-addressed blob store.
+ */
 interface ImportedSkillFile {
   path: string;
-  content: string;
+  bytes: Uint8Array;
 }
 
 interface ImportedSkillDefinition {
@@ -64,7 +76,10 @@ interface GitHubDirectoryPointer {
   path: string;
 }
 
-const IMPORTABLE_TEXT_EXTENSIONS = new Set([
+// Extensions whose contents we additionally mirror into the text skill_file
+// projection for backward compatibility. Binary files are NOT mirrored there —
+// they live only in the immutable artifact. Nothing is skipped on import.
+const TEXT_PROJECTION_EXTENSIONS = new Set([
   ".md",
   ".txt",
   ".json",
@@ -75,14 +90,16 @@ const IMPORTABLE_TEXT_EXTENSIONS = new Set([
   ".cfg",
   ".csv",
   ".js",
+  ".mjs",
   ".ts",
   ".py",
   ".sh",
+  ".html",
 ]);
 
 const MAX_SKILL_ARCHIVE_BYTES = 10 * 1024 * 1024;
-const MAX_SKILL_ARCHIVE_FILES = 100;
-const MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024;
+const MAX_SKILL_ARCHIVE_FILES = 200;
+const MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES = 32 * 1024 * 1024;
 
 export async function importWorkspaceSkillFromUrl(input: {
   workspaceId?: string;
@@ -166,7 +183,7 @@ async function persistImportedSkillDefinition(
       replaced: false,
       skipped: true,
       sourceType: imported.sourceType,
-      requiresConfiguration: parseSkillRequirementDeclarations(readImportedSkillFile(imported.files, "SKILL.md")).length > 0,
+      requiresConfiguration: parseSkillRequirementDeclarations(readSkillMarkdown(imported.files)).length > 0,
       warnings: [...imported.warnings, `Skipped existing skill "${existing.name}".`],
     };
   }
@@ -181,7 +198,7 @@ async function persistImportedSkillDefinition(
   const created = createWorkspaceSkillSync({
     name: skillName,
     description: imported.description,
-    content: readImportedSkillFile(imported.files, "SKILL.md"),
+    content: readSkillMarkdown(imported.files),
     sourceType: imported.sourceType,
     sourceUrl: imported.sourceUrl,
     configJson: imported.configJson,
@@ -191,12 +208,17 @@ async function persistImportedSkillDefinition(
     if (sameValue(file.path, "SKILL.md")) {
       continue;
     }
+    if (!isTextProjectionPath(file.path)) {
+      continue; // binary files live only in the artifact
+    }
     upsertWorkspaceSkillFileSync({
       skillId: created.id,
       path: file.path,
-      content: file.content,
+      content: decodeUtf8(file.bytes),
     }, workspaceId);
   }
+
+  const artifactDigest = persistSkillArtifact(created.id, skillName, imported, workspaceId);
 
   recordStoredSkillImportEventSync({
     workspaceId,
@@ -217,7 +239,8 @@ async function persistImportedSkillDefinition(
     replaced: false,
     skipped: false,
     sourceType: imported.sourceType,
-    requiresConfiguration: parseSkillRequirementDeclarations(readImportedSkillFile(imported.files, "SKILL.md")).length > 0,
+    requiresConfiguration: parseSkillRequirementDeclarations(readSkillMarkdown(imported.files)).length > 0,
+    artifactDigest,
     warnings: imported.warnings,
   };
 }
@@ -243,12 +266,15 @@ async function replaceImportedSkill(
 
   const importedPaths = new Set(imported.files.map((file) => file.path.toLocaleLowerCase("en-US")));
   for (const file of imported.files) {
+    if (!isTextProjectionPath(file.path)) {
+      continue;
+    }
     const existingFile = updated.files.find((item) => sameValue(item.path, file.path));
     upsertWorkspaceSkillFileSync({
       skillId: updated.id,
       fileId: existingFile?.id,
       path: file.path,
-      content: file.content,
+      content: decodeUtf8(file.bytes),
     }, workspaceId);
   }
 
@@ -262,6 +288,8 @@ async function replaceImportedSkill(
       deleteWorkspaceSkillFileSync(refreshed.id, file.id, workspaceId);
     }
   }
+
+  const artifactDigest = persistSkillArtifact(refreshed.id, refreshed.name, imported, workspaceId);
 
   recordStoredSkillImportEventSync({
     workspaceId,
@@ -282,9 +310,44 @@ async function replaceImportedSkill(
     replaced: true,
     skipped: false,
     sourceType: imported.sourceType,
-    requiresConfiguration: parseSkillRequirementDeclarations(readImportedSkillFile(imported.files, "SKILL.md")).length > 0,
+    requiresConfiguration: parseSkillRequirementDeclarations(readSkillMarkdown(imported.files)).length > 0,
+    artifactDigest,
     warnings: imported.warnings,
   };
+}
+
+/**
+ * Builds and persists the immutable content-addressed artifact from the full
+ * file set (text + binary), and pins the resulting digest on the skill row.
+ * Per EAD-004: every declared file — including scripts and binary resources —
+ * must be present; a manifest that omits files cannot represent a "successful"
+ * import. The digest is deterministic: identical content re-imports as a no-op.
+ */
+function persistSkillArtifact(
+  skillId: string,
+  skillName: string,
+  imported: ImportedSkillDefinition,
+  workspaceId?: string,
+): string | undefined {
+  try {
+    const result = buildAndPersistSkillArtifactSync({
+      workspaceId,
+      skillId,
+      name: skillName,
+      files: imported.files.map((file) => ({ path: file.path, bytes: file.bytes })),
+      sourceType: imported.sourceType,
+      sourceUrl: imported.sourceUrl,
+      dependencies: parseSkillDependencyDeclarations(readSkillMarkdown(imported.files)),
+      provenance: { importedVia: imported.sourceType, sourceUrl: imported.sourceUrl },
+    });
+    return result.digest;
+  } catch (error) {
+    // Artifact creation must not silently pass with missing files. Re-throw so
+    // the import surfaces as failed/incomplete rather than a false success.
+    throw new Error(
+      `Failed to build skill artifact for "${skillName}": ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 async function importSkillDefinition(
@@ -355,7 +418,7 @@ function importStoredSkillDefinition(
   const warnings: string[] = [];
   const provider = source.storageProvider ?? "tos";
   const files = readSkillZipFiles(archiveBytes, warnings, `${provider.toUpperCase()} skill archive`);
-  const skillMd = readImportedSkillFile(files, "SKILL.md");
+  const skillMd = readSkillMarkdown(files);
   const metadata = parseSkillMetadata(skillMd, deriveSkillNameFromPath(source.fileName));
   return {
     name: metadata.name,
@@ -400,13 +463,13 @@ async function importLocalSkillDefinition(sourcePath: string): Promise<ImportedS
   } else if (stats.isFile() && sameValue(basename(absolutePath), "SKILL.md")) {
     files = [{
       path: "SKILL.md",
-      content: await readFile(absolutePath, "utf8"),
+      bytes: new Uint8Array(await readFile(absolutePath)),
     }];
   } else {
     throw new Error("Local skill import currently supports a skill directory, a .zip archive, or a direct SKILL.md file.");
   }
 
-  const skillMd = readImportedSkillFile(files, "SKILL.md");
+  const skillMd = readSkillMarkdown(files);
   const metadata = parseSkillMetadata(skillMd, deriveSkillNameFromPath(absolutePath));
 
   return {
@@ -445,7 +508,7 @@ async function importGitHubSkillDefinitionFromPointer(
     return {
       name: metadata.name,
       description: metadata.description,
-      files: [{ path: "SKILL.md", content: skillMd }],
+      files: [{ path: "SKILL.md", bytes: encodeUtf8(skillMd) }],
       sourceType,
       sourceUrl,
       configJson: JSON.stringify({
@@ -463,7 +526,7 @@ async function importGitHubSkillDefinitionFromPointer(
 
   const warnings: string[] = [];
   const files = await fetchGitHubDirectoryFiles(pointer, warnings);
-  const skillMd = readImportedSkillFile(files, "SKILL.md");
+  const skillMd = readSkillMarkdown(files);
   const metadata = parseSkillMetadata(skillMd, deriveSkillNameFromPath(pointer.path));
 
   return {
@@ -555,18 +618,13 @@ async function importClawHubSkillDefinition(sourceUrl: string): Promise<Imported
       continue;
     }
 
-    if (!isImportableSkillTextFile(normalizedPath)) {
-      warnings.push(`Skipped non-text ClawHub file: ${normalizedPath}`);
-      continue;
-    }
-
     files.push({
       path: normalizedPath,
-      content: strFromU8(content),
+      bytes: content,
     });
   }
 
-  const skillMd = readImportedSkillFile(files, "SKILL.md");
+  const skillMd = readSkillMarkdown(files);
   const metadata = parseSkillMetadata(skillMd, deriveSkillNameFromPath(sourceUrl));
   return {
     name: metadata.name,
@@ -645,14 +703,9 @@ async function readLocalSkillDirectoryFiles(
       continue;
     }
 
-    if (!isImportableSkillTextFile(relativePath)) {
-      warnings.push(`Skipped non-text local skill file: ${relativePath}`);
-      continue;
-    }
-
     files.push({
       path: relativePath,
-      content: await readFile(absoluteEntryPath, "utf8"),
+      bytes: new Uint8Array(await readFile(absoluteEntryPath)),
     });
   }
 
@@ -703,15 +756,11 @@ function readSkillZipFiles(
     }
     uncompressedBytes += content.byteLength;
     if (uncompressedBytes > MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES) {
-      throw new Error(`${sourceLabel} expands beyond the 16 MB extraction limit.`);
-    }
-    if (!isImportableSkillTextFile(normalizedPath)) {
-      warnings.push(`Skipped non-text archive file: ${normalizedPath}`);
-      continue;
+      throw new Error(`${sourceLabel} expands beyond the 32 MB extraction limit.`);
     }
     files.push({
       path: normalizedPath,
-      content: strFromU8(content),
+      bytes: content,
     });
   }
 
@@ -867,11 +916,6 @@ async function fetchGitHubDirectoryFiles(
       continue;
     }
 
-    if (!isImportableSkillTextFile(relativePath)) {
-      warnings.push(`Skipped non-text skill file: ${entry.path}`);
-      continue;
-    }
-
     const fileResponse = await fetch(buildGitHubContentsApiUrl(pointer.owner, pointer.repo, entry.path, pointer.ref), {
       headers: {
         Accept: "application/vnd.github+json",
@@ -887,12 +931,12 @@ async function fetchGitHubDirectoryFiles(
       content?: string;
     };
     if (filePayload.type !== "file" || filePayload.encoding !== "base64" || typeof filePayload.content !== "string") {
-      throw new Error(`GitHub skill file "${entry.path}" is not a supported text file.`);
+      throw new Error(`GitHub skill file "${entry.path}" is not a supported file.`);
     }
 
     files.push({
       path: relativePath,
-      content: Buffer.from(filePayload.content.replace(/\n/g, ""), "base64").toString("utf8"),
+      bytes: new Uint8Array(Buffer.from(filePayload.content.replace(/\n/g, ""), "base64")),
     });
   }
 
@@ -931,22 +975,32 @@ function deriveSkillNameFromPath(path: string): string {
   return base || basename(path).replace(/\.md$/i, "") || "Imported Skill";
 }
 
-function isImportableSkillTextFile(path: string): boolean {
+function isTextProjectionPath(path: string): boolean {
   if (sameValue(path, "SKILL.md")) {
     return true;
   }
-
   const normalized = path.toLowerCase();
   const extension = normalized.includes(".") ? normalized.slice(normalized.lastIndexOf(".")) : "";
-  return IMPORTABLE_TEXT_EXTENSIONS.has(extension);
+  if (TEXT_PROJECTION_EXTENSIONS.has(extension)) {
+    return true;
+  }
+  return isTextMediaType(mediaTypeForPath(path));
 }
 
-function readImportedSkillFile(files: ImportedSkillFile[], path: string): string {
-  const match = files.find((file) => sameValue(file.path, path));
+function readSkillMarkdown(files: ImportedSkillFile[]): string {
+  const match = files.find((file) => sameValue(file.path, "SKILL.md"));
   if (!match) {
-    throw new Error(`Imported skill is missing required file "${path}".`);
+    throw new Error("Imported skill is missing required file \"SKILL.md\".");
   }
-  return match.content;
+  return decodeUtf8(match.bytes);
+}
+
+function decodeUtf8(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("utf8");
+}
+
+function encodeUtf8(text: string): Uint8Array {
+  return new Uint8Array(Buffer.from(text, "utf8"));
 }
 
 function joinRelative(prefix: string, name: string): string {

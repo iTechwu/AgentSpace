@@ -1,12 +1,16 @@
 import {
   listDaemonSnapshotsSync,
+  listMcpConnectionsSync,
+  listMcpOperationsSync,
   listRuntimeAppCatalogItemsSync,
   listRuntimeAppOperationsSync,
   listRuntimeInstalledAppsSync,
   readRuntimeAppCatalogHealthSync,
+  readMcpCatalogItemSync,
 } from "@dofe-agent/db";
 import {
   assessRuntimeAppRisk,
+  listMcpCatalogItemsForWorkspaceSync,
   readCliHubReadinessForRuntimeSync,
   syncCliHubCatalog,
 } from "@dofe-agent/services";
@@ -77,6 +81,80 @@ export async function loadMarketPageData(input: {
       createdAt: operation.createdAt,
       errorMessage: operation.errorMessage,
     })),
+    mcpCatalog: listMcpCatalogItemsForWorkspaceSync(input.workspaceId).map((item) => ({
+      id: item.id,
+      slug: item.slug,
+      displayName: item.displayName,
+      description: item.description,
+      version: item.version,
+      transport: item.transport,
+      risk: item.risk,
+      allowedHosts: safeJsonArray(item.allowedHostsJson),
+      dataDomains: safeJsonArray(item.dataDomainsJson),
+      declaredTools: safeDeclaredTools(item.declaredToolsJson),
+      defaultApprovedTools: safeJsonArray(item.defaultApprovedToolsJson),
+      secretFields: safeJsonArray(item.secretFieldsJson),
+      endpointTemplate: item.endpointTemplate,
+      documentationUrl: item.documentationUrl,
+    })),
+    mcpConnections: listMcpConnectionsSync({ workspaceId: input.workspaceId, limit: 500 }).map((connection) => {
+      const catalog = readMcpCatalogItemSync(connection.catalogItemId, input.workspaceId);
+      const declared = safeJsonArray(catalog?.declaredToolsJson ?? "[]");
+      return {
+        id: connection.id,
+        runtimeId: connection.runtimeId,
+        catalogItemId: connection.catalogItemId,
+        catalogSlug: catalog?.slug ?? "",
+        catalogDisplayName: catalog?.displayName ?? connection.id,
+        status: connection.status,
+        transport: catalog?.transport ?? "streamable_http",
+        endpoint: connection.endpoint,
+        approvedTools: safeJsonArray(connection.approvedToolsJson),
+        declaredToolCount: declared.length,
+        lastVerifiedAt: connection.lastVerifiedAt,
+        lastErrorCode: connection.lastErrorCode,
+        lastErrorMessage: connection.lastErrorMessage,
+      };
+    }),
+    mcpOperations: listMcpOperationsSync({ workspaceId: input.workspaceId, limit: 200 }).map((operation) => ({
+      id: operation.id,
+      runtimeId: operation.runtimeId,
+      connectionId: operation.connectionId,
+      operation: operation.operation,
+      status: operation.status,
+      createdAt: operation.createdAt,
+      errorMessage: operation.errorMessage,
+    })),
     canManage: input.canManage,
   };
+}
+
+function safeJsonArray(value: string | undefined): string[] {
+  try {
+    const parsed = JSON.parse(value ?? "[]") as unknown;
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function safeDeclaredTools(value: string | undefined): Array<{ name: string; description: string; risk: "low" | "medium" | "high" }> {
+  try {
+    const parsed = JSON.parse(value ?? "[]") as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+      .map((obj) => ({
+        name: typeof obj.name === "string" ? obj.name : "",
+        description: typeof obj.description === "string" ? obj.description : "",
+        risk: normalizeMcpRisk(obj.risk),
+      }))
+      .filter((tool) => tool.name);
+  } catch {
+    return [];
+  }
+}
+
+function normalizeMcpRisk(value: unknown): "low" | "medium" | "high" {
+  return value === "low" || value === "medium" || value === "high" ? value : "medium";
 }

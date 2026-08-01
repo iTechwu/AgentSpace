@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "49";
+export const POSTGRES_SCHEMA_VERSION = "51";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -72,6 +72,20 @@ export const POSTGRES_TABLE_NAMES = [
   "runtime_provisioning_task_event",
   "runtime_credential_recovery_task",
   "managed_runtime_cleanup_request",
+  "mcp_catalog_item",
+  "runtime_mcp_connection",
+  "runtime_mcp_secret",
+  "runtime_mcp_discovery_snapshot",
+  "runtime_mcp_operation",
+  "runtime_mcp_tool_audit",
+  "content_blob",
+  "skill_artifact",
+  "skill_artifact_file",
+  "employee_persistent_workspace",
+  "employee_workspace_revision",
+  "employee_artifact",
+  "task_commit_journal",
+  "employee_recovery_operation",
 ] as const;
 
 export type PostgresTableName = (typeof POSTGRES_TABLE_NAMES)[number];
@@ -883,6 +897,108 @@ export function getPostgresSchemaStatements(): string[] {
         name TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL,
         PRIMARY KEY (workspace_id, runtime_app_id, skill_id)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS mcp_catalog_item (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        source TEXT NOT NULL DEFAULT 'workspace_private',
+        slug TEXT NOT NULL,
+        version TEXT NOT NULL DEFAULT '',
+        transport TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        allowed_hosts_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        configuration_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        declared_tools_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        default_approved_tools_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        secret_fields_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        required_runtime_capabilities_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        data_domains_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        risk TEXT NOT NULL DEFAULT 'high',
+        endpoint_template TEXT,
+        documentation_url TEXT,
+        synced_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, slug)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS runtime_mcp_connection (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
+        catalog_item_id TEXT NOT NULL REFERENCES mcp_catalog_item(id) ON DELETE CASCADE,
+        status TEXT NOT NULL,
+        approved_tools_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        endpoint TEXT NOT NULL,
+        non_secret_params_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        endpoint_fingerprint TEXT,
+        last_verified_at TIMESTAMPTZ,
+        last_status TEXT,
+        last_error_code TEXT,
+        last_error_message TEXT,
+        created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, runtime_id, catalog_item_id)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS runtime_mcp_secret (
+        connection_id TEXT NOT NULL REFERENCES runtime_mcp_connection(id) ON DELETE CASCADE,
+        field_name TEXT NOT NULL,
+        encrypted_value TEXT NOT NULL,
+        key_version TEXT NOT NULL,
+        rotated_at TIMESTAMPTZ NOT NULL,
+        rotated_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        PRIMARY KEY (connection_id, field_name)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS runtime_mcp_discovery_snapshot (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        connection_id TEXT NOT NULL REFERENCES runtime_mcp_connection(id) ON DELETE CASCADE,
+        protocol_version TEXT,
+        tools_metadata_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        tools_fingerprint TEXT NOT NULL,
+        discovered_at TIMESTAMPTZ NOT NULL,
+        verification_latency_ms INTEGER
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS runtime_mcp_operation (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
+        connection_id TEXT NOT NULL REFERENCES runtime_mcp_connection(id) ON DELETE CASCADE,
+        operation TEXT NOT NULL,
+        status TEXT NOT NULL,
+        request_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        safe_stdout_tail TEXT,
+        safe_stderr_tail TEXT,
+        error_code TEXT,
+        error_message TEXT,
+        requested_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        started_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS runtime_mcp_tool_audit (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        connection_id TEXT NOT NULL REFERENCES runtime_mcp_connection(id) ON DELETE CASCADE,
+        task_id TEXT,
+        tool_name TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        latency_ms INTEGER,
+        safe_summary TEXT,
+        created_at TIMESTAMPTZ NOT NULL
       )
     `,
     `
@@ -1904,6 +2020,30 @@ export function getPostgresSchemaStatements(): string[] {
         ON runtime_app_skill_binding(workspace_id, skill_id)
     `,
     `
+      CREATE INDEX IF NOT EXISTS idx_mcp_catalog_item_workspace
+        ON mcp_catalog_item(workspace_id, slug)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_mcp_connection_runtime_status
+        ON runtime_mcp_connection(workspace_id, runtime_id, status)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_mcp_operation_runtime_status
+        ON runtime_mcp_operation(workspace_id, runtime_id, status, created_at ASC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_mcp_operation_connection
+        ON runtime_mcp_operation(workspace_id, connection_id, created_at DESC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_mcp_discovery_snapshot_connection
+        ON runtime_mcp_discovery_snapshot(connection_id, discovered_at DESC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_mcp_tool_audit_connection
+        ON runtime_mcp_tool_audit(workspace_id, connection_id, created_at DESC)
+    `,
+    `
       CREATE INDEX IF NOT EXISTS idx_skill_workspace_name
         ON skill(workspace_id, name)
     `,
@@ -2275,6 +2415,182 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_external_integration_event_status
         ON external_integration_event(workspace_id, provider, status, received_at ASC)
+    `,
+    // ----- Employee data durability (EAD-001 .. EAD-005) -----
+    `
+      CREATE TABLE IF NOT EXISTS content_blob (
+        sha256 TEXT NOT NULL,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        storage_provider TEXT NOT NULL DEFAULT 'tos',
+        storage_bucket TEXT,
+        storage_region TEXT,
+        storage_endpoint TEXT,
+        storage_key TEXT NOT NULL,
+        size_bytes BIGINT NOT NULL,
+        media_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+        created_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (workspace_id, sha256)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS skill_artifact (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        digest TEXT NOT NULL,
+        skill_id TEXT REFERENCES skill(id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        version TEXT NOT NULL DEFAULT '',
+        manifest_version INTEGER NOT NULL DEFAULT 1,
+        manifest_json JSONB NOT NULL,
+        source_type TEXT NOT NULL DEFAULT 'manual',
+        source_url TEXT,
+        provenance_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        file_count INTEGER NOT NULL DEFAULT 0,
+        total_size_bytes BIGINT NOT NULL DEFAULT 0,
+        legacy_incomplete INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, digest)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS skill_artifact_file (
+        id TEXT PRIMARY KEY,
+        artifact_id TEXT NOT NULL REFERENCES skill_artifact(id) ON DELETE CASCADE,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        path TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        size_bytes BIGINT NOT NULL,
+        media_type TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT '0644',
+        is_text INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(artifact_id, path)
+      )
+    `,
+    `
+      ALTER TABLE skill ADD COLUMN IF NOT EXISTS active_artifact_digest TEXT
+    `,
+    `
+      ALTER TABLE agent_skill ADD COLUMN IF NOT EXISTS skill_artifact_digest TEXT
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS employee_persistent_workspace (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        employee_name TEXT NOT NULL,
+        head_revision_id TEXT,
+        storage_ref TEXT,
+        retention_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        storage_health TEXT NOT NULL DEFAULT 'unknown',
+        last_snapshot_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, employee_name)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS employee_workspace_revision (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        workspace_id_ref TEXT NOT NULL REFERENCES employee_persistent_workspace(id) ON DELETE CASCADE,
+        employee_name TEXT NOT NULL,
+        parent_revision_id TEXT REFERENCES employee_workspace_revision(id) ON DELETE SET NULL,
+        manifest_digest TEXT NOT NULL,
+        manifest_json JSONB NOT NULL,
+        source_task_id TEXT REFERENCES agent_task_queue(id) ON DELETE SET NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_by TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id_ref, manifest_digest)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS employee_artifact (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        workspace_id_ref TEXT NOT NULL REFERENCES employee_persistent_workspace(id) ON DELETE CASCADE,
+        employee_name TEXT NOT NULL,
+        content_digest TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        size_bytes BIGINT NOT NULL,
+        source_task_id TEXT REFERENCES agent_task_queue(id) ON DELETE SET NULL,
+        published_at TIMESTAMPTZ NOT NULL,
+        deleted_at TIMESTAMPTZ
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS task_commit_journal (
+        task_id TEXT NOT NULL REFERENCES agent_task_queue(id) ON DELETE CASCADE,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        employee_name TEXT,
+        workspace_revision_id TEXT,
+        artifact_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        commit_state TEXT NOT NULL,
+        attempt INTEGER NOT NULL DEFAULT 1,
+        error_code TEXT,
+        error_message TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (task_id)
+      )
+    `,
+    `
+      ALTER TABLE employee_runtime_binding
+        ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'online'
+    `,
+    `
+      ALTER TABLE employee_runtime_binding
+        ADD COLUMN IF NOT EXISTS generation INTEGER NOT NULL DEFAULT 1
+    `,
+    `
+      ALTER TABLE employee_runtime_binding
+        ADD COLUMN IF NOT EXISTS desired_provider TEXT
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS employee_recovery_operation (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        employee_name TEXT NOT NULL,
+        from_generation INTEGER,
+        to_generation INTEGER NOT NULL,
+        phase TEXT NOT NULL DEFAULT 'allocate',
+        target_revision_id TEXT,
+        requested_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        error_code TEXT,
+        error_message TEXT,
+        context_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_skill_artifact_workspace_digest
+        ON skill_artifact(workspace_id, digest)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_skill_artifact_skill
+        ON skill_artifact(workspace_id, skill_id)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_skill_artifact_file_sha256
+        ON skill_artifact_file(workspace_id, sha256)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_employee_workspace_revision_head
+        ON employee_workspace_revision(workspace_id_ref, status, created_at DESC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_employee_artifact_workspace
+        ON employee_artifact(workspace_id_ref, deleted_at)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_task_commit_journal_state
+        ON task_commit_journal(workspace_id, commit_state, updated_at ASC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_employee_recovery_workspace
+        ON employee_recovery_operation(workspace_id, employee_name, created_at DESC)
     `,
     `
       INSERT INTO app_metadata (key, value)

@@ -42,6 +42,7 @@ import {
 } from "./state.ts";
 import { parseTaskInputJson, resolveConversationThreadId } from "./task-context.ts";
 import { executeRuntimeAppPlan, parseRuntimeAppInstallPlan, tailAndRedact } from "./runtime-apps.ts";
+import { executeMcpConnectionOperation } from "./mcp/verify-executor.ts";
 import { applyProviderCredentialProfile, resolveProviderCredentialProfile, type ProviderCredentialProfile } from "./provider-credentials.ts";
 import { createManagedCredentialResolver, type ManagedCredentialResolver } from "./managed-provider-credentials.ts";
 import { createManagedProvisioningExecutor } from "./managed-runtime-provisioning.ts";
@@ -690,6 +691,20 @@ async function pollRemoteTasks(
           .catch((error) => {
             const message = error instanceof Error ? error.message : String(error);
             console.error(`Runtime app operation ${appOperation.operation?.id ?? "unknown"} crashed: ${message}`);
+          })
+          .finally(() => {
+            activeRuntimes.delete(runtime.id);
+          });
+        continue;
+      }
+
+      const mcpOperation = await client.claimMcpConnectionOperation(runtime.id);
+      if (mcpOperation.operation) {
+        activeRuntimes.add(runtime.id);
+        void executeMcpConnectionOperation(client, mcpOperation.operation)
+          .catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(`MCP operation ${mcpOperation.operation?.id ?? "unknown"} crashed: ${message}`);
           })
           .finally(() => {
             activeRuntimes.delete(runtime.id);
