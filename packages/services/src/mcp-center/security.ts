@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import Ajv from "ajv";
+import { Ajv } from "ajv";
 import type { McpErrorCode } from "@dofe-agent/db";
 
 const MCP_SECRET_VERSION = "mcp1";

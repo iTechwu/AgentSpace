@@ -115,6 +115,14 @@ function buildHeaders(connection: ResolvedMcpConnection): Record<string, string>
   return headers;
 }
 
+function headersToObject(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    result[key] = value;
+  });
+  return result;
+}
+
 async function timeoutFetch(input: string | URL, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -151,7 +159,7 @@ async function pinnedHttpsFetch(input: string | URL, init?: RequestInit): Promis
       port: url.port || 443,
       path: `${url.pathname}${url.search}`,
       method: init?.method ?? "GET",
-      headers: Object.fromEntries(headers.entries()),
+      headers: headersToObject(headers),
       servername: url.hostname,
       lookup: (_hostname, _options, callback) => callback(null, target.address, target.family),
     }, (response) => {
@@ -175,7 +183,7 @@ async function pinnedHttpsFetch(input: string | URL, init?: RequestInit): Promis
   });
 }
 
-async function writeRequestBody(request: ReturnType<typeof httpsRequest>, body: BodyInit | null | undefined): Promise<void> {
+async function writeRequestBody(request: ReturnType<typeof httpsRequest>, body: unknown): Promise<void> {
   if (body === undefined || body === null) {
     request.end();
     return;

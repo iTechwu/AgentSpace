@@ -5,9 +5,6 @@ import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import {
   bindEmployeeRuntimeSync,
-  commitWorkspaceRevisionSync,
-  createWorkspaceRevisionSync,
-  ensureEmployeePersistentWorkspaceSync,
   getDatabase,
   listRecoveryOperationsSync,
   listStaleCommitJournalsSync,
@@ -18,6 +15,7 @@ import {
 } from "@dofe-agent/db";
 import {
   assertBindingGenerationCurrentSync,
+  promoteTaskOutputsToWorkspaceSync,
   runFullRecoverySync,
   setAttachmentStorageClientForTests,
 } from "../index.ts";
@@ -44,15 +42,27 @@ function insertRuntime(): string {
 }
 
 function setupEmployeeWorkspace(employeeName: string, seed: string): void {
-  ensureEmployeePersistentWorkspaceSync({ workspaceId: "default", employeeName });
-  const revision = createWorkspaceRevisionSync({
+  // Promote REAL output bytes so the workspace head revision references a
+  // readable blob (the recovery mount_workspace phase verifies blob readability).
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  taskSeq += 1;
+  const runtimeId = `runtime-rec-setup-${taskSeq}`;
+  const taskId = `task-rec-setup-${taskSeq}`;
+  db.prepare(
+    `INSERT INTO agent_runtime (id, workspace_id, provider, name, status, created_at, updated_at)
+     VALUES (?, 'default', 'codex', ?, 'active', ?, ?)`,
+  ).run(runtimeId, runtimeId, now, now);
+  db.prepare(
+    `INSERT INTO agent_task_queue (id, workspace_id, agent_id, runtime_id, status, priority, input_json, queued_at, created_at, updated_at)
+     VALUES (?, 'default', 'agent-rec', ?, 'queued', 0, '{}', ?, ?, ?)`,
+  ).run(taskId, runtimeId, now, now, now);
+  promoteTaskOutputsToWorkspaceSync({
     workspaceId: "default",
+    taskId,
     employeeName,
-    manifestDigest: seed.repeat(64),
-    manifestJson: JSON.stringify({ taskId: `setup-${seed}`, files: [{ path: "a.txt", sha256: seed, size: 1, mediaType: "text/plain" }] }),
-    status: "pending",
+    outputs: [{ path: "a.txt", bytes: new TextEncoder().encode(`seed-${seed}`) }],
   });
-  commitWorkspaceRevisionSync(revision.id, "default");
 }
 
 function insertSkill(seed: string): string {

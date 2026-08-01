@@ -39,6 +39,8 @@ export interface MarketPageData {
     status: "online" | "offline";
     daemonKey: string;
     cliHubReady: boolean;
+    /** Runtime can host the MCP gateway (provider has a validated one-shot MCP config path). */
+    mcpEligible: boolean;
   }>;
   installedApps: Array<{
     runtimeId: string;

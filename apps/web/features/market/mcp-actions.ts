@@ -6,6 +6,7 @@ import {
   disableMcpConnectionSync,
   enableMcpConnectionSync,
   removeMcpConnectionSync,
+  replaceMcpConnectionConfigSync,
   requestMcpConnectionSync,
   reverifyMcpConnectionSync,
   rotateMcpSecretSync,
@@ -106,6 +107,36 @@ export async function updateMcpConnectionConfigAction(
   });
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents"]);
   return actionToastResult(undefined, successToast("配置已更新，需要重新验证。", "Configuration updated; re-verification required."));
+}
+
+export interface ReplaceMcpConnectionConfigActionInput {
+  connectionId: string;
+  endpoint?: string;
+  nonSecretParams?: Record<string, unknown>;
+  approvedTools?: string[];
+  /** Plaintext secrets to rotate; omitted fields keep their stored value. */
+  secrets?: Record<string, string>;
+  confirmHighRisk?: boolean;
+}
+
+/** Atomic replacement of config + secrets in a single transaction with one reverify + one audit. */
+export async function replaceMcpConnectionConfigAction(
+  input: ReplaceMcpConnectionConfigActionInput,
+): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  replaceMcpConnectionConfigSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+    connectionId: input.connectionId,
+    endpoint: input.endpoint?.trim(),
+    nonSecretParams: input.nonSecretParams,
+    approvedTools: input.approvedTools,
+    secrets: input.secrets,
+    confirmHighRisk: input.confirmHighRisk,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents"]);
+  return actionToastResult(undefined, successToast("配置与密钥已原子更新，需要重新验证。", "Configuration and secrets updated atomically; re-verification required."));
 }
 
 export async function rotateMcpSecretAction(input: {

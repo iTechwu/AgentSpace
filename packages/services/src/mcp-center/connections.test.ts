@@ -17,11 +17,13 @@ import {
   listReadyMcpConnectionsForTaskSync,
   readMcpConnectionDetailSync,
   removeMcpConnectionSync,
+  replaceMcpConnectionConfigSync,
   requestMcpConnectionSync,
   resolveClaimedMcpOperationSync,
   rotateMcpSecretSync,
   updateMcpConnectionConfigServiceSync,
 } from "./connections.ts";
+import { listMcpOperationsSync } from "@dofe-agent/db";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-mcp-connections-"));
@@ -370,6 +372,74 @@ test("remove connection enqueues a remove operation", () => {
   });
   const op = removeMcpConnectionSync({ workspaceId: "default", connectionId: connection.id, actorUserId: ADMIN_USER_ID });
   assert.equal(op.operation, "remove");
+});
+
+test("replaceMcpConnectionConfig atomically updates config + secrets and creates ONE verify operation", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "original-value" },
+    approvedTools: ["search_repos"],
+    confirmHighRisk: true,
+  });
+
+  const opsBefore = listMcpOperationsSync({ workspaceId: "default", runtimeId }).length;
+  const { operation } = replaceMcpConnectionConfigSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    connectionId: connection.id,
+    endpoint: "https://github-mcp.example.com/v2",
+    approvedTools: ["search_repos"],
+    secrets: { api_key: "rotated-value" },
+  });
+
+  // Config updated + secret rotated + exactly one new verify op.
+  const detail = readMcpConnectionDetailSync({ workspaceId: "default", connectionId: connection.id });
+  assert.equal(detail?.connection.endpoint, "https://github-mcp.example.com/v2");
+  assert.equal(detail?.connection.status, "queued_verification");
+  assert.equal(detail?.secretFields[0]?.configured, true);
+  assert.equal(operation?.operation, "verify");
+  const opsAfter = listMcpOperationsSync({ workspaceId: "default", runtimeId });
+  assert.equal(opsAfter.length, opsBefore + 1);
+  // Secret value never surfaces.
+  const json = JSON.stringify(detail);
+  assert.equal(json.includes("rotated-value"), false);
+  assert.equal(json.includes("original-value"), false);
+});
+
+test("replaceMcpConnectionConfig rolls back on failure (unknown secret field)", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "original-value" },
+    confirmHighRisk: true,
+  });
+
+  assert.throws(
+    () => replaceMcpConnectionConfigSync({
+      workspaceId: "default",
+      actorUserId: ADMIN_USER_ID,
+      connectionId: connection.id,
+      endpoint: "https://github-mcp.example.com/should-rollback",
+      secrets: { not_a_secret_field: "x" },
+    }),
+    /mcp.unknown_secret_field/,
+  );
+
+  // Nothing changed: endpoint and secret rotation were rolled back together.
+  const detail = readMcpConnectionDetailSync({ workspaceId: "default", connectionId: connection.id });
+  assert.equal(detail?.connection.endpoint, "https://github-mcp.example.com/mcp");
+  assert.equal(detail?.connection.status, "queued_verification");
 });
 
 function createRuntime(): string {

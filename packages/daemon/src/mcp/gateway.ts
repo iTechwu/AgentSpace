@@ -50,9 +50,16 @@ export class McpGateway {
   private port = 0;
   private readonly taskSessions = new Map<string, McpGatewayTaskSession>();
   private readonly mcpSessions = new Map<string, McpSessionEntry>();
-  private readonly mcpClient = createRuntimeMcpClient();
+  private readonly onAudit: (audit: McpToolAuditRecord) => void;
+  private readonly mcpClient: ReturnType<typeof createRuntimeMcpClient>;
 
-  constructor(private readonly onAudit: (audit: McpToolAuditRecord) => void) {}
+  constructor(
+    onAudit: (audit: McpToolAuditRecord) => void,
+    mcpClient?: ReturnType<typeof createRuntimeMcpClient>,
+  ) {
+    this.onAudit = onAudit;
+    this.mcpClient = mcpClient ?? createRuntimeMcpClient();
+  }
 
   async start(): Promise<void> {
     if (this.httpServer) return;

@@ -85,23 +85,34 @@ function writeSkillsToRoot(skills: WorkspaceSkill[], rootDir: string, workspaceI
   }
 }
 
+/**
+ * Materializes a skill from its locked artifact. Per D-11, a skill with a pinned
+ * artifact digest is FAIL-CLOSED: if the artifact is missing or fails integrity
+ * verification, the task must not run with degraded/missing resources. Only
+ * skills WITHOUT an artifact (legacy / manually edited, never artifactized) may
+ * fall back to their text skill_file projection.
+ */
 function tryMaterializeFromArtifact(skill: WorkspaceSkill, skillDir: string, workspaceId?: string): boolean {
   const digest = readActiveArtifactDigestForSkillSync(skill.id, workspaceId);
   if (!digest) {
-    return false;
+    return false; // legacy skill without a pinned digest → text projection
   }
   const artifact = readSkillArtifactByDigestSync(digest, workspaceId);
   if (!artifact) {
-    return false;
+    throw new Error(
+      `Skill "${skill.name}" is pinned to artifact ${digest.slice(0, 12)}… which is missing. ` +
+        "Refusing to run without its locked resources (D-11).",
+    );
   }
   try {
     materializeSkillArtifactFilesSync(artifact, skillDir);
     return true;
-  } catch {
-    // If the artifact cannot be verified/restored, fall back to text projection
-    // rather than failing the whole task. The integrity failure is surfaced
-    // separately by the data-protection health check.
-    return false;
+  } catch (error) {
+    throw new Error(
+      `Skill "${skill.name}" artifact ${digest.slice(0, 12)}… failed integrity verification; ` +
+        `refusing to run with missing/corrupt resources (D-11): ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
   }
 }
 

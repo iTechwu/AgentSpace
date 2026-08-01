@@ -97,6 +97,71 @@ export function readEmployeeBindingGenerationSync(
   return typeof row?.generation === "number" ? row.generation : undefined;
 }
 
+/**
+ * Strict write-lease guard (EAD-005). Throws unless the binding's current
+ * generation EXACTLY equals `expectedGeneration`. Used by the output-promotion
+ * and task-completion write paths so an old runtime (or a racing bind) cannot
+ * publish into a workspace it no longer owns.
+ */
+export function assertEmployeeBindingGenerationSync(
+  employeeName: string,
+  expectedGeneration: number,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): number {
+  const current = readEmployeeBindingGenerationSync(employeeName, workspaceId);
+  if (typeof current !== "number") {
+    throw new Error(`Employee "${employeeName.trim()}" has no runtime binding; cannot write.`);
+  }
+  if (current !== expectedGeneration) {
+    throw new Error(
+      `STALE_BINDING_GENERATION: current generation is ${current}, expected exactly ${expectedGeneration}. ` +
+        `Only the current binding lease may write.`,
+    );
+  }
+  return current;
+}
+
+/**
+ * Recovery activation: atomically switches the CURRENT binding to the target
+ * runtime AND the operation's target generation, and marks it online. This is
+ * the ONLY step that promotes the provisional recovery to the live binding
+ * (EAD-005: "原子切换 binding generation"). The old runtime keeps a stale
+ * generation and loses write rights. Guarded against a concurrent rebind: the
+ * expected previous generation must still be current, else it is a conflict.
+ */
+export function activateRecoveryBindingSync(input: {
+  workspaceId?: string;
+  employeeName: string;
+  runtimeId: string;
+  generation: number;
+  expectedPreviousGeneration?: number;
+}): EmployeeRuntimeBindingRecord {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employeeName = input.employeeName.trim();
+  const now = new Date().toISOString();
+
+  if (input.expectedPreviousGeneration !== undefined) {
+    const current = readEmployeeBindingGenerationSync(employeeName, workspaceId);
+    if (typeof current !== "number" || current !== input.expectedPreviousGeneration) {
+      throw new Error(
+        `RECOVERY_ACTIVATION_CONFLICT: expected previous generation ${input.expectedPreviousGeneration}, ` +
+          `got ${typeof current === "number" ? current : "none"}. A concurrent rebind invalidated this recovery.`,
+      );
+    }
+  }
+
+  const result = db.prepare(
+    `UPDATE employee_runtime_binding
+       SET runtime_id = ?, generation = ?, status = 'online', desired_provider = NULL, updated_at = ?
+     WHERE workspace_id = ? AND employee_name = ?`,
+  ).run(input.runtimeId, input.generation, now, workspaceId, employeeName);
+  if (result.changes === 0) {
+    throw new Error(`Employee "${employeeName}" has no runtime binding to activate.`);
+  }
+  return readEmployeeRuntimeBindingSync(employeeName, workspaceId)!;
+}
+
 export function unbindEmployeeRuntimeSync(employeeName: string, workspaceId = DEFAULT_WORKSPACE_ID): boolean {
   const db = getDatabase();
   const result = db

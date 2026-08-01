@@ -1,8 +1,9 @@
 import {
+  activateRecoveryBindingSync,
   advanceRecoveryPhaseSync,
-  bindEmployeeRuntimeSync,
   createRecoveryOperationSync,
   failRecoveryOperationSync,
+  readAgentSkillRequirementConfigSync,
   readAssignmentArtifactDigestSync,
   readEmployeeBindingGenerationSync,
   readEmployeePersistentWorkspaceSync,
@@ -14,6 +15,7 @@ import {
   type EmployeeRecoveryOperationRecord,
   type RecoveryPhase,
 } from "@dofe-agent/db";
+import { createAttachmentStorageClient } from "../attachments/storage.ts";
 import { listEmployeeSkillIdsSync } from "./employees.ts";
 import { verifySkillArtifactIntegritySync } from "../skills/skill-artifacts.ts";
 
@@ -177,20 +179,20 @@ function runPhase(
 
   switch (operation.phase) {
     case "allocate": {
-      // Resolve/validate the target runtime. Actual container creation is
-      // delegated to the runtime-provisioning service by the caller; here we
-      // require a runtime id (existing binding or caller-supplied).
+      // PROVISIONAL allocation: resolve/validate the target runtime and record
+      // it in the operation context WITHOUT touching the live binding. The
+      // current runtime_id/generation stays intact until `activate` passes all
+      // recovery checks (EAD-005). Container creation is delegated to the
+      // runtime-provisioning service by the caller; here we require a runtime id.
       const runtimeId = targetRuntimeId?.trim() || readExistingRuntimeId(employeeName, workspaceId);
       if (!runtimeId) {
         throw new Error("No target runtime available for allocation.");
       }
-      const activated = bindEmployeeRuntimeSync({ workspaceId, employeeName, runtimeId });
-      // bindEmployeeRuntimeSync already advanced the generation; record it.
       return advanceRecoveryPhaseSync({
         operationId: operation.id,
         phase: "mount_workspace",
         workspaceId,
-        contextJson: JSON.stringify({ runtimeId, generation: activated.generation }),
+        contextJson: JSON.stringify({ runtimeId }),
       });
     }
     case "mount_workspace": {
@@ -202,11 +204,23 @@ function runPhase(
       if (!head) {
         throw new Error("Employee workspace has no committed head revision.");
       }
+      // Real mount check: every blob referenced by the head revision's manifest
+      // must be present and readable in object storage.
+      const blobDigests = parseRevisionManifestBlobDigests(head.manifestJson);
+      const storage = createAttachmentStorageClient();
+      const unreadable = blobDigests.filter(
+        (sha) => !storage.contentAddressedBlobExistsSync({ workspaceId, sha256: sha }),
+      );
+      if (unreadable.length > 0) {
+        throw new Error(
+          `Workspace mount failed: ${unreadable.length}/${blobDigests.length} manifest blob(s) unreadable (${unreadable.slice(0, 3).join(", ")}…).`,
+        );
+      }
       return advanceRecoveryPhaseSync({
         operationId: operation.id,
         phase: "install_skills",
         workspaceId,
-        contextJson: JSON.stringify({ headRevisionId: head.id, manifestDigest: head.manifestDigest }),
+        contextJson: JSON.stringify({ headRevisionId: head.id, manifestDigest: head.manifestDigest, blobCount: blobDigests.length }),
       });
     }
     case "install_skills": {
@@ -237,18 +251,18 @@ function runPhase(
       });
     }
     case "resolve_secrets": {
-      // Secrets continue to live in the encrypted secret store; "resolution"
-      // here is the check that every bound skill has its requirement config
-      // present (not the plaintext, which is never stored/read by this layer).
-      const resolvable = resolveSecretsResolvable(employeeName, workspaceId, options.verify);
-      if (!resolvable) {
-        throw new Error("One or more bound skills reference secrets that cannot be resolved.");
+      // Secrets live in the encrypted secret store; "resolution" verifies each
+      // bound skill that DECLARES requirements has a requirement-config row
+      // (the encrypted secret reference) present. Plaintext is never read here.
+      const resolved = resolveSecretsResolvable(employeeName, workspaceId, options.verify);
+      if (!resolved.ok) {
+        throw new Error(`Secrets unresolvable for: ${resolved.missing.join(", ")}.`);
       }
       return advanceRecoveryPhaseSync({
         operationId: operation.id,
         phase: "health_check",
         workspaceId,
-        contextJson: JSON.stringify({ secretsResolvable: true }),
+        contextJson: JSON.stringify({ secretsResolvable: true, skillCount: resolved.checked }),
       });
     }
     case "health_check": {
@@ -264,14 +278,27 @@ function runPhase(
       });
     }
     case "activate": {
-      // Atomic generation switch is performed by bindEmployeeRuntimeSync (the
-      // recovery op's own to_generation is already the new generation). Mark
-      // the operation complete.
+      // The ONLY step that promotes the provisional recovery to the live
+      // binding: atomically switch runtime_id + generation + status=online
+      // (guarded against a concurrent rebind). The old runtime keeps a stale
+      // generation and loses write rights.
+      const context = parseRecoveryContext(operation.contextJson);
+      const runtimeId = targetRuntimeId?.trim() || context.runtimeId;
+      if (!runtimeId) {
+        throw new Error("Recovery has no target runtime to activate.");
+      }
+      activateRecoveryBindingSync({
+        workspaceId,
+        employeeName,
+        runtimeId,
+        generation: operation.toGeneration,
+        expectedPreviousGeneration: operation.fromGeneration,
+      });
       return advanceRecoveryPhaseSync({
         operationId: operation.id,
         phase: "completed",
         workspaceId,
-        contextJson: JSON.stringify({ activatedAt: new Date().toISOString() }),
+        contextJson: JSON.stringify({ activatedAt: new Date().toISOString(), generation: operation.toGeneration, runtimeId }),
       });
     }
     default:
@@ -288,13 +315,48 @@ function resolveSecretsResolvable(
   employeeName: string,
   workspaceId: string,
   verify?: RunRecoveryInput["verify"],
-): boolean {
+): { ok: boolean; missing: string[]; checked: number } {
   if (verify?.secretsResolvable !== undefined) {
-    return verify.secretsResolvable;
+    return { ok: verify.secretsResolvable, missing: verify.secretsResolvable ? [] : ["(verify override)"], checked: 0 };
   }
-  // Base check: every assigned skill that declares requirements has a config row.
-  // (Uses the requirement-config store; absence of a skill assignment is fine.)
-  return true;
+  // Every bound skill that declares requirements must have its encrypted
+  // requirement-config row present (the secret reference). Skills without a
+  // requirement declaration need no config.
+  const skillIds = listEmployeeSkillIdsSync(employeeName, workspaceId);
+  const missing: string[] = [];
+  let checked = 0;
+  for (const skillId of skillIds) {
+    const digest = readAssignmentArtifactDigestSync({ employeeName, skillId, workspaceId });
+    if (!digest) {
+      continue; // legacy assignment without a pinned digest — no secret contract
+    }
+    const config = readAgentSkillRequirementConfigSync({ workspaceId, employeeName, skillId });
+    checked += 1;
+    if (!config) {
+      missing.push(skillId);
+    }
+  }
+  return { ok: missing.length === 0, missing, checked };
+}
+
+function parseRevisionManifestBlobDigests(manifestJson: string): string[] {
+  try {
+    const manifest = JSON.parse(manifestJson) as { files?: Array<{ sha256?: string }> };
+    return (manifest.files ?? [])
+      .map((file) => file.sha256)
+      .filter((sha): sha is string => typeof sha === "string" && sha.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function parseRecoveryContext(contextJson: string): { runtimeId?: string } {
+  try {
+    const parsed = JSON.parse(contextJson) as { runtimeId?: unknown };
+    return { runtimeId: typeof parsed.runtimeId === "string" ? parsed.runtimeId : undefined };
+  } catch {
+    return {};
+  }
 }
 
 function runHealthChecks(
@@ -337,25 +399,25 @@ function runHealthChecks(
 /* ------------------------------------------------------------------ */
 
 /**
- * Throws unless the runtime's binding generation equals the expected current
- * generation. Old runtimes (or an old node replaying writes after a rebind)
- * carry a stale generation and are rejected before they can overwrite the
- * workspace.
+ * STRICT split-brain write guard (EAD-005). Throws unless the binding's current
+ * generation EXACTLY equals the expected generation. Any deviation — stale (old
+ * node replaying writes after a rebind) OR ahead (a write racing a newer
+ * bind) — is rejected before the write can touch the workspace.
  */
 export function assertBindingGenerationCurrentSync(input: {
   workspaceId?: string;
   employeeName: string;
-  expectedGeneration?: number;
+  expectedGeneration: number;
 }): number {
   const workspaceId = input.workspaceId ?? "default";
   const current = readEmployeeBindingGenerationSync(input.employeeName, workspaceId);
   if (typeof current !== "number") {
     throw new Error(`Employee "${input.employeeName}" has no runtime binding.`);
   }
-  if (input.expectedGeneration !== undefined && input.expectedGeneration < current) {
+  if (current !== input.expectedGeneration) {
     throw new Error(
-      `STALE_BINDING_GENERATION: expected >= ${current}, got ${input.expectedGeneration}. ` +
-        `Old runtime cannot write after a rebind.`,
+      `STALE_BINDING_GENERATION: current generation is ${current}, expected exactly ${input.expectedGeneration}. ` +
+        `Only the current binding lease may write.`,
     );
   }
   return current;

@@ -6,6 +6,7 @@ import {
   markTaskCommittedSync,
   markTaskPreparingCommitSync,
   readAgentRuntimeSync,
+  readEmployeeBindingGenerationSync,
   recordTokenUsageSync,
   upsertTaskCommitJournalSync,
 } from "@dofe-agent/db";
@@ -322,11 +323,13 @@ export async function POST(
     }
 
     // Durability commit phases (EAD §7): preparing → promote to the employee's
-    // persistent workspace → committed. Best-effort: a promotion failure must
-    // never block completing an already-executed task (its outputs are already
-    // persisted as attachments); the journal records the failure for the
-    // reconciliation backlog instead.
+    // persistent workspace → committed. A promotion failure keeps the task in
+    // `preparing_commit` and returns a retryable 503: the daemon retries and the
+    // journal is the reconciliation source. The task is NOT completed — the
+    // user must never see "success" for an uncommitted result (design §7).
     const agentName = payload.assignee ?? task.agentId;
+    const bindingGeneration = readEmployeeBindingGenerationSync(agentName, task.workspaceId);
+    let promotionError: string | undefined;
     try {
       markTaskPreparingCommitSync(task.id);
       let workspaceRevisionId: string | undefined;
@@ -342,6 +345,7 @@ export async function POST(
             mediaType: attachment.mediaType,
           })),
           publishArtifacts: true,
+          expectedBindingGeneration: bindingGeneration,
         });
         workspaceRevisionId = promoted.revision.id;
         committedArtifactIds = promoted.artifactIds;
@@ -353,14 +357,27 @@ export async function POST(
         artifactIds: committedArtifactIds,
       });
     } catch (error) {
+      promotionError = error instanceof Error ? error.message : String(error);
       upsertTaskCommitJournalSync({
         taskId: task.id,
         workspaceId: task.workspaceId,
         employeeName: agentName,
         commitState: "preparing",
         errorCode: "workspace_promotion_failed",
-        errorMessage: error instanceof Error ? error.message : String(error),
+        errorMessage: promotionError,
       });
+    }
+
+    if (promotionError) {
+      return Response.json(
+        {
+          error: `Task outputs were received but not durably committed (${promotionError}). ` +
+            "Retrying the complete call will promote them and finish the task.",
+          commitState: "preparing",
+          taskId: task.id,
+        },
+        { status: 503, headers: { "retry-after": "5" } },
+      );
     }
 
     completeQueuedTaskSync({

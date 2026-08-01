@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  assertEmployeeBindingGenerationSync,
   commitWorkspaceRevisionSync,
   createWorkspaceRevisionSync,
   ensureEmployeePersistentWorkspaceSync,
@@ -69,11 +70,18 @@ export function promoteTaskOutputsToWorkspaceSync(input: {
   outputs: TaskOutputFile[];
   publishArtifacts?: boolean;
   createdBy?: string;
+  /** Write-lease guard: when provided, the binding generation must EXACTLY equal this value. */
+  expectedBindingGeneration?: number;
 }): PromoteTaskOutputsResult {
   const workspaceId = input.workspaceId ?? "default";
   const employeeName = input.employeeName.trim();
   if (!employeeName) {
     throw new Error("Employee name is required to promote task outputs.");
+  }
+  // Split-brain write guard (EAD-005): refuse to publish into a workspace whose
+  // binding lease is no longer current.
+  if (input.expectedBindingGeneration !== undefined) {
+    assertEmployeeBindingGenerationSync(employeeName, input.expectedBindingGeneration, workspaceId);
   }
 
   const workspace = ensureEmployeePersistentWorkspaceSync({ workspaceId, employeeName });
@@ -92,15 +100,19 @@ export function promoteTaskOutputsToWorkspaceSync(input: {
     const mediaType = output.mediaType ?? mediaTypeForPath(path);
     const size = output.bytes.byteLength;
 
-    // Upload content-addressed blob (dedup at storage + index layers).
-    if (!storage.contentAddressedBlobExistsSync({ workspaceId, sha256 })) {
-      storage.putContentAddressedBlobSync({ workspaceId, sha256, contentBytes: output.bytes, mediaType });
-    }
+    // Upload content-addressed blob (idempotent at the storage layer — Local
+    // skips an existing blob, TOS overwrites safely). The returned ref carries
+    // the ACTUAL provider/bucket/region/endpoint/key so recovery, migration
+    // and audit can locate the object reliably.
+    const ref = storage.putContentAddressedBlobSync({ workspaceId, sha256, contentBytes: output.bytes, mediaType });
     upsertContentBlobSync({
       workspaceId,
       sha256,
-      storageProvider: "local",
-      storageKey: `workspaces/${workspaceId}/content-blobs/${sha256.slice(0, 2)}/${sha256}`,
+      storageProvider: ref.storageProvider,
+      storageBucket: ref.storageBucket,
+      storageRegion: ref.storageRegion,
+      storageEndpoint: ref.storageEndpoint,
+      storageKey: ref.storageKey,
       sizeBytes: size,
       mediaType,
     });
@@ -121,9 +133,15 @@ export function promoteTaskOutputsToWorkspaceSync(input: {
     }
   }
 
+  // FULL-SNAPSHOT model (EAD-003): each revision's manifest is the complete file
+  // set — parent revision's files merged with this task's outputs (newer path
+  // wins). The head revision alone is sufficient to restore the whole workspace,
+  // independent of the revision chain.
+  const parentFiles = head ? parseRevisionManifestFiles(head.manifestJson) : [];
+  const mergedFiles = mergeManifestFiles(parentFiles, manifestFiles);
   const manifest: WorkspaceRevisionManifest = {
     taskId: input.taskId,
-    files: manifestFiles.sort((left, right) => left.path.localeCompare(right.path, "en-US")),
+    files: mergedFiles.sort((left, right) => left.path.localeCompare(right.path, "en-US")),
   };
   const manifestDigest = computeRevisionManifestDigest(manifest);
 
@@ -170,14 +188,16 @@ export function promoteArtifactSync(input: {
   const sha256 = sha256Hex(input.bytes);
   const mediaType = input.mediaType ?? mediaTypeForPath(input.fileName);
 
-  if (!storage.contentAddressedBlobExistsSync({ workspaceId, sha256 })) {
-    storage.putContentAddressedBlobSync({ workspaceId, sha256, contentBytes: input.bytes, mediaType });
-  }
+  // Idempotent upload; the returned ref carries the real provider/bucket/key.
+  const ref = storage.putContentAddressedBlobSync({ workspaceId, sha256, contentBytes: input.bytes, mediaType });
   upsertContentBlobSync({
     workspaceId,
     sha256,
-    storageProvider: "local",
-    storageKey: `workspaces/${workspaceId}/content-blobs/${sha256.slice(0, 2)}/${sha256}`,
+    storageProvider: ref.storageProvider,
+    storageBucket: ref.storageBucket,
+    storageRegion: ref.storageRegion,
+    storageEndpoint: ref.storageEndpoint,
+    storageKey: ref.storageKey,
     sizeBytes: input.bytes.byteLength,
     mediaType,
   });

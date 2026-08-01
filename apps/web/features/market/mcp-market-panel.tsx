@@ -6,10 +6,9 @@ import {
   disableMcpConnectionAction,
   enableMcpConnectionAction,
   removeMcpConnectionAction,
+  replaceMcpConnectionConfigAction,
   requestMcpConnectionAction,
   reverifyMcpConnectionAction,
-  rotateMcpSecretAction,
-  updateMcpConnectionConfigAction,
 } from "@/features/market/mcp-actions";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useLanguage } from "@/features/i18n/language-provider";
@@ -30,6 +29,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   const [transportFilter, setTransportFilter] = useState<"all" | CatalogEntry["transport"]>("all");
   const [riskFilter, setRiskFilter] = useState<"all" | CatalogEntry["risk"]>("all");
   const [connectionFilter, setConnectionFilter] = useState<"all" | "connected" | "not_connected" | "needs_attention">("all");
+  const [runtimeFilter, setRuntimeFilter] = useState<string>("all");
   const [selectedCatalogId, setSelectedCatalogId] = useState<string>(data.mcpCatalog[0]?.id ?? "");
   const [selectedRuntimeId, setSelectedRuntimeId] = useState(data.runtimes[0]?.id ?? "");
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
@@ -40,7 +40,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   const [confirmHighRisk, setConfirmHighRisk] = useState(false);
   const [isPending, startTransition] = useTransition();
 
-  const onlineRuntimes = useMemo(() => data.runtimes.filter((r) => r.status === "online"), [data.runtimes]);
+  const onlineRuntimes = useMemo(() => data.runtimes.filter((r) => r.status === "online" && r.mcpEligible), [data.runtimes]);
   const sources = useMemo(() => Array.from(new Set(data.mcpCatalog.map((item) => item.source))).sort(), [data.mcpCatalog]);
   const catalogConnectionState = useMemo(() => new Map(data.mcpCatalog.map((item) => {
     const connections = data.mcpConnections.filter((connection) => connection.catalogItemId === item.id);
@@ -51,16 +51,24 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
         : "connected";
     return [item.id, state] as const;
   })), [data.mcpCatalog, data.mcpConnections]);
+  const catalogConnectedRuntimeCount = useMemo(() => new Map(data.mcpCatalog.map((item) => {
+    const runtimeIds = new Set(data.mcpConnections.filter((connection) => connection.catalogItemId === item.id).map((connection) => connection.runtimeId));
+    return [item.id, runtimeIds.size] as const;
+  })), [data.mcpCatalog, data.mcpConnections]);
   const filteredCatalog = useMemo(() => {
     const q = query.trim().toLocaleLowerCase("en-US");
-    return data.mcpCatalog.filter((item) =>
-      (!q || `${item.displayName} ${item.slug} ${item.description} ${item.dataDomains.join(" ")}`.toLocaleLowerCase("en-US").includes(q)) &&
-      (sourceFilter === "all" || item.source === sourceFilter) &&
-      (transportFilter === "all" || item.transport === transportFilter) &&
-      (riskFilter === "all" || item.risk === riskFilter) &&
-      (connectionFilter === "all" || catalogConnectionState.get(item.id) === connectionFilter),
-    );
-  }, [catalogConnectionState, connectionFilter, data.mcpCatalog, query, riskFilter, sourceFilter, transportFilter]);
+    return data.mcpCatalog.filter((item) => {
+      const connectedOnRuntime = runtimeFilter === "all" || data.mcpConnections.some((connection) =>
+        connection.catalogItemId === item.id && connection.runtimeId === runtimeFilter,
+      );
+      return connectedOnRuntime &&
+        (!q || `${item.displayName} ${item.slug} ${item.description} ${item.dataDomains.join(" ")}`.toLocaleLowerCase("en-US").includes(q)) &&
+        (sourceFilter === "all" || item.source === sourceFilter) &&
+        (transportFilter === "all" || item.transport === transportFilter) &&
+        (riskFilter === "all" || item.risk === riskFilter) &&
+        (connectionFilter === "all" || catalogConnectionState.get(item.id) === connectionFilter);
+    });
+  }, [catalogConnectionState, connectionFilter, data.mcpCatalog, data.mcpConnections, query, riskFilter, runtimeFilter, sourceFilter, transportFilter]);
 
   const selected = data.mcpCatalog.find((item) => item.id === selectedCatalogId) ?? filteredCatalog[0] ?? data.mcpCatalog[0];
   const selectedRuntime = onlineRuntimes.find((r) => r.id === selectedRuntimeId) ?? onlineRuntimes[0];
@@ -149,21 +157,16 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
       }));
       return;
     }
-    runAction(async () => {
-      const result = await updateMcpConnectionConfigAction({
-        connectionId: editingConnection.id,
-        endpoint,
-        nonSecretParams,
-        approvedTools: Array.from(approvedTools),
-        confirmHighRisk,
-      });
-      for (const [fieldName, value] of Object.entries(secrets)) {
-        if (value.trim()) {
-          await rotateMcpSecretAction({ connectionId: editingConnection.id, fieldName, value });
-        }
-      }
-      return result;
-    });
+    // Atomic replacement: config + rotated secrets in one transaction, one
+    // reverify, one audit. Untouched fields keep their stored values.
+    runAction(() => replaceMcpConnectionConfigAction({
+      connectionId: editingConnection.id,
+      endpoint,
+      nonSecretParams,
+      approvedTools: Array.from(approvedTools),
+      secrets,
+      confirmHighRisk,
+    }));
   }
 
   const needsAttention = data.mcpConnections.filter((c) => c.status === "failed" || c.status === "degraded").length;
@@ -223,10 +226,20 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
               <option value="needs_attention">{tx("需要处理", "Needs attention")}</option>
             </select>
           </label>
+          <label className="form-field">
+            <span>{tx("Runtime", "Runtime")}</span>
+            <select onChange={(event) => setRuntimeFilter(event.currentTarget.value)} value={runtimeFilter}>
+              <option value="all">{tx("全部 Runtime", "All runtimes")}</option>
+              {onlineRuntimes.map((runtime) => (
+                <option key={runtime.id} value={runtime.id}>{runtime.label}</option>
+              ))}
+            </select>
+          </label>
           <section className="market-app-list" aria-label={tx("MCP 服务目录", "MCP service catalog")}>
             {filteredCatalog.map((item) => {
               const active = selected?.id === item.id;
               const connectionState = catalogConnectionState.get(item.id) ?? "not_connected";
+              const connectedCount = catalogConnectedRuntimeCount.get(item.id) ?? 0;
               return (
                 <button
                   className={`market-app-row${active ? " market-app-row--active" : ""}`}
@@ -237,7 +250,10 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                   <span className={`market-risk-dot market-risk-dot--${item.risk}`} />
                   <strong>{item.displayName}</strong>
                   <span>{item.transport}</span>
-                  <small>{connectionState === "needs_attention" ? tx("需要处理", "Needs attention") : connectionState === "connected" ? tx("已连接", "Connected") : tx("未连接", "Not connected")}</small>
+                  <small>
+                    {tx(`已连接 ${connectedCount} 个 Runtime · `, `${connectedCount} runtime(s) · `)}
+                    {connectionState === "needs_attention" ? tx("需要处理", "Needs attention") : connectionState === "connected" ? tx("已连接", "Connected") : tx("未连接", "Not connected")}
+                  </small>
                 </button>
               );
             })}

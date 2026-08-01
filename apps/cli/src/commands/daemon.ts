@@ -40,6 +40,7 @@ import {
   failQueuedTaskSync,
   markTaskCommittedSync,
   markTaskPreparingCommitSync,
+  readEmployeeBindingGenerationSync,
   upsertTaskCommitJournalSync,
   getDaemonChannelWorkDirPath,
   getDaemonRemoteTaskWorkDirPath,
@@ -1283,8 +1284,11 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       });
     }
     // Durability commit phases (EAD §7): preparing → promote to the employee's
-    // persistent workspace → committed. Best-effort; promotion failure must not
-    // block completing an already-executed task (outputs are already persisted).
+    // persistent workspace → committed. A promotion failure keeps the task in
+    // `preparing_commit` (result received but NOT durably committed) and the
+    // task is NOT completed nor announced — the journal drives reconciliation.
+    const bindingGeneration = readEmployeeBindingGenerationSync(agentName, task.workspaceId);
+    let promotionError: string | undefined;
     try {
       markTaskPreparingCommitSync(task.id);
       let workspaceRevisionId: string | undefined;
@@ -1300,6 +1304,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
             mediaType: attachment.mediaType,
           })),
           publishArtifacts: true,
+          expectedBindingGeneration: bindingGeneration,
         });
         workspaceRevisionId = promoted.revision.id;
         committedArtifactIds = promoted.artifactIds;
@@ -1311,17 +1316,20 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         artifactIds: committedArtifactIds,
       });
     } catch (error) {
+      promotionError = error instanceof Error ? error.message : String(error);
       upsertTaskCommitJournalSync({
         taskId: task.id,
         workspaceId: task.workspaceId,
         employeeName: agentName,
         commitState: "preparing",
         errorCode: "workspace_promotion_failed",
-        errorMessage: error instanceof Error ? error.message : String(error),
+        errorMessage: promotionError,
       });
+      console.error(`[daemon] task ${task.id} outputs NOT committed; keeping preparing_commit: ${promotionError}`);
     }
 
-    completeQueuedTaskSync({
+    if (!promotionError) {
+      completeQueuedTaskSync({
       taskId: task.id,
       resultJson: {
         provider: runtime.provider,
@@ -1343,7 +1351,8 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       },
       sessionId: result.sessionId,
       workDir,
-    });
+      });
+    }
 
     if (tokenAcc.modelId && (tokenAcc.inputTokens > 0 || tokenAcc.outputTokens > 0)) {
       recordTokenUsageSync({
@@ -1361,7 +1370,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       });
     }
 
-    if (payload.taskId) {
+    if (!promotionError && payload.taskId) {
       updateTaskStatusSync(payload.taskId, "done", task.workspaceId);
     }
     if (payload.orchestrationStepId) {
@@ -1374,7 +1383,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         task.workspaceId,
       );
     }
-    if (channelThreadId && payload.channel) {
+    if (!promotionError && channelThreadId && payload.channel) {
       const replyResult = completeAgentChannelReplySync({
         channel: payload.channel,
         pendingSpeaker: agentName,
@@ -1436,7 +1445,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
           task.workspaceId,
         );
       }
-    } else if (payload.channel) {
+    } else if (!promotionError && payload.channel) {
       const replyResult = completeAgentChannelReplySync({
         channel: payload.channel,
         speaker: runtime.name,

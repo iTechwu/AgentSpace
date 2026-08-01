@@ -427,6 +427,8 @@ export {
   listEmployeeRuntimeBindingsSync,
   setEmployeeBindingStatusSync,
   readEmployeeBindingGenerationSync,
+  activateRecoveryBindingSync,
+  assertEmployeeBindingGenerationSync,
 } from "./employee-bindings.ts";
 
 export {

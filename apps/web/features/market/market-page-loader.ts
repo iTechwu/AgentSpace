@@ -58,6 +58,10 @@ export async function loadMarketPageData(input: {
           status: runtime.status,
           daemonKey: snapshot.daemon.daemonKey,
           cliHubReady: readiness.cliHub.available,
+          // MCP gateway eligibility: the loopback gateway is wired for
+          // Claude first (one-shot --mcp-config); Codex config injection is
+          // pending validation on its target version.
+          mcpEligible: runtime.provider === "claude" || runtime.provider === "codex",
         };
       }),
     ),

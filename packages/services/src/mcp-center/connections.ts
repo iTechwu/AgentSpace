@@ -2,6 +2,8 @@ import {
   cancelUnfinishedMcpOperationsForConnectionSync,
   createMcpConnectionSync,
   createMcpOperationSync,
+  getDatabase,
+  withTransaction,
   listMcpConnectionsForRuntimeSync,
   listMcpConnectionsSync,
   listMcpOperationsForConnectionSync,
@@ -415,6 +417,139 @@ export function rotateMcpSecretSync(input: {
     },
   });
   return updated;
+}
+
+export interface ReplaceMcpConnectionConfigServiceInput {
+  workspaceId: string;
+  connectionId: string;
+  actorUserId?: string;
+  endpoint?: string;
+  nonSecretParams?: Record<string, unknown>;
+  approvedTools?: string[];
+  /** Plaintext secrets to rotate; fields not present keep their stored value. */
+  secrets?: Record<string, string>;
+  /** Required only when this update newly grants a high-risk tool. */
+  confirmHighRisk?: boolean;
+  /** When false, the connection is only written down (no verify op). */
+  queueVerification?: boolean;
+}
+
+/**
+ * Atomic replacement of a connection's non-secret configuration AND the given
+ * secret fields in a single transaction, creating exactly one verify operation
+ * and one audit event. Mirrors "完整替换配置" — fields not supplied stay
+ * unchanged; a mid-flight failure rolls everything back instead of leaving a
+ * partially-updated connection.
+ */
+export function replaceMcpConnectionConfigSync(input: ReplaceMcpConnectionConfigServiceInput): {
+  connection: RuntimeMcpConnectionRecord;
+  operation?: RuntimeMcpOperationRecord;
+} {
+  assertCanManageMcpCenterSync({ workspaceId: input.workspaceId, actorUserId: input.actorUserId });
+  const connection = requireConnection(input.connectionId, input.workspaceId);
+  const catalog = readMcpCatalogItemSync(connection.catalogItemId, input.workspaceId);
+  if (!catalog) {
+    throw new Error("mcp_catalog.not_found");
+  }
+  if (input.endpoint !== undefined) {
+    const check = validateMcpEndpoint(input.endpoint, parseJsonArray(catalog.allowedHostsJson));
+    if (!check.ok) {
+      throw new Error(check.code ?? "mcp.policy_denied");
+    }
+  }
+  if (input.nonSecretParams !== undefined) {
+    const headersCheck = validateMcpRequestHeaders(input.nonSecretParams);
+    if (!headersCheck.ok) {
+      throw new Error(headersCheck.code ?? "mcp.policy_denied");
+    }
+    const configCheck = validateMcpConnectionConfiguration(parseJsonObject(catalog.configurationSchemaJson), input.nonSecretParams);
+    if (!configCheck.ok) {
+      throw new Error(configCheck.code ?? "mcp.policy_denied");
+    }
+  }
+  if (input.approvedTools !== undefined) {
+    const declaredTools = parseDeclaredTools(catalog.declaredToolsJson);
+    const declared = new Map(declaredTools.map((tool) => [tool.name, tool]));
+    if (input.approvedTools.some((name) => !declared.has(name))) {
+      throw new Error("mcp.tool_not_declared");
+    }
+    const currentApproved = new Set(parseJsonArray(connection.approvedToolsJson));
+    const addsHighRiskTool = input.approvedTools.some((name) =>
+      !currentApproved.has(name) && declared.get(name)?.risk === "high",
+    );
+    if (addsHighRiskTool && input.confirmHighRisk !== true) {
+      throw new Error("mcp.high_risk_confirmation_required");
+    }
+  }
+  const secretFields = new Set(parseJsonArray(catalog.secretFieldsJson));
+  for (const fieldName of Object.keys(input.secrets ?? {})) {
+    if (!secretFields.has(fieldName)) {
+      throw new Error("mcp.unknown_secret_field");
+    }
+  }
+
+  const reverifyAllowed = connection.status !== "disabled";
+  const db = getDatabase();
+  let updated: RuntimeMcpConnectionRecord | null = null;
+  let operation: RuntimeMcpOperationRecord | undefined;
+  withTransaction(db, () => {
+    cancelUnfinishedMcpOperationsForConnectionSync({ connectionId: connection.id, workspaceId: input.workspaceId });
+    updated = updateMcpConnectionConfigSync({
+      connectionId: connection.id,
+      workspaceId: input.workspaceId,
+      endpoint: input.endpoint,
+      nonSecretParamsJson: input.nonSecretParams === undefined ? undefined : JSON.stringify(input.nonSecretParams),
+      approvedToolsJson: input.approvedTools === undefined ? undefined : JSON.stringify(input.approvedTools),
+    });
+    const rotations: Array<{ connectionId: string; fieldName: string; encryptedValue: string; keyVersion: string; rotatedByUserId?: string }> = [];
+    for (const [fieldName, value] of Object.entries(input.secrets ?? {})) {
+      if (value && value.trim()) {
+        rotations.push({
+          connectionId: connection.id,
+          fieldName,
+          encryptedValue: encryptMcpSecret(value),
+          keyVersion: "mcp1",
+          rotatedByUserId: input.actorUserId,
+        });
+      }
+    }
+    if (rotations.length > 0) {
+      upsertMcpSecretsSync(rotations);
+    }
+    if (reverifyAllowed && input.queueVerification !== false) {
+      operation = createMcpOperationSync({
+        workspaceId: input.workspaceId,
+        runtimeId: connection.runtimeId,
+        connectionId: connection.id,
+        operation: "verify",
+        requestedByUserId: input.actorUserId,
+      });
+    } else if (!reverifyAllowed) {
+      updateMcpConnectionStatusSync({
+        connectionId: connection.id,
+        workspaceId: input.workspaceId,
+        status: "disabled",
+        lastStatus: connection.lastStatus,
+      });
+    }
+  });
+  if (!updated) {
+    throw new Error("mcp.connection_not_found");
+  }
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: input.workspaceId,
+    title: "MCP connection configuration replaced",
+    note: `Configuration for connection "${catalog.displayName}" was replaced; re-verification required.`,
+    code: "mcp_connection.config_replaced",
+    data: {
+      actorType: "session_user",
+      actorUserId: input.actorUserId,
+      resourceType: "mcp_connection",
+      resourceId: connection.id,
+      rotatedSecretCount: Object.keys(input.secrets ?? {}).filter((name) => input.secrets?.[name]?.trim()).length,
+    },
+  });
+  return { connection: updated, operation };
 }
 
 /* ------------------------------------------------------------------ */
