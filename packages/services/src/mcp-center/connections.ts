@@ -493,8 +493,45 @@ export function resolveClaimedMcpOperationSync(input: {
   if (!connection) {
     return null;
   }
+  if (input.operation.operation === "remove") {
+    // Removal is a local control-plane operation. It must remain possible even
+    // when an old catalog row or encrypted secret is no longer valid.
+    return {
+      id: input.operation.id,
+      workspaceId: input.operation.workspaceId,
+      runtimeId: input.operation.runtimeId,
+      connectionId: input.operation.connectionId,
+      operation: input.operation.operation,
+      status: input.operation.status,
+      transport: "streamable_http",
+      endpoint: "",
+      allowedHosts: [],
+      approvedTools: [],
+      declaredTools: [],
+      secrets: {},
+      nonSecretParams: {},
+      createdAt: input.operation.createdAt,
+    };
+  }
   const catalog = readMcpCatalogItemSync(connection.catalogItemId, input.workspaceId);
   if (!catalog) {
+    return null;
+  }
+  const allowedHosts = parseJsonArray(catalog.allowedHostsJson);
+  const nonSecretParams = parseJsonObject(connection.nonSecretParamsJson);
+  const endpointCheck = validateMcpEndpoint(connection.endpoint, allowedHosts);
+  const headerCheck = validateMcpRequestHeaders(nonSecretParams);
+  const configurationCheck = validateMcpConnectionConfiguration(parseJsonObject(catalog.configurationSchemaJson), nonSecretParams);
+  const declaredTools = parseDeclaredTools(catalog.declaredToolsJson);
+  const approvedTools = parseJsonArray(connection.approvedToolsJson);
+  if (
+    !endpointCheck.ok ||
+    !headerCheck.ok ||
+    !configurationCheck.ok ||
+    approvedTools.some((name) => !declaredTools.some((tool) => tool.name === name))
+  ) {
+    // Connections can outlive a catalog policy change. Do not let a legacy row
+    // bypass the checks normally performed when configuration is submitted.
     return null;
   }
   const secrets = resolveDaemonSecretBundle(readMcpConnectionSecretsSync(connection.id, input.workspaceId));
@@ -510,11 +547,11 @@ export function resolveClaimedMcpOperationSync(input: {
     status: input.operation.status,
     transport: catalog.transport,
     endpoint: connection.endpoint,
-    allowedHosts: parseJsonArray(catalog.allowedHostsJson),
-    approvedTools: parseJsonArray(connection.approvedToolsJson),
-    declaredTools: parseDeclaredTools(catalog.declaredToolsJson).map((t) => t.name),
+    allowedHosts,
+    approvedTools,
+    declaredTools: declaredTools.map((t) => t.name),
     secrets,
-    nonSecretParams: parseJsonObject(connection.nonSecretParamsJson),
+    nonSecretParams,
     createdAt: input.operation.createdAt,
   };
 }
@@ -694,10 +731,14 @@ function parseDiscoveredTools(value: string): McpDiscoveredTool[] {
 /** Re-exported for the daemon complete/fail routes to compute outcome from a verification result. */
 export function classifyVerificationOutcome(result: McpVerificationResult, approvedTools: string[]): McpVerificationOutcome {
   if (result.status === "failed") return "failed";
-  const discovered = new Set((result.discoveredTools ?? []).map((t) => t.name));
-  const missing = approvedTools.filter((name) => !discovered.has(name));
-  if (missing.length > 0) {
+  if (findMissingApprovedMcpTools(result.discoveredTools ?? [], approvedTools).length > 0) {
     return "degraded";
   }
   return "ready";
+}
+
+/** Returns approved tool names absent from the current discovery response. */
+export function findMissingApprovedMcpTools(discoveredTools: McpDiscoveredTool[], approvedTools: string[]): string[] {
+  const discovered = new Set(discoveredTools.map((tool) => tool.name));
+  return approvedTools.filter((name) => !discovered.has(name));
 }

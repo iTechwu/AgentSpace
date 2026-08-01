@@ -241,7 +241,7 @@ export function buildAndPersistSkillArtifactSync(
   const workspaceId = input.workspaceId ?? "default";
   const normalizedFiles = input.files
     .map((file) => ({ ...file, path: normalizeSkillFilePath(file.path) }))
-    .filter((file) => file.path.length > 0 && file.bytes.byteLength > 0);
+    .filter((file) => file.path.length > 0);
 
   if (!normalizedFiles.some((file) => file.path === "SKILL.md")) {
     throw new Error("Skill artifact must contain SKILL.md.");
@@ -382,7 +382,12 @@ export function verifySkillArtifactIntegritySync(
     }
   }
 
-  const recomputedDigest = computeArtifactDigest(manifest, fileRecords.map((file) => file.sha256).sort());
+  // Canonical digest order is by path (same comparator as build), NOT by sha256.
+  const pathSortedDigests = fileRecords
+    .slice()
+    .sort((left, right) => left.path.localeCompare(right.path, "en-US"))
+    .map((file) => file.sha256);
+  const recomputedDigest = computeArtifactDigest(manifest, pathSortedDigests);
   const rootDigestMatches = recomputedDigest === artifact.digest;
 
   return {

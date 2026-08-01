@@ -1,10 +1,10 @@
 import {
   deleteMcpCatalogItemSync,
+  insertMcpCatalogItemSync,
   listMcpConnectionsSync,
   listMcpCatalogItemsSync,
   readMcpCatalogItemBySlugSync,
   readMcpCatalogItemSync,
-  upsertMcpCatalogItemSync,
   type McpCatalogItemRecord,
   type McpRisk,
   type McpTransport,
@@ -53,6 +53,12 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
   if (!/^[a-z0-9][a-z0-9\-]{0,62}$/.test(slug)) {
     throw new Error("mcp_catalog.invalid_slug");
   }
+  if (readMcpCatalogItemBySlugSync(slug, input.workspaceId)) {
+    // The current table is unique on (workspace, slug), so an upsert would
+    // silently rewrite the policy used by existing connections. A future
+    // catalog-release model must create a new immutable version instead.
+    throw new Error("mcp_catalog.release_required");
+  }
   if (!input.displayName.trim()) {
     throw new Error("mcp_catalog.invalid_display_name");
   }
@@ -99,25 +105,33 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
   // Workspace-created catalog entries have not passed platform review, so they
   // always retain high-risk treatment irrespective of a caller-provided label.
   const risk: McpRisk = "high";
-  const record = upsertMcpCatalogItemSync({
-    workspaceId: input.workspaceId,
-    source: "workspace_private",
-    slug,
-    version: input.version?.trim(),
-    transport: input.transport,
-    displayName: input.displayName.trim(),
-    description: input.description?.trim(),
-    allowedHostsJson: JSON.stringify(allowedHosts),
-    configurationSchemaJson: JSON.stringify(configurationSchema),
-    declaredToolsJson: JSON.stringify(declaredTools),
-    defaultApprovedToolsJson: JSON.stringify(defaultApproved),
-    secretFieldsJson: JSON.stringify(secretFields),
-    requiredRuntimeCapabilitiesJson: JSON.stringify(input.requiredRuntimeCapabilities ?? []),
-    dataDomainsJson: JSON.stringify(input.dataDomains ?? []),
-    risk,
-    endpointTemplate: input.endpointTemplate?.trim() || undefined,
-    documentationUrl: input.documentationUrl?.trim() || undefined,
-  });
+  let record: McpCatalogItemRecord;
+  try {
+    record = insertMcpCatalogItemSync({
+      workspaceId: input.workspaceId,
+      source: "workspace_private",
+      slug,
+      version: input.version?.trim(),
+      transport: input.transport,
+      displayName: input.displayName.trim(),
+      description: input.description?.trim(),
+      allowedHostsJson: JSON.stringify(allowedHosts),
+      configurationSchemaJson: JSON.stringify(configurationSchema),
+      declaredToolsJson: JSON.stringify(declaredTools),
+      defaultApprovedToolsJson: JSON.stringify(defaultApproved),
+      secretFieldsJson: JSON.stringify(secretFields),
+      requiredRuntimeCapabilitiesJson: JSON.stringify(input.requiredRuntimeCapabilities ?? []),
+      dataDomainsJson: JSON.stringify(input.dataDomains ?? []),
+      risk,
+      endpointTemplate: input.endpointTemplate?.trim() || undefined,
+      documentationUrl: input.documentationUrl?.trim() || undefined,
+    });
+  } catch (error) {
+    if (isMcpCatalogSlugConflict(error)) {
+      throw new Error("mcp_catalog.release_required");
+    }
+    throw error;
+  }
 
   tryRecordWorkspaceAuditEventSync({
     workspaceId: input.workspaceId,
@@ -135,6 +149,11 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
   });
 
   return record;
+}
+
+function isMcpCatalogSlugConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /unique|duplicate/i.test(message) && /mcp_catalog_item|workspace_id.*slug|slug.*workspace_id/i.test(message);
 }
 
 function normalizeConfigurationSchema(input: Record<string, unknown>): Record<string, unknown> {

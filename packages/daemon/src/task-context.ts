@@ -11,6 +11,7 @@ import {
   BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME,
   BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME,
   listRuntimeAppContextEntriesForRuntimeSync,
+  listReadyMcpConnectionsForTaskSync,
   listEmployeeKnowledgePagesSync,
   listEmployeeSkillIdsSync,
   listDocumentPermissionRequestsSync,
@@ -30,8 +31,7 @@ import {
   type WorkspaceDataPolicyDecision,
   type WorkspaceNotificationRecord,
 } from "@dofe-agent/services";
-import type { RuntimeAppContextEntry } from "@dofe-agent/domain";
-import type { DaemonProvider } from "@dofe-agent/domain";
+import type { DaemonProvider, RuntimeAppContextEntry, RuntimeMcpConnectionContextEntry } from "@dofe-agent/domain";
 import {
   buildChannelDocumentPromptLines,
   materializeChannelDocuments,
@@ -126,6 +126,8 @@ export interface PreparedDaemonTaskContext {
   agentSkills: WorkspaceSkill[];
   agentKnowledgePages: KnowledgePage[];
   runtimeApps: RuntimeAppContextEntry[];
+  /** Non-secret MCP manifest for a future task-scoped gateway. */
+  mcpConnections: RuntimeMcpConnectionContextEntry[];
   agentDocumentContexts: AgentDocumentContext[];
   feishuLarkCliResourceGrants: FeishuLarkCliResourceGrant[];
   agentNotifications: WorkspaceNotificationRecord[];
@@ -435,6 +437,10 @@ export function prepareDaemonTaskContext(input: {
     workspaceId: input.task.workspaceId,
     runtimeId: input.runtime.id,
   });
+  const mcpConnections = listReadyMcpConnectionsForTaskSync({
+    workspaceId: input.task.workspaceId,
+    runtimeId: input.runtime.id,
+  });
   const agentDocumentContexts = input.agentDocumentContexts ?? contextsFromLegacyDocuments(input.channelDocuments ?? []);
   const feishuLarkCliResourceGrants = input.feishuLarkCliResourceGrants ?? [];
   const agentName = payload.assignee ?? input.task.agentId;
@@ -498,6 +504,7 @@ export function prepareDaemonTaskContext(input: {
     agentSkills,
     agentKnowledgePages,
     runtimeApps,
+    mcpConnections,
     agentDocumentContexts,
     feishuLarkCliResourceGrants,
     agentNotifications,

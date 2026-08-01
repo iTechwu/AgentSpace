@@ -579,6 +579,12 @@ export interface EmployeeRuntimeBindingRecord {
   runtimeId: string;
   provider: DaemonProvider;
   runtimeName: string;
+  /** EAD-002 binding state: online|degraded|offline|recovering|needs_attention. */
+  status: EmployeeBindingStatus;
+  /** Monotonic binding generation; only the current generation may write (EAD-005). */
+  generation: number;
+  /** The provider the control plane wants; observed runtime may differ during recovery. */
+  desiredProvider?: string;
   boundAt: string;
   updatedAt: string;
 }
@@ -936,7 +942,8 @@ export type McpErrorCode =
   | "mcp.authentication_failed"
   | "mcp.protocol_invalid"
   | "mcp.timeout"
-  | "mcp.tool_not_approved";
+  | "mcp.tool_not_approved"
+  | "mcp.approved_tool_missing";
 
 export interface McpCatalogItemRecord {
   id: string;
@@ -1395,6 +1402,136 @@ export interface SkillArtifactFileRecord {
   mediaType: string;
   mode: string;
   isText: boolean;
+  createdAt: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Skill installations (artifact × runtime preparation)                */
+/* ------------------------------------------------------------------ */
+
+export type SkillInstallationComponentKind = "dependency" | "script" | "cli" | "mcp" | "service";
+export type SkillInstallationComponentStatus =
+  | "pending"
+  | "preparing"
+  | "ready"
+  | "blocked"
+  | "failed"
+  | "degraded";
+export type SkillInstallationOperationStatus =
+  | "pending"
+  | "claimed"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+export type SkillInstallationOperationType =
+  | "inspect"
+  | "prepare"
+  | "verify"
+  | "activate"
+  | "deactivate"
+  | "uninstall"
+  | "upgrade"
+  | "rollback";
+
+export interface StoredSkillInstallationRecord {
+  id: string;
+  workspaceId: string;
+  runtimeId: string;
+  artifactDigest: string;
+  status: string;
+  resolvedLockJson: string;
+  preparedPath?: string;
+  health: string;
+  previousReadyRevision?: string;
+  previousReadyArtifactDigest?: string;
+  revision: string;
+  installedAt?: string;
+  verifiedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoredSkillInstallationComponentRecord {
+  id: string;
+  installationId: string;
+  kind: SkillInstallationComponentKind;
+  key: string;
+  status: SkillInstallationComponentStatus;
+  errorCode?: string;
+  errorMessage?: string;
+  lastOperationId?: string;
+  verifiedAt?: string;
+  updatedAt: string;
+}
+
+export interface StoredSkillInstallationOperationRecord {
+  id: string;
+  workspaceId: string;
+  runtimeId: string;
+  installationId: string;
+  operation: SkillInstallationOperationType;
+  status: SkillInstallationOperationStatus;
+  requestSnapshotJson: string;
+  safeResultJson: string;
+  errorCode?: string;
+  errorMessage?: string;
+  claimedAt?: string;
+  completedAt?: string;
+  requestedByUserId?: string;
+  createdAt: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Skill support services (catalog + managed instance + binding)       */
+/* ------------------------------------------------------------------ */
+
+export interface StoredSkillServiceCatalogRecord {
+  id: string;
+  workspaceId: string;
+  slug: string;
+  templateVersion: string;
+  deploymentType: string;
+  imageDigest: string;
+  protocol: string;
+  scope: string;
+  resourcesJson: string;
+  healthJson: string;
+  networkJson: string;
+  configSchemaVersion: number;
+  configSchemaJson: string;
+  secretFieldsJson: string;
+  externalDependenciesJson: string;
+  rollbackClass: string;
+  templateDigest: string;
+  risk: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoredManagedSkillServiceRecord {
+  id: string;
+  workspaceId: string;
+  runtimeId: string;
+  catalogId: string;
+  status: string;
+  networkIdentity?: string;
+  resourceProfileJson: string;
+  lastHealth?: string;
+  lastHealthAt?: string;
+  rolloutRevision: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoredSkillServiceBindingRecord {
+  installationId: string;
+  serviceId: string;
+  catalogTemplateVersion: string;
+  serviceImageDigest: string;
+  endpointRef: string;
+  healthRevision: string;
+  configSchemaVersion: number;
   createdAt: string;
 }
 

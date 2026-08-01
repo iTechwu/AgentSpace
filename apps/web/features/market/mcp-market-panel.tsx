@@ -24,22 +24,40 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   const router = useRouter();
   const { pushToast } = useFeedbackToast();
   const [query, setQuery] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<"all" | CatalogEntry["source"]>("all");
+  const [transportFilter, setTransportFilter] = useState<"all" | CatalogEntry["transport"]>("all");
+  const [riskFilter, setRiskFilter] = useState<"all" | CatalogEntry["risk"]>("all");
+  const [connectionFilter, setConnectionFilter] = useState<"all" | "connected" | "not_connected" | "needs_attention">("all");
   const [selectedCatalogId, setSelectedCatalogId] = useState<string>(data.mcpCatalog[0]?.id ?? "");
   const [selectedRuntimeId, setSelectedRuntimeId] = useState(data.runtimes[0]?.id ?? "");
   const [endpoint, setEndpoint] = useState("");
+  const [nonSecretParams, setNonSecretParams] = useState<Record<string, string>>({});
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
   const [confirmHighRisk, setConfirmHighRisk] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const onlineRuntimes = useMemo(() => data.runtimes.filter((r) => r.status === "online"), [data.runtimes]);
+  const sources = useMemo(() => Array.from(new Set(data.mcpCatalog.map((item) => item.source))).sort(), [data.mcpCatalog]);
+  const catalogConnectionState = useMemo(() => new Map(data.mcpCatalog.map((item) => {
+    const connections = data.mcpConnections.filter((connection) => connection.catalogItemId === item.id);
+    const state = connections.length === 0
+      ? "not_connected"
+      : connections.some((connection) => connection.status === "failed" || connection.status === "degraded")
+        ? "needs_attention"
+        : "connected";
+    return [item.id, state] as const;
+  })), [data.mcpCatalog, data.mcpConnections]);
   const filteredCatalog = useMemo(() => {
     const q = query.trim().toLocaleLowerCase("en-US");
-    if (!q) return data.mcpCatalog;
     return data.mcpCatalog.filter((item) =>
-      `${item.displayName} ${item.slug} ${item.description} ${item.dataDomains.join(" ")}`.toLocaleLowerCase("en-US").includes(q),
+      (!q || `${item.displayName} ${item.slug} ${item.description} ${item.dataDomains.join(" ")}`.toLocaleLowerCase("en-US").includes(q)) &&
+      (sourceFilter === "all" || item.source === sourceFilter) &&
+      (transportFilter === "all" || item.transport === transportFilter) &&
+      (riskFilter === "all" || item.risk === riskFilter) &&
+      (connectionFilter === "all" || catalogConnectionState.get(item.id) === connectionFilter),
     );
-  }, [data.mcpCatalog, query]);
+  }, [catalogConnectionState, connectionFilter, data.mcpCatalog, query, riskFilter, sourceFilter, transportFilter]);
 
   const selected = data.mcpCatalog.find((item) => item.id === selectedCatalogId) ?? filteredCatalog[0] ?? data.mcpCatalog[0];
   const selectedRuntime = onlineRuntimes.find((r) => r.id === selectedRuntimeId) ?? onlineRuntimes[0];
@@ -50,9 +68,10 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     if (!selected) return;
     setEndpoint(selected.endpointTemplate ?? "");
     setApprovedTools(new Set(selected.defaultApprovedTools));
+    setNonSecretParams(Object.fromEntries(selected.configurationFields.map((field) => [field.name, ""])));
     setSecrets(Object.fromEntries(selected.secretFields.map((field) => [field, ""])));
     setConfirmHighRisk(false);
-  }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected]);
 
   useEffect(() => {
     if (!data.mcpOperations.some((op) => isActiveStatus(op.status))) return;
@@ -103,10 +122,45 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
               value={query}
             />
           </label>
+          <label className="form-field">
+            <span>{tx("来源", "Source")}</span>
+            <select onChange={(event) => setSourceFilter(event.currentTarget.value as "all" | CatalogEntry["source"])} value={sourceFilter}>
+              <option value="all">{tx("全部来源", "All sources")}</option>
+              {sources.map((source) => <option key={source} value={source}>{source}</option>)}
+            </select>
+          </label>
+          <label className="form-field">
+            <span>{tx("传输", "Transport")}</span>
+            <select onChange={(event) => setTransportFilter(event.currentTarget.value as "all" | CatalogEntry["transport"])} value={transportFilter}>
+              <option value="all">{tx("全部传输", "All transports")}</option>
+              <option value="streamable_http">streamable_http</option>
+              <option value="sse">sse</option>
+              <option value="managed_service">managed_service</option>
+              <option value="managed_stdio">managed_stdio</option>
+            </select>
+          </label>
+          <label className="form-field">
+            <span>{tx("风险", "Risk")}</span>
+            <select onChange={(event) => setRiskFilter(event.currentTarget.value as "all" | CatalogEntry["risk"])} value={riskFilter}>
+              <option value="all">{tx("全部风险", "All risks")}</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+            </select>
+          </label>
+          <label className="form-field">
+            <span>{tx("连接状态", "Connection status")}</span>
+            <select onChange={(event) => setConnectionFilter(event.currentTarget.value as typeof connectionFilter)} value={connectionFilter}>
+              <option value="all">{tx("全部状态", "All statuses")}</option>
+              <option value="connected">{tx("已连接", "Connected")}</option>
+              <option value="not_connected">{tx("未连接", "Not connected")}</option>
+              <option value="needs_attention">{tx("需要处理", "Needs attention")}</option>
+            </select>
+          </label>
           <section className="market-app-list" aria-label={tx("MCP 服务目录", "MCP service catalog")}>
             {filteredCatalog.map((item) => {
               const active = selected?.id === item.id;
-              const connected = data.mcpConnections.some((c) => c.catalogItemId === item.id);
+              const connectionState = catalogConnectionState.get(item.id) ?? "not_connected";
               return (
                 <button
                   className={`market-app-row${active ? " market-app-row--active" : ""}`}
@@ -117,7 +171,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                   <span className={`market-risk-dot market-risk-dot--${item.risk}`} />
                   <strong>{item.displayName}</strong>
                   <span>{item.transport}</span>
-                  <small>{connected ? tx("已连接", "Connected") : tx("未连接", "Not connected")}</small>
+                  <small>{connectionState === "needs_attention" ? tx("需要处理", "Needs attention") : connectionState === "connected" ? tx("已连接", "Connected") : tx("未连接", "Not connected")}</small>
                 </button>
               );
             })}
@@ -184,12 +238,30 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                     value={endpoint}
                   />
                 </label>
+                {selected.configurationFields.map((field) => (
+                  <label key={field.name} className="form-field">
+                    <span>{field.name}{field.required ? " *" : ""}</span>
+                    <input
+                      autoComplete="off"
+                      maxLength={field.maxLength}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        setNonSecretParams((prev) => ({ ...prev, [field.name]: value }));
+                      }}
+                      required={field.required}
+                      value={nonSecretParams[field.name] ?? ""}
+                    />
+                  </label>
+                ))}
                 {selected.secretFields.map((field) => (
                   <label key={field} className="form-field">
                     <span>{field}</span>
                     <input
                       autoComplete="off"
-                      onChange={(event) => setSecrets((prev) => ({ ...prev, [field]: event.currentTarget.value }))}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        setSecrets((prev) => ({ ...prev, [field]: value }));
+                      }}
                       placeholder={tx("保存后不会显示", "Will not be shown after save")}
                       type="password"
                       value={secrets[field] ?? ""}
@@ -208,11 +280,12 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
               <div className="market-action-row">
                 <button
                   className="primary-button"
-                  disabled={isPending || !data.canManage || !supportsSelectedTransport || !selectedRuntime || !endpoint.trim() || !allSecretsFilled(selected, secrets)}
+                  disabled={isPending || !data.canManage || !supportsSelectedTransport || !selectedRuntime || !endpoint.trim() || !allConfigurationFieldsFilled(selected, nonSecretParams) || !allSecretsFilled(selected, secrets)}
                   onClick={() => runAction(() => requestMcpConnectionAction({
                     runtimeId: selectedRuntime!.id,
                     catalogItemId: selected.id,
                     endpoint,
+                    nonSecretParams,
                     secrets,
                     approvedTools: Array.from(approvedTools),
                     confirmHighRisk,
@@ -341,4 +414,8 @@ function statusLabel(status: string, tx: (zh: string, en: string) => string): st
 
 function allSecretsFilled(catalog: CatalogEntry, secrets: Record<string, string>): boolean {
   return catalog.secretFields.every((field) => (secrets[field] ?? "").trim().length > 0);
+}
+
+function allConfigurationFieldsFilled(catalog: CatalogEntry, params: Record<string, string>): boolean {
+  return catalog.configurationFields.every((field) => !field.required || (params[field.name] ?? "").trim().length > 0);
 }

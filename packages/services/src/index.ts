@@ -75,6 +75,38 @@ export {
   listEmployeeSkillIdsByAgentIdMapSync,
 } from "./employees/employees.ts";
 export {
+  promoteTaskOutputsToWorkspaceSync,
+  promoteArtifactSync,
+  reclaimOrphanContentBlobsSync,
+  readEmployeeDataProtectionSnapshotSync,
+  computeRevisionManifestDigest,
+  softDeleteEmployeeArtifactSync,
+  type TaskOutputFile,
+  type PromoteTaskOutputsResult,
+  type WorkspaceRevisionManifest,
+  type WorkspaceRevisionFileEntry,
+  type OrphanBlobScanResult,
+  type EmployeeDataProtectionSnapshot,
+} from "./employees/persistent-workspace.ts";
+export {
+  createEmployeeRecoveryOperationSync,
+  runRecoveryStepSync,
+  runFullRecoverySync,
+  assertBindingGenerationCurrentSync,
+  RECOVERY_PHASE_ORDER,
+  type RunRecoveryInput,
+  type RecoveryStepResult,
+} from "./employees/recovery.ts";
+export {
+  evaluateDataProtectionHealthSync,
+  runBackupRestoreDrillSync,
+  type DataProtectionHealthResult,
+  type DataProtectionAlert,
+  type DataProtectionAlertSeverity,
+  type BackupRestoreDrillResult,
+  type DataProtectionHealthOptions,
+} from "./employees/data-protection-health.ts";
+export {
   hasGitHubSkillDependenciesSync,
   queueGitHubSkillDependenciesForAgentSync,
   readSkillDependencyInstallStatusSync,
@@ -224,6 +256,7 @@ export {
   classifyVerificationOutcome,
   disableMcpConnectionSync,
   enableMcpConnectionSync,
+  findMissingApprovedMcpTools,
   listMcpConnectionActivitySync,
   listMcpConnectionsForRuntimeServiceSync,
   listReadyMcpConnectionsForTaskSync,
@@ -295,6 +328,30 @@ export {
   type BuildArtifactResult,
   type ArtifactIntegrityResult,
 } from "./skills/skill-artifacts.ts";
+export {
+  createSkillInstallationPlanSync,
+  resolveClaimedSkillInstallationOperationSync,
+  completeSkillInstallationOperationSync,
+  failSkillInstallationOperationSync,
+  evaluateSkillInstallationReadinessSync,
+  assertSkillInstallationReadyForTaskSync,
+} from "./skills/installations.ts";
+export {
+  resolveSkillMcpCapabilitySync,
+  resolveSkillCliCapabilitySync,
+  evaluateSkillInstallationCapabilitiesSync,
+  type SkillCapabilityResolution,
+} from "./skills/capabilities.ts";
+export {
+  computeSkillReleaseLockSync,
+  diffSkillArtifactsSync,
+  isSkillUpgradeApprovalRequiredSync,
+  createSkillUpgradePlanSync,
+  rollbackSkillInstallationSync,
+  type ResolvedSkillReleaseLock,
+  type SkillReleaseDiff,
+  type SkillDiffCategory,
+} from "./skills/release.ts";
 export {
   resolveSystemAgentTemplateForWorkspaceSync,
   type ResolvedAgentTemplateForWorkspace,
@@ -495,10 +552,14 @@ export {
 export {
   createAttachmentStorageClient,
   setAttachmentStorageClientForTests,
+  buildContentAddressedBlobKey,
   type AttachmentStorageClient,
   type AttachmentStorageReadInput,
   type AttachmentStorageObjectMetadata,
   type AttachmentStoragePutInput,
+  type ContentAddressedBlobPutInput,
+  type ContentAddressedBlobReadInput,
+  type ContentAddressedBlobRef,
   type StoredAttachmentObject,
 } from "./attachments/storage.ts";
 export {

@@ -1,6 +1,6 @@
 import { isDaemonProvider } from "@dofe-agent/domain";
 import { getDatabase, withTransaction, DEFAULT_WORKSPACE_ID } from "./database.ts";
-import type { EmployeeRuntimeBindingRecord } from "./types.ts";
+import type { EmployeeBindingStatus, EmployeeRuntimeBindingRecord } from "./types.ts";
 
 export function bindEmployeeRuntimeSync(input: {
   workspaceId?: string;
@@ -34,20 +34,67 @@ export function bindEmployeeRuntimeSync(input: {
     throw new Error(`Runtime "${runtimeId}" does not exist.`);
   }
 
-  db.prepare(
-    `INSERT INTO employee_runtime_binding (
-      workspace_id,
-      employee_name,
-      runtime_id,
-      created_at,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(workspace_id, employee_name) DO UPDATE SET
-      runtime_id = excluded.runtime_id,
-      updated_at = excluded.updated_at`,
-  ).run(workspaceId, employeeName, runtimeId, now, now);
+  // Each (re)bind atomically advances the binding generation (EAD-005). An
+  // old runtime that comes back holds a stale generation and loses write rights.
+  withTransaction(db, () => {
+    const previous = db.prepare(
+      `SELECT generation FROM employee_runtime_binding WHERE workspace_id = ? AND employee_name = ?`,
+    ).get(workspaceId, employeeName) as { generation?: number } | undefined;
+    const nextGeneration = typeof previous?.generation === "number" ? previous.generation + 1 : 1;
+
+    db.prepare(
+      `INSERT INTO employee_runtime_binding (
+        workspace_id,
+        employee_name,
+        runtime_id,
+        status,
+        generation,
+        desired_provider,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, 'online', ?, ?, ?, ?)
+      ON CONFLICT(workspace_id, employee_name) DO UPDATE SET
+        runtime_id = excluded.runtime_id,
+        status = 'online',
+        generation = excluded.generation,
+        desired_provider = excluded.desired_provider,
+        updated_at = excluded.updated_at`,
+    ).run(workspaceId, employeeName, runtimeId, nextGeneration, runtime.provider, now, now);
+  });
 
   return readEmployeeRuntimeBindingSync(employeeName, workspaceId)!;
+}
+
+/** Sets the EAD-002 binding status (offline/degraded/recovering/needs_attention/online). */
+export function setEmployeeBindingStatusSync(
+  employeeName: string,
+  status: EmployeeBindingStatus,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): EmployeeRuntimeBindingRecord | null {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const result = db.prepare(
+    `UPDATE employee_runtime_binding SET status = ?, updated_at = ?
+     WHERE workspace_id = ? AND employee_name = ?`,
+  ).run(status, now, workspaceId, employeeName.trim());
+  if (result.changes === 0) {
+    return null;
+  }
+  return readEmployeeRuntimeBindingSync(employeeName, workspaceId);
+}
+
+/**
+ * Reads the binding's current generation, used by the recovery orchestrator to
+ * validate that an old runtime cannot write to a workspace it no longer owns.
+ */
+export function readEmployeeBindingGenerationSync(
+  employeeName: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): number | undefined {
+  const row = getDatabase().prepare(
+    `SELECT generation FROM employee_runtime_binding WHERE workspace_id = ? AND employee_name = ?`,
+  ).get(workspaceId, employeeName.trim()) as { generation?: number } | undefined;
+  return typeof row?.generation === "number" ? row.generation : undefined;
 }
 
 export function unbindEmployeeRuntimeSync(employeeName: string, workspaceId = DEFAULT_WORKSPACE_ID): boolean {
@@ -104,6 +151,9 @@ export function readEmployeeRuntimeBindingSync(
         erb.runtime_id AS runtimeId,
         ar.provider AS provider,
         ar.name AS runtimeName,
+        erb.status AS status,
+        erb.generation AS generation,
+        erb.desired_provider AS desiredProvider,
         erb.created_at AS boundAt,
         erb.updated_at AS updatedAt
       FROM employee_runtime_binding erb
@@ -125,6 +175,9 @@ export function listEmployeeRuntimeBindingsSync(workspaceId = DEFAULT_WORKSPACE_
         erb.runtime_id AS runtimeId,
         ar.provider AS provider,
         ar.name AS runtimeName,
+        erb.status AS status,
+        erb.generation AS generation,
+        erb.desired_provider AS desiredProvider,
         erb.created_at AS boundAt,
         erb.updated_at AS updatedAt
       FROM employee_runtime_binding erb
@@ -146,6 +199,8 @@ function mapEmployeeRuntimeBindingRecord(value: Record<string, unknown>): Employ
     typeof value.runtimeId !== "string" ||
     !isDaemonProvider(value.provider as string) ||
     typeof value.runtimeName !== "string" ||
+    typeof value.status !== "string" ||
+    typeof value.generation !== "number" ||
     typeof value.boundAt !== "string" ||
     typeof value.updatedAt !== "string"
   ) {
@@ -158,7 +213,14 @@ function mapEmployeeRuntimeBindingRecord(value: Record<string, unknown>): Employ
     runtimeId: value.runtimeId,
     provider: value.provider as EmployeeRuntimeBindingRecord["provider"],
     runtimeName: value.runtimeName,
+    status: value.status as EmployeeBindingStatus,
+    generation: value.generation,
+    desiredProvider: readOptionalString(value.desiredProvider),
     boundAt: value.boundAt,
     updatedAt: value.updatedAt,
   };
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }

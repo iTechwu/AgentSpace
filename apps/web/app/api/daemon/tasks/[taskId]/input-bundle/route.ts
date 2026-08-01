@@ -16,7 +16,7 @@ import {
   readAgentRuntimeSync,
   type QueuedTaskRecord,
 } from "@dofe-agent/db";
-import type { DaemonTaskInputBundle, DaemonBundleFile } from "@dofe-agent/domain";
+import type { DaemonTaskInputBundle, DaemonBundleFile, RuntimeMcpConnectionContextEntry } from "@dofe-agent/domain";
 import {
   buildContactAgentContext,
   readWorkspaceStateSync,
@@ -24,6 +24,7 @@ import {
   resolveAgentRuntimeMode,
   resolveCompatibleDirectChannelRecord,
   resolveEffectiveModelForTaskAsync,
+  redactToolInputSchema,
   sameValue,
   type EffectiveModelResolution,
 } from "@dofe-agent/services";
@@ -152,6 +153,10 @@ export async function GET(
           status: prepared.runtimeApps.length > 0 ? "available" : "none",
           apps: prepared.runtimeApps,
         },
+        // This is a non-secret manifest only. The remote endpoint, request
+        // configuration, and decrypted credentials stay in the future daemon
+        // MCP gateway, never in this Provider-visible task bundle.
+        mcpConnections: buildMcpConnectionsForTaskBundle(prepared.mcpConnections),
         runtimeToolCapabilities: {
           status: runtimeToolCapabilities.length > 0 ? "available" : "none",
           capabilities: runtimeToolCapabilities,
@@ -200,6 +205,33 @@ export async function GET(
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
+}
+
+/**
+ * Projects a task's MCP manifest across the Provider boundary. Do not spread
+ * the source records here: future connection fields must remain daemon-only by
+ * default, including endpoints, configuration, and credentials.
+ */
+export function buildMcpConnectionsForTaskBundle(
+  connections: RuntimeMcpConnectionContextEntry[],
+): NonNullable<DaemonTaskInputBundle["metadata"]["mcpConnections"]> {
+  return {
+    status: connections.length > 0 ? "available" : "none",
+    connections: connections.map((connection) => ({
+      connectionId: connection.connectionId,
+      catalogItemSlug: connection.catalogItemSlug,
+      displayName: connection.displayName,
+      transport: connection.transport,
+      approvedTools: [...connection.approvedTools],
+      tools: connection.tools.map((tool) => ({
+        id: tool.id,
+        connectionId: tool.connectionId,
+        name: tool.name,
+        description: tool.description,
+        inputSchema: redactToolInputSchema(tool.inputSchema),
+      })),
+    })),
+  };
 }
 
 function buildRuntimeToolCapabilitiesForBundle(

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decryptMcpSecret, encryptMcpSecret, redactMcpText, validateMcpConnectionConfiguration, validateMcpEndpoint, validateMcpRequestHeaders, validateMcpResolvedAddresses } from "./security.ts";
+import { decryptMcpSecret, encryptMcpSecret, redactMcpText, redactToolInputSchema, validateMcpConnectionConfiguration, validateMcpEndpoint, validateMcpRequestHeaders, validateMcpResolvedAddresses } from "./security.ts";
 
 test("validateMcpEndpoint accepts an https host on the allow-list", () => {
   const result = validateMcpEndpoint("https://github-mcp.example.com/mcp", ["github-mcp.example.com"]);
@@ -41,6 +41,11 @@ test("validateMcpResolvedAddresses rejects a mixed public and private DNS answer
 test("validateMcpEndpoint rejects credentials embedded in the URL", () => {
   const result = validateMcpEndpoint("https://user:pass@github-mcp.example.com/mcp", ["github-mcp.example.com"]);
   assert.equal(result.ok, false);
+});
+
+test("validateMcpEndpoint rejects query and fragment data", () => {
+  assert.equal(validateMcpEndpoint("https://github-mcp.example.com/mcp?token=secret", ["github-mcp.example.com"]).ok, false);
+  assert.equal(validateMcpEndpoint("https://github-mcp.example.com/mcp#secret", ["github-mcp.example.com"]).ok, false);
 });
 
 test("validateMcpEndpoint rejects non-standard HTTPS ports", () => {
@@ -87,4 +92,22 @@ test("redactMcpText strips authorization, bearer and secret-like values", () => 
   assert.equal(redacted.includes("abc.def.ghi"), false);
   assert.equal(redacted.includes("sk-live-XYZ"), false);
   assert.ok(redacted.includes("[REDACTED]"));
+});
+
+test("redactToolInputSchema removes sensitive defaults and examples recursively", () => {
+  const redacted = redactToolInputSchema({
+    type: "object",
+    properties: {
+      token: { type: "string", default: "secret-default", examples: ["secret-example"], const: "secret-const", enum: ["secret-enum"] },
+      request: { type: "object", properties: { Authorization: { default: "Bearer secret" } } },
+      safe: { type: "string", default: "visible-default" },
+    },
+  });
+  const serialized = JSON.stringify(redacted);
+  assert.equal(serialized.includes("secret-default"), false);
+  assert.equal(serialized.includes("secret-example"), false);
+  assert.equal(serialized.includes("secret-const"), false);
+  assert.equal(serialized.includes("secret-enum"), false);
+  assert.equal(serialized.includes("Bearer secret"), false);
+  assert.equal(serialized.includes("visible-default"), true);
 });

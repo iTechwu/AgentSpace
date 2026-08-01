@@ -1,6 +1,6 @@
 "use client";
 
-import type { RuntimeAppCatalogSource, RuntimeAppOperationType } from "@dofe-agent/db";
+import type { McpCatalogSource, RuntimeAppCatalogSource, RuntimeAppOperationType } from "@dofe-agent/db";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { requestRuntimeAppOperationAction, refreshRuntimeAppCatalogAction, syncRuntimeAppSkillAction } from "@/features/market/actions";
@@ -62,6 +62,7 @@ export interface MarketPageData {
   }>;
   mcpCatalog: Array<{
     id: string;
+    source: McpCatalogSource;
     slug: string;
     displayName: string;
     description: string;
@@ -73,6 +74,7 @@ export interface MarketPageData {
     declaredTools: Array<{ name: string; description: string; risk: "low" | "medium" | "high" }>;
     defaultApprovedTools: string[];
     secretFields: string[];
+    configurationFields: Array<{ name: string; required: boolean; maxLength?: number }>;
     endpointTemplate?: string;
     documentationUrl?: string;
   }>;
@@ -84,7 +86,6 @@ export interface MarketPageData {
     catalogDisplayName: string;
     status: string;
     transport: "streamable_http" | "sse" | "managed_service" | "managed_stdio";
-    endpoint: string;
     approvedTools: string[];
     declaredToolCount: number;
     lastVerifiedAt?: string;
@@ -107,7 +108,12 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
   const { tx } = useLanguage();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [tab, setTab] = useState<"cli" | "mcp">(() => (searchParams.get("tab") === "mcp" ? "mcp" : "cli"));
+  const requestedTab = searchParams.get("tab") === "mcp" ? "mcp" : "cli";
+  const [tab, setTab] = useState<"cli" | "mcp">(requestedTab);
+
+  useEffect(() => {
+    setTab(requestedTab);
+  }, [requestedTab]);
 
   function selectTab(next: "cli" | "mcp"): void {
     setTab(next);
@@ -118,7 +124,7 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
       params.delete("tab");
     }
     const qs = params.toString();
-    router.replace(qs ? `?${qs}` : "?", { scroll: false });
+    router.push(qs ? `?${qs}` : "?", { scroll: false });
   }
 
   return (

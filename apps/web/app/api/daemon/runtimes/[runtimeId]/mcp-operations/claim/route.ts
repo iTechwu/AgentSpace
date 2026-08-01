@@ -1,4 +1,4 @@
-import { claimNextMcpOperationForRuntimeSync } from "@dofe-agent/db";
+import { claimNextMcpOperationForRuntimeSync, failMcpOperationSync, startMcpOperationSync } from "@dofe-agent/db";
 import type { ClaimMcpConnectionOperationResponse } from "@dofe-agent/domain";
 import { resolveClaimedMcpOperationSync } from "@dofe-agent/services";
 import { readRuntimeForDaemon, requireDaemonAuth } from "../../../../_lib/auth";
@@ -31,7 +31,17 @@ export async function POST(
 
   const operation = resolveClaimedMcpOperationSync({ workspaceId: auth.workspaceId, operation: claimed });
   if (!operation) {
-    return Response.json({ error: "mcp.connection_not_found" }, { status: 404 });
+    // The connection or catalog may have changed after an operation was
+    // queued. Settle the claim so the Runtime never receives stale policy data
+    // and the connection does not remain stuck in `claimed`.
+    startMcpOperationSync(claimed.id, auth.workspaceId);
+    failMcpOperationSync({
+      workspaceId: auth.workspaceId,
+      operationId: claimed.id,
+      errorCode: "mcp.policy_denied",
+      errorMessage: "MCP connection configuration no longer satisfies the current security policy.",
+    });
+    return Response.json({ operation: null } satisfies ClaimMcpConnectionOperationResponse);
   }
 
   return Response.json({ operation } satisfies ClaimMcpConnectionOperationResponse);

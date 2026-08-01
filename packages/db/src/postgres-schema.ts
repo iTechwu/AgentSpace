@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "51";
+export const POSTGRES_SCHEMA_VERSION = "54";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -81,6 +81,12 @@ export const POSTGRES_TABLE_NAMES = [
   "content_blob",
   "skill_artifact",
   "skill_artifact_file",
+  "skill_installation",
+  "skill_installation_operation",
+  "skill_installation_component",
+  "skill_service_catalog",
+  "managed_skill_service",
+  "skill_service_binding",
   "employee_persistent_workspace",
   "employee_workspace_revision",
   "employee_artifact",
@@ -2465,6 +2471,119 @@ export function getPostgresSchemaStatements(): string[] {
         is_text INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMPTZ NOT NULL,
         UNIQUE(artifact_id, path)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS skill_installation (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
+        artifact_digest TEXT NOT NULL,
+        status TEXT NOT NULL,
+        resolved_lock_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        prepared_path TEXT,
+        health TEXT NOT NULL DEFAULT 'unknown',
+        previous_ready_revision TEXT,
+        revision TEXT NOT NULL,
+        installed_at TIMESTAMPTZ,
+        verified_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        previous_ready_artifact_digest TEXT,
+        UNIQUE(workspace_id, runtime_id, artifact_digest, revision),
+        FOREIGN KEY (workspace_id, artifact_digest)
+          REFERENCES skill_artifact(workspace_id, digest) ON DELETE RESTRICT
+      )
+    `,
+    `
+      ALTER TABLE skill_installation ADD COLUMN IF NOT EXISTS previous_ready_artifact_digest TEXT
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS skill_installation_operation (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
+        installation_id TEXT NOT NULL REFERENCES skill_installation(id) ON DELETE CASCADE,
+        operation TEXT NOT NULL,
+        status TEXT NOT NULL,
+        request_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        safe_result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error_code TEXT,
+        error_message TEXT,
+        claimed_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        requested_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS skill_installation_component (
+        id TEXT PRIMARY KEY,
+        installation_id TEXT NOT NULL REFERENCES skill_installation(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        key TEXT NOT NULL,
+        status TEXT NOT NULL,
+        error_code TEXT,
+        error_message TEXT,
+        last_operation_id TEXT,
+        verified_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(installation_id, kind, key)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS skill_service_catalog (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        slug TEXT NOT NULL,
+        template_version TEXT NOT NULL,
+        deployment_type TEXT NOT NULL,
+        image_digest TEXT NOT NULL,
+        protocol TEXT NOT NULL DEFAULT 'http',
+        scope TEXT NOT NULL DEFAULT 'workspace_runtime',
+        resources_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        health_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        network_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        config_schema_version INTEGER NOT NULL DEFAULT 1,
+        config_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        secret_fields_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        external_dependencies_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        rollback_class TEXT NOT NULL DEFAULT 'stateless',
+        template_digest TEXT NOT NULL,
+        risk TEXT NOT NULL DEFAULT 'high',
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, slug, template_version)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS managed_skill_service (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
+        catalog_id TEXT NOT NULL REFERENCES skill_service_catalog(id) ON DELETE RESTRICT,
+        status TEXT NOT NULL,
+        network_identity TEXT,
+        resource_profile_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        last_health TEXT,
+        last_health_at TIMESTAMPTZ,
+        rollout_revision TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, runtime_id, catalog_id)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS skill_service_binding (
+        installation_id TEXT NOT NULL REFERENCES skill_installation(id) ON DELETE CASCADE,
+        service_id TEXT NOT NULL REFERENCES managed_skill_service(id) ON DELETE CASCADE,
+        catalog_template_version TEXT NOT NULL,
+        service_image_digest TEXT NOT NULL,
+        endpoint_ref TEXT NOT NULL,
+        health_revision TEXT NOT NULL,
+        config_schema_version INTEGER NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (installation_id, service_id)
       )
     `,
     `

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LanguageProvider } from "@/features/i18n/language-provider";
@@ -6,16 +6,24 @@ import { MarketPageClient, type MarketPageData } from "@/features/market/market-
 import { FeedbackToastProvider } from "@/shared/ui/feedback-toast-provider";
 
 const mockRefresh = vi.fn();
+const navigationMocks = vi.hoisted(() => ({
+  push: vi.fn(),
+  searchParams: new URLSearchParams(),
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     refresh: mockRefresh,
+    replace: vi.fn(),
+    push: navigationMocks.push,
   }),
+  useSearchParams: () => navigationMocks.searchParams,
 }));
 
 const actionMocks = vi.hoisted(() => ({
   refreshCatalog: vi.fn(async () => ({ data: undefined })),
   requestOperation: vi.fn(async () => ({ data: undefined })),
+  requestMcpConnection: vi.fn(async () => ({ data: undefined })),
   syncSkill: vi.fn(async () => ({ data: undefined })),
 }));
 
@@ -23,6 +31,14 @@ vi.mock("@/features/market/actions", () => ({
   refreshRuntimeAppCatalogAction: actionMocks.refreshCatalog,
   requestRuntimeAppOperationAction: actionMocks.requestOperation,
   syncRuntimeAppSkillAction: actionMocks.syncSkill,
+}));
+
+vi.mock("@/features/market/mcp-actions", () => ({
+  disableMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
+  enableMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
+  removeMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
+  requestMcpConnectionAction: actionMocks.requestMcpConnection,
+  reverifyMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
 }));
 
 const data: MarketPageData = {
@@ -64,6 +80,27 @@ const data: MarketPageData = {
   ],
   installedApps: [],
   operations: [],
+  mcpCatalog: [
+    {
+      id: "mcp-catalog-1",
+      source: "workspace_private",
+      slug: "workspace-search",
+      displayName: "Workspace Search",
+      description: "Search workspace records",
+      version: "1.0.0",
+      transport: "streamable_http",
+      risk: "low",
+      allowedHosts: ["mcp.example.com"],
+      dataDomains: ["workspace"],
+      declaredTools: [{ name: "search", description: "Search records", risk: "low" }],
+      defaultApprovedTools: ["search"],
+      secretFields: ["Authorization"],
+      configurationFields: [{ name: "X-Workspace", required: true, maxLength: 64 }],
+      endpointTemplate: "https://mcp.example.com/mcp",
+    },
+  ],
+  mcpConnections: [],
+  mcpOperations: [],
   canManage: true,
 };
 
@@ -71,8 +108,11 @@ describe("MarketPageClient", () => {
   afterEach(() => {
     vi.useRealTimers();
     mockRefresh.mockClear();
+    navigationMocks.push.mockClear();
+    navigationMocks.searchParams = new URLSearchParams();
     actionMocks.refreshCatalog.mockClear();
     actionMocks.requestOperation.mockClear();
+    actionMocks.requestMcpConnection.mockClear();
     actionMocks.syncSkill.mockClear();
   });
 
@@ -89,6 +129,41 @@ describe("MarketPageClient", () => {
     expect(runtimeSelect).toHaveValue("runtime-online");
     expect(screen.getByRole("option", { name: /Online Runtime/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /Offline Runtime/ })).not.toBeInTheDocument();
+  });
+
+  it("uses URL history for market tabs and follows browser navigation", async () => {
+    const user = userEvent.setup();
+    const rendered = render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: /MCP/ }));
+    expect(navigationMocks.push).toHaveBeenCalledWith("?tab=mcp", { scroll: false });
+    expect(screen.getByRole("tab", { name: /MCP/ })).toHaveAttribute("aria-current", "page");
+
+    navigationMocks.searchParams = new URLSearchParams("tab=mcp");
+    rendered.rerender(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    navigationMocks.searchParams = new URLSearchParams();
+    rendered.rerender(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "CLI 市场" })).toHaveAttribute("aria-current", "page"));
   });
 
   it("shows the real failed operation error for the selected runtime app", () => {
@@ -215,5 +290,75 @@ describe("MarketPageClient", () => {
     expect(actionMocks.refreshCatalog).toHaveBeenCalledTimes(1);
     expect(onDataChanged).toHaveBeenCalledTimes(1);
     expect(mockRefresh).not.toHaveBeenCalled();
+  });
+
+  it("submits only schema-declared non-secret MCP configuration", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: /MCP/ }));
+    await user.type(screen.getByLabelText("X-Workspace *"), "workspace-42");
+    await user.type(screen.getByLabelText("Authorization"), "secret-token");
+    await user.click(screen.getByRole("button", { name: /配置并连接/ }));
+
+    await waitFor(() => {
+      expect(actionMocks.requestMcpConnection).toHaveBeenCalledWith(expect.objectContaining({
+        catalogItemId: "mcp-catalog-1",
+        nonSecretParams: { "X-Workspace": "workspace-42" },
+        secrets: { Authorization: "secret-token" },
+      }));
+    });
+  });
+
+  it("filters MCP catalog entries by reviewed source, transport, risk, and connection health", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{
+            ...data,
+            mcpCatalog: [
+              data.mcpCatalog[0]!,
+              {
+                ...data.mcpCatalog[0]!,
+                id: "mcp-catalog-2",
+                source: "official",
+                slug: "official-search",
+                displayName: "Official Search",
+                transport: "sse",
+                risk: "high",
+              },
+            ],
+            mcpConnections: [{
+              id: "connection-1",
+              runtimeId: "runtime-online",
+              catalogItemId: "mcp-catalog-2",
+              catalogSlug: "official-search",
+              catalogDisplayName: "Official Search",
+              status: "degraded",
+              transport: "sse",
+              approvedTools: ["search"],
+              declaredToolCount: 1,
+            }],
+          }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: /MCP/ }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "来源" }), "official");
+    await user.selectOptions(screen.getByRole("combobox", { name: "传输" }), "sse");
+    await user.selectOptions(screen.getByRole("combobox", { name: "风险" }), "high");
+    await user.selectOptions(screen.getByRole("combobox", { name: "连接状态" }), "needs_attention");
+
+    expect(screen.getByRole("button", { name: /Official Search/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Workspace Search/ })).not.toBeInTheDocument();
   });
 });

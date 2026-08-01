@@ -110,6 +110,11 @@ export function validateMcpEndpoint(endpoint: string, allowedHosts: string[]): M
   if (parsed.username || parsed.password) {
     return { ok: false, code: "mcp.policy_denied", message: "MCP endpoint must not carry credentials in the URL." };
   }
+  if (parsed.search || parsed.hash) {
+    // Connection endpoints are persisted and their management summary reaches
+    // the browser. Query and fragment data are not a safe credential channel.
+    return { ok: false, code: "mcp.policy_denied", message: "MCP endpoint must not contain query or fragment data." };
+  }
   return { ok: true, host };
 }
 
@@ -231,13 +236,42 @@ export function redactMcpText(input: string, maxLen = 4000): string {
   return value;
 }
 
-/** Redacts secret-like example values that may appear in a remote tool's input schema. */
+const SENSITIVE_SCHEMA_FIELD = /api[_-]?(?:key|secret)|access[_-]?key|client[_-]?secret|token|secret|password|authorization|cookie/i;
+const SCHEMA_SAMPLE_KEY = new Set(["default", "example", "examples", "const", "enum"]);
+
+/** Redacts secret-like defaults and examples that may appear in a remote tool's input schema. */
 export function redactToolInputSchema(schema: Record<string, unknown>): Record<string, unknown> {
   try {
-    const text = JSON.stringify(schema);
-    const redacted = text.replace(/("(?:api[_-]?key|token|secret|password|client[_-]?secret|access[_-]?key)"\s*:\s*)"[^"]*"/gi, '$1"[REDACTED]"');
-    return JSON.parse(redacted) as Record<string, unknown>;
+    return redactSchemaValue(schema) as Record<string, unknown>;
   } catch {
-    return schema;
+    // A schema that cannot be safely traversed cannot cross the Provider boundary.
+    return {};
   }
+}
+
+function redactSchemaValue(value: unknown, sensitiveContext = false): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactSchemaValue(entry, sensitiveContext));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const output: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (sensitiveContext && SCHEMA_SAMPLE_KEY.has(key)) {
+      continue;
+    }
+    if (key === "properties" && child && typeof child === "object" && !Array.isArray(child)) {
+      output[key] = Object.fromEntries(
+        Object.entries(child as Record<string, unknown>).map(([propertyName, definition]) => [
+          propertyName,
+          redactSchemaValue(definition, sensitiveContext || SENSITIVE_SCHEMA_FIELD.test(propertyName)),
+        ]),
+      );
+      continue;
+    }
+    output[key] = redactSchemaValue(child, sensitiveContext || SENSITIVE_SCHEMA_FIELD.test(key));
+  }
+  return output;
 }

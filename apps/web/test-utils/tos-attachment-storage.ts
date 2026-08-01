@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
-import type {
-  AttachmentStorageClient,
-  AttachmentStoragePutInput,
-  AttachmentStorageReadInput,
-  StoredAttachmentObject,
+import {
+  buildContentAddressedBlobKey,
+  type AttachmentStorageClient,
+  type AttachmentStoragePutInput,
+  type AttachmentStorageReadInput,
+  type ContentAddressedBlobPutInput,
+  type ContentAddressedBlobReadInput,
+  type ContentAddressedBlobRef,
+  type StoredAttachmentObject,
 } from "@dofe-agent/services";
 
 export function createTestTosAttachmentStorage(): {
@@ -59,6 +63,37 @@ export function createTestTosAttachmentStorage(): {
     async createReadUrl(input: AttachmentStorageReadInput) {
       const key = readKey(input);
       return key ? `https://test-bucket.example.com/${key}` : null;
+    },
+    putContentAddressedBlobSync(input: ContentAddressedBlobPutInput) {
+      const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
+      const bytes = new Uint8Array(input.contentBytes);
+      objects.set(key, bytes);
+      const ref: ContentAddressedBlobRef = {
+        workspaceId: input.workspaceId,
+        sha256: input.sha256.trim().toLowerCase(),
+        storageProvider: "tos",
+        storageBucket: "test-bucket",
+        storageRegion: "cn-beijing",
+        storageEndpoint: "https://tos-cn-beijing.volces.com",
+        storageKey: key,
+        storedPath: `tos://test-bucket/${key}`,
+        sizeBytes: bytes.byteLength,
+      };
+      return ref;
+    },
+    getContentAddressedBlobSync(input: ContentAddressedBlobReadInput) {
+      const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
+      const content = objects.get(key);
+      if (!content) {
+        throw new Error(`NoSuchKey: ${key}`);
+      }
+      return new Uint8Array(content);
+    },
+    contentAddressedBlobExistsSync(input: ContentAddressedBlobReadInput) {
+      return objects.has(buildContentAddressedBlobKey(input.workspaceId, input.sha256));
+    },
+    deleteContentAddressedBlobSync(input: ContentAddressedBlobReadInput) {
+      objects.delete(buildContentAddressedBlobKey(input.workspaceId, input.sha256));
     },
   };
 

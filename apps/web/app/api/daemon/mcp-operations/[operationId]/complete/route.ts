@@ -1,6 +1,6 @@
-import { completeMcpOperationSync } from "@dofe-agent/db";
+import { completeMcpOperationSync, failMcpOperationSync } from "@dofe-agent/db";
 import type { CompleteMcpConnectionOperationRequest, McpVerificationResult } from "@dofe-agent/domain";
-import { classifyVerificationOutcome, redactMcpText, resolveClaimedMcpOperationSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { classifyVerificationOutcome, findMissingApprovedMcpTools, redactMcpText, resolveClaimedMcpOperationSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { readMcpOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -29,9 +29,49 @@ export async function POST(
   let classifiedVerification = verification;
   if (verification && (operation.operation === "verify" || operation.operation === "enable")) {
     const claimed = resolveClaimedMcpOperationSync({ workspaceId: auth.workspaceId, operation });
-    const approvedTools = claimed?.approvedTools ?? [];
+    if (!claimed) {
+      const failed = failMcpOperationSync({
+        operationId,
+        workspaceId: auth.workspaceId,
+        errorCode: "mcp.policy_denied",
+        errorMessage: "MCP connection configuration no longer satisfies the current security policy.",
+      });
+      tryRecordWorkspaceAuditEventSync({
+        workspaceId: auth.workspaceId,
+        title: `MCP connection ${operation.operation} denied by policy`,
+        note: `MCP ${operation.operation} for connection "${operation.connectionId}" was rejected because its configuration no longer satisfies the current security policy.`,
+        code: `mcp_connection.${operation.operation}_policy_denied`,
+        data: {
+          actorType: "daemon_token",
+          resourceType: "mcp_connection",
+          resourceId: operation.connectionId,
+          runtimeId: operation.runtimeId,
+          errorCode: "mcp.policy_denied",
+        },
+      });
+      return Response.json({
+        operation: {
+          id: failed.id,
+          status: failed.status,
+          errorMessage: failed.errorMessage,
+          completedAt: failed.completedAt,
+        },
+      });
+    }
+
+    const approvedTools = claimed.approvedTools;
     const status = classifyVerificationOutcome(verification, approvedTools);
-    classifiedVerification = { ...verification, status };
+    const missingApprovedTools = findMissingApprovedMcpTools(verification.discoveredTools ?? [], approvedTools);
+    classifiedVerification = {
+      ...verification,
+      status,
+      error: missingApprovedTools.length > 0
+        ? {
+            code: "mcp.approved_tool_missing",
+            safeMessage: `Approved MCP tools are no longer available: ${missingApprovedTools.slice(0, 10).join(", ")}.`,
+          }
+        : verification.error,
+    };
   }
 
   const completed = completeMcpOperationSync({
@@ -46,6 +86,8 @@ export async function POST(
           toolsMetadataJson: JSON.stringify(classifiedVerification.discoveredTools ?? []),
           toolsFingerprint: classifiedVerification.toolsFingerprint ?? fingerprintOf(classifiedVerification.discoveredTools),
           latencyMs: classifiedVerification.latencyMs,
+          errorCode: classifiedVerification.error?.code,
+          errorMessage: classifiedVerification.error?.safeMessage,
         }
       : undefined,
   });

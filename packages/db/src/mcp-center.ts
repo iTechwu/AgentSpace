@@ -5,6 +5,7 @@ import type {
   McpConnectionOperationStatus,
   McpConnectionOperationType,
   McpConnectionStatus,
+  McpErrorCode,
   McpRisk,
   McpToolCallOutcome,
   McpTransport,
@@ -111,6 +112,8 @@ export interface CompleteMcpOperationInput {
     toolsFingerprint: string;
     latencyMs?: number;
     discoveredAt?: string;
+    errorCode?: McpErrorCode;
+    errorMessage?: string;
   };
 }
 
@@ -140,6 +143,19 @@ export interface RecordMcpToolAuditInput {
 /* ------------------------------------------------------------------ */
 
 export function upsertMcpCatalogItemSync(input: UpsertMcpCatalogItemInput): McpCatalogItemRecord {
+  return writeMcpCatalogItemSync(input, true);
+}
+
+/**
+ * Creates a catalog row without allowing an existing slug to be overwritten.
+ * Workspace catalog publication uses this path until releases are modeled as
+ * distinct immutable rows.
+ */
+export function insertMcpCatalogItemSync(input: UpsertMcpCatalogItemInput): McpCatalogItemRecord {
+  return writeMcpCatalogItemSync(input, false);
+}
+
+function writeMcpCatalogItemSync(input: UpsertMcpCatalogItemInput, allowOverwrite: boolean): McpCatalogItemRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const slug = input.slug.trim();
@@ -173,7 +189,7 @@ export function upsertMcpCatalogItemSync(input: UpsertMcpCatalogItemInput): McpC
         created_at,
         updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (workspace_id, slug) DO UPDATE SET
+      ${allowOverwrite ? `ON CONFLICT (workspace_id, slug) DO UPDATE SET
         source = excluded.source,
         version = excluded.version,
         transport = excluded.transport,
@@ -190,7 +206,7 @@ export function upsertMcpCatalogItemSync(input: UpsertMcpCatalogItemInput): McpC
         endpoint_template = excluded.endpoint_template,
         documentation_url = excluded.documentation_url,
         synced_at = excluded.synced_at,
-        updated_at = excluded.updated_at`,
+        updated_at = excluded.updated_at` : ""}`,
     ).run(
       id,
       workspaceId,
@@ -713,13 +729,15 @@ export function completeMcpOperationSync(input: CompleteMcpOperationInput): Runt
       db.prepare(
         `UPDATE runtime_mcp_connection
          SET status = ?, last_verified_at = ?, endpoint_fingerprint = ?,
-             last_status = ?, last_error_code = NULL, last_error_message = NULL, updated_at = ?
+             last_status = ?, last_error_code = ?, last_error_message = ?, updated_at = ?
          WHERE id = ? AND workspace_id = ?`,
       ).run(
         input.verification.status,
         now,
         snap.toolsFingerprint,
         input.verification.status,
+        input.verification.errorCode ?? null,
+        input.verification.errorMessage ?? null,
         now,
         completed.connectionId,
         workspaceId,

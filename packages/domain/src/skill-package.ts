@@ -152,6 +152,70 @@ export interface SkillReleaseLock {
   providerCompatibilityRevision: number;
 }
 
+/**
+ * Kinds of daemon-executed skill installation operations. Mirrors the MCP
+ * connection operation protocol (see daemon-api.ts) but for artifact×runtime
+ * installation work.
+ */
+export type SkillInstallationOperationKind =
+  | "inspect"
+  | "prepare"
+  | "verify"
+  | "activate"
+  | "deactivate"
+  | "uninstall"
+  | "upgrade"
+  | "rollback";
+
+/** A file the daemon must materialize/verify, sourced from the immutable artifact. */
+export interface SkillInstallationOperationFile {
+  path: string;
+  sha256: string;
+  size: number;
+  mediaType: string;
+  mode: string;
+}
+
+/** One-time authenticated payload delivered to the daemon on claim. */
+export interface ClaimedSkillInstallationOperation {
+  operationId: string;
+  workspaceId: string;
+  runtimeId: string;
+  installationId: string;
+  operation: SkillInstallationOperationKind;
+  artifactDigest: string;
+  artifactName: string;
+  files: SkillInstallationOperationFile[];
+  /** Components the daemon is expected to prepare/verify for this operation. */
+  components: Array<{ kind: SkillComponentKind; key: string; status: string }>;
+  createdAt: string;
+}
+
+export interface ClaimSkillInstallationOperationResponse {
+  operation: ClaimedSkillInstallationOperation | null;
+}
+
+export interface StartSkillInstallationOperationRequest {
+  status?: "running";
+}
+
+export interface CompleteSkillInstallationOperationRequest {
+  safeResultJson?: string;
+  /** Maps a component key to its new status after the daemon finished it. */
+  componentStatuses?: Array<{
+    kind: SkillComponentKind;
+    key: string;
+    status: SkillComponentStatus;
+    errorCode?: string;
+    errorMessage?: string;
+  }>;
+}
+
+export interface FailSkillInstallationOperationRequest {
+  errorCode?: string;
+  errorMessage: string;
+}
+
 /** Deployment type for a managed support service. */
 export type SkillServiceDeploymentType =
   | "external_connection"

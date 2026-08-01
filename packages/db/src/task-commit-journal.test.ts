@@ -1,0 +1,110 @@
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test, { after, before, beforeEach } from "node:test";
+import {
+  listCommitJournalsForWorkspaceSync,
+  listStaleCommitJournalsSync,
+  readTaskCommitJournalSync,
+  upsertTaskCommitJournalSync,
+  getDatabase,
+} from "./index.ts";
+
+const originalCwd = process.cwd();
+const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-commit-journal-"));
+const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
+
+let taskSeq = 0;
+
+function insertTestTask(): string {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  taskSeq += 1;
+  const runtimeId = `runtime-test-${taskSeq}`;
+  const taskId = `task-test-${taskSeq}`;
+  db.prepare(
+    `INSERT INTO agent_runtime (id, workspace_id, provider, name, status, created_at, updated_at)
+     VALUES (?, 'default', 'codex', ?, 'active', ?, ?)`,
+  ).run(runtimeId, runtimeId, now, now);
+  db.prepare(
+    `INSERT INTO agent_task_queue (id, workspace_id, agent_id, runtime_id, status, priority, input_json, queued_at, created_at, updated_at)
+     VALUES (?, 'default', 'agent-test', ?, 'queued', 0, '{}', ?, ?, ?)`,
+  ).run(taskId, runtimeId, now, now, now);
+  return taskId;
+}
+
+before(() => {
+  writeFileSync(join(tempRoot, "Target.md"), "# test\n");
+  mkdirSync(join(tempRoot, "data"), { recursive: true });
+  const packagesLink = join(tempRoot, "packages");
+  if (!existsSync(packagesLink)) {
+    symlinkSync(join(repositoryRoot, "packages"), packagesLink, "dir");
+  }
+  process.chdir(tempRoot);
+});
+
+beforeEach(() => {
+  const db = getDatabase();
+  db.exec("DELETE FROM task_commit_journal");
+  db.exec("DELETE FROM agent_task_queue");
+  db.exec("DELETE FROM agent_runtime");
+});
+
+after(() => {
+  process.chdir(originalCwd);
+});
+
+test("journal upsert is idempotent per task and increments attempt", () => {
+  const taskId = insertTestTask();
+  const first = upsertTaskCommitJournalSync({ taskId, workspaceId: "default", commitState: "preparing" });
+  assert.equal(first.commitState, "preparing");
+  assert.equal(first.attempt, 1);
+
+  const second = upsertTaskCommitJournalSync({
+    taskId,
+    workspaceId: "default",
+    commitState: "committed",
+    workspaceRevisionId: "ewr-1",
+    artifactIdsJson: '["eart-1"]',
+  });
+  assert.equal(second.commitState, "committed");
+  assert.equal(second.attempt, 2, "upsert on an existing row bumps the attempt");
+  assert.equal(second.workspaceRevisionId, "ewr-1");
+  assert.equal(second.artifactIdsJson, '["eart-1"]');
+
+  // Only one row per task.
+  assert.equal(listCommitJournalsForWorkspaceSync("default").filter((j) => j.taskId === taskId).length, 1);
+});
+
+test("read returns the latest journal state", () => {
+  const taskId = insertTestTask();
+  upsertTaskCommitJournalSync({ taskId, workspaceId: "default", commitState: "committed" });
+  const journal = readTaskCommitJournalSync(taskId, "default");
+  assert.ok(journal);
+  assert.equal(journal.commitState, "committed");
+});
+
+test("stale preparing_commit journals surface for reconciliation", () => {
+  const db = getDatabase();
+  const old = insertTestTask();
+  const fresh = insertTestTask();
+  upsertTaskCommitJournalSync({ taskId: old, workspaceId: "default", commitState: "preparing" });
+  upsertTaskCommitJournalSync({ taskId: fresh, workspaceId: "default", commitState: "preparing" });
+
+  // Age the `old` journal by backdating its updated_at beyond the threshold.
+  const staleCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  db.prepare(`UPDATE task_commit_journal SET updated_at = ? WHERE task_id = ?`).run(staleCutoff, old);
+
+  const stale = listStaleCommitJournalsSync({ workspaceId: "default", staleBeforeSeconds: 300 });
+  assert.ok(stale.some((journal) => journal.taskId === old), "old journal should be flagged stale");
+  assert.ok(!stale.some((journal) => journal.taskId === fresh), "fresh journal must not be flagged");
+});
+
+test("rolled_back state is preserved", () => {
+  const taskId = insertTestTask();
+  upsertTaskCommitJournalSync({ taskId, workspaceId: "default", commitState: "rolled_back", errorMessage: "orphan reclaimed" });
+  const journal = readTaskCommitJournalSync(taskId, "default");
+  assert.equal(journal.commitState, "rolled_back");
+  assert.equal(journal.errorMessage, "orphan reclaimed");
+});

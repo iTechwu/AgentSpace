@@ -4,12 +4,14 @@ import {
   readMcpOperationSync,
   readQueuedTaskSync,
   readRuntimeAppOperationSync,
+  readSkillInstallationOperationSync,
   validateDaemonApiTokenSync,
   type AgentRuntimeRecord,
   type DaemonApiTokenRecord,
   type DaemonConnectionRecord,
   type QueuedTaskRecord,
   type RuntimeMcpOperationRecord,
+  type StoredSkillInstallationOperationRecord,
 } from "@dofe-agent/db";
 import { resolveAgentRuntimeMode, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 
@@ -164,6 +166,21 @@ export function readMcpOperationForDaemon(
   const operation = readMcpOperationSync(operationId, auth.workspaceId);
   if (!operation) {
     return Response.json({ error: `MCP operation "${operationId}" does not exist.` }, { status: 404 });
+  }
+  const runtime = readRuntimeForDaemon(operation.runtimeId, auth);
+  if (runtime instanceof Response) {
+    return runtime;
+  }
+  return operation;
+}
+
+export function readSkillInstallationOperationForDaemon(
+  operationId: string,
+  auth: DaemonAuthContext,
+): StoredSkillInstallationOperationRecord | Response {
+  const operation = readSkillInstallationOperationSync(operationId, auth.workspaceId);
+  if (!operation) {
+    return Response.json({ error: `Skill operation "${operationId}" does not exist.` }, { status: 404 });
   }
   const runtime = readRuntimeForDaemon(operation.runtimeId, auth);
   if (runtime instanceof Response) {

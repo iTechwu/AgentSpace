@@ -10,9 +10,11 @@ import {
   createMcpConnectionSync,
   createMcpOperationSync,
   failMcpOperationSync,
+  insertMcpCatalogItemSync,
   listMcpCatalogItemsSync,
   listReadyMcpConnectionsForRuntimeSync,
   readLatestMcpDiscoverySnapshotSync,
+  readMcpCatalogItemBySlugSync,
   readMcpConnectionSecretsSync,
   readMcpConnectionSync,
   registerDaemonRuntimesSync,
@@ -74,6 +76,15 @@ test("catalog item can be upserted and read by slug", () => {
   assert.equal(listMcpCatalogItemsSync().length, 1);
 });
 
+test("insert-only catalog publication rejects an existing workspace slug", () => {
+  upsertMcpCatalogItemSync({ slug: "immutable", transport: "streamable_http", displayName: "Original" });
+  assert.throws(
+    () => insertMcpCatalogItemSync({ slug: "immutable", transport: "streamable_http", displayName: "Replacement" }),
+    /unique|duplicate/i,
+  );
+  assert.equal(readMcpCatalogItemBySlugSync("immutable")?.displayName, "Original");
+});
+
 test("connection create + verify lifecycle reaches ready and writes a snapshot", () => {
   const runtimeId = createRuntime();
   const catalog = upsertMcpCatalogItemSync({
@@ -130,6 +141,37 @@ test("failed verify marks connection failed and stores redacted error", () => {
   const failed = readMcpConnectionSync(connection.id);
   assert.equal(failed?.status, "failed");
   assert.equal(failed?.lastErrorCode, "mcp.authentication_failed");
+});
+
+test("degraded verification preserves a safe missing-tool diagnostic and excludes the connection from ready reads", () => {
+  const runtimeId = createRuntime();
+  const catalog = upsertMcpCatalogItemSync({ slug: "missing-tool", transport: "streamable_http", displayName: "Missing Tool", risk: "low" });
+  const connection = createMcpConnectionSync({
+    runtimeId,
+    catalogItemId: catalog.id,
+    endpoint: "https://missing-tool.example.com/mcp",
+    approvedToolsJson: JSON.stringify(["write"]),
+  });
+  const operation = createMcpOperationSync({ runtimeId, connectionId: connection.id, operation: "verify" });
+  claimNextMcpOperationForRuntimeSync({ runtimeId });
+  startMcpOperationSync(operation.id);
+  completeMcpOperationSync({
+    operationId: operation.id,
+    verification: {
+      status: "degraded",
+      toolsMetadataJson: JSON.stringify([{ name: "search", description: "search", inputSchemaDigest: "d" }]),
+      toolsFingerprint: "search-only",
+      errorCode: "mcp.approved_tool_missing",
+      errorMessage: "Approved MCP tools are no longer available: write.",
+    },
+  });
+
+  const degraded = readMcpConnectionSync(connection.id);
+  assert.equal(degraded?.status, "degraded");
+  assert.equal(degraded?.lastErrorCode, "mcp.approved_tool_missing");
+  assert.match(degraded?.lastErrorMessage ?? "", /write/);
+  assert.equal(readLatestMcpDiscoverySnapshotSync(connection.id)?.toolsFingerprint, "search-only");
+  assert.deepEqual(listReadyMcpConnectionsForRuntimeSync({ runtimeId }), []);
 });
 
 test("config change forces re-verification", () => {

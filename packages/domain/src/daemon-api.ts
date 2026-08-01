@@ -401,7 +401,8 @@ export type McpErrorCode =
   | "mcp.authentication_failed"
   | "mcp.protocol_invalid"
   | "mcp.timeout"
-  | "mcp.tool_not_approved";
+  | "mcp.tool_not_approved"
+  | "mcp.approved_tool_missing";
 
 /** A discovered tool's metadata. The input schema is persisted (secret-like example values are redacted by the daemon before this is stored) so the provider bridge can expose a native tool definition. */
 export interface McpDiscoveredTool {

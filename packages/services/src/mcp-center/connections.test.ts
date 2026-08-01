@@ -18,6 +18,7 @@ import {
   readMcpConnectionDetailSync,
   removeMcpConnectionSync,
   requestMcpConnectionSync,
+  resolveClaimedMcpOperationSync,
   rotateMcpSecretSync,
   updateMcpConnectionConfigServiceSync,
 } from "./connections.ts";
@@ -95,6 +96,23 @@ test("requestMcpConnection creates a connection and queues a verify operation", 
   assert.equal(detail?.secretFields.length, 1);
   assert.equal(detail?.secretFields[0]?.fieldName, "api_key");
   assert.equal(detail?.secretFields[0]?.configured, true);
+});
+
+test("catalog publishing rejects a mutable overwrite of an existing slug", () => {
+  seedCatalog();
+  assert.throws(
+    () => createMcpCatalogItemSync({
+      workspaceId: "default",
+      actorUserId: ADMIN_USER_ID,
+      slug: "github",
+      displayName: "GitHub MCP replacement",
+      transport: "streamable_http",
+      allowedHosts: ["replacement.example.com"],
+      configurationSchema: { type: "object", additionalProperties: false },
+      declaredTools: [{ name: "replacement", description: "replacement", risk: "low" }],
+    }),
+    /mcp_catalog.release_required/,
+  );
 });
 
 test("requestMcpConnection rejects non-allow-listed and private endpoints", () => {
@@ -258,6 +276,50 @@ test("listReadyMcpConnectionsForTask exposes only approved∩discovered tools wi
   assert.equal(entries[0]?.approvedTools.includes("search_repos"), true);
   assert.equal("endpoint" in (entries[0] ?? {}), false);
   assert.equal("encryptedSecretBundle" in (entries[0] ?? {}), false);
+});
+
+test("claimed operations reject legacy connection configuration that no longer satisfies policy", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection, operation } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    confirmHighRisk: true,
+  });
+  getDatabase().prepare(
+    "UPDATE runtime_mcp_connection SET non_secret_params_json = ? WHERE id = ?",
+  ).run(JSON.stringify({ Host: "internal.example" }), connection.id);
+
+  const claimed = claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  assert.equal(claimed?.id, operation.id);
+  assert.equal(resolveClaimedMcpOperationSync({ workspaceId: "default", operation: claimed! }), null);
+});
+
+test("remove operations stay claimable when a legacy connection no longer satisfies policy", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    confirmHighRisk: true,
+  });
+  getDatabase().prepare("UPDATE runtime_mcp_connection SET endpoint = ? WHERE id = ?").run("http://legacy.example.com", connection.id);
+  const operation = removeMcpConnectionSync({ workspaceId: "default", connectionId: connection.id, actorUserId: ADMIN_USER_ID });
+
+  const claimed = claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  assert.equal(claimed?.id, operation.id);
+  const resolved = resolveClaimedMcpOperationSync({ workspaceId: "default", operation: claimed! });
+  assert.equal(resolved?.operation, "remove");
+  assert.equal(resolved?.endpoint, "");
+  assert.deepEqual(resolved?.secrets, {});
 });
 
 test("remove connection enqueues a remove operation", () => {

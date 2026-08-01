@@ -83,6 +83,7 @@ export async function loadMarketPageData(input: {
     })),
     mcpCatalog: listMcpCatalogItemsForWorkspaceSync(input.workspaceId).map((item) => ({
       id: item.id,
+      source: item.source,
       slug: item.slug,
       displayName: item.displayName,
       description: item.description,
@@ -94,6 +95,7 @@ export async function loadMarketPageData(input: {
       declaredTools: safeDeclaredTools(item.declaredToolsJson),
       defaultApprovedTools: safeJsonArray(item.defaultApprovedToolsJson),
       secretFields: safeJsonArray(item.secretFieldsJson),
+      configurationFields: safeConfigurationFields(item.configurationSchemaJson),
       endpointTemplate: item.endpointTemplate,
       documentationUrl: item.documentationUrl,
     })),
@@ -108,7 +110,6 @@ export async function loadMarketPageData(input: {
         catalogDisplayName: catalog?.displayName ?? connection.id,
         status: connection.status,
         transport: catalog?.transport ?? "streamable_http",
-        endpoint: connection.endpoint,
         approvedTools: safeJsonArray(connection.approvedToolsJson),
         declaredToolCount: declared.length,
         lastVerifiedAt: connection.lastVerifiedAt,
@@ -150,6 +151,38 @@ function safeDeclaredTools(value: string | undefined): Array<{ name: string; des
         risk: normalizeMcpRisk(obj.risk),
       }))
       .filter((tool) => tool.name);
+  } catch {
+    return [];
+  }
+}
+
+function safeConfigurationFields(value: string | undefined): Array<{ name: string; required: boolean; maxLength?: number }> {
+  try {
+    const parsed = JSON.parse(value ?? "{}") as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+    const schema = parsed as Record<string, unknown>;
+    if (schema.type !== "object" || !schema.properties || typeof schema.properties !== "object" || Array.isArray(schema.properties)) {
+      return [];
+    }
+    const required = new Set(Array.isArray(schema.required) ? schema.required.filter((name): name is string => typeof name === "string") : []);
+    return Object.entries(schema.properties as Record<string, unknown>)
+      .filter(([name, definition]) =>
+        /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/.test(name) &&
+        Boolean(definition) &&
+        typeof definition === "object" &&
+        !Array.isArray(definition) &&
+        (definition as Record<string, unknown>).type === "string",
+      )
+      .map(([name, definition]) => {
+        const maxLength = (definition as Record<string, unknown>).maxLength;
+        return {
+          name,
+          required: required.has(name),
+          maxLength: typeof maxLength === "number" && Number.isInteger(maxLength) && maxLength >= 0 && maxLength <= 4096
+            ? maxLength
+            : undefined,
+        };
+      });
   } catch {
     return [];
   }

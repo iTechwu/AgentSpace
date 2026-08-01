@@ -425,6 +425,8 @@ export {
   deleteEmployeeExecutionStateSync,
   readEmployeeRuntimeBindingSync,
   listEmployeeRuntimeBindingsSync,
+  setEmployeeBindingStatusSync,
+  readEmployeeBindingGenerationSync,
 } from "./employee-bindings.ts";
 
 export {
@@ -573,6 +575,7 @@ export {
   deleteMcpCatalogItemSync,
   deleteMcpSecretSync,
   failMcpOperationSync,
+  insertMcpCatalogItemSync,
   listMcpCatalogItemsSync,
   listMcpConnectionsForRuntimeSync,
   listMcpConnectionsSync,
@@ -848,6 +851,51 @@ export {
   type CreateSkillArtifactInput,
   type SkillArtifactFileInput,
 } from "./skill-artifacts.ts";
+export {
+  createSkillInstallationSync,
+  readSkillInstallationSync,
+  readSkillInstallationByLockSync,
+  listSkillInstallationsSync,
+  setSkillInstallationStatusSync,
+  setSkillInstallationPreparedPathSync,
+  readSkillInstallationComponentsSync,
+  updateSkillInstallationComponentStatusSync,
+  createSkillInstallationOperationSync,
+  readSkillInstallationOperationSync,
+  listSkillInstallationOperationsSync,
+  cancelUnfinishedSkillInstallationOperationsSync,
+  claimNextSkillInstallationOperationForRuntimeSync,
+  startSkillInstallationOperationSync,
+  completeSkillInstallationOperationSync,
+  failSkillInstallationOperationSync,
+  type CreateSkillInstallationInput,
+  type CreateSkillInstallationOperationInput,
+  type SkillInstallationComponentInput,
+} from "./skill-installations.ts";
+export type {
+  StoredSkillInstallationRecord,
+  StoredSkillInstallationComponentRecord,
+  StoredSkillInstallationOperationRecord,
+} from "./types.ts";
+export {
+  upsertSkillServiceCatalogSync,
+  readSkillServiceCatalogSync,
+  listSkillServiceCatalogSync,
+  createManagedSkillServiceSync,
+  readManagedSkillServiceSync,
+  listManagedSkillServicesSync,
+  setManagedSkillServiceHealthSync,
+  createSkillServiceBindingSync,
+  listSkillServiceBindingsSync,
+  type UpsertSkillServiceCatalogInput,
+  type UpsertManagedSkillServiceInput,
+  type CreateSkillServiceBindingInput,
+} from "./skill-services.ts";
+export type {
+  StoredSkillServiceCatalogRecord,
+  StoredManagedSkillServiceRecord,
+  StoredSkillServiceBindingRecord,
+} from "./types.ts";
 export {
   upsertTaskCommitJournalSync,
   readTaskCommitJournalSync,
