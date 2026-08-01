@@ -113,6 +113,33 @@ describe("ConversationMessageBubble", () => {
     expect(screen.getByText("@Nova")).toHaveAttribute("title", "AI员工提及：Nova");
   });
 
+  it("renders Markdown message content without interpreting embedded HTML", () => {
+    const { container } = render(
+      <LanguageProvider initialLanguage="zh">
+        <ConversationMessageBubble
+          message={{
+            id: "message-markdown",
+            speaker: "Atlas",
+            role: "agent",
+            content: "# 晨间简报\n\n**时间确认**：已完成。\n\n1. **[AI For Beginners](https://github.com/microsoft/AI-For-Beginners)**\n2. `npm test`\n\n<script>window.alert('unsafe')</script>",
+            timestamp: "10:00",
+            status: "completed",
+          }}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "晨间简报" })).toBeInTheDocument();
+    expect(container.querySelector(".chat-message-markdown")).not.toHaveClass("wmde-markdown");
+    expect(screen.getByText("时间确认").tagName).toBe("STRONG");
+    expect(screen.getByRole("link", { name: "AI For Beginners" })).toHaveAttribute(
+      "href",
+      "https://github.com/microsoft/AI-For-Beginners",
+    );
+    expect(screen.getByText("npm test").tagName).toBe("CODE");
+    expect(container.querySelector("script")).not.toBeInTheDocument();
+  });
+
   it("marks Feishu messages with their source icon", () => {
     render(
       <LanguageProvider initialLanguage="zh">

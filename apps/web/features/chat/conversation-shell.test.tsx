@@ -204,6 +204,90 @@ describe("ConversationShell", () => {
     expect(screen.getAllByText("Mina").length).toBeGreaterThan(0);
   });
 
+  it("keeps the active agent reply after later execution updates", () => {
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          emptyListBody="empty"
+          emptyListTitle="empty"
+          emptyThreadBody="empty"
+          emptyThreadTitle="empty"
+          items={[]}
+          listCount={0}
+          listKicker="Direct"
+          listTitle="Direct"
+          messages={[
+            {
+              id: "request",
+              speaker: "techwu",
+              role: "human",
+              content: "请处理这个任务",
+              timestamp: "10:00",
+              status: "completed",
+            },
+            {
+              id: "thinking",
+              speaker: "Atlas",
+              role: "agent",
+              content: "正在分析任务",
+              timestamp: "10:01",
+              status: "pending",
+              code: "agent.pending",
+            },
+            {
+              id: "environment-ready",
+              speaker: "Atlas",
+              role: "agent",
+              content: "正在准备执行环境",
+              timestamp: "10:02",
+              status: "completed",
+              kind: "process",
+              processType: "status",
+            },
+            {
+              id: "tool-complete",
+              speaker: "Atlas",
+              role: "agent",
+              content: "工具已完成",
+              timestamp: "10:03",
+              status: "completed",
+              kind: "process",
+              processType: "tool_result",
+              tool: "exec_command",
+            },
+            {
+              id: "tool-running",
+              speaker: "Atlas",
+              role: "agent",
+              content: "正在调用工具",
+              timestamp: "10:04",
+              status: "pending",
+              kind: "process",
+              processType: "tool_use",
+              tool: "exec_command",
+            },
+          ]}
+          onSelectItem={vi.fn()}
+          onSubmit={vi.fn(async () => {})}
+          placeholder="Send a message"
+          selectedHeader={{
+            title: "Direct chat",
+            subtitle: "Agent",
+            avatar: "A",
+          }}
+          selectedItemId="agent:atlas"
+        />
+      </LanguageProvider>,
+    );
+
+    const messageIds = Array.from(document.querySelectorAll("[data-conversation-message-id]")).map(
+      (element) => element.getAttribute("data-conversation-message-id"),
+    );
+
+    expect(messageIds).toEqual(["request", "environment-ready", "tool-complete", "tool-running", "thinking"]);
+    expect(screen.getAllByText("思考中")).toHaveLength(2);
+  });
+
   it("restores a saved thread scroll anchor after the shell remounts", () => {
     const messages = Array.from({ length: 12 }, (_, index) => ({
       id: `message-${index}`,

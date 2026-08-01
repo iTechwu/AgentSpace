@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import MDEditor from "@uiw/react-md-editor/nohighlight";
 import type { MessageAttachment, MessageMention } from "@/shared/types/workspace";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { translateSystemSpeaker, translateWorkspaceMessageSummary } from "@/features/i18n/presentation";
@@ -179,13 +180,17 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
           name={speakerLabel}
           variant={message.role === "agent" ? "agent" : "human"}
         />
-        <details className={`conversation-process${isError ? " conversation-process--error" : ""}`}>
+        <details
+          className={`conversation-process${message.status === "pending" ? " conversation-process--pending" : ""}${
+            isError ? " conversation-process--error" : ""
+          }`}
+        >
           <summary>
             <span className="conversation-process__heading">
               {message.status === "pending" ? <AppIcon className="conversation-process__spinner" name="loader" /> : null}
               <strong>{processTitle(message, tx)}</strong>
             </span>
-            <span className="conversation-process__state">
+            <span aria-live={message.status === "pending" ? "polite" : undefined} className="conversation-process__state">
               {message.status === "pending" ? tx("进行中", "In progress") : renderMessageTimestamp(message.timestamp)}
             </span>
           </summary>
@@ -241,14 +246,14 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
         </div>
         {isPendingMessage ? (
           hasStreamedPendingContent ? (
-            <p className="inbox-bubble__streaming-content">
-              {renderMessageContent(translateWorkspaceMessageSummary(message, tx), message.mentions, tx)}
+            <div className="inbox-bubble__streaming-content">
+              <ChatMessageContent content={translateWorkspaceMessageSummary(message, tx)} mentions={message.mentions} tx={tx} />
               <span aria-label={tx("正在生成", "Generating")} className="contacts-pending-dots contacts-pending-dots--inline">
                 <span />
                 <span />
                 <span />
               </span>
-            </p>
+            </div>
           ) : (
             <div className="contacts-pending-dots">
               <span />
@@ -257,7 +262,7 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
             </div>
           )
         ) : (
-          <p>{renderMessageContent(translateWorkspaceMessageSummary(message, tx), message.mentions, tx)}</p>
+          <ChatMessageContent content={translateWorkspaceMessageSummary(message, tx)} mentions={message.mentions} tx={tx} />
         )}
         {displayedApprovalAction ? (
           <div className={`runtime-approval-card runtime-approval-card--${displayedApprovalAction.status}`}>
@@ -1074,6 +1079,26 @@ export function ChatComposer({
 
 export function ChatEmptyState({ title, body }: { title: string; body: string }) {
   return <EmptyState body={body} title={title} />;
+}
+
+function ChatMessageContent({
+  content,
+  mentions,
+  tx,
+}: {
+  content: string;
+  mentions: MessageMention[] | undefined;
+  tx: (zh: string, en: string) => string;
+}) {
+  if (containsMarkdown(content)) {
+    return <MDEditor.Markdown prefixCls="chat-message-markdown" skipHtml source={content} />;
+  }
+
+  return <p>{renderMessageContent(content, mentions, tx)}</p>;
+}
+
+function containsMarkdown(content: string): boolean {
+  return /(^|\n)\s{0,3}(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>|```)|\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\)/m.test(content);
 }
 
 function renderMessageContent(content: string, mentions: MessageMention[] | undefined, tx: (zh: string, en: string) => string): React.ReactNode {

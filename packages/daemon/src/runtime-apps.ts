@@ -45,8 +45,8 @@ export async function executeRuntimeAppPlan(plan: RuntimeAppInstallPlan): Promis
 export function readCliHubReadiness(): CliHubReadiness {
   return {
     checkedAt: new Date().toISOString(),
-    python: checkCommand("python", ["--version"]),
-    pip: checkCommand("python", ["-m", "pip", "--version"]),
+    python: checkCommand("python3", ["--version"]),
+    pip: checkCommand("python3", ["-m", "pip", "--version"]),
     cliHub: checkCommand("cli-hub", ["--version"]),
     npm: checkCommand("npm", ["--version"]),
     uv: checkCommand("uv", ["--version"]),

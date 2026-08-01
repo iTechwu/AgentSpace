@@ -47,6 +47,18 @@ export interface ConversationThreadMessage {
   replyToMessageId?: string;
 }
 
+export function orderConversationMessages(messages: ConversationThreadMessage[]): ConversationThreadMessage[] {
+  const hasActiveAgentMessages = messages.some((message) => getConversationMessageActivityPriority(message) > 0);
+  if (!hasActiveAgentMessages) {
+    return messages;
+  }
+
+  // Process records remain in their audit order; the live agent reply stays visible at the end.
+  return [...messages].sort(
+    (left, right) => getConversationMessageActivityPriority(left) - getConversationMessageActivityPriority(right),
+  );
+}
+
 export interface ConversationMentionCandidate {
   id: string;
   label: string;
@@ -856,6 +868,7 @@ export function ConversationShell({
     scheduleComposerFocus(nextDraft.length);
   }
 
+  const displayedMessages = useMemo(() => orderConversationMessages(messages), [messages]);
   const pinnedMessages = useMemo(() => messages.filter((m) => m.pinned), [messages]);
   const messageById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
   const showListPane = !isCompactLayout || !selectedHeader || mobilePane === "list";
@@ -986,8 +999,8 @@ export function ConversationShell({
                   ) : null}
 
                   <div className="contacts-chat-thread" onScroll={handleThreadScroll} ref={threadViewportRef}>
-                    {messages.length > 0 ? (
-                      messages.map((message) => (
+                    {displayedMessages.length > 0 ? (
+                      displayedMessages.map((message) => (
                         <ConversationMessageBubble
                           isOwn={isOwnHumanMessage(message, currentUserDisplayName)}
                           key={message.id}
@@ -1293,6 +1306,13 @@ function isOwnHumanMessage(
     speaker === "你" ||
     speaker.localeCompare("You", "en-US", { sensitivity: "base" }) === 0
   );
+}
+
+function getConversationMessageActivityPriority(message: ConversationThreadMessage): number {
+  if (message.role !== "agent" || message.status !== "pending") {
+    return 0;
+  }
+  return message.kind === "process" ? 1 : 2;
 }
 
 function buildReplyMentionPrefix(

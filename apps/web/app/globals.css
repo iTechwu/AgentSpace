@@ -2603,6 +2603,86 @@ textarea:focus {
   min-width: 9rem;
 }
 
+.chat-message-markdown {
+  color: inherit;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.chat-message-markdown > :first-child {
+  margin-top: 0;
+}
+
+.chat-message-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-message-markdown :is(h1, h2, h3, h4) {
+  margin: 1rem 0 0.5rem;
+  color: inherit;
+  line-height: 1.35;
+}
+
+.chat-message-markdown h1 {
+  font-size: 1.2rem;
+}
+
+.chat-message-markdown h2 {
+  font-size: 1.08rem;
+}
+
+.chat-message-markdown h3,
+.chat-message-markdown h4 {
+  font-size: 1rem;
+}
+
+.chat-message-markdown p,
+.chat-message-markdown ul,
+.chat-message-markdown ol,
+.chat-message-markdown blockquote,
+.chat-message-markdown pre {
+  margin: 0.6rem 0;
+}
+
+.chat-message-markdown :is(ul, ol) {
+  padding-left: 1.35rem;
+}
+
+.chat-message-markdown li + li {
+  margin-top: 0.25rem;
+}
+
+.chat-message-markdown a {
+  color: #0066cc;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
+.chat-message-markdown blockquote {
+  padding-left: 0.75rem;
+  border-left: 3px solid rgba(0, 102, 204, 0.28);
+  color: var(--muted);
+}
+
+.chat-message-markdown :not(pre) > code {
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+  font: 0.85em/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.chat-message-markdown pre {
+  overflow-x: auto;
+  padding: 0.75rem;
+  border-radius: 6px;
+  background: #1f2937;
+  color: #f8fafc;
+}
+
+.chat-message-markdown pre code {
+  font: 0.82rem/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
 .runtime-approval-card {
   display: grid;
   gap: 0.58rem;
@@ -4863,6 +4943,11 @@ textarea:focus {
   border-color: rgba(163, 74, 53, 0.18);
 }
 
+.conversation-process--pending {
+  border-color: rgba(33, 125, 91, 0.22);
+  background: #f4faf6;
+}
+
 .conversation-process summary {
   display: flex;
   justify-content: space-between;
@@ -4908,6 +4993,11 @@ textarea:focus {
 
 .conversation-process__state {
   flex: none;
+}
+
+.conversation-process--pending .conversation-process__state {
+  color: #237453;
+  font-weight: 600;
 }
 
 .conversation-process pre {

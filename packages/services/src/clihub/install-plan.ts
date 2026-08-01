@@ -75,7 +75,7 @@ function buildOperationCommands(
 }
 
 function buildCliHubBootstrapCommand(): RuntimeAppCommandPlanItem {
-  return { executable: "python", args: ["-m", "pip", "install", "--user", "cli-anything-hub"] };
+  return { executable: "python3", args: ["-m", "pip", "install", "--user", "cli-anything-hub"] };
 }
 
 function shouldVerifyAfterOperation(operation: RuntimeAppOperationType): boolean {
@@ -106,7 +106,7 @@ function buildPlanNotes(
     "DofeAgent executes a controlled command plan with argument arrays; registry install_cmd is catalog metadata only.",
   ];
   if (!cliHubAvailable && (operation === "install" || operation === "update" || operation === "uninstall")) {
-    notes.push("Target runtime did not report cli-hub readiness, so the plan bootstraps cli-anything-hub with python -m pip install --user before running cli-hub.");
+    notes.push("Target runtime did not report cli-hub readiness, so the plan bootstraps cli-anything-hub with python3 -m pip install --user before running cli-hub.");
   }
   if (item.requiresText?.trim()) {
     notes.push(`Dependency warning: ${item.requiresText.trim()}`);

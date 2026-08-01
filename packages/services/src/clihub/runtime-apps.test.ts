@@ -147,11 +147,11 @@ test("bootstraps cli-hub before update and uninstall when readiness is missing",
   });
 
   assert.deepEqual(updatePlan.commands, [
-    { executable: "python", args: ["-m", "pip", "install", "--user", "cli-anything-hub"] },
+    { executable: "python3", args: ["-m", "pip", "install", "--user", "cli-anything-hub"] },
     { executable: "cli-hub", args: ["update", "toolkit"] },
   ]);
   assert.deepEqual(uninstallPlan.commands, [
-    { executable: "python", args: ["-m", "pip", "install", "--user", "cli-anything-hub"] },
+    { executable: "python3", args: ["-m", "pip", "install", "--user", "cli-anything-hub"] },
     { executable: "cli-hub", args: ["uninstall", "toolkit"] },
   ]);
   assert.deepEqual(uninstallPlan.verifyCommands, []);
@@ -178,5 +178,5 @@ test("marks shell metacharacter registry commands high risk", () => {
 
   assert.equal(plan.risk, "high");
   assert.equal(plan.requiresApproval, true);
-  assert.deepEqual(plan.commands[0], { executable: "python", args: ["-m", "pip", "install", "--user", "cli-anything-hub"] });
+  assert.deepEqual(plan.commands[0], { executable: "python3", args: ["-m", "pip", "install", "--user", "cli-anything-hub"] });
 });

@@ -36,7 +36,10 @@ ENV PNPM_HOME=/pnpm \
 ARG PROVIDER_PATH=""
 
 RUN groupadd --gid 10001 dofe-agent \
-  && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent
+  && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent \
+  && apt-get update \
+  && apt-get install --yes --no-install-recommends python3 python3-pip \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=daemon-build /opt/daemon-package/dofe-agent-daemon-*.tgz /tmp/
 
@@ -54,7 +57,7 @@ ENV HOME=/home/dofe-agent \
     DOFE_AGENT_DAEMON_STATE_DIR=/var/lib/dofe-agent-daemon \
     NODE_ENV=production \
     PROVIDER_PATH=${PROVIDER_PATH}
-ENV PATH=${PROVIDER_PATH}:${PATH}
+ENV PATH=${PROVIDER_PATH}:/home/dofe-agent/.local/bin:${PATH}
 
 USER dofe-agent
 
