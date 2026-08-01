@@ -32,6 +32,12 @@ export interface AgentRouterRunRequest {
   openClawEphemeralAgent?: boolean;
   providerHealth?: ProviderHealthSnapshot;
   runtimeToolCapabilities?: RuntimeToolCapability[];
+  /**
+   * Loopback MCP gateway URL (task-scoped session). When set, the provider is
+   * launched with a one-shot MCP config pointing ONLY at this URL — the
+   * Provider never receives remote endpoints or credentials.
+   */
+  mcpGatewayUrl?: string;
   onApprovalRequest?: (request: AgentRouterApprovalRequest) => Promise<AgentRouterApprovalDecision>;
 }
 

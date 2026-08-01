@@ -20,3 +20,4 @@ export * from "./state.ts";
 export * from "./skill-imports.ts";
 export * from "./task-context.ts";
 export * from "./task-output.ts";
+export { McpGateway, type McpGatewayTaskSession, type McpToolAuditRecord } from "./mcp/gateway.ts";

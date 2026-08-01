@@ -868,6 +868,7 @@ export {
   startSkillInstallationOperationSync,
   completeSkillInstallationOperationSync,
   failSkillInstallationOperationSync,
+  listInstallableRuntimesForWorkspaceSync,
   type CreateSkillInstallationInput,
   type CreateSkillInstallationOperationInput,
   type SkillInstallationComponentInput,

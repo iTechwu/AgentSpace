@@ -87,6 +87,7 @@ export interface UpdateMcpConnectionConfigActionInput {
   endpoint?: string;
   nonSecretParams?: Record<string, unknown>;
   approvedTools?: string[];
+  confirmHighRisk?: boolean;
 }
 
 export async function updateMcpConnectionConfigAction(
@@ -101,6 +102,7 @@ export async function updateMcpConnectionConfigAction(
     endpoint: input.endpoint?.trim(),
     nonSecretParams: input.nonSecretParams,
     approvedTools: input.approvedTools,
+    confirmHighRisk: input.confirmHighRisk,
   });
   revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents"]);
   return actionToastResult(undefined, successToast("配置已更新，需要重新验证。", "Configuration updated; re-verification required."));

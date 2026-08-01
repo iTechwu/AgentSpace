@@ -1,6 +1,7 @@
 import type {
   ClaimManagedProvisioningTaskResponse,
   ClaimMcpConnectionOperationResponse,
+  ClaimMcpTaskSessionResponse,
   ClaimRuntimeAppOperationResponse,
   ClaimTaskResponse,
   CompleteManagedProvisioningStageRequest,
@@ -22,6 +23,7 @@ import type {
   HeartbeatDaemonResponse,
   HeartbeatDaemonRequest,
   ManagedCredentialBundleDocument,
+  McpToolAuditReport,
   RegisterDaemonRequest,
   RegisterDaemonResponse,
   ReportTaskMessagesRequest,
@@ -32,6 +34,7 @@ import type {
 export type {
   ClaimManagedProvisioningTaskResponse,
   ClaimMcpConnectionOperationResponse,
+  ClaimMcpTaskSessionResponse,
   ClaimRuntimeAppOperationResponse,
   ClaimTaskResponse,
   CompleteManagedProvisioningStageRequest,
@@ -53,6 +56,7 @@ export type {
   HeartbeatDaemonResponse,
   HeartbeatDaemonRequest,
   ManagedCredentialBundleDocument,
+  McpToolAuditReport,
   RegisterDaemonRequest,
   StartMcpConnectionOperationRequest,
   RegisterDaemonResponse,
@@ -173,6 +177,15 @@ export class HttpDaemonClient {
 
   async failMcpConnectionOperation(operationId: string, body: FailMcpConnectionOperationRequest): Promise<void> {
     await this.postJson(`/api/daemon/mcp-operations/${encodeURIComponent(operationId)}/fail`, body);
+  }
+
+  async claimMcpTaskSession(taskId: string): Promise<ClaimMcpTaskSessionResponse> {
+    return this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/mcp-session`, {}, { retryable: true });
+  }
+
+  async reportMcpToolAudits(taskId: string, audits: McpToolAuditReport[]): Promise<void> {
+    if (audits.length === 0) return;
+    await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/mcp-tool-audits`, { audits });
   }
 
   async startTask(taskId: string): Promise<void> {

@@ -38,6 +38,9 @@ import {
   completeQueuedTaskSync,
   createDaemonApiTokenSync,
   failQueuedTaskSync,
+  markTaskCommittedSync,
+  markTaskPreparingCommitSync,
+  upsertTaskCommitJournalSync,
   getDaemonChannelWorkDirPath,
   getDaemonRemoteTaskWorkDirPath,
   getDaemonTaskWorkDirPath,
@@ -65,6 +68,8 @@ import {
   completeAgentChannelReplySync,
   completeChannelDocumentRunStepSync,
   deleteWorkspaceAttachmentsSync,
+  promoteTaskOutputsToWorkspaceSync,
+  readWorkspaceAttachmentBytesSync,
   AgentDocumentPermissionError,
   failChannelDocumentRunStepSync,
   formatConversationFailureSummary,
@@ -1277,6 +1282,45 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         content: warning,
       });
     }
+    // Durability commit phases (EAD §7): preparing → promote to the employee's
+    // persistent workspace → committed. Best-effort; promotion failure must not
+    // block completing an already-executed task (outputs are already persisted).
+    try {
+      markTaskPreparingCommitSync(task.id);
+      let workspaceRevisionId: string | undefined;
+      let committedArtifactIds: string[] = [];
+      if (outputEnvelope.attachments.length > 0) {
+        const promoted = promoteTaskOutputsToWorkspaceSync({
+          workspaceId: task.workspaceId,
+          taskId: task.id,
+          employeeName: agentName,
+          outputs: outputEnvelope.attachments.map((attachment) => ({
+            path: attachment.fileName,
+            bytes: readWorkspaceAttachmentBytesSync(attachment),
+            mediaType: attachment.mediaType,
+          })),
+          publishArtifacts: true,
+        });
+        workspaceRevisionId = promoted.revision.id;
+        committedArtifactIds = promoted.artifactIds;
+      }
+      markTaskCommittedSync({
+        taskId: task.id,
+        employeeName: agentName,
+        workspaceRevisionId,
+        artifactIds: committedArtifactIds,
+      });
+    } catch (error) {
+      upsertTaskCommitJournalSync({
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        employeeName: agentName,
+        commitState: "preparing",
+        errorCode: "workspace_promotion_failed",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     completeQueuedTaskSync({
       taskId: task.id,
       resultJson: {

@@ -22483,6 +22483,18 @@ textarea:focus {
 .mcp-connection-error {
   color: #b42318;
 }
+.mcp-connection-tools {
+  font-size: 0.78rem;
+  color: rgba(20, 33, 26, 0.7);
+}
+.mcp-connection-tools summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.mcp-connection-tools ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+}
 .mcp-danger-button {
   color: #b42318;
 }

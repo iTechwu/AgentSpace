@@ -4,6 +4,7 @@ import { useLanguage } from "@/features/i18n/language-provider";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { DeleteAgentModal } from "@/features/agents/components/delete-agent-modal";
+import { DataProtectionStatusPanel } from "@/features/agents/components/data-protection-status-panel";
 import { ExecutionEngineSelect, resolveExecutionEngineValue } from "@/features/agents/components/execution-engine-select";
 import { RuntimeModelPicker } from "@/features/runtimes/runtime-model-picker";
 import { isDaemonProvider } from "@dofe-agent/domain";
@@ -21,7 +22,7 @@ import {
 import type { AgentsPageData, RouterExecutionView, WorkspaceAgentRecord } from "@/features/dashboard/data";
 import type { EmployeeExecutionPolicy, WorkspaceSkill } from "@dofe-agent/domain/workspace";
 
-export type AgentDetailTab = "instructions" | "skills" | "knowledge" | "documents" | "workspaces" | "settings";
+export type AgentDetailTab = "instructions" | "skills" | "knowledge" | "documents" | "workspaces" | "settings" | "data-protection";
 
 interface AgentDetailProps {
   readonly activeTab?: AgentDetailTab;
@@ -295,6 +296,7 @@ export function AgentDetail({
             { key: "documents", label: tx("文档权限", "Documents"), meta: tx(`${documentAccess.readableCount} 份文档`, `${documentAccess.readableCount} documents`) },
             { key: "workspaces", label: tx("工作区", "Workspaces"), meta: tx(`${record.workAreas.length} 个工作区`, `${record.workAreas.length} workspaces`) },
             { key: "settings", label: tx("设置", "Settings"), meta: tx("执行引擎", "Execution engine") },
+            { key: "data-protection", label: tx("数据保护", "Data protection"), meta: tx("持久化", "Durability") },
           ].map((tab) => (
             <button
               aria-label={tab.label}
@@ -1171,6 +1173,8 @@ export function AgentDetail({
               </div>
             </form>
           </>
+        ) : activeTab === "data-protection" ? (
+          <DataProtectionStatusPanel employeeName={record.name} />
         ) : null}
         </div>
       </div>

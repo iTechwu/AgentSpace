@@ -106,6 +106,14 @@ async function buildClaudeLaunch(input: AgentRouterRunRequest): Promise<HarnessL
   if (input.claudeTools) {
     args.push("--tools", input.claudeTools);
   }
+  if (input.mcpGatewayUrl) {
+    // One-shot, task-scoped MCP config: the gateway URL is the ONLY thing the
+    // Provider learns. --strict-mcp-config disables any pre-existing servers.
+    const mcpConfig = JSON.stringify({
+      "dofe-mcp-gateway": { type: "http", url: input.mcpGatewayUrl },
+    });
+    args.push("--mcp-config", mcpConfig, "--strict-mcp-config");
+  }
   const env = buildBaseEnv(
     executable,
     buildCapabilityEnv(sanitizeClaudeEnv(input.env) ?? {}, input.runtimeToolCapabilities),

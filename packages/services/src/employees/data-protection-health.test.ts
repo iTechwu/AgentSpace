@@ -50,7 +50,19 @@ before(() => {
     symlinkSync(join(repositoryRoot, "packages"), packagesLink, "dir");
   }
   process.chdir(tempRoot);
+  seedDefaultWorkspaceIfMissing();
 });
+
+/** The shared test PG occasionally loses the default workspace row; re-seed it. */
+function seedDefaultWorkspaceIfMissing(): void {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+     VALUES ('default', 'default', 'Dofe Agent', '', ?, ?)
+     ON CONFLICT (id) DO NOTHING`,
+  ).run(now, now);
+}
 
 beforeEach(() => {
   const db = getDatabase();

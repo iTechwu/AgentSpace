@@ -56,6 +56,33 @@ const testTosStorage: AttachmentStorageClient = {
   async deleteObject(input) { tosObjects.delete(input.storageKey ?? ""); },
   deleteObjectSync(input) { tosObjects.delete(input.storageKey ?? ""); },
   async createReadUrl() { return null; },
+  putContentAddressedBlobSync(input) {
+    const key = `workspaces/${input.workspaceId}/content-blobs/${input.sha256.slice(0, 2)}/${input.sha256}`;
+    tosObjects.set(key, new Uint8Array(input.contentBytes));
+    return {
+      workspaceId: input.workspaceId,
+      sha256: input.sha256,
+      storageProvider: "tos",
+      storageBucket: "test-bucket",
+      storageRegion: "cn-beijing",
+      storageEndpoint: "https://tos-cn-beijing.volces.com",
+      storageKey: key,
+      storedPath: `tos://test-bucket/${key}`,
+      sizeBytes: input.contentBytes.byteLength,
+    };
+  },
+  getContentAddressedBlobSync(input) {
+    const key = `workspaces/${input.workspaceId}/content-blobs/${input.sha256.slice(0, 2)}/${input.sha256}`;
+    const bytes = tosObjects.get(key);
+    if (!bytes) throw new Error(`NoSuchKey: ${key}`);
+    return new Uint8Array(bytes);
+  },
+  contentAddressedBlobExistsSync(input) {
+    return tosObjects.has(`workspaces/${input.workspaceId}/content-blobs/${input.sha256.slice(0, 2)}/${input.sha256}`);
+  },
+  deleteContentAddressedBlobSync(input) {
+    tosObjects.delete(`workspaces/${input.workspaceId}/content-blobs/${input.sha256.slice(0, 2)}/${input.sha256}`);
+  },
 };
 
 before(() => {

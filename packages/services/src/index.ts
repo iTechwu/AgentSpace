@@ -253,6 +253,7 @@ export {
   type McpDeclaredTool,
 } from "./mcp-center/catalog.ts";
 export {
+  claimMcpTaskSessionSync,
   classifyVerificationOutcome,
   disableMcpConnectionSync,
   enableMcpConnectionSync,

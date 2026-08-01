@@ -17,6 +17,8 @@ import { actionToastResult, runToastAction, successToast, type ActionToastResult
 import { useResizablePane } from "@/shared/lib/use-resizable-pane";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { SkillEditor } from "@/features/skills/components/skill-editor";
+import { InstallSkillModal } from "@/features/skills/components/install-skill-modal";
+import { SkillInstallationPanel } from "@/features/skills/components/skill-installation-panel";
 import { CreateSkillModal } from "@/features/skills/components/create-skill-modal";
 import { ImportSkillModal } from "@/features/skills/components/import-skill-modal";
 import type { SkillsPageData } from "@/features/dashboard/data";
@@ -41,6 +43,7 @@ export function SkillsPageClient({
   const [selectedFileId, setSelectedFileId] = useState<string | null>(data.skills[0]?.files[0]?.id ?? null);
   const [showCreateSkill, setShowCreateSkill] = useState(false);
   const [showImportSkill, setShowImportSkill] = useState(false);
+  const [showInstallSkill, setShowInstallSkill] = useState(false);
   const [isCompactLayout, setIsCompactLayout] = useState(false);
   const [mobilePane, setMobilePane] = useState<"skills" | "editor">("skills");
   const [isPending, startTransition] = useTransition();
@@ -278,6 +281,13 @@ export function SkillsPageClient({
         />
       ) : null}
 
+      {showInstallSkill && selectedSkillId ? (
+        <InstallSkillModal
+          skillId={selectedSkillId}
+          onCancel={() => setShowInstallSkill(false)}
+          onInstalled={() => setShowInstallSkill(false)}
+        />
+      ) : null}
 
       <div
         className={`skills-studio${isCompactLayout ? " skills-studio--compact" : ""}`}
@@ -446,6 +456,22 @@ export function SkillsPageClient({
                     )
                   }
                 />
+
+                <div className="skills-studio__install-section">
+                  <div className="skills-studio__install-header">
+                    <h4>{tx("Runtime 安装", "Runtime installations")}</h4>
+                    <button
+                      className="action-button action-button--compact"
+                      disabled={isPending}
+                      onClick={() => setShowInstallSkill(true)}
+                      type="button"
+                    >
+                      <AppIcon name="plus" />
+                      <span>{tx("安装到 Runtime", "Install to runtime")}</span>
+                    </button>
+                  </div>
+                  <SkillInstallationPanel skillId={selectedSkill.id} />
+                </div>
               </>
             ) : (
               <EmptyState title={tx("未选择文件", "No file selected")} />

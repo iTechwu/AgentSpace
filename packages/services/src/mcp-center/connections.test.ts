@@ -212,6 +212,40 @@ test("configuration changes do not re-enable a disabled connection", () => {
   assert.equal(enabled.status, "disabled");
 });
 
+test("configuration updates require confirmation before newly granting a high-risk tool", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    approvedTools: ["search_repos"],
+    confirmHighRisk: true,
+  });
+
+  assert.throws(
+    () => updateMcpConnectionConfigServiceSync({
+      workspaceId: "default",
+      actorUserId: ADMIN_USER_ID,
+      connectionId: connection.id,
+      approvedTools: ["search_repos", "delete_repo"],
+    }),
+    /mcp.high_risk_confirmation_required/,
+  );
+
+  const { connection: updated } = updateMcpConnectionConfigServiceSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    connectionId: connection.id,
+    approvedTools: ["search_repos", "delete_repo"],
+    confirmHighRisk: true,
+  });
+  assert.deepEqual(JSON.parse(updated.approvedToolsJson), ["search_repos", "delete_repo"]);
+});
+
 test("secret rotation forces re-verification and never returns plaintext", () => {
   const runtimeId = createRuntime();
   const catalogId = seedCatalog();

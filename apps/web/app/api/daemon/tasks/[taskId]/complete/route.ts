@@ -3,8 +3,11 @@ import {
   completeQueuedTaskSync,
   failQueuedTaskSync,
   enqueueTokenUsageRetrySync,
+  markTaskCommittedSync,
+  markTaskPreparingCommitSync,
   readAgentRuntimeSync,
   recordTokenUsageSync,
+  upsertTaskCommitJournalSync,
 } from "@dofe-agent/db";
 import type { MessageAttachment } from "@dofe-agent/domain/workspace";
 import {
@@ -28,8 +31,10 @@ import {
   applyFeishuRuntimeDataOperationRequests,
   listFeishuLarkCliResourceGrantsForChannelSync,
   postMessageSync,
+  promoteTaskOutputsToWorkspaceSync,
   queueFeishuAgentStatusCardOutboxSync,
   queueFeishuChannelReplyOutboxSync,
+  readWorkspaceAttachmentBytesSync,
   readWorkspaceStateSync,
   replacePendingChannelMessageSync,
   resolveCompatibleDirectChannelRecord,
@@ -313,6 +318,48 @@ export async function POST(
         taskId: task.id,
         type: "status",
         content: warning,
+      });
+    }
+
+    // Durability commit phases (EAD §7): preparing → promote to the employee's
+    // persistent workspace → committed. Best-effort: a promotion failure must
+    // never block completing an already-executed task (its outputs are already
+    // persisted as attachments); the journal records the failure for the
+    // reconciliation backlog instead.
+    const agentName = payload.assignee ?? task.agentId;
+    try {
+      markTaskPreparingCommitSync(task.id);
+      let workspaceRevisionId: string | undefined;
+      let committedArtifactIds: string[] = [];
+      if (persistedAttachments.length > 0) {
+        const promoted = promoteTaskOutputsToWorkspaceSync({
+          workspaceId: task.workspaceId,
+          taskId: task.id,
+          employeeName: agentName,
+          outputs: persistedAttachments.map((attachment) => ({
+            path: attachment.fileName,
+            bytes: readWorkspaceAttachmentBytesSync(attachment),
+            mediaType: attachment.mediaType,
+          })),
+          publishArtifacts: true,
+        });
+        workspaceRevisionId = promoted.revision.id;
+        committedArtifactIds = promoted.artifactIds;
+      }
+      markTaskCommittedSync({
+        taskId: task.id,
+        employeeName: agentName,
+        workspaceRevisionId,
+        artifactIds: committedArtifactIds,
+      });
+    } catch (error) {
+      upsertTaskCommitJournalSync({
+        taskId: task.id,
+        workspaceId: task.workspaceId,
+        employeeName: agentName,
+        commitState: "preparing",
+        errorCode: "workspace_promotion_failed",
+        errorMessage: error instanceof Error ? error.message : String(error),
       });
     }
 

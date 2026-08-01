@@ -1,6 +1,7 @@
 "use server";
 
 import {
+  listInstallableRuntimesForWorkspaceSync,
   listSkillArtifactsForSkillSync,
   listSkillInstallationOperationsSync,
   listSkillInstallationsSync,
@@ -33,6 +34,21 @@ import {
  * `/api/daemon/.../skill-operations/*` routes; the control plane never edits a
  * runtime directly.
  */
+
+export interface SkillInstallableRuntime {
+  id: string;
+  name: string;
+  provider: string;
+  status: string;
+  provisioningState?: string;
+}
+
+/** Runtimes available for skill installation in the current workspace. */
+export async function listSkillInstallableRuntimesAction(): Promise<SkillInstallableRuntime[]> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  return listInstallableRuntimesForWorkspaceSync(workspaceContext.currentWorkspace.id);
+}
 
 export async function createSkillInstallationAction(input: {
   skillId: string;

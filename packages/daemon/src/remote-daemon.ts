@@ -9,7 +9,7 @@ import {
   type DaemonTaskUsage,
 } from "@dofe-agent/domain";
 import { getStringFlag, parseArgs } from "./args.ts";
-import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, RegisterDaemonResponse } from "./daemon-api.ts";
+import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, McpToolAuditReport, RegisterDaemonResponse } from "./daemon-api.ts";
 import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputBundle } from "./bundle.ts";
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
@@ -43,6 +43,7 @@ import {
 import { parseTaskInputJson, resolveConversationThreadId } from "./task-context.ts";
 import { executeRuntimeAppPlan, parseRuntimeAppInstallPlan, tailAndRedact } from "./runtime-apps.ts";
 import { executeMcpConnectionOperation } from "./mcp/verify-executor.ts";
+import { McpGateway } from "./mcp/gateway.ts";
 import { applyProviderCredentialProfile, resolveProviderCredentialProfile, type ProviderCredentialProfile } from "./provider-credentials.ts";
 import { createManagedCredentialResolver, type ManagedCredentialResolver } from "./managed-provider-credentials.ts";
 import { createManagedProvisioningExecutor } from "./managed-runtime-provisioning.ts";
@@ -810,10 +811,34 @@ async function executeRemoteTask(
   }
   mkdirSync(workDir, { recursive: true });
 
+  // Task-scoped MCP session: the daemon claims resolved connection bundles
+  // through its authenticated channel and hosts a loopback gateway. The
+  // Provider's own MCP config only ever receives the gateway URL.
+  let mcpSession: { url: string; revoke: () => void } | undefined;
+  const mcpAuditSink: McpToolAuditReport[] = [];
+
   try {
     await client.startTask(task.id);
     const bundle = await client.getInputBundle(task.id);
     materializeInputBundle(workDir, bundle);
+
+    mcpGatewayAuditSinks.set(task.id, mcpAuditSink);
+    if (bundle.metadata.mcpConnections?.status === "available") {
+      try {
+        const claimed = await client.claimMcpTaskSession(task.id);
+        if (claimed.connections.length > 0) {
+          const gateway = await getMcpGatewayForTask();
+          mcpSession = gateway.createTaskSession({
+            taskId: task.id,
+            runtimeId: runtime.id,
+            connections: claimed.connections,
+          });
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.error(`MCP session claim failed for task ${task.id}: ${detail}`);
+      }
+    }
 
     const managedProfile = await resolveManagedCredentialProfile(runtime, credentialResolver);
     const managedCredentialEnv = managedProfile?.environment ?? {};
@@ -882,6 +907,7 @@ async function executeRemoteTask(
         },
         runtimeApps: bundle.metadata.runtimeApps?.apps ?? [],
         runtimeToolCapabilities: bundle.metadata.runtimeToolCapabilities?.capabilities ?? [],
+        mcpGatewayUrl: mcpSession?.url,
         onEvent: (event) => {
           if (event.type === "usage" && event.inputJson) {
             const inputTokens = readFiniteNumber(event.inputJson.input_tokens);
@@ -946,11 +972,35 @@ async function executeRemoteTask(
       workDir: failureMetadata?.workDir ?? workDir,
     });
   } finally {
+    // Revoke the MCP session and flush any redacted tool audits, best-effort.
+    mcpSession?.revoke();
+    mcpGatewayAuditSinks.delete(task.id);
+    if (mcpAuditSink.length > 0) {
+      await client.reportMcpToolAudits(task.id, mcpAuditSink).catch((error) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.error(`MCP audit report failed for task ${task.id}: ${detail}`);
+      });
+    }
     clearTaskOutputArtifacts(workDir);
     if (!isPersistentConversationWorkspace) {
       rmSync(workDir, { recursive: true, force: true });
     }
   }
+}
+
+const mcpGatewayAuditSinks = new Map<string, McpToolAuditReport[]>();
+let sharedMcpGateway: McpGateway | null = null;
+
+async function getMcpGatewayForTask(): Promise<McpGateway> {
+  if (!sharedMcpGateway) {
+    const gateway = new McpGateway((audit) => {
+      const sink = mcpGatewayAuditSinks.get(audit.taskId);
+      if (sink) sink.push(audit);
+    });
+    await gateway.start();
+    sharedMcpGateway = gateway;
+  }
+  return sharedMcpGateway;
 }
 
 function readFiniteNumber(value: unknown): number {

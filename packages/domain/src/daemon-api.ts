@@ -513,6 +513,43 @@ export interface FailMcpConnectionOperationRequest {
   errorMessage: string;
 }
 
+/**
+ * A resolved, one-time connection bundle for a running task's MCP session.
+ *
+ * Delivered ONLY through the authenticated daemon task-session claim response
+ * and held in daemon memory for the loopback gateway. The Provider-visible task
+ * bundle carries no endpoint, configuration, or credential material.
+ */
+export interface McpTaskSessionConnection {
+  connectionId: string;
+  catalogItemSlug: string;
+  displayName: string;
+  transport: McpTransport;
+  endpoint: string;
+  allowedHosts: string[];
+  approvedTools: string[];
+  nonSecretParams: Record<string, unknown>;
+  /** Plaintext, daemon-only. The gateway writes these into memory, never into a Provider-readable file. */
+  secrets: Record<string, string>;
+  /** Approved ∩ discovered tools with their real input schemas. */
+  tools: RuntimeMcpTool[];
+}
+
+export interface ClaimMcpTaskSessionResponse {
+  /** Empty when the task has no eligible ready MCP connections. */
+  connections: McpTaskSessionConnection[];
+}
+
+/** Redacted tool-call audit reported by the daemon gateway; no raw arguments or outputs. */
+export interface McpToolAuditReport {
+  connectionId: string;
+  taskId: string;
+  toolName: string;
+  outcome: "succeeded" | "failed";
+  latencyMs?: number;
+  safeSummary?: string;
+}
+
 export interface DaemonTaskOutputBundle {
   version: 1;
   format: "json-inline-v1";

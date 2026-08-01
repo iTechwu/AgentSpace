@@ -252,6 +252,37 @@ export function setSkillInstallationPreparedPathSync(input: {
 }
 
 /* ------------------------------------------------------------------ */
+/* Installable runtimes                                                */
+/* ------------------------------------------------------------------ */
+
+export interface InstallableRuntimeRow {
+  id: string;
+  name: string;
+  provider: string;
+  status: string;
+  provisioningState?: string;
+}
+
+/** Runtimes in a workspace that a skill installation may target. */
+export function listInstallableRuntimesForWorkspaceSync(
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): InstallableRuntimeRow[] {
+  const rows = getDatabase().prepare(
+    `SELECT id, name, provider, status, provisioning_state AS provisioningState
+     FROM agent_runtime WHERE workspace_id = ? ORDER BY name ASC`,
+  ).all(workspaceId) as Array<Record<string, unknown>>;
+  return rows
+    .filter((row) => typeof row.id === "string" && typeof row.name === "string" && typeof row.provider === "string" && typeof row.status === "string")
+    .map((row) => ({
+      id: row.id as string,
+      name: row.name as string,
+      provider: row.provider as string,
+      status: row.status as string,
+      provisioningState: typeof row.provisioningState === "string" ? (row.provisioningState as string) : undefined,
+    }));
+}
+
+/* ------------------------------------------------------------------ */
 /* Components                                                          */
 /* ------------------------------------------------------------------ */
 

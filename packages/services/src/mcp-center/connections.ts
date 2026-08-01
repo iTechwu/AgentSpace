@@ -24,8 +24,10 @@ import {
   type RuntimeMcpToolAuditRecord,
 } from "@dofe-agent/db";
 import type {
+  ClaimMcpTaskSessionResponse,
   ClaimedMcpConnectionOperation,
   McpDiscoveredTool,
+  McpTaskSessionConnection,
   McpVerificationOutcome,
   McpVerificationResult,
   RuntimeMcpConnectionContextEntry,
@@ -272,6 +274,8 @@ export interface UpdateMcpConnectionConfigServiceInput {
   endpoint?: string;
   nonSecretParams?: Record<string, unknown>;
   approvedTools?: string[];
+  /** Required only when this update newly grants a high-risk tool. */
+  confirmHighRisk?: boolean;
   /** When true, also (re)queue a verify operation after the config update. */
   queueVerification?: boolean;
 }
@@ -303,9 +307,17 @@ export function updateMcpConnectionConfigServiceSync(input: UpdateMcpConnectionC
     }
   }
   if (input.approvedTools !== undefined) {
-    const declared = new Set(parseDeclaredTools(catalog.declaredToolsJson).map((t) => t.name));
+    const declaredTools = parseDeclaredTools(catalog.declaredToolsJson);
+    const declared = new Map(declaredTools.map((tool) => [tool.name, tool]));
     if (input.approvedTools.some((name) => !declared.has(name))) {
       throw new Error("mcp.tool_not_declared");
+    }
+    const currentApproved = new Set(parseJsonArray(connection.approvedToolsJson));
+    const addsHighRiskTool = input.approvedTools.some((name) =>
+      !currentApproved.has(name) && declared.get(name)?.risk === "high",
+    );
+    if (addsHighRiskTool && input.confirmHighRisk !== true) {
+      throw new Error("mcp.high_risk_confirmation_required");
     }
   }
   const reverifyAllowed = connection.status !== "disabled";
@@ -612,6 +624,76 @@ export function listReadyMcpConnectionsForTaskSync(input: {
     });
   }
   return entries;
+}
+
+/**
+ * Claims a one-time resolved MCP connection bundle for a running task.
+ *
+ * Daemon-only. Re-confirms each connection is still `ready` and that every
+ * approved tool is still present in the latest discovery snapshot (freshness
+ * check), then decrypts the secret bundle. The result is delivered only to the
+ * daemon's memory for the loopback gateway — never into the Provider-visible
+ * task bundle.
+ */
+export function claimMcpTaskSessionSync(input: {
+  workspaceId: string;
+  runtimeId: string;
+  taskId: string;
+}): ClaimMcpTaskSessionResponse {
+  const connections = listMcpConnectionsSync({ workspaceId: input.workspaceId, runtimeId: input.runtimeId, status: "ready", limit: 500 });
+  const result: McpTaskSessionConnection[] = [];
+  for (const connection of connections) {
+    const catalog = readMcpCatalogItemSync(connection.catalogItemId, input.workspaceId);
+    if (!catalog) continue;
+    // Freshness: re-check the CURRENT status row (not a stale cached read).
+    const fresh = readMcpConnectionSync(connection.id, input.workspaceId);
+    if (!fresh || fresh.status !== "ready") continue;
+    const snapshot = readLatestMcpDiscoverySnapshotSync(connection.id, input.workspaceId);
+    if (!snapshot) continue;
+    const discovered = parseDiscoveredTools(snapshot.toolsMetadataJson);
+    const discoveredByName = new Map(discovered.map((t) => [t.name, t]));
+    const approved = parseJsonArray(fresh.approvedToolsJson);
+    // Freshness: an approved tool that vanished from discovery excludes the connection.
+    const approvedPresent = approved.every((name) => discoveredByName.has(name));
+    if (!approvedPresent) {
+      updateMcpConnectionStatusSync({
+        connectionId: connection.id,
+        workspaceId: input.workspaceId,
+        status: "degraded",
+        lastErrorCode: "mcp.approved_tool_missing",
+        lastErrorMessage: "An approved tool is no longer discoverable; the connection was removed from this task.",
+      });
+      continue;
+    }
+    const secrets = resolveDaemonSecretBundle(readMcpConnectionSecretsSync(connection.id, input.workspaceId));
+    if (secrets === null) continue;
+    const tools: RuntimeMcpTool[] = [];
+    for (const name of approved) {
+      const tool = discoveredByName.get(name);
+      if (!tool) continue;
+      tools.push({
+        id: `mcp:${connection.id}:${name}`,
+        connectionId: connection.id,
+        name,
+        description: tool.description,
+        inputSchema: redactToolInputSchema(tool.inputSchema),
+      });
+    }
+    if (tools.length === 0) continue;
+    result.push({
+      connectionId: connection.id,
+      catalogItemSlug: catalog.slug,
+      displayName: catalog.displayName,
+      transport: catalog.transport,
+      endpoint: fresh.endpoint,
+      allowedHosts: parseJsonArray(catalog.allowedHostsJson),
+      approvedTools: approved,
+      nonSecretParams: parseJsonObject(fresh.nonSecretParamsJson),
+      secrets,
+      tools,
+    });
+  }
+  return { connections: result };
 }
 
 /* ------------------------------------------------------------------ */

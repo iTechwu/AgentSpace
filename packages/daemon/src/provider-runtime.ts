@@ -84,6 +84,8 @@ export interface ProviderTaskOptions {
   temporaryAllowedTools?: string[];
   runtimeApps?: RuntimeAppContextEntry[];
   runtimeToolCapabilities?: RuntimeToolCapability[];
+  /** Loopback MCP gateway URL for a task-scoped session; passed to the provider as a one-shot MCP config. */
+  mcpGatewayUrl?: string;
 }
 
 type ProviderTaskFailureCategory = ProviderErrorCategory | "auth" | "profile" | "model";
@@ -280,6 +282,7 @@ async function runAgentRouterProviderTask(
     temporaryAllowedTools: options.temporaryAllowedTools,
     runtimeToolCapabilities,
     claudeTools: runtime.provider === "claude" ? "default" : undefined,
+    mcpGatewayUrl: options.mcpGatewayUrl,
     // Remote tasks always provide an approval callback. Claude approvals are retried
     // from returned permission denials below, so keep ordinary tasks one-shot.
     handleControlRequests: false,

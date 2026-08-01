@@ -8,6 +8,8 @@ import {
   removeMcpConnectionAction,
   requestMcpConnectionAction,
   reverifyMcpConnectionAction,
+  rotateMcpSecretAction,
+  updateMcpConnectionConfigAction,
 } from "@/features/market/mcp-actions";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useLanguage } from "@/features/i18n/language-provider";
@@ -30,6 +32,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   const [connectionFilter, setConnectionFilter] = useState<"all" | "connected" | "not_connected" | "needs_attention">("all");
   const [selectedCatalogId, setSelectedCatalogId] = useState<string>(data.mcpCatalog[0]?.id ?? "");
   const [selectedRuntimeId, setSelectedRuntimeId] = useState(data.runtimes[0]?.id ?? "");
+  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
   const [endpoint, setEndpoint] = useState("");
   const [nonSecretParams, setNonSecretParams] = useState<Record<string, string>>({});
   const [secrets, setSecrets] = useState<Record<string, string>>({});
@@ -61,7 +64,17 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
 
   const selected = data.mcpCatalog.find((item) => item.id === selectedCatalogId) ?? filteredCatalog[0] ?? data.mcpCatalog[0];
   const selectedRuntime = onlineRuntimes.find((r) => r.id === selectedRuntimeId) ?? onlineRuntimes[0];
+  const editingConnection = editingConnectionId ? data.mcpConnections.find((connection) => connection.id === editingConnectionId) : undefined;
+  const formRuntimes = editingConnection
+    ? data.runtimes.filter((runtime) => runtime.id === editingConnection.runtimeId)
+    : onlineRuntimes;
+  const formRuntimeId = editingConnection?.runtimeId ?? selectedRuntime?.id ?? "";
   const supportsSelectedTransport = selected?.transport === "streamable_http";
+  const requiresHighRiskConfirmation = Boolean(selected && (
+    !editingConnection
+      ? selected.risk === "high" || selected.declaredTools.some((tool) => tool.risk === "high" && approvedTools.has(tool.name))
+      : selected.declaredTools.some((tool) => tool.risk === "high" && approvedTools.has(tool.name) && !editingConnection.approvedTools.includes(tool.name))
+  ));
 
   // Reset per-catalog form state when the selection changes.
   useEffect(() => {
@@ -97,6 +110,59 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
       if (next.has(name)) next.delete(name);
       else next.add(name);
       return next;
+    });
+  }
+
+  function manageConnection(connection: ConnectionEntry): void {
+    const catalog = data.mcpCatalog.find((item) => item.id === connection.catalogItemId);
+    setEditingConnectionId(connection.id);
+    setSelectedCatalogId(connection.catalogItemId);
+    setSelectedRuntimeId(connection.runtimeId);
+    setEndpoint(catalog?.endpointTemplate ?? "");
+    setApprovedTools(new Set(connection.approvedTools));
+    setNonSecretParams(Object.fromEntries((catalog?.configurationFields ?? []).map((field) => [field.name, ""])));
+    setSecrets(Object.fromEntries((catalog?.secretFields ?? []).map((field) => [field, ""])));
+    setConfirmHighRisk(false);
+  }
+
+  function cancelManagingConnection(): void {
+    setEditingConnectionId(null);
+    if (!selected) return;
+    setEndpoint(selected.endpointTemplate ?? "");
+    setApprovedTools(new Set(selected.defaultApprovedTools));
+    setNonSecretParams(Object.fromEntries(selected.configurationFields.map((field) => [field.name, ""])));
+    setSecrets(Object.fromEntries(selected.secretFields.map((field) => [field, ""])));
+    setConfirmHighRisk(false);
+  }
+
+  function submitConnection(): void {
+    if (!selected || (!editingConnection && !selectedRuntime)) return;
+    if (!editingConnection) {
+      runAction(() => requestMcpConnectionAction({
+        runtimeId: selectedRuntime.id,
+        catalogItemId: selected.id,
+        endpoint,
+        nonSecretParams,
+        secrets,
+        approvedTools: Array.from(approvedTools),
+        confirmHighRisk,
+      }));
+      return;
+    }
+    runAction(async () => {
+      const result = await updateMcpConnectionConfigAction({
+        connectionId: editingConnection.id,
+        endpoint,
+        nonSecretParams,
+        approvedTools: Array.from(approvedTools),
+        confirmHighRisk,
+      });
+      for (const [fieldName, value] of Object.entries(secrets)) {
+        if (value.trim()) {
+          await rotateMcpSecretAction({ connectionId: editingConnection.id, fieldName, value });
+        }
+      }
+      return result;
     });
   }
 
@@ -221,11 +287,11 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                 <label className="form-field">
                   <span>{tx("目标 Runtime", "Target runtime")}</span>
                   <select
-                    disabled={isPending || onlineRuntimes.length === 0}
+                    disabled={isPending || Boolean(editingConnection) || formRuntimes.length === 0}
                     onChange={(event) => setSelectedRuntimeId(event.currentTarget.value)}
-                    value={selectedRuntime?.id ?? ""}
+                    value={formRuntimeId}
                   >
-                    {onlineRuntimes.map((runtime) => (
+                    {formRuntimes.map((runtime) => (
                       <option key={runtime.id} value={runtime.id}>{runtime.label}</option>
                     ))}
                   </select>
@@ -270,7 +336,11 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                 ))}
               </div>
 
-              {selected.risk === "high" || selected.declaredTools.some((t) => t.risk === "high" && approvedTools.has(t.name)) ? (
+              {editingConnection ? (
+                <p className="panel-note">{tx("现有 endpoint、非密钥配置和密钥不会回显。填写的密钥将轮换，留空则保持不变。", "Existing endpoint, configuration, and secrets are not shown. Filled secrets rotate; blank ones stay unchanged.")}</p>
+              ) : null}
+
+              {requiresHighRiskConfirmation ? (
                 <label className="market-confirm-risk">
                   <input checked={confirmHighRisk} onChange={(event) => setConfirmHighRisk(event.currentTarget.checked)} type="checkbox" />
                   <span>{tx("确认该 Runtime 将访问指定数据域", "I confirm this runtime will access the stated data domain")}</span>
@@ -280,21 +350,18 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
               <div className="market-action-row">
                 <button
                   className="primary-button"
-                  disabled={isPending || !data.canManage || !supportsSelectedTransport || !selectedRuntime || !endpoint.trim() || !allConfigurationFieldsFilled(selected, nonSecretParams) || !allSecretsFilled(selected, secrets)}
-                  onClick={() => runAction(() => requestMcpConnectionAction({
-                    runtimeId: selectedRuntime!.id,
-                    catalogItemId: selected.id,
-                    endpoint,
-                    nonSecretParams,
-                    secrets,
-                    approvedTools: Array.from(approvedTools),
-                    confirmHighRisk,
-                  }))}
+                  disabled={isPending || !data.canManage || !supportsSelectedTransport || !selectedRuntime || !endpoint.trim() || !allConfigurationFieldsFilled(selected, nonSecretParams) || (!editingConnection && !allSecretsFilled(selected, secrets)) || (requiresHighRiskConfirmation && !confirmHighRisk)}
+                  onClick={submitConnection}
                   type="button"
                 >
                   <AppIcon name="download" />
-                  <span>{tx("配置并连接", "Configure and connect")}</span>
+                  <span>{editingConnection ? tx("更新配置", "Update configuration") : tx("配置并连接", "Configure and connect")}</span>
                 </button>
+                {editingConnection ? (
+                  <button className="modal-secondary-button" disabled={isPending} onClick={cancelManagingConnection} type="button">
+                    {tx("取消管理", "Cancel")}
+                  </button>
+                ) : null}
               </div>
               {!supportsSelectedTransport ? (
                 <p className="panel-note">{tx("当前版本仅支持 Streamable HTTP MCP。", "This version supports Streamable HTTP MCP only.")}</p>
@@ -322,6 +389,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                 onDisable={() => runAction(() => disableMcpConnectionAction({ connectionId: connection.id }))}
                 onEnable={() => runAction(() => enableMcpConnectionAction({ connectionId: connection.id }))}
                 onRemove={() => runAction(() => removeMcpConnectionAction({ connectionId: connection.id }))}
+                onManage={() => manageConnection(connection)}
               />
             ))}
           </ul>
@@ -339,6 +407,7 @@ function ConnectionRow(props: {
   onDisable: () => void;
   onEnable: () => void;
   onRemove: () => void;
+  onManage: () => void;
 }) {
   const { tx } = useLanguage();
   const { connection, canManage, disabled } = props;
@@ -351,9 +420,19 @@ function ConnectionRow(props: {
       <div className="mcp-connection-meta">
         <span>{connection.transport}</span>
         <span>{tx("已获准工具", "Approved tools")}: {connection.approvedTools.length}/{connection.declaredToolCount}</span>
+        <span>{tx("上次验证", "Last verified")}: <time dateTime={connection.lastVerifiedAt}>{formatVerificationTime(connection.lastVerifiedAt, tx)}</time></span>
         {connection.lastErrorCode ? <span className="mcp-connection-error">{connection.lastErrorCode}{connection.lastErrorMessage ? `: ${connection.lastErrorMessage}` : ""}</span> : null}
       </div>
+      {connection.approvedTools.length > 0 ? (
+        <details className="mcp-connection-tools">
+          <summary>{tx(`查看工具 (${connection.approvedTools.length})`, `View tools (${connection.approvedTools.length})`)}</summary>
+          <ul>{connection.approvedTools.map((tool) => <li key={tool}>{tool}</li>)}</ul>
+        </details>
+      ) : null}
       <div className="market-action-row">
+        <button className="modal-secondary-button" disabled={disabled || !canManage} onClick={props.onManage} type="button">
+          {tx("管理配置", "Manage configuration")}
+        </button>
         <button className="modal-secondary-button" disabled={disabled || !canManage || connection.status === "disabled"} onClick={props.onReverify} type="button">
           {tx("重新验证", "Re-verify")}
         </button>
@@ -410,6 +489,13 @@ function statusLabel(status: string, tx: (zh: string, en: string) => string): st
     case "disabled": return tx("已停用", "Disabled");
     default: return tx("未配置", "Needs config");
   }
+}
+
+function formatVerificationTime(value: string | undefined, tx: (zh: string, en: string) => string): string {
+  if (!value) return tx("从未验证", "Never verified");
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return tx("时间未知", "Unknown time");
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 function allSecretsFilled(catalog: CatalogEntry, secrets: Record<string, string>): boolean {

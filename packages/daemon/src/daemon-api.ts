@@ -1,6 +1,7 @@
 export type {
   ClaimManagedProvisioningTaskResponse,
   ClaimMcpConnectionOperationResponse,
+  ClaimMcpTaskSessionResponse,
   ClaimRuntimeAppOperationResponse,
   ClaimTaskResponse,
   ClaimedMcpConnectionOperation,
@@ -37,6 +38,8 @@ export type {
   McpConnectionStatus,
   McpDiscoveredTool,
   McpErrorCode,
+  McpTaskSessionConnection,
+  McpToolAuditReport,
   McpTransport,
   McpVerificationResult,
   RegisterDaemonRequest,

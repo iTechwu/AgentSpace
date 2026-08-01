@@ -24,7 +24,9 @@ const actionMocks = vi.hoisted(() => ({
   refreshCatalog: vi.fn(async () => ({ data: undefined })),
   requestOperation: vi.fn(async () => ({ data: undefined })),
   requestMcpConnection: vi.fn(async () => ({ data: undefined })),
+  rotateMcpSecret: vi.fn(async () => ({ data: undefined })),
   syncSkill: vi.fn(async () => ({ data: undefined })),
+  updateMcpConnectionConfig: vi.fn(async () => ({ data: undefined })),
 }));
 
 vi.mock("@/features/market/actions", () => ({
@@ -39,6 +41,8 @@ vi.mock("@/features/market/mcp-actions", () => ({
   removeMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
   requestMcpConnectionAction: actionMocks.requestMcpConnection,
   reverifyMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
+  rotateMcpSecretAction: actionMocks.rotateMcpSecret,
+  updateMcpConnectionConfigAction: actionMocks.updateMcpConnectionConfig,
 }));
 
 const data: MarketPageData = {
@@ -113,7 +117,9 @@ describe("MarketPageClient", () => {
     actionMocks.refreshCatalog.mockClear();
     actionMocks.requestOperation.mockClear();
     actionMocks.requestMcpConnection.mockClear();
+    actionMocks.rotateMcpSecret.mockClear();
     actionMocks.syncSkill.mockClear();
+    actionMocks.updateMcpConnectionConfig.mockClear();
   });
 
   it("only shows online runtimes in the target runtime selector", () => {
@@ -360,5 +366,47 @@ describe("MarketPageClient", () => {
 
     expect(screen.getByRole("button", { name: /Official Search/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Workspace Search/ })).not.toBeInTheDocument();
+  });
+
+  it("shows connection verification diagnostics and safely enters configuration replacement mode", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{
+            ...data,
+            mcpConnections: [{
+              id: "connection-1",
+              runtimeId: "runtime-online",
+              catalogItemId: "mcp-catalog-1",
+              catalogSlug: "workspace-search",
+              catalogDisplayName: "Workspace Search",
+              status: "ready",
+              transport: "streamable_http",
+              approvedTools: ["search"],
+              declaredToolCount: 1,
+              lastVerifiedAt: "2026-08-02T08:30:00.000Z",
+            }],
+          }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: /MCP/ }));
+    expect(screen.getByText(/上次验证/)).toBeInTheDocument();
+    const toolSummary = screen.getByText("查看工具 (1)");
+    await user.click(toolSummary);
+    expect(toolSummary.closest("details")).toHaveAttribute("open");
+    await user.click(screen.getByRole("button", { name: "管理配置" }));
+    expect(screen.getByText(/不会回显/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("X-Workspace *"), "workspace-42");
+    await user.click(screen.getByRole("button", { name: "更新配置" }));
+
+    await waitFor(() => expect(actionMocks.updateMcpConnectionConfig).toHaveBeenCalledWith(expect.objectContaining({
+      connectionId: "connection-1",
+      nonSecretParams: { "X-Workspace": "workspace-42" },
+      approvedTools: ["search"],
+    })));
+    expect(actionMocks.rotateMcpSecret).not.toHaveBeenCalled();
   });
 });

@@ -45,6 +45,7 @@ import {
   listEmployeeSkillIdsSync,
   readAgentSkillRequirementConfigurationSync,
   queueGitHubSkillDependenciesForAgentSync,
+  readEmployeeDataProtectionSnapshotSync,
   rejectAgentAccessRequestForActorSync,
   requestSkillRequirementConfigurationSync,
   revokeAgentForkInvitationForActorSync,
@@ -1394,5 +1395,50 @@ function buildAgentTaskInvalidation(
       { type: "agent", id: assignee },
     ],
     shell: "counters",
+  };
+}
+
+export interface AgentDataProtectionSummary {
+  employeeName: string;
+  headRevisionId: string | null;
+  headRevisionDigest: string | null;
+  headRevisionStatus: string | null;
+  lastSnapshotAt: string | null;
+  storageHealth: string;
+  recentArtifactCount: number;
+  bindingStatus: string | null;
+  bindingGeneration: number | null;
+}
+
+/**
+ * Read-only data-protection summary for the agent detail panel (P4). Fetches
+ * the employee's persistent-workspace head revision, published artifacts and
+ * runtime-binding generation/status from the durability control plane.
+ */
+export async function readWorkspaceAgentDataProtectionAction(
+  employeeName: string,
+): Promise<AgentDataProtectionSummary> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  const normalized = employeeName.trim();
+  assertRequired(normalized, "employee name");
+  assertCanManageEmployeeForActorSync({
+    workspaceId,
+    employeeName: normalized,
+    actorUserId: workspaceContext.currentUser.id,
+  });
+
+  const snapshot = readEmployeeDataProtectionSnapshotSync({ workspaceId, employeeName: normalized });
+  const binding = readEmployeeRuntimeBindingSync(normalized, workspaceId);
+  return {
+    employeeName: normalized,
+    headRevisionId: snapshot.headRevision?.id ?? null,
+    headRevisionDigest: snapshot.headRevision?.manifestDigest ?? null,
+    headRevisionStatus: snapshot.headRevision?.status ?? null,
+    lastSnapshotAt: snapshot.workspace?.lastSnapshotAt ?? null,
+    storageHealth: snapshot.workspace?.storageHealth ?? "unknown",
+    recentArtifactCount: snapshot.recentArtifacts.length,
+    bindingStatus: binding?.status ?? null,
+    bindingGeneration: binding?.generation ?? null,
   };
 }
