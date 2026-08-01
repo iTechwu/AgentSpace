@@ -7,6 +7,12 @@ For pnpm, Turbo, and Jest monorepos, the root `test` script must use `turbo run 
 - For a single API Jest file, use `pnpm --filter @repo/api exec jest path/to/file.spec.ts --runInBand`.
 - A full test run must pass `--maxWorkers=2`, for example `pnpm test -- --maxWorkers=2`.
 
+## Shared Deployment Infrastructure
+
+- In every deployment change, Dockerfiles and Docker Compose files must not create, run, or embed PostgreSQL, Redis, or RabbitMQ services.
+- Do not add service definitions, images, containers, initialization jobs, or persistent volumes for these dependencies.
+- PostgreSQL, Redis, and RabbitMQ are centrally managed by `../docker-helm.dofe.ai`; application deployments must connect to those externally managed services through configuration.
+
 ## Local Jenkins Prohibition
 
 On this workstation, Jenkins is not a deployment path for `models.dofe.ai` or `AgentSpace`.

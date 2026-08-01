@@ -160,8 +160,8 @@ importers:
         specifier: workspace:*
         version: link:../domain
       '@dofe/models-sdk':
-        specifier: ^0.5.3
-        version: 0.5.3
+        specifier: ^0.5.5
+        version: 0.5.5
       '@larksuiteoapi/node-sdk':
         specifier: ^1.67.0
         version: 1.72.0
@@ -314,8 +314,8 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@dofe/models-sdk@0.5.3':
-    resolution: {integrity: sha512-aq8p4e/f2anFqQ2LnJh6g93/yWwqHmlM73z9NjzkJhZTY740o8qW6jzAwxBhzT7ywxr5SNfKPWKn455+hrjTJA==}
+  '@dofe/models-sdk@0.5.5':
+    resolution: {integrity: sha512-hIEYEwr+qQvIzGFqFKUT4rR7G7NBtUr/aDnHZY9XoCqALuWKEa9SRw07wX9llIGONTf1zd8sBcRNi7qeQW6Ufg==}
     engines: {node: '>=18.0.0'}
 
   '@dofe/sso-node@0.1.75':
@@ -2847,7 +2847,7 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@dofe/models-sdk@0.5.3': {}
+  '@dofe/models-sdk@0.5.5': {}
 
   '@dofe/sso-node@0.1.75': {}
 

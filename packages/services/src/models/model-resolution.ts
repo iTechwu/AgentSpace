@@ -144,7 +144,6 @@ export async function resolveEffectiveModelForTaskAsync(
   }
   // 按运行时 Provider 所需协议过滤模型目录。
   // 例如 Codex 使用 openai_response 协议（/v1/responses），
-  // 只支持 chat/completions 的模型（如 deepseek-v4-flash）必须被排除，
   // 否则 Codex 调用时网关会返回 "No available provider"。
   const requiredProtocols = runtime.protocols?.length
     ? runtime.protocols

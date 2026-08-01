@@ -10,7 +10,7 @@
   "dependencies": {
     "@dofe-agent/db": "workspace:*",
     "@dofe-agent/domain": "workspace:*",
-    "@dofe/models-sdk": "^0.5.3",
+    "@dofe/models-sdk": "^0.5.5",
     "@larksuiteoapi/node-sdk": "^1.67.0",
     "@volcengine/tos-sdk": "^2.9.1",
     "fflate": "^0.8.2"

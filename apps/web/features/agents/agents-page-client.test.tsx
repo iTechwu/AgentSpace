@@ -1951,6 +1951,75 @@ describe("AgentDetail", () => {
     expect(screen.getByRole("button", { name: "选择执行引擎" })).toHaveTextContent("Second runtime");
   });
 
+  it("resets the execution engine selection when switching employees", async () => {
+    const user = userEvent.setup();
+    const firstRuntime = data.containerOptions[0]!;
+    const secondRuntime = {
+      ...firstRuntime,
+      id: "runtime-2",
+      label: "Claude runtime",
+      provider: "claude" as const,
+      daemonKey: "daemon-2",
+      serverName: "Server two",
+    };
+    const firstRecord = {
+      ...data.agents[0]!,
+      boundContainerId: firstRuntime.id,
+      boundContainerName: firstRuntime.label,
+      boundProvider: firstRuntime.provider,
+    };
+    const secondRecord = {
+      ...firstRecord,
+      id: "agent:claude-e2e",
+      internalName: "claude-e2e",
+      name: "Claude E2E",
+      boundContainerId: secondRuntime.id,
+      boundContainerName: secondRuntime.label,
+      boundProvider: secondRuntime.provider,
+    };
+    const containerOptions = [firstRuntime, secondRuntime];
+    const view = render(
+      <LanguageProvider initialLanguage="zh">
+        <AgentDetail
+          containerOptions={containerOptions}
+          pending={false}
+          record={firstRecord}
+          workspaceSkills={[]}
+          onBindContainer={vi.fn()}
+          onDeleteAgent={vi.fn()}
+          onInstallSkill={vi.fn()}
+          onSaveInstructions={vi.fn()}
+          onSetSkillIds={vi.fn()}
+          onUnbindContainer={vi.fn()}
+        />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    expect(screen.getByRole("button", { name: "选择执行引擎" })).toHaveTextContent(firstRuntime.label);
+
+    view.rerender(
+      <LanguageProvider initialLanguage="zh">
+        <AgentDetail
+          containerOptions={containerOptions}
+          pending={false}
+          record={secondRecord}
+          workspaceSkills={[]}
+          onBindContainer={vi.fn()}
+          onDeleteAgent={vi.fn()}
+          onInstallSkill={vi.fn()}
+          onSaveInstructions={vi.fn()}
+          onSetSkillIds={vi.fn()}
+          onUnbindContainer={vi.fn()}
+        />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "选择执行引擎" })).toHaveTextContent(secondRuntime.label);
+    });
+  });
+
   it("guides an employee with no workspaces to configure an engine or start a conversation", async () => {
     const user = userEvent.setup();
     const onStartConversation = vi.fn();

@@ -808,6 +808,7 @@ export function AgentsPageClient({
                 <AgentDetail
                   activeTab={activeAgentDetailTab}
                   containerOptions={data.containerOptions}
+                  key={selectedAgent.id}
                   pending={isPending}
                   providerVerificationPending={Boolean(
                     isProviderVerificationRequestPending
