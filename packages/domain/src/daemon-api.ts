@@ -646,6 +646,12 @@ export interface McpToolAuditReport {
   eventId: string;
 }
 
+/** Explicit acknowledgement for an idempotent MCP audit batch. */
+export interface ReportMcpToolAuditsResponse {
+  recorded: number;
+  acceptedEventIds: string[];
+}
+
 export interface DaemonTaskOutputBundle {
   version: 1;
   format: "json-inline-v1";

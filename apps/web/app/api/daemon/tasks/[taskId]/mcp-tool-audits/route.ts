@@ -1,5 +1,14 @@
-import { readMcpTaskSessionGrantSync, recordMcpToolAuditSync } from "@dofe-agent/db";
-import type { ClaimMcpTaskSessionResponse, McpToolAuditReport } from "@dofe-agent/domain";
+import {
+  getDatabase,
+  readMcpTaskSessionGrantSync,
+  recordMcpToolAuditSync,
+  withTransaction,
+} from "@dofe-agent/db";
+import type {
+  ClaimMcpTaskSessionResponse,
+  McpToolAuditReport,
+  ReportMcpToolAuditsResponse,
+} from "@dofe-agent/domain";
 import { decryptMcpGrant } from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
@@ -25,55 +34,122 @@ export async function POST(
     return task;
   }
 
-  const body = (await request.json()) as { audits?: McpToolAuditReport[] };
-  const audits = Array.isArray(body.audits) ? body.audits : [];
+  let body: { audits?: unknown };
+  try {
+    body = (await request.json()) as { audits?: unknown };
+  } catch {
+    return Response.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+  if (!Array.isArray(body.audits)) {
+    return Response.json({ error: "audits must be an array." }, { status: 400 });
+  }
+  const audits = body.audits;
   if (audits.length > 500) {
     return Response.json({ error: "Too many audit records." }, { status: 400 });
   }
-  let recorded = 0;
   // Validate every audit against the PERSISTED grant snapshot (the immutable
   // authorization this task was granted at claim time), not the connection's
   // CURRENT approvedToolsJson — a tool added or revoked mid-task must not change
   // what the task is allowed to report as having used.
-  let grantBundle: ClaimMcpTaskSessionResponse | undefined;
   const grant = readMcpTaskSessionGrantSync(taskId, auth.workspaceId);
   // An expired grant is not a valid authorization snapshot: audits reported
   // against it are refused (the task should no longer be able to claim MCP).
-  if (grant && grant.expiresAt > new Date().toISOString()) {
-    try {
-      grantBundle = JSON.parse(decryptMcpGrant(grant.encryptedBundleJson)) as ClaimMcpTaskSessionResponse;
-    } catch {
-      grantBundle = undefined;
-    }
+  if (!grant || grant.expiresAt <= new Date().toISOString()) {
+    return Response.json({ error: "MCP audit authorization snapshot is unavailable." }, { status: 422 });
   }
-  for (const audit of audits) {
-    if (!audit || typeof audit.connectionId !== "string" || typeof audit.toolName !== "string") {
-      continue;
+  let grantBundle: ClaimMcpTaskSessionResponse;
+  try {
+    grantBundle = JSON.parse(decryptMcpGrant(grant.encryptedBundleJson)) as ClaimMcpTaskSessionResponse;
+  } catch {
+    return Response.json({ error: "MCP audit authorization snapshot is unreadable." }, { status: 422 });
+  }
+
+  const validated: McpToolAuditReport[] = [];
+  const eventIds = new Set<string>();
+  for (let index = 0; index < audits.length; index += 1) {
+    const result = validateAudit(audits[index], taskId, grantBundle, eventIds);
+    if (!result.ok) {
+      return Response.json(
+        { error: result.error, rejectedIndex: index },
+        { status: result.status },
+      );
     }
-    // The URL's taskId is authoritative — a client-supplied taskId must never
-    // re-attribute an audit to a different task. The connection and tool must be
-    // inside the task's claim-time grant snapshot, otherwise the audit is dropped.
-    const grantedConnection = grantBundle?.connections.find((c) => c.connectionId === audit.connectionId);
-    if (!grantedConnection || !grantedConnection.approvedTools.includes(audit.toolName)) {
-      continue;
+    validated.push(result.audit);
+  }
+
+  withTransaction(getDatabase(), () => {
+    for (const audit of validated) {
+      recordMcpToolAuditSync({
+        workspaceId: auth.workspaceId,
+        connectionId: audit.connectionId,
+        taskId,
+        toolName: audit.toolName,
+        outcome: audit.outcome,
+        latencyMs: audit.latencyMs,
+        safeSummary: audit.safeSummary?.slice(0, 1000),
+        eventId: audit.eventId,
+      });
     }
-    // eventId is REQUIRED for idempotency — missing/blank/oversized ids are
-    // refused so a retry can never produce a duplicate row via NULL event_id.
-    const eventId = typeof audit.eventId === "string" ? audit.eventId.trim() : "";
-    if (!eventId || eventId.length > 200) {
-      continue;
-    }
-    recordMcpToolAuditSync({
-      workspaceId: auth.workspaceId,
+  });
+  const response: ReportMcpToolAuditsResponse = {
+    recorded: validated.length,
+    acceptedEventIds: validated.map((audit) => audit.eventId),
+  };
+  return Response.json(response);
+}
+
+function validateAudit(
+  value: unknown,
+  taskId: string,
+  grant: ClaimMcpTaskSessionResponse,
+  eventIds: Set<string>,
+):
+  | { ok: true; audit: McpToolAuditReport }
+  | { ok: false; error: string; status: 400 | 422 } {
+  if (!value || typeof value !== "object") {
+    return { ok: false, error: "Audit record must be an object.", status: 400 };
+  }
+  const audit = value as Partial<McpToolAuditReport>;
+  const eventId = typeof audit.eventId === "string" ? audit.eventId.trim() : "";
+  if (!eventId || eventId.length > 200 || eventIds.has(eventId)) {
+    return { ok: false, error: "Audit eventId must be unique and between 1 and 200 characters.", status: 400 };
+  }
+  if (audit.taskId !== taskId) {
+    return { ok: false, error: "Audit taskId does not match the request path.", status: 400 };
+  }
+  if (typeof audit.connectionId !== "string" || !audit.connectionId || audit.connectionId.length > 200) {
+    return { ok: false, error: "Audit connectionId is invalid.", status: 400 };
+  }
+  if (typeof audit.toolName !== "string" || !audit.toolName || audit.toolName.length > 128) {
+    return { ok: false, error: "Audit toolName is invalid.", status: 400 };
+  }
+  if (audit.outcome !== "succeeded" && audit.outcome !== "failed") {
+    return { ok: false, error: "Audit outcome is invalid.", status: 400 };
+  }
+  if (
+    audit.latencyMs !== undefined &&
+    (typeof audit.latencyMs !== "number" || !Number.isFinite(audit.latencyMs) || audit.latencyMs < 0)
+  ) {
+    return { ok: false, error: "Audit latencyMs is invalid.", status: 400 };
+  }
+  if (audit.safeSummary !== undefined && typeof audit.safeSummary !== "string") {
+    return { ok: false, error: "Audit safeSummary is invalid.", status: 400 };
+  }
+  const grantedConnection = grant.connections.find((connection) => connection.connectionId === audit.connectionId);
+  if (!grantedConnection?.approvedTools.includes(audit.toolName)) {
+    return { ok: false, error: "Audit connection or tool was not authorized for this task.", status: 422 };
+  }
+  eventIds.add(eventId);
+  return {
+    ok: true,
+    audit: {
       connectionId: audit.connectionId,
       taskId,
-      toolName: audit.toolName.slice(0, 128),
-      outcome: audit.outcome === "failed" ? "failed" : "succeeded",
-      latencyMs: typeof audit.latencyMs === "number" ? Math.max(0, audit.latencyMs) : undefined,
-      safeSummary: typeof audit.safeSummary === "string" ? audit.safeSummary.slice(0, 1000) : undefined,
+      toolName: audit.toolName,
+      outcome: audit.outcome,
+      latencyMs: audit.latencyMs,
+      safeSummary: audit.safeSummary,
       eventId,
-    });
-    recorded += 1;
-  }
-  return Response.json({ recorded });
+    },
+  };
 }

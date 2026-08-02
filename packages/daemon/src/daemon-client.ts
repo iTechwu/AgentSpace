@@ -35,6 +35,7 @@ import type {
   McpToolAuditReport,
   RegisterDaemonRequest,
   RegisterDaemonResponse,
+  ReportMcpToolAuditsResponse,
   ReportTaskMessagesRequest,
   StartMcpConnectionOperationRequest,
   StartRuntimeAppOperationRequest,
@@ -77,6 +78,7 @@ export type {
   McpToolAuditReport,
   RegisterDaemonRequest,
   RegisterDaemonResponse,
+  ReportMcpToolAuditsResponse,
   ReportTaskMessagesRequest,
   StartMcpConnectionOperationRequest,
   StartRuntimeAppOperationRequest,
@@ -303,7 +305,17 @@ export class HttpDaemonClient {
 
   async reportMcpToolAudits(taskId: string, audits: McpToolAuditReport[]): Promise<void> {
     if (audits.length === 0) return;
-    await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/mcp-tool-audits`, { audits });
+    const response = await this.postJson<ReportMcpToolAuditsResponse>(
+      `/api/daemon/tasks/${encodeURIComponent(taskId)}/mcp-tool-audits`,
+      { audits },
+      { retryable: true },
+    );
+    const accepted = new Set(response.acceptedEventIds);
+    for (const audit of audits) {
+      if (!accepted.has(audit.eventId)) {
+        throw new Error(`MCP audit server did not acknowledge ${audit.eventId}.`);
+      }
+    }
   }
 
   async startTask(taskId: string): Promise<void> {

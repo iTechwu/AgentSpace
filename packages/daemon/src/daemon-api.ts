@@ -56,6 +56,7 @@ export type {
   McpVerificationResult,
   RegisterDaemonRequest,
   RegisterDaemonResponse,
+  ReportMcpToolAuditsResponse,
   ReportTaskMessagesRequest,
   ResolvedMcpConnection,
   RuntimeAppCommandPlanItem,

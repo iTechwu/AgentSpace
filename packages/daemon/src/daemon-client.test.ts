@@ -214,3 +214,31 @@ test("built library surface exports HttpDaemonClient", async (t) => {
   assert.equal(typeof indexModule.HttpDaemonClient, "function");
   assert.equal(typeof clientModule.HttpDaemonClient, "function");
 });
+
+test("reportMcpToolAudits rejects a success response that does not acknowledge every event", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ recorded: 0, acceptedEventIds: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
+
+  try {
+    const client = new HttpDaemonClient("http://localhost:1455", "adt_test", {
+      retryDelayMs: 0,
+      maxRetryAttempts: 1,
+    });
+    await assert.rejects(
+      () => client.reportMcpToolAudits("task-1", [{
+        taskId: "task-1",
+        connectionId: "connection-1",
+        toolName: "search",
+        outcome: "succeeded",
+        eventId: "event-1",
+      }]),
+      /did not acknowledge event-1/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
