@@ -522,6 +522,7 @@ export interface FailMcpConnectionOperationRequest {
  */
 export interface McpTaskSessionConnection {
   connectionId: string;
+  workspaceId: string;
   catalogItemSlug: string;
   displayName: string;
   transport: McpTransport;
@@ -538,6 +539,18 @@ export interface McpTaskSessionConnection {
 export interface ClaimMcpTaskSessionResponse {
   /** Empty when the task has no eligible ready MCP connections. */
   connections: McpTaskSessionConnection[];
+}
+
+/** Per-call validation request sent by the daemon gateway before executing a tool. */
+export interface ValidateMcpConnectionForTaskRequest {
+  toolName: string;
+}
+
+/** Per-call validation response. `ok: true` means the connection is still ready and the tool is approved/discovered. */
+export interface ValidateMcpConnectionForTaskResponse {
+  ok: boolean;
+  approvedTools?: string[];
+  reason?: string;
 }
 
 /** Redacted tool-call audit reported by the daemon gateway; no raw arguments or outputs. */

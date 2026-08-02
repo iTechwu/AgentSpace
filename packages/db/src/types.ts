@@ -1064,6 +1064,7 @@ export interface StoredAgentSkillRecord {
   agentId?: string;
   employeeName: string;
   skillId: string;
+  skillArtifactDigest?: string;
   createdAt: string;
 }
 
@@ -1210,6 +1211,7 @@ export interface QueuedTaskRecord {
   claimedAt?: string;
   startedAt?: string;
   finishedAt?: string;
+  mcpSessionClaimedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

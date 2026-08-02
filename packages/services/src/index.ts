@@ -269,6 +269,7 @@ export {
   reverifyMcpConnectionSync,
   rotateMcpSecretSync,
   updateMcpConnectionConfigServiceSync,
+  validateMcpConnectionForGatewaySync,
   type McpConnectionActivity,
   type McpConnectionDetail,
   type McpSecretFieldStatus,

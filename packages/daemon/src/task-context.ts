@@ -4,6 +4,8 @@ import type { ContactAgentContext, MaterializedSkillDirectories } from "@dofe-ag
 import {
   type AgentRuntimeRecord,
   type QueuedTaskRecord,
+  listStoredAgentSkillAssignmentsSync,
+  readStoredSkillActiveArtifactDigestSync,
 } from "@dofe-agent/db";
 import type { ActiveEmployee, ChannelDocument, KnowledgePage, WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import {
@@ -25,6 +27,7 @@ import {
   sameValue,
   FEISHU_LARK_CLI_RESULT_MANIFEST_KIND,
   FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
+  assertSkillInstallationReadyForTaskSync,
   type AgentDocumentContext,
   type DocumentPermissionRequestRecord,
   type FeishuLarkCliResourceGrant,
@@ -468,6 +471,7 @@ export function prepareDaemonTaskContext(input: {
     input.task.workspaceId,
     agentName,
     agentSkills,
+    input.runtime.id,
     input.runtime.provider,
     buildRuntimeCapabilityIds(runtimeApps),
   );
@@ -1139,6 +1143,7 @@ export function collectSkillReadinessBlockers(
   workspaceId: string,
   agentName: string | undefined,
   agentSkills: WorkspaceSkill[],
+  runtimeId: string,
   runtimeProvider: DaemonProvider | undefined,
   /**
    * Optional set of capability ids the runtime actually exposes (tool commands /
@@ -1152,6 +1157,11 @@ export function collectSkillReadinessBlockers(
     return [];
   }
   const blockers: string[] = [];
+  const assignments = listStoredAgentSkillAssignmentsSync(workspaceId)
+    .filter((assignment) => assignment.employeeName === agentName);
+  const digestBySkillId = new Map<string, string | undefined>(
+    assignments.map((assignment) => [assignment.skillId, assignment.skillArtifactDigest]),
+  );
   for (const skill of agentSkills) {
     if (skill.sourceType === "builtin") {
       continue;
@@ -1165,6 +1175,17 @@ export function collectSkillReadinessBlockers(
     });
     for (const blocker of summary.blockers) {
       blockers.push(`"${skill.name}": ${blocker}`);
+    }
+
+    const pinnedDigest = digestBySkillId.get(skill.id);
+    const artifactDigest = pinnedDigest ?? readStoredSkillActiveArtifactDigestSync(skill.id, workspaceId) ?? undefined;
+    if (!artifactDigest) {
+      blockers.push(`"${skill.name}": has no active artifact digest; install or reassign the skill before running tasks.`);
+      continue;
+    }
+    const gate = assertSkillInstallationReadyForTaskSync({ workspaceId, runtimeId, artifactDigest });
+    if (!gate.ok) {
+      blockers.push(`"${skill.name}": ${gate.reason}`);
     }
   }
   return blockers;

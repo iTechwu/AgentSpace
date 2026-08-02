@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import { strToU8, zipSync } from "fflate";
-import { listStoredAgentSkillAssignmentsSync, listStoredSkillImportEventsSync } from "@dofe-agent/db";
+import { listStoredAgentSkillAssignmentsSync, listStoredSkillImportEventsSync, readSkillArtifactByDigestSync } from "@dofe-agent/db";
 import {
   createEmployeeSync,
   createWorkspaceSkillSync,
@@ -16,6 +16,7 @@ import {
   setEmployeeSkillIdsSync,
 } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
+import { MAX_SKILL_ARCHIVE_BYTES } from "./package/archive-limits.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-skill-import-"));
@@ -55,6 +56,19 @@ test("importWorkspaceSkillFromUrl imports a GitHub skill directory with source m
   assert.equal(result.created, true);
   assert.equal(result.renamed, false);
   assert.equal(listStoredSkillImportEventsSync(undefined, 5)[0]?.skillId, result.skillId);
+});
+
+test("importWorkspaceSkillFromUrl locks GitHub imports to an immutable commit SHA", async () => {
+  const result = await importWorkspaceSkillFromUrl({
+    url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
+  });
+
+  assert.ok(result.artifactDigest);
+  const artifact = readSkillArtifactByDigestSync(result.artifactDigest, "default");
+  assert.ok(artifact);
+  const provenance = JSON.parse(artifact.provenanceJson) as { resolvedRef?: string; originalUrl?: string };
+  assert.equal(provenance.resolvedRef, "abc123def456789012345678901234567890abcd");
+  assert.equal(provenance.originalUrl, "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack");
 });
 
 test("importWorkspaceSkillFromUrl imports a skills.sh page by resolving its GitHub source", async () => {
@@ -120,6 +134,38 @@ test("importWorkspaceSkillFromUrl can replace existing skills without dropping a
     listStoredAgentSkillAssignmentsSync().some((assignment) => assignment.employeeName === "Planner" && assignment.skillId === original.id),
     true,
   );
+});
+
+test("importWorkspaceSkillFromUrl rejects a ClawHub archive exceeding the download limit", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://clawhub.ai/oversized/skill") {
+      return new Response(
+        '<html><body><a href="https://wry-manatee-359.convex.site/api/v1/download?slug=oversized">Download</a></body></html>',
+        { status: 200 },
+      );
+    }
+    if (url.includes("oversized")) {
+      return new Response(Buffer.alloc(MAX_SKILL_ARCHIVE_BYTES + 1), {
+        status: 200,
+        headers: { "content-type": "application/zip" },
+      });
+    }
+    return originalFetch(input);
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      async () =>
+        importWorkspaceSkillFromUrl({
+          url: "https://clawhub.ai/oversized/skill",
+        }),
+      /exceeds.*byte (download|upload) limit/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("importWorkspaceSkillFromUrl imports a ClawHub zip package", async () => {
@@ -278,19 +324,42 @@ function createGitHubFetchMock(): typeof fetch {
         default_branch: "main",
       });
     }
-    if (url === "https://api.github.com/repos/apollographql/skills/git/trees/main?recursive=1") {
+    if (url === "https://api.github.com/repos/octo-org/skill-repo/commits/main" ||
+        url === "https://api.github.com/repos/apollographql/skills/commits/main" ||
+        url === "https://api.github.com/repos/aj-geddes/claude-code-bmad-skills/commits/main") {
       return jsonResponse({
-        tree: [
-          {
-            path: "packages/skill-creator/SKILL.md",
-            type: "blob",
-          },
-          {
-            path: "packages/skill-creator/references/checklist.md",
-            type: "blob",
-          },
-        ],
+        sha: "abc123def456789012345678901234567890abcd",
       });
+    }
+    if (url.includes("/git/trees/") && url.includes("?recursive=1")) {
+      if (url.includes("/apollographql/skills/")) {
+        return jsonResponse({
+          tree: [
+            {
+              path: "packages/skill-creator/SKILL.md",
+              type: "blob",
+            },
+            {
+              path: "packages/skill-creator/references/checklist.md",
+              type: "blob",
+            },
+          ],
+        });
+      }
+      if (url.includes("/aj-geddes/claude-code-bmad-skills/")) {
+        return jsonResponse({
+          tree: [
+            {
+              path: "bmad-skills/product-manager/SKILL.md",
+              type: "blob",
+            },
+            {
+              path: "bmad-skills/product-manager/templates/prd.template.md",
+              type: "blob",
+            },
+          ],
+        });
+      }
     }
     if (url === "https://skills.sh/apollographql/skills/skill-creator") {
       return new Response(
@@ -309,21 +378,7 @@ function createGitHubFetchMock(): typeof fetch {
         default_branch: "main",
       });
     }
-    if (url === "https://api.github.com/repos/aj-geddes/claude-code-bmad-skills/git/trees/main?recursive=1") {
-      return jsonResponse({
-        tree: [
-          {
-            path: "bmad-skills/product-manager/SKILL.md",
-            type: "blob",
-          },
-          {
-            path: "bmad-skills/product-manager/templates/prd.template.md",
-            type: "blob",
-          },
-        ],
-      });
-    }
-    if (url.includes("/contents/bmad-skills/product-manager?ref=main")) {
+    if (url.includes("/contents/bmad-skills/product-manager?")) {
       return jsonResponse([
         {
           type: "file",
@@ -337,7 +392,7 @@ function createGitHubFetchMock(): typeof fetch {
         },
       ]);
     }
-    if (url.includes("/contents/bmad-skills/product-manager/templates?ref=main")) {
+    if (url.includes("/contents/bmad-skills/product-manager/templates?")) {
       return jsonResponse([
         {
           type: "file",
@@ -346,7 +401,7 @@ function createGitHubFetchMock(): typeof fetch {
         },
       ]);
     }
-    if (url.includes("/contents/bmad-skills/product-manager/SKILL.md?ref=main")) {
+    if (url.includes("/contents/bmad-skills/product-manager/SKILL.md?")) {
       return jsonResponse({
         type: "file",
         encoding: "base64",
@@ -359,14 +414,14 @@ description: Product requirements and planning specialist
 `).toString("base64"),
       });
     }
-    if (url.includes("/contents/bmad-skills/product-manager/templates/prd.template.md?ref=main")) {
+    if (url.includes("/contents/bmad-skills/product-manager/templates/prd.template.md?")) {
       return jsonResponse({
         type: "file",
         encoding: "base64",
         content: Buffer.from("# PRD template\n").toString("base64"),
       });
     }
-    if (url.includes("/contents/skills/research-pack?ref=main")) {
+    if (url.includes("/contents/skills/research-pack?")) {
       return jsonResponse([
         {
           type: "file",
@@ -380,7 +435,7 @@ description: Product requirements and planning specialist
         },
       ]);
     }
-    if (url.includes("/contents/skills/research-pack/templates?ref=main")) {
+    if (url.includes("/contents/skills/research-pack/templates?")) {
       return jsonResponse([
         {
           type: "file",
@@ -389,7 +444,7 @@ description: Product requirements and planning specialist
         },
       ]);
     }
-    if (url.includes("/contents/skills/research-pack/SKILL.md?ref=main")) {
+    if (url.includes("/contents/skills/research-pack/SKILL.md?")) {
       return jsonResponse({
         type: "file",
         encoding: "base64",
@@ -404,14 +459,14 @@ Use for structured research.
 `).toString("base64"),
       });
     }
-    if (url.includes("/contents/skills/research-pack/templates/checklist.md?ref=main")) {
+    if (url.includes("/contents/skills/research-pack/templates/checklist.md?")) {
       return jsonResponse({
         type: "file",
         encoding: "base64",
         content: Buffer.from("- confirm sources\n").toString("base64"),
       });
     }
-    if (url.includes("/contents/packages/skill-creator?ref=main")) {
+    if (url.includes("/contents/packages/skill-creator?")) {
       return jsonResponse([
         {
           type: "file",
@@ -425,7 +480,7 @@ Use for structured research.
         },
       ]);
     }
-    if (url.includes("/contents/packages/skill-creator/references?ref=main")) {
+    if (url.includes("/contents/packages/skill-creator/references?")) {
       return jsonResponse([
         {
           type: "file",
@@ -434,7 +489,7 @@ Use for structured research.
         },
       ]);
     }
-    if (url.includes("/contents/packages/skill-creator/SKILL.md?ref=main")) {
+    if (url.includes("/contents/packages/skill-creator/SKILL.md?")) {
       return jsonResponse({
         type: "file",
         encoding: "base64",
@@ -447,7 +502,7 @@ description: Create high-quality skills
 `).toString("base64"),
       });
     }
-    if (url.includes("/contents/packages/skill-creator/references/checklist.md?ref=main")) {
+    if (url.includes("/contents/packages/skill-creator/references/checklist.md?")) {
       return jsonResponse({
         type: "file",
         encoding: "base64",

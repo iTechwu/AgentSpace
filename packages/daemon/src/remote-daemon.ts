@@ -9,7 +9,7 @@ import {
   type DaemonTaskUsage,
 } from "@dofe-agent/domain";
 import { getStringFlag, parseArgs } from "./args.ts";
-import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, McpToolAuditReport, RegisterDaemonResponse } from "./daemon-api.ts";
+import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, ClaimedSkillInstallationOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, McpToolAuditReport, RegisterDaemonResponse } from "./daemon-api.ts";
 import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputBundle } from "./bundle.ts";
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
@@ -713,6 +713,20 @@ async function pollRemoteTasks(
         continue;
       }
 
+      const skillOperation = await client.claimSkillInstallationOperation(runtime.id);
+      if (skillOperation.operation) {
+        activeRuntimes.add(runtime.id);
+        void executeRemoteSkillInstallationOperation(client, skillOperation.operation)
+          .catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(`Skill installation operation ${skillOperation.operation?.operationId ?? "unknown"} crashed: ${message}`);
+          })
+          .finally(() => {
+            activeRuntimes.delete(runtime.id);
+          });
+        continue;
+      }
+
       const claimed = await client.claimTask(runtime.id);
       if (!claimed.task) {
         continue;
@@ -787,6 +801,23 @@ async function executeRemoteRuntimeAppOperation(
   }
 }
 
+async function executeRemoteSkillInstallationOperation(
+  client: HttpDaemonClient,
+  operation: ClaimedSkillInstallationOperation,
+): Promise<void> {
+  await client.startSkillInstallationOperation(operation.operationId);
+  // The real materializer/runner is not implemented yet. Instead of silently
+  // leaving operations in `preparing` or faking success, fail fast with an
+  // explicit, auditable code so users and operators know the execution face is
+  // still under construction.
+  await client.failSkillInstallationOperation(operation.operationId, {
+    errorCode: "skill_installation.remote_execution_not_implemented",
+    errorMessage:
+      "Remote skill installation execution is not implemented on this daemon. " +
+      "The control plane created the plan, but artifact materialization, dependency verification, and script validation are not yet wired.",
+  });
+}
+
 async function resolveManagedCredentialProfile(
   runtime: RemoteRuntimeRecord,
   credentialResolver?: ManagedCredentialResolver,
@@ -827,10 +858,11 @@ async function executeRemoteTask(
       try {
         const claimed = await client.claimMcpTaskSession(task.id);
         if (claimed.connections.length > 0) {
-          const gateway = await getMcpGatewayForTask();
+          const gateway = await getMcpGatewayForTask(client);
           mcpSession = gateway.createTaskSession({
             taskId: task.id,
             runtimeId: runtime.id,
+            workspaceId: task.workspaceId,
             connections: claimed.connections,
           });
         }
@@ -991,12 +1023,27 @@ async function executeRemoteTask(
 const mcpGatewayAuditSinks = new Map<string, McpToolAuditReport[]>();
 let sharedMcpGateway: McpGateway | null = null;
 
-async function getMcpGatewayForTask(): Promise<McpGateway> {
+async function getMcpGatewayForTask(client: HttpDaemonClient): Promise<McpGateway> {
   if (!sharedMcpGateway) {
-    const gateway = new McpGateway((audit) => {
-      const sink = mcpGatewayAuditSinks.get(audit.taskId);
-      if (sink) sink.push(audit);
-    });
+    const gateway = new McpGateway(
+      (audit) => {
+        const sink = mcpGatewayAuditSinks.get(audit.taskId);
+        if (sink) sink.push(audit);
+      },
+      undefined,
+      async (input) => {
+        try {
+          const response = await client.validateMcpConnectionForTask(input.taskId, input.connectionId, {
+            toolName: input.toolName,
+          });
+          return response.ok ? { ok: true, approvedTools: response.approvedTools ?? [] } : { ok: false };
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          console.error(`MCP connection validation failed for task ${input.taskId}: ${detail}`);
+          return { ok: false };
+        }
+      },
+    );
     await gateway.start();
     sharedMcpGateway = gateway;
   }

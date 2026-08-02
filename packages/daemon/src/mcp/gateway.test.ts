@@ -12,9 +12,11 @@ function buildTaskSession(): McpGatewayTaskSession {
   return {
     taskId: TASK_ID,
     runtimeId: "runtime-1",
+    workspaceId: "workspace-1",
     connections: [
       {
         connectionId: CONNECTION_ID,
+        workspaceId: "workspace-1",
         catalogItemSlug: "github",
         displayName: "GitHub MCP",
         transport: "streamable_http",
@@ -107,6 +109,60 @@ test("gateway routes an approved tool call through the client and emits an audit
   }
 });
 
+test("gateway rejects an approved tool call when the per-call validator reports the connection is stale", async () => {
+  const mock = buildMockClient();
+  const validator = async () => ({ ok: false as const });
+  const g = new McpGateway(() => undefined, mock.client, validator);
+  await g.start();
+  const session = g.createTaskSession(buildTaskSession());
+  const client = new Client({ name: "test-client", version: "1" }, { capabilities: {} });
+  const transport = new StreamableHTTPClientTransport(new URL(session.url));
+  await client.connect(transport);
+  try {
+    const listed = await client.listTools();
+    const name = listed.tools[0]!.name;
+    const result = await client.callTool({ name, arguments: { q: "acme" } });
+    assert.equal(result.isError, true);
+    assert.equal(mock.calls.length, 0);
+  } finally {
+    await client.close();
+    session.revoke();
+    await g.close();
+  }
+});
+
+test("gateway calls the per-call validator with task, workspace, connection, and tool before executing", async () => {
+  const mock = buildMockClient();
+  const validations: Array<{ taskId: string; workspaceId: string; connectionId: string; toolName: string }> = [];
+  const validator = async (input: { taskId: string; workspaceId: string; connectionId: string; toolName: string }) => {
+    validations.push(input);
+    return { ok: true as const, approvedTools: ["search_repos"] };
+  };
+  const g = new McpGateway(() => undefined, mock.client, validator);
+  await g.start();
+  const session = g.createTaskSession(buildTaskSession());
+  const client = new Client({ name: "test-client", version: "1" }, { capabilities: {} });
+  const transport = new StreamableHTTPClientTransport(new URL(session.url));
+  await client.connect(transport);
+  try {
+    const listed = await client.listTools();
+    const name = listed.tools[0]!.name;
+    await client.callTool({ name, arguments: { q: "acme" } });
+    assert.equal(validations.length, 1);
+    assert.deepEqual(validations[0], {
+      taskId: TASK_ID,
+      workspaceId: "workspace-1",
+      connectionId: CONNECTION_ID,
+      toolName: "search_repos",
+    });
+    assert.equal(mock.calls.length, 1);
+  } finally {
+    await client.close();
+    session.revoke();
+    await g.close();
+  }
+});
+
 test("gateway rejects tools that are not in the task allow-list", async () => {
   const mock = buildMockClient();
   const g = new McpGateway(() => undefined, mock.client);
@@ -136,4 +192,25 @@ test("revoked sessions reject subsequent requests", async () => {
   const transport = new StreamableHTTPClientTransport(new URL(url));
   await assert.rejects(() => client.connect(transport));
   await g.close();
+});
+
+test("revoke closes established MCP transports and removes them from gateway memory", async () => {
+  const g = new McpGateway(() => undefined, buildMockClient().client);
+  await g.start();
+  const session = g.createTaskSession(buildTaskSession());
+  const client = new Client({ name: "test-client", version: "1" }, { capabilities: {} });
+  const transport = new StreamableHTTPClientTransport(new URL(session.url));
+  await client.connect(transport);
+  try {
+    // Internal state is private; cast to verify cleanup.
+    const gateway = g as unknown as { mcpSessions: Map<string, unknown>; taskSessionToMcpSessions: Map<string, Set<string>>; taskSessions: Map<string, unknown> };
+    assert.ok(gateway.mcpSessions.size > 0, "MCP session should be established after connect");
+    session.revoke();
+    assert.equal(gateway.mcpSessions.size, 0, "revoke should close and remove MCP sessions");
+    assert.equal(gateway.taskSessionToMcpSessions.size, 0, "revoke should remove task-to-session mapping");
+    assert.equal(gateway.taskSessions.size, 0, "revoke should remove task session");
+  } finally {
+    await client.close();
+    await g.close();
+  }
 });

@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "54";
+export const POSTGRES_SCHEMA_VERSION = "56";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -1119,9 +1119,13 @@ export function getPostgresSchemaStatements(): string[] {
         claimed_at TIMESTAMPTZ,
         started_at TIMESTAMPTZ,
         finished_at TIMESTAMPTZ,
+        mcp_session_claimed_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL
       )
+    `,
+    `
+      ALTER TABLE agent_task_queue ADD COLUMN IF NOT EXISTS mcp_session_claimed_at TIMESTAMPTZ
     `,
     `
       CREATE TABLE IF NOT EXISTS external_thread_binding (

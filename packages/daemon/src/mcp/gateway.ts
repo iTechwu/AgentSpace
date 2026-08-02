@@ -19,6 +19,7 @@ export interface McpToolAuditRecord {
 export interface McpGatewayTaskSession {
   taskId: string;
   runtimeId: string;
+  workspaceId: string;
   connections: McpTaskSessionConnection[];
 }
 
@@ -33,6 +34,18 @@ interface McpSessionEntry {
   server: Server;
   transport: StreamableHTTPServerTransport;
 }
+
+export interface McpGatewayValidateConnectionResult {
+  ok: true;
+  approvedTools: string[];
+}
+
+export type McpGatewayValidateConnection = (input: {
+  taskId: string;
+  workspaceId: string;
+  connectionId: string;
+  toolName: string;
+}) => Promise<McpGatewayValidateConnectionResult | { ok: false }>;
 
 /**
  * Daemon-resident loopback MCP gateway.
@@ -50,15 +63,19 @@ export class McpGateway {
   private port = 0;
   private readonly taskSessions = new Map<string, McpGatewayTaskSession>();
   private readonly mcpSessions = new Map<string, McpSessionEntry>();
+  private readonly taskSessionToMcpSessions = new Map<string, Set<string>>();
   private readonly onAudit: (audit: McpToolAuditRecord) => void;
   private readonly mcpClient: ReturnType<typeof createRuntimeMcpClient>;
+  private readonly validateConnection?: McpGatewayValidateConnection;
 
   constructor(
     onAudit: (audit: McpToolAuditRecord) => void,
     mcpClient?: ReturnType<typeof createRuntimeMcpClient>,
+    validateConnection?: McpGatewayValidateConnection,
   ) {
     this.onAudit = onAudit;
     this.mcpClient = mcpClient ?? createRuntimeMcpClient();
+    this.validateConnection = validateConnection;
   }
 
   async start(): Promise<void> {
@@ -85,9 +102,22 @@ export class McpGateway {
   createTaskSession(input: McpGatewayTaskSession): { url: string; revoke: () => void } {
     const token = randomBytes(16).toString("hex");
     this.taskSessions.set(token, input);
+    this.taskSessionToMcpSessions.set(token, new Set());
     return {
       url: `${this.baseUrl}/mcp?session=${token}`,
       revoke: () => {
+        const mcpSessionIds = this.taskSessionToMcpSessions.get(token);
+        if (mcpSessionIds) {
+          for (const id of mcpSessionIds) {
+            const entry = this.mcpSessions.get(id);
+            if (entry) {
+              entry.server.close().catch(() => undefined);
+              entry.transport.close().catch(() => undefined);
+              this.mcpSessions.delete(id);
+            }
+          }
+          this.taskSessionToMcpSessions.delete(token);
+        }
         this.taskSessions.delete(token);
       },
     };
@@ -99,6 +129,7 @@ export class McpGateway {
       await entry.transport.close().catch(() => undefined);
     }
     this.mcpSessions.clear();
+    this.taskSessionToMcpSessions.clear();
     this.taskSessions.clear();
     const server = this.httpServer;
     this.httpServer = null;
@@ -109,7 +140,7 @@ export class McpGateway {
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    const token = url.searchParams.get("session");
+    const token = url.searchParams.get("session") ?? "";
     const taskSession = token ? this.taskSessions.get(token) : undefined;
     if (!taskSession) {
       res.writeHead(404, { "content-type": "application/json" });
@@ -125,6 +156,7 @@ export class McpGateway {
         sessionIdGenerator: () => randomBytes(16).toString("hex"),
         onsessioninitialized: (id) => {
           this.mcpSessions.set(id, { server, transport });
+          this.taskSessionToMcpSessions.get(token)?.add(id);
         },
       });
       const server = this.buildMcpServer(taskSession);
@@ -176,10 +208,26 @@ export class McpGateway {
       if (!connection) {
         return { content: [{ type: "text", text: "Connection is not in this task session." }], isError: true };
       }
+
+      // Per-call re-validation: an administrator may have disabled or reconfigured
+      // the connection while the task is still running. Stop the call if the
+      // current DB state no longer allows this tool.
+      if (this.validateConnection) {
+        const validation = await this.validateConnection({
+          taskId: taskSession.taskId,
+          workspaceId: taskSession.workspaceId,
+          connectionId: registered.connectionId,
+          toolName: registered.toolName,
+        });
+        if (!validation.ok || !validation.approvedTools.includes(registered.toolName)) {
+          return { content: [{ type: "text", text: "Connection is no longer available for this tool." }], isError: true };
+        }
+      }
+
       const resolved: ResolvedMcpConnection = {
         connectionId: connection.connectionId,
         runtimeId: taskSession.runtimeId,
-        workspaceId: "",
+        workspaceId: taskSession.workspaceId,
         transport: connection.transport,
         endpoint: connection.endpoint,
         allowedHosts: connection.allowedHosts,

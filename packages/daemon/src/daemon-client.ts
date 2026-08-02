@@ -3,12 +3,14 @@ import type {
   ClaimMcpConnectionOperationResponse,
   ClaimMcpTaskSessionResponse,
   ClaimRuntimeAppOperationResponse,
+  ClaimSkillInstallationOperationResponse,
   ClaimTaskResponse,
   CompleteManagedProvisioningStageRequest,
   CompleteManagedProvisioningStageResponse,
   CompleteManagedRuntimeCleanupRequest,
   CompleteMcpConnectionOperationRequest,
   CompleteRuntimeAppOperationRequest,
+  CompleteSkillInstallationOperationRequest,
   CompleteTaskRequest,
   CreateRuntimeApprovalRequest,
   CreateRuntimeApprovalResponse,
@@ -18,6 +20,7 @@ import type {
   FailManagedProvisioningStageResponse,
   FailMcpConnectionOperationRequest,
   FailRuntimeAppOperationRequest,
+  FailSkillInstallationOperationRequest,
   FailTaskRequest,
   GetRuntimeApprovalResponse,
   HeartbeatDaemonResponse,
@@ -29,6 +32,9 @@ import type {
   ReportTaskMessagesRequest,
   StartMcpConnectionOperationRequest,
   StartRuntimeAppOperationRequest,
+  StartSkillInstallationOperationRequest,
+  ValidateMcpConnectionForTaskRequest,
+  ValidateMcpConnectionForTaskResponse,
 } from "./daemon-api.ts";
 
 export type {
@@ -36,12 +42,14 @@ export type {
   ClaimMcpConnectionOperationResponse,
   ClaimMcpTaskSessionResponse,
   ClaimRuntimeAppOperationResponse,
+  ClaimSkillInstallationOperationResponse,
   ClaimTaskResponse,
   CompleteManagedProvisioningStageRequest,
   CompleteManagedProvisioningStageResponse,
   CompleteManagedRuntimeCleanupRequest,
   CompleteMcpConnectionOperationRequest,
   CompleteRuntimeAppOperationRequest,
+  CompleteSkillInstallationOperationRequest,
   CompleteTaskRequest,
   CreateRuntimeApprovalRequest,
   CreateRuntimeApprovalResponse,
@@ -51,6 +59,7 @@ export type {
   FailManagedProvisioningStageResponse,
   FailMcpConnectionOperationRequest,
   FailRuntimeAppOperationRequest,
+  FailSkillInstallationOperationRequest,
   FailTaskRequest,
   GetRuntimeApprovalResponse,
   HeartbeatDaemonResponse,
@@ -58,10 +67,11 @@ export type {
   ManagedCredentialBundleDocument,
   McpToolAuditReport,
   RegisterDaemonRequest,
-  StartMcpConnectionOperationRequest,
   RegisterDaemonResponse,
   ReportTaskMessagesRequest,
+  StartMcpConnectionOperationRequest,
   StartRuntimeAppOperationRequest,
+  StartSkillInstallationOperationRequest,
 } from "./daemon-api.ts";
 
 /**
@@ -179,8 +189,36 @@ export class HttpDaemonClient {
     await this.postJson(`/api/daemon/mcp-operations/${encodeURIComponent(operationId)}/fail`, body);
   }
 
+  async claimSkillInstallationOperation(runtimeId: string): Promise<ClaimSkillInstallationOperationResponse> {
+    return this.postJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/skill-operations/claim`, {}, { retryable: true });
+  }
+
+  async startSkillInstallationOperation(operationId: string, body: StartSkillInstallationOperationRequest = {}): Promise<void> {
+    await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/start`, body);
+  }
+
+  async completeSkillInstallationOperation(operationId: string, body: CompleteSkillInstallationOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/complete`, body);
+  }
+
+  async failSkillInstallationOperation(operationId: string, body: FailSkillInstallationOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/fail`, body);
+  }
+
   async claimMcpTaskSession(taskId: string): Promise<ClaimMcpTaskSessionResponse> {
     return this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/mcp-session`, {}, { retryable: true });
+  }
+
+  async validateMcpConnectionForTask(
+    taskId: string,
+    connectionId: string,
+    body: ValidateMcpConnectionForTaskRequest,
+  ): Promise<ValidateMcpConnectionForTaskResponse> {
+    return this.postJson(
+      `/api/daemon/tasks/${encodeURIComponent(taskId)}/mcp-connections/${encodeURIComponent(connectionId)}/validate`,
+      body,
+      { retryable: true },
+    );
   }
 
   async reportMcpToolAudits(taskId: string, audits: McpToolAuditReport[]): Promise<void> {

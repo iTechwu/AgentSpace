@@ -413,4 +413,92 @@ describe("MarketPageClient", () => {
     })));
     expect(actionMocks.rotateMcpSecret).not.toHaveBeenCalled();
   });
+
+  it("submits an edit without re-entering untouched required config", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{
+            ...data,
+            mcpConnections: [{
+              id: "connection-1",
+              runtimeId: "runtime-online",
+              catalogItemId: "mcp-catalog-1",
+              catalogSlug: "workspace-search",
+              catalogDisplayName: "Workspace Search",
+              status: "ready",
+              transport: "streamable_http",
+              approvedTools: ["search"],
+              declaredToolCount: 1,
+              lastVerifiedAt: "2026-08-02T08:30:00.000Z",
+            }],
+          }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: /MCP/ }));
+    await user.click(screen.getByRole("button", { name: "管理配置" }));
+    // Do not re-type the required X-Workspace field.
+    await user.click(screen.getByRole("button", { name: "更新配置" }));
+
+    await waitFor(() => expect(actionMocks.replaceMcpConnectionConfig).toHaveBeenCalledWith(expect.objectContaining({
+      connectionId: "connection-1",
+      endpoint: undefined,
+      nonSecretParams: undefined,
+      approvedTools: ["search"],
+      secrets: undefined,
+    })));
+  });
+
+  it("preserves dirty-state protection when entering edit from a different catalog", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{
+            ...data,
+            mcpCatalog: [
+              data.mcpCatalog[0]!,
+              {
+                ...data.mcpCatalog[0]!,
+                id: "mcp-catalog-2",
+                slug: "other-search",
+                displayName: "Other Search",
+                endpointTemplate: "https://other.example.com/mcp",
+              },
+            ],
+            mcpConnections: [{
+              id: "connection-1",
+              runtimeId: "runtime-online",
+              catalogItemId: "mcp-catalog-1",
+              catalogSlug: "workspace-search",
+              catalogDisplayName: "Workspace Search",
+              status: "ready",
+              transport: "streamable_http",
+              approvedTools: ["search"],
+              declaredToolCount: 1,
+              lastVerifiedAt: "2026-08-02T08:30:00.000Z",
+            }],
+          }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: /MCP/ }));
+    // First select the other catalog so the per-selection effect runs once.
+    await user.click(screen.getByRole("button", { name: /Other Search/ }));
+    // Then enter edit mode for a connection of the first catalog.
+    await user.click(screen.getByRole("button", { name: "管理配置" }));
+    await user.click(screen.getByRole("button", { name: "更新配置" }));
+
+    await waitFor(() => expect(actionMocks.replaceMcpConnectionConfig).toHaveBeenCalledWith(expect.objectContaining({
+      connectionId: "connection-1",
+      endpoint: undefined,
+      nonSecretParams: undefined,
+      approvedTools: ["search"],
+      secrets: undefined,
+    })));
+  });
 });

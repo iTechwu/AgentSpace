@@ -1,5 +1,6 @@
 import {
   cancelUnfinishedMcpOperationsForConnectionSync,
+  claimMcpTaskSessionMarkerSync,
   createMcpConnectionSync,
   createMcpOperationSync,
   getDatabase,
@@ -762,6 +763,25 @@ function resolveReadyMcpConnectionForTask(input: {
   const discoveredByName = new Map(discovered.map((t) => [t.name, t]));
   const approved = parseJsonArray(fresh.approvedToolsJson);
 
+  // Authorization: every approved tool must still be declared by the catalog.
+  // A catalog downgrade that removes a previously-declared tool must not grant
+  // that tool to running tasks.
+  const declaredTools = parseDeclaredTools(catalog.declaredToolsJson);
+  const declaredNames = new Set(declaredTools.map((t) => t.name));
+  const approvedDeclared = approved.every((name) => declaredNames.has(name));
+  if (!approvedDeclared) {
+    if (markDegradedOnMissingTool) {
+      updateMcpConnectionStatusSync({
+        connectionId: connection.id,
+        workspaceId,
+        status: "degraded",
+        lastErrorCode: "mcp.approved_tool_missing",
+        lastErrorMessage: "An approved tool is no longer declared by the catalog; the connection was removed from this task.",
+      });
+    }
+    return null;
+  }
+
   // Freshness: an approved tool that vanished from discovery excludes the connection.
   const approvedPresent = approved.every((name) => discoveredByName.has(name));
   if (!approvedPresent) {
@@ -844,6 +864,13 @@ export function claimMcpTaskSessionSync(input: {
   runtimeId: string;
   taskId: string;
 }): ClaimMcpTaskSessionResponse {
+  // One-time claim: only the first successful claim for a task may return
+  // resolved connection bundles. Subsequent claims are idempotent and empty.
+  const newlyClaimed = claimMcpTaskSessionMarkerSync(input.taskId);
+  if (!newlyClaimed) {
+    return { connections: [] };
+  }
+
   const connections = listMcpConnectionsSync({ workspaceId: input.workspaceId, runtimeId: input.runtimeId, status: "ready", limit: 500 });
   const result: McpTaskSessionConnection[] = [];
   for (const connection of connections) {
@@ -857,6 +884,7 @@ export function claimMcpTaskSessionSync(input: {
     if (secrets === null) continue;
     result.push({
       connectionId: resolved.connectionId,
+      workspaceId: input.workspaceId,
       catalogItemSlug: resolved.catalog.slug,
       displayName: resolved.catalog.displayName,
       transport: resolved.catalog.transport,
@@ -869,6 +897,41 @@ export function claimMcpTaskSessionSync(input: {
     });
   }
   return { connections: result };
+}
+
+/**
+ * Re-validates a single MCP connection right before a tool call in the gateway.
+ *
+ * Returns the current approved tool list if the connection is still `ready` and
+ * the requested tool is still both approved and discoverable. Returns `null`
+ * (without mutating state) if the connection was disabled, reconfigured, or the
+ * tool is no longer available. This is the per-call fencing that stops an
+ * already-running task session from calling a connection an administrator just
+ * disabled or changed.
+ */
+export function validateMcpConnectionForGatewaySync(input: {
+  workspaceId: string;
+  connectionId: string;
+  toolName: string;
+}): { ok: true; approvedTools: string[] } | { ok: false } {
+  const connection = readMcpConnectionSync(input.connectionId, input.workspaceId);
+  if (!connection || connection.status !== "ready") {
+    return { ok: false };
+  }
+  const approved = parseJsonArray(connection.approvedToolsJson);
+  if (!approved.includes(input.toolName)) {
+    return { ok: false };
+  }
+  const snapshot = readLatestMcpDiscoverySnapshotSync(connection.id, input.workspaceId);
+  if (!snapshot) {
+    return { ok: false };
+  }
+  const discovered = parseDiscoveredTools(snapshot.toolsMetadataJson);
+  const discoveredNames = new Set(discovered.map((t) => t.name));
+  if (!discoveredNames.has(input.toolName)) {
+    return { ok: false };
+  }
+  return { ok: true, approvedTools: approved };
 }
 
 /* ------------------------------------------------------------------ */

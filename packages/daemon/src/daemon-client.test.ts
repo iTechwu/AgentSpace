@@ -151,6 +151,50 @@ test("HttpDaemonClient raises DaemonResourceGoneError on 404", async () => {
   }
 });
 
+test("HttpDaemonClient claims and fails a skill installation operation", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    calls.push(url);
+    if (url.endsWith("/skill-operations/claim")) {
+      return new Response(
+        JSON.stringify({
+          operation: {
+            operationId: "op-1",
+            workspaceId: "ws-1",
+            runtimeId: "runtime-1",
+            installationId: "inst-1",
+            operation: "prepare",
+            artifactDigest: "sha256:abc",
+            artifactName: "find-skills",
+            files: [],
+            components: [],
+            createdAt: new Date().toISOString(),
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    const client = new HttpDaemonClient("http://localhost:1455", "adt_test", { retryDelayMs: 0, maxRetryAttempts: 1 });
+    const claimed = await client.claimSkillInstallationOperation("runtime-1");
+    assert.ok(claimed.operation);
+    assert.equal(claimed.operation.operationId, "op-1");
+    await client.startSkillInstallationOperation("op-1");
+    await client.failSkillInstallationOperation("op-1", { errorCode: "test", errorMessage: "not ready" });
+    assert.ok(calls.some((url) => url.includes("/skill-operations/claim")));
+    assert.ok(calls.some((url) => url.includes("/skill-operations/op-1/start")));
+    assert.ok(calls.some((url) => url.includes("/skill-operations/op-1/fail")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("built library surface exports HttpDaemonClient", async (t) => {
   const builtIndexPath = resolve(sourceDir, "../dist/index.js");
   const builtClientPath = resolve(sourceDir, "../dist/daemon-client.js");

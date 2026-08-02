@@ -13,6 +13,7 @@ import {
 import { getDatabase } from "@dofe-agent/db";
 import { createMcpCatalogItemSync } from "./catalog.ts";
 import {
+  claimMcpTaskSessionSync,
   disableMcpConnectionSync,
   listReadyMcpConnectionsForTaskSync,
   readMcpConnectionDetailSync,
@@ -22,6 +23,7 @@ import {
   resolveClaimedMcpOperationSync,
   rotateMcpSecretSync,
   updateMcpConnectionConfigServiceSync,
+  validateMcpConnectionForGatewaySync,
 } from "./connections.ts";
 import { listMcpOperationsSync } from "@dofe-agent/db";
 
@@ -531,6 +533,84 @@ test("replaceMcpConnectionConfig merges partial non-secret config with stored va
   const detail = readMcpConnectionDetailSync({ workspaceId: "default", connectionId: connection.id });
   const stored = JSON.parse(detail?.connection.nonSecretParamsJson ?? "{}");
   assert.deepEqual(stored, { headerA: "a-changed", headerB: "b" });
+});
+
+test("validateMcpConnectionForGateway rejects a disabled or reconfigured connection for a running task", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection, operation } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    approvedTools: ["search_repos"],
+    confirmHighRisk: true,
+  });
+  claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  startMcpOperationSync(operation.id, "default");
+  completeMcpOperationSync({
+    operationId: operation.id,
+    workspaceId: "default",
+    verification: {
+      status: "ready",
+      protocolVersion: "2025-06-18",
+      toolsMetadataJson: JSON.stringify([
+        { name: "search_repos", description: "Search repositories", inputSchema: { type: "object" }, inputSchemaDigest: "d1" },
+      ]),
+      toolsFingerprint: "fp",
+      latencyMs: 50,
+    },
+  });
+
+  assert.equal(
+    validateMcpConnectionForGatewaySync({ workspaceId: "default", connectionId: connection.id, toolName: "search_repos" }).ok,
+    true,
+  );
+
+  disableMcpConnectionSync({ workspaceId: "default", connectionId: connection.id, actorUserId: ADMIN_USER_ID });
+  assert.equal(
+    validateMcpConnectionForGatewaySync({ workspaceId: "default", connectionId: connection.id, toolName: "search_repos" }).ok,
+    false,
+  );
+});
+
+test("claimMcpTaskSession is one-time: second claim returns empty connections", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection, operation } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    approvedTools: ["search_repos"],
+    confirmHighRisk: true,
+  });
+  claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  startMcpOperationSync(operation.id, "default");
+  completeMcpOperationSync({
+    operationId: operation.id,
+    workspaceId: "default",
+    verification: {
+      status: "ready",
+      protocolVersion: "2025-06-18",
+      toolsMetadataJson: JSON.stringify([
+        { name: "search_repos", description: "Search repositories", inputSchema: { type: "object" }, inputSchemaDigest: "d1" },
+      ]),
+      toolsFingerprint: "fp",
+      latencyMs: 50,
+    },
+  });
+
+  const first = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-1" });
+  assert.equal(first.connections.length, 1);
+  assert.equal(first.connections[0]?.connectionId, connection.id);
+
+  const second = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-1" });
+  assert.equal(second.connections.length, 0);
 });
 
 function createRuntime(): string {

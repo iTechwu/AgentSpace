@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import test, { after, before, beforeEach } from "node:test";
-import { getDatabase } from "@dofe-agent/db";
+import { getDatabase, setSkillInstallationStatusSync, registerDaemonRuntimesSync } from "@dofe-agent/db";
 import {
+  buildAndPersistSkillArtifactSync,
   createEmployeeSync,
+  createSkillInstallationPlanSync,
   createWorkspaceSkillSync,
   resetWorkspaceStateSync,
   updateWorkspaceSkillSync,
@@ -24,6 +26,7 @@ const TEST_USER_ID = "user-1";
 const WORKSPACE_ID = "daemon-skill-env-test";
 
 before(() => {
+  process.env.NODE_ENV = "test";
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
   process.chdir(tempRoot);
@@ -49,6 +52,41 @@ after(() => {
     process.env.DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY = originalEncryptionKey;
   }
 });
+
+function prepareSkillInstallationForTaskGate(
+  skill: { id: string; name: string; files: Array<{ path: string; content: string }> },
+  workspaceId = WORKSPACE_ID,
+): string {
+  const snapshot = registerDaemonRuntimesSync({
+    workspaceId,
+    daemonKey: `daemon-${workspaceId}`,
+    deviceName: "Test Daemon",
+    runtimes: [{ provider: "claude", name: "Test Runtime", version: "test" }],
+  });
+  const runtimeId = snapshot.runtimes[0]!.id;
+  const artifact = buildAndPersistSkillArtifactSync({
+    workspaceId,
+    skillId: skill.id,
+    name: skill.name,
+    files: skill.files.map((file) => ({
+      path: file.path,
+      bytes: Buffer.from(file.content),
+    })),
+  });
+  const installation = createSkillInstallationPlanSync({
+    workspaceId,
+    runtimeId,
+    artifactDigest: artifact.digest,
+  });
+  setSkillInstallationStatusSync({
+    installationId: installation.id,
+    workspaceId,
+    status: "ready",
+    health: "healthy",
+    verifiedAt: new Date().toISOString(),
+  });
+  return runtimeId;
+}
 
 function createSkillWithConfig(name: string, key: string) {
   return createWorkspaceSkillSync({
@@ -144,8 +182,9 @@ test("collectSkillReadinessBlockers reports missing required configuration and c
       ],
     }),
   }, WORKSPACE_ID);
+  const runtimeId = prepareSkillInstallationForTaskGate(skill);
 
-  let blockers = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined);
+  let blockers = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], runtimeId, undefined);
   assert.ok(blockers.length >= 2, "expected missing-config and missing-secret blockers");
   assert.ok(blockers.some((b) => b.includes("NOTION_DATABASE_ID")));
   assert.ok(blockers.some((b) => b.includes("NOTION_API_TOKEN")));
@@ -159,7 +198,7 @@ test("collectSkillReadinessBlockers reports missing required configuration and c
     secrets: { NOTION_API_TOKEN: "tok" },
   });
 
-  blockers = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined);
+  blockers = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], runtimeId, undefined);
   assert.deepEqual(blockers, []);
 });
 
@@ -174,14 +213,15 @@ test("collectSkillReadinessBlockers flags a missing runtime capability when a ca
     workspaceId: WORKSPACE_ID, employeeName: "Researcher", skillId: skill.id, actorUserId: TEST_USER_ID,
     capabilities: ["ffmpeg"],
   });
+  const runtimeId = prepareSkillInstallationForTaskGate(skill);
 
   // No catalog supplied → legacy behavior (capabilities are form-confirmed only).
-  assert.deepEqual(collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined), []);
+  assert.deepEqual(collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], runtimeId, undefined), []);
   // Catalog supplied but missing the capability → blocker.
-  const blocked = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined, ["git", "gh"]);
+  const blocked = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], runtimeId, undefined, ["git", "gh"]);
   assert.ok(blocked.some((b) => b.includes("ffmpeg") && b.includes("does not support capability")));
   // Catalog includes it → no blocker.
-  assert.deepEqual(collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined, ["ffmpeg"]), []);
+  assert.deepEqual(collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], runtimeId, undefined, ["ffmpeg"]), []);
 });
 
 test("collectSkillReadinessBlockers surfaces a missing requirement after a skill requirement upgrade", () => {
@@ -195,7 +235,8 @@ test("collectSkillReadinessBlockers surfaces a missing requirement after a skill
     workspaceId: WORKSPACE_ID, employeeName: "Researcher", skillId: skill.id, actorUserId: TEST_USER_ID,
     values: { FIRST_KEY: "v1" },
   });
-  assert.deepEqual(collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined), []);
+  const runtimeId = prepareSkillInstallationForTaskGate(skill);
+  assert.deepEqual(collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], runtimeId, undefined), []);
 
   // Simulate a skill update that adds a new required key.
   updateWorkspaceSkillSync({ skillId: skill.id, configJson: JSON.stringify({ requirements: [
@@ -203,6 +244,6 @@ test("collectSkillReadinessBlockers surfaces a missing requirement after a skill
     { kind: "config", value: "SECOND_KEY" },
   ] }) }, WORKSPACE_ID);
 
-  const blockers = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], undefined);
+  const blockers = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], runtimeId, undefined);
   assert.ok(blockers.some((b) => b.includes("SECOND_KEY")), "expected the newly-required key to block the task");
 });

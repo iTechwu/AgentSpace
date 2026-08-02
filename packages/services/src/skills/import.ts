@@ -77,6 +77,10 @@ interface ImportedSkillDefinition {
   sourceUrl: string;
   configJson: string;
   warnings: string[];
+  /** Immutable commit SHA / registry digest; execution and audit must use this. */
+  resolvedRef?: string;
+  /** Original user-submitted URL (mutable branch/tag allowed here). */
+  originalUrl?: string;
 }
 
 interface GitHubDirectoryPointer {
@@ -362,7 +366,12 @@ function persistSkillArtifact(
       ...(manifest?.capabilities ? { capabilities: manifest.capabilities } : {}),
       ...(manifest?.services ? { services: manifest.services } : {}),
       ...(manifest?.entrypoints ? { entrypoints: manifest.entrypoints } : {}),
-      provenance: { importedVia: imported.sourceType, sourceUrl: imported.sourceUrl },
+      provenance: {
+        importedVia: imported.sourceType,
+        sourceUrl: imported.sourceUrl,
+        ...(imported.resolvedRef ? { resolvedRef: imported.resolvedRef } : {}),
+        ...(imported.originalUrl ? { originalUrl: imported.originalUrl } : {}),
+      },
     });
     return result.digest;
   } catch (error) {
@@ -516,6 +525,7 @@ async function importGitHubSkillDefinition(sourceUrl: string): Promise<ImportedS
   if (!pointer) {
     throw new Error("Only GitHub tree/blob/raw skill URLs are supported for now.");
   }
+  pointer.resolvedSha = await resolveGitHubRefToSha(pointer.owner, pointer.repo, pointer.ref);
   return importGitHubSkillDefinitionFromPointer(pointer, sourceUrl, "github");
 }
 
@@ -524,6 +534,18 @@ async function importGitHubSkillDefinitionFromPointer(
   sourceUrl: string,
   sourceType: SkillImportSourceType,
 ): Promise<ImportedSkillDefinition> {
+  const resolvedRef = pointer.resolvedSha;
+  const provenance: Record<string, unknown> = {
+    provider: sourceType,
+    owner: pointer.owner,
+    repo: pointer.repo,
+    ref: pointer.ref,
+    path: pointer.path,
+  };
+  if (resolvedRef) {
+    provenance.resolvedRef = resolvedRef;
+    provenance.originalUrl = sourceUrl;
+  }
 
   if (pointer.path.endsWith("/SKILL.md") || sameValue(pointer.path, "SKILL.md")) {
     const skillMd = await fetchGitHubRawFile(pointer);
@@ -536,15 +558,13 @@ async function importGitHubSkillDefinitionFromPointer(
       sourceType,
       sourceUrl,
       configJson: JSON.stringify({
-        provider: sourceType,
-        owner: pointer.owner,
-        repo: pointer.repo,
-        ref: pointer.ref,
-        path: pointer.path,
+        ...provenance,
         dependencies: parseSkillDependencyDeclarations(skillMd),
         requirements: parseSkillRequirementDeclarations(skillMd),
       }),
       warnings: [],
+      resolvedRef,
+      originalUrl: sourceUrl,
     };
   }
 
@@ -560,16 +580,14 @@ async function importGitHubSkillDefinitionFromPointer(
     sourceType,
     sourceUrl,
     configJson: JSON.stringify({
-      provider: sourceType,
-      owner: pointer.owner,
-      repo: pointer.repo,
-      ref: pointer.ref,
-      path: pointer.path,
+      ...provenance,
       warnings,
       dependencies: parseSkillDependencyDeclarations(skillMd),
       requirements: parseSkillRequirementDeclarations(skillMd),
     }),
     warnings,
+    resolvedRef,
+    originalUrl: sourceUrl,
   };
 }
 
@@ -626,34 +644,31 @@ async function importClawHubSkillDefinition(sourceUrl: string): Promise<Imported
     throw new Error(`Failed to download ClawHub skill: ${downloadResponse.status}`);
   }
 
-  const archive = unzipSync(new Uint8Array(await downloadResponse.arrayBuffer()));
-  const warnings: string[] = [];
-  const files: ImportedSkillFile[] = [];
-  let rawMetaJson: string | undefined;
-
-  for (const [entryName, content] of Object.entries(archive)) {
-    const normalizedPath = normalizeSkillFilePath(entryName);
-    if (!normalizedPath) {
-      continue;
-    }
-
-    if (sameValue(normalizedPath, "_meta.json")) {
-      rawMetaJson = strFromU8(content);
-      continue;
-    }
-
-    files.push({
-      path: normalizedPath,
-      bytes: content,
-    });
+  const contentLength = downloadResponse.headers.get("content-length");
+  if (contentLength && Number(contentLength) > MAX_SKILL_ARCHIVE_BYTES) {
+    throw new Error(`ClawHub skill archive exceeds the ${MAX_SKILL_ARCHIVE_BYTES} byte download limit.`);
   }
 
-  const skillMd = readSkillMarkdown(files);
+  const archiveBytes = new Uint8Array(await downloadResponse.arrayBuffer());
+  const warnings: string[] = [];
+  const files = readSkillZipFiles(archiveBytes, warnings, "ClawHub skill archive");
+  let rawMetaJson: string | undefined;
+
+  const filteredFiles: ImportedSkillFile[] = [];
+  for (const file of files) {
+    if (sameValue(file.path, "_meta.json")) {
+      rawMetaJson = strFromU8(file.bytes);
+      continue;
+    }
+    filteredFiles.push(file);
+  }
+
+  const skillMd = readSkillMarkdown(filteredFiles);
   const metadata = parseSkillMetadata(skillMd, deriveSkillNameFromPath(sourceUrl));
   return {
     name: metadata.name,
     description: metadata.description,
-    files: files.sort((left, right) => (sameValue(left.path, "SKILL.md") ? -1 : left.path.localeCompare(right.path, "en-US"))),
+    files: filteredFiles,
     sourceType: "clawhub",
     sourceUrl,
     configJson: JSON.stringify({
@@ -863,13 +878,32 @@ async function fetchGitHubDefaultBranch(owner: string, repo: string): Promise<st
   return payload.default_branch?.trim() || "main";
 }
 
+async function resolveGitHubRefToSha(owner: string, repo: string, ref: string): Promise<string> {
+  const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      "User-Agent": "DofeAgent/0.1.0",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to resolve GitHub ref "${ref}" to commit SHA: ${response.status}`);
+  }
+  const payload = await response.json() as { sha?: string };
+  const sha = payload.sha?.trim().toLowerCase();
+  if (!sha || sha.length !== 40) {
+    throw new Error(`GitHub commit response did not contain a valid SHA for ref "${ref}".`);
+  }
+  return sha;
+}
+
 async function resolveGitHubSkillPointerBySlug(input: {
   owner: string;
   repo: string;
   ref: string;
   skillSlug: string;
 }): Promise<GitHubDirectoryPointer> {
-  const response = await fetch(`https://api.github.com/repos/${input.owner}/${input.repo}/git/trees/${encodeURIComponent(input.ref)}?recursive=1`, {
+  const resolvedSha = await resolveGitHubRefToSha(input.owner, input.repo, input.ref);
+  const response = await fetch(`https://api.github.com/repos/${input.owner}/${input.repo}/git/trees/${resolvedSha}?recursive=1`, {
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": "DofeAgent/0.1.0",
@@ -900,6 +934,7 @@ async function resolveGitHubSkillPointerBySlug(input: {
     repo: input.repo,
     ref: input.ref,
     path: matchedPath,
+    resolvedSha,
   };
 }
 
@@ -924,7 +959,8 @@ async function fetchGitHubDirectoryFiles(
   relativePrefix = "",
   requireSkillFile = true,
 ): Promise<ImportedSkillFile[]> {
-  const contentsUrl = buildGitHubContentsApiUrl(pointer.owner, pointer.repo, pointer.path, pointer.ref);
+  const ref = pointer.resolvedSha ?? pointer.ref;
+  const contentsUrl = buildGitHubContentsApiUrl(pointer.owner, pointer.repo, pointer.path, ref);
   const response = await fetch(contentsUrl, {
     headers: {
       Accept: "application/vnd.github+json",
@@ -970,7 +1006,7 @@ async function fetchGitHubDirectoryFiles(
       continue;
     }
 
-    const fileResponse = await fetch(buildGitHubContentsApiUrl(pointer.owner, pointer.repo, entry.path, pointer.ref), {
+    const fileResponse = await fetch(buildGitHubContentsApiUrl(pointer.owner, pointer.repo, entry.path, ref), {
       headers: {
         Accept: "application/vnd.github+json",
         "User-Agent": "DofeAgent/0.1.0",
@@ -1002,8 +1038,9 @@ async function fetchGitHubDirectoryFiles(
 }
 
 async function fetchGitHubRawFile(pointer: GitHubDirectoryPointer): Promise<string> {
+  const ref = pointer.resolvedSha ?? pointer.ref;
   const response = await fetch(
-    `https://raw.githubusercontent.com/${pointer.owner}/${pointer.repo}/${pointer.ref}/${pointer.path}`,
+    `https://raw.githubusercontent.com/${pointer.owner}/${pointer.repo}/${ref}/${pointer.path}`,
     { headers: { "User-Agent": "DofeAgent/0.1.0" } },
   );
   if (!response.ok) {

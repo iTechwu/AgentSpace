@@ -93,6 +93,7 @@ export function listStoredAgentSkillAssignmentsSync(workspaceId = DEFAULT_WORKSP
         ${hasAgentIdColumn ? "agent_id" : "NULL"} AS agentId,
         employee_name AS employeeName,
         skill_id AS skillId,
+        skill_artifact_digest AS skillartifactdigest,
         created_at AS createdAt
       FROM agent_skill
       WHERE workspace_id = ?
@@ -105,6 +106,17 @@ export function listStoredAgentSkillAssignmentsSync(workspaceId = DEFAULT_WORKSP
     .filter((row): row is StoredAgentSkillRecord => row !== null);
 }
 
+export function readStoredSkillActiveArtifactDigestSync(skillId: string, workspaceId = DEFAULT_WORKSPACE_ID): string | null {
+  const db = getDatabase();
+  const row = db
+    .prepare(
+      `SELECT active_artifact_digest AS activeartifactdigest
+       FROM skill
+       WHERE workspace_id = ? AND id = ?`,
+    )
+    .get(workspaceId, skillId) as Record<string, unknown> | undefined;
+  return typeof row?.activeartifactdigest === "string" ? row.activeartifactdigest : null;
+}
 export function recordStoredSkillImportEventSync(input: {
   workspaceId?: string;
   skillId?: string;
@@ -480,7 +492,25 @@ export function setStoredEmployeeSkillAssignmentsSync(
        WHERE workspace_id = ? AND employee_name = ?`,
     ).run(workspaceId, employeeName);
 
+    const activeDigests = new Map<string, string | undefined>();
+    if (skillIds.length > 0) {
+      const placeholders = skillIds.map(() => "?").join(", ");
+      const rows = db
+        .prepare(
+          `SELECT id, active_artifact_digest AS activeartifactdigest
+           FROM skill
+           WHERE workspace_id = ? AND id IN (${placeholders})`,
+        )
+        .all(workspaceId, ...skillIds) as Array<Record<string, unknown>>;
+      for (const row of rows) {
+        if (typeof row.id === "string") {
+          activeDigests.set(row.id, typeof row.activeartifactdigest === "string" ? row.activeartifactdigest : undefined);
+        }
+      }
+    }
+
     for (const skillId of skillIds) {
+      const digest = activeDigests.get(skillId);
       if (hasAgentIdColumn) {
         db.prepare(
           `INSERT INTO agent_skill (
@@ -488,18 +518,20 @@ export function setStoredEmployeeSkillAssignmentsSync(
             agent_id,
             employee_name,
             skill_id,
+            skill_artifact_digest,
             created_at
-          ) VALUES (?, ?, ?, ?, ?)`,
-        ).run(workspaceId, buildLegacyAgentId(employeeName), employeeName, skillId, now);
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+        ).run(workspaceId, buildLegacyAgentId(employeeName), employeeName, skillId, digest ?? null, now);
       } else {
         db.prepare(
           `INSERT INTO agent_skill (
             workspace_id,
             employee_name,
             skill_id,
+            skill_artifact_digest,
             created_at
-          ) VALUES (?, ?, ?, ?)`,
-        ).run(workspaceId, employeeName, skillId, now);
+          ) VALUES (?, ?, ?, ?, ?)`,
+        ).run(workspaceId, employeeName, skillId, digest ?? null, now);
       }
     }
   });
@@ -584,6 +616,7 @@ function mapStoredAgentSkillRecord(value: Record<string, unknown>): StoredAgentS
     agentId: typeof value.agentId === "string" ? value.agentId : undefined,
     employeeName: value.employeeName,
     skillId: value.skillId,
+    skillArtifactDigest: typeof value.skillartifactdigest === "string" ? value.skillartifactdigest : undefined,
     createdAt: value.createdAt,
   };
 }

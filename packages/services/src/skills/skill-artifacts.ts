@@ -294,8 +294,13 @@ export function buildAndPersistSkillArtifactSync(
   const digest = computeArtifactDigest(manifest, manifestFiles.map((file) => file.sha256));
 
   // 3. Idempotent short-circuit: identical content → existing artifact, no upload.
+  //    Still pin the active digest on the target skill so a reused artifact is
+  //    usable by a new skill instance or re-import.
   const existing = readSkillArtifactByDigestSync(digest, workspaceId);
   if (existing) {
+    if (input.skillId) {
+      setActiveArtifactDigestForSkillSync({ skillId: input.skillId, digest, workspaceId });
+    }
     return { artifact: existing, manifest, digest, created: false };
   }
 

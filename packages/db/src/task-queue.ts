@@ -154,6 +154,7 @@ export function listQueuedTasksSync(options?: {
         claimed_at AS claimedAt,
         started_at AS startedAt,
         finished_at AS finishedAt,
+        mcp_session_claimed_at AS mcpSessionClaimedAt,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM agent_task_queue
@@ -232,6 +233,7 @@ export function readQueuedTaskSync(taskId: string): QueuedTaskRecord | null {
         claimed_at AS claimedAt,
         started_at AS startedAt,
         finished_at AS finishedAt,
+        mcp_session_claimed_at AS mcpSessionClaimedAt,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM agent_task_queue
@@ -240,6 +242,30 @@ export function readQueuedTaskSync(taskId: string): QueuedTaskRecord | null {
     .get(taskId) as Record<string, unknown> | undefined;
 
   return row ? mapQueuedTaskRecord(row) : null;
+}
+
+/**
+ * Atomically marks an MCP task session as claimed. Returns `true` only when this
+ * call was the first successful claim; subsequent calls (including concurrent
+ * ones) return `false`. This makes `claimMcpTaskSessionSync` one-time per task.
+ */
+export function claimMcpTaskSessionMarkerSync(taskId: string): boolean {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `UPDATE agent_task_queue
+       SET mcp_session_claimed_at = ?,
+           updated_at = ?
+       WHERE id = ? AND mcp_session_claimed_at IS NULL`,
+    )
+    .run(now, now, taskId);
+  return result.changes > 0;
+}
+
+export function readMcpTaskSessionClaimedSync(taskId: string): string | null {
+  const task = readQueuedTaskSync(taskId);
+  return task?.mcpSessionClaimedAt ?? null;
 }
 
 export function claimNextQueuedTaskForRuntimeSync(runtimeId: string, workspaceId?: string): QueuedTaskRecord | null {
@@ -1112,6 +1138,7 @@ function mapQueuedTaskRecord(value: Record<string, unknown>): QueuedTaskRecord |
     claimedAt: typeof value.claimedAt === "string" ? value.claimedAt : undefined,
     startedAt: typeof value.startedAt === "string" ? value.startedAt : undefined,
     finishedAt: typeof value.finishedAt === "string" ? value.finishedAt : undefined,
+    mcpSessionClaimedAt: typeof value.mcpSessionClaimedAt === "string" ? value.mcpSessionClaimedAt : undefined,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };

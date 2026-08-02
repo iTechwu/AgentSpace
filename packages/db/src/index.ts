@@ -615,6 +615,7 @@ export {
 export {
   listStoredWorkspaceSkillsSync,
   readStoredWorkspaceSkillSync,
+  readStoredSkillActiveArtifactDigestSync,
   createStoredWorkspaceSkillSync,
   updateStoredWorkspaceSkillMetaSync,
   upsertStoredWorkspaceSkillFileSync,
@@ -651,6 +652,8 @@ export {
   readLatestConversationExecutionSync,
   readLatestChannelExecutionSync,
   readQueuedTaskSync,
+  claimMcpTaskSessionMarkerSync,
+  readMcpTaskSessionClaimedSync,
   claimNextQueuedTaskForRuntimeSync,
   startQueuedTaskSync,
   markTaskPreparingCommitSync,
