@@ -15,6 +15,7 @@ import {
 } from "./artifact-materializer.ts";
 import { verifySkillInstallationComponents, type DependencyInstallOutcome } from "./component-verifier.ts";
 import { installSkillDependenciesSync } from "./dependency-installer.ts";
+import { publishSkillDependencyEnvironment } from "./task-environment.ts";
 
 const KEEP_WORK_DIR_ENV = "DOFE_AGENT_KEEP_SKILL_INSTALL_WORK_DIR";
 const DISABLE_CACHE_ENV = "DOFE_AGENT_DISABLE_SKILL_INSTALL_CACHE";
@@ -150,6 +151,21 @@ export async function executeSkillInstallationOperation(
         blocked?.errorCode ?? "skill_installation.component_verification_failed",
         componentStatuses,
       );
+    }
+
+    if (dependencies.length > 0) {
+      if (!operation.releaseLockDigest) {
+        throw new Error("skill_dependency_environment_snapshot_invalid: dependency installation has no release lock digest.");
+      }
+      publishSkillDependencyEnvironment({
+        envsDir: getDaemonSkillInstallEnvsDirPath(config.stateDir, {
+          workspaceId: operation.workspaceId,
+          installationId: operation.installationId,
+        }),
+        installationId: operation.installationId,
+        artifactDigest: operation.artifactDigest,
+        releaseLockDigest: operation.releaseLockDigest,
+      });
     }
 
     if (leaseLost) {

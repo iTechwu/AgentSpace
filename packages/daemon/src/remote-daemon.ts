@@ -19,6 +19,7 @@ import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputB
 import { readEmployeeHeadManifestSync } from "./workdir-capture.ts";
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
+import { buildSkillDependencyTaskEnvironment } from "./skill-install/task-environment.ts";
 import { executeSkillInstallationOperation } from "./skill-install/operation-worker.ts";
 import { executeSkillServiceOperation } from "./skill-service/service-operation-worker.ts";
 import { executeWorkspaceMountOperation } from "./workspace-mount-operation-worker.ts";
@@ -929,6 +930,16 @@ async function executeRemoteTask(
         `Skill requirements not satisfied for this task: ${bundle.metadata.skillReadinessBlockers.join("; ")}.`,
       );
     }
+    const skillDependencyEnv = buildSkillDependencyTaskEnvironment({
+      stateDir: config.stateDir,
+      workspaceId: task.workspaceId,
+      environments: bundle.metadata.skillDependencyEnvironments ?? [],
+      baseEnv: {
+        ...process.env,
+        ...bundle.metadata.skillEnv,
+        ...managedCredentialEnv,
+      },
+    });
     const managedCredentialId = typeof runtime.metadata.managedCredentialId === "string"
       ? runtime.metadata.managedCredentialId
       : undefined;
@@ -969,6 +980,7 @@ async function executeRemoteTask(
         contextEnv: {
           ...bundle.metadata.skillEnv,
           ...managedCredentialEnv,
+          ...skillDependencyEnv,
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
           DOFE_AGENT_CONTEXT_AGENT_NAME: readRemoteTaskAgentName(task),
           DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,

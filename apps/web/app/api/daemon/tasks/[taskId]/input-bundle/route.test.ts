@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { RuntimeMcpConnectionContextEntry } from "@dofe-agent/domain";
-import { buildMcpConnectionsForTaskBundle } from "./route";
+import type { RuntimeMcpConnectionContextEntry, TaskSkillExecutionSnapshot } from "@dofe-agent/domain";
+import { buildMcpConnectionsForTaskBundle, buildSkillDependencyEnvironmentsForTaskBundle } from "./route";
 
 describe("buildMcpConnectionsForTaskBundle", () => {
   it("projects only the approved non-secret tool manifest", () => {
@@ -53,5 +53,41 @@ describe("buildMcpConnectionsForTaskBundle", () => {
 
   it("reports no MCP capability when there are no ready connections", () => {
     expect(buildMcpConnectionsForTaskBundle([])).toEqual({ status: "none", connections: [] });
+  });
+});
+
+describe("buildSkillDependencyEnvironmentsForTaskBundle", () => {
+  it("projects only frozen installation references that require dependency environments", () => {
+    const snapshot: TaskSkillExecutionSnapshot = {
+      workspaceId: "workspace-1",
+      runtimeId: "runtime-1",
+      resolvedAt: "2026-08-03T00:00:00.000Z",
+      entries: [
+        {
+          skillId: "skill-with-deps",
+          skillName: "With deps",
+          artifactDigest: "a".repeat(64),
+          installationId: "installation-1",
+          revision: "v2",
+          status: "ready",
+          releaseLockDigest: "b".repeat(64),
+          dependencyEnvironmentRequired: true,
+        },
+        {
+          skillId: "skill-without-deps",
+          skillName: "Without deps",
+          artifactDigest: "c".repeat(64),
+          installationId: "installation-2",
+          revision: "v1",
+          status: "ready",
+        },
+      ],
+    };
+
+    expect(buildSkillDependencyEnvironmentsForTaskBundle(snapshot)).toEqual([{
+      installationId: "installation-1",
+      artifactDigest: "a".repeat(64),
+      releaseLockDigest: "b".repeat(64),
+    }]);
   });
 });

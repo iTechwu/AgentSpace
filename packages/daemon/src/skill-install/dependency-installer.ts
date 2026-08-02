@@ -2,6 +2,7 @@ import { rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { SkillDependencyDeclaration } from "@dofe-agent/services";
 import type { ExecResult } from "@dofe-agent/sandbox";
+import { resetSkillDependencyEnvironment } from "./task-environment.ts";
 
 /**
  * Real dependency install + verification (02-架构设计.md §4.1): dependencies are
@@ -127,6 +128,7 @@ export async function installSkillDependenciesSync(input: {
   }
 
   // Wipe + rebuild so no stale version survives a re-install.
+  resetSkillDependencyEnvironment(input.envsDir);
   rmSync(input.envsDir, { recursive: true, force: true });
   mkdirSync(input.envsDir, { recursive: true });
 

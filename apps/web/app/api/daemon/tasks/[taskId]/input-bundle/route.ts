@@ -16,7 +16,13 @@ import {
   readAgentRuntimeSync,
   type QueuedTaskRecord,
 } from "@dofe-agent/db";
-import type { DaemonTaskInputBundle, DaemonBundleFile, RuntimeMcpConnectionContextEntry } from "@dofe-agent/domain";
+import type {
+  DaemonTaskInputBundle,
+  DaemonBundleFile,
+  DaemonSkillDependencyEnvironment,
+  RuntimeMcpConnectionContextEntry,
+  TaskSkillExecutionSnapshot,
+} from "@dofe-agent/domain";
 import {
   buildContactAgentContext,
   readWorkspaceStateSync,
@@ -147,6 +153,9 @@ export async function GET(
         skillEnv: prepared.skillEnv,
         skillEnvConflicts: prepared.skillEnvConflicts,
         skillReadinessBlockers: prepared.skillReadinessBlockers,
+        skillDependencyEnvironments: buildSkillDependencyEnvironmentsForTaskBundle(
+          prepared.skillExecutionSnapshot,
+        ),
         effectiveModel,
         executionPolicy: agentProfile?.executionPolicy,
         runtimeApps: {
@@ -205,6 +214,25 @@ export async function GET(
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
+}
+
+export function buildSkillDependencyEnvironmentsForTaskBundle(
+  snapshot?: TaskSkillExecutionSnapshot,
+): DaemonSkillDependencyEnvironment[] {
+  return (snapshot?.entries ?? [])
+    .filter((entry) => entry.dependencyEnvironmentRequired)
+    .map((entry) => {
+      if (!entry.releaseLockDigest) {
+        throw new Error(
+          `skill_dependency_environment_snapshot_invalid: installation "${entry.installationId}" has no release lock digest.`,
+        );
+      }
+      return {
+        installationId: entry.installationId,
+        artifactDigest: entry.artifactDigest,
+        releaseLockDigest: entry.releaseLockDigest,
+      };
+    });
 }
 
 /**

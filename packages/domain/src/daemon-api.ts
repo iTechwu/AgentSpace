@@ -279,6 +279,12 @@ export interface DaemonBundleFile {
   mode?: string;
 }
 
+export interface DaemonSkillDependencyEnvironment {
+  installationId: string;
+  artifactDigest: string;
+  releaseLockDigest: string;
+}
+
 export interface DaemonTaskInputBundle {
   version: 1;
   format: "json-inline-v1";
@@ -293,6 +299,8 @@ export interface DaemonTaskInputBundle {
     skillEnv?: Record<string, string>;
     skillEnvConflicts?: string[];
     skillReadinessBlockers?: string[];
+    /** Frozen, non-secret references resolved to daemon-local dependency directories. */
+    skillDependencyEnvironments?: DaemonSkillDependencyEnvironment[];
     effectiveModel?: {
       modelId: string;
       source: "session_override" | "employee_default" | "skill_requirement" | "runtime_default" | "team_policy_default" | "protocol_fallback";

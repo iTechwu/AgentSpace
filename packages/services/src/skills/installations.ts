@@ -775,6 +775,8 @@ export function resolveTaskSkillExecutionSnapshotSync(input: {
       installationId: installation.id,
       revision: installation.revision,
       status: installation.status,
+      dependencyEnvironmentRequired: readSkillInstallationComponentsSync(installation.id)
+        .some((component) => component.kind === "dependency" && component.key !== "package:integrity"),
       ...readReleaseLockDigest(installation.resolvedLockJson),
     });
   }

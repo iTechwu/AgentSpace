@@ -484,6 +484,40 @@ test("task skill execution snapshot persists and round-trips for audit", () => {
   assert.equal(persisted?.entries[0]?.releaseLockDigest?.length, 64, "snapshot records the release lock digest");
 });
 
+test("task skill execution snapshot marks installations that require a daemon dependency environment", () => {
+  createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
+  const skill = createWorkspaceSkillSync({ name: "dependency-snapshot", description: "Deps" }, WORKSPACE_ID);
+  const runtimeId = createRuntime();
+  const taskId = insertTaskRow(runtimeId);
+  const artifact = buildAndPersistSkillArtifactSync({
+    workspaceId: WORKSPACE_ID,
+    skillId: skill.id,
+    name: skill.name,
+    files: [{
+      path: "SKILL.md",
+      bytes: Buffer.from("---\nname: dependency-snapshot\ndescription: Deps\n---\n# Deps\n"),
+    }],
+    dependencies: [{ manager: "npm", name: "left-pad", version: "1.3.0" }],
+  });
+  const installation = createSkillInstallationPlanSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    artifactDigest: artifact.digest,
+  });
+  setSkillInstallationStatusSync({
+    installationId: installation.id,
+    workspaceId: WORKSPACE_ID,
+    status: "ready",
+    health: "healthy",
+  });
+
+  const snapshot = resolveSnapshotForTask(taskId, runtimeId, [skill]);
+
+  assert.equal(snapshot.entries[0]?.installationId, installation.id);
+  assert.equal(snapshot.entries[0]?.dependencyEnvironmentRequired, true);
+  assert.equal(readTaskSkillExecutionSnapshotSync(taskId)?.entries[0]?.dependencyEnvironmentRequired, true);
+});
+
 test("rollout_pin fixes new tasks to the pinned installation revision until the rollout switches", () => {
   createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
   const skill = createWorkspaceSkillSync({ name: "rollout-pin", description: "Pin" }, WORKSPACE_ID);

@@ -260,6 +260,8 @@ export interface TaskSkillExecutionSnapshotEntry {
   status: string;
   /** sha256 of the release lock the installation was created against (audit handle). */
   releaseLockDigest?: string;
+  /** True when the pinned installation owns a daemon-local dependency env. */
+  dependencyEnvironmentRequired?: boolean;
 }
 
 /**

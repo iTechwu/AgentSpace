@@ -22,6 +22,8 @@ import {
   applyDocumentRuntimeOutputOperations,
   applyKnowledgeProposalOperations,
   buildDocumentRuntimeToolCapabilities,
+  buildSkillDependencyTaskEnvironment,
+  selectSkillDependencyEnvironments,
   normalizeProviderTaskErrorCategory,
   buildProviderRuntimeMetadata,
   applyProviderCredentialProfile,
@@ -909,6 +911,12 @@ async function executeRemoteQueuedTask(
       );
     }
     materializeInputBundle(workDir, bundle);
+    const skillDependencyEnv = buildSkillDependencyTaskEnvironment({
+      stateDir: ensureDaemonStateDir(),
+      workspaceId: task.workspaceId,
+      environments: bundle.metadata.skillDependencyEnvironments ?? [],
+      baseEnv: { ...process.env, ...bundle.metadata.skillEnv },
+    });
 
     const result = await runProviderTask(
       runtime,
@@ -918,6 +926,7 @@ async function executeRemoteQueuedTask(
         sessionId: (bundle.metadata.routerSession?.providerSessionId ?? payload.channelSessionId?.trim()) || undefined,
         contextEnv: {
           ...bundle.metadata.skillEnv,
+          ...skillDependencyEnv,
           DOFE_AGENT_CONTEXT_AGENT_NAME: payload.assignee ?? task.agentId,
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
           DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
@@ -1123,6 +1132,12 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
     runtimeCredentialId = resolution.runtimeCredentialId;
   }
   let persistedOutputAttachments: MessageAttachment[] = [];
+  const skillDependencyEnv = buildSkillDependencyTaskEnvironment({
+    stateDir: ensureDaemonStateDir(),
+    workspaceId: task.workspaceId,
+    environments: selectSkillDependencyEnvironments(preparedContext.skillExecutionSnapshot),
+    baseEnv: { ...process.env, ...preparedContext.skillEnv },
+  });
 
   try {
     const providerSession = chooseProviderSessionForTaskSync({ task });
@@ -1135,6 +1150,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         sessionId: providerSession?.providerSessionId ?? effectivePayload.channelSessionId,
         contextEnv: {
           ...preparedContext.skillEnv,
+          ...skillDependencyEnv,
           DOFE_AGENT_CONTEXT_AGENT_NAME: agentName,
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
           DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
