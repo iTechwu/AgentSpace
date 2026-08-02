@@ -21,6 +21,7 @@ import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
 import { buildSkillDependencyTaskEnvironment } from "./skill-install/task-environment.ts";
 import { executeSkillInstallationOperation } from "./skill-install/operation-worker.ts";
+import { startSkillRunnerBroker, type SkillRunnerBroker } from "./skill-runner.ts";
 import { executeSkillServiceOperation } from "./skill-service/service-operation-worker.ts";
 import { executeWorkspaceMountOperation } from "./workspace-mount-operation-worker.ts";
 import {
@@ -915,11 +916,19 @@ async function executeRemoteTask(
   // through its authenticated channel and hosts a loopback gateway. The
   // Provider's own MCP config only ever receives the gateway URL.
   let mcpSession: { url: string; revoke: () => void } | undefined;
+  let skillRunner: SkillRunnerBroker | undefined;
 
   try {
     await client.startTask(task.id);
     const bundle = await client.getInputBundle(task.id);
     materializeInputBundle(workDir, bundle);
+    skillRunner = await startSkillRunnerBroker({
+      stateDir: config.stateDir,
+      workspaceId: task.workspaceId,
+      workDir,
+      entrypoints: bundle.metadata.skillRunnerEntrypoints ?? [],
+      dependencyEnvironments: bundle.metadata.skillDependencyEnvironments,
+    });
 
     if (bundle.metadata.mcpConnections?.status === "available") {
       // One attempt id per task execution makes the claim idempotent under
@@ -1019,7 +1028,10 @@ async function executeRemoteTask(
           } : {}),
         },
         runtimeApps: bundle.metadata.runtimeApps?.apps ?? [],
-        runtimeToolCapabilities: bundle.metadata.runtimeToolCapabilities?.capabilities ?? [],
+        runtimeToolCapabilities: [
+          ...(bundle.metadata.runtimeToolCapabilities?.capabilities ?? []),
+          ...skillRunner.capabilities,
+        ],
         mcpGatewayUrl: mcpSession?.url,
         onEvent: (event) => {
           if (event.type === "usage" && event.inputJson) {
@@ -1092,6 +1104,7 @@ async function executeRemoteTask(
     // gateway's onAudit handler, so a daemon crash loses at most the in-flight
     // call rather than the entire task's audit trail.
     mcpSession?.revoke();
+    await skillRunner?.close();
     clearTaskOutputArtifacts(workDir);
     if (!isPersistentConversationWorkspace) {
       rmSync(workDir, { recursive: true, force: true });

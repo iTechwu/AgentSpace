@@ -7,6 +7,7 @@ import type {
   SkillComponentStatus,
 } from "@dofe-agent/domain";
 import type { SkillArtifactManifest } from "@dofe-agent/services";
+import { resolveSkillRunnerImage } from "../skill-runner.ts";
 
 export interface ComponentVerificationResult {
   kind: SkillComponentKind;
@@ -20,6 +21,8 @@ export interface DependencyInstallOutcome {
   ok: boolean;
   reason?: string;
 }
+
+export type SkillRunnerImageResolver = (runtime: "node" | "python" | "bash") => string | undefined;
 
 const SYNTAX_CHECK_TIMEOUT_MS = 10_000;
 const MAX_TAIL_CHARS = 2_000;
@@ -39,6 +42,7 @@ export function verifySkillInstallationComponents(
   artifactDir: string,
   rootDigestMatches: boolean,
   dependencyInstallResults?: Map<string, DependencyInstallOutcome>,
+  resolveRunnerImage: SkillRunnerImageResolver = (runtime) => resolveSkillRunnerImage(runtime, process.env),
 ): ComponentVerificationResult[] {
   if (!rootDigestMatches) {
     return operation.components.map((component) => ({
@@ -64,7 +68,7 @@ export function verifySkillInstallationComponents(
   }
 
   return operation.components.map((component) =>
-    verifyComponent(component.kind, component.key, manifest, artifactDir, dependencyInstallResults));
+    verifyComponent(component.kind, component.key, manifest, artifactDir, dependencyInstallResults, resolveRunnerImage));
 }
 
 function verifyComponent(
@@ -73,12 +77,13 @@ function verifyComponent(
   manifest: SkillArtifactManifest,
   artifactDir: string,
   dependencyInstallResults?: Map<string, DependencyInstallOutcome>,
+  resolveRunnerImage?: SkillRunnerImageResolver,
 ): ComponentVerificationResult {
   switch (kind) {
     case "dependency":
       return verifyDependencyComponent(key, manifest, dependencyInstallResults);
     case "script":
-      return verifyScriptComponent(key, manifest, artifactDir);
+      return verifyScriptComponent(key, manifest, artifactDir, resolveRunnerImage!);
     case "cli":
     case "mcp":
       return verifyCapabilityComponent(kind, key, manifest);
@@ -179,6 +184,7 @@ function verifyScriptComponent(
   key: string,
   manifest: SkillArtifactManifest,
   artifactDir: string,
+  resolveRunnerImage: SkillRunnerImageResolver,
 ): ComponentVerificationResult {
   const manifestFile = manifest.files.find((file) => file.path === key);
   if (!manifestFile) {
@@ -233,17 +239,35 @@ function verifyScriptComponent(
   }
 
   const interpreter = chooseInterpreter(key);
-  if (interpreter) {
-    const syntaxResult = runSyntaxCheck(filePath, interpreter);
-    if (!syntaxResult.ok) {
-      return {
-        kind: "script",
-        key,
-        status: "blocked",
-        errorCode: "skill_installation.script_syntax_error",
-        errorMessage: `Script "${key}" syntax check failed: ${syntaxResult.error}`,
-      };
-    }
+  if (!interpreter) {
+    return {
+      kind: "script",
+      key,
+      status: "blocked",
+      errorCode: "skill_installation.script_runtime_unsupported",
+      errorMessage: `Script "${key}" does not use a supported Node.js, Python, or Bash runtime.`,
+    };
+  }
+  const syntaxResult = runSyntaxCheck(filePath, interpreter);
+  if (!syntaxResult.ok) {
+    return {
+      kind: "script",
+      key,
+      status: "blocked",
+      errorCode: "skill_installation.script_syntax_error",
+      errorMessage: `Script "${key}" syntax check failed: ${syntaxResult.error}`,
+    };
+  }
+
+  const runtime = interpreter === "python" ? "python" : interpreter === "node" ? "node" : "bash";
+  if (!resolveRunnerImage(runtime)) {
+    return {
+      kind: "script",
+      key,
+      status: "blocked",
+      errorCode: "skill_runner.image_not_configured",
+      errorMessage: `No immutable ${runtime} Skill Runner image is configured on this Runtime.`,
+    };
   }
 
   return { kind: "script", key, status: "ready" };

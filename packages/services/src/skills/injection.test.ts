@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
+import { buildSkillRunnerCommandName } from "@dofe-agent/domain";
+import {
+  buildAndPersistSkillArtifactSync,
+  createWorkspaceSkillSync,
+  resetWorkspaceStateSync,
+} from "../index.ts";
 import { materializeWorkspaceSkillsForProvider } from "./injection.ts";
 
 function createSkill(): WorkspaceSkill {
@@ -100,6 +106,44 @@ test("materializeWorkspaceSkillsForProvider writes requirement context without c
     assert.match(config, /credential_center_required/);
     assert.equal(config.includes("db-123"), false);
     assert.equal(config.includes("secret-token"), false);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("artifact executable files are projected as Runner stubs instead of raw scripts", () => {
+  resetWorkspaceStateSync();
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-skill-runner-projection-"));
+  try {
+    const skill = createWorkspaceSkillSync({
+      name: "artifact runner",
+      content: "# Artifact Runner\n",
+    });
+    const rawScript = "console.log('RAW-SCRIPT-MARKER');\n";
+    buildAndPersistSkillArtifactSync({
+      skillId: skill.id,
+      name: skill.name,
+      version: "1.0.0",
+      files: [
+        { path: "SKILL.md", bytes: new TextEncoder().encode("# Artifact Runner\n") },
+        { path: "scripts/run.mjs", bytes: new TextEncoder().encode(rawScript), mode: "0755" },
+        { path: "scripts/helper.js", bytes: new TextEncoder().encode("console.log('RAW-HELPER-MARKER');\n"), mode: "0644" },
+        { path: "bin/unknown", bytes: new TextEncoder().encode("opaque executable"), mode: "0755" },
+      ],
+      entrypoints: [{ id: "run", kind: "script", path: "scripts/run.mjs", runtime: "node" }],
+    });
+
+    const result = materializeWorkspaceSkillsForProvider({ skills: [skill], workDir, provider: "codex" });
+    const skillDir = join(result.nativeDir!, `artifact-runner-${skill.id.slice(-6)}`);
+    const projectedScript = readFileSync(join(skillDir, "scripts", "run.mjs"), "utf8");
+    const command = buildSkillRunnerCommandName(skill.name, skill.id, "run");
+
+    assert.equal(projectedScript.includes("RAW-SCRIPT-MARKER"), false);
+    assert.match(projectedScript, new RegExp(command));
+    assert.equal(statSync(join(skillDir, "scripts", "run.mjs")).mode & 0o777, 0o555);
+    assert.equal(readFileSync(join(skillDir, "scripts", "helper.js"), "utf8").includes("RAW-HELPER-MARKER"), false);
+    assert.equal(statSync(join(skillDir, "scripts", "helper.js")).mode & 0o777, 0o444);
+    assert.equal(statSync(join(skillDir, "bin", "unknown")).mode & 0o777, 0o444);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

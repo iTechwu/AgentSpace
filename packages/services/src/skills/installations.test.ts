@@ -22,6 +22,7 @@ import {
   approveSkillUpgradeSync,
   assertSkillInstallationReadyForTaskSync,
   buildAndPersistSkillArtifactSync,
+  buildSkillRunnerEntrypointsForSnapshotSync,
   completeSkillInstallationOperationSync,
   computeSkillUpgradeDiffHashSync,
   createSkillInstallationPlanSync,
@@ -107,6 +108,39 @@ test("createSkillInstallationPlanSync builds installation, components, and a que
   const operations = listSkillInstallationOperationsSync({ workspaceId: "default", installationId: installation.id });
   assert.equal(operations.length, 1);
   assert.equal(operations[0]?.operation, "prepare");
+});
+
+test("buildSkillRunnerEntrypointsForSnapshotSync derives executable scripts from the frozen artifact", () => {
+  const runtimeId = createTestRuntime();
+  const { artifact, digest } = buildArtifact();
+  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  const entrypoints = buildSkillRunnerEntrypointsForSnapshotSync({
+    workspaceId: "default",
+    runtimeId,
+    resolvedAt: new Date().toISOString(),
+    entries: [{
+      skillId: "skill-runner-test",
+      skillName: "Install Test",
+      artifactDigest: digest,
+      installationId: installation.id,
+      revision: installation.revision,
+      status: "ready",
+    }],
+  });
+  const manifest = JSON.parse(artifact.manifestJson) as { files: Array<{ path: string; sha256: string }> };
+  const scriptDigest = manifest.files.find((file) => file.path === "scripts/render.py")?.sha256;
+  assert.ok(scriptDigest);
+  assert.deepEqual(entrypoints, [{
+    key: "skill-runner-test:scripts-render",
+    skillId: "skill-runner-test",
+    skillName: "Install Test",
+    installationId: installation.id,
+    artifactDigest: digest,
+    sha256: scriptDigest,
+    id: "scripts-render",
+    path: "scripts/render.py",
+    runtime: "python",
+  }]);
 });
 
 test("claim → resolve → complete drives the installation to ready", async () => {

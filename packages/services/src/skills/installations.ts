@@ -34,6 +34,8 @@ import type {
   SkillInstallationOperationExpectedComponent,
   SkillInstallationOperationKind,
   TaskSkillExecutionSnapshot,
+  DaemonSkillRunnerEntrypoint,
+  SkillEntrypointRuntime,
 } from "@dofe-agent/domain";
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { createSkillInstallationOperationSync } from "@dofe-agent/db";
@@ -643,6 +645,9 @@ export function evaluateSkillInstallationReadinessSync(
   workspaceId?: string,
 ): "preparing" | "blocked" | "ready" | "degraded" {
   const installation = readSkillInstallationSync(installationId, workspaceId);
+  if (installation?.health === "rolled_back") {
+    return "degraded";
+  }
   if (installation) {
     evaluateSkillInstallationCapabilitiesSync({
       installationId,
@@ -690,6 +695,76 @@ export function reconcileSkillInstallationsForRuntimeSync(input: {
     result[status] += 1;
   }
   return result;
+}
+
+/** Builds the non-secret Runner manifest from the task's immutable installation snapshot. */
+export function buildSkillRunnerEntrypointsForSnapshotSync(
+  snapshot: TaskSkillExecutionSnapshot | undefined,
+): DaemonSkillRunnerEntrypoint[] {
+  if (!snapshot) return [];
+  const result: DaemonSkillRunnerEntrypoint[] = [];
+  for (const entry of snapshot.entries) {
+    const artifact = readSkillArtifactByDigestSync(entry.artifactDigest, snapshot.workspaceId);
+    if (!artifact) continue;
+    let manifest: {
+      files?: Array<{ path?: string; mode?: string; sha256?: string }>;
+      entrypoints?: Array<{ id?: string; path?: string; runtime?: string }>;
+    };
+    try {
+      manifest = JSON.parse(artifact.manifestJson) as typeof manifest;
+    } catch {
+      continue;
+    }
+    const filesByPath = new Map(
+      (manifest.files ?? [])
+        .filter((file): file is { path: string; mode?: string; sha256: string } => Boolean(file.path && file.sha256))
+        .map((file) => [file.path, file]),
+    );
+    const declared = new Map<string, { id: string; path: string; runtime: SkillEntrypointRuntime; sha256: string }>();
+    for (const candidate of manifest.entrypoints ?? []) {
+      const runtime = normalizeEntrypointRuntime(candidate.runtime);
+      const file = candidate.path ? filesByPath.get(candidate.path) : undefined;
+      if (!candidate.id || !candidate.path || !runtime || file?.mode !== "0755") continue;
+      declared.set(candidate.path, { id: candidate.id, path: candidate.path, runtime, sha256: file.sha256 });
+    }
+    for (const file of manifest.files ?? []) {
+      if (!file.path || !file.sha256 || file.mode !== "0755" || declared.has(file.path)) continue;
+      const runtime = runtimeForScriptPath(file.path);
+      if (runtime) declared.set(file.path, {
+        id: implicitEntrypointId(file.path),
+        path: file.path,
+        runtime,
+        sha256: file.sha256,
+      });
+    }
+    for (const candidate of declared.values()) {
+      result.push({
+        key: `${entry.skillId}:${candidate.id}`,
+        skillId: entry.skillId,
+        skillName: entry.skillName,
+        installationId: entry.installationId,
+        artifactDigest: entry.artifactDigest,
+        ...candidate,
+      });
+    }
+  }
+  return result;
+}
+
+function normalizeEntrypointRuntime(value: string | undefined): SkillEntrypointRuntime | undefined {
+  return value === "node" || value === "python" || value === "bash" ? value : undefined;
+}
+
+function runtimeForScriptPath(path: string): SkillEntrypointRuntime | undefined {
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".ts") || lower.endsWith(".mts")) return "node";
+  if (lower.endsWith(".py")) return "python";
+  if (lower.endsWith(".sh") || lower.endsWith(".bash")) return "bash";
+  return undefined;
+}
+
+function implicitEntrypointId(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\.[^.\/]+$/, "").replace(/[^A-Za-z0-9._-]+/g, "-");
 }
 
 /**

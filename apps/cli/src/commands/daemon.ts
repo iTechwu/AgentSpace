@@ -33,6 +33,8 @@ import {
   resolveModelId as resolveSharedModelId,
   runProviderTask as runSharedProviderTask,
   runRemoteDaemonForeground as runStandaloneRemoteDaemonForeground,
+  startSkillRunnerBroker,
+  type SkillRunnerBroker,
   type DetectedProvider as SharedDetectedProvider,
   type ProviderRuntimeRecord,
 } from "dofe-agent-daemon";
@@ -901,6 +903,7 @@ async function executeRemoteQueuedTask(
     rmSync(workDir, { recursive: true, force: true });
   }
   mkdirSync(workDir, { recursive: true });
+  let skillRunner: SkillRunnerBroker | undefined;
 
   try {
     await client.startTask(task.id);
@@ -912,6 +915,13 @@ async function executeRemoteQueuedTask(
       );
     }
     materializeInputBundle(workDir, bundle);
+    skillRunner = await startSkillRunnerBroker({
+      stateDir: ensureDaemonStateDir(),
+      workspaceId: task.workspaceId,
+      workDir,
+      entrypoints: bundle.metadata.skillRunnerEntrypoints ?? [],
+      dependencyEnvironments: bundle.metadata.skillDependencyEnvironments,
+    });
     const skillDependencyEnv = buildSkillDependencyTaskEnvironment({
       stateDir: ensureDaemonStateDir(),
       workspaceId: task.workspaceId,
@@ -932,7 +942,10 @@ async function executeRemoteQueuedTask(
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
           DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
         },
-        runtimeToolCapabilities: bundle.metadata.runtimeToolCapabilities?.capabilities ?? [],
+        runtimeToolCapabilities: [
+          ...(bundle.metadata.runtimeToolCapabilities?.capabilities ?? []),
+          ...skillRunner.capabilities,
+        ],
         onEvent: (event) => {
           void client.reportMessages(task.id, {
             messages: [
@@ -994,6 +1007,7 @@ async function executeRemoteQueuedTask(
       workDir: failureMetadata?.workDir ?? workDir,
     });
   } finally {
+    await skillRunner?.close();
     clearTaskOutputArtifacts(workDir);
     if (!isPersistentConversationWorkspace) {
       rmSync(workDir, { recursive: true, force: true });

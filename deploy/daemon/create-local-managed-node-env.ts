@@ -51,6 +51,10 @@ const lines = [
   `MANAGED_RUNTIME_TLS_CA_PATH=${existsSync(tlsCaPath) ? tlsCaPath : ""}`,
   "MANAGED_RUNTIME_DOCKER_NETWORK=dofe-managed-egress",
   "MANAGED_RUNTIME_IMAGE_TAG=latest",
+  `DOFE_SKILL_RUNNER_NODE_IMAGE=${process.env.DOFE_SKILL_RUNNER_NODE_IMAGE?.trim() ?? ""}`,
+  `DOFE_SKILL_RUNNER_PYTHON_IMAGE=${process.env.DOFE_SKILL_RUNNER_PYTHON_IMAGE?.trim() ?? ""}`,
+  `DOFE_SKILL_RUNNER_BASH_IMAGE=${process.env.DOFE_SKILL_RUNNER_BASH_IMAGE?.trim() ?? ""}`,
+  `DOFE_SKILL_RUNNER_TIMEOUT_MS=${process.env.DOFE_SKILL_RUNNER_TIMEOUT_MS?.trim() || "60000"}`,
   "",
 ];
 

@@ -1,6 +1,6 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { DaemonProvider } from "@dofe-agent/domain";
+import { buildSkillRunnerCommandName, type DaemonProvider, type SkillEntrypointRuntime } from "@dofe-agent/domain";
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import {
   readActiveArtifactDigestForSkillSync,
@@ -124,6 +124,7 @@ function tryMaterializeFromArtifact(
   }
   try {
     materializeSkillArtifactFilesSync(artifact, skillDir);
+    replaceExecutableArtifactFilesWithRunnerStubs(skill, artifact.manifestJson, skillDir);
     return true;
   } catch (error) {
     throw new Error(
@@ -132,6 +133,73 @@ function tryMaterializeFromArtifact(
       { cause: error },
     );
   }
+}
+
+function replaceExecutableArtifactFilesWithRunnerStubs(
+  skill: WorkspaceSkill,
+  manifestJson: string,
+  skillDir: string,
+): void {
+  let manifest: {
+    files?: Array<{ path?: string; mode?: string }>;
+    entrypoints?: Array<{ id?: string; path?: string; runtime?: string }>;
+  };
+  try {
+    manifest = JSON.parse(manifestJson) as typeof manifest;
+  } catch {
+    throw new Error(`Skill "${skill.name}" has an invalid artifact manifest.`);
+  }
+  const declared = new Map(
+    (manifest.entrypoints ?? [])
+      .filter((entrypoint): entrypoint is { id: string; path: string; runtime: SkillEntrypointRuntime } =>
+        Boolean(entrypoint.id && entrypoint.path && isEntrypointRuntime(entrypoint.runtime)))
+      .map((entrypoint) => [entrypoint.path, entrypoint]),
+  );
+  for (const file of manifest.files ?? []) {
+    if (!file.path) continue;
+    const declaredEntrypoint = declared.get(file.path);
+    const runtime = declaredEntrypoint?.runtime ?? runtimeForScriptPath(file.path);
+    const targetPath = join(skillDir, normalizeSkillFilePath(file.path));
+    if (runtime) {
+      if (declaredEntrypoint || file.mode === "0755") {
+        const id = declaredEntrypoint?.id ?? implicitEntrypointId(file.path);
+        const command = buildSkillRunnerCommandName(skill.name, skill.id, id);
+        writeFileSync(targetPath, buildRunnerStub(command), "utf8");
+        chmodSync(targetPath, 0o555);
+      } else {
+        writeFileSync(targetPath, "Skill script source is available only to the isolated Dofe Skill Runner.\n", "utf8");
+        chmodSync(targetPath, 0o444);
+      }
+    } else if (file.mode === "0755") {
+      // Unknown executables are visible as resources but cannot be executed
+      // directly across the Provider boundary.
+      chmodSync(targetPath, 0o444);
+    }
+  }
+}
+
+function buildRunnerStub(command: string): string {
+  return `#!/bin/sh\nexec ${shellQuote(command)} "$@"\n`;
+}
+
+function isEntrypointRuntime(value: string | undefined): value is SkillEntrypointRuntime {
+  return value === "node" || value === "python" || value === "bash";
+}
+
+function runtimeForScriptPath(path: string): SkillEntrypointRuntime | undefined {
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".ts") || lower.endsWith(".mts")) return "node";
+  if (lower.endsWith(".py")) return "python";
+  if (lower.endsWith(".sh") || lower.endsWith(".bash")) return "bash";
+  return undefined;
+}
+
+function implicitEntrypointId(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\.[^.\/]+$/, "").replace(/[^A-Za-z0-9._-]+/g, "-");
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
 function sanitizeSkillDirectoryName(value: string): string {

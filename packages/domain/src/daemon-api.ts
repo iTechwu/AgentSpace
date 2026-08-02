@@ -1,5 +1,6 @@
 import type { DaemonProvider } from "./daemon-provider.js";
 import type { EmployeeExecutionPolicy } from "./workspace.js";
+import type { SkillEntrypointRuntime } from "./skill-package.js";
 
 export const PROVIDER_ERROR_CODES = [
   "provider.cli_missing",
@@ -310,6 +311,7 @@ export interface DaemonTaskInputBundle {
     skillReadinessBlockers?: string[];
     /** Frozen, non-secret references resolved to daemon-local dependency directories. */
     skillDependencyEnvironments?: DaemonSkillDependencyEnvironment[];
+    skillRunnerEntrypoints?: DaemonSkillRunnerEntrypoint[];
     effectiveModel?: {
       modelId: string;
       source: "session_override" | "employee_default" | "skill_requirement" | "runtime_default" | "team_policy_default" | "protocol_fallback";
@@ -341,6 +343,20 @@ export interface DaemonTaskInputBundle {
     };
   };
   files: DaemonInputBundleFile[];
+}
+
+export interface DaemonSkillRunnerEntrypoint {
+  /** Stable task-scoped lookup key: skillId:entrypointId. */
+  key: string;
+  skillId: string;
+  skillName: string;
+  installationId: string;
+  artifactDigest: string;
+  /** Expected digest of the executable file inside the sealed Runtime cache. */
+  sha256: string;
+  id: string;
+  path: string;
+  runtime: SkillEntrypointRuntime;
 }
 
 export interface RuntimeToolCapability {

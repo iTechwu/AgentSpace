@@ -34,6 +34,7 @@ export * from "./runtime-output-manifests.ts";
 export * from "./state.ts";
 export * from "./skill-imports.ts";
 export * from "./skill-install/task-environment.ts";
+export * from "./skill-runner.ts";
 export * from "./task-context.ts";
 export * from "./task-output.ts";
 export { McpGateway, type McpGatewayTaskSession, type McpToolAuditRecord } from "./mcp/gateway.ts";

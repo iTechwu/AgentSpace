@@ -10,6 +10,40 @@ set -eu
 : "${MANAGED_NODE_POSTGRES_CONTAINER:?Set MANAGED_NODE_POSTGRES_CONTAINER}"
 : "${MANAGED_NODE_POSTGRES_USER:?Set MANAGED_NODE_POSTGRES_USER}"
 : "${MANAGED_NODE_POSTGRES_DB:?Set MANAGED_NODE_POSTGRES_DB}"
+: "${DOFE_SKILL_RUNNER_NODE_IMAGE:?Set an immutable Node.js Skill Runner image}"
+: "${DOFE_SKILL_RUNNER_PYTHON_IMAGE:?Set an immutable Python Skill Runner image}"
+: "${DOFE_SKILL_RUNNER_BASH_IMAGE:?Set an immutable Bash Skill Runner image}"
+
+upsert_managed_node_env() {
+  env_file_path="$1"
+  env_key="$2"
+  env_value="$3"
+  env_tmp="$(mktemp "${env_file_path}.XXXXXX")"
+  grep -v "^${env_key}=" "$env_file_path" > "$env_tmp"
+  printf '%s=%s\n' "$env_key" "$env_value" >> "$env_tmp"
+  chmod 600 "$env_tmp"
+  mv "$env_tmp" "$env_file_path"
+}
+
+for runner_image in \
+  "$DOFE_SKILL_RUNNER_NODE_IMAGE" \
+  "$DOFE_SKILL_RUNNER_PYTHON_IMAGE" \
+  "$DOFE_SKILL_RUNNER_BASH_IMAGE"
+do
+  case "$runner_image" in
+    *@sha256:????????????????????????????????????????????????????????????????) ;;
+    *) printf '%s\n' "Skill Runner images must use repo@sha256:<64 hex> references" >&2; exit 1 ;;
+  esac
+  runner_digest="${runner_image##*@sha256:}"
+  case "$runner_digest" in
+    *[!0-9a-fA-F]*) printf '%s\n' "Skill Runner image digests must be hexadecimal" >&2; exit 1 ;;
+  esac
+  docker pull "$runner_image"
+done
+
+case "${DOFE_SKILL_RUNNER_TIMEOUT_MS:-60000}" in
+  ''|0|*[!0-9]*) printf '%s\n' "DOFE_SKILL_RUNNER_TIMEOUT_MS must be a positive integer" >&2; exit 1 ;;
+esac
 
 state_root="$MANAGED_NODE_DEPLOY_DIR/managed-nodes"
 image_tag="${MANAGED_RUNTIME_IMAGE_TAG:-latest}"
@@ -100,6 +134,11 @@ for workspace_id in $workspace_ids; do
     mv "$tmp_env" "$env_file"
     chmod 600 "$env_file"
   fi
+
+  upsert_managed_node_env "$env_file" "DOFE_SKILL_RUNNER_NODE_IMAGE" "$DOFE_SKILL_RUNNER_NODE_IMAGE"
+  upsert_managed_node_env "$env_file" "DOFE_SKILL_RUNNER_PYTHON_IMAGE" "$DOFE_SKILL_RUNNER_PYTHON_IMAGE"
+  upsert_managed_node_env "$env_file" "DOFE_SKILL_RUNNER_BASH_IMAGE" "$DOFE_SKILL_RUNNER_BASH_IMAGE"
+  upsert_managed_node_env "$env_file" "DOFE_SKILL_RUNNER_TIMEOUT_MS" "${DOFE_SKILL_RUNNER_TIMEOUT_MS:-60000}"
 
   MANAGED_NODE_ENV_FILE="$env_file" MANAGED_NODE_SERVER_HOST="$MANAGED_NODE_SERVER_HOST" \
     docker compose --project-name "$project" --env-file "$env_file" \

@@ -6,11 +6,13 @@ import { randomBytes } from "node:crypto";
 import test, { after, before, beforeEach } from "node:test";
 import {
   getDatabase,
+  readSkillInstallationComponentsSync,
   setSkillInstallationStatusSync,
   registerDaemonRuntimesSync,
   readTaskSkillExecutionSnapshotSync,
   setSkillRolloutPinSync,
   setStoredEmployeeSkillAssignmentsSync,
+  updateSkillInstallationComponentStatusSync,
 } from "@dofe-agent/db";
 import {
   assertSkillInstallationReadyForTaskSync,
@@ -90,14 +92,27 @@ function prepareSkillInstallationForTaskGate(
     runtimeId,
     artifactDigest: artifact.digest,
   });
+  markInstallationReady(installation.id, workspaceId);
+  return runtimeId;
+}
+
+function markInstallationReady(installationId: string, workspaceId = WORKSPACE_ID): void {
+  for (const component of readSkillInstallationComponentsSync(installationId)) {
+    updateSkillInstallationComponentStatusSync({
+      installationId,
+      kind: component.kind,
+      key: component.key,
+      status: "ready",
+      verifiedAt: new Date().toISOString(),
+    });
+  }
   setSkillInstallationStatusSync({
-    installationId: installation.id,
+    installationId,
     workspaceId,
     status: "ready",
     health: "healthy",
     verifiedAt: new Date().toISOString(),
   });
-  return runtimeId;
 }
 
 function createSkillWithConfig(name: string, key: string) {
@@ -308,13 +323,7 @@ function buildReadyInstallation(
     runtimeId,
     artifactDigest: artifact.digest,
   });
-  setSkillInstallationStatusSync({
-    installationId: installation.id,
-    workspaceId: WORKSPACE_ID,
-    status: "ready",
-    health: "healthy",
-    verifiedAt: new Date().toISOString(),
-  });
+  markInstallationReady(installation.id);
   return { artifactDigest: artifact.digest, installationId: installation.id, installation };
 }
 
@@ -380,13 +389,7 @@ test("assertSkillInstallationReadyForTaskSync resolves the highest ready revisio
   }
 
   // Once v2 is ready, the gate resolves it (no longer stuck on the v1 hardcode).
-  setSkillInstallationStatusSync({
-    installationId: v2.id,
-    workspaceId: WORKSPACE_ID,
-    status: "ready",
-    health: "healthy",
-    verifiedAt: new Date().toISOString(),
-  });
+  markInstallationReady(v2.id);
   const gateV2Ready = assertSkillInstallationReadyForTaskSync({
     workspaceId: WORKSPACE_ID,
     runtimeId,
@@ -504,12 +507,7 @@ test("task skill execution snapshot marks installations that require a daemon de
     runtimeId,
     artifactDigest: artifact.digest,
   });
-  setSkillInstallationStatusSync({
-    installationId: installation.id,
-    workspaceId: WORKSPACE_ID,
-    status: "ready",
-    health: "healthy",
-  });
+  markInstallationReady(installation.id);
 
   const snapshot = resolveSnapshotForTask(taskId, runtimeId, [skill]);
 
@@ -533,14 +531,14 @@ test("rollout_pin fixes new tasks to the pinned installation revision until the 
     files: [{ path: "SKILL.md", bytes: Buffer.from(`# Pin v1\n${randomBytes(4).toString("hex")}\n`) }],
   });
   const v1 = createSkillInstallationPlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest: artifact.digest });
-  setSkillInstallationStatusSync({ installationId: v1.id, workspaceId: WORKSPACE_ID, status: "ready", health: "healthy" });
+  markInstallationReady(v1.id);
   const v2 = createSkillUpgradePlanSync({
     workspaceId: WORKSPACE_ID,
     runtimeId,
     artifactDigest: artifact.digest,
     previousReadyInstallationId: v1.id,
   });
-  setSkillInstallationStatusSync({ installationId: v2.id, workspaceId: WORKSPACE_ID, status: "ready", health: "healthy" });
+  markInstallationReady(v2.id);
   assert.equal(v2.revision, "v2");
 
   // Assign the skill so the assignment row carries the rollout pin.
@@ -583,14 +581,14 @@ test("a degraded rollout pin fails closed instead of falling back to another rea
     files: [{ path: "SKILL.md", bytes: Buffer.from(`# Strict pin\n${randomBytes(4).toString("hex")}\n`) }],
   });
   const v1 = createSkillInstallationPlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest: artifact.digest });
-  setSkillInstallationStatusSync({ installationId: v1.id, workspaceId: WORKSPACE_ID, status: "ready", health: "healthy" });
+  markInstallationReady(v1.id);
   const v2 = createSkillUpgradePlanSync({
     workspaceId: WORKSPACE_ID,
     runtimeId,
     artifactDigest: artifact.digest,
     previousReadyInstallationId: v1.id,
   });
-  setSkillInstallationStatusSync({ installationId: v2.id, workspaceId: WORKSPACE_ID, status: "ready", health: "healthy" });
+  markInstallationReady(v2.id);
   setStoredEmployeeSkillAssignmentsSync("Pinned Researcher", [skill.id], WORKSPACE_ID);
   setSkillRolloutPinSync({ workspaceId: WORKSPACE_ID, skillId: skill.id, revision: "v1" });
   setSkillInstallationStatusSync({ installationId: v1.id, workspaceId: WORKSPACE_ID, status: "degraded", health: "failed" });

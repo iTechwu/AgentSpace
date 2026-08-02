@@ -20,6 +20,7 @@
 | [10-release-lock计划.md](./10-release-lock计划.md) | Release lock 生产接入、可重现性、消费链和测试计划 |
 | [11-版本治理后端核心计划.md](./11-版本治理后端核心计划.md) | 升级审批、lineage invariant、并发控制与回滚 |
 | [12-依赖安装验证计划.md](./12-依赖安装验证计划.md) | npm/pip 隔离安装、registry 固定与真实产物验证 |
+| [13-Skill-Runner实施与验收.md](./13-Skill-Runner实施与验收.md) | 脚本隔离执行、managed Provider bridge、镜像运维与验收门禁 |
 
 ## 决策摘要
 
@@ -51,12 +52,12 @@
 
 ## 当前基线与目标差距
 
-第五轮实施后，Remote 核心链路已闭环：不可变 artifact/blob、统一 package authority 和来源预算、安全下载、安装 cache 证据、真实 npm/pip/uv 隔离安装、任务 dependency env 消费、task bundle SHA/聚合预算、release lock/approval/fencing、service 原子编排、L3/L4 egress、file secret、严格 catalog admission、五步安装审阅和安装证据/卸载 UI 均已进入生产调用链。
+第六轮实施后，Remote 核心链路已闭环：不可变 artifact/blob、统一 package authority 和来源预算、安全下载、安装 cache 证据、真实 npm/pip/uv 隔离安装、任务 dependency env 消费、受控 Skill Runner、task bundle SHA/聚合预算、release lock/approval/fencing、service 原子编排、L3/L4 egress、file secret、严格 catalog admission、五步安装审阅和安装证据/卸载 UI 均已进入生产调用链。
 
 当前不再存在已知“组件 ready 但任务必然不可用”的代码缺口。生产放行仍有两个环境门禁：
 
 1. 在与生产一致的 Linux managed node 上执行真实 egress、IPv6、DNS/DoH、secret inspect、轮换和 daemon restart 负面 E2E。
-2. 在真实 Remote Runtime 执行 npm `require` 与 Python `import` smoke，并证明 env 删除/篡改后任务在 Provider 启动前 fail-closed。
+2. 在真实 Remote Runtime 通过 Runner 执行 npm `require` 与 Python `import` smoke，并证明镜像缺失、cache/env 删除或篡改后任务在 Provider 启动前或脚本调用时 fail-closed。
 
 继续优化项为：把当前一次性 binding 切换准确定位为 blue-green 或实现真正 canary；加强 rollback 的 artifact/env/service 预检与 compare-and-set；将 base64 task bundle 改为 content-addressed 分块/缓存传输；提供 system dependency catalog resolver；完成更新检查、legacy backfill、orphan GC、feature flag、指标告警、独立升级审批和 service 运维体验。
 

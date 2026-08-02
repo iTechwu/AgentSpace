@@ -27,6 +27,7 @@ import type {
   TaskSkillExecutionSnapshot,
 } from "@dofe-agent/domain";
 import {
+  buildSkillRunnerEntrypointsForSnapshotSync,
   buildContactAgentContext,
   readWorkspaceStateSync,
   resolveAgentDocumentContextSync,
@@ -159,6 +160,7 @@ export async function GET(
         skillDependencyEnvironments: buildSkillDependencyEnvironmentsForTaskBundle(
           prepared.skillExecutionSnapshot,
         ),
+        skillRunnerEntrypoints: buildSkillRunnerEntrypointsForSnapshotSync(prepared.skillExecutionSnapshot),
         effectiveModel,
         executionPolicy: agentProfile?.executionPolicy,
         runtimeApps: {

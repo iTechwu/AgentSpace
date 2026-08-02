@@ -41,6 +41,8 @@ function buildOperation(
     },
     artifactDir,
     rootDigestMatches,
+    undefined,
+    () => `registry.example.com/skill-runner@sha256:${"a".repeat(64)}`,
   );
 }
 
@@ -193,6 +195,39 @@ test("marks script blocked when syntax check fails", () => {
 
     assert.equal(results[0]?.status, "blocked");
     assert.equal(results[0]?.errorCode, "skill_installation.script_syntax_error");
+  } finally {
+    rmSync(artifactDir, { recursive: true, force: true });
+  }
+});
+
+test("blocks an otherwise valid script when its immutable runner image is not configured", () => {
+  const artifactDir = mkdtempSync(join(tmpdir(), "dofe-agent-verify-runner-image-"));
+
+  try {
+    writeFileSync(join(artifactDir, "run.sh"), "#!/bin/sh\necho hello\n", "utf8");
+    chmodSync(join(artifactDir, "run.sh"), 0o755);
+    const manifest = buildManifest({
+      files: [{ path: "run.sh", sha256: "any", size: 1, mediaType: "text/x-shellscript", mode: "0755" }],
+    });
+    const operation = {
+      operationId: "op-1",
+      claimGeneration: 1,
+      workspaceId: "default",
+      runtimeId: "runtime-1",
+      installationId: "install-1",
+      operation: "prepare" as const,
+      artifactDigest: "sha256:any",
+      artifactName: "test-skill",
+      manifestJson: JSON.stringify(manifest),
+      files: [],
+      components: [{ kind: "script" as const, key: "run.sh", status: "pending" as const }],
+      createdAt: new Date().toISOString(),
+    };
+
+    const results = verifySkillInstallationComponents(operation, artifactDir, true, undefined, () => undefined);
+
+    assert.equal(results[0]?.status, "blocked");
+    assert.equal(results[0]?.errorCode, "skill_runner.image_not_configured");
   } finally {
     rmSync(artifactDir, { recursive: true, force: true });
   }

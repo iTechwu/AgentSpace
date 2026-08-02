@@ -81,6 +81,13 @@ export interface DspEntrypoint {
   runtime: SkillEntrypointRuntime;
 }
 
+/** Stable executable name used by provider projections and the daemon broker. */
+export function buildSkillRunnerCommandName(skillName: string, skillId: string, entrypointId: string): string {
+  const sanitize = (value: string): string =>
+    value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "entrypoint";
+  return `dofe-skill-${sanitize(skillName)}-${sanitize(entrypointId)}-${sanitize(skillId).slice(-8)}`.slice(0, 120);
+}
+
 /** Risk classification assigned by inspection/scanning. */
 export type SkillArtifactRisk = "unknown" | "low" | "medium" | "high";
 
