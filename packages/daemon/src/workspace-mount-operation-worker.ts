@@ -1,39 +1,40 @@
 import { mkdirSync, rmSync } from "node:fs";
-import { getDaemonWorkspaceMountWorkDirPath } from "@dofe-agent/db";
+import { getDaemonRuntimeWorkspaceDirPath } from "@dofe-agent/db";
 import type { ClaimedWorkspaceMountOperation } from "@dofe-agent/domain";
 import type { HttpDaemonClient } from "./daemon-client.ts";
 import type { RemoteDaemonConfig } from "./remote-daemon.ts";
 import { materializeHeadRevisionToWorkDirStrict } from "./workdir-capture.ts";
 
-const KEEP_WORK_DIR_ENV = "DOFE_AGENT_KEEP_SKILL_INSTALL_WORK_DIR";
-
 /**
  * Executes a claimed workspace-mount operation: FAIL-CLOSED materialization of
- * the employee's durable head revision onto a transient verification dir on the
- * runtime. Any divergence (missing head, head-revision-id mismatch, unreadable
- * blob, digest mismatch, materialized-count mismatch) fails the operation, so
- * the recovery orchestrator never proceeds on a partial or tampered workspace.
+ * the employee's durable head revision into the runtime's PERSISTENT workspace
+ * dir (D-07/D-08). Any divergence (missing head, head-revision-id mismatch,
+ * unreadable blob, digest mismatch, materialized-count mismatch) fails the
+ * operation, so recovery never proceeds on a partial or tampered workspace.
+ * Unlike a transient verify dir, the materialized tree is KEPT — it becomes the
+ * runtime's durable workspace that future tasks build on.
  */
 export async function executeWorkspaceMountOperation(
   client: HttpDaemonClient,
   config: RemoteDaemonConfig,
   operation: ClaimedWorkspaceMountOperation,
 ): Promise<void> {
-  const workDir = getDaemonWorkspaceMountWorkDirPath(config.stateDir, {
+  const workspaceDir = getDaemonRuntimeWorkspaceDirPath(config.stateDir, {
     workspaceId: operation.workspaceId,
-    operationId: operation.operationId,
+    runtimeId: operation.runtimeId,
+    employeeName: operation.employeeName,
   });
-  rmSync(workDir, { recursive: true, force: true });
-  mkdirSync(workDir, { recursive: true });
+  mkdirSync(workspaceDir, { recursive: true });
 
   try {
-    const result = materializeHeadRevisionToWorkDirStrict(workDir, {
+    const result = materializeHeadRevisionToWorkDirStrict(workspaceDir, {
       workspaceId: operation.workspaceId,
       employeeName: operation.employeeName,
       expectedHeadRevisionId: operation.headRevisionId,
     });
     await client.completeWorkspaceMountOperation(operation.operationId, {
       materializedFiles: result.materializedFiles,
+      mountedPath: workspaceDir,
       runtimeId: operation.runtimeId,
     });
   } catch (error) {
@@ -43,8 +44,8 @@ export async function executeWorkspaceMountOperation(
       runtimeId: operation.runtimeId,
     });
   } finally {
-    if (!process.env[KEEP_WORK_DIR_ENV]) {
-      rmSync(workDir, { recursive: true, force: true });
-    }
+    // The persistent runtime workspace is deliberately KEPT — only a stale
+    // partially-materialized dir from a previous failed mount is cleared by the
+    // strict materializer's per-file overwrite. No cleanup here.
   }
 }

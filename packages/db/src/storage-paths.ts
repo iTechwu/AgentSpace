@@ -137,6 +137,39 @@ export function getDaemonSkillInstallEnvsDirPath(
   );
 }
 
+/**
+ * Root of the runtime app dependency installs (GitHub skill dependencies). The
+ * daemon executor runs install plans with cwd = this root so the plan's relative
+ * `deps/<manager>` dirs land here, isolated from Provider HOME/global paths.
+ */
+export function getDaemonRuntimeAppDepsRootPath(
+  stateDir: string,
+  input: { workspaceId?: string },
+): string {
+  return join(
+    getDaemonWorkspaceExecutionRootDir(stateDir, input.workspaceId ?? DEFAULT_WORKSPACE_ID),
+    "runtime-app-deps",
+  );
+}
+
+/**
+ * PERSISTENT runtime workspace dir: the head revision materialized here by the
+ * mount worker is KEPT (D-07/D-08: the runtime's durable workspace, seeded from
+ * the control plane). Future tasks materialize on top of it; the dir survives
+ * the mount operation's lifetime.
+ */
+export function getDaemonRuntimeWorkspaceDirPath(
+  stateDir: string,
+  input: { workspaceId?: string; runtimeId: string; employeeName: string },
+): string {
+  return join(
+    getDaemonWorkspaceExecutionRootDir(stateDir, input.workspaceId ?? DEFAULT_WORKSPACE_ID),
+    "runtime-workspaces",
+    sanitizeStoragePathSegment(input.runtimeId, "runtime"),
+    sanitizeStoragePathSegment(input.employeeName, "employee"),
+  );
+}
+
 /** Transient verification dir a daemon uses to prove it can materialize a workspace. */
 export function getDaemonWorkspaceMountWorkDirPath(
   stateDir: string,

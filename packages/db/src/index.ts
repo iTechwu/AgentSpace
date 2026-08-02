@@ -280,7 +280,9 @@ export {
   getDaemonSkillInstallCacheRoot,
   getDaemonSkillInstallWorkDirPath,
   getDaemonSkillInstallEnvsDirPath,
+  getDaemonRuntimeAppDepsRootPath,
   getDaemonTaskWorkDirPath,
+  getDaemonRuntimeWorkspaceDirPath,
   getDaemonWorkspaceMountWorkDirPath,
   getDaemonWorkspaceExecutionRootDir,
   getLocalDaemonStateDirPath,
@@ -932,16 +934,32 @@ export {
   readManagedSkillServiceSync,
   listManagedSkillServicesSync,
   setManagedSkillServiceHealthSync,
+  completeManagedSkillServiceProvisioningSync,
+  retireManagedSkillServiceSync,
   createSkillServiceBindingSync,
   listSkillServiceBindingsSync,
   type UpsertSkillServiceCatalogInput,
   type UpsertManagedSkillServiceInput,
   type CreateSkillServiceBindingInput,
 } from "./skill-services.ts";
+export {
+  createManagedSkillServiceOperationSync,
+  readManagedSkillServiceOperationSync,
+  listManagedSkillServiceOperationsSync,
+  claimNextManagedSkillServiceOperationForRuntimeSync,
+  startManagedSkillServiceOperationSync,
+  renewManagedSkillServiceOperationLeaseSync,
+  requeueExpiredManagedSkillServiceOperationLeasesSync,
+  completeManagedSkillServiceOperationSync,
+  failManagedSkillServiceOperationSync,
+  SKILL_SERVICE_OPERATION_LEASE_SECONDS,
+  type CreateManagedSkillServiceOperationInput,
+} from "./skill-service-operations.ts";
 export type {
   StoredSkillServiceCatalogRecord,
   StoredManagedSkillServiceRecord,
   StoredSkillServiceBindingRecord,
+  ManagedSkillServiceOperationRecord,
 } from "./types.ts";
 export {
   upsertTaskCommitJournalSync,

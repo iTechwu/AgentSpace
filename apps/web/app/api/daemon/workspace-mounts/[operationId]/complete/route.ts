@@ -20,7 +20,7 @@ export async function POST(
     return Response.json({ error: "workspace_mount.not_found" }, { status: 404 });
   }
 
-  const body = (await request.json()) as { materializedFiles?: number; runtimeId?: string };
+  const body = (await request.json()) as { materializedFiles?: number; mountedPath?: string; runtimeId?: string };
   // The completing daemon must be the one that owns the operation's runtime.
   if (typeof body.runtimeId !== "string" || body.runtimeId !== operation.runtimeId) {
     return Response.json(
@@ -31,6 +31,8 @@ export async function POST(
   const completed = completeWorkspaceMountOperationSync({
     operationId,
     workspaceId: auth.workspaceId,
+    materializedFiles: body.materializedFiles,
+    mountedPath: body.mountedPath,
   });
 
   tryRecordWorkspaceAuditEventSync({

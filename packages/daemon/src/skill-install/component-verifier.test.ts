@@ -344,10 +344,10 @@ test("redacts suspected secrets in syntax check output", () => {
   }
 });
 
-test("returns blocked for unimplemented service components", () => {
+test("service components are control-plane-decided (daemon reports pending)", () => {
   const manifest = buildManifest();
   const results = buildOperation(manifest, [{ kind: "service", key: "service:cache", status: "pending" }], "");
 
-  assert.equal(results[0]?.status, "blocked");
-  assert.equal(results[0]?.errorCode, "skill_installation.service_not_implemented");
+  assert.equal(results[0]?.status, "pending");
+  assert.equal(results[0]?.errorCode, "skill_installation.service_control_plane_decided");
 });

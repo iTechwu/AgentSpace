@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "74";
+export const POSTGRES_SCHEMA_VERSION = "76";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -90,6 +90,7 @@ export const POSTGRES_TABLE_NAMES = [
   "skill_service_catalog",
   "managed_skill_service",
   "skill_service_binding",
+  "managed_skill_service_operation",
   "employee_persistent_workspace",
   "employee_workspace_revision",
   "employee_artifact",
@@ -2690,6 +2691,23 @@ export function getPostgresSchemaStatements(): string[] {
       )
     `,
     `
+      CREATE TABLE IF NOT EXISTS managed_skill_service_operation (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
+        service_id TEXT NOT NULL REFERENCES managed_skill_service(id) ON DELETE CASCADE,
+        installation_id TEXT REFERENCES skill_installation(id) ON DELETE SET NULL,
+        operation TEXT NOT NULL,
+        status TEXT NOT NULL,
+        error_code TEXT,
+        error_message TEXT,
+        claimed_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        lease_expires_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
       ALTER TABLE skill ADD COLUMN IF NOT EXISTS active_artifact_digest TEXT
     `,
     `
@@ -3177,6 +3195,14 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_runtime_workspace_mount_claim
         ON runtime_workspace_mount_operation(workspace_id, runtime_id, status)
+    `,
+    `
+      ALTER TABLE runtime_workspace_mount_operation
+        ADD COLUMN IF NOT EXISTS materialized_files INTEGER
+    `,
+    `
+      ALTER TABLE runtime_workspace_mount_operation
+        ADD COLUMN IF NOT EXISTS mounted_path TEXT
     `,
     `
       ALTER TABLE task_commit_journal

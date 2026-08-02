@@ -1566,6 +1566,22 @@ export interface StoredSkillServiceBindingRecord {
   createdAt: string;
 }
 
+export interface ManagedSkillServiceOperationRecord {
+  id: string;
+  workspaceId: string;
+  runtimeId: string;
+  serviceId: string;
+  installationId?: string;
+  operation: "provision" | "retire";
+  status: "pending" | "claimed" | "running" | "succeeded" | "failed";
+  errorCode?: string;
+  errorMessage?: string;
+  claimedAt?: string;
+  completedAt?: string;
+  leaseExpiresAt?: string;
+  createdAt: string;
+}
+
 export interface EmployeePersistentWorkspaceRecord {
   id: string;
   workspaceId: string;

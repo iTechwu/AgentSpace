@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
-import { getDaemonChannelWorkDirPath, getDaemonTaskWorkDirPath } from "@dofe-agent/db";
+import {
+  getDaemonChannelWorkDirPath,
+  getDaemonRuntimeAppDepsRootPath,
+  getDaemonTaskWorkDirPath,
+} from "@dofe-agent/db";
 import {
   isDaemonProvider,
   resolveProviderProtocols,
@@ -692,7 +696,7 @@ async function pollRemoteTasks(
       const appOperation = await client.claimRuntimeAppOperation(runtime.id);
       if (appOperation.operation) {
         activeRuntimes.add(runtime.id);
-        void executeRemoteRuntimeAppOperation(client, appOperation.operation)
+        void executeRemoteRuntimeAppOperation(client, config, appOperation.operation)
           .catch((error) => {
             const message = error instanceof Error ? error.message : String(error);
             console.error(`Runtime app operation ${appOperation.operation?.id ?? "unknown"} crashed: ${message}`);
@@ -782,6 +786,7 @@ async function pollRemoteTasks(
 
 async function executeRemoteRuntimeAppOperation(
   client: HttpDaemonClient,
+  config: RemoteDaemonConfig,
   operation: ClaimedRuntimeAppOperation,
 ): Promise<void> {
   await client.startRuntimeAppOperation(operation.id);
@@ -794,7 +799,13 @@ async function executeRemoteRuntimeAppOperation(
     return;
   }
   try {
-    const result = await executeRuntimeAppPlan(plan);
+    // GitHub-skill dependency plans install into relative deps/<manager> dirs;
+    // the runtime app deps root is the executor cwd so they stay isolated from
+    // Provider HOME/global package paths.
+    const depsRoot = getDaemonRuntimeAppDepsRootPath(config.stateDir, {
+      workspaceId: operation.workspaceId,
+    });
+    const result = await executeRuntimeAppPlan(plan, { cwd: depsRoot });
     await client.completeRuntimeAppOperation(operation.id, {
       safeStdoutTail: result.safeStdoutTail,
       safeStderrTail: result.safeStderrTail,

@@ -201,6 +201,34 @@ export function setManagedSkillServiceHealthSync(input: {
   return result.changes > 0;
 }
 
+/** Marks a managed service provisioned + healthy (provisioning → ready). */
+export function completeManagedSkillServiceProvisioningSync(input: {
+  serviceId: string;
+  workspaceId?: string;
+  health?: string;
+}): boolean {
+  return setManagedSkillServiceHealthSync({
+    serviceId: input.serviceId,
+    workspaceId: input.workspaceId,
+    status: "ready",
+    health: input.health ?? "healthy",
+  });
+}
+
+/** Retires a managed service (ready/degraded → retired). */
+export function retireManagedSkillServiceSync(input: {
+  serviceId: string;
+  workspaceId?: string;
+}): boolean {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const result = db.prepare(
+    `UPDATE managed_skill_service SET status = 'retired', updated_at = ?
+     WHERE id = ? AND workspace_id = ? AND status IN ('ready', 'degraded', 'provisioning')`,
+  ).run(new Date().toISOString(), input.serviceId, workspaceId);
+  return result.changes > 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* Bindings (installation × instance)                                  */
 /* ------------------------------------------------------------------ */

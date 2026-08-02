@@ -12,7 +12,10 @@ import { reconcileAllManagedRuntimeUsageAsync } from "../models/usage-sync.ts";
 import { scheduleMcpHealthChecksSync } from "../mcp-center/connections.ts";
 import { advanceRecoverableOperationsSync } from "../employees/recovery-worker.ts";
 import { runEmployeeLifecycleMaintenanceSync } from "../employees/lifecycle-maintenance.ts";
-import { requeueExpiredSkillInstallationOperationLeasesSync } from "@dofe-agent/db";
+import {
+  requeueExpiredManagedSkillServiceOperationLeasesSync,
+  requeueExpiredSkillInstallationOperationLeasesSync,
+} from "@dofe-agent/db";
 
 export interface RuntimeMaintenanceStageResult {
   status: "succeeded" | "failed";
@@ -69,7 +72,10 @@ export const defaultDependencies: RuntimeMaintenanceDependencies = {
   reconcileUsage: reconcileAllManagedRuntimeUsageAsync,
   scheduleMcpHealthChecks: scheduleMcpHealthChecksSync,
   advanceRecoveries: advanceRecoverableOperationsSync,
-  requeueSkillOperationLeases: () => requeueExpiredSkillInstallationOperationLeasesSync(),
+  requeueSkillOperationLeases: () => {
+    requeueExpiredSkillInstallationOperationLeasesSync();
+    requeueExpiredManagedSkillServiceOperationLeasesSync();
+  },
   lifecycle: () => runEmployeeLifecycleMaintenanceSync(),
 };
 

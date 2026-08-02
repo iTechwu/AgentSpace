@@ -234,6 +234,8 @@ export interface ClaimWorkspaceMountOperationResponse {
 
 export interface CompleteWorkspaceMountOperationRequest {
   materializedFiles?: number;
+  /** Daemon-local path of the persistent runtime workspace (kept after mount). */
+  mountedPath?: string;
   /** The daemon's runtime; the control plane verifies it owns the operation. */
   runtimeId: string;
 }

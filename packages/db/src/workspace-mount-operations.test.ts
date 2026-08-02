@@ -72,9 +72,16 @@ test("create → claim → complete drives a workspace mount operation to comple
   assert.equal(claimed!.status, "claimed");
 
   startWorkspaceMountOperationSync(claimed!.id, "default");
-  const completed = completeWorkspaceMountOperationSync({ operationId: op.id, workspaceId: "default" });
+  const completed = completeWorkspaceMountOperationSync({
+    operationId: op.id,
+    workspaceId: "default",
+    materializedFiles: 3,
+    mountedPath: "/state/runtime-workspaces/runtime-1/Alice",
+  });
   assert.equal(completed.status, "completed");
   assert.ok(completed.completedAt);
+  assert.equal(completed.materializedFiles, 3, "mount evidence: materialized file count stored");
+  assert.equal(completed.mountedPath, "/state/runtime-workspaces/runtime-1/Alice", "mount evidence: persistent path stored");
 });
 
 test("claim is atomic and skips already-claimed operations", () => {

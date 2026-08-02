@@ -325,11 +325,26 @@ function runPhase(
         }
         const mount = readWorkspaceMountOperationSync(ctx.mountOperationId, workspaceId);
         if (mount?.status === "completed") {
+          // FS smoke evidence: the daemon must have materialized EXACTLY the
+          // head manifest's file count into the persistent runtime workspace.
+          // A count mismatch means the mount worker reported success on a
+          // partial tree — treat it as a failed mount, never proceed.
+          if (typeof mount.materializedFiles === "number" && mount.materializedFiles !== blobDigests.length) {
+            throw new Error(
+              `Workspace mount evidence mismatch: daemon materialized ${mount.materializedFiles}/${blobDigests.length} files.`,
+            );
+          }
           return advanceRecoveryPhaseSync({
             operationId: operation.id,
             phase: "install_skills",
             workspaceId,
-            contextJson: mergeContextJson(operation.contextJson, { headRevisionId: head.id, manifestDigest: head.manifestDigest, blobCount: blobDigests.length }),
+            contextJson: mergeContextJson(operation.contextJson, {
+              headRevisionId: head.id,
+              manifestDigest: head.manifestDigest,
+              blobCount: blobDigests.length,
+              mountMaterializedFiles: mount.materializedFiles,
+              mountPath: mount.mountedPath,
+            }),
           });
         }
         if (mount?.status === "failed") {

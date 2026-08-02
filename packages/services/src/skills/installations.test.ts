@@ -4,7 +4,10 @@ import { getDatabase } from "@dofe-agent/db";
 import { randomLikeId } from "@dofe-agent/db";
 import {
   claimNextSkillInstallationOperationForRuntimeSync,
+  completeManagedSkillServiceProvisioningSync,
   completeSkillInstallationOperationSync as completeSkillOperationDbSync,
+  createManagedSkillServiceSync,
+  createSkillServiceBindingSync,
   listSkillInstallationOperationsSync,
   readActiveArtifactDigestForSkillSync,
   readSkillInstallationComponentsSync,
@@ -13,6 +16,7 @@ import {
   renewSkillInstallationOperationLeaseSync,
   requeueExpiredSkillInstallationOperationLeasesSync,
   startSkillInstallationOperationSync,
+  upsertSkillServiceCatalogSync,
 } from "@dofe-agent/db";
 import {
   approveSkillUpgradeSync,
@@ -623,4 +627,76 @@ test("the reaper re-queues expired operations for crash recovery", () => {
   const reClaimed = claimForTest(runtimeId, new Date("2026-01-01T00:06:00Z"));
   assert.ok(reClaimed);
   assert.equal(reClaimed!.id, claimed!.id);
+});
+
+/* ------------------------------------------------------------------ */
+/* Service components (control-plane decided from binding state)        */
+/* ------------------------------------------------------------------ */
+
+function buildArtifactWithService(salt: string) {
+  return buildAndPersistSkillArtifactSync({
+    name: "Service Skill",
+    files: [{ path: "SKILL.md", bytes: encoder.encode(`# Body ${salt}\n`) }],
+    services: [{ catalogSlug: "renderer", templateVersion: "1.0.0", required: true }],
+  });
+}
+
+function seedRendererCatalog(): string {
+  return upsertSkillServiceCatalogSync({
+    workspaceId: "default",
+    slug: "renderer",
+    templateVersion: "1.0.0",
+    deploymentType: "managed_service",
+    imageDigest: `sha256:${"a".repeat(64)}`,
+    configSchemaVersion: 1,
+  }).id;
+}
+
+test("a service component without a binding blocks the installation even if the daemon reports ready", async () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  seedRendererCatalog();
+  const artifact = buildArtifactWithService("svc-a");
+  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  assert.equal(installation.status, "preparing", "catalog entry resolves the service, so the plan is not blocked");
+
+  await completeAllComponents(installation.id, runtimeId);
+
+  const refreshed = readSkillInstallationSync(installation.id, "default");
+  assert.equal(refreshed?.status, "blocked", "no binding → service component blocked → installation blocked");
+  const serviceComponent = readSkillInstallationComponentsSync(installation.id)
+    .find((component) => component.kind === "service" && component.key === "service:renderer");
+  assert.equal(serviceComponent?.status, "blocked");
+  assert.equal(serviceComponent?.errorCode, "skill_installation.service_not_ready");
+});
+
+test("a service component with a ready managed service + binding lets the installation reach ready", async () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const catalogId = seedRendererCatalog();
+  const artifact = buildArtifactWithService("svc-b");
+  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+
+  const managed = createManagedSkillServiceSync({
+    workspaceId: "default",
+    runtimeId,
+    catalogId,
+    status: "provisioning",
+  });
+  completeManagedSkillServiceProvisioningSync({ serviceId: managed.id, workspaceId: "default" });
+  createSkillServiceBindingSync({
+    installationId: installation.id,
+    serviceId: managed.id,
+    catalogTemplateVersion: "1.0.0",
+    serviceImageDigest: `sha256:${"a".repeat(64)}`,
+    endpointRef: "runtime-private://renderer",
+  });
+
+  await completeAllComponents(installation.id, runtimeId);
+
+  const refreshed = readSkillInstallationSync(installation.id, "default");
+  assert.equal(refreshed?.status, "ready", "bound + ready managed service lets the service component pass");
+  const serviceComponent = readSkillInstallationComponentsSync(installation.id)
+    .find((component) => component.kind === "service" && component.key === "service:renderer");
+  assert.equal(serviceComponent?.status, "ready");
 });

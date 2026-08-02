@@ -19,6 +19,9 @@ import {
   setSkillInstallationPreparedPathSync,
   setSkillInstallationStatusSync,
   updateSkillInstallationComponentStatusSync,
+  listSkillServiceBindingsSync,
+  listSkillServiceCatalogSync,
+  readManagedSkillServiceSync,
   withTransaction,
   type ContentBlobRecord,
   type SkillInstallationComponentInput,
@@ -399,14 +402,20 @@ export function completeSkillInstallationOperationSync(input: {
         throw new SkillOperationConflictError("not_completable");
       }
       for (const component of submitted) {
+        // Service components are control-plane-decided: the daemon reports
+        // `pending`, and readiness is overridden from the service binding state
+        // (bound + managed service ready → ready; otherwise blocked, fail-closed).
+        const resolved = component.kind === "service"
+          ? resolveServiceComponentStatus(component.key, operation.installationId, workspaceId)
+          : { status: component.status };
         const changed = updateSkillInstallationComponentStatusSync({
           installationId: operation.installationId,
           kind: component.kind,
           key: component.key,
-          status: component.status,
-          errorCode: component.errorCode,
-          errorMessage: component.errorMessage,
-          verifiedAt: component.status === "ready" ? new Date().toISOString() : undefined,
+          status: resolved.status,
+          errorCode: resolved.status === "ready" ? undefined : "skill_installation.service_not_ready",
+          errorMessage: resolved.status === "ready" ? undefined : `Service is not ready on this runtime (binding missing or not healthy).`,
+          verifiedAt: resolved.status === "ready" ? new Date().toISOString() : undefined,
           lastOperationId: operation.id,
         });
         if (!changed) {
@@ -521,6 +530,35 @@ export function failSkillInstallationOperationSync(input: {
     throw error;
   }
   return { ok: true };
+}
+
+/**
+ * Control-plane service readiness (02-架构设计.md §4.3): a `service:<slug>`
+ * component is `ready` only when a skill_service_binding exists whose managed
+ * service is `ready` on the runtime; otherwise `blocked` (fail-closed — a
+ * declared service must never be silently skipped).
+ */
+function resolveServiceComponentStatus(
+  componentKey: string,
+  installationId: string,
+  workspaceId: string,
+): { status: "ready" | "blocked" } {
+  const slug = componentKey.startsWith("service:") ? componentKey.slice("service:".length) : componentKey;
+  const catalogIdBySlug = new Map(
+    listSkillServiceCatalogSync(workspaceId).map((catalog) => [catalog.slug, catalog.id]),
+  );
+  const bindings = listSkillServiceBindingsSync(installationId);
+  for (const binding of bindings) {
+    const managed = readManagedSkillServiceSync(binding.serviceId, workspaceId);
+    if (!managed) {
+      continue;
+    }
+    const catalogId = catalogIdBySlug.get(slug);
+    if (managed.catalogId === catalogId && managed.status === "ready") {
+      return { status: "ready" };
+    }
+  }
+  return { status: "blocked" };
 }
 
 function parseCompletionEvidence(

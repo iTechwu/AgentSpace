@@ -137,10 +137,14 @@ export async function executeSkillInstallationOperation(
       dependencyInstallResults,
     );
 
-    const allReady = componentStatuses.every((component) => component.status === "ready");
+    // Services are control-plane-decided (the daemon reports `pending`), so they
+    // are excluded from the daemon-side allReady gate; the control plane overrides
+    // them from the service binding state during completion.
+    const allReady = componentStatuses.every((component) =>
+      component.kind === "service" || component.status === "ready");
     if (!allReady) {
       const blocked = componentStatuses.find((component) =>
-        component.status !== "ready");
+        component.kind !== "service" && component.status !== "ready");
       throw new SkillVerificationError(
         blocked?.errorMessage ?? "One or more components failed verification",
         blocked?.errorCode ?? "skill_installation.component_verification_failed",

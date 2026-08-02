@@ -83,12 +83,15 @@ function verifyComponent(
     case "mcp":
       return verifyCapabilityComponent(kind, key, manifest);
     case "service":
+      // Services are control-plane-decided: the daemon cannot verify a managed
+      // service container, so it reports `pending` and the control plane overrides
+      // the component from the skill_service_binding state on completion.
       return {
         kind,
         key,
-        status: "blocked",
-        errorCode: "skill_installation.service_not_implemented",
-        errorMessage: "Managed service verification is not implemented in this daemon version.",
+        status: "pending",
+        errorCode: "skill_installation.service_control_plane_decided",
+        errorMessage: "Service readiness is decided by the control plane from the service binding state.",
       };
     default:
       return {

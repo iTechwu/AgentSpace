@@ -370,6 +370,8 @@ const NORMALIZED_ROW_KEY_ALIASES = new Map([
   ["prepareddigest", "preparedDigest"],
   ["provisioningtaskid", "provisioningTaskId"],
   ["mountoperationid", "mountOperationId"],
+  ["materializedfiles", "materializedFiles"],
+  ["mountedpath", "mountedPath"],
   ["healthcheckedat", "healthCheckedAt"],
   ["approvalstate", "approvalState"],
   ["approvedbyuserid", "approvedByUserId"],

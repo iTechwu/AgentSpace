@@ -13,6 +13,10 @@ export interface WorkspaceMountOperationRecord {
   completedAt?: string;
   errorCode?: string;
   errorMessage?: string;
+  /** Number of files materialized into the persistent runtime workspace. */
+  materializedFiles?: number;
+  /** Daemon-local path of the persistent runtime workspace (kept after mount). */
+  mountedPath?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -28,6 +32,7 @@ const MOUNT_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, runtime_id AS runtimeId, employee_name AS employeeName,
   head_revision_id AS headRevisionId, status, claimed_at AS claimedAt, completed_at AS completedAt,
   error_code AS errorCode, error_message AS errorMessage,
+  materialized_files AS materializedFiles, mounted_path AS mountedPath,
   created_at AS createdAt, updated_at AS updatedAt`;
 
 export function createWorkspaceMountOperationSync(
@@ -110,15 +115,25 @@ export function completeWorkspaceMountOperationSync(input: {
   operationId: string;
   workspaceId?: string;
   headRevisionId?: string;
+  materializedFiles?: number;
+  mountedPath?: string;
 }): WorkspaceMountOperationRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = new Date().toISOString();
   const result = db.prepare(
     `UPDATE runtime_workspace_mount_operation
-       SET status = 'completed', completed_at = ?, error_code = NULL, error_message = NULL, updated_at = ?
+       SET status = 'completed', completed_at = ?, error_code = NULL, error_message = NULL,
+           materialized_files = ?, mounted_path = ?, updated_at = ?
      WHERE id = ? AND workspace_id = ? AND status IN ('claimed', 'running')`,
-  ).run(now, now, input.operationId, workspaceId);
+  ).run(
+    now,
+    input.materializedFiles ?? null,
+    input.mountedPath?.trim() || null,
+    now,
+    input.operationId,
+    workspaceId,
+  );
   if (result.changes === 0) {
     throw new Error("Workspace mount operation is not in a completable state.");
   }
@@ -168,6 +183,8 @@ function mapMountOperationRecord(value: Record<string, unknown>): WorkspaceMount
     completedAt: typeof value.completedAt === "string" ? value.completedAt : undefined,
     errorCode: typeof value.errorCode === "string" ? value.errorCode : undefined,
     errorMessage: typeof value.errorMessage === "string" ? value.errorMessage : undefined,
+    materializedFiles: typeof value.materializedFiles === "number" ? value.materializedFiles : undefined,
+    mountedPath: typeof value.mountedPath === "string" ? value.mountedPath : undefined,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };

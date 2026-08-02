@@ -28,11 +28,14 @@ export interface RuntimeAppExecutionResult {
   safeStderrTail: string;
 }
 
-export async function executeRuntimeAppPlan(plan: RuntimeAppInstallPlan): Promise<RuntimeAppExecutionResult> {
+export async function executeRuntimeAppPlan(
+  plan: RuntimeAppInstallPlan,
+  options?: { cwd?: string },
+): Promise<RuntimeAppExecutionResult> {
   let stdout = "";
   let stderr = "";
   for (const command of [...plan.commands, ...plan.verifyCommands]) {
-    const result = await execCommand(command);
+    const result = await execCommand(command, { cwd: options?.cwd });
     stdout += `\n$ ${renderCommand(command)}\n${result.stdout}`;
     stderr += result.stderr ? `\n$ ${renderCommand(command)}\n${result.stderr}` : "";
   }
@@ -94,17 +97,30 @@ function checkCommand(command: string, args: string[]): RuntimeAppReadinessItem 
   };
 }
 
-function execCommand(command: RuntimeAppCommandPlanItem): Promise<{ stdout: string; stderr: string }> {
+const RUNTIME_APP_COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
+const KILL_GRACE_MS = 5_000;
+
+function execCommand(
+  command: RuntimeAppCommandPlanItem,
+  options?: { cwd?: string },
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(command.executable, command.args, {
+      cwd: options?.cwd,
+      // Minimal env: only PATH + the plan's own env — host secrets must not leak
+      // into package-manager subprocesses.
       env: {
-        ...process.env,
+        PATH: process.env.PATH ?? "",
         ...(command.env ?? {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS).unref();
+    }, RUNTIME_APP_COMMAND_TIMEOUT_MS);
     child.stdout.on("data", (chunk) => {
       stdout += String(chunk);
       stdout = stdout.slice(-MAX_TAIL_CHARS * 2);
@@ -114,9 +130,11 @@ function execCommand(command: RuntimeAppCommandPlanItem): Promise<{ stdout: stri
       stderr = stderr.slice(-MAX_TAIL_CHARS * 2);
     });
     child.on("error", (error) => {
+      clearTimeout(timer);
       reject(error);
     });
     child.on("close", (code) => {
+      clearTimeout(timer);
       if (code === 0) {
         resolve({ stdout, stderr });
         return;

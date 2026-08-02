@@ -1,0 +1,91 @@
+import {
+  completeManagedSkillServiceOperationSync as completeOperationDbSync,
+  completeManagedSkillServiceProvisioningSync,
+  createManagedSkillServiceOperationSync,
+  createManagedSkillServiceSync,
+  createSkillServiceBindingSync,
+  readManagedSkillServiceOperationSync,
+  readSkillServiceCatalogSync,
+} from "@dofe-agent/db";
+import { evaluateSkillInstallationReadinessSync } from "../skills/installations.ts";
+
+/**
+ * Control-plane service lifecycle (02-架构设计.md §4.3): the managed node
+ * creates/retires the `managed_skill_service` container; the CONTROL PLANE
+ * creates the `skill_service_binding` after the daemon reports the service
+ * healthy, then re-evaluates the dependent installation.
+ */
+
+/**
+ * Queues a `provision` operation for a required service on a runtime. Dedupes
+ * the managed service per (workspace, runtime, catalog) so re-plans reuse the
+ * instance; the operation records the triggering installation so the control
+ * plane can bind it on completion.
+ */
+export function queueManagedSkillServiceForInstallationSync(input: {
+  workspaceId?: string;
+  runtimeId: string;
+  installationId: string;
+  catalogSlug: string;
+  templateVersion: string;
+}): { serviceId: string; queued: boolean } {
+  const workspaceId = input.workspaceId ?? "default";
+  const catalog = readSkillServiceCatalogSync(input.catalogSlug, input.templateVersion, workspaceId);
+  if (!catalog) {
+    throw new Error(`Skill service catalog entry "${input.catalogSlug}@${input.templateVersion}" does not exist.`);
+  }
+  const service = createManagedSkillServiceSync({
+    workspaceId,
+    runtimeId: input.runtimeId,
+    catalogId: catalog.id,
+    status: "provisioning",
+  });
+  const operation = createManagedSkillServiceOperationSync({
+    workspaceId,
+    runtimeId: input.runtimeId,
+    serviceId: service.id,
+    installationId: input.installationId,
+    operation: "provision",
+  });
+  return { serviceId: service.id, queued: true };
+}
+
+/**
+ * Completes a managed service provision operation reported by the daemon:
+ * marks the service ready, creates the installation binding (the control-plane
+ * artifact), and re-evaluates the installation so its service component can
+ * reach ready. Rejects an operation without a verifiable endpointRef.
+ */
+export function completeManagedSkillServiceProvisionOperationSync(input: {
+  operationId: string;
+  workspaceId?: string;
+  endpointRef: string;
+  healthRevision?: string;
+}): { ok: true } | { ok: false; code: string; reason: string } {
+  const workspaceId = input.workspaceId ?? "default";
+  if (!input.endpointRef.trim() || !input.endpointRef.startsWith("runtime-private://")) {
+    return { ok: false, code: "invalid_endpoint", reason: "endpointRef must be a runtime-private:// reference." };
+  }
+  const operation = readManagedSkillServiceOperationSync(input.operationId, workspaceId);
+  if (!operation) {
+    return { ok: false, code: "operation_not_found", reason: "Service operation does not exist." };
+  }
+  const done = completeOperationDbSync({ operationId: input.operationId, workspaceId });
+  if (!done) {
+    return { ok: false, code: "not_completable", reason: "Operation is no longer completable." };
+  }
+  completeManagedSkillServiceProvisioningSync({ serviceId: operation.serviceId, workspaceId });
+  if (operation.installationId) {
+    createSkillServiceBindingSync({
+      installationId: operation.installationId,
+      serviceId: operation.serviceId,
+      catalogTemplateVersion: "1",
+      serviceImageDigest: "managed",
+      endpointRef: input.endpointRef.trim(),
+      healthRevision: input.healthRevision ?? "1",
+      configSchemaVersion: 1,
+    });
+    evaluateSkillInstallationReadinessSync(operation.installationId, workspaceId);
+  }
+  return { ok: true };
+}
