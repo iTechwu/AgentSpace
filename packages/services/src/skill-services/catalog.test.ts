@@ -233,6 +233,23 @@ test("catalog admission validates health, resources and secret-field JSON shapes
   assert.equal(okSecret.ok, true);
 });
 
+test("catalog admission requires egressAllowlist for image templates (empty allowed)", () => {
+  const missing = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    networkJson: JSON.stringify({ ingress: "private" }),
+  });
+  assert.equal(missing.ok, false);
+  if (!missing.ok) {
+    assert.match(missing.reason, /egressAllowlist/);
+  }
+
+  const empty = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    networkJson: JSON.stringify({ egressAllowlist: [] }),
+  });
+  assert.equal(empty.ok, true, "an explicit empty allow-list (no egress) is valid");
+});
+
 test("catalog admission validates egress allow-list entry format", () => {
   const bad = assertSkillServiceCatalogAdmissionSync({
     ...validInput(),

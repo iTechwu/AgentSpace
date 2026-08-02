@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
 import test, { afterEach, beforeEach } from "node:test";
 import {
+  buildEgressHostsFile,
   buildManagedServiceContainerCreateArgs,
   buildManagedServiceContainerName,
   buildManagedServiceHealthcheckArgs,
   buildManagedServiceInspectArgs,
+  buildManagedServiceInternalNetworkName,
+  buildManagedServiceNetworkArgs,
   buildManagedServiceResourceArgs,
   computeManagedServiceHealthRevision,
   createDockerManagedServiceContainerRuntime,
   DockerContainerError,
+  parseEgressAllowlistHostnames,
   type ManagedContainerExec,
 } from "./managed-service-runtime.ts";
 
@@ -152,6 +156,98 @@ test("create args inject declared secrets as env pairs", () => {
     network: NETWORK,
   });
   assert.ok(!noSecrets.includes("--env"));
+});
+
+/* ------------------------------------------------------------------ */
+/* Egress enforcement (pure builders + provision)                      */
+/* ------------------------------------------------------------------ */
+
+test("parseEgressAllowlistHostnames strips schemes, paths and ports", () => {
+  assert.deepEqual(
+    parseEgressAllowlistHostnames(["https://fonts.example.com/a.css", "api.example.com:443", "raw.example.com"]),
+    ["fonts.example.com", "api.example.com", "raw.example.com"],
+  );
+  assert.deepEqual(parseEgressAllowlistHostnames([]), []);
+});
+
+test("buildEgressHostsFile pins resolved IPs and localhost", () => {
+  const ipByHostname = new Map([["fonts.example.com", "203.0.113.10"]]);
+  const content = buildEgressHostsFile(["fonts.example.com"], ipByHostname);
+  assert.match(content, /127\.0\.0\.1 localhost/);
+  assert.match(content, /203\.0\.113\.10 fonts\.example\.com/);
+});
+
+test("buildManagedServiceNetworkArgs: missing → shared, empty → internal, non-empty → dns + hosts", () => {
+  const shared = buildManagedServiceNetworkArgs({ egressAllowlist: undefined, network: "mgmt", workspaceId: "default" });
+  assert.deepEqual(shared.args, ["--network", "mgmt"]);
+  assert.equal(shared.internalNetworkName, undefined);
+
+  const internal = buildManagedServiceNetworkArgs({ egressAllowlist: [], network: "mgmt", workspaceId: "default" });
+  assert.equal(buildManagedServiceInternalNetworkName("default"), "dofe-svc-internal-default");
+  assert.deepEqual(internal.args, ["--network", "dofe-svc-internal-default", "--network", "mgmt"]);
+  assert.equal(internal.internalNetworkName, "dofe-svc-internal-default");
+
+  const allow = buildManagedServiceNetworkArgs({
+    egressAllowlist: ["fonts.example.com:443"],
+    network: "mgmt",
+    workspaceId: "default",
+    egressHostsFilePath: "/tmp/dofe-hosts",
+  });
+  assert.ok(allow.args.includes("--dns"));
+  assert.ok(allow.args.some((arg) => arg.includes("/etc/hosts")), "hosts file must be mounted");
+});
+
+test("provision with an empty allow-list creates an internal network and blocks outbound", async () => {
+  const { exec, calls } = fakeExec((args) => {
+    switch (args[0]) {
+      case "pull": return {};
+      case "network": return {};
+      case "create": return { stdout: "cid\n" };
+      case "start": return {};
+      case "inspect": return { stdout: "true\n" };
+      default: return { stderr: `unexpected ${args.join(" ")}`, exitCode: 1 };
+    }
+  });
+  const runtime = createDockerManagedServiceContainerRuntime(exec);
+
+  const result = await runtime.provision({
+    ...provisionInput,
+    networkJson: JSON.stringify({ egressAllowlist: [] }),
+  });
+
+  assert.equal(result.endpointRef, "runtime-private://dofe-svc-svc-1");
+  const networkCreate = calls.find((args) => args[0] === "network")!;
+  assert.deepEqual(networkCreate.slice(0, 4), ["network", "create", "--internal", "dofe-svc-internal-default"]);
+  const createCall = calls.find((args) => args[0] === "create")!;
+  assert.equal(createCall.filter((arg) => arg === "--network").length, 2, "internal + shared networks");
+  assert.ok(createCall.includes("dofe-svc-internal-default"));
+});
+
+test("provision with a non-empty allow-list pins hosts and blocks DNS", async () => {
+  const { exec, calls } = fakeExec((args) => {
+    if (args[0] === "inspect") return { stdout: "true\n" };
+    if (args[0] === "create") return { stdout: "cid\n" };
+    return {};
+  });
+  const runtime = createDockerManagedServiceContainerRuntime(exec, {
+    lookupHost: async () => ["203.0.113.10"],
+  });
+
+  const result = await runtime.provision({
+    ...provisionInput,
+    networkJson: JSON.stringify({ egressAllowlist: ["fonts.example.com:443"] }),
+  });
+
+  assert.equal(result.endpointRef, "runtime-private://dofe-svc-svc-1");
+  const createCall = calls.find((args) => args[0] === "create")!;
+  assert.ok(createCall.includes("--dns"), "dead DNS blocks unknown hostnames");
+  const mount = createCall.find((arg) => arg.startsWith("type=bind,src=") && arg.includes("/etc/hosts"));
+  assert.ok(mount, "hosts file must be mounted read-only");
+  const hostsSrc = mount!.split("src=")[1]!.split(",")[0]!;
+  assert.match(hostsSrc, /dofe-svc-egress-/, "hosts file lives in a scratch dir");
+  // Hosts-file CONTENT correctness is covered by buildEgressHostsFile above;
+  // the provision writes it then cleans the scratch dir in finally.
+  assert.ok(!createCall.includes("dofe-svc-internal"), "non-empty allow-list stays on the shared network");
 });
 
 test("computeManagedServiceHealthRevision is deterministic per config + state", () => {

@@ -1,9 +1,22 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { promises as dnsPromises } from "node:dns";
+import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildManagedRuntimeDockerConnectivityArgs,
   resolveManagedRuntimeDockerNetwork,
 } from "../managed-provider-credentials.ts";
+
+/** Unroutable TEST-NET-1 address used as the container's DNS so ANY hostname
+ * that is not pinned in the mounted /etc/hosts fails to resolve. */
+const EGRESS_BLOCK_DNS = "192.0.2.1";
+/** Per-workspace internal network name prefix (no default route → no outbound). */
+export function buildManagedServiceInternalNetworkName(workspaceId: string): string {
+  const sanitized = workspaceId.replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 48);
+  return `dofe-svc-internal-${sanitized}`;
+}
 
 /** Executes a `docker` invocation; injectable so tests never need a real daemon. */
 export type ManagedContainerExec = (
@@ -72,6 +85,8 @@ export function buildManagedServiceContainerCreateArgs(input: {
   readOnlyRootfs?: boolean;
   capDrop?: string[];
   secrets?: Record<string, string>;
+  /** Precomputed network args (egress enforcement); default = shared network. */
+  networkArgs?: string[];
 }): string[] {
   const args = [
     "create",
@@ -79,7 +94,7 @@ export function buildManagedServiceContainerCreateArgs(input: {
     "--restart", "unless-stopped",
     "--tmpfs", "/tmp:rw,nosuid,nodev,noexec",
     "--security-opt", "no-new-privileges",
-    "--network", input.network,
+    ...(input.networkArgs ?? ["--network", input.network]),
     "--label", `dofe.agent.serviceId=${input.serviceId}`,
     "--label", `dofe.agent.workspaceId=${input.workspaceId}`,
   ];
@@ -166,13 +181,84 @@ export function computeManagedServiceHealthRevision(healthJson?: string, state?:
   return createHash("sha256").update(`${healthJson ?? "running"}|${state ?? ""}`).digest("hex").slice(0, 16);
 }
 
+/* ------------------------------------------------------------------ */
+/* Egress allow-list enforcement                                       */
+/* ------------------------------------------------------------------ */
+
+/** Strips URL schemes / paths / ports from egressAllowlist entries → hostnames. */
+export function parseEgressAllowlistHostnames(egressAllowlist: string[]): string[] {
+  const hostnames: string[] = [];
+  for (const entry of egressAllowlist) {
+    let host = entry.trim();
+    const schemeIndex = host.indexOf("://");
+    if (schemeIndex >= 0) {
+      host = host.slice(schemeIndex + 3);
+    }
+    host = host.split("/")[0]!.split(":")[0]!.trim();
+    if (host) {
+      hostnames.push(host);
+    }
+  }
+  return [...new Set(hostnames)];
+}
+
+/** Builds the read-only /etc/hosts for the container: localhost + each
+ * allow-listed hostname pinned to its resolved IP. */
+export function buildEgressHostsFile(hostnames: string[], ipByHostname: Map<string, string>): string {
+  const lines = ["127.0.0.1 localhost", "::1 localhost ip6-localhost ip6-loopback"];
+  for (const hostname of hostnames) {
+    const ip = ipByHostname.get(hostname);
+    if (ip) {
+      lines.push(`${ip} ${hostname}`);
+    }
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Computes the docker network args for a service container from the catalog's
+ * egressAllowlist:
+ *  - `undefined` (no policy declared) → shared network, unconstrained (legacy).
+ *  - empty array → join the per-workspace INTERNAL network (primary — no default
+ *    route → no internet) PLUS the shared network (private ingress intact).
+ *  - non-empty → stay on the shared network with an unroutable `--dns` and a
+ *    read-only hosts file pinning ONLY the allow-listed hostnames (DNS-level
+ *    enforcement; raw-IP egress is a documented residual that needs a CNI).
+ */
+export function buildManagedServiceNetworkArgs(input: {
+  egressAllowlist?: string[];
+  network: string;
+  workspaceId: string;
+  egressHostsFilePath?: string;
+}): { args: string[]; internalNetworkName?: string } {
+  if (input.egressAllowlist === undefined) {
+    return { args: ["--network", input.network] };
+  }
+  if (input.egressAllowlist.length === 0) {
+    const internalNetworkName = buildManagedServiceInternalNetworkName(input.workspaceId);
+    return {
+      args: ["--network", internalNetworkName, "--network", input.network],
+      internalNetworkName,
+    };
+  }
+  const args = ["--network", input.network, "--dns", EGRESS_BLOCK_DNS];
+  if (input.egressHostsFilePath) {
+    args.push("--mount", `type=bind,src=${input.egressHostsFilePath},dst=/etc/hosts,readonly`);
+  }
+  return { args };
+}
+
+/** Resolves a hostname to IPv4 addresses for the egress hosts file (injectable). */
+export type EgressHostLookup = (hostname: string) => Promise<string[]>;
+
 /** Real runtime: shells out to the local `docker` CLI (same spawn pattern as managed provisioning). */
 export function createDockerManagedServiceContainerRuntime(
   exec: ManagedContainerExec = defaultDockerExec,
-  options?: { healthWaitMs?: number; healthPollIntervalMs?: number },
+  options?: { healthWaitMs?: number; healthPollIntervalMs?: number; lookupHost?: EgressHostLookup },
 ): ManagedServiceContainerRuntime {
   const healthWaitMs = options?.healthWaitMs ?? SKILL_SERVICE_HEALTH_WAIT_MS;
   const healthPollIntervalMs = options?.healthPollIntervalMs ?? SKILL_SERVICE_HEALTH_POLL_INTERVAL_MS;
+  const lookupHost = options?.lookupHost ?? defaultLookupHost;
   return {
     async provision(input) {
       const network = resolveManagedRuntimeDockerNetwork();
@@ -180,41 +266,85 @@ export function createDockerManagedServiceContainerRuntime(
 
       await runChecked(exec, ["pull", input.imageDigest], { timeoutMs: DOCKER_PULL_TIMEOUT_MS }, "skill_service.image_pull_failed");
 
-      const createArgs = buildManagedServiceContainerCreateArgs({
-        containerName,
-        serviceId: input.serviceId,
-        workspaceId: input.workspaceId,
-        imageDigest: input.imageDigest,
-        network,
-        networkJson: input.networkJson,
-        healthJson: input.healthJson,
-        resourcesJson: input.resourcesJson,
-        runAsNonRoot: input.runAsNonRoot,
-        readOnlyRootfs: input.readOnlyRootfs,
-        capDrop: input.capDrop,
-        secrets: input.secrets,
-      });
-      const create = await exec(createArgs, { timeoutMs: DOCKER_CONTAINER_TIMEOUT_MS });
-      let createResult = create;
-      if (create.exitCode !== 0) {
-        // Deterministic name → a stale container from a crashed run may exist; clear and retry once.
-        if (/already in use|already exists/i.test(create.stderr)) {
-          await runChecked(exec, ["rm", "-f", containerName], { timeoutMs: 30_000 }, "skill_service.container_remove_failed");
-          createResult = await runChecked(exec, createArgs, { timeoutMs: DOCKER_CONTAINER_TIMEOUT_MS }, "skill_service.container_create_failed");
-        } else {
-          throw new DockerContainerError("skill_service.container_create_failed", (create.stderr || create.stdout).trim());
+      // Egress enforcement (05-运维 §准入检查 "网络仅能到 allow-list"):
+      // an explicit allow-list drives the network args; an empty list blocks all
+      // outbound via a per-workspace internal network; a non-empty list pins the
+      // allowed hostnames in a read-only /etc/hosts + blocks DNS for everything
+      // else.
+      const egress = parseEgressPolicy(input.networkJson);
+      let tmpDir: string | undefined;
+      try {
+        let hostsFilePath: string | undefined;
+        let internalNetworkName: string | undefined;
+        if (egress.hasPolicy && egress.allowlist.length > 0) {
+          tmpDir = await fs.mkdtemp(join(tmpdir(), "dofe-svc-egress-"));
+          const hostnames = parseEgressAllowlistHostnames(egress.allowlist);
+          const ipByHostname = new Map<string, string>();
+          for (const hostname of hostnames) {
+            const ips = await lookupHost(hostname);
+            if (ips.length > 0) {
+              ipByHostname.set(hostname, ips[0]!);
+            }
+          }
+          hostsFilePath = join(tmpDir, "hosts");
+          await fs.writeFile(hostsFilePath, buildEgressHostsFile(hostnames, ipByHostname), "utf8");
+        }
+        const computedNetworkArgs = buildManagedServiceNetworkArgs({
+          egressAllowlist: egress.hasPolicy ? egress.allowlist : undefined,
+          network,
+          workspaceId: input.workspaceId,
+          egressHostsFilePath: hostsFilePath,
+        });
+        internalNetworkName = computedNetworkArgs.internalNetworkName;
+        const networkArgs = computedNetworkArgs.args;
+        if (internalNetworkName) {
+          const created = await exec(["network", "create", "--internal", internalNetworkName], { timeoutMs: 30_000 });
+          if (created.exitCode !== 0 && !/already exists/i.test(created.stderr)) {
+            throw new DockerContainerError("skill_service.network_create_failed", (created.stderr || created.stdout).trim());
+          }
+        }
+
+        const createArgs = buildManagedServiceContainerCreateArgs({
+          containerName,
+          serviceId: input.serviceId,
+          workspaceId: input.workspaceId,
+          imageDigest: input.imageDigest,
+          network,
+          networkArgs,
+          networkJson: input.networkJson,
+          healthJson: input.healthJson,
+          resourcesJson: input.resourcesJson,
+          runAsNonRoot: input.runAsNonRoot,
+          readOnlyRootfs: input.readOnlyRootfs,
+          capDrop: input.capDrop,
+          secrets: input.secrets,
+        });
+        const create = await exec(createArgs, { timeoutMs: DOCKER_CONTAINER_TIMEOUT_MS });
+        let createResult = create;
+        if (create.exitCode !== 0) {
+          // Deterministic name → a stale container from a crashed run may exist; clear and retry once.
+          if (/already in use|already exists/i.test(create.stderr)) {
+            await runChecked(exec, ["rm", "-f", containerName], { timeoutMs: 30_000 }, "skill_service.container_remove_failed");
+            createResult = await runChecked(exec, createArgs, { timeoutMs: DOCKER_CONTAINER_TIMEOUT_MS }, "skill_service.container_create_failed");
+          } else {
+            throw new DockerContainerError("skill_service.container_create_failed", (create.stderr || create.stdout).trim());
+          }
+        }
+        const containerId = createResult.stdout.trim().split(/\s+/).pop() ?? containerName;
+
+        await runChecked(exec, ["start", containerId], { timeoutMs: DOCKER_CONTAINER_TIMEOUT_MS }, "skill_service.container_start_failed");
+
+        const state = await waitForHealthy(exec, containerId, input.healthJson, healthWaitMs, healthPollIntervalMs);
+        return {
+          endpointRef: `runtime-private://${containerName}`,
+          healthRevision: computeManagedServiceHealthRevision(input.healthJson, state),
+          containerName,
+        };
+      } finally {
+        if (tmpDir) {
+          await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
         }
       }
-      const containerId = createResult.stdout.trim().split(/\s+/).pop() ?? containerName;
-
-      await runChecked(exec, ["start", containerId], { timeoutMs: DOCKER_CONTAINER_TIMEOUT_MS }, "skill_service.container_start_failed");
-
-      const state = await waitForHealthy(exec, containerId, input.healthJson, healthWaitMs, healthPollIntervalMs);
-      return {
-        endpointRef: `runtime-private://${containerName}`,
-        healthRevision: computeManagedServiceHealthRevision(input.healthJson, state),
-        containerName,
-      };
     },
 
     async retire(input) {
@@ -225,6 +355,35 @@ export function createDockerManagedServiceContainerRuntime(
       }
     },
   };
+}
+
+/** Extracts the egress policy from the claim's networkJson (only an EXPLICIT
+ * egressAllowlist array triggers enforcement; missing = legacy/unconstrained). */
+function parseEgressPolicy(networkJson?: string): { hasPolicy: boolean; allowlist: string[] } {
+  if (!networkJson) {
+    return { hasPolicy: false, allowlist: [] };
+  }
+  try {
+    const parsed = JSON.parse(networkJson) as { egressAllowlist?: unknown };
+    if (!Array.isArray(parsed.egressAllowlist)) {
+      return { hasPolicy: false, allowlist: [] };
+    }
+    return {
+      hasPolicy: true,
+      allowlist: parsed.egressAllowlist.filter((entry): entry is string => typeof entry === "string"),
+    };
+  } catch {
+    return { hasPolicy: false, allowlist: [] };
+  }
+}
+
+async function defaultLookupHost(hostname: string): Promise<string[]> {
+  try {
+    const { address } = await dnsPromises.lookup(hostname, { family: 4 });
+    return [address];
+  } catch {
+    return [];
+  }
 }
 
 async function waitForHealthy(

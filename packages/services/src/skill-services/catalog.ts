@@ -120,7 +120,17 @@ export function assertSkillServiceCatalogAdmissionSync(
   if (!network.ok) {
     return network;
   }
-  if (network.value && !Array.isArray(network.value.egressAllowlist)) {
+  // Image templates MUST declare their egress policy (05-运维 §准入检查 "网络仅
+  // 能到 allow-list"); an empty array means "no outbound allowed". external_
+  // connection templates may omit it.
+  if (IMAGE_TEMPLATE_TYPES.has(input.deploymentType)) {
+    if (!network.value || !Array.isArray(network.value.egressAllowlist)) {
+      return {
+        ok: false,
+        reason: "managed_service/platform_shared templates must declare networkJson.egressAllowlist (an array; empty = no egress).",
+      };
+    }
+  } else if (network.value && !Array.isArray(network.value.egressAllowlist)) {
     return { ok: false, reason: "networkJson must contain an egressAllowlist array." };
   }
   for (const entry of (network.value?.egressAllowlist as unknown[]) ?? []) {
