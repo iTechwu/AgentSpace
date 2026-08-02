@@ -5,6 +5,8 @@ import {
   createMcpConnectionSync,
   createMcpOperationSync,
   deleteExpiredMcpTaskSessionGrantsSync,
+  deleteExpiredMcpTaskAuditAuthorizationsSync,
+  deleteMcpToolAuditsBeforeSync,
   failMcpOperationSync,
   getDatabase,
   withTransaction,
@@ -636,6 +638,8 @@ export interface McpConnectionActivity {
 
 /** TTL for a persisted MCP task-session grant (encrypted resolved bundle). */
 const MCP_SESSION_GRANT_TTL_MS = 24 * 60 * 60 * 1000;
+const MCP_AUDIT_AUTHORIZATION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const MCP_TOOL_AUDIT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
 export function listMcpConnectionActivitySync(input: {
   workspaceId: string;
@@ -660,7 +664,10 @@ export function scheduleMcpHealthChecksSync(input: {
   // The runtime-maintenance cron stage doubles as the MCP housekeeping sweep:
   // expired session grants are reaped here so cleanup does not depend on the
   // next task claim happening to trigger it.
-  deleteExpiredMcpTaskSessionGrantsSync();
+  const now = input.now ?? new Date().toISOString();
+  deleteExpiredMcpTaskSessionGrantsSync(now);
+  deleteExpiredMcpTaskAuditAuthorizationsSync(now);
+  deleteMcpToolAuditsBeforeSync(new Date(new Date(now).getTime() - MCP_TOOL_AUDIT_RETENTION_MS).toISOString());
   return dbScheduleMcpHealthChecksSync(input);
 }
 
@@ -1019,6 +1026,7 @@ export function claimMcpTaskSessionSync(input: {
     runtimeId: input.runtimeId,
   });
   const expiresAt = new Date(Date.now() + MCP_SESSION_GRANT_TTL_MS).toISOString();
+  const auditExpiresAt = new Date(Date.now() + MCP_AUDIT_AUTHORIZATION_TTL_MS).toISOString();
   let encryptedBundle: string;
   try {
     encryptedBundle = encryptMcpGrant(JSON.stringify(result));
@@ -1037,6 +1045,13 @@ export function claimMcpTaskSessionSync(input: {
     attemptId,
     encryptedBundleJson: encryptedBundle,
     expiresAt,
+    auditAuthorizationJson: JSON.stringify({
+      connections: result.connections.map((connection) => ({
+        connectionId: connection.connectionId,
+        approvedTools: connection.approvedTools,
+      })),
+    }),
+    auditExpiresAt,
   });
   // A concurrent same-attempt caller can lose the marker CAS after its initial
   // read. The atomic DB seam returns the winner's grant so that loser replays

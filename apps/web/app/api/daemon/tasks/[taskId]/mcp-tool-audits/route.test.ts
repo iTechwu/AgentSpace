@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  mockReadGrant,
+  mockReadAuthorization,
   mockRecordAudit,
   mockReadTaskForDaemon,
   mockRequireDaemonAuth,
 } = vi.hoisted(() => ({
-  mockReadGrant: vi.fn(),
+  mockReadAuthorization: vi.fn(),
   mockRecordAudit: vi.fn(),
   mockReadTaskForDaemon: vi.fn(),
   mockRequireDaemonAuth: vi.fn(),
@@ -14,13 +14,9 @@ const {
 
 vi.mock("@dofe-agent/db", () => ({
   getDatabase: () => ({}),
-  readMcpTaskSessionGrantSync: mockReadGrant,
+  readMcpTaskAuditAuthorizationSync: mockReadAuthorization,
   recordMcpToolAuditSync: mockRecordAudit,
   withTransaction: (_db: unknown, work: () => unknown) => work(),
-}));
-
-vi.mock("@dofe-agent/services", () => ({
-  decryptMcpGrant: (value: string) => value,
 }));
 
 vi.mock("../../../_lib/auth", () => ({
@@ -43,9 +39,9 @@ describe("daemon MCP tool audit route", () => {
     vi.clearAllMocks();
     mockRequireDaemonAuth.mockReturnValue({ workspaceId: "default" });
     mockReadTaskForDaemon.mockReturnValue({ id: "task-1", workspaceId: "default" });
-    mockReadGrant.mockReturnValue({
+    mockReadAuthorization.mockReturnValue({
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      encryptedBundleJson: JSON.stringify({
+      authorizationJson: JSON.stringify({
         connections: [{ connectionId: "connection-1", approvedTools: ["search"] }],
       }),
     });
@@ -64,7 +60,7 @@ describe("daemon MCP tool audit route", () => {
   });
 
   it("rejects the whole batch when the persisted authorization grant is unavailable", async () => {
-    mockReadGrant.mockReturnValue(null);
+    mockReadAuthorization.mockReturnValue(null);
 
     const response = await post([audit]);
 

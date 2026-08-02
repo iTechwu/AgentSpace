@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "82";
+export const POSTGRES_SCHEMA_VERSION = "83";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -79,6 +79,7 @@ export const POSTGRES_TABLE_NAMES = [
   "runtime_mcp_operation",
   "runtime_mcp_tool_audit",
   "mcp_task_session_grant",
+  "mcp_task_audit_authorization",
   "content_blob",
   "skill_artifact",
   "skill_artifact_binding",
@@ -1022,7 +1023,7 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE TABLE IF NOT EXISTS runtime_mcp_tool_audit (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-        connection_id TEXT NOT NULL REFERENCES runtime_mcp_connection(id) ON DELETE CASCADE,
+        connection_id TEXT NOT NULL,
         task_id TEXT,
         tool_name TEXT NOT NULL,
         outcome TEXT NOT NULL,
@@ -1039,6 +1040,16 @@ export function getPostgresSchemaStatements(): string[] {
         runtime_id TEXT NOT NULL,
         attempt_id TEXT NOT NULL,
         encrypted_bundle_json TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS mcp_task_audit_authorization (
+        task_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL,
+        authorization_json JSONB NOT NULL,
         expires_at TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ NOT NULL
       )
@@ -2095,6 +2106,10 @@ export function getPostgresSchemaStatements(): string[] {
         ADD COLUMN IF NOT EXISTS event_id TEXT
     `,
     `
+      ALTER TABLE runtime_mcp_tool_audit
+        DROP CONSTRAINT IF EXISTS runtime_mcp_tool_audit_connection_id_fkey
+    `,
+    `
       CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_mcp_tool_audit_event
         ON runtime_mcp_tool_audit(workspace_id, event_id)
     `,
@@ -2118,6 +2133,14 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_runtime_mcp_tool_audit_connection
         ON runtime_mcp_tool_audit(workspace_id, connection_id, created_at DESC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_mcp_tool_audit_created
+        ON runtime_mcp_tool_audit(created_at)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_mcp_task_audit_authorization_expiry
+        ON mcp_task_audit_authorization(expires_at)
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_skill_workspace_name

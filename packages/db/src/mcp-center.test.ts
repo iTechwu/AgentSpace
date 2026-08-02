@@ -12,11 +12,13 @@ import {
   failMcpOperationSync,
   insertMcpCatalogItemSync,
   listMcpCatalogItemsSync,
+  listMcpToolAuditsSync,
   listReadyMcpConnectionsForRuntimeSync,
   readLatestMcpDiscoverySnapshotSync,
   readMcpCatalogItemBySlugSync,
   readMcpConnectionSecretsSync,
   readMcpConnectionSync,
+  recordMcpToolAuditSync,
   registerDaemonRuntimesSync,
   startMcpOperationSync,
   updateMcpConnectionConfigSync,
@@ -198,11 +200,18 @@ test("secrets are stored opaque and never expose plaintext-shaped values", () =>
   assert.equal(secrets[0]?.fieldName, "api_key");
 });
 
-test("remove operation cascades connection, secrets and snapshots", () => {
+test("remove operation cascades live connection state but retains tool audits", () => {
   const runtimeId = createRuntime();
   const catalog = upsertMcpCatalogItemSync({ slug: "r", transport: "streamable_http", displayName: "R", risk: "low" });
   const connection = createMcpConnectionSync({ runtimeId, catalogItemId: catalog.id, endpoint: "https://r.example.com/mcp" });
   upsertMcpSecretSync({ connectionId: connection.id, fieldName: "api_key", encryptedValue: "x", keyVersion: "v1" });
+  recordMcpToolAuditSync({
+    connectionId: connection.id,
+    taskId: "task-retained-audit",
+    toolName: "search",
+    outcome: "succeeded",
+    eventId: "event-retained-audit",
+  });
   const op = createMcpOperationSync({ runtimeId, connectionId: connection.id, operation: "remove" });
   claimNextMcpOperationForRuntimeSync({ runtimeId });
   startMcpOperationSync(op.id);
@@ -211,6 +220,7 @@ test("remove operation cascades connection, secrets and snapshots", () => {
   assert.equal(readMcpConnectionSync(connection.id), null);
   assert.equal(readMcpConnectionSecretsSync(connection.id).length, 0);
   assert.equal(readLatestMcpDiscoverySnapshotSync(connection.id), null);
+  assert.equal(listMcpToolAuditsSync({ connectionId: connection.id }).length, 1);
 });
 
 test("atomic claim only hands an operation to one caller", () => {

@@ -584,6 +584,7 @@ export {
   createMcpConnectionSync,
   createMcpOperationSync,
   deleteMcpCatalogItemSync,
+  deleteMcpToolAuditsBeforeSync,
   deleteMcpSecretSync,
   failMcpOperationSync,
   insertMcpCatalogItemSync,
@@ -622,11 +623,14 @@ export {
 } from "./mcp-center.ts";
 export {
   claimMcpTaskSessionAtomicallySync,
+  deleteExpiredMcpTaskAuditAuthorizationsSync,
   deleteExpiredMcpTaskSessionGrantsSync,
   deleteMcpTaskSessionGrantSync,
   readMcpTaskSessionGrantSync,
+  readMcpTaskAuditAuthorizationSync,
   writeMcpTaskSessionGrantSync,
   type McpTaskSessionGrantRecord,
+  type McpTaskAuditAuthorizationRecord,
   type WriteMcpTaskSessionGrantInput,
 } from "./mcp-session-grant.ts";
 

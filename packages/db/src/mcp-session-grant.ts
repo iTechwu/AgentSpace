@@ -20,6 +20,15 @@ export interface WriteMcpTaskSessionGrantInput {
   expiresAt: string;
 }
 
+export interface McpTaskAuditAuthorizationRecord {
+  taskId: string;
+  workspaceId: string;
+  runtimeId: string;
+  authorizationJson: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
 // Keep the raw snake_case column names: the worker's normalizeRowKey converts
 // them to camelCase (task_id → taskId), while an `AS taskId` alias would come
 // back lower-cased (taskid) and miss the alias map, breaking the mapper.
@@ -74,6 +83,8 @@ export function claimMcpTaskSessionAtomicallySync(input: {
   attemptId: string;
   encryptedBundleJson: string;
   expiresAt: string;
+  auditAuthorizationJson?: string;
+  auditExpiresAt?: string;
 }): { claimed: boolean; grant: McpTaskSessionGrantRecord | null } {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const db = getDatabase();
@@ -101,6 +112,21 @@ export function claimMcpTaskSessionAtomicallySync(input: {
         input.expiresAt,
         now,
       );
+      if (input.auditAuthorizationJson && input.auditExpiresAt) {
+        db.prepare(
+          `INSERT INTO mcp_task_audit_authorization (
+             task_id, workspace_id, runtime_id, authorization_json, expires_at, created_at
+           ) VALUES (?, ?, ?, ?::jsonb, ?, ?)
+           ON CONFLICT (task_id) DO NOTHING`,
+        ).run(
+          input.taskId,
+          workspaceId,
+          input.runtimeId,
+          input.auditAuthorizationJson,
+          input.auditExpiresAt,
+          now,
+        );
+      }
       claimed = true;
     }
     // Under READ COMMITTED, a competing UPDATE waits for the winner. Reading
@@ -136,6 +162,42 @@ export function deleteExpiredMcpTaskSessionGrantsSync(now = new Date().toISOStri
     "DELETE FROM mcp_task_session_grant WHERE expires_at <= ?",
   ).run(now);
   return result.changes;
+}
+
+export function readMcpTaskAuditAuthorizationSync(
+  taskId: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): McpTaskAuditAuthorizationRecord | null {
+  const row = getDatabase().prepare(
+    `SELECT task_id, workspace_id, runtime_id, authorization_json, expires_at, created_at
+     FROM mcp_task_audit_authorization
+     WHERE task_id = ? AND workspace_id = ?`,
+  ).get(taskId, workspaceId) as Record<string, unknown> | undefined;
+  if (
+    !row ||
+    typeof row.taskId !== "string" ||
+    typeof row.workspaceId !== "string" ||
+    typeof row.runtimeId !== "string" ||
+    typeof row.authorizationJson !== "string" ||
+    typeof row.expiresAt !== "string" ||
+    typeof row.createdAt !== "string"
+  ) {
+    return null;
+  }
+  return {
+    taskId: row.taskId,
+    workspaceId: row.workspaceId,
+    runtimeId: row.runtimeId,
+    authorizationJson: row.authorizationJson,
+    expiresAt: row.expiresAt,
+    createdAt: row.createdAt,
+  };
+}
+
+export function deleteExpiredMcpTaskAuditAuthorizationsSync(now = new Date().toISOString()): number {
+  return getDatabase().prepare(
+    "DELETE FROM mcp_task_audit_authorization WHERE expires_at <= ?",
+  ).run(now).changes;
 }
 
 function mapMcpTaskSessionGrantRecord(value: Record<string, unknown>): McpTaskSessionGrantRecord | null {

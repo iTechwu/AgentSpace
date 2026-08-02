@@ -10,6 +10,7 @@ import {
   createUserSync,
   getDatabase,
   listMcpOperationsSync,
+  readMcpTaskAuditAuthorizationSync,
   readMcpConnectionSync,
   recordMcpToolAuditSync,
   registerDaemonRuntimesSync,
@@ -51,6 +52,7 @@ before(() => {
 beforeEach(() => {
   const db = getDatabase();
   db.exec("DELETE FROM runtime_mcp_tool_audit");
+  db.exec("DELETE FROM mcp_task_audit_authorization");
   db.exec("DELETE FROM runtime_mcp_operation");
   db.exec("DELETE FROM runtime_mcp_discovery_snapshot");
   db.exec("DELETE FROM mcp_task_session_grant");
@@ -678,6 +680,10 @@ test("claimMcpTaskSession replays the first result for an HTTP retry of the same
   const attempt = "attempt-retry-1";
   const first = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-retry", attemptId: attempt });
   assert.equal(first.connections.length, 1);
+  const auditAuthorization = readMcpTaskAuditAuthorizationSync("task-retry", "default");
+  assert.ok(auditAuthorization);
+  assert.match(auditAuthorization.authorizationJson, /search_repos/);
+  assert.doesNotMatch(auditAuthorization.authorizationJson, /"api_key"|"secrets"|github-mcp\.example\.com/);
   const retry = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-retry", attemptId: attempt });
   assert.equal(retry.connections.length, 1);
   assert.equal(retry.connections[0]?.connectionId, connection.id);

@@ -1,6 +1,6 @@
 import {
   getDatabase,
-  readMcpTaskSessionGrantSync,
+  readMcpTaskAuditAuthorizationSync,
   recordMcpToolAuditSync,
   withTransaction,
 } from "@dofe-agent/db";
@@ -9,7 +9,6 @@ import type {
   McpToolAuditReport,
   ReportMcpToolAuditsResponse,
 } from "@dofe-agent/domain";
-import { decryptMcpGrant } from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -47,19 +46,16 @@ export async function POST(
   if (audits.length > 500) {
     return Response.json({ error: "Too many audit records." }, { status: 400 });
   }
-  // Validate every audit against the PERSISTED grant snapshot (the immutable
-  // authorization this task was granted at claim time), not the connection's
-  // CURRENT approvedToolsJson — a tool added or revoked mid-task must not change
-  // what the task is allowed to report as having used.
-  const grant = readMcpTaskSessionGrantSync(taskId, auth.workspaceId);
-  // An expired grant is not a valid authorization snapshot: audits reported
-  // against it are refused (the task should no longer be able to claim MCP).
-  if (!grant || grant.expiresAt <= new Date().toISOString()) {
+  // Audit authorization is a persisted, non-secret claim-time snapshot. It is
+  // deliberately retained after the task's secret-bearing session grant is
+  // destroyed, so a daemon outbox can safely retry delayed audit delivery.
+  const authorization = readMcpTaskAuditAuthorizationSync(taskId, auth.workspaceId);
+  if (!authorization || authorization.expiresAt <= new Date().toISOString()) {
     return Response.json({ error: "MCP audit authorization snapshot is unavailable." }, { status: 422 });
   }
   let grantBundle: ClaimMcpTaskSessionResponse;
   try {
-    grantBundle = JSON.parse(decryptMcpGrant(grant.encryptedBundleJson)) as ClaimMcpTaskSessionResponse;
+    grantBundle = JSON.parse(authorization.authorizationJson) as ClaimMcpTaskSessionResponse;
   } catch {
     return Response.json({ error: "MCP audit authorization snapshot is unreadable." }, { status: 422 });
   }

@@ -31,3 +31,4 @@ export * from "./skill-install/task-environment.ts";
 export * from "./task-context.ts";
 export * from "./task-output.ts";
 export { McpGateway, type McpGatewayTaskSession, type McpToolAuditRecord } from "./mcp/gateway.ts";
+export { McpAuditOutbox, type McpAuditOutboxFlushResult } from "./mcp/audit-outbox.ts";

@@ -54,6 +54,7 @@ import { parseTaskInputJson, resolveConversationThreadId } from "./task-context.
 import { executeRuntimeAppPlan, parseRuntimeAppInstallPlan, tailAndRedact } from "./runtime-apps.ts";
 import { executeMcpConnectionOperation } from "./mcp/verify-executor.ts";
 import { McpGateway } from "./mcp/gateway.ts";
+import { McpAuditOutbox } from "./mcp/audit-outbox.ts";
 import { applyProviderCredentialProfile, resolveProviderCredentialProfile, type ProviderCredentialProfile } from "./provider-credentials.ts";
 import { createManagedCredentialResolver, type ManagedCredentialResolver } from "./managed-provider-credentials.ts";
 import { createManagedProvisioningExecutor } from "./managed-runtime-provisioning.ts";
@@ -222,6 +223,7 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
   }
 
   const client = new HttpDaemonClient(config.serverUrl, config.daemonToken);
+  const mcpAuditOutbox = new McpAuditOutbox(config.stateDir);
   let registered: RegisterDaemonResponse;
   try {
     registered = await client.register({
@@ -275,6 +277,25 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
   const provisioningExecutor = createManagedProvisioningExecutor(config.stateDir, credentialResolver);
 
   const activeRuntimes = new Set<string>();
+  let auditOutboxFlushing = false;
+  const flushMcpAuditOutbox = (): void => {
+    if (auditOutboxFlushing) return;
+    auditOutboxFlushing = true;
+    void mcpAuditOutbox.flush(client)
+      .then((result) => {
+        if (result.failed > 0 || result.deadLettered > 0) {
+          console.error(
+            `MCP audit outbox: delivered=${result.delivered}, failed=${result.failed}, deadLettered=${result.deadLettered}`,
+          );
+        }
+      })
+      .finally(() => {
+        auditOutboxFlushing = false;
+      });
+  };
+  flushMcpAuditOutbox();
+  const mcpAuditOutboxTimer = setInterval(flushMcpAuditOutbox, 5_000);
+  mcpAuditOutboxTimer.unref();
   const heartbeatTimer = setInterval(() => {
     void (async () => {
       try {
@@ -325,7 +346,7 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
       return;
     }
     polling = true;
-    void pollRemoteTasks(client, config, runtimes, activeRuntimes, credentialResolver)
+    void pollRemoteTasks(client, config, runtimes, activeRuntimes, credentialResolver, mcpAuditOutbox)
       .catch((error) => {
         if (classifyRemoteLoopError(error) === "shutdown") {
           fatalShutdown(DAEMON_AUTH_REJECTED_MESSAGE);
@@ -370,6 +391,7 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
     void (async () => {
       clearInterval(heartbeatTimer);
       clearInterval(taskPollTimer);
+      clearInterval(mcpAuditOutboxTimer);
       if (managedProvisioningPollTimer) {
         clearInterval(managedProvisioningPollTimer);
       }
@@ -397,6 +419,7 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
     stopping = true;
     clearInterval(heartbeatTimer);
     clearInterval(taskPollTimer);
+    clearInterval(mcpAuditOutboxTimer);
     rmSync(pidPath, { force: true });
     void (async () => {
       try {
@@ -689,6 +712,7 @@ async function pollRemoteTasks(
   runtimes: RemoteRuntimeRecord[],
   activeRuntimes: Set<string>,
   credentialResolver: ManagedCredentialResolver,
+  mcpAuditOutbox: McpAuditOutbox,
 ): Promise<void> {
   for (const runtime of runtimes) {
     if (activeRuntimes.has(runtime.id)) {
@@ -771,7 +795,7 @@ async function pollRemoteTasks(
       }
 
       activeRuntimes.add(runtime.id);
-      void executeRemoteTask(client, config, runtime, claimed.task, credentialResolver)
+      void executeRemoteTask(client, config, runtime, claimed.task, credentialResolver, mcpAuditOutbox)
         .catch((error) => {
           const message = error instanceof Error ? error.message : String(error);
           console.error(`Remote task ${claimed.task?.id ?? "unknown"} crashed: ${message}`);
@@ -878,6 +902,7 @@ async function executeRemoteTask(
   runtime: RemoteRuntimeRecord,
   task: ClaimedDaemonTask,
   credentialResolver?: ManagedCredentialResolver,
+  mcpAuditOutbox?: McpAuditOutbox,
 ): Promise<void> {
   const workDir = resolveRemoteTaskWorkDir(config, task);
   const isPersistentConversationWorkspace = isConversationScopedRemoteTask(task);
@@ -908,7 +933,7 @@ async function executeRemoteTask(
         // task without MCP would silently lose the authorized capability.
         throw new Error("mcp.session_claim_failed: task expects MCP connections but claim returned none");
       }
-      const gateway = await getMcpGatewayForTask(client);
+      const gateway = await getMcpGatewayForTask(client, mcpAuditOutbox ?? new McpAuditOutbox(config.stateDir));
       mcpSession = gateway.createTaskSession({
         taskId: task.id,
         runtimeId: runtime.id,
@@ -1076,11 +1101,11 @@ async function executeRemoteTask(
 
 let sharedMcpGateway: McpGateway | null = null;
 
-async function getMcpGatewayForTask(client: HttpDaemonClient): Promise<McpGateway> {
+async function getMcpGatewayForTask(client: HttpDaemonClient, auditOutbox: McpAuditOutbox): Promise<McpGateway> {
   if (!sharedMcpGateway) {
     const gateway = new McpGateway(
       async (audit) => {
-        await client.reportMcpToolAudits(audit.taskId, [{
+        const report = {
           taskId: audit.taskId,
           connectionId: audit.connectionId,
           toolName: audit.toolName,
@@ -1088,9 +1113,14 @@ async function getMcpGatewayForTask(client: HttpDaemonClient): Promise<McpGatewa
           latencyMs: audit.latencyMs,
           safeSummary: audit.safeSummary,
           eventId: audit.eventId,
-        }]).catch((error) => {
+        };
+        auditOutbox.enqueue(report);
+        await auditOutbox.flush(client).then((result) => {
+          if (result.failed === 0) return;
+          console.error(`MCP audit outbox retained ${result.failed} event(s) for retry.`);
+        }).catch((error) => {
           const detail = error instanceof Error ? error.message : String(error);
-          console.error(`MCP audit report failed for task ${audit.taskId}: ${detail}`);
+          console.error(`MCP audit outbox flush failed for task ${audit.taskId}: ${detail}`);
         });
       },
       undefined,

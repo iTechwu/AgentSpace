@@ -812,7 +812,8 @@ export function completeMcpOperationSync(input: CompleteMcpOperationInput): Runt
       return;
     }
     if (completed.operation === "remove") {
-      // Removing: cascade deletes secrets, snapshots, operations, audit references.
+      // Removing cascades live connection state. Historical tool audits retain
+      // their immutable connection id and are purged only by retention policy.
       db.prepare(`DELETE FROM runtime_mcp_connection WHERE id = ? AND workspace_id = ?`).run(completed.connectionId, workspaceId);
       return;
     }
@@ -997,6 +998,12 @@ export function listMcpToolAuditsSync(options: {
     `${MCP_TOOL_AUDIT_COLUMNS} FROM runtime_mcp_tool_audit WHERE ${where.join(" AND ")} ORDER BY created_at DESC LIMIT ${limit}`,
   ).all(...params) as Array<Record<string, unknown>>;
   return rows.map(mapRuntimeMcpToolAuditRecord).filter((r): r is RuntimeMcpToolAuditRecord => r !== null);
+}
+
+export function deleteMcpToolAuditsBeforeSync(cutoff: string): number {
+  return getDatabase().prepare(
+    "DELETE FROM runtime_mcp_tool_audit WHERE created_at < ?",
+  ).run(cutoff).changes;
 }
 
 /* ------------------------------------------------------------------ */
