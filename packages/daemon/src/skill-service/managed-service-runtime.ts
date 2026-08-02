@@ -24,6 +24,8 @@ export interface ManagedServiceContainerRuntime {
     runAsNonRoot?: boolean;
     readOnlyRootfs?: boolean;
     capDrop?: string[];
+    /** Decrypted values for the catalog's declared secret fields (injected as env). */
+    secrets?: Record<string, string>;
   }): Promise<{ endpointRef: string; healthRevision: string; containerName: string }>;
   retire(input: { serviceId: string; workspaceId: string }): Promise<void>;
 }
@@ -69,6 +71,7 @@ export function buildManagedServiceContainerCreateArgs(input: {
   runAsNonRoot?: boolean;
   readOnlyRootfs?: boolean;
   capDrop?: string[];
+  secrets?: Record<string, string>;
 }): string[] {
   const args = [
     "create",
@@ -80,6 +83,9 @@ export function buildManagedServiceContainerCreateArgs(input: {
     "--label", `dofe.agent.serviceId=${input.serviceId}`,
     "--label", `dofe.agent.workspaceId=${input.workspaceId}`,
   ];
+  for (const [name, value] of Object.entries(input.secrets ?? {})) {
+    args.push("--env", `${name}=${value}`);
+  }
   if (input.readOnlyRootfs !== false) {
     args.push("--read-only");
   }
@@ -186,6 +192,7 @@ export function createDockerManagedServiceContainerRuntime(
         runAsNonRoot: input.runAsNonRoot,
         readOnlyRootfs: input.readOnlyRootfs,
         capDrop: input.capDrop,
+        secrets: input.secrets,
       });
       const create = await exec(createArgs, { timeoutMs: DOCKER_CONTAINER_TIMEOUT_MS });
       let createResult = create;

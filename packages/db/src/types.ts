@@ -1588,6 +1588,16 @@ export interface ManagedSkillServiceOperationRecord {
   createdAt: string;
 }
 
+export interface StoredWorkspaceServiceSecretRecord {
+  id: string;
+  workspaceId: string;
+  serviceCatalogId: string;
+  name: string;
+  encryptedValue: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface EmployeePersistentWorkspaceRecord {
   id: string;
   workspaceId: string;

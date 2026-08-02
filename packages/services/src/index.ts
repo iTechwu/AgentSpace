@@ -393,6 +393,11 @@ export {
   retireUnreferencedManagedSkillServicesSync,
 } from "./skill-services/bindings.ts";
 export {
+  setWorkspaceServiceSecretSync,
+  resolveWorkspaceServiceSecretsSync,
+  deleteWorkspaceServiceSecretSync,
+} from "./skill-services/secrets.ts";
+export {
   computeSkillReleaseLockSync,
   diffSkillArtifactsSync,
   isSkillUpgradeApprovalRequiredSync,

@@ -41,11 +41,15 @@ export async function executeSkillServiceOperation(
   }, HEARTBEAT_INTERVAL_MS);
   heartbeat.unref();
 
+  let secrets: Record<string, string> = {};
   try {
     let provisioned: Awaited<ReturnType<ManagedServiceContainerRuntime["provision"]>> | undefined;
     if (operation.operation === "retire") {
       await runtime.retire({ serviceId: operation.serviceId, workspaceId: operation.workspaceId });
     } else {
+      // Secrets are fetched over the authenticated channel AFTER claim, never in
+      // the audited claim payload, and injected as container env.
+      secrets = await client.getSkillServiceSecrets(operation.operationId);
       provisioned = await runtime.provision({
         serviceId: operation.serviceId,
         workspaceId: operation.workspaceId,
@@ -56,6 +60,7 @@ export async function executeSkillServiceOperation(
         runAsNonRoot: operation.catalog.runAsNonRoot,
         readOnlyRootfs: operation.catalog.readOnlyRootfs,
         capDrop: operation.catalog.capDrop,
+        secrets,
       });
     }
 
@@ -73,13 +78,26 @@ export async function executeSkillServiceOperation(
       });
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     await client.failSkillServiceOperation(operation.operationId, {
       errorCode: error instanceof DockerContainerError
         ? error.code
         : "skill_service.runtime_error",
-      errorMessage: error instanceof Error ? error.message : String(error),
+      // A container error must never leak a secret value back to the control plane.
+      errorMessage: redactSecretValues(message, secrets),
     });
   } finally {
     clearInterval(heartbeat);
   }
+}
+
+/** Replaces every known secret value in a message with *** (len > 0 only). */
+function redactSecretValues(message: string, secrets: Record<string, string>): string {
+  let redacted = message;
+  for (const value of Object.values(secrets)) {
+    if (value.length > 0 && redacted.includes(value)) {
+      redacted = redacted.split(value).join("***");
+    }
+  }
+  return redacted;
 }

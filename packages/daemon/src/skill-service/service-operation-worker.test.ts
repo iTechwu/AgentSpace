@@ -32,7 +32,7 @@ function makeOperation(overrides?: Partial<ClaimedManagedSkillServiceOperation>)
   };
 }
 
-function makeClient() {
+function makeClient(options?: { secrets?: Record<string, string> }) {
   const calls = {
     start: [] as string[],
     complete: [] as Array<{ operationId: string; body: unknown }>,
@@ -49,6 +49,7 @@ function makeClient() {
       calls.fail.push({ operationId, body });
     },
     renewSkillServiceOperationLease: async () => true,
+    getSkillServiceSecrets: async () => options?.secrets ?? {},
   } as unknown as HttpDaemonClient;
   return { client, calls };
 }
@@ -103,8 +104,53 @@ test("provision passes catalog fields to the runtime", async () => {
     runAsNonRoot: false,
     readOnlyRootfs: true,
     capDrop: ["ALL"],
+    secrets: {},
   }]);
 });
+
+test("provision fetches secrets over the client and passes them to the runtime", async () => {
+  const { client } = makeClient({ secrets: { RENDER_LICENSE: "sk-secret" } });
+  const seen: unknown[] = [];
+  const runtime = makeRuntime({
+    provision: async (input) => {
+      seen.push(input);
+      return { endpointRef: "runtime-private://x", healthRevision: "r", containerName: "x" };
+    },
+  });
+  await executeSkillServiceOperation(client, config, makeOperation(), runtime);
+
+  assert.deepEqual(seen, [{ ...makeProvisionInput(), secrets: { RENDER_LICENSE: "sk-secret" } }]);
+});
+
+test("provision failure redacts secret values from the reported error", async () => {
+  const { client, calls } = makeClient({ secrets: { RENDER_LICENSE: "sk-secret" } });
+  const runtime = makeRuntime({
+    provision: async () => {
+      throw new DockerContainerError("skill_service.container_create_failed", `docker error containing sk-secret`);
+    },
+  });
+  await executeSkillServiceOperation(client, config, makeOperation(), runtime);
+
+  assert.equal(calls.complete.length, 0);
+  assert.equal((calls.fail[0]!.body as { errorCode: string }).errorCode, "skill_service.container_create_failed");
+  const message = (calls.fail[0]!.body as { errorMessage: string }).errorMessage;
+  assert.ok(!message.includes("sk-secret"), "secret value must not leak to the control plane");
+  assert.ok(message.includes("***"));
+});
+
+function makeProvisionInput(): Record<string, unknown> {
+  return {
+    serviceId: "svc-1",
+    workspaceId: "default",
+    imageDigest: "sha256:abc",
+    networkJson: "{}",
+    healthJson: "{}",
+    resourcesJson: "{}",
+    runAsNonRoot: false,
+    readOnlyRootfs: true,
+    capDrop: ["ALL"],
+  };
+}
 
 test("provision failure fails the operation with a stable docker code", async () => {
   const { client, calls } = makeClient();

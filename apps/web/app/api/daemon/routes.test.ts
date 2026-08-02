@@ -54,6 +54,7 @@ import {
   sendChannelHumanMessageSync,
   sendContactMessageSync,
   setEmployeeSkillIdsSync,
+  setWorkspaceServiceSecretSync,
   unbindEmployeeRuntimeSync,
   writeWorkspaceStateSync,
   setAttachmentStorageClientForTests,
@@ -84,6 +85,7 @@ import { POST as skillServiceStartPOST } from "./skill-service-operations/[opera
 import { POST as skillServiceRenewLeasePOST } from "./skill-service-operations/[operationId]/renew-lease/route";
 import { POST as skillServiceCompletePOST } from "./skill-service-operations/[operationId]/complete/route";
 import { POST as skillServiceFailPOST } from "./skill-service-operations/[operationId]/fail/route";
+import { GET as skillServiceSecretsGET } from "./skill-service-operations/[operationId]/secrets/route";
 
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-routes-"));
 const originalCwd = process.cwd();
@@ -2916,6 +2918,66 @@ describe("daemon API routes", () => {
       expect(completePayload.operation.status).toBe("succeeded");
 
       expect(readManagedSkillServiceSync(serviceId, "default")?.status).toBe("retired");
+    });
+
+    it("delivers decrypted secrets for a claimed provision operation", async () => {
+      process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+      const daemonToken = createDaemonApiTokenSync({ label: "remote-daemon", createdBy: "techwu" });
+      const snapshot = registerDaemonRuntimesSync({
+        daemonTokenId: daemonToken.id,
+        daemonKey: "build-box-svc-secrets",
+        deviceName: "Build Box Secrets",
+        runtimes: [{ provider: "codex", name: "Remote Codex", version: "test" }],
+      });
+      const runtimeId = snapshot.runtimes[0]!.id;
+      const catalog = upsertSkillServiceCatalogSync({
+        workspaceId: "default",
+        slug: "route-secret-renderer",
+        templateVersion: "1.0.0",
+        deploymentType: "managed_service",
+        imageDigest: `sha256:${"a".repeat(64)}`,
+        secretFieldsJson: JSON.stringify(["RENDER_LICENSE"]),
+      });
+      const setResult = setWorkspaceServiceSecretSync({
+        workspaceId: "default",
+        serviceCatalogId: catalog.id,
+        name: "RENDER_LICENSE",
+        value: "sk-route-123",
+      });
+      expect(setResult.ok).toBe(true);
+
+      const managed = createManagedSkillServiceSync({
+        workspaceId: "default",
+        runtimeId,
+        catalogId: catalog.id,
+        status: "provisioning",
+      });
+      const operation = createManagedSkillServiceOperationSync({
+        workspaceId: "default",
+        runtimeId,
+        serviceId: managed.id,
+        operation: "provision",
+      });
+
+      const claimResponse = await skillServiceClaimGET(
+        new Request(`http://localhost/api/daemon/runtimes/${runtimeId}/skill-services/operations/claim`, {
+          method: "GET",
+          headers: daemonHeaders(daemonToken.token),
+        }),
+        { params: Promise.resolve({ runtimeId }) },
+      );
+      expect(claimResponse.status).toBe(200);
+
+      const secretsResponse = await skillServiceSecretsGET(
+        new Request(`http://localhost/api/daemon/skill-service-operations/${operation.id}/secrets`, {
+          method: "GET",
+          headers: daemonHeaders(daemonToken.token),
+        }),
+        { params: Promise.resolve({ operationId: operation.id }) },
+      );
+      expect(secretsResponse.status).toBe(200);
+      const payload = (await secretsResponse.json()) as { secrets: Record<string, string> };
+      expect(payload.secrets).toEqual({ RENDER_LICENSE: "sk-route-123" });
     });
   });
 });

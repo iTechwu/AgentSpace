@@ -254,6 +254,14 @@ export class HttpDaemonClient {
     await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/complete`, body);
   }
 
+  async getSkillServiceSecrets(operationId: string): Promise<Record<string, string>> {
+    const payload = await this.getJson<{ secrets: Record<string, string> }>(
+      `/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/secrets`,
+      { retryable: true },
+    );
+    return payload.secrets;
+  }
+
   async failSkillServiceOperation(operationId: string, body: FailManagedSkillServiceOperationRequest): Promise<void> {
     await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/fail`, body);
   }

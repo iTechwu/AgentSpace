@@ -962,7 +962,14 @@ export type {
   StoredManagedSkillServiceRecord,
   StoredSkillServiceBindingRecord,
   ManagedSkillServiceOperationRecord,
+  StoredWorkspaceServiceSecretRecord,
 } from "./types.ts";
+export {
+  upsertWorkspaceServiceSecretSync,
+  readWorkspaceServiceSecretSync,
+  listWorkspaceServiceSecretsSync,
+  deleteWorkspaceServiceSecretSync,
+} from "./service-secrets.ts";
 export {
   upsertTaskCommitJournalSync,
   readTaskCommitJournalSync,

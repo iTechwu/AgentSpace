@@ -128,6 +128,32 @@ test("create args honor the catalog hardening profile", () => {
   assert.ok(capDrop.includes("SYS_TIME"));
 });
 
+test("create args inject declared secrets as env pairs", () => {
+  const args = buildManagedServiceContainerCreateArgs({
+    containerName: "dofe-svc-svc-1",
+    serviceId: "svc-1",
+    workspaceId: "default",
+    imageDigest: "sha256:abc",
+    network: NETWORK,
+    secrets: { RENDER_LICENSE: "sk-secret", API_KEY: "ak-123" },
+  });
+
+  const envIndex = args.indexOf("--env");
+  assert.ok(envIndex >= 0);
+  assert.equal(args[envIndex + 1], "RENDER_LICENSE=sk-secret");
+  assert.ok(args.includes("API_KEY=ak-123"));
+
+  // No secrets → no --env flags.
+  const noSecrets = buildManagedServiceContainerCreateArgs({
+    containerName: "dofe-svc-svc-1",
+    serviceId: "svc-1",
+    workspaceId: "default",
+    imageDigest: "sha256:abc",
+    network: NETWORK,
+  });
+  assert.ok(!noSecrets.includes("--env"));
+});
+
 test("computeManagedServiceHealthRevision is deterministic per config + state", () => {
   assert.equal(computeManagedServiceHealthRevision("{}", "healthy"), computeManagedServiceHealthRevision("{}", "healthy"));
   assert.notEqual(computeManagedServiceHealthRevision("{}", "healthy"), computeManagedServiceHealthRevision("{}", "starting"));

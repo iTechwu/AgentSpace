@@ -4,6 +4,8 @@ import type { McpErrorCode } from "@dofe-agent/db";
 
 const MCP_SECRET_VERSION = "mcp1";
 const MAX_SECRET_LENGTH = 4096;
+/** Version tag for skill-service container secrets (rotate independently of MCP). */
+const SERVICE_SECRET_VERSION = "svc1";
 /** Grant envelopes carry a whole resolved bundle (many connections/tools), so
  *  they get their own version tag and a much larger explicit size limit — they
  *  must NOT be constrained by the single-secret 4096-char cap. */
@@ -88,6 +90,14 @@ export function decryptMcpGrant(value: string): string {
 }
 
 export const MCP_SECRET_KEY_VERSION = MCP_SECRET_VERSION;
+
+export function encryptServiceSecret(plaintext: string): string {
+  return encryptEnvelope(plaintext, SERVICE_SECRET_VERSION, MAX_SECRET_LENGTH, "service secret value");
+}
+
+export function decryptServiceSecret(value: string): string {
+  return decryptEnvelope(value, SERVICE_SECRET_VERSION, "service secret");
+}
 
 /* ------------------------------------------------------------------ */
 /* Endpoint validation (SSRF + host allow-list)                        */

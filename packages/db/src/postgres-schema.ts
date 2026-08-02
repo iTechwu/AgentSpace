@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "78";
+export const POSTGRES_SCHEMA_VERSION = "79";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -2720,6 +2720,18 @@ export function getPostgresSchemaStatements(): string[] {
         completed_at TIMESTAMPTZ,
         lease_expires_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workspace_service_secret (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        service_catalog_id TEXT NOT NULL REFERENCES skill_service_catalog(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        encrypted_value TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, service_catalog_id, name)
       )
     `,
     `
