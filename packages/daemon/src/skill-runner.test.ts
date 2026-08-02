@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -109,6 +109,11 @@ test("startSkillRunnerBroker exposes a task-scoped launcher and removes it on cl
     },
     execute: async (args) => {
       calls.push(args);
+      const outputMount = args.find((value) => value.endsWith(",dst=/output"));
+      assert.ok(outputMount);
+      const outputDir = outputMount.slice("type=bind,src=".length, -",dst=/output".length);
+      assert.equal(statSync(outputDir).mode & 0o777, 0o777);
+      writeFileSync(join(outputDir, "result.txt"), "published", "utf8");
       return { exitCode: 0, stdout: "rendered\n", stderr: "", timedOut: false };
     },
   });
@@ -119,6 +124,7 @@ test("startSkillRunnerBroker exposes a task-scoped launcher and removes it on cl
     const result = await execFileAsync(launcher, ["--title", "quarterly"]);
     assert.equal(result.stdout, "rendered\n");
     assert.deepEqual(calls[0]?.slice(-4), ["node", "/skill/scripts/render.mjs", "--title", "quarterly"]);
+    assert.equal(readFileSync(join(workDir, "runtime-output", "skill-runs", "skill-1-render", "result.txt"), "utf8"), "published");
     await broker.close();
     assert.equal(existsSync(launcher), false);
   } finally {
@@ -127,5 +133,63 @@ test("startSkillRunnerBroker exposes a task-scoped launcher and removes it on cl
     chmodSync(join(artifactDir, "scripts"), 0o755);
     rmSync(stateDir, { recursive: true, force: true });
     rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("startSkillRunnerBroker rejects a symlinked output directory before execution", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-state-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-task-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-outside-"));
+  const artifactDigest = "c".repeat(64);
+  const scriptBytes = Buffer.from("console.log('rendered');\n", "utf8");
+  const artifactDir = getDaemonSkillInstallCachePath(stateDir, {
+    workspaceId: "workspace-1",
+    artifactDigest,
+  });
+  mkdirSync(join(artifactDir, "scripts"), { recursive: true });
+  writeFileSync(join(artifactDir, "scripts", "render.mjs"), scriptBytes, { mode: 0o555 });
+  writeFileSync(join(artifactDir, ".cache-complete"), "ready", { mode: 0o444 });
+  chmodSync(join(artifactDir, "scripts"), 0o555);
+  chmodSync(artifactDir, 0o555);
+  const outputRoot = join(workDir, "runtime-output", "skill-runs");
+  mkdirSync(outputRoot, { recursive: true });
+  symlinkSync(outsideDir, join(outputRoot, "skill-1-render"), "dir");
+  let executeCalls = 0;
+  const broker = await startSkillRunnerBroker({
+    stateDir,
+    workspaceId: "workspace-1",
+    workDir,
+    entrypoints: [{
+      key: "skill-1:render",
+      skillId: "skill-1",
+      skillName: "Renderer",
+      installationId: "installation-1",
+      artifactDigest,
+      sha256: createHash("sha256").update(scriptBytes).digest("hex"),
+      id: "render",
+      path: "scripts/render.mjs",
+      runtime: "node",
+    }],
+    environment: {
+      ...process.env,
+      DOFE_SKILL_RUNNER_NODE_IMAGE: `registry.example.com/runner@sha256:${"a".repeat(64)}`,
+    },
+    execute: async () => {
+      executeCalls += 1;
+      return { exitCode: 0, stdout: "rendered\n", stderr: "", timedOut: false };
+    },
+  });
+  try {
+    const launcher = broker.capabilities[0]?.binPath;
+    assert.ok(launcher);
+    await assert.rejects(execFileAsync(launcher), /symlink/i);
+    assert.equal(executeCalls, 0);
+  } finally {
+    await broker.close().catch(() => {});
+    chmodSync(artifactDir, 0o755);
+    chmodSync(join(artifactDir, "scripts"), 0o755);
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+    rmSync(outsideDir, { recursive: true, force: true });
   }
 });

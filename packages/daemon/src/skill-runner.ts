@@ -1,6 +1,19 @@
 import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { getDaemonSkillInstallCachePath, getDaemonSkillInstallEnvsDirPath } from "@dofe-agent/db";
@@ -19,6 +32,9 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_ARGUMENTS = 64;
 const MAX_ARGUMENT_BYTES = 8 * 1024;
+const MAX_OUTPUT_FILES = 1_000;
+const MAX_OUTPUT_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_OUTPUT_TOTAL_BYTES = 64 * 1024 * 1024;
 
 export interface SkillRunnerDockerPlanInput {
   image: string;
@@ -191,9 +207,8 @@ async function handleBrokerRequest(
       artifactDigest: entrypoint.artifactDigest,
     });
     assertSkillRunnerCacheEntry(artifactDir, entrypoint);
-    const outputDir = resolve(context.workDir, "runtime-output", "skill-runs", sanitizeSegment(entrypoint.key));
-    assertInside(context.workDir, outputDir);
-    mkdirSync(outputDir, { recursive: true, mode: 0o755 });
+    const publishedOutputDir = preparePublishedOutputDir(context.workDir, entrypoint.key);
+    const outputDir = createPrivateRunnerOutputDir(context.stateDir, entrypoint.key);
     const dependencyReference = context.dependencyEnvironments?.find(
       (candidate) => candidate.installationId === entrypoint.installationId,
     );
@@ -210,19 +225,25 @@ async function handleBrokerRequest(
         installationId: entrypoint.installationId,
       });
     }
-    const args = buildSkillRunnerDockerArgs({
-      image,
-      runtime: entrypoint.runtime,
-      artifactDir,
-      workspaceDir: resolve(context.workDir),
-      outputDir,
-      dependencyDir,
-      entrypointPath: entrypoint.path,
-      argv,
-    });
-    const timeoutMs = resolveRunnerTimeout(context.environment ?? process.env);
-    const result = await context.execute(args, timeoutMs);
-    sendJson(response, result.exitCode === 0 && !result.timedOut ? 200 : 422, result);
+    try {
+      const args = buildSkillRunnerDockerArgs({
+        image,
+        runtime: entrypoint.runtime,
+        artifactDir,
+        workspaceDir: resolve(context.workDir),
+        outputDir,
+        dependencyDir,
+        entrypointPath: entrypoint.path,
+        argv,
+      });
+      const timeoutMs = resolveRunnerTimeout(context.environment ?? process.env);
+      const result = await context.execute(args, timeoutMs);
+      assertPublishedOutputDirTrusted(context.workDir, publishedOutputDir);
+      publishRunnerOutput(outputDir, publishedOutputDir);
+      sendJson(response, result.exitCode === 0 && !result.timedOut ? 200 : 422, result);
+    } finally {
+      rmSync(outputDir, { recursive: true, force: true });
+    }
   } catch (error) {
     sendJson(response, 500, {
       error: "skill_runner.execution_failed",
@@ -359,6 +380,100 @@ function assertInside(root: string, path: string): void {
   if (!rel || rel === ".." || rel.startsWith("../") || isAbsolute(rel)) {
     throw new Error("Skill Runner output path escapes the task workspace.");
   }
+}
+
+function preparePublishedOutputDir(workDir: string, entrypointKey: string): string {
+  const resolvedWorkDir = resolve(workDir);
+  const workDirStat = lstatSync(resolvedWorkDir);
+  if (!workDirStat.isDirectory() || workDirStat.isSymbolicLink()) {
+    throw new Error("skill_runner.output_symlink_forbidden: task workspace must be a real directory");
+  }
+  let current = resolvedWorkDir;
+  for (const segment of ["runtime-output", "skill-runs", sanitizeSegment(entrypointKey)]) {
+    current = join(current, segment);
+    if (existsSync(current)) {
+      const stats = lstatSync(current);
+      if (!stats.isDirectory() || stats.isSymbolicLink()) {
+        throw new Error(`skill_runner.output_symlink_forbidden: ${relative(resolvedWorkDir, current)}`);
+      }
+    } else {
+      mkdirSync(current, { mode: 0o700 });
+    }
+    assertInside(realpathSync(resolvedWorkDir), realpathSync(current));
+  }
+  return current;
+}
+
+function assertPublishedOutputDirTrusted(workDir: string, outputDir: string): void {
+  const resolvedWorkDir = resolve(workDir);
+  assertInside(resolvedWorkDir, outputDir);
+  let current = outputDir;
+  while (current !== resolvedWorkDir) {
+    const stats = lstatSync(current);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      throw new Error(`skill_runner.output_symlink_forbidden: ${relative(resolvedWorkDir, current)}`);
+    }
+    current = resolve(current, "..");
+  }
+  if (realpathSync(outputDir) !== resolve(realpathSync(resolvedWorkDir), relative(resolvedWorkDir, outputDir))) {
+    throw new Error("skill_runner.output_symlink_forbidden: output directory resolution changed");
+  }
+}
+
+function createPrivateRunnerOutputDir(stateDir: string, entrypointKey: string): string {
+  const root = resolve(stateDir, "skill-runner-output");
+  if (existsSync(root)) {
+    const stats = lstatSync(root);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      throw new Error("skill_runner.private_output_untrusted");
+    }
+  } else {
+    mkdirSync(root, { mode: 0o700 });
+  }
+  const outputDir = mkdtempSync(join(root, `${sanitizeSegment(entrypointKey)}-`));
+  chmodSync(outputDir, 0o777);
+  return outputDir;
+}
+
+function publishRunnerOutput(sourceDir: string, targetDir: string): void {
+  let fileCount = 0;
+  let totalBytes = 0;
+  const copyDirectory = (source: string, target: string): void => {
+    for (const entry of readdirSync(source, { withFileTypes: true })) {
+      const sourcePath = join(source, entry.name);
+      const targetPath = join(target, entry.name);
+      if (entry.isSymbolicLink()) {
+        throw new Error(`skill_runner.output_symlink_forbidden: ${entry.name}`);
+      }
+      if (entry.isDirectory()) {
+        if (existsSync(targetPath)) {
+          const targetStats = lstatSync(targetPath);
+          if (!targetStats.isDirectory() || targetStats.isSymbolicLink()) {
+            throw new Error(`skill_runner.output_symlink_forbidden: ${entry.name}`);
+          }
+        } else {
+          mkdirSync(targetPath, { mode: 0o700 });
+        }
+        copyDirectory(sourcePath, targetPath);
+        continue;
+      }
+      if (!entry.isFile()) {
+        throw new Error(`skill_runner.output_file_type_forbidden: ${entry.name}`);
+      }
+      const stats = statSync(sourcePath);
+      fileCount += 1;
+      totalBytes += stats.size;
+      if (fileCount > MAX_OUTPUT_FILES || stats.size > MAX_OUTPUT_FILE_BYTES || totalBytes > MAX_OUTPUT_TOTAL_BYTES) {
+        throw new Error("skill_runner.output_budget_exceeded");
+      }
+      if (existsSync(targetPath) && lstatSync(targetPath).isSymbolicLink()) {
+        throw new Error(`skill_runner.output_symlink_forbidden: ${entry.name}`);
+      }
+      copyFileSync(sourcePath, targetPath);
+      chmodSync(targetPath, stats.mode & 0o777);
+    }
+  };
+  copyDirectory(sourceDir, targetDir);
 }
 
 function shellQuote(value: string): string {
