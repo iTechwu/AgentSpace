@@ -326,6 +326,7 @@ description: Local skill
 
   const result = await importWorkspaceSkillFromUrl({
     url: localSkillDir,
+    allowFilesystemSource: true,
   });
 
   const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
@@ -348,7 +349,7 @@ test("local directory import rejects packages that exceed the file-count budget"
   }
 
   await assert.rejects(
-    () => importWorkspaceSkillFromUrl({ url: localSkillDir }),
+    () => importWorkspaceSkillFromUrl({ url: localSkillDir, allowFilesystemSource: true }),
     new RegExp(`more than ${MAX_SKILL_PACKAGE_FILES} files`),
   );
 });
@@ -377,9 +378,15 @@ description: Local product manager clone
 `);
   writeFileSync(join(localSkillDir, "templates", "prd.template.md"), "# PRD\n");
 
+  await assert.rejects(
+    () => importWorkspaceSkillFromUrl({ url: localSkillDir }),
+    /filesystem skill sources are not allowed/i,
+  );
+
   const result = await importWorkspaceSkillFromUrl({
     url: localSkillDir,
     conflict: "rename",
+    allowFilesystemSource: true,
   });
 
   assert.equal(result.created, true);

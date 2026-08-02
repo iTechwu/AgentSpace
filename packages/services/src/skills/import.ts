@@ -167,11 +167,16 @@ export async function importWorkspaceSkillFromUrl(input: {
   workspaceId?: string;
   url: string;
   conflict?: SkillImportConflict;
+  allowFilesystemSource?: boolean;
 }): Promise<SkillImportResult> {
   const workspaceId = input.workspaceId;
   const sourceUrl = input.url.trim();
   if (!sourceUrl) {
     throw new Error("Skill import URL is required.");
+  }
+  const parsedSourceUrl = parseUrl(sourceUrl);
+  if (!input.allowFilesystemSource && (!parsedSourceUrl || parsedSourceUrl.protocol === "file:")) {
+    throw new Error("Filesystem skill sources are not allowed for this import channel.");
   }
 
   const hasRecordedStoredSource = listWorkspaceSkillsSync(workspaceId).some(

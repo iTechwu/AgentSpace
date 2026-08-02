@@ -169,6 +169,7 @@ export async function applySkillImportOperations(
         workspaceId: context.workspaceId,
         url: normalized.source,
         conflict: normalized.conflict,
+        allowFilesystemSource: true,
       });
       const assignedToSelf = normalized.assignToSelf
         ? assignSkillToCurrentAgent({

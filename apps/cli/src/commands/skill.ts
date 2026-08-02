@@ -143,6 +143,7 @@ export async function runSkillCommand(
       workspaceId: getStringFlag(flags, "workspace-id") ?? undefined,
       url,
       conflict,
+      allowFilesystemSource: true,
     });
     writeData(format, result);
     return 0;
