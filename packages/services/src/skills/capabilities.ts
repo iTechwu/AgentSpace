@@ -10,6 +10,11 @@ import {
   updateSkillInstallationComponentStatusSync,
 } from "@dofe-agent/db";
 import { sameValue } from "../shared/helpers.ts";
+import {
+  isMcpCatalogReleaseLockMap,
+  resolveLegacyMcpReleasePins,
+  type McpCatalogReleaseLock,
+} from "./mcp-release-lock.ts";
 
 /**
  * Skill → capability resolution (Phase 3).
@@ -155,7 +160,7 @@ export function evaluateSkillInstallationCapabilitiesSync(input: {
 }): void {
   const components = readSkillInstallationComponentsSync(input.installationId);
   const installation = readSkillInstallationSync(input.installationId, input.workspaceId);
-  const mcpReleaseLocks = readMcpReleaseLocks(installation?.resolvedLockJson);
+  const mcpReleaseLocks = readMcpReleaseLocks(installation?.resolvedLockJson, input.workspaceId);
   const artifact = readSkillArtifactByDigestSync(input.artifactDigest, input.workspaceId);
   let manifestCapabilities: Array<{ kind?: string; catalogSlug?: string; requiredTools?: string[] }> = [];
   if (artifact) {
@@ -170,6 +175,18 @@ export function evaluateSkillInstallationCapabilitiesSync(input: {
   for (const component of components) {
     if (component.kind === "mcp") {
       const slug = component.key.replace(/^mcp:/, "");
+      const expectedRelease = mcpReleaseLocks?.[slug];
+      if (!expectedRelease) {
+        updateSkillInstallationComponentStatusSync({
+          installationId: input.installationId,
+          kind: "mcp",
+          key: component.key,
+          status: "blocked",
+          errorCode: "capability.release_lock_unresolved",
+          errorMessage: `MCP capability "${slug}" has no uniquely reconstructable catalog release lock.`,
+        });
+        continue;
+      }
       const declaration = manifestCapabilities.find(
         (capability) => capability.kind === "mcp" && sameValue(capability.catalogSlug ?? "", slug),
       );
@@ -177,8 +194,8 @@ export function evaluateSkillInstallationCapabilitiesSync(input: {
         workspaceId: input.workspaceId,
         runtimeId: input.runtimeId,
         catalogSlug: slug,
-        expectedCatalogItemId: mcpReleaseLocks[slug]?.catalogItemId,
-        expectedCatalogVersion: mcpReleaseLocks[slug]?.version,
+        expectedCatalogItemId: expectedRelease.catalogItemId,
+        expectedCatalogVersion: expectedRelease.version,
         requiredTools: declaration?.requiredTools,
       });
       updateSkillInstallationComponentStatusSync({
@@ -223,24 +240,19 @@ export function evaluateSkillInstallationCapabilitiesSync(input: {
   }
 }
 
-function readMcpReleaseLocks(resolvedLockJson: string | undefined): Record<string, {
-  catalogItemId: string;
-  version: string;
-}> {
-  if (!resolvedLockJson) return {};
+function readMcpReleaseLocks(
+  resolvedLockJson: string | undefined,
+  workspaceId: string,
+): Record<string, McpCatalogReleaseLock> | null {
+  if (!resolvedLockJson) return null;
   try {
-    const parsed = JSON.parse(resolvedLockJson) as { mcpCatalogReleases?: unknown };
-    if (!parsed.mcpCatalogReleases || typeof parsed.mcpCatalogReleases !== "object") return {};
-    const result: Record<string, { catalogItemId: string; version: string }> = {};
-    for (const [slug, value] of Object.entries(parsed.mcpCatalogReleases)) {
-      if (!value || typeof value !== "object") continue;
-      const release = value as { catalogItemId?: unknown; version?: unknown };
-      if (typeof release.catalogItemId === "string" && typeof release.version === "string") {
-        result[slug] = { catalogItemId: release.catalogItemId, version: release.version };
-      }
-    }
-    return result;
+    const parsed = JSON.parse(resolvedLockJson) as {
+      mcpCatalogReleases?: unknown;
+      mcpToolFingerprints?: Record<string, string>;
+    };
+    if (isMcpCatalogReleaseLockMap(parsed.mcpCatalogReleases)) return parsed.mcpCatalogReleases;
+    return resolveLegacyMcpReleasePins(parsed.mcpToolFingerprints, workspaceId);
   } catch {
-    return {};
+    return null;
   }
 }

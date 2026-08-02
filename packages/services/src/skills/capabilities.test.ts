@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test, { before, beforeEach } from "node:test";
 import {
   createUserSync,
@@ -19,6 +20,7 @@ import {
   createSkillInstallationPlanSync,
   disableMcpConnectionSync,
   evaluateSkillInstallationReadinessSync,
+  evaluateSkillInstallationCapabilitiesSync,
   resolveSkillCliCapabilitySync,
   resolveSkillMcpCapabilitySync,
 } from "../index.ts";
@@ -115,6 +117,42 @@ test("resolveSkillMcpCapabilitySync requires the release pinned by the Skill loc
   });
   assert.equal(unavailable.ready, false);
   assert.match(unavailable.reason, /github@1\.0\.0/);
+});
+
+test("legacy MCP fingerprints stay pinned to their historical catalog release", () => {
+  const runtimeId = createTestRuntime();
+  const slug = `github-legacy-${randomLikeId()}`;
+  const v1Tools = [{ name: "search_issues" }];
+  upsertMcpCatalogItemSync({
+    workspaceId: "default",
+    slug,
+    transport: "streamable_http",
+    displayName: slug,
+    version: "1.0.0",
+    declaredToolsJson: JSON.stringify(v1Tools),
+  });
+  setupReadyMcpConnection(runtimeId, slug, ["search_issues", "delete_repository"], ["search_issues"], "2.0.0");
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: `Legacy MCP lock ${randomLikeId()}`,
+    files: [{ path: "SKILL.md", bytes: new TextEncoder().encode("# Legacy lock\n") }],
+    capabilities: [{ kind: "mcp", catalogSlug: slug, requiredTools: ["search_issues"] }],
+  });
+  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  const v1Fingerprint = createHash("sha256").update(JSON.stringify(v1Tools)).digest("hex");
+  getDatabase().prepare(
+    "UPDATE skill_installation SET resolved_lock_json = ? WHERE id = ?",
+  ).run(JSON.stringify({ mcpToolFingerprints: { [slug]: v1Fingerprint } }), installation.id);
+
+  evaluateSkillInstallationCapabilitiesSync({
+    installationId: installation.id,
+    workspaceId: "default",
+    runtimeId,
+    artifactDigest: artifact.digest,
+  });
+
+  const component = readSkillInstallationComponentsSync(installation.id).find((item) => item.kind === "mcp");
+  assert.equal(component?.status, "blocked");
+  assert.match(component?.errorMessage ?? "", new RegExp(`${slug}@1\\.0\\.0`));
 });
 
 test("resolveSkillMcpCapabilitySync blocks when a required tool is not approved/discovered", () => {

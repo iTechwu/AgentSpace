@@ -7,7 +7,6 @@ import {
   createSkillUpgradeApprovalSync,
   getDatabase,
   listSkillIdsForArtifactDigestSync,
-  listMcpCatalogItemReleasesSync,
   readMcpCatalogItemBySlugSync,
   readMcpCatalogItemReleaseSync,
   readActiveArtifactDigestForSkillSync,
@@ -40,6 +39,12 @@ import {
 } from "./skills.ts";
 import { parseSkillMetadata } from "./skill-metadata.ts";
 import { sameValue } from "../shared/helpers.ts";
+import {
+  computeMcpToolFingerprint,
+  isMcpCatalogReleaseLockMap,
+  resolveLegacyMcpReleasePins,
+  type McpCatalogReleaseLock,
+} from "./mcp-release-lock.ts";
 
 /**
  * Version model (Phase 4): version labels are for humans; tasks, audit and
@@ -64,12 +69,6 @@ export interface ResolvedSkillReleaseLock {
    * entries must never reach `ready` (fail-closed). NOT part of the lockDigest.
    */
   unresolvedRequired: string[];
-}
-
-export interface McpCatalogReleaseLock {
-  catalogItemId: string;
-  version: string;
-  toolFingerprint: string;
 }
 
 export interface SkillRollbackPreflightIssue {
@@ -221,49 +220,6 @@ export function verifySkillInstallationLockReconstructableSync(
   } catch {
     return false;
   }
-}
-
-function computeMcpToolFingerprint(declaredToolsJson: string): string | undefined {
-  try {
-    const declaredTools = JSON.parse(declaredToolsJson) as unknown;
-    return createHash("sha256").update(stableStringify(declaredTools)).digest("hex");
-  } catch {
-    return undefined;
-  }
-}
-
-function resolveLegacyMcpReleasePins(
-  fingerprints: Record<string, string> | undefined,
-  workspaceId: string,
-): Record<string, McpCatalogReleaseLock> | null {
-  const resolved: Record<string, McpCatalogReleaseLock> = {};
-  for (const [slug, expectedFingerprint] of Object.entries(fingerprints ?? {})) {
-    const release = listMcpCatalogItemReleasesSync(slug, workspaceId).find(
-      (candidate) => computeMcpToolFingerprint(candidate.declaredToolsJson) === expectedFingerprint,
-    );
-    if (!release) {
-      return null;
-    }
-    resolved[slug] = {
-      catalogItemId: release.id,
-      version: release.version,
-      toolFingerprint: expectedFingerprint,
-    };
-  }
-  return resolved;
-}
-
-function isMcpCatalogReleaseLockMap(value: unknown): value is Record<string, McpCatalogReleaseLock> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  return Object.values(value).every((entry) => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
-    const lock = entry as Partial<McpCatalogReleaseLock>;
-    return typeof lock.catalogItemId === "string"
-      && typeof lock.version === "string"
-      && typeof lock.toolFingerprint === "string";
-  });
 }
 
 function computeLegacyLockDigest(lock: ResolvedSkillReleaseLock): string {
