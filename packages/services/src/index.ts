@@ -411,6 +411,7 @@ export {
   diffSkillArtifactsSync,
   isSkillUpgradeApprovalRequiredSync,
   createSkillUpgradePlanSync,
+  promoteSkillUpgradeSync,
   rollbackSkillInstallationSync,
   readSkillInstallationLockSync,
   verifySkillInstallationLockReconstructableSync,

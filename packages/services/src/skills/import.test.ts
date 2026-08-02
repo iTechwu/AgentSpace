@@ -467,6 +467,32 @@ description: Bad replace
   assert.equal(listStoredSkillImportEventsSync(undefined, 100).length, beforeEventCount);
 });
 
+test("a successful replace records a candidate artifact without activating it", async () => {
+  const first = await importWorkspaceSkillFromZipUpload({
+    fileName: "candidate-v1.zip",
+    contentBytes: zipSync({
+      "SKILL.md": strToU8("---\nname: candidate-import\ndescription: Version one\n---\n# v1\n"),
+    }),
+  });
+  const activeBefore = readStoredSkillActiveArtifactDigestSync(first.skillId);
+  assert.equal(activeBefore, first.artifactDigest);
+
+  const second = await importWorkspaceSkillFromZipUpload({
+    fileName: "candidate-v2.zip",
+    contentBytes: zipSync({
+      "SKILL.md": strToU8("---\nname: candidate-import\ndescription: Version two\n---\n# v2\n"),
+    }),
+    conflict: "replace",
+  });
+
+  assert.notEqual(second.artifactDigest, activeBefore);
+  assert.equal(readStoredSkillActiveArtifactDigestSync(first.skillId), activeBefore);
+  assert.deepEqual(
+    new Set(listSkillArtifactBindingsForSkillSync(first.skillId)),
+    new Set([activeBefore!, second.artifactDigest!]),
+  );
+});
+
 function createGitHubFetchMock(): typeof fetch {
   return (async (input: string | URL | Request) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;

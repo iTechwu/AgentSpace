@@ -19,6 +19,7 @@ import {
   createSkillInstallationPlanSync,
   createSkillUpgradePlanSync,
   diffSkillArtifactsSync,
+  promoteSkillUpgradeSync,
   rollbackSkillInstallationSync,
   tryRecordWorkspaceAuditEventSync,
   uninstallSkillInstallationSync,
@@ -170,6 +171,7 @@ export async function createSkillUpgradeAction(input: {
   skillId: string;
   runtimeId: string;
   previousInstallationId: string;
+  candidateArtifactDigest?: string;
   approved?: boolean;
 }): Promise<ActionToastResult<{ installationId: string; breaking: boolean; changeCount: number }>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
@@ -178,9 +180,15 @@ export async function createSkillUpgradeAction(input: {
   assertRequired(input.runtimeId, "runtime id");
   assertRequired(input.previousInstallationId, "previous installation id");
 
-  const digest = readActiveArtifactDigestForSkillSync(input.skillId.trim(), workspaceContext.currentWorkspace.id);
-  if (!digest) {
+  const activeDigest = readActiveArtifactDigestForSkillSync(input.skillId.trim(), workspaceContext.currentWorkspace.id);
+  if (!activeDigest) {
     throw new Error("此 Skill 尚无 artifact。");
+  }
+  const candidateDigest = input.candidateArtifactDigest?.trim()
+    || listSkillArtifactsForSkillSync(input.skillId.trim(), workspaceContext.currentWorkspace.id)
+      .find((artifact) => artifact.digest !== activeDigest)?.digest;
+  if (!candidateDigest) {
+    throw new Error("此 Skill 尚无待发布的候选 artifact，请先重新导入新版本。");
   }
 
   // Surface the semantic diff so the caller can require re-approval for
@@ -192,8 +200,11 @@ export async function createSkillUpgradeAction(input: {
   let changeCount = 0;
   let approvalId: string | undefined;
   if (previous) {
+    if (previous.artifactDigest !== activeDigest) {
+      throw new Error("上一个安装版本与当前 active artifact 不一致，请刷新后重试。");
+    }
     const previousArtifact = readSkillArtifactByDigestSync(previous.artifactDigest, workspaceContext.currentWorkspace.id);
-    const nextArtifact = readSkillArtifactByDigestSync(digest, workspaceContext.currentWorkspace.id);
+    const nextArtifact = readSkillArtifactByDigestSync(candidateDigest, workspaceContext.currentWorkspace.id);
     if (previousArtifact && nextArtifact) {
       const diff = diffSkillArtifactsSync({
         fromManifestJson: previousArtifact.manifestJson,
@@ -214,7 +225,7 @@ export async function createSkillUpgradeAction(input: {
         workspaceId: workspaceContext.currentWorkspace.id,
         skillId: input.skillId.trim(),
         fromDigest: previous.artifactDigest,
-        toDigest: digest,
+        toDigest: candidateDigest,
         diffHash,
         decision: "approved",
         reason: "Approved by admin in the skill-installation upgrade flow.",
@@ -226,7 +237,7 @@ export async function createSkillUpgradeAction(input: {
   const installation = createSkillUpgradePlanSync({
     workspaceId: workspaceContext.currentWorkspace.id,
     runtimeId: input.runtimeId.trim(),
-    artifactDigest: digest,
+    artifactDigest: candidateDigest,
     previousReadyInstallationId: input.previousInstallationId.trim(),
     requestedByUserId: workspaceContext.currentUser.id,
     ...(approvalId ? { approvalId } : {}),
@@ -235,7 +246,7 @@ export async function createSkillUpgradeAction(input: {
   tryRecordWorkspaceAuditEventSync({
     workspaceId: workspaceContext.currentWorkspace.id,
     title: "Skill upgrade planned",
-    note: `Upgrade for skill "${input.skillId}" (${digest.slice(0, 12)}…) planned by ${workspaceContext.currentUser.displayName} (breaking=${breaking}, changes=${changeCount}).`,
+    note: `Upgrade for skill "${input.skillId}" (${candidateDigest.slice(0, 12)}…) planned by ${workspaceContext.currentUser.displayName} (breaking=${breaking}, changes=${changeCount}).`,
     code: "skill_installation.upgrade_planned",
     data: {
       actorType: "session_user",
@@ -243,7 +254,7 @@ export async function createSkillUpgradeAction(input: {
       resourceId: installation.id,
       skillId: input.skillId.trim(),
       runtimeId: input.runtimeId.trim(),
-      artifactDigest: digest,
+      artifactDigest: candidateDigest,
       breaking,
       changeCount,
     },
@@ -253,6 +264,44 @@ export async function createSkillUpgradeAction(input: {
   return actionToastResult(
     { installationId: installation.id, breaking, changeCount },
     infoToast(`升级计划已创建（${changeCount} 项变更${breaking ? "，需重新批准" : ""}）。`, `Upgrade planned (${changeCount} changes${breaking ? ", re-approval required" : ""}).`),
+  );
+}
+
+export async function promoteSkillUpgradeAction(input: {
+  installationId: string;
+  skillId: string;
+  expectedPreviousDigest: string;
+}): Promise<ActionToastResult<{ artifactDigest: string; revision: string; assignmentCount: number }>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertRequired(input.installationId, "installation id");
+  assertRequired(input.skillId, "skill id");
+  assertRequired(input.expectedPreviousDigest, "expected previous digest");
+  const promoted = promoteSkillUpgradeSync({
+    installationId: input.installationId.trim(),
+    skillId: input.skillId.trim(),
+    expectedPreviousDigest: input.expectedPreviousDigest.trim(),
+    workspaceId: workspaceContext.currentWorkspace.id,
+  });
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    title: "Skill upgrade promoted",
+    note: `Installation "${input.installationId}" promoted to ${promoted.artifactDigest.slice(0, 12)} by ${workspaceContext.currentUser.displayName}.`,
+    code: "skill_installation.upgrade_promoted",
+    data: {
+      actorType: "session_user",
+      resourceType: "skill_installation",
+      resourceId: input.installationId.trim(),
+      skillId: input.skillId.trim(),
+      artifactDigest: promoted.artifactDigest,
+      revision: promoted.revision,
+      assignmentCount: promoted.assignmentCount,
+    },
+  });
+  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+  return actionToastResult(
+    promoted,
+    successToast("候选版本已发布，新任务将使用该版本。", "Candidate promoted; new tasks will use this revision."),
   );
 }
 
@@ -298,6 +347,8 @@ export interface SkillInstallationRowView {
   status: string;
   revision: string;
   previousReadyRevision?: string;
+  previousReadyArtifactDigest?: string;
+  active: boolean;
   releaseLockDigest?: string;
   preparedDigest?: string;
   health: string;
@@ -321,6 +372,7 @@ export async function listSkillInstallationRowsForSkillAction(input: {
   assertRequired(input.skillId, "skill id");
 
   const artifacts = listSkillArtifactsForSkillSync(input.skillId.trim(), workspaceContext.currentWorkspace.id);
+  const activeDigest = readActiveArtifactDigestForSkillSync(input.skillId.trim(), workspaceContext.currentWorkspace.id);
   const digests = new Set(artifacts.map((artifact) => artifact.digest));
   const rows: SkillInstallationRowView[] = [];
   for (const digest of digests) {
@@ -336,6 +388,8 @@ export async function listSkillInstallationRowsForSkillAction(input: {
         status: installation.status,
         revision: installation.revision,
         previousReadyRevision: installation.previousReadyRevision,
+        previousReadyArtifactDigest: installation.previousReadyArtifactDigest,
+        active: installation.artifactDigest === activeDigest,
         releaseLockDigest: readReleaseLockDigest(installation.resolvedLockJson),
         preparedDigest: installation.preparedDigest,
         health: installation.health,
@@ -384,6 +438,8 @@ export async function readSkillInstallationDetailAction(input: {
     status: installation.status,
     revision: installation.revision,
     previousReadyRevision: installation.previousReadyRevision,
+    previousReadyArtifactDigest: installation.previousReadyArtifactDigest,
+    active: false,
     releaseLockDigest: readReleaseLockDigest(installation.resolvedLockJson),
     preparedDigest: installation.preparedDigest,
     health: installation.health,

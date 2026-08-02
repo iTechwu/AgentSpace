@@ -6,7 +6,11 @@ import {
   getDatabase,
   listManagedSkillServiceOperationsSync,
   randomLikeId,
+  readActiveArtifactDigestForSkillSync,
+  readSkillInstallationComponentsSync,
   setSkillInstallationStatusSync,
+  setActiveArtifactDigestForSkillSync,
+  updateSkillInstallationComponentStatusSync,
   upsertMcpCatalogItemSync,
   upsertSkillServiceCatalogSync,
 } from "@dofe-agent/db";
@@ -24,6 +28,7 @@ import {
   diffSkillArtifactsSync,
   isSkillUpgradeApprovalRequiredSync,
   readSkillInstallationLockSync,
+  promoteSkillUpgradeSync,
   SKILL_PROVIDER_COMPATIBILITY_REVISION,
   verifySkillInstallationLockReconstructableSync,
 } from "./release.ts";
@@ -293,6 +298,7 @@ function buildUpgradeArtifacts(skillId?: string | null) {
   });
   const second = buildAndPersistSkillArtifactSync({
     skillId: resolvedSkillId,
+    activate: false,
     name: "Upgrade Test",
     files: [
       { path: "SKILL.md", bytes: ENCODER.encode(`# Body v2 ${salt}\n`) },
@@ -397,6 +403,56 @@ test("createSkillUpgradePlanSync rejects a non-ready previous installation", () 
   assert.throws(
     () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
     /not ready/,
+  );
+});
+
+test("promoteSkillUpgradeSync atomically activates a ready candidate and rejects a stale cutover", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const skill = createWorkspaceSkillSync({ name: `Promote ${cryptoRandomBytes(3).toString("hex")}` });
+  const { first, second } = buildUpgradeArtifacts(skill.id);
+  setActiveArtifactDigestForSkillSync({ skillId: skill.id, digest: first.digest, workspaceId: "default" });
+  const previous = readyInstall(runtimeId, first.digest);
+  const diffHash = breakingDiffHash(first, second);
+  const { approvalId } = approveSkillUpgradeSync({
+    skillId: skill.id,
+    fromDigest: first.digest,
+    toDigest: second.digest,
+    diffHash,
+  });
+  const candidate = createSkillUpgradePlanSync({
+    runtimeId,
+    artifactDigest: second.digest,
+    previousReadyInstallationId: previous.id,
+    approvalId,
+  });
+  for (const component of readSkillInstallationComponentsSync(candidate.id)) {
+    updateSkillInstallationComponentStatusSync({
+      installationId: candidate.id,
+      kind: component.kind,
+      key: component.key,
+      status: "ready",
+      verifiedAt: new Date().toISOString(),
+    });
+  }
+  setSkillInstallationStatusSync({ installationId: candidate.id, status: "ready", health: "healthy" });
+  assert.equal(readActiveArtifactDigestForSkillSync(skill.id), first.digest);
+
+  const promoted = promoteSkillUpgradeSync({
+    installationId: candidate.id,
+    skillId: skill.id,
+    expectedPreviousDigest: first.digest,
+  });
+  assert.equal(promoted.ok, true);
+  assert.equal(readActiveArtifactDigestForSkillSync(skill.id), second.digest);
+
+  assert.throws(
+    () => promoteSkillUpgradeSync({
+      installationId: candidate.id,
+      skillId: skill.id,
+      expectedPreviousDigest: first.digest,
+    }),
+    /concurrently|active digest/i,
   );
 });
 

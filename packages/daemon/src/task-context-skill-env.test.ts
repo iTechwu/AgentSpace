@@ -571,3 +571,35 @@ test("rollout_pin fixes new tasks to the pinned installation revision until the 
   assert.equal(pinnedV2.entries[0]?.revision, "v2");
   assert.equal(pinnedV2.entries[0]?.installationId, v2.id);
 });
+
+test("a degraded rollout pin fails closed instead of falling back to another ready revision", () => {
+  createEmployeeSync({ name: "Pinned Researcher" }, WORKSPACE_ID);
+  const skill = createWorkspaceSkillSync({ name: "strict-rollout-pin", description: "Strict pin" }, WORKSPACE_ID);
+  const runtimeId = createRuntime();
+  const artifact = buildAndPersistSkillArtifactSync({
+    workspaceId: WORKSPACE_ID,
+    skillId: skill.id,
+    name: skill.name,
+    files: [{ path: "SKILL.md", bytes: Buffer.from(`# Strict pin\n${randomBytes(4).toString("hex")}\n`) }],
+  });
+  const v1 = createSkillInstallationPlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest: artifact.digest });
+  setSkillInstallationStatusSync({ installationId: v1.id, workspaceId: WORKSPACE_ID, status: "ready", health: "healthy" });
+  const v2 = createSkillUpgradePlanSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    artifactDigest: artifact.digest,
+    previousReadyInstallationId: v1.id,
+  });
+  setSkillInstallationStatusSync({ installationId: v2.id, workspaceId: WORKSPACE_ID, status: "ready", health: "healthy" });
+  setStoredEmployeeSkillAssignmentsSync("Pinned Researcher", [skill.id], WORKSPACE_ID);
+  setSkillRolloutPinSync({ workspaceId: WORKSPACE_ID, skillId: skill.id, revision: "v1" });
+  setSkillInstallationStatusSync({ installationId: v1.id, workspaceId: WORKSPACE_ID, status: "degraded", health: "failed" });
+
+  const snapshot = resolveTaskSkillExecutionSnapshotSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    agentName: "Pinned Researcher",
+    agentSkills: [skill],
+  });
+  assert.deepEqual(snapshot.entries, []);
+});

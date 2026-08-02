@@ -10,15 +10,15 @@ import {
   listMcpCatalogItemReleasesSync,
   readMcpCatalogItemBySlugSync,
   readMcpCatalogItemReleaseSync,
+  readActiveArtifactDigestForSkillSync,
   readSkillArtifactByDigestSync,
   readSkillInstallationSync,
   readSkillInstallationByLockSync,
   readSkillServiceCatalogSync,
   readSkillUpgradeApprovalByLockSync,
   readSkillUpgradeApprovalSync,
-  setActiveArtifactDigestForSkillSync,
-  setAssignmentArtifactDigestsForSkillSync,
   setSkillInstallationStatusSync,
+  upsertSkillArtifactBindingSync,
   withTransaction,
   type SkillArtifactRecord,
   type StoredSkillInstallationRecord,
@@ -720,6 +720,78 @@ function nextRevision(revision: string): string {
 }
 
 /**
+ * Promotes a verified candidate with a compare-and-swap cutover. The immutable
+ * candidate may be prepared long before this call; no active assignment moves
+ * until every preflight succeeds in the same transaction.
+ */
+export function promoteSkillUpgradeSync(input: {
+  installationId: string;
+  skillId: string;
+  expectedPreviousDigest: string;
+  workspaceId?: string;
+}): { ok: true; artifactDigest: string; revision: string; assignmentCount: number } {
+  const workspaceId = input.workspaceId ?? "default";
+  const candidate = readSkillInstallationSync(input.installationId, workspaceId);
+  if (!candidate) {
+    throw new Error(`Candidate installation "${input.installationId}" does not exist.`);
+  }
+  if (candidate.status !== "ready") {
+    throw new Error(`Candidate installation is "${candidate.status}", not ready; cannot promote.`);
+  }
+  if (candidate.previousReadyArtifactDigest !== input.expectedPreviousDigest || !candidate.previousReadyRevision) {
+    throw new Error("Candidate previous digest does not match the expected active digest.");
+  }
+  const previous = readSkillInstallationByLockSync({
+    workspaceId,
+    runtimeId: candidate.runtimeId,
+    artifactDigest: input.expectedPreviousDigest,
+    revision: candidate.previousReadyRevision,
+  });
+  if (!previous || previous.status !== "ready") {
+    throw new Error("Previous installation is no longer ready; refusing promotion.");
+  }
+  if (!verifySkillInstallationLockReconstructableSync(candidate.id, workspaceId)) {
+    throw new Error("Candidate release lock is no longer reconstructable; refusing promotion.");
+  }
+  assertSameSkillLineage(input.expectedPreviousDigest, candidate.artifactDigest, workspaceId);
+  const candidateSkillIds = listSkillIdsForArtifactDigestSync(candidate.artifactDigest, workspaceId);
+  if (!candidateSkillIds.includes(input.skillId)) {
+    throw new Error(`Skill "${input.skillId}" is not bound to the candidate artifact lineage.`);
+  }
+
+  return withTransaction(getDatabase(), () => {
+    const activeUpdated = getDatabase().prepare(
+      `UPDATE skill SET active_artifact_digest = ?
+       WHERE id = ? AND workspace_id = ? AND active_artifact_digest = ?`,
+    ).run(candidate.artifactDigest, input.skillId, workspaceId, input.expectedPreviousDigest);
+    if (activeUpdated.changes !== 1) {
+      throw new Error("Skill active digest changed concurrently; reload the upgrade state and retry.");
+    }
+
+    const drift = getDatabase().prepare(
+      `SELECT COUNT(*)::int AS count FROM agent_skill
+       WHERE workspace_id = ? AND skill_id = ?
+         AND skill_artifact_digest IS NOT NULL AND skill_artifact_digest <> ?`,
+    ).get(workspaceId, input.skillId, input.expectedPreviousDigest) as { count: number };
+    if (Number(drift.count) > 0) {
+      throw new Error("One or more Skill assignments changed concurrently; promotion was not applied.");
+    }
+    const assignments = getDatabase().prepare(
+      `UPDATE agent_skill
+       SET skill_artifact_digest = ?, rollout_pin = ?
+       WHERE workspace_id = ? AND skill_id = ?`,
+    ).run(candidate.artifactDigest, candidate.revision, workspaceId, input.skillId);
+    upsertSkillArtifactBindingSync({ workspaceId, skillId: input.skillId, digest: candidate.artifactDigest });
+    return {
+      ok: true as const,
+      artifactDigest: candidate.artifactDigest,
+      revision: candidate.revision,
+      assignmentCount: assignments.changes,
+    };
+  });
+}
+
+/**
  * Rollback reactivates the previous READY installation revision — it never
  * re-downloads old branches. Sets the skill's active digest back to the
  * previous revision's artifact so new tasks resolve to the rolled-back state.
@@ -748,6 +820,9 @@ export function rollbackSkillInstallationSync(input: {
   if (previous.status !== "ready") {
     return { ok: false, reason: `Previous revision is "${previous.status}", not ready; cannot roll back.` };
   }
+  if (!verifySkillInstallationLockReconstructableSync(previous.id, input.workspaceId ?? "default")) {
+    return { ok: false, reason: "Previous revision release lock is no longer reconstructable; cannot roll back." };
+  }
 
   const workspaceId = input.workspaceId ?? "default";
   const currentSkillIds = listSkillIdsForArtifactDigestSync(current.artifactDigest, workspaceId);
@@ -760,36 +835,59 @@ export function rollbackSkillInstallationSync(input: {
   if (!currentSkillIds.includes(skillId) || !previousSkillIds.includes(skillId)) {
     return { ok: false, reason: `Skill "${skillId}" is not bound to both rollback revisions.` };
   }
+  const activeDigest = readActiveArtifactDigestForSkillSync(skillId, workspaceId);
+  if (activeDigest !== current.artifactDigest) {
+    return { ok: false, reason: "The installation is not the current active digest; refusing stale rollback." };
+  }
 
   const db = getDatabase();
-  withTransaction(db, () => {
-    // Stop any in-flight work on the failing installation.
-    cancelUnfinishedSkillInstallationOperationsSync({
-      installationId: current.id,
-      workspaceId: input.workspaceId,
-    });
+  try {
+    withTransaction(db, () => {
+      const assignmentDrift = db.prepare(
+        `SELECT COUNT(*)::int AS count FROM agent_skill
+         WHERE workspace_id = ? AND skill_id = ?
+           AND skill_artifact_digest IS NOT NULL AND skill_artifact_digest <> ?`,
+      ).get(workspaceId, skillId, current.artifactDigest) as { count: number };
+      if (Number(assignmentDrift.count) > 0) {
+        throw new SkillReleaseConflictError("Skill assignments changed concurrently; refusing rollback.");
+      }
+      const switched = db.prepare(
+        `UPDATE skill SET active_artifact_digest = ?
+         WHERE id = ? AND workspace_id = ? AND active_artifact_digest = ?`,
+      ).run(previous.artifactDigest, skillId, workspaceId, current.artifactDigest);
+      if (switched.changes !== 1) {
+        throw new SkillReleaseConflictError("Skill active digest changed concurrently; refusing rollback.");
+      }
 
-    // Degrade the failing current installation so it no longer enters tasks.
-    setSkillInstallationStatusSync({
-      installationId: current.id,
-      workspaceId: input.workspaceId,
-      status: "degraded",
-      health: "rolled_back",
-    });
+      // Stop any in-flight work on the failing installation.
+      cancelUnfinishedSkillInstallationOperationsSync({
+        installationId: current.id,
+        workspaceId: input.workspaceId,
+      });
 
-    // Reactivate the previous revision's artifact on the skill row and on every
-    // employee assignment so new tasks resolve to the rolled-back state.
-    setActiveArtifactDigestForSkillSync({
-      skillId,
-      digest: previous.artifactDigest,
-      workspaceId: input.workspaceId,
+      // Degrade the failing current installation so it no longer enters tasks.
+      setSkillInstallationStatusSync({
+        installationId: current.id,
+        workspaceId: input.workspaceId,
+        status: "degraded",
+        health: "rolled_back",
+      });
+
+      // Restore every assignment and its strict revision pin.
+      db.prepare(
+        `UPDATE agent_skill SET skill_artifact_digest = ?, rollout_pin = ?
+         WHERE workspace_id = ? AND skill_id = ?`,
+      ).run(previous.artifactDigest, previous.revision, workspaceId, skillId);
+      upsertSkillArtifactBindingSync({ workspaceId, skillId, digest: previous.artifactDigest });
     });
-    setAssignmentArtifactDigestsForSkillSync({
-      skillId,
-      digest: previous.artifactDigest,
-      workspaceId: input.workspaceId,
-    });
-  });
+  } catch (error) {
+    if (error instanceof SkillReleaseConflictError) {
+      return { ok: false, reason: error.message };
+    }
+    throw error;
+  }
 
   return { ok: true, previousReadyDigest: previous.artifactDigest };
 }
+
+class SkillReleaseConflictError extends Error {}

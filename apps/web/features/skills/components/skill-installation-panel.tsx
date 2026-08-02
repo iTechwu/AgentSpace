@@ -7,6 +7,7 @@ import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import {
   listSkillInstallationRowsForSkillAction,
+  promoteSkillUpgradeAction,
   rollbackSkillInstallationAction,
   uninstallSkillInstallationAction,
   type SkillInstallationRowView,
@@ -46,6 +47,7 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [pendingRollbackId, setPendingRollbackId] = useState<string>("");
+  const [pendingPromoteId, setPendingPromoteId] = useState<string>("");
   const [pendingUninstallId, setPendingUninstallId] = useState<string>("");
 
   const reload = useCallback(() => {
@@ -88,6 +90,23 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
     }).finally(() => setPendingUninstallId(""));
   };
 
+  const promote = (row: SkillInstallationRowView) => {
+    if (!row.previousReadyArtifactDigest) return;
+    if (!window.confirm(tx("发布该候选版本？新任务和现有员工分配将切换到此 revision。", "Promote this candidate? New tasks and current employee assignments will switch to this revision."))) return;
+    setPendingPromoteId(row.installationId);
+    void runToastAction({
+      action: () => promoteSkillUpgradeAction({
+        installationId: row.installationId,
+        skillId,
+        expectedPreviousDigest: row.previousReadyArtifactDigest!,
+      }),
+      pushToast,
+      tx,
+      fallbackError: { zh: "候选版本发布失败。", en: "Failed to promote candidate." },
+      onSuccess: reload,
+    }).finally(() => setPendingPromoteId(""));
+  };
+
   if (loading) {
     return <p className="form-field__hint">{tx("正在加载安装状态…", "Loading installation state…")}</p>;
   }
@@ -123,6 +142,7 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
               <div>
                 <h4>
                   {tx(statusZh, statusEn)}
+                  {row.active ? ` · ${tx("当前版本", "active")}` : ""}
                   <span className="skill-installation-card__meta">
                     {" · "}
                     {row.runtimeId.slice(0, 8)}
@@ -135,6 +155,11 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
                 </p>
               </div>
               <div className="skill-installation-card__actions">
+                {row.status === "ready" && !row.active && row.previousReadyArtifactDigest ? (
+                  <button className="modal-secondary-button" disabled={pendingPromoteId === row.installationId} onClick={() => promote(row)} type="button">
+                    <AppIcon name="checkCircle" />{pendingPromoteId === row.installationId ? tx("发布中…", "Promoting…") : tx("发布", "Promote")}
+                  </button>
+                ) : null}
                 {(row.status === "degraded" || row.status === "blocked") && row.previousReadyRevision ? (
                   <button className="modal-secondary-button" disabled={pendingRollbackId === row.installationId} onClick={() => rollback(row.installationId)} type="button">
                     <AppIcon name="reply" />{pendingRollbackId === row.installationId ? tx("回滚中…", "Rolling back…") : tx("回滚", "Roll back")}

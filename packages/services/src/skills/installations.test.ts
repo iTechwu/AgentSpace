@@ -30,6 +30,7 @@ import {
   failSkillInstallationOperationSync,
   parseCompleteSkillInstallationOperationPayload,
   parseFailSkillInstallationOperationPayload,
+  promoteSkillUpgradeSync,
   resolveClaimedSkillInstallationOperation,
   resetWorkspaceStateSync,
   rollbackSkillInstallationSync,
@@ -239,6 +240,7 @@ test("upgrade creates a candidate revision and rollback reactivates the previous
   // New artifact content → different digest.
   const second = buildAndPersistSkillArtifactSync({
     skillId: skill.id,
+    activate: false,
     name: "Install Test",
     files: [
       { path: "SKILL.md", bytes: encoder.encode("---\nname: Install Test v2\ndescription: changed\ndependencies:\n  - npm:left-pad@1.3.0\n---\n# Body v2\n") },
@@ -273,6 +275,11 @@ test("upgrade creates a candidate revision and rollback reactivates the previous
   const v2Lock = JSON.parse(v2.resolvedLockJson) as { lockDigest: string };
   assert.equal(v2Lock.lockDigest.length, 64);
   await completeAllComponents(v2.id, runtimeId);
+  promoteSkillUpgradeSync({
+    installationId: v2.id,
+    skillId: skill.id,
+    expectedPreviousDigest: first.digest,
+  });
 
   const unrelatedSkill = createWorkspaceSkillSync({ name: "Unrelated Rollback Target" });
   const rejected = rollbackSkillInstallationSync({

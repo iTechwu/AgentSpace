@@ -1,7 +1,14 @@
 import { readdir, readFile, readlink, stat } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
-import { getDatabase, recordStoredSkillImportEventSync, setActiveArtifactDigestForSkillSync, withTransaction } from "@dofe-agent/db";
+import {
+  getDatabase,
+  readActiveArtifactDigestForSkillSync,
+  recordStoredSkillImportEventSync,
+  setActiveArtifactDigestForSkillSync,
+  upsertSkillArtifactBindingSync,
+  withTransaction,
+} from "@dofe-agent/db";
 import { strFromU8, unzipSync } from "fflate";
 import {
   normalizeSkillFilePath,
@@ -57,7 +64,7 @@ export interface SkillImportResult {
   skipped: boolean;
   sourceType: SkillImportSourceType;
   requiresConfiguration: boolean;
-  /** Immutable content-addressed artifact digest pinned to this skill (EAD-004). */
+  /** Immutable imported artifact digest. On replace this is a candidate until explicitly promoted. */
   artifactDigest?: string;
   warnings: string[];
 }
@@ -318,7 +325,11 @@ function commitReplacedSkillImport(
   }
 
   if (artifactDigest) {
-    setActiveArtifactDigestForSkillSync({ skillId: refreshed.id, digest: artifactDigest, workspaceId });
+    const activeDigest = readActiveArtifactDigestForSkillSync(refreshed.id, workspaceId);
+    upsertSkillArtifactBindingSync({ skillId: refreshed.id, digest: artifactDigest, workspaceId });
+    if (!activeDigest) {
+      setActiveArtifactDigestForSkillSync({ skillId: refreshed.id, digest: artifactDigest, workspaceId });
+    }
   }
 
   recordStoredSkillImportEventSync({

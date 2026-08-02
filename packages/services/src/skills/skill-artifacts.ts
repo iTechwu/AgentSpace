@@ -7,6 +7,7 @@ import {
   readSkillArtifactFilesSync,
   upsertContentBlobSync,
   setActiveArtifactDigestForSkillSync,
+  upsertSkillArtifactBindingSync,
   type CreateSkillArtifactInput,
   type SkillArtifactFileInput,
   type SkillArtifactFileRecord,
@@ -179,6 +180,8 @@ export interface BuildAndPersistSkillArtifactInput {
   services?: DspServiceRef[];
   entrypoints?: DspEntrypoint[];
   manifestSchemaVersion?: number;
+  /** Bind to the Skill lineage without moving its active digest (upgrade candidate). */
+  activate?: boolean;
 }
 
 /**
@@ -240,7 +243,10 @@ export function buildAndPersistSkillArtifactSync(
   const existing = readSkillArtifactByDigestSync(digest, workspaceId);
   if (existing) {
     if (input.skillId) {
-      setActiveArtifactDigestForSkillSync({ skillId: input.skillId, digest, workspaceId });
+      upsertSkillArtifactBindingSync({ skillId: input.skillId, digest, workspaceId });
+      if (input.activate !== false) {
+        setActiveArtifactDigestForSkillSync({ skillId: input.skillId, digest, workspaceId });
+      }
     }
     return { artifact: existing, manifest, digest, created: false };
   }
@@ -295,7 +301,7 @@ export function buildAndPersistSkillArtifactSync(
     files: fileInputs,
   });
 
-  if (input.skillId) {
+  if (input.skillId && input.activate !== false) {
     setActiveArtifactDigestForSkillSync({ skillId: input.skillId, digest, workspaceId });
   }
 

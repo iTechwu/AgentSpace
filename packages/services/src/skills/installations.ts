@@ -807,10 +807,20 @@ export function resolveTaskSkillExecutionSnapshotSync(input: {
     // A rollout pin fixes new tasks to a SPECIFIC installation revision until the
     // rollout switches; unpinned assignments resolve to the highest ready revision.
     const rolloutPin = rolloutPinBySkillId.get(skill.id);
-    let installation = rolloutPin
-      ? readSkillInstallationByLockSync({ workspaceId, runtimeId: input.runtimeId, artifactDigest, revision: rolloutPin })
-      : null;
-    if (!installation || installation.status !== "ready") {
+    let installation: StoredSkillInstallationRecord | null;
+    if (rolloutPin) {
+      installation = readSkillInstallationByLockSync({
+        workspaceId,
+        runtimeId: input.runtimeId,
+        artifactDigest,
+        revision: rolloutPin,
+      });
+      // A rollout pin is an operator safety decision. Missing or unhealthy
+      // pinned revisions fail closed and must never drift to another revision.
+      if (!installation || installation.status !== "ready") {
+        continue;
+      }
+    } else {
       installation = readHighestRevisionSkillInstallationSync({
         workspaceId,
         runtimeId: input.runtimeId,
