@@ -22,6 +22,7 @@ Commands:
   im feed                   Show recent collaboration feed
   integrations outbox       Drain external integration outbox
   integrations feishu       Start/dry-run Feishu worker and inspect readiness/smoke plan
+  mcp rotate-key            Re-encrypt MCP secrets and active grants with the configured current key
   channel list              List channels
   channel create            Create a new channel
   employee list             List active digital employees

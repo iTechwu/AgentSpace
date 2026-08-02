@@ -33,10 +33,12 @@ import {
   requestMcpConnectionSync,
   resolveClaimedMcpOperationSync,
   rotateMcpSecretSync,
+  rotateMcpEncryptionKeySync,
   scheduleMcpHealthChecksSync,
   updateMcpConnectionConfigServiceSync,
   validateMcpConnectionForGatewaySync,
 } from "./connections.ts";
+import { decryptMcpGrant, decryptMcpSecret, encryptMcpGrant } from "./security.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-mcp-connections-"));
@@ -64,6 +66,9 @@ beforeEach(() => {
   db.exec("DELETE FROM agent_runtime");
   db.exec("DELETE FROM daemon_connection");
   db.exec("DELETE FROM users");
+  delete process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY_VERSION;
+  delete process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_PREVIOUS_KEYS;
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString("base64");
   ADMIN_USER_ID = createUserSync({ displayName: "MCP Admin", isAdmin: true }).id;
 });
 
@@ -954,6 +959,46 @@ test("recordMcpToolAuditSync dedupes a re-sent event_id", () => {
   assert.equal(replay.id, first.id);
   const audits = listMcpConnectionActivitySync({ workspaceId: "default", connectionId: connection.id }).audits;
   assert.equal(audits.filter((a) => a.eventId === eventId).length, 1);
+});
+
+test("rotateMcpEncryptionKeySync re-encrypts secrets and active grants atomically", () => {
+  const oldKey = Buffer.alloc(32, 9).toString("base64");
+  const newKey = Buffer.alloc(32, 10).toString("base64");
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "rotate-me" },
+    confirmHighRisk: true,
+  });
+  const oldGrant = encryptMcpGrant('{"connections":[]}');
+  getDatabase().prepare(
+    `INSERT INTO mcp_task_session_grant (
+       task_id, workspace_id, runtime_id, attempt_id, encrypted_bundle_json, expires_at, created_at
+     ) VALUES ('rotation-task', 'default', ?, 'attempt-1', ?, ?, ?)`,
+  ).run(runtimeId, oldGrant, new Date(Date.now() + 60_000).toISOString(), new Date().toISOString());
+
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY_VERSION = "mcp2";
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY = newKey;
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_PREVIOUS_KEYS = JSON.stringify({ mcp1: oldKey });
+  const result = rotateMcpEncryptionKeySync({ workspaceId: "default" });
+
+  assert.deepEqual(result, { rotatedSecrets: 1, rotatedSessionGrants: 1, keyVersion: "mcp2" });
+  const secret = getDatabase().prepare(
+    "SELECT encrypted_value AS encryptedValue, key_version AS keyVersion FROM runtime_mcp_secret WHERE connection_id = ?",
+  ).get(connection.id) as { encryptedValue: string; keyVersion: string };
+  const grant = getDatabase().prepare(
+    "SELECT encrypted_bundle_json FROM mcp_task_session_grant WHERE task_id = 'rotation-task'",
+  ).get() as { encryptedBundleJson: string };
+  assert.equal(secret.keyVersion, "mcp2");
+  assert.match(secret.encryptedValue, /^mcp2:/);
+  assert.equal(decryptMcpSecret(secret.encryptedValue), "rotate-me");
+  assert.match(grant.encryptedBundleJson, /^mcpg2:/);
+  assert.equal(decryptMcpGrant(grant.encryptedBundleJson), '{"connections":[]}');
 });
 
 function createRuntime(): string {

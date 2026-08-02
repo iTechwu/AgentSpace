@@ -289,6 +289,7 @@ export {
   resolveClaimedMcpOperationSync,
   reverifyMcpConnectionSync,
   rotateMcpSecretSync,
+  rotateMcpEncryptionKeySync,
   scheduleMcpHealthChecksSync,
   updateMcpConnectionConfigServiceSync,
   validateMcpConnectionForGatewaySync,
@@ -301,11 +302,11 @@ export {
   type UpdateMcpConnectionConfigServiceInput,
 } from "./mcp-center/connections.ts";
 export {
-  MCP_SECRET_KEY_VERSION,
   decryptMcpGrant,
   decryptMcpSecret,
   encryptMcpGrant,
   encryptMcpSecret,
+  getMcpSecretKeyVersion,
   redactMcpText,
   redactToolInputSchema,
   validateMcpEndpoint,

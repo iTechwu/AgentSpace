@@ -2,14 +2,13 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { Ajv } from "ajv";
 import type { McpErrorCode } from "@dofe-agent/db";
 
-const MCP_SECRET_VERSION = "mcp1";
+const DEFAULT_MCP_SECRET_VERSION = "mcp1";
 const MAX_SECRET_LENGTH = 4096;
 /** Version tag for skill-service container secrets (rotate independently of MCP). */
 const SERVICE_SECRET_VERSION = "svc1";
 /** Grant envelopes carry a whole resolved bundle (many connections/tools), so
  *  they get their own version tag and a much larger explicit size limit — they
  *  must NOT be constrained by the single-secret 4096-char cap. */
-const MCP_GRANT_VERSION = "mcpg1";
 const MAX_GRANT_LENGTH = 512 * 1024;
 
 /* ------------------------------------------------------------------ */
@@ -18,11 +17,15 @@ const MAX_GRANT_LENGTH = 512 * 1024;
 /* The db layer stores this opaque string unchanged.                    */
 /* ------------------------------------------------------------------ */
 
-function readMcpEncryptionKey(): Buffer {
+function readMcpEncryptionKey(version: string): Buffer {
+  const currentVersion = getMcpSecretKeyVersion();
+  const currentGrantVersion = grantVersionForSecretVersion(currentVersion);
   const value =
-    process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY?.trim() ||
-    process.env.DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY?.trim() ||
-    process.env.DOFE_AGENT_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY?.trim();
+    version === currentVersion || version === currentGrantVersion || version === SERVICE_SECRET_VERSION
+      ? process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY?.trim() ||
+        process.env.DOFE_AGENT_SKILL_CREDENTIAL_ENCRYPTION_KEY?.trim() ||
+        process.env.DOFE_AGENT_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY?.trim()
+      : readPreviousMcpKeys()[version] ?? readPreviousMcpKeys()[secretVersionForEnvelope(version)];
   if (!value) {
     throw new Error("DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY is required to store MCP connection secrets.");
   }
@@ -41,23 +44,24 @@ function encryptEnvelope(plaintext: string, version: string, maxLength: number, 
   if (trimmed.length > maxLength) {
     throw new Error(`${label} is too long.`);
   }
-  const key = readMcpEncryptionKey();
+  const key = readMcpEncryptionKey(version);
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const ciphertext = Buffer.concat([cipher.update(trimmed, "utf8"), cipher.final()]);
   return [version, iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ciphertext.toString("base64url")].join(":");
 }
 
-function decryptEnvelope(value: string, version: string, label: string): string {
+function decryptEnvelope(value: string, allowedVersion: RegExp, label: string): string {
   const parts = value.split(":");
-  if (parts.length !== 4 || parts[0] !== version) {
+  const version = parts[0] ?? "";
+  if (parts.length !== 4 || !allowedVersion.test(version)) {
     throw new Error(`Unsupported ${label} encryption version.`);
   }
   const [, ivBase64, authTagBase64, ciphertextBase64] = parts;
   if (!ivBase64 || !authTagBase64 || !ciphertextBase64) {
     throw new Error(`Invalid ${label} encryption format.`);
   }
-  const key = readMcpEncryptionKey();
+  const key = readMcpEncryptionKey(version);
   const iv = Buffer.from(ivBase64, "base64url");
   const authTag = Buffer.from(authTagBase64, "base64url");
   const ciphertext = Buffer.from(ciphertextBase64, "base64url");
@@ -74,29 +78,54 @@ function decryptEnvelope(value: string, version: string, label: string): string 
 }
 
 export function encryptMcpSecret(plaintext: string): string {
-  return encryptEnvelope(plaintext, MCP_SECRET_VERSION, MAX_SECRET_LENGTH, "MCP secret value");
+  return encryptEnvelope(plaintext, getMcpSecretKeyVersion(), MAX_SECRET_LENGTH, "MCP secret value");
 }
 
 export function decryptMcpSecret(value: string): string {
-  return decryptEnvelope(value, MCP_SECRET_VERSION, "MCP secret");
+  return decryptEnvelope(value, /^mcp(?!g)[A-Za-z0-9._-]+$/, "MCP secret");
 }
 
 export function encryptMcpGrant(plaintext: string): string {
-  return encryptEnvelope(plaintext, MCP_GRANT_VERSION, MAX_GRANT_LENGTH, "MCP grant");
+  return encryptEnvelope(plaintext, grantVersionForSecretVersion(getMcpSecretKeyVersion()), MAX_GRANT_LENGTH, "MCP grant");
 }
 
 export function decryptMcpGrant(value: string): string {
-  return decryptEnvelope(value, MCP_GRANT_VERSION, "MCP grant");
+  return decryptEnvelope(value, /^mcpg[A-Za-z0-9._-]+$/, "MCP grant");
 }
 
-export const MCP_SECRET_KEY_VERSION = MCP_SECRET_VERSION;
+export function getMcpSecretKeyVersion(): string {
+  const value = process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY_VERSION?.trim() || DEFAULT_MCP_SECRET_VERSION;
+  if (!/^mcp[A-Za-z0-9._-]+$/.test(value) || value.startsWith("mcpg")) {
+    throw new Error("DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY_VERSION must start with mcp.");
+  }
+  return value;
+}
+
+function grantVersionForSecretVersion(version: string): string {
+  return `mcpg${version.slice(3)}`;
+}
+
+function secretVersionForEnvelope(version: string): string {
+  return version.startsWith("mcpg") ? `mcp${version.slice(4)}` : version;
+}
+
+function readPreviousMcpKeys(): Record<string, string> {
+  const raw = process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_PREVIOUS_KEYS?.trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  } catch {
+    throw new Error("DOFE_AGENT_MCP_SECRET_ENCRYPTION_PREVIOUS_KEYS must be a JSON object.");
+  }
+}
 
 export function encryptServiceSecret(plaintext: string): string {
   return encryptEnvelope(plaintext, SERVICE_SECRET_VERSION, MAX_SECRET_LENGTH, "service secret value");
 }
 
 export function decryptServiceSecret(value: string): string {
-  return decryptEnvelope(value, SERVICE_SECRET_VERSION, "service secret");
+  return decryptEnvelope(value, /^svc1$/, "service secret");
 }
 
 /* ------------------------------------------------------------------ */

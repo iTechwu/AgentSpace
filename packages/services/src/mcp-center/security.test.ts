@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decryptMcpSecret, encryptMcpSecret, redactMcpText, redactToolInputSchema, validateMcpConnectionConfiguration, validateMcpEndpoint, validateMcpRequestHeaders, validateMcpResolvedAddresses } from "./security.ts";
+import { decryptMcpGrant, decryptMcpSecret, encryptMcpGrant, encryptMcpSecret, redactMcpText, redactToolInputSchema, validateMcpConnectionConfiguration, validateMcpEndpoint, validateMcpRequestHeaders, validateMcpResolvedAddresses } from "./security.ts";
 
 test("validateMcpEndpoint accepts an https host on the allow-list", () => {
   const result = validateMcpEndpoint("https://github-mcp.example.com/mcp", ["github-mcp.example.com"]);
@@ -85,6 +85,27 @@ test("decrypt rejects a tampered or wrong-version ciphertext", () => {
   process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
   assert.throws(() => decryptMcpSecret("other:1:2:3"));
   assert.throws(() => decryptMcpSecret("mcp1:only:two"));
+});
+
+test("MCP keyring decrypts old envelopes while new writes use the current key version", () => {
+  const oldKey = Buffer.alloc(32, 7).toString("base64");
+  const newKey = Buffer.alloc(32, 8).toString("base64");
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY_VERSION = "mcp1";
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY = oldKey;
+  const oldSecret = encryptMcpSecret("old-secret");
+  const oldGrant = encryptMcpGrant('{"connections":[]}');
+
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY_VERSION = "mcp2";
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY = newKey;
+  process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_PREVIOUS_KEYS = JSON.stringify({ mcp1: oldKey });
+
+  assert.equal(decryptMcpSecret(oldSecret), "old-secret");
+  assert.equal(decryptMcpGrant(oldGrant), '{"connections":[]}');
+  assert.match(encryptMcpSecret("new-secret"), /^mcp2:/);
+  assert.match(encryptMcpGrant('{"connections":[]}'), /^mcpg2:/);
+
+  delete process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_KEY_VERSION;
+  delete process.env.DOFE_AGENT_MCP_SECRET_ENCRYPTION_PREVIOUS_KEYS;
 });
 
 test("redactMcpText strips authorization, bearer and secret-like values", () => {

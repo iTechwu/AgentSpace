@@ -52,6 +52,7 @@ import {
   decryptMcpSecret,
   encryptMcpGrant,
   encryptMcpSecret,
+  getMcpSecretKeyVersion,
   validateMcpConnectionConfiguration,
   redactToolInputSchema,
   validateMcpEndpoint,
@@ -144,7 +145,7 @@ export function requestMcpConnectionSync(input: RequestMcpConnectionInput): Requ
         connectionId: connection.id,
         fieldName,
         encryptedValue,
-        keyVersion: "mcp1",
+        keyVersion: getMcpSecretKeyVersion(),
         rotatedByUserId: input.actorUserId,
       })),
     );
@@ -400,7 +401,7 @@ export function rotateMcpSecretSync(input: {
   }
   const encrypted = encryptMcpSecret(input.value);
   upsertMcpSecretsSync([
-    { connectionId: connection.id, fieldName: input.fieldName, encryptedValue: encrypted, keyVersion: "mcp1", rotatedByUserId: input.actorUserId },
+    { connectionId: connection.id, fieldName: input.fieldName, encryptedValue: encrypted, keyVersion: getMcpSecretKeyVersion(), rotatedByUserId: input.actorUserId },
   ]);
   // Any secret rotation invalidates readiness and fences the prior verification.
   cancelUnfinishedMcpOperationsForConnectionSync({ connectionId: connection.id, workspaceId: input.workspaceId });
@@ -533,7 +534,7 @@ export function replaceMcpConnectionConfigSync(input: ReplaceMcpConnectionConfig
           connectionId: connection.id,
           fieldName,
           encryptedValue: encryptMcpSecret(value),
-          keyVersion: "mcp1",
+          keyVersion: getMcpSecretKeyVersion(),
           rotatedByUserId: input.actorUserId,
         });
       }
@@ -761,6 +762,66 @@ export function listMcpConnectionsForRuntimeServiceSync(input: {
   runtimeId: string;
 }): RuntimeMcpConnectionRecord[] {
   return listMcpConnectionsForRuntimeSync({ workspaceId: input.workspaceId, runtimeId: input.runtimeId });
+}
+
+export function rotateMcpEncryptionKeySync(input: { workspaceId?: string } = {}): {
+  rotatedSecrets: number;
+  rotatedSessionGrants: number;
+  keyVersion: string;
+} {
+  const db = getDatabase();
+  const keyVersion = getMcpSecretKeyVersion();
+  let rotatedSecrets = 0;
+  let rotatedSessionGrants = 0;
+  withTransaction(db, () => {
+    const workspaceClause = input.workspaceId ? "WHERE connection.workspace_id = ?" : "";
+    const secretRows = db.prepare(
+      `SELECT secret.connection_id AS connectionId, secret.field_name AS fieldName,
+              secret.encrypted_value AS encryptedValue, secret.key_version AS keyVersion
+       FROM runtime_mcp_secret secret
+       JOIN runtime_mcp_connection connection ON connection.id = secret.connection_id
+       ${workspaceClause}`,
+    ).all(...(input.workspaceId ? [input.workspaceId] : [])) as Array<Record<string, unknown>>;
+    for (const row of secretRows) {
+      if (
+        typeof row.connectionId !== "string" ||
+        typeof row.fieldName !== "string" ||
+        typeof row.encryptedValue !== "string" ||
+        row.keyVersion === keyVersion
+      ) continue;
+      db.prepare(
+        `UPDATE runtime_mcp_secret
+         SET encrypted_value = ?, key_version = ?, rotated_at = ?
+         WHERE connection_id = ? AND field_name = ?`,
+      ).run(
+        encryptMcpSecret(decryptMcpSecret(row.encryptedValue)),
+        keyVersion,
+        new Date().toISOString(),
+        row.connectionId,
+        row.fieldName,
+      );
+      rotatedSecrets += 1;
+    }
+
+    const grantClause = input.workspaceId ? "WHERE workspace_id = ?" : "";
+    const grantRows = db.prepare(
+      `SELECT task_id, encrypted_bundle_json
+       FROM mcp_task_session_grant ${grantClause}`,
+    ).all(...(input.workspaceId ? [input.workspaceId] : [])) as Array<Record<string, unknown>>;
+    const currentGrantVersion = `mcpg${keyVersion.slice(3)}:`;
+    for (const row of grantRows) {
+      if (
+        typeof row.taskId !== "string" ||
+        typeof row.encryptedBundleJson !== "string" ||
+        row.encryptedBundleJson.startsWith(currentGrantVersion)
+      ) continue;
+      db.prepare(
+        `UPDATE mcp_task_session_grant SET encrypted_bundle_json = ? WHERE task_id = ?`,
+      ).run(encryptMcpGrant(decryptMcpGrant(row.encryptedBundleJson)), row.taskId);
+      rotatedSessionGrants += 1;
+    }
+  });
+  return { rotatedSecrets, rotatedSessionGrants, keyVersion };
 }
 
 /* ------------------------------------------------------------------ */
