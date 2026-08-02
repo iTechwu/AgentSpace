@@ -9,6 +9,7 @@ const mockRefresh = vi.fn();
 const navigationMocks = vi.hoisted(() => ({
   push: vi.fn(),
   searchParams: new URLSearchParams(),
+  workspaceSlug: "default",
 }));
 
 vi.mock("next/navigation", () => ({
@@ -18,6 +19,7 @@ vi.mock("next/navigation", () => ({
     push: navigationMocks.push,
   }),
   useSearchParams: () => navigationMocks.searchParams,
+  useParams: () => ({ workspaceSlug: navigationMocks.workspaceSlug }),
 }));
 
 const actionMocks = vi.hoisted(() => ({
@@ -94,6 +96,7 @@ const data: MarketPageData = {
       displayName: "Workspace Search",
       description: "Search workspace records",
       version: "1.0.0",
+      category: "productivity",
       transport: "streamable_http",
       risk: "low",
       allowedHosts: ["mcp.example.com"],
@@ -325,7 +328,7 @@ describe("MarketPageClient", () => {
     });
   });
 
-  it("filters MCP catalog entries by reviewed source, transport, risk, and connection health", async () => {
+  it("filters MCP catalog entries by category, reviewed source, risk, and connection health", async () => {
     const user = userEvent.setup();
     render(
       <LanguageProvider>
@@ -340,7 +343,8 @@ describe("MarketPageClient", () => {
                 source: "official",
                 slug: "official-search",
                 displayName: "Official Search",
-                transport: "sse",
+                category: "developer_tools",
+                transport: "streamable_http",
                 risk: "high",
               },
             ],
@@ -351,7 +355,7 @@ describe("MarketPageClient", () => {
               catalogSlug: "official-search",
               catalogDisplayName: "Official Search",
               status: "degraded",
-              transport: "sse",
+              transport: "streamable_http",
               approvedTools: ["search"],
               declaredToolCount: 1,
             }],
@@ -361,8 +365,8 @@ describe("MarketPageClient", () => {
     );
 
     await user.click(screen.getByRole("tab", { name: /MCP/ }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "类别" }), "developer_tools");
     await user.selectOptions(screen.getByRole("combobox", { name: "来源" }), "official");
-    await user.selectOptions(screen.getByRole("combobox", { name: "传输" }), "sse");
     await user.selectOptions(screen.getByRole("combobox", { name: "风险" }), "high");
     await user.selectOptions(screen.getByRole("combobox", { name: "连接状态" }), "needs_attention");
 

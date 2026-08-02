@@ -1,6 +1,7 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
 import type {
   McpCatalogItemRecord,
+  McpCatalogCategory,
   McpCatalogSource,
   McpConnectionOperationSource,
   McpConnectionOperationStatus,
@@ -27,6 +28,7 @@ export interface UpsertMcpCatalogItemInput {
   source?: McpCatalogSource;
   slug: string;
   version?: string;
+  category?: McpCatalogCategory;
   transport: McpTransport;
   displayName: string;
   description?: string;
@@ -184,6 +186,7 @@ function writeMcpCatalogItemSync(input: UpsertMcpCatalogItemInput, allowOverwrit
         source,
         slug,
         version,
+        category,
         transport,
         display_name,
         description,
@@ -200,10 +203,10 @@ function writeMcpCatalogItemSync(input: UpsertMcpCatalogItemInput, allowOverwrit
         synced_at,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ${allowOverwrite ? `ON CONFLICT (workspace_id, slug) DO UPDATE SET
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ${allowOverwrite ? `ON CONFLICT (workspace_id, slug, version) DO UPDATE SET
         source = excluded.source,
-        version = excluded.version,
+        category = excluded.category,
         transport = excluded.transport,
         display_name = excluded.display_name,
         description = excluded.description,
@@ -224,7 +227,8 @@ function writeMcpCatalogItemSync(input: UpsertMcpCatalogItemInput, allowOverwrit
       workspaceId,
       input.source ?? "workspace_private",
       slug,
-      input.version?.trim() ?? "",
+      input.version?.trim() || "1.0.0",
+      input.category ?? "other",
       input.transport,
       input.displayName.trim(),
       input.description?.trim() ?? "",
@@ -243,7 +247,7 @@ function writeMcpCatalogItemSync(input: UpsertMcpCatalogItemInput, allowOverwrit
       now,
     );
   });
-  const record = readMcpCatalogItemBySlugSync(slug, workspaceId);
+  const record = readMcpCatalogItemReleaseSync(slug, input.version?.trim() || "1.0.0", workspaceId);
   if (!record) {
     throw new Error("Failed to persist MCP catalog item.");
   }
@@ -259,8 +263,22 @@ export function readMcpCatalogItemSync(id: string, workspaceId = DEFAULT_WORKSPA
 
 export function readMcpCatalogItemBySlugSync(slug: string, workspaceId = DEFAULT_WORKSPACE_ID): McpCatalogItemRecord | null {
   const row = getDatabase().prepare(
-    `${MCP_CATALOG_ITEM_COLUMNS} FROM mcp_catalog_item WHERE workspace_id = ? AND slug = ?`,
+    `${MCP_CATALOG_ITEM_COLUMNS} FROM mcp_catalog_item
+     WHERE workspace_id = ? AND slug = ?
+     ORDER BY created_at DESC, version DESC LIMIT 1`,
   ).get(workspaceId, slug.trim()) as Record<string, unknown> | undefined;
+  return row ? mapMcpCatalogItemRecord(row) : null;
+}
+
+export function readMcpCatalogItemReleaseSync(
+  slug: string,
+  version: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): McpCatalogItemRecord | null {
+  const row = getDatabase().prepare(
+    `${MCP_CATALOG_ITEM_COLUMNS} FROM mcp_catalog_item
+     WHERE workspace_id = ? AND slug = ? AND version = ?`,
+  ).get(workspaceId, slug.trim(), version.trim()) as Record<string, unknown> | undefined;
   return row ? mapMcpCatalogItemRecord(row) : null;
 }
 
@@ -268,7 +286,12 @@ export function listMcpCatalogItemsSync(options: { workspaceId?: string; limit?:
   const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const limit = Math.max(1, Math.min(options.limit ?? 200, 500));
   const rows = getDatabase().prepare(
-    `${MCP_CATALOG_ITEM_COLUMNS} FROM mcp_catalog_item WHERE workspace_id = ? ORDER BY display_name ASC LIMIT ${limit}`,
+    `SELECT * FROM (
+       SELECT DISTINCT ON (slug) ${MCP_CATALOG_ITEM_FIELDS} FROM mcp_catalog_item
+       WHERE workspace_id = ?
+       ORDER BY slug, created_at DESC, version DESC
+     ) latest
+     ORDER BY displayName ASC LIMIT ${limit}`,
   ).all(workspaceId) as Array<Record<string, unknown>>;
   return rows.map(mapMcpCatalogItemRecord).filter((r): r is McpCatalogItemRecord => r !== null);
 }
@@ -1010,8 +1033,8 @@ export function deleteMcpToolAuditsBeforeSync(cutoff: string): number {
 /* Column selectors + mappers                                          */
 /* ------------------------------------------------------------------ */
 
-const MCP_CATALOG_ITEM_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, source, slug, version, transport,
+const MCP_CATALOG_ITEM_FIELDS = `
+  id, workspace_id AS workspaceId, source, slug, version, category, transport,
   display_name AS displayName, description,
   allowed_hosts_json AS allowedHostsJson,
   configuration_schema_json AS configurationSchemaJson,
@@ -1022,6 +1045,7 @@ const MCP_CATALOG_ITEM_COLUMNS = `SELECT
   data_domains_json AS dataDomainsJson,
   risk, endpoint_template AS endpointTemplate, documentation_url AS documentationUrl,
   synced_at AS syncedAt, created_at AS createdAt, updated_at AS updatedAt`;
+const MCP_CATALOG_ITEM_COLUMNS = `SELECT ${MCP_CATALOG_ITEM_FIELDS}`;
 
 const MCP_CONNECTION_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, runtime_id AS runtimeId, catalog_item_id AS catalogItemId,
@@ -1058,6 +1082,7 @@ function mapMcpCatalogItemRecord(value: Record<string, unknown>): McpCatalogItem
     !isMcpCatalogSource(value.source) ||
     typeof value.slug !== "string" ||
     typeof value.version !== "string" ||
+    !isMcpCatalogCategory(value.category) ||
     !isMcpTransport(value.transport) ||
     typeof value.displayName !== "string" ||
     typeof value.description !== "string" ||
@@ -1081,6 +1106,7 @@ function mapMcpCatalogItemRecord(value: Record<string, unknown>): McpCatalogItem
     source: value.source,
     slug: value.slug,
     version: value.version,
+    category: value.category,
     transport: value.transport,
     displayName: value.displayName,
     description: value.description,
@@ -1098,6 +1124,18 @@ function mapMcpCatalogItemRecord(value: Record<string, unknown>): McpCatalogItem
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };
+}
+
+function isMcpCatalogCategory(value: unknown): value is McpCatalogCategory {
+  return [
+    "developer_tools",
+    "productivity",
+    "data_analytics",
+    "communication",
+    "knowledge",
+    "automation",
+    "other",
+  ].includes(String(value));
 }
 
 function mapRuntimeMcpConnectionRecord(value: Record<string, unknown>): RuntimeMcpConnectionRecord | null {

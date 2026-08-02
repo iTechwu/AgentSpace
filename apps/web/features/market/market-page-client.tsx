@@ -1,6 +1,6 @@
 "use client";
 
-import type { McpCatalogSource, RuntimeAppCatalogSource, RuntimeAppOperationType } from "@dofe-agent/db";
+import type { McpCatalogCategory, McpCatalogSource, RuntimeAppCatalogSource, RuntimeAppOperationType } from "@dofe-agent/db";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { requestRuntimeAppOperationAction, refreshRuntimeAppCatalogAction, syncRuntimeAppSkillAction } from "@/features/market/actions";
@@ -69,6 +69,7 @@ export interface MarketPageData {
     displayName: string;
     description: string;
     version: string;
+    category: McpCatalogCategory;
     transport: "streamable_http" | "sse" | "managed_service" | "managed_stdio";
     risk: "low" | "medium" | "high";
     allowedHosts: string[];

@@ -939,6 +939,14 @@ export type McpConnectionOperationType = "verify" | "enable" | "disable" | "remo
 export type McpConnectionOperationStatus = "pending" | "claimed" | "running" | "succeeded" | "failed" | "cancelled";
 export type McpConnectionOperationSource = "user_verify" | "config_change" | "secret_rotation" | "health_check" | "enable" | "remove";
 export type McpToolCallOutcome = "succeeded" | "failed";
+export type McpCatalogCategory =
+  | "developer_tools"
+  | "productivity"
+  | "data_analytics"
+  | "communication"
+  | "knowledge"
+  | "automation"
+  | "other";
 export type McpErrorCode =
   | "mcp.policy_denied"
   | "mcp.network_unreachable"
@@ -954,6 +962,7 @@ export interface McpCatalogItemRecord {
   source: McpCatalogSource;
   slug: string;
   version: string;
+  category: McpCatalogCategory;
   transport: McpTransport;
   displayName: string;
   description: string;
@@ -1508,6 +1517,8 @@ export interface StoredSkillInstallationOperationRecord {
   errorCode?: string;
   /** Lease expiry while claimed/running; null once completed/failed/pending. */
   leaseExpiresAt?: string;
+  /** Monotonic fencing value incremented on every claim. */
+  claimGeneration: number;
   errorMessage?: string;
   claimedAt?: string;
   completedAt?: string;
@@ -1594,6 +1605,8 @@ export interface ManagedSkillServiceOperationRecord {
   claimedAt?: string;
   completedAt?: string;
   leaseExpiresAt?: string;
+  /** Monotonic fencing value incremented on every claim. */
+  claimGeneration: number;
   createdAt: string;
 }
 

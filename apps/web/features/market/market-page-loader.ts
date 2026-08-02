@@ -97,6 +97,7 @@ export async function loadMarketPageData(input: {
       displayName: item.displayName,
       description: item.description,
       version: item.version,
+      category: item.category,
       transport: item.transport,
       risk: item.risk,
       allowedHosts: safeJsonArray(item.allowedHostsJson),

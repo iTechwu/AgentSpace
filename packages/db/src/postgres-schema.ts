@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "83";
+export const POSTGRES_SCHEMA_VERSION = "85";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -933,7 +933,8 @@ export function getPostgresSchemaStatements(): string[] {
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         source TEXT NOT NULL DEFAULT 'workspace_private',
         slug TEXT NOT NULL,
-        version TEXT NOT NULL DEFAULT '',
+        version TEXT NOT NULL DEFAULT '1.0.0',
+        category TEXT NOT NULL DEFAULT 'other',
         transport TEXT NOT NULL,
         display_name TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
@@ -949,9 +950,23 @@ export function getPostgresSchemaStatements(): string[] {
         documentation_url TEXT,
         synced_at TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL,
-        UNIQUE(workspace_id, slug)
+        updated_at TIMESTAMPTZ NOT NULL
       )
+    `,
+    `
+      ALTER TABLE mcp_catalog_item
+        ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'other'
+    `,
+    `
+      UPDATE mcp_catalog_item SET version = '1.0.0' WHERE version = ''
+    `,
+    `
+      ALTER TABLE mcp_catalog_item
+        DROP CONSTRAINT IF EXISTS mcp_catalog_item_workspace_id_slug_key
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_catalog_item_release
+        ON mcp_catalog_item(workspace_id, slug, version)
     `,
     `
       CREATE TABLE IF NOT EXISTS runtime_mcp_connection (
@@ -2645,6 +2660,9 @@ export function getPostgresSchemaStatements(): string[] {
       ALTER TABLE skill_installation_operation ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ
     `,
     `
+      ALTER TABLE skill_installation_operation ADD COLUMN IF NOT EXISTS claim_generation INTEGER NOT NULL DEFAULT 0
+    `,
+    `
       CREATE TABLE IF NOT EXISTS skill_installation_component (
         id TEXT PRIMARY KEY,
         installation_id TEXT NOT NULL REFERENCES skill_installation(id) ON DELETE CASCADE,
@@ -2754,6 +2772,9 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `
       ALTER TABLE managed_skill_service_operation ADD COLUMN IF NOT EXISTS replaces_service_id TEXT REFERENCES managed_skill_service(id) ON DELETE SET NULL
+    `,
+    `
+      ALTER TABLE managed_skill_service_operation ADD COLUMN IF NOT EXISTS claim_generation INTEGER NOT NULL DEFAULT 0
     `,
     `
       CREATE TABLE IF NOT EXISTS workspace_service_secret (

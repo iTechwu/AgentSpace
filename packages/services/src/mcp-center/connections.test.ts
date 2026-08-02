@@ -10,6 +10,8 @@ import {
   createUserSync,
   getDatabase,
   listMcpOperationsSync,
+  listMcpCatalogItemsSync,
+  readMcpCatalogItemBySlugSync,
   readMcpTaskAuditAuthorizationSync,
   readMcpConnectionSync,
   recordMcpToolAuditSync,
@@ -113,8 +115,8 @@ test("requestMcpConnection creates a connection and queues a verify operation", 
   assert.equal(detail?.secretFields[0]?.configured, true);
 });
 
-test("catalog publishing rejects a mutable overwrite of an existing slug", () => {
-  seedCatalog();
+test("catalog publishing keeps releases immutable and exposes only the latest release", () => {
+  const firstId = seedCatalog();
   assert.throws(
     () => createMcpCatalogItemSync({
       workspaceId: "default",
@@ -126,8 +128,26 @@ test("catalog publishing rejects a mutable overwrite of an existing slug", () =>
       configurationSchema: { type: "object", additionalProperties: false },
       declaredTools: [{ name: "replacement", description: "replacement", risk: "low" }],
     }),
-    /mcp_catalog.release_required/,
+    /mcp_catalog.release_exists/,
   );
+
+  const second = createMcpCatalogItemSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    slug: "github",
+    version: "1.1.0",
+    category: "developer_tools",
+    displayName: "GitHub MCP 1.1",
+    transport: "streamable_http",
+    allowedHosts: ["github-mcp.example.com"],
+    configurationSchema: { type: "object", additionalProperties: false },
+    declaredTools: [{ name: "search_repos", description: "Search repositories", risk: "low" }],
+  });
+  assert.notEqual(second.id, firstId);
+  assert.equal(second.version, "1.1.0");
+  assert.equal(second.category, "developer_tools");
+  assert.equal(readMcpCatalogItemBySlugSync("github")?.id, second.id);
+  assert.deepEqual(listMcpCatalogItemsSync().map((item) => item.id), [second.id]);
 });
 
 test("requestMcpConnection rejects non-allow-listed and private endpoints", () => {

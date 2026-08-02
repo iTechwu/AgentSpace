@@ -4,8 +4,10 @@ import {
   listMcpConnectionsSync,
   listMcpCatalogItemsSync,
   readMcpCatalogItemBySlugSync,
+  readMcpCatalogItemReleaseSync,
   readMcpCatalogItemSync,
   type McpCatalogItemRecord,
+  type McpCatalogCategory,
   type McpRisk,
   type McpTransport,
 } from "@dofe-agent/db";
@@ -25,6 +27,7 @@ export interface CreateMcpCatalogItemInput {
   displayName: string;
   description?: string;
   version?: string;
+  category?: McpCatalogCategory;
   transport: McpTransport;
   allowedHosts: string[];
   configurationSchema: Record<string, unknown>;
@@ -53,11 +56,12 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
   if (!/^[a-z0-9][a-z0-9\-]{0,62}$/.test(slug)) {
     throw new Error("mcp_catalog.invalid_slug");
   }
-  if (readMcpCatalogItemBySlugSync(slug, input.workspaceId)) {
-    // The current table is unique on (workspace, slug), so an upsert would
-    // silently rewrite the policy used by existing connections. A future
-    // catalog-release model must create a new immutable version instead.
-    throw new Error("mcp_catalog.release_required");
+  const version = input.version?.trim() || "1.0.0";
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+    throw new Error("mcp_catalog.invalid_version");
+  }
+  if (readMcpCatalogItemReleaseSync(slug, version, input.workspaceId)) {
+    throw new Error("mcp_catalog.release_exists");
   }
   if (!input.displayName.trim()) {
     throw new Error("mcp_catalog.invalid_display_name");
@@ -111,7 +115,8 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
       workspaceId: input.workspaceId,
       source: "workspace_private",
       slug,
-      version: input.version?.trim(),
+      version,
+      category: input.category ?? "other",
       transport: input.transport,
       displayName: input.displayName.trim(),
       description: input.description?.trim(),
@@ -128,7 +133,7 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
     });
   } catch (error) {
     if (isMcpCatalogSlugConflict(error)) {
-      throw new Error("mcp_catalog.release_required");
+      throw new Error("mcp_catalog.release_exists");
     }
     throw error;
   }

@@ -27,6 +27,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   const { pushToast } = useFeedbackToast();
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<"all" | CatalogEntry["source"]>("all");
+  const [categoryFilter, setCategoryFilter] = useState<"all" | CatalogEntry["category"]>("all");
   const [transportFilter, setTransportFilter] = useState<"all" | CatalogEntry["transport"]>("all");
   const [riskFilter, setRiskFilter] = useState<"all" | CatalogEntry["risk"]>("all");
   const [connectionFilter, setConnectionFilter] = useState<"all" | "connected" | "not_connected" | "needs_attention">("all");
@@ -48,6 +49,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
 
   const onlineRuntimes = useMemo(() => data.runtimes.filter((r) => r.status === "online" && r.mcpEligible), [data.runtimes]);
   const sources = useMemo(() => Array.from(new Set(data.mcpCatalog.map((item) => item.source))).sort(), [data.mcpCatalog]);
+  const categories = useMemo(() => Array.from(new Set(data.mcpCatalog.map((item) => item.category))).sort(), [data.mcpCatalog]);
   const catalogConnectionState = useMemo(() => new Map(data.mcpCatalog.map((item) => {
     const connections = data.mcpConnections.filter((connection) => connection.catalogItemId === item.id);
     const state = connections.length === 0
@@ -70,11 +72,12 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
       return connectedOnRuntime &&
         (!q || `${item.displayName} ${item.slug} ${item.description} ${item.dataDomains.join(" ")}`.toLocaleLowerCase("en-US").includes(q)) &&
         (sourceFilter === "all" || item.source === sourceFilter) &&
+        (categoryFilter === "all" || item.category === categoryFilter) &&
         (transportFilter === "all" || item.transport === transportFilter) &&
         (riskFilter === "all" || item.risk === riskFilter) &&
         (connectionFilter === "all" || catalogConnectionState.get(item.id) === connectionFilter);
     });
-  }, [catalogConnectionState, connectionFilter, data.mcpCatalog, data.mcpConnections, query, riskFilter, runtimeFilter, sourceFilter, transportFilter]);
+  }, [catalogConnectionState, categoryFilter, connectionFilter, data.mcpCatalog, data.mcpConnections, query, riskFilter, runtimeFilter, sourceFilter, transportFilter]);
 
   const selected = data.mcpCatalog.find((item) => item.id === selectedCatalogId) ?? filteredCatalog[0] ?? data.mcpCatalog[0];
   const selectedRuntime = onlineRuntimes.find((r) => r.id === selectedRuntimeId) ?? onlineRuntimes[0];
@@ -227,6 +230,13 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
             />
           </label>
           <label className="form-field">
+            <span>{tx("类别", "Category")}</span>
+            <select onChange={(event) => setCategoryFilter(event.currentTarget.value as "all" | CatalogEntry["category"])} value={categoryFilter}>
+              <option value="all">{tx("全部类别", "All categories")}</option>
+              {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+            </select>
+          </label>
+          <label className="form-field">
             <span>{tx("来源", "Source")}</span>
             <select onChange={(event) => setSourceFilter(event.currentTarget.value as "all" | CatalogEntry["source"])} value={sourceFilter}>
               <option value="all">{tx("全部来源", "All sources")}</option>
@@ -309,6 +319,8 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
               </div>
 
               <div className="market-facts-grid">
+                <Fact label={tx("版本", "Release")} value={selected.version} />
+                <Fact label={tx("类别", "Category")} value={selected.category} />
                 <Fact label={tx("传输", "Transport")} value={selected.transport} />
                 <Fact label={tx("声明工具数", "Declared tools")} value={String(selected.declaredTools.length)} />
                 <Fact label={tx("数据域", "Data domains")} value={selected.dataDomains.join(", ") || "—"} />
