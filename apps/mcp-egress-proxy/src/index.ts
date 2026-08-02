@@ -1,6 +1,7 @@
 import { McpEgressPolicyCache } from "./policy-cache.ts";
 import { McpEgressProxyServer } from "./server.ts";
 import { ConsoleMcpEgressAuditSink } from "./audit.ts";
+import { InMemoryJtiReplayGuard } from "./jti-replay-guard.ts";
 
 function readEnv(key: string, fallback?: string): string {
   const value = process.env[key] ?? fallback;
@@ -17,6 +18,7 @@ async function main(): Promise<void> {
 
   const policyCache = new McpEgressPolicyCache();
   const auditSink = new ConsoleMcpEgressAuditSink();
+  const replayGuard = new InMemoryJtiReplayGuard();
 
   const server = new McpEgressProxyServer({
     port,
@@ -24,6 +26,7 @@ async function main(): Promise<void> {
     leaseVerifier: {
       leaseSecret,
       fetchPolicySnapshot: (id) => policyCache.get(id),
+      consumeJti: (jti, exp) => replayGuard.consume(jti, exp),
     },
     auditSink,
   });

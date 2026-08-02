@@ -2,7 +2,7 @@ import { lookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { Readable } from "node:stream";
 import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision } from "@dofe-agent/domain";
-import { validateMcpEndpoint, validateMcpResolvedAddresses } from "@dofe-agent/services";
+import { validateMcpEndpoint, validateMcpResolvedAddresses } from "@dofe-agent/services/mcp-center/security";
 
 const ALLOWED_METHODS = new Set(["GET", "POST", "DELETE"]);
 const MCP_CONTENT_TYPES = [
@@ -11,6 +11,16 @@ const MCP_CONTENT_TYPES = [
   "application/json; charset=utf-8",
   "text/event-stream; charset=utf-8",
 ];
+const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
 
 export interface UpstreamRequest {
   method: string;
@@ -67,7 +77,7 @@ export async function forwardToUpstream(
     return reject("mcp_egress.policy_denied", `Method ${request.method} is not allowed.`);
   }
 
-  const path = normalizePath(request.path, policy);
+  const path = normalizeAllowedPath(request.path, policy.upstream.allowedPathPrefix);
   if (path === undefined) {
     return reject("mcp_egress.policy_denied", "Request path is outside the allowed prefix.");
   }
@@ -80,25 +90,14 @@ export async function forwardToUpstream(
     );
   }
   const upstreamHost = endpointValidation.host;
-
-  const resolved = await lookup(upstreamHost, { all: true, verbatim: true });
-  const addresses = resolved.map((entry) => entry.address);
-  const addressValidation = validateMcpResolvedAddresses(addresses);
-  if (!addressValidation.ok) {
-    return reject(
-      addressValidation.code === "mcp.network_unreachable" ? "mcp_egress.upstream_failed" : "mcp_egress.dns_forbidden",
-      addressValidation.message ?? "Upstream DNS resolution was rejected.",
-    );
-  }
-  const pinnedAddress = addresses[0]!;
-
   const upstreamUrl = new URL(path, policy.upstream.origin);
-  if (upstreamUrl.search) {
-    return reject("mcp_egress.policy_denied", "Upstream URL must not contain query parameters.");
+  const upstreamPort = upstreamUrl.port ? Number(upstreamUrl.port) : 443;
+  if (!policy.upstream.allowedPorts.includes(upstreamPort as 443)) {
+    return reject("mcp_egress.port_denied", "Upstream port is outside the policy allow-list.");
   }
 
   const contentType = String(request.headers["content-type"] ?? "").toLowerCase();
-  if (request.method === "POST" && contentType && !MCP_CONTENT_TYPES.some((allowed) => contentType.startsWith(allowed))) {
+  if (request.method === "POST" && !MCP_CONTENT_TYPES.some((allowed) => contentType.startsWith(allowed))) {
     return reject("mcp_egress.policy_denied", "Content-Type is not allowed for MCP Streamable HTTP.");
   }
 
@@ -107,6 +106,17 @@ export async function forwardToUpstream(
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
 
   try {
+    const resolved = await lookup(upstreamHost, { all: true, verbatim: true });
+    const addresses = resolved.map((entry) => entry.address);
+    const addressValidation = validateMcpResolvedAddresses(addresses);
+    if (!addressValidation.ok) {
+      return reject(
+        addressValidation.code === "mcp.network_unreachable" ? "mcp_egress.upstream_failed" : "mcp_egress.dns_forbidden",
+        addressValidation.message ?? "Upstream DNS resolution was rejected.",
+      );
+    }
+    const pinnedAddress = addresses[0]!;
+
     const response = await pinnedHttpsRequest({
       upstreamHost,
       pinnedAddress,
@@ -118,6 +128,10 @@ export async function forwardToUpstream(
       requestTimeoutMs,
       idleTimeoutMs,
     });
+    if (response.statusCode >= 300 && response.statusCode < 400) {
+      await response.body?.cancel("Redirects are forbidden by MCP egress policy.");
+      return reject("mcp_egress.redirect_denied", "Upstream redirects are not allowed.");
+    }
     return { ok: true, response, upstreamHost };
   } catch (error) {
     const message = String((error as { message?: unknown })?.message ?? error);
@@ -131,13 +145,19 @@ export async function forwardToUpstream(
   }
 }
 
-function normalizePath(requestPath: string, policy: McpEgressPolicyRevision): string | undefined {
-  const prefix = policy.upstream.allowedPathPrefix;
-  const normalized = requestPath.startsWith("/") ? requestPath : `/${requestPath}`;
-  if (!normalized.startsWith(prefix)) {
+export function normalizeAllowedPath(requestPath: string, prefix: string): string | undefined {
+  if (!requestPath.startsWith("/") || requestPath.startsWith("//") || requestPath.includes("?") || requestPath.includes("#")) {
     return undefined;
   }
-  return normalized;
+  let pathname: string;
+  try {
+    pathname = new URL(requestPath, "https://proxy.invalid").pathname;
+  } catch {
+    return undefined;
+  }
+  const normalizedPrefix = prefix.length > 1 && prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+  if (pathname !== normalizedPrefix && !pathname.startsWith(`${normalizedPrefix}/`)) return undefined;
+  return pathname;
 }
 
 interface PinnedHttpsRequestInput {
@@ -167,7 +187,9 @@ function pinnedHttpsRequest(input: PinnedHttpsRequestInput): Promise<UpstreamRes
       const headers: Record<string, string | string[]> = {};
       for (const [name, value] of Object.entries(response.headers)) {
         if (value === undefined) continue;
-        headers[name] = Array.isArray(value) ? value : String(value);
+        const lower = name.toLowerCase();
+        if (HOP_BY_HOP_RESPONSE_HEADERS.has(lower) || lower === "set-cookie") continue;
+        headers[lower] = Array.isArray(value) ? value : String(value);
       }
       resolve({
         statusCode: response.statusCode ?? 502,

@@ -1,5 +1,5 @@
 import type { McpEgressLeaseClaims } from "@dofe-agent/domain";
-import { hashMcpEgressAuditValue } from "@dofe-agent/services";
+import { hashMcpEgressAuditValue } from "@dofe-agent/services/mcp-center/egress";
 
 export interface McpEgressAuditRecord {
   connectionId: string;

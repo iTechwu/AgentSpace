@@ -1,5 +1,5 @@
 import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-agent/domain";
-import { verifyMcpEgressLease } from "@dofe-agent/services";
+import { verifyMcpEgressLease } from "@dofe-agent/services/mcp-center/egress";
 
 export interface LeaseVerificationResult {
   ok: true;
@@ -17,7 +17,7 @@ export interface LeaseVerifierDependencies {
   leaseSecret: string;
   fetchPolicySnapshot: (policyRevisionId: string) => McpEgressPolicySnapshot | undefined | Promise<McpEgressPolicySnapshot | undefined>;
   isJtiRevoked?: (jti: string) => boolean | Promise<boolean>;
-  isJtiUsed?: (jti: string) => boolean | Promise<boolean>;
+  consumeJti: (jti: string, exp: number) => boolean | Promise<boolean>;
 }
 
 /**
@@ -43,10 +43,6 @@ export async function verifyLeaseForRequest(
     return { ok: false, code: "mcp_egress.lease_revoked", message: "Lease has been revoked." };
   }
 
-  if (deps.isJtiUsed && (await deps.isJtiUsed(jti))) {
-    return { ok: false, code: "mcp_egress.lease_replayed", message: "Lease JTI has already been used." };
-  }
-
   const snapshot = await deps.fetchPolicySnapshot(claims.policyRevisionId);
   if (!snapshot) {
     return { ok: false, code: "mcp_egress.policy_mismatch", message: "Policy revision is not available to the proxy." };
@@ -54,8 +50,16 @@ export async function verifyLeaseForRequest(
   if (snapshot.revoked) {
     return { ok: false, code: "mcp_egress.policy_denied", message: "Policy revision has been revoked." };
   }
-  if (snapshot.revision.connectionId !== claims.connectionId || snapshot.revision.releaseId !== claims.releaseId) {
+  if (
+    snapshot.revision.id !== claims.policyRevisionId ||
+    snapshot.revision.workspaceId !== claims.workspaceId ||
+    snapshot.revision.connectionId !== claims.connectionId ||
+    snapshot.revision.releaseId !== claims.releaseId
+  ) {
     return { ok: false, code: "mcp_egress.policy_mismatch", message: "Lease does not match the policy revision." };
+  }
+  if (!(await deps.consumeJti(jti, claims.exp))) {
+    return { ok: false, code: "mcp_egress.lease_replayed", message: "Lease JTI has already been consumed." };
   }
 
   return { ok: true, claims, policy: snapshot.revision };

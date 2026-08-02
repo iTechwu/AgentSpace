@@ -31,6 +31,14 @@
     "./storage/workspace-purge": {
       "types": "./dist-types/storage/workspace-purge.d.ts",
       "default": "./src/storage/workspace-purge.ts"
+    },
+    "./mcp-center/egress": {
+      "types": "./dist-types/mcp-center/egress.d.ts",
+      "default": "./src/mcp-center/egress.ts"
+    },
+    "./mcp-center/security": {
+      "types": "./dist-types/mcp-center/security.d.ts",
+      "default": "./src/mcp-center/security.ts"
     }
   }
 }

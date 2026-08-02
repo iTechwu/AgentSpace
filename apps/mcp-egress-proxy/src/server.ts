@@ -15,11 +15,32 @@ export interface McpEgressProxyOptions {
   leaseVerifier: LeaseVerifierDependencies;
   auditSink: McpEgressAuditSink;
   oauthInjector?: OAuthInjector;
+  forwardToUpstream?: typeof forwardToUpstream;
 }
+
+const FORWARDED_REQUEST_HEADERS = new Set([
+  "accept",
+  "content-type",
+  "last-event-id",
+  "mcp-protocol-version",
+  "mcp-session-id",
+]);
+const FORBIDDEN_TRUSTED_HEADERS = new Set([
+  "connection",
+  "content-length",
+  "host",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
 
 export class McpEgressProxyServer {
   private readonly options: McpEgressProxyOptions;
   private readonly oauthInjector: OAuthInjector;
+  private readonly activeStreams = new Map<string, number>();
 
   constructor(options: McpEgressProxyOptions) {
     this.options = options;
@@ -27,7 +48,12 @@ export class McpEgressProxyServer {
   }
 
   async start(): Promise<{ url: string; close: () => Promise<void> }> {
-    const server = createServer((req, res) => void this.handleRequest(req, res));
+    const server = createServer((req, res) => {
+      void this.handleRequest(req, res).catch(() => {
+        if (!res.headersSent) sendJson(res, 500, { error: "mcp_egress.internal", message: "Proxy request failed." });
+        else res.destroy();
+      });
+    });
     const host = this.options.host ?? "127.0.0.1";
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
@@ -64,19 +90,52 @@ export class McpEgressProxyServer {
 
     const { claims, policy } = verification;
 
-    const upstreamHeaders = await this.buildUpstreamHeaders(claims, policy, req);
+    if (!this.acquireStream(policy)) {
+      await this.recordRejection(requestPath, method, "mcp_egress.policy_denied", claims);
+      sendJson(res, 429, { error: "mcp_egress.policy_denied", message: "Policy concurrent stream limit reached." });
+      return;
+    }
+
+    try {
+      await this.forwardVerifiedRequest(req, res, method, requestPath, claims, policy);
+    } finally {
+      this.releaseStream(policy.id);
+    }
+  }
+
+  private async forwardVerifiedRequest(
+    req: IncomingMessage,
+    res: ServerResponse,
+    method: string,
+    requestPath: string,
+    claims: McpEgressLeaseClaims,
+    policy: McpEgressPolicyRevision,
+  ): Promise<void> {
+    const requestBody = await readRequestBody(req, policy.maxRequestBytes);
+    if (!requestBody.ok) {
+      await this.recordRejection(requestPath, method, requestBody.code, claims);
+      sendJson(res, leaseErrorStatus(requestBody.code), { error: requestBody.code, message: requestBody.message });
+      return;
+    }
+
+    let upstreamHeaders: Record<string, string>;
+    try {
+      upstreamHeaders = await this.buildUpstreamHeaders(claims, policy, req);
+    } catch {
+      await this.recordRejection(requestPath, method, "mcp_egress.policy_denied", claims);
+      sendJson(res, 403, { error: "mcp_egress.policy_denied", message: "Upstream authentication policy is unavailable." });
+      return;
+    }
     const upstreamRequest: UpstreamRequest = {
       method,
       path: requestPath,
       headers: req.headers,
-      body:
-        req.method === "GET" || req.method === "DELETE"
-          ? null
-          : (Readable.toWeb(req) as ReadableStream<Uint8Array>),
+      body: requestBody.body.length > 0 ? bufferToWebStream(requestBody.body) : null,
     };
 
     const startedAt = Date.now();
-    const forwardResult = await forwardToUpstream(policy, claims, upstreamRequest, upstreamHeaders);
+    const forward = this.options.forwardToUpstream ?? forwardToUpstream;
+    const forwardResult = await forward(policy, claims, upstreamRequest, upstreamHeaders);
     const latencyMs = Date.now() - startedAt;
 
     if (!forwardResult.ok) {
@@ -86,13 +145,42 @@ export class McpEgressProxyServer {
     }
 
     const { response, upstreamHost } = forwardResult;
+    const declaredResponseLength = parseContentLength(response.headers["content-length"]);
+    if (declaredResponseLength !== undefined && declaredResponseLength > policy.maxResponseBytes) {
+      await response.body?.cancel("Response byte limit exceeded.");
+      await this.recordRejection(requestPath, method, "mcp_egress.response_too_large", claims);
+      sendJson(res, leaseErrorStatus("mcp_egress.response_too_large"), {
+        error: "mcp_egress.response_too_large",
+        message: "Upstream response exceeds the policy byte limit.",
+      });
+      return;
+    }
+
     res.writeHead(response.statusCode, response.statusMessage, response.headers);
+    let responseBytes = 0;
     if (response.body) {
       const reader = response.body.getReader();
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
+          responseBytes += value.byteLength;
+          if (responseBytes > policy.maxResponseBytes) {
+            await reader.cancel("Response byte limit exceeded.");
+            const record = buildUpstreamAuditRecord(
+              claims,
+              upstreamHost,
+              method,
+              response.statusCode,
+              Date.now() - startedAt,
+              responseBytes,
+              "upstream_failed",
+              "mcp_egress.response_too_large",
+            );
+            await Promise.resolve(this.options.auditSink.record(record)).catch(() => undefined);
+            res.destroy();
+            return;
+          }
           res.write(value);
         }
       } finally {
@@ -101,7 +189,7 @@ export class McpEgressProxyServer {
     }
     res.end();
 
-    const record = buildUpstreamAuditRecord(claims, upstreamHost, method, response.statusCode, latencyMs, 0, "succeeded");
+    const record = buildUpstreamAuditRecord(claims, upstreamHost, method, response.statusCode, latencyMs, responseBytes, "succeeded");
     await Promise.resolve(this.options.auditSink.record(record)).catch(() => undefined);
   }
 
@@ -112,20 +200,19 @@ export class McpEgressProxyServer {
   ): Promise<Record<string, string>> {
     const headers: Record<string, string> = {};
 
-    // Forward only MCP protocol headers; drop Authorization and any lease header.
+    // The caller controls only MCP protocol headers. Authentication is injected below.
     for (const [name, value] of Object.entries(req.headers)) {
       const lower = name.toLowerCase();
       if (value === undefined) continue;
-      if (["authorization", "host", "proxy-authorization", "x-forwarded-for"].includes(lower)) continue;
-      if (lower.startsWith("x-dofe-")) continue;
-      headers[name] = Array.isArray(value) ? value.join(", ") : value;
+      if (!FORWARDED_REQUEST_HEADERS.has(lower)) continue;
+      headers[lower] = Array.isArray(value) ? value.join(", ") : value;
     }
 
     if (policy.authMode === "static_header") {
       const snapshot = await this.options.leaseVerifier.fetchPolicySnapshot(claims.policyRevisionId);
       if (snapshot?.staticHeaders) {
         for (const [name, value] of Object.entries(snapshot.staticHeaders)) {
-          headers[name] = value;
+          setTrustedHeader(headers, name, value);
         }
       }
     }
@@ -133,11 +220,24 @@ export class McpEgressProxyServer {
     if (policy.authMode === "oauth_proxy") {
       const oauth = await this.oauthInjector.inject(policy.authMode, claims.operationId);
       for (const [name, value] of Object.entries(oauth.headers)) {
-        headers[name] = value;
+        setTrustedHeader(headers, name, value);
       }
     }
 
     return headers;
+  }
+
+  private acquireStream(policy: McpEgressPolicyRevision): boolean {
+    const active = this.activeStreams.get(policy.id) ?? 0;
+    if (active >= policy.maxConcurrentStreams) return false;
+    this.activeStreams.set(policy.id, active + 1);
+    return true;
+  }
+
+  private releaseStream(policyRevisionId: string): void {
+    const active = this.activeStreams.get(policyRevisionId) ?? 0;
+    if (active <= 1) this.activeStreams.delete(policyRevisionId);
+    else this.activeStreams.set(policyRevisionId, active - 1);
   }
 
   private async recordRejection(
@@ -180,6 +280,8 @@ function leaseErrorStatus(code: McpEgressErrorCode): number {
     case "mcp_egress.dns_forbidden":
     case "mcp_egress.request_too_large":
       return 403;
+    case "mcp_egress.response_too_large":
+      return 502;
     case "mcp_egress.tls_failed":
     case "mcp_egress.upstream_failed":
     case "mcp_egress.timeout":
@@ -187,4 +289,54 @@ function leaseErrorStatus(code: McpEgressErrorCode): number {
     default:
       return 500;
   }
+}
+
+function setTrustedHeader(headers: Record<string, string>, name: string, value: string): void {
+  const lower = name.toLowerCase();
+  if (!lower || FORBIDDEN_TRUSTED_HEADERS.has(lower) || lower.startsWith("proxy-") || lower.startsWith("x-dofe-")) {
+    throw new Error("Trusted authentication policy contains a forbidden header.");
+  }
+  headers[lower] = value;
+}
+
+async function readRequestBody(
+  req: IncomingMessage,
+  maxBytes: number,
+): Promise<
+  | { ok: true; body: Buffer }
+  | { ok: false; code: "mcp_egress.request_too_large"; message: string }
+> {
+  const declaredLength = parseContentLength(req.headers["content-length"]);
+  if (declaredLength !== undefined && declaredLength > maxBytes) {
+    req.resume();
+    return { ok: false, code: "mcp_egress.request_too_large", message: "Request exceeds the policy byte limit." };
+  }
+  if (req.method === "GET" || req.method === "DELETE") {
+    req.resume();
+    return { ok: true, body: Buffer.alloc(0) };
+  }
+
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > maxBytes) {
+      req.resume();
+      return { ok: false, code: "mcp_egress.request_too_large", message: "Request exceeds the policy byte limit." };
+    }
+    chunks.push(buffer);
+  }
+  return { ok: true, body: Buffer.concat(chunks, bytes) };
+}
+
+function bufferToWebStream(buffer: Buffer): ReadableStream<Uint8Array> {
+  return Readable.toWeb(Readable.from([buffer])) as ReadableStream<Uint8Array>;
+}
+
+function parseContentLength(value: string | string[] | undefined): number | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === undefined || !/^\d+$/.test(raw)) return undefined;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
 }

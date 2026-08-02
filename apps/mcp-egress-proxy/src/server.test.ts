@@ -4,8 +4,10 @@ import type { McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-age
 import { signMcpEgressLease } from "@dofe-agent/services";
 import { McpEgressPolicyCache } from "./policy-cache.ts";
 import { McpEgressProxyServer } from "./server.ts";
+import { InMemoryJtiReplayGuard } from "./jti-replay-guard.ts";
 
 const SECRET = "a".repeat(32);
+let leaseSequence = 0;
 
 function basePolicy(): McpEgressPolicyRevision {
   return {
@@ -36,6 +38,15 @@ function buildSnapshot(policy: McpEgressPolicyRevision): McpEgressPolicySnapshot
   return { revision: policy, revoked: false, fetchedAt: new Date().toISOString() };
 }
 
+function buildLeaseVerifier(cache: McpEgressPolicyCache) {
+  const guard = new InMemoryJtiReplayGuard();
+  return {
+    leaseSecret: SECRET,
+    fetchPolicySnapshot: (id: string) => cache.get(id),
+    consumeJti: (jti: string, exp: number) => guard.consume(jti, exp),
+  };
+}
+
 function buildLeaseToken(overrides: Partial<{ exp: number; purpose: "verify" | "health_check" | "task_call" }> = {}): string {
   const exp = overrides.exp ?? Math.floor(Date.now() / 1000) + 60;
   const purpose = overrides.purpose ?? "task_call";
@@ -43,7 +54,7 @@ function buildLeaseToken(overrides: Partial<{ exp: number; purpose: "verify" | "
     {
       iss: "agentspace-control-plane",
       aud: "mcp-egress-proxy",
-      jti: `jti-${Date.now()}`,
+      jti: `jti-${Date.now()}-${leaseSequence++}`,
       workspaceId: "ws-1",
       runtimeId: "rt-1",
       connectionId: "conn-1",
@@ -64,8 +75,8 @@ test("healthz returns ok without lease", async () => {
   const server = new McpEgressProxyServer({
     port: 0,
     host: "127.0.0.1",
-    leaseVerifier: { leaseSecret: SECRET, fetchPolicySnapshot: (id) => cache.get(id) },
-    auditSink: { record: (r) => auditRecords.push(r) },
+    leaseVerifier: buildLeaseVerifier(cache),
+    auditSink: { record: (r) => { auditRecords.push(r); } },
   });
   const { url, close } = await server.start();
   try {
@@ -83,7 +94,7 @@ test("request without lease returns 401", async () => {
   const server = new McpEgressProxyServer({
     port: 0,
     host: "127.0.0.1",
-    leaseVerifier: { leaseSecret: SECRET, fetchPolicySnapshot: (id) => cache.get(id) },
+    leaseVerifier: buildLeaseVerifier(cache),
     auditSink: { record: () => undefined },
   });
   const { url, close } = await server.start();
@@ -100,7 +111,7 @@ test("request with invalid lease returns 403", async () => {
   const server = new McpEgressProxyServer({
     port: 0,
     host: "127.0.0.1",
-    leaseVerifier: { leaseSecret: SECRET, fetchPolicySnapshot: (id) => cache.get(id) },
+    leaseVerifier: buildLeaseVerifier(cache),
     auditSink: { record: () => undefined },
   });
   const { url, close } = await server.start();
@@ -119,7 +130,7 @@ test("request with valid lease but unknown policy returns policy_mismatch", asyn
   const server = new McpEgressProxyServer({
     port: 0,
     host: "127.0.0.1",
-    leaseVerifier: { leaseSecret: SECRET, fetchPolicySnapshot: (id) => cache.get(id) },
+    leaseVerifier: buildLeaseVerifier(cache),
     auditSink: { record: () => undefined },
   });
   const { url, close } = await server.start();
@@ -143,7 +154,7 @@ test("request with valid lease and policy but disallowed path returns policy_den
   const server = new McpEgressProxyServer({
     port: 0,
     host: "127.0.0.1",
-    leaseVerifier: { leaseSecret: SECRET, fetchPolicySnapshot: (id) => cache.get(id) },
+    leaseVerifier: buildLeaseVerifier(cache),
     auditSink: { record: () => undefined },
   });
   const { url, close } = await server.start();
@@ -160,3 +171,159 @@ test("request with valid lease and policy but disallowed path returns policy_den
     await close();
   }
 });
+
+test("forwards only MCP protocol headers and counts successful response bytes", async () => {
+  const cache = new McpEgressPolicyCache();
+  cache.set(buildSnapshot(basePolicy()));
+  const auditRecords: Array<{ sizeBucket?: string }> = [];
+  let forwardedHeaders: Record<string, string> | undefined;
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    auditSink: { record: (record) => { auditRecords.push(record); } },
+    forwardToUpstream: async (_policy, _claims, _request, headers) => {
+      forwardedHeaders = headers;
+      return {
+        ok: true,
+        upstreamHost: "github-mcp.example.com",
+        response: {
+          statusCode: 200,
+          statusMessage: "OK",
+          headers: { "content-type": "application/json" },
+          body: byteStream("ok"),
+        },
+      };
+    },
+  });
+  const { url, close } = await server.start();
+  try {
+    const res = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: {
+        authorization: `DofeEgressLease ${buildLeaseToken()}`,
+        "content-type": "application/json",
+        "mcp-protocol-version": "2025-06-18",
+        cookie: "must-not-leave-runtime=true",
+        "x-custom": "must-not-leave-runtime",
+      },
+      body: "{}",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), "ok");
+    assert.deepEqual(forwardedHeaders, {
+      accept: "*/*",
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-06-18",
+    });
+    assert.equal(auditRecords.at(-1)?.sizeBucket, "0-1k");
+  } finally {
+    await close();
+  }
+});
+
+test("enforces the policy concurrent stream limit", async () => {
+  const cache = new McpEgressPolicyCache();
+  cache.set(buildSnapshot({ ...basePolicy(), maxConcurrentStreams: 1 }));
+  let markEntered: (() => void) | undefined;
+  const entered = new Promise<void>((resolve) => { markEntered = resolve; });
+  let releaseForward: (() => void) | undefined;
+  const released = new Promise<void>((resolve) => { releaseForward = resolve; });
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    auditSink: { record: () => undefined },
+    forwardToUpstream: async () => {
+      markEntered?.();
+      await released;
+      return {
+        ok: true,
+        upstreamHost: "github-mcp.example.com",
+        response: { statusCode: 200, statusMessage: "OK", headers: {}, body: null },
+      };
+    },
+  });
+  const { url, close } = await server.start();
+  try {
+    const first = fetch(`${url}/mcp`, { headers: { authorization: `DofeEgressLease ${buildLeaseToken()}` } });
+    await entered;
+    const second = await fetch(`${url}/mcp`, { headers: { authorization: `DofeEgressLease ${buildLeaseToken()}` } });
+    assert.equal(second.status, 429);
+    releaseForward?.();
+    assert.equal((await first).status, 200);
+  } finally {
+    releaseForward?.();
+    await close();
+  }
+});
+
+test("rejects a request body over the policy limit before forwarding", async () => {
+  const cache = new McpEgressPolicyCache();
+  cache.set(buildSnapshot({ ...basePolicy(), maxRequestBytes: 3 }));
+  let forwarded = false;
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    auditSink: { record: () => undefined },
+    forwardToUpstream: async () => {
+      forwarded = true;
+      throw new Error("must not forward");
+    },
+  });
+  const { url, close } = await server.start();
+  try {
+    const res = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: { authorization: `DofeEgressLease ${buildLeaseToken()}`, "content-type": "application/json" },
+      body: "oversized",
+    });
+    assert.equal(res.status, 403);
+    assert.equal(((await res.json()) as { error: string }).error, "mcp_egress.request_too_large");
+    assert.equal(forwarded, false);
+  } finally {
+    await close();
+  }
+});
+
+test("rejects a declared oversized upstream response before writing headers", async () => {
+  const cache = new McpEgressPolicyCache();
+  cache.set(buildSnapshot({ ...basePolicy(), maxResponseBytes: 3 }));
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    auditSink: { record: () => undefined },
+    forwardToUpstream: async () => ({
+      ok: true,
+      upstreamHost: "github-mcp.example.com",
+      response: {
+        statusCode: 200,
+        statusMessage: "OK",
+        headers: { "content-length": "10" },
+        body: byteStream("0123456789"),
+      },
+    }),
+  });
+  const { url, close } = await server.start();
+  try {
+    const res = await fetch(`${url}/mcp`, {
+      headers: { authorization: `DofeEgressLease ${buildLeaseToken()}` },
+    });
+    assert.equal(res.status, 502);
+    assert.equal(((await res.json()) as { error: string }).error, "mcp_egress.response_too_large");
+  } finally {
+    await close();
+  }
+});
+
+function byteStream(value: string): ReadableStream<Uint8Array> {
+  const bytes = new TextEncoder().encode(value);
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
