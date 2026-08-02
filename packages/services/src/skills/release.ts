@@ -84,7 +84,7 @@ export interface SkillRollbackPreflightIssue {
 }
 
 export const SKILL_UPGRADE_POLICY_VERSION = "v1";
-export const SKILL_PROVIDER_COMPATIBILITY_REVISION = 1;
+export const SKILL_PROVIDER_COMPATIBILITY_REVISION = 2;
 
 /**
  * Resolves the FULL immutable release lock for an artifact (05-运维服务与版本治理.md

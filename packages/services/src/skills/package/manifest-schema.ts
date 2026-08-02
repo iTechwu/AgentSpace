@@ -1,5 +1,6 @@
 import { Ajv } from "ajv";
 import addFormats from "ajv-formats";
+import { normalizeSkillRunnerCommandSegment } from "@dofe-agent/domain";
 
 /**
  * JSON Schema (strict) for `.dofe/manifest.json` (DSP v1).
@@ -90,7 +91,7 @@ export const dspManifestJsonSchema = {
         additionalProperties: false,
         required: ["id", "kind", "path", "runtime"],
         properties: {
-          id: { type: "string", minLength: 1 },
+          id: { type: "string", minLength: 1, maxLength: 128 },
           kind: { type: "string", const: "script" },
           path: { type: "string", minLength: 1 },
           runtime: { type: "string", enum: ["node", "python", "bash"] },
@@ -112,7 +113,17 @@ export interface ManifestValidation {
 /** Validate a value against the DSP manifest JSON Schema. */
 export function validateDspManifest(value: unknown): ManifestValidation {
   if (compiledValidate(value)) {
-    return { ok: true, errors: [] };
+    const entrypoints = (value as { entrypoints?: Array<{ id: string }> }).entrypoints ?? [];
+    const normalizedIds = new Set<string>();
+    const errors: string[] = [];
+    for (const entrypoint of entrypoints) {
+      const normalizedId = normalizeSkillRunnerCommandSegment(entrypoint.id);
+      if (normalizedIds.has(normalizedId)) {
+        errors.push(`/entrypoints duplicate normalized id "${normalizedId}"`);
+      }
+      normalizedIds.add(normalizedId);
+    }
+    return { ok: errors.length === 0, errors };
   }
   const errors = (compiledValidate.errors ?? []).map((entry) => {
     const path = entry.instancePath || "/";

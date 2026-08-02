@@ -199,3 +199,34 @@ test("startSkillRunnerBroker rejects a symlinked output directory before executi
     rmSync(outsideDir, { recursive: true, force: true });
   }
 });
+
+test("startSkillRunnerBroker rejects duplicate task-scoped entrypoint keys", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-state-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-task-"));
+  const entrypoint = {
+    key: "skill-1:render",
+    skillId: "skill-1",
+    skillName: "Renderer",
+    installationId: "installation-1",
+    artifactDigest: "e".repeat(64),
+    sha256: "f".repeat(64),
+    id: "render",
+    path: "scripts/render.mjs",
+    runtime: "node" as const,
+  };
+  try {
+    await assert.rejects(
+      startSkillRunnerBroker({
+        stateDir,
+        workspaceId: "workspace-1",
+        workDir,
+        entrypoints: [entrypoint, { ...entrypoint }],
+        inspectImage: () => true,
+      }),
+      /duplicate_entrypoint_key/,
+    );
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});

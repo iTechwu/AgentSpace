@@ -58,3 +58,15 @@ test("validateDspManifest rejects additional properties", () => {
   const result = validateDspManifest({ ...VALID_MANIFEST, surprise: true });
   assert.equal(result.ok, false);
 });
+
+test("validateDspManifest rejects entrypoint ids that normalize to the same command segment", () => {
+  const result = validateDspManifest({
+    ...VALID_MANIFEST,
+    entrypoints: [
+      { id: "render docs", kind: "script", path: "scripts/render.py", runtime: "python" },
+      { id: "render-docs", kind: "script", path: "scripts/other.py", runtime: "python" },
+    ],
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((error) => error.includes("duplicate normalized id")));
+});

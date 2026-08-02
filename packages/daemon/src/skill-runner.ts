@@ -118,13 +118,26 @@ export async function startSkillRunnerBroker(input: {
   if (input.entrypoints.length === 0) {
     return { capabilities: [], close: async () => {} };
   }
+  const byKey = new Map<string, DaemonSkillRunnerEntrypoint>();
+  const commandOwners = new Map<string, string>();
+  for (const entrypoint of input.entrypoints) {
+    if (byKey.has(entrypoint.key)) {
+      throw new Error(`skill_runner.duplicate_entrypoint_key: ${entrypoint.key}`);
+    }
+    const command = buildLauncherCommand(entrypoint);
+    const existingOwner = commandOwners.get(command);
+    if (existingOwner) {
+      throw new Error(`skill_runner.duplicate_launcher_command: ${existingOwner}, ${entrypoint.key}`);
+    }
+    byKey.set(entrypoint.key, entrypoint);
+    commandOwners.set(command, entrypoint.key);
+  }
   const launcherDir = join(input.workDir, ".dofe-runtime", "skill-runner-bin");
   rmSync(launcherDir, { recursive: true, force: true });
   mkdirSync(launcherDir, { recursive: true, mode: 0o700 });
   const socketPath = join(input.workDir, ".dofe-sr.sock");
   rmSync(socketPath, { force: true });
   const token = randomBytes(32).toString("hex");
-  const byKey = new Map(input.entrypoints.map((entrypoint) => [entrypoint.key, entrypoint]));
   const environment = input.environment ?? process.env;
   const runnerTimeoutMs = resolveRunnerTimeout(environment);
   const inspectImage = input.inspectImage ?? isSkillRunnerImageAvailableLocally;

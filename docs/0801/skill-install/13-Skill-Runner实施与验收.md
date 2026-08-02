@@ -10,6 +10,8 @@
 
 daemon 为每个任务创建 Unix socket broker 和 `0500` launcher。managed Provider 已将 `/workspace/.dofe-runtime/skill-runner-bin` 加入容器 PATH，launcher 通过工作目录内 socket 请求 daemon，避免 sibling 容器无法访问 daemon loopback，也不开放网络端口。
 
+launcher 名称协议 revision 2 使用受限可读前缀、原始 Skill/entrypoint 稳定哈希和 Skill 后缀，长度固定受控。manifest 在导入时拒绝规范化后重复的 entrypoint id；broker 对任务内重复 key 和最终命令名再次 fail-closed，禁止 launcher 文件静默覆盖。该协议变化已提升 `providerCompatibilityRevision`，因此 release lock 不会跨版本误复用。
+
 每次调用前，broker 验证 Runtime cache 目录只读、`.cache-complete` 存在、entrypoint 非符号链接/不可写且 SHA-256 与冻结 manifest 一致。随后以参数数组调用 Docker，不经过 shell。
 
 Runner 容器固定策略：
@@ -34,6 +36,7 @@ Runner 容器固定策略：
 | 合约 | 测试 |
 | --- | --- |
 | 容器隔离、digest、参数预算、依赖只读挂载、私有可写输出与 symlink 拒绝 | `packages/daemon/src/skill-runner.test.ts` |
+| entrypoint 规范化唯一、broker key/命令冲突拒绝 | `manifest-schema.test.ts`、`skill-runner.test.ts` |
 | 未配置/本地缺镜像阻断安装、runtime/语法检查 | `packages/daemon/src/skill-install/component-verifier.test.ts` |
 | snapshot 到 Runner manifest 与 executable hash | `packages/services/src/skills/installations.test.ts` |
 | 原始脚本不进入 Provider、stub/mode 正确 | `packages/services/src/skills/injection.test.ts` |

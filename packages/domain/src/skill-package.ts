@@ -83,9 +83,24 @@ export interface DspEntrypoint {
 
 /** Stable executable name used by provider projections and the daemon broker. */
 export function buildSkillRunnerCommandName(skillName: string, skillId: string, entrypointId: string): string {
-  const sanitize = (value: string): string =>
-    value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "entrypoint";
-  return `dofe-skill-${sanitize(skillName)}-${sanitize(entrypointId)}-${sanitize(skillId).slice(-8)}`.slice(0, 120);
+  const skillSegment = normalizeSkillRunnerCommandSegment(skillName).slice(0, 54);
+  const entrypointSegment = normalizeSkillRunnerCommandSegment(entrypointId).slice(0, 28);
+  const scopeHash = stableCommandHash(`${skillId}\0${entrypointId}`);
+  const skillSuffix = normalizeSkillRunnerCommandSegment(skillId).slice(-8);
+  return `dofe-skill-${skillSegment}-${entrypointSegment}-${scopeHash}-${skillSuffix}`;
+}
+
+export function normalizeSkillRunnerCommandSegment(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "entrypoint";
+}
+
+function stableCommandHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36).padStart(7, "0");
 }
 
 /** Risk classification assigned by inspection/scanning. */
