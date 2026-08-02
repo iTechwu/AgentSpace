@@ -2,6 +2,7 @@ import {
   advanceRecoveryPhaseSync,
   completeRecoveryActivationSync,
   createRecoveryOperationSync,
+  createMcpOperationSync,
   createWorkspaceMountOperationSync,
   failRecoveryOperationSync,
   getDatabase,
@@ -12,14 +13,18 @@ import {
   readEmployeePersistentWorkspaceSync,
   readEmployeeRuntimeBindingSync,
   readHeadRevisionSync,
+  readMcpOperationSync,
   readRecoveryOperationSync,
   readWorkspaceMountOperationSync,
+  requestAgentRuntimeProviderVerificationSync,
   setEmployeeBindingStatusSync,
   updateRecoveryContextSync,
   readSkillArtifactByDigestSync,
   withTransaction,
   type EmployeeRecoveryOperationRecord,
   type RecoveryPhase,
+  listMcpConnectionsForRuntimeSync,
+  updateMcpConnectionStatusSync,
 } from "@dofe-agent/db";
 import type { DaemonProvider } from "@dofe-agent/domain";
 import { createAttachmentStorageClient } from "../attachments/storage.ts";
@@ -28,6 +33,7 @@ import { verifySkillArtifactIntegritySync } from "../skills/skill-artifacts.ts";
 import { createSkillInstallationPlanSync, assertSkillInstallationReadyForTaskSync } from "../skills/installations.ts";
 import { readWorkspaceSkillSync } from "../skills/skills.ts";
 import { readSkillRequirementDeclarations } from "../skills/requirements.ts";
+import { readAgentSkillRequirementEnvSync } from "../skills/agent-skill-requirements.ts";
 import { ensureManagedRuntimeCapacitySync, getRuntimeProvisioningTaskDetailSync } from "../runtime-provisioning/runtime-provisioning.ts";
 import { resolveAgentRuntimeMode } from "../config/deployment.ts";
 import { normalizeWorkspaceRevisionPath } from "./persistent-workspace.ts";
@@ -495,7 +501,11 @@ function runPhase(
         operationId: operation.id,
         phase: "health_check",
         workspaceId,
-        contextJson: mergeContextJson(operation.contextJson, { secretsResolvable: true, skillCount: resolved.checked }),
+        contextJson: mergeContextJson(operation.contextJson, {
+          secretsResolvable: true,
+          skillCount: resolved.checked,
+          secretValuesResolved: resolved.resolvedValues,
+        }),
         workerLeaseToken: options.workerLeaseToken,
       });
     }
@@ -519,11 +529,89 @@ function runPhase(
         if (!Number.isFinite(ageMs) || ageMs > 90_000) {
           throw new Error("Target runtime heartbeat is stale; refusing to activate.");
         }
+        const providerRequestedAt = typeof ctx.providerVerificationRequestedAt === "string"
+          ? ctx.providerVerificationRequestedAt
+          : undefined;
+        if (!providerRequestedAt) {
+          const requested = requestAgentRuntimeProviderVerificationSync({ runtimeId, workspaceId });
+          const requestedMetadata = parseRecoveryContextRecord(requested.metadataJson);
+          const requestedAt = typeof requestedMetadata.providerVerificationRequestedAt === "string"
+            ? requestedMetadata.providerVerificationRequestedAt
+            : new Date().toISOString();
+          return updateRecoveryContext(
+            operation,
+            { providerVerificationRequestedAt: requestedAt, waitingFor: "provider_cli_smoke" },
+            options.workerLeaseToken,
+          );
+        }
+        const runtimeMetadata = parseRecoveryContextRecord(rt.metadataJson);
+        const providerHealth = runtimeMetadata.providerHealth && typeof runtimeMetadata.providerHealth === "object"
+          ? runtimeMetadata.providerHealth as Record<string, unknown>
+          : undefined;
+        const providerCheckedAt = typeof providerHealth?.checkedAt === "string" ? providerHealth.checkedAt : undefined;
+        if (!providerCheckedAt || Date.parse(providerCheckedAt) < Date.parse(providerRequestedAt)) {
+          return operation;
+        }
+        if (providerHealth?.status !== "healthy") {
+          throw new Error(`Provider/CLI recovery smoke failed: ${String(providerHealth?.reason ?? "unhealthy")}.`);
+        }
+
+        const mcpSmokeOperationIds = Array.isArray(ctx.mcpSmokeOperationIds)
+          ? ctx.mcpSmokeOperationIds.filter((id): id is string => typeof id === "string")
+          : undefined;
+        if (!mcpSmokeOperationIds) {
+          const operations = listMcpConnectionsForRuntimeSync({ workspaceId, runtimeId })
+            .filter((connection) => connection.status === "ready")
+            .map((connection) => {
+              const smokeOperation = createMcpOperationSync({
+                workspaceId,
+                runtimeId,
+                connectionId: connection.id,
+                operation: "verify",
+                source: "health_check",
+                requestSnapshotJson: JSON.stringify({ recoveryOperationId: operation.id }),
+              });
+              // Health-check workers only claim checks whose schedule is due.
+              // Recovery checks are urgent and must not wait for the periodic interval.
+              updateMcpConnectionStatusSync({
+                workspaceId,
+                connectionId: connection.id,
+                status: "ready",
+                nextHealthCheckAt: smokeOperation.createdAt,
+              });
+              return smokeOperation;
+            });
+          if (operations.length > 0) {
+            return updateRecoveryContext(
+              operation,
+              {
+                mcpSmokeOperationIds: operations.map((item) => item.id),
+                waitingFor: "mcp_smoke",
+                providerHealthCheckedAt: providerCheckedAt,
+              },
+              options.workerLeaseToken,
+            );
+          }
+        } else {
+          const mcpOperations = mcpSmokeOperationIds.map((id) => readMcpOperationSync(id, workspaceId));
+          const failed = mcpOperations.find((item) => !item || item.status === "failed" || item.status === "cancelled");
+          if (failed !== undefined) {
+            throw new Error(`MCP recovery smoke failed: ${failed?.errorMessage ?? "operation missing or cancelled"}.`);
+          }
+          if (mcpOperations.some((item) => item?.status !== "succeeded")) {
+            return operation;
+          }
+        }
         return advanceRecoveryPhaseSync({
           operationId: operation.id,
           phase: "activate",
           workspaceId,
-          contextJson: mergeContextJson(operation.contextJson, { healthCheck: "passed", healthCheckedAt: new Date().toISOString() }),
+          contextJson: mergeContextJson(operation.contextJson, {
+            healthCheck: "passed",
+            providerCliSmoke: "passed",
+            mcpSmoke: "passed",
+            healthCheckedAt: new Date().toISOString(),
+          }),
           workerLeaseToken: options.workerLeaseToken,
         });
       }
@@ -636,9 +724,9 @@ function resolveSecretsResolvable(
   employeeName: string,
   workspaceId: string,
   verify?: RunRecoveryInput["verify"],
-): { ok: boolean; missing: string[]; checked: number } {
+): { ok: boolean; missing: string[]; checked: number; resolvedValues: number } {
   if (verify?.secretsResolvable !== undefined) {
-    return { ok: verify.secretsResolvable, missing: verify.secretsResolvable ? [] : ["(verify override)"], checked: 0 };
+    return { ok: verify.secretsResolvable, missing: verify.secretsResolvable ? [] : ["(verify override)"], checked: 0, resolvedValues: 0 };
   }
   // A bound skill only needs its encrypted requirement-config row when it
   // actually DECLARES Secret/Config requirements. Skills without a requirement
@@ -647,6 +735,7 @@ function resolveSecretsResolvable(
   const skillIds = listEmployeeSkillIdsSync(employeeName, workspaceId);
   const missing: string[] = [];
   let checked = 0;
+  let resolvedValues = 0;
   for (const skillId of skillIds) {
     const digest = readAssignmentArtifactDigestSync({ employeeName, skillId, workspaceId });
     if (!digest) {
@@ -663,9 +752,20 @@ function resolveSecretsResolvable(
     checked += 1;
     if (!config) {
       missing.push(skillId);
+      continue;
+    }
+    const env = readAgentSkillRequirementEnvSync({ workspaceId, employeeName, skillId });
+    const requiredKeys = readSkillRequirementDeclarations(skill!.configJson)
+      .filter((requirement) => requirement.kind === "config" || requirement.kind === "secret")
+      .map((requirement) => requirement.value);
+    const missingKeys = requiredKeys.filter((key) => typeof env[key] !== "string" || env[key]!.length === 0);
+    if (missingKeys.length > 0) {
+      missing.push(`${skillId}(${missingKeys.join(",")})`);
+    } else {
+      resolvedValues += requiredKeys.length;
     }
   }
-  return { ok: missing.length === 0, missing, checked };
+  return { ok: missing.length === 0, missing, checked, resolvedValues };
 }
 
 function parseRevisionManifestBlobDigests(manifestJson: string): string[] {

@@ -5,16 +5,23 @@ import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import {
   bindEmployeeRuntimeSync,
+  claimNextMcpOperationForRuntimeSync,
+  completeMcpOperationSync,
+  createMcpConnectionSync,
   getDatabase,
   listRecoveryOperationsSync,
   listStaleCommitJournalsSync,
   readEmployeeBindingGenerationSync,
   readEmployeeRuntimeBindingSync,
+  readMcpOperationSync,
   readRecoveryOperationSync,
   rejectRecoveryOperationSync,
   retryRecoveryOperationSync,
   setAssignmentArtifactDigestSync,
+  startMcpOperationSync,
   upsertTaskCommitJournalSync,
+  upsertAgentSkillRequirementConfigSync,
+  upsertMcpCatalogItemSync,
 } from "@dofe-agent/db";
 import {
   assertBindingGenerationCurrentSync,
@@ -71,14 +78,14 @@ function setupEmployeeWorkspace(employeeName: string, seed: string): void {
   });
 }
 
-function insertSkill(seed: string): string {
+function insertSkill(seed: string, configJson = "{}"): string {
   const db = getDatabase();
   const now = new Date().toISOString();
   const skillId = `skill-rec-${seed}`;
   db.prepare(
     `INSERT INTO skill (id, workspace_id, name, description, config_json, created_at, updated_at)
-     VALUES (?, 'default', ?, '', '{}', ?, ?)`,
-  ).run(skillId, skillId, now, now);
+     VALUES (?, 'default', ?, '', ?, ?, ?)`,
+  ).run(skillId, skillId, configJson, now, now);
   return skillId;
 }
 
@@ -139,6 +146,12 @@ function seedDefaultWorkspaceIfMissing(): void {
 
 beforeEach(() => {
   const db = getDatabase();
+  db.exec("DELETE FROM runtime_mcp_tool_audit");
+  db.exec("DELETE FROM runtime_mcp_operation");
+  db.exec("DELETE FROM runtime_mcp_discovery_snapshot");
+  db.exec("DELETE FROM runtime_mcp_secret");
+  db.exec("DELETE FROM runtime_mcp_connection");
+  db.exec("DELETE FROM mcp_catalog_item");
   db.exec("DELETE FROM employee_recovery_operation");
   db.exec("DELETE FROM task_commit_journal");
   db.exec("DELETE FROM employee_artifact");
@@ -421,6 +434,170 @@ test("remote recovery refuses an online runtime without heartbeat evidence", () 
       process.env.DOFE_AGENT_RUNTIME_MODE = previousMode;
     }
   }
+});
+
+test("remote recovery waits for a fresh Provider/CLI smoke before activation", () => {
+  const previousMode = process.env.DOFE_AGENT_RUNTIME_MODE;
+  process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+  try {
+    const runtimeId = insertRuntime();
+    setupEmployeeWorkspace("Alice", "provider-smoke");
+    bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Alice", runtimeId });
+    const operation = createEmployeeRecoveryOperationSync({
+      workspaceId: "default",
+      employeeName: "Alice",
+      targetRuntimeId: runtimeId,
+    });
+    const now = new Date().toISOString();
+    getDatabase().prepare(
+      `UPDATE agent_runtime SET status = 'online', last_heartbeat_at = ?, metadata_json = '{}' WHERE id = ?`,
+    ).run(now, runtimeId);
+    getDatabase().prepare(
+      `UPDATE employee_recovery_operation
+       SET phase = 'health_check', context_json = ?
+       WHERE id = ?`,
+    ).run(JSON.stringify({ runtimeId }), operation.id);
+
+    const waiting = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+    assert.equal(waiting.ok, true, waiting.error);
+    assert.equal(waiting.phase, "health_check");
+    const context = JSON.parse(waiting.operation.contextJson) as { providerVerificationRequestedAt?: string };
+    assert.ok(context.providerVerificationRequestedAt);
+
+    const checkedAt = new Date(Date.parse(context.providerVerificationRequestedAt) + 1_000).toISOString();
+    getDatabase().prepare(
+      `UPDATE agent_runtime SET last_heartbeat_at = ?, metadata_json = ? WHERE id = ?`,
+    ).run(
+      checkedAt,
+      JSON.stringify({
+        providerVerificationRequestedAt: context.providerVerificationRequestedAt,
+        providerHealth: { status: "healthy", checkedAt, reason: "CLI preflight passed" },
+      }),
+      runtimeId,
+    );
+    const healthy = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+    assert.equal(healthy.ok, true, healthy.error);
+    assert.equal(healthy.phase, "activate");
+    assert.equal((JSON.parse(healthy.operation.contextJson) as { providerCliSmoke?: string }).providerCliSmoke, "passed");
+  } finally {
+    if (previousMode === undefined) delete process.env.DOFE_AGENT_RUNTIME_MODE;
+    else process.env.DOFE_AGENT_RUNTIME_MODE = previousMode;
+  }
+});
+
+test("remote recovery waits for real MCP verification operations before activation", () => {
+  const previousMode = process.env.DOFE_AGENT_RUNTIME_MODE;
+  process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+  try {
+    const runtimeId = insertRuntime();
+    const catalog = upsertMcpCatalogItemSync({
+      workspaceId: "default",
+      slug: "recovery-smoke",
+      displayName: "Recovery Smoke MCP",
+      transport: "streamable_http",
+      allowedHostsJson: JSON.stringify(["mcp.example.test"]),
+      declaredToolsJson: JSON.stringify([{ name: "ping", description: "Connectivity probe", risk: "low" }]),
+      defaultApprovedToolsJson: JSON.stringify(["ping"]),
+      risk: "low",
+    });
+    const connection = createMcpConnectionSync({
+      workspaceId: "default",
+      runtimeId,
+      catalogItemId: catalog.id,
+      endpoint: "https://mcp.example.test/mcp",
+      approvedToolsJson: JSON.stringify(["ping"]),
+    });
+    getDatabase().prepare(
+      `UPDATE runtime_mcp_connection SET status = 'ready' WHERE id = ?`,
+    ).run(connection.id);
+    setupEmployeeWorkspace("Alice", "mcp-smoke");
+    bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Alice", runtimeId });
+    const operation = createEmployeeRecoveryOperationSync({
+      workspaceId: "default",
+      employeeName: "Alice",
+      targetRuntimeId: runtimeId,
+    });
+    const requestedAt = new Date(Date.now() - 1_000).toISOString();
+    const checkedAt = new Date().toISOString();
+    getDatabase().prepare(
+      `UPDATE agent_runtime SET status = 'online', last_heartbeat_at = ?, metadata_json = ? WHERE id = ?`,
+    ).run(
+      checkedAt,
+      JSON.stringify({ providerHealth: { status: "healthy", checkedAt, reason: "CLI preflight passed" } }),
+      runtimeId,
+    );
+    getDatabase().prepare(
+      `UPDATE employee_recovery_operation SET phase = 'health_check', context_json = ? WHERE id = ?`,
+    ).run(JSON.stringify({ runtimeId, providerVerificationRequestedAt: requestedAt }), operation.id);
+
+    const waiting = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+    assert.equal(waiting.ok, true, waiting.error);
+    assert.equal(waiting.phase, "health_check");
+    const smokeIds = (JSON.parse(waiting.operation.contextJson) as { mcpSmokeOperationIds?: string[] })
+      .mcpSmokeOperationIds;
+    assert.equal(smokeIds?.length, 1);
+    const smoke = readMcpOperationSync(smokeIds![0]!, "default");
+    assert.equal(smoke?.operation, "verify");
+    assert.equal(smoke?.source, "health_check");
+
+    const stillWaiting = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+    assert.equal(stillWaiting.phase, "health_check");
+    const claimed = claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+    assert.equal(claimed?.id, smoke!.id);
+    startMcpOperationSync(smoke!.id, "default");
+    completeMcpOperationSync({
+      workspaceId: "default",
+      operationId: smoke!.id,
+      verification: {
+        status: "ready",
+        protocolVersion: "2025-06-18",
+        toolsMetadataJson: JSON.stringify([{ name: "ping", description: "Connectivity probe" }]),
+        toolsFingerprint: "recovery-smoke-fingerprint",
+        latencyMs: 1,
+      },
+    });
+
+    const healthy = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+    assert.equal(healthy.ok, true, healthy.error);
+    assert.equal(healthy.phase, "activate");
+    assert.equal((JSON.parse(healthy.operation.contextJson) as { mcpSmoke?: string }).mcpSmoke, "passed");
+  } finally {
+    if (previousMode === undefined) delete process.env.DOFE_AGENT_RUNTIME_MODE;
+    else process.env.DOFE_AGENT_RUNTIME_MODE = previousMode;
+  }
+});
+
+test("recovery resolve_secrets decrypts declared values and rejects corrupt ciphertext", () => {
+  const runtimeId = insertRuntime();
+  setupEmployeeWorkspace("Alice", "secret-smoke");
+  bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Alice", runtimeId });
+  const skillId = insertSkill(
+    "secret-smoke",
+    JSON.stringify({ requirements: [{ kind: "secret", value: "RECOVERY_TOKEN" }] }),
+  );
+  assignSkill("Alice", skillId);
+  getDatabase().prepare(
+    `UPDATE agent_skill SET skill_artifact_digest = ? WHERE workspace_id = 'default' AND skill_id = ?`,
+  ).run("a".repeat(64), skillId);
+  upsertAgentSkillRequirementConfigSync({
+    workspaceId: "default",
+    employeeName: "Alice",
+    skillId,
+    configJson: JSON.stringify({ requirementSignature: ["RECOVERY_TOKEN"] }),
+    encryptedSecretsJson: JSON.stringify({ RECOVERY_TOKEN: "v1:invalid:invalid:invalid" }),
+  });
+  const operation = createEmployeeRecoveryOperationSync({
+    workspaceId: "default",
+    employeeName: "Alice",
+    targetRuntimeId: runtimeId,
+  });
+  getDatabase().prepare(
+    `UPDATE employee_recovery_operation SET phase = 'resolve_secrets' WHERE id = ?`,
+  ).run(operation.id);
+
+  const result = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? "", /credential|initialization vector|decrypt/i);
 });
 
 test("activation refuses a workspace head that changed after mount verification", () => {
