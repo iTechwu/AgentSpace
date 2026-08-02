@@ -2597,6 +2597,7 @@ textarea:focus {
   margin: 0;
   line-height: 1.6;
   white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 .inbox-bubble__streaming-content {
@@ -5144,6 +5145,8 @@ textarea:focus {
 
 .execution-timeline__title {
   flex: none;
+  max-width: 100%;
+  overflow-wrap: break-word;
   font-size: 0.85rem;
   font-weight: 600;
 }
