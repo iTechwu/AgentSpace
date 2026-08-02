@@ -231,7 +231,26 @@ function agentSkillTableHasDigestColumn(db: ReturnType<typeof getDatabase>): boo
   return row?.column_name === "skill_artifact_digest";
 }
 
-/** Pins the artifact digest on an employee↔skill assignment (agent_skill). */
+/** Pins the artifact digest on every employee↔skill assignment for a skill. */
+export function setAssignmentArtifactDigestsForSkillSync(input: {
+  skillId: string;
+  digest?: string;
+  workspaceId?: string;
+}): number {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  if (!agentSkillTableHasDigestColumn(db)) {
+    return 0;
+  }
+  const result = db.prepare(
+    `UPDATE agent_skill
+       SET skill_artifact_digest = ?
+     WHERE workspace_id = ? AND skill_id = ?`,
+  ).run(input.digest?.trim().toLowerCase() || null, workspaceId, input.skillId);
+  return result.changes;
+}
+
+/** Pins the artifact digest on a single employee↔skill assignment. */
 export function setAssignmentArtifactDigestSync(input: {
   employeeName: string;
   skillId: string;

@@ -50,6 +50,35 @@ export interface PromoteTaskOutputsResult {
   created: boolean;
 }
 
+function mergeManifestFiles(
+  parentFiles: WorkspaceRevisionFileEntry[],
+  newFiles: WorkspaceRevisionFileEntry[],
+): WorkspaceRevisionFileEntry[] {
+  const byPath = new Map<string, WorkspaceRevisionFileEntry>();
+  for (const file of parentFiles) {
+    byPath.set(file.path, file);
+  }
+  for (const file of newFiles) {
+    byPath.set(file.path, file);
+  }
+  return Array.from(byPath.values());
+}
+
+function parseRevisionManifestFiles(manifestJson: string): WorkspaceRevisionFileEntry[] {
+  try {
+    const manifest = JSON.parse(manifestJson) as WorkspaceRevisionManifest;
+    return (manifest.files ?? []).filter(
+      (file): file is WorkspaceRevisionFileEntry =>
+        typeof file.path === "string" &&
+        typeof file.sha256 === "string" &&
+        typeof file.size === "number" &&
+        typeof file.mediaType === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Promote task outputs → persistent workspace revision                 */
 /* ------------------------------------------------------------------ */

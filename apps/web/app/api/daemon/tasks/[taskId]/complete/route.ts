@@ -1,6 +1,6 @@
 import {
   appendTaskMessageSync,
-  completeQueuedTaskSync,
+  completeCommittedTaskSync,
   failQueuedTaskSync,
   enqueueTokenUsageRetrySync,
   markTaskCommittedSync,
@@ -380,7 +380,7 @@ export async function POST(
       );
     }
 
-    completeQueuedTaskSync({
+    completeCommittedTaskSync({
       taskId: task.id,
       resultJson: {
         provider: runtime.provider,

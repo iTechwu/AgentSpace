@@ -97,6 +97,7 @@ export async function createSkillUpgradeAction(input: {
   skillId: string;
   runtimeId: string;
   previousInstallationId: string;
+  approved?: boolean;
 }): Promise<ActionToastResult<{ installationId: string; breaking: boolean; changeCount: number }>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "admin");
@@ -125,6 +126,10 @@ export async function createSkillUpgradeAction(input: {
       breaking = diff.breaking;
       changeCount = diff.categories.reduce((count, category) => count + category.changes.length, 0);
     }
+  }
+
+  if (breaking && input.approved !== true) {
+    throw new Error("升级包含 breaking 变更，需要显式批准。");
   }
 
   const installation = createSkillUpgradePlanSync({
@@ -166,9 +171,15 @@ export async function rollbackSkillInstallationAction(input: {
   assertWorkspaceRoleForContext(workspaceContext, "admin");
   assertRequired(input.installationId, "installation id");
 
+  const installation = readSkillInstallationSync(input.installationId.trim(), workspaceContext.currentWorkspace.id);
+  const artifact = installation
+    ? readSkillArtifactByDigestSync(installation.artifactDigest, workspaceContext.currentWorkspace.id)
+    : null;
+
   const result = rollbackSkillInstallationSync({
     installationId: input.installationId.trim(),
     workspaceId: workspaceContext.currentWorkspace.id,
+    skillId: artifact?.skillId,
   });
   if (!result.ok) {
     throw new Error(result.reason ?? "回滚失败。");

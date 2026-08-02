@@ -39,6 +39,11 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
   const [confirmHighRisk, setConfirmHighRisk] = useState(false);
   const [isPending, startTransition] = useTransition();
+  // Dirty flags prevent silent overwrites when editing an existing connection.
+  // Fields that were never touched by the user are sent as undefined, so the
+  // service keeps their stored values. New connections start with everything dirty.
+  const [dirtyEndpoint, setDirtyEndpoint] = useState(false);
+  const [dirtyNonSecretParams, setDirtyNonSecretParams] = useState<Set<string>>(new Set());
 
   const onlineRuntimes = useMemo(() => data.runtimes.filter((r) => r.status === "online" && r.mcpEligible), [data.runtimes]);
   const sources = useMemo(() => Array.from(new Set(data.mcpCatalog.map((item) => item.source))).sort(), [data.mcpCatalog]);
@@ -85,14 +90,20 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   ));
 
   // Reset per-catalog form state when the selection changes.
+  // Skip while editing: manageConnection() already initialized the form and
+  // dirty flags; running this effect would overwrite them and re-introduce the
+  // silent-overwrite risk.
   useEffect(() => {
-    if (!selected) return;
+    if (!selected || editingConnectionId) return;
     setEndpoint(selected.endpointTemplate ?? "");
     setApprovedTools(new Set(selected.defaultApprovedTools));
     setNonSecretParams(Object.fromEntries(selected.configurationFields.map((field) => [field.name, ""])));
     setSecrets(Object.fromEntries(selected.secretFields.map((field) => [field, ""])));
     setConfirmHighRisk(false);
-  }, [selected]);
+    // New connections: every field is dirty because the user must fill them.
+    setDirtyEndpoint(true);
+    setDirtyNonSecretParams(new Set(selected.configurationFields.map((field) => field.name)));
+  }, [selected, editingConnectionId]);
 
   useEffect(() => {
     if (!data.mcpOperations.some((op) => isActiveStatus(op.status))) return;
@@ -131,6 +142,9 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     setNonSecretParams(Object.fromEntries((catalog?.configurationFields ?? []).map((field) => [field.name, ""])));
     setSecrets(Object.fromEntries((catalog?.secretFields ?? []).map((field) => [field, ""])));
     setConfirmHighRisk(false);
+    // Editing: existing values are not echoed, so assume untouched until the user changes them.
+    setDirtyEndpoint(false);
+    setDirtyNonSecretParams(new Set());
   }
 
   function cancelManagingConnection(): void {
@@ -141,6 +155,8 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     setNonSecretParams(Object.fromEntries(selected.configurationFields.map((field) => [field.name, ""])));
     setSecrets(Object.fromEntries(selected.secretFields.map((field) => [field, ""])));
     setConfirmHighRisk(false);
+    setDirtyEndpoint(true);
+    setDirtyNonSecretParams(new Set(selected.configurationFields.map((field) => field.name)));
   }
 
   function submitConnection(): void {
@@ -157,16 +173,34 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
       }));
       return;
     }
-    // Atomic replacement: config + rotated secrets in one transaction, one
-    // reverify, one audit. Untouched fields keep their stored values.
+    // Atomic replacement: only send fields the user actually touched. Untouched
+    // endpoint / non-secret config / blank secrets keep their stored values.
+    const dirtyNonSecretEntries = Object.entries(nonSecretParams).filter(([name]) => dirtyNonSecretParams.has(name));
+    const dirtySecretEntries = Object.entries(secrets).filter(([_, value]) => value.trim().length > 0);
     runAction(() => replaceMcpConnectionConfigAction({
       connectionId: editingConnection.id,
-      endpoint,
-      nonSecretParams,
+      endpoint: dirtyEndpoint ? endpoint : undefined,
+      nonSecretParams: dirtyNonSecretEntries.length > 0 ? Object.fromEntries(dirtyNonSecretEntries) : undefined,
       approvedTools: Array.from(approvedTools),
-      secrets,
+      secrets: dirtySecretEntries.length > 0 ? Object.fromEntries(dirtySecretEntries) : undefined,
       confirmHighRisk,
     }));
+  }
+
+  function isSubmittable(): boolean {
+    if (!selected) return false;
+    if (requiresHighRiskConfirmation && !confirmHighRisk) return false;
+    if (!editingConnection) {
+      return endpoint.trim().length > 0 && allConfigurationFieldsFilled(selected, nonSecretParams) && allSecretsFilled(selected, secrets);
+    }
+    // Editing: only enforce validity on fields the user actually touched.
+    if (dirtyEndpoint && !endpoint.trim()) return false;
+    for (const field of selected.configurationFields) {
+      if (field.required && dirtyNonSecretParams.has(field.name) && !(nonSecretParams[field.name] ?? "").trim()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   const needsAttention = data.mcpConnections.filter((c) => c.status === "failed" || c.status === "degraded").length;
@@ -308,14 +342,21 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                     value={formRuntimeId}
                   >
                     {formRuntimes.map((runtime) => (
-                      <option key={runtime.id} value={runtime.id}>{runtime.label}</option>
+                      <option key={runtime.id} value={runtime.id}>
+                        {runtime.label}
+                        {" · "}
+                        {runtime.mcpEligible ? tx("支持 MCP", "MCP compatible") : tx("不支持 MCP", "MCP not supported")}
+                      </option>
                     ))}
                   </select>
                 </label>
                 <label className="form-field">
                   <span>{tx("Endpoint (HTTPS)", "Endpoint (HTTPS)")}</span>
                   <input
-                    onChange={(event) => setEndpoint(event.currentTarget.value)}
+                    onChange={(event) => {
+                      setDirtyEndpoint(true);
+                      setEndpoint(event.currentTarget.value);
+                    }}
                     placeholder="https://mcp.example.com/mcp"
                     value={endpoint}
                   />
@@ -328,6 +369,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                       maxLength={field.maxLength}
                       onChange={(event) => {
                         const value = event.currentTarget.value;
+                        setDirtyNonSecretParams((prev) => new Set(prev).add(field.name));
                         setNonSecretParams((prev) => ({ ...prev, [field.name]: value }));
                       }}
                       required={field.required}
@@ -366,7 +408,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
               <div className="market-action-row">
                 <button
                   className="primary-button"
-                  disabled={isPending || !data.canManage || !supportsSelectedTransport || !selectedRuntime || !endpoint.trim() || !allConfigurationFieldsFilled(selected, nonSecretParams) || (!editingConnection && !allSecretsFilled(selected, secrets)) || (requiresHighRiskConfirmation && !confirmHighRisk)}
+                  disabled={isPending || !data.canManage || !supportsSelectedTransport || !selectedRuntime || !isSubmittable()}
                   onClick={submitConnection}
                   type="button"
                 >

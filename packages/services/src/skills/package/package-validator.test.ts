@@ -122,11 +122,67 @@ test("rejects a submitted manifest whose declared digest does not match content"
   assert.ok(result.errors.some((error) => error.code === "DIGEST_MISMATCH"));
 });
 
-test("pulls dependencies from frontmatter into the synthesized manifest", () => {
-  const extra = "dependencies:\n  - npm:left-pad@1.3.0\n";
-  const result = validateSkillPackage({ files: [{ path: "SKILL.md", bytes: skillMd("Deps", extra) }] });
+test("preserves capabilities, services and entrypoints from a submitted manifest", () => {
+  const skillMdBytes = skillMd();
+  const scriptBytes = encoder.encode("print('hi')\n");
+  const submittedManifest = {
+    schemaVersion: 1,
+    artifact: { name: "Render Skill", version: "1.0.0" },
+    files: [
+      { path: "SKILL.md", sha256: sha256Hex(skillMdBytes), size: skillMdBytes.byteLength, mediaType: "text/markdown" },
+      { path: "scripts/render.py", sha256: sha256Hex(scriptBytes), size: scriptBytes.byteLength, mediaType: "text/x-python", mode: "0755" },
+    ],
+    capabilities: [{ kind: "mcp" as const, catalogSlug: "render", requiredTools: ["render"] }],
+    services: [{ catalogSlug: "postgres", templateVersion: "1.0.0", required: true }],
+    entrypoints: [{ id: "render", kind: "script" as const, path: "scripts/render.py", runtime: "python" as const }],
+  };
+  const result = validateSkillPackage({
+    files: baseFiles(),
+    manifest: submittedManifest,
+  });
   assert.equal(result.ok, true);
-  assert.ok(result.manifest!.dependencies);
-  assert.equal(result.manifest!.dependencies![0]?.name, "left-pad");
-  assert.equal(result.manifest!.dependencies![0]?.version, "1.3.0");
+  assert.deepEqual(result.manifest!.capabilities, submittedManifest.capabilities);
+  assert.deepEqual(result.manifest!.services, submittedManifest.services);
+  assert.deepEqual(result.manifest!.entrypoints, submittedManifest.entrypoints);
+  // Computed fields still come from content, not submission.
+  assert.equal(result.manifest!.artifact.version, "");
+});
+
+test("rejects an invalid JSON .dofe/manifest.json", () => {
+  const result = validateSkillPackage({
+    files: [
+      { path: "SKILL.md", bytes: skillMd() },
+      { path: ".dofe/manifest.json", bytes: encoder.encode("{ not json") },
+    ],
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((error) => error.code === "MANIFEST_INVALID"));
+});
+
+test("rejects a declared file that is missing from the package", () => {
+  const submittedManifest = {
+    schemaVersion: 1,
+    artifact: { name: "Render Skill", version: "" },
+    files: [
+      { path: "SKILL.md", sha256: sha256Hex(skillMd()), size: skillMd().byteLength, mediaType: "text/markdown" },
+      { path: "missing.py", sha256: "a".repeat(64), size: 1, mediaType: "text/x-python" },
+    ],
+  };
+  const result = validateSkillPackage({
+    files: [{ path: "SKILL.md", bytes: skillMd() }],
+    manifest: submittedManifest,
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((error) => error.code === "MANIFEST_INVALID" && error.message.includes("missing.py")));
+});
+
+test("rejects undeclared symlinks", () => {
+  const result = validateSkillPackage({
+    files: [
+      { path: "SKILL.md", bytes: skillMd() },
+      { path: "scripts/run.sh", bytes: encoder.encode("#!/bin/sh\n"), symlinkTarget: "../etc/passwd" },
+    ],
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((error) => error.code === "UNDECLARED_SYMLINK"));
 });

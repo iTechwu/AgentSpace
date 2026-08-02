@@ -20,6 +20,8 @@ export interface SkillPackageInputFile {
   path: string;
   bytes: Uint8Array;
   mode?: string;
+  /** If set, this entry is a symlink and must be rejected as undeclared. */
+  symlinkTarget?: string;
 }
 
 export interface ValidatedSkillFile {
@@ -70,6 +72,17 @@ export function validateSkillPackage(input: {
       continue;
     }
     const path = pathResult.normalized;
+
+    if (file.symlinkTarget !== undefined) {
+      errors.push(
+        skillPackageError(
+          "UNDECLARED_SYMLINK",
+          `Symlink "${path}" -> "${file.symlinkTarget}" is not allowed in skill packages.`,
+          { path, detail: file.symlinkTarget },
+        ),
+      );
+      continue;
+    }
 
     if (seenPaths.has(path)) {
       errors.push(
@@ -154,10 +167,21 @@ export function validateSkillPackage(input: {
   }
 
   // Validate a submitted manifest if one was supplied.
-  const submittedManifest =
-    input.manifest ?? readSubmittedManifestFromFiles(validated);
-  if (submittedManifest !== undefined) {
-    const manifestResult = validateDspManifest(submittedManifest);
+  const submittedManifestResult =
+    input.manifest !== undefined
+      ? { manifest: input.manifest, invalid: false }
+      : readSubmittedManifestFromFiles(validated);
+  if (submittedManifestResult.invalid) {
+    errors.push(
+      skillPackageError("MANIFEST_INVALID", ".dofe/manifest.json exists but is not valid JSON.", {
+        path: MANIFEST_PATH,
+      }),
+    );
+  }
+
+  let submittedManifest: DspManifest | undefined;
+  if (submittedManifestResult.manifest !== undefined) {
+    const manifestResult = validateDspManifest(submittedManifestResult.manifest);
     if (!manifestResult.ok) {
       errors.push(
         skillPackageError(
@@ -166,27 +190,37 @@ export function validateSkillPackage(input: {
           { path: MANIFEST_PATH },
         ),
       );
-    } else if (Array.isArray((submittedManifest as { files?: unknown }).files)) {
-      // Cross-check declared file digests against computed content.
-      const declared = (submittedManifest as { files: Array<{ path: string; sha256: string; size?: number }> }).files;
-      const computedByPath = new Map(
-        validated
-          .filter((file) => file.path !== MANIFEST_PATH)
-          .map((file) => [file.path, file]),
-      );
-      for (const entry of declared) {
-        const computed = computedByPath.get(entry.path);
-        if (!computed) {
-          continue;
-        }
-        if (computed.sha256 !== entry.sha256 || (entry.size !== undefined && computed.size !== entry.size)) {
-          errors.push(
-            skillPackageError(
-              "DIGEST_MISMATCH",
-              `manifest.json declares a different digest/size for "${entry.path}".`,
-              { path: entry.path, detail: `declared ${entry.sha256.slice(0, 12)}… vs computed ${computed.sha256.slice(0, 12)}…` },
-            ),
-          );
+    } else {
+      submittedManifest = submittedManifestResult.manifest as DspManifest;
+      if (Array.isArray((submittedManifest as { files?: unknown }).files)) {
+        // Cross-check declared file digests against computed content.
+        const declared = (submittedManifest as { files: Array<{ path: string; sha256: string; size?: number }> }).files;
+        const computedByPath = new Map(
+          validated
+            .filter((file) => file.path !== MANIFEST_PATH)
+            .map((file) => [file.path, file]),
+        );
+        for (const entry of declared) {
+          const computed = computedByPath.get(entry.path);
+          if (!computed) {
+            errors.push(
+              skillPackageError(
+                "MANIFEST_INVALID",
+                `manifest.json declares file "${entry.path}" that is not present in the package.`,
+                { path: entry.path },
+              ),
+            );
+            continue;
+          }
+          if (computed.sha256 !== entry.sha256 || (entry.size !== undefined && computed.size !== entry.size)) {
+            errors.push(
+              skillPackageError(
+                "DIGEST_MISMATCH",
+                `manifest.json declares a different digest/size for "${entry.path}".`,
+                { path: entry.path, detail: `declared ${entry.sha256.slice(0, 12)}… vs computed ${computed.sha256.slice(0, 12)}…` },
+              ),
+            );
+          }
         }
       }
     }
@@ -195,7 +229,7 @@ export function validateSkillPackage(input: {
   // Synthesize the canonical manifest from validated content files.
   let manifest: DspManifest | undefined;
   if (parsed?.ok) {
-    manifest = synthesizeManifest(parsed.frontmatter, parsed.body, validated);
+    manifest = synthesizeManifest(parsed.frontmatter, parsed.body, validated, submittedManifest);
   }
 
   return {
@@ -215,15 +249,15 @@ export function validateSkillPackage(input: {
   };
 }
 
-function readSubmittedManifestFromFiles(files: ValidatedSkillFile[]): unknown {
+function readSubmittedManifestFromFiles(files: ValidatedSkillFile[]): { manifest?: unknown; invalid: boolean } {
   const manifestFile = files.find((file) => file.path === MANIFEST_PATH);
   if (!manifestFile || manifestFile.textContent === undefined) {
-    return undefined;
+    return { invalid: false };
   }
   try {
-    return JSON.parse(manifestFile.textContent) as unknown;
+    return { manifest: JSON.parse(manifestFile.textContent) as unknown, invalid: false };
   } catch {
-    return undefined;
+    return { invalid: true };
   }
 }
 
@@ -231,6 +265,7 @@ function synthesizeManifest(
   frontmatter: { name: string; description: string; raw: Record<string, unknown> },
   skillMdBody: string,
   files: ValidatedSkillFile[],
+  submittedManifest?: DspManifest,
 ): DspManifest {
   const version = readFrontmatterString(frontmatter.raw, "version") ?? "";
 
@@ -262,6 +297,19 @@ function synthesizeManifest(
       name: dependency.name,
       version: dependency.version,
     }));
+  }
+
+  // Preserve platform-level declarations from a validated submitted manifest.
+  // The validator already checked these fields against the DSP schema; files
+  // and artifact digest are always computed, never trusted from submission.
+  if (submittedManifest?.capabilities) {
+    manifest.capabilities = submittedManifest.capabilities;
+  }
+  if (submittedManifest?.services) {
+    manifest.services = submittedManifest.services;
+  }
+  if (submittedManifest?.entrypoints) {
+    manifest.entrypoints = submittedManifest.entrypoints;
   }
 
   return manifest;

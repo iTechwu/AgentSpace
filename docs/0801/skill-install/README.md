@@ -46,6 +46,13 @@
 
 ## 当前基线与目标差距
 
-当前实现已经能保存多文件 Skill、从 GitHub/Skills.sh/ClawHub/ZIP 导入、注入若干 Provider 原生目录、管理部分声明式依赖，并已经建立 MCP 数据模型和安全校验。缺口在于：文件权限/二进制/哈希未成为包契约，导入白名单在 services 与 daemon 不一致，依赖未形成所有来源通用的任务门禁，MCP 未完成任务能力和 Provider bridge 接线。
+当前实现已经建立不可变 artifact、installation/component/operation 数据模型、部分 MCP/CLI resolver、release diff/rollback 函数，以及 Runtime 选择和安装状态 UI。这些控制面骨架可以管理导入记录和安装计划，但**真实 Remote Runtime 执行面尚未闭环**：Daemon 没有 Skill operation worker、artifact 下载器和隔离 runner，任务路径也未强制校验 installation readiness。
 
-目标不是将现有 `WorkspaceSkillFile { path, content }` 不断加字段，而是引入有版本的 artifact 与安装记录，并以兼容投影逐步替换当前存储模型。
+本次推进（M0）已补齐以下控制面诚实与数据完整性缺口：
+
+1. `validateSkillPackage` 已接入所有导入路径，DSP manifest 的 `capabilities`/`services`/`entrypoints` 在导入后保留。
+2. 坏 manifest JSON、未声明文件、symlink 和超限包会被拒绝；ZIP/目录入口统一使用 `archive-limits.ts` 限额。
+3. 可执行脚本内容变化被标记为 breaking；breaking 升级必须显式 `approved=true`。
+4. Web 回滚现在会事务性地切换 skill 的 active artifact digest 以及 `agent_skill` 的 assignment pin。
+
+仍然留到 M1 及以后的硬缺口：Daemon Skill operation worker/materializer/runner、任务启动时 installation readiness 门禁、Git commit SHA 锁定、支撑服务编排、release lock 真实填充、五步 UI 向导、迁移/可观测性/运维演练。

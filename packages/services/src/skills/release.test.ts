@@ -47,6 +47,20 @@ test("diffSkillArtifactsSync flags a new executable script as breaking", () => {
   assert.equal(diff.breaking, true);
 });
 
+test("diffSkillArtifactsSync flags an existing executable script content change as breaking", () => {
+  const diff = diffSkillArtifactsSync({
+    fromManifestJson: manifest(),
+    toManifestJson: manifest({
+      files: [
+        { path: "SKILL.md", sha256: sha("a"), size: 10, mediaType: "text/markdown", mode: "0644" },
+        { path: "scripts/render.py", sha256: sha("c"), size: 42, mediaType: "text/x-python", mode: "0755" },
+      ],
+    }),
+  });
+  assert.ok(diff.categories.some((c) => c.category === "execution" && c.changes.some((change) => change.includes("scripts/render.py"))));
+  assert.equal(diff.breaking, true);
+});
+
 test("diffSkillArtifactsSync flags dependency changes as breaking config", () => {
   const diff = diffSkillArtifactsSync({
     fromManifestJson: manifest(),

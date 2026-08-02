@@ -358,6 +358,49 @@ test("remove operations stay claimable when a legacy connection no longer satisf
   assert.deepEqual(resolved?.secrets, {});
 });
 
+test("listReadyMcpConnectionsForTask performs freshness check and degrades stale connections", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection, operation } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    approvedTools: ["search_repos"],
+    confirmHighRisk: true,
+  });
+  claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  startMcpOperationSync(operation.id, "default");
+  completeMcpOperationSync({
+    operationId: operation.id,
+    workspaceId: "default",
+    verification: {
+      status: "ready",
+      protocolVersion: "2025-06-18",
+      toolsMetadataJson: JSON.stringify([
+        { name: "search_repos", description: "Search repositories", inputSchema: { type: "object" }, inputSchemaDigest: "d1" },
+      ]),
+      toolsFingerprint: "fp",
+      latencyMs: 50,
+    },
+  });
+
+  // Simulate an out-of-band change that removed an approved tool from the row
+  // without going through the service (e.g., a race or manual DB edit).
+  getDatabase().prepare(
+    "UPDATE runtime_mcp_connection SET approved_tools_json = ? WHERE id = ?",
+  ).run(JSON.stringify(["search_repos", "delete_repo"]), connection.id);
+
+  const entries = listReadyMcpConnectionsForTaskSync({ workspaceId: "default", runtimeId });
+  assert.equal(entries.length, 0);
+
+  const detail = readMcpConnectionDetailSync({ workspaceId: "default", connectionId: connection.id });
+  assert.equal(detail?.connection.status, "degraded");
+  assert.equal(detail?.connection.lastErrorCode, "mcp.approved_tool_missing");
+});
+
 test("remove connection enqueues a remove operation", () => {
   const runtimeId = createRuntime();
   const catalogId = seedCatalog();
@@ -440,6 +483,54 @@ test("replaceMcpConnectionConfig rolls back on failure (unknown secret field)", 
   const detail = readMcpConnectionDetailSync({ workspaceId: "default", connectionId: connection.id });
   assert.equal(detail?.connection.endpoint, "https://github-mcp.example.com/mcp");
   assert.equal(detail?.connection.status, "queued_verification");
+});
+
+test("replaceMcpConnectionConfig merges partial non-secret config with stored values", () => {
+  const runtimeId = createRuntime();
+  const catalog = createMcpCatalogItemSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    slug: "config-merge",
+    displayName: "Config Merge MCP",
+    transport: "streamable_http",
+    allowedHosts: ["example.com"],
+    configurationSchema: {
+      type: "object",
+      properties: {
+        headerA: { type: "string" },
+        headerB: { type: "string" },
+      },
+      required: ["headerA", "headerB"],
+      additionalProperties: false,
+    },
+    declaredTools: [{ name: "tool", description: "tool", risk: "low" }],
+    defaultApprovedTools: ["tool"],
+    secretFields: ["api_key"],
+    dataDomains: ["test"],
+    risk: "low",
+  });
+  const { connection } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalog.id,
+    endpoint: "https://example.com/mcp",
+    nonSecretParams: { headerA: "a", headerB: "b" },
+    secrets: { api_key: "x" },
+    confirmHighRisk: true,
+  });
+
+  // Send only the touched field; the server must merge with stored config.
+  replaceMcpConnectionConfigSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    connectionId: connection.id,
+    nonSecretParams: { headerA: "a-changed" },
+  });
+
+  const detail = readMcpConnectionDetailSync({ workspaceId: "default", connectionId: connection.id });
+  const stored = JSON.parse(detail?.connection.nonSecretParamsJson ?? "{}");
+  assert.deepEqual(stored, { headerA: "a-changed", headerB: "b" });
 });
 
 function createRuntime(): string {

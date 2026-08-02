@@ -162,6 +162,32 @@ description: Local skill
   assert.equal(skill?.files.some((file) => file.path === "assets/template.html"), true);
 });
 
+test("importWorkspaceSkillFromUrl renames a builtin-named local skill with conflict: rename", async () => {
+  const localSkillDir = join(tempRoot, "local-product-manager");
+  mkdirSync(join(localSkillDir, "templates"), { recursive: true });
+  writeFileSync(join(localSkillDir, "SKILL.md"), `---
+name: product-manager
+description: Local product manager clone
+---
+
+# Local PM
+`);
+  writeFileSync(join(localSkillDir, "templates", "prd.template.md"), "# PRD\n");
+
+  const result = await importWorkspaceSkillFromUrl({
+    url: localSkillDir,
+    conflict: "rename",
+  });
+
+  assert.equal(result.created, true);
+  assert.equal(result.renamed, true);
+  const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
+  assert.ok(skill);
+  assert.equal(skill?.name.startsWith("product-manager"), true);
+  assert.notEqual(skill?.name, "product-manager");
+  assert.equal(skill?.files.some((file) => file.path === "templates/prd.template.md"), true);
+});
+
 test("imports an uploaded zip by reading the persisted TOS object", async () => {
   const archive = zipSync({
     "SKILL.md": strToU8(`---

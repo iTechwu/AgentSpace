@@ -370,6 +370,21 @@ export function completeQueuedTaskSync(input: {
 }
 
 /**
+ * Durability-aware completion: only transitions a task to `completed` when it
+ * has already reached `committed` (EAD §7). This is the completion entry point
+ * for the new prepare→commit→complete flow so an uncommitted result can never
+ * be reported as successful to the user.
+ */
+export function completeCommittedTaskSync(input: {
+  taskId: string;
+  resultJson?: Record<string, unknown>;
+  sessionId?: string;
+  workDir?: string;
+}): QueuedTaskRecord {
+  return completeQueuedTaskInternalSync(input, { viaCommitJournal: false, requireCommitted: true });
+}
+
+/**
  * Phase 1 of the durability commit split (EAD §7): running → preparing_commit.
  * Signals that the provider has finished and outputs are about to be promoted
  * to the persistent workspace. Idempotent if already preparing_commit.
@@ -450,11 +465,17 @@ function completeQueuedTaskInternalSync(
     sessionId?: string;
     workDir?: string;
   },
-  options: { viaCommitJournal: boolean },
+  options: { viaCommitJournal: boolean; requireCommitted?: boolean },
 ): QueuedTaskRecord {
   const db = getDatabase();
   const now = new Date().toISOString();
   const previous = readQueuedTaskSync(input.taskId);
+  if (options.requireCommitted && previous?.status !== "committed") {
+    throw new Error(
+      `Task "${input.taskId}" cannot be completed while status is "${previous?.status ?? "missing"}"; ` +
+        "it must be committed first (EAD §7).",
+    );
+  }
   db.prepare(
     `UPDATE agent_task_queue
      SET status = 'completed',
@@ -908,6 +929,10 @@ function selectQueuedTaskForRuntime(
       `SELECT queue.id
        FROM agent_task_queue queue
        JOIN agent_runtime runtime ON runtime.id = queue.runtime_id
+       JOIN employee_runtime_binding binding
+         ON binding.workspace_id = queue.workspace_id
+         AND binding.employee_name = queue.agent_id
+         AND binding.runtime_id = queue.runtime_id
        WHERE queue.runtime_id = ? AND queue.status = 'queued'
          AND (runtime.managed_credential_id IS NULL OR runtime.provisioning_state = 'managed')
        ${typeof workspaceId === "string" ? "AND queue.workspace_id = ?" : ""}

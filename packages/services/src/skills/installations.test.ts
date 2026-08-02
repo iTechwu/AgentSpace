@@ -5,6 +5,7 @@ import { randomLikeId } from "@dofe-agent/db";
 import {
   claimNextSkillInstallationOperationForRuntimeSync,
   listSkillInstallationOperationsSync,
+  readActiveArtifactDigestForSkillSync,
   readSkillInstallationComponentsSync,
   readSkillInstallationSync,
 } from "@dofe-agent/db";
@@ -14,6 +15,7 @@ import {
   completeSkillInstallationOperationSync,
   createSkillInstallationPlanSync,
   createSkillUpgradePlanSync,
+  createWorkspaceSkillSync,
   failSkillInstallationOperationSync,
   resolveClaimedSkillInstallationOperationSync,
   resetWorkspaceStateSync,
@@ -58,8 +60,9 @@ const ARTIFACT_FILES = [
   { path: "scripts/render.py", bytes: encoder.encode("print('render')\n"), mode: "0755" },
 ];
 
-function buildArtifact() {
+function buildArtifact(skillId?: string) {
   return buildAndPersistSkillArtifactSync({
+    skillId,
     name: "Install Test",
     files: ARTIFACT_FILES,
     sourceType: "local",
@@ -170,13 +173,15 @@ function completeAllComponents(installationId: string, runtimeId: string): void 
 }
 
 test("upgrade creates a candidate revision and rollback reactivates the previous ready digest", () => {
+  const skill = createWorkspaceSkillSync({ name: "Rollback Test", description: "rollback" });
   const runtimeId = createTestRuntime();
-  const first = buildArtifact();
+  const first = buildArtifact(skill.id);
   const v1 = createSkillInstallationPlanSync({ runtimeId, artifactDigest: first.digest });
   completeAllComponents(v1.id, runtimeId);
 
   // New artifact content → different digest.
   const second = buildAndPersistSkillArtifactSync({
+    skillId: skill.id,
     name: "Install Test",
     files: [
       { path: "SKILL.md", bytes: encoder.encode("---\nname: Install Test v2\ndescription: changed\ndependencies:\n  - npm:left-pad@1.3.0\n---\n# Body v2\n") },
@@ -191,9 +196,12 @@ test("upgrade creates a candidate revision and rollback reactivates the previous
   assert.equal(v2.previousReadyRevision, "v1");
   completeAllComponents(v2.id, runtimeId);
 
-  const rollback = rollbackSkillInstallationSync({ installationId: v2.id, workspaceId: "default" });
+  const rollback = rollbackSkillInstallationSync({ installationId: v2.id, workspaceId: "default", skillId: skill.id });
   assert.equal(rollback.ok, true);
   assert.equal(rollback.previousReadyDigest, first.digest);
+
+  const activeDigestAfterRollback = readActiveArtifactDigestForSkillSync(skill.id, "default");
+  assert.equal(activeDigestAfterRollback, first.digest);
 
   const gateAfterRollback = assertSkillInstallationReadyForTaskSync({ runtimeId, artifactDigest: first.digest });
   assert.equal(gateAfterRollback.ok, true);

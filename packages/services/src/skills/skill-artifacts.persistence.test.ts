@@ -113,6 +113,30 @@ test("D-01: manifest covers every file including scripts + binary assets", () =>
   assert.equal(mediaTypeForPath("scripts/validate-swiss-deck.mjs"), "text/javascript");
 });
 
+test("manifest JSON stores DSP capabilities, services and entrypoints", () => {
+  const capabilities = [{ kind: "mcp" as const, catalogSlug: "github", requiredTools: ["search_issues"] }];
+  const services = [{ catalogSlug: "document-renderer", templateVersion: "2.1.0", required: true }];
+  const entrypoints = [{ id: "render", kind: "script" as const, path: "scripts/validate-swiss-deck.mjs", runtime: "node" as const }];
+  const result = buildAndPersistSkillArtifactSync({
+    workspaceId: "default",
+    name: "dsp-skill",
+    files: sampleFiles(),
+    sourceType: "local",
+    capabilities,
+    services,
+    entrypoints,
+  });
+
+  const stored: {
+    capabilities?: typeof capabilities;
+    services?: typeof services;
+    entrypoints?: typeof entrypoints;
+  } = JSON.parse(result.artifact.manifestJson);
+  assert.deepEqual(stored.capabilities, capabilities);
+  assert.deepEqual(stored.services, services);
+  assert.deepEqual(stored.entrypoints, entrypoints);
+});
+
 test("D-01: binary blobs round-trip byte-identical through materialization", () => {
   const result = buildAndPersistSkillArtifactSync({
     workspaceId: "default",

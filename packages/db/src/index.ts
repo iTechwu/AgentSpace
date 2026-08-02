@@ -656,6 +656,7 @@ export {
   markTaskPreparingCommitSync,
   markTaskCommittedSync,
   completeQueuedTaskSync,
+  completeCommittedTaskSync,
   failQueuedTaskSync,
   cancelQueuedTaskSync,
 } from "./task-queue.ts";
@@ -849,6 +850,7 @@ export {
   setActiveArtifactDigestForSkillSync,
   readActiveArtifactDigestForSkillSync,
   setAssignmentArtifactDigestSync,
+  setAssignmentArtifactDigestsForSkillSync,
   readAssignmentArtifactDigestSync,
   type CreateSkillArtifactInput,
   type SkillArtifactFileInput,

@@ -177,6 +177,16 @@ function runPhase(
   const { workspaceId, targetRuntimeId } = options;
   const employeeName = operation.employeeName;
 
+  // Re-check the binding lease before every mutating phase. If a concurrent
+  // rebind changed the generation, this recovery is stale and must abort.
+  if (typeof operation.fromGeneration === "number") {
+    assertBindingGenerationCurrentSync({
+      workspaceId,
+      employeeName,
+      expectedGeneration: operation.fromGeneration,
+    });
+  }
+
   switch (operation.phase) {
     case "allocate": {
       // PROVISIONAL allocation: resolve/validate the target runtime and record
@@ -203,6 +213,11 @@ function runPhase(
       const head = readHeadRevisionSync(employeeName, workspaceId);
       if (!head) {
         throw new Error("Employee workspace has no committed head revision.");
+      }
+      if (head.status !== "committed") {
+        throw new Error(
+          `Workspace head revision is "${head.status}"; only a committed revision may be used for recovery.`,
+        );
       }
       // Real mount check: every blob referenced by the head revision's manifest
       // must be present and readable in object storage.

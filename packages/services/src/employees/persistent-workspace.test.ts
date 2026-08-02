@@ -81,6 +81,31 @@ after(() => {
   process.chdir(originalCwd);
 });
 
+test("D-03b: consecutive outputs produce a full snapshot; recovery restores every file", () => {
+  const task1 = insertTestTask();
+  const task2 = insertTestTask();
+
+  promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: task1,
+    employeeName: "Alice",
+    outputs: [{ path: "first.txt", bytes: new TextEncoder().encode("first") }],
+  });
+
+  promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: task2,
+    employeeName: "Alice",
+    outputs: [{ path: "second.txt", bytes: new TextEncoder().encode("second") }],
+  });
+
+  const head = readHeadRevisionSync("Alice", "default");
+  assert.ok(head);
+  const manifest = JSON.parse(head.manifestJson) as { files: Array<{ path: string; sha256: string }> };
+  const paths = manifest.files.map((file) => file.path).sort();
+  assert.deepEqual(paths, ["first.txt", "second.txt"]);
+});
+
 test("D-03: task outputs promoted to a committed workspace revision readable after workDir cleanup", () => {
   const outputs = [
     { path: "report.pdf", bytes: new TextEncoder().encode("%PDF-1.4 fake report") },

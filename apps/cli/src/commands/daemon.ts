@@ -35,7 +35,7 @@ import {
   appendTaskMessageSync,
   chooseProviderSessionForTaskSync,
   claimNextQueuedTaskForRuntimeSync,
-  completeQueuedTaskSync,
+  completeCommittedTaskSync,
   createDaemonApiTokenSync,
   failQueuedTaskSync,
   markTaskCommittedSync,
@@ -1329,7 +1329,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
     }
 
     if (!promotionError) {
-      completeQueuedTaskSync({
+      completeCommittedTaskSync({
       taskId: task.id,
       resultJson: {
         provider: runtime.provider,

@@ -1,11 +1,16 @@
 import { createHash } from "node:crypto";
 import {
+  cancelUnfinishedSkillInstallationOperationsSync,
   createSkillInstallationOperationSync,
   createSkillInstallationSync,
+  getDatabase,
+  readSkillArtifactByDigestSync,
   readSkillInstallationSync,
   readSkillInstallationByLockSync,
   setActiveArtifactDigestForSkillSync,
+  setAssignmentArtifactDigestsForSkillSync,
   setSkillInstallationStatusSync,
+  withTransaction,
   type SkillArtifactRecord,
   type StoredSkillInstallationRecord,
 } from "@dofe-agent/db";
@@ -103,12 +108,17 @@ export function diffSkillArtifactsSync(input: {
 
   const categories: SkillReleaseDiff["categories"] = [];
 
-  // content
-  const contentChanges = diffFiles(from.files ?? [], to.files ?? []);
+  // content: non-executable file changes only; executable content changes are
+  // reclassified as execution changes below because they are breaking.
+  const { contentChanges, executableContentChanges } = diffFiles(
+    from.files ?? [],
+    to.files ?? [],
+  );
   categories.push({ category: "content", breaking: false, changes: contentChanges });
 
-  // execution: entrypoints + executable-mode scripts
+  // execution: entrypoints + executable-mode scripts + executable content changes
   const executionChanges: string[] = [];
+  executionChanges.push(...executableContentChanges);
   const fromEntrypoints = from.entrypoints ?? [];
   const toEntrypoints = to.entrypoints ?? [];
   for (const entrypoint of toEntrypoints) {
@@ -174,16 +184,28 @@ export function diffSkillArtifactsSync(input: {
 function diffFiles(
   from: Array<{ path?: string; sha256?: string; mode?: string }>,
   to: Array<{ path?: string; sha256?: string; mode?: string }>,
-): string[] {
+): { contentChanges: string[]; executableContentChanges: string[] } {
   const changes: string[] = [];
+  const executableChanges: string[] = [];
   const fromByPath = new Map(from.map((file) => [file.path ?? "", file]));
   const toByPath = new Map(to.map((file) => [file.path ?? "", file]));
+
+  const executablePaths = new Set(
+    [...from, ...to]
+      .filter((file) => file.mode === "0755")
+      .map((file) => file.path ?? ""),
+  );
+
   for (const [path, toFile] of toByPath) {
     const fromFile = fromByPath.get(path);
     if (!fromFile) {
       changes.push(`file added: ${path}`);
     } else if (fromFile.sha256 !== toFile.sha256) {
-      changes.push(`file modified: ${path}`);
+      if (executablePaths.has(path)) {
+        executableChanges.push(`executable content changed: ${path}`);
+      } else {
+        changes.push(`file modified: ${path}`);
+      }
     }
   }
   for (const path of fromByPath.keys()) {
@@ -191,7 +213,10 @@ function diffFiles(
       changes.push(`file removed: ${path}`);
     }
   }
-  return changes.sort();
+  return {
+    contentChanges: changes.sort(),
+    executableContentChanges: executableChanges.sort(),
+  };
 }
 
 function diffExecutableModes(
@@ -222,6 +247,9 @@ function diffCapabilities(
     if (!fromCap) {
       changes.push(`capability added: ${toCap.kind}:${slug}`);
     } else {
+      if (fromCap.kind !== toCap.kind) {
+        changes.push(`capability kind changed: ${slug} ${fromCap.kind ?? "-"} → ${toCap.kind ?? "-"}`);
+      }
       const fromTools = new Set(fromCap.requiredTools ?? []);
       const toTools = new Set(toCap.requiredTools ?? []);
       for (const tool of toTools) {
@@ -255,8 +283,13 @@ function diffServices(
     const fromService = fromBySlug.get(slug);
     if (!fromService) {
       changes.push(`service added: ${slug}@${toService.templateVersion ?? ""}`);
-    } else if (fromService.templateVersion !== toService.templateVersion) {
-      changes.push(`service template changed: ${slug} ${fromService.templateVersion ?? "-"} → ${toService.templateVersion ?? "-"}`);
+    } else {
+      if (fromService.templateVersion !== toService.templateVersion) {
+        changes.push(`service template changed: ${slug} ${fromService.templateVersion ?? "-"} → ${toService.templateVersion ?? "-"}`);
+      }
+      if (fromService.required !== toService.required) {
+        changes.push(`service required flag changed: ${slug} ${fromService.required ?? "-"} → ${toService.required ?? "-"}`);
+      }
     }
   }
   for (const slug of fromBySlug.keys()) {
@@ -368,12 +401,40 @@ export function rollbackSkillInstallationSync(input: {
     return { ok: false, reason: `Previous revision is "${previous.status}", not ready; cannot roll back.` };
   }
 
-  // Reactivate the previous revision's artifact on the skill row.
-  if (input.skillId) {
-    setActiveArtifactDigestForSkillSync({ skillId: input.skillId, digest: previous.artifactDigest, workspaceId: input.workspaceId });
+  const skillId = input.skillId ?? readSkillArtifactByDigestSync(current.artifactDigest, input.workspaceId)?.skillId;
+  if (!skillId) {
+    return { ok: false, reason: "Cannot determine skill id for rollback; pass skillId explicitly." };
   }
-  // Degrade the failing current installation so it no longer enters tasks.
-  setSkillInstallationStatusSync({ installationId: current.id, workspaceId: input.workspaceId, status: "degraded", health: "rolled_back" });
+
+  const db = getDatabase();
+  withTransaction(db, () => {
+    // Stop any in-flight work on the failing installation.
+    cancelUnfinishedSkillInstallationOperationsSync({
+      installationId: current.id,
+      workspaceId: input.workspaceId,
+    });
+
+    // Degrade the failing current installation so it no longer enters tasks.
+    setSkillInstallationStatusSync({
+      installationId: current.id,
+      workspaceId: input.workspaceId,
+      status: "degraded",
+      health: "rolled_back",
+    });
+
+    // Reactivate the previous revision's artifact on the skill row and on every
+    // employee assignment so new tasks resolve to the rolled-back state.
+    setActiveArtifactDigestForSkillSync({
+      skillId,
+      digest: previous.artifactDigest,
+      workspaceId: input.workspaceId,
+    });
+    setAssignmentArtifactDigestsForSkillSync({
+      skillId,
+      digest: previous.artifactDigest,
+      workspaceId: input.workspaceId,
+    });
+  });
 
   return { ok: true, previousReadyDigest: previous.artifactDigest };
 }

@@ -298,12 +298,15 @@ export function updateMcpConnectionConfigServiceSync(input: UpdateMcpConnectionC
       throw new Error(check.code ?? "mcp.policy_denied");
     }
   }
-  if (input.nonSecretParams !== undefined) {
-    const check = validateMcpRequestHeaders(input.nonSecretParams);
+  const mergedNonSecretParamsForUpdate = input.nonSecretParams === undefined
+    ? undefined
+    : { ...parseJsonObject(connection.nonSecretParamsJson), ...input.nonSecretParams };
+  if (mergedNonSecretParamsForUpdate !== undefined) {
+    const check = validateMcpRequestHeaders(mergedNonSecretParamsForUpdate);
     if (!check.ok) {
       throw new Error(check.code ?? "mcp.policy_denied");
     }
-    const configurationCheck = validateMcpConnectionConfiguration(parseJsonObject(catalog.configurationSchemaJson), input.nonSecretParams);
+    const configurationCheck = validateMcpConnectionConfiguration(parseJsonObject(catalog.configurationSchemaJson), mergedNonSecretParamsForUpdate);
     if (!configurationCheck.ok) {
       throw new Error(configurationCheck.code ?? "mcp.policy_denied");
     }
@@ -328,7 +331,7 @@ export function updateMcpConnectionConfigServiceSync(input: UpdateMcpConnectionC
     connectionId: connection.id,
     workspaceId: input.workspaceId,
     endpoint: input.endpoint,
-    nonSecretParamsJson: input.nonSecretParams === undefined ? undefined : JSON.stringify(input.nonSecretParams),
+    nonSecretParamsJson: mergedNonSecretParamsForUpdate === undefined ? undefined : JSON.stringify(mergedNonSecretParamsForUpdate),
     approvedToolsJson: input.approvedTools === undefined ? undefined : JSON.stringify(input.approvedTools),
   });
   let operation: RuntimeMcpOperationRecord | undefined;
@@ -457,12 +460,18 @@ export function replaceMcpConnectionConfigSync(input: ReplaceMcpConnectionConfig
       throw new Error(check.code ?? "mcp.policy_denied");
     }
   }
-  if (input.nonSecretParams !== undefined) {
-    const headersCheck = validateMcpRequestHeaders(input.nonSecretParams);
+  // Client edits may send only the fields the user touched. Merge with the
+  // stored configuration before validating and writing back, so untouched fields
+  // are preserved instead of overwritten with empty values.
+  const mergedNonSecretParams = input.nonSecretParams === undefined
+    ? undefined
+    : { ...parseJsonObject(connection.nonSecretParamsJson), ...input.nonSecretParams };
+  if (mergedNonSecretParams !== undefined) {
+    const headersCheck = validateMcpRequestHeaders(mergedNonSecretParams);
     if (!headersCheck.ok) {
       throw new Error(headersCheck.code ?? "mcp.policy_denied");
     }
-    const configCheck = validateMcpConnectionConfiguration(parseJsonObject(catalog.configurationSchemaJson), input.nonSecretParams);
+    const configCheck = validateMcpConnectionConfiguration(parseJsonObject(catalog.configurationSchemaJson), mergedNonSecretParams);
     if (!configCheck.ok) {
       throw new Error(configCheck.code ?? "mcp.policy_denied");
     }
@@ -498,7 +507,7 @@ export function replaceMcpConnectionConfigSync(input: ReplaceMcpConnectionConfig
       connectionId: connection.id,
       workspaceId: input.workspaceId,
       endpoint: input.endpoint,
-      nonSecretParamsJson: input.nonSecretParams === undefined ? undefined : JSON.stringify(input.nonSecretParams),
+      nonSecretParamsJson: mergedNonSecretParams === undefined ? undefined : JSON.stringify(mergedNonSecretParams),
       approvedToolsJson: input.approvedTools === undefined ? undefined : JSON.stringify(input.approvedTools),
     });
     const rotations: Array<{ connectionId: string; fieldName: string; encryptedValue: string; keyVersion: string; rotatedByUserId?: string }> = [];
@@ -715,12 +724,86 @@ function resolveDaemonSecretBundle(secrets: RuntimeMcpSecretRecord[]): Record<st
   }
 }
 
+interface ResolvedReadyMcpConnection {
+  connectionId: string;
+  catalog: McpCatalogItemRecord;
+  fresh: RuntimeMcpConnectionRecord;
+  approved: string[];
+  tools: RuntimeMcpTool[];
+}
+
+/**
+ * Shared readiness/freshness check used both for the non-secret task manifest
+ * and for the daemon's one-time session claim.
+ *
+ * - Re-reads the CURRENT connection row to avoid acting on a stale cached read.
+ * - Verifies the connection is still `ready`.
+ * - Verifies every approved tool is still present in the latest discovery
+ *   snapshot; if not, the connection is marked `degraded` and excluded.
+ * - Builds the RuntimeMcpTool list (with redacted input schemas).
+ */
+function resolveReadyMcpConnectionForTask(input: {
+  workspaceId: string;
+  connection: RuntimeMcpConnectionRecord;
+  markDegradedOnMissingTool: boolean;
+}): ResolvedReadyMcpConnection | null {
+  const { workspaceId, connection, markDegradedOnMissingTool } = input;
+  const catalog = readMcpCatalogItemSync(connection.catalogItemId, workspaceId);
+  if (!catalog) return null;
+
+  // Freshness: re-check the CURRENT status row (not a stale cached read).
+  const fresh = readMcpConnectionSync(connection.id, workspaceId);
+  if (!fresh || fresh.status !== "ready") return null;
+
+  const snapshot = readLatestMcpDiscoverySnapshotSync(connection.id, workspaceId);
+  if (!snapshot) return null;
+
+  const discovered = parseDiscoveredTools(snapshot.toolsMetadataJson);
+  const discoveredByName = new Map(discovered.map((t) => [t.name, t]));
+  const approved = parseJsonArray(fresh.approvedToolsJson);
+
+  // Freshness: an approved tool that vanished from discovery excludes the connection.
+  const approvedPresent = approved.every((name) => discoveredByName.has(name));
+  if (!approvedPresent) {
+    if (markDegradedOnMissingTool) {
+      updateMcpConnectionStatusSync({
+        connectionId: connection.id,
+        workspaceId,
+        status: "degraded",
+        lastErrorCode: "mcp.approved_tool_missing",
+        lastErrorMessage: "An approved tool is no longer discoverable; the connection was removed from this task.",
+      });
+    }
+    return null;
+  }
+
+  const tools: RuntimeMcpTool[] = [];
+  for (const name of approved) {
+    const tool = discoveredByName.get(name);
+    if (!tool) continue;
+    tools.push({
+      id: `mcp:${connection.id}:${name}`,
+      connectionId: connection.id,
+      name,
+      description: tool.description,
+      inputSchema: redactToolInputSchema(tool.inputSchema),
+    });
+  }
+  if (tools.length === 0) return null;
+
+  return { connectionId: connection.id, catalog, fresh, approved, tools };
+}
+
 /**
  * Builds non-secret task manifests for `ready` connections.
  *
  * Endpoint and credential data deliberately stay outside this result: task
  * bundles can be visible to a Provider subprocess, while the future MCP
  * gateway must keep the resolved connection in a protected process.
+ *
+ * Performs the same freshness check as the daemon claim path: a connection
+ * that is no longer `ready` or whose approved tools have disappeared from the
+ * latest discovery snapshot is excluded from the manifest (and degraded).
  */
 export function listReadyMcpConnectionsForTaskSync(input: {
   workspaceId: string;
@@ -729,33 +812,19 @@ export function listReadyMcpConnectionsForTaskSync(input: {
   const connections = listMcpConnectionsSync({ workspaceId: input.workspaceId, runtimeId: input.runtimeId, status: "ready", limit: 500 });
   const entries: RuntimeMcpConnectionContextEntry[] = [];
   for (const connection of connections) {
-    const catalog = readMcpCatalogItemSync(connection.catalogItemId, input.workspaceId);
-    if (!catalog) continue;
-    const snapshot = readLatestMcpDiscoverySnapshotSync(connection.id, input.workspaceId);
-    if (!snapshot) continue;
-    const discovered = parseDiscoveredTools(snapshot.toolsMetadataJson);
-    const discoveredByName = new Map(discovered.map((t) => [t.name, t]));
-    const approved = parseJsonArray(connection.approvedToolsJson);
-    const tools: RuntimeMcpTool[] = [];
-    for (const name of approved) {
-      const tool = discoveredByName.get(name);
-      if (!tool) continue;
-      tools.push({
-        id: `mcp:${connection.id}:${name}`,
-        connectionId: connection.id,
-        name,
-        description: tool.description,
-        inputSchema: redactToolInputSchema(tool.inputSchema),
-      });
-    }
-    if (tools.length === 0) continue;
+    const resolved = resolveReadyMcpConnectionForTask({
+      workspaceId: input.workspaceId,
+      connection,
+      markDegradedOnMissingTool: true,
+    });
+    if (!resolved) continue;
     entries.push({
-      connectionId: connection.id,
-      catalogItemSlug: catalog.slug,
-      displayName: catalog.displayName,
-      transport: catalog.transport,
-      approvedTools: approved,
-      tools,
+      connectionId: resolved.connectionId,
+      catalogItemSlug: resolved.catalog.slug,
+      displayName: resolved.catalog.displayName,
+      transport: resolved.catalog.transport,
+      approvedTools: resolved.approved,
+      tools: resolved.tools,
     });
   }
   return entries;
@@ -778,54 +847,25 @@ export function claimMcpTaskSessionSync(input: {
   const connections = listMcpConnectionsSync({ workspaceId: input.workspaceId, runtimeId: input.runtimeId, status: "ready", limit: 500 });
   const result: McpTaskSessionConnection[] = [];
   for (const connection of connections) {
-    const catalog = readMcpCatalogItemSync(connection.catalogItemId, input.workspaceId);
-    if (!catalog) continue;
-    // Freshness: re-check the CURRENT status row (not a stale cached read).
-    const fresh = readMcpConnectionSync(connection.id, input.workspaceId);
-    if (!fresh || fresh.status !== "ready") continue;
-    const snapshot = readLatestMcpDiscoverySnapshotSync(connection.id, input.workspaceId);
-    if (!snapshot) continue;
-    const discovered = parseDiscoveredTools(snapshot.toolsMetadataJson);
-    const discoveredByName = new Map(discovered.map((t) => [t.name, t]));
-    const approved = parseJsonArray(fresh.approvedToolsJson);
-    // Freshness: an approved tool that vanished from discovery excludes the connection.
-    const approvedPresent = approved.every((name) => discoveredByName.has(name));
-    if (!approvedPresent) {
-      updateMcpConnectionStatusSync({
-        connectionId: connection.id,
-        workspaceId: input.workspaceId,
-        status: "degraded",
-        lastErrorCode: "mcp.approved_tool_missing",
-        lastErrorMessage: "An approved tool is no longer discoverable; the connection was removed from this task.",
-      });
-      continue;
-    }
+    const resolved = resolveReadyMcpConnectionForTask({
+      workspaceId: input.workspaceId,
+      connection,
+      markDegradedOnMissingTool: true,
+    });
+    if (!resolved) continue;
     const secrets = resolveDaemonSecretBundle(readMcpConnectionSecretsSync(connection.id, input.workspaceId));
     if (secrets === null) continue;
-    const tools: RuntimeMcpTool[] = [];
-    for (const name of approved) {
-      const tool = discoveredByName.get(name);
-      if (!tool) continue;
-      tools.push({
-        id: `mcp:${connection.id}:${name}`,
-        connectionId: connection.id,
-        name,
-        description: tool.description,
-        inputSchema: redactToolInputSchema(tool.inputSchema),
-      });
-    }
-    if (tools.length === 0) continue;
     result.push({
-      connectionId: connection.id,
-      catalogItemSlug: catalog.slug,
-      displayName: catalog.displayName,
-      transport: catalog.transport,
-      endpoint: fresh.endpoint,
-      allowedHosts: parseJsonArray(catalog.allowedHostsJson),
-      approvedTools: approved,
-      nonSecretParams: parseJsonObject(fresh.nonSecretParamsJson),
+      connectionId: resolved.connectionId,
+      catalogItemSlug: resolved.catalog.slug,
+      displayName: resolved.catalog.displayName,
+      transport: resolved.catalog.transport,
+      endpoint: resolved.fresh.endpoint,
+      allowedHosts: parseJsonArray(resolved.catalog.allowedHostsJson),
+      approvedTools: resolved.approved,
+      nonSecretParams: parseJsonObject(resolved.fresh.nonSecretParamsJson),
       secrets,
-      tools,
+      tools: resolved.tools,
     });
   }
   return { connections: result };

@@ -17,6 +17,11 @@ import {
   sha256Hex,
 } from "../attachments/storage.ts";
 import { normalizeSkillFilePath } from "../shared/helpers.ts";
+import type {
+  DspCapability,
+  DspEntrypoint,
+  DspServiceRef,
+} from "@dofe-agent/domain";
 import type { SkillDependencyDeclaration } from "./dependencies.ts";
 
 /* ------------------------------------------------------------------ */
@@ -36,6 +41,9 @@ export interface SkillArtifactManifest {
   artifact: { name: string; version: string };
   files: SkillArtifactManifestFile[];
   dependencies: SkillDependencyDeclaration[];
+  capabilities?: DspCapability[];
+  services?: DspServiceRef[];
+  entrypoints?: DspEntrypoint[];
   source?: { type?: string; url?: string };
 }
 
@@ -226,6 +234,9 @@ export interface BuildAndPersistSkillArtifactInput {
   sourceUrl?: string;
   provenance?: Record<string, unknown>;
   dependencies?: SkillDependencyDeclaration[];
+  capabilities?: DspCapability[];
+  services?: DspServiceRef[];
+  entrypoints?: DspEntrypoint[];
   manifestSchemaVersion?: number;
 }
 
@@ -275,6 +286,9 @@ export function buildAndPersistSkillArtifactSync(
     artifact: { name: input.name, version: input.version ?? "" },
     files: manifestFiles,
     dependencies: input.dependencies ?? [],
+    ...(input.capabilities ? { capabilities: input.capabilities } : {}),
+    ...(input.services ? { services: input.services } : {}),
+    ...(input.entrypoints ? { entrypoints: input.entrypoints } : {}),
     source: { type: input.sourceType, url: input.sourceUrl },
   };
   const digest = computeArtifactDigest(manifest, manifestFiles.map((file) => file.sha256));

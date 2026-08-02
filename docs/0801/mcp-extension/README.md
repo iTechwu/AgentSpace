@@ -17,3 +17,14 @@
 - MCP Tab 的产品名称为“MCP 中心”，只管理 MCP Server 的连接、配置、工具授权、验证、健康和审计。
 - MVP 支持审核的远程 `streamable_http` MCP；受管服务器安装 MCP 属于后续阶段，不能以任意 shell 命令或任意镜像实现。
 - Runtime 仅连接通过验证且处于 `ready` 的 MCP 服务；目录中存在的服务不等于任务可调用能力。
+
+## 当前发布边界（2026-08-02）
+
+当前实现可发布为**“目录配置与远端连通性验证”内测**：
+
+- 目录浏览、连接配置、密钥管理、daemon 远程验证、状态机、工具白名单和基础安全控制已完成。
+- `ready` 在界面中显示为“已验证”，**不承诺任务可调用**。
+- Claude Runtime 的 task-scoped loopback gateway、一次性凭据 claim 和调用审计链路已实现，但尚未通过真实 Claude CLI 端到端验证，因此仍归为内部验证能力。
+- Codex 及其他 Provider 未接入 MCP；在确认其支持等价的一次性 task-scoped MCP 配置前不得对外宣称支持。
+
+完整“任务可调用 MCP”发布需等待：健康巡检与降级、二层 egress 策略、目录 release 版本、连接详情活动页、真实 Claude CLI 端到端验证、Codex 接入验证、受管 stdio/OAuth。

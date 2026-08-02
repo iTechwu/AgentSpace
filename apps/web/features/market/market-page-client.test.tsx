@@ -24,9 +24,9 @@ const actionMocks = vi.hoisted(() => ({
   refreshCatalog: vi.fn(async () => ({ data: undefined })),
   requestOperation: vi.fn(async () => ({ data: undefined })),
   requestMcpConnection: vi.fn(async () => ({ data: undefined })),
+  replaceMcpConnectionConfig: vi.fn(async () => ({ data: undefined })),
   rotateMcpSecret: vi.fn(async () => ({ data: undefined })),
   syncSkill: vi.fn(async () => ({ data: undefined })),
-  updateMcpConnectionConfig: vi.fn(async () => ({ data: undefined })),
 }));
 
 vi.mock("@/features/market/actions", () => ({
@@ -41,8 +41,8 @@ vi.mock("@/features/market/mcp-actions", () => ({
   removeMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
   requestMcpConnectionAction: actionMocks.requestMcpConnection,
   reverifyMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
+  replaceMcpConnectionConfigAction: actionMocks.replaceMcpConnectionConfig,
   rotateMcpSecretAction: actionMocks.rotateMcpSecret,
-  updateMcpConnectionConfigAction: actionMocks.updateMcpConnectionConfig,
 }));
 
 const data: MarketPageData = {
@@ -72,6 +72,7 @@ const data: MarketPageData = {
       status: "online",
       daemonKey: "daemon-online",
       cliHubReady: true,
+      mcpEligible: true,
     },
     {
       id: "runtime-offline",
@@ -80,6 +81,7 @@ const data: MarketPageData = {
       status: "offline",
       daemonKey: "daemon-offline",
       cliHubReady: false,
+      mcpEligible: false,
     },
   ],
   installedApps: [],
@@ -119,7 +121,7 @@ describe("MarketPageClient", () => {
     actionMocks.requestMcpConnection.mockClear();
     actionMocks.rotateMcpSecret.mockClear();
     actionMocks.syncSkill.mockClear();
-    actionMocks.updateMcpConnectionConfig.mockClear();
+    actionMocks.replaceMcpConnectionConfig.mockClear();
   });
 
   it("only shows online runtimes in the target runtime selector", () => {
@@ -402,10 +404,12 @@ describe("MarketPageClient", () => {
     await user.type(screen.getByLabelText("X-Workspace *"), "workspace-42");
     await user.click(screen.getByRole("button", { name: "更新配置" }));
 
-    await waitFor(() => expect(actionMocks.updateMcpConnectionConfig).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => expect(actionMocks.replaceMcpConnectionConfig).toHaveBeenCalledWith(expect.objectContaining({
       connectionId: "connection-1",
+      endpoint: undefined,
       nonSecretParams: { "X-Workspace": "workspace-42" },
       approvedTools: ["search"],
+      secrets: undefined,
     })));
     expect(actionMocks.rotateMcpSecret).not.toHaveBeenCalled();
   });

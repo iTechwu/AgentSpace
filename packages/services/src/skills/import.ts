@@ -30,6 +30,16 @@ import {
   isTextMediaType,
   mediaTypeForPath,
 } from "./skill-artifacts.ts";
+import {
+  validateSkillPackage,
+  type SkillPackageInputFile,
+} from "./package/package-validator.ts";
+import {
+  MAX_SKILL_ARCHIVE_BYTES,
+  MAX_SKILL_ARCHIVE_FILES,
+  MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES,
+  MAX_SKILL_ARCHIVE_NESTING_DEPTH,
+} from "./package/archive-limits.ts";
 
 export type SkillImportConflict = "reject" | "rename" | "replace" | "skip";
 export type SkillImportSourceType = "github" | "skills.sh" | "clawhub" | "local" | "tos";
@@ -72,8 +82,11 @@ interface ImportedSkillDefinition {
 interface GitHubDirectoryPointer {
   owner: string;
   repo: string;
+  /** Original branch/tag/ref from the user URL. */
   ref: string;
   path: string;
+  /** Immutable commit SHA resolved from `ref` before any content fetch. */
+  resolvedSha?: string;
 }
 
 // Extensions whose contents we additionally mirror into the text skill_file
@@ -96,10 +109,6 @@ const TEXT_PROJECTION_EXTENSIONS = new Set([
   ".sh",
   ".html",
 ]);
-
-const MAX_SKILL_ARCHIVE_BYTES = 10 * 1024 * 1024;
-const MAX_SKILL_ARCHIVE_FILES = 200;
-const MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES = 32 * 1024 * 1024;
 
 export async function importWorkspaceSkillFromUrl(input: {
   workspaceId?: string;
@@ -165,9 +174,6 @@ async function persistImportedSkillDefinition(
 ): Promise<SkillImportResult> {
   const existingSkills = listWorkspaceSkillsSync(workspaceId);
   const existing = existingSkills.find((skill) => sameValue(skill.name, imported.name));
-  if (existing && isBuiltinSkill(existing.name)) {
-    throw new Error(`Builtin skill "${existing.name}" cannot be replaced by an import.`);
-  }
 
   const conflict = requestedConflict ?? "reject";
   if (existing && conflict === "reject") {
@@ -189,11 +195,14 @@ async function persistImportedSkillDefinition(
   }
 
   if (existing && conflict === "replace") {
+    if (isBuiltinSkill(existing.name)) {
+      throw new Error(`Builtin skill "${existing.name}" cannot be replaced by an import.`);
+    }
     return replaceImportedSkill(existing, imported, workspaceId);
   }
 
-  const skillName = existing
-    ? createUniqueWorkspaceSkillName(existingSkills, imported.name)
+  const skillName = existing || isBuiltinSkill(imported.name)
+    ? createUniqueImportSkillName(existingSkills, imported.name)
     : imported.name;
   const created = createWorkspaceSkillSync({
     name: skillName,
@@ -330,6 +339,18 @@ function persistSkillArtifact(
   workspaceId?: string,
 ): string | undefined {
   try {
+    const packageFiles: SkillPackageInputFile[] = imported.files.map((file) => ({
+      path: file.path,
+      bytes: file.bytes,
+    }));
+    const validation = validateSkillPackage({ files: packageFiles });
+    if (!validation.ok) {
+      const codes = validation.errors.map((error) => error.code).join(", ");
+      const messages = validation.errors.map((error) => `${error.code}: ${error.message}`).join("; ");
+      throw new Error(`Package validation failed (${codes}): ${messages}`);
+    }
+    const manifest = validation.manifest;
+
     const result = buildAndPersistSkillArtifactSync({
       workspaceId,
       skillId,
@@ -338,6 +359,9 @@ function persistSkillArtifact(
       sourceType: imported.sourceType,
       sourceUrl: imported.sourceUrl,
       dependencies: parseSkillDependencyDeclarations(readSkillMarkdown(imported.files)),
+      ...(manifest?.capabilities ? { capabilities: manifest.capabilities } : {}),
+      ...(manifest?.services ? { services: manifest.services } : {}),
+      ...(manifest?.entrypoints ? { entrypoints: manifest.entrypoints } : {}),
       provenance: { importedVia: imported.sourceType, sourceUrl: imported.sourceUrl },
     });
     return result.digest;
@@ -693,6 +717,14 @@ async function readLocalSkillDirectoryFiles(
     }
 
     const absoluteEntryPath = resolve(directoryPath, entry.name);
+
+    if (entry.isSymbolicLink()) {
+      const linkTarget = await readFile(absoluteEntryPath, "utf8").catch(() => undefined);
+      throw new Error(
+        `Symlink "${relativePath}"${linkTarget ? ` -> "${linkTarget}"` : ""} is not allowed in skill packages.`,
+      );
+    }
+
     if (entry.isDirectory()) {
       files.push(...await readLocalSkillDirectoryFiles(absoluteEntryPath, warnings, relativePath, false));
       continue;
@@ -732,7 +764,7 @@ function readSkillZipFiles(
     throw new Error(`${sourceLabel} cannot be empty.`);
   }
   if (archiveBytes.byteLength > MAX_SKILL_ARCHIVE_BYTES) {
-    throw new Error(`${sourceLabel} exceeds the 10 MB upload limit.`);
+    throw new Error(`${sourceLabel} exceeds the ${MAX_SKILL_ARCHIVE_BYTES} byte upload limit.`);
   }
 
   let archive: Record<string, Uint8Array>;
@@ -748,15 +780,23 @@ function readSkillZipFiles(
 
   const files: ImportedSkillFile[] = [];
   let uncompressedBytes = 0;
+  let nestingDepth = 0;
 
   for (const [entryName, content] of entries) {
     const normalizedPath = normalizeSkillFilePath(entryName);
     if (!normalizedPath) {
       continue;
     }
+    const depth = normalizedPath.split("/").length;
+    if (depth > nestingDepth) {
+      nestingDepth = depth;
+    }
+    if (nestingDepth > MAX_SKILL_ARCHIVE_NESTING_DEPTH) {
+      throw new Error(`${sourceLabel} exceeds ${MAX_SKILL_ARCHIVE_NESTING_DEPTH} levels of directory nesting.`);
+    }
     uncompressedBytes += content.byteLength;
     if (uncompressedBytes > MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES) {
-      throw new Error(`${sourceLabel} expands beyond the 32 MB extraction limit.`);
+      throw new Error(`${sourceLabel} expands beyond the ${MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES} byte extraction limit.`);
     }
     files.push({
       path: normalizedPath,
@@ -769,6 +809,20 @@ function readSkillZipFiles(
   }
 
   return sortImportedSkillFiles(files);
+}
+
+function createUniqueImportSkillName(skills: WorkspaceSkill[], baseName: string): string {
+  const trimmedBaseName = baseName.trim() || "新建 Skill";
+  let candidate = trimmedBaseName;
+  let counter = 2;
+  while (
+    isBuiltinSkill(candidate) ||
+    skills.some((skill) => sameValue(skill.name, candidate))
+  ) {
+    candidate = `${trimmedBaseName} ${counter}`;
+    counter += 1;
+  }
+  return candidate;
 }
 
 function parseSkillsShInstallCommand(html: string): { owner: string; repo: string; skillSlug: string } | null {
