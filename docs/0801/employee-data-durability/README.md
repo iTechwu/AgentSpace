@@ -6,7 +6,7 @@
 
 > **最新实施状态（2026-08-03）**
 >
-> 主要代码链已覆盖稳定 employeeId 全链关系、workDir diff/tombstone、任务前 fail-closed 还原、持久 mount、原子文件发布、mount/recovery worker 租约与写 fencing、恢复 head CAS 和原子激活、generation fencing、提交 reconciliation、真实 Skill 依赖安装与任务环境注入、历史 revision 内容校验/原子审计，以及 workspace blob 读取校验。尚未验收 D-07/D-08 的真实容器与卷销毁恢复、D-10 的 PostgreSQL/TOS 隔离物理恢复；大项目分块传输、恢复 smoke 和生命周期策略仍需优化。以 [第六轮实施审查](./03-实施审查与后续优化.md) 为当前基线。
+> 主要代码链已覆盖稳定 employeeId 全链关系、workDir diff/tombstone、双向增量 blob 传输、任务前 fail-closed 还原、持久 mount、原子文件发布、mount/recovery worker 租约与写 fencing、恢复 head CAS 和原子激活、generation fencing、提交 reconciliation、真实 Skill 依赖安装与任务环境注入、Provider/Secret/CLI/MCP 恢复门禁、retention/legal hold/配额告警，以及历史 revision 内容校验/原子审计。D-07/D-08 已在本工作站使用真实 runtime 镜像完成隔离容器与 named volume 销毁恢复；指定测试环境中的控制面重新绑定/恢复后任务 E2E 和 D-10 PostgreSQL/TOS 外部物理恢复仍待验收。以 [第六轮实施审查](./03-实施审查与后续优化.md) 及 [D-07/D-08 证据](./evidence/d07-d08-1785714998462-e0519d.json) 为当前基线。
 >
 > **历史实施状态（2026-08-02，已被上方取代）**
 >

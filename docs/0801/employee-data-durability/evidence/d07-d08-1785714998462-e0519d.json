@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "drill": "D-07/D-08",
+  "status": "passed",
+  "runId": "1785714998462-e0519d",
+  "checkedAt": "2026-08-02T23:56:48.280Z",
+  "baseImage": "dofe/agent-runtime-codex:latest",
+  "imagePlatform": "linux/amd64",
+  "manifest": {
+    "revisionId": "revision-1785714998462-e0519d",
+    "manifestDigest": "b0249bf08f24ae9b056799e39440c2c52997925e4eff24db0b2510ea4e53ee09",
+    "files": [
+      {
+        "path": "documents/plan.txt",
+        "sha256": "60cd160269acc50808a9b027f8ef6ad990c189529164947d01f3403a453c1021",
+        "size": 16,
+        "mode": "0600"
+      },
+      {
+        "path": "state/checkpoint.json",
+        "sha256": "478bbb00898ef3d4d2645a9b17068287305d37a0f7f5cbba83158a437db72f87",
+        "size": 38,
+        "mode": "0600"
+      }
+    ]
+  },
+  "phases": [
+    {
+      "phase": "d07-before",
+      "workDir": "/home/dofe-agent/work/d07-before",
+      "fetchCount": 2,
+      "downloadedBlobs": 2,
+      "reusedBlobs": 0,
+      "filesVerified": 2,
+      "container": "dofe-ead-drill-1785714998462-e0519d-runtime-v1",
+      "containerId": "66359ccf33e6e75c7d67efca569ec5cc2d43c6412e3cbb46aaa84024566c7120",
+      "image": "dofe/ead-drill:1785714998462-e0519d-v1",
+      "imageId": "sha256:ba005875e6998b695de7592c8cbd3052a226fa919ad6b77320947fb6c3fcac56",
+      "volume": "dofe-ead-drill-1785714998462-e0519d-state-v1"
+    },
+    {
+      "phase": "d07-after",
+      "workDir": "/home/dofe-agent/work/d07-after",
+      "fetchCount": 0,
+      "downloadedBlobs": 0,
+      "reusedBlobs": 2,
+      "filesVerified": 2,
+      "container": "dofe-ead-drill-1785714998462-e0519d-runtime-v2",
+      "containerId": "17e4273cf34f6abf78ed95542733010ce37e9c47d30a12a1edefeaea0ab1b102",
+      "image": "dofe/ead-drill:1785714998462-e0519d-v2",
+      "imageId": "sha256:67a9303516622d04b4a6b2df4cee723b922d293a40aa0146f0a0758dc9f15dba",
+      "volume": "dofe-ead-drill-1785714998462-e0519d-state-v1"
+    },
+    {
+      "phase": "d08-after",
+      "workDir": "/home/dofe-agent/work/d08-after",
+      "fetchCount": 2,
+      "downloadedBlobs": 2,
+      "reusedBlobs": 0,
+      "filesVerified": 2,
+      "container": "dofe-ead-drill-1785714998462-e0519d-runtime-rebuilt",
+      "containerId": "b76c328c9b4fd2720c6ffa65bf28fa5b772c1619541aa5107bb36e9566400a64",
+      "image": "dofe/ead-drill:1785714998462-e0519d-v2",
+      "imageId": "sha256:67a9303516622d04b4a6b2df4cee723b922d293a40aa0146f0a0758dc9f15dba",
+      "volume": "dofe-ead-drill-1785714998462-e0519d-state-v2"
+    }
+  ],
+  "assertions": {
+    "d07OldContainerDestroyed": true,
+    "d07NewImageUsed": true,
+    "d07StateVolumeReusedWithoutCasFetch": true,
+    "d08OriginalVolumeDestroyed": true,
+    "d08EmptyVolumeRestoredFromCas": true,
+    "temporaryResourcesCleaned": true
+  }
+}
