@@ -1,5 +1,5 @@
 import { getDatabase } from "@dofe-agent/db";
-import { listReadyMcpConnectionsForTaskSync } from "../mcp-center/connections.ts";
+import { listReadyMcpConnectionsForTaskSync } from "../mcp-center/readiness.ts";
 import {
   listSkillServiceBindingsSync,
   listSkillServiceCatalogSync,

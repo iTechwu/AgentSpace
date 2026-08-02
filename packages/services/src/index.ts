@@ -365,6 +365,7 @@ export {
   completeSkillInstallationOperationSync,
   failSkillInstallationOperationSync,
   evaluateSkillInstallationReadinessSync,
+  reconcileSkillInstallationsForRuntimeSync,
   assertSkillInstallationReadyForTaskSync,
   readHighestRevisionSkillInstallationSync,
   resolveTaskSkillExecutionSnapshotSync,

@@ -1,15 +1,27 @@
 import assert from "node:assert/strict";
 import test, { before, beforeEach } from "node:test";
 import {
+  createUserSync,
   createMcpConnectionSync,
   getDatabase,
   randomLikeId,
+  readSkillInstallationSync,
+  readSkillInstallationComponentsSync,
   updateMcpConnectionStatusSync,
+  updateSkillInstallationComponentStatusSync,
   upsertMcpCatalogItemSync,
   upsertMcpDiscoverySnapshotSync,
 } from "@dofe-agent/db";
 import { resetWorkspaceStateSync } from "../index.ts";
-import { resolveSkillCliCapabilitySync, resolveSkillMcpCapabilitySync } from "../index.ts";
+import {
+  assertSkillInstallationReadyForTaskSync,
+  buildAndPersistSkillArtifactSync,
+  createSkillInstallationPlanSync,
+  disableMcpConnectionSync,
+  evaluateSkillInstallationReadinessSync,
+  resolveSkillCliCapabilitySync,
+  resolveSkillMcpCapabilitySync,
+} from "../index.ts";
 
 before(() => {
   process.env.NODE_ENV = "test";
@@ -130,6 +142,41 @@ test("resolveSkillMcpCapabilitySync blocks when no ready connection matches the 
   });
   assert.equal(resolution.ready, false);
   assert.match(resolution.reason, /slack/);
+});
+
+test("disabling an MCP connection immediately blocks dependent Skill installations and new tasks", () => {
+  const runtimeId = createTestRuntime();
+  const catalogSlug = `github-invalidation-${randomLikeId()}`;
+  const { connectionId } = setupReadyMcpConnection(runtimeId, catalogSlug, ["search_issues"], ["search_issues"]);
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: `MCP invalidation ${randomLikeId()}`,
+    files: [{ path: "SKILL.md", bytes: new TextEncoder().encode("# MCP invalidation\n") }],
+    capabilities: [{ kind: "mcp", catalogSlug, requiredTools: ["search_issues"] }],
+  });
+  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  for (const component of readSkillInstallationComponentsSync(installation.id)) {
+    updateSkillInstallationComponentStatusSync({
+      installationId: installation.id,
+      kind: component.kind,
+      key: component.key,
+      status: "ready",
+      verifiedAt: new Date().toISOString(),
+    });
+  }
+  assert.equal(evaluateSkillInstallationReadinessSync(installation.id), "ready");
+
+  const admin = createUserSync({ displayName: "MCP invalidation admin", isAdmin: true });
+  disableMcpConnectionSync({ workspaceId: "default", connectionId, actorUserId: admin.id });
+
+  assert.equal(readSkillInstallationSync(installation.id, "default")?.status, "blocked");
+  assert.deepEqual(
+    assertSkillInstallationReadyForTaskSync({ workspaceId: "default", runtimeId, artifactDigest: artifact.digest }),
+    {
+      ok: false,
+      status: "blocked",
+      reason: 'Installation is "blocked" (not ready); new tasks will not load this skill.',
+    },
+  );
 });
 
 test("resolveSkillCliCapabilitySync requires an installed and enabled app", () => {

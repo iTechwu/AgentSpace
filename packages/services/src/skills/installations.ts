@@ -672,6 +672,26 @@ export function evaluateSkillInstallationReadinessSync(
   return "preparing";
 }
 
+/** Re-evaluates every installation on a runtime after an external capability changes state. */
+export function reconcileSkillInstallationsForRuntimeSync(input: {
+  workspaceId?: string;
+  runtimeId: string;
+}): { evaluated: number; blocked: number; ready: number; degraded: number; preparing: number } {
+  const workspaceId = input.workspaceId ?? "default";
+  const rows = getDatabase().prepare(
+    `SELECT id FROM skill_installation
+     WHERE workspace_id = ? AND runtime_id = ? AND status <> 'rolled_back'
+     ORDER BY created_at ASC`,
+  ).all(workspaceId, input.runtimeId) as Array<{ id: string }>;
+  const result = { evaluated: 0, blocked: 0, ready: 0, degraded: 0, preparing: 0 };
+  for (const row of rows) {
+    const status = evaluateSkillInstallationReadinessSync(row.id, workspaceId);
+    result.evaluated += 1;
+    result[status] += 1;
+  }
+  return result;
+}
+
 /**
  * Task-time freshness gate: only a `ready` installation may enter a task.
  *
@@ -688,7 +708,7 @@ export function assertSkillInstallationReadyForTaskSync(input: {
   runtimeId: string;
   artifactDigest: string;
 }): { ok: true; installationId: string; revision: string } | { ok: false; status: string; reason: string } {
-  const installation = readHighestRevisionSkillInstallationSync({
+  let installation = readHighestRevisionSkillInstallationSync({
     workspaceId: input.workspaceId,
     runtimeId: input.runtimeId,
     artifactDigest: input.artifactDigest,
@@ -700,6 +720,8 @@ export function assertSkillInstallationReadyForTaskSync(input: {
       reason: `Skill artifact "${input.artifactDigest}" has no installation on this runtime.`,
     };
   }
+  evaluateSkillInstallationReadinessSync(installation.id, installation.workspaceId);
+  installation = readSkillInstallationSync(installation.id, installation.workspaceId) ?? installation;
   if (installation.status !== "ready") {
     return {
       ok: false,

@@ -42,10 +42,9 @@ import type {
   McpTaskSessionConnection,
   McpVerificationOutcome,
   McpVerificationResult,
-  RuntimeMcpConnectionContextEntry,
-  RuntimeMcpTool,
 } from "@dofe-agent/domain";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
+import { reconcileSkillInstallationsForRuntimeSync } from "../skills/installations.ts";
 import { assertCanManageMcpCenterSync, type McpDeclaredTool } from "./catalog.ts";
 import {
   decryptMcpGrant,
@@ -54,10 +53,11 @@ import {
   encryptMcpSecret,
   getMcpSecretKeyVersion,
   validateMcpConnectionConfiguration,
-  redactToolInputSchema,
   validateMcpEndpoint,
   validateMcpRequestHeaders,
 } from "./security.ts";
+import { resolveReadyMcpConnectionForTask } from "./readiness.ts";
+export { listReadyMcpConnectionsForTaskSync } from "./readiness.ts";
 
 /* ------------------------------------------------------------------ */
 /* Request a new connection (create + queue verify)                    */
@@ -218,6 +218,7 @@ export function disableMcpConnectionSync(input: {
     lastStatus: connection.status,
   });
   auditLifecycleEvent(input.workspaceId, connection, "disabled", input.actorUserId);
+  reconcileSkillInstallationsForRuntimeSync({ workspaceId: input.workspaceId, runtimeId: connection.runtimeId });
   return updated;
 }
 
@@ -277,6 +278,7 @@ function createConnectionOperationSync(input: {
     requestedByUserId: input.actorUserId,
   });
   auditLifecycleEvent(input.workspaceId, connection, input.operation, input.actorUserId);
+  reconcileSkillInstallationsForRuntimeSync({ workspaceId: input.workspaceId, runtimeId: connection.runtimeId });
   return operation;
 }
 
@@ -379,6 +381,7 @@ export function updateMcpConnectionConfigServiceSync(input: UpdateMcpConnectionC
       resourceId: connection.id,
     },
   });
+  reconcileSkillInstallationsForRuntimeSync({ workspaceId: input.workspaceId, runtimeId: connection.runtimeId });
   return { connection: connection2, operation };
 }
 
@@ -436,6 +439,7 @@ export function rotateMcpSecretSync(input: {
       secretField: input.fieldName,
     },
   });
+  reconcileSkillInstallationsForRuntimeSync({ workspaceId: input.workspaceId, runtimeId: connection.runtimeId });
   return updated;
 }
 
@@ -576,6 +580,7 @@ export function replaceMcpConnectionConfigSync(input: ReplaceMcpConnectionConfig
       rotatedSecretCount: Object.keys(input.secrets ?? {}).filter((name) => input.secrets?.[name]?.trim()).length,
     },
   });
+  reconcileSkillInstallationsForRuntimeSync({ workspaceId: input.workspaceId, runtimeId: connection.runtimeId });
   return { connection: updated, operation };
 }
 
@@ -714,7 +719,7 @@ export function completeMcpConnectionOperationWithHealthScheduleSync(input: {
     (verificationStatus === "ready" || verificationStatus === "degraded" || verificationStatus === "failed")
     ? computeMcpConnectionNextHealthCheckAt({ connection, verificationStatus })
     : undefined;
-  return completeMcpOperationSync({
+  const completed = completeMcpOperationSync({
     operationId: input.operationId,
     workspaceId: input.workspaceId,
     safeStdoutTail: input.safeStdoutTail,
@@ -724,6 +729,10 @@ export function completeMcpConnectionOperationWithHealthScheduleSync(input: {
       ? { ...input.verification, errorCode: input.verification.errorCode as import("@dofe-agent/domain").McpErrorCode | undefined }
       : undefined,
   });
+  if (connection) {
+    reconcileSkillInstallationsForRuntimeSync({ workspaceId: connection.workspaceId, runtimeId: connection.runtimeId });
+  }
+  return completed;
 }
 
 /** Fail wrapper that also advances the health-check schedule and increments failures. */
@@ -744,7 +753,7 @@ export function failMcpConnectionOperationWithHealthScheduleSync(input: {
   const healthCheckConsecutiveFailures = connection && operation?.source === "health_check"
     ? connection.healthCheckConsecutiveFailures + 1
     : undefined;
-  return failMcpOperationSync({
+  const failed = failMcpOperationSync({
     operationId: input.operationId,
     workspaceId: input.workspaceId,
     safeStdoutTail: input.safeStdoutTail,
@@ -755,6 +764,10 @@ export function failMcpConnectionOperationWithHealthScheduleSync(input: {
     nextHealthCheckAt,
     healthCheckConsecutiveFailures,
   });
+  if (connection) {
+    reconcileSkillInstallationsForRuntimeSync({ workspaceId: connection.workspaceId, runtimeId: connection.runtimeId });
+  }
+  return failed;
 }
 
 export function listMcpConnectionsForRuntimeServiceSync(input: {
@@ -911,133 +924,6 @@ function resolveDaemonSecretBundle(secrets: RuntimeMcpSecretRecord[]): Record<st
   } catch {
     return null;
   }
-}
-
-interface ResolvedReadyMcpConnection {
-  connectionId: string;
-  catalog: McpCatalogItemRecord;
-  fresh: RuntimeMcpConnectionRecord;
-  approved: string[];
-  tools: RuntimeMcpTool[];
-}
-
-/**
- * Shared readiness/freshness check used both for the non-secret task manifest
- * and for the daemon's one-time session claim.
- *
- * - Re-reads the CURRENT connection row to avoid acting on a stale cached read.
- * - Verifies the connection is still `ready`.
- * - Verifies every approved tool is still present in the latest discovery
- *   snapshot; if not, the connection is marked `degraded` and excluded.
- * - Builds the RuntimeMcpTool list (with redacted input schemas).
- */
-function resolveReadyMcpConnectionForTask(input: {
-  workspaceId: string;
-  connection: RuntimeMcpConnectionRecord;
-  markDegradedOnMissingTool: boolean;
-}): ResolvedReadyMcpConnection | null {
-  const { workspaceId, connection, markDegradedOnMissingTool } = input;
-  const catalog = readMcpCatalogItemSync(connection.catalogItemId, workspaceId);
-  if (!catalog) return null;
-
-  // Freshness: re-check the CURRENT status row (not a stale cached read).
-  const fresh = readMcpConnectionSync(connection.id, workspaceId);
-  if (!fresh || fresh.status !== "ready") return null;
-
-  const snapshot = readLatestMcpDiscoverySnapshotSync(connection.id, workspaceId);
-  if (!snapshot) return null;
-
-  const discovered = parseDiscoveredTools(snapshot.toolsMetadataJson);
-  const discoveredByName = new Map(discovered.map((t) => [t.name, t]));
-  const approved = parseJsonArray(fresh.approvedToolsJson);
-
-  // Authorization: every approved tool must still be declared by the catalog.
-  // A catalog downgrade that removes a previously-declared tool must not grant
-  // that tool to running tasks.
-  const declaredTools = parseDeclaredTools(catalog.declaredToolsJson);
-  const declaredNames = new Set(declaredTools.map((t) => t.name));
-  const approvedDeclared = approved.every((name) => declaredNames.has(name));
-  if (!approvedDeclared) {
-    if (markDegradedOnMissingTool) {
-      updateMcpConnectionStatusSync({
-        connectionId: connection.id,
-        workspaceId,
-        status: "degraded",
-        lastErrorCode: "mcp.approved_tool_missing",
-        lastErrorMessage: "An approved tool is no longer declared by the catalog; the connection was removed from this task.",
-      });
-    }
-    return null;
-  }
-
-  // Freshness: an approved tool that vanished from discovery excludes the connection.
-  const approvedPresent = approved.every((name) => discoveredByName.has(name));
-  if (!approvedPresent) {
-    if (markDegradedOnMissingTool) {
-      updateMcpConnectionStatusSync({
-        connectionId: connection.id,
-        workspaceId,
-        status: "degraded",
-        lastErrorCode: "mcp.approved_tool_missing",
-        lastErrorMessage: "An approved tool is no longer discoverable; the connection was removed from this task.",
-      });
-    }
-    return null;
-  }
-
-  const tools: RuntimeMcpTool[] = [];
-  for (const name of approved) {
-    const tool = discoveredByName.get(name);
-    if (!tool) continue;
-    tools.push({
-      id: `mcp:${connection.id}:${name}`,
-      connectionId: connection.id,
-      name,
-      description: tool.description,
-      inputSchema: redactToolInputSchema(tool.inputSchema),
-    });
-  }
-  if (tools.length === 0) return null;
-
-  return { connectionId: connection.id, catalog, fresh, approved, tools };
-}
-
-/**
- * Builds non-secret task manifests for `ready` connections.
- *
- * Endpoint and credential data deliberately stay outside this result: task
- * bundles can be visible to a Provider subprocess, while the future MCP
- * gateway must keep the resolved connection in a protected process.
- *
- * Performs the same freshness check as the daemon claim path: a connection
- * that is no longer `ready` or whose approved tools have disappeared from the
- * latest discovery snapshot is excluded from the manifest (and degraded).
- */
-export function listReadyMcpConnectionsForTaskSync(input: {
-  workspaceId: string;
-  runtimeId: string;
-}): RuntimeMcpConnectionContextEntry[] {
-  const connections = listMcpConnectionsSync({ workspaceId: input.workspaceId, runtimeId: input.runtimeId, status: "ready", limit: 500 });
-  const entries: RuntimeMcpConnectionContextEntry[] = [];
-  for (const connection of connections) {
-    const resolved = resolveReadyMcpConnectionForTask({
-      workspaceId: input.workspaceId,
-      connection,
-      markDegradedOnMissingTool: true,
-    });
-    if (!resolved) continue;
-    entries.push({
-      connectionId: resolved.connectionId,
-      catalogItemId: resolved.catalog.id,
-      catalogItemSlug: resolved.catalog.slug,
-      catalogItemVersion: resolved.catalog.version,
-      displayName: resolved.catalog.displayName,
-      transport: resolved.catalog.transport,
-      approvedTools: resolved.approved,
-      tools: resolved.tools,
-    });
-  }
-  return entries;
 }
 
 /**
