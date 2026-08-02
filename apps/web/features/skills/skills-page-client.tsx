@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  checkWorkspaceSkillSourceUpdateAction,
   createWorkspaceSkillAction,
   deleteWorkspaceSkillAction,
   importWorkspaceSkillFromZipAction,
   importWorkspaceSkillFromUrlAction,
+  reimportWorkspaceSkillAction,
   updateWorkspaceSkillMetaAction,
   upsertWorkspaceSkillFileAction,
 } from "@/features/skills/actions";
@@ -93,6 +95,10 @@ export function SkillsPageClient({
   }, [selectedFileId, selectedSkill]);
 
   const selectedFile = selectedSkill?.files.find((file) => file.id === selectedFileId) ?? null;
+  const canCheckSourceUpdates = selectedSkill?.sourceType === "github" || selectedSkill?.sourceType === "gitlab";
+  const canCreateSourceCandidate = canCheckSourceUpdates
+    || selectedSkill?.sourceType === "skills.sh"
+    || selectedSkill?.sourceType === "clawhub";
   const builtinSkills = useMemo(() => data.skills.filter((skill) => skill.isBuiltin), [data.skills]);
   const customSkills = useMemo(() => data.skills.filter((skill) => !skill.isBuiltin), [data.skills]);
   const importedSkills = useMemo(
@@ -461,15 +467,39 @@ export function SkillsPageClient({
                 <div className="skills-studio__install-section">
                   <div className="skills-studio__install-header">
                     <h4>{tx("Runtime 安装", "Runtime installations")}</h4>
-                    <button
-                      className="action-button action-button--compact"
-                      disabled={isPending}
-                      onClick={() => setShowInstallSkill(true)}
-                      type="button"
-                    >
-                      <AppIcon name="plus" />
-                      <span>{tx("安装到 Runtime", "Install to runtime")}</span>
-                    </button>
+                    <div className="panel-header__actions">
+                      {canCheckSourceUpdates ? (
+                        <button
+                          className="action-button action-button--compact"
+                          disabled={isPending}
+                          onClick={() => runAction(() => checkWorkspaceSkillSourceUpdateAction(selectedSkill.id))}
+                          type="button"
+                        >
+                          <AppIcon name="refresh" />
+                          <span>{tx("检查更新", "Check for updates")}</span>
+                        </button>
+                      ) : null}
+                      {canCreateSourceCandidate ? (
+                        <button
+                          className="action-button action-button--compact"
+                          disabled={isPending}
+                          onClick={() => runAction(() => reimportWorkspaceSkillAction(selectedSkill.id))}
+                          type="button"
+                        >
+                          <AppIcon name="open" />
+                          <span>{tx("获取候选版本", "Fetch candidate")}</span>
+                        </button>
+                      ) : null}
+                      <button
+                        className="action-button action-button--compact"
+                        disabled={isPending}
+                        onClick={() => setShowInstallSkill(true)}
+                        type="button"
+                      >
+                        <AppIcon name="plus" />
+                        <span>{tx("安装到 Runtime", "Install to runtime")}</span>
+                      </button>
+                    </div>
                   </div>
                   <SkillInstallationPanel skillId={selectedSkill.id} />
                 </div>

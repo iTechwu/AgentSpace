@@ -19,6 +19,7 @@ import {
   createWorkspaceSkillSync,
   importWorkspaceSkillFromUrl,
   importWorkspaceSkillFromZipUpload,
+  inspectWorkspaceSkillSourceUpdate,
   listWorkspaceSkillsSync,
   resetWorkspaceStateSync,
   setAttachmentStorageClientForTests,
@@ -80,6 +81,60 @@ test("importWorkspaceSkillFromUrl locks GitHub imports to an immutable commit SH
   assert.equal(provenance.originalUrl, "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack");
   assert.deepEqual(listSkillArtifactBindingsForSkillSync(result.skillId), [result.artifactDigest]);
   assert.deepEqual(listSkillArtifactsForSkillSync(result.skillId).map((item) => item.digest), [result.artifactDigest]);
+});
+
+test("inspectWorkspaceSkillSourceUpdate detects a newer ref without creating a candidate", async () => {
+  const imported = await importWorkspaceSkillFromUrl({
+    url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
+  });
+  const artifactCountBefore = listSkillArtifactsForSkillSync(imported.skillId).length;
+  const bindingsBefore = listSkillArtifactBindingsForSkillSync(imported.skillId);
+
+  const unchanged = await inspectWorkspaceSkillSourceUpdate({ skillId: imported.skillId });
+  assert.equal(unchanged.status, "up_to_date");
+  assert.equal(unchanged.currentResolvedRef, "abc123def456789012345678901234567890abcd");
+  assert.equal(unchanged.latestResolvedRef, unchanged.currentResolvedRef);
+
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://api.github.com/repos/octo-org/skill-repo/commits/main") {
+      return jsonResponse({ sha: "fedcba987654321001234567890123456789abcd" });
+    }
+    return previousFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const update = await inspectWorkspaceSkillSourceUpdate({ skillId: imported.skillId });
+    assert.equal(update.status, "update_available");
+    assert.equal(update.currentResolvedRef, "abc123def456789012345678901234567890abcd");
+    assert.equal(update.latestResolvedRef, "fedcba987654321001234567890123456789abcd");
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+
+  assert.equal(listSkillArtifactsForSkillSync(imported.skillId).length, artifactCountBefore);
+  assert.deepEqual(listSkillArtifactBindingsForSkillSync(imported.skillId), bindingsBefore);
+  assert.equal(readStoredSkillActiveArtifactDigestSync(imported.skillId), imported.artifactDigest);
+});
+
+test("inspectWorkspaceSkillSourceUpdate honors the operations freeze before network access", async () => {
+  const imported = await importWorkspaceSkillFromUrl({
+    url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
+  });
+  const previousFlag = process.env.DOFE_SKILL_SOURCE_UPDATE_CHECKS_ENABLED;
+  const previousFetch = globalThis.fetch;
+  process.env.DOFE_SKILL_SOURCE_UPDATE_CHECKS_ENABLED = "false";
+  globalThis.fetch = (async () => {
+    throw new Error("network access must remain frozen");
+  }) as typeof fetch;
+  try {
+    const inspection = await inspectWorkspaceSkillSourceUpdate({ skillId: imported.skillId });
+    assert.equal(inspection.status, "disabled");
+    assert.equal(inspection.reason, "skill_source_updates_disabled");
+  } finally {
+    restoreEnvironmentVariable("DOFE_SKILL_SOURCE_UPDATE_CHECKS_ENABLED", previousFlag);
+    globalThis.fetch = previousFetch;
+  }
 });
 
 test("importWorkspaceSkillFromUrl imports a paginated GitLab directory at an immutable commit", async () => {

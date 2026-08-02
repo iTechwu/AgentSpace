@@ -9,16 +9,29 @@ import type { SkillsPageData } from "@/features/dashboard/data";
 const searchParams = new URLSearchParams();
 const {
   mockCreateWorkspaceSkillAction,
+  mockCheckWorkspaceSkillSourceUpdateAction,
   mockDeleteWorkspaceSkillAction,
   mockDeleteWorkspaceSkillFileAction,
   mockImportWorkspaceSkillFromZipAction,
   mockImportWorkspaceSkillFromUrlAction,
+  mockReimportWorkspaceSkillAction,
   mockUpdateWorkspaceSkillMetaAction,
   mockUpsertWorkspaceSkillFileAction,
 } = vi.hoisted(() => ({
   mockCreateWorkspaceSkillAction: vi.fn(async () => ({
     data: { skillId: "skill-1", fileId: "file-1" },
     toast: { tone: "success", zh: "Skill 已创建。", en: "Skill created." },
+  })),
+  mockCheckWorkspaceSkillSourceUpdateAction: vi.fn(async () => ({
+    data: {
+      skillId: "skill-3",
+      sourceType: "github",
+      sourceUrl: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
+      status: "update_available" as const,
+      currentResolvedRef: "abc123def456789012345678901234567890abcd",
+      latestResolvedRef: "fedcba987654321001234567890123456789abcd",
+    },
+    toast: { tone: "info" as const, zh: "检测到新版本。", en: "A new version is available." },
   })),
   mockDeleteWorkspaceSkillAction: vi.fn(async () => ({
     data: undefined,
@@ -38,6 +51,10 @@ const {
   mockImportWorkspaceSkillFromUrlAction: vi.fn(async () => ({
     data: { skillId: "skill-3", renamed: false, replaced: false, skipped: false },
     toast: { tone: "success", zh: "Skill 已导入。", en: "Skill imported." },
+  })),
+  mockReimportWorkspaceSkillAction: vi.fn(async () => ({
+    data: { skillId: "skill-3" },
+    toast: { tone: "info" as const, zh: "候选版本已生成。", en: "Candidate version created." },
   })),
   mockUpdateWorkspaceSkillMetaAction: vi.fn(async () => ({
     data: undefined,
@@ -61,11 +78,13 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/features/skills/actions", () => ({
+  checkWorkspaceSkillSourceUpdateAction: mockCheckWorkspaceSkillSourceUpdateAction,
   createWorkspaceSkillAction: mockCreateWorkspaceSkillAction,
   deleteWorkspaceSkillAction: mockDeleteWorkspaceSkillAction,
   deleteWorkspaceSkillFileAction: mockDeleteWorkspaceSkillFileAction,
   importWorkspaceSkillFromZipAction: mockImportWorkspaceSkillFromZipAction,
   importWorkspaceSkillFromUrlAction: mockImportWorkspaceSkillFromUrlAction,
+  reimportWorkspaceSkillAction: mockReimportWorkspaceSkillAction,
   updateWorkspaceSkillMetaAction: mockUpdateWorkspaceSkillMetaAction,
   upsertWorkspaceSkillFileAction: mockUpsertWorkspaceSkillFileAction,
 }));
@@ -227,9 +246,11 @@ describe("SkillsPageClient", () => {
     mockMatchMedia(false);
     searchParams.forEach((_, key) => searchParams.delete(key));
     mockCreateWorkspaceSkillAction.mockClear();
+    mockCheckWorkspaceSkillSourceUpdateAction.mockClear();
     mockDeleteWorkspaceSkillAction.mockClear();
     mockDeleteWorkspaceSkillFileAction.mockClear();
     mockImportWorkspaceSkillFromUrlAction.mockClear();
+    mockReimportWorkspaceSkillAction.mockClear();
     mockUpdateWorkspaceSkillMetaAction.mockClear();
     mockUpsertWorkspaceSkillFileAction.mockClear();
   });
@@ -342,6 +363,20 @@ describe("SkillsPageClient", () => {
 
     expect(screen.getAllByRole("button", { name: /research-pack/i }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /meeting-notes/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps update inspection separate from candidate creation", async () => {
+    const user = userEvent.setup();
+
+    renderSkillsPage();
+    await user.click(screen.getAllByRole("button", { name: /research-pack/i })[0]!);
+
+    await user.click(screen.getByRole("button", { name: "检查更新" }));
+    expect(mockCheckWorkspaceSkillSourceUpdateAction).toHaveBeenCalledWith("skill-3");
+    expect(mockReimportWorkspaceSkillAction).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "获取候选版本" }));
+    expect(mockReimportWorkspaceSkillAction).toHaveBeenCalledWith("skill-3");
   });
 
   it("shows source badges in the list without a separate import history panel", () => {

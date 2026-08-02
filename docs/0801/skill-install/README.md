@@ -59,6 +59,6 @@
 1. 在与生产一致的 Linux managed node 上执行真实 egress、IPv6、DNS/DoH、secret inspect、轮换和 daemon restart 负面 E2E。
 2. 在真实 Remote Runtime 通过 Runner 执行 npm `require` 与 Python `import` smoke，并证明镜像缺失、cache/env 删除或篡改后任务在 Provider 启动前或脚本调用时 fail-closed。
 
-继续优化项为：建设外部连接引用与 shared-service inventory、managed MCP 私网 bridge；把当前一次性 binding 切换准确定位为 blue-green 或实现真正 canary；加强 rollback 的 artifact/env/service 预检；将 base64 task bundle 改为 content-addressed 分块/缓存传输；提供 system dependency catalog resolver；完成更新检查、legacy backfill、orphan GC、feature flag、指标告警、独立升级审批和 service 运维体验。
+继续优化项为：建设外部连接引用与 shared-service inventory、managed MCP 私网 bridge；把当前一次性 binding 切换准确定位为 blue-green 或实现真正 canary；加强 rollback 的 artifact/env/service 预检；将 base64 task bundle 改为 content-addressed 分块/缓存传输；提供 system dependency catalog resolver；把现有 GitHub/GitLab 按需更新检查扩展为 registry 定时扫描与通知；完成 legacy backfill、orphan GC、指标告警、独立升级审批和 service 运维体验。
 
 详见 [实施差距第五次复审](./07-实施差距审查.md)。

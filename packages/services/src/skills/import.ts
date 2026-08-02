@@ -4,6 +4,7 @@ import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import {
   getDatabase,
   readActiveArtifactDigestForSkillSync,
+  readSkillArtifactByDigestSync,
   recordStoredSkillImportEventSync,
   setActiveArtifactDigestForSkillSync,
   upsertSkillArtifactBindingSync,
@@ -67,6 +68,23 @@ export interface SkillImportResult {
   /** Immutable imported artifact digest. On replace this is a candidate until explicitly promoted. */
   artifactDigest?: string;
   warnings: string[];
+}
+
+export type SkillSourceUpdateStatus =
+  | "up_to_date"
+  | "update_available"
+  | "disabled"
+  | "unsupported"
+  | "not_checkable";
+
+export interface SkillSourceUpdateInspection {
+  skillId: string;
+  sourceType?: string;
+  sourceUrl?: string;
+  status: SkillSourceUpdateStatus;
+  currentResolvedRef?: string;
+  latestResolvedRef?: string;
+  reason?: string;
 }
 
 /**
@@ -160,6 +178,67 @@ export async function importWorkspaceSkillFromUrl(input: {
   );
   const imported = await importSkillDefinition(sourceUrl, { hasRecordedStoredSource });
   return persistImportedSkillDefinition(imported, workspaceId, input.conflict);
+}
+
+/**
+ * Resolves a mutable Git source ref without downloading package contents or
+ * writing an artifact. Candidate creation remains an explicit re-import step.
+ */
+export async function inspectWorkspaceSkillSourceUpdate(input: {
+  workspaceId?: string;
+  skillId: string;
+}): Promise<SkillSourceUpdateInspection> {
+  const workspaceId = input.workspaceId ?? "default";
+  const skillId = input.skillId.trim();
+  const skill = readWorkspaceSkillSync(skillId, workspaceId);
+  if (!skill) {
+    throw new Error(`Skill "${skillId}" does not exist.`);
+  }
+  const base = {
+    skillId,
+    ...(skill.sourceType ? { sourceType: skill.sourceType } : {}),
+    ...(skill.sourceUrl ? { sourceUrl: skill.sourceUrl } : {}),
+  };
+  if (process.env.DOFE_SKILL_SOURCE_UPDATE_CHECKS_ENABLED?.trim().toLowerCase() === "false") {
+    return { ...base, status: "disabled", reason: "skill_source_updates_disabled" };
+  }
+  if (!skill.sourceUrl || (skill.sourceType !== "github" && skill.sourceType !== "gitlab")) {
+    return { ...base, status: "unsupported", reason: "skill_source_update_provider_unsupported" };
+  }
+
+  const activeDigest = readActiveArtifactDigestForSkillSync(skillId, workspaceId);
+  const activeArtifact = activeDigest ? readSkillArtifactByDigestSync(activeDigest, workspaceId) : null;
+  const provenance = activeArtifact ? parseJsonSafely(activeArtifact.provenanceJson) : undefined;
+  const currentResolvedRef = readResolvedRef(provenance);
+  if (!activeArtifact || !currentResolvedRef) {
+    return { ...base, status: "not_checkable", reason: "skill_source_active_ref_missing" };
+  }
+
+  let latestResolvedRef: string;
+  if (skill.sourceType === "github") {
+    const pointer = parseGitHubDirectoryUrl(skill.sourceUrl);
+    if (!pointer) {
+      return { ...base, status: "not_checkable", currentResolvedRef, reason: "skill_source_url_invalid" };
+    }
+    latestResolvedRef = await resolveGitHubRefToSha(pointer.owner, pointer.repo, pointer.ref);
+  } else {
+    const pointer = parseGitLabDirectoryUrl(skill.sourceUrl);
+    if (!pointer) {
+      return { ...base, status: "not_checkable", currentResolvedRef, reason: "skill_source_url_invalid" };
+    }
+    latestResolvedRef = await resolveGitLabRefToSha(
+      pointer.projectPath,
+      pointer.ref,
+      { fileCount: 0, totalBytes: 0, requestCount: 0 },
+    );
+  }
+
+  return {
+    ...base,
+    status: latestResolvedRef === currentResolvedRef ? "up_to_date" : "update_available",
+    currentResolvedRef,
+    latestResolvedRef,
+  };
 }
 
 export async function importWorkspaceSkillFromZipUpload(input: {
@@ -1555,4 +1634,14 @@ function parseJsonSafely(value: string | undefined): unknown {
   } catch {
     return undefined;
   }
+}
+
+function readResolvedRef(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const resolvedRef = (value as Record<string, unknown>).resolvedRef;
+  return typeof resolvedRef === "string" && /^[a-f0-9]{40}$/i.test(resolvedRef.trim())
+    ? resolvedRef.trim().toLowerCase()
+    : undefined;
 }

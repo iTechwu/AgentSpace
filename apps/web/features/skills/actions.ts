@@ -7,10 +7,12 @@ import {
   exportWorkspaceSkillsArchiveSync,
   importWorkspaceSkillFromZipUpload,
   importWorkspaceSkillFromUrl,
+  inspectWorkspaceSkillSourceUpdate,
   readWorkspaceSkillSync,
   tryRecordWorkspaceAuditEventSync,
   updateWorkspaceSkillSync,
   upsertWorkspaceSkillFileSync,
+  type SkillSourceUpdateInspection,
 } from "@dofe-agent/services";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
@@ -260,6 +262,9 @@ export async function reimportWorkspaceSkillAction(skillId: string): Promise<Act
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "admin");
   assertRequired(skillId, "skill id");
+  if (process.env.DOFE_SKILL_SOURCE_UPDATE_CHECKS_ENABLED?.trim().toLowerCase() === "false") {
+    throw new Error("Skill source updates are temporarily frozen by platform operations.");
+  }
 
   const skill = readWorkspaceSkillSync(skillId.trim(), workspaceContext.currentWorkspace.id);
   if (!skill) {
@@ -292,8 +297,46 @@ export async function reimportWorkspaceSkillAction(skillId: string): Promise<Act
     {
       skillId: result.skillId,
     },
-    infoToast("Skill 已按来源重新导入。", "Skill reimported from its source."),
+    infoToast("来源已重新导入；如内容有变化，候选版本已生成。", "Source reimported; a candidate was created if the content changed."),
   );
+}
+
+export async function checkWorkspaceSkillSourceUpdateAction(
+  skillId: string,
+): Promise<ActionToastResult<SkillSourceUpdateInspection>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertRequired(skillId, "skill id");
+
+  const inspection = await inspectWorkspaceSkillSourceUpdate({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    skillId: skillId.trim(),
+  });
+  if (inspection.status === "update_available") {
+    tryRecordWorkspaceAuditEventSync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      title: "Skill source update detected",
+      note: `${workspaceContext.currentUser.displayName} detected a source update for skill "${skillId.trim()}".`,
+      code: "workspace.skill_source_update_detected",
+      data: {
+        actorType: "session_user",
+        resourceType: "skill",
+        resourceId: skillId.trim(),
+        sourceType: inspection.sourceType,
+        currentResolvedRef: inspection.currentResolvedRef,
+        latestResolvedRef: inspection.latestResolvedRef,
+      },
+    });
+  }
+
+  const toast = inspection.status === "update_available"
+    ? infoToast("检测到新版本，可获取为候选版本后审查发布。", "A new version is available. Fetch it as a candidate for review.")
+    : inspection.status === "up_to_date"
+      ? successToast("当前已是来源的最新版本。", "This skill is up to date with its source.")
+      : inspection.status === "disabled"
+        ? warningToast("平台运维已暂时冻结来源更新。", "Source updates are temporarily frozen by platform operations.")
+        : warningToast("当前来源无法自动检查更新。", "This source cannot be checked automatically.");
+  return actionToastResult(inspection, toast);
 }
 
 export async function exportWorkspaceSkillsAction(input: {
