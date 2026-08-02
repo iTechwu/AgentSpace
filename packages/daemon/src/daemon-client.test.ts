@@ -163,6 +163,7 @@ test("HttpDaemonClient claims and fails a skill installation operation", async (
         JSON.stringify({
           operation: {
             operationId: "op-1",
+            claimGeneration: 1,
             workspaceId: "ws-1",
             runtimeId: "runtime-1",
             installationId: "inst-1",
@@ -185,8 +186,8 @@ test("HttpDaemonClient claims and fails a skill installation operation", async (
     const claimed = await client.claimSkillInstallationOperation("runtime-1");
     assert.ok(claimed.operation);
     assert.equal(claimed.operation.operationId, "op-1");
-    await client.startSkillInstallationOperation("op-1");
-    await client.failSkillInstallationOperation("op-1", { errorCode: "test", errorMessage: "not ready" });
+    await client.startSkillInstallationOperation("op-1", { claimGeneration: 1 });
+    await client.failSkillInstallationOperation("op-1", { claimGeneration: 1, errorCode: "test", errorMessage: "not ready" });
     assert.ok(calls.some((url) => url.includes("/skill-operations/claim")));
     assert.ok(calls.some((url) => url.includes("/skill-operations/op-1/start")));
     assert.ok(calls.some((url) => url.includes("/skill-operations/op-1/fail")));

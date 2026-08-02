@@ -204,7 +204,7 @@ export class HttpDaemonClient {
     return this.postJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/skill-operations/claim`, {}, { retryable: true });
   }
 
-  async startSkillInstallationOperation(operationId: string, body: StartSkillInstallationOperationRequest = {}): Promise<void> {
+  async startSkillInstallationOperation(operationId: string, body: StartSkillInstallationOperationRequest): Promise<void> {
     await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/start`, body);
   }
 
@@ -212,9 +212,9 @@ export class HttpDaemonClient {
    * Heartbeat for the operation lease. Returns false when the lease was lost
    * (crash recovery re-queued the op) — the caller must abort execution.
    */
-  async renewSkillInstallationOperationLease(operationId: string): Promise<boolean> {
+  async renewSkillInstallationOperationLease(operationId: string, claimGeneration: number): Promise<boolean> {
     try {
-      await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/renew-lease`, {});
+      await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/renew-lease`, { claimGeneration });
       return true;
     } catch (error) {
       if (error instanceof DaemonRuntimeUnavailableError) {
@@ -236,13 +236,13 @@ export class HttpDaemonClient {
     return this.postJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/skill-services/operations/claim`, {}, { retryable: true });
   }
 
-  async startSkillServiceOperation(operationId: string): Promise<void> {
-    await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/start`, {});
+  async startSkillServiceOperation(operationId: string, claimGeneration: number): Promise<void> {
+    await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/start`, { claimGeneration });
   }
 
-  async renewSkillServiceOperationLease(operationId: string): Promise<boolean> {
+  async renewSkillServiceOperationLease(operationId: string, claimGeneration: number): Promise<boolean> {
     try {
-      await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/renew-lease`, {});
+      await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/renew-lease`, { claimGeneration });
       return true;
     } catch (error) {
       if (error instanceof DaemonRuntimeUnavailableError) {
@@ -256,9 +256,9 @@ export class HttpDaemonClient {
     await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/complete`, body);
   }
 
-  async getSkillServiceSecrets(operationId: string): Promise<Record<string, string>> {
+  async getSkillServiceSecrets(operationId: string, claimGeneration: number): Promise<Record<string, string>> {
     const payload = await this.getJson<{ secrets: Record<string, string> }>(
-      `/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/secrets`,
+      `/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/secrets?claimGeneration=${claimGeneration}`,
       { retryable: true },
     );
     return payload.secrets;

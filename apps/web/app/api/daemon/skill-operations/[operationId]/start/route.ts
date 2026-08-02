@@ -1,5 +1,6 @@
 import { startSkillInstallationOperationSync } from "@dofe-agent/db";
 import { readSkillInstallationOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
+import { parseClaimGenerationBody } from "../../../_lib/claim-generation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +20,16 @@ export async function POST(
     return existing;
   }
 
-  const started = startSkillInstallationOperationSync({ operationId, workspaceId: auth.workspaceId });
+  const claimGeneration = await parseClaimGenerationBody(request);
+  if (!claimGeneration.ok) {
+    return claimGeneration.response;
+  }
+
+  const started = startSkillInstallationOperationSync({
+    operationId,
+    workspaceId: auth.workspaceId,
+    claimGeneration: claimGeneration.value,
+  });
   if (!started) {
     return Response.json({ error: "skill.operation_not_claimable" }, { status: 409 });
   }

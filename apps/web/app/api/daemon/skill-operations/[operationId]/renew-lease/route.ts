@@ -1,5 +1,6 @@
 import { renewSkillInstallationOperationLeaseSync } from "@dofe-agent/db";
 import { readSkillInstallationOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
+import { parseClaimGenerationBody } from "../../../_lib/claim-generation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +20,18 @@ export async function POST(
     return existing;
   }
 
+  const claimGeneration = await parseClaimGenerationBody(request);
+  if (!claimGeneration.ok) {
+    return claimGeneration.response;
+  }
+
   // Fencing: a daemon that lost its lease (crash recovery re-queued the op)
   // cannot renew it; 409 tells it to abort execution.
-  const renewed = renewSkillInstallationOperationLeaseSync({ operationId, workspaceId: auth.workspaceId });
+  const renewed = renewSkillInstallationOperationLeaseSync({
+    operationId,
+    workspaceId: auth.workspaceId,
+    claimGeneration: claimGeneration.value,
+  });
   if (!renewed) {
     return Response.json({ error: "skill.operation_lease_lost" }, { status: 409 });
   }

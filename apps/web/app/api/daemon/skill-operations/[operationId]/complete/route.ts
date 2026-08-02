@@ -4,6 +4,7 @@ import {
   tryRecordWorkspaceAuditEventSync,
 } from "@dofe-agent/services";
 import { readSkillInstallationOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
+import { parseJsonObjectBody } from "../../../_lib/claim-generation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,13 +24,18 @@ export async function POST(
     return operation;
   }
 
-  const parsed = parseCompleteSkillInstallationOperationPayload(await request.json());
+  const body = await parseJsonObjectBody(request);
+  if (!body.ok) {
+    return body.response;
+  }
+  const parsed = parseCompleteSkillInstallationOperationPayload(body.value);
   if (!parsed.ok) {
     return Response.json({ error: parsed.reason }, { status: 400 });
   }
   const completed = completeSkillInstallationOperationSync({
     operationId,
     workspaceId: auth.workspaceId,
+    claimGeneration: parsed.value.claimGeneration,
     safeResultJson: parsed.value.safeResultJson,
     componentStatuses: parsed.value.componentStatuses,
   });

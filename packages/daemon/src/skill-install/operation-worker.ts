@@ -45,7 +45,9 @@ export async function executeSkillInstallationOperation(
   config: RemoteDaemonConfig,
   operation: ClaimedSkillInstallationOperation,
 ): Promise<void> {
-  await client.startSkillInstallationOperation(operation.operationId);
+  await client.startSkillInstallationOperation(operation.operationId, {
+    claimGeneration: operation.claimGeneration,
+  });
 
   const workDir = getDaemonSkillInstallWorkDirPath(config.stateDir, {
     workspaceId: operation.workspaceId,
@@ -67,7 +69,7 @@ export async function executeSkillInstallationOperation(
   // anyway, so stopping early avoids wasted work on a superseded operation.
   let leaseLost = false;
   const heartbeat = setInterval(() => {
-    void client.renewSkillInstallationOperationLease(operation.operationId)
+    void client.renewSkillInstallationOperationLease(operation.operationId, operation.claimGeneration)
       .then((renewed) => {
         if (!renewed) {
           leaseLost = true;
@@ -178,6 +180,7 @@ export async function executeSkillInstallationOperation(
     }
 
     await client.completeSkillInstallationOperation(operation.operationId, {
+      claimGeneration: operation.claimGeneration,
       safeResultJson: JSON.stringify({
         materializedFiles: materializeResult.files.length,
         computedDigest: materializeResult.computedDigest,
@@ -199,6 +202,7 @@ export async function executeSkillInstallationOperation(
       : [];
 
     await client.failSkillInstallationOperation(operation.operationId, {
+      claimGeneration: operation.claimGeneration,
       errorCode: error instanceof SkillMaterializationError || error instanceof SkillVerificationError
         ? error.code
         : "skill_installation.runtime_error",

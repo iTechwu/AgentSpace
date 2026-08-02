@@ -202,6 +202,7 @@ export interface SkillInstallationOperationComponentStatus {
 
 export interface ClaimedSkillInstallationOperation {
   operationId: string;
+  claimGeneration: number;
   workspaceId: string;
   runtimeId: string;
   installationId: string;
@@ -228,10 +229,12 @@ export interface ClaimSkillInstallationOperationResponse {
 }
 
 export interface StartSkillInstallationOperationRequest {
+  claimGeneration: number;
   status?: "running";
 }
 
 export interface CompleteSkillInstallationOperationRequest {
+  claimGeneration: number;
   /** Daemon evidence; the control plane requires a parseable `computedDigest` equal to the artifact digest (fail-closed). */
   safeResultJson?: string;
   /** Must be EXACTLY the operation's expected component set — no unknown, duplicate, or missing components. */
@@ -239,6 +242,7 @@ export interface CompleteSkillInstallationOperationRequest {
 }
 
 export interface FailSkillInstallationOperationRequest {
+  claimGeneration: number;
   errorCode?: string;
   errorMessage: string;
   /** Optional partial component statuses (subset of the expected set) to persist before the remainder is blocked. */

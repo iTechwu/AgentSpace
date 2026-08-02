@@ -401,6 +401,7 @@ export interface ClaimRuntimeAppOperationResponse {
 /** Managed service container operation claimed by a managed node. */
 export interface ClaimedManagedSkillServiceOperation {
   operationId: string;
+  claimGeneration: number;
   workspaceId: string;
   runtimeId: string;
   serviceId: string;
@@ -430,12 +431,14 @@ export interface ClaimManagedSkillServiceOperationResponse {
 }
 
 export interface CompleteManagedSkillServiceOperationRequest {
+  claimGeneration: number;
   endpointRef?: string;
   healthRevision?: string;
   safeResultJson?: string;
 }
 
 export interface FailManagedSkillServiceOperationRequest {
+  claimGeneration: number;
   errorCode: string;
   errorMessage: string;
   safeResultJson?: string;

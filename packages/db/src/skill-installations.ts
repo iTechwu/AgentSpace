@@ -68,7 +68,7 @@ const SKILL_INSTALLATION_OPERATION_COLUMNS = `SELECT
   request_snapshot_json AS requestSnapshotJson, safe_result_json AS safeResultJson,
   error_code AS errorCode, error_message AS errorMessage,
   claimed_at AS claimedAt, completed_at AS completedAt,
-  lease_expires_at,
+  lease_expires_at, claim_generation AS claimGeneration,
   requested_by_user_id AS requestedByUserId, created_at AS createdAt`;
 
 /* ------------------------------------------------------------------ */
@@ -469,7 +469,7 @@ export function claimNextSkillInstallationOperationForRuntimeSync(input: {
     }
     const result = db.prepare(
       `UPDATE skill_installation_operation
-       SET status = 'claimed', claimed_at = COALESCE(claimed_at, ?), lease_expires_at = ?
+       SET status = 'claimed', claimed_at = ?, lease_expires_at = ?, claim_generation = claim_generation + 1
        WHERE id = ? AND status = 'pending'`,
     ).run(now.toISOString(), leaseExpiryIso(now), row.id);
     if (result.changes > 0) {
@@ -481,6 +481,7 @@ export function claimNextSkillInstallationOperationForRuntimeSync(input: {
 
 export function startSkillInstallationOperationSync(input: {
   operationId: string;
+  claimGeneration: number;
   workspaceId?: string;
   now?: Date;
 }): boolean {
@@ -489,8 +490,9 @@ export function startSkillInstallationOperationSync(input: {
   const result = getDatabase().prepare(
     `UPDATE skill_installation_operation
      SET status = 'running', lease_expires_at = ?
-     WHERE id = ? AND workspace_id = ? AND status = 'claimed' AND lease_expires_at > ?`,
-  ).run(leaseExpiryIso(now), input.operationId, workspaceId, now.toISOString());
+     WHERE id = ? AND workspace_id = ? AND claim_generation = ?
+       AND status = 'claimed' AND lease_expires_at > ?`,
+  ).run(leaseExpiryIso(now), input.operationId, workspaceId, input.claimGeneration, now.toISOString());
   return result.changes > 0;
 }
 
@@ -500,6 +502,7 @@ export function startSkillInstallationOperationSync(input: {
  */
 export function renewSkillInstallationOperationLeaseSync(input: {
   operationId: string;
+  claimGeneration: number;
   workspaceId?: string;
   now?: Date;
 }): boolean {
@@ -507,8 +510,9 @@ export function renewSkillInstallationOperationLeaseSync(input: {
   const now = input.now ?? new Date();
   const result = getDatabase().prepare(
     `UPDATE skill_installation_operation SET lease_expires_at = ?
-     WHERE id = ? AND workspace_id = ? AND status IN ('claimed', 'running') AND lease_expires_at > ?`,
-  ).run(leaseExpiryIso(now), input.operationId, workspaceId, now.toISOString());
+     WHERE id = ? AND workspace_id = ? AND claim_generation = ?
+       AND status IN ('claimed', 'running') AND lease_expires_at > ?`,
+  ).run(leaseExpiryIso(now), input.operationId, workspaceId, input.claimGeneration, now.toISOString());
   return result.changes > 0;
 }
 
@@ -532,6 +536,7 @@ export function requeueExpiredSkillInstallationOperationLeasesSync(input?: {
 
 export function completeSkillInstallationOperationSync(input: {
   operationId: string;
+  claimGeneration: number;
   workspaceId?: string;
   safeResultJson?: string;
   now?: Date;
@@ -542,13 +547,15 @@ export function completeSkillInstallationOperationSync(input: {
     `UPDATE skill_installation_operation
      SET status = 'succeeded', safe_result_json = ?, error_code = NULL, error_message = NULL,
          completed_at = ?, lease_expires_at = NULL
-     WHERE id = ? AND workspace_id = ? AND status IN ('claimed', 'running') AND lease_expires_at > ?`,
-  ).run(input.safeResultJson ?? "{}", now.toISOString(), input.operationId, workspaceId, now.toISOString());
+     WHERE id = ? AND workspace_id = ? AND claim_generation = ?
+       AND status IN ('claimed', 'running') AND lease_expires_at > ?`,
+  ).run(input.safeResultJson ?? "{}", now.toISOString(), input.operationId, workspaceId, input.claimGeneration, now.toISOString());
   return result.changes > 0;
 }
 
 export function failSkillInstallationOperationSync(input: {
   operationId: string;
+  claimGeneration: number;
   workspaceId?: string;
   errorCode?: string;
   errorMessage?: string;
@@ -559,8 +566,9 @@ export function failSkillInstallationOperationSync(input: {
   const result = getDatabase().prepare(
     `UPDATE skill_installation_operation
      SET status = 'failed', error_code = ?, error_message = ?, completed_at = ?, lease_expires_at = NULL
-     WHERE id = ? AND workspace_id = ? AND status IN ('claimed', 'running') AND lease_expires_at > ?`,
-  ).run(input.errorCode ?? null, input.errorMessage ?? null, now.toISOString(), input.operationId, workspaceId, now.toISOString());
+     WHERE id = ? AND workspace_id = ? AND claim_generation = ?
+       AND status IN ('claimed', 'running') AND lease_expires_at > ?`,
+  ).run(input.errorCode ?? null, input.errorMessage ?? null, now.toISOString(), input.operationId, workspaceId, input.claimGeneration, now.toISOString());
   return result.changes > 0;
 }
 
@@ -660,9 +668,16 @@ function mapSkillInstallationOperationRecord(
     claimedAt: readOptionalString(value.claimedAt),
     completedAt: readOptionalString(value.completedAt),
     leaseExpiresAt: readOptionalString(value.leaseExpiresAt),
+    claimGeneration: readClaimGeneration(value),
     requestedByUserId: readOptionalString(value.requestedByUserId),
     createdAt: value.createdAt,
   };
+}
+
+function readClaimGeneration(value: Record<string, unknown>): number {
+  const raw = value.claimGeneration ?? value.claimgeneration ?? value.claim_generation;
+  const parsed = typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseInt(raw, 10) : 0;
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 function readOptionalString(value: unknown): string | undefined {

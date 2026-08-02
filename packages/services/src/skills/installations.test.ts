@@ -126,6 +126,7 @@ test("claim → resolve → complete drives the installation to ready", async ()
   const done = completeSkillInstallationOperationSync({
     operationId: claimed!.id,
     workspaceId: "default",
+    claimGeneration: claimed!.claimGeneration,
     safeResultJson: JSON.stringify({ computedDigest: digest }),
     componentStatuses: [
       { kind: "dependency", key: "npm:left-pad@1.3.0", status: "ready" },
@@ -155,6 +156,7 @@ test("completion records the daemon's Runtime cache preparedPath + preparedDiges
   const done = completeSkillInstallationOperationSync({
     operationId: claimed!.id,
     workspaceId: "default",
+    claimGeneration: claimed!.claimGeneration,
     safeResultJson: JSON.stringify({
       materializedFiles: 2,
       computedDigest: digest,
@@ -185,6 +187,7 @@ test("a failed prepare blocks components and the installation never reaches read
   const failed = failSkillInstallationOperationSync({
     operationId: claimed!.id,
     workspaceId: "default",
+    claimGeneration: claimed!.claimGeneration,
     errorCode: "dependency.install_failed",
     errorMessage: "npm install exited non-zero",
   });
@@ -219,6 +222,7 @@ async function completeAllComponents(installationId: string, runtimeId: string):
   const done = completeSkillInstallationOperationSync({
     operationId: claimed!.id,
     workspaceId: "default",
+    claimGeneration: claimed!.claimGeneration,
     safeResultJson: JSON.stringify({ computedDigest: resolved!.artifactDigest }),
     componentStatuses: resolved!.components.map((component) => ({ kind: component.kind, key: component.key, status: "ready" })),
   });
@@ -327,6 +331,7 @@ test("complete rejects a duplicate component key and leaves the operation claime
   const result = completeSkillInstallationOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     safeResultJson: JSON.stringify({ computedDigest: digest }),
     componentStatuses: [
       ...readyStatuses(EXPECTED_COMPONENTS),
@@ -345,6 +350,7 @@ test("complete rejects an unknown component and leaves the operation claimed", (
   const result = completeSkillInstallationOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     safeResultJson: JSON.stringify({ computedDigest: digest }),
     componentStatuses: [
       ...readyStatuses(EXPECTED_COMPONENTS),
@@ -363,6 +369,7 @@ test("complete rejects a missing component and leaves the operation claimed", ()
   const result = completeSkillInstallationOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     safeResultJson: JSON.stringify({ computedDigest: digest }),
     componentStatuses: readyStatuses([EXPECTED_COMPONENTS[0]!]),
   });
@@ -378,6 +385,7 @@ test("complete rejects evidence whose digest does not match the artifact", () =>
   const result = completeSkillInstallationOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     safeResultJson: JSON.stringify({ computedDigest: "deadbeef".repeat(8) }),
     componentStatuses: readyStatuses(EXPECTED_COMPONENTS),
   });
@@ -396,6 +404,7 @@ test("complete rejects malformed or empty evidence", () => {
     const result = completeSkillInstallationOperationSync({
       operationId: claimed.id,
       workspaceId: "default",
+      claimGeneration: claimed.claimGeneration,
       safeResultJson,
       componentStatuses: readyStatuses(EXPECTED_COMPONENTS),
     });
@@ -418,6 +427,7 @@ test("complete is atomic: a missing component row rolls back the op succeed", ()
   const result = completeSkillInstallationOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     safeResultJson: JSON.stringify({ computedDigest: digest }),
     componentStatuses: readyStatuses(EXPECTED_COMPONENTS),
   });
@@ -434,6 +444,7 @@ test("fail accepts partial component statuses and blocks the remainder", () => {
   const failed = failSkillInstallationOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     errorCode: "skill_installation.verify_failed",
     errorMessage: "script syntax check failed",
     componentStatuses: [
@@ -456,6 +467,7 @@ test("fail rejects a component that is not in the expected set", () => {
   const failed = failSkillInstallationOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     errorCode: "x",
     errorMessage: "boom",
     componentStatuses: [{ kind: "script", key: "scripts/evil.sh", status: "failed" }],
@@ -477,6 +489,7 @@ test("complete falls back to the live component set for legacy request snapshots
   const result = completeSkillInstallationOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     safeResultJson: JSON.stringify({ computedDigest: digest }),
     componentStatuses: readyStatuses(EXPECTED_COMPONENTS),
   });
@@ -485,25 +498,28 @@ test("complete falls back to the live component set for legacy request snapshots
 });
 
 test("shared payload parsers reject malformed complete/fail bodies", () => {
-  const badComplete = parseCompleteSkillInstallationOperationPayload({ componentStatuses: [{ kind: "script", key: "x.sh", status: "banana" }] });
+  assert.equal(parseCompleteSkillInstallationOperationPayload({}).ok, false);
+  assert.equal(parseFailSkillInstallationOperationPayload({ errorMessage: "boom" }).ok, false);
+  const badComplete = parseCompleteSkillInstallationOperationPayload({ claimGeneration: 1, componentStatuses: [{ kind: "script", key: "x.sh", status: "banana" }] });
   assert.equal(badComplete.ok, false);
   const dup = parseCompleteSkillInstallationOperationPayload({
+    claimGeneration: 1,
     componentStatuses: [
       { kind: "script", key: "x.sh", status: "ready" },
       { kind: "script", key: "x.sh", status: "ready" },
     ],
   });
   assert.equal(dup.ok, false);
-  const unknownKind = parseCompleteSkillInstallationOperationPayload({ componentStatuses: [{ kind: "plugin", key: "x", status: "ready" }] });
+  const unknownKind = parseCompleteSkillInstallationOperationPayload({ claimGeneration: 1, componentStatuses: [{ kind: "plugin", key: "x", status: "ready" }] });
   assert.equal(unknownKind.ok, false);
   const nonObject = parseCompleteSkillInstallationOperationPayload("nope");
   assert.equal(nonObject.ok, false);
 
-  const badFail = parseFailSkillInstallationOperationPayload({ errorMessage: 42 });
+  const badFail = parseFailSkillInstallationOperationPayload({ claimGeneration: 1, errorMessage: 42 });
   assert.equal(badFail.ok, false);
   const missingMessage = parseFailSkillInstallationOperationPayload({});
   assert.equal(missingMessage.ok, false);
-  const okFail = parseFailSkillInstallationOperationPayload({ errorMessage: "boom", componentStatuses: [{ kind: "script", key: "x.sh", status: "failed" }] });
+  const okFail = parseFailSkillInstallationOperationPayload({ claimGeneration: 1, errorMessage: "boom", componentStatuses: [{ kind: "script", key: "x.sh", status: "failed" }] });
   assert.equal(okFail.ok, true);
 });
 
@@ -543,7 +559,7 @@ test("start and complete require an unexpired lease", () => {
 
   // Start after the lease expired → fenced.
   assert.equal(
-    startSkillInstallationOperationSync({ operationId: claimed!.id, workspaceId: "default", now: new Date("2026-01-01T00:05:00Z") }),
+    startSkillInstallationOperationSync({ operationId: claimed!.id, workspaceId: "default", claimGeneration: claimed!.claimGeneration, now: new Date("2026-01-01T00:05:00Z") }),
     false,
   );
 
@@ -556,6 +572,7 @@ test("start and complete require an unexpired lease", () => {
     completeSkillOperationDbSync({
       operationId: fresh!.id,
       workspaceId: "default",
+      claimGeneration: fresh!.claimGeneration,
       safeResultJson: "{}",
       now: new Date("2026-01-01T01:00:30Z"),
     }),
@@ -563,7 +580,7 @@ test("start and complete require an unexpired lease", () => {
   );
   // Completing the expired op is fenced.
   assert.equal(
-    completeSkillOperationDbSync({ operationId: claimed!.id, workspaceId: "default", now: new Date("2026-01-01T00:05:00Z") }),
+    completeSkillOperationDbSync({ operationId: claimed!.id, workspaceId: "default", claimGeneration: claimed!.claimGeneration, now: new Date("2026-01-01T00:05:00Z") }),
     false,
   );
 });
@@ -582,6 +599,7 @@ test("heartbeat renews the operation lease", () => {
     renewSkillInstallationOperationLeaseSync({
       operationId: claimed!.id,
       workspaceId: "default",
+      claimGeneration: claimed!.claimGeneration,
       now: new Date("2026-01-01T00:01:30Z"),
     }),
     true,
@@ -595,6 +613,7 @@ test("heartbeat renews the operation lease", () => {
     renewSkillInstallationOperationLeaseSync({
       operationId: claimed!.id,
       workspaceId: "default",
+      claimGeneration: claimed!.claimGeneration,
       now: new Date("2026-01-01T00:10:00Z"),
     }),
     false,
@@ -627,6 +646,41 @@ test("the reaper re-queues expired operations for crash recovery", () => {
   const reClaimed = claimForTest(runtimeId, new Date("2026-01-01T00:06:00Z"));
   assert.ok(reClaimed);
   assert.equal(reClaimed!.id, claimed!.id);
+});
+
+test("a stale worker cannot mutate an operation after it is re-claimed", () => {
+  const runtimeId = createTestRuntime();
+  const { digest } = buildArtifact();
+  createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+
+  const first = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
+  assert.ok(first?.claimGeneration);
+  requeueExpiredSkillInstallationOperationLeasesSync({
+    workspaceId: "default",
+    now: new Date("2026-01-01T00:05:00Z"),
+  });
+  const second = claimForTest(runtimeId, new Date("2026-01-01T00:06:00Z"));
+  assert.ok(second?.claimGeneration);
+  assert.ok(second!.claimGeneration > first!.claimGeneration);
+
+  assert.equal(startSkillInstallationOperationSync({
+    operationId: first!.id,
+    workspaceId: "default",
+    claimGeneration: first!.claimGeneration,
+    now: new Date("2026-01-01T00:06:10Z"),
+  }), false);
+  assert.equal(completeSkillOperationDbSync({
+    operationId: first!.id,
+    workspaceId: "default",
+    claimGeneration: first!.claimGeneration,
+    now: new Date("2026-01-01T00:06:10Z"),
+  }), false);
+  assert.equal(startSkillInstallationOperationSync({
+    operationId: second!.id,
+    workspaceId: "default",
+    claimGeneration: second!.claimGeneration,
+    now: new Date("2026-01-01T00:06:10Z"),
+  }), true);
 });
 
 /* ------------------------------------------------------------------ */

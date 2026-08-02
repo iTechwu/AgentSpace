@@ -35,6 +35,7 @@ function buildConfig(): RemoteDaemonConfig {
 function buildOperation(overrides: Partial<ClaimedSkillInstallationOperation> = {}): ClaimedSkillInstallationOperation {
   return {
     operationId: "op-1",
+    claimGeneration: 1,
     workspaceId: "default",
     runtimeId: "runtime-1",
     installationId: "inst-1",

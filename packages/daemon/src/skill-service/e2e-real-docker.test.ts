@@ -174,6 +174,7 @@ test("REAL DOCKER: signature-required provision verifies with cosign, brings the
   const completed = completeManagedSkillServiceProvisionOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     endpointRef: provisioned.endpointRef,
     healthRevision: provisioned.healthRevision,
   });
@@ -214,6 +215,7 @@ test("REAL DOCKER: retire removes the container and the service reaches retired"
   const completed = completeManagedSkillServiceRetireOperationSync({
     operationId: retireOp.id,
     workspaceId: "default",
+    claimGeneration: retireOp.claimGeneration,
   });
   assert.equal(completed.ok, true);
   assert.equal(readManagedSkillServiceSync(service.id, "default")?.status, "retired");

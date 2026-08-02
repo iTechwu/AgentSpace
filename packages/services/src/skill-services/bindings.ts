@@ -33,6 +33,7 @@ export function resolveClaimedManagedSkillServiceOperation(
   }
   return {
     operationId: operation.id,
+    claimGeneration: operation.claimGeneration,
     workspaceId: operation.workspaceId,
     runtimeId: operation.runtimeId,
     serviceId: operation.serviceId,
@@ -124,6 +125,7 @@ const ACTIVE_OPERATION_STATUSES = new Set(["pending", "claimed", "running"]);
  */
 export function completeManagedSkillServiceProvisionOperationSync(input: {
   operationId: string;
+  claimGeneration: number;
   workspaceId?: string;
   endpointRef: string;
   healthRevision?: string;
@@ -150,7 +152,11 @@ export function completeManagedSkillServiceProvisionOperationSync(input: {
   if (operation.replacesServiceId && !blueCatalog) {
     return { ok: false, code: "upgrade_context_missing", reason: "Canary upgrade context (service/catalog) is missing." };
   }
-  const done = completeOperationDbSync({ operationId: input.operationId, workspaceId });
+  const done = completeOperationDbSync({
+    operationId: input.operationId,
+    claimGeneration: input.claimGeneration,
+    workspaceId,
+  });
   if (!done) {
     return { ok: false, code: "not_completable", reason: "Operation is no longer completable." };
   }
@@ -197,6 +203,7 @@ export function completeManagedSkillServiceProvisionOperationSync(input: {
  */
 export function completeManagedSkillServiceRetireOperationSync(input: {
   operationId: string;
+  claimGeneration: number;
   workspaceId?: string;
 }): { ok: true } | { ok: false; code: string; reason: string } {
   const workspaceId = input.workspaceId ?? "default";
@@ -204,7 +211,11 @@ export function completeManagedSkillServiceRetireOperationSync(input: {
   if (!operation) {
     return { ok: false, code: "operation_not_found", reason: "Service operation does not exist." };
   }
-  const done = completeOperationDbSync({ operationId: input.operationId, workspaceId });
+  const done = completeOperationDbSync({
+    operationId: input.operationId,
+    claimGeneration: input.claimGeneration,
+    workspaceId,
+  });
   if (!done) {
     return { ok: false, code: "not_completable", reason: "Operation is no longer completable." };
   }

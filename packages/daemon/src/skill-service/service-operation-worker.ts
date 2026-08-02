@@ -23,13 +23,13 @@ export async function executeSkillServiceOperation(
   operation: ClaimedManagedSkillServiceOperation,
   runtime: ManagedServiceContainerRuntime = createDockerManagedServiceContainerRuntime(),
 ): Promise<void> {
-  await client.startSkillServiceOperation(operation.operationId);
+  await client.startSkillServiceOperation(operation.operationId, operation.claimGeneration);
 
   // Lease heartbeat: if the lease is lost (crash recovery re-queued the op) the
   // completion would be fenced by the control plane, so abort before reporting.
   let leaseLost = false;
   const heartbeat = setInterval(() => {
-    void client.renewSkillServiceOperationLease(operation.operationId)
+    void client.renewSkillServiceOperationLease(operation.operationId, operation.claimGeneration)
       .then((renewed) => {
         if (!renewed) {
           leaseLost = true;
@@ -49,7 +49,7 @@ export async function executeSkillServiceOperation(
     } else {
       // Secrets are fetched over the authenticated channel AFTER claim, never in
       // the audited claim payload, and injected as container env.
-      secrets = await client.getSkillServiceSecrets(operation.operationId);
+      secrets = await client.getSkillServiceSecrets(operation.operationId, operation.claimGeneration);
       provisioned = await runtime.provision({
         serviceId: operation.serviceId,
         workspaceId: operation.workspaceId,
@@ -71,9 +71,12 @@ export async function executeSkillServiceOperation(
     }
 
     if (operation.operation === "retire") {
-      await client.completeSkillServiceOperation(operation.operationId, {});
+      await client.completeSkillServiceOperation(operation.operationId, {
+        claimGeneration: operation.claimGeneration,
+      });
     } else {
       await client.completeSkillServiceOperation(operation.operationId, {
+        claimGeneration: operation.claimGeneration,
         endpointRef: provisioned!.endpointRef,
         healthRevision: provisioned!.healthRevision,
         safeResultJson: JSON.stringify({ containerName: provisioned!.containerName }),
@@ -82,6 +85,7 @@ export async function executeSkillServiceOperation(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await client.failSkillServiceOperation(operation.operationId, {
+      claimGeneration: operation.claimGeneration,
       errorCode: error instanceof DockerContainerError
         ? error.code
         : "skill_service.runtime_error",

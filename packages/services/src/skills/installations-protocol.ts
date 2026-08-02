@@ -51,12 +51,12 @@ export function buildSkillOperationRequestSnapshotJson(input: {
 
 export type ParsedCompleteSkillInstallationOperationPayload = Pick<
   CompleteSkillInstallationOperationRequest,
-  "safeResultJson" | "componentStatuses"
+  "claimGeneration" | "safeResultJson" | "componentStatuses"
 >;
 
 export type ParsedFailSkillInstallationOperationPayload = Pick<
   FailSkillInstallationOperationRequest,
-  "errorCode" | "errorMessage" | "componentStatuses"
+  "claimGeneration" | "errorCode" | "errorMessage" | "componentStatuses"
 >;
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; reason: string };
@@ -70,6 +70,10 @@ export function parseCompleteSkillInstallationOperationPayload(
   }
   const value = object.value;
 
+  if (!Number.isSafeInteger(value.claimGeneration) || Number(value.claimGeneration) <= 0) {
+    return { ok: false, reason: "claimGeneration must be a positive integer." };
+  }
+
   if (value.safeResultJson !== undefined && typeof value.safeResultJson !== "string") {
     return { ok: false, reason: "safeResultJson must be a string." };
   }
@@ -80,6 +84,7 @@ export function parseCompleteSkillInstallationOperationPayload(
   return {
     ok: true,
     value: {
+      claimGeneration: Number(value.claimGeneration),
       ...(value.safeResultJson !== undefined ? { safeResultJson: value.safeResultJson } : {}),
       ...(componentStatuses.value !== undefined ? { componentStatuses: componentStatuses.value } : {}),
     },
@@ -95,6 +100,10 @@ export function parseFailSkillInstallationOperationPayload(
   }
   const value = object.value;
 
+  if (!Number.isSafeInteger(value.claimGeneration) || Number(value.claimGeneration) <= 0) {
+    return { ok: false, reason: "claimGeneration must be a positive integer." };
+  }
+
   if (value.errorCode !== undefined && typeof value.errorCode !== "string") {
     return { ok: false, reason: "errorCode must be a string." };
   }
@@ -108,6 +117,7 @@ export function parseFailSkillInstallationOperationPayload(
   return {
     ok: true,
     value: {
+      claimGeneration: Number(value.claimGeneration),
       ...(value.errorCode !== undefined ? { errorCode: value.errorCode } : {}),
       errorMessage: value.errorMessage,
       ...(componentStatuses.value !== undefined ? { componentStatuses: componentStatuses.value } : {}),

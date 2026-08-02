@@ -77,6 +77,7 @@ async function provisionToReady(runtimeId: string, artifactDigest: string) {
   const completed = completeManagedSkillServiceProvisionOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     endpointRef: "runtime-private://uninstall-renderer",
   });
   assert.equal(completed.ok, true);

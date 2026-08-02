@@ -12,6 +12,7 @@ import { executeSkillServiceOperation } from "./service-operation-worker.ts";
 function makeOperation(overrides?: Partial<ClaimedManagedSkillServiceOperation>): ClaimedManagedSkillServiceOperation {
   return {
     operationId: "svc-op-1",
+    claimGeneration: 1,
     workspaceId: "default",
     runtimeId: "rt-1",
     serviceId: "svc-1",
@@ -184,7 +185,7 @@ test("generic provision failure fails with skill_service.runtime_error", async (
   assert.match((calls.fail[0]!.body as { errorMessage: string }).errorMessage, /boom/);
 });
 
-test("retire completes with an empty body", async () => {
+test("retire completes with the claim generation", async () => {
   const { client, calls } = makeClient();
   const retired: unknown[] = [];
   const runtime = makeRuntime({
@@ -196,7 +197,7 @@ test("retire completes with an empty body", async () => {
 
   assert.deepEqual(retired, [{ serviceId: "svc-1", workspaceId: "default" }]);
   assert.equal(calls.complete.length, 1);
-  assert.deepEqual(calls.complete[0]!.body, {});
+  assert.deepEqual(calls.complete[0]!.body, { claimGeneration: 1 });
   assert.equal(calls.fail.length, 0);
 });
 

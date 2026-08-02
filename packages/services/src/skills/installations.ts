@@ -222,6 +222,7 @@ export async function resolveClaimedSkillInstallationOperation(input: {
 
   return {
     operationId: input.operation.id,
+    claimGeneration: input.operation.claimGeneration,
     workspaceId: input.operation.workspaceId,
     runtimeId: input.operation.runtimeId,
     installationId: installation.id,
@@ -364,6 +365,7 @@ class SkillOperationConflictError extends Error {
  */
 export function completeSkillInstallationOperationSync(input: {
   operationId: string;
+  claimGeneration: number;
   workspaceId?: string;
   safeResultJson?: string;
   componentStatuses?: SkillInstallationOperationComponentStatus[];
@@ -416,6 +418,7 @@ export function completeSkillInstallationOperationSync(input: {
     withTransaction(getDatabase(), () => {
       const done = completeSkillOperationDbSync({
         operationId: input.operationId,
+        claimGeneration: input.claimGeneration,
         workspaceId,
         safeResultJson: input.safeResultJson,
       });
@@ -471,6 +474,7 @@ export function completeSkillInstallationOperationSync(input: {
  */
 export function failSkillInstallationOperationSync(input: {
   operationId: string;
+  claimGeneration: number;
   workspaceId?: string;
   errorCode?: string;
   errorMessage: string;
@@ -504,6 +508,7 @@ export function failSkillInstallationOperationSync(input: {
     withTransaction(getDatabase(), () => {
       const done = failSkillOperationDbSync({
         operationId: input.operationId,
+        claimGeneration: input.claimGeneration,
         workspaceId,
         errorCode: input.errorCode,
         errorMessage: input.errorMessage,

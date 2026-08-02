@@ -190,6 +190,7 @@ test("queue dedupes: re-plan for the same runtime+catalog reuses the instance an
   const completed = completeManagedSkillServiceProvisionOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     endpointRef: "runtime-private://renderer",
   });
   assert.equal(completed.ok, true);
@@ -277,6 +278,7 @@ test("complete rejects a non-runtime-private endpoint and unknown operation", ()
   const badEndpoint = completeManagedSkillServiceProvisionOperationSync({
     operationId: op.id,
     workspaceId: "default",
+    claimGeneration: 0,
     endpointRef: "https://public.example.com/service",
   });
   assert.equal(badEndpoint.ok, false);
@@ -285,6 +287,7 @@ test("complete rejects a non-runtime-private endpoint and unknown operation", ()
   const unknown = completeManagedSkillServiceProvisionOperationSync({
     operationId: `svc-op-${randomLikeId()}`,
     workspaceId: "default",
+    claimGeneration: 1,
     endpointRef: "runtime-private://renderer",
   });
   assert.equal(unknown.ok, false);
@@ -312,6 +315,7 @@ test("complete marks the service ready, creates the binding, and the installatio
   const completed = completeManagedSkillServiceProvisionOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     endpointRef: "runtime-private://bindings-renderer",
     healthRevision: "2",
   });
@@ -348,6 +352,7 @@ test("complete fails an unclaimed operation closed", () => {
   const result = completeManagedSkillServiceProvisionOperationSync({
     operationId: op.id,
     workspaceId: "default",
+    claimGeneration: 0,
     endpointRef: "runtime-private://renderer",
   });
   assert.equal(result.ok, false);
@@ -374,6 +379,7 @@ test("retire marks the service retired and the dependent installation goes block
   const provisioned = completeManagedSkillServiceProvisionOperationSync({
     operationId: provisionClaimed.id,
     workspaceId: "default",
+    claimGeneration: provisionClaimed.claimGeneration,
     endpointRef: "runtime-private://bindings-renderer",
   });
   assert.equal(provisioned.ok, true);
@@ -392,7 +398,11 @@ test("retire marks the service retired and the dependent installation goes block
   assert.ok(retireClaimed);
   assert.equal(retireClaimed.operation, "retire");
 
-  const retired = completeManagedSkillServiceRetireOperationSync({ operationId: retireClaimed.id, workspaceId: "default" });
+  const retired = completeManagedSkillServiceRetireOperationSync({
+    operationId: retireClaimed.id,
+    workspaceId: "default",
+    claimGeneration: retireClaimed.claimGeneration,
+  });
   assert.equal(retired.ok, true);
   assert.equal(readManagedSkillServiceSync(retireClaimed.serviceId, "default")?.status, "retired");
 
@@ -445,7 +455,11 @@ test("queue retire after the retire completes reports already_retired", async ()
   const claimed = claimNextManagedSkillServiceOperationForRuntimeSync({ workspaceId: "default", runtimeId });
   assert.ok(claimed);
   assert.equal(claimed.operation, "retire");
-  const done = completeManagedSkillServiceRetireOperationSync({ operationId: claimed.id, workspaceId: "default" });
+  const done = completeManagedSkillServiceRetireOperationSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
+  });
   assert.equal(done.ok, true);
   assert.equal(readManagedSkillServiceSync(service.id, "default")?.status, "retired");
 
@@ -630,6 +644,7 @@ async function provisionGreenToReady(runtimeId: string, salt: string, slug = CAN
   const completed = completeManagedSkillServiceProvisionOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     endpointRef: "runtime-private://canary-v1",
   });
   assert.equal(completed.ok, true);
@@ -809,6 +824,7 @@ test("canary complete switches bindings to blue (blue-green) and green becomes u
   const completed = completeManagedSkillServiceProvisionOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     endpointRef: "runtime-private://canary-v2",
     healthRevision: "7",
   });
@@ -855,6 +871,7 @@ test("canary green is kept for the backward_compatible cooldown window, then ret
   const completed = completeManagedSkillServiceProvisionOperationSync({
     operationId: claimed.id,
     workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
     endpointRef: "runtime-private://canary-v2",
   });
   assert.equal(completed.ok, true);

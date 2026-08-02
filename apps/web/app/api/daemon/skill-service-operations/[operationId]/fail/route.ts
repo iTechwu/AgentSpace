@@ -1,6 +1,7 @@
 import { failManagedSkillServiceOperationSync } from "@dofe-agent/db";
 import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { readManagedSkillServiceOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
+import { parseClaimGenerationValue, parseJsonObjectBody } from "../../../_lib/claim-generation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,15 +21,26 @@ export async function POST(
     return operation;
   }
 
-  const body = (await request.json()) as { errorCode?: string; errorMessage?: string };
-  if (!body.errorMessage?.trim()) {
+  const parsedBody = await parseJsonObjectBody(request);
+  if (!parsedBody.ok) {
+    return parsedBody.response;
+  }
+  const body = parsedBody.value;
+  const claimGeneration = parseClaimGenerationValue(body.claimGeneration);
+  if (!claimGeneration.ok) {
+    return claimGeneration.response;
+  }
+  if (typeof body.errorMessage !== "string" || !body.errorMessage.trim()) {
     return Response.json({ error: "errorMessage is required." }, { status: 400 });
   }
 
   const failed = failManagedSkillServiceOperationSync({
     operationId,
     workspaceId: auth.workspaceId,
-    errorCode: body.errorCode?.trim() || "skill_service.operation_failed",
+    claimGeneration: claimGeneration.value,
+    errorCode: typeof body.errorCode === "string" && body.errorCode.trim()
+      ? body.errorCode.trim()
+      : "skill_service.operation_failed",
     errorMessage: body.errorMessage.trim(),
   });
   if (!failed) {
@@ -45,7 +57,7 @@ export async function POST(
       resourceType: "managed_skill_service",
       resourceId: operation.serviceId,
       runtimeId: operation.runtimeId,
-      errorCode: body.errorCode,
+      errorCode: typeof body.errorCode === "string" ? body.errorCode : undefined,
     },
   });
 

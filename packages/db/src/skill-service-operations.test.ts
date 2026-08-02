@@ -163,14 +163,15 @@ test("start requires claimed + unexpired lease; fails from pending or expired", 
   const op = queueProvision(runtimeId, serviceId);
 
   assert.equal(
-    startManagedSkillServiceOperationSync({ operationId: op.id, workspaceId: "default", now: new Date("2026-01-01T00:00:00Z") }),
+    startManagedSkillServiceOperationSync({ operationId: op.id, workspaceId: "default", claimGeneration: 0, now: new Date("2026-01-01T00:00:00Z") }),
     false,
     "pending operation is not startable",
   );
 
-  claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
+  const claimed = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
+  assert.ok(claimed);
   assert.equal(
-    startManagedSkillServiceOperationSync({ operationId: op.id, workspaceId: "default", now: new Date("2026-01-01T00:00:30Z") }),
+    startManagedSkillServiceOperationSync({ operationId: op.id, workspaceId: "default", claimGeneration: claimed.claimGeneration, now: new Date("2026-01-01T00:00:30Z") }),
     true,
   );
   assert.equal(readManagedSkillServiceOperationSync(op.id, "default")?.status, "running");
@@ -181,18 +182,19 @@ test("heartbeat renews the lease while claimed/running, fails after expiry", () 
   const serviceId = createTestService(runtimeId);
   const op = queueProvision(runtimeId, serviceId);
 
-  claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
+  const claimed = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
+  assert.ok(claimed);
   const original = readManagedSkillServiceOperationSync(op.id, "default")!.leaseExpiresAt;
 
   assert.equal(
-    renewManagedSkillServiceOperationLeaseSync({ operationId: op.id, workspaceId: "default", now: new Date("2026-01-01T00:01:00Z") }),
+    renewManagedSkillServiceOperationLeaseSync({ operationId: op.id, workspaceId: "default", claimGeneration: claimed.claimGeneration, now: new Date("2026-01-01T00:01:00Z") }),
     true,
   );
   const renewed = readManagedSkillServiceOperationSync(op.id, "default")!.leaseExpiresAt;
   assert.ok(renewed! > original!, "renew must extend the lease");
 
   assert.equal(
-    renewManagedSkillServiceOperationLeaseSync({ operationId: op.id, workspaceId: "default", now: new Date("2026-01-01T00:04:00Z") }),
+    renewManagedSkillServiceOperationLeaseSync({ operationId: op.id, workspaceId: "default", claimGeneration: claimed.claimGeneration, now: new Date("2026-01-01T00:04:00Z") }),
     false,
     "renew after expiry must fail",
   );
@@ -205,13 +207,14 @@ test("complete and fail require an unexpired lease and clear it", () => {
 
   // Complete before claim: no lease → rejected.
   assert.equal(
-    completeManagedSkillServiceOperationSync({ operationId: op.id, workspaceId: "default", now: new Date("2026-01-01T00:00:00Z") }),
+    completeManagedSkillServiceOperationSync({ operationId: op.id, workspaceId: "default", claimGeneration: 0, now: new Date("2026-01-01T00:00:00Z") }),
     false,
   );
 
-  claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
+  const firstClaim = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
+  assert.ok(firstClaim);
   assert.equal(
-    completeManagedSkillServiceOperationSync({ operationId: op.id, workspaceId: "default", now: new Date("2026-01-01T00:00:30Z") }),
+    completeManagedSkillServiceOperationSync({ operationId: op.id, workspaceId: "default", claimGeneration: firstClaim.claimGeneration, now: new Date("2026-01-01T00:00:30Z") }),
     true,
   );
   const succeeded = readManagedSkillServiceOperationSync(op.id, "default")!;
@@ -220,19 +223,22 @@ test("complete and fail require an unexpired lease and clear it", () => {
 
   // A fresh operation that expires mid-run must not complete.
   const op2 = queueProvision(runtimeId, serviceId);
-  claimForTest(runtimeId, new Date("2026-01-01T00:10:00Z"));
+  const secondClaim = claimForTest(runtimeId, new Date("2026-01-01T00:10:00Z"));
+  assert.ok(secondClaim);
   assert.equal(
-    completeManagedSkillServiceOperationSync({ operationId: op2.id, workspaceId: "default", now: new Date("2026-01-01T00:13:00Z") }),
+    completeManagedSkillServiceOperationSync({ operationId: op2.id, workspaceId: "default", claimGeneration: secondClaim.claimGeneration, now: new Date("2026-01-01T00:13:00Z") }),
     false,
   );
 
   // Fail requires an unexpired lease too.
   const op3 = queueProvision(runtimeId, serviceId);
-  claimForTest(runtimeId, new Date("2026-01-01T00:20:00Z"));
+  const thirdClaim = claimForTest(runtimeId, new Date("2026-01-01T00:20:00Z"));
+  assert.ok(thirdClaim);
   assert.equal(
     failManagedSkillServiceOperationSync({
       operationId: op3.id,
       workspaceId: "default",
+      claimGeneration: thirdClaim.claimGeneration,
       errorCode: "skill_service.provision_failed",
       errorMessage: "image pull failed",
       now: new Date("2026-01-01T00:20:30Z"),
@@ -276,4 +282,39 @@ test("reaper re-queues expired claimed/running operations and leaves fresh ones"
   // The still-fresh claimed operation keeps its lease.
   assert.equal(readManagedSkillServiceOperationSync(freshClaimed.id, "default")?.status, "claimed");
   assert.equal(listManagedSkillServiceOperationsSync({ workspaceId: "default", serviceId: freshService }).length, 1);
+});
+
+test("a stale managed-service worker is fenced after re-claim", () => {
+  const runtimeId = createTestRuntime();
+  const serviceId = createTestService(runtimeId);
+  queueProvision(runtimeId, serviceId);
+
+  const first = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
+  assert.ok(first?.claimGeneration);
+  requeueExpiredManagedSkillServiceOperationLeasesSync({
+    workspaceId: "default",
+    now: new Date("2026-01-01T00:05:00Z"),
+  });
+  const second = claimForTest(runtimeId, new Date("2026-01-01T00:06:00Z"));
+  assert.ok(second?.claimGeneration);
+  assert.ok(second!.claimGeneration > first!.claimGeneration);
+
+  assert.equal(startManagedSkillServiceOperationSync({
+    operationId: first!.id,
+    workspaceId: "default",
+    claimGeneration: first!.claimGeneration,
+    now: new Date("2026-01-01T00:06:10Z"),
+  }), false);
+  assert.equal(completeManagedSkillServiceOperationSync({
+    operationId: first!.id,
+    workspaceId: "default",
+    claimGeneration: first!.claimGeneration,
+    now: new Date("2026-01-01T00:06:10Z"),
+  }), false);
+  assert.equal(startManagedSkillServiceOperationSync({
+    operationId: second!.id,
+    workspaceId: "default",
+    claimGeneration: second!.claimGeneration,
+    now: new Date("2026-01-01T00:06:10Z"),
+  }), true);
 });

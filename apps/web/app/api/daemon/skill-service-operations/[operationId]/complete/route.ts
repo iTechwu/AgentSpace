@@ -4,6 +4,7 @@ import {
   tryRecordWorkspaceAuditEventSync,
 } from "@dofe-agent/services";
 import { readManagedSkillServiceOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
+import { parseClaimGenerationValue, parseJsonObjectBody } from "../../../_lib/claim-generation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,14 +24,24 @@ export async function POST(
     return operation;
   }
 
-  const body = (await request.json()) as { endpointRef?: string; healthRevision?: string; safeResultJson?: string };
+  const parsedBody = await parseJsonObjectBody(request);
+  if (!parsedBody.ok) {
+    return parsedBody.response;
+  }
+  const body = parsedBody.value;
+  const parsedClaimGeneration = parseClaimGenerationValue(body.claimGeneration);
+  if (!parsedClaimGeneration.ok) {
+    return parsedClaimGeneration.response;
+  }
+  const claimGeneration = parsedClaimGeneration.value;
   const completed = operation.operation === "retire"
-    ? completeManagedSkillServiceRetireOperationSync({ operationId, workspaceId: auth.workspaceId })
+    ? completeManagedSkillServiceRetireOperationSync({ operationId, workspaceId: auth.workspaceId, claimGeneration })
     : completeManagedSkillServiceProvisionOperationSync({
         operationId,
         workspaceId: auth.workspaceId,
-        endpointRef: body.endpointRef ?? "",
-        healthRevision: body.healthRevision,
+        claimGeneration,
+        endpointRef: typeof body.endpointRef === "string" ? body.endpointRef : "",
+        healthRevision: typeof body.healthRevision === "string" ? body.healthRevision : undefined,
       });
   if (!completed.ok) {
     return Response.json({ error: completed.reason }, { status: 400 });
@@ -46,7 +57,7 @@ export async function POST(
       resourceType: "managed_skill_service",
       resourceId: operation.serviceId,
       runtimeId: operation.runtimeId,
-      endpointRef: body.endpointRef,
+      endpointRef: typeof body.endpointRef === "string" ? body.endpointRef : undefined,
     },
   });
 
