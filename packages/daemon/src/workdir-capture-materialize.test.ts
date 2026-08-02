@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test, { after, before, beforeEach } from "node:test";
+import test, { afterEach, before, beforeEach } from "node:test";
 import { getDatabase } from "@dofe-agent/db";
-import { createEmployeeSync, resetWorkspaceStateSync } from "@dofe-agent/services";
+import { createAttachmentStorageClient, createEmployeeSync, resetWorkspaceStateSync } from "@dofe-agent/services";
 import { materializeHeadRevisionToWorkDir } from "./workdir-capture.ts";
 
 const WORKSPACE_ID = "wdc-materialize-test";
@@ -17,12 +18,15 @@ before(() => {
 });
 
 beforeEach(() => {
+  tempRoot = "";
   resetWorkspaceStateSync(WORKSPACE_ID);
   tempRoot = mkdtempSync(join(tmpdir(), "dofe-wdc-materialize-"));
 });
 
-after(() => {
-  rmSync(tempRoot, { recursive: true, force: true });
+afterEach(() => {
+  if (tempRoot) {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 function seedHeadRevision(manifestJson: string): void {
@@ -90,4 +94,28 @@ test("an existing local file cannot hide a missing durable blob", () => {
   });
   assert.equal(result.materializedFiles, 0);
   assert.equal(result.missingBlobs, 1);
+});
+
+test("a verified durable blob does not discard an uncommitted conversation edit", () => {
+  const durableBytes = Buffer.from("durable baseline");
+  const sha256 = createHash("sha256").update(durableBytes).digest("hex");
+  seedHeadRevision(JSON.stringify({
+    files: [{ path: "repository/src/main.ts", sha256, size: durableBytes.length, mediaType: "text/typescript" }],
+  }));
+  createAttachmentStorageClient().putContentAddressedBlobSync({
+    workspaceId: WORKSPACE_ID,
+    sha256,
+    contentBytes: durableBytes,
+    mediaType: "text/typescript",
+  });
+  const target = join(tempRoot, "repository/src/main.ts");
+  mkdirSync(join(tempRoot, "repository/src"), { recursive: true });
+  writeFileSync(target, "uncommitted conversation edit");
+
+  const result = materializeHeadRevisionToWorkDir(tempRoot, {
+    workspaceId: WORKSPACE_ID,
+    employeeName: "WDC Worker",
+  });
+  assert.equal(result.missingBlobs, 0);
+  assert.equal(readFileSync(target, "utf8"), "uncommitted conversation edit");
 });

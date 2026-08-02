@@ -10,6 +10,8 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
+  rmdirSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -145,7 +147,7 @@ export function collectWorkDirChanges(
       // cannot smuggle files that live outside the task workDir into the
       // persistent workspace by pointing a symlink at them.
       const stat = lstatSync(absolutePath);
-      if (!stat.isFile()) {
+      if (!stat.isFile() || stat.nlink !== 1) {
         return;
       }
       if (stat.size > WORKDIR_CAPTURE_MAX_SINGLE_FILE_BYTES) {
@@ -259,10 +261,10 @@ export function materializeHeadRevisionToWorkDir(
     if (existsSync(targetPath)) {
       try {
         const stat = lstatSync(targetPath);
-        const localBytes = stat.isFile() && !stat.isSymbolicLink()
-          ? readFileSync(targetPath)
-          : null;
-        if (!localBytes || sha256Hex(localBytes) !== file.sha256.toLowerCase()) {
+        // A regular divergent file can be an intentional, not-yet-committed
+        // conversation edit. Durable storage was already read and verified
+        // above, so preserve the local edit and let the next diff commit it.
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
           missingBlobs += 1;
         }
       } catch {
@@ -296,6 +298,7 @@ export function materializeHeadRevisionToWorkDirStrict(
   workDir: string,
   input: { workspaceId: string; employeeName: string; expectedHeadRevisionId?: string },
 ): { materializedFiles: number; expectedFiles: number } {
+  assertSafeWorkspaceRoot(workDir);
   const head = readHeadRevisionSync(input.employeeName, input.workspaceId);
   if (!head) {
     throw new Error("Workspace mount failed: employee has no head revision to materialize.");
@@ -331,7 +334,7 @@ export function materializeHeadRevisionToWorkDirStrict(
       mkdirParentsNoFollow(dirname(targetPath), workDir);
       if (existsSync(targetPath)) {
         const stat = lstatSync(targetPath);
-        if (!stat.isFile() || stat.isSymbolicLink()) {
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
           throw new Error("existing target is not a regular file");
         }
         const existingBytes = readFileBytesNoFollow(targetPath);
@@ -353,11 +356,75 @@ export function materializeHeadRevisionToWorkDirStrict(
       `Workspace mount failed: materialized ${materializedFiles}/${expectedFiles} files.`,
     );
   }
+  pruneUndeclaredEntries(workDir, new Set((manifest.files ?? []).map((file) => file.path)));
   return { materializedFiles, expectedFiles };
+}
+
+/** Removes stale files from an earlier persistent mount without following symlinks. */
+function pruneUndeclaredEntries(rootDir: string, declaredPaths: Set<string>): void {
+  const visit = (directory: string): void => {
+    const openedDirectory = readDirectoryIdentity(directory);
+    for (const entryName of readdirSync(directory)) {
+      assertDirectoryIdentity(directory, openedDirectory);
+      const absolutePath = join(directory, entryName);
+      const relPath = relative(rootDir, absolutePath).replace(/\\/g, "/");
+      const entry = lstatSync(absolutePath);
+      if (entry.isSymbolicLink()) {
+        rmSync(absolutePath, { force: true });
+        continue;
+      }
+      if (entry.isDirectory()) {
+        visit(absolutePath);
+        assertDirectoryIdentity(directory, openedDirectory);
+        const required = [...declaredPaths].some((path) => path.startsWith(`${relPath}/`));
+        if (!required) {
+          // rmdir never follows a swapped symlink. If a concurrent writer added
+          // content, fail closed instead of recursively deleting through a path
+          // whose directory identity may have changed.
+          rmdirSync(absolutePath);
+        }
+        continue;
+      }
+      if (!entry.isFile() || !declaredPaths.has(relPath)) {
+        rmSync(absolutePath, { force: true });
+      }
+    }
+    assertDirectoryIdentity(directory, openedDirectory);
+  };
+  assertSafeWorkspaceRoot(rootDir);
+  visit(rootDir);
+}
+
+interface DirectoryIdentity {
+  dev: number;
+  ino: number;
+}
+
+function readDirectoryIdentity(directory: string): DirectoryIdentity {
+  const stat = lstatSync(directory);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error(`Workspace directory is no longer a real directory: ${directory}`);
+  }
+  return { dev: stat.dev, ino: stat.ino };
+}
+
+function assertDirectoryIdentity(directory: string, expected: DirectoryIdentity): void {
+  const current = readDirectoryIdentity(directory);
+  if (current.dev !== expected.dev || current.ino !== expected.ino) {
+    throw new Error(`Workspace directory changed while materializing: ${directory}`);
+  }
+}
+
+function assertSafeWorkspaceRoot(rootDir: string): void {
+  const root = lstatSync(rootDir);
+  if (!root.isDirectory() || root.isSymbolicLink()) {
+    throw new Error(`Workspace root must be a real directory: ${rootDir}`);
+  }
 }
 
 /** Creates/verifies every parent directory under root without following symlinks. */
 function mkdirParentsNoFollow(targetDir: string, rootDir: string): void {
+  assertSafeWorkspaceRoot(rootDir);
   const rel = relative(rootDir, targetDir);
   if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     throw new Error(`Restore path escapes workDir: ${targetDir}`);
