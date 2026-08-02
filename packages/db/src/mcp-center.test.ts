@@ -11,6 +11,7 @@ import {
   createMcpOperationSync,
   failMcpOperationSync,
   insertMcpCatalogItemSync,
+  listAuditLogsSync,
   listMcpCatalogItemsSync,
   listMcpToolAuditsSync,
   listReadyMcpConnectionsForRuntimeSync,
@@ -43,6 +44,7 @@ before(() => {
 
 beforeEach(() => {
   const db = getDatabase();
+  db.exec("DELETE FROM audit_log WHERE code = 'mcp_tool.call'");
   db.exec("DELETE FROM runtime_mcp_tool_audit");
   db.exec("DELETE FROM runtime_mcp_operation");
   db.exec("DELETE FROM runtime_mcp_discovery_snapshot");
@@ -200,17 +202,30 @@ test("secrets are stored opaque and never expose plaintext-shaped values", () =>
   assert.equal(secrets[0]?.fieldName, "api_key");
 });
 
-test("remove operation cascades live connection state but retains tool audits", () => {
+test("remove operation cascades live connection state but retains tool audits with actor snapshots", () => {
   const runtimeId = createRuntime();
   const catalog = upsertMcpCatalogItemSync({ slug: "r", transport: "streamable_http", displayName: "R", risk: "low" });
   const connection = createMcpConnectionSync({ runtimeId, catalogItemId: catalog.id, endpoint: "https://r.example.com/mcp" });
   upsertMcpSecretSync({ connectionId: connection.id, fieldName: "api_key", encryptedValue: "x", keyVersion: "v1" });
+  const audit = recordMcpToolAuditSync({
+    connectionId: connection.id,
+    taskId: "task-retained-audit",
+    toolName: "search",
+    outcome: "succeeded",
+    eventId: "event-retained-audit",
+    actorType: "agent",
+    actorId: "agent-audit",
+    runtimeId,
+  });
   recordMcpToolAuditSync({
     connectionId: connection.id,
     taskId: "task-retained-audit",
     toolName: "search",
     outcome: "succeeded",
     eventId: "event-retained-audit",
+    actorType: "agent",
+    actorId: "agent-audit",
+    runtimeId,
   });
   const op = createMcpOperationSync({ runtimeId, connectionId: connection.id, operation: "remove" });
   claimNextMcpOperationForRuntimeSync({ runtimeId });
@@ -220,7 +235,23 @@ test("remove operation cascades live connection state but retains tool audits", 
   assert.equal(readMcpConnectionSync(connection.id), null);
   assert.equal(readMcpConnectionSecretsSync(connection.id).length, 0);
   assert.equal(readLatestMcpDiscoverySnapshotSync(connection.id), null);
-  assert.equal(listMcpToolAuditsSync({ connectionId: connection.id }).length, 1);
+  const retained = listMcpToolAuditsSync({ connectionId: connection.id });
+  assert.equal(retained.length, 1);
+  assert.equal(retained[0]?.actorType, "agent");
+  assert.equal(retained[0]?.actorId, "agent-audit");
+  assert.equal(retained[0]?.runtimeId, runtimeId);
+  const actorAudits = listAuditLogsSync("default", { code: "mcp_tool.call" });
+  assert.equal(actorAudits.length, 1);
+  assert.deepEqual(JSON.parse(actorAudits[0]!.dataJson), {
+    actorId: "agent-audit",
+    actorType: "agent",
+    connectionId: connection.id,
+    eventId: "event-retained-audit",
+    mcpToolAuditId: audit.id,
+    runtimeId,
+    taskId: "task-retained-audit",
+    toolName: "search",
+  });
 });
 
 test("atomic claim only hands an operation to one caller", () => {

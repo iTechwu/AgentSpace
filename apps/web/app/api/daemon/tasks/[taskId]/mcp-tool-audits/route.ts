@@ -84,6 +84,9 @@ export async function POST(
         latencyMs: audit.latencyMs,
         safeSummary: audit.safeSummary?.slice(0, 1000),
         eventId: audit.eventId,
+        actorType: "agent",
+        actorId: task.agentId,
+        runtimeId: task.runtimeId,
       });
     }
   });

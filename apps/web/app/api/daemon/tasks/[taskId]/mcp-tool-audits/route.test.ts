@@ -38,7 +38,12 @@ describe("daemon MCP tool audit route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireDaemonAuth.mockReturnValue({ workspaceId: "default" });
-    mockReadTaskForDaemon.mockReturnValue({ id: "task-1", workspaceId: "default" });
+    mockReadTaskForDaemon.mockReturnValue({
+      id: "task-1",
+      workspaceId: "default",
+      agentId: "agent-1",
+      runtimeId: "runtime-1",
+    });
     mockReadAuthorization.mockReturnValue({
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       authorizationJson: JSON.stringify({
@@ -57,6 +62,11 @@ describe("daemon MCP tool audit route", () => {
       acceptedEventIds: ["event-1"],
     });
     expect(mockRecordAudit).toHaveBeenCalledTimes(1);
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      actorType: "agent",
+      actorId: "agent-1",
+      runtimeId: "runtime-1",
+    }));
   });
 
   it("rejects the whole batch when the persisted authorization grant is unavailable", async () => {

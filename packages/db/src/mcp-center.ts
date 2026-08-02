@@ -1,4 +1,5 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
+import { recordAuditLogSync } from "./audit-log.ts";
 import type {
   McpCatalogItemRecord,
   McpCatalogCategory,
@@ -150,6 +151,10 @@ export interface RecordMcpToolAuditInput {
   safeSummary?: string;
   /** Client-generated idempotency key; a replayed event_id returns the original row. */
   eventId?: string;
+  /** Execution identity must come from the authenticated task, never the report body. */
+  actorType: "agent";
+  actorId: string;
+  runtimeId: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -950,53 +955,75 @@ function defaultConnectionStatusForFailedOperation(operation: RuntimeMcpOperatio
 /* ------------------------------------------------------------------ */
 
 export function recordMcpToolAuditSync(input: RecordMcpToolAuditInput): RuntimeMcpToolAuditRecord {
-  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  const eventId = input.eventId?.trim() || "";
-  if (eventId) {
-    // Idempotent replay: a re-sent event_id returns the original row instead of
-    // inserting a duplicate audit.
-    const existing = getDatabase().prepare(
-      `${MCP_TOOL_AUDIT_COLUMNS} FROM runtime_mcp_tool_audit WHERE workspace_id = ? AND event_id = ?`,
-    ).get(workspaceId, eventId) as Record<string, unknown> | undefined;
-    if (existing) {
-      const record = mapRuntimeMcpToolAuditRecord(existing);
-      if (record) return record;
+  return withTransaction(getDatabase(), () => {
+    const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+    const eventId = input.eventId?.trim() || "";
+    if (!input.actorId.trim() || !input.runtimeId.trim()) {
+      throw new Error("MCP tool audit actorId and runtimeId are required.");
     }
-  }
-  const id = `mcp-audit-${randomLikeId()}`;
-  const now = new Date().toISOString();
-  getDatabase().prepare(
-    `INSERT INTO runtime_mcp_tool_audit (id, workspace_id, connection_id, task_id, tool_name, outcome, latency_ms, safe_summary, event_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (workspace_id, event_id) DO NOTHING`,
-  ).run(
-    id,
-    workspaceId,
-    input.connectionId,
-    input.taskId ?? null,
-    input.toolName,
-    input.outcome,
-    input.latencyMs ?? null,
-    input.safeSummary ?? null,
-    eventId || null,
-    now,
-  );
-  const row = getDatabase().prepare(
-    `${MCP_TOOL_AUDIT_COLUMNS} FROM runtime_mcp_tool_audit WHERE id = ?`,
-  ).get(id) as Record<string, unknown> | undefined;
-  let record = row ? mapRuntimeMcpToolAuditRecord(row) : null;
-  if (!record && eventId) {
-    // Concurrent conflict: another request won the race for this event_id and
-    // our INSERT was a no-op. Read the winner's row back by (workspace, event).
-    const winner = getDatabase().prepare(
-      `${MCP_TOOL_AUDIT_COLUMNS} FROM runtime_mcp_tool_audit WHERE workspace_id = ? AND event_id = ?`,
-    ).get(workspaceId, eventId) as Record<string, unknown> | undefined;
-    record = winner ? mapRuntimeMcpToolAuditRecord(winner) : null;
-  }
-  if (!record) {
-    throwMissing("tool audit");
-  }
-  return record;
+    if (eventId) {
+      const existing = getDatabase().prepare(
+        `${MCP_TOOL_AUDIT_COLUMNS} FROM runtime_mcp_tool_audit WHERE workspace_id = ? AND event_id = ?`,
+      ).get(workspaceId, eventId) as Record<string, unknown> | undefined;
+      if (existing) {
+        const record = mapRuntimeMcpToolAuditRecord(existing);
+        if (record) return record;
+      }
+    }
+    const id = `mcp-audit-${randomLikeId()}`;
+    const now = new Date().toISOString();
+    const inserted = getDatabase().prepare(
+      `INSERT INTO runtime_mcp_tool_audit (id, workspace_id, connection_id, task_id, tool_name, outcome, latency_ms, safe_summary, event_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (workspace_id, event_id) DO NOTHING`,
+    ).run(
+      id,
+      workspaceId,
+      input.connectionId,
+      input.taskId ?? null,
+      input.toolName,
+      input.outcome,
+      input.latencyMs ?? null,
+      input.safeSummary ?? null,
+      eventId || null,
+      now,
+    );
+    if (inserted.changes > 0) {
+      recordAuditLogSync({
+        workspaceId,
+        title: "MCP tool call",
+        note: `${input.actorId} called ${input.toolName} through ${input.connectionId}.`,
+        code: "mcp_tool.call",
+        source: "runtime_lifecycle",
+        data: {
+          actorType: input.actorType,
+          actorId: input.actorId,
+          runtimeId: input.runtimeId,
+          taskId: input.taskId,
+          connectionId: input.connectionId,
+          toolName: input.toolName,
+          eventId: eventId || undefined,
+          mcpToolAuditId: id,
+        },
+      });
+    }
+    const row = getDatabase().prepare(
+      `${MCP_TOOL_AUDIT_COLUMNS} FROM runtime_mcp_tool_audit WHERE id = ?`,
+    ).get(id) as Record<string, unknown> | undefined;
+    let record = row ? mapRuntimeMcpToolAuditRecord(row) : null;
+    if (!record && eventId) {
+      // Concurrent conflict: another request won the race for this event_id and
+      // our INSERT was a no-op. Read the winner's row back by (workspace, event).
+      const winner = getDatabase().prepare(
+        `${MCP_TOOL_AUDIT_COLUMNS} FROM runtime_mcp_tool_audit WHERE workspace_id = ? AND event_id = ?`,
+      ).get(workspaceId, eventId) as Record<string, unknown> | undefined;
+      record = winner ? mapRuntimeMcpToolAuditRecord(winner) : null;
+    }
+    if (!record) {
+      throwMissing("tool audit");
+    }
+    return record;
+  });
 }
 
 export function listMcpToolAuditsSync(options: {
@@ -1073,7 +1100,11 @@ const MCP_OPERATION_COLUMNS = `SELECT
 const MCP_TOOL_AUDIT_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, connection_id AS connectionId, task_id AS taskId,
   tool_name AS toolName, outcome, latency_ms AS latencyMs, safe_summary AS safeSummary,
-  event_id AS eventId, created_at AS createdAt`;
+  event_id AS eventId,
+  (SELECT data_json ->> 'actorType' FROM audit_log WHERE code = 'mcp_tool.call' AND data_json ->> 'mcpToolAuditId' = runtime_mcp_tool_audit.id LIMIT 1) AS actorType,
+  (SELECT data_json ->> 'actorId' FROM audit_log WHERE code = 'mcp_tool.call' AND data_json ->> 'mcpToolAuditId' = runtime_mcp_tool_audit.id LIMIT 1) AS actorId,
+  (SELECT data_json ->> 'runtimeId' FROM audit_log WHERE code = 'mcp_tool.call' AND data_json ->> 'mcpToolAuditId' = runtime_mcp_tool_audit.id LIMIT 1) AS runtimeId,
+  created_at AS createdAt`;
 
 function mapMcpCatalogItemRecord(value: Record<string, unknown>): McpCatalogItemRecord | null {
   if (
@@ -1274,6 +1305,9 @@ function mapRuntimeMcpToolAuditRecord(value: Record<string, unknown>): RuntimeMc
     latencyMs: typeof value.latencyMs === "number" ? value.latencyMs : undefined,
     safeSummary: readOptionalString(value.safeSummary),
     eventId: readOptionalString(value.eventId),
+    actorType: value.actorType === "agent" ? "agent" : undefined,
+    actorId: readOptionalString(value.actorId),
+    runtimeId: readOptionalString(value.runtimeId),
     createdAt: value.createdAt,
   };
 }

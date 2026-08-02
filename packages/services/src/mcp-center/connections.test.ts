@@ -915,6 +915,9 @@ test("listMcpConnectionActivitySync aggregates operations and tool audits", () =
     outcome: "succeeded",
     latencyMs: 42,
     safeSummary: "q=acme",
+    actorType: "agent",
+    actorId: "agent-1",
+    runtimeId,
   });
 
   const activity = listMcpConnectionActivitySync({ workspaceId: "default", connectionId: connection.id });
@@ -946,6 +949,9 @@ test("recordMcpToolAuditSync dedupes a re-sent event_id", () => {
     toolName: "search_repos",
     outcome: "succeeded",
     eventId,
+    actorType: "agent",
+    actorId: "agent-1",
+    runtimeId,
   });
   // A re-sent audit with the same event_id must return the original row, not insert a duplicate.
   const replay = recordMcpToolAuditSync({
@@ -955,6 +961,9 @@ test("recordMcpToolAuditSync dedupes a re-sent event_id", () => {
     toolName: "search_repos",
     outcome: "succeeded",
     eventId,
+    actorType: "agent",
+    actorId: "agent-1",
+    runtimeId,
   });
   assert.equal(replay.id, first.id);
   const audits = listMcpConnectionActivitySync({ workspaceId: "default", connectionId: connection.id }).audits;

@@ -1052,6 +1052,10 @@ export interface RuntimeMcpToolAuditRecord {
   safeSummary?: string;
   /** Client-generated idempotency key (unique per workspace). */
   eventId?: string;
+  /** Immutable execution identity copied from the authenticated task. */
+  actorType?: "agent";
+  actorId?: string;
+  runtimeId?: string;
   createdAt: string;
 }
 

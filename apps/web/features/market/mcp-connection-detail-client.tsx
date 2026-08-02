@@ -57,6 +57,8 @@ export interface McpConnectionDetailPageData {
       outcome: string;
       latencyMs?: number;
       safeSummary?: string;
+      actorId?: string;
+      runtimeId?: string;
       createdAt: string;
     }>;
   };
@@ -338,6 +340,12 @@ function McpAuditActivityRow({
         </span>
       </span>
       {audit.latencyMs ? <span className="mcp-activity-meta">{audit.latencyMs} ms</span> : null}
+      {audit.actorId ? (
+        <span className="mcp-activity-meta">
+          {tx("执行主体", "Actor")}: {audit.actorId}
+          {audit.runtimeId ? ` · ${audit.runtimeId}` : ""}
+        </span>
+      ) : null}
       {audit.safeSummary ? <span className="mcp-activity-meta">{audit.safeSummary}</span> : null}
     </div>
   );

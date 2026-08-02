@@ -68,6 +68,8 @@ export function loadMcpConnectionDetailPageData(input: {
         outcome: audit.outcome,
         latencyMs: audit.latencyMs,
         safeSummary: audit.safeSummary,
+        actorId: audit.actorId,
+        runtimeId: audit.runtimeId,
         createdAt: audit.createdAt,
       })),
     },
