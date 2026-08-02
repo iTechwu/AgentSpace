@@ -5,6 +5,38 @@ import { readTaskForDaemon, requireDaemonAuth } from "../../../../_lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const MAX_WORKSPACE_BLOB_BYTES = 512 * 1024 * 1024;
+
+export async function PUT(
+  request: Request,
+  context: { params: Promise<{ taskId: string; sha256: string }> },
+): Promise<Response> {
+  const auth = requireDaemonAuth(request);
+  if (auth instanceof Response) return auth;
+  const { taskId, sha256: rawSha256 } = await context.params;
+  const task = readTaskForDaemon(taskId, auth);
+  if (task instanceof Response) return task;
+  const sha256 = rawSha256.toLowerCase();
+  const declaredDigest = request.headers.get("x-content-sha256")?.toLowerCase();
+  const declaredSize = Number(request.headers.get("content-length"));
+  if (!/^[a-f0-9]{64}$/.test(sha256) || declaredDigest !== sha256) {
+    return Response.json({ error: "Workspace blob digest is invalid or inconsistent." }, { status: 400 });
+  }
+  if (!Number.isSafeInteger(declaredSize) || declaredSize < 0 || declaredSize > MAX_WORKSPACE_BLOB_BYTES) {
+    return Response.json({ error: "Workspace blob size is invalid or exceeds 512 MiB." }, { status: 413 });
+  }
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength !== declaredSize || createHash("sha256").update(bytes).digest("hex") !== sha256) {
+    return Response.json({ error: "Workspace blob failed digest or size verification." }, { status: 400 });
+  }
+  createAttachmentStorageClient().putContentAddressedBlobSync({
+    workspaceId: auth.workspaceId,
+    sha256,
+    contentBytes: bytes,
+    mediaType: request.headers.get("content-type") ?? undefined,
+  });
+  return Response.json({ taskId: task.id, sha256, size: bytes.byteLength, accepted: true }, { status: 201 });
+}
 
 export async function GET(
   request: Request,

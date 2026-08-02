@@ -27,6 +27,7 @@ export type {
   DaemonInputBundleFile,
   DaemonWorkspaceBlobFile,
   DaemonWorkspaceInputManifest,
+  DaemonWorkspaceOutputBlobFile,
   DaemonProvider,
   DaemonRuntimeInfo,
   DaemonTaskInputBundle,

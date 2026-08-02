@@ -24,7 +24,11 @@ export async function POST(
   }
 
   const body = (await request.json()) as Partial<DaemonTaskOutputBundle>;
-  if (body.version !== 1 || body.format !== "json-inline-v1" || !Array.isArray(body.files)) {
+  if (
+    body.version !== 1
+    || body.format !== "json-inline-v1"
+    || !Array.isArray(body.files)
+  ) {
     return Response.json({ error: "Output bundle version, format, and files[] are required." }, { status: 400 });
   }
 

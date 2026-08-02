@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -31,7 +32,10 @@ import { POST as startPOST } from "./tasks/[taskId]/start/route";
 import { POST as messagesPOST } from "./tasks/[taskId]/messages/route";
 import { POST as failPOST } from "./tasks/[taskId]/fail/route";
 import { GET as inputBundleGET } from "./tasks/[taskId]/input-bundle/route";
-import { GET as workspaceBlobGET } from "./tasks/[taskId]/workspace-blobs/[sha256]/route";
+import {
+  GET as workspaceBlobGET,
+  PUT as workspaceBlobPUT,
+} from "./tasks/[taskId]/workspace-blobs/[sha256]/route";
 import { POST as outputBundlePOST } from "./tasks/[taskId]/output-bundle/route";
 import { POST as completePOST } from "./tasks/[taskId]/complete/route";
 
@@ -231,6 +235,9 @@ describe("remote daemon client integration", () => {
         ),
       ).toBe(true);
 
+      const persistentPlan = Buffer.from("persistent plan", "utf8");
+      const persistentPlanSha256 = createHash("sha256").update(persistentPlan).digest("hex");
+      await client.uploadWorkspaceBlob(claimed.task.id, persistentPlanSha256, persistentPlan);
       await client.uploadOutputBundle(claimed.task.id, {
         version: 1,
         format: "json-inline-v1",
@@ -256,10 +263,11 @@ describe("remote daemon client integration", () => {
             contentBase64: Buffer.from("day 1: Osaka", "utf8").toString("base64"),
           },
         ],
-        workspaceFiles: [
+        workspaceBlobFiles: [
           {
             path: "repository/plan.txt",
-            contentBase64: Buffer.from("persistent plan", "utf8").toString("base64"),
+            sha256: persistentPlanSha256,
+            size: persistentPlan.byteLength,
             mode: "0640",
           },
         ],
@@ -553,6 +561,12 @@ async function dispatchToRoute(request: Request): Promise<Response> {
   if (request.method === "GET" && /^\/api\/daemon\/tasks\/[^/]+\/workspace-blobs\/[a-f0-9]+$/.test(url.pathname)) {
     const parts = url.pathname.split("/");
     return workspaceBlobGET(request, {
+      params: Promise.resolve({ taskId: parts[4] ?? "", sha256: parts[6] ?? "" }),
+    });
+  }
+  if (request.method === "PUT" && /^\/api\/daemon\/tasks\/[^/]+\/workspace-blobs\/[a-f0-9]+$/.test(url.pathname)) {
+    const parts = url.pathname.split("/");
+    return workspaceBlobPUT(request, {
       params: Promise.resolve({ taskId: parts[4] ?? "", sha256: parts[6] ?? "" }),
     });
   }

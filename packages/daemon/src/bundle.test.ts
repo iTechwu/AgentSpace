@@ -9,6 +9,8 @@ import {
   INPUT_BUNDLE_MAX_FILES,
   materializeInputBundle,
   materializeRemoteInputBundle,
+  prepareRemoteOutputBundle,
+  readWorkspaceBlobUploadBytes,
 } from "./bundle.ts";
 import { WORKDIR_CAPTURE_MAX_FILES } from "./workdir-capture.ts";
 
@@ -338,5 +340,26 @@ test("materializeRemoteInputBundle rejects a tampered blob before changing the w
     assert.equal(existsSync(join(workDir, "prompt.txt")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepareRemoteOutputBundle captures more than the legacy 64-file workspace limit without inline bytes", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-large-workspace-output-"));
+  mkdirSync(join(workDir, "repository"), { recursive: true });
+  try {
+    for (let index = 0; index < 100; index += 1) {
+      writeFileSync(join(workDir, "repository", `file-${String(index).padStart(3, "0")}.txt`), `value-${index}`);
+    }
+    const prepared = prepareRemoteOutputBundle(workDir);
+    assert.equal(prepared.uploads.length, 100);
+    assert.equal(prepared.bundle?.format, "json-inline-v1");
+    assert.equal(prepared.bundle?.workspaceBlobFiles?.length, 100);
+    assert.equal(prepared.bundle?.workspaceFiles, undefined);
+    assert.equal(
+      Buffer.from(readWorkspaceBlobUploadBytes(prepared.uploads[75]!)).toString("utf8"),
+      "value-75",
+    );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
   }
 });

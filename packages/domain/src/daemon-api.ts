@@ -304,6 +304,15 @@ export interface DaemonWorkspaceInputManifest {
   files: DaemonWorkspaceBlobFile[];
 }
 
+export interface DaemonWorkspaceOutputBlobFile {
+  path: string;
+  size: number;
+  sha256: string;
+  mediaType?: string;
+  /** Octal permission string, e.g. "0755" / "0644". */
+  mode?: string;
+}
+
 export interface DaemonSkillDependencyEnvironment {
   installationId: string;
   artifactDigest: string;
@@ -720,6 +729,8 @@ export interface DaemonTaskOutputBundle {
    * produced no durable workdir changes.
    */
   workspaceFiles?: DaemonBundleFile[];
+  /** Changed workspace files whose bytes were uploaded separately by digest. */
+  workspaceBlobFiles?: DaemonWorkspaceOutputBlobFile[];
   /**
    * Captured paths present in the head manifest that no longer exist under the
    * workDir (provider deleted them). The promoted revision drops these.

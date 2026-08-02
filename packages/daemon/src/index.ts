@@ -15,6 +15,8 @@ export {
   INPUT_BUNDLE_MAX_TOTAL_BYTES,
   materializeInputBundle,
   materializeRemoteInputBundle,
+  prepareRemoteOutputBundle,
+  readWorkspaceBlobUploadBytes,
   sanitizePathSegment,
 } from "./bundle.ts";
 export {

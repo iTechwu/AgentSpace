@@ -389,6 +389,36 @@ export class HttpDaemonClient {
     await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/output-bundle`, bundle);
   }
 
+  async uploadWorkspaceBlob(taskId: string, sha256: string, bytes: Uint8Array): Promise<void> {
+    const path = `/api/daemon/tasks/${encodeURIComponent(taskId)}/workspace-blobs/${encodeURIComponent(sha256)}`;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt += 1) {
+      try {
+        const response = await fetch(this.resolveUrl(path), {
+          method: "PUT",
+          headers: {
+            authorization: `Bearer ${this.daemonToken}`,
+            "content-length": String(bytes.byteLength),
+            "content-type": "application/octet-stream",
+            "x-content-sha256": sha256,
+          },
+          body: Buffer.from(bytes),
+        });
+        if (response.status >= 500 && attempt < this.maxRetryAttempts) {
+          await sleep(this.retryDelayMs);
+          continue;
+        }
+        await this.readJson<unknown>(response);
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt >= this.maxRetryAttempts) throw error;
+        await sleep(this.retryDelayMs);
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error("Workspace blob upload failed.");
+  }
+
   async completeTask(taskId: string, body: CompleteTaskRequest): Promise<void> {
     await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/complete`, body);
   }

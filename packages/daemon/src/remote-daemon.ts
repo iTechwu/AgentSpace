@@ -15,7 +15,12 @@ import {
 } from "@dofe-agent/domain";
 import { getStringFlag, parseArgs } from "./args.ts";
 import type { ClaimedDaemonTask, ClaimedManagedSkillServiceOperation, ClaimedRuntimeAppOperation, ClaimedSkillInstallationOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, RegisterDaemonResponse } from "./daemon-api.ts";
-import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeRemoteInputBundle } from "./bundle.ts";
+import {
+  clearTaskOutputArtifacts,
+  materializeRemoteInputBundle,
+  prepareRemoteOutputBundle,
+  readWorkspaceBlobUploadBytes,
+} from "./bundle.ts";
 import { readEmployeeHeadManifestSync } from "./workdir-capture.ts";
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
@@ -1079,12 +1084,15 @@ async function executeRemoteTask(
       reportTaskMessage({ type: "status", content: warning });
     }
 
-    const outputBundle = collectRuntimeOutputBundle(
+    const preparedOutput = prepareRemoteOutputBundle(
       workDir,
       readEmployeeHeadManifestSync(task.workspaceId, task.agentId),
     );
-    if (outputBundle) {
-      await client.uploadOutputBundle(task.id, outputBundle);
+    for (const upload of preparedOutput.uploads) {
+      await client.uploadWorkspaceBlob(task.id, upload.sha256, readWorkspaceBlobUploadBytes(upload));
+    }
+    if (preparedOutput.bundle) {
+      await client.uploadOutputBundle(task.id, preparedOutput.bundle);
     }
 
     await queuedMessageReports;

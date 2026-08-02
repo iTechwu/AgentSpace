@@ -2,11 +2,15 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, st
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { getWorkspaceDaemonRemoteStagingDirPath } from "@dofe-agent/db";
 import type { DaemonTaskOutputBundle } from "@dofe-agent/domain";
+import { createAttachmentStorageClient } from "@dofe-agent/services";
 import { WORKDIR_CAPTURE_INCLUDE_DIRS } from "dofe-agent-daemon";
 
 const MAX_OUTPUT_BUNDLE_FILES = 64;
 const MAX_OUTPUT_BUNDLE_SINGLE_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_OUTPUT_BUNDLE_TOTAL_BYTES = 25 * 1024 * 1024;
+const MAX_WORKSPACE_BLOB_FILES = 100_000;
+const MAX_WORKSPACE_BLOB_SINGLE_FILE_BYTES = 512 * 1024 * 1024;
+const MAX_WORKSPACE_BLOB_TOTAL_BYTES = 20 * 1024 * 1024 * 1024;
 const OUTPUT_BUNDLE_ALLOWED_PREFIX = "runtime-output/";
 /**
  * Bounded workDir subtrees captured by the daemon — SINGLE source of truth,
@@ -40,6 +44,7 @@ export function materializeOutputBundleToStaging(
   try {
     const runtimeOutputFiles = bundle.files ?? [];
     const workspaceFiles = bundle.workspaceFiles ?? [];
+    const workspaceBlobFiles = bundle.workspaceBlobFiles ?? [];
     if (runtimeOutputFiles.length + workspaceFiles.length > MAX_OUTPUT_BUNDLE_FILES) {
       throw new Error(`Output bundle has too many files; max is ${MAX_OUTPUT_BUNDLE_FILES}.`);
     }
@@ -54,6 +59,37 @@ export function materializeOutputBundleToStaging(
       }
       totalBytes = writeStagedFile(stagingDir, file.path, file.contentBase64, totalBytes, undefined, file.mode);
     }
+    if (workspaceBlobFiles.length > MAX_WORKSPACE_BLOB_FILES) {
+      throw new Error(`Workspace output has too many changed files; max is ${MAX_WORKSPACE_BLOB_FILES}.`);
+    }
+    const storage = createAttachmentStorageClient();
+    let workspaceBlobTotal = 0;
+    const seenBlobPaths = new Set<string>();
+    for (const file of workspaceBlobFiles) {
+      const normalizedPath = file.path.replace(/\\/g, "/").trim();
+      if (normalizedPath !== file.path) {
+        throw new Error(`Workspace output path is not canonical: ${file.path}`);
+      }
+      if (seenBlobPaths.has(normalizedPath) || workspaceFiles.some((inline) => inline.path === normalizedPath)) {
+        throw new Error(`Duplicate workspace output path: ${file.path}`);
+      }
+      seenBlobPaths.add(normalizedPath);
+      if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > MAX_WORKSPACE_BLOB_SINGLE_FILE_BYTES) {
+        throw new Error(`Workspace output file has invalid size: ${file.path}`);
+      }
+      workspaceBlobTotal += file.size;
+      if (workspaceBlobTotal > MAX_WORKSPACE_BLOB_TOTAL_BYTES) {
+        throw new Error("Workspace output exceeds the 20 GiB total limit.");
+      }
+      if (!/^[a-f0-9]{64}$/.test(file.sha256)) {
+        throw new Error(`Workspace output file has invalid digest: ${file.path}`);
+      }
+      const bytes = storage.getContentAddressedBlobSync({ workspaceId, sha256: file.sha256 });
+      if (bytes.byteLength !== file.size || createHash("sha256").update(bytes).digest("hex") !== file.sha256) {
+        throw new Error(`Workspace output blob failed verification: ${file.path}`);
+      }
+      writeStagedBytes(stagingDir, file.path, bytes, file.mode);
+    }
     const deletedPaths = (bundle.deletedPaths ?? []).filter((path) => isValidWorkDirCapturePath(path));
     if (deletedPaths.length > 0) {
       writeFileSync(join(stagingDir, DELETED_PATHS_META_FILE), JSON.stringify({ deletedPaths }), "utf8");
@@ -64,6 +100,21 @@ export function materializeOutputBundleToStaging(
   }
 
   return stagingDir;
+}
+
+function writeStagedBytes(stagingDir: string, path: string, content: Uint8Array, mode?: string): void {
+  const normalizedPath = path.replace(/\\/g, "/").trim();
+  if (
+    !normalizedPath || normalizedPath.startsWith("/") || isAbsolute(normalizedPath)
+    || normalizedPath.split("/").some((segment) => segment === "..")
+    || !WORKDIR_BUNDLE_ALLOWED_PREFIXES.some((prefix) => normalizedPath.startsWith(prefix))
+  ) {
+    throw new Error(`Invalid workspace output path: ${path}`);
+  }
+  const targetPath = join(stagingDir, normalizedPath);
+  mkdirSync(dirname(targetPath), { recursive: true });
+  writeFileSync(targetPath, content);
+  if (mode && /^[0-7]{3,4}$/.test(mode)) chmodSync(targetPath, Number.parseInt(mode, 8));
 }
 
 function writeStagedFile(
@@ -180,3 +231,4 @@ function walkStagedFiles(baseDir: string, visit: (absolutePath: string) => void)
     }
   }
 }
+import { createHash } from "node:crypto";

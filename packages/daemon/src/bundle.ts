@@ -1,10 +1,28 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  constants as fsConstants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { DaemonInputBundleFile, DaemonTaskInputBundle, DaemonTaskOutputBundle } from "./daemon-api.ts";
 import { getRuntimeOutputDir } from "./runtime-output.ts";
 import { collectRuntimeOutputBundleFiles } from "./runtime-output-manifests.ts";
-import { collectWorkDirChanges, type WorkDirFileEntry } from "./workdir-capture.ts";
+import {
+  collectWorkDirBlobChanges,
+  collectWorkDirChanges,
+  type WorkDirBlobUploadEntry,
+  type WorkDirFileEntry,
+} from "./workdir-capture.ts";
 
 export function clearTaskOutputArtifacts(workDir: string): void {
   rmSync(join(workDir, "last-message.txt"), { force: true });
@@ -271,6 +289,55 @@ export function collectRuntimeOutputBundle(
     ...(workspaceFiles.length > 0 ? { workspaceFiles } : {}),
     ...(capture.deletedPaths.length > 0 ? { deletedPaths: capture.deletedPaths } : {}),
   };
+}
+
+export function prepareRemoteOutputBundle(
+  workDir: string,
+  headManifest?: { files?: WorkDirFileEntry[] },
+): { bundle?: DaemonTaskOutputBundle; uploads: WorkDirBlobUploadEntry[] } {
+  const runtimeOutputDir = getRuntimeOutputDir(workDir);
+  const files = existsSync(runtimeOutputDir) ? collectRuntimeOutputBundleFiles(workDir) : [];
+  const capture = collectWorkDirBlobChanges(workDir, headManifest);
+  if (capture.unsafePaths.length > 0) {
+    throw new Error(
+      `workdir_capture_unsafe: refused ${capture.unsafePaths.length} unsafe path(s): ${capture.unsafePaths.slice(0, 3).join(", ")}`,
+    );
+  }
+  if (files.length === 0 && capture.files.length === 0 && capture.deletedPaths.length === 0) {
+    return { uploads: [] };
+  }
+  return {
+    bundle: {
+      version: 1,
+      format: "json-inline-v1",
+      files,
+      ...(capture.files.length > 0 ? {
+        workspaceBlobFiles: capture.files.map((file) => ({
+          path: file.path,
+          sha256: file.sha256,
+          size: file.size,
+          mode: file.mode,
+        })),
+      } : {}),
+      ...(capture.deletedPaths.length > 0 ? { deletedPaths: capture.deletedPaths } : {}),
+    },
+    uploads: capture.files,
+  };
+}
+
+export function readWorkspaceBlobUploadBytes(file: WorkDirBlobUploadEntry): Uint8Array {
+  const fd = openSync(file.absolutePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size !== file.size) {
+      throw new Error(`workspace_upload_source_changed: ${file.path}`);
+    }
+    const bytes = readFileSync(fd);
+    assertBlobBytes(file.path, file.sha256, file.size, bytes);
+    return bytes;
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export function sanitizePathSegment(value: string): string {

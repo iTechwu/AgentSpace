@@ -11,6 +11,7 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  readSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -38,6 +39,9 @@ export const WORKDIR_CAPTURE_INCLUDE_DIRS = ["repository", "state", "artifacts",
 export const WORKDIR_CAPTURE_MAX_FILES = 64;
 export const WORKDIR_CAPTURE_MAX_SINGLE_FILE_BYTES = 10 * 1024 * 1024;
 export const WORKDIR_CAPTURE_MAX_TOTAL_BYTES = 25 * 1024 * 1024;
+export const WORKDIR_INCREMENTAL_MAX_FILES = 100_000;
+export const WORKDIR_INCREMENTAL_MAX_SINGLE_FILE_BYTES = 512 * 1024 * 1024;
+export const WORKDIR_INCREMENTAL_MAX_TOTAL_BYTES = 20 * 1024 * 1024 * 1024;
 
 export interface CapturedWorkDirFile {
   /** Relative path under the workDir, e.g. `repository/src/a.ts`. */
@@ -69,6 +73,19 @@ export interface WorkDirCaptureResult {
 export interface WorkDirFileEntry {
   path: string;
   sha256: string;
+}
+
+export interface WorkDirBlobUploadEntry extends WorkDirFileEntry {
+  absolutePath: string;
+  size: number;
+  mode: string;
+}
+
+export interface WorkDirBlobCaptureResult {
+  files: WorkDirBlobUploadEntry[];
+  skippedUnchanged: number;
+  deletedPaths: string[];
+  unsafePaths: string[];
 }
 
 /** Reads the head revision's manifest for a task's employee (undefined when none). */
@@ -208,6 +225,83 @@ export function collectWorkDirChanges(
   }
 
   return { files, skippedUnchanged, truncated, unsafePaths: [...new Set(unsafePaths)], deletedPaths };
+}
+
+/**
+ * Builds a large-workspace change manifest without retaining file contents.
+ * Files are opened with O_NOFOLLOW and hashed in fixed-size chunks; callers
+ * subsequently upload one verified file at a time.
+ */
+export function collectWorkDirBlobChanges(
+  workDir: string,
+  headManifest?: { files?: WorkDirFileEntry[] },
+): WorkDirBlobCaptureResult {
+  const headDigestByPath = new Map((headManifest?.files ?? []).map((file) => [file.path, file.sha256.toLowerCase()]));
+  const files: WorkDirBlobUploadEntry[] = [];
+  const deletedPaths: string[] = [];
+  const unsafePaths: string[] = [];
+  let skippedUnchanged = 0;
+  let totalBytes = 0;
+
+  for (const file of headManifest?.files ?? []) {
+    if (!isCapturedIncludePath(file.path)) continue;
+    try {
+      const stat = lstatSync(join(workDir, file.path));
+      if (!stat.isFile() || stat.isSymbolicLink()) deletedPaths.push(file.path);
+    } catch {
+      deletedPaths.push(file.path);
+    }
+  }
+
+  for (const includeDir of WORKDIR_CAPTURE_INCLUDE_DIRS) {
+    const baseDir = join(workDir, includeDir);
+    try {
+      const rootStat = lstatSync(baseDir);
+      if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+        unsafePaths.push(`${includeDir}/`);
+        continue;
+      }
+      assertRealPathInside(baseDir, workDir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      unsafePaths.push(`${includeDir}/`);
+      continue;
+    }
+    walkCaptureFiles(baseDir, (absolutePath) => {
+      const relPath = `${includeDir}/${relative(baseDir, absolutePath).replace(/\\/g, "/")}`;
+      try {
+        const captured = hashRegularFileNoFollow(absolutePath);
+        if (captured.size > WORKDIR_INCREMENTAL_MAX_SINGLE_FILE_BYTES) {
+          throw new Error(`workdir_file_size_exceeded: ${relPath}`);
+        }
+        if (headDigestByPath.get(relPath) === captured.sha256) {
+          skippedUnchanged += 1;
+          return;
+        }
+        if (files.length >= WORKDIR_INCREMENTAL_MAX_FILES) {
+          throw new Error(`workdir_file_count_exceeded: max ${WORKDIR_INCREMENTAL_MAX_FILES}`);
+        }
+        totalBytes += captured.size;
+        if (totalBytes > WORKDIR_INCREMENTAL_MAX_TOTAL_BYTES) {
+          throw new Error("workdir_total_size_exceeded: max 20 GiB");
+        }
+        files.push({
+          path: relPath,
+          absolutePath,
+          sha256: captured.sha256,
+          size: captured.size,
+          mode: captured.mode,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.startsWith("workdir_")) throw error;
+        unsafePaths.push(relPath);
+      }
+    }, (absolutePath) => {
+      unsafePaths.push(relative(workDir, absolutePath).replace(/\\/g, "/"));
+    });
+  }
+  return { files, skippedUnchanged, deletedPaths, unsafePaths: [...new Set(unsafePaths)] };
 }
 
 function isCapturedIncludePath(path: string): boolean {
@@ -577,6 +671,34 @@ function readFileBytesNoFollow(absolutePath: string): Uint8Array {
   const fd = openSync(absolutePath, flags);
   try {
     return readFileSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function hashRegularFileNoFollow(absolutePath: string): { sha256: string; size: number; mode: string } {
+  const fd = openSync(absolutePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  try {
+    const before = fstatSync(fd);
+    if (!before.isFile() || before.nlink !== 1) throw new Error("capture source is not a single-link regular file");
+    const hash = createHash("sha256");
+    const chunk = Buffer.allocUnsafe(1024 * 1024);
+    let total = 0;
+    while (true) {
+      const count = readSync(fd, chunk, 0, chunk.byteLength, null);
+      if (count === 0) break;
+      hash.update(chunk.subarray(0, count));
+      total += count;
+    }
+    const after = fstatSync(fd);
+    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || total !== before.size) {
+      throw new Error("capture source changed while hashing");
+    }
+    return {
+      sha256: hash.digest("hex"),
+      size: total,
+      mode: (before.mode & 0o777).toString(8).padStart(4, "0"),
+    };
   } finally {
     closeSync(fd);
   }
