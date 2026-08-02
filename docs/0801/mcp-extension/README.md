@@ -29,4 +29,4 @@
 - Codex 注入已实现（`--ignore-user-config` + 整表替换 `--config mcp_servers=…`，尽力隔离用户/项目预置 MCP），但**隔离与真实 E2E 未验证**：市场页默认不将 Codex 标记为 MCP 可用，需显式开启 `MCP_CODEX_EXPERIMENTAL_ENABLED=1` 才可选。在指定 CI 环境通过端到端验证前，Codex 不得对外宣称支持 MCP。
 - 其他 Provider（openclaw / hermes / opencode 等）未接入；接入方式是在 `packages/daemon/src/agent-router/mcp-gateway.ts` 增加对应 harness 的 builder。
 
-不可变目录 release、Skill 对 MCP catalog release 的版本固定、市场分类筛选、持久审计 outbox、执行主体快照、终态授权清理和主密钥轮换已经落地。完整“任务可调用 MCP”发布仍需等待：真实 Claude CLI 端到端验证、Codex 隔离与端到端验证、二层 egress 策略、受管 stdio/OAuth。
+不可变目录 release、Skill 对 MCP catalog release 的版本固定及运行时精确消费、托管 Skill 服务的 fail-closed 出站策略、市场分类筛选、持久审计 outbox、执行主体快照、终态授权清理和主密钥轮换已经落地。托管 Skill 服务的出站控制不等同于 Provider Runtime 二层隔离；完整“任务可调用 MCP”发布仍需等待：真实 Claude CLI 端到端验证、Codex 隔离与端到端验证、Provider Runtime 二层 egress 策略、受管 stdio/OAuth。
