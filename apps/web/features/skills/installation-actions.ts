@@ -7,17 +7,21 @@ import {
   listSkillInstallationsSync,
   readActiveArtifactDigestForSkillSync,
   readSkillArtifactByDigestSync,
+  readSkillArtifactFilesSync,
   readSkillInstallationComponentsSync,
   readSkillInstallationSync,
 } from "@dofe-agent/db";
 import {
   approveSkillUpgradeSync,
+  buildSkillInstallationComponentsSync,
+  computeSkillReleaseLockSync,
   computeSkillUpgradeDiffHashSync,
   createSkillInstallationPlanSync,
   createSkillUpgradePlanSync,
   diffSkillArtifactsSync,
   rollbackSkillInstallationSync,
   tryRecordWorkspaceAuditEventSync,
+  uninstallSkillInstallationSync,
 } from "@dofe-agent/services";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
 import { assertWorkspaceRoleForContext } from "@/features/auth/workspace-permissions";
@@ -43,6 +47,73 @@ export interface SkillInstallableRuntime {
   provider: string;
   status: string;
   provisioningState?: string;
+}
+
+export interface SkillInstallationInspectionView {
+  artifact: {
+    name: string;
+    version: string;
+    digest: string;
+    sourceType: string;
+    fileCount: number;
+    totalSizeBytes: number;
+  };
+  files: Array<{ path: string; sizeBytes: number; mediaType: string; mode: string }>;
+  dependencies: Array<{ kind: string; name: string; version: string; integrity?: string }>;
+  capabilities: Array<{ kind: string; catalogSlug: string; requiredTools: string[] }>;
+  services: Array<{ catalogSlug: string; templateVersion: string; required: boolean }>;
+  entrypoints: Array<{ id: string; path: string; runtime: string }>;
+  components: Array<{ kind: string; key: string }>;
+  releaseLockDigest: string;
+  unresolvedRequired: string[];
+}
+
+export async function inspectSkillInstallationAction(input: {
+  skillId: string;
+}): Promise<SkillInstallationInspectionView> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertRequired(input.skillId, "skill id");
+
+  const digest = readActiveArtifactDigestForSkillSync(input.skillId.trim(), workspaceContext.currentWorkspace.id);
+  if (!digest) {
+    throw new Error("此 Skill 尚无不可变 artifact，请先重新导入以生成 artifact。");
+  }
+  const artifact = readSkillArtifactByDigestSync(digest, workspaceContext.currentWorkspace.id);
+  if (!artifact) {
+    throw new Error("Skill artifact 不存在或不属于当前工作区。");
+  }
+  const manifest = parseInspectionManifest(artifact.manifestJson);
+  const releaseLock = computeSkillReleaseLockSync(artifact, workspaceContext.currentWorkspace.id);
+  return {
+    artifact: {
+      name: artifact.name,
+      version: artifact.version,
+      digest: artifact.digest,
+      sourceType: artifact.sourceType,
+      fileCount: artifact.fileCount,
+      totalSizeBytes: artifact.totalSizeBytes,
+    },
+    files: readSkillArtifactFilesSync(artifact.id).map((file) => ({
+      path: file.path,
+      sizeBytes: file.sizeBytes,
+      mediaType: file.mediaType,
+      mode: file.mode,
+    })),
+    dependencies: manifest.dependencies ?? [],
+    capabilities: (manifest.capabilities ?? []).map((capability) => ({
+      ...capability,
+      requiredTools: capability.requiredTools ?? [],
+    })),
+    services: manifest.services ?? [],
+    entrypoints: manifest.entrypoints ?? [],
+    components: buildSkillInstallationComponentsSync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      artifactDigest: artifact.digest,
+    }).map((component) => ({ kind: component.kind, key: component.key })),
+    releaseLockDigest: releaseLock.lockDigest,
+    unresolvedRequired: releaseLock.unresolvedRequired,
+  };
 }
 
 /** Runtimes available for skill installation in the current workspace. */
@@ -227,9 +298,19 @@ export interface SkillInstallationRowView {
   status: string;
   revision: string;
   previousReadyRevision?: string;
+  releaseLockDigest?: string;
+  preparedDigest?: string;
+  health: string;
   createdAt: string;
-  components: Array<{ kind: string; key: string; status: string }>;
-  operations: Array<{ id: string; operation: string; status: string; errorMessage?: string }>;
+  components: Array<{ kind: string; key: string; status: string; errorCode?: string; errorMessage?: string }>;
+  operations: Array<{
+    id: string;
+    operation: string;
+    status: string;
+    claimGeneration: number;
+    errorMessage?: string;
+    evidence?: { computedDigest?: string; cacheHit?: boolean; installedDependencyCount?: number };
+  }>;
 }
 
 export async function listSkillInstallationRowsForSkillAction(input: {
@@ -255,11 +336,16 @@ export async function listSkillInstallationRowsForSkillAction(input: {
         status: installation.status,
         revision: installation.revision,
         previousReadyRevision: installation.previousReadyRevision,
+        releaseLockDigest: readReleaseLockDigest(installation.resolvedLockJson),
+        preparedDigest: installation.preparedDigest,
+        health: installation.health,
         createdAt: installation.createdAt,
         components: readSkillInstallationComponentsSync(installation.id).map((component) => ({
           kind: component.kind,
           key: component.key,
           status: component.status,
+          errorCode: component.errorCode,
+          errorMessage: component.errorMessage,
         })),
         operations: listSkillInstallationOperationsSync({
           workspaceId: workspaceContext.currentWorkspace.id,
@@ -269,7 +355,9 @@ export async function listSkillInstallationRowsForSkillAction(input: {
           id: operation.id,
           operation: operation.operation,
           status: operation.status,
+          claimGeneration: operation.claimGeneration,
           errorMessage: operation.errorMessage,
+          evidence: readOperationEvidence(operation.safeResultJson),
         })),
       });
     }
@@ -296,11 +384,16 @@ export async function readSkillInstallationDetailAction(input: {
     status: installation.status,
     revision: installation.revision,
     previousReadyRevision: installation.previousReadyRevision,
+    releaseLockDigest: readReleaseLockDigest(installation.resolvedLockJson),
+    preparedDigest: installation.preparedDigest,
+    health: installation.health,
     createdAt: installation.createdAt,
     components: readSkillInstallationComponentsSync(installation.id).map((component) => ({
       kind: component.kind,
       key: component.key,
       status: component.status,
+      errorCode: component.errorCode,
+      errorMessage: component.errorMessage,
     })),
     operations: listSkillInstallationOperationsSync({
       workspaceId: workspaceContext.currentWorkspace.id,
@@ -310,9 +403,82 @@ export async function readSkillInstallationDetailAction(input: {
       id: operation.id,
       operation: operation.operation,
       status: operation.status,
+      claimGeneration: operation.claimGeneration,
       errorMessage: operation.errorMessage,
+      evidence: readOperationEvidence(operation.safeResultJson),
     })),
   };
+}
+
+export async function uninstallSkillInstallationAction(input: {
+  installationId: string;
+}): Promise<ActionToastResult<{ removedBindings: number }>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertRequired(input.installationId, "installation id");
+  const installationId = input.installationId.trim();
+  const result = uninstallSkillInstallationSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    installationId,
+  });
+  if (!result.ok) throw new Error(result.reason);
+
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    title: "Skill installation uninstalled",
+    note: `Installation "${installationId}" was uninstalled by ${workspaceContext.currentUser.displayName}.`,
+    code: "skill_installation.uninstalled",
+    data: {
+      actorType: "session_user",
+      resourceType: "skill_installation",
+      resourceId: installationId,
+      removedBindings: result.removedBindings,
+    },
+  });
+  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+  return actionToastResult(
+    { removedBindings: result.removedBindings },
+    successToast("Runtime 安装已卸载。", "Runtime installation uninstalled."),
+  );
+}
+
+function readReleaseLockDigest(resolvedLockJson: string): string | undefined {
+  try {
+    const parsed = JSON.parse(resolvedLockJson) as { lockDigest?: unknown };
+    return typeof parsed.lockDigest === "string" ? parsed.lockDigest : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readOperationEvidence(safeResultJson: string): SkillInstallationRowView["operations"][number]["evidence"] {
+  if (!safeResultJson) return undefined;
+  try {
+    const parsed = JSON.parse(safeResultJson) as Record<string, unknown>;
+    const evidence = {
+      ...(typeof parsed.computedDigest === "string" ? { computedDigest: parsed.computedDigest } : {}),
+      ...(typeof parsed.cacheHit === "boolean" ? { cacheHit: parsed.cacheHit } : {}),
+      ...(Array.isArray(parsed.installedDependencies)
+        ? { installedDependencyCount: parsed.installedDependencies.length }
+        : {}),
+    };
+    return Object.keys(evidence).length > 0 ? evidence : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseInspectionManifest(manifestJson: string): {
+  dependencies?: Array<{ kind: string; name: string; version: string; integrity?: string }>;
+  capabilities?: Array<{ kind: string; catalogSlug: string; requiredTools?: string[] }>;
+  services?: Array<{ catalogSlug: string; templateVersion: string; required: boolean }>;
+  entrypoints?: Array<{ id: string; path: string; runtime: string }>;
+} {
+  try {
+    return JSON.parse(manifestJson) as ReturnType<typeof parseInspectionManifest>;
+  } catch {
+    throw new Error("Skill artifact manifest 无法解析。");
+  }
 }
 
 function assertRequired(value: string | undefined, label: string): void {

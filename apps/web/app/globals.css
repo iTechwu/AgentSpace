@@ -32094,6 +32094,511 @@ button[aria-disabled="true"] svg {
   flex: none;
 }
 
+/* Skill installation: inspection-first wizard and operational evidence. */
+.modal-card--skill-install {
+  display: flex;
+  flex-direction: column;
+  width: min(900px, 100%);
+  max-height: min(860px, calc(100dvh - 2rem));
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.modal-card--skill-install .modal-card__header,
+.modal-card--skill-install .modal-card__footer,
+.skill-install-steps {
+  flex: 0 0 auto;
+}
+
+.modal-card--skill-install .modal-card__body {
+  min-height: 330px;
+  overflow-y: auto;
+}
+
+.skill-install-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--line);
+  list-style: none;
+}
+
+.skill-install-steps__item {
+  min-width: 0;
+}
+
+.skill-install-steps__item button {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.35rem;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0;
+  text-align: left;
+}
+
+.skill-install-steps__item button span {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  font-size: 0.7rem;
+}
+
+.skill-install-steps__item--active button {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.skill-install-steps__item--active button span {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.skill-install-steps__item--done button {
+  color: var(--success);
+}
+
+.skill-install-wizard,
+.skill-install-step-panel {
+  min-width: 0;
+}
+
+.skill-install-state {
+  min-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  color: var(--muted);
+}
+
+.skill-install-state--error {
+  flex-direction: column;
+  color: var(--danger);
+  text-align: center;
+}
+
+.skill-install-state--error span {
+  max-width: 42rem;
+  overflow-wrap: anywhere;
+}
+
+.spin {
+  animation: skill-install-spin 900ms linear infinite;
+}
+
+@keyframes skill-install-spin {
+  to { transform: rotate(360deg); }
+}
+
+.skill-install-step-panel {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.skill-install-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-block: 1px solid var(--line);
+}
+
+.skill-install-summary > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem;
+  border-right: 1px solid var(--line);
+}
+
+.skill-install-summary > div:last-child {
+  border-right: 0;
+}
+
+.skill-install-summary span,
+.skill-install-lock span,
+.skill-installation-evidence dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.skill-install-summary strong {
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+}
+
+.skill-install-file-list {
+  max-height: 290px;
+  overflow: auto;
+  border-block: 1px solid var(--line);
+}
+
+.skill-install-file-list > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  padding: 0.55rem 0.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.skill-install-file-list > div:last-child {
+  border-bottom: 0;
+}
+
+.skill-install-file-list code,
+.skill-install-lock code,
+.skill-install-confirmation code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.skill-install-file-list span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.skill-runtime-picker {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.skill-runtime-picker__option {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 0.65rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.skill-runtime-picker__option input {
+  grid-row: 1 / -1;
+  align-self: center;
+}
+
+.skill-runtime-picker__option--active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.skill-runtime-picker__option--disabled {
+  opacity: 0.55;
+}
+
+.skill-runtime-picker__name {
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.skill-runtime-picker__meta {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.skill-install-declarations {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.skill-install-declarations > div {
+  min-width: 0;
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.skill-install-declarations h4,
+.skill-install-declarations p {
+  margin: 0;
+}
+
+.skill-install-declarations ul {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skill-install-declarations code {
+  overflow-wrap: anywhere;
+}
+
+.skill-install-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.skill-install-alert--danger {
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.skill-install-alert--danger div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.skill-install-alert--success {
+  border-color: color-mix(in srgb, var(--success) 28%, transparent);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.skill-install-component-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-block: 1px solid var(--line);
+}
+
+.skill-install-component-grid > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.65rem 0.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.skill-install-component-grid span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.skill-install-component-grid code {
+  overflow-wrap: anywhere;
+}
+
+.skill-install-lock {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.skill-install-confirmation dl,
+.skill-installation-evidence {
+  margin: 0;
+}
+
+.skill-install-confirmation dl > div {
+  display: grid;
+  grid-template-columns: 145px minmax(0, 1fr);
+  gap: 1rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.skill-install-confirmation dt {
+  color: var(--muted);
+}
+
+.skill-install-confirmation dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.skill-installation-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.skill-installation-list__toolbar,
+.skill-installation-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.skill-installation-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.skill-installation-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.skill-installation-card__header h4,
+.skill-installation-card__digest {
+  margin: 0;
+}
+
+.skill-installation-card__meta,
+.skill-installation-card__digest {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.skill-installation-card__actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.skill-installation-card__uninstall {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--danger);
+}
+
+.skill-installation-evidence {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line);
+}
+
+.skill-installation-evidence > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.65rem 1rem;
+  border-right: 1px solid var(--line);
+}
+
+.skill-installation-evidence > div:last-child {
+  border-right: 0;
+}
+
+.skill-installation-evidence dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.76rem;
+}
+
+.skill-installation-card__body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.skill-installation-card__section {
+  min-width: 0;
+  padding: 0.85rem 1rem;
+}
+
+.skill-installation-card__section + .skill-installation-card__section {
+  border-left: 1px solid var(--line);
+}
+
+.skill-installation-card__section h5 {
+  margin: 0 0 0.55rem;
+}
+
+.skill-installation-components,
+.skill-installation-operations {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skill-installation-components li,
+.skill-installation-operations li {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.75rem;
+}
+
+.skill-installation-component__kind,
+.skill-installation-operation__type {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.skill-installation-component__key,
+.skill-installation-operation__error {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-installation-component__status,
+.skill-installation-operation__status,
+.skill-installation-operation__attempt {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+}
+
+.skill-installation-component__error,
+.skill-installation-operation__error {
+  color: var(--danger);
+}
+
+.skill-installation-operation__evidence {
+  color: var(--success);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .skill-install-steps {
+    grid-template-columns: repeat(5, minmax(108px, 1fr));
+    overflow-x: auto;
+    padding-inline: 1rem;
+  }
+
+  .skill-install-summary,
+  .skill-install-declarations,
+  .skill-install-component-grid,
+  .skill-installation-card__body,
+  .skill-installation-evidence {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .skill-install-summary > div,
+  .skill-installation-evidence > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .skill-installation-card__section + .skill-installation-card__section {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .skill-install-confirmation dl > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+}
+
 /* Feishu integration settings: 4px-based spacing rhythm. */
 .settings-group--integration .settings-page__title {
   margin-bottom: 1.5rem;

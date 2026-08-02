@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import { runToastAction } from "@/shared/lib/toast-action";
@@ -8,8 +8,10 @@ import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import {
   createSkillInstallationAction,
+  inspectSkillInstallationAction,
   listSkillInstallableRuntimesAction,
   type SkillInstallableRuntime,
+  type SkillInstallationInspectionView,
 } from "@/features/skills/installation-actions";
 
 interface InstallSkillModalProps {
@@ -18,60 +20,71 @@ interface InstallSkillModalProps {
   readonly onInstalled?: () => void;
 }
 
-/**
- * Skill 安装向导（Phase 5）：选择目标 Runtime 并创建 installation plan。
- * plan 创建后由 daemon 通过 skill-operations REST 协议准备环境；控制面只建模，
- * 不直接操作 Runtime（02-架构设计.md §4.1）。
- */
-export function InstallSkillModal({
-  skillId,
-  onCancel,
-  onInstalled,
-}: InstallSkillModalProps) {
+export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSkillModalProps) {
   const { tx } = useLanguage();
   const { pushToast } = useFeedbackToast();
   const { surfaceRef, handleBackdropMouseDown, labelId, descriptionId } = useDialogSurface<HTMLFormElement>(onCancel);
+  const [inspection, setInspection] = useState<SkillInstallationInspectionView>();
   const [runtimes, setRuntimes] = useState<SkillInstallableRuntime[]>([]);
-  const [selectedRuntimeId, setSelectedRuntimeId] = useState<string>("");
+  const [selectedRuntimeId, setSelectedRuntimeId] = useState("");
+  const [step, setStep] = useState(0);
+  const [loadGeneration, setLoadGeneration] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [pending, setPending] = useState(false);
+
+  const load = useCallback(() => setLoadGeneration((value) => value + 1), []);
 
   useEffect(() => {
     let cancelled = false;
-    void listSkillInstallableRuntimesAction().then((rows) => {
-      if (cancelled) {
-        return;
-      }
+    setLoading(true);
+    setLoadError("");
+    void Promise.all([
+      inspectSkillInstallationAction({ skillId }),
+      listSkillInstallableRuntimesAction(),
+    ]).then(([nextInspection, rows]) => {
+      if (cancelled) return;
+      setInspection(nextInspection);
       setRuntimes(rows);
       const firstOnline = rows.find((runtime) => runtime.status === "online");
-      setSelectedRuntimeId(firstOnline?.id ?? rows[0]?.id ?? "");
+      setSelectedRuntimeId((current) => current || firstOnline?.id || "");
+    }).catch((error: unknown) => {
+      if (!cancelled) setLoadError(error instanceof Error ? error.message : tx("安装检查失败。", "Installation inspection failed."));
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
     });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    return () => { cancelled = true; };
+  }, [loadGeneration, skillId, tx]);
+
+  const selectedRuntime = useMemo(
+    () => runtimes.find((runtime) => runtime.id === selectedRuntimeId),
+    [runtimes, selectedRuntimeId],
+  );
+  const blocked = (inspection?.unresolvedRequired.length ?? 0) > 0;
+  const steps = [
+    tx("包检查", "Package"),
+    tx("Runtime", "Runtime"),
+    tx("能力与服务", "Access"),
+    tx("就绪约束", "Readiness"),
+    tx("确认", "Confirm"),
+  ];
 
   const confirmInstall = () => {
-    if (!selectedRuntimeId) {
-      return;
-    }
+    if (!selectedRuntimeId || !inspection || blocked) return;
     setPending(true);
     void runToastAction({
       action: () => createSkillInstallationAction({ skillId, runtimeId: selectedRuntimeId }),
       pushToast,
       tx,
       fallbackError: { zh: "创建安装计划失败。", en: "Failed to create the installation plan." },
-      onSuccess: () => {
-        onInstalled?.();
-      },
-    }).finally(() => {
-      setPending(false);
-    });
+      onSuccess: () => onInstalled?.(),
+    }).finally(() => setPending(false));
   };
 
   return (
     <div className="modal-backdrop" onMouseDown={handleBackdropMouseDown} role="presentation">
       <form
-        className="modal-card"
+        className="modal-card modal-card--skill-install"
         aria-describedby={descriptionId}
         aria-labelledby={labelId}
         aria-modal="true"
@@ -80,74 +93,137 @@ export function InstallSkillModal({
         tabIndex={-1}
         onSubmit={(event) => {
           event.preventDefault();
-          confirmInstall();
+          if (step === steps.length - 1) confirmInstall();
+          else setStep((value) => Math.min(value + 1, steps.length - 1));
         }}
       >
         <div className="modal-card__header">
           <div>
-            <h3 id={labelId}>{tx("安装到 Runtime", "Install to a runtime")}</h3>
+            <h3 id={labelId}>{tx("安装 Skill", "Install skill")}</h3>
             <p id={descriptionId}>
-              {tx("选择目标 Runtime。系统将生成安装计划；daemon 在目标机器上准备只读 artifact、依赖与能力，全部验证通过后才标记为 ready。",
-                "Pick a target runtime. A plan is created; the daemon prepares the read-only artifact, dependencies and capabilities on that machine, and the skill only becomes ready once every component verifies.")}
+              {inspection
+                ? `${inspection.artifact.name} · ${inspection.artifact.version || tx("未标版本", "unversioned")} · ${inspection.artifact.digest.slice(0, 12)}…`
+                : tx("读取不可变 artifact…", "Reading immutable artifact…")}
             </p>
           </div>
-          <button className="modal-close" onClick={onCancel} type="button">
+          <button aria-label={tx("关闭", "Close")} className="modal-close" onClick={onCancel} title={tx("关闭", "Close")} type="button">
             <AppIcon name="close" />
           </button>
         </div>
 
-        <div className="modal-card__body">
-          <fieldset className="form-field">
-            <legend>{tx("目标 Runtime", "Target runtime")}</legend>
-            {runtimes.length === 0 ? (
-              <p className="form-field__hint">{tx("正在加载 Runtime 列表…", "Loading runtimes…")}</p>
-            ) : (
-              <div className="skill-runtime-picker" role="radiogroup" aria-label={tx("目标 Runtime", "Target runtime")}>
-                {runtimes.map((runtime) => {
-                  const offline = runtime.status !== "online";
-                  return (
-                    <label
-                      className={`skill-runtime-picker__option${selectedRuntimeId === runtime.id ? " skill-runtime-picker__option--active" : ""}${offline ? " skill-runtime-picker__option--disabled" : ""}`}
-                      key={runtime.id}
-                    >
-                      <input
-                        checked={selectedRuntimeId === runtime.id}
-                        disabled={offline}
-                        name="runtime"
-                        onChange={() => setSelectedRuntimeId(runtime.id)}
-                        type="radio"
-                        value={runtime.id}
-                      />
-                      <span className="skill-runtime-picker__name">
-                        {runtime.name}
-                        {offline ? ` · ${tx("离线", "offline")}` : ""}
-                      </span>
-                      <span className="skill-runtime-picker__meta">
-                        {runtime.provider}
-                        {runtime.provisioningState ? ` · ${runtime.provisioningState}` : ""}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </fieldset>
+        <ol aria-label={tx("安装步骤", "Installation steps")} className="skill-install-steps">
+          {steps.map((label, index) => (
+            <li className={index === step ? "skill-install-steps__item skill-install-steps__item--active" : index < step ? "skill-install-steps__item skill-install-steps__item--done" : "skill-install-steps__item"} key={label}>
+              <button disabled={index > step || loading} onClick={() => setStep(index)} type="button">
+                <span>{index + 1}</span>{label}
+              </button>
+            </li>
+          ))}
+        </ol>
 
-          <div className="form-field__hint" role="note">
-            {tx("安装后 Skill 需所有必需组件（依赖 / 脚本 / CLI / MCP / 服务）在目标 Runtime 上验证通过才进入任务。",
-              "After installation the skill only enters tasks when every required component (dependencies / scripts / CLI / MCP / services) is verified on the target runtime.")}
-          </div>
+        <div className="modal-card__body skill-install-wizard">
+          {loading ? <div className="skill-install-state"><AppIcon className="spin" name="loader" /><span>{tx("正在检查 Skill…", "Inspecting skill…")}</span></div> : null}
+          {!loading && loadError ? (
+            <div className="skill-install-state skill-install-state--error" role="alert">
+              <AppIcon name="alertCircle" />
+              <strong>{tx("无法完成安装检查", "Inspection failed")}</strong>
+              <span>{loadError}</span>
+              <button className="modal-secondary-button" onClick={load} type="button"><AppIcon name="refresh" />{tx("重试", "Retry")}</button>
+            </div>
+          ) : null}
+
+          {!loading && !loadError && inspection && step === 0 ? (
+            <section className="skill-install-step-panel">
+              <div className="skill-install-summary">
+                <div><span>{tx("文件", "Files")}</span><strong>{inspection.artifact.fileCount}</strong></div>
+                <div><span>{tx("总大小", "Total size")}</span><strong>{formatBytes(inspection.artifact.totalSizeBytes)}</strong></div>
+                <div><span>{tx("来源", "Source")}</span><strong>{inspection.artifact.sourceType}</strong></div>
+                <div><span>{tx("可执行文件", "Executables")}</span><strong>{inspection.files.filter((file) => file.mode === "0755").length}</strong></div>
+              </div>
+              <div className="skill-install-file-list">
+                {inspection.files.map((file) => (
+                  <div key={file.path}><code>{file.path}</code><span>{file.mode} · {formatBytes(file.sizeBytes)}</span></div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {!loading && !loadError && inspection && step === 1 ? (
+            <fieldset className="form-field skill-install-step-panel">
+              <legend>{tx("目标 Runtime", "Target runtime")}</legend>
+              {runtimes.length === 0 ? <p className="skill-install-alert">{tx("没有在线 Runtime。", "No online runtime is available.")}</p> : (
+                <div className="skill-runtime-picker" role="radiogroup" aria-label={tx("目标 Runtime", "Target runtime")}>
+                  {runtimes.map((runtime) => {
+                    const offline = runtime.status !== "online";
+                    return (
+                      <label className={`skill-runtime-picker__option${selectedRuntimeId === runtime.id ? " skill-runtime-picker__option--active" : ""}${offline ? " skill-runtime-picker__option--disabled" : ""}`} key={runtime.id}>
+                        <input checked={selectedRuntimeId === runtime.id} disabled={offline} name="runtime" onChange={() => setSelectedRuntimeId(runtime.id)} type="radio" value={runtime.id} />
+                        <span className="skill-runtime-picker__name">{runtime.name}</span>
+                        <span className="skill-runtime-picker__meta">{runtime.provider} · {offline ? tx("离线", "offline") : tx("在线", "online")}{runtime.provisioningState ? ` · ${runtime.provisioningState}` : ""}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </fieldset>
+          ) : null}
+
+          {!loading && !loadError && inspection && step === 2 ? (
+            <section className="skill-install-step-panel skill-install-declarations">
+              <DeclarationGroup title={tx("依赖", "Dependencies")} empty={tx("无", "None")} rows={inspection.dependencies.map((item) => `${item.kind}:${item.name}@${item.version}${item.integrity ? " · integrity" : ""}`)} />
+              <DeclarationGroup title={tx("CLI / MCP 能力", "CLI / MCP access")} empty={tx("无", "None")} rows={inspection.capabilities.map((item) => `${item.kind}:${item.catalogSlug}${item.requiredTools.length ? ` · ${item.requiredTools.join(", ")}` : ""}`)} />
+              <DeclarationGroup title={tx("支撑服务", "Support services")} empty={tx("无", "None")} rows={inspection.services.map((item) => `${item.catalogSlug}@${item.templateVersion} · ${item.required ? tx("必需", "required") : tx("可选", "optional")}`)} />
+              <DeclarationGroup title={tx("脚本入口", "Script entrypoints")} empty={tx("无", "None")} rows={inspection.entrypoints.map((item) => `${item.runtime}:${item.path}`)} />
+            </section>
+          ) : null}
+
+          {!loading && !loadError && inspection && step === 3 ? (
+            <section className="skill-install-step-panel">
+              {blocked ? (
+                <div className="skill-install-alert skill-install-alert--danger" role="alert"><AppIcon name="alertCircle" /><div><strong>{tx("必需能力未解析", "Required capability unresolved")}</strong>{inspection.unresolvedRequired.map((item) => <code key={item}>{item}</code>)}</div></div>
+              ) : (
+                <div className="skill-install-alert skill-install-alert--success"><AppIcon name="checkCircle" /><strong>{tx("Release lock 已完整解析", "Release lock resolved")}</strong></div>
+              )}
+              <div className="skill-install-component-grid">
+                {inspection.components.map((component) => <div key={`${component.kind}:${component.key}`}><span>{component.kind}</span><code>{component.key}</code></div>)}
+              </div>
+              <p className="skill-install-lock"><span>release lock</span><code>{inspection.releaseLockDigest}</code></p>
+            </section>
+          ) : null}
+
+          {!loading && !loadError && inspection && step === 4 ? (
+            <section className="skill-install-step-panel skill-install-confirmation">
+              <dl>
+                <div><dt>Skill</dt><dd>{inspection.artifact.name} · {inspection.artifact.version || tx("未标版本", "unversioned")}</dd></div>
+                <div><dt>Runtime</dt><dd>{selectedRuntime ? `${selectedRuntime.name} · ${selectedRuntime.provider}` : tx("未选择", "Not selected")}</dd></div>
+                <div><dt>Artifact</dt><dd><code>{inspection.artifact.digest}</code></dd></div>
+                <div><dt>Release lock</dt><dd><code>{inspection.releaseLockDigest}</code></dd></div>
+                <div><dt>{tx("验证组件", "Verification components")}</dt><dd>{inspection.components.length}</dd></div>
+              </dl>
+              {blocked ? <p className="skill-install-alert skill-install-alert--danger">{tx("必需能力未解析，不能创建安装计划。", "Required capabilities are unresolved; the plan cannot be created.")}</p> : null}
+            </section>
+          ) : null}
         </div>
 
         <div className="modal-card__footer">
-          <button className="modal-secondary-button" onClick={onCancel} type="button">
-            {tx("取消", "Cancel")}
+          <button className="modal-secondary-button" disabled={pending} onClick={step === 0 ? onCancel : () => setStep((value) => Math.max(0, value - 1))} type="button">
+            {step > 0 ? <AppIcon name="arrowLeft" /> : null}{step === 0 ? tx("取消", "Cancel") : tx("上一步", "Back")}
           </button>
-          <button className="primary-button" disabled={pending || !selectedRuntimeId} type="submit">
-            {pending ? tx("创建计划中…", "Creating plan…") : tx("创建安装计划", "Create installation plan")}
+          <button className="primary-button" disabled={pending || loading || Boolean(loadError) || (step >= 1 && !selectedRuntimeId) || (step === steps.length - 1 && blocked)} type="submit">
+            {step === steps.length - 1 ? (pending ? tx("创建中…", "Creating…") : <><AppIcon name="checkCircle" />{tx("创建安装计划", "Create plan")}</>) : <>{tx("下一步", "Next")}<AppIcon name="arrowRight" /></>}
           </button>
         </div>
       </form>
     </div>
   );
+}
+
+function DeclarationGroup({ title, empty, rows }: { title: string; empty: string; rows: string[] }) {
+  return <div><h4>{title}</h4>{rows.length ? <ul>{rows.map((row) => <li key={row}><code>{row}</code></li>)}</ul> : <p>{empty}</p>}</div>;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

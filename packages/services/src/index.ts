@@ -359,6 +359,7 @@ export {
   type ArtifactIntegrityResult,
 } from "./skills/skill-artifacts.ts";
 export {
+  buildSkillInstallationComponentsSync,
   createSkillInstallationPlanSync,
   resolveClaimedSkillInstallationOperation,
   completeSkillInstallationOperationSync,
