@@ -938,6 +938,7 @@ export {
   retireManagedSkillServiceSync,
   createSkillServiceBindingSync,
   listSkillServiceBindingsSync,
+  listSkillServiceBindingsForServiceSync,
   type UpsertSkillServiceCatalogInput,
   type UpsertManagedSkillServiceInput,
   type CreateSkillServiceBindingInput,

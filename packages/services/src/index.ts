@@ -386,9 +386,11 @@ export {
 } from "./skill-services/catalog.ts";
 export {
   queueManagedSkillServiceForInstallationSync,
+  queueManagedSkillServiceRetireSync,
   completeManagedSkillServiceProvisionOperationSync,
   completeManagedSkillServiceRetireOperationSync,
   resolveClaimedManagedSkillServiceOperation,
+  retireUnreferencedManagedSkillServicesSync,
 } from "./skill-services/bindings.ts";
 export {
   computeSkillReleaseLockSync,

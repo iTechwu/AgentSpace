@@ -284,6 +284,14 @@ export function listSkillServiceBindingsSync(installationId: string): StoredSkil
   return rows.map(mapSkillServiceBindingRecord).filter((r): r is StoredSkillServiceBindingRecord => r !== null);
 }
 
+/** Bindings pointing at a given managed service (used by the retire sweep). */
+export function listSkillServiceBindingsForServiceSync(serviceId: string): StoredSkillServiceBindingRecord[] {
+  const rows = getDatabase().prepare(
+    `${SKILL_SERVICE_BINDING_COLUMNS} FROM skill_service_binding WHERE service_id = ? ORDER BY created_at DESC`,
+  ).all(serviceId) as Array<Record<string, unknown>>;
+  return rows.map(mapSkillServiceBindingRecord).filter((r): r is StoredSkillServiceBindingRecord => r !== null);
+}
+
 /* ------------------------------------------------------------------ */
 /* Mappers                                                             */
 /* ------------------------------------------------------------------ */

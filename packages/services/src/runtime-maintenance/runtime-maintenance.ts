@@ -12,6 +12,7 @@ import { reconcileAllManagedRuntimeUsageAsync } from "../models/usage-sync.ts";
 import { scheduleMcpHealthChecksSync } from "../mcp-center/connections.ts";
 import { advanceRecoverableOperationsSync } from "../employees/recovery-worker.ts";
 import { runEmployeeLifecycleMaintenanceSync } from "../employees/lifecycle-maintenance.ts";
+import { retireUnreferencedManagedSkillServicesSync } from "../skill-services/bindings.ts";
 import {
   requeueExpiredManagedSkillServiceOperationLeasesSync,
   requeueExpiredSkillInstallationOperationLeasesSync,
@@ -37,6 +38,7 @@ export interface RuntimeMaintenanceResult {
     recovery: RuntimeMaintenanceStageResult;
     skillOperationLeases: RuntimeMaintenanceStageResult;
     lifecycle: RuntimeMaintenanceStageResult;
+    skillServiceRetire?: RuntimeMaintenanceStageResult;
     commitReconciliation?: RuntimeMaintenanceStageResult;
   };
 }
@@ -60,6 +62,8 @@ export interface RuntimeMaintenanceDependencies {
   lifecycle: () => unknown;
   /** Optional web-side stage: re-drives stale preparing_commit journals. */
   commitReconciliation?: () => unknown;
+  /** Optional stage: retires managed skill services the last installation left. */
+  retireSkillServices?: () => unknown;
 }
 
 export const defaultDependencies: RuntimeMaintenanceDependencies = {
@@ -77,6 +81,7 @@ export const defaultDependencies: RuntimeMaintenanceDependencies = {
     requeueExpiredManagedSkillServiceOperationLeasesSync();
   },
   lifecycle: () => runEmployeeLifecycleMaintenanceSync(),
+  retireSkillServices: () => retireUnreferencedManagedSkillServicesSync(),
 };
 
 export async function runRuntimeMaintenanceAsync(
@@ -111,6 +116,7 @@ export async function runRuntimeMaintenanceAsync(
     ["recovery", dependencies.advanceRecoveries],
     ["skillOperationLeases", dependencies.requeueSkillOperationLeases],
     ["lifecycle", dependencies.lifecycle],
+    ...(dependencies.retireSkillServices ? [["skillServiceRetire", dependencies.retireSkillServices] as const] : []),
     ...(dependencies.commitReconciliation ? [["commitReconciliation", dependencies.commitReconciliation] as const] : []),
   ];
   for (const [name, operation] of operations) {

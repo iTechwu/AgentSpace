@@ -5,6 +5,7 @@ import {
   claimNextManagedSkillServiceOperationForRuntimeSync,
   createManagedSkillServiceOperationSync,
   createManagedSkillServiceSync,
+  createSkillServiceBindingSync,
   listManagedSkillServiceOperationsSync,
   listSkillServiceBindingsSync,
   readManagedSkillServiceSync,
@@ -17,8 +18,10 @@ import {
   completeManagedSkillServiceRetireOperationSync,
   createSkillInstallationPlanSync,
   queueManagedSkillServiceForInstallationSync,
+  queueManagedSkillServiceRetireSync,
   resetWorkspaceStateSync,
   resolveClaimedManagedSkillServiceOperation,
+  retireUnreferencedManagedSkillServicesSync,
   setAttachmentStorageClientForTests,
 } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
@@ -373,4 +376,101 @@ test("retire marks the service retired and the dependent installation goes block
 
   // The dependent installation's service component resolves blocked again.
   assert.equal(readSkillInstallationSync(installation.id, "default")?.status, "blocked");
+});
+
+/* ------------------------------------------------------------------ */
+/* Retire producer + lifecycle sweep                                   */
+/* ------------------------------------------------------------------ */
+
+test("queue retire produces a retire operation for a ready service and dedupes", async () => {
+  const runtimeId = createTestRuntime();
+  const catalogId = seedRendererCatalog();
+  const service = createManagedSkillServiceSync({ workspaceId: "default", runtimeId, catalogId, status: "ready" });
+
+  const first = queueManagedSkillServiceRetireSync({ workspaceId: "default", serviceId: service.id });
+  assert.equal(first.queued, true);
+  const ops = listManagedSkillServiceOperationsSync({ workspaceId: "default", serviceId: service.id });
+  assert.equal(ops.length, 1);
+  assert.equal(ops[0]!.operation, "retire");
+  assert.equal(ops[0]!.status, "pending");
+
+  const second = queueManagedSkillServiceRetireSync({ workspaceId: "default", serviceId: service.id });
+  assert.equal(second.queued, false);
+  assert.equal(second.queued === false && second.reason, "already_queued");
+});
+
+test("queue retire refuses provisioning and unknown services", async () => {
+  const runtimeId = createTestRuntime();
+  const catalogId = seedRendererCatalog();
+  const provisioning = createManagedSkillServiceSync({ workspaceId: "default", runtimeId, catalogId, status: "provisioning" });
+
+  const stillProvisioning = queueManagedSkillServiceRetireSync({ workspaceId: "default", serviceId: provisioning.id });
+  assert.equal(stillProvisioning.queued, false);
+  assert.equal(stillProvisioning.queued === false && stillProvisioning.reason, "still_provisioning");
+
+  const missing = queueManagedSkillServiceRetireSync({ workspaceId: "default", serviceId: `svc-${randomLikeId()}` });
+  assert.equal(missing.queued, false);
+  assert.equal(missing.queued === false && missing.reason, "service_not_found");
+});
+
+test("queue retire after the retire completes reports already_retired", async () => {
+  const runtimeId = createTestRuntime();
+  const catalogId = seedRendererCatalog();
+  const service = createManagedSkillServiceSync({ workspaceId: "default", runtimeId, catalogId, status: "ready" });
+
+  const queued = queueManagedSkillServiceRetireSync({ workspaceId: "default", serviceId: service.id });
+  assert.equal(queued.queued, true);
+  const claimed = claimNextManagedSkillServiceOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  assert.ok(claimed);
+  assert.equal(claimed.operation, "retire");
+  const done = completeManagedSkillServiceRetireOperationSync({ operationId: claimed.id, workspaceId: "default" });
+  assert.equal(done.ok, true);
+  assert.equal(readManagedSkillServiceSync(service.id, "default")?.status, "retired");
+
+  const again = queueManagedSkillServiceRetireSync({ workspaceId: "default", serviceId: service.id });
+  assert.equal(again.queued, false);
+  assert.equal(again.queued === false && again.reason, "already_retired");
+});
+
+test("sweep retires ready services with no bindings and keeps bound services", async () => {
+  const runtimeId = createTestRuntime();
+  const catalogId = seedRendererCatalog();
+  const unbound = createManagedSkillServiceSync({ workspaceId: "default", runtimeId, catalogId, status: "ready" });
+
+  const boundRuntime = createTestRuntime();
+  const boundService = createManagedSkillServiceSync({ workspaceId: "default", runtimeId: boundRuntime, catalogId, status: "ready" });
+  const installationId = createMinimalInstallation(boundRuntime);
+  createSkillServiceBindingSync({
+    installationId,
+    serviceId: boundService.id,
+    catalogTemplateVersion: "1.0.0",
+    serviceImageDigest: `sha256:${"a".repeat(64)}`,
+    endpointRef: "runtime-private://bindings-renderer",
+  });
+
+  const retired = retireUnreferencedManagedSkillServicesSync({ workspaceId: "default" });
+  assert.ok(retired.includes(unbound.id), "unbound ready service must be retired");
+  assert.ok(!retired.includes(boundService.id), "bound service must stay up");
+
+  const unboundOps = listManagedSkillServiceOperationsSync({ workspaceId: "default", serviceId: unbound.id });
+  assert.equal(unboundOps.length, 1);
+  assert.equal(unboundOps[0]!.operation, "retire");
+  const boundOps = listManagedSkillServiceOperationsSync({ workspaceId: "default", serviceId: boundService.id });
+  assert.equal(boundOps.length, 0);
+});
+
+test("sweep skips already-retired and still-provisioning services", async () => {
+  const retiredRuntime = createTestRuntime();
+  const provisioningRuntime = createTestRuntime();
+  const catalogId = seedRendererCatalog();
+  const retiredService = createManagedSkillServiceSync({
+    workspaceId: "default", runtimeId: retiredRuntime, catalogId, status: "retired",
+  });
+  const provisioningService = createManagedSkillServiceSync({
+    workspaceId: "default", runtimeId: provisioningRuntime, catalogId, status: "provisioning",
+  });
+
+  const retired = retireUnreferencedManagedSkillServicesSync({ workspaceId: "default" });
+  assert.ok(!retired.includes(retiredService.id));
+  assert.ok(!retired.includes(provisioningService.id));
 });

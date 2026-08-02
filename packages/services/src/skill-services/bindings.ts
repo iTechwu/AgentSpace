@@ -5,6 +5,8 @@ import {
   createManagedSkillServiceSync,
   createSkillServiceBindingSync,
   listManagedSkillServiceOperationsSync,
+  listManagedSkillServicesSync,
+  listSkillServiceBindingsForServiceSync,
   listSkillServiceCatalogSync,
   readManagedSkillServiceOperationSync,
   readManagedSkillServiceSync,
@@ -162,4 +164,70 @@ export function completeManagedSkillServiceRetireOperationSync(input: {
     evaluateSkillInstallationReadinessSync(operation.installationId, workspaceId);
   }
   return { ok: true };
+}
+
+/**
+ * Retire producer: queues a `retire` operation for a managed service so the
+ * managed node tears the container down. Dedupes against an already-active
+ * (pending/claimed/running) retire operation and refuses services that are still
+ * provisioning or already retired. This is the explicit trigger any caller
+ * (future uninstall flow, ops tooling, or the maintenance sweep) uses — nothing
+ * else in the system produces retire operations.
+ */
+export function queueManagedSkillServiceRetireSync(input: {
+  workspaceId?: string;
+  serviceId: string;
+}): { queued: true; operationId: string } | { queued: false; reason: string } {
+  const workspaceId = input.workspaceId ?? "default";
+  const service = readManagedSkillServiceSync(input.serviceId, workspaceId);
+  if (!service) {
+    return { queued: false, reason: "service_not_found" };
+  }
+  if (service.status === "retired") {
+    return { queued: false, reason: "already_retired" };
+  }
+  if (service.status === "provisioning") {
+    return { queued: false, reason: "still_provisioning" };
+  }
+  const hasActiveRetire = listManagedSkillServiceOperationsSync({
+    workspaceId,
+    serviceId: input.serviceId,
+  }).some((operation) => operation.operation === "retire" && ACTIVE_OPERATION_STATUSES.has(operation.status));
+  if (hasActiveRetire) {
+    return { queued: false, reason: "already_queued" };
+  }
+  const operation = createManagedSkillServiceOperationSync({
+    workspaceId,
+    runtimeId: service.runtimeId,
+    serviceId: input.serviceId,
+    operation: "retire",
+  });
+  return { queued: true, operationId: operation.id };
+}
+
+/**
+ * Service lifecycle sweep: queues a retire operation for every `ready`/`degraded`
+ * managed service that has no remaining `skill_service_binding` — i.e. the last
+ * referencing installation is gone (bindings cascade-delete with their
+ * installation). Conservative by design: a service bound to ANY existing
+ * installation stays up. Returns the service ids newly queued for retirement.
+ */
+export function retireUnreferencedManagedSkillServicesSync(
+  options?: { workspaceId?: string },
+): string[] {
+  const workspaceId = options?.workspaceId ?? "default";
+  const retired: string[] = [];
+  for (const service of listManagedSkillServicesSync(workspaceId)) {
+    if (service.status !== "ready" && service.status !== "degraded") {
+      continue;
+    }
+    if (listSkillServiceBindingsForServiceSync(service.id).length > 0) {
+      continue;
+    }
+    const result = queueManagedSkillServiceRetireSync({ workspaceId, serviceId: service.id });
+    if (result.queued) {
+      retired.push(service.id);
+    }
+  }
+  return retired;
 }

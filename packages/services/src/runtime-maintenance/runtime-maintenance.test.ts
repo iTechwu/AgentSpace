@@ -74,6 +74,10 @@ test("runtime maintenance renews its lease while a long stage remains active", a
     resumeCleanup: async () => undefined,
     drainUsageRetries: () => undefined,
     reconcileUsage: async () => undefined,
+    scheduleMcpHealthChecks: () => undefined,
+    advanceRecoveries: async () => undefined,
+    requeueSkillOperationLeases: () => undefined,
+    lifecycle: () => undefined,
   });
 
   await new Promise((resolve) => setTimeout(resolve, 18));
@@ -107,4 +111,23 @@ test("runtime maintenance stops subsequent stages and completion after lease los
   assert.equal(result.ok, false);
   assert.equal(result.stages.cleanup.status, "failed");
   assert.match(result.evidence.error ?? "", /lease_lost/);
+});
+
+test("runtime maintenance runs the optional skill service retire stage when provided", async () => {
+  const calls: string[] = [];
+  const result = await runRuntimeMaintenanceAsync({
+    createRun: () => ({ id: "maintenance-svc-retire" }),
+    completeRun: () => undefined,
+    resumeProvisioning: async () => calls.push("provisioning"),
+    resumeCleanup: async () => calls.push("cleanup"),
+    drainUsageRetries: () => calls.push("usageRetries"),
+    reconcileUsage: async () => calls.push("usageReconciliation"),
+    retireSkillServices: () => {
+      calls.push("skillServiceRetire");
+      return ["svc-1"];
+    },
+  });
+
+  assert.ok(calls.includes("skillServiceRetire"));
+  assert.equal(result.stages.skillServiceRetire?.status, "succeeded");
 });
