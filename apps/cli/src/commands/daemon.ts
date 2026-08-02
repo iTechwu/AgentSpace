@@ -33,6 +33,7 @@ import {
   resolveModelId as resolveSharedModelId,
   runProviderTask as runSharedProviderTask,
   runRemoteDaemonForeground as runStandaloneRemoteDaemonForeground,
+  partitionSkillEnvironment,
   startSkillRunnerBroker,
   type SkillRunnerBroker,
   type DetectedProvider as SharedDetectedProvider,
@@ -72,6 +73,7 @@ import {
 } from "@dofe-agent/db";
 import {
   buildContactAgentContext,
+  buildSkillRunnerEntrypointsForSnapshotSync,
   checkAllBudgetsForAgentSync,
   completeAgentChannelReplySync,
   completeChannelDocumentRunStepSync,
@@ -915,19 +917,21 @@ async function executeRemoteQueuedTask(
       );
     }
     materializeInputBundle(workDir, bundle);
+    const runnerEntrypoints = bundle.metadata.skillRunnerEntrypoints ?? [];
+    const skillEnvironment = partitionSkillEnvironment(bundle.metadata.skillEnv, runnerEntrypoints);
     skillRunner = await startSkillRunnerBroker({
       stateDir: ensureDaemonStateDir(),
       workspaceId: task.workspaceId,
       workDir,
-      entrypoints: bundle.metadata.skillRunnerEntrypoints ?? [],
+      entrypoints: runnerEntrypoints,
       dependencyEnvironments: bundle.metadata.skillDependencyEnvironments,
-      skillEnv: bundle.metadata.skillEnv,
+      skillEnv: skillEnvironment.runnerEnv,
     });
     const skillDependencyEnv = buildSkillDependencyTaskEnvironment({
       stateDir: ensureDaemonStateDir(),
       workspaceId: task.workspaceId,
       environments: bundle.metadata.skillDependencyEnvironments ?? [],
-      baseEnv: { ...process.env, ...bundle.metadata.skillEnv },
+      baseEnv: { ...process.env, ...skillEnvironment.providerEnv },
     });
 
     const result = await runProviderTask(
@@ -936,8 +940,9 @@ async function executeRemoteQueuedTask(
       workDir,
       {
         sessionId: (bundle.metadata.routerSession?.providerSessionId ?? payload.channelSessionId?.trim()) || undefined,
+        skillEnvKeys: Object.keys(skillEnvironment.providerEnv),
         contextEnv: {
-          ...bundle.metadata.skillEnv,
+          ...skillEnvironment.providerEnv,
           ...skillDependencyEnv,
           DOFE_AGENT_CONTEXT_AGENT_NAME: payload.assignee ?? task.agentId,
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
@@ -1148,14 +1153,25 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
     runtimeCredentialId = resolution.runtimeCredentialId;
   }
   let persistedOutputAttachments: MessageAttachment[] = [];
+  const runnerEntrypoints = buildSkillRunnerEntrypointsForSnapshotSync(preparedContext.skillExecutionSnapshot);
+  const skillEnvironment = partitionSkillEnvironment(preparedContext.skillEnv, runnerEntrypoints);
+  let skillRunner: SkillRunnerBroker | undefined;
   const skillDependencyEnv = buildSkillDependencyTaskEnvironment({
     stateDir: ensureDaemonStateDir(),
     workspaceId: task.workspaceId,
     environments: selectSkillDependencyEnvironments(preparedContext.skillExecutionSnapshot),
-    baseEnv: { ...process.env, ...preparedContext.skillEnv },
+    baseEnv: { ...process.env, ...skillEnvironment.providerEnv },
   });
 
   try {
+    skillRunner = await startSkillRunnerBroker({
+      stateDir: ensureDaemonStateDir(),
+      workspaceId: task.workspaceId,
+      workDir,
+      entrypoints: runnerEntrypoints,
+      dependencyEnvironments: selectSkillDependencyEnvironments(preparedContext.skillExecutionSnapshot),
+      skillEnv: skillEnvironment.runnerEnv,
+    });
     const providerSession = chooseProviderSessionForTaskSync({ task });
     const result = await runProviderTaskWithModel(
       runtime,
@@ -1165,16 +1181,19 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       {
         sessionId: providerSession?.providerSessionId ?? effectivePayload.channelSessionId,
         contextEnv: {
-          ...preparedContext.skillEnv,
+          ...skillEnvironment.providerEnv,
           ...skillDependencyEnv,
           DOFE_AGENT_CONTEXT_AGENT_NAME: agentName,
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
           DOFE_AGENT_CONTEXT_TRIGGER_TYPE: task.triggerType,
         },
-        skillEnvKeys: preparedContext.skillEnv ? Object.keys(preparedContext.skillEnv) : undefined,
-        runtimeToolCapabilities: buildDocumentRuntimeToolCapabilities(agentDocumentContexts, {
-          feishuLarkCliResourceGrants,
-        }),
+        skillEnvKeys: Object.keys(skillEnvironment.providerEnv),
+        runtimeToolCapabilities: [
+          ...buildDocumentRuntimeToolCapabilities(agentDocumentContexts, {
+            feishuLarkCliResourceGrants,
+          }),
+          ...skillRunner.capabilities,
+        ],
         onEvent: (event) => {
           appendTaskMessageSync({
             taskId: task.id,
@@ -1655,6 +1674,13 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       }, task.workspaceId);
     }
   } finally {
+    await skillRunner?.close().catch((cleanupError) => {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: `清理 Skill Runner 时出现警告：${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+      });
+    });
     try {
       clearTaskOutputArtifacts(workDir);
     } catch (cleanupError) {

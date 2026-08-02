@@ -21,6 +21,7 @@ import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
 import { buildSkillDependencyTaskEnvironment } from "./skill-install/task-environment.ts";
 import { executeSkillInstallationOperation } from "./skill-install/operation-worker.ts";
+import { partitionSkillEnvironment } from "./skill-environment.ts";
 import { startSkillRunnerBroker, type SkillRunnerBroker } from "./skill-runner.ts";
 import { executeSkillServiceOperation } from "./skill-service/service-operation-worker.ts";
 import { executeWorkspaceMountOperation } from "./workspace-mount-operation-worker.ts";
@@ -922,13 +923,15 @@ async function executeRemoteTask(
     await client.startTask(task.id);
     const bundle = await client.getInputBundle(task.id);
     materializeInputBundle(workDir, bundle);
+    const runnerEntrypoints = bundle.metadata.skillRunnerEntrypoints ?? [];
+    const skillEnvironment = partitionSkillEnvironment(bundle.metadata.skillEnv, runnerEntrypoints);
     skillRunner = await startSkillRunnerBroker({
       stateDir: config.stateDir,
       workspaceId: task.workspaceId,
       workDir,
-      entrypoints: bundle.metadata.skillRunnerEntrypoints ?? [],
+      entrypoints: runnerEntrypoints,
       dependencyEnvironments: bundle.metadata.skillDependencyEnvironments,
-      skillEnv: bundle.metadata.skillEnv,
+      skillEnv: skillEnvironment.runnerEnv,
     });
 
     if (bundle.metadata.mcpConnections?.status === "available") {
@@ -971,7 +974,7 @@ async function executeRemoteTask(
       environments: bundle.metadata.skillDependencyEnvironments ?? [],
       baseEnv: {
         ...process.env,
-        ...bundle.metadata.skillEnv,
+        ...skillEnvironment.providerEnv,
         ...managedCredentialEnv,
       },
     });
@@ -1010,10 +1013,10 @@ async function executeRemoteTask(
         sessionId: bundle.metadata.routerSession?.providerSessionId ?? resolveRemoteTaskProviderSessionId(task.inputJson),
         modelId: effectiveModelId,
         executionPolicy: bundle.metadata.executionPolicy,
-        skillEnvKeys: bundle.metadata.skillEnv ? Object.keys(bundle.metadata.skillEnv) : undefined,
+        skillEnvKeys: Object.keys(skillEnvironment.providerEnv),
         taskTimeoutMs: config.taskTimeoutMs,
         contextEnv: {
-          ...bundle.metadata.skillEnv,
+          ...skillEnvironment.providerEnv,
           ...managedCredentialEnv,
           ...skillDependencyEnv,
           DOFE_AGENT_CONTEXT_TASK_ID: task.id,
