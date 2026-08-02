@@ -84,15 +84,14 @@ test("strict workspace materialization is idempotent after a partial mount retry
     assert.deepEqual(retry, { materializedFiles: 1, expectedFiles: 1 });
     assert.equal(existsSync(join(workDir, "repository", "old", "obsolete.ts")), false);
 
-    writeFileSync(join(workDir, "repository/src/main.ts"), "tampered local content\n");
-    assert.throws(
-      () => materializeHeadRevisionToWorkDirStrict(workDir, {
-        workspaceId,
-        employeeName,
-        expectedHeadRevisionId: revisionId,
-      }),
-      /existing target digest differs from the durable revision/,
-    );
+    writeFileSync(join(workDir, "repository/src/main.ts"), "partial bytes from a crashed mount");
+    const recovered = materializeHeadRevisionToWorkDirStrict(workDir, {
+      workspaceId,
+      employeeName,
+      expectedHeadRevisionId: revisionId,
+    });
+    assert.deepEqual(recovered, { materializedFiles: 1, expectedFiles: 1 });
+    assert.deepEqual(readFileSync(join(workDir, "repository/src/main.ts")), bytes);
   } finally {
     resetWorkspaceStateSync(workspaceId);
     rmSync(workDir, { recursive: true, force: true });

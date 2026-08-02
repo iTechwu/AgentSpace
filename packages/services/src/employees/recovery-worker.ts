@@ -29,16 +29,28 @@ export function advanceRecoverableOperationsSync(input?: {
   const workspaceId = input?.workspaceId;
   const limit = Math.max(1, Math.min(input?.limit ?? 25, 200));
 
-  const rows = claimRecoveryOperationsForWorkerSync({ workspaceId, limit });
-
   let advanced = 0;
   let waiting = 0;
   let failed = 0;
+  const processedOperationIds: string[] = [];
 
-  for (const row of rows) {
+  for (let index = 0; index < limit; index += 1) {
+    const [row] = claimRecoveryOperationsForWorkerSync({
+      workspaceId,
+      limit: 1,
+      excludeOperationIds: processedOperationIds,
+    });
+    if (!row) {
+      break;
+    }
+    processedOperationIds.push(row.id);
     try {
       const before = readRecoveryOperationSync(row.id, row.workspaceId)?.phase;
-      const result = runRecoveryStepSync({ operationId: row.id, workspaceId: row.workspaceId });
+      const result = runRecoveryStepSync({
+        operationId: row.id,
+        workspaceId: row.workspaceId,
+        workerLeaseToken: row.leaseToken,
+      });
       const after = result.operation.phase;
 
       if (!result.ok || after === "failed") {

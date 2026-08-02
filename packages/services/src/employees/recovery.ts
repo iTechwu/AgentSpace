@@ -17,6 +17,7 @@ import {
   setEmployeeBindingStatusSync,
   updateRecoveryContextSync,
   readSkillArtifactByDigestSync,
+  withTransaction,
   type EmployeeRecoveryOperationRecord,
   type RecoveryPhase,
 } from "@dofe-agent/db";
@@ -29,6 +30,7 @@ import { readWorkspaceSkillSync } from "../skills/skills.ts";
 import { readSkillRequirementDeclarations } from "../skills/requirements.ts";
 import { ensureManagedRuntimeCapacitySync, getRuntimeProvisioningTaskDetailSync } from "../runtime-provisioning/runtime-provisioning.ts";
 import { resolveAgentRuntimeMode } from "../config/deployment.ts";
+import { normalizeWorkspaceRevisionPath } from "./persistent-workspace.ts";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -88,25 +90,26 @@ export function createEmployeeRecoveryOperationSync(input: {
   targetRuntimeId?: string;
 }): EmployeeRecoveryOperationRecord {
   const workspaceId = input.workspaceId ?? "default";
-  const currentGeneration = readEmployeeBindingGenerationSync(input.employeeName, workspaceId);
-  const toGeneration = (currentGeneration ?? 0) + 1;
-
-  const operation = createRecoveryOperationSync({
-    workspaceId,
-    employeeName: input.employeeName,
-    fromGeneration: input.fromGeneration ?? currentGeneration,
-    toGeneration,
-    requestedByUserId: input.requestedByUserId,
-    actorUserId: input.actorUserId,
-    approvalState: input.requireApproval ? "pending" : "not_required",
-    contextJson: JSON.stringify({
-      startedAt: new Date().toISOString(),
-      ...(input.targetRuntimeId?.trim() ? { runtimeId: input.targetRuntimeId.trim() } : {}),
-    }),
+  const db = getDatabase();
+  return withTransaction(db, () => {
+    const currentGeneration = readEmployeeBindingGenerationSync(input.employeeName, workspaceId);
+    const toGeneration = (currentGeneration ?? 0) + 1;
+    const operation = createRecoveryOperationSync({
+      workspaceId,
+      employeeName: input.employeeName,
+      fromGeneration: input.fromGeneration ?? currentGeneration,
+      toGeneration,
+      requestedByUserId: input.requestedByUserId,
+      actorUserId: input.actorUserId,
+      approvalState: input.requireApproval ? "pending" : "not_required",
+      contextJson: JSON.stringify({
+        startedAt: new Date().toISOString(),
+        ...(input.targetRuntimeId?.trim() ? { runtimeId: input.targetRuntimeId.trim() } : {}),
+      }),
+    });
+    setEmployeeBindingStatusSync(input.employeeName, "recovering", workspaceId);
+    return operation;
   });
-
-  setEmployeeBindingStatusSync(input.employeeName, "recovering", workspaceId);
-  return operation;
 }
 
 /**
@@ -118,6 +121,7 @@ export function runRecoveryStepSync(input: {
   workspaceId?: string;
   targetRuntimeId?: string;
   verify?: RunRecoveryInput["verify"];
+  workerLeaseToken?: string;
 }): RecoveryStepResult {
   const workspaceId = input.workspaceId ?? "default";
   const operation = readRecoveryOperationSync(input.operationId, workspaceId);
@@ -132,7 +136,12 @@ export function runRecoveryStepSync(input: {
   }
 
   try {
-    const next = runPhase(operation, { workspaceId, targetRuntimeId: input.targetRuntimeId, verify: input.verify });
+    const next = runPhase(operation, {
+      workspaceId,
+      targetRuntimeId: input.targetRuntimeId,
+      verify: input.verify,
+      workerLeaseToken: input.workerLeaseToken,
+    });
     return { operation: next, phase: next.phase, ok: next.phase !== "failed" };
   } catch (error) {
     // Record the failing phase in context; the terminal phase becomes `failed`.
@@ -146,6 +155,7 @@ export function runRecoveryStepSync(input: {
         failedAt: new Date().toISOString(),
         failedPhase: operation.phase,
       }),
+      workerLeaseToken: input.workerLeaseToken,
     });
     return { operation: failed, phase: "failed", ok: false, error: failed.errorMessage };
   }
@@ -178,8 +188,7 @@ export function runFullRecoverySync(input: RunRecoveryInput): EmployeeRecoveryOp
       verify: input.verify,
     });
     if (!result.ok) {
-      // Set the binding back to needs_attention (not online) until an operator acts.
-      setEmployeeBindingStatusSync(input.employeeName, "needs_attention", workspaceId);
+      // The failure transition updates the binding atomically with the operation.
       return result.operation;
     }
     if (result.phase === "completed") {
@@ -187,11 +196,7 @@ export function runFullRecoverySync(input: RunRecoveryInput): EmployeeRecoveryOp
     }
   }
 
-  const finalOperation = readRecoveryOperationSync(operation.id, workspaceId)!;
-  if (finalOperation.phase === "completed") {
-    setEmployeeBindingStatusSync(input.employeeName, "online", workspaceId);
-  }
-  return finalOperation;
+  return readRecoveryOperationSync(operation.id, workspaceId)!;
 }
 
 /* ------------------------------------------------------------------ */
@@ -200,7 +205,12 @@ export function runFullRecoverySync(input: RunRecoveryInput): EmployeeRecoveryOp
 
 function runPhase(
   operation: EmployeeRecoveryOperationRecord,
-  options: { workspaceId: string; targetRuntimeId?: string; verify?: RunRecoveryInput["verify"] },
+  options: {
+    workspaceId: string;
+    targetRuntimeId?: string;
+    verify?: RunRecoveryInput["verify"];
+    workerLeaseToken?: string;
+  },
 ): EmployeeRecoveryOperationRecord {
   const { workspaceId, targetRuntimeId } = options;
   const employeeName = operation.employeeName;
@@ -228,11 +238,16 @@ function runPhase(
         ? ctx.runtimeId
         : targetRuntimeId?.trim();
       if (explicitTarget) {
+        const runtime = readAgentRuntimeSync(explicitTarget);
+        if (!runtime || runtime.workspaceId !== workspaceId) {
+          throw new Error(`Recovery target runtime "${explicitTarget}" does not exist in this workspace.`);
+        }
         return advanceRecoveryPhaseSync({
           operationId: operation.id,
           phase: "mount_workspace",
           workspaceId,
           contextJson: JSON.stringify({ runtimeId: explicitTarget }),
+          workerLeaseToken: options.workerLeaseToken,
         });
       }
       // Reuse the current binding's runtime when it is still online.
@@ -243,6 +258,7 @@ function runPhase(
           phase: "mount_workspace",
           workspaceId,
           contextJson: JSON.stringify({ runtimeId: existing }),
+          workerLeaseToken: options.workerLeaseToken,
         });
       }
       // No online runtime: request managed capacity once (remote/managed only),
@@ -265,9 +281,14 @@ function runPhase(
               phase: "mount_workspace",
               workspaceId,
               contextJson: JSON.stringify({ runtimeId: capacity.runtimeId }),
+              workerLeaseToken: options.workerLeaseToken,
             });
           }
-          return updateRecoveryContext(operation, { provisioningTaskId: capacity.task.id, waitingFor: "provisioning" });
+          return updateRecoveryContext(
+            operation,
+            { provisioningTaskId: capacity.task.id, waitingFor: "provisioning" },
+            options.workerLeaseToken,
+          );
         }
         const detail = getRuntimeProvisioningTaskDetailSync({
           workspaceId,
@@ -280,6 +301,7 @@ function runPhase(
             phase: "mount_workspace",
             workspaceId,
             contextJson: JSON.stringify({ runtimeId: detail.runtime.id }),
+            workerLeaseToken: options.workerLeaseToken,
           });
         }
         if (detail.task.status === "failed") {
@@ -331,7 +353,11 @@ function runPhase(
             employeeName,
             headRevisionId: head.id,
           });
-          return updateRecoveryContext(operation, { mountOperationId: mountOp.id, waitingFor: "mount" });
+          return updateRecoveryContext(
+            operation,
+            { mountOperationId: mountOp.id, waitingFor: "mount" },
+            options.workerLeaseToken,
+          );
         }
         const mount = readWorkspaceMountOperationSync(ctx.mountOperationId, workspaceId);
         if (mount?.status === "completed") {
@@ -365,6 +391,7 @@ function runPhase(
               mountMaterializedFiles: mount.materializedFiles,
               mountPath: mount.mountedPath,
             }),
+            workerLeaseToken: options.workerLeaseToken,
           });
         }
         if (mount?.status === "failed") {
@@ -377,6 +404,7 @@ function runPhase(
         phase: "install_skills",
         workspaceId,
         contextJson: mergeContextJson(operation.contextJson, { headRevisionId: head.id, manifestDigest: head.manifestDigest, blobCount: blobDigests.length }),
+        workerLeaseToken: options.workerLeaseToken,
       });
     }
     case "install_skills": {
@@ -423,7 +451,11 @@ function runPhase(
               });
             }
           }
-          return updateRecoveryContext(operation, { plansCreated: true, waitingFor: "skill_install" });
+          return updateRecoveryContext(
+            operation,
+            { plansCreated: true, waitingFor: "skill_install" },
+            options.workerLeaseToken,
+          );
         }
         const allReady = skillIds.every((skillId) => {
           const digest = readAssignmentArtifactDigestSync({ employeeName, skillId, workspaceId });
@@ -438,6 +470,7 @@ function runPhase(
             phase: "resolve_secrets",
             workspaceId,
             contextJson: mergeContextJson(operation.contextJson, { skillsVerified: verified }),
+            workerLeaseToken: options.workerLeaseToken,
           });
         }
         return operation; // waiting for daemon skill-install workers
@@ -447,6 +480,7 @@ function runPhase(
         phase: "resolve_secrets",
         workspaceId,
         contextJson: mergeContextJson(operation.contextJson, { skillsVerified: verified }),
+        workerLeaseToken: options.workerLeaseToken,
       });
     }
     case "resolve_secrets": {
@@ -462,6 +496,7 @@ function runPhase(
         phase: "health_check",
         workspaceId,
         contextJson: mergeContextJson(operation.contextJson, { secretsResolvable: true, skillCount: resolved.checked }),
+        workerLeaseToken: options.workerLeaseToken,
       });
     }
     case "health_check": {
@@ -477,17 +512,19 @@ function runPhase(
         if (!rt || rt.workspaceId !== workspaceId || rt.status !== "online") {
           throw new Error("Target runtime is not online; refusing to activate.");
         }
-        if (rt.lastHeartbeatAt) {
-          const ageMs = Date.now() - Date.parse(rt.lastHeartbeatAt);
-          if (!Number.isFinite(ageMs) || ageMs > 90_000) {
-            throw new Error("Target runtime heartbeat is stale; refusing to activate.");
-          }
+        if (!rt.lastHeartbeatAt) {
+          throw new Error("Target runtime heartbeat is missing; refusing to activate.");
+        }
+        const ageMs = Date.now() - Date.parse(rt.lastHeartbeatAt);
+        if (!Number.isFinite(ageMs) || ageMs > 90_000) {
+          throw new Error("Target runtime heartbeat is stale; refusing to activate.");
         }
         return advanceRecoveryPhaseSync({
           operationId: operation.id,
           phase: "activate",
           workspaceId,
           contextJson: mergeContextJson(operation.contextJson, { healthCheck: "passed", healthCheckedAt: new Date().toISOString() }),
+          workerLeaseToken: options.workerLeaseToken,
         });
       }
       const healthy = runHealthChecks(employeeName, workspaceId, options.verify);
@@ -499,6 +536,7 @@ function runPhase(
         phase: "activate",
         workspaceId,
         contextJson: mergeContextJson(operation.contextJson, { healthCheck: "passed" }),
+        workerLeaseToken: options.workerLeaseToken,
       });
     }
     case "activate": {
@@ -527,6 +565,7 @@ function runPhase(
           generation: operation.toGeneration,
           runtimeId,
         }),
+        workerLeaseToken: options.workerLeaseToken,
       });
     }
     default:
@@ -543,11 +582,13 @@ function readExistingRuntimeId(employeeName: string, workspaceId: string): strin
 function updateRecoveryContext(
   operation: EmployeeRecoveryOperationRecord,
   patch: Record<string, unknown>,
+  workerLeaseToken?: string,
 ): EmployeeRecoveryOperationRecord {
   return updateRecoveryContextSync({
     operationId: operation.id,
     workspaceId: operation.workspaceId,
     contextJson: mergeContextJson(operation.contextJson, patch),
+    workerLeaseToken,
   });
 }
 
@@ -641,14 +682,26 @@ function parseRevisionManifestBlobDigests(manifestJson: string): string[] {
   if (!Array.isArray(files)) {
     throw new Error("Workspace head manifest is missing a files array; cannot verify mountable blobs.");
   }
+  const seenPaths = new Set<string>();
   return files.map((file, index) => {
-    const sha = file && typeof file === "object" && !Array.isArray(file)
-      ? (file as { sha256?: unknown }).sha256
+    const entry = file && typeof file === "object" && !Array.isArray(file)
+      ? file as { path?: unknown; sha256?: unknown; size?: unknown; mediaType?: unknown }
       : undefined;
-    if (typeof sha !== "string" || !/^[a-f0-9]{64}$/i.test(sha)) {
+    if (!entry || typeof entry.path !== "string") {
+      throw new Error(`Workspace head manifest file ${index} has an invalid path.`);
+    }
+    const path = normalizeWorkspaceRevisionPath(entry.path, `Workspace head manifest file ${index} path`);
+    if (path !== entry.path || seenPaths.has(path)) {
+      throw new Error(`Workspace head manifest file ${index} has a non-canonical or duplicate path.`);
+    }
+    seenPaths.add(path);
+    if (typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/i.test(entry.sha256)) {
       throw new Error(`Workspace head manifest file ${index} has an invalid sha256 digest.`);
     }
-    return sha.toLowerCase();
+    if (!Number.isSafeInteger(entry.size) || (entry.size as number) < 0 || typeof entry.mediaType !== "string") {
+      throw new Error(`Workspace head manifest file ${index} has invalid size or media type metadata.`);
+    }
+    return entry.sha256.toLowerCase();
   });
 }
 

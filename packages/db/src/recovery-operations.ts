@@ -128,6 +128,7 @@ export function claimRecoveryOperationsForWorkerSync(input?: {
   workspaceId?: string;
   limit?: number;
   leaseSeconds?: number;
+  excludeOperationIds?: string[];
 }): ClaimedRecoveryOperation[] {
   const db = getDatabase();
   const limit = Math.max(1, Math.min(input?.limit ?? 25, 200));
@@ -137,6 +138,11 @@ export function claimRecoveryOperationsForWorkerSync(input?: {
     const params: unknown[] = [now.toISOString()];
     const workspaceClause = input?.workspaceId ? "AND workspace_id = ?" : "";
     if (input?.workspaceId) params.push(input.workspaceId);
+    const excludedIds = (input?.excludeOperationIds ?? []).filter(Boolean);
+    const excludeClause = excludedIds.length > 0
+      ? `AND id NOT IN (${excludedIds.map(() => "?").join(", ")})`
+      : "";
+    params.push(...excludedIds);
     params.push(limit);
     const rows = db.prepare(
       `SELECT id, workspace_id AS workspaceId
@@ -145,6 +151,7 @@ export function claimRecoveryOperationsForWorkerSync(input?: {
          AND (approval_state IS NULL OR approval_state IN ('not_required', 'approved'))
          AND (worker_lease_expires_at IS NULL OR worker_lease_expires_at <= ?)
          ${workspaceClause}
+         ${excludeClause}
        ORDER BY created_at ASC
        LIMIT ?
        FOR UPDATE SKIP LOCKED`,
@@ -188,6 +195,7 @@ export function advanceRecoveryPhaseSync(input: {
   phase: RecoveryPhase;
   contextJson?: string;
   workspaceId?: string;
+  workerLeaseToken?: string;
 }): EmployeeRecoveryOperationRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -198,12 +206,14 @@ export function advanceRecoveryPhaseSync(input: {
     sets.push("context_json = ?");
     params.push(input.contextJson);
   }
-  params.push(input.operationId, workspaceId);
+  const lease = recoveryMutationLeaseGuard(input.workerLeaseToken, now);
+  params.push(input.operationId, workspaceId, ...lease.params);
   const result = db.prepare(
-    `UPDATE employee_recovery_operation SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`,
+    `UPDATE employee_recovery_operation SET ${sets.join(", ")}
+     WHERE id = ? AND workspace_id = ? ${lease.clause}`,
   ).run(...params);
   if (result.changes === 0) {
-    throw new Error(`Recovery operation "${input.operationId}" does not exist.`);
+    throw new Error(`Recovery operation "${input.operationId}" changed or its worker lease was lost.`);
   }
   return readRecoveryOperationSync(input.operationId, workspaceId)!;
 }
@@ -215,6 +225,7 @@ export function failRecoveryOperationSync(input: {
   phase?: RecoveryPhase;
   contextJson?: string;
   workspaceId?: string;
+  workerLeaseToken?: string;
 }): EmployeeRecoveryOperationRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -226,12 +237,14 @@ export function failRecoveryOperationSync(input: {
       sets.push("context_json = ?");
       params.push(input.contextJson);
     }
-    params.push(input.operationId, workspaceId);
+    const lease = recoveryMutationLeaseGuard(input.workerLeaseToken, now);
+    params.push(input.operationId, workspaceId, ...lease.params);
     const result = db.prepare(
-      `UPDATE employee_recovery_operation SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`,
+      `UPDATE employee_recovery_operation SET ${sets.join(", ")}
+       WHERE id = ? AND workspace_id = ? ${lease.clause}`,
     ).run(...params);
     if (result.changes === 0) {
-      throw new Error(`Recovery operation "${input.operationId}" does not exist.`);
+      throw new Error(`Recovery operation "${input.operationId}" changed or its worker lease was lost.`);
     }
     db.prepare(
       `UPDATE employee_runtime_binding SET status = 'needs_attention', updated_at = ?
@@ -312,6 +325,7 @@ export function completeRecoveryActivationSync(input: {
   expectedHeadRevisionId: string;
   contextJson: string;
   workspaceId?: string;
+  workerLeaseToken?: string;
 }): EmployeeRecoveryOperationRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -356,14 +370,15 @@ export function completeRecoveryActivationSync(input: {
         `RECOVERY_ACTIVATION_CONFLICT: expected previous generation ${operation.fromGeneration}.`,
       );
     }
+    const lease = recoveryMutationLeaseGuard(input.workerLeaseToken, now);
     const completed = db.prepare(
       `UPDATE employee_recovery_operation
          SET phase = 'completed', error_code = NULL, error_message = NULL,
              context_json = ?, updated_at = ?
-       WHERE id = ? AND workspace_id = ? AND phase = 'activate'`,
-    ).run(input.contextJson, now, input.operationId, workspaceId);
+       WHERE id = ? AND workspace_id = ? AND phase = 'activate' ${lease.clause}`,
+    ).run(input.contextJson, now, input.operationId, workspaceId, ...lease.params);
     if (completed.changes === 0) {
-      throw new Error(`Recovery operation "${input.operationId}" changed during activation.`);
+      throw new Error(`Recovery operation "${input.operationId}" changed or its worker lease was lost during activation.`);
     }
     return readRecoveryOperationSync(input.operationId, workspaceId)!;
   });
@@ -378,13 +393,19 @@ export function updateRecoveryContextSync(input: {
   operationId: string;
   workspaceId?: string;
   contextJson: string;
+  workerLeaseToken?: string;
 }): EmployeeRecoveryOperationRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  db.prepare(
+  const now = new Date().toISOString();
+  const lease = recoveryMutationLeaseGuard(input.workerLeaseToken, now);
+  const result = db.prepare(
     `UPDATE employee_recovery_operation SET context_json = ?, updated_at = ?
-     WHERE id = ? AND workspace_id = ?`,
-  ).run(input.contextJson, new Date().toISOString(), input.operationId, workspaceId);
+     WHERE id = ? AND workspace_id = ? ${lease.clause}`,
+  ).run(input.contextJson, now, input.operationId, workspaceId, ...lease.params);
+  if (result.changes === 0) {
+    throw new Error(`Recovery operation "${input.operationId}" changed or its worker lease was lost.`);
+  }
   const record = readRecoveryOperationSync(input.operationId, workspaceId);
   if (!record) {
     throw new Error(`Recovery operation "${input.operationId}" does not exist.`);
@@ -488,4 +509,21 @@ function readOptionalApprovalState(value: unknown): EmployeeRecoveryOperationRec
 
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function recoveryMutationLeaseGuard(
+  workerLeaseToken: string | undefined,
+  now: string,
+): { clause: string; params: unknown[] } {
+  const token = workerLeaseToken?.trim();
+  if (token) {
+    return {
+      clause: "AND worker_lease_token = ? AND worker_lease_expires_at > ?",
+      params: [token, now],
+    };
+  }
+  return {
+    clause: "AND (worker_lease_token IS NULL OR worker_lease_expires_at IS NULL OR worker_lease_expires_at <= ?)",
+    params: [now],
+  };
 }

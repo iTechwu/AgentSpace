@@ -145,6 +145,22 @@ test("D-03: task outputs promoted to a committed workspace revision readable aft
   }
 });
 
+test("workspace promotion rejects absolute and traversal paths before creating a head", () => {
+  const taskId = insertTestTask();
+  for (const path of ["../outside.txt", "/tmp/outside.txt", "repository/../outside.txt", "C:\\outside.txt"]) {
+    assert.throws(
+      () => promoteTaskOutputsToWorkspaceSync({
+        workspaceId: "default",
+        taskId,
+        employeeName: "Alice",
+        outputs: [{ path, bytes: new TextEncoder().encode("unsafe") }],
+      }),
+      /path.*(relative|unsafe)/i,
+    );
+  }
+  assert.equal(readHeadRevisionSync("Alice", "default"), null);
+});
+
 test("D-05: re-promoting the same task+outputs is idempotent (no duplicate revision)", () => {
   const outputs = [{ path: "a.txt", bytes: new TextEncoder().encode("hello") }];
   const taskId = insertTestTask();

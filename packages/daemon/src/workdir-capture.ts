@@ -3,6 +3,7 @@ import {
   closeSync,
   constants as fsConstants,
   existsSync,
+  fsyncSync,
   fchmodSync,
   fstatSync,
   lstatSync,
@@ -11,6 +12,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   rmdirSync,
   statSync,
@@ -346,6 +348,8 @@ export function materializeHeadRevisionToWorkDirStrict(
     }
     try {
       mkdirParentsNoFollow(dirname(targetPath), workDir);
+      const parentDirectory = dirname(targetPath);
+      const parentIdentity = readDirectoryIdentity(parentDirectory);
       if (existsSync(targetPath)) {
         const stat = lstatSync(targetPath);
         if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
@@ -353,10 +357,10 @@ export function materializeHeadRevisionToWorkDirStrict(
         }
         const existingBytes = readFileBytesNoFollow(targetPath);
         if (sha256Hex(existingBytes) !== file.sha256.toLowerCase()) {
-          throw new Error("existing target digest differs from the durable revision");
+          writeFileAtomicNoFollow(targetPath, bytes, parentIdentity);
         }
       } else {
-        writeFileNoFollow(targetPath, bytes);
+        writeFileAtomicNoFollow(targetPath, bytes, parentIdentity);
       }
       applyCapturedMode(targetPath, file.mode);
       materializedFiles += 1;
@@ -470,6 +474,44 @@ function writeFileNoFollow(targetPath: string, bytes: Uint8Array): void {
     writeFileSync(fd, bytes);
   } finally {
     closeSync(fd);
+  }
+}
+
+/**
+ * Publishes restored bytes with a same-directory atomic rename. A crash can
+ * leave only an unreferenced temp file, never a truncated final target; retrying
+ * safely replaces a divergent regular file with the pinned durable content.
+ */
+function writeFileAtomicNoFollow(
+  targetPath: string,
+  bytes: Uint8Array,
+  parentIdentity: DirectoryIdentity,
+): void {
+  const parentDirectory = dirname(targetPath);
+  const tempPath = `${targetPath}.dofe-restore-${process.pid}-${Math.random().toString(36).slice(2)}.tmp`;
+  const flags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | (fsConstants.O_NOFOLLOW ?? 0);
+  let fd: number | undefined;
+  try {
+    assertDirectoryIdentity(parentDirectory, parentIdentity);
+    fd = openSync(tempPath, flags, 0o600);
+    writeFileSync(fd, bytes);
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = undefined;
+    assertDirectoryIdentity(parentDirectory, parentIdentity);
+    renameSync(tempPath, targetPath);
+    assertDirectoryIdentity(parentDirectory, parentIdentity);
+  } finally {
+    if (fd !== undefined) {
+      closeSync(fd);
+    }
+    try {
+      assertDirectoryIdentity(parentDirectory, parentIdentity);
+      rmSync(tempPath, { force: true });
+    } catch {
+      // The directory path no longer names the directory where the temp file
+      // was opened. Do not follow the replacement path to clean it up.
+    }
   }
 }
 

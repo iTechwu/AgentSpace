@@ -6,6 +6,7 @@ import test, { after, before, beforeEach } from "node:test";
 import { setAttachmentStorageClientForTests } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
 import {
+  advanceRecoveryPhaseSync,
   approveRecoveryOperationSync,
   bindEmployeeRuntimeSync,
   claimRecoveryOperationsForWorkerSync,
@@ -22,6 +23,7 @@ import {
 } from "../index.ts";
 
 const originalCwd = process.cwd();
+const originalRuntimeMode = process.env.DOFE_AGENT_RUNTIME_MODE;
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-recovery-worker-"));
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
 const testStorage = createTestTosAttachmentStorage();
@@ -55,6 +57,7 @@ function setupEmployeeWorkspace(employeeName: string, seed: string): void {
 
 before(() => {
   process.env.NODE_ENV = "test";
+  process.env.DOFE_AGENT_RUNTIME_MODE = "local";
   setAttachmentStorageClientForTests(testStorage.client);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
@@ -110,6 +113,11 @@ function seedTestEmployees(): void {
 
 after(() => {
   process.chdir(originalCwd);
+  if (originalRuntimeMode === undefined) {
+    delete process.env.DOFE_AGENT_RUNTIME_MODE;
+  } else {
+    process.env.DOFE_AGENT_RUNTIME_MODE = originalRuntimeMode;
+  }
 });
 
 test("the worker walks a recovery to completed across multiple ticks and advances the generation", () => {
@@ -188,6 +196,45 @@ test("a recovery worker lease prevents overlapping workers from claiming the sam
     leaseToken: first[0]!.leaseToken,
   }), true);
   assert.equal(claimRecoveryOperationsForWorkerSync({ workspaceId: "default", limit: 1 }).length, 1);
+});
+
+test("an expired recovery worker cannot write after a new lease is claimed", () => {
+  const runtimeId = insertTestTask().replace("task-rw", "runtime-rw");
+  setupEmployeeWorkspace("Alice", "lease-fencing");
+  bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Alice", runtimeId });
+  const operation = createEmployeeRecoveryOperationSync({
+    workspaceId: "default",
+    employeeName: "Alice",
+    targetRuntimeId: runtimeId,
+  });
+  const first = claimRecoveryOperationsForWorkerSync({ workspaceId: "default", limit: 1 });
+  assert.equal(first.length, 1);
+  getDatabase().prepare(
+    `UPDATE employee_recovery_operation SET worker_lease_expires_at = ? WHERE id = ?`,
+  ).run(new Date(Date.now() - 1_000).toISOString(), operation.id);
+  const second = claimRecoveryOperationsForWorkerSync({ workspaceId: "default", limit: 1 });
+  assert.equal(second.length, 1);
+  assert.notEqual(second[0]!.leaseToken, first[0]!.leaseToken);
+
+  assert.throws(
+    () => advanceRecoveryPhaseSync({
+      operationId: operation.id,
+      workspaceId: "default",
+      phase: "mount_workspace",
+      workerLeaseToken: first[0]!.leaseToken,
+    }),
+    /lease was lost/i,
+  );
+  assert.equal(readRecoveryOperationSync(operation.id, "default")?.phase, "allocate");
+  assert.equal(
+    advanceRecoveryPhaseSync({
+      operationId: operation.id,
+      workspaceId: "default",
+      phase: "mount_workspace",
+      workerLeaseToken: second[0]!.leaseToken,
+    }).phase,
+    "mount_workspace",
+  );
 });
 
 test("approving a pending operation unblocks the worker", () => {

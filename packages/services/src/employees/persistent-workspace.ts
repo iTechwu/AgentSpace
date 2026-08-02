@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isAbsolute } from "node:path";
 import {
   assertEmployeeBindingGenerationSync,
   commitWorkspaceRevisionSync,
@@ -91,15 +92,18 @@ export function restoreValidatedWorkspaceRevisionSync(input: {
   const seenPaths = new Set<string>();
   const storage = createAttachmentStorageClient();
   for (const file of manifest.files) {
+    const normalizedPath = file && typeof file.path === "string"
+      ? normalizeWorkspaceRevisionPath(file.path, `Target revision "${target.id}" file path`)
+      : undefined;
     if (
-      !file || typeof file.path !== "string" || !file.path.trim() || seenPaths.has(file.path)
+      !file || !normalizedPath || file.path !== normalizedPath || seenPaths.has(normalizedPath)
       || typeof file.sha256 !== "string" || !/^[a-f0-9]{64}$/i.test(file.sha256)
       || !Number.isSafeInteger(file.size) || file.size < 0
       || typeof file.mediaType !== "string"
     ) {
       throw new Error(`Target revision "${target.id}" contains an invalid or duplicate file entry.`);
     }
-    seenPaths.add(file.path);
+    seenPaths.add(normalizedPath);
     const bytes = storage.getContentAddressedBlobSync({ workspaceId, sha256: file.sha256 });
     if (sha256Hex(bytes) !== file.sha256.toLowerCase() || bytes.byteLength !== file.size) {
       throw new Error(`Target revision "${target.id}" blob verification failed for "${file.path}".`);
@@ -134,16 +138,46 @@ function mergeManifestFiles(
 function parseRevisionManifestFiles(manifestJson: string): WorkspaceRevisionFileEntry[] {
   try {
     const manifest = JSON.parse(manifestJson) as WorkspaceRevisionManifest;
-    return (manifest.files ?? []).filter(
-      (file): file is WorkspaceRevisionFileEntry =>
-        typeof file.path === "string" &&
-        typeof file.sha256 === "string" &&
-        typeof file.size === "number" &&
-        typeof file.mediaType === "string",
+    if (!Array.isArray(manifest.files)) {
+      throw new Error("Workspace revision manifest is missing its files array.");
+    }
+    const seenPaths = new Set<string>();
+    return manifest.files.map((file) => {
+      if (
+        !file || typeof file.path !== "string" ||
+        typeof file.sha256 !== "string" || !/^[a-f0-9]{64}$/i.test(file.sha256) ||
+        !Number.isSafeInteger(file.size) || file.size < 0 ||
+        typeof file.mediaType !== "string" || !file.mediaType.trim()
+      ) {
+        throw new Error("Workspace revision manifest contains an invalid file entry.");
+      }
+      const path = normalizeWorkspaceRevisionPath(file.path, "Workspace revision file path");
+      if (path !== file.path || seenPaths.has(path)) {
+        throw new Error("Workspace revision manifest contains a non-canonical or duplicate path.");
+      }
+      seenPaths.add(path);
+      return { ...file, path, sha256: file.sha256.toLowerCase() };
+    });
+  } catch (error) {
+    throw new Error(
+      `Workspace revision manifest is invalid: ${error instanceof Error ? error.message : String(error)}`,
     );
-  } catch {
-    return [];
   }
+}
+
+export function normalizeWorkspaceRevisionPath(value: string, label: string): string {
+  const candidate = value.trim().replace(/\\/g, "/");
+  if (
+    !candidate || candidate.includes("\0") || candidate.startsWith("/") ||
+    isAbsolute(candidate) || /^[A-Za-z]:\//.test(candidate)
+  ) {
+    throw new Error(`${label} must be a non-empty relative path.`);
+  }
+  const segments = candidate.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
+    throw new Error(`${label} contains an unsafe path segment: ${value}`);
+  }
+  return segments.join("/");
 }
 
 /* ------------------------------------------------------------------ */
@@ -190,10 +224,7 @@ export function promoteTaskOutputsToWorkspaceSync(input: {
   const artifactIds: string[] = [];
 
   for (const output of input.outputs) {
-    const path = output.path.trim();
-    if (!path) {
-      continue;
-    }
+    const path = normalizeWorkspaceRevisionPath(output.path, "Task output path");
     const sha256 = sha256Hex(output.bytes);
     const mediaType = output.mediaType ?? mediaTypeForPath(path);
     const size = output.bytes.byteLength;
@@ -242,7 +273,9 @@ export function promoteTaskOutputsToWorkspaceSync(input: {
   // the revision chain.
   const parentFiles = head ? parseRevisionManifestFiles(head.manifestJson) : [];
   const mergedFiles = mergeManifestFiles(parentFiles, manifestFiles);
-  const deleted = new Set(input.deletedPaths ?? []);
+  const deleted = new Set(
+    (input.deletedPaths ?? []).map((path) => normalizeWorkspaceRevisionPath(path, "Deleted workspace path")),
+  );
   const finalFiles = deleted.size > 0
     ? mergedFiles.filter((file) => !deleted.has(file.path))
     : mergedFiles;

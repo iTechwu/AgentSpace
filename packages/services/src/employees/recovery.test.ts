@@ -27,6 +27,7 @@ import {
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
 
 const originalCwd = process.cwd();
+const originalRuntimeMode = process.env.DOFE_AGENT_RUNTIME_MODE;
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-recovery-"));
 const repositoryRoot = existsSync(join(originalCwd, "Target.md")) ? originalCwd : join(originalCwd, "..", "..");
 const testStorage = createTestTosAttachmentStorage();
@@ -41,7 +42,7 @@ function insertRuntime(): string {
   const runtimeId = `runtime-rec-${runtimeSeq}`;
   db.prepare(
     `INSERT INTO agent_runtime (id, workspace_id, provider, name, status, created_at, updated_at)
-     VALUES (?, 'default', 'codex', ?, 'active', ?, ?)`,
+     VALUES (?, 'default', 'codex', ?, 'offline', ?, ?)`,
   ).run(runtimeId, runtimeId, now, now);
   return runtimeId;
 }
@@ -56,7 +57,7 @@ function setupEmployeeWorkspace(employeeName: string, seed: string): void {
   const taskId = `task-rec-setup-${taskSeq}`;
   db.prepare(
     `INSERT INTO agent_runtime (id, workspace_id, provider, name, status, created_at, updated_at)
-     VALUES (?, 'default', 'codex', ?, 'active', ?, ?)`,
+     VALUES (?, 'default', 'codex', ?, 'offline', ?, ?)`,
   ).run(runtimeId, runtimeId, now, now);
   db.prepare(
     `INSERT INTO agent_task_queue (id, workspace_id, agent_id, runtime_id, status, priority, input_json, queued_at, created_at, updated_at)
@@ -108,6 +109,7 @@ function insertTaskForJournal(seed: string): string {
 
 before(() => {
   process.env.NODE_ENV = "test";
+  process.env.DOFE_AGENT_RUNTIME_MODE = "local";
   setAttachmentStorageClientForTests(testStorage.client);
   writeFileSync(join(tempRoot, "Target.md"), "# test\n");
   mkdirSync(join(tempRoot, "data"), { recursive: true });
@@ -163,6 +165,11 @@ function seedTestEmployees(): void {
 
 after(() => {
   process.chdir(originalCwd);
+  if (originalRuntimeMode === undefined) {
+    delete process.env.DOFE_AGENT_RUNTIME_MODE;
+  } else {
+    process.env.DOFE_AGENT_RUNTIME_MODE = originalRuntimeMode;
+  }
 });
 
 test("D-06/07/08: full recovery from an offline runtime completes and advances generation", () => {
@@ -298,6 +305,21 @@ test("an explicit recovery target is persisted for asynchronous worker ticks", (
   assert.equal((JSON.parse(operation.contextJson) as { runtimeId?: string }).runtimeId, runtimeId);
 });
 
+test("recovery rejects an explicit target outside the current workspace", () => {
+  const currentRuntimeId = insertRuntime();
+  setupEmployeeWorkspace("Alice", "invalid-target");
+  bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Alice", runtimeId: currentRuntimeId });
+  const operation = createEmployeeRecoveryOperationSync({
+    workspaceId: "default",
+    employeeName: "Alice",
+    targetRuntimeId: "runtime-from-another-workspace",
+  });
+
+  const result = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? "", /does not exist in this workspace/i);
+});
+
 test("remote recovery dispatches a real mount to a non-managed daemon runtime", () => {
   const previousMode = process.env.DOFE_AGENT_RUNTIME_MODE;
   process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
@@ -354,6 +376,37 @@ test("recovery rejects a head manifest with an invalid blob digest", () => {
   assert.equal(result.ok, false);
   assert.match(result.error ?? "", /invalid sha256/i);
   assert.equal(readEmployeeRuntimeBindingSync("Alice", "default")?.status, "needs_attention");
+});
+
+test("remote recovery refuses an online runtime without heartbeat evidence", () => {
+  const previousMode = process.env.DOFE_AGENT_RUNTIME_MODE;
+  process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+  try {
+    const runtimeId = insertRuntime();
+    setupEmployeeWorkspace("Alice", "missing-heartbeat");
+    bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Alice", runtimeId });
+    const operation = createEmployeeRecoveryOperationSync({
+      workspaceId: "default",
+      employeeName: "Alice",
+      targetRuntimeId: runtimeId,
+    });
+    getDatabase().prepare(
+      `UPDATE agent_runtime SET status = 'online', last_heartbeat_at = NULL WHERE id = ?`,
+    ).run(runtimeId);
+    getDatabase().prepare(
+      `UPDATE employee_recovery_operation SET phase = 'health_check' WHERE id = ?`,
+    ).run(operation.id);
+
+    const result = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? "", /heartbeat is missing/i);
+  } finally {
+    if (previousMode === undefined) {
+      delete process.env.DOFE_AGENT_RUNTIME_MODE;
+    } else {
+      process.env.DOFE_AGENT_RUNTIME_MODE = previousMode;
+    }
+  }
 });
 
 test("activation refuses a workspace head that changed after mount verification", () => {
