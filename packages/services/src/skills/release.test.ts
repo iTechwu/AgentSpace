@@ -7,6 +7,7 @@ import {
   listManagedSkillServiceOperationsSync,
   randomLikeId,
   readActiveArtifactDigestForSkillSync,
+  readStoredWorkspaceSkillSync,
   readSkillInstallationComponentsSync,
   setSkillInstallationStatusSync,
   setActiveArtifactDigestForSkillSync,
@@ -445,6 +446,10 @@ test("promoteSkillUpgradeSync atomically activates a ready candidate and rejects
   });
   assert.equal(promoted.ok, true);
   assert.equal(readActiveArtifactDigestForSkillSync(skill.id), second.digest);
+  assert.match(
+    readStoredWorkspaceSkillSync(skill.id)?.files.find((file) => file.path === "SKILL.md")?.content ?? "",
+    /Body v2/,
+  );
 
   assert.throws(
     () => promoteSkillUpgradeSync({

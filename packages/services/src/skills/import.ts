@@ -393,32 +393,33 @@ function commitReplacedSkillImport(
   if (!current) {
     throw new Error(`Skill "${existing.id}" does not exist.`);
   }
+  const activeDigest = readActiveArtifactDigestForSkillSync(current.id, workspaceId);
+  let refreshed = current;
 
-  const updated = updateWorkspaceSkillSync({
-    skillId: current.id,
-    name: current.name,
-    description: imported.description,
-    sourceType: imported.sourceType,
-    sourceUrl: imported.sourceUrl,
-    configJson: imported.configJson,
-  }, workspaceId);
-
-  upsertTextProjectionFiles(updated.id, imported.files, workspaceId);
-
-  const refreshed = readWorkspaceSkillSync(updated.id, workspaceId);
-  if (!refreshed) {
-    throw new Error(`Skill "${updated.id}" does not exist after import.`);
-  }
-
-  const importedPaths = new Set(imported.files.map((file) => file.path.toLocaleLowerCase("en-US")));
-  for (const file of refreshed.files) {
-    if (!importedPaths.has(file.path.toLocaleLowerCase("en-US")) && !sameValue(file.path, "SKILL.md")) {
-      deleteWorkspaceSkillFileSync(refreshed.id, file.id, workspaceId);
+  // Legacy/manual Skills without an active artifact adopt their first validated
+  // replacement immediately. Once an active artifact exists, re-import is a
+  // candidate-only operation: the compatibility projection must not move ahead
+  // of the digest used by tasks and assignments.
+  if (!activeDigest) {
+    const updated = updateWorkspaceSkillSync({
+      skillId: current.id,
+      name: current.name,
+      description: imported.description,
+      sourceType: imported.sourceType,
+      sourceUrl: imported.sourceUrl,
+      configJson: imported.configJson,
+    }, workspaceId);
+    upsertTextProjectionFiles(updated.id, imported.files, workspaceId);
+    refreshed = readWorkspaceSkillSync(updated.id, workspaceId) ?? updated;
+    const importedPaths = new Set(imported.files.map((file) => file.path.toLocaleLowerCase("en-US")));
+    for (const file of refreshed.files) {
+      if (!importedPaths.has(file.path.toLocaleLowerCase("en-US")) && !sameValue(file.path, "SKILL.md")) {
+        deleteWorkspaceSkillFileSync(refreshed.id, file.id, workspaceId);
+      }
     }
   }
 
   if (artifactDigest) {
-    const activeDigest = readActiveArtifactDigestForSkillSync(refreshed.id, workspaceId);
     upsertSkillArtifactBindingSync({ skillId: refreshed.id, digest: artifactDigest, workspaceId });
     if (!activeDigest) {
       setActiveArtifactDigestForSkillSync({ skillId: refreshed.id, digest: artifactDigest, workspaceId });
@@ -518,6 +519,8 @@ function prepareSkillArtifact(
       provenance: {
         importedVia: imported.sourceType,
         sourceUrl: imported.sourceUrl,
+        skillDescription: imported.description,
+        skillConfig: parseJsonSafely(imported.configJson),
         ...(imported.resolvedRef ? { resolvedRef: imported.resolvedRef } : {}),
         ...(imported.originalUrl ? { originalUrl: imported.originalUrl } : {}),
       },

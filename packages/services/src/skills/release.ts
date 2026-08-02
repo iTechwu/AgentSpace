@@ -29,9 +29,17 @@ import {
   queueDeclaredSkillServicesForInstallationSync,
 } from "./installations.ts";
 import { evaluateSkillInstallationCapabilitiesSync } from "./capabilities.ts";
-import { verifySkillArtifactIntegritySync } from "./skill-artifacts.ts";
+import { readSkillArtifactTextProjectionSync, verifySkillArtifactIntegritySync } from "./skill-artifacts.ts";
 import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
 import { stableStringify } from "./package/package-digest.ts";
+import {
+  deleteWorkspaceSkillFileSync,
+  readWorkspaceSkillSync,
+  updateWorkspaceSkillSync,
+  upsertWorkspaceSkillFileSync,
+} from "./skills.ts";
+import { parseSkillMetadata } from "./skill-metadata.ts";
+import { sameValue } from "../shared/helpers.ts";
 
 /**
  * Version model (Phase 4): version labels are for humans; tasks, audit and
@@ -772,6 +780,23 @@ export function promoteSkillUpgradeSync(input: {
   if (!candidateSkillIds.includes(input.skillId)) {
     throw new Error(`Skill "${input.skillId}" is not bound to the candidate artifact lineage.`);
   }
+  const candidateArtifact = readSkillArtifactByDigestSync(candidate.artifactDigest, workspaceId);
+  if (!candidateArtifact) {
+    throw new Error("Candidate artifact is missing; refusing promotion.");
+  }
+  const candidateProjection = readSkillArtifactTextProjectionSync(candidateArtifact);
+  const candidateMarkdown = candidateProjection.find((file) => sameValue(file.path, "SKILL.md"))?.content;
+  if (!candidateMarkdown) {
+    throw new Error("Candidate artifact text projection is missing SKILL.md; refusing promotion.");
+  }
+  const candidateMetadata = parseSkillMetadata(candidateMarkdown, candidateArtifact.name);
+  const candidateProvenance = parseRecord(candidateArtifact.provenanceJson);
+  const candidateConfig = candidateProvenance && typeof candidateProvenance.skillConfig === "object"
+    ? JSON.stringify(candidateProvenance.skillConfig)
+    : undefined;
+  const candidateDescription = typeof candidateProvenance?.skillDescription === "string"
+    ? candidateProvenance.skillDescription
+    : candidateMetadata.description;
 
   return withTransaction(getDatabase(), () => {
     const activeUpdated = getDatabase().prepare(
@@ -796,6 +821,15 @@ export function promoteSkillUpgradeSync(input: {
        WHERE workspace_id = ? AND skill_id = ?`,
     ).run(candidate.artifactDigest, candidate.revision, workspaceId, input.skillId);
     upsertSkillArtifactBindingSync({ workspaceId, skillId: input.skillId, digest: candidate.artifactDigest });
+    synchronizePromotedSkillProjection({
+      workspaceId,
+      skillId: input.skillId,
+      description: candidateDescription,
+      sourceType: candidateArtifact.sourceType,
+      sourceUrl: candidateArtifact.sourceUrl,
+      configJson: candidateConfig,
+      files: candidateProjection,
+    });
     return {
       ok: true as const,
       artifactDigest: candidate.artifactDigest,
@@ -803,6 +837,52 @@ export function promoteSkillUpgradeSync(input: {
       assignmentCount: assignments.changes,
     };
   });
+}
+
+function synchronizePromotedSkillProjection(input: {
+  workspaceId: string;
+  skillId: string;
+  description: string;
+  sourceType: string;
+  sourceUrl?: string;
+  configJson?: string;
+  files: Array<{ path: string; content: string }>;
+}): void {
+  const current = readWorkspaceSkillSync(input.skillId, input.workspaceId);
+  if (!current) throw new Error(`Skill "${input.skillId}" does not exist.`);
+  updateWorkspaceSkillSync({
+    skillId: input.skillId,
+    name: current.name,
+    description: input.description,
+    sourceType: input.sourceType,
+    sourceUrl: input.sourceUrl,
+    ...(input.configJson ? { configJson: input.configJson } : {}),
+  }, input.workspaceId);
+  for (const file of input.files) {
+    upsertWorkspaceSkillFileSync({
+      skillId: input.skillId,
+      path: file.path,
+      content: file.content,
+    }, input.workspaceId);
+  }
+  const expectedPaths = new Set(input.files.map((file) => file.path.toLocaleLowerCase("en-US")));
+  const refreshed = readWorkspaceSkillSync(input.skillId, input.workspaceId);
+  for (const file of refreshed?.files ?? []) {
+    if (!expectedPaths.has(file.path.toLocaleLowerCase("en-US")) && !sameValue(file.path, "SKILL.md")) {
+      deleteWorkspaceSkillFileSync(input.skillId, file.id, input.workspaceId);
+    }
+  }
+}
+
+function parseRecord(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

@@ -348,6 +348,9 @@ export interface SkillInstallationRowView {
   revision: string;
   previousReadyRevision?: string;
   previousReadyArtifactDigest?: string;
+  candidateArtifactDigest?: string;
+  candidateBreaking?: boolean;
+  candidateChangeCount?: number;
   active: boolean;
   releaseLockDigest?: string;
   preparedDigest?: string;
@@ -414,6 +417,29 @@ export async function listSkillInstallationRowsForSkillAction(input: {
           evidence: readOperationEvidence(operation.safeResultJson),
         })),
       });
+    }
+  }
+  const candidateArtifact = artifacts.find((artifact) => artifact.digest !== activeDigest);
+  const activeArtifact = activeDigest
+    ? artifacts.find((artifact) => artifact.digest === activeDigest)
+    : undefined;
+  if (candidateArtifact && activeArtifact) {
+    const diff = diffSkillArtifactsSync({
+      fromManifestJson: activeArtifact.manifestJson,
+      toManifestJson: candidateArtifact.manifestJson,
+    });
+    const changeCount = diff.categories.reduce((count, category) => count + category.changes.length, 0);
+    for (const row of rows) {
+      const candidateAlreadyPlanned = rows.some((candidateRow) => (
+        candidateRow.runtimeId === row.runtimeId
+        && candidateRow.artifactDigest === candidateArtifact.digest
+        && candidateRow.status !== "retired"
+      ));
+      if (row.active && row.status === "ready" && !candidateAlreadyPlanned) {
+        row.candidateArtifactDigest = candidateArtifact.digest;
+        row.candidateBreaking = diff.breaking;
+        row.candidateChangeCount = changeCount;
+      }
     }
   }
   rows.sort((left, right) => right.createdAt.localeCompare(left.createdAt));

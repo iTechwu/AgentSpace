@@ -374,6 +374,27 @@ export interface MaterializeArtifactResult {
   restoredFiles: Array<{ path: string; sha256: string; sizeBytes: number }>;
 }
 
+export function readSkillArtifactTextProjectionSync(
+  artifact: SkillArtifactRecord,
+): Array<{ path: string; content: string }> {
+  const storage = createAttachmentStorageClient();
+  return readSkillArtifactFilesSync(artifact.id)
+    .filter((file) => file.isText)
+    .map((file) => {
+      const bytes = storage.getContentAddressedBlobSync({
+        workspaceId: artifact.workspaceId,
+        sha256: file.sha256,
+      });
+      const actualDigest = sha256Hex(bytes);
+      if (actualDigest !== file.sha256) {
+        throw new Error(
+          `Artifact integrity check failed for "${file.path}": expected ${file.sha256}, got ${actualDigest}.`,
+        );
+      }
+      return { path: file.path, content: new TextDecoder().decode(bytes) };
+    });
+}
+
 /**
  * Restores the full file set (including binaries + executable modes) from an
  * immutable artifact into `targetDir`. Path traversal is rejected. Used by the

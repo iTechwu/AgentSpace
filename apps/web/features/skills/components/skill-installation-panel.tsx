@@ -6,6 +6,7 @@ import { runToastAction } from "@/shared/lib/toast-action";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import {
+  createSkillUpgradeAction,
   listSkillInstallationRowsForSkillAction,
   promoteSkillUpgradeAction,
   rollbackSkillInstallationAction,
@@ -48,6 +49,7 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
   const [loadFailed, setLoadFailed] = useState(false);
   const [pendingRollbackId, setPendingRollbackId] = useState<string>("");
   const [pendingPromoteId, setPendingPromoteId] = useState<string>("");
+  const [pendingUpgradeId, setPendingUpgradeId] = useState<string>("");
   const [pendingUninstallId, setPendingUninstallId] = useState<string>("");
 
   const reload = useCallback(() => {
@@ -107,6 +109,34 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
     }).finally(() => setPendingPromoteId(""));
   };
 
+  const prepareUpgrade = (row: SkillInstallationRowView) => {
+    if (!row.candidateArtifactDigest) return;
+    const message = row.candidateBreaking
+      ? tx(
+          `该候选包含 ${row.candidateChangeCount ?? 0} 项变更，其中有 breaking 变更。批准并在此 Runtime 准备升级？`,
+          `This candidate has ${row.candidateChangeCount ?? 0} changes, including breaking changes. Approve and prepare it on this runtime?`,
+        )
+      : tx(
+          `在此 Runtime 准备候选版本（${row.candidateChangeCount ?? 0} 项变更）？`,
+          `Prepare the candidate on this runtime (${row.candidateChangeCount ?? 0} changes)?`,
+        );
+    if (!window.confirm(message)) return;
+    setPendingUpgradeId(row.installationId);
+    void runToastAction({
+      action: () => createSkillUpgradeAction({
+        skillId,
+        runtimeId: row.runtimeId,
+        previousInstallationId: row.installationId,
+        candidateArtifactDigest: row.candidateArtifactDigest,
+        approved: row.candidateBreaking === true,
+      }),
+      pushToast,
+      tx,
+      fallbackError: { zh: "候选版本准备失败。", en: "Failed to prepare candidate." },
+      onSuccess: reload,
+    }).finally(() => setPendingUpgradeId(""));
+  };
+
   if (loading) {
     return <p className="form-field__hint">{tx("正在加载安装状态…", "Loading installation state…")}</p>;
   }
@@ -155,6 +185,11 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
                 </p>
               </div>
               <div className="skill-installation-card__actions">
+                {row.active && row.status === "ready" && row.candidateArtifactDigest ? (
+                  <button className="modal-secondary-button" disabled={pendingUpgradeId === row.installationId} onClick={() => prepareUpgrade(row)} type="button">
+                    <AppIcon name="arrowRight" />{pendingUpgradeId === row.installationId ? tx("准备中…", "Preparing…") : tx("准备升级", "Prepare upgrade")}
+                  </button>
+                ) : null}
                 {row.status === "ready" && !row.active && row.previousReadyArtifactDigest ? (
                   <button className="modal-secondary-button" disabled={pendingPromoteId === row.installationId} onClick={() => promote(row)} type="button">
                     <AppIcon name="checkCircle" />{pendingPromoteId === row.installationId ? tx("发布中…", "Promoting…") : tx("发布", "Promote")}
@@ -175,6 +210,9 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
               <div><dt>{tx("健康", "Health")}</dt><dd>{row.health}</dd></div>
               <div><dt>release lock</dt><dd><code>{row.releaseLockDigest ? `${row.releaseLockDigest.slice(0, 16)}…` : tx("缺失", "missing")}</code></dd></div>
               <div><dt>{tx("已准备 digest", "Prepared digest")}</dt><dd><code>{row.preparedDigest ? `${row.preparedDigest.slice(0, 16)}…` : tx("待验证", "pending")}</code></dd></div>
+              {row.candidateArtifactDigest ? (
+                <div><dt>{tx("候选", "Candidate")}</dt><dd><code>{row.candidateArtifactDigest.slice(0, 12)}…</code> · {row.candidateChangeCount ?? 0} {tx("项变更", "changes")}{row.candidateBreaking ? ` · ${tx("破坏性", "breaking")}` : ""}</dd></div>
+              ) : null}
             </dl>
 
             <div className="skill-installation-card__body">

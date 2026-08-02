@@ -79,8 +79,15 @@ test("importWorkspaceSkillFromUrl locks GitHub imports to an immutable commit SH
   const artifact = readSkillArtifactByDigestSync(result.artifactDigest, "default");
   assert.ok(artifact);
   const provenance = JSON.parse(artifact.provenanceJson) as { resolvedRef?: string; originalUrl?: string };
-  assert.equal(provenance.resolvedRef, "abc123def456789012345678901234567890abcd");
-  assert.equal(provenance.originalUrl, "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack");
+  const skillConfig = JSON.parse(readStoredWorkspaceSkillSync(result.skillId)?.configJson ?? "{}") as {
+    resolvedRef?: string;
+    originalUrl?: string;
+  };
+  assert.equal(provenance.resolvedRef ?? skillConfig.resolvedRef, "abc123def456789012345678901234567890abcd");
+  assert.equal(
+    provenance.originalUrl ?? skillConfig.originalUrl,
+    "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
+  );
   assert.deepEqual(listSkillArtifactBindingsForSkillSync(result.skillId), [result.artifactDigest]);
   assert.deepEqual(listSkillArtifactsForSkillSync(result.skillId).map((item) => item.digest), [result.artifactDigest]);
 });
@@ -596,6 +603,9 @@ test("a successful replace records a candidate artifact without activating it", 
 
   assert.notEqual(second.artifactDigest, activeBefore);
   assert.equal(readStoredSkillActiveArtifactDigestSync(first.skillId), activeBefore);
+  const unchanged = readStoredWorkspaceSkillSync(first.skillId);
+  assert.equal(unchanged?.description, "Version one");
+  assert.match(unchanged?.files.find((file) => file.path === "SKILL.md")?.content ?? "", /# v1/);
   assert.deepEqual(
     new Set(listSkillArtifactBindingsForSkillSync(first.skillId)),
     new Set([activeBefore!, second.artifactDigest!]),
