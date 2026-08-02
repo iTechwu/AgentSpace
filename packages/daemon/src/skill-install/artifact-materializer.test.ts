@@ -196,15 +196,9 @@ test("materializes a file from downloadUrl when storedPath is absent", async () 
     { path: "SKILL.md", bytes: encodeText("# Test Skill\n"), mode: "0644", mediaType: "text/markdown" },
   ]);
   const targetDir = mkdtempSync(join(tmpdir(), "dofe-agent-materialize-url-"));
-  const originalFetch = globalThis.fetch;
 
   try {
     const skillBytes = encodeText("# Test Skill\n");
-    globalThis.fetch = (async () =>
-      new Response(Buffer.from(skillBytes), {
-        status: 200,
-        headers: { "content-type": "text/markdown" },
-      })) as typeof fetch;
 
     const result = await materializeSkillInstallationArtifact(
       {
@@ -231,14 +225,24 @@ test("materializes a file from downloadUrl when storedPath is absent", async () 
         createdAt: new Date().toISOString(),
       },
       targetDir,
-      { resolveAttachmentRuntimeConfig: () => localConfig },
+      {
+        resolveAttachmentRuntimeConfig: () => localConfig,
+        download: {
+          lookupHost: async () => [{ family: "ipv4", address: "8.8.8.8" }],
+          request: async () => ({
+            statusCode: 200,
+            headers: { "content-type": "text/markdown" },
+            body: (async function* () { yield skillBytes; })(),
+            destroy: () => {},
+          }),
+        },
+      },
     );
 
     assert.equal(result.rootDigestMatches, true);
     assert.equal(result.files.length, 1);
     assert.equal(readFileSync(join(targetDir, "SKILL.md"), "utf8"), "# Test Skill\n");
   } finally {
-    globalThis.fetch = originalFetch;
     rmSync(targetDir, { recursive: true, force: true });
   }
 });

@@ -11,9 +11,10 @@ import {
   type AttachmentRuntimeConfig,
   type SkillArtifactManifest,
 } from "@dofe-agent/services";
-
-const DOWNLOAD_TIMEOUT_MS = 60_000;
-const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024;
+import {
+  downloadSkillArtifactFile,
+  type SkillArtifactDownloadInput,
+} from "./secure-artifact-download.ts";
 
 export interface MaterializedSkillFile {
   path: string;
@@ -42,6 +43,7 @@ export class SkillMaterializationError extends Error {
 
 export interface MaterializeOptions {
   resolveAttachmentRuntimeConfig?: () => AttachmentRuntimeConfig;
+  download?: Omit<SkillArtifactDownloadInput, "url" | "expectedSize">;
 }
 
 /**
@@ -125,7 +127,11 @@ async function fetchFileBytes(
   options?: MaterializeOptions,
 ): Promise<Uint8Array> {
   if (file.downloadUrl) {
-    return downloadWithTimeout(file.downloadUrl, file.size);
+    return downloadSkillArtifactFile({
+      ...options?.download,
+      url: file.downloadUrl,
+      expectedSize: file.size,
+    });
   }
   if (file.storedPath?.startsWith("local:///")) {
     return readLocalBlobBytes(file.storedPath, workspaceId, options);
@@ -140,28 +146,6 @@ async function fetchFileBytes(
     `File "${file.path}" has no downloadUrl or storedPath`,
     "skill_installation.missing_file_source",
   );
-}
-
-async function downloadWithTimeout(url: string, expectedSize: number): Promise<Uint8Array> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText}`);
-    }
-    const contentLength = response.headers.get("content-length");
-    if (contentLength) {
-      const length = Number.parseInt(contentLength, 10);
-      if (Number.isFinite(length) && length > Math.max(expectedSize * 2, MAX_DOWNLOAD_BYTES)) {
-        throw new Error(`Response size ${length} exceeds guard limit`);
-      }
-    }
-    const buffer = await response.arrayBuffer();
-    return new Uint8Array(buffer);
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 function readLocalBlobBytes(
