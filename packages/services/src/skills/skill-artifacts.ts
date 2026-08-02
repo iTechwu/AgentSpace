@@ -242,6 +242,38 @@ export function buildAndPersistSkillArtifactSync(
   //    usable by a new skill instance or re-import.
   const existing = readSkillArtifactByDigestSync(digest, workspaceId);
   if (existing) {
+    const storage = createAttachmentStorageClient();
+    for (let index = 0; index < sortedFiles.length; index += 1) {
+      const file = sortedFiles[index]!;
+      const entry = manifestFiles[index]!;
+      let blobHealthy = false;
+      if (storage.contentAddressedBlobExistsSync({ workspaceId, sha256: entry.sha256 })) {
+        try {
+          blobHealthy = sha256Hex(storage.getContentAddressedBlobSync({ workspaceId, sha256: entry.sha256 })) === entry.sha256;
+        } catch {
+          blobHealthy = false;
+        }
+      }
+      if (!blobHealthy) {
+        const ref = storage.putContentAddressedBlobSync({
+          workspaceId,
+          sha256: entry.sha256,
+          contentBytes: file.bytes,
+          mediaType: entry.mediaType,
+        });
+        upsertContentBlobSync({
+          workspaceId,
+          sha256: entry.sha256,
+          storageProvider: ref.storageProvider,
+          storageBucket: ref.storageBucket,
+          storageRegion: ref.storageRegion,
+          storageEndpoint: ref.storageEndpoint,
+          storageKey: ref.storageKey,
+          sizeBytes: entry.size,
+          mediaType: entry.mediaType,
+        });
+      }
+    }
     if (input.skillId) {
       upsertSkillArtifactBindingSync({ skillId: input.skillId, digest, workspaceId });
       if (input.activate !== false) {

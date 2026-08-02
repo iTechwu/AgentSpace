@@ -240,6 +240,10 @@ test("D-11: missing blob fails integrity verification — no false success", () 
   const integrity = verifySkillArtifactIntegritySync(result.artifact);
   assert.equal(integrity.ok, false);
   assert.ok(integrity.missing.includes("assets/logo.png"));
+
+  const restored = buildAndPersistSkillArtifactSync({ workspaceId: "default", name: "missing", files: sampleFiles() });
+  assert.equal(restored.created, false);
+  assert.equal(verifySkillArtifactIntegritySync(restored.artifact).ok, true);
 });
 
 test("artifact requires SKILL.md", () => {
