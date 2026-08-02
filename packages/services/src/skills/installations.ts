@@ -39,6 +39,7 @@ import { createSkillInstallationOperationSync } from "@dofe-agent/db";
 import { createAttachmentStorageClient, type AttachmentStorageReadInput } from "../attachments/storage.ts";
 import { evaluateSkillInstallationCapabilitiesSync } from "./capabilities.ts";
 import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
+import { computeSkillReleaseLockSync } from "./release.ts";
 
 /* ------------------------------------------------------------------ */
 /* Control plane: installation plans                                   */
@@ -64,6 +65,7 @@ export function buildSkillInstallationComponentsSync(input: {
     dependencies?: Array<{ manager?: string; kind?: string; name?: string; version?: string }>;
     entrypoints?: Array<{ path?: string }>;
     capabilities?: Array<{ kind?: string; catalogSlug?: string }>;
+    services?: Array<{ catalogSlug?: string; required?: boolean }>;
   };
   try {
     manifest = JSON.parse(artifact.manifestJson) as typeof manifest;
@@ -86,7 +88,7 @@ export function createSkillInstallationPlanSync(input: {
   }
 
   const components = buildSkillInstallationComponentsSync({ workspaceId: input.workspaceId, artifactDigest: input.artifactDigest });
-  const resolvedLockJson = buildResolvedLockJson(artifact.digest, artifact.manifestVersion);
+  const resolvedLockJson = JSON.stringify(computeSkillReleaseLockSync(artifact, input.workspaceId ?? "default"));
 
   const installation = createSkillInstallationSync({
     workspaceId: input.workspaceId,
@@ -117,53 +119,57 @@ function buildInstallationComponents(
     dependencies?: Array<{ manager?: string; kind?: string; name?: string; version?: string }>;
     entrypoints?: Array<{ path?: string }>;
     capabilities?: Array<{ kind?: string; catalogSlug?: string }>;
+    services?: Array<{ catalogSlug?: string; required?: boolean }>;
   },
   fileRecords: Array<{ path: string; mode: string }>,
 ): SkillInstallationComponentInput[] {
-  const components: SkillInstallationComponentInput[] = [];
+  // Deduplicated by (kind, key) so an entrypoint that is ALSO a 0755 file yields
+  // ONE script component (a duplicate would violate UNIQUE(installation, kind, key)).
+  const components = new Map<string, SkillInstallationComponentInput>();
 
   // Manifest dependencies use `manager` (SkillDependencyDeclaration) or
   // `kind` (DspDependency); accept both for forward compatibility.
   for (const dependency of manifest.dependencies ?? []) {
-    components.push({
+    components.set("dependency:" + keyOf(dependency), {
       kind: "dependency",
       key: `${dependency.manager ?? dependency.kind}:${dependency.name}@${dependency.version}`,
     });
   }
   for (const entrypoint of manifest.entrypoints ?? []) {
     if (entrypoint.path) {
-      components.push({ kind: "script", key: entrypoint.path });
+      components.set(`script:${entrypoint.path}`, { kind: "script", key: entrypoint.path });
     }
   }
   for (const file of fileRecords) {
     if (file.mode === "0755") {
-      components.push({ kind: "script", key: file.path });
+      components.set(`script:${file.path}`, { kind: "script", key: file.path });
     }
   }
   for (const capability of manifest.capabilities ?? []) {
     const kind = capability.kind === "cli" ? "cli" : "mcp";
-    components.push({ kind, key: `${kind}:${capability.catalogSlug}` });
+    components.set(`${kind}:${capability.catalogSlug}`, { kind, key: `${kind}:${capability.catalogSlug}` });
+  }
+  // Every declared service gets a `service` component so a required service can
+  // never be silently skipped — the daemon's service verifier blocks it until the
+  // managed-service worker exists, which is the correct fail-closed behavior.
+  for (const service of manifest.services ?? []) {
+    if (!service.catalogSlug) {
+      continue;
+    }
+    const key = `service:${service.catalogSlug}`;
+    components.set(key, { kind: "service", key });
   }
 
   // Package integrity is always a required component so an artifact with no
   // declared dependencies still goes through verification before `ready`.
-  if (components.length === 0) {
-    components.push({ kind: "dependency", key: "package:integrity" });
+  if (components.size === 0) {
+    components.set("dependency:package:integrity", { kind: "dependency", key: "package:integrity" });
   }
-  return components;
+  return [...components.values()];
 }
 
-function buildResolvedLockJson(artifactDigest: string, packageSchemaVersion: number): string {
-  return JSON.stringify({
-    artifactDigest,
-    packageSchemaVersion,
-    dependencyLockDigest: "",
-    serviceTemplateVersions: {},
-    serviceImageDigests: {},
-    serviceConfigSchemaVersions: {},
-    mcpToolFingerprints: {},
-    providerCompatibilityRevision: 0,
-  });
+function keyOf(dependency: { manager?: string; kind?: string; name?: string; version?: string }): string {
+  return `${dependency.manager ?? dependency.kind}:${dependency.name}@${dependency.version}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -196,6 +202,7 @@ export async function resolveClaimedSkillInstallationOperation(input: {
     artifactDigest: artifact.digest,
     artifactName: artifact.name,
     manifestJson: artifact.manifestJson,
+    ...readReleaseLockDigest(installation.resolvedLockJson),
     files: await Promise.all(
       fileRecords.map(async (file) => {
         const blob = readContentBlobSync(file.sha256, input.workspaceId);
@@ -269,6 +276,18 @@ function readSkillInstallationOperationExpectedComponentsSync(
     kind: component.kind,
     key: component.key,
   }));
+}
+
+function readReleaseLockDigest(resolvedLockJson: string): { releaseLockDigest: string } | Record<string, never> {
+  try {
+    const lock = JSON.parse(resolvedLockJson) as { lockDigest?: unknown };
+    if (typeof lock.lockDigest === "string" && lock.lockDigest.length > 0) {
+      return { releaseLockDigest: lock.lockDigest };
+    }
+  } catch {
+    // Absent/malformed lock → omit the digest from the claim.
+  }
+  return {};
 }
 
 function buildBlobStoredPath(blob: ContentBlobRecord): string {
@@ -678,6 +697,9 @@ export function resolveTaskSkillExecutionSnapshotSync(input: {
   const digestBySkillId = new Map<string, string | undefined>(
     assignments.map((assignment) => [assignment.skillId, assignment.skillArtifactDigest]),
   );
+  const rolloutPinBySkillId = new Map<string, string | undefined>(
+    assignments.map((assignment) => [assignment.skillId, assignment.rolloutPin]),
+  );
 
   for (const skill of input.agentSkills) {
     if (skill.sourceType === "builtin") {
@@ -688,11 +710,19 @@ export function resolveTaskSkillExecutionSnapshotSync(input: {
     if (!artifactDigest) {
       continue;
     }
-    const installation = readHighestRevisionSkillInstallationSync({
-      workspaceId,
-      runtimeId: input.runtimeId,
-      artifactDigest,
-    });
+    // A rollout pin fixes new tasks to a SPECIFIC installation revision until the
+    // rollout switches; unpinned assignments resolve to the highest ready revision.
+    const rolloutPin = rolloutPinBySkillId.get(skill.id);
+    let installation = rolloutPin
+      ? readSkillInstallationByLockSync({ workspaceId, runtimeId: input.runtimeId, artifactDigest, revision: rolloutPin })
+      : null;
+    if (!installation || installation.status !== "ready") {
+      installation = readHighestRevisionSkillInstallationSync({
+        workspaceId,
+        runtimeId: input.runtimeId,
+        artifactDigest,
+      });
+    }
     if (!installation) {
       continue;
     }
@@ -733,6 +763,15 @@ export function resolveOrLoadTaskSkillExecutionSnapshotSync(
     return persisted;
   }
   const resolved = resolveTaskSkillExecutionSnapshotSync(input);
-  writeTaskSkillExecutionSnapshotSync(taskId, resolved);
+  const wrote = writeTaskSkillExecutionSnapshotSync(taskId, resolved);
+  if (!wrote) {
+    // Another preparer won the first-write race (the DB write is IS NULL-gated):
+    // use ITS frozen snapshot so both concurrent executors of the same task see
+    // exactly the same revision instead of diverging on their own resolution.
+    const winner = readTaskSkillExecutionSnapshotSync(taskId);
+    if (winner) {
+      return winner;
+    }
+  }
   return resolved;
 }

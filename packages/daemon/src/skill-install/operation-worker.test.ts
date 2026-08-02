@@ -62,22 +62,58 @@ afterEach(() => {
 });
 
 test("reuses a pre-warmed digest-keyed cache and reports cacheHit + preparedPath", async () => {
-  const operation = buildOperation();
+  const skillMdBytes = Buffer.from("abc", "utf8");
+  const nestedBytes = Buffer.from("nested", "utf8");
+  const sha256Of = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
+  const manifest: SkillArtifactManifest = {
+    schemaVersion: 1,
+    artifact: { name: "test-skill", version: "1.0.0" },
+    files: [
+      { path: "SKILL.md", sha256: sha256Of(skillMdBytes), size: skillMdBytes.length, mediaType: "text/markdown", mode: "0644" },
+      { path: "sub/nested.txt", sha256: sha256Of(nestedBytes), size: nestedBytes.length, mediaType: "text/plain", mode: "0644" },
+    ],
+    dependencies: [],
+  };
+  const manifestJson = JSON.stringify(manifest);
+  const sortedDigests = manifest.files.map((file) => file.sha256).sort((a, b) => a.localeCompare(b, "en-US"));
+  const artifactDigest = computeArtifactDigest(manifest, sortedDigests);
+
+  const operation = buildOperation({
+    artifactDigest,
+    manifestJson,
+    components: [],
+    files: [{
+      path: "SKILL.md",
+      sha256: sha256Of(skillMdBytes),
+      size: skillMdBytes.length,
+      mediaType: "text/markdown",
+      mode: "0644",
+      storedPath: "local:///unused",
+    }],
+  });
   const cachePath = getDaemonSkillInstallCachePath(stateDir, {
     workspaceId: operation.workspaceId,
-    artifactDigest: operation.artifactDigest,
+    artifactDigest,
   });
-  // Pre-seed a completed cache: artifact file + sentinel + digest metadata.
+  // Pre-seed a completed, content-consistent cache: exact path set + per-file
+  // sha256 + manifestJson that re-derives the same root digest.
   mkdirSync(join(cachePath, "sub"), { recursive: true });
-  writeFileSync(join(cachePath, "SKILL.md"), "abc");
-  writeFileSync(join(cachePath, "sub", "nested.txt"), "nested");
+  writeFileSync(join(cachePath, "SKILL.md"), skillMdBytes);
+  writeFileSync(join(cachePath, "sub", "nested.txt"), nestedBytes);
   writeFileSync(join(cachePath, ".cache-complete"), new Date().toISOString());
   writeFileSync(
     join(cachePath, ".cache-result.json"),
     JSON.stringify({
-      files: [{ path: "SKILL.md", sha256: operation.files[0]!.sha256, size: 3 }],
-      computedDigest: operation.artifactDigest,
-      expectedDigest: operation.artifactDigest,
+      files: manifest.files.map((file) => ({
+        path: file.path,
+        sha256: file.sha256,
+        size: file.size,
+        mediaType: file.mediaType,
+        mode: file.mode,
+      })),
+      computedDigest: artifactDigest,
+      expectedDigest: artifactDigest,
+      manifestJson,
     }),
   );
 
@@ -88,7 +124,7 @@ test("reuses a pre-warmed digest-keyed cache and reports cacheHit + preparedPath
   const safeResult = JSON.parse(String(lastComplete!.body.safeResultJson)) as Record<string, unknown>;
   assert.equal(safeResult.cacheHit, true);
   assert.equal(safeResult.preparedPath, cachePath);
-  assert.equal(safeResult.computedDigest, operation.artifactDigest);
+  assert.equal(safeResult.computedDigest, artifactDigest);
 
   // Per-operation workDir is cleaned up; the cache survives.
   const workDir = getDaemonSkillInstallWorkDirPath(stateDir, {
@@ -189,30 +225,50 @@ test("a cache-miss materialization that fails verification never publishes the c
 });
 
 test("a verification failure reports component statuses via FAIL (no complete-after-fail)", async () => {
-  // Pre-warm a cache whose digest matches, so materialization succeeds; the
-  // component verifier then fails because the script is not in the manifest.
+  // Pre-warm a content-consistent cache whose digest matches, so materialization
+  // succeeds via cache hit; the component verifier then fails because the
+  // declared script `run.sh` is not in the manifest files.
+  const skillMdBytes = Buffer.from("abc", "utf8");
+  const sha256Of = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
+  const manifest: SkillArtifactManifest = {
+    schemaVersion: 1,
+    artifact: { name: "test-skill", version: "1.0.0" },
+    files: [{
+      path: "SKILL.md",
+      sha256: sha256Of(skillMdBytes),
+      size: skillMdBytes.length,
+      mediaType: "text/markdown",
+      mode: "0644",
+    }],
+    dependencies: [],
+  };
+  const manifestJson = JSON.stringify(manifest);
+  const artifactDigest = computeArtifactDigest(manifest, [sha256Of(skillMdBytes)]);
   const operation = buildOperation({
+    artifactDigest,
+    manifestJson,
     components: [{ kind: "script", key: "run.sh", status: "pending" }],
-    manifestJson: JSON.stringify({
-      schemaVersion: 1,
-      artifact: { name: "test-skill", version: "1.0.0" },
-      files: [],
-      dependencies: [],
-    }),
   });
   const cachePath = getDaemonSkillInstallCachePath(stateDir, {
     workspaceId: operation.workspaceId,
-    artifactDigest: operation.artifactDigest,
+    artifactDigest,
   });
   mkdirSync(cachePath, { recursive: true });
-  writeFileSync(join(cachePath, "SKILL.md"), "abc");
+  writeFileSync(join(cachePath, "SKILL.md"), skillMdBytes);
   writeFileSync(join(cachePath, ".cache-complete"), new Date().toISOString());
   writeFileSync(
     join(cachePath, ".cache-result.json"),
     JSON.stringify({
-      files: [{ path: "SKILL.md", sha256: operation.files[0]!.sha256, size: 3 }],
-      computedDigest: operation.artifactDigest,
-      expectedDigest: operation.artifactDigest,
+      files: [{
+        path: "SKILL.md",
+        sha256: sha256Of(skillMdBytes),
+        size: skillMdBytes.length,
+        mediaType: "text/markdown",
+        mode: "0644",
+      }],
+      computedDigest: artifactDigest,
+      expectedDigest: artifactDigest,
+      manifestJson,
     }),
   );
 

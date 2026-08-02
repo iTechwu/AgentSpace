@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
 import { resolveStoredEmployeeIdSync } from "./workspace-employees.ts";
 import type {
@@ -289,19 +290,27 @@ export function commitWorkspaceRevisionSync(
 export function restoreWorkspaceRevisionSync(input: {
   employeeName: string;
   targetRevisionId: string;
-  manifestDigest: string;
-  manifestJson: string;
   createdBy?: string;
   workspaceId?: string;
 }): EmployeeWorkspaceRevisionRecord {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const target = readWorkspaceRevisionSync(input.targetRevisionId, workspaceId);
+  if (!target) {
+    throw new Error(`Target revision "${input.targetRevisionId}" does not exist.`);
+  }
   const head = readHeadRevisionSync(input.employeeName, workspaceId);
+  // The restored head carries the target's EXACT manifest (same content, same
+  // file set) but a deterministic restore digest derived from the target's
+  // digest. Determinism makes re-running the same restore idempotent
+  // (createWorkspaceRevisionSync returns the existing restore revision), and
+  // the marker keeps it traceable without duplicating content rows.
+  const restoredDigest = sha256Hex(`${target.manifestDigest}#restore`);
   const restored = createWorkspaceRevisionSync({
     workspaceId,
     employeeName: input.employeeName,
     parentRevisionId: head?.id,
-    manifestDigest: `${input.manifestDigest}#restore-${randomLikeId()}`,
-    manifestJson: input.manifestJson,
+    manifestDigest: restoredDigest,
+    manifestJson: target.manifestJson,
     status: "pending",
     createdBy: input.createdBy,
   });
@@ -539,4 +548,8 @@ export function deleteEmployeeDurabilityRecordsSync(
 
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }

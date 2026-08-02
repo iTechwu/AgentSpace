@@ -79,11 +79,17 @@ export function claimNextWorkspaceMountOperationForRuntimeSync(
   if (!row?.id) {
     return null;
   }
-  db.prepare(
+  // CAS claim: only a pending op becomes claimed. If another worker won the race
+  // between our SELECT and UPDATE, the row count is 0 and we must not report it
+  // as ours.
+  const result = db.prepare(
     `UPDATE runtime_workspace_mount_operation
      SET status = 'claimed', claimed_at = ?, updated_at = ?
      WHERE id = ? AND status = 'pending'`,
   ).run(now, now, row.id);
+  if (result.changes === 0) {
+    return null;
+  }
   return readWorkspaceMountOperationSync(row.id, workspaceId ?? DEFAULT_WORKSPACE_ID)!;
 }
 
@@ -108,11 +114,14 @@ export function completeWorkspaceMountOperationSync(input: {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = new Date().toISOString();
-  db.prepare(
+  const result = db.prepare(
     `UPDATE runtime_workspace_mount_operation
        SET status = 'completed', completed_at = ?, error_code = NULL, error_message = NULL, updated_at = ?
-     WHERE id = ? AND workspace_id = ?`,
+     WHERE id = ? AND workspace_id = ? AND status IN ('claimed', 'running')`,
   ).run(now, now, input.operationId, workspaceId);
+  if (result.changes === 0) {
+    throw new Error("Workspace mount operation is not in a completable state.");
+  }
   return readWorkspaceMountOperationSync(input.operationId, workspaceId)!;
 }
 
@@ -125,11 +134,14 @@ export function failWorkspaceMountOperationSync(input: {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = new Date().toISOString();
-  db.prepare(
+  const result = db.prepare(
     `UPDATE runtime_workspace_mount_operation
        SET status = 'failed', error_code = ?, error_message = ?, updated_at = ?
-     WHERE id = ? AND workspace_id = ?`,
+     WHERE id = ? AND workspace_id = ? AND status IN ('claimed', 'running')`,
   ).run(input.errorCode?.trim() || null, input.errorMessage, now, input.operationId, workspaceId);
+  if (result.changes === 0) {
+    throw new Error("Workspace mount operation is not in a failable state.");
+  }
   return readWorkspaceMountOperationSync(input.operationId, workspaceId)!;
 }
 

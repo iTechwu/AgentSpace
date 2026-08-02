@@ -58,17 +58,14 @@ export async function loadMarketPageData(input: {
           status: runtime.status,
           daemonKey: snapshot.daemon.daemonKey,
           cliHubReady: readiness.cliHub.available,
-          // MCP gateway eligibility: claude has a validated one-shot --mcp-config
-          // path but real CLI E2E (call, revoke, audit, lifecycle) is still pending
-          // in the designated CI env — keep it behind a gate that defaults to on
-          // but can be switched off (MCP_CLAUDE_EXPERIMENTAL_ENABLED=0). codex
-          // injection (--ignore-user-config + --config mcp_servers=…) is implemented
-          // and unit-covered, BUT isolation of pre-existing user/project MCP config
-          // and real E2E are NOT yet validated — keep codex behind an explicit
-          // opt-in flag until the CI env validates it. Other providers are not
+          // MCP gateway eligibility: neither claude nor codex has passed real CLI
+          // E2E (call, revoke, audit, lifecycle) in the designated CI env, so BOTH
+          // are opt-in experimental flags, default OFF — "being able to build
+          // launch args" is not "supported". Only after the CI env validates a
+          // provider do we flip its flag to default-on. Other providers are not
           // eligible yet.
           mcpEligible:
-            (runtime.provider === "claude" && process.env.MCP_CLAUDE_EXPERIMENTAL_ENABLED !== "0")
+            (runtime.provider === "claude" && process.env.MCP_CLAUDE_EXPERIMENTAL_ENABLED === "1")
             || (runtime.provider === "codex" && process.env.MCP_CODEX_EXPERIMENTAL_ENABLED === "1"),
         };
       }),

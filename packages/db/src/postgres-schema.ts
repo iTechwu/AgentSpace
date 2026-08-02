@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "67";
+export const POSTGRES_SCHEMA_VERSION = "71";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -81,9 +81,11 @@ export const POSTGRES_TABLE_NAMES = [
   "mcp_task_session_grant",
   "content_blob",
   "skill_artifact",
+  "skill_artifact_binding",
   "skill_artifact_file",
   "skill_installation",
   "skill_installation_operation",
+  "skill_upgrade_approval",
   "skill_installation_component",
   "skill_service_catalog",
   "managed_skill_service",
@@ -2525,6 +2527,16 @@ export function getPostgresSchemaStatements(): string[] {
       )
     `,
     `
+      CREATE TABLE IF NOT EXISTS skill_artifact_binding (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        skill_id TEXT NOT NULL REFERENCES skill(id) ON DELETE CASCADE,
+        artifact_digest TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, skill_id, artifact_digest)
+      )
+    `,
+    `
       CREATE TABLE IF NOT EXISTS skill_artifact_file (
         id TEXT PRIMARY KEY,
         artifact_id TEXT NOT NULL REFERENCES skill_artifact(id) ON DELETE CASCADE,
@@ -2537,6 +2549,23 @@ export function getPostgresSchemaStatements(): string[] {
         is_text INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMPTZ NOT NULL,
         UNIQUE(artifact_id, path)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS skill_upgrade_approval (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        skill_id TEXT REFERENCES skill(id) ON DELETE SET NULL,
+        from_digest TEXT NOT NULL,
+        to_digest TEXT NOT NULL,
+        diff_hash TEXT NOT NULL,
+        policy_version TEXT NOT NULL DEFAULT 'v1',
+        decision TEXT NOT NULL,
+        reason TEXT,
+        actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        consumed_at TIMESTAMPTZ,
+        UNIQUE(workspace_id, from_digest, to_digest, diff_hash)
       )
     `,
     `
@@ -2662,6 +2691,9 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `
       ALTER TABLE agent_skill ADD COLUMN IF NOT EXISTS skill_artifact_digest TEXT
+    `,
+    `
+      ALTER TABLE agent_skill ADD COLUMN IF NOT EXISTS rollout_pin TEXT
     `,
     `
       CREATE TABLE IF NOT EXISTS employee_persistent_workspace (
@@ -3099,6 +3131,22 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_backup_restore_drill_run_workspace
         ON backup_restore_drill_run(workspace_id, created_at DESC)
+    `,
+    `
+      ALTER TABLE backup_restore_drill_run
+        ADD COLUMN IF NOT EXISTS restore_point_at TIMESTAMPTZ
+    `,
+    `
+      ALTER TABLE backup_restore_drill_run
+        ADD COLUMN IF NOT EXISTS source_snapshot TEXT
+    `,
+    `
+      ALTER TABLE backup_restore_drill_run
+        ADD COLUMN IF NOT EXISTS restore_environment TEXT
+    `,
+    `
+      ALTER TABLE backup_restore_drill_run
+        ADD COLUMN IF NOT EXISTS restore_duration_ms INTEGER
     `,
     `
       ALTER TABLE runtime_mcp_connection

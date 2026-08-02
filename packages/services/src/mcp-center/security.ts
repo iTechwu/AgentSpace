@@ -4,9 +4,14 @@ import type { McpErrorCode } from "@dofe-agent/db";
 
 const MCP_SECRET_VERSION = "mcp1";
 const MAX_SECRET_LENGTH = 4096;
+/** Grant envelopes carry a whole resolved bundle (many connections/tools), so
+ *  they get their own version tag and a much larger explicit size limit — they
+ *  must NOT be constrained by the single-secret 4096-char cap. */
+const MCP_GRANT_VERSION = "mcpg1";
+const MAX_GRANT_LENGTH = 512 * 1024;
 
 /* ------------------------------------------------------------------ */
-/* Secret encryption (AES-256-GCM, control-plane only)                 */
+/* Envelope encryption (AES-256-GCM, control-plane only)               */
 /* Format: "<version>:<iv base64url>:<authTag base64url>:<ciphertext base64url>" */
 /* The db layer stores this opaque string unchanged.                    */
 /* ------------------------------------------------------------------ */
@@ -26,44 +31,60 @@ function readMcpEncryptionKey(): Buffer {
   return key;
 }
 
-export function encryptMcpSecret(plaintext: string): string {
+function encryptEnvelope(plaintext: string, version: string, maxLength: number, label: string): string {
   const trimmed = plaintext.trim();
   if (!trimmed) {
-    throw new Error("MCP secret value must not be empty.");
+    throw new Error(`${label} must not be empty.`);
   }
-  if (trimmed.length > MAX_SECRET_LENGTH) {
-    throw new Error("MCP secret value is too long.");
+  if (trimmed.length > maxLength) {
+    throw new Error(`${label} is too long.`);
   }
   const key = readMcpEncryptionKey();
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const ciphertext = Buffer.concat([cipher.update(trimmed, "utf8"), cipher.final()]);
-  return [MCP_SECRET_VERSION, iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ciphertext.toString("base64url")].join(":");
+  return [version, iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ciphertext.toString("base64url")].join(":");
 }
 
-export function decryptMcpSecret(value: string): string {
+function decryptEnvelope(value: string, version: string, label: string): string {
   const parts = value.split(":");
-  if (parts.length !== 4 || parts[0] !== MCP_SECRET_VERSION) {
-    throw new Error("Unsupported MCP secret encryption version.");
+  if (parts.length !== 4 || parts[0] !== version) {
+    throw new Error(`Unsupported ${label} encryption version.`);
   }
   const [, ivBase64, authTagBase64, ciphertextBase64] = parts;
   if (!ivBase64 || !authTagBase64 || !ciphertextBase64) {
-    throw new Error("Invalid MCP secret encryption format.");
+    throw new Error(`Invalid ${label} encryption format.`);
   }
   const key = readMcpEncryptionKey();
   const iv = Buffer.from(ivBase64, "base64url");
   const authTag = Buffer.from(authTagBase64, "base64url");
   const ciphertext = Buffer.from(ciphertextBase64, "base64url");
   if (iv.length !== 12) {
-    throw new Error("Invalid MCP secret initialization vector.");
+    throw new Error(`Invalid ${label} initialization vector.`);
   }
   const decipher = createDecipheriv("aes-256-gcm", key, iv);
   decipher.setAuthTag(authTag);
   try {
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
   } catch {
-    throw new Error("Failed to decrypt MCP secret.");
+    throw new Error(`Failed to decrypt ${label}.`);
   }
+}
+
+export function encryptMcpSecret(plaintext: string): string {
+  return encryptEnvelope(plaintext, MCP_SECRET_VERSION, MAX_SECRET_LENGTH, "MCP secret value");
+}
+
+export function decryptMcpSecret(value: string): string {
+  return decryptEnvelope(value, MCP_SECRET_VERSION, "MCP secret");
+}
+
+export function encryptMcpGrant(plaintext: string): string {
+  return encryptEnvelope(plaintext, MCP_GRANT_VERSION, MAX_GRANT_LENGTH, "MCP grant");
+}
+
+export function decryptMcpGrant(value: string): string {
+  return decryptEnvelope(value, MCP_GRANT_VERSION, "MCP grant");
 }
 
 export const MCP_SECRET_KEY_VERSION = MCP_SECRET_VERSION;

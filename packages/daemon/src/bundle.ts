@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { DaemonTaskInputBundle, DaemonTaskOutputBundle } from "./daemon-api.ts";
 import { getRuntimeOutputDir } from "./runtime-output.ts";
@@ -15,6 +15,11 @@ export function materializeInputBundle(workDir: string, bundle: DaemonTaskInputB
     const targetPath = resolveBundleTargetPath(workDir, file.path);
     mkdirSync(dirname(targetPath), { recursive: true });
     writeFileSync(targetPath, Buffer.from(file.contentBase64, "base64"));
+    if (file.mode && /^[0-7]{3,4}$/.test(file.mode)) {
+      // Restore the executable bit the control plane preserved, so scripts that
+      // passed install remain runnable in the task workDir.
+      chmodSync(targetPath, parseInt(file.mode, 8));
+    }
   }
 }
 
@@ -35,6 +40,7 @@ export function collectRuntimeOutputBundle(
   const workspaceFiles = capture.files.map((file) => ({
     path: file.path,
     contentBase64: Buffer.from(file.bytes).toString("base64"),
+    mode: file.mode,
   }));
 
   if (files.length === 0 && workspaceFiles.length === 0 && capture.deletedPaths.length === 0) {

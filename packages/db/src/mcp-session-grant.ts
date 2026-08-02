@@ -1,4 +1,4 @@
-import { getDatabase, DEFAULT_WORKSPACE_ID } from "./database.ts";
+import { getDatabase, DEFAULT_WORKSPACE_ID, withTransaction } from "./database.ts";
 
 export interface McpTaskSessionGrantRecord {
   taskId: string;
@@ -58,6 +58,52 @@ export function writeMcpTaskSessionGrantSync(input: WriteMcpTaskSessionGrantInpu
     throw new Error("Failed to write MCP task session grant.");
   }
   return record;
+}
+
+/**
+ * Atomically consumes the one-time claim marker and persists the grant in ONE
+ * transaction. If the marker was already consumed, the grant INSERT is skipped
+ * and `claimed` is false — there is never a window where the marker is consumed
+ * but the grant is missing (which would leave a permanent empty authorization
+ * after a crash between the two old statements).
+ */
+export function claimMcpTaskSessionAtomicallySync(input: {
+  taskId: string;
+  workspaceId?: string;
+  runtimeId: string;
+  attemptId: string;
+  encryptedBundleJson: string;
+  expiresAt: string;
+}): { claimed: boolean } {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const db = getDatabase();
+  let claimed = false;
+  withTransaction(db, () => {
+    const now = new Date().toISOString();
+    const marker = db.prepare(
+      `UPDATE agent_task_queue
+       SET mcp_session_claimed_at = ?, updated_at = ?
+       WHERE id = ? AND mcp_session_claimed_at IS NULL`,
+    ).run(now, now, input.taskId);
+    if (marker.changes > 0) {
+      db.prepare(
+        `INSERT INTO mcp_task_session_grant (
+           task_id, workspace_id, runtime_id, attempt_id, encrypted_bundle_json, expires_at, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (task_id) DO NOTHING`,
+      ).run(
+        input.taskId,
+        workspaceId,
+        input.runtimeId,
+        input.attemptId,
+        input.encryptedBundleJson,
+        input.expiresAt,
+        now,
+      );
+      claimed = true;
+    }
+  });
+  return { claimed };
 }
 
 export function readMcpTaskSessionGrantSync(

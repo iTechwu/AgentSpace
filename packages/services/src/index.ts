@@ -288,7 +288,9 @@ export {
 } from "./mcp-center/connections.ts";
 export {
   MCP_SECRET_KEY_VERSION,
+  decryptMcpGrant,
   decryptMcpSecret,
+  encryptMcpGrant,
   encryptMcpSecret,
   redactMcpText,
   redactToolInputSchema,
@@ -364,11 +366,19 @@ export {
   type SkillCapabilityResolution,
 } from "./skills/capabilities.ts";
 export {
+  assertSkillServiceCatalogAdmissionSync,
+  createSkillServiceCatalogEntrySync,
+  type SkillServiceCatalogAdmissionInput,
+} from "./skill-services/catalog.ts";
+export {
   computeSkillReleaseLockSync,
   diffSkillArtifactsSync,
   isSkillUpgradeApprovalRequiredSync,
   createSkillUpgradePlanSync,
   rollbackSkillInstallationSync,
+  readSkillInstallationLockSync,
+  approveSkillUpgradeSync,
+  computeSkillUpgradeDiffHashSync,
   type ResolvedSkillReleaseLock,
   type SkillReleaseDiff,
   type SkillDiffCategory,

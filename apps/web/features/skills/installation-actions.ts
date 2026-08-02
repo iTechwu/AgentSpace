@@ -11,6 +11,8 @@ import {
   readSkillInstallationSync,
 } from "@dofe-agent/db";
 import {
+  approveSkillUpgradeSync,
+  computeSkillUpgradeDiffHashSync,
   createSkillInstallationPlanSync,
   createSkillUpgradePlanSync,
   diffSkillArtifactsSync,
@@ -111,10 +113,13 @@ export async function createSkillUpgradeAction(input: {
   }
 
   // Surface the semantic diff so the caller can require re-approval for
-  // breaking changes (executable / capability / service / config).
+  // breaking changes (executable / capability / service / config). A breaking
+  // upgrade records an IMMUTABLE approval bound to (fromDigest, toDigest,
+  // diffHash, policyVersion) instead of a one-shot boolean.
   const previous = readSkillInstallationSync(input.previousInstallationId.trim(), workspaceContext.currentWorkspace.id);
   let breaking = false;
   let changeCount = 0;
+  let approvalId: string | undefined;
   if (previous) {
     const previousArtifact = readSkillArtifactByDigestSync(previous.artifactDigest, workspaceContext.currentWorkspace.id);
     const nextArtifact = readSkillArtifactByDigestSync(digest, workspaceContext.currentWorkspace.id);
@@ -126,10 +131,25 @@ export async function createSkillUpgradeAction(input: {
       breaking = diff.breaking;
       changeCount = diff.categories.reduce((count, category) => count + category.changes.length, 0);
     }
-  }
-
-  if (breaking && input.approved !== true) {
-    throw new Error("升级包含 breaking 变更，需要显式批准。");
+    if (breaking) {
+      if (input.approved !== true) {
+        throw new Error("升级包含 breaking 变更，需要显式批准。");
+      }
+      const diffHash = computeSkillUpgradeDiffHashSync({
+        fromManifestJson: previousArtifact?.manifestJson ?? "{}",
+        toManifestJson: nextArtifact?.manifestJson ?? "{}",
+      });
+      approvalId = approveSkillUpgradeSync({
+        workspaceId: workspaceContext.currentWorkspace.id,
+        skillId: input.skillId.trim(),
+        fromDigest: previous.artifactDigest,
+        toDigest: digest,
+        diffHash,
+        decision: "approved",
+        reason: "Approved by admin in the skill-installation upgrade flow.",
+        actorUserId: workspaceContext.currentUser.id,
+      }).approvalId;
+    }
   }
 
   const installation = createSkillUpgradePlanSync({
@@ -138,6 +158,7 @@ export async function createSkillUpgradeAction(input: {
     artifactDigest: digest,
     previousReadyInstallationId: input.previousInstallationId.trim(),
     requestedByUserId: workspaceContext.currentUser.id,
+    ...(approvalId ? { approvalId } : {}),
   });
 
   tryRecordWorkspaceAuditEventSync({

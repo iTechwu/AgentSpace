@@ -1,6 +1,6 @@
 import {
   cancelUnfinishedMcpOperationsForConnectionSync,
-  claimMcpTaskSessionMarkerSync,
+  claimMcpTaskSessionAtomicallySync,
   completeMcpOperationSync,
   createMcpConnectionSync,
   createMcpOperationSync,
@@ -23,7 +23,6 @@ import {
   updateMcpConnectionConfigSync,
   updateMcpConnectionStatusSync,
   upsertMcpSecretsSync,
-  writeMcpTaskSessionGrantSync,
   type McpCatalogItemRecord,
   type McpConnectionOperationType,
   type RuntimeMcpConnectionRecord,
@@ -47,7 +46,9 @@ import type {
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
 import { assertCanManageMcpCenterSync, type McpDeclaredTool } from "./catalog.ts";
 import {
+  decryptMcpGrant,
   decryptMcpSecret,
+  encryptMcpGrant,
   encryptMcpSecret,
   validateMcpConnectionConfiguration,
   redactToolInputSchema,
@@ -993,39 +994,45 @@ export function claimMcpTaskSessionSync(input: {
 }): ClaimMcpTaskSessionResponse {
   const attemptId = input.attemptId?.trim() ?? "";
   if (!attemptId) {
-    // A missing attempt id must never replay another caller's cached grant.
+    // A missing attempt id must never replay another caller's persisted grant.
     throw new Error("mcp.session_claim_requires_attempt");
   }
   deleteExpiredMcpTaskSessionGrantsSync();
 
-  const newlyClaimed = claimMcpTaskSessionMarkerSync(input.taskId);
-  if (newlyClaimed) {
-    const result = resolveClaimedMcpTaskSessionResult({
-      workspaceId: input.workspaceId,
-      runtimeId: input.runtimeId,
-    });
-    const expiresAt = new Date(Date.now() + MCP_SESSION_GRANT_TTL_MS).toISOString();
-    try {
-      writeMcpTaskSessionGrantSync({
-        workspaceId: input.workspaceId,
-        runtimeId: input.runtimeId,
-        taskId: input.taskId,
-        attemptId,
-        encryptedBundleJson: encryptMcpSecret(JSON.stringify(result)),
-        expiresAt,
-      });
-    } catch {
-      // If the grant cannot be persisted, the claim is not replayable and a
-      // retry would degrade to "no MCP"; fail closed instead of pretending.
-      throw new Error("mcp.session_grant_write_failed");
-    }
+  // Resolve + encrypt BEFORE any mutation, so a serialization/size failure never
+  // consumes the one-time claim marker.
+  const result = resolveClaimedMcpTaskSessionResult({
+    workspaceId: input.workspaceId,
+    runtimeId: input.runtimeId,
+  });
+  const expiresAt = new Date(Date.now() + MCP_SESSION_GRANT_TTL_MS).toISOString();
+  let encryptedBundle: string;
+  try {
+    encryptedBundle = encryptMcpGrant(JSON.stringify(result));
+  } catch {
+    // Serialization or size-limit failure: fail closed, never claim the task
+    // with a grant we cannot persist.
+    throw new Error("mcp.session_grant_serialize_failed");
+  }
+
+  // Marker CAS + grant INSERT happen in ONE transaction: there is no window in
+  // which the marker is consumed but the grant is missing.
+  const { claimed } = claimMcpTaskSessionAtomicallySync({
+    taskId: input.taskId,
+    workspaceId: input.workspaceId,
+    runtimeId: input.runtimeId,
+    attemptId,
+    encryptedBundleJson: encryptedBundle,
+    expiresAt,
+  });
+  if (claimed) {
     return result;
   }
 
   const grant = readMcpTaskSessionGrantSync(input.taskId, input.workspaceId);
   if (grant && grant.attemptId === attemptId) {
     try {
-      return JSON.parse(decryptMcpSecret(grant.encryptedBundleJson)) as ClaimMcpTaskSessionResponse;
+      return JSON.parse(decryptMcpGrant(grant.encryptedBundleJson)) as ClaimMcpTaskSessionResponse;
     } catch {
       // Undecryptable/corrupt grant → refuse rather than leak or fabricate.
       return { connections: [] };

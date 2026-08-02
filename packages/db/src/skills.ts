@@ -94,6 +94,7 @@ export function listStoredAgentSkillAssignmentsSync(workspaceId = DEFAULT_WORKSP
         employee_name AS employeeName,
         skill_id AS skillId,
         skill_artifact_digest AS skillartifactdigest,
+        rollout_pin AS rolloutpin,
         created_at AS createdAt
       FROM agent_skill
       WHERE workspace_id = ?
@@ -519,8 +520,9 @@ export function setStoredEmployeeSkillAssignmentsSync(
             employee_name,
             skill_id,
             skill_artifact_digest,
+            rollout_pin,
             created_at
-          ) VALUES (?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, NULL, ?)`,
         ).run(workspaceId, buildLegacyAgentId(employeeName), employeeName, skillId, digest ?? null, now);
       } else {
         db.prepare(
@@ -529,12 +531,45 @@ export function setStoredEmployeeSkillAssignmentsSync(
             employee_name,
             skill_id,
             skill_artifact_digest,
+            rollout_pin,
             created_at
-          ) VALUES (?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, NULL, ?)`,
         ).run(workspaceId, employeeName, skillId, digest ?? null, now);
       }
     }
   });
+}
+
+/**
+ * Rolls out a skill revision to every employee assignment: updates `rollout_pin`
+ * so NEW tasks resolve to the pinned installation revision. Clears the pin with
+ * a null revision (tasks then resolve to the highest ready revision).
+ */
+export function setSkillRolloutPinSync(input: {
+  workspaceId?: string;
+  skillId: string;
+  revision: string | null;
+}): number {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const result = getDatabase().prepare(
+    `UPDATE agent_skill SET rollout_pin = ? WHERE workspace_id = ? AND skill_id = ?`,
+  ).run(input.revision?.trim() || null, workspaceId, input.skillId);
+  return result.changes;
+}
+
+/** Pins a single employee's assignment to a rollout revision. */
+export function setEmployeeSkillRolloutPinSync(input: {
+  workspaceId?: string;
+  employeeName: string;
+  skillId: string;
+  revision: string | null;
+}): number {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const result = getDatabase().prepare(
+    `UPDATE agent_skill SET rollout_pin = ?
+     WHERE workspace_id = ? AND employee_name = ? AND skill_id = ?`,
+  ).run(input.revision?.trim() || null, workspaceId, input.employeeName.trim(), input.skillId);
+  return result.changes;
 }
 
 export function resetStoredWorkspaceSkillsSync(workspaceId = DEFAULT_WORKSPACE_ID): void {
@@ -617,6 +652,7 @@ function mapStoredAgentSkillRecord(value: Record<string, unknown>): StoredAgentS
     employeeName: value.employeeName,
     skillId: value.skillId,
     skillArtifactDigest: typeof value.skillartifactdigest === "string" ? value.skillartifactdigest : undefined,
+    rolloutPin: typeof value.rolloutpin === "string" && value.rolloutpin.length > 0 ? value.rolloutpin : undefined,
     createdAt: value.createdAt,
   };
 }

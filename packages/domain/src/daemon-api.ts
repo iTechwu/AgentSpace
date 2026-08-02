@@ -234,11 +234,15 @@ export interface ClaimWorkspaceMountOperationResponse {
 
 export interface CompleteWorkspaceMountOperationRequest {
   materializedFiles?: number;
+  /** The daemon's runtime; the control plane verifies it owns the operation. */
+  runtimeId: string;
 }
 
 export interface FailWorkspaceMountOperationRequest {
   errorCode?: string;
   errorMessage: string;
+  /** The daemon's runtime; the control plane verifies it owns the operation. */
+  runtimeId: string;
 }
 
 export interface DaemonTaskMessageInput {
@@ -267,6 +271,8 @@ export interface FailTaskRequest {
 export interface DaemonBundleFile {
   path: string;
   contentBase64: string;
+  /** Octal permission string, e.g. "0755" / "0644". */
+  mode?: string;
 }
 
 export interface DaemonTaskInputBundle {

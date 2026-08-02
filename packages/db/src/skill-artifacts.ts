@@ -211,6 +211,60 @@ export function setActiveArtifactDigestForSkillSync(input: {
   return result.changes > 0;
 }
 
+/**
+ * Records an immutable skill→artifact lineage binding. Because
+ * `skill_artifact.skill_id` is a single FK, reusing one immutable artifact across
+ * multiple Skill instances (dedup re-import) must be tracked here so install
+ * history and rollback can still resolve the owning Skill. Idempotent.
+ */
+export function upsertSkillArtifactBindingSync(input: {
+  workspaceId?: string;
+  skillId: string;
+  digest: string;
+}): void {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const digest = input.digest.trim().toLowerCase();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO skill_artifact_binding (id, workspace_id, skill_id, artifact_digest, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(workspace_id, skill_id, artifact_digest) DO NOTHING`,
+  ).run(`sab-${randomLikeId()}`, workspaceId, input.skillId, digest, now);
+}
+
+/** Lists the artifact digests bound to a skill (lineage history). */
+export function listSkillArtifactBindingsForSkillSync(
+  skillId: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): string[] {
+  const rows = getDatabase().prepare(
+    `SELECT artifact_digest AS digest FROM skill_artifact_binding
+     WHERE workspace_id = ? AND skill_id = ? ORDER BY created_at ASC`,
+  ).all(workspaceId, skillId) as Array<{ digest: string }>;
+  return rows.map((row) => row.digest).filter(Boolean);
+}
+
+/**
+ * Resolves the owning Skill for an artifact digest when the artifact's single
+ * `skill_id` FK is null or points elsewhere (dedup reuse). Prefers the artifact
+ * FK, then the most recent lineage binding. Returns undefined when ambiguous.
+ */
+export function resolveSkillIdForArtifactDigestSync(
+  digest: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): string | undefined {
+  const artifact = readSkillArtifactByDigestSync(digest, workspaceId);
+  if (artifact?.skillId) {
+    return artifact.skillId;
+  }
+  const row = getDatabase().prepare(
+    `SELECT skill_id AS skillId FROM skill_artifact_binding
+     WHERE workspace_id = ? AND artifact_digest = ? ORDER BY created_at ASC LIMIT 1`,
+  ).get(workspaceId, digest.trim().toLowerCase()) as { skillId?: string } | undefined;
+  return row?.skillId;
+}
+
 export function readActiveArtifactDigestForSkillSync(
   skillId: string,
   workspaceId = DEFAULT_WORKSPACE_ID,

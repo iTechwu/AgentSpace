@@ -5,6 +5,14 @@ export interface CreateBackupRestoreDrillRunInput {
   workspaceId?: string;
   drillType?: BackupRestoreDrillRunRecord["drillType"];
   trigger: BackupRestoreDrillRunRecord["trigger"];
+  /** external_restore drills: the PostgreSQL PITR restore point verified. */
+  restorePointAt?: string;
+  /** external_restore drills: the source backup/snapshot identifier. */
+  sourceSnapshot?: string;
+  /** external_restore drills: the scratch/isolated environment identifier. */
+  restoreEnvironment?: string;
+  /** external_restore drills: measured restore duration in milliseconds (RTO). */
+  restoreDurationMs?: number;
 }
 
 const DRILL_COLUMNS = `SELECT
@@ -12,6 +20,8 @@ const DRILL_COLUMNS = `SELECT
   status, started_at AS startedAt, finished_at AS finishedAt,
   sample_count AS sampleCount, success_count AS successCount, failure_count AS failureCount,
   result_json AS resultJson, error_message AS errorMessage,
+  restore_point_at AS restorePointAt, source_snapshot AS sourceSnapshot,
+  restore_environment AS restoreEnvironment, restore_duration_ms AS restoreDurationMs,
   created_at AS createdAt, updated_at AS updatedAt`;
 
 export function createBackupRestoreDrillRunSync(
@@ -25,14 +35,19 @@ export function createBackupRestoreDrillRunSync(
     `INSERT INTO backup_restore_drill_run (
       id, workspace_id, drill_type, trigger, status, started_at,
       sample_count, success_count, failure_count, result_json, error_message,
+      restore_point_at, source_snapshot, restore_environment, restore_duration_ms,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, 'running', ?, 0, 0, 0, '{}', NULL, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, 'running', ?, 0, 0, 0, '{}', NULL, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     workspaceId,
     input.drillType ?? "metadata",
     input.trigger,
     now,
+    input.restorePointAt ?? null,
+    input.sourceSnapshot?.trim() || null,
+    input.restoreEnvironment?.trim() || null,
+    typeof input.restoreDurationMs === "number" ? input.restoreDurationMs : null,
     now,
     now,
   );
@@ -125,7 +140,15 @@ function mapDrillRunRecord(value: Record<string, unknown>): BackupRestoreDrillRu
     failureCount: value.failureCount,
     resultJson: value.resultJson,
     errorMessage: typeof value.errorMessage === "string" ? value.errorMessage : undefined,
+    restorePointAt: readOptionalString(value.restorePointAt),
+    sourceSnapshot: readOptionalString(value.sourceSnapshot),
+    restoreEnvironment: readOptionalString(value.restoreEnvironment),
+    restoreDurationMs: typeof value.restoreDurationMs === "number" ? value.restoreDurationMs : undefined,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }

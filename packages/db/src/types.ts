@@ -1073,6 +1073,8 @@ export interface StoredAgentSkillRecord {
   employeeName: string;
   skillId: string;
   skillArtifactDigest?: string;
+  /** Rollout revision pin (e.g. "v1") that fixes new tasks to a specific installation revision until the rollout switches. */
+  rolloutPin?: string;
   createdAt: string;
 }
 
@@ -1477,6 +1479,21 @@ export interface StoredSkillInstallationComponentRecord {
   updatedAt: string;
 }
 
+export interface SkillUpgradeApprovalRecord {
+  id: string;
+  workspaceId: string;
+  skillId?: string;
+  fromDigest: string;
+  toDigest: string;
+  diffHash: string;
+  policyVersion: string;
+  decision: "approved" | "rejected";
+  reason?: string;
+  actorUserId?: string;
+  createdAt: string;
+  consumedAt?: string;
+}
+
 export interface StoredSkillInstallationOperationRecord {
   id: string;
   workspaceId: string;
@@ -1608,6 +1625,14 @@ export interface BackupRestoreDrillRunRecord {
   failureCount: number;
   resultJson: string;
   errorMessage?: string;
+  /** For external_restore drills: the PostgreSQL PITR restore point this run verified. */
+  restorePointAt?: string;
+  /** For external_restore drills: the source backup/snapshot identifier. */
+  sourceSnapshot?: string;
+  /** For external_restore drills: the scratch/isolated environment identifier. */
+  restoreEnvironment?: string;
+  /** For external_restore drills: measured restore duration in milliseconds (RTO). */
+  restoreDurationMs?: number;
   createdAt: string;
   updatedAt: string;
 }

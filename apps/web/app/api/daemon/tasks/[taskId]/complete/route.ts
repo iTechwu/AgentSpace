@@ -1,5 +1,6 @@
 import {
   appendTaskMessageSync,
+  assertEmployeeBindingGenerationSync,
   completeCommittedTaskSync,
   deleteMcpTaskSessionGrantSync,
   failQueuedTaskSync,
@@ -173,6 +174,7 @@ export async function POST(
     }
   }
   const payload = parseTaskPayload(task);
+  const agentName = payload.assignee ?? task.agentId;
   const workspaceState = readWorkspaceStateSync(task.workspaceId);
   const providerSupportsReusableSession = runtime.provider !== "hermes";
   const conversationSessionId = providerSupportsReusableSession ? body.sessionId : null;
@@ -182,6 +184,19 @@ export async function POST(
   const fallbackOutput = body.outputText?.trim() ?? "";
   const stagingDir = getDaemonTaskOutputStagingDir(task.id, task.workspaceId);
   let persistedAttachments: Awaited<ReturnType<typeof loadTaskOutputEnvelope>>["attachments"] = [];
+
+  // EAD-005 write-lease gate: validate the claim-time binding generation BEFORE
+  // any side effect (document/skill/feishu operations, message writes, output
+  // promotion). A stale runtime must not be able to commit text or side effects
+  // after the employee was rebound to a newer generation. Tasks without a claim
+  // lease are refused outright rather than falling back to a late sample.
+  if (typeof task.bindingGeneration !== "number") {
+    return Response.json(
+      { error: "Task has no claim-time binding generation; refusing to complete." },
+      { status: 409 },
+    );
+  }
+  assertEmployeeBindingGenerationSync(agentName, task.bindingGeneration, task.workspaceId);
 
   if (body.outputBundle) {
     try {
@@ -329,8 +344,8 @@ export async function POST(
     // `preparing_commit` and returns a retryable 503: the daemon retries and the
     // journal is the reconciliation source. The task is NOT completed — the
     // user must never see "success" for an uncommitted result (design §7).
-    // Lease generation is the one captured at claim time.
-    const agentName = payload.assignee ?? task.agentId;
+    // Lease generation is the one captured at claim time (already asserted above
+    // before any side effects).
     const bindingGeneration = task.bindingGeneration;
     let promotionError: string | undefined;
     try {

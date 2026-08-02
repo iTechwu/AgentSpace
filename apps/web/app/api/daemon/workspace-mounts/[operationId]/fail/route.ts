@@ -20,7 +20,14 @@ export async function POST(
     return Response.json({ error: "workspace_mount.not_found" }, { status: 404 });
   }
 
-  const body = (await request.json()) as { errorCode?: string; errorMessage: string };
+  const body = (await request.json()) as { errorCode?: string; errorMessage: string; runtimeId?: string };
+  // The failing daemon must be the one that owns the operation's runtime.
+  if (typeof body.runtimeId !== "string" || body.runtimeId !== operation.runtimeId) {
+    return Response.json(
+      { error: "workspace_mount.runtime_mismatch" },
+      { status: 403 },
+    );
+  }
   const failed = failWorkspaceMountOperationSync({
     operationId,
     workspaceId: auth.workspaceId,

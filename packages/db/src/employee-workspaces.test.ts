@@ -171,11 +171,11 @@ test("restore produces a NEW head revision, never overwriting history", () => {
     workspaceId: "default",
     employeeName: "Bob",
     targetRevisionId: v1.id,
-    manifestDigest: "f".repeat(64),
-    manifestJson: MANIFEST_JSON("6"),
   });
   assert.equal(restored.status, "committed");
   assert.notEqual(restored.id, v1.id, "restore must not mutate the original revision");
+  // The restored head carries the target's manifest, not the caller's.
+  assert.equal(restored.manifestJson, v1.manifestJson);
   assert.equal(readHeadRevisionSync("Bob", "default")?.id, restored.id);
 });
 

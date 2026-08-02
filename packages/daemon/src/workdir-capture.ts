@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   closeSync,
   constants as fsConstants,
   existsSync,
@@ -9,6 +10,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -26,7 +28,7 @@ import { createAttachmentStorageClient, type WorkspaceRevisionManifest } from "@
  * construction — we only ever walk the include list.
  */
 
-export const WORKDIR_CAPTURE_INCLUDE_DIRS = ["repository", "state", "artifacts"] as const;
+export const WORKDIR_CAPTURE_INCLUDE_DIRS = ["repository", "state", "artifacts", "checkpoints"] as const;
 
 export const WORKDIR_CAPTURE_MAX_FILES = 64;
 export const WORKDIR_CAPTURE_MAX_SINGLE_FILE_BYTES = 10 * 1024 * 1024;
@@ -38,6 +40,8 @@ export interface CapturedWorkDirFile {
   bytes: Uint8Array;
   sha256: string;
   size: number;
+  /** Octal permission string, e.g. "0755" / "0644". */
+  mode: string;
 }
 
 export interface WorkDirCaptureResult {
@@ -119,8 +123,17 @@ export function collectWorkDirChanges(
       break;
     }
     const baseDir = join(workDir, includeDir);
-    if (!existsSync(baseDir)) {
-      continue;
+    // The include ROOT itself must be a real directory, never a symlink: a
+    // provider could point `repository/` at an external directory and every
+    // inner-entry check would be bypassed. lstat (no follow) + realpath
+    // containment against the normalized workDir.
+    try {
+      if (!lstatSync(baseDir).isDirectory()) {
+        continue;
+      }
+      assertRealPathInside(baseDir, workDir);
+    } catch {
+      continue; // missing or a symlink escaping the workDir → refuse to capture
     }
 
     walkCaptureFiles(baseDir, (absolutePath) => {
@@ -165,7 +178,14 @@ export function collectWorkDirChanges(
       }
 
       totalBytes += bytes.byteLength;
-      files.push({ path: relPath, bytes, sha256, size: bytes.byteLength });
+      const mode = statSync(absolutePath).mode & 0o777;
+      files.push({
+        path: relPath,
+        bytes,
+        sha256,
+        size: bytes.byteLength,
+        mode: mode.toString(8).padStart(4, "0"),
+      });
     });
   }
 
@@ -181,42 +201,163 @@ function isCapturedIncludePath(path: string): boolean {
  * start so a fresh runtime is seeded with the durable workspace before the
  * input bundle overlays per-task data. Skips paths that already exist so a
  * persistent conversation workDir is never clobbered by an older snapshot.
+ *
+ * Restoration is symlink-safe: every parent directory is created/verified with
+ * lstat (never following an existing symlink), and files are written with
+ * O_EXCL|O_NOFOLLOW. Missing blobs are COUNTED, never silently swallowed — the
+ * caller decides whether a partial workspace is a blocker or a degraded state.
  */
 export function materializeHeadRevisionToWorkDir(
   workDir: string,
   input: { workspaceId: string; employeeName: string },
-): { materializedFiles: number } {
+): { materializedFiles: number; missingBlobs: number } {
   const head = readHeadRevisionSync(input.employeeName, input.workspaceId);
   if (!head) {
-    return { materializedFiles: 0 };
+    return { materializedFiles: 0, missingBlobs: 0 };
   }
   let manifest: WorkspaceRevisionManifest;
   try {
     manifest = JSON.parse(head.manifestJson) as WorkspaceRevisionManifest;
   } catch {
-    return { materializedFiles: 0 };
+    return { materializedFiles: 0, missingBlobs: 0 };
   }
 
   const storage = createAttachmentStorageClient();
   let materializedFiles = 0;
+  let missingBlobs = 0;
   for (const file of manifest.files ?? []) {
     const targetPath = resolveCapturedPath(workDir, file.path);
     if (existsSync(targetPath)) {
       continue;
     }
+    let bytes: Uint8Array;
     try {
-      const bytes = storage.getContentAddressedBlobSync({
+      bytes = storage.getContentAddressedBlobSync({
         workspaceId: input.workspaceId,
         sha256: file.sha256,
       });
-      mkdirSync(dirname(targetPath), { recursive: true });
-      writeFileSync(targetPath, bytes);
+    } catch {
+      missingBlobs += 1;
+      continue;
+    }
+    try {
+      mkdirParentsNoFollow(dirname(targetPath), workDir);
+      writeFileNoFollow(targetPath, bytes);
+      applyCapturedMode(targetPath, file.mode);
       materializedFiles += 1;
     } catch {
-      // A missing blob is non-fatal here; health-check / recovery catch it.
+      // A parent directory became a symlink or the file cannot be created
+      // safely — count it as not restored rather than writing outside the workDir.
+      missingBlobs += 1;
     }
   }
-  return { materializedFiles };
+  return { materializedFiles, missingBlobs };
+}
+
+/**
+ * FAIL-CLOSED materialization used by the recovery workspace-mount worker.
+ * Throws on any divergence from the durable head revision: missing head, a
+ * pinned headRevisionId mismatch, an unparseable manifest, a blob that cannot
+ * be read, a per-file digest mismatch, or a final materialized-count that does
+ * not equal the manifest file count. A mount must never report success for a
+ * partial or tampered workspace.
+ */
+export function materializeHeadRevisionToWorkDirStrict(
+  workDir: string,
+  input: { workspaceId: string; employeeName: string; expectedHeadRevisionId?: string },
+): { materializedFiles: number; expectedFiles: number } {
+  const head = readHeadRevisionSync(input.employeeName, input.workspaceId);
+  if (!head) {
+    throw new Error("Workspace mount failed: employee has no head revision to materialize.");
+  }
+  if (input.expectedHeadRevisionId && head.id !== input.expectedHeadRevisionId) {
+    throw new Error(
+      `Workspace mount failed: head revision ${head.id.slice(0, 12)}… differs from the pinned ${input.expectedHeadRevisionId.slice(0, 12)}….`,
+    );
+  }
+  let manifest: WorkspaceRevisionManifest;
+  try {
+    manifest = JSON.parse(head.manifestJson) as WorkspaceRevisionManifest;
+  } catch {
+    throw new Error("Workspace mount failed: head revision manifest is invalid.");
+  }
+
+  const storage = createAttachmentStorageClient();
+  const expectedFiles = (manifest.files ?? []).length;
+  let materializedFiles = 0;
+  for (const file of manifest.files ?? []) {
+    let bytes: Uint8Array;
+    try {
+      bytes = storage.getContentAddressedBlobSync({
+        workspaceId: input.workspaceId,
+        sha256: file.sha256,
+      });
+    } catch {
+      throw new Error(`Workspace mount failed: blob ${file.sha256.slice(0, 12)}… for "${file.path}" is unreadable.`);
+    }
+    if (sha256Hex(bytes) !== file.sha256.toLowerCase()) {
+      throw new Error(`Workspace mount failed: blob digest mismatch for "${file.path}".`);
+    }
+    try {
+      mkdirParentsNoFollow(dirname(resolveCapturedPath(workDir, file.path)), workDir);
+      writeFileNoFollow(resolveCapturedPath(workDir, file.path), bytes);
+      applyCapturedMode(resolveCapturedPath(workDir, file.path), file.mode);
+      materializedFiles += 1;
+    } catch {
+      throw new Error(`Workspace mount failed: could not write "${file.path}" into the verify dir.`);
+    }
+  }
+  if (materializedFiles !== expectedFiles) {
+    throw new Error(
+      `Workspace mount failed: materialized ${materializedFiles}/${expectedFiles} files.`,
+    );
+  }
+  return { materializedFiles, expectedFiles };
+}
+
+/** Creates/verifies every parent directory under root without following symlinks. */
+function mkdirParentsNoFollow(targetDir: string, rootDir: string): void {
+  const rel = relative(rootDir, targetDir);
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error(`Restore path escapes workDir: ${targetDir}`);
+  }
+  let current = rootDir;
+  for (const segment of rel.split(sep)) {
+    if (!segment) continue;
+    current = join(current, segment);
+    try {
+      const st = lstatSync(current);
+      if (!st.isDirectory()) {
+        throw new Error(`Restore path component is not a directory: ${current}`);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        mkdirSync(current);
+      } else {
+        throw error;
+      }
+    }
+  }
+}
+
+/** Writes a fresh file with O_EXCL (never overwrite) + O_NOFOLLOW (no symlink swap). */
+function writeFileNoFollow(targetPath: string, bytes: Uint8Array): void {
+  const flags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | (fsConstants.O_NOFOLLOW ?? 0);
+  const fd = openSync(targetPath, flags, 0o600);
+  try {
+    writeFileSync(fd, bytes);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Applies a captured octal mode (e.g. "0755") to a restored file, when present. */
+function applyCapturedMode(targetPath: string, mode?: string): void {
+  if (!mode) return;
+  const parsed = Number.parseInt(mode, 8);
+  if (Number.isFinite(parsed)) {
+    chmodSync(targetPath, parsed & 0o777);
+  }
 }
 
 function walkCaptureFiles(baseDir: string, visit: (absolutePath: string) => void): void {

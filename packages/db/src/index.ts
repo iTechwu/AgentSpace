@@ -618,6 +618,7 @@ export {
   type UpsertMcpSecretInput,
 } from "./mcp-center.ts";
 export {
+  claimMcpTaskSessionAtomicallySync,
   deleteExpiredMcpTaskSessionGrantsSync,
   deleteMcpTaskSessionGrantSync,
   readMcpTaskSessionGrantSync,
@@ -642,6 +643,8 @@ export {
   replaceStoredWorkspaceSkillsSync,
   replaceStoredAgentSkillAssignmentsSync,
   setStoredEmployeeSkillAssignmentsSync,
+  setSkillRolloutPinSync,
+  setEmployeeSkillRolloutPinSync,
   resetStoredWorkspaceSkillsSync,
 } from "./skills.ts";
 
@@ -871,6 +874,9 @@ export {
   listSkillArtifactFileDigestsSync,
   setActiveArtifactDigestForSkillSync,
   readActiveArtifactDigestForSkillSync,
+  upsertSkillArtifactBindingSync,
+  listSkillArtifactBindingsForSkillSync,
+  resolveSkillIdForArtifactDigestSync,
   setAssignmentArtifactDigestSync,
   setAssignmentArtifactDigestsForSkillSync,
   readAssignmentArtifactDigestSync,
@@ -900,10 +906,19 @@ export {
   type CreateSkillInstallationOperationInput,
   type SkillInstallationComponentInput,
 } from "./skill-installations.ts";
+export {
+  createSkillUpgradeApprovalSync,
+  readSkillUpgradeApprovalSync,
+  readSkillUpgradeApprovalByLockSync,
+  listSkillUpgradeApprovalsSync,
+  consumeSkillUpgradeApprovalSync,
+  type CreateSkillUpgradeApprovalInput,
+} from "./skill-upgrade-approvals.ts";
 export type {
   StoredSkillInstallationRecord,
   StoredSkillInstallationComponentRecord,
   StoredSkillInstallationOperationRecord,
+  SkillUpgradeApprovalRecord,
 } from "./types.ts";
 export {
   upsertSkillServiceCatalogSync,
@@ -983,3 +998,6 @@ export {
   completeBackupRestoreDrillRunSync,
   type CreateBackupRestoreDrillRunInput,
 } from "./backup-restore-drill-runs.ts";
+
+// Postgres connection resolution
+export { resolvePostgresDatabaseUrl } from "./postgres.ts";

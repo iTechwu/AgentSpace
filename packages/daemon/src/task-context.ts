@@ -451,10 +451,17 @@ export function prepareDaemonTaskContext(input: {
   // fresh runtime is seeded with committed files; per-task input (bundle,
   // attachments, skills) overlays on top. Skips existing paths so a persistent
   // conversation workDir is never clobbered by an older snapshot.
-  materializeHeadRevisionToWorkDir(input.workDir, {
+  const materializeResult = materializeHeadRevisionToWorkDir(input.workDir, {
     workspaceId: input.task.workspaceId,
     employeeName: payload.assignee ?? input.task.agentId,
   });
+  if (materializeResult.missingBlobs > 0) {
+    // A missing head blob is never silent: the task will run on a degraded
+    // workspace, which the operator must be able to see and reconcile.
+    console.error(
+      `[task-context] ${materializeResult.missingBlobs} head blob(s) missing for employee "${payload.assignee ?? input.task.agentId}"; task runs on a degraded workspace`,
+    );
+  }
   const attachmentLines = materializeAttachments(payload.attachments, input.workDir);
   const workspaceState = readWorkspaceStateSync(input.task.workspaceId);
   const runtimeApps = listRuntimeAppContextEntriesForRuntimeSync({

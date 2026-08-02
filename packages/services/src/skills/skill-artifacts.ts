@@ -7,6 +7,7 @@ import {
   readSkillArtifactFilesSync,
   upsertContentBlobSync,
   setActiveArtifactDigestForSkillSync,
+  upsertSkillArtifactBindingSync,
   type CreateSkillArtifactInput,
   type SkillArtifactFileInput,
   type SkillArtifactFileRecord,
@@ -300,6 +301,7 @@ export function buildAndPersistSkillArtifactSync(
   if (existing) {
     if (input.skillId) {
       setActiveArtifactDigestForSkillSync({ skillId: input.skillId, digest, workspaceId });
+      upsertSkillArtifactBindingSync({ workspaceId, skillId: input.skillId, digest });
     }
     return { artifact: existing, manifest, digest, created: false };
   }
@@ -356,6 +358,7 @@ export function buildAndPersistSkillArtifactSync(
 
   if (input.skillId) {
     setActiveArtifactDigestForSkillSync({ skillId: input.skillId, digest, workspaceId });
+    upsertSkillArtifactBindingSync({ workspaceId, skillId: input.skillId, digest });
   }
 
   return { artifact, manifest, digest, created: true };

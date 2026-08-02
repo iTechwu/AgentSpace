@@ -1,5 +1,6 @@
-import { readMcpConnectionSync, recordMcpToolAuditSync } from "@dofe-agent/db";
-import type { McpToolAuditReport } from "@dofe-agent/domain";
+import { readMcpTaskSessionGrantSync, recordMcpToolAuditSync } from "@dofe-agent/db";
+import type { ClaimMcpTaskSessionResponse, McpToolAuditReport } from "@dofe-agent/domain";
+import { decryptMcpGrant } from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -30,20 +31,28 @@ export async function POST(
     return Response.json({ error: "Too many audit records." }, { status: 400 });
   }
   let recorded = 0;
+  // Validate every audit against the PERSISTED grant snapshot (the immutable
+  // authorization this task was granted at claim time), not the connection's
+  // CURRENT approvedToolsJson — a tool added or revoked mid-task must not change
+  // what the task is allowed to report as having used.
+  let grantBundle: ClaimMcpTaskSessionResponse | undefined;
+  const grant = readMcpTaskSessionGrantSync(taskId, auth.workspaceId);
+  if (grant) {
+    try {
+      grantBundle = JSON.parse(decryptMcpGrant(grant.encryptedBundleJson)) as ClaimMcpTaskSessionResponse;
+    } catch {
+      grantBundle = undefined;
+    }
+  }
   for (const audit of audits) {
     if (!audit || typeof audit.connectionId !== "string" || typeof audit.toolName !== "string") {
       continue;
     }
     // The URL's taskId is authoritative — a client-supplied taskId must never
-    // re-attribute an audit to a different task. The connection must belong to
-    // this workspace AND to the task's runtime, and the reported tool must be
-    // inside the connection's approved snapshot (the authorization this task
-    // was granted) — otherwise the audit is dropped.
-    const connection = readMcpConnectionSync(audit.connectionId, auth.workspaceId);
-    if (!connection || connection.runtimeId !== task.runtimeId) {
-      continue;
-    }
-    if (!parseApprovedToolList(connection.approvedToolsJson).includes(audit.toolName)) {
+    // re-attribute an audit to a different task. The connection and tool must be
+    // inside the task's claim-time grant snapshot, otherwise the audit is dropped.
+    const grantedConnection = grantBundle?.connections.find((c) => c.connectionId === audit.connectionId);
+    if (!grantedConnection || !grantedConnection.approvedTools.includes(audit.toolName)) {
       continue;
     }
     recordMcpToolAuditSync({
@@ -59,13 +68,4 @@ export async function POST(
     recorded += 1;
   }
   return Response.json({ recorded });
-}
-
-function parseApprovedToolList(value: string | undefined): string[] {
-  try {
-    const parsed = JSON.parse(value ?? "[]") as unknown;
-    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
-  } catch {
-    return [];
-  }
 }

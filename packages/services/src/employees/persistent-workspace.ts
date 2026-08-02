@@ -31,6 +31,8 @@ export interface WorkspaceRevisionFileEntry {
   sha256: string;
   size: number;
   mediaType: string;
+  /** Octal permission string, e.g. "0755" / "0644" (preserved on restore). */
+  mode?: string;
 }
 
 export interface WorkspaceRevisionManifest {
@@ -42,6 +44,8 @@ export interface TaskOutputFile {
   path: string;
   bytes: Uint8Array;
   mediaType?: string;
+  /** Octal permission string, e.g. "0755" / "0644". */
+  mode?: string;
 }
 
 /** True when a promoted path came from the daemon's bounded workDir capture. */
@@ -50,7 +54,8 @@ export function isWorkDirCapturePath(path: string): boolean {
   return (
     normalized.startsWith("repository/") ||
     normalized.startsWith("state/") ||
-    normalized.startsWith("artifacts/")
+    normalized.startsWith("artifacts/") ||
+    normalized.startsWith("checkpoints/")
   );
 }
 
@@ -158,7 +163,7 @@ export function promoteTaskOutputsToWorkspaceSync(input: {
       mediaType,
     });
 
-    manifestFiles.push({ path, sha256, size, mediaType });
+    manifestFiles.push({ path, sha256, size, mediaType, mode: output.mode });
 
     if (input.publishArtifacts && !isWorkDirCapturePath(path)) {
       // Only explicitly declared formal outputs become employee_artifacts.

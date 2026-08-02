@@ -237,12 +237,31 @@ export function runBackupRestoreDrillRunSync(options: {
   employeeNames?: string[];
   sampleLimit?: number;
   trigger?: BackupRestoreDrillRunRecord["trigger"];
+  /**
+   * external_restore drill metadata. When any of these is provided the run is
+   * recorded as an `external_restore` drill — it must be executed against a
+   * RESTORED database/object-storage snapshot (via the restore-drill driver),
+   * not the live database, and the fields document the PITR point, source
+   * snapshot, scratch environment and measured restore duration (RTO).
+   */
+  restorePointAt?: string;
+  sourceSnapshot?: string;
+  restoreEnvironment?: string;
+  restoreDurationMs?: number;
 }): BackupRestoreDrillRunRecord {
   const workspaceId = options.workspaceId ?? "default";
+  const isExternalRestore = Boolean(
+    options.restorePointAt || options.sourceSnapshot || options.restoreEnvironment
+      || typeof options.restoreDurationMs === "number",
+  );
   const run = createBackupRestoreDrillRunSync({
     workspaceId,
     trigger: options.trigger ?? "manual",
-    drillType: "metadata",
+    drillType: isExternalRestore ? "external_restore" : "metadata",
+    restorePointAt: options.restorePointAt,
+    sourceSnapshot: options.sourceSnapshot,
+    restoreEnvironment: options.restoreEnvironment,
+    restoreDurationMs: options.restoreDurationMs,
   });
 
   try {

@@ -26,6 +26,7 @@ test("captures only the bounded include subtrees, ignoring transient dirs", () =
   writeWorkDir("repository/src/a.ts", "export const a = 1;");
   writeWorkDir("state/checkpoint.json", "{\"step\": 2}");
   writeWorkDir("artifacts/report.pdf", "pdf-bytes");
+  writeWorkDir("checkpoints/run-1.json", "{}");
   // Transient / rebuilt subtrees must never be captured.
   writeWorkDir(".codex/skills/foo/SKILL.md", "skill");
   writeWorkDir(".agent_context/skills/foo/SKILL.md", "skill");
@@ -37,7 +38,7 @@ test("captures only the bounded include subtrees, ignoring transient dirs", () =
 
   assert.deepEqual(
     paths,
-    ["artifacts/report.pdf", "repository/src/a.ts", "state/checkpoint.json"],
+    ["artifacts/report.pdf", "checkpoints/run-1.json", "repository/src/a.ts", "state/checkpoint.json"],
   );
   assert.equal(result.skippedUnchanged, 0);
   assert.equal(result.truncated, false);
@@ -88,6 +89,21 @@ test("refuses to follow a file symlink that points outside the workDir", () => {
   assert.ok(!paths.includes("repository/leaked-secret.txt"), "symlink target must not be captured");
   assert.ok(paths.includes("repository/src/ok.ts"), "regular file still captured");
   rmSync(outsideSecret, { force: true });
+});
+
+test("refuses to capture when a top-level include dir is a symlink to outside", () => {
+  const outsideDir = mkdtempSync(join(tmpdir(), "dofe-wdc-top-"));
+  writeFileSync(join(outsideDir, "secret.txt"), "top-level-secret");
+  // `repository` itself points outside the workDir — inner-entry checks alone
+  // would be bypassed; the root lstat+realpath gate must drop the whole subtree.
+  symlinkSync(outsideDir, join(tempRoot, "repository"));
+  writeWorkDir("state/checkpoint.json", "{}");
+
+  const result = collectWorkDirChanges(tempRoot);
+  const paths = result.files.map((f) => f.path);
+  assert.ok(!paths.some((p) => p.startsWith("repository/")), "top-level symlink contents must not be captured");
+  assert.ok(paths.includes("state/checkpoint.json"), "sibling subtree still captured");
+  rmSync(outsideDir, { recursive: true, force: true });
 });
 
 test("reports deleted paths for head files missing under the workDir", () => {

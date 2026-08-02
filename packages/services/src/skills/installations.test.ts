@@ -11,9 +11,11 @@ import {
   readSkillInstallationSync,
 } from "@dofe-agent/db";
 import {
+  approveSkillUpgradeSync,
   assertSkillInstallationReadyForTaskSync,
   buildAndPersistSkillArtifactSync,
   completeSkillInstallationOperationSync,
+  computeSkillUpgradeDiffHashSync,
   createSkillInstallationPlanSync,
   createSkillUpgradePlanSync,
   createWorkspaceSkillSync,
@@ -38,6 +40,7 @@ before(() => {
 beforeEach(() => {
   resetWorkspaceStateSync();
   testTosStorage.clear();
+  getDatabase().exec("DELETE FROM skill_upgrade_approval");
 });
 
 after(() => {
@@ -82,6 +85,11 @@ test("createSkillInstallationPlanSync builds installation, components, and a que
   assert.equal(installation.artifactDigest, artifact.digest);
   assert.equal(installation.status, "preparing");
 
+  // The installation carries a REAL release lock (dependency digest + lock digest), not placeholders.
+  const lock = JSON.parse(installation.resolvedLockJson) as { dependencyLockDigest: string; lockDigest: string };
+  assert.equal(lock.dependencyLockDigest.length, 64);
+  assert.equal(lock.lockDigest.length, 64);
+
   const components = readSkillInstallationComponentsSync(installation.id);
   // npm:left-pad@1.3.0 dependency + scripts/render.py script.
   assert.ok(components.some((c) => c.kind === "dependency" && c.key === "npm:left-pad@1.3.0"));
@@ -104,6 +112,7 @@ test("claim → resolve → complete drives the installation to ready", async ()
   const resolved = await resolveClaimedSkillInstallationOperation({ workspaceId: "default", operation: claimed! });
   assert.ok(resolved);
   assert.equal(resolved!.artifactDigest, digest);
+  assert.equal(resolved!.releaseLockDigest?.length, 64, "claim carries the release lock digest");
   assert.ok(resolved!.files.some((file) => file.path === "scripts/render.py" && file.mode === "0755"));
 
   const done = completeSkillInstallationOperationSync({
@@ -228,8 +237,29 @@ test("upgrade creates a candidate revision and rollback reactivates the previous
   });
   assert.notEqual(second.digest, first.digest);
 
-  const v2 = createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id });
+  // The upgrade is a breaking diff, so it needs an immutable approval bound to
+  // the exact (fromDigest, toDigest, diffHash) before the plan can be created.
+  const diffHash = computeSkillUpgradeDiffHashSync({
+    fromManifestJson: first.artifact.manifestJson,
+    toManifestJson: second.artifact.manifestJson,
+  });
+  const { approvalId } = approveSkillUpgradeSync({
+    skillId: skill.id,
+    fromDigest: first.digest,
+    toDigest: second.digest,
+    diffHash,
+  });
+
+  const v2 = createSkillUpgradePlanSync({
+    runtimeId,
+    artifactDigest: second.digest,
+    previousReadyInstallationId: v1.id,
+    approvalId,
+  });
   assert.equal(v2.previousReadyRevision, "v1");
+  // The upgrade candidate stores a real lock (not the old "{}" placeholder).
+  const v2Lock = JSON.parse(v2.resolvedLockJson) as { lockDigest: string };
+  assert.equal(v2Lock.lockDigest.length, 64);
   await completeAllComponents(v2.id, runtimeId);
 
   const rollback = rollbackSkillInstallationSync({ installationId: v2.id, workspaceId: "default", skillId: skill.id });

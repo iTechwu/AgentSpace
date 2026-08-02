@@ -214,3 +214,30 @@ test("D-10: persistent drill run records the result and status", () => {
   assert.equal(run.failureCount, 0);
   assert.ok(run.resultJson.length > 2);
 });
+
+test("D-10: external_restore drill records the PITR point, snapshot, environment and RTO", () => {
+  promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Bob",
+    outputs: [{ path: "b.txt", bytes: new TextEncoder().encode("restored") }],
+  });
+
+  const run = runBackupRestoreDrillRunSync({
+    workspaceId: "default",
+    employeeNames: ["Bob"],
+    trigger: "manual",
+    restorePointAt: "2026-08-02T00:00:00.000Z",
+    sourceSnapshot: "pitr-20260802",
+    restoreEnvironment: "scratch-dr-20260802",
+    restoreDurationMs: 245_000,
+  });
+
+  assert.equal(run.status, "completed");
+  assert.equal(run.drillType, "external_restore");
+  assert.equal(run.restorePointAt, "2026-08-02T00:00:00.000Z");
+  assert.equal(run.sourceSnapshot, "pitr-20260802");
+  assert.equal(run.restoreEnvironment, "scratch-dr-20260802");
+  assert.equal(run.restoreDurationMs, 245_000);
+  assert.ok(run.sampleCount >= 1);
+});

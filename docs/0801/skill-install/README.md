@@ -15,6 +15,7 @@
 | [05-运维服务与版本治理.md](./05-运维服务与版本治理.md) | 支撑服务准入、部署、健康、升级、回滚和退役手册 |
 | [06-实施计划.md](./06-实施计划.md) | 工程落地：表 DDL、领域类型、文件落点、迁移、测试矩阵与 7 阶段 PR 序列 |
 | [07-实施差距审查.md](./07-实施差距审查.md) | 当前代码对照设计的阻断项、阶段完成度、测试证据与补齐顺序 |
+| [10-release-lock计划.md](./10-release-lock计划.md) | Release lock 生产接入、可重现性、消费链和测试计划 |
 
 ## 决策摘要
 
@@ -46,16 +47,17 @@
 
 ## 当前基线与目标差距
 
-当前实现已经建立不可变 artifact、installation/component/operation 数据模型、部分 MCP/CLI resolver、release diff/rollback 函数，以及 Runtime 选择和安装状态 UI。这些控制面骨架可以管理导入记录和安装计划，但**真实 Remote Runtime 执行面尚未闭环**：Daemon 没有 Skill operation worker、artifact 下载器和隔离 runner，任务路径也未强制校验 installation readiness。
+当前实现已经形成可运行的 Remote 安装闭环原型：不可变 artifact/blob、installation/component/operation、Daemon claim/start/complete/fail、artifact materializer、digest cache、component verifier、控制面 evidence 校验，以及任务的 Runtime readiness gate 和不可变 revision snapshot 均已进入真实调用链。导入坏包不会修改 Skill；GitHub/Skills.sh 也会在读取前锁定 commit SHA。
 
-本次推进已经补齐一部分控制面、数据完整性和 Daemon 接入缺口：
+这不等于已经达到生产可用。第二次复审确认仍有六个直接阻断上线的问题：
 
-1. artifact 构建已调用 `validateSkillPackage`，DSP manifest 的 `capabilities`/`services`/`entrypoints` 可以保留；坏 JSON、声明但缺失的文件和 symlink 会被拒绝。
-2. 本地/上传 ZIP 与 ClawHub 已使用统一 archive 限额，本地目录已拒绝 symlink。
-3. GitHub/Skills.sh 导入先解析 commit SHA 再读取文件；artifact provenance 保存 `resolvedRef` 与 `originalUrl`。
-4. 可执行脚本内容变化已标记为 breaking，并有基础 `approved=true` 门禁。
-5. 基础回滚会事务性切换 Skill active artifact digest 和 assignment pin；pinned artifact 完整性失败时投影已 fail-closed。
-6. Daemon `HttpDaemonClient` 已增加 Skill installation operation 的 claim/start/complete/fail 方法；`remote-daemon` 轮询 loop 已接入 Skill operation，当前以 fail-fast 明确拒绝执行（`skill_installation.remote_execution_not_implemented`），避免 operation 永远停在 `preparing` 或被伪造成功。
-7. 任务路径 `collectSkillReadinessBlockers` 已按 Runtime + assignment digest pin（或 skill active digest 兜底）校验 ready installation；未就绪 Skill 会阻止任务启动。
+1. Runtime cache hit 只校验文件大小并信任旧 meta，同尺寸内容篡改不会重算 SHA/root digest。
+2. npm/Python 等依赖只要 manifest 声明了版本就会被判 ready，实际没有安装或验证；required service 甚至不会生成 installation component。
+3. 原子导入生成的 artifact 没有绑定新 Skill，安装历史和回滚可能断链，单一 `artifact.skill_id` 也无法表达共享 artifact lineage。
+4. entrypoint 同时为 `0755` 时会生成重复 script component，触发数据库唯一约束。
+5. 任务 bundle 不传 mode/SHA，安装阶段验证通过的 executable 到 Remote task workDir 后会丢失执行位；任务也没有复用已验证 cache。
+6. operation 没有租约、心跳、fencing token 和 stale recovery，Daemon 崩溃会留下永久 claimed/running 状态。
 
-**M0 控制面诚实性已补齐。** 导入改为原子事务：`prepareSkillArtifact` 先完成校验与 artifact 持久化，`commitCreatedSkillImport` / `commitReplacedSkillImport` 在单个 `withTransaction` 内写入 Skill、文本投影、active digest 和 import event；坏包失败不会留下 Skill 行、文件、digest 或事件（`import.test.ts` 已覆盖新建与替换失败路径）。submitted manifest 的 `version`/`dependency`/`integrity`/`mode` 仍可能丢失，包内漏声明文件尚未被拒绝，Git/目录总限额未完全统一，这些契约缺口仍阻止进入 M1 验收。Daemon fail-fast 已诚实暴露执行面缺口，真正的 materializer、依赖 verifier、隔离 runner 和 blob 下载协议仍需建设。除此之外仍缺可验证审批、支撑服务编排、真实 release lock、五步 UI、迁移/可观测性和运维演练。详见 [实施差距复审](./07-实施差距审查.md)。
+此外，下载 URL 仍缺 storage origin/redirect 限制和流式硬上限；package manifest 的 version/integrity/mode/完整文件集合仍会丢失；持久审批、支撑服务生命周期、五步 UI、迁移与可观测性尚未完成。Release lock 已在当前未提交实现中接入安装和升级路径，service/MCP 字段、可重现 `lockDigest`、落库与 claim 均有测试；但 unresolved required 项、Daemon/task/approval/rollback 消费链和历史重建仍未完成。
+
+因此当前状态应标记为 **Remote 安装闭环原型 / 不可用于不受信任 Skill 的生产安装**。下一里程碑不是增加更多入口，而是先消除假 ready、缓存完整性绕过、artifact lineage、任务 mode 丢失和 operation 不可恢复。详见 [实施差距第二次复审](./07-实施差距审查.md)。

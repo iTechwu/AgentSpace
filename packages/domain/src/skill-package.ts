@@ -150,6 +150,8 @@ export interface SkillReleaseLock {
   serviceConfigSchemaVersions: Record<string, number>;
   mcpToolFingerprints: Record<string, string>;
   providerCompatibilityRevision: number;
+  /** sha256 of the canonical (stable-sorted) JSON of the fields above. */
+  lockDigest: string;
 }
 
 /**
@@ -206,6 +208,8 @@ export interface ClaimedSkillInstallationOperation {
   artifactName: string;
   /** Canonical manifest JSON so the daemon can recompute the root digest. */
   manifestJson: string;
+  /** sha256 of the release lock the installation was created against (audit handle; daemon verification is future). */
+  releaseLockDigest?: string;
   files: SkillInstallationOperationFile[];
   /**
    * The FROZEN expected component set for this operation (from the operation's

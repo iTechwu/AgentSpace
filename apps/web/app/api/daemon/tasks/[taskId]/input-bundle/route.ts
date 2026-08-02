@@ -334,6 +334,9 @@ function walk(rootDir: string, currentDir: string, files: DaemonBundleFile[]): v
     files.push({
       path: relative(rootDir, absolutePath).replace(/\\/g, "/"),
       contentBase64: readFileSync(absolutePath).toString("base64"),
+      // Preserve the executable bit so scripts that passed install stay runnable
+      // in the task workDir (a missing exec bit would otherwise fail at runtime).
+      mode: (stats.mode & 0o111) !== 0 ? (stats.mode & 0o777).toString(8) : undefined,
     });
   }
 }

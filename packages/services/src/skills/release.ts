@@ -1,12 +1,19 @@
 import { createHash } from "node:crypto";
 import {
   cancelUnfinishedSkillInstallationOperationsSync,
+  consumeSkillUpgradeApprovalSync,
   createSkillInstallationOperationSync,
   createSkillInstallationSync,
+  createSkillUpgradeApprovalSync,
   getDatabase,
+  readMcpCatalogItemBySlugSync,
   readSkillArtifactByDigestSync,
   readSkillInstallationSync,
   readSkillInstallationByLockSync,
+  readSkillServiceCatalogSync,
+  readSkillUpgradeApprovalByLockSync,
+  readSkillUpgradeApprovalSync,
+  resolveSkillIdForArtifactDigestSync,
   setActiveArtifactDigestForSkillSync,
   setAssignmentArtifactDigestsForSkillSync,
   setSkillInstallationStatusSync,
@@ -32,9 +39,25 @@ export interface ResolvedSkillReleaseLock {
   serviceConfigSchemaVersions: Record<string, number>;
   mcpToolFingerprints: Record<string, string>;
   providerCompatibilityRevision: number;
+  /** sha256 of the canonical (stable-sorted) JSON of the eight lock fields above. */
+  lockDigest: string;
 }
 
-export function computeSkillReleaseLockSync(artifact: SkillArtifactRecord): ResolvedSkillReleaseLock {
+/**
+ * Resolves the FULL immutable release lock for an artifact (05-运维服务与版本治理.md
+ * §4). Reproducible: the same artifact + catalog state always yields the same
+ * `lockDigest`, independent of provenance. Service image/config-schema values are
+ * read from `skill_service_catalog` by (slug, templateVersion); MCP tool
+ * fingerprints are derived deterministically from the catalog item's declared
+ * tools. Entries whose catalog row is missing are left out of the lock (a
+ * required-but-unresolvable service is later blocked by its service component,
+ * not here). No provider-compatibility model exists yet, so
+ * `providerCompatibilityRevision` stays 0.
+ */
+export function computeSkillReleaseLockSync(
+  artifact: SkillArtifactRecord,
+  workspaceId = "default",
+): ResolvedSkillReleaseLock {
   const manifest = parseManifest(artifact.manifestJson);
   const dependencies = manifest.dependencies ?? [];
   const dependencyLockDigest = createHash("sha256")
@@ -42,23 +65,76 @@ export function computeSkillReleaseLockSync(artifact: SkillArtifactRecord): Reso
     .digest("hex");
 
   const serviceTemplateVersions: Record<string, string> = {};
+  const serviceImageDigests: Record<string, string> = {};
   const serviceConfigSchemaVersions: Record<string, number> = {};
   for (const service of manifest.services ?? []) {
-    if (service.catalogSlug && service.templateVersion) {
-      serviceTemplateVersions[service.catalogSlug] = service.templateVersion;
+    if (!service.catalogSlug || !service.templateVersion) {
+      continue;
+    }
+    serviceTemplateVersions[service.catalogSlug] = service.templateVersion;
+    const catalog = readSkillServiceCatalogSync(service.catalogSlug, service.templateVersion, workspaceId);
+    if (catalog) {
+      if (catalog.imageDigest) {
+        serviceImageDigests[service.catalogSlug] = catalog.imageDigest;
+      }
+      if (typeof catalog.configSchemaVersion === "number") {
+        serviceConfigSchemaVersions[service.catalogSlug] = catalog.configSchemaVersion;
+      }
     }
   }
 
-  return {
+  const mcpToolFingerprints: Record<string, string> = {};
+  for (const capability of manifest.capabilities ?? []) {
+    if (capability.kind !== "mcp" || !capability.catalogSlug) {
+      continue;
+    }
+    const fingerprint = computeMcpToolFingerprint(capability.catalogSlug, workspaceId);
+    if (fingerprint) {
+      mcpToolFingerprints[capability.catalogSlug] = fingerprint;
+    }
+  }
+
+  const lockWithoutDigest = {
     artifactDigest: artifact.digest,
     packageSchemaVersion: artifact.manifestVersion,
     dependencyLockDigest,
     serviceTemplateVersions,
-    serviceImageDigests: {},
+    serviceImageDigests,
     serviceConfigSchemaVersions,
-    mcpToolFingerprints: {},
+    mcpToolFingerprints,
     providerCompatibilityRevision: 0,
   };
+  const lockDigest = createHash("sha256").update(stableStringify(lockWithoutDigest)).digest("hex");
+  return { ...lockWithoutDigest, lockDigest };
+}
+
+function computeMcpToolFingerprint(catalogSlug: string, workspaceId: string): string | undefined {
+  const catalog = readMcpCatalogItemBySlugSync(catalogSlug, workspaceId);
+  if (!catalog) {
+    return undefined;
+  }
+  try {
+    const declaredTools = JSON.parse(catalog.declaredToolsJson) as unknown;
+    return createHash("sha256").update(stableStringify(declaredTools)).digest("hex");
+  } catch {
+    return undefined;
+  }
+}
+
+/** Reads a stored installation's release lock; returns null when absent or unparseable. */
+export function readSkillInstallationLockSync(
+  installationId: string,
+  workspaceId = "default",
+): ResolvedSkillReleaseLock | null {
+  const installation = readSkillInstallationSync(installationId, workspaceId);
+  if (!installation || !installation.resolvedLockJson) {
+    return null;
+  }
+  try {
+    return JSON.parse(installation.resolvedLockJson) as ResolvedSkillReleaseLock;
+  } catch {
+    return null;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -317,6 +393,44 @@ export function isSkillUpgradeApprovalRequiredSync(diff: SkillReleaseDiff): bool
   return diff.breaking;
 }
 
+/** sha256 of the canonical semantic diff — the immutable fingerprint an approval binds to. */
+export function computeSkillUpgradeDiffHashSync(input: {
+  fromManifestJson: string;
+  toManifestJson: string;
+}): string {
+  const diff = diffSkillArtifactsSync(input);
+  return createHash("sha256").update(stableStringify(diff)).digest("hex");
+}
+
+/**
+ * Records an immutable upgrade-approval decision bound to the exact
+ * (fromDigest, toDigest, diffHash). A changed diff or digest invalidates it —
+ * `createSkillUpgradePlanSync` re-derives the diff hash and requires a matching
+ * unconsumed record before a breaking upgrade proceeds.
+ */
+export function approveSkillUpgradeSync(input: {
+  workspaceId?: string;
+  skillId?: string;
+  fromDigest: string;
+  toDigest: string;
+  diffHash: string;
+  decision?: "approved" | "rejected";
+  reason?: string;
+  actorUserId?: string;
+}): { approvalId: string; created: boolean } {
+  const approval = createSkillUpgradeApprovalSync({
+    workspaceId: input.workspaceId,
+    skillId: input.skillId,
+    fromDigest: input.fromDigest,
+    toDigest: input.toDigest,
+    diffHash: input.diffHash,
+    decision: input.decision ?? "approved",
+    reason: input.reason,
+    actorUserId: input.actorUserId,
+  });
+  return { approvalId: approval.id, created: !approval.consumedAt };
+}
+
 /* ------------------------------------------------------------------ */
 /* Upgrade & rollback                                                  */
 /* ------------------------------------------------------------------ */
@@ -332,28 +446,92 @@ export function createSkillUpgradePlanSync(input: {
   artifactDigest: string;
   previousReadyInstallationId: string;
   requestedByUserId?: string;
+  /**
+   * A previously-recorded immutable approval (created via `approveSkillUpgradeSync`).
+   * Required when the semantic diff is breaking; the approval is consumed
+   * atomically with the plan creation.
+   */
+  approvalId?: string;
 }): StoredSkillInstallationRecord {
-  const previous = readSkillInstallationSync(input.previousReadyInstallationId, input.workspaceId);
+  const workspaceId = input.workspaceId ?? "default";
+  const previous = readSkillInstallationSync(input.previousReadyInstallationId, workspaceId);
   if (!previous) {
     throw new Error(`Previous ready installation "${input.previousReadyInstallationId}" does not exist.`);
   }
+  if (previous.status !== "ready") {
+    throw new Error(`Previous installation is "${previous.status}", not ready; cannot upgrade from it.`);
+  }
+  if (previous.runtimeId !== input.runtimeId) {
+    throw new Error(`Previous installation is on runtime "${previous.runtimeId}", not "${input.runtimeId}"; upgrade must stay on the same runtime.`);
+  }
+
+  const artifact = readSkillArtifactByDigestSync(input.artifactDigest, workspaceId);
+  if (!artifact) {
+    throw new Error(`Skill artifact "${input.artifactDigest}" does not exist in this workspace.`);
+  }
+  const previousArtifact = readSkillArtifactByDigestSync(previous.artifactDigest, workspaceId);
+  assertSameSkillLineage(previousArtifact, previous.artifactDigest, artifact, input.artifactDigest, workspaceId);
+
+  // Breaking upgrades require an unconsumed immutable approval bound to the
+  // exact (fromDigest, toDigest, diffHash); it is consumed atomically with plan
+  // creation so it cannot be reused for a different upgrade.
+  const diff = diffSkillArtifactsSync({
+    fromManifestJson: previousArtifact?.manifestJson ?? "{}",
+    toManifestJson: artifact.manifestJson,
+  });
+  const diffHash = computeSkillUpgradeDiffHashSync({
+    fromManifestJson: previousArtifact?.manifestJson ?? "{}",
+    toManifestJson: artifact.manifestJson,
+  });
+  if (diff.breaking) {
+    if (!input.approvalId) {
+      throw new Error("This upgrade contains breaking changes and requires an explicit approval.");
+    }
+    const approval = readSkillUpgradeApprovalSync(input.approvalId, workspaceId);
+    if (!approval) {
+      throw new Error(`Approval "${input.approvalId}" does not exist.`);
+    }
+    if (approval.decision !== "approved") {
+      throw new Error("The recorded approval decision is not 'approved'.");
+    }
+    if (
+      approval.fromDigest !== previous.artifactDigest ||
+      approval.toDigest !== input.artifactDigest ||
+      approval.diffHash !== diffHash
+    ) {
+      throw new Error("Approval does not match this upgrade's from/to digest + diff hash; a new approval is required.");
+    }
+    if (approval.consumedAt) {
+      throw new Error("Approval has already been consumed by another upgrade.");
+    }
+  }
+
   const revision = nextRevision(previous.revision);
-  const components = buildSkillInstallationComponentsSync({ workspaceId: input.workspaceId, artifactDigest: input.artifactDigest });
+  const components = buildSkillInstallationComponentsSync({ workspaceId, artifactDigest: input.artifactDigest });
+
+  withTransaction(getDatabase(), () => {
+    if (diff.breaking && input.approvalId) {
+      const consumed = consumeSkillUpgradeApprovalSync(input.approvalId, workspaceId);
+      if (!consumed) {
+        throw new Error("Approval was concurrently consumed; retry with a fresh approval.");
+      }
+    }
+  });
 
   const installation = createSkillInstallationSync({
-    workspaceId: input.workspaceId,
+    workspaceId,
     runtimeId: input.runtimeId,
     artifactDigest: input.artifactDigest,
     status: "preparing",
     revision,
     previousReadyRevision: previous.revision,
     previousReadyArtifactDigest: previous.artifactDigest,
-    resolvedLockJson: "{}",
+    resolvedLockJson: JSON.stringify(computeSkillReleaseLockSync(artifact, workspaceId)),
     components,
   });
 
   createSkillInstallationOperationSync({
-    workspaceId: input.workspaceId,
+    workspaceId,
     runtimeId: input.runtimeId,
     installationId: installation.id,
     operation: "prepare",
@@ -366,6 +544,23 @@ export function createSkillUpgradePlanSync(input: {
   });
 
   return installation;
+}
+
+function assertSameSkillLineage(
+  previousArtifact: SkillArtifactRecord | null,
+  fromDigest: string,
+  toArtifact: SkillArtifactRecord,
+  toDigest: string,
+  workspaceId: string,
+): void {
+  const fromSkillId = previousArtifact?.skillId ?? resolveSkillIdForArtifactDigestSync(fromDigest, workspaceId);
+  const toSkillId = toArtifact.skillId ?? resolveSkillIdForArtifactDigestSync(toDigest, workspaceId);
+  if (fromSkillId && toSkillId && fromSkillId !== toSkillId) {
+    throw new Error(`Upgrade crosses skill lineage (${fromSkillId} → ${toSkillId}); refusing to upgrade across skills.`);
+  }
+  if (fromSkillId && !toSkillId) {
+    throw new Error("Upgrade target artifact is not bound to a skill lineage.");
+  }
 }
 
 function nextRevision(revision: string): string {
@@ -406,7 +601,10 @@ export function rollbackSkillInstallationSync(input: {
     return { ok: false, reason: `Previous revision is "${previous.status}", not ready; cannot roll back.` };
   }
 
-  const skillId = input.skillId ?? readSkillArtifactByDigestSync(current.artifactDigest, input.workspaceId)?.skillId;
+  const skillId =
+    input.skillId
+    ?? readSkillArtifactByDigestSync(current.artifactDigest, input.workspaceId)?.skillId
+    ?? resolveSkillIdForArtifactDigestSync(current.artifactDigest, input.workspaceId ?? "default");
   if (!skillId) {
     return { ok: false, reason: "Cannot determine skill id for rollback; pass skillId explicitly." };
   }

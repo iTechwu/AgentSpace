@@ -41,6 +41,7 @@ function seedDefaultWorkspaceIfMissing(): void {
 beforeEach(() => {
   const db = getDatabase();
   db.exec("DELETE FROM runtime_workspace_mount_operation");
+  db.exec("DELETE FROM agent_runtime");
 });
 
 after(() => {
@@ -91,6 +92,10 @@ test("claim is atomic and skips already-claimed operations", () => {
 test("failed operations record the error and stay failed", () => {
   insertRuntime("runtime-3");
   const op = createWorkspaceMountOperationSync({ workspaceId: "default", runtimeId: "runtime-3", employeeName: "Dan" });
+  // A worker must CLAIM the operation before it can fail it (status CAS).
+  const claim = claimNextWorkspaceMountOperationForRuntimeSync("runtime-3", "default");
+  assert.ok(claim);
+  assert.equal(claim!.id, op.id);
 
   const failed = failWorkspaceMountOperationSync({
     operationId: op.id,

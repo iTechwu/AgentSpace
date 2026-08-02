@@ -35,6 +35,7 @@ import {
 } from "dofe-agent-daemon";
 import {
   appendTaskMessageSync,
+  assertEmployeeBindingGenerationSync,
   chooseProviderSessionForTaskSync,
   claimNextQueuedTaskForRuntimeSync,
   completeCommittedTaskSync,
@@ -1054,6 +1055,13 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
   });
   mkdirSync(workDir, { recursive: true });
   const agentName = effectivePayload.assignee ?? task.agentId;
+  // EAD-005 write-lease gate: validate the claim-time binding generation before
+  // any side effect (task context build, document/skill/feishu operations,
+  // output promotion). A stale runtime must not commit after a rebind.
+  if (typeof task.bindingGeneration !== "number") {
+    throw new Error("Task has no claim-time binding generation; refusing to run.");
+  }
+  assertEmployeeBindingGenerationSync(agentName, task.bindingGeneration, task.workspaceId);
   const agentDocumentContexts = resolveAgentDocumentContextSync({
     workspaceId: task.workspaceId,
     agentName,
@@ -1306,7 +1314,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         throw new Error("output_limit_exceeded: workDir capture exceeded its file/size budget and was truncated");
       }
       const outputs = [
-        ...workDirCapture.files.map((file) => ({ path: file.path, bytes: file.bytes })),
+        ...workDirCapture.files.map((file) => ({ path: file.path, bytes: file.bytes, mode: file.mode })),
         ...outputEnvelope.attachments.map((attachment) => ({
           path: attachment.fileName,
           bytes: readWorkspaceAttachmentBytesSync(attachment),

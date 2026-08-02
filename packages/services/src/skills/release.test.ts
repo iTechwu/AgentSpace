@@ -1,8 +1,21 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { after, test } from "node:test";
+import {
+  getDatabase,
+  upsertMcpCatalogItemSync,
+  upsertSkillServiceCatalogSync,
+} from "@dofe-agent/db";
+import { resetWorkspaceStateSync } from "../index.ts";
 import { computeSkillReleaseLockSync, diffSkillArtifactsSync, isSkillUpgradeApprovalRequiredSync } from "./release.ts";
 
 const sha = (fill: string) => fill.repeat(64);
+
+after(() => {
+  // Best-effort cleanup so the shared test DB does not leak catalog rows.
+  const db = getDatabase();
+  db.prepare("DELETE FROM skill_service_catalog WHERE workspace_id = ?").run("default");
+  db.prepare("DELETE FROM mcp_catalog_item WHERE workspace_id = ?").run("default");
+});
 
 function manifest(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
@@ -126,4 +139,97 @@ test("computeSkillReleaseLockSync derives a content-addressed dependency lock", 
     legacyIncomplete: false,
     createdAt: new Date().toISOString(),
   }).dependencyLockDigest); // provenance does not perturb the lock
+  assert.equal(lock.lockDigest.length, 64);
+});
+
+function artifactWithServicesAndCapabilities(): Parameters<typeof computeSkillReleaseLockSync>[0] {
+  return {
+    id: "art-full",
+    workspaceId: "default",
+    digest: sha("e"),
+    name: "full",
+    version: "1.0.0",
+    manifestVersion: 1,
+    manifestJson: manifest({
+      services: [{ catalogSlug: "document-renderer", templateVersion: "2.1.0", required: true }],
+      capabilities: [{ kind: "mcp", catalogSlug: "github", requiredTools: ["search_issues"] }],
+    }),
+    sourceType: "manual",
+    provenanceJson: "{}",
+    fileCount: 2,
+    totalSizeBytes: 52,
+    legacyIncomplete: false,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+test("computeSkillReleaseLockSync populates service + MCP fields from catalogs", () => {
+  resetWorkspaceStateSync("default");
+  upsertSkillServiceCatalogSync({
+    workspaceId: "default",
+    slug: "document-renderer",
+    templateVersion: "2.1.0",
+    deploymentType: "managed_service",
+    imageDigest: sha("img"),
+    configSchemaVersion: 3,
+  });
+  upsertMcpCatalogItemSync({
+    workspaceId: "default",
+    slug: "github",
+    transport: "streamable_http",
+    displayName: "GitHub",
+    declaredToolsJson: JSON.stringify([
+      { name: "search_issues", description: "Search issues", inputSchema: { type: "object" } },
+      { name: "get_issue", description: "Get issue", inputSchema: { type: "object" } },
+    ]),
+  });
+
+  const lock = computeSkillReleaseLockSync(artifactWithServicesAndCapabilities());
+
+  assert.equal(lock.serviceTemplateVersions["document-renderer"], "2.1.0");
+  assert.equal(lock.serviceImageDigests["document-renderer"], sha("img"));
+  assert.equal(lock.serviceConfigSchemaVersions["document-renderer"], 3);
+  assert.equal(lock.mcpToolFingerprints["github"]?.length, 64);
+  assert.equal(lock.lockDigest.length, 64);
+});
+
+test("computeSkillReleaseLockSync lockDigest is reproducible and provenance-independent", () => {
+  resetWorkspaceStateSync("default");
+  upsertSkillServiceCatalogSync({
+    workspaceId: "default",
+    slug: "document-renderer",
+    templateVersion: "2.1.0",
+    deploymentType: "managed_service",
+    imageDigest: sha("img"),
+    configSchemaVersion: 3,
+  });
+  upsertMcpCatalogItemSync({
+    workspaceId: "default",
+    slug: "github",
+    transport: "streamable_http",
+    displayName: "GitHub",
+    declaredToolsJson: JSON.stringify([{ name: "search_issues", description: "Search issues" }]),
+  });
+
+  const first = computeSkillReleaseLockSync(artifactWithServicesAndCapabilities());
+  const second = computeSkillReleaseLockSync({
+    ...artifactWithServicesAndCapabilities(),
+    id: "art-other",
+    sourceType: "github",
+  });
+  assert.equal(second.lockDigest, first.lockDigest, "lock digest is stable across provenance");
+
+  // Changing a dependency perturbs the lock digest.
+  const changed = computeSkillReleaseLockSync({
+    ...artifactWithServicesAndCapabilities(),
+    manifestJson: manifest({
+      dependencies: [
+        { manager: "npm", name: "left-pad", version: "1.3.0" },
+        { manager: "npm", name: "is-odd", version: "3.0.1" },
+      ],
+      services: [{ catalogSlug: "document-renderer", templateVersion: "2.1.0", required: true }],
+      capabilities: [{ kind: "mcp", catalogSlug: "github", requiredTools: ["search_issues"] }],
+    }),
+  });
+  assert.notEqual(changed.lockDigest, first.lockDigest, "a dependency change perturbs the lock digest");
 });

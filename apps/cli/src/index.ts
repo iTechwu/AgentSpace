@@ -12,6 +12,7 @@ import { runMcpBridgeCommand } from "./commands/mcp.ts";
 import { runMaterialCommand } from "./commands/material.ts";
 import { runMessageCommand } from "./commands/message.ts";
 import { runOutputCommand } from "./commands/output.ts";
+import { runRestoreDrillCommand } from "./commands/restore-drill.ts";
 import { runSkillCommand } from "./commands/skill.ts";
 import { runTaskCommand } from "./commands/task.ts";
 import { runCostCommand } from "./commands/cost.ts";
@@ -103,6 +104,10 @@ export async function main(): Promise<number> {
 
   if (command === "cost") {
     return runCostCommand(actualSubcommand, actualArgs, format);
+  }
+
+  if (command === "restore-drill") {
+    return runRestoreDrillCommand(actualArgs, format);
   }
 
   printRootHelp();

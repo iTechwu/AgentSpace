@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { getWorkspaceDaemonRemoteStagingDirPath } from "@dofe-agent/db";
 import type { DaemonTaskOutputBundle } from "@dofe-agent/domain";
 
@@ -47,7 +47,7 @@ export function materializeOutputBundleToStaging(
       if (!allowed) {
         throw new Error(`Workspace file must stay under repository/, state/ or artifacts/: ${file.path}`);
       }
-      totalBytes = writeStagedFile(stagingDir, file.path, file.contentBase64, totalBytes);
+      totalBytes = writeStagedFile(stagingDir, file.path, file.contentBase64, totalBytes, undefined, file.mode);
     }
     const deletedPaths = (bundle.deletedPaths ?? []).filter((path) => isValidWorkDirCapturePath(path));
     if (deletedPaths.length > 0) {
@@ -67,6 +67,7 @@ function writeStagedFile(
   contentBase64: string,
   runningTotal: number,
   allowedPrefix?: string,
+  mode?: string,
 ): number {
   const normalizedPath = path.replace(/\\/g, "/").trim();
   if (!normalizedPath || normalizedPath.startsWith("/") || normalizedPath.split("/").some((segment) => segment === "..")) {
@@ -90,6 +91,12 @@ function writeStagedFile(
   const targetPath = join(stagingDir, normalizedPath);
   mkdirSync(dirname(targetPath), { recursive: true });
   writeFileSync(targetPath, content);
+  if (mode) {
+    const parsed = Number.parseInt(mode, 8);
+    if (Number.isFinite(parsed)) {
+      chmodSync(targetPath, parsed);
+    }
+  }
   return totalBytes;
 }
 
@@ -102,12 +109,13 @@ export function readStagedWorkDirFiles(taskId: string, workspaceId: string): Arr
   path: string;
   bytes: Uint8Array;
   mediaType?: string;
+  mode?: string;
 }> {
   const stagingDir = getDaemonTaskOutputStagingDir(taskId, workspaceId);
   if (!existsSync(stagingDir)) {
     return [];
   }
-  const files: Array<{ path: string; bytes: Uint8Array; mediaType?: string }> = [];
+  const files: Array<{ path: string; bytes: Uint8Array; mediaType?: string; mode?: string }> = [];
   for (const prefix of WORKDIR_BUNDLE_ALLOWED_PREFIXES) {
     const baseDir = join(stagingDir, prefix);
     if (!existsSync(baseDir)) {
@@ -122,6 +130,7 @@ export function readStagedWorkDirFiles(taskId: string, workspaceId: string): Arr
       files.push({
         path: `${prefix}${relToBase}`,
         bytes: readFileSync(absolutePath),
+        mode: (stat.mode & 0o777).toString(8).padStart(4, "0"),
       });
     });
   }

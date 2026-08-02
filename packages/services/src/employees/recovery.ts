@@ -25,6 +25,8 @@ import { createAttachmentStorageClient } from "../attachments/storage.ts";
 import { listEmployeeSkillIdsSync } from "./employees.ts";
 import { verifySkillArtifactIntegritySync } from "../skills/skill-artifacts.ts";
 import { createSkillInstallationPlanSync, assertSkillInstallationReadyForTaskSync } from "../skills/installations.ts";
+import { readWorkspaceSkillSync } from "../skills/skills.ts";
+import { readSkillRequirementDeclarations } from "../skills/requirements.ts";
 import { ensureManagedRuntimeCapacitySync, getRuntimeProvisioningTaskDetailSync } from "../runtime-provisioning/runtime-provisioning.ts";
 import { resolveAgentRuntimeMode } from "../config/deployment.ts";
 
@@ -577,9 +579,10 @@ function resolveSecretsResolvable(
   if (verify?.secretsResolvable !== undefined) {
     return { ok: verify.secretsResolvable, missing: verify.secretsResolvable ? [] : ["(verify override)"], checked: 0 };
   }
-  // Every bound skill that declares requirements must have its encrypted
-  // requirement-config row present (the secret reference). Skills without a
-  // requirement declaration need no config.
+  // A bound skill only needs its encrypted requirement-config row when it
+  // actually DECLARES Secret/Config requirements. Skills without a requirement
+  // declaration (or with no pinned digest) need no config and must not be
+  // misjudged as unrecoverable.
   const skillIds = listEmployeeSkillIdsSync(employeeName, workspaceId);
   const missing: string[] = [];
   let checked = 0;
@@ -587,6 +590,13 @@ function resolveSecretsResolvable(
     const digest = readAssignmentArtifactDigestSync({ employeeName, skillId, workspaceId });
     if (!digest) {
       continue; // legacy assignment without a pinned digest — no secret contract
+    }
+    const skill = readWorkspaceSkillSync(skillId, workspaceId);
+    const declaresRequirements = skill
+      ? readSkillRequirementDeclarations(skill.configJson).length > 0
+      : false;
+    if (!declaresRequirements) {
+      continue; // no Secret/Config declaration — no config row required
     }
     const config = readAgentSkillRequirementConfigSync({ workspaceId, employeeName, skillId });
     checked += 1;
