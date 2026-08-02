@@ -46,7 +46,7 @@
 | 4.1 | 任务正常结束 | `revoke()` 关闭已建立 MCP transport/Server，从内存删除 task/session/secret 快照；再对该 gateway URL 请求返回 404 `mcp.session_not_found` |
 | 4.2 | 任务取消/超时/失败 | 同上，`finally` 清理生效 |
 | 4.3 | 任务结束后用旧 `?session=` token 重放 | 404，token 已失效 |
-| 4.4 | daemon 重启 | 已建立 gateway session 全部失效（内存态），无残留审计批处理丢失（每调用逐条上报） |
+| 4.4 | daemon 重启 | 已建立 gateway session 全部失效（内存态）；调用结束后已写入文件 outbox、但尚未获控制面 ack 的审计在重启后继续投递 |
 
 ## 5. 审计落库与幂等
 
@@ -54,8 +54,8 @@
 | --- | --- | --- |
 | 5.1 | 查看连接详情“活动”Tab | operations（verify/enable/disable/remove，含 `source` 分类）与 tool audits 聚合展示，时间倒序 |
 | 5.2 | 对同一条审计重放相同 `event_id`（直接 POST `/mcp-tool-audits`） | 返回原行，不产生重复记录（`UNIQUE(workspace_id, event_id)`） |
-| 5.3 | 上报时篡改 body 的 `taskId` 为另一任务 | 被忽略，审计归属固定为 URL 中的 taskId |
-| 5.4 | 上报不存在的 connectionId | 被跳过（connection 不属于该 workspace） |
+| 5.3 | 上报时篡改 body 的 `taskId` 为另一任务 | 整批返回 400，`rejectedIndex` 指向违规记录，不写入任何审计；持久化归属只采用 URL taskId |
+| 5.4 | 上报不存在或不在任务授权快照内的 connectionId/toolName | 整批返回 422，`rejectedIndex` 指向违规记录，不跳过、不部分写入 |
 | 5.5 | 审计记录含 toolName、outcome、latencyMs、redacted summary | 不包含参数原文或返回内容 |
 
 ## 6. 健康巡检（联动验证）
