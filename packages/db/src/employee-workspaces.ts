@@ -414,6 +414,37 @@ export function softDeleteEmployeeArtifactSync(id: string, workspaceId = DEFAULT
   return result.changes > 0;
 }
 
+/**
+ * Hard-deletes soft-deleted artifacts whose deletion window has expired, and
+ * returns the content digests freed so the caller can run orphan-blob GC. The
+ * soft-delete recovery window is the lifecycle policy's backstop: a wrongly
+ * deleted artifact can be restored only within it (D-12 "软删除恢复窗口").
+ */
+export function hardDeleteExpiredSoftDeletedArtifactsSync(
+  workspaceId: string,
+  deletedBefore: string,
+): { removed: number; digests: string[] } {
+  const db = getDatabase();
+  const rows = db.prepare(
+    `SELECT content_digest AS contentDigest
+     FROM employee_artifact
+     WHERE workspace_id = ? AND deleted_at IS NOT NULL AND deleted_at < ?`,
+  ).all(workspaceId, deletedBefore) as Array<{ contentDigest?: string }>;
+  if (rows.length === 0) {
+    return { removed: 0, digests: [] };
+  }
+  const result = db.prepare(
+    `DELETE FROM employee_artifact
+     WHERE workspace_id = ? AND deleted_at IS NOT NULL AND deleted_at < ?`,
+  ).run(workspaceId, deletedBefore);
+  return {
+    removed: result.changes,
+    digests: rows
+      .map((row) => row.contentDigest)
+      .filter((digest): digest is string => typeof digest === "string"),
+  };
+}
+
 export function listEmployeeArtifactDigestsSync(workspaceId = DEFAULT_WORKSPACE_ID): string[] {
   const rows = getDatabase().prepare(
     `SELECT DISTINCT content_digest FROM employee_artifact WHERE workspace_id = ? AND deleted_at IS NULL`,

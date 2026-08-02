@@ -1,5 +1,6 @@
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
+import { resolveStoredEmployeeIdSync } from "./workspace-employees.ts";
 import type {
   StoredAgentSkillRecord,
   StoredSkillFileRecord,
@@ -440,26 +441,29 @@ export function replaceStoredAgentSkillAssignmentsSync(
     db.prepare("DELETE FROM agent_skill_requirement_config WHERE workspace_id = ?").run(workspaceId);
     db.prepare("DELETE FROM agent_skill WHERE workspace_id = ?").run(workspaceId);
     for (const assignment of assignments) {
+      const employeeId = resolveEmployeeIdForWrite(assignment.employeeName, workspaceId);
       for (const skillId of assignment.skillIds) {
         if (hasAgentIdColumn) {
           db.prepare(
             `INSERT INTO agent_skill (
               workspace_id,
               agent_id,
+              employee_id,
               employee_name,
               skill_id,
               created_at
-            ) VALUES (?, ?, ?, ?, ?)`,
-          ).run(workspaceId, buildLegacyAgentId(assignment.employeeName), assignment.employeeName, skillId, now);
+            ) VALUES (?, ?, ?, ?, ?, ?)`,
+          ).run(workspaceId, buildLegacyAgentId(assignment.employeeName), employeeId, assignment.employeeName, skillId, now);
         } else {
           db.prepare(
             `INSERT INTO agent_skill (
               workspace_id,
+              employee_id,
               employee_name,
               skill_id,
               created_at
-            ) VALUES (?, ?, ?, ?)`,
-          ).run(workspaceId, assignment.employeeName, skillId, now);
+            ) VALUES (?, ?, ?, ?, ?)`,
+          ).run(workspaceId, employeeId, assignment.employeeName, skillId, now);
         }
       }
     }
@@ -510,6 +514,7 @@ export function setStoredEmployeeSkillAssignmentsSync(
       }
     }
 
+    const employeeId = resolveEmployeeIdForWrite(employeeName, workspaceId);
     for (const skillId of skillIds) {
       const digest = activeDigests.get(skillId);
       if (hasAgentIdColumn) {
@@ -517,24 +522,26 @@ export function setStoredEmployeeSkillAssignmentsSync(
           `INSERT INTO agent_skill (
             workspace_id,
             agent_id,
+            employee_id,
+            employee_name,
+            skill_id,
+            skill_artifact_digest,
+            rollout_pin,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+        ).run(workspaceId, buildLegacyAgentId(employeeName), employeeId, employeeName, skillId, digest ?? null, now);
+      } else {
+        db.prepare(
+          `INSERT INTO agent_skill (
+            workspace_id,
+            employee_id,
             employee_name,
             skill_id,
             skill_artifact_digest,
             rollout_pin,
             created_at
           ) VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-        ).run(workspaceId, buildLegacyAgentId(employeeName), employeeName, skillId, digest ?? null, now);
-      } else {
-        db.prepare(
-          `INSERT INTO agent_skill (
-            workspace_id,
-            employee_name,
-            skill_id,
-            skill_artifact_digest,
-            rollout_pin,
-            created_at
-          ) VALUES (?, ?, ?, ?, NULL, ?)`,
-        ).run(workspaceId, employeeName, skillId, digest ?? null, now);
+        ).run(workspaceId, employeeId, employeeName, skillId, digest ?? null, now);
       }
     }
   });
@@ -689,4 +696,13 @@ function mapStoredSkillImportEventRecord(value: Record<string, unknown>): Stored
     metadataJson: value.metadataJson,
     importedAt: value.importedAt,
   };
+}
+
+/** Resolves the stable employee id for a write; the employee must exist. */
+function resolveEmployeeIdForWrite(employeeName: string, workspaceId: string): string {
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+  if (!employeeId) {
+    throw new Error(`Employee "${employeeName}" does not exist in workspace ${workspaceId}.`);
+  }
+  return employeeId;
 }

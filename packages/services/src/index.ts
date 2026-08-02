@@ -121,6 +121,11 @@ export {
   type ReconcileCommitJournalsResult,
 } from "./employees/commit-reconciliation.ts";
 export {
+  runEmployeeLifecycleMaintenanceSync,
+  type LifecycleMaintenanceOptions,
+  type LifecycleMaintenanceResult,
+} from "./employees/lifecycle-maintenance.ts";
+export {
   hasGitHubSkillDependenciesSync,
   queueGitHubSkillDependenciesForAgentSync,
   readSkillDependencyInstallStatusSync,

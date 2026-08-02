@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, closeSync, constants as fsConstants, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { getDaemonSkillInstallCachePath, getDaemonSkillInstallWorkDirPath } from "@dofe-agent/db";
+import { getDaemonSkillInstallCachePath, getDaemonSkillInstallEnvsDirPath, getDaemonSkillInstallWorkDirPath } from "@dofe-agent/db";
+import { connectSandbox } from "@dofe-agent/sandbox";
 import { computeArtifactDigest, type SkillArtifactManifest } from "@dofe-agent/services";
 import type { ClaimedSkillInstallationOperation } from "@dofe-agent/domain";
 import type { HttpDaemonClient } from "../daemon-client.ts";
@@ -12,7 +13,8 @@ import {
   type MaterializedSkillFile,
   type MaterializeResult,
 } from "./artifact-materializer.ts";
-import { verifySkillInstallationComponents } from "./component-verifier.ts";
+import { verifySkillInstallationComponents, type DependencyInstallOutcome } from "./component-verifier.ts";
+import { installSkillDependenciesSync } from "./dependency-installer.ts";
 
 const KEEP_WORK_DIR_ENV = "DOFE_AGENT_KEEP_SKILL_INSTALL_WORK_DIR";
 const DISABLE_CACHE_ENV = "DOFE_AGENT_DISABLE_SKILL_INSTALL_CACHE";
@@ -98,10 +100,41 @@ export async function executeSkillInstallationOperation(
       );
     }
 
+    // Real dependency install + verify (02-架构设计.md §4.1): npm/pip/uv go into
+    // an isolated per-installation envs dir with an allow-listed registry; the
+    // verify step independently checks the installed artifact. Only an artifact
+    // with zero dependencies skips this (its dependency components stay manifest-
+    // based, including the package:integrity component).
+    const dependencies = readManifestDependencies(operation.manifestJson);
+    const installedDependencies: string[] = [];
+    let dependencyInstallResults: Map<string, DependencyInstallOutcome> | undefined;
+    if (dependencies.length > 0) {
+      const envsDir = getDaemonSkillInstallEnvsDirPath(config.stateDir, {
+        workspaceId: operation.workspaceId,
+        installationId: operation.installationId,
+      });
+      const sandbox = await connectSandbox({ runtimeId: operation.runtimeId, workDir: config.stateDir });
+      try {
+        dependencyInstallResults = await installSkillDependenciesSync({
+          dependencies,
+          envsDir,
+          sandbox,
+        });
+        for (const [key, result] of dependencyInstallResults) {
+          if (result.ok) {
+            installedDependencies.push(key);
+          }
+        }
+      } finally {
+        await sandbox.stop();
+      }
+    }
+
     const componentStatuses = verifySkillInstallationComponents(
       operation,
       workDir,
       materializeResult.rootDigestMatches,
+      dependencyInstallResults,
     );
 
     const allReady = componentStatuses.every((component) => component.status === "ready");
@@ -127,6 +160,7 @@ export async function executeSkillInstallationOperation(
         // Report the digest-keyed cache path on both hit and miss (a miss that
         // passed verification just published the cache).
         preparedPath: cacheEnabled ? cachePath : undefined,
+        ...(installedDependencies.length > 0 ? { installedDependencies } : {}),
       }),
       componentStatuses,
     });
@@ -151,6 +185,25 @@ export async function executeSkillInstallationOperation(
     if (!process.env[KEEP_WORK_DIR_ENV]) {
       rmSync(workDir, { recursive: true, force: true });
     }
+  }
+}
+
+/** Parses the manifest's npm/pip/uv dependency declarations (manager or kind). */
+function readManifestDependencies(manifestJson: string): Array<{ manager: "npm" | "pip" | "uv"; name: string; version: string }> {
+  try {
+    const manifest = JSON.parse(manifestJson) as {
+      dependencies?: Array<{ manager?: string; kind?: string; name?: string; version?: string }>;
+    };
+    const dependencies: Array<{ manager: "npm" | "pip" | "uv"; name: string; version: string }> = [];
+    for (const dep of manifest.dependencies ?? []) {
+      const manager = dep.manager ?? dep.kind;
+      if ((manager === "npm" || manager === "pip" || manager === "uv") && dep.name && dep.version) {
+        dependencies.push({ manager, name: dep.name, version: dep.version });
+      }
+    }
+    return dependencies;
+  } catch {
+    return [];
   }
 }
 

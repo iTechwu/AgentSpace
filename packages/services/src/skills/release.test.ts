@@ -387,16 +387,17 @@ test("createSkillUpgradePlanSync rejects a cross-runtime upgrade", () => {
 
 test("a required service without a catalog entry makes the lock unresolved and blocks the plan", () => {
   resetWorkspaceStateSync("default");
+  const salt = cryptoRandomBytes(4).toString("hex");
   const artifact = buildAndPersistSkillArtifactSync({
     name: "Needs Service",
     files: [
-      { path: "SKILL.md", bytes: ENCODER.encode("# Body\n") },
+      { path: "SKILL.md", bytes: ENCODER.encode(`# Body ${salt}\n`) },
       { path: "scripts/render.py", bytes: ENCODER.encode("print('v1')\n"), mode: "0755" },
     ],
     services: [{ catalogSlug: "missing-renderer", templateVersion: "1.0.0", required: true }],
   });
 
-  const lock = computeSkillReleaseLockSync(artifact, "default");
+  const lock = computeSkillReleaseLockSync(artifact.artifact, "default");
   assert.deepEqual(lock.unresolvedRequired, ["service:missing-renderer"]);
 
   // Fail-closed: the installation is blocked at plan time.

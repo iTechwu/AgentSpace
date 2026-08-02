@@ -13,7 +13,9 @@ import {
   readEmployeePersistentWorkspaceSync,
   readHeadRevisionSync,
   restoreWorkspaceRevisionSync,
+  setStoredEmployeeSkillAssignmentsSync,
   softDeleteEmployeeArtifactSync,
+  upsertAgentSkillRequirementConfigSync,
   getDatabase,
 } from "./index.ts";
 
@@ -267,4 +269,44 @@ test("head commit CAS: a stale parent can no longer advance head", () => {
 
   assert.throws(() => commitWorkspaceRevisionSync(v2.id, "default"), /REVISION_CONFLICT/);
   assert.equal(readHeadRevisionSync("Erin", "default")?.id, v3.id, "stale commit must not advance head");
+});
+
+test("non-EAD assignments store the stable employee_id and cascade on employee delete", () => {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  // Real skill row (agent_skill.skill_id is a hard FK).
+  db.prepare(
+    `INSERT INTO skill (id, workspace_id, name, description, config_json, created_at, updated_at)
+     VALUES ('skill-mig-1', 'default', 'Mig Test', 'mig', '{}', ?, ?)
+     ON CONFLICT (id) DO NOTHING`,
+  ).run(now, now);
+
+  setStoredEmployeeSkillAssignmentsSync("Alice", ["skill-mig-1"], "default");
+  const assignment = db.prepare(
+    `SELECT employee_id AS employeeId FROM agent_skill WHERE workspace_id = 'default' AND employee_name = 'Alice'`,
+  ).get() as { employeeId?: string } | undefined;
+  assert.equal(assignment?.employeeId, "emp-alice", "agent_skill must store employee_id");
+
+  upsertAgentSkillRequirementConfigSync({
+    workspaceId: "default",
+    employeeName: "Alice",
+    skillId: "skill-mig-1",
+    configJson: "{}",
+    encryptedSecretsJson: "{}",
+  });
+  const config = db.prepare(
+    `SELECT employee_id AS employeeId FROM agent_skill_requirement_config WHERE workspace_id = 'default' AND employee_name = 'Alice'`,
+  ).get() as { employeeId?: string } | undefined;
+  assert.equal(config?.employeeId, "emp-alice", "requirement config must store employee_id");
+
+  // Deleting the workspace_employee cascades the non-EAD rows (FK CASCADE).
+  db.prepare(`DELETE FROM workspace_employee WHERE id = 'emp-alice'`).run();
+  const remainingAssignments = db.prepare(
+    `SELECT 1 AS x FROM agent_skill WHERE workspace_id = 'default' AND employee_name = 'Alice'`,
+  ).all();
+  const remainingConfigs = db.prepare(
+    `SELECT 1 AS x FROM agent_skill_requirement_config WHERE workspace_id = 'default' AND employee_name = 'Alice'`,
+  ).all();
+  assert.equal(remainingAssignments.length, 0, "agent_skill cascaded on employee delete");
+  assert.equal(remainingConfigs.length, 0, "requirement config cascaded on employee delete");
 });

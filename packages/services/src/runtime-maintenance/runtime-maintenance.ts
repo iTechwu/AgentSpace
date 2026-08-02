@@ -11,6 +11,7 @@ import { drainTokenUsageRetriesSync } from "../models/usage-retry.ts";
 import { reconcileAllManagedRuntimeUsageAsync } from "../models/usage-sync.ts";
 import { scheduleMcpHealthChecksSync } from "../mcp-center/connections.ts";
 import { advanceRecoverableOperationsSync } from "../employees/recovery-worker.ts";
+import { runEmployeeLifecycleMaintenanceSync } from "../employees/lifecycle-maintenance.ts";
 import { requeueExpiredSkillInstallationOperationLeasesSync } from "@dofe-agent/db";
 
 export interface RuntimeMaintenanceStageResult {
@@ -32,6 +33,7 @@ export interface RuntimeMaintenanceResult {
     mcpHealthChecks: RuntimeMaintenanceStageResult;
     recovery: RuntimeMaintenanceStageResult;
     skillOperationLeases: RuntimeMaintenanceStageResult;
+    lifecycle: RuntimeMaintenanceStageResult;
     commitReconciliation?: RuntimeMaintenanceStageResult;
   };
 }
@@ -52,6 +54,7 @@ export interface RuntimeMaintenanceDependencies {
   scheduleMcpHealthChecks: () => unknown;
   advanceRecoveries: () => unknown;
   requeueSkillOperationLeases: () => unknown;
+  lifecycle: () => unknown;
   /** Optional web-side stage: re-drives stale preparing_commit journals. */
   commitReconciliation?: () => unknown;
 }
@@ -67,6 +70,7 @@ export const defaultDependencies: RuntimeMaintenanceDependencies = {
   scheduleMcpHealthChecks: scheduleMcpHealthChecksSync,
   advanceRecoveries: advanceRecoverableOperationsSync,
   requeueSkillOperationLeases: () => requeueExpiredSkillInstallationOperationLeasesSync(),
+  lifecycle: () => runEmployeeLifecycleMaintenanceSync(),
 };
 
 export async function runRuntimeMaintenanceAsync(
@@ -100,6 +104,7 @@ export async function runRuntimeMaintenanceAsync(
     ["mcpHealthChecks", dependencies.scheduleMcpHealthChecks],
     ["recovery", dependencies.advanceRecoveries],
     ["skillOperationLeases", dependencies.requeueSkillOperationLeases],
+    ["lifecycle", dependencies.lifecycle],
     ...(dependencies.commitReconciliation ? [["commitReconciliation", dependencies.commitReconciliation] as const] : []),
   ];
   for (const [name, operation] of operations) {

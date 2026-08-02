@@ -1,4 +1,5 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase } from "./database.ts";
+import { resolveStoredEmployeeIdSync } from "./workspace-employees.ts";
 import type { StoredAgentSkillRequirementConfigRecord } from "./types.ts";
 
 export function readAgentSkillRequirementConfigSync(input: {
@@ -27,17 +28,22 @@ export function upsertAgentSkillRequirementConfigSync(input: {
 }): StoredAgentSkillRequirementConfigRecord {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = new Date().toISOString();
+  const employeeName = input.employeeName.trim();
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+  if (!employeeId) {
+    throw new Error(`Employee "${employeeName}" does not exist in workspace ${workspaceId}.`);
+  }
   getDatabase().prepare(
     `INSERT INTO agent_skill_requirement_config (
-       workspace_id, employee_name, skill_id, config_json, encrypted_secrets_json,
+       workspace_id, employee_id, employee_name, skill_id, config_json, encrypted_secrets_json,
        created_by_user_id, updated_by_user_id, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (workspace_id, employee_name, skill_id) DO UPDATE SET
        config_json = EXCLUDED.config_json,
        encrypted_secrets_json = EXCLUDED.encrypted_secrets_json,
        updated_by_user_id = EXCLUDED.updated_by_user_id,
        updated_at = EXCLUDED.updated_at`,
-  ).run(workspaceId, input.employeeName.trim(), input.skillId.trim(), input.configJson, input.encryptedSecretsJson, input.actorUserId ?? null, input.actorUserId ?? null, now, now);
+  ).run(workspaceId, employeeId, employeeName, input.skillId.trim(), input.configJson, input.encryptedSecretsJson, input.actorUserId ?? null, input.actorUserId ?? null, now, now);
   const record = readAgentSkillRequirementConfigSync({ workspaceId, employeeName: input.employeeName, skillId: input.skillId });
   if (!record) throw new Error("Agent skill requirement configuration could not be read back.");
   return record;

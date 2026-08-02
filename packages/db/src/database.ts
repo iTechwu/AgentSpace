@@ -164,6 +164,7 @@ const NORMALIZED_ROW_KEY_ALIASES = new Map([
   ["assignmentmode", "assignmentMode"],
   ["avatarurl", "avatarUrl"],
   ["boundat", "boundAt"],
+  ["bindinggeneration", "bindingGeneration"],
   ["channelname", "channelName"],
   ["channelmemberaccess", "channelMemberAccess"],
   ["claimedat", "claimedAt"],

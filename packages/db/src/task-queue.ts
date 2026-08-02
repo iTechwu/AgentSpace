@@ -1146,6 +1146,7 @@ function parseTaskSkillExecutionSnapshotJson(raw: string): TaskSkillExecutionSna
       installationId: item.installationId,
       revision: item.revision,
       status: item.status,
+      ...(typeof item.releaseLockDigest === "string" ? { releaseLockDigest: item.releaseLockDigest } : {}),
     });
   }
   return {

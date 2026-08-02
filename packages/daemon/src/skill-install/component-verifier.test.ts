@@ -43,6 +43,77 @@ function buildOperation(
   );
 }
 
+test("dependency component uses the real install outcome when provided", () => {
+  const manifest = buildManifest({
+    dependencies: [{ manager: "npm", name: "lodash", version: "4.17.21" }],
+  });
+
+  const ready = buildOperation(manifest, [{ kind: "dependency", key: "npm:lodash@4.17.21", status: "pending" }], "");
+  // Patch through the optional results param by calling the verifier directly.
+  const withResults = verifySkillInstallationComponents(
+    {
+      operationId: "op-1",
+      workspaceId: "default",
+      runtimeId: "runtime-1",
+      installationId: "install-1",
+      operation: "prepare",
+      artifactDigest: "sha256:any",
+      artifactName: "test-skill",
+      manifestJson: JSON.stringify(manifest),
+      files: [],
+      components: [{ kind: "dependency", key: "npm:lodash@4.17.21", status: "pending" }],
+      createdAt: new Date().toISOString(),
+    },
+    "",
+    true,
+    new Map([["npm:lodash@4.17.21", { ok: true }]]),
+  );
+  assert.equal(withResults[0]?.status, "ready");
+
+  const failed = verifySkillInstallationComponents(
+    {
+      operationId: "op-1",
+      workspaceId: "default",
+      runtimeId: "runtime-1",
+      installationId: "install-1",
+      operation: "prepare",
+      artifactDigest: "sha256:any",
+      artifactName: "test-skill",
+      manifestJson: JSON.stringify(manifest),
+      files: [],
+      components: [{ kind: "dependency", key: "npm:lodash@4.17.21", status: "pending" }],
+      createdAt: new Date().toISOString(),
+    },
+    "",
+    true,
+    new Map([["npm:lodash@4.17.21", { ok: false, reason: "install exited with 1" }]]),
+  );
+  assert.equal(failed[0]?.status, "failed");
+  assert.equal(failed[0]?.errorCode, "skill_installation.dependency_install_failed");
+
+  // A dependency the installer did not attempt is blocked (never fake-ready).
+  const notInstalled = verifySkillInstallationComponents(
+    {
+      operationId: "op-1",
+      workspaceId: "default",
+      runtimeId: "runtime-1",
+      installationId: "install-1",
+      operation: "prepare",
+      artifactDigest: "sha256:any",
+      artifactName: "test-skill",
+      manifestJson: JSON.stringify(manifest),
+      files: [],
+      components: [{ kind: "dependency", key: "npm:lodash@4.17.21", status: "pending" }],
+      createdAt: new Date().toISOString(),
+    },
+    "",
+    true,
+    new Map(),
+  );
+  assert.equal(notInstalled[0]?.status, "blocked");
+  assert.equal(notInstalled[0]?.errorCode, "skill_installation.dependency_not_installed");
+});
+
 test("marks dependency ready when declared with a version", () => {
   const manifest = buildManifest({
     dependencies: [{ manager: "npm", name: "lodash", version: "4.17.21" }],

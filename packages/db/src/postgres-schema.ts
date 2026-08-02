@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "73";
+export const POSTGRES_SCHEMA_VERSION = "74";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -2818,6 +2818,84 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_artifact_publish_idempotent
         ON employee_artifact(workspace_id, source_task_id, content_digest, file_name)
         WHERE source_task_id IS NOT NULL AND deleted_at IS NULL
+    `,
+    `
+      ALTER TABLE agent_skill
+        ADD COLUMN IF NOT EXISTS employee_id TEXT
+    `,
+    `
+      UPDATE agent_skill AS asg
+        SET employee_id = COALESCE(asg.employee_id, we.id)
+        FROM workspace_employee AS we
+        WHERE asg.workspace_id = we.workspace_id
+          AND LOWER(asg.employee_name) = LOWER(we.name)
+          AND asg.employee_id IS NULL
+    `,
+    `
+      DELETE FROM agent_skill
+        WHERE employee_id IS NULL
+           OR employee_id NOT IN (SELECT id FROM workspace_employee)
+    `,
+    `
+      ALTER TABLE agent_skill
+        DROP CONSTRAINT IF EXISTS fk_agent_skill_employee_id
+    `,
+    `
+      ALTER TABLE agent_skill
+        ADD CONSTRAINT fk_agent_skill_employee_id
+        FOREIGN KEY (employee_id) REFERENCES workspace_employee(id) ON DELETE CASCADE
+    `,
+    `
+      ALTER TABLE agent_skill_requirement_config
+        ADD COLUMN IF NOT EXISTS employee_id TEXT
+    `,
+    `
+      UPDATE agent_skill_requirement_config AS asrc
+        SET employee_id = COALESCE(asrc.employee_id, we.id)
+        FROM workspace_employee AS we
+        WHERE asrc.workspace_id = we.workspace_id
+          AND LOWER(asrc.employee_name) = LOWER(we.name)
+          AND asrc.employee_id IS NULL
+    `,
+    `
+      DELETE FROM agent_skill_requirement_config
+        WHERE employee_id IS NULL
+           OR employee_id NOT IN (SELECT id FROM workspace_employee)
+    `,
+    `
+      ALTER TABLE agent_skill_requirement_config
+        DROP CONSTRAINT IF EXISTS fk_agent_skill_requirement_config_employee_id
+    `,
+    `
+      ALTER TABLE agent_skill_requirement_config
+        ADD CONSTRAINT fk_agent_skill_requirement_config_employee_id
+        FOREIGN KEY (employee_id) REFERENCES workspace_employee(id) ON DELETE CASCADE
+    `,
+    `
+      ALTER TABLE agent_knowledge_page
+        ADD COLUMN IF NOT EXISTS employee_id TEXT
+    `,
+    `
+      UPDATE agent_knowledge_page AS akp
+        SET employee_id = COALESCE(akp.employee_id, we.id)
+        FROM workspace_employee AS we
+        WHERE akp.workspace_id = we.workspace_id
+          AND LOWER(akp.employee_name) = LOWER(we.name)
+          AND akp.employee_id IS NULL
+    `,
+    `
+      DELETE FROM agent_knowledge_page
+        WHERE employee_id IS NULL
+           OR employee_id NOT IN (SELECT id FROM workspace_employee)
+    `,
+    `
+      ALTER TABLE agent_knowledge_page
+        DROP CONSTRAINT IF EXISTS fk_agent_knowledge_page_employee_id
+    `,
+    `
+      ALTER TABLE agent_knowledge_page
+        ADD CONSTRAINT fk_agent_knowledge_page_employee_id
+        FOREIGN KEY (employee_id) REFERENCES workspace_employee(id) ON DELETE CASCADE
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_task_commit_journal_state

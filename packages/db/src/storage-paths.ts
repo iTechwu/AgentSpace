@@ -121,6 +121,22 @@ export function getDaemonSkillInstallCachePath(
   );
 }
 
+/**
+ * Per-installation isolated dependency environment directory. Dependencies are
+ * installed HERE (never --global/--user / Provider HOME), wiped at the start of
+ * each prepare so no stale version survives a re-install.
+ */
+export function getDaemonSkillInstallEnvsDirPath(
+  stateDir: string,
+  input: { workspaceId?: string; installationId: string },
+): string {
+  return join(
+    getDaemonWorkspaceExecutionRootDir(stateDir, input.workspaceId ?? DEFAULT_WORKSPACE_ID),
+    "skill-install-envs",
+    sanitizeStoragePathSegment(input.installationId, "installation"),
+  );
+}
+
 /** Transient verification dir a daemon uses to prove it can materialize a workspace. */
 export function getDaemonWorkspaceMountWorkDirPath(
   stateDir: string,

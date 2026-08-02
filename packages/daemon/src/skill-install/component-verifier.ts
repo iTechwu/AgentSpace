@@ -16,6 +16,11 @@ export interface ComponentVerificationResult {
   errorMessage?: string;
 }
 
+export interface DependencyInstallOutcome {
+  ok: boolean;
+  reason?: string;
+}
+
 const SYNTAX_CHECK_TIMEOUT_MS = 10_000;
 const MAX_TAIL_CHARS = 2_000;
 
@@ -33,6 +38,7 @@ export function verifySkillInstallationComponents(
   operation: ClaimedSkillInstallationOperation,
   artifactDir: string,
   rootDigestMatches: boolean,
+  dependencyInstallResults?: Map<string, DependencyInstallOutcome>,
 ): ComponentVerificationResult[] {
   if (!rootDigestMatches) {
     return operation.components.map((component) => ({
@@ -58,7 +64,7 @@ export function verifySkillInstallationComponents(
   }
 
   return operation.components.map((component) =>
-    verifyComponent(component.kind, component.key, manifest, artifactDir));
+    verifyComponent(component.kind, component.key, manifest, artifactDir, dependencyInstallResults));
 }
 
 function verifyComponent(
@@ -66,10 +72,11 @@ function verifyComponent(
   key: string,
   manifest: SkillArtifactManifest,
   artifactDir: string,
+  dependencyInstallResults?: Map<string, DependencyInstallOutcome>,
 ): ComponentVerificationResult {
   switch (kind) {
     case "dependency":
-      return verifyDependencyComponent(key, manifest);
+      return verifyDependencyComponent(key, manifest, dependencyInstallResults);
     case "script":
       return verifyScriptComponent(key, manifest, artifactDir);
     case "cli":
@@ -94,8 +101,36 @@ function verifyComponent(
   }
 }
 
-function verifyDependencyComponent(key: string, manifest: SkillArtifactManifest): ComponentVerificationResult {
+function verifyDependencyComponent(
+  key: string,
+  manifest: SkillArtifactManifest,
+  dependencyInstallResults?: Map<string, DependencyInstallOutcome>,
+): ComponentVerificationResult {
   if (key === "package:integrity") {
+    return { kind: "dependency", key, status: "ready" };
+  }
+  // When the daemon actually installed + verified dependencies, the install
+  // outcome is the source of truth: ready only after a real install+verify.
+  if (dependencyInstallResults) {
+    const outcome = dependencyInstallResults.get(key);
+    if (!outcome) {
+      return {
+        kind: "dependency",
+        key,
+        status: "blocked",
+        errorCode: "skill_installation.dependency_not_installed",
+        errorMessage: `Dependency "${key}" was not installed on this runtime.`,
+      };
+    }
+    if (!outcome.ok) {
+      return {
+        kind: "dependency",
+        key,
+        status: "failed",
+        errorCode: "skill_installation.dependency_install_failed",
+        errorMessage: outcome.reason ?? `Dependency "${key}" install verification failed.`,
+      };
+    }
     return { kind: "dependency", key, status: "ready" };
   }
   const declared = (manifest.dependencies ?? []).find((dep) =>

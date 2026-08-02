@@ -1,5 +1,6 @@
 import type { KnowledgeAssignmentMode } from "@dofe-agent/domain/workspace";
 import { DEFAULT_WORKSPACE_ID, getDatabase, withTransaction } from "./database.ts";
+import { resolveStoredEmployeeIdSync } from "./workspace-employees.ts";
 import type {
   StoredAgentKnowledgePageRecord,
   StoredKnowledgeAssignmentPolicyRecord,
@@ -140,16 +141,18 @@ export function setStoredKnowledgePageAssignedEmployeesSync(input: {
     ).run(workspaceId, input.knowledgePageId);
 
     for (const employeeName of employeeNames) {
+      const employeeId = resolveEmployeeIdForWrite(employeeName, workspaceId);
       db.prepare(
         `INSERT INTO agent_knowledge_page (
            workspace_id,
            agent_id,
+           employee_id,
            employee_name,
            knowledge_page_id,
            created_at,
            created_by
-         ) VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(workspaceId, buildLegacyAgentId(employeeName), employeeName, input.knowledgePageId, now, createdBy);
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(workspaceId, buildLegacyAgentId(employeeName), employeeId, employeeName, input.knowledgePageId, now, createdBy);
     }
   });
 }
@@ -172,17 +175,19 @@ export function setStoredEmployeeKnowledgePageAssignmentsSync(input: {
        WHERE workspace_id = ? AND employee_name = ?`,
     ).run(workspaceId, input.employeeName);
 
+    const employeeId = resolveEmployeeIdForWrite(input.employeeName, workspaceId);
     for (const knowledgePageId of knowledgePageIds) {
       db.prepare(
         `INSERT INTO agent_knowledge_page (
            workspace_id,
            agent_id,
+           employee_id,
            employee_name,
            knowledge_page_id,
            created_at,
            created_by
-         ) VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(workspaceId, buildLegacyAgentId(input.employeeName), input.employeeName, knowledgePageId, now, createdBy);
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(workspaceId, buildLegacyAgentId(input.employeeName), employeeId, input.employeeName, knowledgePageId, now, createdBy);
     }
   });
 }
@@ -287,4 +292,13 @@ function normalizeIds(values: string[]): string[] {
 
 function buildLegacyAgentId(employeeName: string): string {
   return `agent:${employeeName.trim()}`;
+}
+
+/** Resolves the stable employee id for a write; the employee must exist. */
+function resolveEmployeeIdForWrite(employeeName: string, workspaceId: string): string {
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+  if (!employeeId) {
+    throw new Error(`Employee "${employeeName}" does not exist in workspace ${workspaceId}.`);
+  }
+  return employeeId;
 }
