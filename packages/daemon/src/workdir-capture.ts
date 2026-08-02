@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import {
-  chmodSync,
   closeSync,
   constants as fsConstants,
   existsSync,
+  fchmodSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -476,8 +477,16 @@ function writeFileNoFollow(targetPath: string, bytes: Uint8Array): void {
 function applyCapturedMode(targetPath: string, mode?: string): void {
   if (!mode) return;
   const parsed = Number.parseInt(mode, 8);
-  if (Number.isFinite(parsed)) {
-    chmodSync(targetPath, parsed & 0o777);
+  if (!Number.isFinite(parsed)) return;
+  const fd = openSync(targetPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1) {
+      throw new Error(`Restore target is not a single-link regular file: ${targetPath}`);
+    }
+    fchmodSync(fd, parsed & 0o777);
+  } finally {
+    closeSync(fd);
   }
 }
 
