@@ -6,7 +6,7 @@ const OPERATION_COLUMNS = `SELECT
   installation_id AS installationId, operation, status,
   error_code AS errorCode, error_message AS errorMessage,
   claimed_at AS claimedAt, completed_at AS completedAt,
-  lease_expires_at,
+  lease_expires_at, replaces_service_id,
   created_at AS createdAt`;
 
 /** Lease duration for a claimed managed skill service operation. */
@@ -21,6 +21,8 @@ export interface CreateManagedSkillServiceOperationInput {
   runtimeId: string;
   serviceId: string;
   installationId?: string;
+  /** For a canary provision: the green managed service this instance replaces. */
+  replacesServiceId?: string;
   operation: "provision" | "retire";
 }
 
@@ -33,15 +35,16 @@ export function createManagedSkillServiceOperationSync(
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO managed_skill_service_operation (
-      id, workspace_id, runtime_id, service_id, installation_id, operation, status,
+      id, workspace_id, runtime_id, service_id, installation_id, replaces_service_id, operation, status,
       error_code, error_message, claimed_at, completed_at, lease_expires_at, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, NULL, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, NULL, ?)`,
   ).run(
     id,
     workspaceId,
     input.runtimeId,
     input.serviceId,
     input.installationId?.trim() || null,
+    input.replacesServiceId?.trim() || null,
     input.operation,
     now,
   );
@@ -215,6 +218,7 @@ function mapOperationRecord(value: Record<string, unknown>): ManagedSkillService
     runtimeId: value.runtimeId,
     serviceId: value.serviceId,
     installationId: typeof value.installationId === "string" ? value.installationId : undefined,
+    replacesServiceId: typeof value.replacesServiceId === "string" ? value.replacesServiceId : undefined,
     operation: value.operation as ManagedSkillServiceOperationRecord["operation"],
     status: value.status as ManagedSkillServiceOperationRecord["status"],
     errorCode: typeof value.errorCode === "string" ? value.errorCode : undefined,

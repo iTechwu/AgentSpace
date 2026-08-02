@@ -13,6 +13,7 @@ import {
   readSkillServiceCatalogSync,
   retireManagedSkillServiceSync,
   setManagedSkillServiceUnreferencedSinceSync,
+  switchSkillServiceBindingsSync,
   type ManagedSkillServiceOperationRecord,
 } from "@dofe-agent/db";
 import type { ClaimedManagedSkillServiceOperation } from "@dofe-agent/domain";
@@ -133,11 +134,44 @@ export function completeManagedSkillServiceProvisionOperationSync(input: {
   if (!operation) {
     return { ok: false, code: "operation_not_found", reason: "Service operation does not exist." };
   }
+  // For a canary upgrade resolve the BLUE catalog BEFORE marking anything ready,
+  // so a missing upgrade context cannot leave a ready-but-unbound service.
+  const blueCatalog = operation.replacesServiceId
+    ? (() => {
+        const blue = readManagedSkillServiceSync(operation.serviceId, workspaceId);
+        const catalog = blue
+          ? listSkillServiceCatalogSync(workspaceId).find((entry) => entry.id === blue.catalogId)
+          : undefined;
+        return blue && catalog ? catalog : null;
+      })()
+    : null;
+  if (operation.replacesServiceId && !blueCatalog) {
+    return { ok: false, code: "upgrade_context_missing", reason: "Canary upgrade context (service/catalog) is missing." };
+  }
   const done = completeOperationDbSync({ operationId: input.operationId, workspaceId });
   if (!done) {
     return { ok: false, code: "not_completable", reason: "Operation is no longer completable." };
   }
   completeManagedSkillServiceProvisioningSync({ serviceId: operation.serviceId, workspaceId });
+  if (operation.replacesServiceId && blueCatalog) {
+    // Canary: switch every green binding onto this (blue) instance, re-stamped
+    // with the blue catalog + the live endpoint. Green becomes unreferenced →
+    // the rollback_class-aware retire sweep tears it down after its cooldown.
+    const switched = switchSkillServiceBindingsSync({
+      workspaceId,
+      fromServiceId: operation.replacesServiceId,
+      toServiceId: operation.serviceId,
+      toCatalogTemplateVersion: blueCatalog.templateVersion,
+      toServiceImageDigest: blueCatalog.imageDigest,
+      endpointRef: input.endpointRef.trim(),
+      healthRevision: input.healthRevision,
+      configSchemaVersion: blueCatalog.configSchemaVersion,
+    });
+    for (const installationId of switched.installationIds) {
+      evaluateSkillInstallationReadinessSync(installationId, workspaceId);
+    }
+    return { ok: true };
+  }
   if (operation.installationId) {
     createSkillServiceBindingSync({
       installationId: operation.installationId,
@@ -216,6 +250,80 @@ export function queueManagedSkillServiceRetireSync(input: {
     operation: "retire",
   });
   return { queued: true, operationId: operation.id };
+}
+
+/**
+ * Canary upgrade orchestration (explicit, 05-运维服务与版本治理.md §升级): provisions
+ * a NEW catalog instance (blue) alongside the currently-bound instance (green)
+ * on the same runtime, and records which service it replaces on the provision
+ * operation. When the daemon reports blue healthy, the control plane switches
+ * every green binding onto blue (blue-green) — the switch, not the provision,
+ * is the cutover. Green then becomes unreferenced and the rollback_class-aware
+ * retire sweep tears it down after its cooldown window, so a failed canary can
+ * be rolled back to green within that window.
+ */
+export function upgradeManagedSkillServiceSync(input: {
+  workspaceId?: string;
+  serviceId: string;
+  catalogSlug: string;
+  templateVersion: string;
+}):
+  | { ok: true; blueServiceId: string; operationId: string; queued: boolean }
+  | { ok: false; code: string; reason: string } {
+  const workspaceId = input.workspaceId ?? "default";
+  const green = readManagedSkillServiceSync(input.serviceId, workspaceId);
+  if (!green) {
+    return { ok: false, code: "service_not_found", reason: "Managed service does not exist." };
+  }
+  if (green.status === "retired") {
+    return { ok: false, code: "already_retired", reason: "The service is already retired." };
+  }
+  if (green.status === "provisioning") {
+    return { ok: false, code: "still_provisioning", reason: "The service is still provisioning." };
+  }
+  const greenCatalog = listSkillServiceCatalogSync(workspaceId).find((entry) => entry.id === green.catalogId);
+  if (!greenCatalog) {
+    return { ok: false, code: "catalog_not_found", reason: "The green service's catalog entry is missing." };
+  }
+  const blueCatalog = readSkillServiceCatalogSync(input.catalogSlug, input.templateVersion, workspaceId);
+  if (!blueCatalog) {
+    return {
+      ok: false,
+      code: "catalog_not_found",
+      reason: `Catalog "${input.catalogSlug}@${input.templateVersion}" does not exist.`,
+    };
+  }
+  if (blueCatalog.slug !== greenCatalog.slug) {
+    return { ok: false, code: "catalog_lineage_mismatch", reason: "Upgrade must stay on the same catalog lineage (slug)." };
+  }
+  if (blueCatalog.id === greenCatalog.id) {
+    return { ok: false, code: "already_current", reason: "The service already runs the target template version." };
+  }
+  if (listSkillServiceBindingsForServiceSync(green.id).length === 0) {
+    return { ok: false, code: "no_bindings", reason: "Nothing references this service; there is nothing to canary." };
+  }
+
+  // Blue instance is idempotent on (workspace, runtime, catalog) — re-running an
+  // upgrade reuses the half-created instance instead of stacking a new one.
+  const blue = createManagedSkillServiceSync({
+    workspaceId,
+    runtimeId: green.runtimeId,
+    catalogId: blueCatalog.id,
+    status: "provisioning",
+  });
+  const activeProvision = listManagedSkillServiceOperationsSync({ workspaceId, serviceId: blue.id })
+    .find((operation) => operation.operation === "provision" && ACTIVE_OPERATION_STATUSES.has(operation.status));
+  if (activeProvision) {
+    return { ok: true, blueServiceId: blue.id, operationId: activeProvision.id, queued: false };
+  }
+  const operation = createManagedSkillServiceOperationSync({
+    workspaceId,
+    runtimeId: green.runtimeId,
+    serviceId: blue.id,
+    replacesServiceId: green.id,
+    operation: "provision",
+  });
+  return { ok: true, blueServiceId: blue.id, operationId: operation.id, queued: true };
 }
 
 /**

@@ -1578,6 +1578,9 @@ export interface ManagedSkillServiceOperationRecord {
   runtimeId: string;
   serviceId: string;
   installationId?: string;
+  /** For a canary provision: the green managed service this instance replaces
+   *  (the control plane switches bindings away from it on completion). */
+  replacesServiceId?: string;
   operation: "provision" | "retire";
   status: "pending" | "claimed" | "running" | "succeeded" | "failed";
   errorCode?: string;

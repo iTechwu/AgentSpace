@@ -940,6 +940,8 @@ export {
   createSkillServiceBindingSync,
   listSkillServiceBindingsSync,
   listSkillServiceBindingsForServiceSync,
+  deleteSkillServiceBindingSync,
+  switchSkillServiceBindingsSync,
   type UpsertSkillServiceCatalogInput,
   type UpsertManagedSkillServiceInput,
   type CreateSkillServiceBindingInput,

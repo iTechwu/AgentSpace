@@ -317,6 +317,76 @@ export function listSkillServiceBindingsForServiceSync(serviceId: string): Store
   return rows.map(mapSkillServiceBindingRecord).filter((r): r is StoredSkillServiceBindingRecord => r !== null);
 }
 
+export function deleteSkillServiceBindingSync(input: {
+  installationId: string;
+  serviceId: string;
+}): boolean {
+  const result = getDatabase().prepare(
+    `DELETE FROM skill_service_binding WHERE installation_id = ? AND service_id = ?`,
+  ).run(input.installationId, input.serviceId);
+  return result.changes > 0;
+}
+
+/**
+ * Canary binding switch: atomically moves every binding that currently points
+ * at `fromServiceId` (the green instance) onto `toServiceId` (the blue
+ * instance), re-stamping the binding with the BLUE catalog's metadata and the
+ * live endpoint the daemon reported for it. Returns the number switched and the
+ * affected installation ids so the caller can re-evaluate their readiness.
+ * The green service becomes unreferenced as a side effect — the retire sweep
+ * (cooldown-aware) tears it down.
+ */
+export function switchSkillServiceBindingsSync(input: {
+  workspaceId?: string;
+  fromServiceId: string;
+  toServiceId: string;
+  toCatalogTemplateVersion: string;
+  toServiceImageDigest: string;
+  endpointRef: string;
+  healthRevision?: string;
+  configSchemaVersion?: number;
+}): { switched: number; installationIds: string[] } {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const affected = new Set<string>();
+  let switched = 0;
+  withTransaction(db, () => {
+    // (skill_service_binding has no workspace column — scope by from-service only.)
+    const fromBindings = db.prepare(
+      `SELECT installation_id FROM skill_service_binding WHERE service_id = ?`,
+    ).all(input.fromServiceId) as Array<{ installation_id: string }>;
+    for (const binding of fromBindings) {
+      db.prepare(
+        `DELETE FROM skill_service_binding WHERE installation_id = ? AND service_id = ?`,
+      ).run(binding.installation_id, input.fromServiceId);
+      db.prepare(
+        `INSERT INTO skill_service_binding (
+          installation_id, service_id, catalog_template_version, service_image_digest,
+          endpoint_ref, health_revision, config_schema_version, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (installation_id, service_id) DO UPDATE SET
+          catalog_template_version = excluded.catalog_template_version,
+          service_image_digest = excluded.service_image_digest,
+          endpoint_ref = excluded.endpoint_ref,
+          health_revision = excluded.health_revision,
+          config_schema_version = excluded.config_schema_version`,
+      ).run(
+        binding.installation_id,
+        input.toServiceId,
+        input.toCatalogTemplateVersion,
+        input.toServiceImageDigest,
+        input.endpointRef,
+        input.healthRevision ?? "",
+        input.configSchemaVersion ?? 1,
+        now,
+      );
+      affected.add(binding.installation_id);
+      switched += 1;
+    }
+  });
+  return { switched, installationIds: [...affected] };
+}
+
 /* ------------------------------------------------------------------ */
 /* Mappers                                                             */
 /* ------------------------------------------------------------------ */

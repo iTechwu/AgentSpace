@@ -113,17 +113,19 @@ export function resolveSkillServiceComponentStatusSync(
   workspaceId: string,
 ): { status: "ready" | "blocked" } {
   const slug = componentKey.startsWith("service:") ? componentKey.slice("service:".length) : componentKey;
-  const catalogIdBySlug = new Map(
-    listSkillServiceCatalogSync(workspaceId).map((catalog) => [catalog.slug, catalog.id]),
+  // Match by the BOUND service's own catalog slug, not a slug→id map: a slug
+  // can have several catalog versions (green v1 + blue v2 during a canary), and
+  // the binding points at exactly one instance — that one decides readiness.
+  const catalogSlugById = new Map(
+    listSkillServiceCatalogSync(workspaceId).map((catalog) => [catalog.id, catalog.slug]),
   );
   const bindings = listSkillServiceBindingsSync(installationId);
   for (const binding of bindings) {
     const managed = readManagedSkillServiceSync(binding.serviceId, workspaceId);
-    if (!managed) {
+    if (!managed || managed.status !== "ready") {
       continue;
     }
-    const catalogId = catalogIdBySlug.get(slug);
-    if (managed.catalogId === catalogId && managed.status === "ready") {
+    if (catalogSlugById.get(managed.catalogId) === slug) {
       return { status: "ready" };
     }
   }

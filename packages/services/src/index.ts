@@ -387,6 +387,7 @@ export {
 export {
   queueManagedSkillServiceForInstallationSync,
   queueManagedSkillServiceRetireSync,
+  upgradeManagedSkillServiceSync,
   completeManagedSkillServiceProvisionOperationSync,
   completeManagedSkillServiceRetireOperationSync,
   resolveClaimedManagedSkillServiceOperation,

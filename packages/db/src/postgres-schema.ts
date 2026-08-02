@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "79";
+export const POSTGRES_SCHEMA_VERSION = "81";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -2721,6 +2721,9 @@ export function getPostgresSchemaStatements(): string[] {
         lease_expires_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL
       )
+    `,
+    `
+      ALTER TABLE managed_skill_service_operation ADD COLUMN IF NOT EXISTS replaces_service_id TEXT REFERENCES managed_skill_service(id) ON DELETE SET NULL
     `,
     `
       CREATE TABLE IF NOT EXISTS workspace_service_secret (
