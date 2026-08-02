@@ -28,7 +28,11 @@ import {
   setEmployeeSkillIdsSync,
 } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
-import { MAX_SKILL_ARCHIVE_BYTES, MAX_SKILL_PACKAGE_FILES } from "./package/archive-limits.ts";
+import {
+  MAX_SKILL_ARCHIVE_BYTES,
+  MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES,
+  MAX_SKILL_PACKAGE_FILES,
+} from "./package/archive-limits.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-skill-import-"));
@@ -363,6 +367,28 @@ test("zip import rejects traversal entries before path normalization", async () 
   await assert.rejects(
     () => importWorkspaceSkillFromZipUpload({ fileName: "unsafe.zip", contentBytes: archive }),
     /unsafe entry.*Parent-directory/,
+  );
+});
+
+test("zip import rejects oversized declared output before decompression", async () => {
+  const archive = zipSync({
+    "SKILL.md": strToU8("---\nname: zip-bomb\ndescription: Declared bomb\n---\n# Skill\n"),
+  });
+  const patched = new Uint8Array(archive);
+  const view = new DataView(patched.buffer, patched.byteOffset, patched.byteLength);
+  let centralOffset = -1;
+  for (let offset = 0; offset <= patched.byteLength - 4; offset += 1) {
+    if (view.getUint32(offset, true) === 0x02014b50) {
+      centralOffset = offset;
+      break;
+    }
+  }
+  assert.notEqual(centralOffset, -1);
+  view.setUint32(centralOffset + 24, MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES + 1, true);
+
+  await assert.rejects(
+    () => importWorkspaceSkillFromZipUpload({ fileName: "bomb.zip", contentBytes: patched }),
+    /declares more than .* uncompressed bytes/i,
   );
 });
 
