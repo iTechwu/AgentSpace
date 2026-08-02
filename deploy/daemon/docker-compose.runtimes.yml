@@ -16,6 +16,14 @@ services:
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     restart: unless-stopped
+    networks:
+      - dofe-runtime-restricted
+    environment:
+      # Explicitly prevent Provider from observing or using any proxy variable.
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      NO_PROXY: ""
 
   runtime-claude:
     build:
@@ -34,6 +42,13 @@ services:
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     restart: unless-stopped
+    networks:
+      - dofe-runtime-restricted
+    environment:
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      NO_PROXY: ""
 
   runtime-openclaw:
     build:
@@ -52,6 +67,13 @@ services:
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     restart: unless-stopped
+    networks:
+      - dofe-runtime-restricted
+    environment:
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      NO_PROXY: ""
 
   runtime-hermes:
     build:
@@ -70,6 +92,13 @@ services:
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     restart: unless-stopped
+    networks:
+      - dofe-runtime-restricted
+    environment:
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      NO_PROXY: ""
 
 volumes:
   codex-auth:
@@ -80,3 +109,10 @@ volumes:
   openclaw-state:
   hermes-auth:
   hermes-state:
+
+networks:
+  dofe-runtime-restricted:
+    name: dofe-runtime-restricted
+    driver: bridge
+    labels:
+      dofe.managed-egress: restricted

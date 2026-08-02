@@ -1,0 +1,226 @@
+import { lookup } from "node:dns/promises";
+import { request as httpsRequest } from "node:https";
+import { Readable } from "node:stream";
+import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision } from "@dofe-agent/domain";
+import { validateMcpEndpoint, validateMcpResolvedAddresses } from "@dofe-agent/services";
+
+const ALLOWED_METHODS = new Set(["GET", "POST", "DELETE"]);
+const MCP_CONTENT_TYPES = [
+  "application/json",
+  "text/event-stream",
+  "application/json; charset=utf-8",
+  "text/event-stream; charset=utf-8",
+];
+
+export interface UpstreamRequest {
+  method: string;
+  path: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: ReadableStream<Uint8Array> | null;
+}
+
+export interface UpstreamResponse {
+  statusCode: number;
+  statusMessage: string;
+  headers: Record<string, string | string[]>;
+  body: ReadableStream<Uint8Array> | null;
+}
+
+export interface UpstreamTransportResult {
+  ok: true;
+  response: UpstreamResponse;
+  upstreamHost: string;
+}
+
+export interface UpstreamTransportFailure {
+  ok: false;
+  code: McpEgressErrorCode;
+  message: string;
+}
+
+export interface UpstreamTransportOptions {
+  requestTimeoutMs?: number;
+  connectTimeoutMs?: number;
+  idleTimeoutMs?: number;
+}
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
+const DEFAULT_IDLE_TIMEOUT_MS = 60_000;
+
+function reject(code: McpEgressErrorCode, message: string): UpstreamTransportFailure {
+  return { ok: false, code, message };
+}
+
+/**
+ * Validates that the request conforms to the policy and MCP Streamable HTTP
+ * transport restrictions, then opens a pinned TLS connection to the upstream.
+ */
+export async function forwardToUpstream(
+  policy: McpEgressPolicyRevision,
+  _claims: McpEgressLeaseClaims,
+  request: UpstreamRequest,
+  upstreamHeaders: Record<string, string>,
+  options: UpstreamTransportOptions = {},
+): Promise<UpstreamTransportResult | UpstreamTransportFailure> {
+  if (!ALLOWED_METHODS.has(request.method)) {
+    return reject("mcp_egress.policy_denied", `Method ${request.method} is not allowed.`);
+  }
+
+  const path = normalizePath(request.path, policy);
+  if (path === undefined) {
+    return reject("mcp_egress.policy_denied", "Request path is outside the allowed prefix.");
+  }
+
+  const endpointValidation = validateMcpEndpoint(policy.upstream.origin, policy.upstream.allowedHosts);
+  if (!endpointValidation.ok || !endpointValidation.host) {
+    return reject(
+      endpointValidation.code === "mcp.network_unreachable" ? "mcp_egress.upstream_failed" : "mcp_egress.policy_denied",
+      endpointValidation.message ?? "Upstream origin is invalid.",
+    );
+  }
+  const upstreamHost = endpointValidation.host;
+
+  const resolved = await lookup(upstreamHost, { all: true, verbatim: true });
+  const addresses = resolved.map((entry) => entry.address);
+  const addressValidation = validateMcpResolvedAddresses(addresses);
+  if (!addressValidation.ok) {
+    return reject(
+      addressValidation.code === "mcp.network_unreachable" ? "mcp_egress.upstream_failed" : "mcp_egress.dns_forbidden",
+      addressValidation.message ?? "Upstream DNS resolution was rejected.",
+    );
+  }
+  const pinnedAddress = addresses[0]!;
+
+  const upstreamUrl = new URL(path, policy.upstream.origin);
+  if (upstreamUrl.search) {
+    return reject("mcp_egress.policy_denied", "Upstream URL must not contain query parameters.");
+  }
+
+  const contentType = String(request.headers["content-type"] ?? "").toLowerCase();
+  if (request.method === "POST" && contentType && !MCP_CONTENT_TYPES.some((allowed) => contentType.startsWith(allowed))) {
+    return reject("mcp_egress.policy_denied", "Content-Type is not allowed for MCP Streamable HTTP.");
+  }
+
+  const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const connectTimeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
+  const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+
+  try {
+    const response = await pinnedHttpsRequest({
+      upstreamHost,
+      pinnedAddress,
+      method: request.method,
+      path: upstreamUrl.pathname,
+      headers: upstreamHeaders,
+      body: request.body,
+      connectTimeoutMs,
+      requestTimeoutMs,
+      idleTimeoutMs,
+    });
+    return { ok: true, response, upstreamHost };
+  } catch (error) {
+    const message = String((error as { message?: unknown })?.message ?? error);
+    if (message.includes("timeout") || message.includes("ETIMEDOUT")) {
+      return reject("mcp_egress.timeout", "Upstream request timed out.");
+    }
+    if (/certificate|tls|ssl|self signed/i.test(message)) {
+      return reject("mcp_egress.tls_failed", "Upstream TLS verification failed.");
+    }
+    return reject("mcp_egress.upstream_failed", message || "Upstream request failed.");
+  }
+}
+
+function normalizePath(requestPath: string, policy: McpEgressPolicyRevision): string | undefined {
+  const prefix = policy.upstream.allowedPathPrefix;
+  const normalized = requestPath.startsWith("/") ? requestPath : `/${requestPath}`;
+  if (!normalized.startsWith(prefix)) {
+    return undefined;
+  }
+  return normalized;
+}
+
+interface PinnedHttpsRequestInput {
+  upstreamHost: string;
+  pinnedAddress: string;
+  method: string;
+  path: string;
+  headers: Record<string, string>;
+  body: ReadableStream<Uint8Array> | null;
+  connectTimeoutMs: number;
+  requestTimeoutMs: number;
+  idleTimeoutMs: number;
+}
+
+function pinnedHttpsRequest(input: PinnedHttpsRequestInput): Promise<UpstreamResponse> {
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest({
+      protocol: "https:",
+      hostname: input.upstreamHost,
+      port: 443,
+      path: input.path,
+      method: input.method,
+      headers: input.headers,
+      servername: input.upstreamHost,
+      lookup: (_hostname, _options, callback) => callback(null, input.pinnedAddress, isIPv4(input.pinnedAddress) ? 4 : 6),
+    }, (response) => {
+      const headers: Record<string, string | string[]> = {};
+      for (const [name, value] of Object.entries(response.headers)) {
+        if (value === undefined) continue;
+        headers[name] = Array.isArray(value) ? value : String(value);
+      }
+      resolve({
+        statusCode: response.statusCode ?? 502,
+        statusMessage: response.statusMessage ?? "",
+        headers,
+        body: response ? (Readable.toWeb(response) as ReadableStream<Uint8Array>) : null,
+      });
+    });
+
+    const connectTimer = setTimeout(() => request.destroy(new Error("Connection timeout.")), input.connectTimeoutMs);
+    const requestTimer = setTimeout(() => request.destroy(new Error("Request timeout.")), input.requestTimeoutMs);
+
+    request.once("error", (error) => {
+      clearTimeout(connectTimer);
+      clearTimeout(requestTimer);
+      reject(error);
+    });
+
+    request.once("response", () => {
+      clearTimeout(connectTimer);
+      clearTimeout(requestTimer);
+      if (input.idleTimeoutMs > 0) {
+        request.setTimeout(input.idleTimeoutMs, () => request.destroy(new Error("Idle timeout.")));
+      }
+    });
+
+    writeRequestBody(request, input.body).catch((error) => request.destroy(error));
+  });
+}
+
+async function writeRequestBody(
+  request: ReturnType<typeof httpsRequest>,
+  body: ReadableStream<Uint8Array> | null,
+): Promise<void> {
+  if (!body) {
+    request.end();
+    return;
+  }
+  const reader = body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      request.write(value);
+    }
+    request.end();
+  } catch (error) {
+    request.destroy(error as Error);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function isIPv4(address: string): boolean {
+  return /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(address);
+}

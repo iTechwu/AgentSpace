@@ -1,6 +1,6 @@
 # Docker Compose 网络拓扑与出口强制
 
-> 状态：Proposed
+> 状态：Phase 0/1 已实施，Phase 2 `DOCKER-USER` 强制规则需 managed-node 集成验证
 >
 > 目标：保证 Runtime 只能直连固定控制面目标和 proxy，不能绕过 proxy 访问任意 MCP/public proxy/raw IP。
 
@@ -43,6 +43,11 @@ flowchart LR
 ### 2.1 Compose service boundary
 
 以下是拓扑示意，不应原样复制到生产；实际 image tag、env、secret 入口和 TLS 配置由部署配置明确提供。
+
+**已实施的 Compose 文件**：
+
+- proxy service: [`deploy/daemon/docker-compose.mcp-egress.yml`](../../../deploy/daemon/docker-compose.mcp-egress.yml)
+- runtime networks: [`deploy/daemon/docker-compose.runtimes.yml`](../../../deploy/daemon/docker-compose.runtimes.yml)
 
 ```yaml
 services:
@@ -96,7 +101,7 @@ runtime subnet -> any other IPv4/IPv6/TCP/UDP                    DROP
 proxy egress subnet -> external network                          仅由 proxy 自身 L7 policy 决定
 ```
 
-实现时以 runtime subnet 和固定 CIDR/IP 生成规则，不以运行时容器名称或可变 DNS 解析结果决定允许项。控制面/models gateway 的地址变更必须由显式部署更新先更新规则，再切流。
+**已实施的脚本**：[`deploy/daemon/reconcile-runtime-egress.sh`](../../../deploy/daemon/reconcile-runtime-egress.sh) 通过 `RUNTIME_SUBNET`、`PROXY_RUNTIME_IP`、`CONTROL_PLANE_IPV4`、`MODELS_GATEWAY_IPV4`、`DNS_RESOLVER_IPV4` 生成上述规则，并支持 `apply`/`remove`。
 
 所有放行规则应在连接追踪的 `ESTABLISHED,RELATED` 规则之后，并在默认 `DROP` 规则之前；该细节由受管 node 的幂等防火墙 reconciler 负责。Runtime 无权调用 iptables/nftables，proxy 也无此权限。
 

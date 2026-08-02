@@ -1,10 +1,19 @@
 # MCP Egress Proxy：Docker Compose 实施方案
 
-> 状态：Proposed
+> 状态：Phase 0/1 已实施，Phase 2/3 待后续迭代
 >
 > 范围：AgentSpace 当前 monorepo、Docker Compose 受管 Runtime 和远程 MCP Server。
 
 本目录将 MCP egress 方案收敛为 Docker Compose 部署，不以 Kubernetes 为实施前提。代理在当前仓库中作为独立 app、独立镜像和独立 Compose service 运行；不新建仓库，不成为通用互联网代理。
+
+## 实施摘要
+
+- `packages/domain` 已新增 `McpEgressPolicyRevision`、`McpEgressLeaseClaims`、`McpEgressPolicySnapshot` 等类型契约。
+- `packages/services/src/mcp-center/egress.ts` 已提供 lease 签名/验证、policy digest、审计哈希工具及 golden tests。
+- `apps/mcp-egress-proxy` 已创建，提供 `/healthz`、lease 校验、policy cache、DNS/TLS pinning 转发骨架与单元测试。
+- `deploy/daemon/Dockerfile.mcp-egress-proxy` 与 `deploy/daemon/docker-compose.mcp-egress.yml` 已提供最小化独立镜像与双网 Compose service。
+- `deploy/daemon/reconcile-runtime-egress.sh` 已提供由 managed-node 调用的幂等 `DOCKER-USER` 规则脚本。
+- `deploy/daemon/docker-compose.runtimes.yml` 已将 Runtime 接入 `dofe-runtime-restricted` 网络，并清空 `HTTP_PROXY` 等环境变量。
 
 | 文档 | 内容 |
 | --- | --- |

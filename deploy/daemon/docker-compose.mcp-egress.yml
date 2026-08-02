@@ -1,0 +1,42 @@
+services:
+  mcp-egress-proxy:
+    build:
+      context: ../..
+      dockerfile: deploy/daemon/Dockerfile.mcp-egress-proxy
+    image: dofe/mcp-egress-proxy:${MCP_EGRESS_PROXY_IMAGE_TAG:-local}
+    restart: unless-stopped
+    read_only: true
+    user: "10001:10001"
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      dofe-runtime-restricted: {}
+      dofe-mcp-proxy-egress: {}
+    expose:
+      - "8080"
+    environment:
+      MCP_EGRESS_PROXY_PORT: "8080"
+      MCP_EGRESS_PROXY_HOST: "0.0.0.0"
+      MCP_EGRESS_PROXY_LEASE_SECRET: ${MCP_EGRESS_PROXY_LEASE_SECRET:?Set MCP_EGRESS_PROXY_LEASE_SECRET to an HS256 secret}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>r.ok||process.exit(1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    # No ports, Docker socket, host network, NET_ADMIN, Runtime volume,
+    # Provider credential mount, database URL, HTTP_PROXY or HTTPS_PROXY.
+
+networks:
+  dofe-runtime-restricted:
+    name: dofe-runtime-restricted
+    driver: bridge
+    labels:
+      dofe.managed-egress: restricted
+  dofe-mcp-proxy-egress:
+    name: dofe-mcp-proxy-egress
+    driver: bridge

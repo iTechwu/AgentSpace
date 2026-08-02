@@ -719,6 +719,93 @@ export interface ReportMcpToolAuditsResponse {
   acceptedEventIds: string[];
 }
 
+/* ------------------------------------------------------------------ */
+/* MCP egress proxy — lease/policy contract                            */
+/* ------------------------------------------------------------------ */
+
+export type McpEgressPurpose = "verify" | "health_check" | "task_call";
+export type McpEgressAuthMode = "none" | "static_header" | "oauth_proxy";
+export type McpEgressTlsMode = "verify_system" | "verify_private_ca";
+export type McpEgressErrorCode =
+  | "mcp_egress.lease_missing"
+  | "mcp_egress.lease_invalid"
+  | "mcp_egress.lease_expired"
+  | "mcp_egress.lease_replayed"
+  | "mcp_egress.lease_revoked"
+  | "mcp_egress.policy_mismatch"
+  | "mcp_egress.policy_denied"
+  | "mcp_egress.host_denied"
+  | "mcp_egress.port_denied"
+  | "mcp_egress.redirect_denied"
+  | "mcp_egress.dns_forbidden"
+  | "mcp_egress.tls_failed"
+  | "mcp_egress.request_too_large"
+  | "mcp_egress.response_too_large"
+  | "mcp_egress.timeout"
+  | "mcp_egress.upstream_failed"
+  | "mcp_egress.internal";
+
+/**
+ * Immutable policy revision derived from a reviewed release and a connection.
+ * The proxy enforces this revision against every signed lease.
+ */
+export interface McpEgressPolicyRevision {
+  id: string;
+  workspaceId: string;
+  connectionId: string;
+  releaseId: string;
+  manifestDigest: `sha256:${string}`;
+  upstream: {
+    origin: string;
+    allowedHosts: string[];
+    allowedPorts: [443];
+    allowedPathPrefix: string;
+  };
+  transport: "streamable_http";
+  redirectPolicy: "deny";
+  denyPrivateNetworks: true;
+  tlsMode: McpEgressTlsMode;
+  authMode: McpEgressAuthMode;
+  maxRequestBytes: number;
+  maxResponseBytes: number;
+  maxConcurrentStreams: number;
+  createdAt: string;
+}
+
+/**
+ * Claims carried inside a short-lived signed lease from daemon to proxy.
+ * The proxy validates signature, audience, TTL, and revocation state.
+ */
+export interface McpEgressLeaseClaims {
+  iss: "agentspace-control-plane";
+  aud: "mcp-egress-proxy";
+  jti: string;
+  workspaceId: string;
+  runtimeId: string;
+  connectionId: string;
+  releaseId: string;
+  policyRevisionId: string;
+  purpose: McpEgressPurpose;
+  taskId?: string;
+  operationId?: string;
+  toolName?: string;
+  exp: number;
+}
+
+/** Policy snapshot delivered to the proxy or held in memory cache. */
+export interface McpEgressPolicySnapshot {
+  revision: McpEgressPolicyRevision;
+  /** True when the connection, release, or OAuth grant has been revoked. */
+  revoked: boolean;
+  /** ISO timestamp when this snapshot was produced. */
+  fetchedAt: string;
+  /**
+   * Daemon-only static headers for `static_header` auth mode. Not part of the
+   * immutable policy digest; delivered separately through the policy sync path.
+   */
+  staticHeaders?: Record<string, string>;
+}
+
 export interface DaemonTaskOutputBundle {
   version: 1;
   format: "json-inline-v1";

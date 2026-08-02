@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["es2022"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "noEmit": true,
+    "baseUrl": "../..",
+    "paths": {
+      "@dofe-agent/domain": ["packages/domain/src/index.ts"],
+      "@dofe-agent/domain/*": ["packages/domain/src/*"],
+      "@dofe-agent/services": ["packages/services/src/index.ts"],
+      "@dofe-agent/services/*": ["packages/services/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

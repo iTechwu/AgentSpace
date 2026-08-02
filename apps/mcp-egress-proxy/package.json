@@ -1,0 +1,24 @@
+{
+  "name": "@dofe-agent/mcp-egress-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "dofe-mcp-egress-proxy": "./bin/dofe-mcp-egress-proxy.js"
+  },
+  "scripts": {
+    "test": "node --env-file-if-exists=../../.env --experimental-strip-types --test src/**/*.test.ts",
+    "types": "../../apps/web/node_modules/.bin/tsc -p tsconfig.json --incremental false"
+  },
+  "dependencies": {
+    "@dofe-agent/domain": "workspace:*",
+    "@dofe-agent/services": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3"
+  },
+  "engines": {
+    "node": ">=20.20.0"
+  }
+}

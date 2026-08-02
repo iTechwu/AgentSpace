@@ -315,6 +315,16 @@ export {
   validateMcpEndpoint,
   validateMcpResolvedAddresses,
 } from "./mcp-center/security.ts";
+export {
+  canonicalizeMcpEgressPolicyRevision,
+  digestMcpEgressPolicyRevision,
+  hashMcpEgressAuditValue,
+  isMcpEgressLeaseExpired,
+  signMcpEgressLease,
+  verifyMcpEgressLease,
+  type McpEgressLeaseVerificationFailure,
+  type VerifiedMcpEgressLease,
+} from "./mcp-center/egress.ts";
 
 // Skills
 export {
