@@ -169,6 +169,13 @@ export async function materializeRemoteInputBundle(input: {
           `Workspace target is not a regular file: ${file.path}`,
         );
       }
+      if (!isVerifiedBlobFile(targetPath, file.sha256, file.size)) {
+        throw new InputBundleValidationError(
+          "workspace.target_mismatch",
+          `Existing workspace target does not match revision ${workspace.revisionId}: ${file.path}`,
+        );
+      }
+      if (file.mode && /^[0-7]{3,4}$/.test(file.mode)) chmodSync(targetPath, parseInt(file.mode, 8));
       continue;
     }
     const cachePath = cachePaths.get(file.sha256);

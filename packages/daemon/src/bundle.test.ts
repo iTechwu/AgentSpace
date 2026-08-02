@@ -343,6 +343,81 @@ test("materializeRemoteInputBundle rejects a tampered blob before changing the w
   }
 });
 
+test("materializeRemoteInputBundle accepts an existing file only when it matches the pinned revision", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-remote-input-existing-"));
+  const stateDir = join(root, "state");
+  const workDir = join(root, "work");
+  const bytes = Buffer.from("durable workspace", "utf8");
+  const file = createDaemonBundleFile("repository/a.txt", bytes);
+  mkdirSync(join(workDir, "repository"), { recursive: true });
+  writeFileSync(join(workDir, file.path), bytes);
+  const bundle = {
+    version: 1 as const,
+    format: "json-inline-v1" as const,
+    taskId: "task-existing",
+    runtimeId: "runtime-1",
+    prompt: "hi",
+    metadata: { taskTriggerType: "manual" },
+    files: [],
+    workspace: {
+      revisionId: "revision-pinned",
+      manifestDigest: "f".repeat(64),
+      files: [{ path: file.path, size: file.size, sha256: file.sha256, mediaType: "text/plain" }],
+    },
+  };
+
+  try {
+    const result = await materializeRemoteInputBundle({
+      stateDir,
+      workDir,
+      bundle,
+      fetchWorkspaceBlob: async () => bytes,
+    });
+    assert.deepEqual(result, { downloadedBlobs: 1, reusedBlobs: 0 });
+    assert.equal(readFileSync(join(workDir, file.path), "utf8"), "durable workspace");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("materializeRemoteInputBundle rejects stale existing bytes instead of treating them as the pinned revision", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-remote-input-stale-"));
+  const stateDir = join(root, "state");
+  const workDir = join(root, "work");
+  const bytes = Buffer.from("durable workspace", "utf8");
+  const file = createDaemonBundleFile("repository/a.txt", bytes);
+  mkdirSync(join(workDir, "repository"), { recursive: true });
+  writeFileSync(join(workDir, file.path), "failed task residue");
+
+  try {
+    await assert.rejects(
+      materializeRemoteInputBundle({
+        stateDir,
+        workDir,
+        bundle: {
+          version: 1,
+          format: "json-inline-v1",
+          taskId: "task-stale",
+          runtimeId: "runtime-1",
+          prompt: "hi",
+          metadata: { taskTriggerType: "manual" },
+          files: [],
+          workspace: {
+            revisionId: "revision-pinned",
+            manifestDigest: "f".repeat(64),
+            files: [{ path: file.path, size: file.size, sha256: file.sha256, mediaType: "text/plain" }],
+          },
+        },
+        fetchWorkspaceBlob: async () => bytes,
+      }),
+      /workspace\.target_mismatch/,
+    );
+    assert.equal(readFileSync(join(workDir, file.path), "utf8"), "failed task residue");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("prepareRemoteOutputBundle captures more than the legacy 64-file workspace limit without inline bytes", () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-large-workspace-output-"));
   mkdirSync(join(workDir, "repository"), { recursive: true });
