@@ -5,28 +5,22 @@ ENV PNPM_HOME=/pnpm \
 
 WORKDIR /workspace
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/mcp-egress-proxy ./apps/mcp-egress-proxy
 COPY packages ./packages
 
 RUN npm install --global pnpm@10.26.2 \
   && pnpm install --frozen-lockfile --ignore-scripts \
-  && mkdir -p /opt/proxy-package \
-  && npm_config_ignore_scripts=true pnpm --filter @dofe-agent/mcp-egress-proxy pack --pack-destination /opt/proxy-package
+  && pnpm --filter @dofe-agent/mcp-egress-proxy build
 
 FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
 
 RUN groupadd --gid 10001 dofe-agent \
   && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent
 
-COPY --from=proxy-build /opt/proxy-package/dofe-agent-mcp-egress-proxy-*.tgz /tmp/
+COPY --from=proxy-build --chown=dofe-agent:dofe-agent /workspace/apps/mcp-egress-proxy/dist/index.js /opt/mcp-egress-proxy/index.js
 
-RUN mkdir -p /opt/mcp-egress-proxy \
-  && tar -xzf /tmp/dofe-agent-mcp-egress-proxy-*.tgz -C /opt/mcp-egress-proxy --strip-components=1 \
-  && rm /tmp/dofe-agent-mcp-egress-proxy-*.tgz \
-  && ln -s /opt/mcp-egress-proxy/bin/dofe-mcp-egress-proxy.js /usr/local/bin/dofe-mcp-egress-proxy \
-  && chown -R dofe-agent:dofe-agent /opt/mcp-egress-proxy /home/dofe-agent \
-  && chmod 0755 /opt/mcp-egress-proxy/bin/*.js
+RUN chown -R dofe-agent:dofe-agent /home/dofe-agent
 
 ENV HOME=/home/dofe-agent \
     NODE_ENV=production \
@@ -35,4 +29,4 @@ ENV HOME=/home/dofe-agent \
 
 USER dofe-agent
 
-ENTRYPOINT ["dofe-mcp-egress-proxy"]
+ENTRYPOINT ["node", "/opt/mcp-egress-proxy/index.js"]

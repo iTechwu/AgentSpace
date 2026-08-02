@@ -46,6 +46,9 @@ importers:
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
+      esbuild:
+        specifier: ^0.27.7
+        version: 0.27.7
 
   apps/web:
     dependencies:
