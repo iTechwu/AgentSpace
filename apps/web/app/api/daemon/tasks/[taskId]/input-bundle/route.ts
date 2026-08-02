@@ -17,12 +17,14 @@ import {
   readAgentRouterSessionForTaskSync,
   readLatestAgentRouterContextSnapshotSync,
   readAgentRuntimeSync,
+  readHeadRevisionSync,
   type QueuedTaskRecord,
 } from "@dofe-agent/db";
 import type {
   DaemonTaskInputBundle,
   DaemonInputBundleFile,
   DaemonSkillDependencyEnvironment,
+  DaemonWorkspaceInputManifest,
   RuntimeMcpConnectionContextEntry,
   TaskSkillExecutionSnapshot,
 } from "@dofe-agent/domain";
@@ -64,7 +66,9 @@ export async function GET(
   }
 
   const workspaceState = readWorkspaceStateSync(auth.workspaceId);
-  const agentProfile = workspaceState.activeEmployees.find((employee) => sameValue(employee.name, task.agentId));
+  const agentProfile = workspaceState.activeEmployees.find(
+    (employee) => employee.id === task.agentId || sameValue(employee.name, task.agentId),
+  );
   const payload = parseTaskPayload(task);
   const compatibleDirectChannelName =
     payload.contactId && !payload.channelName
@@ -101,6 +105,7 @@ export async function GET(
       contactContext,
       payloadOverride: effectivePayload,
       routerSessionContext,
+      skipWorkspaceMaterialization: true,
     });
     if (prepared.skillReadinessBlockers.length > 0 || prepared.skillEnvConflicts.length > 0) {
       return Response.json(
@@ -206,6 +211,7 @@ export async function GET(
         ),
         ...collectBundleFiles(tempDir),
       ],
+      workspace: readWorkspaceInputManifest(task.agentId, auth.workspaceId),
     };
 
     assertDaemonInputBundleBudget(bundle.files);
@@ -229,6 +235,49 @@ export async function GET(
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
+}
+
+function readWorkspaceInputManifest(employeeId: string, workspaceId: string): DaemonWorkspaceInputManifest | undefined {
+  const head = readHeadRevisionSync(employeeId, workspaceId);
+  if (!head) {
+    return undefined;
+  }
+  let parsed: { files?: unknown };
+  try {
+    parsed = JSON.parse(head.manifestJson) as { files?: unknown };
+  } catch {
+    throw new InputBundleValidationError("workspace.manifest_invalid", "Workspace head manifest is not valid JSON.");
+  }
+  if (!Array.isArray(parsed.files)) {
+    throw new InputBundleValidationError("workspace.manifest_invalid", "Workspace head manifest has no files array.");
+  }
+  const paths = new Set<string>();
+  const files = parsed.files.map((value, index) => {
+    const file = value as Record<string, unknown>;
+    const path = typeof file.path === "string" ? file.path : "";
+    const sha256 = typeof file.sha256 === "string" ? file.sha256.toLowerCase() : "";
+    const size = file.size;
+    const mediaType = typeof file.mediaType === "string" ? file.mediaType : "";
+    if (
+      !path || path.startsWith("/") || path.split("/").some((segment) => !segment || segment === "." || segment === "..")
+      || paths.has(path) || !/^[a-f0-9]{64}$/.test(sha256)
+      || !Number.isSafeInteger(size) || (size as number) < 0 || !mediaType
+    ) {
+      throw new InputBundleValidationError(
+        "workspace.manifest_invalid",
+        `Workspace head manifest contains an invalid file at index ${index}.`,
+      );
+    }
+    paths.add(path);
+    return {
+      path,
+      sha256,
+      size: size as number,
+      mediaType,
+      ...(typeof file.mode === "string" ? { mode: file.mode } : {}),
+    };
+  });
+  return { revisionId: head.id, manifestDigest: head.manifestDigest, files };
 }
 
 export function buildSkillDependencyEnvironmentsForTaskBundle(

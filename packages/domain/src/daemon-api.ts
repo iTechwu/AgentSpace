@@ -289,6 +289,21 @@ export interface DaemonInputBundleFile extends DaemonBundleFile {
   sha256: string;
 }
 
+export interface DaemonWorkspaceBlobFile {
+  path: string;
+  size: number;
+  sha256: string;
+  mediaType: string;
+  /** Octal permission string, e.g. "0755" / "0644". */
+  mode?: string;
+}
+
+export interface DaemonWorkspaceInputManifest {
+  revisionId: string;
+  manifestDigest: string;
+  files: DaemonWorkspaceBlobFile[];
+}
+
 export interface DaemonSkillDependencyEnvironment {
   installationId: string;
   artifactDigest: string;
@@ -343,6 +358,8 @@ export interface DaemonTaskInputBundle {
     };
   };
   files: DaemonInputBundleFile[];
+  /** Durable workspace head transported as content-addressed references. */
+  workspace?: DaemonWorkspaceInputManifest;
 }
 
 export interface DaemonSkillRunnerEntrypoint {

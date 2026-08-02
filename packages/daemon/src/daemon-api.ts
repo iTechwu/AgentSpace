@@ -25,6 +25,8 @@ export type {
   CreateRuntimeApprovalResponse,
   DaemonBundleFile,
   DaemonInputBundleFile,
+  DaemonWorkspaceBlobFile,
+  DaemonWorkspaceInputManifest,
   DaemonProvider,
   DaemonRuntimeInfo,
   DaemonTaskInputBundle,

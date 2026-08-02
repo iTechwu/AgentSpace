@@ -455,6 +455,8 @@ export function prepareDaemonTaskContext(input: {
   payloadOverride?: Partial<ParsedTaskPayload>;
   routerSessionContext?: RouterSessionPromptContext;
   feishuLarkCliResourceGrants?: FeishuLarkCliResourceGrant[];
+  /** The remote input-bundle route transports the durable head as blob refs. */
+  skipWorkspaceMaterialization?: boolean;
 }): PreparedDaemonTaskContext {
   const payload = {
     ...parseTaskPayload(input.task),
@@ -464,10 +466,12 @@ export function prepareDaemonTaskContext(input: {
   // fresh runtime is seeded with committed files; per-task input (bundle,
   // attachments, skills) overlays on top. Skips existing paths so a persistent
   // conversation workDir is never clobbered by an older snapshot.
-  const materializeResult = materializeHeadRevisionToWorkDir(input.workDir, {
-    workspaceId: input.task.workspaceId,
-    employeeName: payload.assignee ?? input.task.agentId,
-  });
+  const materializeResult = input.skipWorkspaceMaterialization
+    ? { materializedFiles: 0, missingBlobs: 0 }
+    : materializeHeadRevisionToWorkDir(input.workDir, {
+        workspaceId: input.task.workspaceId,
+        employeeName: input.task.agentId,
+      });
   if (materializeResult.missingBlobs > 0) {
     // Never run or commit against a partial durable head. Continuing here would
     // make the next workDir diff interpret unreadable files as intentional

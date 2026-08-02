@@ -15,7 +15,7 @@ import {
 } from "@dofe-agent/domain";
 import { getStringFlag, parseArgs } from "./args.ts";
 import type { ClaimedDaemonTask, ClaimedManagedSkillServiceOperation, ClaimedRuntimeAppOperation, ClaimedSkillInstallationOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, RegisterDaemonResponse } from "./daemon-api.ts";
-import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputBundle } from "./bundle.ts";
+import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeRemoteInputBundle } from "./bundle.ts";
 import { readEmployeeHeadManifestSync } from "./workdir-capture.ts";
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
@@ -922,7 +922,12 @@ async function executeRemoteTask(
   try {
     await client.startTask(task.id);
     const bundle = await client.getInputBundle(task.id);
-    materializeInputBundle(workDir, bundle);
+    await materializeRemoteInputBundle({
+      workDir,
+      stateDir: config.stateDir,
+      bundle,
+      fetchWorkspaceBlob: (taskId, revisionId, sha256) => client.getWorkspaceBlob(taskId, revisionId, sha256),
+    });
     const runnerEntrypoints = bundle.metadata.skillRunnerEntrypoints ?? [];
     const skillEnvironment = partitionSkillEnvironment(bundle.metadata.skillEnv, runnerEntrypoints);
     skillRunner = await startSkillRunnerBroker({

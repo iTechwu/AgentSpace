@@ -31,6 +31,7 @@ import { POST as startPOST } from "./tasks/[taskId]/start/route";
 import { POST as messagesPOST } from "./tasks/[taskId]/messages/route";
 import { POST as failPOST } from "./tasks/[taskId]/fail/route";
 import { GET as inputBundleGET } from "./tasks/[taskId]/input-bundle/route";
+import { GET as workspaceBlobGET } from "./tasks/[taskId]/workspace-blobs/[sha256]/route";
 import { POST as outputBundlePOST } from "./tasks/[taskId]/output-bundle/route";
 import { POST as completePOST } from "./tasks/[taskId]/complete/route";
 
@@ -255,12 +256,38 @@ describe("remote daemon client integration", () => {
             contentBase64: Buffer.from("day 1: Osaka", "utf8").toString("base64"),
           },
         ],
+        workspaceFiles: [
+          {
+            path: "repository/plan.txt",
+            contentBase64: Buffer.from("persistent plan", "utf8").toString("base64"),
+            mode: "0640",
+          },
+        ],
       });
 
       await client.completeTask(claimed.task.id, {
         outputText: "我先给你一版大阪行程草案。",
         sessionId: "remote-session-1",
       });
+
+      const restoredBundle = await client.getInputBundle(claimed.task.id);
+      const workspaceFile = restoredBundle.workspace?.files.find((file) => file.path === "repository/plan.txt");
+      assert.ok(workspaceFile);
+      assert.equal(Buffer.from(await client.getWorkspaceBlob(claimed.task.id, restoredBundle.workspace!.revisionId, workspaceFile.sha256)).toString("utf8"), "persistent plan");
+      const rangeResponse = await workspaceBlobGET(
+        new Request(
+          `http://daemon.test/api/daemon/tasks/${claimed.task.id}/workspace-blobs/${workspaceFile.sha256}?revisionId=${restoredBundle.workspace!.revisionId}`,
+          { headers: { authorization: `Bearer ${daemonToken.token}`, range: "bytes=0-9" } },
+        ),
+        { params: Promise.resolve({ taskId: claimed.task.id, sha256: workspaceFile.sha256 }) },
+      );
+      assert.equal(rangeResponse.status, 206);
+      assert.equal(rangeResponse.headers.get("content-range"), "bytes 0-9/15");
+      assert.equal(await rangeResponse.text(), "persistent");
+      await assert.rejects(
+        client.getWorkspaceBlob(claimed.task.id, restoredBundle.workspace!.revisionId, "0".repeat(64)),
+        /not referenced by the task employee's requested workspace revision/,
+      );
 
       const taskMessages = listTaskMessagesForTaskSync(claimed.task.id);
       expect(
@@ -522,6 +549,12 @@ async function dispatchToRoute(request: Request): Promise<Response> {
   if (request.method === "GET" && /^\/api\/daemon\/tasks\/[^/]+\/input-bundle$/.test(url.pathname)) {
     const taskId = url.pathname.split("/")[4] ?? "";
     return inputBundleGET(request, { params: Promise.resolve({ taskId }) });
+  }
+  if (request.method === "GET" && /^\/api\/daemon\/tasks\/[^/]+\/workspace-blobs\/[a-f0-9]+$/.test(url.pathname)) {
+    const parts = url.pathname.split("/");
+    return workspaceBlobGET(request, {
+      params: Promise.resolve({ taskId: parts[4] ?? "", sha256: parts[6] ?? "" }),
+    });
   }
   if (request.method === "POST" && /^\/api\/daemon\/tasks\/[^/]+\/messages$/.test(url.pathname)) {
     const taskId = url.pathname.split("/")[4] ?? "";

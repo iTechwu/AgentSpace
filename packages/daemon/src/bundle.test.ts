@@ -8,6 +8,7 @@ import {
   createDaemonBundleFile,
   INPUT_BUNDLE_MAX_FILES,
   materializeInputBundle,
+  materializeRemoteInputBundle,
 } from "./bundle.ts";
 import { WORKDIR_CAPTURE_MAX_FILES } from "./workdir-capture.ts";
 
@@ -260,5 +261,82 @@ test("materializeInputBundle refuses an existing symlink target", () => {
   } finally {
     rmSync(workDir, { recursive: true, force: true });
     rmSync(outsideDir, { recursive: true, force: true });
+  }
+});
+
+test("materializeRemoteInputBundle downloads workspace blobs once and reuses the verified cache", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-remote-input-"));
+  const stateDir = join(root, "state");
+  const firstWorkDir = join(root, "work-1");
+  const secondWorkDir = join(root, "work-2");
+  mkdirSync(firstWorkDir, { recursive: true });
+  mkdirSync(secondWorkDir, { recursive: true });
+  const bytes = Buffer.from("durable workspace", "utf8");
+  const file = createDaemonBundleFile("repository/large.txt", bytes, "0640");
+  let fetches = 0;
+  const bundle = {
+    version: 1 as const,
+    format: "json-inline-v1" as const,
+    taskId: "task-large",
+    runtimeId: "runtime-1",
+    prompt: "hi",
+    metadata: { taskTriggerType: "manual" },
+    files: [createDaemonBundleFile("prompt.txt", Buffer.from("hi"))],
+    workspace: {
+      revisionId: "revision-1",
+      manifestDigest: "f".repeat(64),
+      files: [{ path: file.path, size: file.size, sha256: file.sha256, mediaType: "text/plain", mode: file.mode }],
+    },
+  };
+  const fetchWorkspaceBlob = async () => {
+    fetches += 1;
+    return bytes;
+  };
+
+  try {
+    const first = await materializeRemoteInputBundle({ stateDir, workDir: firstWorkDir, bundle, fetchWorkspaceBlob });
+    const second = await materializeRemoteInputBundle({ stateDir, workDir: secondWorkDir, bundle, fetchWorkspaceBlob });
+    assert.deepEqual(first, { downloadedBlobs: 1, reusedBlobs: 0 });
+    assert.deepEqual(second, { downloadedBlobs: 0, reusedBlobs: 1 });
+    assert.equal(fetches, 1);
+    assert.equal(readFileSync(join(secondWorkDir, "repository", "large.txt"), "utf8"), "durable workspace");
+    assert.equal(readFileSync(join(secondWorkDir, "prompt.txt"), "utf8"), "hi");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("materializeRemoteInputBundle rejects a tampered blob before changing the workDir", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-remote-input-tamper-"));
+  const workDir = join(root, "work");
+  mkdirSync(workDir, { recursive: true });
+  const expected = createDaemonBundleFile("repository/a.txt", Buffer.from("expected"));
+  try {
+    await assert.rejects(
+      materializeRemoteInputBundle({
+        stateDir: join(root, "state"),
+        workDir,
+        bundle: {
+          version: 1,
+          format: "json-inline-v1",
+          taskId: "task-tamper",
+          runtimeId: "runtime-1",
+          prompt: "hi",
+          metadata: { taskTriggerType: "manual" },
+          files: [createDaemonBundleFile("prompt.txt", Buffer.from("hi"))],
+          workspace: {
+            revisionId: "revision-1",
+            manifestDigest: "f".repeat(64),
+            files: [{ path: expected.path, size: expected.size, sha256: expected.sha256, mediaType: "text/plain" }],
+          },
+        },
+        fetchWorkspaceBlob: async () => Buffer.from("tampered"),
+      }),
+      /workspace\.blob_mismatch/,
+    );
+    assert.equal(existsSync(join(workDir, "repository", "a.txt")), false);
+    assert.equal(existsSync(join(workDir, "prompt.txt")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
