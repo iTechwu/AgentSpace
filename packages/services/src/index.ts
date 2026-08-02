@@ -398,6 +398,10 @@ export {
   deleteWorkspaceServiceSecretSync,
 } from "./skill-services/secrets.ts";
 export {
+  uninstallSkillInstallationSync,
+  uninstallSkillFromRuntimeSync,
+} from "./skills/uninstall.ts";
+export {
   computeSkillReleaseLockSync,
   diffSkillArtifactsSync,
   isSkillUpgradeApprovalRequiredSync,
