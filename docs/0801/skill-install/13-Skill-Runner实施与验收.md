@@ -29,7 +29,7 @@ Runner 容器固定策略：
 
 ## 2. 安装与更新
 
-安装验证器在脚本语法检查后解析 runtime image。缺镜像、tag 引用、未知脚本 runtime 均使脚本组件 `blocked`。运维先批准并预拉取三类镜像 digest，再更新 managed-node 环境；CI reconciler 会校验格式、拉取镜像并把 digest 写入每个 workspace 节点 env。
+安装验证器先解析并确认本地存在 runtime image，再在同一 digest-pinned Runner 镜像中执行语法检查；不再用宿主 Node/Python/Bash 代替目标运行环境。检查容器同样固定 `--pull never`、只读 artifact、无网络、非 root、资源上限；入口路径逃逸或符号链接在启动检查容器前阻断。缺镜像、tag 引用、未知脚本 runtime 或镜像内语法检查失败均使脚本组件 `blocked`。运维先批准并预拉取三类镜像 digest，再更新 managed-node 环境；CI reconciler 会校验格式、拉取镜像并把 digest 写入每个 workspace 节点 env。
 
 升级 Runner 镜像不改变 Skill artifact。以新 digest 重建 managed node 后执行 smoke，稳定后回收旧镜像；异常时恢复上一组 digest 并重建。任务仍由 installation snapshot 固定 artifact、dependency env 与 release lock。
 
@@ -40,7 +40,7 @@ Runner 容器固定策略：
 | 容器隔离、digest、参数预算、依赖只读挂载、私有可写输出、symlink 拒绝、超时容器强制删除与配置清理顺序 | `packages/daemon/src/skill-runner.test.ts` |
 | entrypoint 规范化唯一、broker key/命令冲突拒绝 | `manifest-schema.test.ts`、`skill-runner.test.ts` |
 | configKeys snapshot、按键筛选、只读短时挂载与清理 | `installations.test.ts`、`skill-runner.test.ts` |
-| 未配置/本地缺镜像阻断安装、runtime/语法检查 | `packages/daemon/src/skill-install/component-verifier.test.ts` |
+| 未配置/本地缺镜像阻断安装、镜像内 runtime/语法检查、路径逃逸与符号链接拒绝 | `packages/daemon/src/skill-install/component-verifier.test.ts` |
 | snapshot 到 Runner manifest 与 executable hash | `packages/services/src/skills/installations.test.ts` |
 | 原始脚本不进入 Provider、stub/mode 正确 | `packages/services/src/skills/injection.test.ts` |
 | dependency env metadata/release-lock fail-closed | `packages/daemon/src/skill-install/task-environment.test.ts` |

@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { ClaimedSkillInstallationOperation } from "@dofe-agent/domain";
 import type { SkillArtifactManifest } from "@dofe-agent/services";
-import { verifySkillInstallationComponents } from "./component-verifier.ts";
+import {
+  buildSkillRunnerSyntaxCheckDockerArgs,
+  verifySkillInstallationComponents,
+} from "./component-verifier.ts";
+
+const testRunnerSyntaxChecker = (input: { artifactDir: string; entrypointPath: string }) => {
+  const source = readFileSync(join(input.artifactDir, input.entrypointPath), "utf8");
+  return source.includes("if then") || source.includes("console.log((")
+    ? { ok: false as const, error: "synthetic syntax error" }
+    : { ok: true as const };
+};
 
 function buildManifest(overrides?: Partial<SkillArtifactManifest>): SkillArtifactManifest {
   return {
@@ -44,6 +54,7 @@ function buildOperation(
     undefined,
     () => `registry.example.com/skill-runner@sha256:${"a".repeat(64)}`,
     () => true,
+    testRunnerSyntaxChecker,
   );
 }
 
@@ -178,6 +189,119 @@ test("marks script ready when file exists, is executable, and passes syntax chec
 
     assert.equal(results[0]?.status, "ready");
   } finally {
+    rmSync(artifactDir, { recursive: true, force: true });
+  }
+});
+
+test("verifies script syntax with the pinned runner image instead of the host interpreter", () => {
+  const artifactDir = mkdtempSync(join(tmpdir(), "dofe-agent-verify-runner-syntax-"));
+  try {
+    writeFileSync(join(artifactDir, "index.mjs"), "console.log('ok');\n", "utf8");
+    chmodSync(join(artifactDir, "index.mjs"), 0o755);
+    const manifest = buildManifest({
+      files: [{ path: "index.mjs", sha256: "any", size: 1, mediaType: "text/javascript", mode: "0755" }],
+    });
+    const calls: Array<Record<string, unknown>> = [];
+    const result = verifySkillInstallationComponents(
+      {
+        operationId: "op-runner-syntax",
+        claimGeneration: 1,
+        workspaceId: "default",
+        runtimeId: "runtime-1",
+        installationId: "install-1",
+        operation: "prepare",
+        artifactDigest: "sha256:any",
+        artifactName: "test-skill",
+        manifestJson: JSON.stringify(manifest),
+        files: [],
+        components: [{ kind: "script", key: "index.mjs", status: "pending" }],
+        createdAt: new Date().toISOString(),
+      },
+      artifactDir,
+      true,
+      undefined,
+      () => `registry.example.com/skill-runner@sha256:${"b".repeat(64)}`,
+      () => true,
+      (input) => {
+        calls.push(input);
+        return { ok: false, error: "runner rejected syntax" };
+      },
+    );
+    assert.deepEqual(calls, [{
+      image: `registry.example.com/skill-runner@sha256:${"b".repeat(64)}`,
+      runtime: "node",
+      artifactDir,
+      entrypointPath: "index.mjs",
+    }]);
+    assert.equal(result[0]?.status, "blocked");
+    assert.match(result[0]?.errorMessage ?? "", /runner rejected syntax/);
+  } finally {
+    rmSync(artifactDir, { recursive: true, force: true });
+  }
+});
+
+test("builds an isolated and offline syntax check in the immutable runner image", () => {
+  const args = buildSkillRunnerSyntaxCheckDockerArgs({
+    image: `registry.example.com/skill-runner@sha256:${"c".repeat(64)}`,
+    runtime: "python",
+    artifactDir: "/daemon/cache/artifact",
+    entrypointPath: "scripts/analyze.py",
+  });
+  assert.deepEqual(args.slice(0, 14), [
+    "run", "--rm", "--pull", "never", "--read-only", "--network", "none",
+    "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "65532:65532", "--pids-limit",
+  ]);
+  assert.ok(args.includes("type=bind,src=/daemon/cache/artifact,dst=/skill,readonly"));
+  assert.ok(args.includes("python3"));
+  assert.equal(args.at(-1), "/skill/scripts/analyze.py");
+  assert.throws(() => buildSkillRunnerSyntaxCheckDockerArgs({
+    image: `registry.example.com/skill-runner@sha256:${"c".repeat(64)}`,
+    runtime: "python",
+    artifactDir: "/daemon/cache/artifact",
+    entrypointPath: "../outside.py",
+  }), /entrypoint path is unsafe/);
+});
+
+test("rejects an entrypoint path escape before invoking the runner checker", () => {
+  const artifactDir = mkdtempSync(join(tmpdir(), "dofe-agent-verify-runner-path-"));
+  const outsidePath = join(artifactDir, "..", `outside-${Date.now()}.sh`);
+  try {
+    writeFileSync(outsidePath, "#!/bin/sh\necho unsafe\n", "utf8");
+    chmodSync(outsidePath, 0o755);
+    const key = `../${outsidePath.slice(outsidePath.lastIndexOf("/") + 1)}`;
+    const manifest = buildManifest({
+      files: [{ path: key, sha256: "any", size: 1, mediaType: "text/x-shellscript", mode: "0755" }],
+    });
+    let checkerCalls = 0;
+    const result = verifySkillInstallationComponents(
+      {
+        operationId: "op-path-escape",
+        claimGeneration: 1,
+        workspaceId: "default",
+        runtimeId: "runtime-1",
+        installationId: "install-1",
+        operation: "prepare",
+        artifactDigest: "sha256:any",
+        artifactName: "test-skill",
+        manifestJson: JSON.stringify(manifest),
+        files: [],
+        components: [{ kind: "script", key, status: "pending" }],
+        createdAt: new Date().toISOString(),
+      },
+      artifactDir,
+      true,
+      undefined,
+      () => `registry.example.com/skill-runner@sha256:${"d".repeat(64)}`,
+      () => true,
+      () => {
+        checkerCalls += 1;
+        return { ok: true };
+      },
+    );
+    assert.equal(result[0]?.errorCode, "skill_installation.script_path_unsafe");
+    assert.equal(checkerCalls, 0);
+  } finally {
+    rmSync(outsidePath, { force: true });
     rmSync(artifactDir, { recursive: true, force: true });
   }
 });

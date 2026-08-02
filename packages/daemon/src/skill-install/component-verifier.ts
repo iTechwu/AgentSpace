@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
-import { extname, resolve } from "node:path";
+import { existsSync, lstatSync } from "node:fs";
+import { extname, isAbsolute, relative, resolve } from "node:path";
 import type {
   ClaimedSkillInstallationOperation,
   SkillComponentKind,
@@ -24,6 +24,15 @@ export interface DependencyInstallOutcome {
 
 export type SkillRunnerImageResolver = (runtime: "node" | "python" | "bash") => string | undefined;
 export type SkillRunnerImageInspector = (image: string) => boolean;
+export interface SkillRunnerSyntaxCheckInput {
+  image: string;
+  runtime: "node" | "python" | "bash";
+  artifactDir: string;
+  entrypointPath: string;
+}
+export type SkillRunnerSyntaxChecker = (
+  input: SkillRunnerSyntaxCheckInput,
+) => { ok: true } | { ok: false; error: string };
 
 const SYNTAX_CHECK_TIMEOUT_MS = 10_000;
 const MAX_TAIL_CHARS = 2_000;
@@ -45,6 +54,7 @@ export function verifySkillInstallationComponents(
   dependencyInstallResults?: Map<string, DependencyInstallOutcome>,
   resolveRunnerImage: SkillRunnerImageResolver = (runtime) => resolveSkillRunnerImage(runtime, process.env),
   inspectRunnerImage: SkillRunnerImageInspector = isSkillRunnerImageAvailableLocally,
+  checkRunnerSyntax: SkillRunnerSyntaxChecker = runSkillRunnerSyntaxCheck,
 ): ComponentVerificationResult[] {
   if (!rootDigestMatches) {
     return operation.components.map((component) => ({
@@ -78,6 +88,7 @@ export function verifySkillInstallationComponents(
       dependencyInstallResults,
       resolveRunnerImage,
       inspectRunnerImage,
+      checkRunnerSyntax,
     ));
 }
 
@@ -89,12 +100,20 @@ function verifyComponent(
   dependencyInstallResults?: Map<string, DependencyInstallOutcome>,
   resolveRunnerImage?: SkillRunnerImageResolver,
   inspectRunnerImage?: SkillRunnerImageInspector,
+  checkRunnerSyntax?: SkillRunnerSyntaxChecker,
 ): ComponentVerificationResult {
   switch (kind) {
     case "dependency":
       return verifyDependencyComponent(key, manifest, dependencyInstallResults);
     case "script":
-      return verifyScriptComponent(key, manifest, artifactDir, resolveRunnerImage!, inspectRunnerImage!);
+      return verifyScriptComponent(
+        key,
+        manifest,
+        artifactDir,
+        resolveRunnerImage!,
+        inspectRunnerImage!,
+        checkRunnerSyntax!,
+      );
     case "cli":
     case "mcp":
       return verifyCapabilityComponent(kind, key, manifest);
@@ -197,6 +216,7 @@ function verifyScriptComponent(
   artifactDir: string,
   resolveRunnerImage: SkillRunnerImageResolver,
   inspectRunnerImage: SkillRunnerImageInspector,
+  checkRunnerSyntax: SkillRunnerSyntaxChecker,
 ): ComponentVerificationResult {
   const manifestFile = manifest.files.find((file) => file.path === key);
   if (!manifestFile) {
@@ -218,7 +238,18 @@ function verifyScriptComponent(
     };
   }
 
-  const filePath = resolve(artifactDir, key);
+  const artifactRoot = resolve(artifactDir);
+  const filePath = resolve(artifactRoot, key);
+  const relativePath = relative(artifactRoot, filePath);
+  if (!relativePath || relativePath === ".." || relativePath.startsWith("../") || isAbsolute(relativePath)) {
+    return {
+      kind: "script",
+      key,
+      status: "failed",
+      errorCode: "skill_installation.script_path_unsafe",
+      errorMessage: `Script "${key}" escapes the materialized artifact directory.`,
+    };
+  }
   if (!existsSync(filePath)) {
     return {
       kind: "script",
@@ -229,14 +260,14 @@ function verifyScriptComponent(
     };
   }
 
-  const stat = statSync(filePath);
-  if (!stat.isFile()) {
+  const stat = lstatSync(filePath);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
     return {
       kind: "script",
       key,
       status: "failed",
       errorCode: "skill_installation.script_not_file",
-      errorMessage: `Script "${key}" is not a regular file.`,
+      errorMessage: `Script "${key}" is not a trusted regular file.`,
     };
   }
 
@@ -260,17 +291,6 @@ function verifyScriptComponent(
       errorMessage: `Script "${key}" does not use a supported Node.js, Python, or Bash runtime.`,
     };
   }
-  const syntaxResult = runSyntaxCheck(filePath, interpreter);
-  if (!syntaxResult.ok) {
-    return {
-      kind: "script",
-      key,
-      status: "blocked",
-      errorCode: "skill_installation.script_syntax_error",
-      errorMessage: `Script "${key}" syntax check failed: ${syntaxResult.error}`,
-    };
-  }
-
   const runtime = interpreter === "python" ? "python" : interpreter === "node" ? "node" : "bash";
   const runnerImage = resolveRunnerImage(runtime);
   if (!runnerImage) {
@@ -289,6 +309,21 @@ function verifyScriptComponent(
       status: "blocked",
       errorCode: "skill_runner.image_unavailable",
       errorMessage: `Immutable ${runtime} Skill Runner image is not available locally on this Runtime.`,
+    };
+  }
+  const syntaxResult = checkRunnerSyntax({
+    image: runnerImage,
+    runtime,
+    artifactDir: resolve(artifactDir),
+    entrypointPath: key,
+  });
+  if (!syntaxResult.ok) {
+    return {
+      kind: "script",
+      key,
+      status: "blocked",
+      errorCode: "skill_installation.script_syntax_error",
+      errorMessage: `Script "${key}" syntax check failed in the immutable Runner image: ${tailAndRedact(syntaxResult.error)}`,
     };
   }
 
@@ -326,16 +361,65 @@ function chooseInterpreter(filePath: string): string | null {
   return null;
 }
 
-function runSyntaxCheck(filePath: string, interpreter: string): { ok: true } | { ok: false; error: string } {
-  const args = syntaxCheckArgs(interpreter, filePath);
-  if (!args) {
-    return { ok: true };
+export function buildSkillRunnerSyntaxCheckDockerArgs(input: SkillRunnerSyntaxCheckInput): string[] {
+  if (!/@sha256:[a-f0-9]{64}$/i.test(input.image)) {
+    throw new Error("Skill Runner syntax image must be pinned by an immutable digest.");
   }
+  const artifactDir = resolve(input.artifactDir);
+  if (!isAbsolute(input.artifactDir) || /[\r\n,]/.test(artifactDir)) {
+    throw new Error("Skill Runner syntax artifact path is unsafe.");
+  }
+  const entrypointPath = input.entrypointPath.replace(/\\/g, "/").replace(/^\.\//, "");
+  const resolvedEntrypoint = resolve(artifactDir, entrypointPath);
+  const relativeEntrypoint = relative(artifactDir, resolvedEntrypoint);
+  if (!entrypointPath || relativeEntrypoint === ".." || relativeEntrypoint.startsWith("../") || isAbsolute(relativeEntrypoint)) {
+    throw new Error("Skill Runner syntax entrypoint path is unsafe.");
+  }
+  const containerPath = `/skill/${entrypointPath}`;
+  const command = input.runtime === "bash"
+    ? ["bash", "-n", containerPath]
+    : input.runtime === "node"
+      ? ["node", "--check", containerPath]
+      : [
+          "python3",
+          "-c",
+          "import ast,sys; ast.parse(open(sys.argv[1], encoding='utf-8').read(), filename=sys.argv[1])",
+          containerPath,
+        ];
+  return [
+    "run", "--rm", "--pull", "never",
+    "--read-only", "--network", "none",
+    "--cap-drop", "ALL",
+    "--security-opt", "no-new-privileges",
+    "--user", "65532:65532",
+    "--pids-limit", "32",
+    "--memory", "128m",
+    "--memory-swap", "128m",
+    "--cpus", "0.25",
+    "--mount", `type=bind,src=${artifactDir},dst=/skill,readonly`,
+    input.image,
+    ...command,
+  ];
+}
 
-  const result = spawnSync(args[0], args.slice(1), {
-    env: process.env,
+export function runSkillRunnerSyntaxCheck(
+  input: SkillRunnerSyntaxCheckInput,
+): { ok: true } | { ok: false; error: string } {
+  let args: string[];
+  try {
+    args = buildSkillRunnerSyntaxCheckDockerArgs(input);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+  const result = spawnSync(process.env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", args, {
+    env: {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      DOCKER_HOST: process.env.DOCKER_HOST,
+    },
     encoding: "utf8",
     timeout: SYNTAX_CHECK_TIMEOUT_MS,
+    maxBuffer: 64 * 1024,
   });
 
   if (result.error) {
@@ -346,19 +430,6 @@ function runSyntaxCheck(filePath: string, interpreter: string): { ok: true } | {
     return { ok: false, error: output || `exited with code ${result.status}` };
   }
   return { ok: true };
-}
-
-function syntaxCheckArgs(interpreter: string, filePath: string): string[] | null {
-  switch (interpreter) {
-    case "sh":
-      return ["sh", "-n", filePath];
-    case "node":
-      return ["node", "--check", filePath];
-    case "python":
-      return ["python", "-m", "py_compile", filePath];
-    default:
-      return null;
-  }
 }
 
 function tailAndRedact(value: string): string {
