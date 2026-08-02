@@ -173,7 +173,10 @@ export function buildManagedServiceContainerCreateArgs(input: {
   const args = [
     "create",
     "--name", input.containerName,
-    "--restart", "unless-stopped",
+    // Firewall policy is host state and must exist before start. Disabling
+    // Docker auto-restart prevents a reboot from starting the container before
+    // the managed node has re-provisioned its policy.
+    "--restart", "no",
     "--tmpfs", "/tmp:rw,nosuid,nodev,noexec",
     "--security-opt", "no-new-privileges",
     ...(input.networkArgs ?? ["--network", input.network]),
@@ -367,6 +370,7 @@ export function createDockerManagedServiceContainerRuntime(
     async provision(input) {
       const network = resolveManagedRuntimeDockerNetwork();
       const containerName = buildManagedServiceContainerName(input.serviceId);
+      const egress = parseEgressPolicy(input.networkJson);
 
       // Signature verification (05-运维 §准入检查): a catalog that REQUIRES a
       // signature must be verified by cosign against the trusted public key
@@ -385,14 +389,13 @@ export function createDockerManagedServiceContainerRuntime(
       // outbound via a per-workspace internal network; a non-empty list pins the
       // allowed hostnames in a read-only /etc/hosts + blocks DNS for everything
       // else.
-      const egress = parseEgressPolicy(input.networkJson);
       let secretGenerationDir: string | undefined;
       let containerCreated = false;
       let egressPolicyApplied = false;
       try {
         const egressHostEntries: Array<{ hostname: string; address: string }> = [];
         let resolvedEgressTargets: ManagedServiceEgressTarget[] = [];
-        if (egress.hasPolicy && egress.allowlist.length > 0) {
+        if (egress.allowlist.length > 0) {
           const targets = parseManagedServiceEgressTargets(egress.allowlist);
           for (const target of targets) {
             const literalFamily = isIP(target.hostname);
@@ -413,7 +416,7 @@ export function createDockerManagedServiceContainerRuntime(
           }
         }
         const computedNetworkArgs = buildManagedServiceNetworkArgs({
-          egressAllowlist: egress.hasPolicy ? egress.allowlist : undefined,
+          egressAllowlist: egress.allowlist,
           network,
           workspaceId: input.workspaceId,
           egressHostEntries,
@@ -424,6 +427,7 @@ export function createDockerManagedServiceContainerRuntime(
           rootDir: secretRootDir,
           serviceId: input.serviceId,
           secrets: input.secrets ?? {},
+          owner: input.runAsNonRoot ? { uid: 65_532, gid: 65_532 } : undefined,
         });
         secretGenerationDir = secretFiles.generationDir;
 
@@ -457,19 +461,17 @@ export function createDockerManagedServiceContainerRuntime(
         const containerId = createResult.stdout.trim().split(/\s+/).pop() ?? containerName;
         containerCreated = true;
 
-        if (egress.hasPolicy) {
-          const sourceAddresses = await readManagedServiceContainerAddresses(exec, containerId);
-          try {
-            await egressPolicyRuntime.apply({
-              serviceId: input.serviceId,
-              sourceAddresses,
-              targets: resolvedEgressTargets,
-            });
-          } catch (error) {
-            throw asDockerEgressPolicyError(error);
-          }
-          egressPolicyApplied = true;
+        const sourceAddresses = await readManagedServiceContainerAddresses(exec, containerId);
+        try {
+          await egressPolicyRuntime.apply({
+            serviceId: input.serviceId,
+            sourceAddresses,
+            targets: resolvedEgressTargets,
+          });
+        } catch (error) {
+          throw asDockerEgressPolicyError(error);
         }
+        egressPolicyApplied = true;
 
         await runChecked(exec, ["start", containerId], { timeoutMs: DOCKER_CONTAINER_TIMEOUT_MS }, "skill_service.container_start_failed");
 
@@ -529,6 +531,8 @@ export async function writeManagedServiceSecretFiles(input: {
   rootDir: string;
   serviceId: string;
   secrets: Record<string, string>;
+  owner?: { uid: number; gid: number };
+  chown?: (path: string, uid: number, gid: number) => Promise<void>;
 }): Promise<{
   serviceDir: string;
   generationDir?: string;
@@ -560,6 +564,9 @@ export async function writeManagedServiceSecretFiles(input: {
     for (const [name, value] of entries) {
       const hostPath = join(generationDir, name);
       await fs.writeFile(hostPath, value, { encoding: "utf8", mode: 0o400, flag: "wx" });
+      if (input.owner) {
+        await (input.chown ?? fs.chown)(hostPath, input.owner.uid, input.owner.gid);
+      }
       await fs.chmod(hostPath, 0o400);
       mounts.push({ name, hostPath });
     }
@@ -581,23 +588,23 @@ async function removeOtherManagedServiceSecretGenerations(
     .map((entry) => fs.rm(join(serviceDir, entry.name), { recursive: true, force: true })));
 }
 
-/** Extracts the egress policy from the claim's networkJson (only an EXPLICIT
- * egressAllowlist array triggers enforcement; missing = legacy/unconstrained). */
-function parseEgressPolicy(networkJson?: string): { hasPolicy: boolean; allowlist: string[] } {
+/** Every image-backed service must carry an admitted, enforceable policy. */
+function parseEgressPolicy(networkJson?: string): { allowlist: string[] } {
   if (!networkJson) {
-    return { hasPolicy: false, allowlist: [] };
+    throw new DockerContainerError("skill_service.egress_policy_missing", "Managed service egress policy is required.");
   }
   try {
     const parsed = JSON.parse(networkJson) as { egressAllowlist?: unknown };
     if (!Array.isArray(parsed.egressAllowlist)) {
-      return { hasPolicy: false, allowlist: [] };
+      throw new DockerContainerError("skill_service.egress_policy_missing", "Managed service egressAllowlist is required.");
     }
-    return {
-      hasPolicy: true,
-      allowlist: parsed.egressAllowlist.filter((entry): entry is string => typeof entry === "string"),
-    };
-  } catch {
-    return { hasPolicy: false, allowlist: [] };
+    if (!parsed.egressAllowlist.every((entry) => typeof entry === "string")) {
+      throw new DockerContainerError("skill_service.egress_policy_invalid", "Managed service egressAllowlist must contain only strings.");
+    }
+    return { allowlist: parsed.egressAllowlist as string[] };
+  } catch (error) {
+    if (error instanceof DockerContainerError) throw error;
+    throw new DockerContainerError("skill_service.egress_policy_invalid", "Managed service network policy is invalid JSON.");
   }
 }
 

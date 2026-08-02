@@ -23,7 +23,7 @@ ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH
 
 RUN apt-get update \
-  && apt-get install --yes --no-install-recommends docker.io \
+  && apt-get install --yes --no-install-recommends docker.io iptables \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --gid 10001 dofe-agent \
   && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent

@@ -8,10 +8,15 @@ services:
     env_file: ${MANAGED_NODE_ENV_FILE:-./.env.managed-node}
     environment:
       DOFE_AGENT_DAEMON_STATE_DIR: ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}
+      DOFE_AGENT_SKILL_SERVICE_SECRET_ROOT: ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}/skill-service-secrets
+      DOFE_AGENT_SKILL_SERVICE_NETWORK_POLICY_ROOT: ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}/skill-service-network-policies
       DOFE_AGENT_MANAGED_NODE: "true"
       NODE_EXTRA_CA_CERTS: ${MANAGED_NODE_TLS_CA_PATH:+/run/dofe-agent-tls-ca.pem}
     extra_hosts:
       - ${MANAGED_NODE_SERVER_HOST:-host.docker.internal}:host-gateway
+    # The daemon, not workload containers, owns host firewall policy. Host netns
+    # is required for DOCKER-USER rules to affect sibling service containers.
+    network_mode: host
     working_dir: ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -26,6 +31,7 @@ services:
     cap_drop:
       - ALL
     cap_add:
+      - NET_ADMIN
       - SETGID
       - SETUID
     healthcheck:

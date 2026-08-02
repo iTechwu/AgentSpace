@@ -15,7 +15,7 @@ import {
   buildManagedServiceNetworkArgs,
   buildManagedServiceResourceArgs,
   computeManagedServiceHealthRevision,
-  createDockerManagedServiceContainerRuntime,
+  createDockerManagedServiceContainerRuntime as createProductionManagedServiceContainerRuntime,
   DockerContainerError,
   parseEgressAllowlistHostnames,
   verifyManagedServiceImageSignatureSync,
@@ -64,10 +64,21 @@ function fakeEgressPolicy(): {
   };
 }
 
+function createDockerManagedServiceContainerRuntime(
+  exec?: ManagedContainerExec,
+  options?: Parameters<typeof createProductionManagedServiceContainerRuntime>[1],
+) {
+  return createProductionManagedServiceContainerRuntime(exec, {
+    egressPolicyRuntime: fakeEgressPolicy().runtime,
+    ...options,
+  });
+}
+
 const provisionInput = {
   serviceId: "svc-1",
   workspaceId: "default",
   imageDigest: "sha256:abc",
+  networkJson: JSON.stringify({ egressAllowlist: [] }),
 };
 
 /* ------------------------------------------------------------------ */
@@ -117,6 +128,7 @@ test("buildManagedServiceContainerCreateArgs pins digest, isolated network, labe
   assert.equal(args[args.indexOf("--network") + 1], NETWORK);
   assert.equal(args[args.indexOf("--label") + 1], "dofe.agent.serviceId=svc-1");
   assert.ok(args.includes("--read-only"));
+  assert.deepEqual(args.slice(args.indexOf("--restart"), args.indexOf("--restart") + 2), ["--restart", "no"]);
   assert.ok(args.includes("--cap-drop"));
   assert.ok(args.includes("--security-opt"));
   assert.ok(args.includes("--memory"), "resource args wired in");
@@ -201,6 +213,24 @@ test("secret files are generation-scoped with restrictive permissions", async ()
     assert.equal(await fs.readFile(result.mounts[0]!.hostPath, "utf8"), "secret-value");
     assert.equal((await fs.stat(rootDir)).mode & 0o777, 0o700);
     assert.equal((await fs.stat(result.serviceDir)).mode & 0o777, 0o700);
+    assert.equal((await fs.stat(result.mounts[0]!.hostPath)).mode & 0o777, 0o400);
+  } finally {
+    await fs.rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("non-root secret files are owned by the declared container uid without relaxing mode", async () => {
+  const rootDir = await fs.mkdtemp(join(tmpdir(), "dofe-secret-owner-"));
+  const ownership: Array<{ path: string; uid: number; gid: number }> = [];
+  try {
+    const result = await writeManagedServiceSecretFiles({
+      rootDir,
+      serviceId: "svc-owner",
+      secrets: { API_KEY: "secret" },
+      owner: { uid: 65_532, gid: 65_532 },
+      chown: async (path, uid, gid) => { ownership.push({ path, uid, gid }); },
+    });
+    assert.deepEqual(ownership, [{ path: result.mounts[0]!.hostPath, uid: 65_532, gid: 65_532 }]);
     assert.equal((await fs.stat(result.mounts[0]!.hostPath)).mode & 0o777, 0o400);
   } finally {
     await fs.rm(rootDir, { recursive: true, force: true });
@@ -351,6 +381,25 @@ test("provision does not start the container when L3/L4 policy cannot be applied
   assert.ok(calls.some((args) => args[0] === "rm" && args.includes("-f")));
 });
 
+test("provision rejects missing or malformed egress policy before creating a container", async () => {
+  const { exec, calls } = fakeExec(() => ({}));
+  const runtime = createDockerManagedServiceContainerRuntime(exec);
+  await assert.rejects(
+    runtime.provision({ serviceId: "missing-policy", workspaceId: "default", imageDigest: "sha256:abc" }),
+    (error: unknown) => error instanceof DockerContainerError && error.code === "skill_service.egress_policy_missing",
+  );
+  await assert.rejects(
+    runtime.provision({
+      serviceId: "bad-policy",
+      workspaceId: "default",
+      imageDigest: "sha256:abc",
+      networkJson: "not-json",
+    }),
+    (error: unknown) => error instanceof DockerContainerError && error.code === "skill_service.egress_policy_invalid",
+  );
+  assert.equal(calls.some((args) => args[0] === "create"), false);
+});
+
 test("computeManagedServiceHealthRevision is deterministic per config + state", () => {
   assert.equal(computeManagedServiceHealthRevision("{}", "healthy"), computeManagedServiceHealthRevision("{}", "healthy"));
   assert.notEqual(computeManagedServiceHealthRevision("{}", "healthy"), computeManagedServiceHealthRevision("{}", "starting"));
@@ -367,7 +416,9 @@ test("provision runs pull → create → start → inspect and returns the endpo
       case "pull": return {};
       case "create": return { stdout: "abc123\n" };
       case "start": return {};
-      case "inspect": return { stdout: "true\n" };
+      case "inspect": return { stdout: args.includes("{{json .NetworkSettings.Networks}}")
+        ? JSON.stringify({ mgmt: { IPAddress: "172.18.0.4" } })
+        : "true\n" };
       default: return { stderr: `unexpected ${args.join(" ")}`, exitCode: 1 };
     }
   });
@@ -378,8 +429,8 @@ test("provision runs pull → create → start → inspect and returns the endpo
   assert.equal(result.endpointRef, "runtime-private://dofe-svc-svc-1");
   assert.equal(result.containerName, "dofe-svc-svc-1");
   assert.ok(result.healthRevision.length > 0);
-  assert.deepEqual(calls.map((args) => args[0]), ["pull", "create", "start", "inspect"]);
-  const inspect = calls[3]!;
+  assert.deepEqual(calls.map((args) => args[0]), ["pull", "create", "inspect", "start", "inspect"]);
+  const inspect = calls[4]!;
   assert.equal(inspect[inspect.indexOf("--format") + 1], "{{.State.Running}}", "no healthcheck → wait for running");
 });
 
@@ -432,6 +483,9 @@ test("provision waits for the healthy state when a healthcheck is configured", a
   let healthy = false;
   const { exec } = fakeExec((args) => {
     if (args[0] === "inspect") {
+      if (args.includes("{{json .NetworkSettings.Networks}}")) {
+        return { stdout: JSON.stringify({ mgmt: { IPAddress: "172.18.0.4" } }) };
+      }
       return healthy ? { stdout: "healthy\n" } : { stdout: "starting\n" };
     }
     if (args[0] === "create") return { stdout: "abc\n" };
@@ -473,7 +527,12 @@ test("provision retries create when a stale container name exists", async () => 
 
 test("provision fails with a health timeout when the container never becomes healthy", async () => {
   const secretRootDir = await fs.mkdtemp(join(tmpdir(), "dofe-secret-runtime-"));
-  const { exec, calls } = fakeExec((args) => args[0] === "inspect" ? { stdout: "starting\n" } : { stdout: "abc\n" });
+  const { exec, calls } = fakeExec((args) => {
+    if (args[0] === "inspect" && args.includes("{{json .NetworkSettings.Networks}}")) {
+      return { stdout: JSON.stringify({ mgmt: { IPAddress: "172.18.0.4" } }) };
+    }
+    return args[0] === "inspect" ? { stdout: "starting\n" } : { stdout: "abc\n" };
+  });
   const runtime = createDockerManagedServiceContainerRuntime(exec, {
     healthPollIntervalMs: 5,
     healthWaitMs: 30,
