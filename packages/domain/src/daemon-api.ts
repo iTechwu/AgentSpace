@@ -219,6 +219,28 @@ export interface ClaimTaskResponse {
   task: ClaimedDaemonTask | null;
 }
 
+/** Daemon workspace-mount operation: materialize an employee's head revision onto a runtime. */
+export interface ClaimedWorkspaceMountOperation {
+  operationId: string;
+  workspaceId: string;
+  runtimeId: string;
+  employeeName: string;
+  headRevisionId?: string;
+}
+
+export interface ClaimWorkspaceMountOperationResponse {
+  operation: ClaimedWorkspaceMountOperation | null;
+}
+
+export interface CompleteWorkspaceMountOperationRequest {
+  materializedFiles?: number;
+}
+
+export interface FailWorkspaceMountOperationRequest {
+  errorCode?: string;
+  errorMessage: string;
+}
+
 export interface DaemonTaskMessageInput {
   type: string;
   content?: string;
@@ -581,6 +603,11 @@ export interface DaemonTaskOutputBundle {
    * produced no durable workdir changes.
    */
   workspaceFiles?: DaemonBundleFile[];
+  /**
+   * Captured paths present in the head manifest that no longer exist under the
+   * workDir (provider deleted them). The promoted revision drops these.
+   */
+  deletedPaths?: string[];
 }
 
 export interface DaemonTaskUsage {

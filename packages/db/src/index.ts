@@ -280,6 +280,7 @@ export {
   getDaemonSkillInstallCacheRoot,
   getDaemonSkillInstallWorkDirPath,
   getDaemonTaskWorkDirPath,
+  getDaemonWorkspaceMountWorkDirPath,
   getDaemonWorkspaceExecutionRootDir,
   getLocalDaemonStateDirPath,
   getSystemWorkspaceDataDirPath,
@@ -616,6 +617,14 @@ export {
   type UpsertMcpDiscoverySnapshotInput,
   type UpsertMcpSecretInput,
 } from "./mcp-center.ts";
+export {
+  deleteExpiredMcpTaskSessionGrantsSync,
+  deleteMcpTaskSessionGrantSync,
+  readMcpTaskSessionGrantSync,
+  writeMcpTaskSessionGrantSync,
+  type McpTaskSessionGrantRecord,
+  type WriteMcpTaskSessionGrantInput,
+} from "./mcp-session-grant.ts";
 
 // Skills
 export {

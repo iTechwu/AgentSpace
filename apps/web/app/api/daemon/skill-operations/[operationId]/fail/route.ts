@@ -1,6 +1,6 @@
-import type { FailSkillInstallationOperationRequest } from "@dofe-agent/domain";
 import {
   failSkillInstallationOperationSync,
+  parseFailSkillInstallationOperationPayload,
   tryRecordWorkspaceAuditEventSync,
 } from "@dofe-agent/services";
 import { readSkillInstallationOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
@@ -23,14 +23,21 @@ export async function POST(
     return operation;
   }
 
-  const body = (await request.json()) as Partial<FailSkillInstallationOperationRequest>;
+  const parsed = parseFailSkillInstallationOperationPayload(await request.json());
+  if (!parsed.ok) {
+    return Response.json({ error: parsed.reason }, { status: 400 });
+  }
   const failed = failSkillInstallationOperationSync({
     operationId,
     workspaceId: auth.workspaceId,
-    errorCode: body.errorCode,
-    errorMessage: typeof body.errorMessage === "string" ? body.errorMessage : "Skill operation failed.",
+    errorCode: parsed.value.errorCode,
+    errorMessage: parsed.value.errorMessage,
+    componentStatuses: parsed.value.componentStatuses,
   });
-  if (!failed) {
+  if (!failed.ok) {
+    if (failed.code === "component_set_mismatch" || failed.code === "invalid_payload") {
+      return Response.json({ error: failed.reason }, { status: 400 });
+    }
     return Response.json({ error: "skill.operation_not_failable" }, { status: 409 });
   }
 
@@ -44,7 +51,8 @@ export async function POST(
       resourceType: "skill_installation",
       resourceId: operation.installationId,
       runtimeId: operation.runtimeId,
-      errorCode: body.errorCode,
+      errorCode: parsed.value.errorCode,
+      componentCount: parsed.value.componentStatuses?.length ?? 0,
     },
   });
 

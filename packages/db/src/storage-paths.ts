@@ -121,6 +121,18 @@ export function getDaemonSkillInstallCachePath(
   );
 }
 
+/** Transient verification dir a daemon uses to prove it can materialize a workspace. */
+export function getDaemonWorkspaceMountWorkDirPath(
+  stateDir: string,
+  input: { workspaceId?: string; operationId: string },
+): string {
+  return join(
+    getDaemonWorkspaceExecutionRootDir(stateDir, input.workspaceId ?? DEFAULT_WORKSPACE_ID),
+    "workspace-mount",
+    sanitizeStoragePathSegment(input.operationId, "operation"),
+  );
+}
+
 export function sanitizeStoragePathSegment(value: string, fallback = "item"): string {
   const normalized = value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   return normalized || fallback;

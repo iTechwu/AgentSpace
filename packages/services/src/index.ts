@@ -350,7 +350,13 @@ export {
   readHighestRevisionSkillInstallationSync,
   resolveTaskSkillExecutionSnapshotSync,
   resolveOrLoadTaskSkillExecutionSnapshotSync,
+  type SkillInstallationOperationCompletionResult,
 } from "./skills/installations.ts";
+export {
+  buildSkillOperationRequestSnapshotJson,
+  parseCompleteSkillInstallationOperationPayload,
+  parseFailSkillInstallationOperationPayload,
+} from "./skills/installations-protocol.ts";
 export {
   resolveSkillMcpCapabilitySync,
   resolveSkillCliCapabilitySync,

@@ -5,6 +5,7 @@ import type {
   ClaimRuntimeAppOperationResponse,
   ClaimSkillInstallationOperationResponse,
   ClaimTaskResponse,
+  ClaimWorkspaceMountOperationResponse,
   CompleteManagedProvisioningStageRequest,
   CompleteManagedProvisioningStageResponse,
   CompleteManagedRuntimeCleanupRequest,
@@ -12,6 +13,7 @@ import type {
   CompleteRuntimeAppOperationRequest,
   CompleteSkillInstallationOperationRequest,
   CompleteTaskRequest,
+  CompleteWorkspaceMountOperationRequest,
   CreateRuntimeApprovalRequest,
   CreateRuntimeApprovalResponse,
   DaemonTaskInputBundle,
@@ -22,6 +24,7 @@ import type {
   FailRuntimeAppOperationRequest,
   FailSkillInstallationOperationRequest,
   FailTaskRequest,
+  FailWorkspaceMountOperationRequest,
   GetRuntimeApprovalResponse,
   HeartbeatDaemonResponse,
   HeartbeatDaemonRequest,
@@ -44,6 +47,7 @@ export type {
   ClaimRuntimeAppOperationResponse,
   ClaimSkillInstallationOperationResponse,
   ClaimTaskResponse,
+  ClaimWorkspaceMountOperationResponse,
   CompleteManagedProvisioningStageRequest,
   CompleteManagedProvisioningStageResponse,
   CompleteManagedRuntimeCleanupRequest,
@@ -51,6 +55,7 @@ export type {
   CompleteRuntimeAppOperationRequest,
   CompleteSkillInstallationOperationRequest,
   CompleteTaskRequest,
+  CompleteWorkspaceMountOperationRequest,
   CreateRuntimeApprovalRequest,
   CreateRuntimeApprovalResponse,
   DaemonTaskInputBundle,
@@ -61,6 +66,7 @@ export type {
   FailRuntimeAppOperationRequest,
   FailSkillInstallationOperationRequest,
   FailTaskRequest,
+  FailWorkspaceMountOperationRequest,
   GetRuntimeApprovalResponse,
   HeartbeatDaemonResponse,
   HeartbeatDaemonRequest,
@@ -203,6 +209,18 @@ export class HttpDaemonClient {
 
   async failSkillInstallationOperation(operationId: string, body: FailSkillInstallationOperationRequest): Promise<void> {
     await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/fail`, body);
+  }
+
+  async claimWorkspaceMountOperation(runtimeId: string): Promise<ClaimWorkspaceMountOperationResponse> {
+    return this.postJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/workspace-mounts/claim`, {}, { retryable: true });
+  }
+
+  async completeWorkspaceMountOperation(operationId: string, body: CompleteWorkspaceMountOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/workspace-mounts/${encodeURIComponent(operationId)}/complete`, body);
+  }
+
+  async failWorkspaceMountOperation(operationId: string, body: FailWorkspaceMountOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/workspace-mounts/${encodeURIComponent(operationId)}/fail`, body);
   }
 
   async claimMcpTaskSession(taskId: string, attemptId: string): Promise<ClaimMcpTaskSessionResponse> {

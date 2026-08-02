@@ -109,6 +109,8 @@ export function promoteTaskOutputsToWorkspaceSync(input: {
   outputs: TaskOutputFile[];
   publishArtifacts?: boolean;
   createdBy?: string;
+  /** Paths the provider deleted this task; the merged revision drops them (tombstone). */
+  deletedPaths?: string[];
   /** Write-lease guard: when provided, the binding generation must EXACTLY equal this value. */
   expectedBindingGeneration?: number;
 }): PromoteTaskOutputsResult {
@@ -158,7 +160,11 @@ export function promoteTaskOutputsToWorkspaceSync(input: {
 
     manifestFiles.push({ path, sha256, size, mediaType });
 
-    if (input.publishArtifacts) {
+    if (input.publishArtifacts && !isWorkDirCapturePath(path)) {
+      // Only explicitly declared formal outputs become employee_artifacts.
+      // WorkDir snapshot files (repository/state/artifacts) are workspace
+      // content promoted into the revision, NOT published artifacts — a source
+      // file or state blob must not surface as a formal deliverable.
       const artifact = publishEmployeeArtifactSync({
         workspaceId,
         employeeName,
@@ -174,13 +180,18 @@ export function promoteTaskOutputsToWorkspaceSync(input: {
 
   // FULL-SNAPSHOT model (EAD-003): each revision's manifest is the complete file
   // set — parent revision's files merged with this task's outputs (newer path
-  // wins). The head revision alone is sufficient to restore the whole workspace,
-  // independent of the revision chain.
+  // wins), minus the paths the provider deleted this task (tombstones). The head
+  // revision alone is sufficient to restore the whole workspace, independent of
+  // the revision chain.
   const parentFiles = head ? parseRevisionManifestFiles(head.manifestJson) : [];
   const mergedFiles = mergeManifestFiles(parentFiles, manifestFiles);
+  const deleted = new Set(input.deletedPaths ?? []);
+  const finalFiles = deleted.size > 0
+    ? mergedFiles.filter((file) => !deleted.has(file.path))
+    : mergedFiles;
   const manifest: WorkspaceRevisionManifest = {
     taskId: input.taskId,
-    files: mergedFiles.sort((left, right) => left.path.localeCompare(right.path, "en-US")),
+    files: finalFiles.sort((left, right) => left.path.localeCompare(right.path, "en-US")),
   };
   const manifestDigest = computeRevisionManifestDigest(manifest);
 

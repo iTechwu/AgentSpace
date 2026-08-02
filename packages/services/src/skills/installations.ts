@@ -2,6 +2,7 @@ import {
   createSkillInstallationSync,
   completeSkillInstallationOperationSync as completeSkillOperationDbSync,
   failSkillInstallationOperationSync as failSkillOperationDbSync,
+  getDatabase,
   readContentBlobSync,
   readSkillArtifactByDigestSync,
   readSkillArtifactFilesSync,
@@ -18,6 +19,7 @@ import {
   setSkillInstallationPreparedPathSync,
   setSkillInstallationStatusSync,
   updateSkillInstallationComponentStatusSync,
+  withTransaction,
   type ContentBlobRecord,
   type SkillInstallationComponentInput,
   type StoredSkillInstallationOperationRecord,
@@ -27,6 +29,8 @@ import type {
   ClaimedSkillInstallationOperation,
   SkillComponentKind,
   SkillComponentStatus,
+  SkillInstallationOperationComponentStatus,
+  SkillInstallationOperationExpectedComponent,
   SkillInstallationOperationKind,
   TaskSkillExecutionSnapshot,
 } from "@dofe-agent/domain";
@@ -34,6 +38,7 @@ import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { createSkillInstallationOperationSync } from "@dofe-agent/db";
 import { createAttachmentStorageClient, type AttachmentStorageReadInput } from "../attachments/storage.ts";
 import { evaluateSkillInstallationCapabilitiesSync } from "./capabilities.ts";
+import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
 
 /* ------------------------------------------------------------------ */
 /* Control plane: installation plans                                   */
@@ -98,7 +103,10 @@ export function createSkillInstallationPlanSync(input: {
     installationId: installation.id,
     operation: "prepare",
     requestedByUserId: input.requestedByUserId,
-    requestSnapshotJson: JSON.stringify({ artifactDigest: artifact.digest, components: components.map((c) => c.key) }),
+    requestSnapshotJson: buildSkillOperationRequestSnapshotJson({
+      artifactDigest: artifact.digest,
+      expectedComponents: components.map((c) => ({ kind: c.kind, key: c.key })),
+    }),
   });
 
   return installation;
@@ -176,7 +184,7 @@ export async function resolveClaimedSkillInstallationOperation(input: {
     return null;
   }
   const fileRecords = readSkillArtifactFilesSync(artifact.id);
-  const components = readSkillInstallationComponentsSync(installation.id);
+  const expectedComponents = readSkillInstallationOperationExpectedComponentsSync(input.operation, input.workspaceId);
   const storageClient = createAttachmentStorageClient();
 
   return {
@@ -212,13 +220,55 @@ export async function resolveClaimedSkillInstallationOperation(input: {
         };
       }),
     ),
-    components: components.map((component) => ({
+    components: expectedComponents.map((component) => ({
       kind: component.kind,
       key: component.key,
-      status: component.status,
+      // The expected set carries no live status; the daemon's verifier reads only
+      // kind/key, so synthesize an informational "pending".
+      status: "pending",
     })),
     createdAt: input.operation.createdAt,
   };
+}
+
+/**
+ * Resolves the FROZEN expected component set for an operation, shared by claim
+ * and complete so they always agree. Prefers the canonical
+ * `request_snapshot_json.expectedComponents`; falls back to the live
+ * `skill_installation_component` rows for pre-canonical rows (whose components
+ * are still pending at first complete, so the live set is the true expected
+ * set). On an unparseable snapshot, the fallback is used rather than failing.
+ */
+function readSkillInstallationOperationExpectedComponentsSync(
+  operation: Pick<StoredSkillInstallationOperationRecord, "requestSnapshotJson" | "installationId">,
+  workspaceId?: string,
+): SkillInstallationOperationExpectedComponent[] {
+  try {
+    const snapshot = JSON.parse(operation.requestSnapshotJson) as {
+      expectedComponents?: unknown;
+    };
+    if (Array.isArray(snapshot.expectedComponents)) {
+      const expected: SkillInstallationOperationExpectedComponent[] = [];
+      for (const entry of snapshot.expectedComponents) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          continue;
+        }
+        const record = entry as Record<string, unknown>;
+        if (typeof record.kind === "string" && typeof record.key === "string") {
+          expected.push({ kind: record.kind as SkillComponentKind, key: record.key });
+        }
+      }
+      if (expected.length > 0) {
+        return expected;
+      }
+    }
+  } catch {
+    // Fall through to the live component set.
+  }
+  return readSkillInstallationComponentsSync(operation.installationId).map((component) => ({
+    kind: component.kind,
+    key: component.key,
+  }));
 }
 
 function buildBlobStoredPath(blob: ContentBlobRecord): string {
@@ -231,109 +281,256 @@ function buildBlobStoredPath(blob: ContentBlobRecord): string {
   return blob.storageKey;
 }
 
+export type SkillInstallationOperationCompletionResult =
+  | { ok: true }
+  | {
+      ok: false;
+      code:
+        | "invalid_payload"
+        | "component_set_mismatch"
+        | "evidence_mismatch"
+        | "not_completable"
+        | "operation_not_found";
+      reason: string;
+    };
+
+/** Internal error carrying a stable completion-failure code across a transaction rollback. */
+class SkillOperationConflictError extends Error {
+  readonly code: "not_completable" | "component_set_mismatch";
+
+  constructor(code: "not_completable" | "component_set_mismatch") {
+    super(code);
+    this.name = "SkillOperationConflictError";
+    this.code = code;
+  }
+}
+
+/**
+ * Completes a skill installation operation. FAIL-CLOSED per P0-5:
+ * - `componentStatuses` must be EXACTLY the operation's frozen expected set
+ *   (no unknown, duplicate, or missing components; statuses validated by the
+ *   shared payload parser at the route boundary).
+ * - `safeResultJson` evidence must parse and its `computedDigest` must equal the
+ *   claimed artifact digest (malformed/missing/mismatched evidence is rejected —
+ *   the deliberate reversal of the old best-effort behavior).
+ * - The operation succeed + all component updates + readiness recompute happen
+ *   in ONE transaction; any failure rolls everything back (no partial state).
+ */
 export function completeSkillInstallationOperationSync(input: {
   operationId: string;
   workspaceId?: string;
   safeResultJson?: string;
-  componentStatuses?: Array<{
-    kind: SkillComponentKind;
-    key: string;
-    status: SkillComponentStatus;
-    errorCode?: string;
-    errorMessage?: string;
-  }>;
-}): boolean {
-  const done = completeSkillOperationDbSync({
-    operationId: input.operationId,
-    workspaceId: input.workspaceId,
-    safeResultJson: input.safeResultJson,
-  });
-  if (!done) {
-    return false;
-  }
-  const operation = readSkillInstallationOperationSync(input.operationId, input.workspaceId);
+  componentStatuses?: SkillInstallationOperationComponentStatus[];
+}): SkillInstallationOperationCompletionResult {
+  const workspaceId = input.workspaceId ?? "default";
+  const operation = readSkillInstallationOperationSync(input.operationId, workspaceId);
   if (!operation) {
-    return false;
+    return { ok: false, code: "operation_not_found", reason: "Skill operation does not exist." };
   }
-  for (const component of input.componentStatuses ?? []) {
-    updateSkillInstallationComponentStatusSync({
-      installationId: operation.installationId,
-      kind: component.kind,
-      key: component.key,
-      status: component.status,
-      errorCode: component.errorCode,
-      errorMessage: component.errorMessage,
-      verifiedAt: component.status === "ready" ? new Date().toISOString() : undefined,
-      lastOperationId: operation.id,
-    });
+  if (operation.status !== "claimed" && operation.status !== "running") {
+    return { ok: false, code: "not_completable", reason: `Operation is "${operation.status}", not claimed or running.` };
   }
-  // Record the daemon-side materialized path (digest-keyed Runtime cache) so the
-  // control plane can observe cache reuse and the concrete location on the node.
-  if (input.safeResultJson) {
-    try {
-      const safeResult = JSON.parse(input.safeResultJson) as {
-        preparedPath?: string;
-        cacheHit?: boolean;
-        computedDigest?: string;
-      };
-      if (typeof safeResult.preparedPath === "string" && safeResult.preparedPath.length > 0) {
-        setSkillInstallationPreparedPathSync({
-          installationId: operation.installationId,
-          workspaceId: input.workspaceId,
-          preparedPath: safeResult.preparedPath,
-        });
-      }
-      if (typeof safeResult.computedDigest === "string") {
-        setSkillInstallationPreparedDigestSync({
-          installationId: operation.installationId,
-          workspaceId: input.workspaceId,
-          preparedDigest: safeResult.computedDigest,
-        });
-      }
-    } catch {
-      // Malformed safeResultJson must not fail completion; evidence is best-effort.
+
+  const expectedComponents = readSkillInstallationOperationExpectedComponentsSync(operation, workspaceId);
+  const expectedKeys = new Set(expectedComponents.map((component) => `${component.kind}:${component.key}`));
+  const submitted = input.componentStatuses ?? [];
+  if (submitted.length !== expectedKeys.size) {
+    return {
+      ok: false,
+      code: "component_set_mismatch",
+      reason: `Expected exactly ${expectedKeys.size} component statuses, got ${submitted.length}.`,
+    };
+  }
+  const seen = new Set<string>();
+  for (const component of submitted) {
+    const key = `${component.kind}:${component.key}`;
+    if (!expectedKeys.has(key)) {
+      return { ok: false, code: "component_set_mismatch", reason: `Component "${key}" is not in the expected set.` };
     }
+    if (seen.has(key)) {
+      return { ok: false, code: "component_set_mismatch", reason: `Component "${key}" is reported more than once.` };
+    }
+    seen.add(key);
   }
-  evaluateSkillInstallationReadinessSync(operation.installationId, input.workspaceId);
-  return true;
+
+  const artifactDigest = readOperationArtifactDigest(operation);
+  if (!artifactDigest) {
+    return { ok: false, code: "invalid_payload", reason: "Operation snapshot is missing an artifact digest." };
+  }
+  const evidence = parseCompletionEvidence(input.safeResultJson);
+  if (!evidence || evidence.computedDigest !== artifactDigest) {
+    return {
+      ok: false,
+      code: "evidence_mismatch",
+      reason: "Completion evidence digest does not match the claimed artifact digest.",
+    };
+  }
+
+  try {
+    withTransaction(getDatabase(), () => {
+      const done = completeSkillOperationDbSync({
+        operationId: input.operationId,
+        workspaceId,
+        safeResultJson: input.safeResultJson,
+      });
+      if (!done) {
+        throw new SkillOperationConflictError("not_completable");
+      }
+      for (const component of submitted) {
+        const changed = updateSkillInstallationComponentStatusSync({
+          installationId: operation.installationId,
+          kind: component.kind,
+          key: component.key,
+          status: component.status,
+          errorCode: component.errorCode,
+          errorMessage: component.errorMessage,
+          verifiedAt: component.status === "ready" ? new Date().toISOString() : undefined,
+          lastOperationId: operation.id,
+        });
+        if (!changed) {
+          // Component row vanished between set-match and the transaction: reject
+          // the completion rather than leaving a silent 0-row no-op.
+          throw new SkillOperationConflictError("component_set_mismatch");
+        }
+      }
+      // Record the daemon-side materialized path (digest-keyed Runtime cache).
+      if (evidence.preparedPath) {
+        setSkillInstallationPreparedPathSync({ installationId: operation.installationId, workspaceId, preparedPath: evidence.preparedPath });
+      }
+      if (evidence.computedDigest) {
+        setSkillInstallationPreparedDigestSync({ installationId: operation.installationId, workspaceId, preparedDigest: evidence.computedDigest });
+      }
+      evaluateSkillInstallationReadinessSync(operation.installationId, workspaceId);
+    });
+  } catch (error) {
+    if (error instanceof SkillOperationConflictError) {
+      return { ok: false, code: error.code, reason: error.message };
+    }
+    throw error;
+  }
+  return { ok: true };
 }
 
+/**
+ * Fails a skill installation operation. Accepts an optional (subset-of-expected)
+ * `componentStatuses` to persist as partial verification evidence, then blocks
+ * every remaining unfinished component so the installation can never be mistaken
+ * for ready. All updates are atomic with the op fail.
+ */
 export function failSkillInstallationOperationSync(input: {
   operationId: string;
   workspaceId?: string;
   errorCode?: string;
   errorMessage: string;
-}): boolean {
-  const done = failSkillOperationDbSync({
-    operationId: input.operationId,
-    workspaceId: input.workspaceId,
-    errorCode: input.errorCode,
-    errorMessage: input.errorMessage,
-  });
-  if (!done) {
-    return false;
+  componentStatuses?: SkillInstallationOperationComponentStatus[];
+}): SkillInstallationOperationCompletionResult {
+  const workspaceId = input.workspaceId ?? "default";
+  const operation = readSkillInstallationOperationSync(input.operationId, workspaceId);
+  if (!operation) {
+    return { ok: false, code: "operation_not_found", reason: "Skill operation does not exist." };
   }
-  const operation = readSkillInstallationOperationSync(input.operationId, input.workspaceId);
-  if (operation) {
-    // A failed prepare blocks every unfinished required component so the
-    // installation can never be mistaken for ready.
-    const components = readSkillInstallationComponentsSync(operation.installationId);
-    for (const component of components) {
-      if (component.status === "pending" || component.status === "preparing") {
-        updateSkillInstallationComponentStatusSync({
+  if (operation.status !== "claimed" && operation.status !== "running") {
+    return { ok: false, code: "not_completable", reason: `Operation is "${operation.status}", not claimed or running.` };
+  }
+
+  const expectedComponents = readSkillInstallationOperationExpectedComponentsSync(operation, workspaceId);
+  const expectedKeys = new Set(expectedComponents.map((component) => `${component.kind}:${component.key}`));
+  const submitted = input.componentStatuses ?? [];
+  const seen = new Set<string>();
+  for (const component of submitted) {
+    const key = `${component.kind}:${component.key}`;
+    if (!expectedKeys.has(key)) {
+      return { ok: false, code: "component_set_mismatch", reason: `Component "${key}" is not in the expected set.` };
+    }
+    if (seen.has(key)) {
+      return { ok: false, code: "component_set_mismatch", reason: `Component "${key}" is reported more than once.` };
+    }
+    seen.add(key);
+  }
+
+  try {
+    withTransaction(getDatabase(), () => {
+      const done = failSkillOperationDbSync({
+        operationId: input.operationId,
+        workspaceId,
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+      });
+      if (!done) {
+        throw new SkillOperationConflictError("not_completable");
+      }
+      for (const component of submitted) {
+        const changed = updateSkillInstallationComponentStatusSync({
           installationId: operation.installationId,
           kind: component.kind,
           key: component.key,
-          status: "blocked",
-          errorCode: input.errorCode,
-          errorMessage: input.errorMessage,
+          status: component.status,
+          errorCode: component.errorCode,
+          errorMessage: component.errorMessage,
+          verifiedAt: component.status === "ready" ? new Date().toISOString() : undefined,
           lastOperationId: operation.id,
         });
+        if (!changed) {
+          throw new SkillOperationConflictError("component_set_mismatch");
+        }
       }
+      // A failed prepare blocks every unfinished required component so the
+      // installation can never be mistaken for ready.
+      const components = readSkillInstallationComponentsSync(operation.installationId);
+      for (const component of components) {
+        if (component.status === "pending" || component.status === "preparing") {
+          updateSkillInstallationComponentStatusSync({
+            installationId: operation.installationId,
+            kind: component.kind,
+            key: component.key,
+            status: "blocked",
+            errorCode: input.errorCode,
+            errorMessage: input.errorMessage,
+            lastOperationId: operation.id,
+          });
+        }
+      }
+      evaluateSkillInstallationReadinessSync(operation.installationId, workspaceId);
+    });
+  } catch (error) {
+    if (error instanceof SkillOperationConflictError) {
+      return { ok: false, code: error.code, reason: error.message };
     }
-    evaluateSkillInstallationReadinessSync(operation.installationId, input.workspaceId);
+    throw error;
   }
-  return true;
+  return { ok: true };
+}
+
+function parseCompletionEvidence(
+  safeResultJson: string | undefined,
+): { computedDigest?: string; preparedPath?: string } | null {
+  if (!safeResultJson) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(safeResultJson) as Record<string, unknown>;
+    return {
+      ...(typeof parsed.computedDigest === "string" && parsed.computedDigest.length > 0
+        ? { computedDigest: parsed.computedDigest }
+        : {}),
+      ...(typeof parsed.preparedPath === "string" && parsed.preparedPath.length > 0 ? { preparedPath: parsed.preparedPath } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readOperationArtifactDigest(
+  operation: Pick<StoredSkillInstallationOperationRecord, "requestSnapshotJson">,
+): string | undefined {
+  try {
+    const snapshot = JSON.parse(operation.requestSnapshotJson) as { artifactDigest?: unknown };
+    return typeof snapshot.artifactDigest === "string" && snapshot.artifactDigest.length > 0
+      ? snapshot.artifactDigest
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /* ------------------------------------------------------------------ */

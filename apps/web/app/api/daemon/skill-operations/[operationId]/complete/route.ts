@@ -1,6 +1,6 @@
-import type { CompleteSkillInstallationOperationRequest } from "@dofe-agent/domain";
 import {
   completeSkillInstallationOperationSync,
+  parseCompleteSkillInstallationOperationPayload,
   tryRecordWorkspaceAuditEventSync,
 } from "@dofe-agent/services";
 import { readSkillInstallationOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
@@ -23,14 +23,20 @@ export async function POST(
     return operation;
   }
 
-  const body = (await request.json()) as Partial<CompleteSkillInstallationOperationRequest>;
+  const parsed = parseCompleteSkillInstallationOperationPayload(await request.json());
+  if (!parsed.ok) {
+    return Response.json({ error: parsed.reason }, { status: 400 });
+  }
   const completed = completeSkillInstallationOperationSync({
     operationId,
     workspaceId: auth.workspaceId,
-    safeResultJson: body.safeResultJson,
-    componentStatuses: body.componentStatuses,
+    safeResultJson: parsed.value.safeResultJson,
+    componentStatuses: parsed.value.componentStatuses,
   });
-  if (!completed) {
+  if (!completed.ok) {
+    if (completed.code === "evidence_mismatch" || completed.code === "component_set_mismatch" || completed.code === "invalid_payload") {
+      return Response.json({ error: completed.reason }, { status: 400 });
+    }
     return Response.json({ error: "skill.operation_not_completable" }, { status: 409 });
   }
 
@@ -44,7 +50,7 @@ export async function POST(
       resourceType: "skill_installation",
       resourceId: operation.installationId,
       runtimeId: operation.runtimeId,
-      componentCount: body.componentStatuses?.length ?? 0,
+      componentCount: parsed.value.componentStatuses?.length ?? 0,
     },
   });
 

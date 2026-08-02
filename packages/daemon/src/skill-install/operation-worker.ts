@@ -100,6 +100,10 @@ export async function executeSkillInstallationOperation(
       componentStatuses,
     });
   } catch (error) {
+    // On failure, report the computed partial component statuses THROUGH the fail
+    // payload (the control plane persists them, then blocks the rest). The old
+    // complete-after-fail flow is gone: complete now requires the EXACT expected
+    // set, so a partial complete would be rejected as a set mismatch.
     const componentStatuses = error instanceof SkillVerificationError
       ? error.componentStatuses
       : [];
@@ -109,18 +113,8 @@ export async function executeSkillInstallationOperation(
         ? error.code
         : "skill_installation.runtime_error",
       errorMessage: error instanceof Error ? error.message : String(error),
+      ...(componentStatuses.length > 0 ? { componentStatuses } : {}),
     });
-
-    // If we already computed component statuses before failure, best-effort
-    // complete them so the control plane can see partial evidence.
-    if (componentStatuses.length > 0) {
-      await client.completeSkillInstallationOperation(operation.operationId, {
-        componentStatuses,
-      }).catch((completeError) => {
-        const detail = completeError instanceof Error ? completeError.message : String(completeError);
-        console.error(`Failed to report partial component statuses for ${operation.operationId}: ${detail}`);
-      });
-    }
   } finally {
     if (!process.env[KEEP_WORK_DIR_ENV]) {
       rmSync(workDir, { recursive: true, force: true });

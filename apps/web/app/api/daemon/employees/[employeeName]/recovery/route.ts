@@ -3,8 +3,8 @@ import {
   readEmployeeRuntimeBindingSync,
 } from "@dofe-agent/db";
 import {
+  createEmployeeRecoveryOperationSync,
   readEmployeeDataProtectionSnapshotSync,
-  runFullRecoverySync,
 } from "@dofe-agent/services";
 import { requireDaemonAuth } from "../../../_lib/auth";
 
@@ -90,22 +90,27 @@ export async function POST(
     return Response.json({ error: `Employee "${employeeName}" has no runtime binding to recover.` }, { status: 404 });
   }
 
-  const result = runFullRecoverySync({
+  // Async recovery: create the operation (phase = allocate) and return 202; the
+  // runtime-maintenance worker advances it phase-by-phase (provisioning, mount,
+  // skill install, health probe, activate) across ticks. Poll the GET route for
+  // progress.
+  const operation = createEmployeeRecoveryOperationSync({
     workspaceId: auth.workspaceId,
     employeeName,
-    targetRuntimeId: body?.runtimeId,
+    requestedByUserId: auth.token?.createdBy,
+    actorUserId: auth.token?.createdBy,
+    requireApproval: body?.action === "rebuild",
   });
 
-  const success = result.phase === "completed";
   return Response.json(
     {
       employeeName,
       action,
-      phase: result.phase,
-      toGeneration: result.toGeneration,
-      error: result.errorMessage ?? undefined,
-      recoveryOperationId: result.id,
+      phase: operation.phase,
+      toGeneration: operation.toGeneration,
+      recoveryOperationId: operation.id,
+      scheduled: true,
     },
-    { status: success ? 200 : 409 },
+    { status: 202 },
   );
 }

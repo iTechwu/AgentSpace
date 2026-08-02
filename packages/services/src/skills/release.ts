@@ -15,6 +15,7 @@ import {
   type StoredSkillInstallationRecord,
 } from "@dofe-agent/db";
 import { buildSkillInstallationComponentsSync } from "./installations.ts";
+import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
 import { stableStringify } from "./package/package-digest.ts";
 
 /**
@@ -357,7 +358,11 @@ export function createSkillUpgradePlanSync(input: {
     installationId: installation.id,
     operation: "prepare",
     requestedByUserId: input.requestedByUserId,
-    requestSnapshotJson: JSON.stringify({ artifactDigest: input.artifactDigest, upgradeFrom: previous.artifactDigest }),
+    requestSnapshotJson: buildSkillOperationRequestSnapshotJson({
+      artifactDigest: input.artifactDigest,
+      expectedComponents: components.map((component) => ({ kind: component.kind, key: component.key })),
+      extra: { upgradeFrom: previous.artifactDigest },
+    }),
   });
 
   return installation;

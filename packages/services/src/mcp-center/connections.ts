@@ -4,6 +4,7 @@ import {
   completeMcpOperationSync,
   createMcpConnectionSync,
   createMcpOperationSync,
+  deleteExpiredMcpTaskSessionGrantsSync,
   failMcpOperationSync,
   getDatabase,
   withTransaction,
@@ -17,10 +18,12 @@ import {
   readMcpConnectionSecretsSync,
   readMcpConnectionSync,
   readMcpOperationSync,
+  readMcpTaskSessionGrantSync,
   scheduleMcpHealthChecksSync as dbScheduleMcpHealthChecksSync,
   updateMcpConnectionConfigSync,
   updateMcpConnectionStatusSync,
   upsertMcpSecretsSync,
+  writeMcpTaskSessionGrantSync,
   type McpCatalogItemRecord,
   type McpConnectionOperationType,
   type RuntimeMcpConnectionRecord,
@@ -630,17 +633,8 @@ export interface McpConnectionActivity {
   audits: RuntimeMcpToolAuditRecord[];
 }
 
-interface ClaimedMcpTaskSessionCacheEntry {
-  attemptId: string;
-  result: ClaimMcpTaskSessionResponse;
-}
-
-/**
- * In-process replay cache for one-time MCP task-session claims. Lets an HTTP
- * retry of the same attempt return the original resolved bundle instead of an
- * empty (degraded) authorization. See {@link claimMcpTaskSessionSync}.
- */
-const claimedMcpTaskSessionCache = new Map<string, ClaimedMcpTaskSessionCacheEntry>();
+/** TTL for a persisted MCP task-session grant (encrypted resolved bundle). */
+const MCP_SESSION_GRANT_TTL_MS = 24 * 60 * 60 * 1000;
 
 export function listMcpConnectionActivitySync(input: {
   workspaceId: string;
@@ -980,16 +974,16 @@ export function listReadyMcpConnectionsForTaskSync(input: {
  * daemon's memory for the loopback gateway — never into the Provider-visible
  * task bundle.
  *
- * Claim semantics are one-time per task, keyed by an attempt id:
- * - first claim for the task → resolve bundles and cache them by attempt id;
- * - retry of the SAME attempt (HTTP retry after a lost response) → replay the
- *   cached first result, so a lost response never degrades the task to "no MCP";
+ * Claim semantics are one-time per task, keyed by a NON-EMPTY attempt id:
+ * - first claim for the task → resolve bundles and persist an ENCRYPTED grant
+ *   (AES-256-GCM) with a TTL, so the idempotency key survives control-plane
+ *   restarts and the snapshot is bounded instead of an unbounded plaintext
+ *   in-memory cache;
+ * - retry of the SAME attempt (HTTP retry after a lost response) → decrypt and
+ *   replay the persisted grant, so a lost response never degrades the task to
+ *   "no MCP";
  * - a DIFFERENT attempt id (a genuine duplicate execution) → empty connections,
  *   which is a refusal, not a legitimate-looking empty authorization.
- *
- * The cache is in-process memory: if the control plane restarts between a
- * successful claim and a retry, the retry degrades to empty rather than
- * pretending to be authorized.
  */
 export function claimMcpTaskSessionSync(input: {
   workspaceId: string;
@@ -997,18 +991,45 @@ export function claimMcpTaskSessionSync(input: {
   taskId: string;
   attemptId: string;
 }): ClaimMcpTaskSessionResponse {
+  const attemptId = input.attemptId?.trim() ?? "";
+  if (!attemptId) {
+    // A missing attempt id must never replay another caller's cached grant.
+    throw new Error("mcp.session_claim_requires_attempt");
+  }
+  deleteExpiredMcpTaskSessionGrantsSync();
+
   const newlyClaimed = claimMcpTaskSessionMarkerSync(input.taskId);
   if (newlyClaimed) {
     const result = resolveClaimedMcpTaskSessionResult({
       workspaceId: input.workspaceId,
       runtimeId: input.runtimeId,
     });
-    claimedMcpTaskSessionCache.set(input.taskId, { attemptId: input.attemptId, result });
+    const expiresAt = new Date(Date.now() + MCP_SESSION_GRANT_TTL_MS).toISOString();
+    try {
+      writeMcpTaskSessionGrantSync({
+        workspaceId: input.workspaceId,
+        runtimeId: input.runtimeId,
+        taskId: input.taskId,
+        attemptId,
+        encryptedBundleJson: encryptMcpSecret(JSON.stringify(result)),
+        expiresAt,
+      });
+    } catch {
+      // If the grant cannot be persisted, the claim is not replayable and a
+      // retry would degrade to "no MCP"; fail closed instead of pretending.
+      throw new Error("mcp.session_grant_write_failed");
+    }
     return result;
   }
-  const cached = claimedMcpTaskSessionCache.get(input.taskId);
-  if (cached && cached.attemptId === input.attemptId) {
-    return cached.result;
+
+  const grant = readMcpTaskSessionGrantSync(input.taskId, input.workspaceId);
+  if (grant && grant.attemptId === attemptId) {
+    try {
+      return JSON.parse(decryptMcpSecret(grant.encryptedBundleJson)) as ClaimMcpTaskSessionResponse;
+    } catch {
+      // Undecryptable/corrupt grant → refuse rather than leak or fabricate.
+      return { connections: [] };
+    }
   }
   return { connections: [] };
 }

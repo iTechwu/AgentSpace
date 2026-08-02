@@ -132,7 +132,7 @@ test("the worker walks a recovery to completed across multiple ticks and advance
     const ops = listRecoveryOperationsSync({ workspaceId: "default", employeeName: "Alice", limit: 1 });
     const phase = ops[0]?.phase ?? "none";
     ticks.push(phase);
-    if (phase === "completed") {
+    if (phase === "completed" || phase === "failed") {
       break;
     }
     assert.ok(result.advanced + result.waiting + result.failed > 0 || phase === "none", "worker made progress");
@@ -140,7 +140,7 @@ test("the worker walks a recovery to completed across multiple ticks and advance
 
   const final = listRecoveryOperationsSync({ workspaceId: "default", employeeName: "Alice", limit: 1 })[0];
   assert.ok(final, "operation exists");
-  assert.equal(final.phase, "completed", `expected completed, ticks were: ${ticks.join(" -> ")}`);
+  assert.equal(final.phase, "completed", `expected completed, ticks were: ${ticks.join(" -> ")} error: ${final?.errorMessage ?? "none"}`);
   assert.equal(readEmployeeBindingGenerationSync("Alice", "default"), 2, "recovery advanced the binding generation");
 });
 

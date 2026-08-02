@@ -37,7 +37,7 @@ export function collectRuntimeOutputBundle(
     contentBase64: Buffer.from(file.bytes).toString("base64"),
   }));
 
-  if (files.length === 0 && workspaceFiles.length === 0) {
+  if (files.length === 0 && workspaceFiles.length === 0 && capture.deletedPaths.length === 0) {
     return undefined;
   }
   return {
@@ -45,6 +45,7 @@ export function collectRuntimeOutputBundle(
     format: "json-inline-v1",
     files,
     ...(workspaceFiles.length > 0 ? { workspaceFiles } : {}),
+    ...(capture.deletedPaths.length > 0 ? { deletedPaths: capture.deletedPaths } : {}),
   };
 }
 

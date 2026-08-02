@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { getDaemonSkillInstallCachePath, getDaemonSkillInstallWorkDirPath } from "@dofe-agent/db";
-import { computeArtifactDigest } from "@dofe-agent/services";
+import { computeArtifactDigest, type SkillArtifactManifest } from "@dofe-agent/services";
 import type { ClaimedSkillInstallationOperation } from "@dofe-agent/domain";
 import { executeSkillInstallationOperation } from "./operation-worker.ts";
 import type { HttpDaemonClient } from "../daemon-client.ts";
@@ -130,12 +130,14 @@ test("materializes on a cache miss, publishes the cache, and the next run hits i
     process.env.SELF_HOSTED_ATTACHMENT_LOCAL_ROOT = localRoot;
 
     const contentSha = createHash("sha256").update(content).digest("hex");
-    const manifest = { artifact: { name: "test-skill", version: "1.0.0" }, files: [], dependencies: [] };
+    const manifest: SkillArtifactManifest = {
+      schemaVersion: 1,
+      artifact: { name: "test-skill", version: "1.0.0" },
+      files: [],
+      dependencies: [],
+    };
     const manifestJson = JSON.stringify(manifest);
-    const artifactDigest = computeArtifactDigest(
-      manifest as Parameters<typeof computeArtifactDigest>[0],
-      [contentSha],
-    );
+    const artifactDigest = computeArtifactDigest(manifest, [contentSha]);
 
     const operation = buildOperation({
       operationId: "op-1",
@@ -152,15 +154,16 @@ test("materializes on a cache miss, publishes the cache, and the next run hits i
     });
 
     await executeSkillInstallationOperation(fakeClient, buildConfig(), operation);
-    assert.ok(lastComplete, "first op completed");
-    const firstResult = JSON.parse(String(lastComplete!.body.safeResultJson)) as Record<string, unknown>;
+    const firstComplete = lastComplete;
+    assert.ok(firstComplete, "first op completed");
+    const firstResult = JSON.parse(String(firstComplete.body.safeResultJson)) as Record<string, unknown>;
     assert.equal(firstResult.cacheHit, false);
 
     // Second run for the same digest must hit the cache.
-    lastComplete = undefined;
     await executeSkillInstallationOperation(fakeClient, buildConfig(), { ...operation, operationId: "op-2", installationId: "inst-2" });
-    assert.ok(lastComplete, "second op completed");
-    const secondResult = JSON.parse(String(lastComplete!.body.safeResultJson)) as Record<string, unknown>;
+    const secondComplete = lastComplete;
+    assert.ok(secondComplete, "second op completed");
+    const secondResult = JSON.parse(String(secondComplete.body.safeResultJson)) as Record<string, unknown>;
     assert.equal(secondResult.cacheHit, true);
   } finally {
     process.chdir(originalCwd);

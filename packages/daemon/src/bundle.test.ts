@@ -121,6 +121,7 @@ test("collectRuntimeOutputBundle recursively captures referenced skill artifact 
 
 test("collectRuntimeOutputBundle fails closed when the workDir capture is truncated", () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-standalone-daemon-"));
+  mkdirSync(join(workDir, "repository"), { recursive: true });
 
   try {
     for (let index = 0; index < WORKDIR_CAPTURE_MAX_FILES + 1; index += 1) {

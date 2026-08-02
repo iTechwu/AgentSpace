@@ -1313,12 +1313,13 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
           mediaType: attachment.mediaType,
         })),
       ];
-      if (outputs.length > 0) {
+      if (outputs.length > 0 || workDirCapture.deletedPaths.length > 0) {
         const promoted = promoteTaskOutputsToWorkspaceSync({
           workspaceId: task.workspaceId,
           taskId: task.id,
           employeeName: agentName,
           outputs,
+          deletedPaths: workDirCapture.deletedPaths,
           publishArtifacts: true,
           expectedBindingGeneration: bindingGeneration,
         });

@@ -181,6 +181,21 @@ export interface SkillInstallationOperationFile {
 }
 
 /** One-time authenticated payload delivered to the daemon on claim. */
+/** A component identity the daemon must report on for an operation, fixed at creation. */
+export interface SkillInstallationOperationExpectedComponent {
+  kind: SkillComponentKind;
+  key: string;
+}
+
+/** Daemon-reported status for one expected component, with optional failure detail. */
+export interface SkillInstallationOperationComponentStatus {
+  kind: SkillComponentKind;
+  key: string;
+  status: SkillComponentStatus;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 export interface ClaimedSkillInstallationOperation {
   operationId: string;
   workspaceId: string;
@@ -192,7 +207,12 @@ export interface ClaimedSkillInstallationOperation {
   /** Canonical manifest JSON so the daemon can recompute the root digest. */
   manifestJson: string;
   files: SkillInstallationOperationFile[];
-  /** Components the daemon is expected to prepare/verify for this operation. */
+  /**
+   * The FROZEN expected component set for this operation (from the operation's
+   * request snapshot), NOT the live DB status list. `status` is informational —
+   * the control plane synthesizes `"pending"` for the expected set; the daemon's
+   * component verifier reads only `kind`/`key`.
+   */
   components: Array<{ kind: SkillComponentKind; key: string; status: string }>;
   createdAt: string;
 }
@@ -206,20 +226,17 @@ export interface StartSkillInstallationOperationRequest {
 }
 
 export interface CompleteSkillInstallationOperationRequest {
+  /** Daemon evidence; the control plane requires a parseable `computedDigest` equal to the artifact digest (fail-closed). */
   safeResultJson?: string;
-  /** Maps a component key to its new status after the daemon finished it. */
-  componentStatuses?: Array<{
-    kind: SkillComponentKind;
-    key: string;
-    status: SkillComponentStatus;
-    errorCode?: string;
-    errorMessage?: string;
-  }>;
+  /** Must be EXACTLY the operation's expected component set — no unknown, duplicate, or missing components. */
+  componentStatuses?: SkillInstallationOperationComponentStatus[];
 }
 
 export interface FailSkillInstallationOperationRequest {
   errorCode?: string;
   errorMessage: string;
+  /** Optional partial component statuses (subset of the expected set) to persist before the remainder is blocked. */
+  componentStatuses?: SkillInstallationOperationComponentStatus[];
 }
 
 /**

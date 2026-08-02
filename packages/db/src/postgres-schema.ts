@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "66";
+export const POSTGRES_SCHEMA_VERSION = "67";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -78,6 +78,7 @@ export const POSTGRES_TABLE_NAMES = [
   "runtime_mcp_discovery_snapshot",
   "runtime_mcp_operation",
   "runtime_mcp_tool_audit",
+  "mcp_task_session_grant",
   "content_blob",
   "skill_artifact",
   "skill_artifact_file",
@@ -1025,6 +1026,15 @@ export function getPostgresSchemaStatements(): string[] {
         latency_ms INTEGER,
         safe_summary TEXT,
         event_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL
+      ),
+      CREATE TABLE IF NOT EXISTS mcp_task_session_grant (
+        task_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        runtime_id TEXT NOT NULL,
+        attempt_id TEXT NOT NULL,
+        encrypted_bundle_json TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ NOT NULL
       )
     `,

@@ -1,6 +1,7 @@
 import {
   appendTaskMessageSync,
   completeCommittedTaskSync,
+  deleteMcpTaskSessionGrantSync,
   failQueuedTaskSync,
   enqueueTokenUsageRetrySync,
   markTaskCommittedSync,
@@ -51,6 +52,7 @@ import {
   clearDaemonTaskOutputStaging,
   getDaemonTaskOutputStagingDir,
   materializeOutputBundleToStaging,
+  readStagedWorkDirDeletedPaths,
   readStagedWorkDirFiles,
 } from "../../../_lib/output-bundle";
 
@@ -336,6 +338,7 @@ export async function POST(
       let workspaceRevisionId: string | undefined;
       let committedArtifactIds: string[] = [];
       const workDirFiles = readStagedWorkDirFiles(task.id, task.workspaceId);
+      const deletedPaths = readStagedWorkDirDeletedPaths(task.id, task.workspaceId);
       const outputs = [
         ...workDirFiles,
         ...persistedAttachments.map((attachment) => ({
@@ -344,12 +347,13 @@ export async function POST(
           mediaType: attachment.mediaType,
         })),
       ];
-      if (outputs.length > 0) {
+      if (outputs.length > 0 || deletedPaths.length > 0) {
         const promoted = promoteTaskOutputsToWorkspaceSync({
           workspaceId: task.workspaceId,
           taskId: task.id,
           employeeName: agentName,
           outputs,
+          deletedPaths,
           publishArtifacts: true,
           expectedBindingGeneration: bindingGeneration,
         });
@@ -362,6 +366,8 @@ export async function POST(
         workspaceRevisionId,
         artifactIds: committedArtifactIds,
       });
+      // Task terminal state: destroy the MCP session grant immediately.
+      deleteMcpTaskSessionGrantSync(task.id, task.workspaceId);
     } catch (error) {
       promotionError = error instanceof Error ? error.message : String(error);
       upsertTaskCommitJournalSync({

@@ -16,6 +16,7 @@ import { readEmployeeHeadManifestSync } from "./workdir-capture.ts";
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
 import { executeSkillInstallationOperation } from "./skill-install/operation-worker.ts";
+import { executeWorkspaceMountOperation } from "./workspace-mount-operation-worker.ts";
 import {
   type DetectedProvider,
   detectProviders,
@@ -730,6 +731,20 @@ async function pollRemoteTasks(
         continue;
       }
 
+      const mountOperation = await client.claimWorkspaceMountOperation(runtime.id);
+      if (mountOperation.operation) {
+        activeRuntimes.add(runtime.id);
+        void executeWorkspaceMountOperation(client, config, mountOperation.operation)
+          .catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(`Workspace mount operation ${mountOperation.operation?.operationId ?? "unknown"} crashed: ${message}`);
+          })
+          .finally(() => {
+            activeRuntimes.delete(runtime.id);
+          });
+        continue;
+      }
+
       const claimed = await client.claimTask(runtime.id);
       if (!claimed.task) {
         continue;
@@ -847,25 +862,24 @@ async function executeRemoteTask(
     materializeInputBundle(workDir, bundle);
 
     if (bundle.metadata.mcpConnections?.status === "available") {
-      try {
-        // One attempt id per task execution makes the claim idempotent under
-        // HTTP retry: a lost response retries with the same id and the server
-        // replays the original resolved bundle instead of returning "no MCP".
-        const claimAttemptId = randomUUID();
-        const claimed = await client.claimMcpTaskSession(task.id, claimAttemptId);
-        if (claimed.connections.length > 0) {
-          const gateway = await getMcpGatewayForTask(client);
-          mcpSession = gateway.createTaskSession({
-            taskId: task.id,
-            runtimeId: runtime.id,
-            workspaceId: task.workspaceId,
-            connections: claimed.connections,
-          });
-        }
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        console.error(`MCP session claim failed for task ${task.id}: ${detail}`);
+      // One attempt id per task execution makes the claim idempotent under
+      // HTTP retry: a lost response retries with the same id and the server
+      // replays the persisted grant instead of returning "no MCP".
+      const claimAttemptId = randomUUID();
+      const claimed = await client.claimMcpTaskSession(task.id, claimAttemptId);
+      if (claimed.connections.length === 0) {
+        // Fail closed: the task expects MCP connections but the claim returned
+        // none (connections were dropped/reconfigured mid-flight). Running the
+        // task without MCP would silently lose the authorized capability.
+        throw new Error("mcp.session_claim_failed: task expects MCP connections but claim returned none");
       }
+      const gateway = await getMcpGatewayForTask(client);
+      mcpSession = gateway.createTaskSession({
+        taskId: task.id,
+        runtimeId: runtime.id,
+        workspaceId: task.workspaceId,
+        connections: claimed.connections,
+      });
     }
 
     const managedProfile = await resolveManagedCredentialProfile(runtime, credentialResolver);

@@ -46,6 +46,13 @@ export interface WorkDirCaptureResult {
   skippedUnchanged: number;
   /** True when the file/total budget was exceeded and some files were dropped. */
   truncated: boolean;
+  /**
+   * Captured paths present in the head manifest that no longer exist under the
+   * workDir. The provider deleted them, so the promoted revision must drop them
+   * (a tombstone), otherwise stale files survive in head and get restored by a
+   * later task.
+   */
+  deletedPaths: string[];
 }
 
 export interface WorkDirFileEntry {
@@ -88,6 +95,23 @@ export function collectWorkDirChanges(
   let skippedUnchanged = 0;
   let truncated = false;
   let totalBytes = 0;
+  const deletedPaths: string[] = [];
+  for (const file of headManifest?.files ?? []) {
+    if (!isCapturedIncludePath(file.path)) {
+      continue;
+    }
+    const candidate = join(workDir, file.path);
+    try {
+      const st = lstatSync(candidate);
+      // A file replaced by a symlink is not a regular capture (see walker); the
+      // head entry is gone, so treat it as deleted.
+      if (!st.isFile()) {
+        deletedPaths.push(file.path);
+      }
+    } catch {
+      deletedPaths.push(file.path);
+    }
+  }
 
   for (const includeDir of WORKDIR_CAPTURE_INCLUDE_DIRS) {
     if (files.length >= WORKDIR_CAPTURE_MAX_FILES) {
@@ -145,7 +169,11 @@ export function collectWorkDirChanges(
     });
   }
 
-  return { files, skippedUnchanged, truncated };
+  return { files, skippedUnchanged, truncated, deletedPaths };
+}
+
+function isCapturedIncludePath(path: string): boolean {
+  return WORKDIR_CAPTURE_INCLUDE_DIRS.some((dir) => path === dir || path.startsWith(`${dir}/`));
 }
 
 /**

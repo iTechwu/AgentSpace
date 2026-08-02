@@ -177,6 +177,27 @@ test("publishArtifacts promotes each output as an employee_artifact", () => {
   assert.equal(result.artifactIds.length, 1);
 });
 
+test("workDir snapshot files never become employee_artifacts", () => {
+  const result = promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Bob",
+    outputs: [
+      { path: "repository/src/main.ts", bytes: new TextEncoder().encode("code"), mediaType: "text/typescript" },
+      { path: "state/checkpoint.json", bytes: new TextEncoder().encode("{}"), mediaType: "application/json" },
+      { path: "report.txt", bytes: new TextEncoder().encode("formal"), mediaType: "text/plain" },
+    ],
+    publishArtifacts: true,
+  });
+  // Only the explicit non-workdir output is published as a formal artifact.
+  assert.equal(result.artifactIds.length, 1);
+  const head = readHeadRevisionSync("Bob", "default");
+  assert.ok(head, "head revision exists");
+  const manifest = JSON.parse(head.manifestJson) as { files: Array<{ path: string }> };
+  assert.ok(manifest.files.some((f) => f.path === "repository/src/main.ts"), "workDir file still in revision");
+  assert.ok(manifest.files.some((f) => f.path === "state/checkpoint.json"), "state file still in revision");
+});
+
 test("promoteArtifactSync publishes a single formal artifact with a content digest", () => {
   const bytes = new TextEncoder().encode("formal report");
   const result = promoteArtifactSync({
@@ -265,4 +286,33 @@ test("workDir capture promotion is marked workdir_snapshot and merges with task_
   const manifest = JSON.parse(head.manifestJson) as { files: Array<{ path: string; sha256: string }> };
   assert.ok(manifest.files.some((f) => f.path === "repository/src/main.ts"), "workDir file retained in head");
   assert.equal(third.revision.sourceKind, "workdir_snapshot");
+});
+
+test("deletedPaths drops tombstones from the merged revision", () => {
+  // First promotion establishes the head file set.
+  promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Carol",
+    outputs: [
+      { path: "repository/src/main.ts", bytes: new TextEncoder().encode("v1"), mediaType: "text/typescript" },
+      { path: "state/config.json", bytes: new TextEncoder().encode("{}"), mediaType: "application/json" },
+    ],
+  });
+
+  // Provider deletes repository/src/main.ts this task → tombstone must remove it
+  // from the merged head while keeping the untouched file.
+  promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Carol",
+    outputs: [],
+    deletedPaths: ["repository/src/main.ts"],
+  });
+
+  const head = readHeadRevisionSync("Carol", "default");
+  assert.ok(head, "head revision exists");
+  const manifest = JSON.parse(head.manifestJson) as { files: Array<{ path: string; sha256: string }> };
+  assert.ok(!manifest.files.some((f) => f.path === "repository/src/main.ts"), "deleted file removed from head");
+  assert.ok(manifest.files.some((f) => f.path === "state/config.json"), "untouched file retained in head");
 });

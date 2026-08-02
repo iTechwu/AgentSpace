@@ -9,6 +9,8 @@ const MAX_OUTPUT_BUNDLE_TOTAL_BYTES = 25 * 1024 * 1024;
 const OUTPUT_BUNDLE_ALLOWED_PREFIX = "runtime-output/";
 /** Bounded workDir subtrees captured by the daemon (see workdir-capture.ts). */
 const WORKDIR_BUNDLE_ALLOWED_PREFIXES = ["repository/", "state/", "artifacts/"] as const;
+/** Staging-side marker carrying the paths the provider deleted this task. */
+const DELETED_PATHS_META_FILE = ".workdir-deleted.json";
 
 export function getDaemonTaskOutputStagingDir(taskId: string, workspaceId: string): string {
   return getWorkspaceDaemonRemoteStagingDirPath(taskId, workspaceId);
@@ -46,6 +48,10 @@ export function materializeOutputBundleToStaging(
         throw new Error(`Workspace file must stay under repository/, state/ or artifacts/: ${file.path}`);
       }
       totalBytes = writeStagedFile(stagingDir, file.path, file.contentBase64, totalBytes);
+    }
+    const deletedPaths = (bundle.deletedPaths ?? []).filter((path) => isValidWorkDirCapturePath(path));
+    if (deletedPaths.length > 0) {
+      writeFileSync(join(stagingDir, DELETED_PATHS_META_FILE), JSON.stringify({ deletedPaths }), "utf8");
     }
   } catch (error) {
     clearDaemonTaskOutputStaging(taskId, workspaceId);
@@ -120,6 +126,34 @@ export function readStagedWorkDirFiles(taskId: string, workspaceId: string): Arr
     });
   }
   return files;
+}
+
+/**
+ * Reads the staged tombstone list (paths the provider deleted this task). Empty
+ * when the daemon shipped no deletions or the staging was cleared.
+ */
+export function readStagedWorkDirDeletedPaths(taskId: string, workspaceId: string): string[] {
+  const stagingDir = getDaemonTaskOutputStagingDir(taskId, workspaceId);
+  const metaPath = join(stagingDir, DELETED_PATHS_META_FILE);
+  if (!existsSync(metaPath)) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(metaPath, "utf8")) as { deletedPaths?: unknown };
+    return Array.isArray(parsed.deletedPaths)
+      ? parsed.deletedPaths.filter((path): path is string => typeof path === "string" && isValidWorkDirCapturePath(path))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function isValidWorkDirCapturePath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/").trim();
+  if (!normalized || normalized.startsWith("/") || normalized.split("/").some((segment) => segment === "..")) {
+    return false;
+  }
+  return WORKDIR_BUNDLE_ALLOWED_PREFIXES.some((prefix) => normalized === prefix.slice(0, -1) || normalized.startsWith(prefix));
 }
 
 function walkStagedFiles(baseDir: string, visit: (absolutePath: string) => void): void {

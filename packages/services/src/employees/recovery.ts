@@ -327,7 +327,7 @@ function runPhase(
             operationId: operation.id,
             phase: "install_skills",
             workspaceId,
-            contextJson: JSON.stringify({ headRevisionId: head.id, manifestDigest: head.manifestDigest, blobCount: blobDigests.length }),
+            contextJson: mergeContextJson(operation.contextJson, { headRevisionId: head.id, manifestDigest: head.manifestDigest, blobCount: blobDigests.length }),
           });
         }
         if (mount?.status === "failed") {
@@ -339,7 +339,7 @@ function runPhase(
         operationId: operation.id,
         phase: "install_skills",
         workspaceId,
-        contextJson: JSON.stringify({ headRevisionId: head.id, manifestDigest: head.manifestDigest, blobCount: blobDigests.length }),
+        contextJson: mergeContextJson(operation.contextJson, { headRevisionId: head.id, manifestDigest: head.manifestDigest, blobCount: blobDigests.length }),
       });
     }
     case "install_skills": {
@@ -402,7 +402,7 @@ function runPhase(
             operationId: operation.id,
             phase: "resolve_secrets",
             workspaceId,
-            contextJson: JSON.stringify({ skillsVerified: verified }),
+            contextJson: mergeContextJson(operation.contextJson, { skillsVerified: verified }),
           });
         }
         return operation; // waiting for daemon skill-install workers
@@ -411,7 +411,7 @@ function runPhase(
         operationId: operation.id,
         phase: "resolve_secrets",
         workspaceId,
-        contextJson: JSON.stringify({ skillsVerified: verified }),
+        contextJson: mergeContextJson(operation.contextJson, { skillsVerified: verified }),
       });
     }
     case "resolve_secrets": {
@@ -426,7 +426,7 @@ function runPhase(
         operationId: operation.id,
         phase: "health_check",
         workspaceId,
-        contextJson: JSON.stringify({ secretsResolvable: true, skillCount: resolved.checked }),
+        contextJson: mergeContextJson(operation.contextJson, { secretsResolvable: true, skillCount: resolved.checked }),
       });
     }
     case "health_check": {
@@ -454,7 +454,7 @@ function runPhase(
           operationId: operation.id,
           phase: "activate",
           workspaceId,
-          contextJson: JSON.stringify({ healthCheck: "passed", healthCheckedAt: new Date().toISOString() }),
+          contextJson: mergeContextJson(operation.contextJson, { healthCheck: "passed", healthCheckedAt: new Date().toISOString() }),
         });
       }
       const healthy = runHealthChecks(employeeName, workspaceId, options.verify);
@@ -465,7 +465,7 @@ function runPhase(
         operationId: operation.id,
         phase: "activate",
         workspaceId,
-        contextJson: JSON.stringify({ healthCheck: "passed" }),
+        contextJson: mergeContextJson(operation.contextJson, { healthCheck: "passed" }),
       });
     }
     case "activate": {
@@ -507,12 +507,20 @@ function updateRecoveryContext(
   operation: EmployeeRecoveryOperationRecord,
   patch: Record<string, unknown>,
 ): EmployeeRecoveryOperationRecord {
-  const current = parseRecoveryContextRecord(operation.contextJson);
   return updateRecoveryContextSync({
     operationId: operation.id,
     workspaceId: operation.workspaceId,
-    contextJson: JSON.stringify({ ...current, ...patch }),
+    contextJson: mergeContextJson(operation.contextJson, patch),
   });
+}
+
+/**
+ * Merges phase evidence into the existing context instead of replacing it, so
+ * the recorded target `runtimeId` survives across phase transitions and the
+ * activate step always knows which runtime to promote.
+ */
+function mergeContextJson(existing: string, extra: Record<string, unknown>): string {
+  return JSON.stringify({ ...parseRecoveryContextRecord(existing), ...extra });
 }
 
 function parseRecoveryContextRecord(contextJson: string): Record<string, unknown> {

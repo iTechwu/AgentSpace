@@ -106,12 +106,13 @@ test("claim → resolve → complete drives the installation to ready", async ()
   const done = completeSkillInstallationOperationSync({
     operationId: claimed!.id,
     workspaceId: "default",
+    safeResultJson: JSON.stringify({ computedDigest: digest }),
     componentStatuses: [
       { kind: "dependency", key: "npm:left-pad@1.3.0", status: "ready" },
       { kind: "script", key: "scripts/render.py", status: "ready" },
     ],
   });
-  assert.equal(done, true);
+  assert.equal(done.ok, true);
 
   const refreshed = readSkillInstallationSync(installation.id, "default");
   assert.equal(refreshed?.status, "ready");
@@ -145,7 +146,7 @@ test("completion records the daemon's Runtime cache preparedPath + preparedDiges
       { kind: "script", key: "scripts/render.py", status: "ready" },
     ],
   });
-  assert.equal(done, true);
+  assert.equal(done.ok, true);
 
   const refreshed = readSkillInstallationSync(installation.id, "default");
   assert.equal(refreshed?.status, "ready");
@@ -161,12 +162,13 @@ test("a failed prepare blocks components and the installation never reaches read
   const claimed = claimNextSkillInstallationOperationForRuntimeSync({ workspaceId: "default", runtimeId });
   assert.ok(claimed);
 
-  failSkillInstallationOperationSync({
+  const failed = failSkillInstallationOperationSync({
     operationId: claimed!.id,
     workspaceId: "default",
     errorCode: "dependency.install_failed",
     errorMessage: "npm install exited non-zero",
   });
+  assert.equal(failed.ok, true);
 
   const refreshed = readSkillInstallationSync(installation.id, "default");
   assert.equal(refreshed?.status, "blocked");
@@ -197,9 +199,10 @@ async function completeAllComponents(installationId: string, runtimeId: string):
   const done = completeSkillInstallationOperationSync({
     operationId: claimed!.id,
     workspaceId: "default",
+    safeResultJson: JSON.stringify({ computedDigest: resolved!.artifactDigest }),
     componentStatuses: resolved!.components.map((component) => ({ kind: component.kind, key: component.key, status: "ready" })),
   });
-  assert.equal(done, true);
+  assert.equal(done.ok, true);
 }
 
 test("upgrade creates a candidate revision and rollback reactivates the previous ready digest", async () => {

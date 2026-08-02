@@ -90,6 +90,25 @@ test("refuses to follow a file symlink that points outside the workDir", () => {
   rmSync(outsideSecret, { force: true });
 });
 
+test("reports deleted paths for head files missing under the workDir", () => {
+  const goneBytes = new TextEncoder().encode("will-be-deleted");
+  writeWorkDir("repository/gone.ts", goneBytes);
+  const keptBytes = new TextEncoder().encode("still-there");
+  writeWorkDir("repository/kept.ts", keptBytes);
+  const headManifest = {
+    files: [
+      { path: "repository/gone.ts", sha256: sha256Of(goneBytes) },
+      { path: "repository/kept.ts", sha256: sha256Of(keptBytes) },
+      { path: "report.txt", sha256: "1111" }, // non-captured path must be ignored
+    ],
+  };
+  // gone.ts exists in head but is removed from the workDir; kept.ts remains.
+  rmSync(join(tempRoot, "repository/gone.ts"), { force: true });
+
+  const result = collectWorkDirChanges(tempRoot, headManifest);
+  assert.deepEqual(result.deletedPaths, ["repository/gone.ts"]);
+});
+
 test("refuses to follow a directory symlink that points outside the workDir", () => {
   const outsideDir = mkdtempSync(join(tmpdir(), "dofe-wdc-dir-"));
   writeFileSync(join(outsideDir, "credentials.json"), "{" + '"k": "v"' + "}");
