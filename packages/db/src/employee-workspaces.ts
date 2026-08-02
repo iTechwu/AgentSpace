@@ -29,6 +29,7 @@ export interface CreateWorkspaceRevisionInput {
   createdBy?: string;
   /** `task_output` (explicit attachments) or `workdir_snapshot` (workDir capture). */
   sourceKind?: string;
+  restoredFromRevisionId?: string;
 }
 
 export interface PublishEmployeeArtifactInput {
@@ -56,7 +57,8 @@ const REVISION_COLUMNS = `SELECT
   employee_id AS employeeId, employee_name AS employeeName,
   parent_revision_id AS parentRevisionId, manifest_digest AS manifestDigest,
   manifest_json AS manifestJson, source_task_id AS sourceTaskId, status,
-  source_kind AS sourceKind, created_by AS createdBy, created_at AS createdAt`;
+  source_kind AS sourceKind, restored_from_revision_id AS restoredFromRevisionId,
+  created_by AS createdBy, created_at AS createdAt`;
 
 const ARTIFACT_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, workspace_id_ref AS workspaceIdRef,
@@ -180,15 +182,16 @@ export function createWorkspaceRevisionSync(input: CreateWorkspaceRevisionInput)
     throw new Error("Revision manifest digest is required.");
   }
   const sourceKind = input.sourceKind?.trim() || "task_output";
+  const restoredFromRevisionId = input.restoredFromRevisionId?.trim() || null;
   // Ordinary task publishes remain content-idempotent. History restore is the
   // exception: it must create a new graph node with the SAME truthful content
   // digest, keyed by target/source + parent rather than falsifying the digest.
-  const existing = sourceKind.startsWith("history_restore:")
+  const existing = restoredFromRevisionId
     ? db.prepare(
         `${REVISION_COLUMNS} FROM employee_workspace_revision
-         WHERE workspace_id_ref = ? AND manifest_digest = ? AND source_kind = ?
+         WHERE workspace_id_ref = ? AND manifest_digest = ? AND restored_from_revision_id = ?
            AND parent_revision_id IS NOT DISTINCT FROM ?`,
-      ).get(workspace.id, digest, sourceKind, input.parentRevisionId?.trim() || null) as Record<string, unknown> | undefined
+      ).get(workspace.id, digest, restoredFromRevisionId, input.parentRevisionId?.trim() || null) as Record<string, unknown> | undefined
     : db.prepare(
         `${REVISION_COLUMNS} FROM employee_workspace_revision WHERE workspace_id_ref = ? AND manifest_digest = ?`,
       ).get(workspace.id, digest) as Record<string, unknown> | undefined;
@@ -200,8 +203,9 @@ export function createWorkspaceRevisionSync(input: CreateWorkspaceRevisionInput)
   db.prepare(
     `INSERT INTO employee_workspace_revision (
       id, workspace_id, workspace_id_ref, employee_id, employee_name, parent_revision_id,
-      manifest_digest, manifest_json, source_task_id, status, source_kind, created_by, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      manifest_digest, manifest_json, source_task_id, status, source_kind,
+      restored_from_revision_id, created_by, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     workspaceId,
@@ -214,6 +218,7 @@ export function createWorkspaceRevisionSync(input: CreateWorkspaceRevisionInput)
     input.sourceTaskId?.trim() || null,
     input.status ?? "pending",
     sourceKind,
+    restoredFromRevisionId,
     input.createdBy?.trim() || null,
     now,
   );
@@ -337,9 +342,8 @@ export function restoreWorkspaceRevisionSync(input: {
     throw new Error(`Target revision "${input.targetRevisionId}" is not committed.`);
   }
   const head = readHeadRevisionSync(input.employeeName, workspaceId);
-  const sourceKind = `history_restore:${target.id}`;
   // Retrying the same request before any intervening commit is idempotent.
-  if (head?.sourceKind === sourceKind) {
+  if (head?.sourceKind === "history_restore" && head.restoredFromRevisionId === target.id) {
     return head;
   }
   const db = getDatabase();
@@ -366,7 +370,8 @@ export function restoreWorkspaceRevisionSync(input: {
       manifestJson: target.manifestJson,
       status: "pending",
       createdBy: input.createdBy,
-      sourceKind,
+      sourceKind: "history_restore",
+      restoredFromRevisionId: target.id,
     });
     // Fence every task claimed before this restore. The generation update and
     // head promotion commit together, so a task sees either the old lease/head
@@ -608,6 +613,9 @@ function mapRevisionRecord(value: Record<string, unknown>): EmployeeWorkspaceRev
     sourceTaskId: readOptionalString(value.sourceTaskId),
     status: value.status as WorkspaceRevisionStatus,
     sourceKind: typeof value.sourceKind === "string" ? value.sourceKind : "task_output",
+    restoredFromRevisionId: readOptionalString(
+      value.restoredFromRevisionId ?? value.restoredfromrevisionid ?? value.restored_from_revision_id,
+    ),
     createdBy: readOptionalString(value.createdBy),
     createdAt: value.createdAt,
   };

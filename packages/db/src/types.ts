@@ -1653,6 +1653,8 @@ export interface EmployeeWorkspaceRevisionRecord {
   status: WorkspaceRevisionStatus;
   /** `task_output` (explicit attachments) or `workdir_snapshot` (workDir capture). */
   sourceKind: string;
+  /** Immutable source revision when sourceKind is `history_restore`. */
+  restoredFromRevisionId?: string;
   createdBy?: string;
   createdAt: string;
 }

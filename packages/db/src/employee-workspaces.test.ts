@@ -204,6 +204,8 @@ test("restore produces a NEW head revision, never overwriting history", () => {
   assert.notEqual(restored.id, v1.id, "restore must not mutate the original revision");
   // The restored head carries the target's manifest, not the caller's.
   assert.equal(restored.manifestJson, v1.manifestJson);
+  assert.equal(restored.sourceKind, "history_restore");
+  assert.equal(restored.restoredFromRevisionId, v1.id);
   assert.equal(readHeadRevisionSync("Bob", "default")?.id, restored.id);
 });
 

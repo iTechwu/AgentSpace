@@ -42,12 +42,13 @@ test("postgres schema includes the expected core and derived tables", () => {
 test("postgres schema enforces SSO-only identities", () => {
   const statements = getPostgresSchemaStatements().join("\n");
 
-  assert.equal(POSTGRES_SCHEMA_VERSION, "89");
+  assert.equal(POSTGRES_SCHEMA_VERSION, "90");
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_token TEXT/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_expires_at TIMESTAMPTZ/);
   assert.match(statements, /runtime_workspace_mount_operation\s+ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ/);
   assert.match(statements, /runtime_workspace_mount_operation\s+ADD COLUMN IF NOT EXISTS claim_generation INTEGER NOT NULL DEFAULT 0/);
   assert.match(statements, /DROP CONSTRAINT IF EXISTS employee_workspace_revision_workspace_id_ref_manifest_diges_key/);
+  assert.match(statements, /ADD COLUMN IF NOT EXISTS restored_from_revision_id TEXT/);
   assert.match(statements, /ALTER TABLE daemon_api_token\s+ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'general'/);
   assert.match(statements, /DELETE FROM session WHERE user_id NOT IN \(SELECT user_id FROM auth_identity WHERE provider = 'sso'\)/);
   assert.match(statements, /DELETE FROM auth_identity WHERE provider <> 'sso'/);

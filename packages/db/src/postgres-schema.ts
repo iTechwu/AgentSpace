@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "89";
+export const POSTGRES_SCHEMA_VERSION = "90";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -2825,6 +2825,8 @@ export function getPostgresSchemaStatements(): string[] {
         manifest_json JSONB NOT NULL,
         source_task_id TEXT REFERENCES agent_task_queue(id) ON DELETE SET NULL,
         status TEXT NOT NULL DEFAULT 'pending',
+        source_kind TEXT NOT NULL DEFAULT 'task_output',
+        restored_from_revision_id TEXT,
         created_by TEXT,
         created_at TIMESTAMPTZ NOT NULL
       )
@@ -2911,6 +2913,26 @@ export function getPostgresSchemaStatements(): string[] {
     `
       ALTER TABLE employee_workspace_revision
         DROP CONSTRAINT IF EXISTS employee_workspace_revision_workspace_id_ref_manifest_digest_key
+    `,
+    `
+      ALTER TABLE employee_workspace_revision
+        ADD COLUMN IF NOT EXISTS restored_from_revision_id TEXT
+    `,
+    `
+      UPDATE employee_workspace_revision AS restored
+         SET restored_from_revision_id = split_part(restored.source_kind, ':', 2),
+             source_kind = 'history_restore'
+       WHERE restored.source_kind LIKE 'history_restore:%'
+         AND EXISTS (
+           SELECT 1 FROM employee_workspace_revision AS source
+            WHERE source.id = split_part(restored.source_kind, ':', 2)
+              AND source.workspace_id_ref = restored.workspace_id_ref
+         )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_employee_workspace_revision_restore_source
+        ON employee_workspace_revision(workspace_id_ref, restored_from_revision_id, parent_revision_id)
+        WHERE restored_from_revision_id IS NOT NULL
     `,
     `
       ALTER TABLE employee_workspace_revision
