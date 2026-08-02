@@ -29,9 +29,6 @@ const CAP_DROP_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 /** Environment-variable-like secret field names (e.g. RENDER_LICENSE). */
 const SECRET_FIELD_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 
-/** Egress allow-list entries: a host or host:port or URL, no spaces/controls. */
-const EGRESS_ENTRY_PATTERN = /^[^\s]{1,253}$/;
-
 /**
  * Data-store kinds a template may only REFERENCE (centrally managed), never
  * create. The catalog template itself carries no image/volume/init-job fields
@@ -169,8 +166,9 @@ export function assertSkillServiceCatalogAdmissionSync(
     return { ok: false, reason: "networkJson must contain an egressAllowlist array." };
   }
   for (const entry of (network.value?.egressAllowlist as unknown[]) ?? []) {
-    if (typeof entry !== "string" || !EGRESS_ENTRY_PATTERN.test(entry)) {
-      return { ok: false, reason: `Invalid egressAllowlist entry "${String(entry)}"; expected a host, host:port or URL.` };
+    const egressError = typeof entry === "string" ? validateEgressOrigin(entry) : "entry must be a string";
+    if (egressError) {
+      return { ok: false, reason: `Invalid egressAllowlist entry "${String(entry)}": ${egressError}.` };
     }
   }
 
@@ -233,6 +231,32 @@ export function assertSkillServiceCatalogAdmissionSync(
   }
 
   return { ok: true };
+}
+
+function validateEgressOrigin(entry: string): string | undefined {
+  if (!entry.trim() || /\s/.test(entry) || entry.length > 253) {
+    return "expected a non-empty origin without whitespace";
+  }
+  let url: URL;
+  try {
+    url = new URL(entry.includes("://") ? entry : `https://${entry}`);
+  } catch {
+    return "expected host, host:port or an HTTP(S) origin";
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return "only http and https protocols are supported";
+  }
+  if (!url.hostname || url.username || url.password) {
+    return "host is required and credentials are forbidden";
+  }
+  if ((url.pathname && url.pathname !== "/") || url.search || url.hash) {
+    return "only an origin is allowed; path, query and fragment cannot be enforced";
+  }
+  const port = url.port ? Number(url.port) : url.protocol === "http:" ? 80 : 443;
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    return "port must be between 1 and 65535";
+  }
+  return undefined;
 }
 
 /**

@@ -26,6 +26,7 @@ export async function executeSkillServiceOperation(
 ): Promise<void> {
   const containerRuntime = runtime ?? createDockerManagedServiceContainerRuntime(undefined, {
     secretRootDir: join(config.stateDir, "skill-service-secrets"),
+    networkPolicyRootDir: join(config.stateDir, "skill-service-network-policies"),
   });
   await client.startSkillServiceOperation(operation.operationId, operation.claimGeneration);
 

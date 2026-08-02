@@ -2,12 +2,21 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { promises as dnsPromises } from "node:dns";
 import { promises as fs } from "node:fs";
+import { isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildManagedRuntimeDockerConnectivityArgs,
   resolveManagedRuntimeDockerNetwork,
 } from "../managed-provider-credentials.ts";
+import {
+  createIptablesManagedServiceEgressPolicy,
+  ManagedServiceEgressPolicyError,
+  parseManagedServiceEgressTargets,
+  type ManagedNetworkAddress,
+  type ManagedServiceEgressPolicyRuntime,
+  type ManagedServiceEgressTarget,
+} from "./egress-policy.ts";
 
 /** Unroutable TEST-NET-1 address used as the container's DNS so ANY hostname
  * that is not pinned in the mounted /etc/hosts fails to resolve. */
@@ -283,11 +292,10 @@ export function parseEgressAllowlistHostnames(egressAllowlist: string[]): string
 
 /** Builds the read-only /etc/hosts for the container: localhost + each
  * allow-listed hostname pinned to its resolved IP. */
-export function buildEgressHostsFile(hostnames: string[], ipByHostname: Map<string, string>): string {
+export function buildEgressHostsFile(hostnames: string[], ipByHostname: Map<string, string[]>): string {
   const lines = ["127.0.0.1 localhost", "::1 localhost ip6-localhost ip6-loopback"];
   for (const hostname of hostnames) {
-    const ip = ipByHostname.get(hostname);
-    if (ip) {
+    for (const ip of ipByHostname.get(hostname) ?? []) {
       lines.push(`${ip} ${hostname}`);
     }
   }
@@ -298,8 +306,8 @@ export function buildEgressHostsFile(hostnames: string[], ipByHostname: Map<stri
  * Computes the docker network args for a service container from the catalog's
  * egressAllowlist:
  *  - `undefined` (no policy declared) → shared network, unconstrained (legacy).
- *  - empty array → join the per-workspace INTERNAL network (primary — no default
- *    route → no internet) PLUS the shared network (private ingress intact).
+ *  - empty array → shared private-ingress network; L3/L4 policy drops all new
+ *    outbound traffic from this container before it starts.
  *  - non-empty → stay on the shared network with an unroutable `--dns` and a
  *    read-only hosts file pinning ONLY the allow-listed hostnames (DNS-level
  *    enforcement; raw-IP egress is a documented residual that needs a CNI).
@@ -308,27 +316,23 @@ export function buildManagedServiceNetworkArgs(input: {
   egressAllowlist?: string[];
   network: string;
   workspaceId: string;
-  egressHostsFilePath?: string;
+  egressHostEntries?: Array<{ hostname: string; address: string }>;
 }): { args: string[]; internalNetworkName?: string } {
   if (input.egressAllowlist === undefined) {
     return { args: ["--network", input.network] };
   }
   if (input.egressAllowlist.length === 0) {
-    const internalNetworkName = buildManagedServiceInternalNetworkName(input.workspaceId);
-    return {
-      args: ["--network", internalNetworkName, "--network", input.network],
-      internalNetworkName,
-    };
+    return { args: ["--network", input.network] };
   }
   const args = ["--network", input.network, "--dns", EGRESS_BLOCK_DNS];
-  if (input.egressHostsFilePath) {
-    args.push("--mount", `type=bind,src=${input.egressHostsFilePath},dst=/etc/hosts,readonly`);
+  for (const entry of input.egressHostEntries ?? []) {
+    args.push("--add-host", `${entry.hostname}=${entry.address}`);
   }
   return { args };
 }
 
-/** Resolves a hostname to IPv4 addresses for the egress hosts file (injectable). */
-export type EgressHostLookup = (hostname: string) => Promise<string[]>;
+/** Resolves all IPv4/IPv6 addresses so both hosts pinning and firewall rules use the same set. */
+export type EgressHostLookup = (hostname: string) => Promise<ManagedNetworkAddress[]>;
 
 /** Real runtime: shells out to the local `docker` CLI (same spawn pattern as managed provisioning). */
 export function createDockerManagedServiceContainerRuntime(
@@ -341,6 +345,10 @@ export function createDockerManagedServiceContainerRuntime(
     cosignExec?: ManagedContainerExec;
     /** Daemon-owned persistent root for container secret files. */
     secretRootDir?: string;
+    /** Persistent recovery state for host firewall rules. */
+    networkPolicyRootDir?: string;
+    /** Injectable L3/L4 policy backend; production defaults to Linux iptables/ip6tables. */
+    egressPolicyRuntime?: ManagedServiceEgressPolicyRuntime;
   },
 ): ManagedServiceContainerRuntime {
   const healthWaitMs = options?.healthWaitMs ?? SKILL_SERVICE_HEALTH_WAIT_MS;
@@ -350,6 +358,11 @@ export function createDockerManagedServiceContainerRuntime(
   const secretRootDir = options?.secretRootDir
     ?? process.env.DOFE_AGENT_SKILL_SERVICE_SECRET_ROOT?.trim()
     ?? join(tmpdir(), "dofe-agent-skill-service-secrets");
+  const networkPolicyRootDir = options?.networkPolicyRootDir
+    ?? process.env.DOFE_AGENT_SKILL_SERVICE_NETWORK_POLICY_ROOT?.trim()
+    ?? join(tmpdir(), "dofe-agent-skill-service-network-policies");
+  const egressPolicyRuntime = options?.egressPolicyRuntime
+    ?? createIptablesManagedServiceEgressPolicy({ stateRootDir: networkPolicyRootDir });
   return {
     async provision(input) {
       const network = resolveManagedRuntimeDockerNetwork();
@@ -373,39 +386,39 @@ export function createDockerManagedServiceContainerRuntime(
       // allowed hostnames in a read-only /etc/hosts + blocks DNS for everything
       // else.
       const egress = parseEgressPolicy(input.networkJson);
-      let tmpDir: string | undefined;
       let secretGenerationDir: string | undefined;
       let containerCreated = false;
+      let egressPolicyApplied = false;
       try {
-        let hostsFilePath: string | undefined;
-        let internalNetworkName: string | undefined;
+        const egressHostEntries: Array<{ hostname: string; address: string }> = [];
+        let resolvedEgressTargets: ManagedServiceEgressTarget[] = [];
         if (egress.hasPolicy && egress.allowlist.length > 0) {
-          tmpDir = await fs.mkdtemp(join(tmpdir(), "dofe-svc-egress-"));
-          const hostnames = parseEgressAllowlistHostnames(egress.allowlist);
-          const ipByHostname = new Map<string, string>();
-          for (const hostname of hostnames) {
-            const ips = await lookupHost(hostname);
-            if (ips.length > 0) {
-              ipByHostname.set(hostname, ips[0]!);
+          const targets = parseManagedServiceEgressTargets(egress.allowlist);
+          for (const target of targets) {
+            const literalFamily = isIP(target.hostname);
+            const addresses = literalFamily
+              ? [{ family: literalFamily === 4 ? "ipv4" as const : "ipv6" as const, address: target.hostname }]
+              : await lookupHost(target.hostname);
+            if (addresses.length === 0) {
+              throw new DockerContainerError(
+                "skill_service.egress_policy_resolution_failed",
+                `Egress origin did not resolve to an address: ${target.hostname}`,
+              );
             }
+            resolvedEgressTargets.push({ ...target, addresses });
+            egressHostEntries.push(...addresses.map((address) => ({
+              hostname: target.hostname,
+              address: address.address,
+            })));
           }
-          hostsFilePath = join(tmpDir, "hosts");
-          await fs.writeFile(hostsFilePath, buildEgressHostsFile(hostnames, ipByHostname), "utf8");
         }
         const computedNetworkArgs = buildManagedServiceNetworkArgs({
           egressAllowlist: egress.hasPolicy ? egress.allowlist : undefined,
           network,
           workspaceId: input.workspaceId,
-          egressHostsFilePath: hostsFilePath,
+          egressHostEntries,
         });
-        internalNetworkName = computedNetworkArgs.internalNetworkName;
         const networkArgs = computedNetworkArgs.args;
-        if (internalNetworkName) {
-          const created = await exec(["network", "create", "--internal", internalNetworkName], { timeoutMs: 30_000 });
-          if (created.exitCode !== 0 && !/already exists/i.test(created.stderr)) {
-            throw new DockerContainerError("skill_service.network_create_failed", (created.stderr || created.stdout).trim());
-          }
-        }
 
         const secretFiles = await writeManagedServiceSecretFiles({
           rootDir: secretRootDir,
@@ -434,6 +447,7 @@ export function createDockerManagedServiceContainerRuntime(
         if (create.exitCode !== 0) {
           // Deterministic name → a stale container from a crashed run may exist; clear and retry once.
           if (/already in use|already exists/i.test(create.stderr)) {
+            await removeManagedServiceEgressPolicy(egressPolicyRuntime, input.serviceId);
             await runChecked(exec, ["rm", "-f", containerName], { timeoutMs: 30_000 }, "skill_service.container_remove_failed");
             createResult = await runChecked(exec, createArgs, { timeoutMs: DOCKER_CONTAINER_TIMEOUT_MS }, "skill_service.container_create_failed");
           } else {
@@ -442,6 +456,20 @@ export function createDockerManagedServiceContainerRuntime(
         }
         const containerId = createResult.stdout.trim().split(/\s+/).pop() ?? containerName;
         containerCreated = true;
+
+        if (egress.hasPolicy) {
+          const sourceAddresses = await readManagedServiceContainerAddresses(exec, containerId);
+          try {
+            await egressPolicyRuntime.apply({
+              serviceId: input.serviceId,
+              sourceAddresses,
+              targets: resolvedEgressTargets,
+            });
+          } catch (error) {
+            throw asDockerEgressPolicyError(error);
+          }
+          egressPolicyApplied = true;
+        }
 
         await runChecked(exec, ["start", containerId], { timeoutMs: DOCKER_CONTAINER_TIMEOUT_MS }, "skill_service.container_start_failed");
 
@@ -457,11 +485,11 @@ export function createDockerManagedServiceContainerRuntime(
         if (containerCreated) {
           await exec(["rm", "-f", containerName], { timeoutMs: 30_000 }).catch(() => undefined);
         }
+        if (egressPolicyApplied) {
+          await egressPolicyRuntime.remove({ serviceId: input.serviceId }).catch(() => undefined);
+        }
         throw error;
       } finally {
-        if (tmpDir) {
-          await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-        }
         if (secretGenerationDir) {
           await fs.rm(secretGenerationDir, { recursive: true, force: true }).catch(() => {});
         }
@@ -474,7 +502,11 @@ export function createDockerManagedServiceContainerRuntime(
       if (removed.exitCode !== 0 && !/no such container/i.test(removed.stderr)) {
         throw new DockerContainerError("skill_service.container_remove_failed", (removed.stderr || removed.stdout).trim());
       }
-      await fs.rm(buildManagedServiceSecretDir(secretRootDir, input.serviceId), { recursive: true, force: true });
+      try {
+        await removeManagedServiceEgressPolicy(egressPolicyRuntime, input.serviceId);
+      } finally {
+        await fs.rm(buildManagedServiceSecretDir(secretRootDir, input.serviceId), { recursive: true, force: true });
+      }
     },
   };
 }
@@ -569,13 +601,71 @@ function parseEgressPolicy(networkJson?: string): { hasPolicy: boolean; allowlis
   }
 }
 
-async function defaultLookupHost(hostname: string): Promise<string[]> {
+async function defaultLookupHost(hostname: string): Promise<ManagedNetworkAddress[]> {
   try {
-    const { address } = await dnsPromises.lookup(hostname, { family: 4 });
-    return [address];
+    const addresses = await dnsPromises.lookup(hostname, { all: true, verbatim: true });
+    return addresses.map(({ address, family }) => ({
+      address,
+      family: family === 6 ? "ipv6" as const : "ipv4" as const,
+    }));
   } catch {
     return [];
   }
+}
+
+async function readManagedServiceContainerAddresses(
+  exec: ManagedContainerExec,
+  containerId: string,
+): Promise<ManagedNetworkAddress[]> {
+  const format = "{{json .NetworkSettings.Networks}}";
+  const inspected = await runChecked(
+    exec,
+    buildManagedServiceInspectArgs(containerId, format),
+    { timeoutMs: 15_000 },
+    "skill_service.container_network_inspect_failed",
+  );
+  try {
+    const networks = JSON.parse(inspected.stdout.trim()) as Record<string, {
+      IPAddress?: string;
+      GlobalIPv6Address?: string;
+    }>;
+    const addresses: ManagedNetworkAddress[] = [];
+    for (const network of Object.values(networks)) {
+      if (network.IPAddress && isIP(network.IPAddress) === 4) {
+        addresses.push({ family: "ipv4", address: network.IPAddress });
+      }
+      if (network.GlobalIPv6Address && isIP(network.GlobalIPv6Address) === 6) {
+        addresses.push({ family: "ipv6", address: network.GlobalIPv6Address });
+      }
+    }
+    return addresses;
+  } catch {
+    throw new DockerContainerError(
+      "skill_service.container_network_inspect_failed",
+      "Docker returned invalid container network metadata.",
+    );
+  }
+}
+
+async function removeManagedServiceEgressPolicy(
+  runtime: ManagedServiceEgressPolicyRuntime,
+  serviceId: string,
+): Promise<void> {
+  try {
+    await runtime.remove({ serviceId });
+  } catch (error) {
+    throw asDockerEgressPolicyError(error);
+  }
+}
+
+function asDockerEgressPolicyError(error: unknown): DockerContainerError {
+  if (error instanceof ManagedServiceEgressPolicyError) {
+    return new DockerContainerError(error.code, error.message);
+  }
+  return new DockerContainerError(
+    "skill_service.egress_policy_error",
+    error instanceof Error ? error.message : String(error),
+  );
 }
 
 async function waitForHealthy(

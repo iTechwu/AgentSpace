@@ -269,6 +269,28 @@ test("catalog admission requires egressAllowlist for image templates (empty allo
   assert.equal(empty.ok, true, "an explicit empty allow-list (no egress) is valid");
 });
 
+test("catalog admission accepts only enforceable HTTP(S) egress origins", () => {
+  for (const entry of [
+    "ftp://example.com",
+    "https://example.com/path",
+    "https://user:pass@example.com",
+    "https://example.com?q=1",
+    "example.com:0",
+  ]) {
+    const result = assertSkillServiceCatalogAdmissionSync({
+      ...validInput(),
+      networkJson: JSON.stringify({ egressAllowlist: [entry] }),
+    });
+    assert.equal(result.ok, false, entry);
+    if (!result.ok) assert.match(result.reason, /Invalid egressAllowlist/);
+  }
+
+  assert.equal(assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    networkJson: JSON.stringify({ egressAllowlist: ["https://example.com:8443", "api.example.com"] }),
+  }).ok, true);
+});
+
 test("catalog admission validates egress allow-list entry format", () => {
   const bad = assertSkillServiceCatalogAdmissionSync({
     ...validInput(),

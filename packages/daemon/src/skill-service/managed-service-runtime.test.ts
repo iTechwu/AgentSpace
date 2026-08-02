@@ -22,6 +22,7 @@ import {
   writeManagedServiceSecretFiles,
   type ManagedContainerExec,
 } from "./managed-service-runtime.ts";
+import type { ManagedServiceEgressPolicyRuntime } from "./egress-policy.ts";
 
 const NETWORK = "dofe-internal";
 
@@ -44,6 +45,23 @@ function fakeExec(
     return { stdout: response.stdout ?? "", stderr: response.stderr ?? "", exitCode: response.exitCode ?? 0 };
   };
   return { exec, calls };
+}
+
+function fakeEgressPolicy(): {
+  runtime: ManagedServiceEgressPolicyRuntime;
+  applied: Parameters<ManagedServiceEgressPolicyRuntime["apply"]>[0][];
+  removed: string[];
+} {
+  const applied: Parameters<ManagedServiceEgressPolicyRuntime["apply"]>[0][] = [];
+  const removed: string[] = [];
+  return {
+    applied,
+    removed,
+    runtime: {
+      apply: async (input) => { applied.push(input); },
+      remove: async ({ serviceId }) => { removed.push(serviceId); },
+    },
+  };
 }
 
 const provisionInput = {
@@ -215,44 +233,47 @@ test("parseEgressAllowlistHostnames strips schemes, paths and ports", () => {
 });
 
 test("buildEgressHostsFile pins resolved IPs and localhost", () => {
-  const ipByHostname = new Map([["fonts.example.com", "203.0.113.10"]]);
+  const ipByHostname = new Map([["fonts.example.com", ["203.0.113.10", "2001:db8::10"]]]);
   const content = buildEgressHostsFile(["fonts.example.com"], ipByHostname);
   assert.match(content, /127\.0\.0\.1 localhost/);
   assert.match(content, /203\.0\.113\.10 fonts\.example\.com/);
+  assert.match(content, /2001:db8::10 fonts\.example\.com/);
 });
 
-test("buildManagedServiceNetworkArgs: missing → shared, empty → internal, non-empty → dns + hosts", () => {
+test("buildManagedServiceNetworkArgs: policy keeps private ingress; non-empty also pins DNS", () => {
   const shared = buildManagedServiceNetworkArgs({ egressAllowlist: undefined, network: "mgmt", workspaceId: "default" });
   assert.deepEqual(shared.args, ["--network", "mgmt"]);
   assert.equal(shared.internalNetworkName, undefined);
 
   const internal = buildManagedServiceNetworkArgs({ egressAllowlist: [], network: "mgmt", workspaceId: "default" });
   assert.equal(buildManagedServiceInternalNetworkName("default"), "dofe-svc-internal-default");
-  assert.deepEqual(internal.args, ["--network", "dofe-svc-internal-default", "--network", "mgmt"]);
-  assert.equal(internal.internalNetworkName, "dofe-svc-internal-default");
+  assert.deepEqual(internal.args, ["--network", "mgmt"]);
+  assert.equal(internal.internalNetworkName, undefined);
 
   const allow = buildManagedServiceNetworkArgs({
     egressAllowlist: ["fonts.example.com:443"],
     network: "mgmt",
     workspaceId: "default",
-    egressHostsFilePath: "/tmp/dofe-hosts",
+    egressHostEntries: [{ hostname: "fonts.example.com", address: "203.0.113.10" }],
   });
   assert.ok(allow.args.includes("--dns"));
-  assert.ok(allow.args.some((arg) => arg.includes("/etc/hosts")), "hosts file must be mounted");
+  assert.ok(allow.args.includes("fonts.example.com=203.0.113.10"), "resolved address must be pinned");
 });
 
-test("provision with an empty allow-list creates an internal network and blocks outbound", async () => {
+test("provision with an empty allow-list applies a drop-only policy before start", async () => {
   const { exec, calls } = fakeExec((args) => {
     switch (args[0]) {
       case "pull": return {};
-      case "network": return {};
       case "create": return { stdout: "cid\n" };
       case "start": return {};
-      case "inspect": return { stdout: "true\n" };
+      case "inspect": return { stdout: args.includes("{{json .NetworkSettings.Networks}}")
+        ? JSON.stringify({ mgmt: { IPAddress: "172.18.0.4", GlobalIPv6Address: "" } })
+        : "true\n" };
       default: return { stderr: `unexpected ${args.join(" ")}`, exitCode: 1 };
     }
   });
-  const runtime = createDockerManagedServiceContainerRuntime(exec);
+  const policy = fakeEgressPolicy();
+  const runtime = createDockerManagedServiceContainerRuntime(exec, { egressPolicyRuntime: policy.runtime });
 
   const result = await runtime.provision({
     ...provisionInput,
@@ -260,21 +281,29 @@ test("provision with an empty allow-list creates an internal network and blocks 
   });
 
   assert.equal(result.endpointRef, "runtime-private://dofe-svc-svc-1");
-  const networkCreate = calls.find((args) => args[0] === "network")!;
-  assert.deepEqual(networkCreate.slice(0, 4), ["network", "create", "--internal", "dofe-svc-internal-default"]);
   const createCall = calls.find((args) => args[0] === "create")!;
-  assert.equal(createCall.filter((arg) => arg === "--network").length, 2, "internal + shared networks");
-  assert.ok(createCall.includes("dofe-svc-internal-default"));
+  assert.equal(createCall.filter((arg) => arg === "--network").length, 1);
+  assert.equal(policy.applied.length, 1);
+  assert.deepEqual(policy.applied[0]!.targets, []);
+  assert.deepEqual(policy.applied[0]!.sourceAddresses, [{ family: "ipv4", address: "172.18.0.4" }]);
+  assert.ok(calls.findIndex((args) => args[0] === "inspect") < calls.findIndex((args) => args[0] === "start"));
 });
 
 test("provision with a non-empty allow-list pins hosts and blocks DNS", async () => {
   const { exec, calls } = fakeExec((args) => {
-    if (args[0] === "inspect") return { stdout: "true\n" };
+    if (args[0] === "inspect") return { stdout: args.includes("{{json .NetworkSettings.Networks}}")
+      ? JSON.stringify({ mgmt: { IPAddress: "172.18.0.4", GlobalIPv6Address: "fd00::4" } })
+      : "true\n" };
     if (args[0] === "create") return { stdout: "cid\n" };
     return {};
   });
+  const policy = fakeEgressPolicy();
   const runtime = createDockerManagedServiceContainerRuntime(exec, {
-    lookupHost: async () => ["203.0.113.10"],
+    lookupHost: async () => [
+      { family: "ipv4", address: "203.0.113.10" },
+      { family: "ipv6", address: "2001:db8::10" },
+    ],
+    egressPolicyRuntime: policy.runtime,
   });
 
   const result = await runtime.provision({
@@ -285,13 +314,41 @@ test("provision with a non-empty allow-list pins hosts and blocks DNS", async ()
   assert.equal(result.endpointRef, "runtime-private://dofe-svc-svc-1");
   const createCall = calls.find((args) => args[0] === "create")!;
   assert.ok(createCall.includes("--dns"), "dead DNS blocks unknown hostnames");
-  const mount = createCall.find((arg) => arg.startsWith("type=bind,src=") && arg.includes("/etc/hosts"));
-  assert.ok(mount, "hosts file must be mounted read-only");
-  const hostsSrc = mount!.split("src=")[1]!.split(",")[0]!;
-  assert.match(hostsSrc, /dofe-svc-egress-/, "hosts file lives in a scratch dir");
-  // Hosts-file CONTENT correctness is covered by buildEgressHostsFile above;
-  // the provision writes it then cleans the scratch dir in finally.
+  assert.ok(createCall.includes("fonts.example.com=203.0.113.10"));
+  assert.ok(createCall.includes("fonts.example.com=2001:db8::10"));
   assert.ok(!createCall.includes("dofe-svc-internal"), "non-empty allow-list stays on the shared network");
+  assert.deepEqual(policy.applied[0]!.targets, [{
+    hostname: "fonts.example.com",
+    port: 443,
+    addresses: [
+      { family: "ipv4", address: "203.0.113.10" },
+      { family: "ipv6", address: "2001:db8::10" },
+    ],
+  }]);
+});
+
+test("provision does not start the container when L3/L4 policy cannot be applied", async () => {
+  const { exec, calls } = fakeExec((args) => {
+    if (args[0] === "create") return { stdout: "cid\n" };
+    if (args[0] === "inspect") {
+      return { stdout: JSON.stringify({ mgmt: { IPAddress: "172.18.0.4" } }) };
+    }
+    return {};
+  });
+  const runtime = createDockerManagedServiceContainerRuntime(exec, {
+    egressPolicyRuntime: {
+      apply: async () => { throw new Error("permission denied"); },
+      remove: async () => {},
+    },
+  });
+
+  await assert.rejects(
+    runtime.provision({ ...provisionInput, networkJson: JSON.stringify({ egressAllowlist: [] }) }),
+    (error: unknown) => error instanceof DockerContainerError
+      && error.code === "skill_service.egress_policy_error",
+  );
+  assert.equal(calls.some((args) => args[0] === "start"), false);
+  assert.ok(calls.some((args) => args[0] === "rm" && args.includes("-f")));
 });
 
 test("computeManagedServiceHealthRevision is deterministic per config + state", () => {
@@ -467,6 +524,23 @@ test("retire removes the container and tolerates a missing container", async () 
   } finally {
     await fs.rm(secretRootDir, { recursive: true, force: true });
   }
+});
+
+test("retire removes the persisted egress policy after stopping the container", async () => {
+  const events: string[] = [];
+  const { exec } = fakeExec((args) => {
+    if (args[0] === "rm") events.push("container-removed");
+    return {};
+  });
+  const runtime = createDockerManagedServiceContainerRuntime(exec, {
+    egressPolicyRuntime: {
+      apply: async () => {},
+      remove: async () => { events.push("policy-removed"); },
+    },
+  });
+
+  await runtime.retire({ serviceId: "svc-1", workspaceId: "default" });
+  assert.deepEqual(events, ["container-removed", "policy-removed"]);
 });
 
 test("retire surfaces a real removal error", async () => {
