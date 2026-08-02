@@ -1436,6 +1436,7 @@ describe("WorkspaceFrame", () => {
     );
 
     expect(await screen.findByRole("dialog", { name: "新手引导" })).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-layout")).toHaveClass("workspace-layout--sidebar-open");
     expect(screen.getByRole("heading", { name: "1. 绑定 Runtime" })).toBeInTheDocument();
     expect(screen.getByText(/没有它，AI员工 只能被配置，不能开始工作/)).toBeInTheDocument();
 
@@ -1444,6 +1445,7 @@ describe("WorkspaceFrame", () => {
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: "新手引导" })).not.toBeInTheDocument();
     });
+    expect(screen.getByTestId("workspace-layout")).not.toHaveClass("workspace-layout--sidebar-open");
     expect(window.localStorage.getItem(buildWorkspaceOnboardingStorageKey(user.id, workspaces[0].id))).toBe("done");
   });
 

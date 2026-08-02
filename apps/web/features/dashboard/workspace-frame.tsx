@@ -293,9 +293,7 @@ function WorkspaceFrameContent({
     [canViewRuntimes, currentWorkspace.slug, isChannelScopedGuest, runtimeMode, tx, visibility],
   );
   const handleOnboardingActiveChange = useCallback((active: boolean) => {
-    if (active) {
-      setMobileSidebarOpen(true);
-    }
+    setMobileSidebarOpen(active);
   }, []);
   const handleOnboardingNavigate = useCallback((href: string) => {
     router.push(href);
