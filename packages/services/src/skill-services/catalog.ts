@@ -10,7 +10,11 @@ import type { StoredSkillServiceCatalogRecord } from "@dofe-agent/db";
  * RabbitMQ services, images, volumes or init jobs.
  */
 
+/** Bare content digest (SBOM; legacy image ref). */
 const IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
+/** Image reference: either a bare digest or a full digest-pinned ref `repo@sha256:<64hex>`
+ *  so a managed node can `docker pull <ref>` directly from its registry. */
+const IMAGE_REF_DIGEST_PATTERN = /^(?:[a-z0-9][a-z0-9._:\/-]*@)?sha256:[a-f0-9]{64}$/;
 
 const ROLLBACK_CLASSES = new Set(["stateless", "backward_compatible", "irreversible_migration"]);
 
@@ -87,8 +91,11 @@ export function assertSkillServiceCatalogAdmissionSync(
       reason: `Unknown deploymentType "${input.deploymentType}"; expected external_connection | managed_service | platform_shared.`,
     };
   }
-  if (!IMAGE_DIGEST_PATTERN.test(input.imageDigest.trim().toLowerCase())) {
-    return { ok: false, reason: `imageDigest must be digest-locked (sha256:<64 hex>), got "${input.imageDigest}".` };
+  if (!IMAGE_REF_DIGEST_PATTERN.test(input.imageDigest.trim().toLowerCase())) {
+    return {
+      ok: false,
+      reason: `imageDigest must be digest-locked (sha256:<64 hex> or repo@sha256:<64 hex>), got "${input.imageDigest}".`,
+    };
   }
   if (input.rollbackClass && !ROLLBACK_CLASSES.has(input.rollbackClass)) {
     return {

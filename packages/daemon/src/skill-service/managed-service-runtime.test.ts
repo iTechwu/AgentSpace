@@ -384,6 +384,16 @@ test("buildCosignVerificationArgs pins the key file and digest, skips tlog/SCT",
   assert.ok(args.includes("--insecure-ignore-sct=true"));
   assert.ok(args.includes("--insecure-ignore-tlog=true"));
   assert.equal(args[args.length - 1], "sha256:abc", "digest-pinned ref is the final arg");
+  assert.ok(!args.includes("--allow-insecure-registry"), "bare digest is not an insecure registry");
+});
+
+test("buildCosignVerificationArgs allows an insecure registry only for loopback hosts", () => {
+  const local = buildCosignVerificationArgs("localhost:5000/dofe-svc-e2e@sha256:abc", "/tmp/cosign.pub");
+  assert.ok(local.includes("--allow-insecure-registry"));
+  assert.equal(local[local.length - 1], "localhost:5000/dofe-svc-e2e@sha256:abc");
+
+  const remote = buildCosignVerificationArgs("registry.example.com/dofe-svc-e2e@sha256:abc", "/tmp/cosign.pub");
+  assert.ok(!remote.includes("--allow-insecure-registry"), "remote registries stay strict");
 });
 
 test("verifyManagedServiceImageSignatureSync writes the key and verifies before pull", async () => {
@@ -406,7 +416,7 @@ test("provision verifies a signature-required image BEFORE the pull and cleans t
     if (args[0] === "create") return { stdout: "cid\n" };
     return {};
   });
-  const runtime = createDockerManagedServiceContainerRuntime(exec, { healthPollIntervalMs: 5, healthWaitMs: 30 });
+  const runtime = createDockerManagedServiceContainerRuntime(exec, { healthPollIntervalMs: 5, healthWaitMs: 30, cosignExec: exec });
   await runtime.provision({
     ...provisionInput,
     signatureKeyPem: TEST_PUBLIC_KEY_PEM,
@@ -429,7 +439,7 @@ test("provision fails closed when cosign verification rejects the image", async 
   const { exec, calls } = fakeExec((args) =>
     args[0] === "verify" ? { stderr: "no matching signatures", exitCode: 1 } : {},
   );
-  const runtime = createDockerManagedServiceContainerRuntime(exec);
+  const runtime = createDockerManagedServiceContainerRuntime(exec, { cosignExec: exec });
   await assert.rejects(
     runtime.provision({ ...provisionInput, signatureKeyPem: TEST_PUBLIC_KEY_PEM, signatureRequired: true }),
     (error: unknown) => error instanceof DockerContainerError && error.code === "skill_service.image_signature_verification_failed",

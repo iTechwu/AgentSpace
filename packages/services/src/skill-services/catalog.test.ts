@@ -44,6 +44,25 @@ test("catalog admission accepts an external_connection template without an image
   assert.equal(relaxed.ok, true);
 });
 
+test("catalog admission accepts a full digest-pinned image ref (repo@sha256)", () => {
+  const result = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    imageDigest: `localhost:5000/dofe-svc-e2e@sha256:${sha("a")}`,
+  });
+  assert.equal(result.ok, true);
+});
+
+test("catalog admission rejects a full ref whose digest is not locked", () => {
+  const result = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    imageDigest: "localhost:5000/dofe-svc-e2e@sha256:not-a-digest",
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.reason, /digest-locked/);
+  }
+});
+
 test("catalog admission rejects an un-locked image digest", () => {
   const result = assertSkillServiceCatalogAdmissionSync({
     ...validInput(),

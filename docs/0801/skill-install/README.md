@@ -56,11 +56,11 @@
 这不等于已经达到生产可用。第三次复审确认仍有以下阻断上线的问题（排序已按事实更新）：
 
 1. Runtime cache hit 只校验文件大小并信任旧 meta，同尺寸内容篡改不会重算 SHA/root digest。
-2. 依赖已真实安装+校验；**service 控制面 + managed-node worker + retire 生命周期 + catalog 准入加固 + secret 注入 + egress 强制 + uninstall + canary 升级编排 + image 签名验证已实现**（daemon claim → cosign 验证签名 → docker pull/create/start/health → complete 回报 endpointRef，retire 拆除；retire 生产者 + 未引用扫描；SBOM/安全字段/JSON 校验 + docker 加固；secrets 认证通道注入 + 脱敏；egress 内部网络/DNS+hosts；uninstall 级联 binding 触发退休；canary 蓝绿切换 + 冷却窗退役；cosign 公钥信任锚点 + pull 前强制验证），服务组件按**绑定实例的 catalog slug** 裁决。
+2. 依赖已真实安装+校验；**service 控制面 + managed-node worker + retire 生命周期 + catalog 准入加固 + secret 注入 + egress 强制 + uninstall + canary 升级编排 + image 签名验证 + 真实 Docker 端到端已全部实现并验证**（daemon claim → cosign 验证签名 → docker pull/create/start/health → complete 回报 endpointRef，retire 拆除；retire 生产者 + 未引用扫描；SBOM/安全字段/JSON 校验 + docker 加固；secrets 认证通道注入 + 脱敏；egress 内部网络/DNS+hosts；uninstall 级联 binding 触发退休；canary 蓝绿切换 + 冷却窗退役；cosign 公钥信任锚点 + pull 前强制验证；**本机真实 docker + cosign + 本地 registry 签名镜像 E2E 2/2 通过**），服务组件按**绑定实例的 catalog slug** 裁决。
 3. 原子导入生成的 artifact 没有绑定新 Skill，安装历史和回滚可能断链，单一 `artifact.skill_id` 也无法表达共享 artifact lineage。
 4. entrypoint 同时为 `0755` 时会生成重复 script component，触发数据库唯一约束。
 5. 任务 bundle 不传 mode/SHA，安装阶段验证通过的 executable 到 Remote task workDir 后会丢失执行位；任务也没有复用已验证 cache。
-6. skill-install 与 service operation 的租约/心跳/fencing/崩溃重排、service managed-node worker（docker 生命周期 + retire）、retire 生命周期 + catalog 准入加固（schema v77）+ rollback_class 感知退役（schema v78）+ secret 注入（schema v79）+ egress allow-list 强制 + uninstall 路径 + canary 升级编排（schema v81）+ cosign image 签名验证（schema v82）均已实现并有专属测试（catalog 19/19 + bindings 23/23 + secrets 4/4 + db 9/9 + runtime 25/25 + worker 8/8 + uninstall 3/3 + 路由 4/4 + maintenance 5/5）。
+6. skill-install 与 service operation 的租约/心跳/fencing/崩溃重排、service managed-node worker（docker 生命周期 + retire）、retire 生命周期 + catalog 准入加固（schema v77）+ rollback_class 感知退役（schema v78）+ secret 注入（schema v79）+ egress allow-list 强制 + uninstall 路径 + canary 升级编排（schema v81）+ cosign image 签名验证（schema v82）+ 真实 Docker 端到端均已实现并有专属测试（catalog 21/21 + bindings 23/23 + secrets 4/4 + db 9/9 + runtime 27/27 + worker 8/8 + uninstall 3/3 + 路由 4/4 + maintenance 5/5 + E2E 2/2）。
 
 此外，下载 URL 仍缺 storage origin/redirect 限制和流式硬上限；package manifest 的 version/integrity/mode/完整文件集合仍会丢失；持久审批、五步 UI、迁移与可观测性尚未完成。Release lock 已接入安装和升级路径，service/MCP 字段、可重现 `lockDigest`、落库与 claim 均有测试；但 unresolved required 项、Daemon/task/approval/rollback 消费链和历史重建仍未完成。
 

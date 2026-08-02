@@ -67,17 +67,29 @@ const DOCKER_VERIFY_TIMEOUT_MS = 120_000;
  * signature-required image is pulled. The key is passed as a temp-file path
  * (cosign's `--key` accepts a file); the digest-pinned ref means cosign verifies
  * the signature over exactly this content. tlog/SCT checks are skipped so a
- * self-managed cosign key (no transparency log) still verifies.
+ * self-managed cosign key (no transparency log) still verifies. An insecure
+ * (HTTP) registry is only tolerated when it is a loopback address — a local
+ * managed-node registry — never for a remote host.
  */
 export function buildCosignVerificationArgs(imageDigest: string, keyFilePath: string): string[] {
-  return [
+  const args = [
     "verify",
     "--key",
     keyFilePath,
     "--insecure-ignore-sct=true",
     "--insecure-ignore-tlog=true",
-    imageDigest,
   ];
+  if (isLoopbackImageRef(imageDigest)) {
+    args.push("--allow-insecure-registry");
+  }
+  args.push(imageDigest);
+  return args;
+}
+
+/** True when an image ref's registry host is localhost / a loopback address. */
+function isLoopbackImageRef(imageRef: string): boolean {
+  const host = (imageRef.split("/")[0] ?? "").split("@")[0]!.replace(/:\d+$/, "");
+  return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
 }
 
 /** cosign public-key PEM body used for the temp file the verify step writes. */
@@ -310,11 +322,18 @@ export type EgressHostLookup = (hostname: string) => Promise<string[]>;
 /** Real runtime: shells out to the local `docker` CLI (same spawn pattern as managed provisioning). */
 export function createDockerManagedServiceContainerRuntime(
   exec: ManagedContainerExec = defaultDockerExec,
-  options?: { healthWaitMs?: number; healthPollIntervalMs?: number; lookupHost?: EgressHostLookup },
+  options?: {
+    healthWaitMs?: number;
+    healthPollIntervalMs?: number;
+    lookupHost?: EgressHostLookup;
+    /** cosign is a separate binary — injectable so tests never need it installed. */
+    cosignExec?: ManagedContainerExec;
+  },
 ): ManagedServiceContainerRuntime {
   const healthWaitMs = options?.healthWaitMs ?? SKILL_SERVICE_HEALTH_WAIT_MS;
   const healthPollIntervalMs = options?.healthPollIntervalMs ?? SKILL_SERVICE_HEALTH_POLL_INTERVAL_MS;
   const lookupHost = options?.lookupHost ?? defaultLookupHost;
+  const cosignExec = options?.cosignExec ?? defaultCosignExec;
   return {
     async provision(input) {
       const network = resolveManagedRuntimeDockerNetwork();
@@ -324,7 +343,7 @@ export function createDockerManagedServiceContainerRuntime(
       // signature must be verified by cosign against the trusted public key
       // BEFORE the image is pulled — an unverified image is never downloaded.
       if (input.signatureRequired) {
-        await verifyManagedServiceImageSignatureSync(exec, {
+        await verifyManagedServiceImageSignatureSync(cosignExec, {
           imageDigest: input.imageDigest,
           signatureKeyPem: input.signatureKeyPem,
         });
@@ -493,33 +512,41 @@ async function runChecked(
   return result;
 }
 
-function defaultDockerExec(args: string[], options?: { timeoutMs?: number }): ReturnType<ManagedContainerExec> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env } });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
+/** Spawns an arbitrary CLI (`docker`, `cosign`, ...) capturing stdout/stderr. */
+function makeCliExec(command: string): ManagedContainerExec {
+  return (args, options) =>
+    new Promise((resolve, reject) => {
+      const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env } });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => {
+        stdout += String(chunk);
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += String(chunk);
+      });
+      let killTimer: NodeJS.Timeout | undefined;
+      const timer = options?.timeoutMs
+        ? setTimeout(() => {
+            child.kill("SIGTERM");
+            killTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+          }, options.timeoutMs)
+        : undefined;
+      child.on("error", (error) => {
+        if (timer) clearTimeout(timer);
+        if (killTimer) clearTimeout(killTimer);
+        reject(error);
+      });
+      child.on("close", (code) => {
+        if (timer) clearTimeout(timer);
+        if (killTimer) clearTimeout(killTimer);
+        resolve({ stdout, stderr, exitCode: code });
+      });
     });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    let killTimer: NodeJS.Timeout | undefined;
-    const timer = options?.timeoutMs
-      ? setTimeout(() => {
-          child.kill("SIGTERM");
-          killTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
-        }, options.timeoutMs)
-      : undefined;
-    child.on("error", (error) => {
-      if (timer) clearTimeout(timer);
-      if (killTimer) clearTimeout(killTimer);
-      reject(error);
-    });
-    child.on("close", (code) => {
-      if (timer) clearTimeout(timer);
-      if (killTimer) clearTimeout(killTimer);
-      resolve({ stdout, stderr, exitCode: code });
-    });
-  });
 }
+
+const defaultDockerExec = makeCliExec("docker");
+/** cosign is a SEPARATE binary from docker — the signature step must not run through `docker`.
+ *  `COSIGN_BIN` lets a managed node point at a cosign install that is not on PATH. */
+const defaultCosignExec: ManagedContainerExec = (args, options) =>
+  makeCliExec(process.env.COSIGN_BIN?.trim() || "cosign")(args, options);

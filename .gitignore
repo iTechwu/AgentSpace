@@ -3,6 +3,8 @@
 .env.*
 .test.env
 !.env.example
+# Generated per-machine E2E config (references local temp paths)
+dofe-svc-e2e.env
 node_modules
 .next
 dist
