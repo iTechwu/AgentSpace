@@ -123,7 +123,16 @@ export function listOrphanContentBlobsSync(
 
   const rows = db.prepare(
     `${CONTENT_BLOB_COLUMNS} FROM content_blob WHERE workspace_id = ?
-     ${cutoff ? "AND created_at < ? " : ""}ORDER BY created_at DESC LIMIT ${limit}`,
+     ${cutoff ? "AND created_at < ? " : ""}
+     AND NOT EXISTS (
+       SELECT 1 FROM employee_data_legal_hold hold
+        WHERE hold.workspace_id = content_blob.workspace_id
+          AND hold.resource_type = 'content_blob'
+          AND hold.resource_id = content_blob.sha256
+          AND hold.released_at IS NULL
+          AND (hold.expires_at IS NULL OR hold.expires_at > NOW())
+     )
+     ORDER BY created_at DESC LIMIT ${limit}`,
   ).all(...(cutoff ? [workspaceId, cutoff] : [workspaceId])) as Array<Record<string, unknown>>;
 
   return rows
@@ -134,7 +143,15 @@ export function listOrphanContentBlobsSync(
 
 export function deleteContentBlobSync(sha256: string, workspaceId = DEFAULT_WORKSPACE_ID): boolean {
   const result = getDatabase().prepare(
-    `DELETE FROM content_blob WHERE workspace_id = ? AND sha256 = ?`,
+    `DELETE FROM content_blob WHERE workspace_id = ? AND sha256 = ?
+       AND NOT EXISTS (
+         SELECT 1 FROM employee_data_legal_hold hold
+          WHERE hold.workspace_id = content_blob.workspace_id
+            AND hold.resource_type = 'content_blob'
+            AND hold.resource_id = content_blob.sha256
+            AND hold.released_at IS NULL
+            AND (hold.expires_at IS NULL OR hold.expires_at > NOW())
+       )`,
   ).run(workspaceId, sha256.trim().toLowerCase());
   return result.changes > 0;
 }

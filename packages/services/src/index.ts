@@ -123,8 +123,10 @@ export {
 } from "./employees/commit-reconciliation.ts";
 export {
   runEmployeeLifecycleMaintenanceSync,
+  readRetentionPolicy,
   type LifecycleMaintenanceOptions,
   type LifecycleMaintenanceResult,
+  type EmployeeDataRetentionPolicy,
 } from "./employees/lifecycle-maintenance.ts";
 export {
   hasSkillDependenciesSync,

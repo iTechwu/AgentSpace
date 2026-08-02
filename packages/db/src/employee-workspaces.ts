@@ -505,23 +505,53 @@ export function softDeleteEmployeeArtifactSync(id: string, workspaceId = DEFAULT
 export function hardDeleteExpiredSoftDeletedArtifactsSync(
   workspaceId: string,
   deletedBefore: string,
-): { removed: number; digests: string[] } {
+  employeeId?: string,
+): { removed: number; held: number; digests: string[] } {
   const db = getDatabase();
+  const employeeFilter = employeeId ? "AND artifact.employee_id = ?" : "";
+  const params = employeeId ? [workspaceId, deletedBefore, employeeId] : [workspaceId, deletedBefore];
   const rows = db.prepare(
-    `SELECT content_digest AS contentDigest
-     FROM employee_artifact
-     WHERE workspace_id = ? AND deleted_at IS NOT NULL AND deleted_at < ?`,
-  ).all(workspaceId, deletedBefore) as Array<{ contentDigest?: string }>;
+    `SELECT artifact.id, artifact.content_digest AS contentDigest,
+       EXISTS (
+         SELECT 1 FROM employee_data_legal_hold hold
+          WHERE hold.workspace_id = artifact.workspace_id
+            AND hold.released_at IS NULL
+            AND (hold.expires_at IS NULL OR hold.expires_at > NOW())
+            AND (
+              (hold.resource_type = 'artifact' AND hold.resource_id = artifact.id)
+              OR (hold.resource_type = 'employee_workspace' AND hold.employee_id = artifact.employee_id)
+            )
+       ) AS held
+     FROM employee_artifact artifact
+     WHERE artifact.workspace_id = ? AND artifact.deleted_at IS NOT NULL AND artifact.deleted_at < ?
+     ${employeeFilter}`,
+  ).all(...params) as Array<{ id?: string; contentDigest?: string; held?: boolean }>;
   if (rows.length === 0) {
-    return { removed: 0, digests: [] };
+    return { removed: 0, held: 0, digests: [] };
   }
+  const removable = rows.filter((row) => !row.held && typeof row.id === "string");
+  if (removable.length === 0) {
+    return { removed: 0, held: rows.length, digests: [] };
+  }
+  const placeholders = removable.map(() => "?").join(", ");
   const result = db.prepare(
     `DELETE FROM employee_artifact
-     WHERE workspace_id = ? AND deleted_at IS NOT NULL AND deleted_at < ?`,
-  ).run(workspaceId, deletedBefore);
+     WHERE workspace_id = ? AND id IN (${placeholders})
+       AND NOT EXISTS (
+         SELECT 1 FROM employee_data_legal_hold hold
+          WHERE hold.workspace_id = employee_artifact.workspace_id
+            AND hold.released_at IS NULL
+            AND (hold.expires_at IS NULL OR hold.expires_at > NOW())
+            AND (
+              (hold.resource_type = 'artifact' AND hold.resource_id = employee_artifact.id)
+              OR (hold.resource_type = 'employee_workspace' AND hold.employee_id = employee_artifact.employee_id)
+            )
+       )`,
+  ).run(workspaceId, ...removable.map((row) => row.id!));
   return {
     removed: result.changes,
-    digests: rows
+    held: rows.length - result.changes,
+    digests: removable
       .map((row) => row.contentDigest)
       .filter((digest): digest is string => typeof digest === "string"),
   };
@@ -529,7 +559,9 @@ export function hardDeleteExpiredSoftDeletedArtifactsSync(
 
 export function listEmployeeArtifactDigestsSync(workspaceId = DEFAULT_WORKSPACE_ID): string[] {
   const rows = getDatabase().prepare(
-    `SELECT DISTINCT content_digest FROM employee_artifact WHERE workspace_id = ? AND deleted_at IS NULL`,
+    // Soft-deleted rows remain recoverable until lifecycle hard-deletes them,
+    // so their bytes are still reachable and must not be collected as orphans.
+    `SELECT DISTINCT content_digest FROM employee_artifact WHERE workspace_id = ?`,
   ).all(workspaceId) as Array<{ contentDigest?: string }>;
   return rows.map((row) => row.contentDigest).filter((d): d is string => typeof d === "string");
 }

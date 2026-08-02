@@ -19,6 +19,7 @@ export interface LifecycleMaintenanceResult {
   workspaces: Array<{
     workspaceId: string;
     artifactsHardDeleted: number;
+    artifactsHeld: number;
     freedDigests: number;
     orphanBlobsReclaimed: number;
   }>;
@@ -35,10 +36,9 @@ export interface LifecycleMaintenanceResult {
  *   2. Reclaims orphan content blobs (controlled GC) — blobs referenced by no
  *      revision/artifact and older than the retain window are deleted from
  *      object storage.
- * Blobs freed by step 1 flow into step 2's unreferenced scan. Legal-hold /
- * quota enforcement are deliberately NOT part of this worker: legal hold is
- * expressed by NOT soft-deleting (or by a retention policy that keeps rows);
- * quota is a read-only monitoring concern for the dashboard.
+ * Blobs freed by step 1 flow into step 2's unreferenced scan. Active legal
+ * holds are enforced again in the database delete paths, including direct
+ * blob deletion, so a worker bug cannot bypass them.
  */
 export function runEmployeeLifecycleMaintenanceSync(
   options: LifecycleMaintenanceOptions = {},
@@ -58,24 +58,46 @@ export function runEmployeeLifecycleMaintenanceSync(
   let totalOrphanBlobsReclaimed = 0;
 
   for (const workspace of workspaces) {
-    const retentionSeconds = resolveWorkspaceSoftDeleteRetention(workspace.id, softDeleteRetentionSeconds);
-    const cutoff = new Date(nowMs - retentionSeconds * 1000).toISOString();
-    const hardDeleted = hardDeleteExpiredSoftDeletedArtifactsSync(workspace.id, cutoff);
+    const employeeWorkspaces = listEmployeePersistentWorkspacesSync(workspace.id);
+    let artifactsHardDeleted = 0;
+    let artifactsHeld = 0;
+    const freedDigests = new Set<string>();
+    let workspaceOrphanRetainSeconds = orphanBlobRetainSeconds;
+    for (const employeeWorkspace of employeeWorkspaces) {
+      const policy = readRetentionPolicy(employeeWorkspace.retentionPolicyJson);
+      const retentionSeconds = policy.softDeleteDays
+        ? policy.softDeleteDays * 24 * 3600
+        : softDeleteRetentionSeconds;
+      workspaceOrphanRetainSeconds = Math.max(
+        workspaceOrphanRetainSeconds,
+        (policy.orphanBlobRetainDays ?? 0) * 24 * 3600,
+      );
+      const cutoff = new Date(nowMs - retentionSeconds * 1000).toISOString();
+      const hardDeleted = hardDeleteExpiredSoftDeletedArtifactsSync(
+        workspace.id,
+        cutoff,
+        employeeWorkspace.employeeId,
+      );
+      artifactsHardDeleted += hardDeleted.removed;
+      artifactsHeld += hardDeleted.held;
+      for (const digest of hardDeleted.digests) freedDigests.add(digest);
+    }
 
     const orphanScan = reclaimOrphanContentBlobsSync({
       workspaceId: workspace.id,
-      retainRecentSeconds: orphanBlobRetainSeconds,
+      retainRecentSeconds: workspaceOrphanRetainSeconds,
       now,
       delete: true,
       limit: blobDeleteLimit,
     });
 
-    totalArtifactsHardDeleted += hardDeleted.removed;
+    totalArtifactsHardDeleted += artifactsHardDeleted;
     totalOrphanBlobsReclaimed += orphanScan.reclaimedCount ?? 0;
     results.push({
       workspaceId: workspace.id,
-      artifactsHardDeleted: hardDeleted.removed,
-      freedDigests: hardDeleted.digests.length,
+      artifactsHardDeleted,
+      artifactsHeld,
+      freedDigests: freedDigests.size,
       orphanBlobsReclaimed: orphanScan.reclaimedCount ?? 0,
     });
   }
@@ -88,27 +110,25 @@ export function runEmployeeLifecycleMaintenanceSync(
   };
 }
 
-/** Per-employee retention policy override: retention_policy_json.softDeleteDays. */
-function resolveWorkspaceSoftDeleteRetention(workspaceId: string, fallbackSeconds: number): number {
+export interface EmployeeDataRetentionPolicy {
+  softDeleteDays?: number;
+  orphanBlobRetainDays?: number;
+  quotaBytes?: number;
+}
+
+export function readRetentionPolicy(value: string): EmployeeDataRetentionPolicy {
   try {
-    const workspaces = listEmployeePersistentWorkspacesSync(workspaceId);
-    const days = Math.max(
-      0,
-      ...workspaces.map((workspace) => {
-        try {
-          const policy = JSON.parse(workspace.retentionPolicyJson ?? "{}") as {
-            softDeleteDays?: unknown;
-          };
-          return typeof policy.softDeleteDays === "number" && policy.softDeleteDays > 0
-            ? policy.softDeleteDays * 24 * 3600
-            : 0;
-        } catch {
-          return 0;
-        }
-      }),
-    );
-    return days > 0 ? days : fallbackSeconds;
+    const parsed = JSON.parse(value || "{}") as Record<string, unknown>;
+    return {
+      softDeleteDays: positiveFiniteNumber(parsed.softDeleteDays),
+      orphanBlobRetainDays: positiveFiniteNumber(parsed.orphanBlobRetainDays),
+      quotaBytes: positiveFiniteNumber(parsed.quotaBytes),
+    };
   } catch {
-    return fallbackSeconds;
+    return {};
   }
+}
+
+function positiveFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }

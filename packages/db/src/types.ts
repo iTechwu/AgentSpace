@@ -1677,6 +1677,28 @@ export interface EmployeeArtifactRecord {
   deletedAt?: string;
 }
 
+export type EmployeeDataLegalHoldResourceType =
+  | "employee_workspace"
+  | "artifact"
+  | "revision"
+  | "content_blob";
+
+export interface EmployeeDataLegalHoldRecord {
+  id: string;
+  workspaceId: string;
+  employeeId?: string;
+  resourceType: EmployeeDataLegalHoldResourceType;
+  resourceId: string;
+  reason: string;
+  createdByUserId?: string;
+  createdByDisplayName?: string;
+  createdAt: string;
+  expiresAt?: string;
+  releasedAt?: string;
+  releasedByUserId?: string;
+  releaseReason?: string;
+}
+
 export interface BackupRestoreDrillRunRecord {
   id: string;
   workspaceId: string;

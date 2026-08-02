@@ -108,6 +108,8 @@ export type {
   EmployeeWorkspaceRevisionRecord,
   WorkspaceRevisionStatus,
   EmployeeArtifactRecord,
+  EmployeeDataLegalHoldRecord,
+  EmployeeDataLegalHoldResourceType,
   TaskCommitJournalRecord,
   TaskCommitState,
   EmployeeBindingStatus,
@@ -1012,6 +1014,13 @@ export {
   type CreateWorkspaceRevisionInput,
   type PublishEmployeeArtifactInput,
 } from "./employee-workspaces.ts";
+export {
+  createEmployeeDataLegalHoldSync,
+  releaseEmployeeDataLegalHoldSync,
+  readEmployeeDataLegalHoldSync,
+  listEmployeeDataLegalHoldsSync,
+  type CreateEmployeeDataLegalHoldInput,
+} from "./employee-data-legal-holds.ts";
 export {
   createRecoveryOperationSync,
   readRecoveryOperationSync,

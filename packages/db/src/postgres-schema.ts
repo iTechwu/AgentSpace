@@ -95,6 +95,7 @@ export const POSTGRES_TABLE_NAMES = [
   "employee_persistent_workspace",
   "employee_workspace_revision",
   "employee_artifact",
+  "employee_data_legal_hold",
   "task_commit_journal",
   "employee_recovery_operation",
 ] as const;
@@ -2851,6 +2852,33 @@ export function getPostgresSchemaStatements(): string[] {
         published_at TIMESTAMPTZ NOT NULL,
         deleted_at TIMESTAMPTZ
       )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS employee_data_legal_hold (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        employee_id TEXT,
+        resource_type TEXT NOT NULL CHECK (resource_type IN ('employee_workspace', 'artifact', 'revision', 'content_blob')),
+        resource_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        created_by_user_id TEXT,
+        created_by_display_name TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ,
+        released_at TIMESTAMPTZ,
+        released_by_user_id TEXT,
+        release_reason TEXT
+      )
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_data_legal_hold_active_resource
+        ON employee_data_legal_hold(workspace_id, resource_type, resource_id)
+        WHERE released_at IS NULL
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_employee_data_legal_hold_employee_active
+        ON employee_data_legal_hold(workspace_id, employee_id, created_at DESC)
+        WHERE released_at IS NULL
     `,
     `
       CREATE TABLE IF NOT EXISTS task_commit_journal (
