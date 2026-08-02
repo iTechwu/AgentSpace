@@ -126,6 +126,7 @@ test("materializes a valid artifact from local stored paths with matching root d
     const result = await materializeSkillInstallationArtifact(
       {
         operationId: "op-1",
+        claimGeneration: 1,
         workspaceId,
         runtimeId: "runtime-1",
         installationId: "install-1",
@@ -167,6 +168,7 @@ test("materializes nested directory structures", async () => {
     const result = await materializeSkillInstallationArtifact(
       {
         operationId: "op-nested",
+        claimGeneration: 1,
         workspaceId,
         runtimeId: "runtime-1",
         installationId: "install-1",
@@ -207,6 +209,7 @@ test("materializes a file from downloadUrl when storedPath is absent", async () 
     const result = await materializeSkillInstallationArtifact(
       {
         operationId: "op-url",
+        claimGeneration: 1,
         workspaceId,
         runtimeId: "runtime-1",
         installationId: "install-1",
@@ -256,6 +259,7 @@ test("throws when a file digest does not match the claimed sha256", async () => 
         materializeSkillInstallationArtifact(
           {
             operationId: "op-bad-digest",
+            claimGeneration: 1,
             workspaceId,
             runtimeId: "runtime-1",
             installationId: "install-1",
@@ -293,6 +297,7 @@ test("throws when a file size does not match the claimed size", async () => {
         materializeSkillInstallationArtifact(
           {
             operationId: "op-bad-size",
+            claimGeneration: 1,
             workspaceId,
             runtimeId: "runtime-1",
             installationId: "install-1",
@@ -332,6 +337,7 @@ test("throws on path traversal attempts", async () => {
         materializeSkillInstallationArtifact(
           {
             operationId: "op-traversal",
+            claimGeneration: 1,
             workspaceId,
             runtimeId: "runtime-1",
             installationId: "install-1",
@@ -377,6 +383,7 @@ test("throws when a referenced local blob is missing", async () => {
         materializeSkillInstallationArtifact(
           {
             operationId: "op-missing-blob",
+            claimGeneration: 1,
             workspaceId,
             runtimeId: "runtime-1",
             installationId: "install-1",
@@ -420,6 +427,7 @@ test("reports root digest mismatch without throwing away materialized files", as
     const result = await materializeSkillInstallationArtifact(
       {
         operationId: "op-root-mismatch",
+        claimGeneration: 1,
         workspaceId,
         runtimeId: "runtime-1",
         installationId: "install-1",
@@ -452,6 +460,7 @@ test("throws when storedPath points outside the configured attachment root", asy
         materializeSkillInstallationArtifact(
           {
             operationId: "op-escape-root",
+            claimGeneration: 1,
             workspaceId,
             runtimeId: "runtime-1",
             installationId: "install-1",
@@ -496,6 +505,7 @@ test("throws when a file has no downloadUrl or usable storedPath", async () => {
         materializeSkillInstallationArtifact(
           {
             operationId: "op-no-source",
+            claimGeneration: 1,
             workspaceId,
             runtimeId: "runtime-1",
             installationId: "install-1",

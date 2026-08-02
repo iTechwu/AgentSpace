@@ -27,6 +27,7 @@ function buildOperation(
   return verifySkillInstallationComponents(
     {
       operationId: "op-1",
+      claimGeneration: 1,
       workspaceId: "default",
       runtimeId: "runtime-1",
       installationId: "install-1",
@@ -53,6 +54,7 @@ test("dependency component uses the real install outcome when provided", () => {
   const withResults = verifySkillInstallationComponents(
     {
       operationId: "op-1",
+      claimGeneration: 1,
       workspaceId: "default",
       runtimeId: "runtime-1",
       installationId: "install-1",
@@ -73,6 +75,7 @@ test("dependency component uses the real install outcome when provided", () => {
   const failed = verifySkillInstallationComponents(
     {
       operationId: "op-1",
+      claimGeneration: 1,
       workspaceId: "default",
       runtimeId: "runtime-1",
       installationId: "install-1",
@@ -95,6 +98,7 @@ test("dependency component uses the real install outcome when provided", () => {
   const notInstalled = verifySkillInstallationComponents(
     {
       operationId: "op-1",
+      claimGeneration: 1,
       workspaceId: "default",
       runtimeId: "runtime-1",
       installationId: "install-1",
@@ -296,6 +300,7 @@ test("marks all components failed when manifest JSON is invalid", () => {
   const results = verifySkillInstallationComponents(
     {
       operationId: "op-1",
+      claimGeneration: 1,
       workspaceId: "default",
       runtimeId: "runtime-1",
       installationId: "install-1",
