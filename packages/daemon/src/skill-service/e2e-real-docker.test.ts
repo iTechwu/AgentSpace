@@ -103,8 +103,8 @@ function seedSignedCatalog(runtimeId: string): string {
     healthJson: JSON.stringify({ path: "/healthz", port: 8080 }),
     // docker suffixes only (m/g/k); K8s `Mi` is rejected by `docker create`.
     resourcesJson: JSON.stringify({ memory: "64m", cpu: "0.1" }),
-    runAsNonRoot: false,
-    readOnlyRootfs: false,
+    runAsNonRoot: true,
+    readOnlyRootfs: true,
     capDrop: ["ALL"],
     signatureKeyPem: cosignPubKeyPem,
     signatureRequired: true,

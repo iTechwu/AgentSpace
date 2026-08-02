@@ -15,6 +15,9 @@ const IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 /** Image reference: either a bare digest or a full digest-pinned ref `repo@sha256:<64hex>`
  *  so a managed node can `docker pull <ref>` directly from its registry. */
 const IMAGE_REF_DIGEST_PATTERN = /^(?:[a-z0-9][a-z0-9._:\/-]*@)?sha256:[a-f0-9]{64}$/;
+const FULL_IMAGE_REF_DIGEST_PATTERN = /^[a-z0-9][a-z0-9._:\/-]*@sha256:[a-f0-9]{64}$/;
+export const SKILL_SERVICE_ALLOWED_REGISTRIES_ENV = "DOFE_AGENT_SKILL_SERVICE_ALLOWED_REGISTRIES";
+const DEFAULT_ALLOWED_IMAGE_REGISTRIES = ["docker.io", "ghcr.io"];
 
 const ROLLBACK_CLASSES = new Set(["stateless", "backward_compatible", "irreversible_migration"]);
 
@@ -107,6 +110,20 @@ export function assertSkillServiceCatalogAdmissionSync(
   // Images that actually run a container must ship an SBOM so vulnerability/
   // license posture is part of the immutable template (05-运维 §准入检查).
   if (IMAGE_TEMPLATE_TYPES.has(input.deploymentType)) {
+    if (!FULL_IMAGE_REF_DIGEST_PATTERN.test(input.imageDigest.trim().toLowerCase())) {
+      return {
+        ok: false,
+        reason: "managed_service/platform_shared imageDigest must be a pullable repo@sha256:<64 hex> reference.",
+      };
+    }
+    const registry = imageRegistry(input.imageDigest);
+    const allowedRegistries = configuredAllowedImageRegistries();
+    if (!allowedRegistries.includes(registry)) {
+      return {
+        ok: false,
+        reason: `Image registry "${registry}" is not allowed by ${SKILL_SERVICE_ALLOWED_REGISTRIES_ENV}.`,
+      };
+    }
     if (!input.sbomDigest?.trim() || !IMAGE_DIGEST_PATTERN.test(input.sbomDigest.trim().toLowerCase())) {
       return {
         ok: false,
@@ -129,6 +146,24 @@ export function assertSkillServiceCatalogAdmissionSync(
   }
   if (input.signatureRequired && !input.signatureKeyPem?.trim()) {
     return { ok: false, reason: "signatureRequired templates must declare a signatureKeyPem trust anchor." };
+  }
+
+  if (IMAGE_TEMPLATE_TYPES.has(input.deploymentType)) {
+    if (input.signatureRequired !== true) {
+      return { ok: false, reason: "managed_service/platform_shared templates must require image signature verification." };
+    }
+    if (!input.signatureKeyPem?.trim()) {
+      return { ok: false, reason: "managed_service/platform_shared templates must declare a signatureKeyPem trust anchor." };
+    }
+    if (input.runAsNonRoot !== true) {
+      return { ok: false, reason: "managed_service/platform_shared templates must run as a non-root user." };
+    }
+    if (input.readOnlyRootfs !== true) {
+      return { ok: false, reason: "managed_service/platform_shared templates must use a read-only root filesystem." };
+    }
+    if (!input.capDrop?.includes("ALL")) {
+      return { ok: false, reason: "managed_service/platform_shared templates must include ALL in capDrop." };
+    }
   }
 
   if (input.runAsNonRoot !== undefined && typeof input.runAsNonRoot !== "boolean") {
@@ -257,6 +292,22 @@ function validateEgressOrigin(entry: string): string | undefined {
     return "port must be between 1 and 65535";
   }
   return undefined;
+}
+
+function configuredAllowedImageRegistries(): string[] {
+  const configured = process.env[SKILL_SERVICE_ALLOWED_REGISTRIES_ENV]
+    ?.split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  return configured?.length ? [...new Set(configured)] : DEFAULT_ALLOWED_IMAGE_REGISTRIES;
+}
+
+function imageRegistry(imageRef: string): string {
+  const repository = imageRef.trim().toLowerCase().split("@", 1)[0] ?? "";
+  const firstSegment = repository.split("/", 1)[0] ?? "";
+  return firstSegment === "localhost" || firstSegment.includes(".") || firstSegment.includes(":")
+    ? firstSegment
+    : "docker.io";
 }
 
 /**

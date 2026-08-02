@@ -3,13 +3,17 @@ import test from "node:test";
 import { assertSkillServiceCatalogAdmissionSync } from "./catalog.ts";
 
 const sha = (fill: string) => fill.repeat(64);
+const TEST_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFqpQUB2kqJXqZq9Y0Jq0N6nRqZb6
+vY1Q6GZPZ5aB0nR4Lz1S8u4jT2qVwzKQm0xEb7jHkY9x0o0I9sM0w==
+-----END PUBLIC KEY-----`;
 
 function validInput() {
   return {
     slug: "document-renderer",
     templateVersion: "2.1.0",
     deploymentType: "managed_service",
-    imageDigest: `sha256:${sha("a")}`,
+    imageDigest: `ghcr.io/dofe-ai/document-renderer@sha256:${sha("a")}`,
     templateDigest: `sha256:${sha("b")}`,
     sbomDigest: `sha256:${sha("c")}`,
     rollbackClass: "stateless",
@@ -20,6 +24,8 @@ function validInput() {
     runAsNonRoot: true,
     readOnlyRootfs: true,
     capDrop: ["ALL"],
+    signatureKeyPem: TEST_PUBLIC_KEY_PEM,
+    signatureRequired: true,
     externalDependenciesJson: JSON.stringify(["postgres:central-render-db"]),
   };
 }
@@ -44,10 +50,10 @@ test("catalog admission accepts an external_connection template without an image
   assert.equal(relaxed.ok, true);
 });
 
-test("catalog admission accepts a full digest-pinned image ref (repo@sha256)", () => {
+test("catalog admission accepts a full digest-pinned image ref from an allowed registry", () => {
   const result = assertSkillServiceCatalogAdmissionSync({
     ...validInput(),
-    imageDigest: `localhost:5000/dofe-svc-e2e@sha256:${sha("a")}`,
+    imageDigest: `ghcr.io/dofe-ai/dofe-svc-e2e@sha256:${sha("a")}`,
   });
   assert.equal(result.ok, true);
 });
@@ -72,6 +78,22 @@ test("catalog admission rejects an un-locked image digest", () => {
   if (!result.ok) {
     assert.match(result.reason, /digest-locked/);
   }
+});
+
+test("catalog admission rejects a bare digest and an unapproved registry for image templates", () => {
+  const bare = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    imageDigest: `sha256:${sha("a")}`,
+  });
+  assert.equal(bare.ok, false);
+  if (!bare.ok) assert.match(bare.reason, /pullable repo@sha256/);
+
+  const registry = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    imageDigest: `registry.example.com/dofe/service@sha256:${sha("a")}`,
+  });
+  assert.equal(registry.ok, false);
+  if (!registry.ok) assert.match(registry.reason, /not allowed/);
 });
 
 test("catalog admission rejects an unknown rollback class", () => {
@@ -201,17 +223,23 @@ test("catalog admission validates the container hardening profile", () => {
     assert.match(badCap.reason, /capDrop/);
   }
 
-  const okCaps = assertSkillServiceCatalogAdmissionSync({
+  const missingAll = assertSkillServiceCatalogAdmissionSync({
     ...validInput(),
     capDrop: ["NET_ADMIN", "SYS_TIME"],
   });
-  assert.equal(okCaps.ok, true);
+  assert.equal(missingAll.ok, false);
 
   const emptyCaps = assertSkillServiceCatalogAdmissionSync({
     ...validInput(),
     capDrop: [],
   });
-  assert.equal(emptyCaps.ok, true);
+  assert.equal(emptyCaps.ok, false);
+
+  const okCaps = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    capDrop: ["ALL", "NET_ADMIN"],
+  });
+  assert.equal(okCaps.ok, true);
 });
 
 test("catalog admission validates health, resources and secret-field JSON shapes", () => {
@@ -312,11 +340,6 @@ test("catalog admission validates egress allow-list entry format", () => {
 /* Cosign image signature enforcement (schema v82)                     */
 /* ------------------------------------------------------------------ */
 
-const TEST_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFqpQUB2kqJXqZq9Y0Jq0N6nRqZb6
-vY1Q6GZPZ5aB0nR4Lz1S8u4jT2qVwzKQm0xEb7jHkY9x0o0I9sM0w==
------END PUBLIC KEY-----`;
-
 test("catalog admission accepts a signature-required template with a PEM public key", () => {
   const result = assertSkillServiceCatalogAdmissionSync({
     ...validInput(),
@@ -341,6 +364,7 @@ test("catalog admission rejects a malformed cosign public key PEM", () => {
 test("catalog admission requires the trust key when signatureRequired is set", () => {
   const missing = assertSkillServiceCatalogAdmissionSync({
     ...validInput(),
+    signatureKeyPem: undefined,
     signatureRequired: true,
   });
   assert.equal(missing.ok, false);
@@ -349,10 +373,11 @@ test("catalog admission requires the trust key when signatureRequired is set", (
   }
 });
 
-test("catalog admission accepts a present key without enforcement (advisory only)", () => {
+test("catalog admission rejects advisory-only signatures for image templates", () => {
   const result = assertSkillServiceCatalogAdmissionSync({
     ...validInput(),
     signatureKeyPem: TEST_PUBLIC_KEY_PEM,
+    signatureRequired: false,
   });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, false);
 });
