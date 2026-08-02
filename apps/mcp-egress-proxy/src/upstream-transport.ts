@@ -141,7 +141,7 @@ export async function forwardToUpstream(
     if (/certificate|tls|ssl|self signed/i.test(message)) {
       return reject("mcp_egress.tls_failed", "Upstream TLS verification failed.");
     }
-    return reject("mcp_egress.upstream_failed", message || "Upstream request failed.");
+    return reject("mcp_egress.upstream_failed", "Upstream request failed.");
   }
 }
 
