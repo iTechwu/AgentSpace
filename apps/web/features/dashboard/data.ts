@@ -56,11 +56,12 @@ import {
   listAgentTaskAttemptsSync,
   readAgentRouterSessionSync,
   listTaskMessagesForTaskSync,
+  listTaskMessagesForTasksSync,
   listTaskExecutionEventsSync,
   listWorkspaceRuntimeDisplayNamesSync,
   listWorkspaceMemberUsersSync,
 } from "@dofe-agent/db";
-import type { BudgetAction, BudgetPeriod, BudgetScope, TaskExecutionEventRecord, TaskExecutionEventType, WorkspaceMemberUserRecord, WorkspaceRole } from "@dofe-agent/db";
+import type { BudgetAction, BudgetPeriod, BudgetScope, TaskExecutionEventRecord, TaskExecutionEventType, TaskMessageRecord, WorkspaceMemberUserRecord, WorkspaceRole } from "@dofe-agent/db";
 import type {
   ActiveEmployee,
   DofeAgentState,
@@ -330,6 +331,8 @@ export interface ChannelFeishuSummaryRecord {
 export interface ChannelThreadData {
   channelName: string;
   messages: WorkspaceMessage[];
+  /** Structured execution stream (task_message rows) keyed by source task id, for the execution timeline view. */
+  taskExecutions?: Record<string, TaskMessageRecord[]>;
 }
 
 export interface ChannelsPageData {
@@ -2155,6 +2158,34 @@ export function getChannelsPageData(
     })),
   ];
 
+  // Attach the structured execution stream (task_message rows) for the most recent
+  // tasks referenced by each thread, so the chat UI can render the execution timeline.
+  const MAX_THREAD_EXECUTION_TASKS = 10;
+  const threadExecutionTaskIds = threads.map((thread) => {
+    const taskIds: string[] = [];
+    for (const message of thread.messages) {
+      const taskId = message.data?.source_task_queue_id;
+      if (taskId && !taskIds.includes(taskId)) {
+        taskIds.push(taskId);
+        if (taskIds.length >= MAX_THREAD_EXECUTION_TASKS) {
+          break;
+        }
+      }
+    }
+    return taskIds;
+  });
+  const taskMessagesByTaskId = listTaskMessagesForTasksSync([...new Set(threadExecutionTaskIds.flat())]);
+  const threadsWithExecutions: ChannelThreadData[] = threads.map((thread, index) => {
+    const taskExecutions: Record<string, TaskMessageRecord[]> = {};
+    for (const taskId of threadExecutionTaskIds[index]) {
+      const taskMessages = taskMessagesByTaskId.get(taskId);
+      if (taskMessages && taskMessages.length > 0) {
+        taskExecutions[taskId] = taskMessages;
+      }
+    }
+    return Object.keys(taskExecutions).length > 0 ? { ...thread, taskExecutions } : thread;
+  });
+
   const channels = [
     ...groupChannels.map((channel) => {
       const access = groupChannelAccess.get(channel.name);
@@ -2207,7 +2238,7 @@ export function getChannelsPageData(
   return {
     workspaceId,
     channels,
-    threads,
+    threads: threadsWithExecutions,
     documents: workspaceArtifacts.documents,
     documentRuns: workspaceArtifacts.documentRuns,
     documentConflicts: workspaceArtifacts.documentConflicts,

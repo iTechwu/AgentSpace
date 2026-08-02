@@ -253,6 +253,8 @@ export interface DaemonTaskMessageInput {
   tool?: string;
   inputJson?: Record<string, unknown>;
   output?: string;
+  /** Correlates a tool_result with its tool_use (provider-side call id). */
+  refId?: string;
 }
 
 export interface ReportTaskMessagesRequest {
@@ -407,6 +409,11 @@ export interface ClaimedManagedSkillServiceOperation {
     runAsNonRoot: boolean;
     readOnlyRootfs: boolean;
     capDrop: string[];
+    /** Cosign public key (PEM) trusted to sign this template's image; required
+     *  when `signatureRequired` is true so the managed node can verify before pull. */
+    signatureKeyPem?: string;
+    /** When true the managed node MUST verify the image signature before pulling. */
+    signatureRequired: boolean;
   };
 }
 

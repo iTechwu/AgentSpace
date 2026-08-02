@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type {
+  AgentRouterEvent,
   AgentRouterObserver,
   AgentRouterRunRequest,
   AgentRouterRunResult,
@@ -10,7 +11,7 @@ import type {
   HarnessErrorContext,
   HarnessLaunchPlan,
 } from "../types.ts";
-import { extractCodexFinalText, mapCodexNativeEvent } from "../events.ts";
+import { createCodexEventMapperState, createNarrationDedupEmitter, extractCodexFinalText, mapCodexNativeEvent } from "../events.ts";
 import { buildCapabilityEnv, buildCapabilityPathDirs } from "../capabilities.ts";
 import {
   buildBaseEnv,
@@ -118,7 +119,11 @@ async function runCodex(
 ): Promise<AgentRouterRunResult> {
   let discoveredSessionId = request.sessionId;
   let stdoutBuffer = "";
+  let emitDownstream: (event: AgentRouterEvent) => void = (event) => observer.emit(event);
+  const narrationEmitter = createNarrationDedupEmitter((event) => emitDownstream(event));
+  const mapperState = createCodexEventMapperState();
   const processLine = (line: string, runObserver: AgentRouterObserver): void => {
+    emitDownstream = (event) => runObserver.emit(event);
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) {
       return;
@@ -126,8 +131,8 @@ async function runCodex(
     try {
       const event = JSON.parse(trimmed) as Record<string, unknown>;
       discoveredSessionId = discoverSessionId([event], discoveredSessionId);
-      for (const mapped of mapCodexNativeEvent(event)) {
-        runObserver.emit(mapped);
+      for (const mapped of mapCodexNativeEvent(event, mapperState)) {
+        narrationEmitter.emit(mapped);
       }
     } catch {
       // Final parsing reports malformed JSON diagnostics.
@@ -173,6 +178,7 @@ async function runCodex(
         }
 
         const sessionId = discoverSessionId(parsed.events, discoveredSessionId);
+        narrationEmitter.flush();
         emitSessionUpdate(runObserver, sessionId);
         return { outputText, sessionId, diagnostics };
       },

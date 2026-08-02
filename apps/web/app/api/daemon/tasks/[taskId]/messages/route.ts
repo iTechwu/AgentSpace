@@ -66,6 +66,10 @@ function toProgressType(type: string): "thinking" | "tool_use" | "tool_result" |
   if (type === "thinking" || type === "tool_use" || type === "tool_result" || type === "status") {
     return type;
   }
+  if (type === "narration") {
+    // Narration is projected to the same generic analysis milestone as reasoning.
+    return "thinking";
+  }
   return null;
 }
 
@@ -80,6 +84,7 @@ function appendSingleMessage(task: QueuedTaskRecord, message: DaemonTaskMessageI
     tool: message.tool,
     inputJson: message.inputJson,
     output: message.output,
+    refId: message.refId,
   });
 }
 

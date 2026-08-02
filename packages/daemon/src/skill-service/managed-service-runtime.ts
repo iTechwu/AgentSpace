@@ -37,6 +37,10 @@ export interface ManagedServiceContainerRuntime {
     runAsNonRoot?: boolean;
     readOnlyRootfs?: boolean;
     capDrop?: string[];
+    /** Cosign public key (PEM) trusted to sign this template's image. */
+    signatureKeyPem?: string;
+    /** When true the image signature MUST verify before the pull starts. */
+    signatureRequired?: boolean;
     /** Decrypted values for the catalog's declared secret fields (injected as env). */
     secrets?: Record<string, string>;
   }): Promise<{ endpointRef: string; healthRevision: string; containerName: string }>;
@@ -56,6 +60,58 @@ export const SKILL_SERVICE_HEALTH_POLL_INTERVAL_MS = 3_000;
 export const SKILL_SERVICE_HEALTH_WAIT_MS = 90_000;
 const DOCKER_PULL_TIMEOUT_MS = 10 * 60_000;
 const DOCKER_CONTAINER_TIMEOUT_MS = 60_000;
+const DOCKER_VERIFY_TIMEOUT_MS = 120_000;
+
+/**
+ * Pure argv builder for the cosign verification the managed node runs BEFORE a
+ * signature-required image is pulled. The key is passed as a temp-file path
+ * (cosign's `--key` accepts a file); the digest-pinned ref means cosign verifies
+ * the signature over exactly this content. tlog/SCT checks are skipped so a
+ * self-managed cosign key (no transparency log) still verifies.
+ */
+export function buildCosignVerificationArgs(imageDigest: string, keyFilePath: string): string[] {
+  return [
+    "verify",
+    "--key",
+    keyFilePath,
+    "--insecure-ignore-sct=true",
+    "--insecure-ignore-tlog=true",
+    imageDigest,
+  ];
+}
+
+/** cosign public-key PEM body used for the temp file the verify step writes. */
+const COSIGN_PUB_KEY_FILE = "cosign.pub";
+
+/**
+ * Verifies a signature-required image with cosign against the trusted public
+ * key, fail-closed: a missing key or a non-zero cosign exit aborts provision
+ * before the pull. The key PEM is written to a temp file and always cleaned up.
+ */
+export async function verifyManagedServiceImageSignatureSync(
+  exec: ManagedContainerExec,
+  input: { imageDigest: string; signatureKeyPem?: string },
+): Promise<void> {
+  if (!input.signatureKeyPem?.trim()) {
+    throw new DockerContainerError(
+      "skill_service.signature_key_missing",
+      "Catalog requires an image signature but no verification key was supplied.",
+    );
+  }
+  const keyDir = await fs.mkdtemp(join(tmpdir(), "dofe-svc-sig-"));
+  try {
+    const keyFilePath = join(keyDir, COSIGN_PUB_KEY_FILE);
+    await fs.writeFile(keyFilePath, `${input.signatureKeyPem.trim()}\n`, "utf8");
+    await runChecked(
+      exec,
+      buildCosignVerificationArgs(input.imageDigest, keyFilePath),
+      { timeoutMs: DOCKER_VERIFY_TIMEOUT_MS },
+      "skill_service.image_signature_verification_failed",
+    );
+  } finally {
+    await fs.rm(keyDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
 
 /** Deterministic container name so a stateless daemon can address the container again on retire. */
 export function buildManagedServiceContainerName(serviceId: string): string {
@@ -263,6 +319,16 @@ export function createDockerManagedServiceContainerRuntime(
     async provision(input) {
       const network = resolveManagedRuntimeDockerNetwork();
       const containerName = buildManagedServiceContainerName(input.serviceId);
+
+      // Signature verification (05-运维 §准入检查): a catalog that REQUIRES a
+      // signature must be verified by cosign against the trusted public key
+      // BEFORE the image is pulled — an unverified image is never downloaded.
+      if (input.signatureRequired) {
+        await verifyManagedServiceImageSignatureSync(exec, {
+          imageDigest: input.imageDigest,
+          signatureKeyPem: input.signatureKeyPem,
+        });
+      }
 
       await runChecked(exec, ["pull", input.imageDigest], { timeoutMs: DOCKER_PULL_TIMEOUT_MS }, "skill_service.image_pull_failed");
 

@@ -41,6 +41,7 @@ import {
   type ConversationThreadMessage,
 } from "@/features/chat/conversation-shell";
 import { updateWorkspaceAgentExecutionPolicyAction } from "@/features/agents/actions";
+import { buildExecutionTimeline } from "@/features/chat/task-execution-timeline";
 import { CommunicationListActions } from "@/features/chat/communication-list-actions";
 import { ChatModelCommandDialog, ChatModelSelector } from "@/features/chat/chat-model-selector";
 import type { ChannelsPageData } from "@/features/dashboard/data";
@@ -1306,27 +1307,87 @@ export function ChannelsPageClient({
   );
 
   const messages: ConversationThreadMessage[] = useMemo(
-    () =>
-      selectedThread?.messages.map((message, index) => ({
-      id: message.id || `${message.speaker}-${message.time}-${index}`,
-      speaker: message.speaker,
-      role: message.role,
-      content: message.summary,
-      code: message.code,
-      data: message.data,
-      timestamp: formatCompactTimestamp(message.time, { emptyFallback: message.time }),
-      status: message.status ?? "completed",
-      attachments: message.attachments,
-      mentions: message.mentions,
-      acknowledgements: message.acknowledgements,
-      kind: message.kind,
-      processType: message.processType,
-      tool: message.tool,
-      pinned: message.pinned,
-      pinnedAt: message.pinnedAt,
-      replyToMessageId: message.replyToMessageId,
-    })) ?? [],
-    [selectedThread],
+    () => {
+      const threadMessages = selectedThread?.messages ?? [];
+      const taskExecutions = selectedThread?.taskExecutions;
+
+      // Fold the flat process messages of one task into a single timeline carrier:
+      // the first process message of each task (whose structured stream is available)
+      // carries the execution timeline, the rest are removed from the list.
+      const carrierIdByTaskId = new Map<string, string>();
+      const foldedMessageIds = new Set<string>();
+      if (taskExecutions) {
+        for (const [index, message] of threadMessages.entries()) {
+          if (message.kind !== "process") {
+            continue;
+          }
+          const taskId = message.data?.source_task_queue_id;
+          if (!taskId || !taskExecutions[taskId]?.length) {
+            continue;
+          }
+          const messageId = message.id || `${message.speaker}-${message.time}-${index}`;
+          if (carrierIdByTaskId.has(taskId)) {
+            foldedMessageIds.add(messageId);
+          } else {
+            carrierIdByTaskId.set(taskId, messageId);
+          }
+        }
+      }
+
+      const pendingTaskIds = new Set(
+        threadMessages
+          .filter((message) => message.status === "pending" && Boolean(message.data?.source_task_queue_id))
+          .map((message) => message.data?.source_task_queue_id as string),
+      );
+
+      return threadMessages.flatMap((message, index) => {
+        const id = message.id || `${message.speaker}-${message.time}-${index}`;
+        if (foldedMessageIds.has(id)) {
+          return [];
+        }
+        const taskId = message.data?.source_task_queue_id;
+        const executionRows = taskId && carrierIdByTaskId.get(taskId) === id
+          ? taskExecutions?.[taskId]
+          : undefined;
+        const executionGrouped = Boolean(
+          taskId &&
+          carrierIdByTaskId.has(taskId) &&
+          message.kind !== "process" &&
+          message.role === "agent",
+        );
+        return [{
+          id,
+          speaker: message.speaker,
+          role: message.role,
+          content: message.summary,
+          code: message.code,
+          data: message.data,
+          timestamp: formatCompactTimestamp(message.time, { emptyFallback: message.time }),
+          status: message.status ?? "completed",
+          attachments: message.attachments,
+          mentions: message.mentions,
+          acknowledgements: message.acknowledgements,
+          kind: message.kind,
+          processType: message.processType,
+          tool: message.tool,
+          pinned: message.pinned,
+          pinnedAt: message.pinnedAt,
+          replyToMessageId: message.replyToMessageId,
+          ...(executionGrouped ? { executionGrouped: true } : {}),
+          ...(executionRows
+            ? {
+                execution: buildExecutionTimeline(
+                  executionRows,
+                  { thinking: tx("思考过程", "Thinking") },
+                  { taskRunning: Boolean(taskId && pendingTaskIds.has(taskId)) },
+                ),
+                executionRunning: Boolean(taskId && pendingTaskIds.has(taskId)),
+              }
+            : {}),
+        }];
+      });
+    },
+    [selectedThread, tx],
   );
   const emptyThreadTitle = selectedChannel
     ? tx("还没有消息", "No messages yet")

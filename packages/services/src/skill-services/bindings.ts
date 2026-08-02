@@ -48,6 +48,8 @@ export function resolveClaimedManagedSkillServiceOperation(
       runAsNonRoot: catalog.runAsNonRoot,
       readOnlyRootfs: catalog.readOnlyRootfs,
       capDrop: parseCapDropJson(catalog.capDropJson),
+      signatureKeyPem: catalog.signatureKeyPem ?? undefined,
+      signatureRequired: catalog.signatureRequired === true,
     },
   };
 }

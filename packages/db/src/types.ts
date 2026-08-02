@@ -1236,6 +1236,8 @@ export interface TaskMessageRecord {
   content?: string;
   inputJson?: string;
   output?: string;
+  /** Correlates a tool_result with its tool_use (provider-side call id). */
+  refId?: string;
   createdAt: string;
 }
 
@@ -1539,6 +1541,10 @@ export interface StoredSkillServiceCatalogRecord {
   runAsNonRoot: boolean;
   readOnlyRootfs: boolean;
   capDropJson: string;
+  /** Cosign public key (PEM) trusted to sign this template's image, when enforced. */
+  signatureKeyPem?: string;
+  /** When true the managed node MUST verify the image signature before pulling. */
+  signatureRequired: boolean;
   risk: string;
   createdAt: string;
   updatedAt: string;

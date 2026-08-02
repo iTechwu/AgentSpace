@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "81";
+export const POSTGRES_SCHEMA_VERSION = "82";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -1349,6 +1349,7 @@ export function getPostgresSchemaStatements(): string[] {
         content TEXT,
         input_json JSONB,
         output TEXT,
+        ref_id TEXT,
         created_at TIMESTAMPTZ NOT NULL
       )
     `,
@@ -2673,6 +2674,12 @@ export function getPostgresSchemaStatements(): string[] {
       ALTER TABLE skill_service_catalog ADD COLUMN IF NOT EXISTS cap_drop_json JSONB NOT NULL DEFAULT '["ALL"]'::jsonb
     `,
     `
+      ALTER TABLE skill_service_catalog ADD COLUMN IF NOT EXISTS signature_key_pem TEXT
+    `,
+    `
+      ALTER TABLE skill_service_catalog ADD COLUMN IF NOT EXISTS signature_required BOOLEAN NOT NULL DEFAULT FALSE
+    `,
+    `
       CREATE TABLE IF NOT EXISTS managed_skill_service (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
@@ -3305,6 +3312,10 @@ export function getPostgresSchemaStatements(): string[] {
     `
       ALTER TABLE agent_task_queue
         ADD COLUMN IF NOT EXISTS skill_execution_snapshot_json JSONB
+    `,
+    `
+      ALTER TABLE task_message
+        ADD COLUMN IF NOT EXISTS ref_id TEXT
     `,
     `
       INSERT INTO app_metadata (key, value)

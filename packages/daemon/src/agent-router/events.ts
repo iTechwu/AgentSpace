@@ -1,7 +1,52 @@
 import type { AgentRouterEvent } from "./types.ts";
 import { extractSessionId, extractText, extractUsage, extractGatewayRequestId, readNumberAtPaths, readStringAtPaths, readValueAtPaths } from "./utils.ts";
 
-export function mapClaudeNativeEvent(event: Record<string, unknown>): AgentRouterEvent[] {
+export interface ClaudeEventMapperState {
+  /** tool_use block id → tool name, so tool_result blocks can be attributed. */
+  toolNameByUseId: Map<string, string>;
+}
+
+export function createClaudeEventMapperState(): ClaudeEventMapperState {
+  return { toolNameByUseId: new Map() };
+}
+
+/**
+ * Stateful wrapper around observer.emit for narration events. The latest
+ * narration is held back by one event so that a final answer duplicating it
+ * (Codex emits the last agent_message twice, Claude repeats it in the result
+ * event) can drop the held copy instead of showing the answer twice.
+ */
+export function createNarrationDedupEmitter(emit: (event: AgentRouterEvent) => void): {
+  emit: (event: AgentRouterEvent) => void;
+  flush: (finalText?: string) => void;
+} {
+  let held: string | undefined;
+  const flush = (finalText?: string): void => {
+    if (held === undefined) {
+      return;
+    }
+    const text = held;
+    held = undefined;
+    if (finalText !== undefined && finalText.trim() === text.trim()) {
+      return;
+    }
+    emit({ type: "narration_delta", text });
+  };
+  return {
+    emit(event: AgentRouterEvent): void {
+      if (event.type === "narration_delta") {
+        flush();
+        held = event.text;
+        return;
+      }
+      flush(event.type === "text_delta" ? event.text : undefined);
+      emit(event);
+    },
+    flush,
+  };
+}
+
+export function mapClaudeNativeEvent(event: Record<string, unknown>, state?: ClaudeEventMapperState): AgentRouterEvent[] {
   const type = typeof event.type === "string" ? event.type : "";
 
   if (type === "result") {
@@ -27,9 +72,8 @@ export function mapClaudeNativeEvent(event: Record<string, unknown>): AgentRoute
     return result;
   }
 
-  if (type === "assistant") {
-    const text = extractClaudeAssistantText(event);
-    return text ? [{ type: "thought_delta", text }] : [];
+  if (type === "assistant" || type === "user") {
+    return mapClaudeMessageContentBlocks(type, event, state);
   }
 
   if (type === "text" || type === "message") {
@@ -63,7 +107,94 @@ export function mapClaudeNativeEvent(event: Record<string, unknown>): AgentRoute
   return [];
 }
 
-export function mapCodexNativeEvent(event: Record<string, unknown>): AgentRouterEvent[] {
+/**
+ * Expand one Claude stream-json assistant/user message into per-block events:
+ * every text/thinking/tool_use/tool_result block becomes its own router event,
+ * so each step of the run is individually visible downstream.
+ */
+function mapClaudeMessageContentBlocks(
+  type: "assistant" | "user",
+  event: Record<string, unknown>,
+  state?: ClaudeEventMapperState,
+): AgentRouterEvent[] {
+  const message = event.message && typeof event.message === "object"
+    ? event.message as Record<string, unknown>
+    : undefined;
+  const content = message?.content;
+  if (!Array.isArray(content)) {
+    if (type === "assistant") {
+      const text = extractClaudeAssistantText(event);
+      return text ? [{ type: "narration_delta", text }] : [];
+    }
+    return [];
+  }
+
+  const mapped: AgentRouterEvent[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") {
+      continue;
+    }
+    const typedBlock = block as Record<string, unknown>;
+    const blockType = typeof typedBlock.type === "string" ? typedBlock.type : "";
+
+    if (blockType === "text" && type === "assistant") {
+      // Assistant text between tool calls is user-facing narration ("内容输出"),
+      // not chain-of-thought; thinking blocks below carry the actual reasoning.
+      const text = extractText(typedBlock.text);
+      if (text) {
+        mapped.push({ type: "narration_delta", text });
+      }
+      continue;
+    }
+
+    if (blockType === "thinking") {
+      const text = extractText(typedBlock.thinking ?? typedBlock.text);
+      if (text) {
+        mapped.push({ type: "thought_delta", text });
+      }
+      continue;
+    }
+
+    if (blockType === "tool_use") {
+      const tool = typeof typedBlock.name === "string" ? typedBlock.name : "unknown";
+      const useId = typeof typedBlock.id === "string" ? typedBlock.id : undefined;
+      if (useId && state) {
+        state.toolNameByUseId.set(useId, tool);
+      }
+      mapped.push({
+        type: "tool_started",
+        tool,
+        title: tool,
+        input: typeof typedBlock.input === "object" && typedBlock.input ? typedBlock.input : undefined,
+        toolUseId: useId,
+      });
+      continue;
+    }
+
+    if (blockType === "tool_result") {
+      const useId = typeof typedBlock.tool_use_id === "string" ? typedBlock.tool_use_id : undefined;
+      const tool = (useId && state?.toolNameByUseId.get(useId)) || "tool";
+      const output = extractText(typedBlock.content ?? typedBlock.output);
+      mapped.push(
+        { type: "tool_output", tool, output, toolUseId: useId },
+        { type: "tool_finished", tool, status: typedBlock.is_error === true ? "failed" : "completed", toolUseId: useId },
+      );
+    }
+  }
+  return mapped;
+}
+
+export interface CodexEventMapperState {
+  /** Item ids for which a tool_started was already emitted, so completions of
+   * items whose start event was never seen can synthesize one. */
+  seenToolStarts: Set<string>;
+}
+
+export function createCodexEventMapperState(): CodexEventMapperState {
+  return { seenToolStarts: new Set() };
+}
+
+export function mapCodexNativeEvent(event: Record<string, unknown>, state?: CodexEventMapperState): AgentRouterEvent[] {
   const type = typeof event.type === "string" ? event.type : "";
 
   if (type === "item.started" || type === "item.completed") {
@@ -73,17 +204,37 @@ export function mapCodexNativeEvent(event: Record<string, unknown>): AgentRouter
     }
     const typedItem = item as Record<string, unknown>;
     const itemType = normalizeCodexItemType(typedItem.type);
+    const itemId = typeof typedItem.id === "string" ? typedItem.id : undefined;
+    const markStarted = (): void => {
+      if (itemId) {
+        state?.seenToolStarts.add(itemId);
+      }
+    };
+    // When the provider only reports a completion (no matching item.started),
+    // synthesize the start event so the step still shows its input downstream.
+    const synthesizedStart = (started: AgentRouterEvent | undefined): AgentRouterEvent[] => {
+      if (type === "item.started") {
+        markStarted();
+        return started ? [started] : [];
+      }
+      const prefix = started && itemId && state && !state.seenToolStarts.has(itemId) ? [started] : [];
+      return prefix;
+    };
+
     if (itemType === "command_execution") {
       const command = typeof typedItem.command === "string"
         ? typedItem.command
         : readStringAtPaths(typedItem, [["input", "command"]]);
+      const startEvent: AgentRouterEvent = {
+        type: "tool_started",
+        tool: "exec_command",
+        title: command ? `bash: ${command}` : "bash",
+        input: command ? { command } : undefined,
+        toolUseId: itemId,
+      };
       if (type === "item.started") {
-        return [{
-          type: "tool_started",
-          tool: "exec_command",
-          title: command ? `bash: ${command}` : "bash",
-          input: command ? { command } : undefined,
-        }];
+        markStarted();
+        return [startEvent];
       }
 
       const output = typeof typedItem.aggregatedOutput === "string"
@@ -94,21 +245,94 @@ export function mapCodexNativeEvent(event: Record<string, unknown>): AgentRouter
           ? typedItem.output
           : undefined;
       return [
-        { type: "tool_output", tool: "exec_command", output },
-        { type: "tool_finished", tool: "exec_command", status: "completed" },
+        ...synthesizedStart(startEvent),
+        { type: "tool_output", tool: "exec_command", output, toolUseId: itemId },
+        { type: "tool_finished", tool: "exec_command", status: "completed", toolUseId: itemId },
       ];
     }
 
     if (itemType === "file_change") {
+      const startEvent: AgentRouterEvent = { type: "tool_started", tool: "patch_apply", title: "file change", toolUseId: itemId };
       return type === "item.started"
-        ? [{ type: "tool_started", tool: "patch_apply", title: "file change" }]
-        : [{ type: "tool_finished", tool: "patch_apply", status: "completed" }];
+        ? (markStarted(), [startEvent])
+        : [
+            ...synthesizedStart(startEvent),
+            { type: "tool_finished", tool: "patch_apply", status: "completed", toolUseId: itemId },
+          ];
+    }
+
+    if (itemType === "web_search") {
+      const query = typeof typedItem.query === "string"
+        ? typedItem.query
+        : readStringAtPaths(typedItem, [["action", "query"]]);
+      const startEvent: AgentRouterEvent = {
+        type: "tool_started",
+        tool: "web_search",
+        title: query ? `web search: ${query}` : "web search",
+        input: query ? { query } : undefined,
+        toolUseId: itemId,
+      };
+      if (type === "item.started") {
+        markStarted();
+        return [startEvent];
+      }
+      return [
+        ...synthesizedStart(startEvent),
+        { type: "tool_output", tool: "web_search", output: query, toolUseId: itemId },
+        { type: "tool_finished", tool: "web_search", status: "completed", toolUseId: itemId },
+      ];
+    }
+
+    if (itemType === "mcp_tool_call") {
+      const serverLabel = readStringAtPaths(typedItem, [["server_label"], ["serverLabel"], ["server"]]);
+      const toolName = readStringAtPaths(typedItem, [["tool"], ["name"]]);
+      const tool = [serverLabel, toolName].filter(Boolean).join(".") || "mcp_tool";
+      const args = typedItem.arguments;
+      const startEvent: AgentRouterEvent = {
+        type: "tool_started",
+        tool,
+        title: tool,
+        input: args && typeof args === "object" ? args : typeof args === "string" ? { arguments: args } : undefined,
+        toolUseId: itemId,
+      };
+      if (type === "item.started") {
+        markStarted();
+        return [startEvent];
+      }
+      const errorText = readStringAtPaths(typedItem, [["error", "message"], ["error"]]);
+      const result = typedItem.result;
+      const output = errorText
+        ?? (typeof result === "string" ? result : result ? JSON.stringify(result) : undefined);
+      return [
+        ...synthesizedStart(startEvent),
+        { type: "tool_output", tool, output, toolUseId: itemId },
+        { type: "tool_finished", tool, status: errorText ? "failed" : "completed", toolUseId: itemId },
+      ];
+    }
+
+    if (itemType === "reasoning") {
+      if (type !== "item.completed") {
+        return [];
+      }
+      const text = Array.isArray(typedItem.text)
+        ? typedItem.text.filter((part): part is string => typeof part === "string").join("\n")
+        : typeof typedItem.text === "string"
+          ? typedItem.text
+          : undefined;
+      return text ? [{ type: "thought_delta", text }] : [];
     }
 
     if (itemType === "agent_message" && typeof typedItem.text === "string") {
       return typedItem.phase === "final_answer"
         ? [{ type: "text_delta", text: typedItem.text }]
-        : [{ type: "thought_delta", text: typedItem.text }];
+        : [{ type: "narration_delta", text: typedItem.text }];
+    }
+
+    // Catch-all: never silently drop a completed item that carries user-readable
+    // text — surface it as narration so the timeline stays complete even when
+    // the provider introduces item types this mapper does not know yet.
+    if (type === "item.completed" && typeof typedItem.text === "string" && typedItem.text.trim()) {
+      return [{ type: "narration_delta", text: typedItem.text }];
     }
   }
 
@@ -329,6 +553,12 @@ function normalizeCodexItemType(value: unknown): string {
   }
   if (value === "agentMessage" || value === "agent_message") {
     return "agent_message";
+  }
+  if (value === "webSearch" || value === "web_search") {
+    return "web_search";
+  }
+  if (value === "mcpToolCall" || value === "mcp_tool_call") {
+    return "mcp_tool_call";
   }
   return typeof value === "string" ? value : "";
 }

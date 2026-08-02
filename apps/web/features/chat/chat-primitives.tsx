@@ -9,7 +9,7 @@ import { translateSystemSpeaker, translateWorkspaceMessageSummary } from "@/feat
 import { EmptyState } from "@/shared/ui/empty-state";
 import { FeedbackBanner } from "@/shared/ui/feedback-banner";
 import { GeneratedAvatar, type GeneratedAvatarVariant } from "@/shared/ui/generated-avatar";
-import { AppIcon } from "@/shared/ui/app-icon";
+import { AppIcon, type AppIconName } from "@/shared/ui/app-icon";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
 import type {
   ConversationListItem,
@@ -18,6 +18,7 @@ import type {
   ConversationSlashCommand,
   ConversationThreadMessage,
 } from "@/features/chat/conversation-shell";
+import type { ExecutionTimelineItem } from "@/features/chat/task-execution-timeline";
 import type { EmployeeExecutionPolicy } from "@dofe-agent/domain/workspace";
 
 export const ConversationListRow = memo(function ConversationListRow({
@@ -102,6 +103,100 @@ export function ChatHeader({
   );
 }
 
+function executionTimelineItemIcon(item: ExecutionTimelineItem): AppIconName | null {
+  if (item.kind === "thinking") {
+    return "lightbulb";
+  }
+  if (item.kind === "error") {
+    return "alertCircle";
+  }
+  if (item.kind === "tool") {
+    const tool = item.title.toLowerCase();
+    if (/\b(bash|shell|terminal|cmd|powershell)\b/.test(tool)) {
+      return "terminal";
+    }
+    if (/\b(grep|search|glob|find|websearch)\b/.test(tool)) {
+      return "search";
+    }
+    return "fileText";
+  }
+  return null;
+}
+
+export function TaskExecutionTimeline({
+  items,
+  running,
+}: {
+  items: ExecutionTimelineItem[];
+  running?: boolean;
+}) {
+  // Items start expanded; the set only tracks what the user explicitly collapsed.
+  const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(() => new Set());
+  if (items.length === 0) {
+    return null;
+  }
+  const handleToggle = (id: string, open: boolean): void => {
+    setCollapsedIds((previous) => {
+      const next = new Set(previous);
+      if (open) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+  return (
+    <div className={`execution-timeline${running ? " execution-timeline--running" : ""}`}>
+      {items.map((item) => {
+        if (item.kind === "narration") {
+          return (
+            <div className="execution-timeline__item execution-timeline__item--narration" key={item.id}>
+              <span className="execution-timeline__dot execution-timeline__dot--done" />
+              <p className="execution-timeline__narration">{item.title}</p>
+            </div>
+          );
+        }
+        const icon = executionTimelineItemIcon(item);
+        const heading = (
+          <>
+            <span
+              className={`execution-timeline__dot execution-timeline__dot--${item.status}`}
+            >
+              {item.status === "running" ? <AppIcon className="execution-timeline__spinner" name="loader" /> : null}
+            </span>
+            {icon ? <AppIcon className="execution-timeline__icon" name={icon} /> : null}
+            <strong className="execution-timeline__title">{item.title}</strong>
+            {item.subtitle ? <span className="execution-timeline__subtitle">{item.subtitle}</span> : null}
+            {item.detail ? <AppIcon className="execution-timeline__chevron" name="chevronDown" /> : null}
+          </>
+        );
+        if (!item.detail) {
+          return (
+            <div
+              className={`execution-timeline__item execution-timeline__item--${item.kind} execution-timeline__item--static`}
+              key={item.id}
+            >
+              {heading}
+            </div>
+          );
+        }
+        return (
+          <details
+            className={`execution-timeline__item execution-timeline__item--${item.kind}`}
+            key={item.id}
+            onToggle={(event) => handleToggle(item.id, event.currentTarget.open)}
+            open={!collapsedIds.has(item.id)}
+          >
+            <summary>{heading}</summary>
+            <pre className="execution-timeline__detail">{item.detail}</pre>
+          </details>
+        );
+      })}
+    </div>
+  );
+}
+
 export const ConversationMessageBubble = memo(function ConversationMessageBubble({
   message,
   isOwn,
@@ -180,6 +275,15 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
           name={speakerLabel}
           variant={message.role === "agent" ? "agent" : "human"}
         />
+        {message.execution ? (
+          <div
+            className={`conversation-process conversation-process--timeline${
+              message.executionRunning ? " conversation-process--pending" : ""
+            }${isError ? " conversation-process--error" : ""}`}
+          >
+            <TaskExecutionTimeline items={message.execution} running={message.executionRunning} />
+          </div>
+        ) : (
         <details
           className={`conversation-process${message.status === "pending" ? " conversation-process--pending" : ""}${
             isError ? " conversation-process--error" : ""
@@ -196,6 +300,7 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
           </summary>
           <pre>{message.content}</pre>
         </details>
+        )}
       </div>
     );
   }
@@ -211,7 +316,12 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
   const acknowledgementLabel = acknowledgements.map((acknowledgement) => acknowledgement.label).join("、");
 
   return (
-    <div className={`inbox-bubble-row${own ? " inbox-bubble-row--own" : ""}`} data-conversation-message-id={message.id}>
+    <div
+      className={`inbox-bubble-row${own ? " inbox-bubble-row--own" : ""}${
+        message.executionGrouped ? " inbox-bubble-row--execution-reply" : ""
+      }`}
+      data-conversation-message-id={message.id}
+    >
       {!own ? (
         <GeneratedAvatar
           className={`inbox-bubble-avatar${isError ? " inbox-bubble-avatar--error" : ""}`}

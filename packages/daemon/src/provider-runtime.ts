@@ -54,6 +54,8 @@ export interface ProviderTaskEvent {
   tool?: string;
   inputJson?: Record<string, unknown>;
   output?: string;
+  /** Correlates a tool_result with its tool_use (provider-side call id). */
+  refId?: string;
 }
 
 export interface ProviderApprovalRequest {
@@ -513,6 +515,9 @@ function mapAgentRouterEvent(event: AgentRouterEvent): ProviderTaskEvent[] {
   if (event.type === "thought_delta") {
     return event.text.trim() ? [{ type: "thinking", content: event.text }] : [];
   }
+  if (event.type === "narration_delta") {
+    return event.text.trim() ? [{ type: "narration", content: event.text }] : [];
+  }
   if (event.type === "tool_started") {
     return [{
       type: "tool_use",
@@ -521,6 +526,7 @@ function mapAgentRouterEvent(event: AgentRouterEvent): ProviderTaskEvent[] {
       inputJson: event.input && typeof event.input === "object" && !Array.isArray(event.input)
         ? event.input as Record<string, unknown>
         : undefined,
+      refId: event.toolUseId,
     }];
   }
   if (event.type === "tool_output" && event.tool === "usage" && event.metadata && typeof event.metadata === "object") {
@@ -546,6 +552,7 @@ function mapAgentRouterEvent(event: AgentRouterEvent): ProviderTaskEvent[] {
       tool: event.tool,
       content: event.output ? truncateToolOutput(event.output) : "completed",
       output: event.output ? truncateToolOutput(event.output) : undefined,
+      refId: event.toolUseId,
     }];
   }
   if (event.type === "approval_requested") {
@@ -672,7 +679,7 @@ function mapRouterDiagnosticCode(
 }
 
 function resolveClaudeEmptyResponseCodeFromRouter(result: Awaited<ReturnType<typeof runAgentRouter>>): ProviderErrorCode {
-  const hasStdout = result.events.some((event) => event.type === "thought_delta" || event.type === "text_delta" || event.type === "tool_started" || event.type === "tool_output" || event.type === "approval_requested");
+  const hasStdout = result.events.some((event) => event.type === "thought_delta" || event.type === "narration_delta" || event.type === "text_delta" || event.type === "tool_started" || event.type === "tool_output" || event.type === "approval_requested");
   const hasResultEvent = Boolean(result.sessionId) || result.events.some((event) => event.type === "session_updated");
   if (!hasStdout) {
     return "provider.empty_response.stdout_empty";
@@ -1953,10 +1960,10 @@ function mapGeminiEvent(event: Record<string, unknown>): ProviderTaskEvent[] {
 
 function truncateToolOutput(value: string): string {
   const trimmed = value.trim();
-  if (trimmed.length <= 1200) {
+  if (trimmed.length <= 20000) {
     return trimmed;
   }
-  return `${trimmed.slice(0, 1197)}...`;
+  return `${trimmed.slice(0, 19997)}...`;
 }
 
 function buildProviderEnv(runtime: ProviderRuntimeRecord, extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

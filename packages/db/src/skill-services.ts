@@ -30,6 +30,8 @@ export interface UpsertSkillServiceCatalogInput {
   runAsNonRoot?: boolean;
   readOnlyRootfs?: boolean;
   capDropJson?: string;
+  signatureKeyPem?: string;
+  signatureRequired?: boolean;
   risk?: string;
 }
 
@@ -40,7 +42,8 @@ const SKILL_SERVICE_CATALOG_COLUMNS = `SELECT
   config_schema_version AS configSchemaVersion, config_schema_json AS configSchemaJson,
   secret_fields_json AS secretFieldsJson, external_dependencies_json AS externalDependenciesJson,
   rollback_class AS rollbackClass, template_digest AS templateDigest,
-  sbom_digest, run_as_non_root, read_only_rootfs, cap_drop_json, risk,
+  sbom_digest, run_as_non_root, read_only_rootfs, cap_drop_json,
+  signature_key_pem, signature_required, risk,
   created_at AS createdAt, updated_at AS updatedAt`;
 
 const MANAGED_SKILL_SERVICE_COLUMNS = `SELECT
@@ -70,9 +73,10 @@ export function upsertSkillServiceCatalogSync(input: UpsertSkillServiceCatalogIn
         id, workspace_id, slug, template_version, deployment_type, image_digest, protocol, scope,
         resources_json, health_json, network_json, config_schema_version, config_schema_json,
         secret_fields_json, external_dependencies_json, rollback_class, template_digest,
-        sbom_digest, run_as_non_root, read_only_rootfs, cap_drop_json, risk,
+        sbom_digest, run_as_non_root, read_only_rootfs, cap_drop_json,
+        signature_key_pem, signature_required, risk,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       workspaceId,
@@ -95,6 +99,8 @@ export function upsertSkillServiceCatalogSync(input: UpsertSkillServiceCatalogIn
       input.runAsNonRoot ?? false,
       input.readOnlyRootfs ?? true,
       input.capDropJson ?? JSON.stringify(["ALL"]),
+      input.signatureKeyPem ?? null,
+      input.signatureRequired ?? false,
       input.risk ?? "high",
       now,
       now,
@@ -438,6 +444,8 @@ function mapSkillServiceCatalogRecord(value: Record<string, unknown>): StoredSki
     runAsNonRoot: value.runAsNonRoot === true,
     readOnlyRootfs: value.readOnlyRootfs !== false,
     capDropJson: typeof value.capDropJson === "string" ? value.capDropJson : JSON.stringify(["ALL"]),
+    signatureKeyPem: readOptionalString(value.signatureKeyPem),
+    signatureRequired: value.signatureRequired === true,
     risk: value.risk,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,

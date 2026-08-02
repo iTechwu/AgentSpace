@@ -881,3 +881,44 @@ test("canary green is kept for the backward_compatible cooldown window, then ret
   });
   assert.deepEqual(after, [green.serviceId]);
 });
+
+/* ------------------------------------------------------------------ */
+/* Cosign signature claim payload (schema v82)                         */
+/* ------------------------------------------------------------------ */
+
+const SIGNATURE_PUB_KEY_PEM = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFqpQUB2kqJXqZq9Y0Jq0N6nRqZb6
+vY1Q6GZPZ5aB0nR4Lz1S8u4jT2qVwzKQm0xEb7jHkY9x0o0I9sM0w==
+-----END PUBLIC KEY-----`;
+
+test("claim payload carries the cosign signature trust anchor when the catalog enforces it", () => {
+  const runtimeId = createTestRuntime();
+  const catalogId = upsertSkillServiceCatalogSync({
+    workspaceId: "default",
+    slug: "sig-renderer",
+    templateVersion: "1.0.0",
+    deploymentType: "managed_service",
+    imageDigest: `sha256:${"7".repeat(64)}`,
+    templateDigest: `sha256:${"8".repeat(64)}`,
+    sbomDigest: `sha256:${"9".repeat(64)}`,
+    networkJson: JSON.stringify({ egressAllowlist: [] }),
+    signatureKeyPem: SIGNATURE_PUB_KEY_PEM,
+    signatureRequired: true,
+  }).id;
+  const installationId = createMinimalInstallation(runtimeId);
+  const { serviceId } = queueManagedSkillServiceForInstallationSync({
+    workspaceId: "default",
+    runtimeId,
+    installationId,
+    catalogSlug: "sig-renderer",
+    templateVersion: "1.0.0",
+  });
+
+  const op = listManagedSkillServiceOperationsSync({ workspaceId: "default", serviceId })[0]!;
+  const claimed = resolveClaimedManagedSkillServiceOperation(op);
+
+  assert.ok(claimed);
+  assert.equal(claimed.catalog.signatureKeyPem, SIGNATURE_PUB_KEY_PEM);
+  assert.equal(claimed.catalog.signatureRequired, true);
+  assert.equal(catalogId.length > 0, true);
+});

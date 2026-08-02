@@ -19,9 +19,11 @@ export type AppIconName =
   | "download"
   | "edit"
   | "feishu"
+  | "fileText"
   | "groups"
   | "info"
   | "knowledge"
+  | "lightbulb"
   | "logout"
   | "loader"
   | "market"
@@ -43,6 +45,7 @@ export type AppIconName =
   | "tables"
   | "taskBoard"
   | "templates"
+  | "terminal"
   | "trash";
 
 interface AppIconProps extends SVGProps<SVGSVGElement> {
@@ -111,6 +114,49 @@ function renderIcon(name: AppIconName) {
         <>
           <circle cx="8" cy="8" r="4.5" stroke="currentColor" strokeWidth="1.6" />
           <path d="M11.5 11.5 14.5 14.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+        </>
+      );
+    case "lightbulb":
+      return (
+        <>
+          <path
+            d="M6.5 11.6a4.25 4.25 0 1 1 5 0c-.7.55-1 1.15-1 1.9h-3c0-.75-.3-1.35-1-1.9Z"
+            stroke="currentColor"
+            strokeLinejoin="round"
+            strokeWidth="1.6"
+          />
+          <path d="M7.5 15.5h3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+        </>
+      );
+    case "terminal":
+      return (
+        <>
+          <rect height="11.5" rx="2" stroke="currentColor" strokeWidth="1.6" width="14" x="2" y="3.25" />
+          <path
+            d="m5.5 7.25 2.5 2.25-2.5 2.25M9.5 12h3.5"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.6"
+          />
+        </>
+      );
+    case "fileText":
+      return (
+        <>
+          <path
+            d="M5 2.75h5.5L13.5 6v9.25H5V2.75Z"
+            stroke="currentColor"
+            strokeLinejoin="round"
+            strokeWidth="1.6"
+          />
+          <path
+            d="M10.5 2.75V6h3M7.25 9h3.5M7.25 11.5h3.5"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.6"
+          />
         </>
       );
     case "close":

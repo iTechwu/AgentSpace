@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test, { afterEach, beforeEach } from "node:test";
 import {
+  buildCosignVerificationArgs,
   buildEgressHostsFile,
   buildManagedServiceContainerCreateArgs,
   buildManagedServiceContainerName,
@@ -13,6 +14,7 @@ import {
   createDockerManagedServiceContainerRuntime,
   DockerContainerError,
   parseEgressAllowlistHostnames,
+  verifyManagedServiceImageSignatureSync,
   type ManagedContainerExec,
 } from "./managed-service-runtime.ts";
 
@@ -364,4 +366,94 @@ test("retire surfaces a real removal error", async () => {
     runtime.retire({ serviceId: "svc-1", workspaceId: "default" }),
     (error: unknown) => error instanceof DockerContainerError && error.code === "skill_service.container_remove_failed",
   );
+});
+
+/* ------------------------------------------------------------------ */
+/* Cosign image signature verification (schema v82)                    */
+/* ------------------------------------------------------------------ */
+
+const TEST_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFqpQUB2kqJXqZq9Y0Jq0N6nRqZb6
+vY1Q6GZPZ5aB0nR4Lz1S8u4jT2qVwzKQm0xEb7jHkY9x0o0I9sM0w==
+-----END PUBLIC KEY-----`;
+
+test("buildCosignVerificationArgs pins the key file and digest, skips tlog/SCT", () => {
+  const args = buildCosignVerificationArgs("sha256:abc", "/tmp/cosign.pub");
+  assert.equal(args[0], "verify");
+  assert.equal(args[args.indexOf("--key") + 1], "/tmp/cosign.pub");
+  assert.ok(args.includes("--insecure-ignore-sct=true"));
+  assert.ok(args.includes("--insecure-ignore-tlog=true"));
+  assert.equal(args[args.length - 1], "sha256:abc", "digest-pinned ref is the final arg");
+});
+
+test("verifyManagedServiceImageSignatureSync writes the key and verifies before pull", async () => {
+  const { exec, calls } = fakeExec(() => ({}));
+  await verifyManagedServiceImageSignatureSync(exec, {
+    imageDigest: "sha256:abc",
+    signatureKeyPem: TEST_PUBLIC_KEY_PEM,
+  });
+  assert.equal(calls.length, 1);
+  const verify = calls[0]!;
+  assert.equal(verify[0], "verify");
+  // The cosign.pub temp file must exist at the path we passed.
+  const keyPath = verify[verify.indexOf("--key") + 1]!;
+  assert.ok(keyPath.endsWith("cosign.pub"), `key path is a cosign.pub file, got ${keyPath}`);
+});
+
+test("provision verifies a signature-required image BEFORE the pull and cleans the temp key", async () => {
+  const { exec, calls } = fakeExec((args) => {
+    if (args[0] === "inspect") return { stdout: "true\n" };
+    if (args[0] === "create") return { stdout: "cid\n" };
+    return {};
+  });
+  const runtime = createDockerManagedServiceContainerRuntime(exec, { healthPollIntervalMs: 5, healthWaitMs: 30 });
+  await runtime.provision({
+    ...provisionInput,
+    signatureKeyPem: TEST_PUBLIC_KEY_PEM,
+    signatureRequired: true,
+  });
+
+  const first = calls[0]!;
+  assert.equal(first[0], "verify", "signature must be verified before anything else");
+  assert.ok(calls.some((c) => c[0] === "pull"), "pull still happens after verify");
+  const verifyIdx = calls.findIndex((c) => c[0] === "verify");
+  const pullIdx = calls.findIndex((c) => c[0] === "pull");
+  assert.ok(verifyIdx >= 0 && pullIdx > verifyIdx, "verify strictly precedes pull");
+  const keyPath = first[first.indexOf("--key") + 1]!;
+  // The key temp dir is removed after verification.
+  const { promises: fsPromises } = await import("node:fs");
+  await assert.rejects(fsPromises.stat(keyPath), /ENOENT/, "temp cosign.pub must be cleaned up");
+});
+
+test("provision fails closed when cosign verification rejects the image", async () => {
+  const { exec, calls } = fakeExec((args) =>
+    args[0] === "verify" ? { stderr: "no matching signatures", exitCode: 1 } : {},
+  );
+  const runtime = createDockerManagedServiceContainerRuntime(exec);
+  await assert.rejects(
+    runtime.provision({ ...provisionInput, signatureKeyPem: TEST_PUBLIC_KEY_PEM, signatureRequired: true }),
+    (error: unknown) => error instanceof DockerContainerError && error.code === "skill_service.image_signature_verification_failed",
+  );
+  assert.equal(calls.some((c) => c[0] === "pull"), false, "an unverified image must never be pulled");
+});
+
+test("provision requires the trust key when signature enforcement is on", async () => {
+  const { exec } = fakeExec(() => ({}));
+  const runtime = createDockerManagedServiceContainerRuntime(exec);
+  await assert.rejects(
+    runtime.provision({ ...provisionInput, signatureRequired: true }),
+    (error: unknown) => error instanceof DockerContainerError && error.code === "skill_service.signature_key_missing",
+  );
+});
+
+test("provision skips signature verification when not required", async () => {
+  const { exec, calls } = fakeExec((args) => {
+    if (args[0] === "inspect") return { stdout: "true\n" };
+    if (args[0] === "create") return { stdout: "cid\n" };
+    return {};
+  });
+  const runtime = createDockerManagedServiceContainerRuntime(exec, { healthPollIntervalMs: 5, healthWaitMs: 30 });
+  await runtime.provision(provisionInput);
+  assert.equal(calls.some((c) => c[0] === "verify"), false, "no verify step without signatureRequired");
+  assert.ok(calls.some((c) => c[0] === "pull"));
 });

@@ -10,6 +10,7 @@ export function appendTaskMessageSync(input: {
   tool?: string;
   inputJson?: Record<string, unknown>;
   output?: string;
+  refId?: string;
 }): TaskMessageRecord {
   const db = getDatabase();
   const now = new Date().toISOString();
@@ -29,8 +30,9 @@ export function appendTaskMessageSync(input: {
       content,
       input_json,
       output,
+      ref_id,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     messageId,
     input.taskId,
@@ -40,6 +42,7 @@ export function appendTaskMessageSync(input: {
     input.content ?? null,
     input.inputJson ? JSON.stringify(input.inputJson) : null,
     input.output ?? null,
+    input.refId ?? null,
     now,
   );
 
@@ -54,6 +57,7 @@ export function appendTaskMessageSync(input: {
         content,
         input_json AS inputJson,
         output,
+        ref_id AS refId,
         created_at AS createdAt
       FROM task_message
       WHERE id = ?`,
@@ -81,6 +85,7 @@ export function listTaskMessagesForTaskSync(taskId: string): TaskMessageRecord[]
         content,
         input_json AS inputJson,
         output,
+        ref_id AS refId,
         created_at AS createdAt
       FROM task_message
       WHERE task_id = ?
@@ -91,6 +96,46 @@ export function listTaskMessagesForTaskSync(taskId: string): TaskMessageRecord[]
   return rows
     .map((row) => mapTaskMessageRecord(row))
     .filter((row): row is TaskMessageRecord => row !== null);
+}
+
+export function listTaskMessagesForTasksSync(taskIds: string[]): Map<string, TaskMessageRecord[]> {
+  const grouped = new Map<string, TaskMessageRecord[]>();
+  const uniqueTaskIds = [...new Set(taskIds)].filter((taskId) => typeof taskId === "string" && taskId.length > 0);
+  if (uniqueTaskIds.length === 0) {
+    return grouped;
+  }
+
+  const db = getDatabase();
+  const placeholders = uniqueTaskIds.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT
+        id,
+        task_id AS taskId,
+        seq,
+        type,
+        tool,
+        content,
+        input_json AS inputJson,
+        output,
+        ref_id AS refId,
+        created_at AS createdAt
+      FROM task_message
+      WHERE task_id IN (${placeholders})
+      ORDER BY task_id ASC, seq ASC`,
+    )
+    .all(...uniqueTaskIds) as Array<Record<string, unknown>>;
+
+  for (const row of rows) {
+    const mapped = mapTaskMessageRecord(row);
+    if (!mapped) {
+      continue;
+    }
+    const messages = grouped.get(mapped.taskId) ?? [];
+    messages.push(mapped);
+    grouped.set(mapped.taskId, messages);
+  }
+  return grouped;
 }
 
 function mapTaskMessageRecord(value: Record<string, unknown>): TaskMessageRecord | null {
@@ -113,6 +158,7 @@ function mapTaskMessageRecord(value: Record<string, unknown>): TaskMessageRecord
     content: typeof value.content === "string" ? value.content : undefined,
     inputJson: typeof value.inputJson === "string" ? value.inputJson : undefined,
     output: typeof value.output === "string" ? value.output : undefined,
+    refId: typeof value.refId === "string" ? value.refId : undefined,
     createdAt: value.createdAt,
   };
 }

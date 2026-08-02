@@ -60,6 +60,8 @@ export async function executeSkillServiceOperation(
         runAsNonRoot: operation.catalog.runAsNonRoot,
         readOnlyRootfs: operation.catalog.readOnlyRootfs,
         capDrop: operation.catalog.capDrop,
+        signatureKeyPem: operation.catalog.signatureKeyPem,
+        signatureRequired: operation.catalog.signatureRequired,
         secrets,
       });
     }

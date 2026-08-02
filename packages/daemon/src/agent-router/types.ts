@@ -59,10 +59,11 @@ export type AgentRouterEvent =
   | { type: "harness_started"; harness: string; pid?: number; command: string[] }
   | { type: "text_delta"; text: string }
   | { type: "thought_delta"; text: string }
+  | { type: "narration_delta"; text: string }
   | { type: "approval_requested"; toolName: string; toolInput?: Record<string, unknown>; contentPreview: string }
-  | { type: "tool_started"; tool: string; title?: string; input?: unknown }
-  | { type: "tool_output"; tool: string; output?: string; metadata?: unknown }
-  | { type: "tool_finished"; tool: string; status: "completed" | "failed" }
+  | { type: "tool_started"; tool: string; title?: string; input?: unknown; toolUseId?: string }
+  | { type: "tool_output"; tool: string; output?: string; metadata?: unknown; toolUseId?: string }
+  | { type: "tool_finished"; tool: string; status: "completed" | "failed"; toolUseId?: string }
   | { type: "session_updated"; sessionId: string }
   | { type: "harness_exited"; exitCode: number | null; signal?: string | null };
 

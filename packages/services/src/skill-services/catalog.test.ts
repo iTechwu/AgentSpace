@@ -266,3 +266,52 @@ test("catalog admission validates egress allow-list entry format", () => {
   });
   assert.equal(ok.ok, true);
 });
+
+/* ------------------------------------------------------------------ */
+/* Cosign image signature enforcement (schema v82)                     */
+/* ------------------------------------------------------------------ */
+
+const TEST_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFqpQUB2kqJXqZq9Y0Jq0N6nRqZb6
+vY1Q6GZPZ5aB0nR4Lz1S8u4jT2qVwzKQm0xEb7jHkY9x0o0I9sM0w==
+-----END PUBLIC KEY-----`;
+
+test("catalog admission accepts a signature-required template with a PEM public key", () => {
+  const result = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    signatureKeyPem: TEST_PUBLIC_KEY_PEM,
+    signatureRequired: true,
+  });
+  assert.equal(result.ok, true);
+});
+
+test("catalog admission rejects a malformed cosign public key PEM", () => {
+  const bad = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    signatureKeyPem: "not-a-pem-fragment",
+    signatureRequired: true,
+  });
+  assert.equal(bad.ok, false);
+  if (!bad.ok) {
+    assert.match(bad.reason, /signatureKeyPem must be a PEM/);
+  }
+});
+
+test("catalog admission requires the trust key when signatureRequired is set", () => {
+  const missing = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    signatureRequired: true,
+  });
+  assert.equal(missing.ok, false);
+  if (!missing.ok) {
+    assert.match(missing.reason, /must declare a signatureKeyPem/);
+  }
+});
+
+test("catalog admission accepts a present key without enforcement (advisory only)", () => {
+  const result = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    signatureKeyPem: TEST_PUBLIC_KEY_PEM,
+  });
+  assert.equal(result.ok, true);
+});

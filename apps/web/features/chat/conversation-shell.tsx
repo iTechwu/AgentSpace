@@ -13,6 +13,7 @@ import { useResizablePane } from "@/shared/lib/use-resizable-pane";
 import { PaneResizeHandle } from "@/shared/ui/pane-resize-handle";
 import type { GeneratedAvatarVariant } from "@/shared/ui/generated-avatar";
 import type { EmployeeExecutionPolicy } from "@dofe-agent/domain/workspace";
+import type { ExecutionTimelineItem } from "@/features/chat/task-execution-timeline";
 
 export interface ConversationListItem {
   id: string;
@@ -42,6 +43,11 @@ export interface ConversationThreadMessage {
   kind?: "message" | "process";
   processType?: string;
   tool?: string;
+  /** Structured execution timeline for a task-bound process group (replaces flat process cards). */
+  execution?: ExecutionTimelineItem[];
+  executionRunning?: boolean;
+  /** Agent reply that belongs to an execution group; rendered attached to the timeline card. */
+  executionGrouped?: boolean;
   pinned?: boolean;
   pinnedAt?: string;
   replyToMessageId?: string;

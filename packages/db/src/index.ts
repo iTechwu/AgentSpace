@@ -688,7 +688,7 @@ export {
 } from "./task-queue.ts";
 
 // Task messages
-export { appendTaskMessageSync, listTaskMessagesForTaskSync } from "./task-messages.ts";
+export { appendTaskMessageSync, listTaskMessagesForTaskSync, listTaskMessagesForTasksSync } from "./task-messages.ts";
 
 // Task execution events
 export {

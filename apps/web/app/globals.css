@@ -4932,6 +4932,7 @@ textarea:focus {
 
 .conversation-process {
   width: min(86%, 760px);
+  min-width: 0;
   border-radius: 16px;
   border: 1px solid rgba(142, 149, 170, 0.18);
   background: rgba(255, 255, 255, 0.78);
@@ -4948,7 +4949,7 @@ textarea:focus {
   background: #f4faf6;
 }
 
-.conversation-process summary {
+.conversation-process > summary {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
@@ -4957,15 +4958,15 @@ textarea:focus {
   list-style: none;
 }
 
-.conversation-process summary::-webkit-details-marker {
+.conversation-process > summary::-webkit-details-marker {
   display: none;
 }
 
-.conversation-process summary strong {
+.conversation-process > summary strong {
   font-size: 0.9rem;
 }
 
-.conversation-process summary > span {
+.conversation-process > summary > span {
   font-size: 0.76rem;
   color: var(--muted);
 }
@@ -5000,7 +5001,7 @@ textarea:focus {
   font-weight: 600;
 }
 
-.conversation-process pre {
+.conversation-process > pre {
   margin: 0.7rem 0 0;
   white-space: pre-wrap;
   word-break: break-word;
@@ -5010,6 +5011,224 @@ textarea:focus {
 
 @keyframes conversation-process-spin {
   to { transform: rotate(360deg); }
+}
+
+/* Task execution timeline (Kimi-style collapsible steps) */
+
+.conversation-process--timeline {
+  padding: 0.6rem 0.9rem;
+}
+
+.execution-timeline {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.execution-timeline::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 0.9rem;
+  bottom: 0.9rem;
+  width: 1px;
+  background: rgba(142, 149, 170, 0.35);
+}
+
+.execution-timeline__item {
+  position: relative;
+  min-width: 0;
+  border-radius: var(--radius-md, 6px);
+  font-size: 0.85rem;
+}
+
+.execution-timeline__item summary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  min-width: 0;
+  width: 100%;
+  padding: 0.3rem 0.35rem;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius-md, 6px);
+}
+
+.execution-timeline__item summary::-webkit-details-marker {
+  display: none;
+}
+
+.execution-timeline__item summary:hover {
+  background: rgba(142, 149, 170, 0.08);
+}
+
+.execution-timeline__item--static {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.35rem;
+  color: var(--muted);
+}
+
+.execution-timeline__item--narration {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.3rem 0.35rem;
+}
+
+.execution-timeline__item--narration .execution-timeline__dot {
+  margin-top: 0.35rem;
+}
+
+.execution-timeline__narration {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.execution-timeline__dot {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 11px;
+  height: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.execution-timeline__dot::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #a7adba;
+}
+
+.execution-timeline__dot--done::after {
+  background: var(--success, #18794e);
+}
+
+.execution-timeline__dot--error::after {
+  background: var(--danger, #c4382a);
+}
+
+.execution-timeline__dot--running::after {
+  display: none;
+}
+
+.execution-timeline__spinner {
+  width: 11px;
+  height: 11px;
+  color: #4f68d8;
+  animation: conversation-process-spin 1s linear infinite;
+}
+
+.execution-timeline__icon {
+  flex: none;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: var(--muted);
+}
+
+.execution-timeline__item--error .execution-timeline__icon {
+  color: var(--danger, #c4382a);
+}
+
+.execution-timeline__title {
+  flex: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.execution-timeline__item--error .execution-timeline__title {
+  font-weight: 500;
+  color: var(--danger, #c4382a);
+  white-space: normal;
+}
+
+.execution-timeline__item--static .execution-timeline__title {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.execution-timeline__subtitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 0.78rem/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  color: var(--muted);
+}
+
+.execution-timeline__chevron {
+  flex: none;
+  width: 0.85rem;
+  height: 0.85rem;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.execution-timeline__item[open] > summary .execution-timeline__chevron {
+  transform: rotate(180deg);
+}
+
+.execution-timeline__detail {
+  margin: 0.15rem 0 0.45rem 1.55rem;
+  padding: 0.55rem 0.7rem;
+  max-height: 16rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: var(--radius-md, 6px);
+  background: rgba(142, 149, 170, 0.1);
+  font: 0.8rem/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  color: var(--text);
+}
+
+/* Agent reply attached to the execution timeline card (one task = one visual unit) */
+
+.inbox-bubble-row:has(+ .inbox-bubble-row--execution-reply) {
+  margin-bottom: calc(2px - 0.95rem);
+}
+
+.inbox-bubble-row:has(+ .inbox-bubble-row--execution-reply) .conversation-process--timeline {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.inbox-bubble-row--execution-reply .inbox-bubble-avatar {
+  visibility: hidden;
+}
+
+.inbox-bubble-row--execution-reply .inbox-bubble {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: min(86%, 760px);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* The default action pill floats right of the bubble; inside an execution
+   group that would stick out past the widened card and make the whole thread
+   horizontally scrollable, so it is pinned inside the bubble instead. */
+.inbox-bubble-row--execution-reply .inbox-bubble__actions {
+  left: auto;
+  right: 0.5rem;
+}
+
+/* Chat threads must never scroll sideways. */
+.contacts-chat-thread,
+.inbox-chat-thread {
+  overflow-x: clip;
 }
 
 .attachment-row a {

@@ -53,9 +53,23 @@ export interface SkillServiceCatalogAdmissionInput {
   runAsNonRoot?: boolean;
   readOnlyRootfs?: boolean;
   capDrop?: string[];
+  /** Cosign public key (PEM) trusted to sign this template's image. */
+  signatureKeyPem?: string;
+  /** When true the managed node verifies the image signature before pulling. */
+  signatureRequired?: boolean;
 }
 
 export type AdmissionResult = { ok: true } | { ok: false; reason: string };
+
+/** Shape check for a cosign public key: PEM markers with a non-empty base64 body. */
+export function isCosignPublicKeyPem(value: string): boolean {
+  const trimmed = value.trim();
+  return (
+    trimmed.startsWith("-----BEGIN PUBLIC KEY-----")
+    && trimmed.endsWith("-----END PUBLIC KEY-----")
+    && trimmed.length > "-----BEGIN PUBLIC KEY-----".length + "-----END PUBLIC KEY-----".length + 24
+  );
+}
 
 /** Pure admission validation — returns a reason on failure, never throws. */
 export function assertSkillServiceCatalogAdmissionSync(
@@ -97,6 +111,20 @@ export function assertSkillServiceCatalogAdmissionSync(
     }
   } else if (input.sbomDigest?.trim()) {
     // external_connection has no image; an SBOM is meaningless but harmless.
+  }
+
+  // Cosign image signature enforcement (05-运维 §准入检查): a template that
+  // REQUIRES a signature must ship the trusted cosign public key; a provided key
+  // is shape-checked as a PEM so a pasted fragment fails admission instead of
+  // failing the managed node at provision time.
+  if (input.signatureRequired !== undefined && typeof input.signatureRequired !== "boolean") {
+    return { ok: false, reason: "signatureRequired must be a boolean." };
+  }
+  if (input.signatureKeyPem?.trim() && !isCosignPublicKeyPem(input.signatureKeyPem)) {
+    return { ok: false, reason: "signatureKeyPem must be a PEM-encoded cosign public key (BEGIN/END PUBLIC KEY)." };
+  }
+  if (input.signatureRequired && !input.signatureKeyPem?.trim()) {
+    return { ok: false, reason: "signatureRequired templates must declare a signatureKeyPem trust anchor." };
   }
 
   if (input.runAsNonRoot !== undefined && typeof input.runAsNonRoot !== "boolean") {
@@ -228,6 +256,8 @@ export function createSkillServiceCatalogEntrySync(
     runAsNonRoot: input.runAsNonRoot,
     readOnlyRootfs: input.readOnlyRootfs,
     capDropJson: input.capDrop ? JSON.stringify(input.capDrop) : undefined,
+    signatureKeyPem: input.signatureKeyPem?.trim(),
+    signatureRequired: input.signatureRequired,
   });
 }
 

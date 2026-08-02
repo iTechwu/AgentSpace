@@ -1,4 +1,5 @@
 import type {
+  AgentRouterEvent,
   AgentRouterObserver,
   AgentRouterRunRequest,
   AgentRouterRunResult,
@@ -8,7 +9,7 @@ import type {
   HarnessLaunchPlan,
 } from "../types.ts";
 import type { ExecController } from "@dofe-agent/sandbox";
-import { extractClaudeFallbackText, mapClaudeNativeEvent } from "../events.ts";
+import { createClaudeEventMapperState, createNarrationDedupEmitter, extractClaudeFallbackText, mapClaudeNativeEvent } from "../events.ts";
 import {
   buildCapabilityAllowedTools,
   buildCapabilityEnv,
@@ -140,8 +141,17 @@ async function runClaude(
   let discoveredSessionId = request.sessionId;
   let stdinController: ExecController | undefined;
   let stdoutBuffer = "";
-  let streamedTextEvent = false;
+  const mapperState = createClaudeEventMapperState();
+  // Events are emitted once per stdout line while streaming; the final stdout
+  // replay below skips anything already streamed so no event is reported twice.
+  const streamedEventSignatures = new Set<string>();
+  let emitDownstream: (event: AgentRouterEvent) => void = (event) => observer.emit(event);
+  const narrationEmitter = createNarrationDedupEmitter((event) => {
+    streamedEventSignatures.add(JSON.stringify(event));
+    emitDownstream(event);
+  });
   const processLine = (line: string, runObserver: AgentRouterObserver): void => {
+    emitDownstream = (event) => runObserver.emit(event);
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) {
       return;
@@ -162,11 +172,12 @@ async function runClaude(
           });
         });
       }
-      for (const mapped of mapClaudeNativeEvent(event)) {
-        if (mapped.type === "text_delta") {
-          streamedTextEvent = true;
-        }
-        runObserver.emit(mapped);
+      if (event.type === "result" && typeof event.result === "string") {
+        // The result event repeats the last assistant narration; drop the held copy.
+        narrationEmitter.flush(event.result);
+      }
+      for (const mapped of mapClaudeNativeEvent(event, mapperState)) {
+        narrationEmitter.emit(mapped);
       }
       if (event.type === "result") {
         stdinController?.closeStdin();
@@ -215,8 +226,8 @@ async function runClaude(
       }
 
         for (const event of events) {
-          for (const mapped of mapClaudeNativeEvent(event)) {
-            if (streamedTextEvent && mapped.type === "text_delta") {
+          for (const mapped of mapClaudeNativeEvent(event, mapperState)) {
+            if (streamedEventSignatures.has(JSON.stringify(mapped))) {
               continue;
             }
             runObserver.emit(mapped);
@@ -234,6 +245,7 @@ async function runClaude(
       }
 
       const sessionId = discoverSessionId(events, request.sessionId);
+      narrationEmitter.flush();
       emitSessionUpdate(runObserver, sessionId);
       if (!outputText.trim()) {
         diagnostics.push(createDiagnostic("harness.empty_response", "Claude Code returned an empty response.", {
