@@ -68,8 +68,8 @@ export function isProcessRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "EPERM";
   }
 }
 

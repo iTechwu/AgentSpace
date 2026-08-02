@@ -659,11 +659,11 @@ function runRemoteDaemonStatus(args: string[]): number {
 
   if (parsed.flags.json === true) {
     console.log(JSON.stringify(summary, null, 2));
-    return 0;
+    return summary.running ? 0 : 1;
   }
 
   console.log(renderDaemonSummary(summary));
-  return 0;
+  return summary.running ? 0 : 1;
 }
 
 async function runRemoteDaemonLogs(args: string[]): Promise<number> {

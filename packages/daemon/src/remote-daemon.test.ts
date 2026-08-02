@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import {
@@ -12,8 +14,32 @@ import {
   resolveManagedProviderVerificationEnvironments,
   resolveRemoteTaskExecutionModel,
   resolveRemoteTaskProviderSessionId,
+  runRemoteDaemonCommand,
 } from "./remote-daemon.ts";
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError } from "./daemon-client.ts";
+import { isProcessRunning } from "./state.ts";
+
+test("isProcessRunning treats an inaccessible existing process as running", () => {
+  assert.equal(isProcessRunning(1), true);
+});
+
+test("daemon status exits non-zero when no daemon is running", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-agent-daemon-status-"));
+  const originalLog = console.log;
+  let output = "";
+
+  try {
+    console.log = (...values: unknown[]) => {
+      output += values.join(" ");
+    };
+    const exitCode = await runRemoteDaemonCommand("status", ["--json", "--state-dir", stateDir]);
+    assert.equal(exitCode, 1);
+    assert.equal((JSON.parse(output) as { running: boolean }).running, false);
+  } finally {
+    console.log = originalLog;
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
 
 test("buildRemoteDaemonConfig reads env-backed defaults without repository state", () => {
   const config = buildRemoteDaemonConfig(
