@@ -4,7 +4,7 @@ import {
   type TaskSkillExecutionSnapshot,
   type TaskSkillExecutionSnapshotEntry,
 } from "@dofe-agent/domain";
-import { getDatabase, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
+import { getDatabase, randomLikeId, DEFAULT_WORKSPACE_ID, withTransaction } from "./database.ts";
 import { type QueuedTaskRecord, type EnqueueTaskInput, isNativeTaskStatus, priorityToNumber } from "./types.ts";
 import { readEmployeeBindingGenerationSync, readEmployeeRuntimeBindingSync } from "./employee-bindings.ts";
 import { buildTaskExecutionEventContext, recordTaskExecutionEventSync } from "./task-execution-events.ts";
@@ -494,21 +494,25 @@ export function markTaskCommittedSync(input: {
   const db = getDatabase();
   const previous = readQueuedTaskSync(input.taskId);
   const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE agent_task_queue SET status = 'committed', updated_at = ?
-     WHERE id = ? AND status IN ('preparing_commit', 'committed', 'running')`,
-  ).run(now, input.taskId);
-  const task = readQueuedTaskSync(input.taskId);
-  if (!task) {
-    throw new Error(`Queued task "${input.taskId}" does not exist.`);
-  }
-  upsertTaskCommitJournalSync({
-    taskId: task.id,
-    workspaceId: task.workspaceId,
-    employeeName: input.employeeName,
-    workspaceRevisionId: input.workspaceRevisionId,
-    artifactIdsJson: JSON.stringify(input.artifactIds ?? []),
-    commitState: "committed",
+  const task = withTransaction(db, () => {
+    db.prepare(
+      `UPDATE agent_task_queue SET status = 'committed', updated_at = ?
+       WHERE id = ? AND status IN ('preparing_commit', 'committed', 'running')`,
+    ).run(now, input.taskId);
+    const current = readQueuedTaskSync(input.taskId);
+    if (!current) {
+      throw new Error(`Queued task "${input.taskId}" does not exist.`);
+    }
+    upsertTaskCommitJournalSync({
+      taskId: current.id,
+      workspaceId: current.workspaceId,
+      employeeName: input.employeeName,
+      workspaceRevisionId: input.workspaceRevisionId,
+      artifactIdsJson: JSON.stringify(input.artifactIds ?? []),
+      commitState: "committed",
+    });
+    deleteMcpTaskSessionGrantSync(current.id, current.workspaceId);
+    return current;
   });
   if (previous && previous.status !== "committed" && task.status === "committed") {
     recordQueueLifecycleEvent(task, {
@@ -543,28 +547,31 @@ function completeQueuedTaskInternalSync(
         "it must be committed first (EAD §7).",
     );
   }
-  db.prepare(
-    `UPDATE agent_task_queue
-     SET status = 'completed',
-         result_json = ?,
-         session_id = ?,
-         work_dir = ?,
-         finished_at = ?,
-         updated_at = ?
-     WHERE id = ?`,
-  ).run(
-    input.resultJson ? JSON.stringify(input.resultJson) : null,
-    input.sessionId ?? null,
-    input.workDir ?? null,
-    now,
-    now,
-    input.taskId,
-  );
-
-  const task = readQueuedTaskSync(input.taskId);
-  if (!task) {
-    throw new Error(`Queued task "${input.taskId}" does not exist.`);
-  }
+  const task = withTransaction(db, () => {
+    db.prepare(
+      `UPDATE agent_task_queue
+       SET status = 'completed',
+           result_json = ?,
+           session_id = ?,
+           work_dir = ?,
+           finished_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(
+      input.resultJson ? JSON.stringify(input.resultJson) : null,
+      input.sessionId ?? null,
+      input.workDir ?? null,
+      now,
+      now,
+      input.taskId,
+    );
+    const current = readQueuedTaskSync(input.taskId);
+    if (!current) {
+      throw new Error(`Queued task "${input.taskId}" does not exist.`);
+    }
+    deleteMcpTaskSessionGrantSync(current.id, current.workspaceId);
+    return current;
+  });
   if (previous?.status !== "completed") {
     const attempt = readLatestAgentTaskAttemptForTaskSync(task.id);
     const runtime = readAgentRuntimeSync(task.runtimeId);
@@ -649,21 +656,24 @@ export function failQueuedTaskSync(input: {
   const db = getDatabase();
   const now = new Date().toISOString();
   const previous = readQueuedTaskSync(input.taskId);
-  db.prepare(
-    `UPDATE agent_task_queue
-     SET status = 'failed',
-         error_text = ?,
-         session_id = COALESCE(?, session_id),
-         work_dir = COALESCE(?, work_dir),
-         finished_at = ?,
-         updated_at = ?
-     WHERE id = ?`,
-  ).run(input.errorText, input.sessionId ?? null, input.workDir ?? null, now, now, input.taskId);
-
-  const task = readQueuedTaskSync(input.taskId);
-  if (!task) {
-    throw new Error(`Queued task "${input.taskId}" does not exist.`);
-  }
+  const task = withTransaction(db, () => {
+    db.prepare(
+      `UPDATE agent_task_queue
+       SET status = 'failed',
+           error_text = ?,
+           session_id = COALESCE(?, session_id),
+           work_dir = COALESCE(?, work_dir),
+           finished_at = ?,
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(input.errorText, input.sessionId ?? null, input.workDir ?? null, now, now, input.taskId);
+    const current = readQueuedTaskSync(input.taskId);
+    if (!current) {
+      throw new Error(`Queued task "${input.taskId}" does not exist.`);
+    }
+    deleteMcpTaskSessionGrantSync(current.id, current.workspaceId);
+    return current;
+  });
   if (previous?.status !== "failed") {
     const blocked = isBlockedFailure(input);
     const attempt = readLatestAgentTaskAttemptForTaskSync(task.id);
@@ -778,22 +788,24 @@ export function cancelQueuedTaskSync(input: {
   const db = getDatabase();
   const now = new Date().toISOString();
   const previous = readQueuedTaskSync(input.taskId);
-  db.prepare(
-    `UPDATE agent_task_queue
-     SET status = 'cancelled',
-         error_text = COALESCE(?, error_text),
-         finished_at = ?,
-         updated_at = ?
-     WHERE id = ? AND status IN ('queued', 'claimed', 'running')`,
-  ).run(input.errorText ?? null, now, now, input.taskId);
-
-  // Cancel is a task terminal state: destroy any MCP session grant immediately.
-  deleteMcpTaskSessionGrantSync(input.taskId);
-
-  const task = readQueuedTaskSync(input.taskId);
-  if (!task) {
-    throw new Error(`Queued task "${input.taskId}" does not exist.`);
-  }
+  const task = withTransaction(db, () => {
+    db.prepare(
+      `UPDATE agent_task_queue
+       SET status = 'cancelled',
+           error_text = COALESCE(?, error_text),
+           finished_at = ?,
+           updated_at = ?
+       WHERE id = ? AND status IN ('queued', 'claimed', 'running')`,
+    ).run(input.errorText ?? null, now, now, input.taskId);
+    const current = readQueuedTaskSync(input.taskId);
+    if (!current) {
+      throw new Error(`Queued task "${input.taskId}" does not exist.`);
+    }
+    if (current.status === "cancelled") {
+      deleteMcpTaskSessionGrantSync(current.id, current.workspaceId);
+    }
+    return current;
+  });
   if (previous?.status !== "cancelled" && task.status === "cancelled") {
     const wasRunning = previous?.status === "claimed" || previous?.status === "running";
     const attempt = readLatestAgentTaskAttemptForTaskSync(task.id);
@@ -1147,6 +1159,9 @@ function parseTaskSkillExecutionSnapshotJson(raw: string): TaskSkillExecutionSna
       revision: item.revision,
       status: item.status,
       ...(typeof item.releaseLockDigest === "string" ? { releaseLockDigest: item.releaseLockDigest } : {}),
+      ...(typeof item.dependencyEnvironmentRequired === "boolean"
+        ? { dependencyEnvironmentRequired: item.dependencyEnvironmentRequired }
+        : {}),
     });
   }
   return {

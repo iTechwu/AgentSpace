@@ -5,14 +5,19 @@ import { join } from "node:path";
 import test, { before, beforeEach, after } from "node:test";
 import {
   bindEmployeeRuntimeSync,
+  cancelQueuedTaskSync,
   claimNextQueuedTaskForRuntimeSync,
   completeCommittedTaskSync,
   completeQueuedTaskSync,
+  createWorkspaceSync,
   enqueueNativeTaskSync,
+  failQueuedTaskSync,
   getDatabase,
   markTaskCommittedSync,
+  readMcpTaskSessionGrantSync,
   registerDaemonRuntimesSync,
   startQueuedTaskSync,
+  writeMcpTaskSessionGrantSync,
 } from "./index.ts";
 
 const originalCwd = process.cwd();
@@ -118,3 +123,83 @@ test("completeQueuedTaskSync still allows legacy completion from running for com
   const completed = completeQueuedTaskSync({ taskId: queued.id });
   assert.equal(completed.status, "completed");
 });
+
+test("cancelQueuedTaskSync removes the MCP session grant from the task workspace", () => {
+  const { workspaceId, queued } = createTaskWithMcpGrant("cancel");
+
+  cancelQueuedTaskSync({ taskId: queued.id });
+
+  assert.equal(readMcpTaskSessionGrantSync(queued.id, workspaceId), null);
+});
+
+test("failQueuedTaskSync removes the MCP session grant from the task workspace", () => {
+  const { workspaceId, queued } = createTaskWithMcpGrant("fail");
+
+  failQueuedTaskSync({ taskId: queued.id, errorText: "Provider failed." });
+
+  assert.equal(readMcpTaskSessionGrantSync(queued.id, workspaceId), null);
+});
+
+test("markTaskCommittedSync removes the MCP session grant from the task workspace", () => {
+  const { workspaceId, runtimeId, queued } = createTaskWithMcpGrant("commit");
+  claimNextQueuedTaskForRuntimeSync(runtimeId);
+  startQueuedTaskSync(queued.id);
+
+  markTaskCommittedSync({ taskId: queued.id });
+
+  assert.equal(readMcpTaskSessionGrantSync(queued.id, workspaceId), null);
+});
+
+test("legacy completion removes the MCP session grant from the task workspace", () => {
+  const { workspaceId, runtimeId, queued } = createTaskWithMcpGrant("complete");
+  claimNextQueuedTaskForRuntimeSync(runtimeId);
+  startQueuedTaskSync(queued.id);
+
+  completeQueuedTaskSync({ taskId: queued.id });
+
+  assert.equal(readMcpTaskSessionGrantSync(queued.id, workspaceId), null);
+});
+
+function createTaskWithMcpGrant(prefix: string): {
+  workspaceId: string;
+  runtimeId: string;
+  queued: NonNullable<ReturnType<typeof enqueueNativeTaskSync>>;
+} {
+  const suffix = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+  const workspace = createWorkspaceSync({
+    id: `task-grant-${prefix}-${suffix}`,
+    slug: `task-grant-${prefix}-${suffix}`,
+    name: "Task grant test",
+    createdBy: "test",
+  });
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO workspace_employee (
+       id, workspace_id, name, role, origin, summary, fit, status, instructions, created_at, updated_at
+     ) VALUES (?, ?, 'Atlas', 'Agent', 'manual', 'Test employee', 'Ready', 'active', '', ?, ?)`,
+  ).run(`emp-${prefix}-${suffix}`, workspace.id, now, now);
+  const runtimeId = registerDaemonRuntimesSync({
+    workspaceId: workspace.id,
+    daemonKey: `daemon-${prefix}-${suffix}`,
+    deviceName: "Build Box",
+    runtimes: [{ provider: "codex", name: "Remote Codex", version: "test" }],
+  }).runtimes[0]!.id;
+  bindEmployeeRuntimeSync({ workspaceId: workspace.id, employeeName: "Atlas", runtimeId });
+  const queued = enqueueNativeTaskSync({
+    workspaceId: workspace.id,
+    assignee: "Atlas",
+    title: `${prefix} delegated task`,
+    channel: "general",
+    priority: "high",
+  });
+  assert.ok(queued);
+  writeMcpTaskSessionGrantSync({
+    workspaceId: workspace.id,
+    runtimeId,
+    taskId: queued.id,
+    attemptId: "attempt-1",
+    encryptedBundleJson: "encrypted-test-bundle",
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  });
+  return { workspaceId: workspace.id, runtimeId, queued };
+}

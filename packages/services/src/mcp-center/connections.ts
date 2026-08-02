@@ -1009,21 +1009,7 @@ export function claimMcpTaskSessionSync(input: {
   // parse cannot break replay of an already-granted bundle).
   const existing = readMcpTaskSessionGrantSync(input.taskId, input.workspaceId);
   if (existing) {
-    if (
-      existing.attemptId === attemptId &&
-      existing.runtimeId === input.runtimeId &&
-      existing.expiresAt > new Date().toISOString()
-    ) {
-      try {
-        return JSON.parse(decryptMcpGrant(existing.encryptedBundleJson)) as ClaimMcpTaskSessionResponse;
-      } catch {
-        // Undecryptable/corrupt grant → refuse rather than leak or fabricate.
-        return { connections: [] };
-      }
-    }
-    // A grant exists but belongs to a different attempt, runtime, or expired →
-    // this is not the first claim; refuse.
-    return { connections: [] };
+    return replayMcpTaskSessionGrant(existing, input.runtimeId, attemptId);
   }
 
   // First claim: resolve + encrypt BEFORE any mutation, so a serialization/size
@@ -1044,7 +1030,7 @@ export function claimMcpTaskSessionSync(input: {
 
   // Marker CAS + grant INSERT happen in ONE transaction: there is no window in
   // which the marker is consumed but the grant is missing.
-  const { claimed } = claimMcpTaskSessionAtomicallySync({
+  const { claimed, grant } = claimMcpTaskSessionAtomicallySync({
     taskId: input.taskId,
     workspaceId: input.workspaceId,
     runtimeId: input.runtimeId,
@@ -1052,7 +1038,31 @@ export function claimMcpTaskSessionSync(input: {
     encryptedBundleJson: encryptedBundle,
     expiresAt,
   });
-  return claimed ? result : { connections: [] };
+  // A concurrent same-attempt caller can lose the marker CAS after its initial
+  // read. The atomic DB seam returns the winner's grant so that loser replays
+  // the exact same authorization instead of degrading to an empty bundle.
+  return claimed ? result : replayMcpTaskSessionGrant(grant, input.runtimeId, attemptId);
+}
+
+function replayMcpTaskSessionGrant(
+  grant: Awaited<ReturnType<typeof readMcpTaskSessionGrantSync>>,
+  runtimeId: string,
+  attemptId: string,
+): ClaimMcpTaskSessionResponse {
+  if (
+    !grant ||
+    grant.attemptId !== attemptId ||
+    grant.runtimeId !== runtimeId ||
+    grant.expiresAt <= new Date().toISOString()
+  ) {
+    return { connections: [] };
+  }
+  try {
+    return JSON.parse(decryptMcpGrant(grant.encryptedBundleJson)) as ClaimMcpTaskSessionResponse;
+  } catch {
+    // Undecryptable/corrupt grant → refuse rather than leak or fabricate.
+    return { connections: [] };
+  }
 }
 
 function resolveClaimedMcpTaskSessionResult(input: {

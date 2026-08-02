@@ -1,4 +1,4 @@
-import { appendTaskMessageSync, deleteMcpTaskSessionGrantSync, failQueuedTaskSync } from "@dofe-agent/db";
+import { appendTaskMessageSync, failQueuedTaskSync } from "@dofe-agent/db";
 import { parseTaskPayload } from "dofe-agent-daemon";
 import type { FailTaskRequest } from "@dofe-agent/domain";
 import {
@@ -60,8 +60,6 @@ export async function POST(
     provider: body.provider,
     rawProviderMessage: body.rawProviderMessage,
   });
-  // Task terminal state: destroy the MCP session grant immediately.
-  deleteMcpTaskSessionGrantSync(task.id, task.workspaceId);
   const providerDiagnosticMessage = formatProviderDiagnosticMessage(body);
   if (providerDiagnosticMessage) {
     appendTaskMessageSync({

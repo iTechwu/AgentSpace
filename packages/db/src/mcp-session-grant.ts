@@ -74,17 +74,18 @@ export function claimMcpTaskSessionAtomicallySync(input: {
   attemptId: string;
   encryptedBundleJson: string;
   expiresAt: string;
-}): { claimed: boolean } {
+}): { claimed: boolean; grant: McpTaskSessionGrantRecord | null } {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const db = getDatabase();
   let claimed = false;
-  withTransaction(db, () => {
+  const grant = withTransaction(db, () => {
     const now = new Date().toISOString();
     const marker = db.prepare(
       `UPDATE agent_task_queue
        SET mcp_session_claimed_at = ?, updated_at = ?
-       WHERE id = ? AND mcp_session_claimed_at IS NULL`,
-    ).run(now, now, input.taskId);
+       WHERE id = ? AND workspace_id = ? AND runtime_id = ?
+         AND mcp_session_claimed_at IS NULL`,
+    ).run(now, now, input.taskId, workspaceId, input.runtimeId);
     if (marker.changes > 0) {
       db.prepare(
         `INSERT INTO mcp_task_session_grant (
@@ -102,8 +103,11 @@ export function claimMcpTaskSessionAtomicallySync(input: {
       );
       claimed = true;
     }
+    // Under READ COMMITTED, a competing UPDATE waits for the winner. Reading
+    // here therefore observes the winner's committed grant before returning.
+    return readMcpTaskSessionGrantSync(input.taskId, workspaceId);
   });
-  return { claimed };
+  return { claimed, grant };
 }
 
 export function readMcpTaskSessionGrantSync(

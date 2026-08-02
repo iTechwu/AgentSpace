@@ -2,7 +2,6 @@ import {
   appendTaskMessageSync,
   assertEmployeeBindingGenerationSync,
   completeCommittedTaskSync,
-  deleteMcpTaskSessionGrantSync,
   failQueuedTaskSync,
   enqueueTokenUsageRetrySync,
   markTaskCommittedSync,
@@ -381,8 +380,6 @@ export async function POST(
         workspaceRevisionId,
         artifactIds: committedArtifactIds,
       });
-      // Task terminal state: destroy the MCP session grant immediately.
-      deleteMcpTaskSessionGrantSync(task.id, task.workspaceId);
     } catch (error) {
       promotionError = error instanceof Error ? error.message : String(error);
       upsertTaskCommitJournalSync({

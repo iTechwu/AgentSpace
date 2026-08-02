@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before, beforeEach } from "node:test";
 import {
+  claimMcpTaskSessionAtomicallySync,
   claimNextMcpOperationForRuntimeSync,
   completeMcpOperationSync,
   createUserSync,
@@ -681,6 +682,18 @@ test("claimMcpTaskSession replays the first result for an HTTP retry of the same
   assert.equal(retry.connections.length, 1);
   assert.equal(retry.connections[0]?.connectionId, connection.id);
   assert.equal(retry.connections[0]?.secrets.api_key, "x");
+
+  const loser = claimMcpTaskSessionAtomicallySync({
+    taskId: "task-retry",
+    workspaceId: "default",
+    runtimeId,
+    attemptId: attempt,
+    encryptedBundleJson: "must-not-replace-winner",
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  });
+  assert.equal(loser.claimed, false);
+  assert.equal(loser.grant?.attemptId, attempt);
+  assert.notEqual(loser.grant?.encryptedBundleJson, "must-not-replace-winner");
 });
 
 test("computeMcpConnectionNextHealthCheckAt schedules base interval on ready and exponential backoff on failure", () => {
