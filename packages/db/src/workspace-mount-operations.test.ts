@@ -10,6 +10,8 @@ import {
   failWorkspaceMountOperationSync,
   getDatabase,
   readWorkspaceMountOperationSync,
+  renewWorkspaceMountOperationLeaseSync,
+  requeueExpiredWorkspaceMountOperationLeasesSync,
   startWorkspaceMountOperationSync,
 } from "./index.ts";
 
@@ -71,10 +73,15 @@ test("create → claim → complete drives a workspace mount operation to comple
   assert.equal(claimed!.id, op.id);
   assert.equal(claimed!.status, "claimed");
 
-  startWorkspaceMountOperationSync(claimed!.id, "default");
+  startWorkspaceMountOperationSync({
+    operationId: claimed!.id,
+    workspaceId: "default",
+    claimGeneration: claimed!.claimGeneration,
+  });
   const completed = completeWorkspaceMountOperationSync({
     operationId: op.id,
     workspaceId: "default",
+    claimGeneration: claimed!.claimGeneration,
     materializedFiles: 3,
     mountedPath: "/state/runtime-workspaces/runtime-1/Alice",
   });
@@ -107,6 +114,7 @@ test("failed operations record the error and stay failed", () => {
   const failed = failWorkspaceMountOperationSync({
     operationId: op.id,
     workspaceId: "default",
+    claimGeneration: claim!.claimGeneration,
     errorCode: "mount.materialization_failed",
     errorMessage: "blob missing",
   });
@@ -118,4 +126,136 @@ test("failed operations record the error and stay failed", () => {
   const claimed = claimNextWorkspaceMountOperationForRuntimeSync("runtime-3", "default");
   assert.equal(claimed, null);
   assert.equal(readWorkspaceMountOperationSync(op.id, "default")?.status, "failed");
+});
+
+test("an unclaimed mount operation cannot be started", () => {
+  insertRuntime("runtime-unclaimed");
+  const op = createWorkspaceMountOperationSync({
+    workspaceId: "default",
+    runtimeId: "runtime-unclaimed",
+    employeeName: "Erin",
+  });
+
+  assert.throws(
+    () => startWorkspaceMountOperationSync({ operationId: op.id, workspaceId: "default", claimGeneration: 0 }),
+    /not in a startable state/i,
+  );
+  assert.equal(readWorkspaceMountOperationSync(op.id, "default")?.status, "pending");
+});
+
+test("a claimed mount operation cannot complete before it starts", () => {
+  insertRuntime("runtime-not-started");
+  const op = createWorkspaceMountOperationSync({
+    workspaceId: "default",
+    runtimeId: "runtime-not-started",
+    employeeName: "Frank",
+  });
+  claimNextWorkspaceMountOperationForRuntimeSync("runtime-not-started", "default");
+  const claimed = readWorkspaceMountOperationSync(op.id, "default");
+  assert.ok(claimed);
+
+  assert.throws(
+    () => completeWorkspaceMountOperationSync({
+      operationId: op.id,
+      workspaceId: "default",
+      claimGeneration: claimed.claimGeneration,
+      materializedFiles: 0,
+      mountedPath: "/state/runtime-workspaces/runtime-not-started/Frank",
+    }),
+    /not in a completable state/i,
+  );
+});
+
+test("starting a running mount operation is idempotent after a lost response", () => {
+  insertRuntime("runtime-start-retry");
+  createWorkspaceMountOperationSync({
+    workspaceId: "default",
+    runtimeId: "runtime-start-retry",
+    employeeName: "Grace",
+  });
+  const claimed = claimNextWorkspaceMountOperationForRuntimeSync("runtime-start-retry", "default");
+  assert.ok(claimed);
+
+  const first = startWorkspaceMountOperationSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
+  });
+  const retry = startWorkspaceMountOperationSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
+  });
+  assert.equal(first.status, "running");
+  assert.equal(retry.status, "running");
+});
+
+test("an expired mount lease is re-claimed with a new fencing generation", () => {
+  insertRuntime("runtime-expired");
+  createWorkspaceMountOperationSync({
+    workspaceId: "default",
+    runtimeId: "runtime-expired",
+    employeeName: "Helen",
+  });
+  const first = claimNextWorkspaceMountOperationForRuntimeSync(
+    "runtime-expired",
+    "default",
+    new Date("2026-01-01T00:00:00Z"),
+  );
+  assert.ok(first);
+  assert.equal(first.claimGeneration, 1);
+
+  const second = claimNextWorkspaceMountOperationForRuntimeSync(
+    "runtime-expired",
+    "default",
+    new Date("2026-01-01T00:03:00Z"),
+  );
+  assert.ok(second);
+  assert.equal(second.id, first.id);
+  assert.equal(second.claimGeneration, 2);
+
+  assert.throws(
+    () => startWorkspaceMountOperationSync({
+      operationId: first.id,
+      workspaceId: "default",
+      claimGeneration: first.claimGeneration,
+      now: new Date("2026-01-01T00:03:01Z"),
+    }),
+    /not in a startable state/i,
+  );
+});
+
+test("mount lease renewal and requeue are fenced by generation", () => {
+  insertRuntime("runtime-renew");
+  createWorkspaceMountOperationSync({
+    workspaceId: "default",
+    runtimeId: "runtime-renew",
+    employeeName: "Ian",
+  });
+  const claimed = claimNextWorkspaceMountOperationForRuntimeSync(
+    "runtime-renew",
+    "default",
+    new Date("2026-01-01T00:00:00Z"),
+  );
+  assert.ok(claimed);
+  assert.equal(renewWorkspaceMountOperationLeaseSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
+    now: new Date("2026-01-01T00:01:00Z"),
+  }), true);
+  assert.equal(requeueExpiredWorkspaceMountOperationLeasesSync({
+    workspaceId: "default",
+    now: new Date("2026-01-01T00:02:30Z"),
+  }), 0);
+  assert.equal(requeueExpiredWorkspaceMountOperationLeasesSync({
+    workspaceId: "default",
+    now: new Date("2026-01-01T00:03:01Z"),
+  }), 1);
+  assert.equal(renewWorkspaceMountOperationLeaseSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    claimGeneration: claimed.claimGeneration,
+    now: new Date("2026-01-01T00:03:02Z"),
+  }), false);
 });

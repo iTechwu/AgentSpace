@@ -52,6 +52,8 @@ export interface WorkDirCaptureResult {
   skippedUnchanged: number;
   /** True when the file/total budget was exceeded and some files were dropped. */
   truncated: boolean;
+  /** Unsafe entries that made a complete snapshot impossible. */
+  unsafePaths: string[];
   /**
    * Captured paths present in the head manifest that no longer exist under the
    * workDir. The provider deleted them, so the promoted revision must drop them
@@ -102,6 +104,7 @@ export function collectWorkDirChanges(
   let truncated = false;
   let totalBytes = 0;
   const deletedPaths: string[] = [];
+  const unsafePaths: string[] = [];
   for (const file of headManifest?.files ?? []) {
     if (!isCapturedIncludePath(file.path)) {
       continue;
@@ -130,12 +133,18 @@ export function collectWorkDirChanges(
     // inner-entry check would be bypassed. lstat (no follow) + realpath
     // containment against the normalized workDir.
     try {
-      if (!lstatSync(baseDir).isDirectory()) {
+      const rootStat = lstatSync(baseDir);
+      if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+        unsafePaths.push(`${includeDir}/`);
         continue;
       }
       assertRealPathInside(baseDir, workDir);
-    } catch {
-      continue; // missing or a symlink escaping the workDir → refuse to capture
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        continue;
+      }
+      unsafePaths.push(`${includeDir}/`);
+      continue;
     }
 
     walkCaptureFiles(baseDir, (absolutePath) => {
@@ -148,6 +157,7 @@ export function collectWorkDirChanges(
       // persistent workspace by pointing a symlink at them.
       const stat = lstatSync(absolutePath);
       if (!stat.isFile() || stat.nlink !== 1) {
+        unsafePaths.push(relative(workDir, absolutePath).replace(/\\/g, "/"));
         return;
       }
       if (stat.size > WORKDIR_CAPTURE_MAX_SINGLE_FILE_BYTES) {
@@ -165,7 +175,8 @@ export function collectWorkDirChanges(
       try {
         bytes = readFileBytesNoFollow(absolutePath);
       } catch {
-        return; // entry vanished or became a symlink mid-walk; skip it
+        unsafePaths.push(relative(workDir, absolutePath).replace(/\\/g, "/"));
+        return;
       }
       const sha256 = sha256Hex(bytes);
 
@@ -188,10 +199,12 @@ export function collectWorkDirChanges(
         size: bytes.byteLength,
         mode: mode.toString(8).padStart(4, "0"),
       });
+    }, (absolutePath) => {
+      unsafePaths.push(relative(workDir, absolutePath).replace(/\\/g, "/"));
     });
   }
 
-  return { files, skippedUnchanged, truncated, deletedPaths };
+  return { files, skippedUnchanged, truncated, unsafePaths: [...new Set(unsafePaths)], deletedPaths };
 }
 
 function isCapturedIncludePath(path: string): boolean {
@@ -468,13 +481,18 @@ function applyCapturedMode(targetPath: string, mode?: string): void {
   }
 }
 
-function walkCaptureFiles(baseDir: string, visit: (absolutePath: string) => void): void {
+function walkCaptureFiles(
+  baseDir: string,
+  visit: (absolutePath: string) => void,
+  onUnsafe: (absolutePath: string) => void,
+): void {
   const entries = readdirSync(baseDir, { withFileTypes: true });
   for (const entry of entries) {
     if (entry.isSymbolicLink()) {
       // Refuse to follow symlinks at any depth (file or directory): the Provider
       // must never ship credentials, daemon state or other readable files into
       // the persistent workspace by symlinking them under repository/state/…
+      onUnsafe(join(baseDir, entry.name));
       continue;
     }
     const absolutePath = join(baseDir, entry.name);
@@ -482,7 +500,7 @@ function walkCaptureFiles(baseDir: string, visit: (absolutePath: string) => void
       // Verify the real directory still lives inside the subtree we are walking
       // (guards against a parent directory being replaced by a symlink).
       assertRealPathInside(absolutePath, baseDir);
-      walkCaptureFiles(absolutePath, visit);
+      walkCaptureFiles(absolutePath, visit, onUnsafe);
     } else {
       visit(absolutePath);
     }
@@ -493,8 +511,8 @@ function assertRealPathInside(absolutePath: string, baseDir: string): void {
   let real: string;
   try {
     real = realpathSync(absolutePath);
-  } catch {
-    return; // broken entry; the caller's lstat will drop it
+  } catch (error) {
+    throw error;
   }
   const rel = relative(realpathSync(baseDir), real);
   if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {

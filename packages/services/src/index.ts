@@ -81,6 +81,7 @@ export {
   promoteArtifactSync,
   reclaimOrphanContentBlobsSync,
   readEmployeeDataProtectionSnapshotSync,
+  restoreValidatedWorkspaceRevisionSync,
   computeRevisionManifestDigest,
   softDeleteEmployeeArtifactSync,
   type TaskOutputFile,

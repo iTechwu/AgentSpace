@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   completeBackupRestoreDrillRunSync,
   createBackupRestoreDrillRunSync,
@@ -13,6 +14,7 @@ import {
 } from "@dofe-agent/db";
 import { listEmployeeSkillIdsSync } from "./employees.ts";
 import { verifySkillArtifactIntegritySync } from "../skills/skill-artifacts.ts";
+import { createAttachmentStorageClient } from "../attachments/storage.ts";
 import { computeRevisionManifestDigest, type WorkspaceRevisionManifest } from "./persistent-workspace.ts";
 
 /* ------------------------------------------------------------------ */
@@ -320,11 +322,34 @@ function sampleEmployeeDrill(employeeName: string, workspaceId: string): BackupR
     details.push(`revision ${head.id.slice(-6)} digest OK`);
   }
 
+  // A restored manifest is insufficient evidence when its content-addressed
+  // objects are missing or corrupted. Read every sampled blob and verify both
+  // digest and declared size against the restored object store.
+  try {
+    const manifest = JSON.parse(head.manifestJson) as WorkspaceRevisionManifest;
+    const storage = createAttachmentStorageClient();
+    for (const file of manifest.files) {
+      const bytes = storage.getContentAddressedBlobSync({ workspaceId, sha256: file.sha256 });
+      const digest = createHash("sha256").update(bytes).digest("hex");
+      if (digest !== file.sha256.toLowerCase() || bytes.byteLength !== file.size) {
+        workspaceManifestMatch = false;
+        details.push(`workspace blob ${file.sha256.slice(0, 12)}… failed digest/size verification`);
+      }
+    }
+    if (workspaceManifestMatch) {
+      details.push(`${manifest.files.length} workspace blob(s) readable`);
+    }
+  } catch (error) {
+    workspaceManifestMatch = false;
+    details.push(`workspace blob verification failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
   // Verify each bound skill's artifact digest is present + integrity-checked.
   const skillIds = listEmployeeSkillIdsSync(employeeName, workspaceId);
   for (const skillId of skillIds) {
     const digest = readAssignmentArtifactDigestSync({ employeeName, skillId, workspaceId });
     if (!digest) {
+      skillDigestsMatch = false;
       details.push(`skill ${skillId.slice(-6)} has no pinned digest`);
       continue;
     }

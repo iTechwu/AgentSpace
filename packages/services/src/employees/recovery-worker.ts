@@ -1,4 +1,8 @@
-import { getDatabase, readRecoveryOperationSync } from "@dofe-agent/db";
+import {
+  claimRecoveryOperationsForWorkerSync,
+  readRecoveryOperationSync,
+  releaseRecoveryOperationLeaseSync,
+} from "@dofe-agent/db";
 import { runRecoveryStepSync } from "./recovery.ts";
 
 export interface AdvanceRecoveriesResult {
@@ -25,31 +29,31 @@ export function advanceRecoverableOperationsSync(input?: {
   const workspaceId = input?.workspaceId;
   const limit = Math.max(1, Math.min(input?.limit ?? 25, 200));
 
-  const rows = getDatabase().prepare(
-    `SELECT id, workspace_id AS workspaceId
-     FROM employee_recovery_operation
-     WHERE phase NOT IN ('completed', 'failed')
-       AND (approval_state IS NULL OR approval_state <> 'pending')
-     ${workspaceId ? "AND workspace_id = ?" : ""}
-     ORDER BY created_at ASC
-     LIMIT ${limit}`,
-  ).all(...(workspaceId ? [workspaceId] : [])) as Array<{ id: string; workspaceId: string }>;
+  const rows = claimRecoveryOperationsForWorkerSync({ workspaceId, limit });
 
   let advanced = 0;
   let waiting = 0;
   let failed = 0;
 
   for (const row of rows) {
-    const before = readRecoveryOperationSync(row.id, row.workspaceId)?.phase;
-    const result = runRecoveryStepSync({ operationId: row.id, workspaceId: row.workspaceId });
-    const after = result.operation.phase;
+    try {
+      const before = readRecoveryOperationSync(row.id, row.workspaceId)?.phase;
+      const result = runRecoveryStepSync({ operationId: row.id, workspaceId: row.workspaceId });
+      const after = result.operation.phase;
 
-    if (!result.ok || after === "failed") {
-      failed += 1;
-    } else if (after !== before) {
-      advanced += 1;
-    } else {
-      waiting += 1;
+      if (!result.ok || after === "failed") {
+        failed += 1;
+      } else if (after !== before) {
+        advanced += 1;
+      } else {
+        waiting += 1;
+      }
+    } finally {
+      releaseRecoveryOperationLeaseSync({
+        operationId: row.id,
+        workspaceId: row.workspaceId,
+        leaseToken: row.leaseToken,
+      });
     }
   }
 

@@ -21,10 +21,14 @@ import {
   approveRecoveryOperationSync,
   listBackupRestoreDrillRunsSync,
   listRecoveryOperationsSync,
+  readActiveRecoveryOperationSync,
+  listWorkspaceRevisionsSync,
   readRecoveryOperationSync,
   rejectRecoveryOperationSync,
+  retryRecoveryOperationSync,
   type BackupRestoreDrillRunRecord,
   type EmployeeRecoveryOperationRecord,
+  type EmployeeWorkspaceRevisionRecord,
 } from "@dofe-agent/db";
 import type { AgentForkOptions } from "@dofe-agent/services";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
@@ -61,6 +65,8 @@ import {
   resolveSystemAgentTemplateForWorkspaceSync,
   readSkillRequirementDeclarations,
   readWorkspaceSkillSync,
+  recordWorkspaceAuditEventSync,
+  restoreValidatedWorkspaceRevisionSync,
   rotateAgentSkillRequirementSecretSync,
   setEmployeeChannelMemberAccessSync,
   setEmployeeKnowledgePageIdsSync,
@@ -1432,6 +1438,8 @@ export interface AgentDataProtectionSummary {
   recentDrillRuns: BackupRestoreDrillRunRecord[];
   /** The most recent non-terminal recovery operation for this employee, if any. */
   activeRecoveryOperation: EmployeeRecoveryOperationRecord | null;
+  /** Recent committed workspace revisions available for audited restore. */
+  recentWorkspaceRevisions: EmployeeWorkspaceRevisionRecord[];
 }
 
 /**
@@ -1461,6 +1469,11 @@ export async function readWorkspaceAgentDataProtectionAction(
     recentRecoveryOperations.find((operation) => operation.phase !== "completed" && operation.phase !== "failed")
       ?? null;
   const recentDrillRuns = listBackupRestoreDrillRunsSync({ workspaceId, limit: 5 });
+  const recentWorkspaceRevisions = listWorkspaceRevisionsSync({
+    workspaceId,
+    employeeName: normalized,
+    limit: 10,
+  }).filter((revision) => revision.status === "committed");
   return {
     employeeName: normalized,
     headRevisionId: snapshot.headRevision?.id ?? null,
@@ -1476,7 +1489,66 @@ export async function readWorkspaceAgentDataProtectionAction(
     recentRecoveryOperations,
     recentDrillRuns,
     activeRecoveryOperation,
+    recentWorkspaceRevisions,
   };
+}
+
+/**
+ * Restores a committed historical workspace revision as a new head. The exact
+ * employee-name confirmation protects this destructive-looking admin action;
+ * history is retained and the DB layer enforces revision ownership + head CAS.
+ */
+export async function restoreEmployeeWorkspaceRevisionAction(input: {
+  employeeName: string;
+  targetRevisionId: string;
+  confirmationEmployeeName: string;
+}): Promise<ActionToastResult<EmployeeWorkspaceRevisionRecord>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  const employeeName = input.employeeName.trim();
+  const targetRevisionId = input.targetRevisionId.trim();
+  assertRequired(employeeName, "employee name");
+  assertRequired(targetRevisionId, "target revision");
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertCanManageEmployeeForActorSync({
+    workspaceId,
+    employeeName,
+    actorUserId: workspaceContext.currentUser.id,
+  });
+  if (input.confirmationEmployeeName.trim() !== employeeName) {
+    throw new Error("employee_revision_restore.confirmation_mismatch");
+  }
+  const activeRecovery = readActiveRecoveryOperationSync({ workspaceId, employeeName });
+  if (activeRecovery) {
+    throw new Error(`EMPLOYEE_RECOVERY_ACTIVE: recovery "${activeRecovery.id}" is still active.`);
+  }
+
+  const restored = restoreValidatedWorkspaceRevisionSync({
+    workspaceId,
+    employeeName,
+    targetRevisionId,
+    actorUserId: workspaceContext.currentUser.id,
+    actorDisplayName: workspaceContext.currentUser.displayName,
+  });
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId,
+    title: "Employee workspace revision restored",
+    note: `${workspaceContext.currentUser.displayName} restored revision "${targetRevisionId}" for "${employeeName}" as new head "${restored.id}".`,
+    code: "employee.workspace_revision_restored",
+    data: {
+      actorType: "session_user",
+      resourceType: "employee_workspace_revision",
+      resourceId: restored.id,
+      employeeName,
+      targetRevisionId,
+      restoredRevisionId: restored.id,
+    },
+  });
+
+  return actionToastResult(
+    restored,
+    successToast("历史版本已恢复为新的工作空间版本。", "Historical revision restored as a new workspace revision."),
+  );
 }
 
 /**
@@ -1568,12 +1640,17 @@ export async function triggerEmployeeRecoveryAction(
     employeeName: normalized,
     actorUserId: workspaceContext.currentUser.id,
   });
+  const activeRecovery = readActiveRecoveryOperationSync({ workspaceId, employeeName: normalized });
+  if (activeRecovery) {
+    throw new Error(`EMPLOYEE_RECOVERY_ACTIVE: recovery "${activeRecovery.id}" is still active.`);
+  }
 
   const operation = createEmployeeRecoveryOperationSync({
     workspaceId,
     employeeName: normalized,
     actorUserId: workspaceContext.currentUser.id,
     requireApproval: options?.requireApproval ?? false,
+    targetRuntimeId: options?.runtimeId,
   });
 
   tryRecordWorkspaceAuditEventSync({
@@ -1650,6 +1727,34 @@ export async function rejectEmployeeRecoveryAction(
     data: { actorType: "session_user", resourceType: "agent", resourceId: operationId, employeeName },
   });
   return actionToastResult(null, warningToast("已拒绝恢复。", "Recovery rejected."));
+}
+
+export async function retryEmployeeRecoveryAction(
+  employeeName: string,
+  operationId: string,
+): Promise<ActionToastResult<EmployeeRecoveryOperationRecord>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  const normalized = employeeName.trim();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertCanManageEmployeeForActorSync({
+    workspaceId,
+    employeeName: normalized,
+    actorUserId: workspaceContext.currentUser.id,
+  });
+  const existing = readRecoveryOperationSync(operationId, workspaceId);
+  if (!existing || existing.employeeName !== normalized) {
+    throw new Error("employee_recovery.not_found");
+  }
+  const operation = retryRecoveryOperationSync({ operationId, workspaceId });
+  recordWorkspaceAuditEventSync({
+    workspaceId,
+    title: "Employee recovery retried",
+    note: `${workspaceContext.currentUser.displayName} retried recovery "${operationId}" for "${normalized}".`,
+    code: "employee.recovery_retried",
+    data: { actorType: "session_user", resourceType: "agent", resourceId: operationId, employeeName: normalized },
+  });
+  return actionToastResult(operation, infoToast("恢复已从失败步骤重试。", "Recovery retried from the failed phase."));
 }
 
 export async function readEmployeeRecoveryProgressAction(

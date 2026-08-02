@@ -226,6 +226,8 @@ export interface ClaimedWorkspaceMountOperation {
   runtimeId: string;
   employeeName: string;
   headRevisionId?: string;
+  /** Monotonic fencing token for this claim attempt. */
+  claimGeneration: number;
 }
 
 export interface ClaimWorkspaceMountOperationResponse {
@@ -238,6 +240,7 @@ export interface CompleteWorkspaceMountOperationRequest {
   mountedPath?: string;
   /** The daemon's runtime; the control plane verifies it owns the operation. */
   runtimeId: string;
+  claimGeneration: number;
 }
 
 export interface FailWorkspaceMountOperationRequest {
@@ -245,6 +248,7 @@ export interface FailWorkspaceMountOperationRequest {
   errorMessage: string;
   /** The daemon's runtime; the control plane verifies it owns the operation. */
   runtimeId: string;
+  claimGeneration: number;
 }
 
 export interface DaemonTaskMessageInput {

@@ -12,6 +12,8 @@ import {
   publishEmployeeArtifactSync,
   readEmployeePersistentWorkspaceSync,
   readHeadRevisionSync,
+  readWorkspaceRevisionSync,
+  restoreWorkspaceRevisionSync,
   softDeleteEmployeeArtifactSync,
   upsertContentBlobSync,
   deleteContentBlobSync,
@@ -63,6 +65,56 @@ export interface PromoteTaskOutputsResult {
   revision: EmployeeWorkspaceRevisionRecord;
   artifactIds: string[];
   created: boolean;
+}
+
+export function restoreValidatedWorkspaceRevisionSync(input: {
+  workspaceId?: string;
+  employeeName: string;
+  targetRevisionId: string;
+  actorUserId: string;
+  actorDisplayName: string;
+}): EmployeeWorkspaceRevisionRecord {
+  const workspaceId = input.workspaceId ?? "default";
+  const target = readWorkspaceRevisionSync(input.targetRevisionId, workspaceId);
+  if (!target) {
+    throw new Error(`Target revision "${input.targetRevisionId}" does not exist.`);
+  }
+  let manifest: WorkspaceRevisionManifest;
+  try {
+    manifest = JSON.parse(target.manifestJson) as WorkspaceRevisionManifest;
+  } catch {
+    throw new Error(`Target revision "${target.id}" has an invalid manifest.`);
+  }
+  if (!Array.isArray(manifest.files) || computeRevisionManifestDigest(manifest) !== target.manifestDigest) {
+    throw new Error(`Target revision "${target.id}" manifest digest verification failed.`);
+  }
+  const seenPaths = new Set<string>();
+  const storage = createAttachmentStorageClient();
+  for (const file of manifest.files) {
+    if (
+      !file || typeof file.path !== "string" || !file.path.trim() || seenPaths.has(file.path)
+      || typeof file.sha256 !== "string" || !/^[a-f0-9]{64}$/i.test(file.sha256)
+      || !Number.isSafeInteger(file.size) || file.size < 0
+      || typeof file.mediaType !== "string"
+    ) {
+      throw new Error(`Target revision "${target.id}" contains an invalid or duplicate file entry.`);
+    }
+    seenPaths.add(file.path);
+    const bytes = storage.getContentAddressedBlobSync({ workspaceId, sha256: file.sha256 });
+    if (sha256Hex(bytes) !== file.sha256.toLowerCase() || bytes.byteLength !== file.size) {
+      throw new Error(`Target revision "${target.id}" blob verification failed for "${file.path}".`);
+    }
+  }
+  return restoreWorkspaceRevisionSync({
+    workspaceId,
+    employeeName: input.employeeName,
+    targetRevisionId: target.id,
+    createdBy: input.actorUserId,
+    audit: {
+      actorId: input.actorUserId,
+      actorDisplayName: input.actorDisplayName,
+    },
+  });
 }
 
 function mergeManifestFiles(

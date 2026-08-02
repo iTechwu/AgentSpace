@@ -80,10 +80,18 @@ export async function POST(
     return auth;
   }
   const { employeeName } = await context.params;
-  const body = (await request.json().catch(() => null)) as
-    | { action?: "rebuild" | "rebind"; runtimeId?: string }
-    | null;
+  const parsedBody = await request.json().catch(() => null) as unknown;
+  const body = parsedBody && typeof parsedBody === "object" && !Array.isArray(parsedBody)
+    ? parsedBody as { action?: unknown; runtimeId?: unknown }
+    : null;
   const action = body?.action ?? "rebuild";
+  if (action !== "rebuild" && action !== "rebind") {
+    return Response.json({ error: "action must be rebuild or rebind." }, { status: 400 });
+  }
+  const targetRuntimeId = typeof body?.runtimeId === "string" ? body.runtimeId.trim() : "";
+  if (action === "rebind" && !targetRuntimeId) {
+    return Response.json({ error: "runtimeId is required when action is rebind." }, { status: 400 });
+  }
 
   const current = readEmployeeRuntimeBindingSync(employeeName, auth.workspaceId);
   if (!current) {
@@ -99,7 +107,8 @@ export async function POST(
     employeeName,
     requestedByUserId: auth.token?.createdBy,
     actorUserId: auth.token?.createdBy,
-    requireApproval: body?.action === "rebuild",
+    requireApproval: action === "rebuild",
+    targetRuntimeId: action === "rebind" ? targetRuntimeId : undefined,
   });
 
   return Response.json(

@@ -32,6 +32,7 @@ export async function POST(
       runtimeId: claimed.runtimeId,
       employeeName: claimed.employeeName,
       headRevisionId: claimed.headRevisionId,
+      claimGeneration: claimed.claimGeneration,
     },
   } satisfies ClaimWorkspaceMountOperationResponse);
 }

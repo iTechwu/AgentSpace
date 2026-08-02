@@ -8,10 +8,12 @@ import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storag
 import {
   approveRecoveryOperationSync,
   bindEmployeeRuntimeSync,
+  claimRecoveryOperationsForWorkerSync,
   getDatabase,
   listRecoveryOperationsSync,
   readEmployeeBindingGenerationSync,
   readRecoveryOperationSync,
+  releaseRecoveryOperationLeaseSync,
 } from "@dofe-agent/db";
 import {
   advanceRecoverableOperationsSync,
@@ -162,6 +164,30 @@ test("the worker skips operations pending approval", () => {
   assert.equal(result.advanced, 0, "pending-approval op must not advance");
   const op = listRecoveryOperationsSync({ workspaceId: "default", employeeName: "Alice", limit: 1 })[0];
   assert.equal(op?.phase, "allocate", "still in allocate");
+});
+
+test("a recovery worker lease prevents overlapping workers from claiming the same operation", () => {
+  const runtimeId = insertTestTask().replace("task-rw", "runtime-rw");
+  setupEmployeeWorkspace("Alice", "lease");
+  bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Alice", runtimeId });
+  const operation = createEmployeeRecoveryOperationSync({
+    workspaceId: "default",
+    employeeName: "Alice",
+    targetRuntimeId: runtimeId,
+  });
+
+  const first = claimRecoveryOperationsForWorkerSync({ workspaceId: "default", limit: 1 });
+  const overlapping = claimRecoveryOperationsForWorkerSync({ workspaceId: "default", limit: 1 });
+  assert.equal(first.length, 1);
+  assert.equal(first[0]?.id, operation.id);
+  assert.equal(overlapping.length, 0);
+
+  assert.equal(releaseRecoveryOperationLeaseSync({
+    operationId: operation.id,
+    workspaceId: "default",
+    leaseToken: first[0]!.leaseToken,
+  }), true);
+  assert.equal(claimRecoveryOperationsForWorkerSync({ workspaceId: "default", limit: 1 }).length, 1);
 });
 
 test("approving a pending operation unblocks the worker", () => {

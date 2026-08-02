@@ -31,6 +31,11 @@ export function collectRuntimeOutputBundle(
   const files = existsSync(runtimeOutputDir) ? collectRuntimeOutputBundleFiles(workDir) : [];
 
   const capture = collectWorkDirChanges(workDir, headManifest);
+  if (capture.unsafePaths.length > 0) {
+    throw new Error(
+      `workdir_capture_unsafe: refused ${capture.unsafePaths.length} unsafe path(s): ${capture.unsafePaths.slice(0, 3).join(", ")}`,
+    );
+  }
   if (capture.truncated) {
     // Fail closed: never ship a partial workspace snapshot. Until chunked upload
     // exists, any truncation aborts the commit with an explicit limit error

@@ -1,6 +1,6 @@
-import { completeWorkspaceMountOperationSync, readWorkspaceMountOperationSync } from "@dofe-agent/db";
+import { completeWorkspaceMountOperationSync } from "@dofe-agent/db";
 import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
-import { requireDaemonAuth } from "../../../_lib/auth";
+import { readWorkspaceMountOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,12 +15,17 @@ export async function POST(
   }
 
   const { operationId } = await context.params;
-  const operation = readWorkspaceMountOperationSync(operationId, auth.workspaceId);
-  if (!operation) {
-    return Response.json({ error: "workspace_mount.not_found" }, { status: 404 });
+  const operation = readWorkspaceMountOperationForDaemon(operationId, auth);
+  if (operation instanceof Response) {
+    return operation;
   }
 
-  const body = (await request.json()) as { materializedFiles?: number; mountedPath?: string; runtimeId?: string };
+  const body = (await request.json()) as {
+    materializedFiles?: number;
+    mountedPath?: string;
+    runtimeId?: string;
+    claimGeneration?: number;
+  };
   // The completing daemon must be the one that owns the operation's runtime.
   if (typeof body.runtimeId !== "string" || body.runtimeId !== operation.runtimeId) {
     return Response.json(
@@ -28,12 +33,32 @@ export async function POST(
       { status: 403 },
     );
   }
-  const completed = completeWorkspaceMountOperationSync({
-    operationId,
-    workspaceId: auth.workspaceId,
-    materializedFiles: body.materializedFiles,
-    mountedPath: body.mountedPath,
-  });
+  if (
+    typeof body.materializedFiles !== "number" ||
+    !Number.isSafeInteger(body.materializedFiles) ||
+    body.materializedFiles < 0 ||
+    typeof body.mountedPath !== "string" ||
+    !Number.isSafeInteger(body.claimGeneration) ||
+    (body.claimGeneration ?? 0) <= 0 ||
+    body.mountedPath.trim().length === 0
+  ) {
+    return Response.json({ error: "workspace_mount.invalid_evidence" }, { status: 400 });
+  }
+  let completed;
+  try {
+    completed = completeWorkspaceMountOperationSync({
+      operationId,
+      workspaceId: auth.workspaceId,
+      claimGeneration: body.claimGeneration!,
+      materializedFiles: body.materializedFiles,
+      mountedPath: body.mountedPath,
+    });
+  } catch (error) {
+    return Response.json(
+      { error: "workspace_mount.operation_lease_lost", detail: error instanceof Error ? error.message : String(error) },
+      { status: 409 },
+    );
+  }
 
   tryRecordWorkspaceAuditEventSync({
     workspaceId: auth.workspaceId,

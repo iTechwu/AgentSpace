@@ -20,8 +20,11 @@ import {
   setEmployeeSkillIdsSync,
 } from "@dofe-agent/services";
 import {
+  commitWorkspaceRevisionSync,
+  createWorkspaceRevisionSync,
   createWorkspaceSync,
   createUserSync,
+  ensureEmployeePersistentWorkspaceSync,
   rejectDocumentPermissionRequestSync,
 } from "@dofe-agent/db";
 import {
@@ -179,6 +182,60 @@ test("prepareDaemonTaskContext materializes agent knowledge and mentions it in t
   assert.match(context.prompt, /Shared handbook/);
   assert.match(context.prompt, /dofe-agent output knowledge propose-create\/propose-update/);
   assert.match(context.prompt, /不要手写 runtime-output\/knowledge-proposals\.json/);
+});
+
+test("prepareDaemonTaskContext refuses to run when the durable head is incomplete", () => {
+  createEmployeeSync({ name: "Durable Planner" });
+  ensureEmployeePersistentWorkspaceSync({ employeeName: "Durable Planner" });
+  const revision = createWorkspaceRevisionSync({
+    employeeName: "Durable Planner",
+    manifestDigest: "f".repeat(64),
+    manifestJson: JSON.stringify({
+      taskId: "missing-blob-task",
+      files: [{
+        path: "repository/src/main.ts",
+        sha256: "e".repeat(64),
+        size: 4,
+        mediaType: "text/typescript",
+      }],
+    }),
+  });
+  commitWorkspaceRevisionSync(revision.id);
+
+  assert.throws(
+    () => prepareDaemonTaskContext({
+      runtime: {
+        id: "runtime-missing-blob",
+        workspaceId: "default",
+        provider: "codex",
+        name: "Codex",
+        version: "1",
+        status: "online",
+        deviceInfo: "",
+        metadataJson: "{}",
+        createdAt: "2026-08-03T00:00:00.000Z",
+        updatedAt: "2026-08-03T00:00:00.000Z",
+      },
+      task: {
+        id: "queue-missing-blob",
+        workspaceId: "default",
+        agentId: "Durable Planner",
+        runtimeId: "runtime-missing-blob",
+        triggerType: "manual",
+        priority: 1,
+        status: "queued",
+        inputJson: JSON.stringify({ title: "Must not run" }),
+        queuedAt: "2026-08-03T00:00:00.000Z",
+        createdAt: "2026-08-03T00:00:00.000Z",
+        updatedAt: "2026-08-03T00:00:00.000Z",
+      } satisfies QueuedTaskRecord,
+      workDir: join(tempRoot, "missing-blob-workdir"),
+    }),
+    (error: unknown) => (
+      error instanceof Error
+      && (error as Error & { code?: unknown }).code === "workspace.materialization_incomplete"
+    ),
+  );
 });
 
 test("prepareDaemonTaskContext includes rejected document permission requests", () => {

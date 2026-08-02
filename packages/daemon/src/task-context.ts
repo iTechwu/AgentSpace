@@ -179,6 +179,19 @@ export interface AgentKnowledgePromptContext {
   contextDir?: string;
 }
 
+export class WorkspaceMaterializationIncompleteError extends Error {
+  readonly code = "workspace.materialization_incomplete";
+  readonly missingBlobs: number;
+
+  constructor(input: { employeeName: string; missingBlobs: number }) {
+    super(
+      `${input.missingBlobs} head blob(s) could not be restored for employee "${input.employeeName}".`,
+    );
+    this.name = "WorkspaceMaterializationIncompleteError";
+    this.missingBlobs = input.missingBlobs;
+  }
+}
+
 export function parseTaskInputJson(inputJson: string): ParsedTaskPayload {
   try {
     const parsed = JSON.parse(inputJson) as Record<string, unknown>;
@@ -456,11 +469,13 @@ export function prepareDaemonTaskContext(input: {
     employeeName: payload.assignee ?? input.task.agentId,
   });
   if (materializeResult.missingBlobs > 0) {
-    // A missing head blob is never silent: the task will run on a degraded
-    // workspace, which the operator must be able to see and reconcile.
-    console.error(
-      `[task-context] ${materializeResult.missingBlobs} head blob(s) missing for employee "${payload.assignee ?? input.task.agentId}"; task runs on a degraded workspace`,
-    );
+    // Never run or commit against a partial durable head. Continuing here would
+    // make the next workDir diff interpret unreadable files as intentional
+    // tombstones and could promote storage damage into a valid new revision.
+    throw new WorkspaceMaterializationIncompleteError({
+      employeeName: payload.assignee ?? input.task.agentId,
+      missingBlobs: materializeResult.missingBlobs,
+    });
   }
   const attachmentLines = materializeAttachments(payload.attachments, input.workDir);
   const workspaceState = readWorkspaceStateSync(input.task.workspaceId);

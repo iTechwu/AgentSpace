@@ -19,31 +19,49 @@ export async function executeWorkspaceMountOperation(
   config: RemoteDaemonConfig,
   operation: ClaimedWorkspaceMountOperation,
 ): Promise<void> {
-  const workspaceDir = getDaemonRuntimeWorkspaceDirPath(config.stateDir, {
-    workspaceId: operation.workspaceId,
-    runtimeId: operation.runtimeId,
-    employeeName: operation.employeeName,
-  });
-  mkdirSync(workspaceDir, { recursive: true });
-
+  let leaseLost = false;
+  const heartbeat = setInterval(() => {
+    void client.renewWorkspaceMountOperationLease(operation.operationId, operation.claimGeneration)
+      .then((renewed) => {
+        if (!renewed) leaseLost = true;
+      })
+      .catch(() => {
+        // A transient failure is retried by the next heartbeat. Completion is
+        // independently fenced by claimGeneration and lease expiry.
+      });
+  }, 30_000);
+  heartbeat.unref();
   try {
+    await client.startWorkspaceMountOperation(operation.operationId, operation.claimGeneration);
+    const workspaceDir = getDaemonRuntimeWorkspaceDirPath(config.stateDir, {
+      workspaceId: operation.workspaceId,
+      runtimeId: operation.runtimeId,
+      employeeName: operation.employeeName,
+    });
+    mkdirSync(workspaceDir, { recursive: true });
     const result = materializeHeadRevisionToWorkDirStrict(workspaceDir, {
       workspaceId: operation.workspaceId,
       employeeName: operation.employeeName,
       expectedHeadRevisionId: operation.headRevisionId,
     });
+    if (leaseLost) {
+      throw new Error("Workspace mount lease was lost while materializing.");
+    }
     await client.completeWorkspaceMountOperation(operation.operationId, {
       materializedFiles: result.materializedFiles,
       mountedPath: workspaceDir,
       runtimeId: operation.runtimeId,
+      claimGeneration: operation.claimGeneration,
     });
   } catch (error) {
     await client.failWorkspaceMountOperation(operation.operationId, {
       errorCode: "workspace_mount.materialization_failed",
       errorMessage: error instanceof Error ? error.message : String(error),
       runtimeId: operation.runtimeId,
+      claimGeneration: operation.claimGeneration,
     });
   } finally {
+    clearInterval(heartbeat);
     // The persistent runtime workspace is deliberately kept. A retry reuses
     // only regular files whose digest matches the pinned durable revision;
     // divergent or symlinked targets remain a fail-closed mount error.

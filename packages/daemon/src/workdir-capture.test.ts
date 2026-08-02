@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { beforeEach } from "node:test";
@@ -88,6 +88,7 @@ test("refuses to follow a file symlink that points outside the workDir", () => {
   const paths = result.files.map((f) => f.path);
   assert.ok(!paths.includes("repository/leaked-secret.txt"), "symlink target must not be captured");
   assert.ok(paths.includes("repository/src/ok.ts"), "regular file still captured");
+  assert.deepEqual(result.unsafePaths, ["repository/leaked-secret.txt"]);
   rmSync(outsideSecret, { force: true });
 });
 
@@ -103,6 +104,7 @@ test("refuses to capture when a top-level include dir is a symlink to outside", 
   const paths = result.files.map((f) => f.path);
   assert.ok(!paths.some((p) => p.startsWith("repository/")), "top-level symlink contents must not be captured");
   assert.ok(paths.includes("state/checkpoint.json"), "sibling subtree still captured");
+  assert.deepEqual(result.unsafePaths, ["repository/"]);
   rmSync(outsideDir, { recursive: true, force: true });
 });
 
@@ -136,6 +138,7 @@ test("refuses to follow a directory symlink that points outside the workDir", ()
   const paths = result.files.map((f) => f.path);
   assert.ok(!paths.some((p) => p.includes("linked/")), "directory symlink contents must not be captured");
   assert.ok(paths.includes("state/checkpoint.json"), "regular sibling still captured");
+  assert.deepEqual(result.unsafePaths, ["state/linked"]);
   rmSync(outsideDir, { recursive: true, force: true });
 });
 
@@ -156,6 +159,17 @@ test("capture root itself must exist; missing include dirs are skipped", () => {
   const result = collectWorkDirChanges(join(tempRoot, "does-not-exist"));
   assert.equal(result.files.length, 0);
   assert.equal(result.truncated, false);
+  assert.deepEqual(result.unsafePaths, []);
+});
+
+test("a hard-linked file makes capture fail closed instead of disappearing from the snapshot", () => {
+  writeWorkDir("repository/source.txt", "must-persist");
+  linkSync(join(tempRoot, "repository/source.txt"), join(tempRoot, "repository/linked.txt"));
+
+  const result = collectWorkDirChanges(tempRoot);
+
+  assert.equal(result.files.length, 0);
+  assert.deepEqual(result.unsafePaths.sort(), ["repository/linked.txt", "repository/source.txt"]);
 });
 
 test("capture is a no-op when the workDir has no include subtrees", () => {

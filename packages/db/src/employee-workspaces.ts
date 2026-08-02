@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
+import { recordAuditLogSync } from "./audit-log.ts";
 import { resolveStoredEmployeeIdSync } from "./workspace-employees.ts";
 import type {
   EmployeeArtifactRecord,
@@ -179,10 +179,19 @@ export function createWorkspaceRevisionSync(input: CreateWorkspaceRevisionInput)
   if (!digest) {
     throw new Error("Revision manifest digest is required.");
   }
-  // Idempotent: same (workspace, digest) returns the existing revision.
-  const existing = db.prepare(
-    `${REVISION_COLUMNS} FROM employee_workspace_revision WHERE workspace_id_ref = ? AND manifest_digest = ?`,
-  ).get(workspace.id, digest) as Record<string, unknown> | undefined;
+  const sourceKind = input.sourceKind?.trim() || "task_output";
+  // Ordinary task publishes remain content-idempotent. History restore is the
+  // exception: it must create a new graph node with the SAME truthful content
+  // digest, keyed by target/source + parent rather than falsifying the digest.
+  const existing = sourceKind.startsWith("history_restore:")
+    ? db.prepare(
+        `${REVISION_COLUMNS} FROM employee_workspace_revision
+         WHERE workspace_id_ref = ? AND manifest_digest = ? AND source_kind = ?
+           AND parent_revision_id IS NOT DISTINCT FROM ?`,
+      ).get(workspace.id, digest, sourceKind, input.parentRevisionId?.trim() || null) as Record<string, unknown> | undefined
+    : db.prepare(
+        `${REVISION_COLUMNS} FROM employee_workspace_revision WHERE workspace_id_ref = ? AND manifest_digest = ?`,
+      ).get(workspace.id, digest) as Record<string, unknown> | undefined;
   if (existing) {
     return mapRevisionRecord(existing)!;
   }
@@ -204,7 +213,7 @@ export function createWorkspaceRevisionSync(input: CreateWorkspaceRevisionInput)
     input.manifestJson,
     input.sourceTaskId?.trim() || null,
     input.status ?? "pending",
-    input.sourceKind?.trim() || "task_output",
+    sourceKind,
     input.createdBy?.trim() || null,
     now,
   );
@@ -305,29 +314,90 @@ export function restoreWorkspaceRevisionSync(input: {
   targetRevisionId: string;
   createdBy?: string;
   workspaceId?: string;
+  audit?: {
+    actorId: string;
+    actorDisplayName: string;
+  };
 }): EmployeeWorkspaceRevisionRecord {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const workspace = ensureEmployeePersistentWorkspaceSync({
+    workspaceId,
+    employeeName: input.employeeName,
+  });
   const target = readWorkspaceRevisionSync(input.targetRevisionId, workspaceId);
   if (!target) {
     throw new Error(`Target revision "${input.targetRevisionId}" does not exist.`);
   }
+  if (target.workspaceIdRef !== workspace.id || target.employeeId !== workspace.employeeId) {
+    throw new Error(
+      `Target revision "${input.targetRevisionId}" does not belong to employee "${input.employeeName}".`,
+    );
+  }
+  if (target.status !== "committed") {
+    throw new Error(`Target revision "${input.targetRevisionId}" is not committed.`);
+  }
   const head = readHeadRevisionSync(input.employeeName, workspaceId);
-  // The restored head carries the target's EXACT manifest (same content, same
-  // file set) but a deterministic restore digest derived from the target's
-  // digest. Determinism makes re-running the same restore idempotent
-  // (createWorkspaceRevisionSync returns the existing restore revision), and
-  // the marker keeps it traceable without duplicating content rows.
-  const restoredDigest = sha256Hex(`${target.manifestDigest}#restore`);
-  const restored = createWorkspaceRevisionSync({
-    workspaceId,
-    employeeName: input.employeeName,
-    parentRevisionId: head?.id,
-    manifestDigest: restoredDigest,
-    manifestJson: target.manifestJson,
-    status: "pending",
-    createdBy: input.createdBy,
+  const sourceKind = `history_restore:${target.id}`;
+  // Retrying the same request before any intervening commit is idempotent.
+  if (head?.sourceKind === sourceKind) {
+    return head;
+  }
+  const db = getDatabase();
+  return withTransaction(db, () => {
+    const activeRecovery = db.prepare(
+      `SELECT id FROM employee_recovery_operation
+       WHERE workspace_id = ? AND employee_id = ? AND phase NOT IN ('completed', 'failed')
+       LIMIT 1`,
+    ).get(workspaceId, workspace.employeeId) as { id?: string } | undefined;
+    if (activeRecovery?.id) {
+      throw new Error(
+        `EMPLOYEE_RECOVERY_ACTIVE: cannot restore workspace history while recovery "${activeRecovery.id}" is active.`,
+      );
+    }
+    const currentHead = readHeadRevisionSync(input.employeeName, workspaceId);
+    if (currentHead?.id !== head?.id) {
+      throw new Error("REVISION_CONFLICT: workspace head changed while preparing history restore.");
+    }
+    const restored = createWorkspaceRevisionSync({
+      workspaceId,
+      employeeName: input.employeeName,
+      parentRevisionId: head?.id,
+      manifestDigest: target.manifestDigest,
+      manifestJson: target.manifestJson,
+      status: "pending",
+      createdBy: input.createdBy,
+      sourceKind,
+    });
+    // Fence every task claimed before this restore. The generation update and
+    // head promotion commit together, so a task sees either the old lease/head
+    // or the new lease/head, never a mixed state.
+    db.prepare(
+      `UPDATE employee_runtime_binding
+          SET generation = generation + 1, updated_at = ?
+        WHERE workspace_id = ? AND employee_id = ?`,
+    ).run(new Date().toISOString(), workspaceId, workspace.employeeId);
+    const committed = commitWorkspaceRevisionSync(restored.id, workspaceId);
+    if (input.audit) {
+      recordAuditLogSync({
+        workspaceId,
+        title: "Employee workspace revision restored",
+        note: `${input.audit.actorDisplayName} restored revision "${target.id}" for "${input.employeeName}" as new head "${committed.id}".`,
+        code: "employee.workspace_revision_restored",
+        source: "runtime_lifecycle",
+        data: {
+          actorType: "session_user",
+          actorId: input.audit.actorId,
+          resourceType: "employee_workspace_revision",
+          resourceId: committed.id,
+          employeeId: workspace.employeeId,
+          employeeName: input.employeeName,
+          targetRevisionId: target.id,
+          restoredRevisionId: committed.id,
+        },
+      });
+    }
+    return committed;
   });
-  return commitWorkspaceRevisionSync(restored.id, workspaceId);
 }
 
 /* ------------------------------------------------------------------ */
@@ -608,8 +678,4 @@ export function deleteEmployeeDurabilityRecordsSync(
 
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-}
-
-function sha256Hex(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }

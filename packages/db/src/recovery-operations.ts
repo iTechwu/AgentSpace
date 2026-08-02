@@ -1,4 +1,4 @@
-import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId } from "./database.ts";
+import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
 import { resolveStoredEmployeeIdSync } from "./workspace-employees.ts";
 import type { EmployeeRecoveryOperationRecord, RecoveryPhase } from "./types.ts";
 
@@ -105,6 +105,83 @@ export function listRecoveryOperationsSync(options: {
   return rows.map(mapRecoveryRecord).filter((r): r is EmployeeRecoveryOperationRecord => r !== null);
 }
 
+export function readActiveRecoveryOperationSync(options: {
+  employeeName: string;
+  workspaceId?: string;
+}): EmployeeRecoveryOperationRecord | null {
+  const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const row = getDatabase().prepare(
+    `${RECOVERY_COLUMNS} FROM employee_recovery_operation
+     WHERE workspace_id = ? AND employee_name = ? AND phase NOT IN ('completed', 'failed')
+     ORDER BY created_at DESC LIMIT 1`,
+  ).get(workspaceId, options.employeeName.trim()) as Record<string, unknown> | undefined;
+  return row ? mapRecoveryRecord(row) : null;
+}
+
+export interface ClaimedRecoveryOperation {
+  id: string;
+  workspaceId: string;
+  leaseToken: string;
+}
+
+export function claimRecoveryOperationsForWorkerSync(input?: {
+  workspaceId?: string;
+  limit?: number;
+  leaseSeconds?: number;
+}): ClaimedRecoveryOperation[] {
+  const db = getDatabase();
+  const limit = Math.max(1, Math.min(input?.limit ?? 25, 200));
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + Math.max(30, input?.leaseSeconds ?? 300) * 1000).toISOString();
+  return withTransaction(db, () => {
+    const params: unknown[] = [now.toISOString()];
+    const workspaceClause = input?.workspaceId ? "AND workspace_id = ?" : "";
+    if (input?.workspaceId) params.push(input.workspaceId);
+    params.push(limit);
+    const rows = db.prepare(
+      `SELECT id, workspace_id AS workspaceId
+       FROM employee_recovery_operation
+       WHERE phase NOT IN ('completed', 'failed')
+         AND (approval_state IS NULL OR approval_state IN ('not_required', 'approved'))
+         AND (worker_lease_expires_at IS NULL OR worker_lease_expires_at <= ?)
+         ${workspaceClause}
+       ORDER BY created_at ASC
+       LIMIT ?
+       FOR UPDATE SKIP LOCKED`,
+    ).all(...params) as Array<{ id: string; workspaceId: string }>;
+    const claimed: ClaimedRecoveryOperation[] = [];
+    for (const row of rows) {
+      const leaseToken = `recovery-lease-${randomLikeId()}`;
+      const result = db.prepare(
+        `UPDATE employee_recovery_operation
+           SET worker_lease_token = ?, worker_lease_expires_at = ?,
+               worker_attempt = worker_attempt + 1, updated_at = ?
+         WHERE id = ? AND workspace_id = ?
+           AND phase NOT IN ('completed', 'failed')
+           AND (worker_lease_expires_at IS NULL OR worker_lease_expires_at <= ?)`,
+      ).run(leaseToken, expiresAt, now.toISOString(), row.id, row.workspaceId, now.toISOString());
+      if (result.changes > 0) {
+        claimed.push({ id: row.id, workspaceId: row.workspaceId, leaseToken });
+      }
+    }
+    return claimed;
+  });
+}
+
+export function releaseRecoveryOperationLeaseSync(input: {
+  operationId: string;
+  workspaceId?: string;
+  leaseToken: string;
+}): boolean {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const result = getDatabase().prepare(
+    `UPDATE employee_recovery_operation
+       SET worker_lease_token = NULL, worker_lease_expires_at = NULL, updated_at = ?
+     WHERE id = ? AND workspace_id = ? AND worker_lease_token = ?`,
+  ).run(new Date().toISOString(), input.operationId, workspaceId, input.leaseToken);
+  return result.changes > 0;
+}
+
 /** Advance to the next phase; idempotent if already at/ past that phase. */
 export function advanceRecoveryPhaseSync(input: {
   operationId: string;
@@ -141,21 +218,155 @@ export function failRecoveryOperationSync(input: {
 }): EmployeeRecoveryOperationRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  const now = new Date().toISOString();
-  const sets = ["phase = ?", "error_code = ?", "error_message = ?", "updated_at = ?"];
-  const params: unknown[] = [input.phase ?? "failed", input.errorCode?.trim() || null, input.errorMessage, now];
-  if (input.contextJson !== undefined) {
-    sets.push("context_json = ?");
-    params.push(input.contextJson);
+  return withTransaction(db, () => {
+    const now = new Date().toISOString();
+    const sets = ["phase = ?", "error_code = ?", "error_message = ?", "updated_at = ?"];
+    const params: unknown[] = [input.phase ?? "failed", input.errorCode?.trim() || null, input.errorMessage, now];
+    if (input.contextJson !== undefined) {
+      sets.push("context_json = ?");
+      params.push(input.contextJson);
+    }
+    params.push(input.operationId, workspaceId);
+    const result = db.prepare(
+      `UPDATE employee_recovery_operation SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`,
+    ).run(...params);
+    if (result.changes === 0) {
+      throw new Error(`Recovery operation "${input.operationId}" does not exist.`);
+    }
+    db.prepare(
+      `UPDATE employee_runtime_binding SET status = 'needs_attention', updated_at = ?
+       WHERE workspace_id = ? AND employee_id = (
+         SELECT employee_id FROM employee_recovery_operation WHERE id = ? AND workspace_id = ?
+       )`,
+    ).run(now, workspaceId, input.operationId, workspaceId);
+    return readRecoveryOperationSync(input.operationId, workspaceId)!;
+  });
+}
+
+export function retryRecoveryOperationSync(input: {
+  operationId: string;
+  workspaceId?: string;
+}): EmployeeRecoveryOperationRecord {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const operation = readRecoveryOperationSync(input.operationId, workspaceId);
+  if (!operation || operation.phase !== "failed" || operation.approvalState === "rejected") {
+    throw new Error(`Recovery operation "${input.operationId}" is not retryable.`);
   }
-  params.push(input.operationId, workspaceId);
-  const result = db.prepare(
-    `UPDATE employee_recovery_operation SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`,
-  ).run(...params);
-  if (result.changes === 0) {
-    throw new Error(`Recovery operation "${input.operationId}" does not exist.`);
+  const active = db.prepare(
+    `SELECT id FROM employee_recovery_operation
+     WHERE workspace_id = ? AND employee_id = ? AND id <> ?
+       AND phase NOT IN ('completed', 'failed') LIMIT 1`,
+  ).get(workspaceId, operation.employeeId, operation.id) as { id?: string } | undefined;
+  if (active?.id) {
+    throw new Error(`Employee recovery "${active.id}" is already active.`);
   }
-  return readRecoveryOperationSync(input.operationId, workspaceId)!;
+  let context: Record<string, unknown>;
+  try {
+    context = JSON.parse(operation.contextJson) as Record<string, unknown>;
+  } catch {
+    context = {};
+  }
+  const failedPhase = context.failedPhase;
+  if (
+    failedPhase !== "allocate"
+    && failedPhase !== "mount_workspace"
+    && failedPhase !== "install_skills"
+    && failedPhase !== "resolve_secrets"
+    && failedPhase !== "health_check"
+    && failedPhase !== "activate"
+  ) {
+    throw new Error(`Recovery operation "${input.operationId}" has no retryable failed phase.`);
+  }
+  delete context.failedAt;
+  delete context.failedPhase;
+  delete context.waitingFor;
+  if (failedPhase === "allocate") {
+    delete context.provisioningTaskId;
+  } else if (failedPhase === "mount_workspace") {
+    delete context.mountOperationId;
+  } else if (failedPhase === "install_skills") {
+    delete context.plansCreated;
+  }
+  return withTransaction(db, () => {
+    const now = new Date().toISOString();
+    const result = db.prepare(
+      `UPDATE employee_recovery_operation
+         SET phase = ?, error_code = NULL, error_message = NULL, context_json = ?, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND phase = 'failed'`,
+    ).run(failedPhase, JSON.stringify(context), now, input.operationId, workspaceId);
+    if (result.changes === 0) {
+      throw new Error(`Recovery operation "${input.operationId}" changed while retrying.`);
+    }
+    db.prepare(
+      `UPDATE employee_runtime_binding SET status = 'recovering', updated_at = ?
+       WHERE workspace_id = ? AND employee_id = ?`,
+    ).run(now, workspaceId, operation.employeeId);
+    return readRecoveryOperationSync(input.operationId, workspaceId)!;
+  });
+}
+
+export function completeRecoveryActivationSync(input: {
+  operationId: string;
+  runtimeId: string;
+  expectedHeadRevisionId: string;
+  contextJson: string;
+  workspaceId?: string;
+}): EmployeeRecoveryOperationRecord {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  return withTransaction(db, () => {
+    const operation = readRecoveryOperationSync(input.operationId, workspaceId);
+    if (!operation || operation.phase !== "activate") {
+      throw new Error(`Recovery operation "${input.operationId}" is not ready to activate.`);
+    }
+    if (typeof operation.fromGeneration !== "number") {
+      throw new Error("Recovery activation requires an existing binding generation.");
+    }
+    const runtime = db.prepare(
+      "SELECT id FROM agent_runtime WHERE id = ? AND workspace_id = ?",
+    ).get(input.runtimeId.trim(), workspaceId) as { id?: string } | undefined;
+    if (!runtime?.id) {
+      throw new Error(`Runtime "${input.runtimeId}" does not exist in workspace ${workspaceId}.`);
+    }
+    const workspace = db.prepare(
+      `SELECT head_revision_id AS headRevisionId FROM employee_persistent_workspace
+       WHERE workspace_id = ? AND employee_id = ?`,
+    ).get(workspaceId, operation.employeeId) as { headRevisionId?: string | null } | undefined;
+    if (workspace?.headRevisionId !== input.expectedHeadRevisionId) {
+      throw new Error(
+        `Workspace head changed after mount verification: expected ${input.expectedHeadRevisionId}, got ${workspace?.headRevisionId ?? "none"}.`,
+      );
+    }
+    const now = new Date().toISOString();
+    const binding = db.prepare(
+      `UPDATE employee_runtime_binding
+         SET runtime_id = ?, generation = ?, status = 'online', desired_provider = NULL, updated_at = ?
+       WHERE workspace_id = ? AND employee_id = ? AND generation = ?`,
+    ).run(
+      input.runtimeId.trim(),
+      operation.toGeneration,
+      now,
+      workspaceId,
+      operation.employeeId,
+      operation.fromGeneration,
+    );
+    if (binding.changes === 0) {
+      throw new Error(
+        `RECOVERY_ACTIVATION_CONFLICT: expected previous generation ${operation.fromGeneration}.`,
+      );
+    }
+    const completed = db.prepare(
+      `UPDATE employee_recovery_operation
+         SET phase = 'completed', error_code = NULL, error_message = NULL,
+             context_json = ?, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND phase = 'activate'`,
+    ).run(input.contextJson, now, input.operationId, workspaceId);
+    if (completed.changes === 0) {
+      throw new Error(`Recovery operation "${input.operationId}" changed during activation.`);
+    }
+    return readRecoveryOperationSync(input.operationId, workspaceId)!;
+  });
 }
 
 /**
@@ -204,13 +415,26 @@ export function rejectRecoveryOperationSync(input: {
 }): EmployeeRecoveryOperationRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE employee_recovery_operation
-       SET approval_state = 'rejected', approved_by_user_id = ?, approved_at = ?, updated_at = ?
-     WHERE id = ? AND workspace_id = ? AND approval_state = 'pending'`,
-  ).run(input.approvedByUserId, now, now, input.operationId, workspaceId);
-  return readRecoveryOperationSync(input.operationId, workspaceId)!;
+  return withTransaction(db, () => {
+    const now = new Date().toISOString();
+    const result = db.prepare(
+      `UPDATE employee_recovery_operation
+         SET approval_state = 'rejected', approved_by_user_id = ?, approved_at = ?,
+             phase = 'failed', error_code = 'recovery_rejected',
+             error_message = 'Recovery rejected by an administrator.', updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND approval_state = 'pending'`,
+    ).run(input.approvedByUserId, now, now, input.operationId, workspaceId);
+    if (result.changes === 0) {
+      throw new Error(`Recovery operation "${input.operationId}" is not pending approval.`);
+    }
+    db.prepare(
+      `UPDATE employee_runtime_binding SET status = 'needs_attention', updated_at = ?
+       WHERE workspace_id = ? AND employee_id = (
+         SELECT employee_id FROM employee_recovery_operation WHERE id = ? AND workspace_id = ?
+       )`,
+    ).run(now, workspaceId, input.operationId, workspaceId);
+    return readRecoveryOperationSync(input.operationId, workspaceId)!;
+  });
 }
 
 /* ------------------------------------------------------------------ */

@@ -1323,6 +1323,11 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         workDir,
         readEmployeeHeadManifestSync(task.workspaceId, agentName),
       );
+      if (workDirCapture.unsafePaths.length > 0) {
+        throw new Error(
+          `workdir_capture_unsafe: refused ${workDirCapture.unsafePaths.length} unsafe path(s): ${workDirCapture.unsafePaths.slice(0, 3).join(", ")}`,
+        );
+      }
       if (workDirCapture.truncated) {
         // Fail closed: never commit a partial workspace snapshot. Until chunked
         // upload exists, any truncation aborts the promotion with an explicit

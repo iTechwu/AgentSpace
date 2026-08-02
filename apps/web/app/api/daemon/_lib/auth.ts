@@ -6,6 +6,7 @@ import {
   readQueuedTaskSync,
   readRuntimeAppOperationSync,
   readSkillInstallationOperationSync,
+  readWorkspaceMountOperationSync,
   validateDaemonApiTokenSync,
   type AgentRuntimeRecord,
   type DaemonApiTokenRecord,
@@ -14,6 +15,7 @@ import {
   type QueuedTaskRecord,
   type RuntimeMcpOperationRecord,
   type StoredSkillInstallationOperationRecord,
+  type WorkspaceMountOperationRecord,
 } from "@dofe-agent/db";
 import { resolveAgentRuntimeMode, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 
@@ -198,6 +200,21 @@ export function readSkillInstallationOperationForDaemon(
   const operation = readSkillInstallationOperationSync(operationId, auth.workspaceId);
   if (!operation) {
     return Response.json({ error: `Skill operation "${operationId}" does not exist.` }, { status: 404 });
+  }
+  const runtime = readRuntimeForDaemon(operation.runtimeId, auth);
+  if (runtime instanceof Response) {
+    return runtime;
+  }
+  return operation;
+}
+
+export function readWorkspaceMountOperationForDaemon(
+  operationId: string,
+  auth: DaemonAuthContext,
+): WorkspaceMountOperationRecord | Response {
+  const operation = readWorkspaceMountOperationSync(operationId, auth.workspaceId);
+  if (!operation) {
+    return Response.json({ error: "workspace_mount.not_found" }, { status: 404 });
   }
   const runtime = readRuntimeForDaemon(operation.runtimeId, auth);
   if (runtime instanceof Response) {

@@ -10,12 +10,17 @@ import {
   listStaleCommitJournalsSync,
   readEmployeeBindingGenerationSync,
   readEmployeeRuntimeBindingSync,
+  readRecoveryOperationSync,
+  rejectRecoveryOperationSync,
+  retryRecoveryOperationSync,
   setAssignmentArtifactDigestSync,
   upsertTaskCommitJournalSync,
 } from "@dofe-agent/db";
 import {
   assertBindingGenerationCurrentSync,
+  createEmployeeRecoveryOperationSync,
   promoteTaskOutputsToWorkspaceSync,
+  runRecoveryStepSync,
   runFullRecoverySync,
   setAttachmentStorageClientForTests,
 } from "../index.ts";
@@ -88,7 +93,7 @@ function assignSkill(employeeName: string, skillId: string, digest?: string): vo
   }
 }
 
-function insertTaskForJournal(seed: string): void {
+function insertTaskForJournal(seed: string): string {
   const db = getDatabase();
   const now = new Date().toISOString();
   taskSeq += 1;
@@ -98,6 +103,7 @@ function insertTaskForJournal(seed: string): void {
     `INSERT INTO agent_task_queue (id, workspace_id, agent_id, runtime_id, status, priority, input_json, queued_at, created_at, updated_at)
      VALUES (?, 'default', 'agent-rec', ?, 'queued', 0, '{}', ?, ?, ?)`,
   ).run(taskId, runtimeId, now, now, now);
+  return taskId;
 }
 
 before(() => {
@@ -146,7 +152,7 @@ beforeEach(() => {
 function seedTestEmployees(): void {
   const db = getDatabase();
   const now = new Date().toISOString();
-  for (const name of ["Alice", "Bob", "Carol", "Dan", "Erin"]) {
+  for (const name of ["Alice", "Bob", "Carol", "Dan", "Erin", "Retry Worker"]) {
     db.prepare(
       `INSERT INTO workspace_employee (id, workspace_id, name, role, origin, summary, fit, status, instructions, created_at, updated_at)
        VALUES (?, 'default', ?, 'Agent', 'manual', ?, 'Ready', 'active', '', ?, ?)
@@ -188,6 +194,18 @@ test("recovery without a target runtime fails at allocate and keeps the binding 
   assert.equal(result.phase, "failed");
 });
 
+test("a failed recovery can retry the same operation from its failed phase", () => {
+  setupEmployeeWorkspace("Retry Worker", "retry");
+  const failed = runFullRecoverySync({ workspaceId: "default", employeeName: "Retry Worker" });
+  assert.equal(failed.phase, "failed");
+
+  const retried = retryRecoveryOperationSync({ operationId: failed.id, workspaceId: "default" });
+  assert.equal(retried.id, failed.id);
+  assert.equal(retried.phase, "allocate");
+  assert.equal(retried.errorCode, undefined);
+  assert.doesNotMatch(retried.contextJson, /failedPhase|failedAt/);
+});
+
 test("D-11: an unpinnable/missing bound skill artifact blocks recovery (needs_attention)", () => {
   const runtimeId = insertRuntime();
   setupEmployeeWorkspace("Carol", "c");
@@ -204,6 +222,172 @@ test("D-11: an unpinnable/missing bound skill artifact blocks recovery (needs_at
   assert.notEqual(result.phase, "completed");
   assert.match(result.errorMessage ?? "", /missing/i);
   assert.equal(readEmployeeRuntimeBindingSync("Carol", "default")?.status, "needs_attention");
+});
+
+test("D-11: a bound legacy skill without a pinned digest blocks recovery", () => {
+  const runtimeId = insertRuntime();
+  setupEmployeeWorkspace("Carol", "legacy-no-digest");
+  const skillId = insertSkill("legacy-no-digest");
+  assignSkill("Carol", skillId);
+  bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Carol", runtimeId });
+
+  const result = runFullRecoverySync({
+    workspaceId: "default",
+    employeeName: "Carol",
+    targetRuntimeId: runtimeId,
+  });
+
+  assert.equal(result.phase, "failed");
+  assert.match(result.errorMessage ?? "", /pinned digest/i);
+  assert.equal(readEmployeeRuntimeBindingSync("Carol", "default")?.status, "needs_attention");
+});
+
+test("the async worker failure path moves the binding out of recovering", () => {
+  const runtimeId = insertRuntime();
+  setupEmployeeWorkspace("Carol", "async-failure");
+  const skillId = insertSkill("async-failure");
+  assignSkill("Carol", skillId);
+  bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Carol", runtimeId });
+  const operation = createEmployeeRecoveryOperationSync({
+    workspaceId: "default",
+    employeeName: "Carol",
+    targetRuntimeId: runtimeId,
+  });
+
+  for (let tick = 0; tick < 8; tick += 1) {
+    const result = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+    if (!result.ok) break;
+  }
+
+  assert.equal(readRecoveryOperationSync(operation.id, "default")?.phase, "failed");
+  assert.equal(readEmployeeRuntimeBindingSync("Carol", "default")?.status, "needs_attention");
+});
+
+test("rejecting a pending recovery moves the binding out of recovering", () => {
+  const runtimeId = insertRuntime();
+  setupEmployeeWorkspace("Alice", "reject");
+  bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Alice", runtimeId });
+  const operation = createEmployeeRecoveryOperationSync({
+    workspaceId: "default",
+    employeeName: "Alice",
+    targetRuntimeId: runtimeId,
+    requireApproval: true,
+  });
+  assert.equal(readEmployeeRuntimeBindingSync("Alice", "default")?.status, "recovering");
+
+  rejectRecoveryOperationSync({
+    operationId: operation.id,
+    workspaceId: "default",
+    approvedByUserId: "admin-1",
+  });
+
+  assert.equal(readEmployeeRuntimeBindingSync("Alice", "default")?.status, "needs_attention");
+});
+
+test("an explicit recovery target is persisted for asynchronous worker ticks", () => {
+  const runtimeId = insertRuntime();
+  setupEmployeeWorkspace("Alice", "target-runtime");
+  bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Alice", runtimeId });
+
+  const operation = createEmployeeRecoveryOperationSync({
+    workspaceId: "default",
+    employeeName: "Alice",
+    targetRuntimeId: runtimeId,
+  });
+
+  assert.equal((JSON.parse(operation.contextJson) as { runtimeId?: string }).runtimeId, runtimeId);
+});
+
+test("remote recovery dispatches a real mount to a non-managed daemon runtime", () => {
+  const previousMode = process.env.DOFE_AGENT_RUNTIME_MODE;
+  process.env.DOFE_AGENT_RUNTIME_MODE = "remote";
+  try {
+    const runtimeId = insertRuntime();
+    setupEmployeeWorkspace("Alice", "plain-remote-runtime");
+    bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Alice", runtimeId });
+    const operation = createEmployeeRecoveryOperationSync({
+      workspaceId: "default",
+      employeeName: "Alice",
+      targetRuntimeId: runtimeId,
+    });
+
+    const allocated = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+    assert.equal(allocated.ok, true, allocated.error);
+    assert.equal(allocated.phase, "mount_workspace");
+    const mounting = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+    assert.equal(mounting.ok, true, mounting.error);
+    assert.equal(mounting.phase, "mount_workspace");
+    assert.equal(
+      typeof (JSON.parse(mounting.operation.contextJson) as { mountOperationId?: string }).mountOperationId,
+      "string",
+      "remote recovery must wait for daemon materialization instead of using verify-only activation",
+    );
+  } finally {
+    if (previousMode === undefined) {
+      delete process.env.DOFE_AGENT_RUNTIME_MODE;
+    } else {
+      process.env.DOFE_AGENT_RUNTIME_MODE = previousMode;
+    }
+  }
+});
+
+test("recovery rejects a head manifest with an invalid blob digest", () => {
+  const runtimeId = insertRuntime();
+  setupEmployeeWorkspace("Alice", "invalid-manifest-digest");
+  bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Alice", runtimeId });
+  getDatabase().prepare(
+    `UPDATE employee_workspace_revision
+     SET manifest_json = '{"files":[{"path":"a.txt"}]}'
+     WHERE workspace_id = 'default'
+       AND employee_name = 'Alice'
+       AND status = 'committed'`,
+  ).run();
+
+  const operation = createEmployeeRecoveryOperationSync({
+    workspaceId: "default",
+    employeeName: "Alice",
+    targetRuntimeId: runtimeId,
+  });
+  assert.equal(runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" }).phase, "mount_workspace");
+  const result = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? "", /invalid sha256/i);
+  assert.equal(readEmployeeRuntimeBindingSync("Alice", "default")?.status, "needs_attention");
+});
+
+test("activation refuses a workspace head that changed after mount verification", () => {
+  const runtimeId = insertRuntime();
+  setupEmployeeWorkspace("Alice", "mounted-head");
+  bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Alice", runtimeId });
+  const operation = createEmployeeRecoveryOperationSync({
+    workspaceId: "default",
+    employeeName: "Alice",
+    targetRuntimeId: runtimeId,
+  });
+
+  for (let tick = 0; tick < 8; tick += 1) {
+    const current = readRecoveryOperationSync(operation.id, "default");
+    assert.ok(current);
+    if (current.phase === "activate") break;
+    const result = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+    assert.equal(result.ok, true, result.error);
+  }
+  assert.equal(readRecoveryOperationSync(operation.id, "default")?.phase, "activate");
+
+  promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTaskForJournal("head-race"),
+    employeeName: "Alice",
+    outputs: [{ path: "a.txt", bytes: new TextEncoder().encode("newer-head") }],
+  });
+  const generationBefore = readEmployeeBindingGenerationSync("Alice", "default");
+
+  const result = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
+  assert.equal(result.ok, false);
+  assert.match(result.error ?? "", /head changed/i);
+  assert.equal(readEmployeeBindingGenerationSync("Alice", "default"), generationBefore);
+  assert.equal(readEmployeeRuntimeBindingSync("Alice", "default")?.status, "needs_attention");
 });
 
 test("D-09: a stale binding generation cannot write after a rebind", () => {

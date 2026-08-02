@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "85";
+export const POSTGRES_SCHEMA_VERSION = "89";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -2826,8 +2826,7 @@ export function getPostgresSchemaStatements(): string[] {
         source_task_id TEXT REFERENCES agent_task_queue(id) ON DELETE SET NULL,
         status TEXT NOT NULL DEFAULT 'pending',
         created_by TEXT,
-        created_at TIMESTAMPTZ NOT NULL,
-        UNIQUE(workspace_id_ref, manifest_digest)
+        created_at TIMESTAMPTZ NOT NULL
       )
     `,
     `
@@ -2908,6 +2907,39 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_employee_workspace_revision_head
         ON employee_workspace_revision(workspace_id_ref, status, created_at DESC)
+    `,
+    `
+      ALTER TABLE employee_workspace_revision
+        DROP CONSTRAINT IF EXISTS employee_workspace_revision_workspace_id_ref_manifest_digest_key
+    `,
+    `
+      ALTER TABLE employee_workspace_revision
+        DROP CONSTRAINT IF EXISTS employee_workspace_revision_workspace_id_ref_manifest_diges_key
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_workspace_revision_task_digest
+        ON employee_workspace_revision(workspace_id_ref, source_task_id, manifest_digest)
+        WHERE source_task_id IS NOT NULL
+    `,
+    `
+      WITH ranked AS (
+        SELECT id, ROW_NUMBER() OVER (
+          PARTITION BY workspace_id, employee_id ORDER BY created_at DESC, id DESC
+        ) AS position
+        FROM employee_recovery_operation
+        WHERE phase NOT IN ('completed', 'failed')
+      )
+      UPDATE employee_recovery_operation AS operation
+         SET phase = 'failed', error_code = 'duplicate_active_recovery',
+             error_message = 'Superseded while enforcing one active recovery per employee.',
+             updated_at = NOW()
+        FROM ranked
+       WHERE operation.id = ranked.id AND ranked.position > 1
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_recovery_one_active
+        ON employee_recovery_operation(workspace_id, employee_id)
+        WHERE phase NOT IN ('completed', 'failed')
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_employee_artifact_workspace
@@ -3258,6 +3290,22 @@ export function getPostgresSchemaStatements(): string[] {
         ADD COLUMN IF NOT EXISTS actor_user_id TEXT
     `,
     `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS worker_lease_token TEXT
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS worker_lease_expires_at TIMESTAMPTZ
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS worker_attempt INTEGER NOT NULL DEFAULT 0
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_employee_recovery_worker_lease
+        ON employee_recovery_operation(phase, approval_state, worker_lease_expires_at, created_at)
+    `,
+    `
       CREATE TABLE IF NOT EXISTS runtime_workspace_mount_operation (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL,
@@ -3266,6 +3314,8 @@ export function getPostgresSchemaStatements(): string[] {
         head_revision_id TEXT,
         status TEXT NOT NULL,
         claimed_at TIMESTAMPTZ,
+        lease_expires_at TIMESTAMPTZ,
+        claim_generation INTEGER NOT NULL DEFAULT 0,
         completed_at TIMESTAMPTZ,
         error_code TEXT,
         error_message TEXT,
@@ -3274,8 +3324,16 @@ export function getPostgresSchemaStatements(): string[] {
       )
     `,
     `
+      ALTER TABLE runtime_workspace_mount_operation
+        ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ
+    `,
+    `
+      ALTER TABLE runtime_workspace_mount_operation
+        ADD COLUMN IF NOT EXISTS claim_generation INTEGER NOT NULL DEFAULT 0
+    `,
+    `
       CREATE INDEX IF NOT EXISTS idx_runtime_workspace_mount_claim
-        ON runtime_workspace_mount_operation(workspace_id, runtime_id, status)
+        ON runtime_workspace_mount_operation(workspace_id, runtime_id, status, lease_expires_at)
     `,
     `
       ALTER TABLE runtime_workspace_mount_operation

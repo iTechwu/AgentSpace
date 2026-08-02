@@ -211,6 +211,18 @@ export async function GET(
     };
 
     return Response.json(bundle);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      error instanceof Error
+      && (error as Error & { code?: unknown }).code === "workspace.materialization_incomplete"
+    ) {
+      return Response.json(
+        { error: "workspace.materialization_incomplete", detail: message },
+        { status: 409 },
+      );
+    }
+    throw error;
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

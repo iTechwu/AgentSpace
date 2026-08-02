@@ -5,6 +5,9 @@ import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import {
   getDatabase,
+  listAuditLogsSync,
+  readHeadRevisionSync,
+  restoreWorkspaceRevisionSync,
   upsertTaskCommitJournalSync,
   createRecoveryOperationSync,
   failRecoveryOperationSync,
@@ -14,6 +17,7 @@ import {
   promoteTaskOutputsToWorkspaceSync,
   runBackupRestoreDrillSync,
   runBackupRestoreDrillRunSync,
+  restoreValidatedWorkspaceRevisionSync,
   setAttachmentStorageClientForTests,
 } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
@@ -67,6 +71,7 @@ function seedDefaultWorkspaceIfMissing(): void {
 
 beforeEach(() => {
   const db = getDatabase();
+  db.exec("DELETE FROM audit_log WHERE code = 'employee.workspace_revision_restored'");
   db.exec("DELETE FROM employee_recovery_operation");
   db.exec("DELETE FROM employee_artifact");
   db.exec("DELETE FROM employee_workspace_revision");
@@ -85,7 +90,7 @@ beforeEach(() => {
 function seedTestEmployees(): void {
   const db = getDatabase();
   const now = new Date().toISOString();
-  for (const name of ["Alice", "Bob", "Carol", "Dan", "Dave"]) {
+  for (const name of ["Alice", "Bob", "Carol", "Dan", "Dave", "Restore Drill"]) {
     db.prepare(
       `INSERT INTO workspace_employee (id, workspace_id, name, role, origin, summary, fit, status, instructions, created_at, updated_at)
        VALUES (?, 'default', ?, 'Agent', 'manual', ?, 'Ready', 'active', '', ?, ?)
@@ -173,6 +178,30 @@ test("D-10: backup/restore drill recomputes the workspace manifest digest identi
   assert.equal(drill.samples[0]!.skillDigestsMatch, true);
 });
 
+test("D-10 accepts a historical restore whose new revision keeps the manifest content digest", () => {
+  const first = promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Restore Drill",
+    outputs: [{ path: "state.txt", bytes: new TextEncoder().encode("v1") }],
+  });
+  promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Restore Drill",
+    outputs: [{ path: "state.txt", bytes: new TextEncoder().encode("v2") }],
+  });
+  const restored = restoreWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Restore Drill",
+    targetRevisionId: first.revision.id,
+  });
+  assert.equal(restored.manifestDigest, first.revision.manifestDigest);
+
+  const drill = runBackupRestoreDrillSync({ workspaceId: "default", employeeNames: ["Restore Drill"] });
+  assert.equal(drill.ok, true, JSON.stringify(drill.samples));
+});
+
 test("drill reports a mismatch when the stored manifest digest disagrees with the manifest", () => {
   promoteTaskOutputsToWorkspaceSync({
     workspaceId: "default",
@@ -189,6 +218,106 @@ test("drill reports a mismatch when the stored manifest digest disagrees with th
   const drill = runBackupRestoreDrillSync({ workspaceId: "default", employeeNames: ["Dave"] });
   assert.equal(drill.ok, false);
   assert.equal(drill.samples[0]!.workspaceManifestMatch, false);
+});
+
+test("D-10 drill fails when a workspace blob is missing from restored object storage", () => {
+  promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Carol",
+    outputs: [{ path: "critical.txt", bytes: new TextEncoder().encode("must survive restore") }],
+  });
+  const head = readHeadRevisionSync("Carol", "default");
+  assert.ok(head);
+  const manifest = JSON.parse(head.manifestJson) as { files: Array<{ sha256: string }> };
+  const blobDigest = manifest.files[0]?.sha256;
+  assert.ok(blobDigest);
+  testStorage.client.deleteContentAddressedBlobSync!({ workspaceId: "default", sha256: blobDigest });
+
+  const drill = runBackupRestoreDrillSync({ workspaceId: "default", employeeNames: ["Carol"] });
+  assert.equal(drill.ok, false);
+  assert.equal(drill.samples[0]!.workspaceManifestMatch, false);
+  assert.match(drill.samples[0]!.detail, /blob/i);
+});
+
+test("historical restore refuses a target revision whose blob is missing", () => {
+  const first = promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Carol",
+    outputs: [{ path: "state.txt", bytes: new TextEncoder().encode("restore-v1") }],
+  });
+  const second = promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Carol",
+    outputs: [{ path: "state.txt", bytes: new TextEncoder().encode("restore-v2") }],
+  });
+  const manifest = JSON.parse(first.revision.manifestJson) as { files: Array<{ sha256: string }> };
+  testStorage.client.deleteContentAddressedBlobSync!({
+    workspaceId: "default",
+    sha256: manifest.files[0]!.sha256,
+  });
+
+  assert.throws(() => restoreValidatedWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Carol",
+    targetRevisionId: first.revision.id,
+    actorUserId: "admin-1",
+    actorDisplayName: "Admin",
+  }), /blob|content-addressed/i);
+  assert.equal(readHeadRevisionSync("Carol", "default")?.id, second.revision.id);
+  assert.equal(listAuditLogsSync("default", { code: "employee.workspace_revision_restored" }).length, 0);
+});
+
+test("validated historical restore records an immutable audit row with the new head", () => {
+  const first = promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Carol",
+    outputs: [{ path: "state.txt", bytes: new TextEncoder().encode("audited-v1") }],
+  });
+  promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Carol",
+    outputs: [{ path: "state.txt", bytes: new TextEncoder().encode("audited-v2") }],
+  });
+
+  const restored = restoreValidatedWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Carol",
+    targetRevisionId: first.revision.id,
+    actorUserId: "admin-1",
+    actorDisplayName: "Admin",
+  });
+  const audits = listAuditLogsSync("default", { code: "employee.workspace_revision_restored" });
+  assert.equal(audits.length, 1);
+  assert.equal(JSON.parse(audits[0]!.dataJson).restoredRevisionId, restored.id);
+});
+
+test("D-10 fails when a bound skill has no pinned digest", () => {
+  promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Carol",
+    outputs: [{ path: "a.txt", bytes: new TextEncoder().encode("workspace") }],
+  });
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO skill (id, workspace_id, name, description, config_json, created_at, updated_at)
+     VALUES ('skill-no-digest', 'default', 'skill-no-digest', '', '{}', ?, ?)`,
+  ).run(now, now);
+  db.prepare(
+    `INSERT INTO agent_skill (workspace_id, employee_name, skill_id, created_at)
+     VALUES ('default', 'Carol', 'skill-no-digest', ?)`,
+  ).run(now);
+
+  const drill = runBackupRestoreDrillSync({ workspaceId: "default", employeeNames: ["Carol"] });
+  assert.equal(drill.ok, false);
+  assert.equal(drill.samples[0]!.skillDigestsMatch, false);
+  assert.match(drill.samples[0]!.detail, /no pinned digest/i);
 });
 
 test("D-10: persistent drill run records the result and status", () => {

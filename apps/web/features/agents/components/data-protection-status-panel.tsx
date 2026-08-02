@@ -7,6 +7,8 @@ import {
   approveEmployeeRecoveryAction,
   readWorkspaceAgentDataProtectionAction,
   rejectEmployeeRecoveryAction,
+  retryEmployeeRecoveryAction,
+  restoreEmployeeWorkspaceRevisionAction,
   triggerEmployeeBackupRestoreDrillAction,
   triggerEmployeeRecoveryAction,
   type AgentDataProtectionSummary,
@@ -39,6 +41,7 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
   const [drillMessage, setDrillMessage] = useState("");
   const [runningRecovery, setRunningRecovery] = useState(false);
   const [recoveryMessage, setRecoveryMessage] = useState("");
+  const [restoringRevisionId, setRestoringRevisionId] = useState("");
 
   const loadSummary = () => {
     void readWorkspaceAgentDataProtectionAction(employeeName)
@@ -121,6 +124,46 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
     }
   };
 
+  const retryRecovery = async (operationId: string) => {
+    setRecoveryMessage("");
+    try {
+      const result = await retryEmployeeRecoveryAction(employeeName, operationId);
+      if (result.toast) {
+        setRecoveryMessage(tx(result.toast.zh, result.toast.en));
+      }
+      loadSummary();
+    } catch (cause: unknown) {
+      setRecoveryMessage(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const restoreRevision = async (targetRevisionId: string) => {
+    const confirmationEmployeeName = window.prompt(
+      tx(
+        `输入员工名称“${employeeName}”以确认恢复到版本 ${targetRevisionId.slice(-8)}。当前版本会保留在历史中。`,
+        `Enter employee name "${employeeName}" to restore revision ${targetRevisionId.slice(-8)}. The current revision remains in history.`,
+      ),
+    );
+    if (confirmationEmployeeName === null) return;
+    setRestoringRevisionId(targetRevisionId);
+    setRecoveryMessage("");
+    try {
+      const result = await restoreEmployeeWorkspaceRevisionAction({
+        employeeName,
+        targetRevisionId,
+        confirmationEmployeeName,
+      });
+      if (result.toast) {
+        setRecoveryMessage(tx(result.toast.zh, result.toast.en));
+      }
+      loadSummary();
+    } catch (cause: unknown) {
+      setRecoveryMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRestoringRevisionId("");
+    }
+  };
+
   if (error) {
     return (
       <section className="panel data-protection-panel" aria-label={tx("数据保护", "Data protection")}>
@@ -139,6 +182,7 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
   const alerts = summary?.alerts ?? [];
   const recoveryOps = summary?.recentRecoveryOperations ?? [];
   const drillRuns = summary?.recentDrillRuns ?? [];
+  const workspaceRevisions = summary?.recentWorkspaceRevisions ?? [];
 
   return (
     <section className="panel data-protection-panel" aria-label={tx("数据保护", "Data protection")}>
@@ -248,6 +292,40 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
       </div>
 
       <div className="data-protection-panel__section">
+        <h4>{tx("工作空间版本历史", "Workspace revision history")}</h4>
+        {workspaceRevisions.length === 0 ? (
+          <p className="data-protection-panel__empty">{tx("暂无已提交版本。", "No committed revisions.")}</p>
+        ) : (
+          <ul className="data-protection-panel__op-list">
+            {workspaceRevisions.map((revision) => {
+              const isHead = revision.id === summary?.headRevisionId;
+              return (
+                <li key={revision.id} className="data-protection-panel__op">
+                  <span>{revision.id.slice(-8)}</span>
+                  <span>{new Date(revision.createdAt).toLocaleString()}</span>
+                  <small>{revision.sourceKind}</small>
+                  {isHead ? (
+                    <small>{tx("当前版本", "Current")}</small>
+                  ) : (
+                    <button
+                      type="button"
+                      className="button button--small"
+                      disabled={Boolean(restoringRevisionId) || Boolean(summary?.activeRecoveryOperation)}
+                      onClick={() => restoreRevision(revision.id)}
+                    >
+                      {restoringRevisionId === revision.id
+                        ? tx("恢复中…", "Restoring…")
+                        : tx("恢复此版本", "Restore")}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      <div className="data-protection-panel__section">
         <h4>{tx("最近恢复操作", "Recent recovery operations")}</h4>
         {recoveryOps.length === 0 ? (
           <p className="data-protection-panel__empty">{tx("无恢复操作。", "No recovery operations.")}</p>
@@ -258,6 +336,11 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
                 <span>{op.phase}</span>
                 <span>{new Date(op.createdAt).toLocaleString()}</span>
                 {op.errorMessage && <small>{op.errorMessage}</small>}
+                {op.phase === "failed" && op.approvalState !== "rejected" && (
+                  <button type="button" className="button button--small" onClick={() => retryRecovery(op.id)}>
+                    {tx("重试", "Retry")}
+                  </button>
+                )}
               </li>
             ))}
           </ul>

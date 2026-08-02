@@ -5,12 +5,15 @@ import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import {
   commitWorkspaceRevisionSync,
+  bindEmployeeRuntimeSync,
+  createRecoveryOperationSync,
   createWorkspaceRevisionSync,
   ensureEmployeePersistentWorkspaceSync,
   listEmployeeArtifactsSync,
   listWorkspaceRevisionsSync,
   publishEmployeeArtifactSync,
   readEmployeePersistentWorkspaceSync,
+  readEmployeeBindingGenerationSync,
   readHeadRevisionSync,
   restoreWorkspaceRevisionSync,
   setStoredEmployeeSkillAssignmentsSync,
@@ -69,10 +72,13 @@ function seedDefaultWorkspaceIfMissing(): void {
 
 beforeEach(() => {
   const db = getDatabase();
+  db.exec("DELETE FROM employee_recovery_operation");
   db.exec("DELETE FROM employee_artifact");
   db.exec("DELETE FROM employee_workspace_revision");
   db.exec("DELETE FROM employee_persistent_workspace");
   db.exec("DELETE FROM task_commit_journal");
+  db.exec("DELETE FROM agent_task_queue WHERE agent_id = 'agent-ew'");
+  db.exec("DELETE FROM agent_runtime WHERE id LIKE 'runtime-ew-%'");
   seedTestEmployees();
 });
 
@@ -199,6 +205,116 @@ test("restore produces a NEW head revision, never overwriting history", () => {
   // The restored head carries the target's manifest, not the caller's.
   assert.equal(restored.manifestJson, v1.manifestJson);
   assert.equal(readHeadRevisionSync("Bob", "default")?.id, restored.id);
+});
+
+test("restore rejects a revision owned by another employee", () => {
+  ensureEmployeePersistentWorkspaceSync({ workspaceId: "default", employeeName: "Alice" });
+  const alice = createWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Alice",
+    manifestDigest: "1".repeat(64),
+    manifestJson: MANIFEST_JSON("alice"),
+  });
+  commitWorkspaceRevisionSync(alice.id, "default");
+
+  assert.throws(
+    () => restoreWorkspaceRevisionSync({
+      workspaceId: "default",
+      employeeName: "Bob",
+      targetRevisionId: alice.id,
+    }),
+    /does not belong to employee/i,
+  );
+});
+
+test("restore can re-apply the same target after an intervening head", () => {
+  ensureEmployeePersistentWorkspaceSync({ workspaceId: "default", employeeName: "Bob" });
+  const v1 = createWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Bob",
+    manifestDigest: "2".repeat(64),
+    manifestJson: MANIFEST_JSON("restore-v1"),
+  });
+  commitWorkspaceRevisionSync(v1.id, "default");
+  const firstRestore = restoreWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Bob",
+    targetRevisionId: v1.id,
+  });
+  const intervening = createWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Bob",
+    parentRevisionId: firstRestore.id,
+    manifestDigest: "3".repeat(64),
+    manifestJson: MANIFEST_JSON("intervening"),
+  });
+  commitWorkspaceRevisionSync(intervening.id, "default");
+
+  const secondRestore = restoreWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Bob",
+    targetRevisionId: v1.id,
+  });
+  assert.notEqual(secondRestore.id, firstRestore.id);
+  assert.equal(secondRestore.parentRevisionId, intervening.id);
+  assert.equal(secondRestore.manifestJson, v1.manifestJson);
+  assert.equal(secondRestore.manifestDigest, v1.manifestDigest, "restore keeps the truthful manifest content digest");
+  assert.equal(readHeadRevisionSync("Bob", "default")?.id, secondRestore.id);
+});
+
+test("restore advances the binding generation to fence already-claimed tasks", () => {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const runtimeId = `runtime-restore-fence-${Date.now()}`;
+  db.prepare(
+    `INSERT INTO agent_runtime (id, workspace_id, provider, name, status, created_at, updated_at)
+     VALUES (?, 'default', 'codex', 'Restore Fence', 'online', ?, ?)`,
+  ).run(runtimeId, now, now);
+  bindEmployeeRuntimeSync({
+    workspaceId: "default",
+    employeeName: "Bob",
+    runtimeId,
+  });
+  const generationBefore = readEmployeeBindingGenerationSync("Bob", "default");
+  const v1 = createWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Bob",
+    manifestDigest: "4".repeat(64),
+    manifestJson: MANIFEST_JSON("fenced-restore"),
+  });
+  commitWorkspaceRevisionSync(v1.id, "default");
+
+  restoreWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Bob",
+    targetRevisionId: v1.id,
+  });
+  assert.equal(readEmployeeBindingGenerationSync("Bob", "default"), (generationBefore ?? 0) + 1);
+});
+
+test("restore is blocked while an employee recovery operation is active", () => {
+  ensureEmployeePersistentWorkspaceSync({ workspaceId: "default", employeeName: "Bob" });
+  const target = createWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Bob",
+    manifestDigest: "5".repeat(64),
+    manifestJson: MANIFEST_JSON("blocked-during-recovery"),
+  });
+  commitWorkspaceRevisionSync(target.id, "default");
+  createRecoveryOperationSync({
+    workspaceId: "default",
+    employeeName: "Bob",
+    toGeneration: 1,
+  });
+
+  assert.throws(
+    () => restoreWorkspaceRevisionSync({
+      workspaceId: "default",
+      employeeName: "Bob",
+      targetRevisionId: target.id,
+    }),
+    /EMPLOYEE_RECOVERY_ACTIVE/,
+  );
 });
 
 test("published artifacts are listed and soft-deleted", () => {

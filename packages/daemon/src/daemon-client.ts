@@ -272,6 +272,29 @@ export class HttpDaemonClient {
     return this.postJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/workspace-mounts/claim`, {}, { retryable: true });
   }
 
+  async startWorkspaceMountOperation(operationId: string, claimGeneration: number): Promise<void> {
+    await this.postJson(
+      `/api/daemon/workspace-mounts/${encodeURIComponent(operationId)}/start`,
+      { claimGeneration },
+      { retryable: true },
+    );
+  }
+
+  async renewWorkspaceMountOperationLease(operationId: string, claimGeneration: number): Promise<boolean> {
+    try {
+      await this.postJson(
+        `/api/daemon/workspace-mounts/${encodeURIComponent(operationId)}/renew-lease`,
+        { claimGeneration },
+      );
+      return true;
+    } catch (error) {
+      if (error instanceof DaemonRuntimeUnavailableError) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
   async completeWorkspaceMountOperation(operationId: string, body: CompleteWorkspaceMountOperationRequest): Promise<void> {
     await this.postJson(`/api/daemon/workspace-mounts/${encodeURIComponent(operationId)}/complete`, body);
   }

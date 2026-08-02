@@ -1,6 +1,6 @@
-import { failWorkspaceMountOperationSync, readWorkspaceMountOperationSync } from "@dofe-agent/db";
+import { failWorkspaceMountOperationSync } from "@dofe-agent/db";
 import { tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
-import { requireDaemonAuth } from "../../../_lib/auth";
+import { readWorkspaceMountOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,12 +15,17 @@ export async function POST(
   }
 
   const { operationId } = await context.params;
-  const operation = readWorkspaceMountOperationSync(operationId, auth.workspaceId);
-  if (!operation) {
-    return Response.json({ error: "workspace_mount.not_found" }, { status: 404 });
+  const operation = readWorkspaceMountOperationForDaemon(operationId, auth);
+  if (operation instanceof Response) {
+    return operation;
   }
 
-  const body = (await request.json()) as { errorCode?: string; errorMessage: string; runtimeId?: string };
+  const body = (await request.json()) as {
+    errorCode?: string;
+    errorMessage: string;
+    runtimeId?: string;
+    claimGeneration?: number;
+  };
   // The failing daemon must be the one that owns the operation's runtime.
   if (typeof body.runtimeId !== "string" || body.runtimeId !== operation.runtimeId) {
     return Response.json(
@@ -28,12 +33,27 @@ export async function POST(
       { status: 403 },
     );
   }
-  const failed = failWorkspaceMountOperationSync({
-    operationId,
-    workspaceId: auth.workspaceId,
-    errorCode: body.errorCode,
-    errorMessage: body.errorMessage,
-  });
+  if (!Number.isSafeInteger(body.claimGeneration) || (body.claimGeneration ?? 0) <= 0) {
+    return Response.json({ error: "workspace_mount.invalid_claim_generation" }, { status: 400 });
+  }
+  if (typeof body.errorMessage !== "string" || body.errorMessage.trim().length === 0) {
+    return Response.json({ error: "workspace_mount.invalid_error" }, { status: 400 });
+  }
+  let failed;
+  try {
+    failed = failWorkspaceMountOperationSync({
+      operationId,
+      workspaceId: auth.workspaceId,
+      claimGeneration: body.claimGeneration!,
+      errorCode: body.errorCode,
+      errorMessage: body.errorMessage,
+    });
+  } catch (error) {
+    return Response.json(
+      { error: "workspace_mount.operation_lease_lost", detail: error instanceof Error ? error.message : String(error) },
+      { status: 409 },
+    );
+  }
 
   tryRecordWorkspaceAuditEventSync({
     workspaceId: auth.workspaceId,
