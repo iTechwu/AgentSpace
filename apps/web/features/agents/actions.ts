@@ -18,8 +18,11 @@ import {
   updateRuntimeProvisionRequestSync,
   withTransaction,
   updateWorkspaceRuntimeDisplayNameSync,
+  approveRecoveryOperationSync,
   listBackupRestoreDrillRunsSync,
   listRecoveryOperationsSync,
+  readRecoveryOperationSync,
+  rejectRecoveryOperationSync,
   type BackupRestoreDrillRunRecord,
   type EmployeeRecoveryOperationRecord,
 } from "@dofe-agent/db";
@@ -69,6 +72,7 @@ import {
   updateEmployeeDefaultModelSync,
   updateEmployeeExecutionPolicySync,
   updateEmployeeInstructionsSync,
+  createEmployeeRecoveryOperationSync,
   evaluateDataProtectionHealthSync,
   runBackupRestoreDrillRunSync,
   type DataProtectionHealthResult,
@@ -81,7 +85,9 @@ import type { WorkspaceInvalidationEvent } from "@/features/dashboard/workspace-
 import {
   actionToastResult,
   errorToast,
+  infoToast,
   successToast,
+  warningToast,
   type ActionToastResult,
 } from "@/shared/lib/toast-action";
 
@@ -1424,6 +1430,8 @@ export interface AgentDataProtectionSummary {
   recentRecoveryOperations: EmployeeRecoveryOperationRecord[];
   /** Recent backup/restore drill runs for the workspace. */
   recentDrillRuns: BackupRestoreDrillRunRecord[];
+  /** The most recent non-terminal recovery operation for this employee, if any. */
+  activeRecoveryOperation: EmployeeRecoveryOperationRecord | null;
 }
 
 /**
@@ -1449,6 +1457,9 @@ export async function readWorkspaceAgentDataProtectionAction(
   const health = evaluateDataProtectionHealthSync({ workspaceId });
   const employeeAlerts = health.alerts.filter((alert) => alert.employeeName === normalized);
   const recentRecoveryOperations = listRecoveryOperationsSync({ workspaceId, employeeName: normalized, limit: 5 });
+  const activeRecoveryOperation =
+    recentRecoveryOperations.find((operation) => operation.phase !== "completed" && operation.phase !== "failed")
+      ?? null;
   const recentDrillRuns = listBackupRestoreDrillRunsSync({ workspaceId, limit: 5 });
   return {
     employeeName: normalized,
@@ -1464,6 +1475,7 @@ export async function readWorkspaceAgentDataProtectionAction(
     metrics: health.metrics,
     recentRecoveryOperations,
     recentDrillRuns,
+    activeRecoveryOperation,
   };
 }
 
@@ -1534,4 +1546,126 @@ export async function triggerEmployeeBackupRestoreDrillAction(
           run.errorMessage ?? "Backup/restore drill failed.",
         );
   return actionToastResult(run, toast);
+}
+
+/**
+ * Triggers an async recovery for an employee. Admins/owners may rebind to an
+ * existing runtime (fast) or rebuild against managed capacity; `requireApproval`
+ * creates the operation with approval_state=pending so the worker skips it
+ * until an admin approves. The runtime-maintenance worker advances the phases.
+ */
+export async function triggerEmployeeRecoveryAction(
+  employeeName: string,
+  options?: { runtimeId?: string; requireApproval?: boolean },
+): Promise<ActionToastResult<EmployeeRecoveryOperationRecord>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  const normalized = employeeName.trim();
+  assertRequired(normalized, "employee name");
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertCanManageEmployeeForActorSync({
+    workspaceId,
+    employeeName: normalized,
+    actorUserId: workspaceContext.currentUser.id,
+  });
+
+  const operation = createEmployeeRecoveryOperationSync({
+    workspaceId,
+    employeeName: normalized,
+    actorUserId: workspaceContext.currentUser.id,
+    requireApproval: options?.requireApproval ?? false,
+  });
+
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId,
+    title: "Employee recovery scheduled",
+    note: `${workspaceContext.currentUser.displayName} scheduled a recovery for "${normalized}".`,
+    code: "employee.recovery_scheduled",
+    data: {
+      actorType: "session_user",
+      resourceType: "agent",
+      resourceId: operation.id,
+      employeeName: normalized,
+      requireApproval: options?.requireApproval ?? false,
+    },
+  });
+
+  const toast = options?.requireApproval
+    ? infoToast("恢复已创建，等待管理员审批。", "Recovery scheduled; awaiting admin approval.")
+    : infoToast("恢复已启动，正在推进。", "Recovery started.");
+  return actionToastResult(operation, toast);
+}
+
+export async function approveEmployeeRecoveryAction(
+  employeeName: string,
+  operationId: string,
+): Promise<ActionToastResult<EmployeeRecoveryOperationRecord>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertCanManageEmployeeForActorSync({
+    workspaceId,
+    employeeName: employeeName.trim(),
+    actorUserId: workspaceContext.currentUser.id,
+  });
+
+  const operation = approveRecoveryOperationSync({
+    operationId,
+    workspaceId,
+    approvedByUserId: workspaceContext.currentUser.id,
+  });
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId,
+    title: "Employee recovery approved",
+    note: `${workspaceContext.currentUser.displayName} approved recovery "${operationId}" for "${employeeName}".`,
+    code: "employee.recovery_approved",
+    data: { actorType: "session_user", resourceType: "agent", resourceId: operationId, employeeName },
+  });
+  return actionToastResult(operation, successToast("已批准恢复。", "Recovery approved."));
+}
+
+export async function rejectEmployeeRecoveryAction(
+  employeeName: string,
+  operationId: string,
+): Promise<ActionToastResult<null>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertCanManageEmployeeForActorSync({
+    workspaceId,
+    employeeName: employeeName.trim(),
+    actorUserId: workspaceContext.currentUser.id,
+  });
+
+  rejectRecoveryOperationSync({
+    operationId,
+    workspaceId,
+    approvedByUserId: workspaceContext.currentUser.id,
+  });
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId,
+    title: "Employee recovery rejected",
+    note: `${workspaceContext.currentUser.displayName} rejected recovery "${operationId}" for "${employeeName}".`,
+    code: "employee.recovery_rejected",
+    data: { actorType: "session_user", resourceType: "agent", resourceId: operationId, employeeName },
+  });
+  return actionToastResult(null, warningToast("已拒绝恢复。", "Recovery rejected."));
+}
+
+export async function readEmployeeRecoveryProgressAction(
+  employeeName: string,
+): Promise<{ activeOperation: EmployeeRecoveryOperationRecord | null; recent: EmployeeRecoveryOperationRecord[] }> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  const normalized = employeeName.trim();
+  assertRequired(normalized, "employee name");
+  assertCanManageEmployeeForActorSync({
+    workspaceId,
+    employeeName: normalized,
+    actorUserId: workspaceContext.currentUser.id,
+  });
+
+  const recent = listRecoveryOperationsSync({ workspaceId, employeeName: normalized, limit: 10 });
+  const activeOperation = recent.find((operation) => operation.phase !== "completed" && operation.phase !== "failed") ?? null;
+  return { activeOperation, recent };
 }

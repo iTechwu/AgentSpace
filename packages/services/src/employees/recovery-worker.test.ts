@@ -6,10 +6,12 @@ import test, { after, before, beforeEach } from "node:test";
 import { setAttachmentStorageClientForTests } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
 import {
+  approveRecoveryOperationSync,
   bindEmployeeRuntimeSync,
   getDatabase,
   listRecoveryOperationsSync,
   readEmployeeBindingGenerationSync,
+  readRecoveryOperationSync,
 } from "@dofe-agent/db";
 import {
   advanceRecoverableOperationsSync,
@@ -160,4 +162,39 @@ test("the worker skips operations pending approval", () => {
   assert.equal(result.advanced, 0, "pending-approval op must not advance");
   const op = listRecoveryOperationsSync({ workspaceId: "default", employeeName: "Alice", limit: 1 })[0];
   assert.equal(op?.phase, "allocate", "still in allocate");
+});
+
+test("approving a pending operation unblocks the worker", () => {
+  const runtimeId = insertTestTask().replace("task-rw", "runtime-rw");
+  setupEmployeeWorkspace("Alice", "c");
+  bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: "Alice", runtimeId });
+
+  const created = createEmployeeRecoveryOperationSync({
+    workspaceId: "default",
+    employeeName: "Alice",
+    actorUserId: "user-1",
+    requireApproval: true,
+  });
+  assert.equal(created.approvalState, "pending");
+
+  // Still blocked until approved.
+  advanceRecoverableOperationsSync({ workspaceId: "default", limit: 10 });
+  assert.equal(listRecoveryOperationsSync({ workspaceId: "default", employeeName: "Alice", limit: 1 })[0]?.phase, "allocate");
+
+  approveRecoveryOperationSync({
+    operationId: created.id,
+    workspaceId: "default",
+    approvedByUserId: "admin-1",
+  });
+  assert.equal(readRecoveryOperationSync(created.id, "default")?.approvalState, "approved");
+
+  // After approval the worker walks it to completed.
+  for (let tick = 0; tick < 12; tick += 1) {
+    advanceRecoverableOperationsSync({ workspaceId: "default", limit: 10 });
+    const op = listRecoveryOperationsSync({ workspaceId: "default", employeeName: "Alice", limit: 1 })[0];
+    if (op?.phase === "completed" || op?.phase === "failed") {
+      break;
+    }
+  }
+  assert.equal(listRecoveryOperationsSync({ workspaceId: "default", employeeName: "Alice", limit: 1 })[0]?.phase, "completed");
 });

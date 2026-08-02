@@ -1,3 +1,4 @@
+import { listWorkspacesSync } from "@dofe-agent/db";
 import { runBackupRestoreDrillRunSync, notifyWorkspaceAdminsSync } from "@dofe-agent/services";
 
 export const runtime = "nodejs";
@@ -6,9 +7,9 @@ export const dynamic = "force-dynamic";
 /**
  * Periodic backup/restore drill hook (docs/0801/employee-data-durability/02 §6).
  * Runs a metadata-level drill that samples employees and verifies their workspace
- * head manifest digest and bound skill artifact digests recompute identically.
- * Persists the run record for audit and UI history; returns 503 on failure so the
- * scheduler/uptime monitor can page.
+ * head manifest digest and bound skill artifact digests recompute identically —
+ * across every active workspace. Persists the run records for audit and UI
+ * history; returns 503 when any workspace fails so the scheduler can page.
  */
 export async function GET(request: Request): Promise<Response> {
   const expected = process.env.CRON_SECRET;
@@ -21,25 +22,36 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const workspaceId = "default";
-  const run = runBackupRestoreDrillRunSync({ workspaceId, trigger: "cron", sampleLimit: 5 });
+  const workspaces = listWorkspacesSync();
+  const runs = workspaces.map((workspace) => {
+    const workspaceId = workspace.id;
+    const run = runBackupRestoreDrillRunSync({ workspaceId, trigger: "cron", sampleLimit: 5 });
 
-  if (run.status === "failed") {
-    notifyWorkspaceAdminsSync({
-      workspaceId,
-      title: "备份恢复演练失败",
-      body: run.errorMessage ?? "备份/恢复演练未通过，请检查数据保护状态。",
-      type: "data_protection",
-      severity: "critical",
-      resourceType: "workspace",
-      resourceId: run.id,
-      actionHref: `/w/${workspaceId}/agents?tab=data-protection`,
-      dedupeKey: `backup-restore-drill-failed-${workspaceId}`,
-    });
-  }
+    if (run.status === "failed") {
+      notifyWorkspaceAdminsSync({
+        workspaceId,
+        title: "备份恢复演练失败",
+        body: run.errorMessage ?? "备份/恢复演练未通过，请检查数据保护状态。",
+        type: "data_protection",
+        severity: "critical",
+        resourceType: "data_protection",
+        resourceId: run.id,
+        actionHref: `/w/${workspaceId}/agents?tab=data-protection`,
+        dedupeKey: `backup-restore-drill-failed-${workspaceId}`,
+      });
+    }
 
+    return { workspaceId, workspaceName: workspace.name, ok: run.status === "completed", run };
+  });
+
+  const anyFailure = runs.some((result) => !result.ok);
   return Response.json(
-    { ok: run.status === "completed", run },
-    { status: run.status === "completed" ? 200 : 503 },
+    {
+      ok: !anyFailure,
+      checkedAt: new Date().toISOString(),
+      workspaceCount: runs.length,
+      runs,
+    },
+    { status: anyFailure ? 503 : 200 },
   );
 }

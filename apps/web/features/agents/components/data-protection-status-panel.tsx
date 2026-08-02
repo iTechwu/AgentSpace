@@ -2,9 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
+import { useAutoRefresh } from "@/shared/lib/use-auto-refresh";
 import {
+  approveEmployeeRecoveryAction,
   readWorkspaceAgentDataProtectionAction,
+  rejectEmployeeRecoveryAction,
   triggerEmployeeBackupRestoreDrillAction,
+  triggerEmployeeRecoveryAction,
   type AgentDataProtectionSummary,
 } from "../actions";
 
@@ -12,10 +16,20 @@ interface DataProtectionStatusPanelProps {
   readonly employeeName: string;
 }
 
+const RECOVERY_PHASE_STEPS = [
+  "allocate",
+  "mount_workspace",
+  "install_skills",
+  "resolve_secrets",
+  "health_check",
+  "activate",
+] as const;
+
 /**
- * Read-only "数据保护" summary for the agent detail resume (P4). Surfaces the
- * employee's persistent-workspace head revision, published artifacts, runtime-binding
- * generation/status, health alerts, recent recovery operations, and recent drill runs.
+ * "数据保护" summary for the agent detail resume (P4). Surfaces the employee's
+ * persistent-workspace head revision, published artifacts, runtime-binding
+ * generation/status, health alerts, recent recovery operations (with live phase
+ * progress + approval), and recent drill runs.
  */
 export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatusPanelProps) {
   const { tx } = useLanguage();
@@ -23,6 +37,8 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
   const [error, setError] = useState("");
   const [runningDrill, setRunningDrill] = useState(false);
   const [drillMessage, setDrillMessage] = useState("");
+  const [runningRecovery, setRunningRecovery] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState("");
 
   const loadSummary = () => {
     void readWorkspaceAgentDataProtectionAction(employeeName)
@@ -48,6 +64,10 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
     };
   }, [employeeName]);
 
+  // Poll while a recovery is in flight so the phase stepper advances without a
+  // manual refresh.
+  useAutoRefresh(Boolean(summary?.activeRecoveryOperation), 4000, loadSummary);
+
   const runDrill = async () => {
     setRunningDrill(true);
     setDrillMessage("");
@@ -67,6 +87,37 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
       setDrillMessage(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setRunningDrill(false);
+    }
+  };
+
+  const runRecovery = async () => {
+    setRunningRecovery(true);
+    setRecoveryMessage("");
+    try {
+      const result = await triggerEmployeeRecoveryAction(employeeName, { requireApproval: true });
+      if (result.toast) {
+        setRecoveryMessage(tx(result.toast.zh, result.toast.en));
+      }
+      loadSummary();
+    } catch (cause: unknown) {
+      setRecoveryMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRunningRecovery(false);
+    }
+  };
+
+  const decideRecovery = async (operationId: string, approve: boolean) => {
+    setRecoveryMessage("");
+    try {
+      const result = approve
+        ? await approveEmployeeRecoveryAction(employeeName, operationId)
+        : await rejectEmployeeRecoveryAction(employeeName, operationId);
+      if (result.toast) {
+        setRecoveryMessage(tx(result.toast.zh, result.toast.en));
+      }
+      loadSummary();
+    } catch (cause: unknown) {
+      setRecoveryMessage(cause instanceof Error ? cause.message : String(cause));
     }
   };
 
@@ -142,6 +193,58 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
             ))}
           </ul>
         )}
+      </div>
+
+      <div className="data-protection-panel__section">
+        <div className="data-protection-panel__section-header">
+          <h4>{tx("恢复进度", "Recovery progress")}</h4>
+          <button
+            type="button"
+            className="button button--small"
+            onClick={runRecovery}
+            disabled={runningRecovery || Boolean(summary?.activeRecoveryOperation)}
+          >
+            {runningRecovery ? tx("启动中…", "Starting…") : tx("启动恢复", "Start recovery")}
+          </button>
+        </div>
+        {recoveryMessage && <p className="data-protection-panel__drill-message">{recoveryMessage}</p>}
+        {!summary?.activeRecoveryOperation ? (
+          <p className="data-protection-panel__empty">{tx("无进行中的恢复。", "No recovery in progress.")}</p>
+        ) : (() => {
+          const activeOp = summary.activeRecoveryOperation!;
+          const currentIndex = RECOVERY_PHASE_STEPS.indexOf(
+            activeOp.phase as (typeof RECOVERY_PHASE_STEPS)[number],
+          );
+          return (
+            <>
+              <ol className="data-protection-panel__phase-steps">
+                {RECOVERY_PHASE_STEPS.map((phase, index) => (
+                  <li
+                    key={phase}
+                    className={[
+                      "data-protection-panel__phase",
+                      index < currentIndex ? "data-protection-panel__phase--done" : "",
+                      index === currentIndex ? "data-protection-panel__phase--current" : "",
+                    ].join(" ")}
+                  >
+                    <span>{tx(phase, phase)}</span>
+                  </li>
+                ))}
+              </ol>
+              {activeOp.approvalState === "pending" && (
+                <div className="data-protection-panel__approval">
+                  <button type="button" className="button button--small" onClick={() => decideRecovery(activeOp.id, true)}>
+                    {tx("批准", "Approve")}
+                  </button>
+                  <button type="button" className="button button--small button--danger" onClick={() => decideRecovery(activeOp.id, false)}>
+                    {tx("拒绝", "Reject")}
+                  </button>
+                </div>
+              )}
+              {activeOp.errorMessage && <small className="data-protection-panel__error">{activeOp.errorMessage}</small>}
+            </>
+          );
+        })()}
       </div>
 
       <div className="data-protection-panel__section">

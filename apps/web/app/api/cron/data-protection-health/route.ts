@@ -1,3 +1,4 @@
+import { listWorkspacesSync } from "@dofe-agent/db";
 import { evaluateDataProtectionHealthSync } from "@dofe-agent/services";
 
 export const runtime = "nodejs";
@@ -6,8 +7,9 @@ export const dynamic = "force-dynamic";
 /**
  * Periodic data-protection alerting hook (docs/0801/employee-data-durability/02 §6).
  * Evaluates workspace head age, skill-artifact verification failures, recovery
- * conflicts, and the task-commit reconciliation backlog. Returns 503 when any
- * error-level alert is present so the scheduler/uptime monitor can page.
+ * conflicts, and the task-commit reconciliation backlog across every active
+ * workspace. Returns 503 when any workspace has an error-level alert so the
+ * scheduler/uptime monitor can page.
  */
 export async function GET(request: Request): Promise<Response> {
   const expected = process.env.CRON_SECRET;
@@ -20,10 +22,27 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const health = evaluateDataProtectionHealthSync({ workspaceId: "default" });
-  const errorAlerts = health.alerts.filter((alert) => alert.severity === "error");
+  const workspaces = listWorkspacesSync();
+  const perWorkspace = workspaces.map((workspace) => {
+    const health = evaluateDataProtectionHealthSync({ workspaceId: workspace.id });
+    return {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      ok: !health.alerts.some((alert) => alert.severity === "error"),
+      alerts: health.alerts,
+      metrics: health.metrics,
+      checkedAt: health.checkedAt,
+    };
+  });
+
+  const anyError = perWorkspace.some((result) => !result.ok);
   return Response.json(
-    { ok: errorAlerts.length === 0, alerts: health.alerts, metrics: health.metrics, checkedAt: health.checkedAt },
-    { status: errorAlerts.length === 0 ? 200 : 503 },
+    {
+      ok: !anyError,
+      checkedAt: new Date().toISOString(),
+      workspaceCount: perWorkspace.length,
+      workspaces: perWorkspace,
+    },
+    { status: anyError ? 503 : 200 },
   );
 }

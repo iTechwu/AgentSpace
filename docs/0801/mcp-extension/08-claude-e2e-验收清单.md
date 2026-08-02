@@ -10,7 +10,7 @@
 
 - [ ] 固定 Claude Code CLI 版本（记录 `claude --version`），后续回归用同一版本。
 - [ ] 已配置测试账号（CLAUDE.md 的 `13800138000`）与至少一个 `online` 且 `mcpEligible=true`（provider=claude）的 Runtime。
-- [ ] 测试 DB 已迁移到 `POSTGRES_SCHEMA_VERSION`（当前 64），`runtime_mcp_tool_audit` 含 `event_id` 列。
+- [ ] 测试 DB 已迁移到当前代码的 `POSTGRES_SCHEMA_VERSION`（以 `packages/db/src/postgres-schema.ts` 为准，勿硬编码），`runtime_mcp_tool_audit` 含 `event_id` 列，`mcp_task_session_grant` 表存在。
 
 ## 1. 连接安装与验证
 
