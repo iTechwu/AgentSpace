@@ -283,6 +283,11 @@ export interface DaemonBundleFile {
   mode?: string;
 }
 
+export interface DaemonInputBundleFile extends DaemonBundleFile {
+  size: number;
+  sha256: string;
+}
+
 export interface DaemonSkillDependencyEnvironment {
   installationId: string;
   artifactDigest: string;
@@ -335,7 +340,7 @@ export interface DaemonTaskInputBundle {
       attemptCount: number;
     };
   };
-  files: DaemonBundleFile[];
+  files: DaemonInputBundleFile[];
 }
 
 export interface RuntimeToolCapability {

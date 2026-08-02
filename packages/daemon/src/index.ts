@@ -7,6 +7,12 @@ export * from "./remote-daemon.ts";
 export {
   clearTaskOutputArtifacts as clearBundledTaskOutputArtifacts,
   collectRuntimeOutputBundle,
+  createDaemonBundleFile,
+  assertDaemonInputBundleBudget,
+  InputBundleValidationError,
+  INPUT_BUNDLE_MAX_FILES,
+  INPUT_BUNDLE_MAX_FILE_BYTES,
+  INPUT_BUNDLE_MAX_TOTAL_BYTES,
   materializeInputBundle,
   sanitizePathSegment,
 } from "./bundle.ts";

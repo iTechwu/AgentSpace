@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1106,6 +1107,11 @@ describe("daemon API routes", () => {
     expect(bundlePayload.files.some((file: { path: string }) => file.path === "prompt.txt")).toBe(true);
     expect(bundlePayload.files.some((file: { path: string }) => file.path === "task.json")).toBe(true);
     expect(bundlePayload.files.some((file: { path: string }) => file.path === "attachments/01-manual-note.txt")).toBe(true);
+    for (const file of bundlePayload.files as Array<{ contentBase64: string; sha256: string; size: number }>) {
+      const bytes = Buffer.from(file.contentBase64, "base64");
+      expect(file.size).toBe(bytes.byteLength);
+      expect(file.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
+    }
   });
 
   it("includes only installed runtime apps and available runtime app skills in task input bundles", async () => {

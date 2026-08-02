@@ -2,7 +2,10 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:f
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import {
+  assertDaemonInputBundleBudget,
   buildDocumentRuntimeToolCapabilities,
+  createDaemonBundleFile,
+  InputBundleValidationError,
   parseTaskPayload,
   prepareDaemonTaskContext,
   type RouterSessionPromptContext,
@@ -18,7 +21,7 @@ import {
 } from "@dofe-agent/db";
 import type {
   DaemonTaskInputBundle,
-  DaemonBundleFile,
+  DaemonInputBundleFile,
   DaemonSkillDependencyEnvironment,
   RuntimeMcpConnectionContextEntry,
   TaskSkillExecutionSnapshot,
@@ -185,14 +188,10 @@ export async function GET(
           : undefined,
       },
       files: [
-        {
-          path: "prompt.txt",
-          contentBase64: Buffer.from(prepared.prompt, "utf8").toString("base64"),
-        },
-        {
-          path: "task.json",
-          contentBase64: Buffer.from(
-            JSON.stringify(
+        createDaemonBundleFile("prompt.txt", Buffer.from(prepared.prompt, "utf8")),
+        createDaemonBundleFile(
+          "task.json",
+          Buffer.from(JSON.stringify(
               {
                 taskId: task.id,
                 runtimeId: runtime.id,
@@ -202,13 +201,13 @@ export async function GET(
               },
               null,
               2,
-            ),
-            "utf8",
-          ).toString("base64"),
-        },
+            ), "utf8"),
+        ),
         ...collectBundleFiles(tempDir),
       ],
     };
+
+    assertDaemonInputBundleBudget(bundle.files);
 
     return Response.json(bundle);
   } catch (error) {
@@ -221,6 +220,9 @@ export async function GET(
         { error: "workspace.materialization_incomplete", detail: message },
         { status: 409 },
       );
+    }
+    if (error instanceof InputBundleValidationError) {
+      return Response.json({ error: error.code, detail: error.message }, { status: 413 });
     }
     throw error;
   } finally {
@@ -356,14 +358,14 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-function collectBundleFiles(rootDir: string): DaemonBundleFile[] {
-  const files: DaemonBundleFile[] = [];
+function collectBundleFiles(rootDir: string): DaemonInputBundleFile[] {
+  const files: DaemonInputBundleFile[] = [];
   walk(rootDir, rootDir, files);
   files.sort((left, right) => left.path.localeCompare(right.path, "en"));
   return files;
 }
 
-function walk(rootDir: string, currentDir: string, files: DaemonBundleFile[]): void {
+function walk(rootDir: string, currentDir: string, files: DaemonInputBundleFile[]): void {
   for (const entry of readdirSync(currentDir)) {
     const absolutePath = join(currentDir, entry);
     const stats = statSync(absolutePath);
@@ -371,12 +373,12 @@ function walk(rootDir: string, currentDir: string, files: DaemonBundleFile[]): v
       walk(rootDir, absolutePath, files);
       continue;
     }
-    files.push({
-      path: relative(rootDir, absolutePath).replace(/\\/g, "/"),
-      contentBase64: readFileSync(absolutePath).toString("base64"),
+    files.push(createDaemonBundleFile(
+      relative(rootDir, absolutePath).replace(/\\/g, "/"),
+      readFileSync(absolutePath),
       // Preserve the executable bit so scripts that passed install stay runnable
       // in the task workDir (a missing exec bit would otherwise fail at runtime).
-      mode: (stats.mode & 0o111) !== 0 ? (stats.mode & 0o777).toString(8) : undefined,
-    });
+      (stats.mode & 0o111) !== 0 ? (stats.mode & 0o777).toString(8) : undefined,
+    ));
   }
 }

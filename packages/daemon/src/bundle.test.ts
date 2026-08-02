@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { collectRuntimeOutputBundle, materializeInputBundle } from "./bundle.ts";
+import {
+  collectRuntimeOutputBundle,
+  createDaemonBundleFile,
+  INPUT_BUNDLE_MAX_FILES,
+  materializeInputBundle,
+} from "./bundle.ts";
 import { WORKDIR_CAPTURE_MAX_FILES } from "./workdir-capture.ts";
 
 test("materializeInputBundle rejects path traversal", () => {
@@ -25,6 +30,8 @@ test("materializeInputBundle rejects path traversal", () => {
             {
               path: "../escape.txt",
               contentBase64: Buffer.from("bad").toString("base64"),
+              size: 3,
+              sha256: "0".repeat(64),
             },
           ],
         }),
@@ -172,15 +179,86 @@ test("materializeInputBundle restores bundled files into workDir", () => {
         taskTriggerType: "channel_chat",
       },
       files: [
-        {
-          path: "attachments/input.txt",
-          contentBase64: Buffer.from("hello").toString("base64"),
-        },
+        createDaemonBundleFile("attachments/input.txt", Buffer.from("hello")),
       ],
     });
 
     assert.equal(readFileSync(join(workDir, "attachments", "input.txt"), "utf8"), "hello");
   } finally {
     rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("materializeInputBundle verifies every digest before writing any file", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-standalone-daemon-"));
+  try {
+    const valid = createDaemonBundleFile("first.txt", Buffer.from("first"));
+    const tampered = { ...createDaemonBundleFile("second.txt", Buffer.from("second")), sha256: "0".repeat(64) };
+    assert.throws(
+      () => materializeInputBundle(workDir, {
+        version: 1,
+        format: "json-inline-v1",
+        taskId: "task-1",
+        runtimeId: "runtime-1",
+        prompt: "hi",
+        metadata: { taskTriggerType: "channel_chat" },
+        files: [valid, tampered],
+      }),
+      /input_bundle.digest_mismatch/,
+    );
+    assert.equal(existsSync(join(workDir, "first.txt")), false);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("materializeInputBundle rejects aggregate file-count overflow", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-standalone-daemon-"));
+  try {
+    const emptyDigest = createDaemonBundleFile("empty", Buffer.alloc(0)).sha256;
+    const files = Array.from({ length: INPUT_BUNDLE_MAX_FILES + 1 }, (_, index) => ({
+      path: `files/${index}.txt`,
+      contentBase64: "",
+      size: 0,
+      sha256: emptyDigest,
+    }));
+    assert.throws(
+      () => materializeInputBundle(workDir, {
+        version: 1,
+        format: "json-inline-v1",
+        taskId: "task-1",
+        runtimeId: "runtime-1",
+        prompt: "hi",
+        metadata: { taskTriggerType: "channel_chat" },
+        files,
+      }),
+      /input_bundle.file_count_exceeded/,
+    );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("materializeInputBundle refuses an existing symlink target", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-standalone-daemon-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "dofe-agent-bundle-outside-"));
+  try {
+    symlinkSync(outsideDir, join(workDir, "attachments"));
+    assert.throws(
+      () => materializeInputBundle(workDir, {
+        version: 1,
+        format: "json-inline-v1",
+        taskId: "task-1",
+        runtimeId: "runtime-1",
+        prompt: "hi",
+        metadata: { taskTriggerType: "channel_chat" },
+        files: [createDaemonBundleFile("attachments/escape.txt", Buffer.from("no"))],
+      }),
+      /input_bundle.symlink_target_forbidden/,
+    );
+    assert.equal(existsSync(join(outsideDir, "escape.txt")), false);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+    rmSync(outsideDir, { recursive: true, force: true });
   }
 });
