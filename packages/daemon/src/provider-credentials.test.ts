@@ -156,6 +156,7 @@ test("managed credential launchers run the provider inside its dedicated image",
     const launcher = readFileSync(launcherPath, "utf8");
 
     assert.match(launcher, /docker run --rm --init/);
+    assert.match(launcher, /--pull never/);
     assert.match(launcher, /--name 'dofe-runtime-runtime-codex'/);
     assert.match(launcher, /dofe\/agent-runtime-codex:latest/);
     assert.doesNotMatch(launcher, /--env OPENAI_API_KEY/);

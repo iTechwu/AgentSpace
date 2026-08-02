@@ -277,6 +277,7 @@ function buildDockerProviderLauncher(profileDir: string, runtimeId: string, prov
     "#!/bin/sh",
     "set -eu",
     "exec docker run --rm --init \\",
+    "  --pull never \\",
     "  --read-only \\",
     "  --tmpfs /tmp:rw,nosuid,nodev,noexec \\",
     "  --security-opt no-new-privileges \\",
