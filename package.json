@@ -26,6 +26,7 @@
     "start:web": "NODE_OPTIONS=--use-system-ca NODE_USE_SYSTEM_CA=1 pnpm --filter @dofe-agent/web run start -- --hostname 0.0.0.0 --port 1455",
     "build": "pnpm --filter @dofe-agent/web run build",
     "typecheck": "pnpm run typecheck:deps && pnpm run typecheck:web:only && pnpm run typecheck:cli && pnpm run typecheck:daemon",
+    "test": "turbo run test --concurrency=2",
     "lint:web": "pnpm --filter @dofe-agent/web run lint",
     "test:web": "pnpm --filter @dofe-agent/web run test",
     "test:agent-pricing:node": "for file in deploy/self-hosted/managed-runtime-release-gates.test.mjs packages/db/src/postgres.test.ts packages/services/src/config/deployment.test.ts packages/services/src/chat/model-override.test.ts packages/services/src/models/client.test.ts packages/services/src/models/model-resolution.test.ts packages/services/src/models/models-usage-contract.test.ts packages/services/src/runtime-maintenance/runtime-maintenance.test.ts packages/services/src/runtime-provisioning/runtime-provisioning.test.ts packages/services/src/runtime-provisioning/credential-vault.test.ts packages/services/src/runtime-provisioning/provider-templates.test.ts packages/services/src/shared/audit.test.ts packages/db/src/runtime-provisioning-tasks.test.ts packages/db/src/task-execution-events.test.ts packages/db/src/user-auth.test.ts packages/db/src/task-commit-journal.test.ts packages/db/src/employee-workspaces.test.ts packages/services/src/skills/skill-artifacts.persistence.test.ts packages/services/src/employees/persistent-workspace.test.ts packages/services/src/employees/recovery.test.ts packages/services/src/employees/data-protection-health.test.ts packages/daemon/src/agent-router/utils.test.ts packages/daemon/src/provider-credentials.test.ts packages/daemon/src/managed-runtime-provisioning.test.ts packages/daemon/src/provider-runtime.test.ts packages/daemon/src/remote-daemon.test.ts packages/daemon/src/install-remote-daemon-script.test.ts; do node --env-file-if-exists=.env --experimental-strip-types --test \"$file\" || exit 1; done",
@@ -36,5 +37,8 @@
     "verify:managed-runtime-release": "pnpm run verify:managed-runtime-egress && pnpm run verify:managed-runtime-billing",
     "test:e2e:web": "pnpm --filter @dofe-agent/web run test:e2e",
     "quality:web": "pnpm --filter @dofe-agent/web run typecheck && pnpm --filter @dofe-agent/web run typecheck:test && pnpm --filter @dofe-agent/web run lint && pnpm --filter @dofe-agent/web run test"
+  },
+  "devDependencies": {
+    "turbo": "^2.10.8"
   }
 }
