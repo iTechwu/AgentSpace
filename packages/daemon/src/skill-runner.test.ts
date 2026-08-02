@@ -249,3 +249,70 @@ test("startSkillRunnerBroker rejects duplicate task-scoped entrypoint keys", asy
     rmSync(workDir, { recursive: true, force: true });
   }
 });
+
+test("startSkillRunnerBroker force-removes a timed-out Docker container before deleting config", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-state-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-task-"));
+  const fakeDockerDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-docker-"));
+  const fakeDocker = join(fakeDockerDir, "docker");
+  const dockerLog = join(fakeDockerDir, "calls.log");
+  const artifactDigest = "e".repeat(64);
+  const scriptBytes = Buffer.from("console.log('rendered');\n", "utf8");
+  const artifactDir = getDaemonSkillInstallCachePath(stateDir, {
+    workspaceId: "workspace-1",
+    artifactDigest,
+  });
+  mkdirSync(join(artifactDir, "scripts"), { recursive: true });
+  writeFileSync(join(artifactDir, "scripts", "render.mjs"), scriptBytes, { mode: 0o555 });
+  writeFileSync(join(artifactDir, ".cache-complete"), "ready", { mode: 0o444 });
+  chmodSync(join(artifactDir, "scripts"), 0o555);
+  chmodSync(artifactDir, 0o555);
+  writeFileSync(fakeDocker, `#!/bin/sh\nprintf '%s\\n' "$*" >> ${JSON.stringify(dockerLog)}\nif [ "$1" = "run" ]; then\n  while :; do :; done\nfi\nexit 0\n`, { mode: 0o700 });
+
+  const broker = await startSkillRunnerBroker({
+    stateDir,
+    workspaceId: "workspace-1",
+    workDir,
+    entrypoints: [{
+      key: "skill-timeout:render",
+      skillId: "skill-timeout",
+      skillName: "Timeout Renderer",
+      installationId: "installation-timeout",
+      artifactDigest,
+      sha256: createHash("sha256").update(scriptBytes).digest("hex"),
+      id: "render",
+      path: "scripts/render.mjs",
+      runtime: "node",
+      configKeys: ["RENDER_TOKEN"],
+    }],
+    skillEnv: { RENDER_TOKEN: "short-lived" },
+    environment: {
+      ...process.env,
+      DOFE_SKILL_RUNNER_DOCKER_BIN: fakeDocker,
+      DOFE_SKILL_RUNNER_NODE_IMAGE: `registry.example.com/runner@sha256:${"a".repeat(64)}`,
+      DOFE_SKILL_RUNNER_TIMEOUT_MS: "1000",
+    },
+    inspectImage: () => true,
+  });
+  try {
+    const launcher = broker.capabilities[0]?.binPath;
+    assert.ok(launcher);
+    await assert.rejects(execFileAsync(launcher));
+    const calls = readFileSync(dockerLog, "utf8").trim().split("\n");
+    const runCall = calls.find((call) => call.startsWith("run "));
+    assert.ok(runCall, JSON.stringify(calls));
+    const containerName = /(?:^| )--name ([^ ]+)/.exec(runCall)?.[1];
+    assert.ok(containerName);
+    assert.ok(calls.includes(`rm -f ${containerName}`));
+    const configFile = /src=([^,]+),dst=\/run\/secrets\/dofe-skill-config\.json,readonly/.exec(runCall)?.[1];
+    assert.ok(configFile);
+    assert.equal(existsSync(configFile), false);
+  } finally {
+    await broker.close().catch(() => {});
+    chmodSync(artifactDir, 0o755);
+    chmodSync(join(artifactDir, "scripts"), 0o755);
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+    rmSync(fakeDockerDir, { recursive: true, force: true });
+  }
+});

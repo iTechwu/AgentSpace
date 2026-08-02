@@ -38,6 +38,7 @@ const MAX_OUTPUT_TOTAL_BYTES = 64 * 1024 * 1024;
 
 export interface SkillRunnerDockerPlanInput {
   image: string;
+  containerName?: string;
   runtime: SkillEntrypointRuntime;
   artifactDir: string;
   workspaceDir: string;
@@ -63,8 +64,12 @@ export function buildSkillRunnerDockerArgs(input: SkillRunnerDockerPlanInput): s
   if (input.argv.length > MAX_ARGUMENTS || input.argv.some((argument) => Buffer.byteLength(argument) > MAX_ARGUMENT_BYTES)) {
     throw new Error("Skill Runner arguments exceed the configured budget.");
   }
+  if (input.containerName && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(input.containerName)) {
+    throw new Error("Skill Runner container name is unsafe.");
+  }
   return [
     "run", "--rm", "--init", "--pull", "never",
+    ...(input.containerName ? ["--name", input.containerName] : []),
     "--read-only",
     "--network", "none",
     "--cap-drop", "ALL",
@@ -156,8 +161,22 @@ export async function startSkillRunnerBroker(input: {
     if (inspectImage(image, environment)) runnerImages.set(runtime, image);
   }
   const execute = input.execute ?? executeDockerSkillRunner;
+  const activeContainers = new Set<string>();
+  const brokerCleanup = new Map<string, Promise<void>>();
+  let closing = false;
   const server = createServer((request, response) => {
-    void handleBrokerRequest(request, response, { ...input, token, byKey, runnerImages, runnerTimeoutMs, execute });
+    void handleBrokerRequest(request, response, {
+      ...input,
+      token,
+      byKey,
+      runnerImages,
+      runnerTimeoutMs,
+      environment,
+      execute,
+      activeContainers,
+      brokerCleanup,
+      isClosing: () => closing,
+    });
   });
   await new Promise<void>((resolvePromise, rejectPromise) => {
     server.once("error", rejectPromise);
@@ -195,12 +214,27 @@ export async function startSkillRunnerBroker(input: {
           : `No immutable ${entrypoint.runtime} Skill Runner image is configured.`,
     };
   });
+  let closePromise: Promise<void> | undefined;
   return {
     capabilities,
-    close: async () => {
-      await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
-      rmSync(socketPath, { force: true });
-      rmSync(launcherDir, { recursive: true, force: true });
+    close: () => {
+      closePromise ??= (async () => {
+        closing = true;
+        const serverClose = new Promise<void>((resolvePromise, rejectPromise) => {
+          server.close((error) => error ? rejectPromise(error) : resolvePromise());
+        });
+        if (!input.execute) {
+          for (const containerName of activeContainers) {
+            const cleanup = forceRemoveDockerSkillRunnerContainer(containerName, environment);
+            brokerCleanup.set(containerName, cleanup);
+          }
+          await Promise.all(brokerCleanup.values());
+        }
+        await serverClose;
+        rmSync(socketPath, { force: true });
+        rmSync(launcherDir, { recursive: true, force: true });
+      })();
+      return closePromise;
     },
   };
 }
@@ -214,11 +248,15 @@ async function handleBrokerRequest(
     workDir: string;
     dependencyEnvironments?: readonly DaemonSkillDependencyEnvironment[];
     skillEnv?: Readonly<Record<string, string>>;
+    environment?: NodeJS.ProcessEnv;
     token: string;
     byKey: Map<string, DaemonSkillRunnerEntrypoint>;
     runnerImages: Map<SkillEntrypointRuntime, string>;
     runnerTimeoutMs: number;
-    execute: (args: string[], timeoutMs: number) => Promise<SkillRunnerExecutionResult>;
+    execute: (args: string[], timeoutMs: number, containerName?: string, environment?: NodeJS.ProcessEnv) => Promise<SkillRunnerExecutionResult>;
+    activeContainers: Set<string>;
+    brokerCleanup: Map<string, Promise<void>>;
+    isClosing: () => boolean;
   },
 ): Promise<void> {
   try {
@@ -245,9 +283,14 @@ async function handleBrokerRequest(
       artifactDigest: entrypoint.artifactDigest,
     });
     assertSkillRunnerCacheEntry(artifactDir, entrypoint);
+    if (context.isClosing()) {
+      sendJson(response, 503, { error: "skill_runner.broker_closing" });
+      return;
+    }
     const publishedOutputDir = preparePublishedOutputDir(context.workDir, entrypoint.key);
     const outputDir = createPrivateRunnerOutputDir(context.stateDir, entrypoint.key);
     let privateConfig: { dir: string; file: string } | undefined;
+    let preservePrivateState = false;
     try {
       const dependencyReference = context.dependencyEnvironments?.find(
         (candidate) => candidate.installationId === entrypoint.installationId,
@@ -266,8 +309,10 @@ async function handleBrokerRequest(
         });
       }
       privateConfig = createPrivateRunnerConfig(context.stateDir, entrypoint, context.skillEnv ?? {});
+      const containerName = buildSkillRunnerContainerName(entrypoint.key);
       const args = buildSkillRunnerDockerArgs({
         image,
+        containerName,
         runtime: entrypoint.runtime,
         artifactDir,
         workspaceDir: resolve(context.workDir),
@@ -277,13 +322,27 @@ async function handleBrokerRequest(
         entrypointPath: entrypoint.path,
         argv,
       });
-      const result = await context.execute(args, context.runnerTimeoutMs);
+      context.activeContainers.add(containerName);
+      let result: SkillRunnerExecutionResult;
+      try {
+        result = await context.execute(args, context.runnerTimeoutMs, containerName, context.environment);
+        const cleanup = context.brokerCleanup.get(containerName);
+        if (cleanup) await cleanup;
+      } catch (error) {
+        preservePrivateState = error instanceof SkillRunnerContainerCleanupError;
+        throw error;
+      } finally {
+        context.activeContainers.delete(containerName);
+        context.brokerCleanup.delete(containerName);
+      }
       assertPublishedOutputDirTrusted(context.workDir, publishedOutputDir);
       publishRunnerOutput(outputDir, publishedOutputDir);
       sendJson(response, result.exitCode === 0 && !result.timedOut ? 200 : 422, result);
     } finally {
-      if (privateConfig) rmSync(privateConfig.dir, { recursive: true, force: true });
-      rmSync(outputDir, { recursive: true, force: true });
+      if (!preservePrivateState) {
+        if (privateConfig) rmSync(privateConfig.dir, { recursive: true, force: true });
+        rmSync(outputDir, { recursive: true, force: true });
+      }
     }
   } catch (error) {
     sendJson(response, 500, {
@@ -293,20 +352,40 @@ async function handleBrokerRequest(
   }
 }
 
-async function executeDockerSkillRunner(args: string[], timeoutMs: number): Promise<SkillRunnerExecutionResult> {
+class SkillRunnerContainerCleanupError extends Error {
+  constructor(message: string) {
+    super(`skill_runner.container_cleanup_failed: ${message}`);
+    this.name = "SkillRunnerContainerCleanupError";
+  }
+}
+
+async function executeDockerSkillRunner(
+  args: string[],
+  timeoutMs: number,
+  containerName?: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<SkillRunnerExecutionResult> {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(process.env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", args, {
+    const child = spawn(environment.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", args, {
       stdio: ["ignore", "pipe", "pipe"],
-      env: minimalRunnerHostEnvironment(process.env),
+      env: minimalRunnerHostEnvironment(environment),
     });
     let stdout = "";
     let stderr = "";
     let totalBytes = 0;
     let timedOut = false;
+    let settled = false;
+    let cleanupPromise: Promise<void> | undefined;
+    const forceStop = (): void => {
+      child.kill("SIGKILL");
+      if (containerName) {
+        cleanupPromise ??= forceRemoveDockerSkillRunnerContainer(containerName, environment);
+      }
+    };
     const append = (target: "stdout" | "stderr", chunk: Buffer): void => {
       totalBytes += chunk.byteLength;
       if (totalBytes > MAX_OUTPUT_BYTES) {
-        child.kill("SIGKILL");
+        forceStop();
         return;
       }
       if (target === "stdout") stdout += chunk.toString("utf8");
@@ -314,17 +393,72 @@ async function executeDockerSkillRunner(args: string[], timeoutMs: number): Prom
     };
     child.stdout.on("data", (chunk: Buffer) => append("stdout", chunk));
     child.stderr.on("data", (chunk: Buffer) => append("stderr", chunk));
-    child.once("error", rejectPromise);
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      rejectPromise(error);
+    });
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGKILL");
+      forceStop();
     }, timeoutMs);
+    child.once("close", async (exitCode) => {
+      if (settled) return;
+      clearTimeout(timer);
+      try {
+        if (cleanupPromise) await cleanupPromise;
+        if (totalBytes > MAX_OUTPUT_BYTES) {
+          stderr = "skill_runner.output_limit_exceeded";
+        }
+        settled = true;
+        resolvePromise({ exitCode, stdout, stderr, timedOut });
+      } catch (error) {
+        settled = true;
+        rejectPromise(error instanceof SkillRunnerContainerCleanupError
+          ? error
+          : new SkillRunnerContainerCleanupError(error instanceof Error ? error.message : String(error)));
+      }
+    });
+  });
+}
+
+function forceRemoveDockerSkillRunnerContainer(containerName: string, environment: NodeJS.ProcessEnv): Promise<void> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(environment.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", ["rm", "-f", containerName], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: minimalRunnerHostEnvironment(environment),
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      if (!settled) {
+        settled = true;
+        rejectPromise(new SkillRunnerContainerCleanupError(`Timed out removing ${containerName}.`));
+      }
+    }, 10_000);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      if (!settled) {
+        settled = true;
+        rejectPromise(new SkillRunnerContainerCleanupError(error.message));
+      }
+    });
     child.once("close", (exitCode) => {
       clearTimeout(timer);
-      if (totalBytes > MAX_OUTPUT_BYTES) {
-        stderr = "skill_runner.output_limit_exceeded";
+      if (settled) return;
+      settled = true;
+      if (exitCode === 0 || /no such container/i.test(`${stderr}\n${stdout}`)) {
+        resolvePromise();
+      } else {
+        rejectPromise(new SkillRunnerContainerCleanupError(
+          (stderr || stdout).trim() || `docker rm exited with code ${String(exitCode)}`,
+        ));
       }
-      resolvePromise({ exitCode, stdout, stderr, timedOut });
     });
   });
 }
@@ -424,6 +558,11 @@ function buildLauncherCommand(entrypoint: DaemonSkillRunnerEntrypoint): string {
 
 function sanitizeSegment(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "entrypoint";
+}
+
+function buildSkillRunnerContainerName(entrypointKey: string): string {
+  const key = createHash("sha256").update(entrypointKey).digest("hex").slice(0, 10);
+  return `dofe-skill-run-${process.pid}-${key}-${randomBytes(8).toString("hex")}`;
 }
 
 function assertInside(root: string, path: string): void {
