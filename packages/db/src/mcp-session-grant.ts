@@ -20,10 +20,11 @@ export interface WriteMcpTaskSessionGrantInput {
   expiresAt: string;
 }
 
+// Keep the raw snake_case column names: the worker's normalizeRowKey converts
+// them to camelCase (task_id → taskId), while an `AS taskId` alias would come
+// back lower-cased (taskid) and miss the alias map, breaking the mapper.
 const MCP_TASK_SESSION_GRANT_COLUMNS = `SELECT
-  task_id AS taskId, workspace_id AS workspaceId, runtime_id AS runtimeId,
-  attempt_id AS attemptId, encrypted_bundle_json AS encryptedBundleJson,
-  expires_at AS expiresAt, created_at AS createdAt`;
+  task_id, workspace_id, runtime_id, attempt_id, encrypted_bundle_json, expires_at, created_at`;
 
 /**
  * Persists a task's MCP session grant. The grant carries the ENCRYPTED resolved

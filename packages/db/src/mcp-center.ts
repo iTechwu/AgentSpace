@@ -960,7 +960,15 @@ export function recordMcpToolAuditSync(input: RecordMcpToolAuditInput): RuntimeM
   const row = getDatabase().prepare(
     `${MCP_TOOL_AUDIT_COLUMNS} FROM runtime_mcp_tool_audit WHERE id = ?`,
   ).get(id) as Record<string, unknown> | undefined;
-  const record = row ? mapRuntimeMcpToolAuditRecord(row) : null;
+  let record = row ? mapRuntimeMcpToolAuditRecord(row) : null;
+  if (!record && eventId) {
+    // Concurrent conflict: another request won the race for this event_id and
+    // our INSERT was a no-op. Read the winner's row back by (workspace, event).
+    const winner = getDatabase().prepare(
+      `${MCP_TOOL_AUDIT_COLUMNS} FROM runtime_mcp_tool_audit WHERE workspace_id = ? AND event_id = ?`,
+    ).get(workspaceId, eventId) as Record<string, unknown> | undefined;
+    record = winner ? mapRuntimeMcpToolAuditRecord(winner) : null;
+  }
   if (!record) {
     throwMissing("tool audit");
   }

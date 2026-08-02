@@ -35,10 +35,15 @@ export async function POST(
       continue;
     }
     // The URL's taskId is authoritative — a client-supplied taskId must never
-    // re-attribute an audit to a different task. The connection must also belong
-    // to this workspace.
+    // re-attribute an audit to a different task. The connection must belong to
+    // this workspace AND to the task's runtime, and the reported tool must be
+    // inside the connection's approved snapshot (the authorization this task
+    // was granted) — otherwise the audit is dropped.
     const connection = readMcpConnectionSync(audit.connectionId, auth.workspaceId);
-    if (!connection) {
+    if (!connection || connection.runtimeId !== task.runtimeId) {
+      continue;
+    }
+    if (!parseApprovedToolList(connection.approvedToolsJson).includes(audit.toolName)) {
       continue;
     }
     recordMcpToolAuditSync({
@@ -54,4 +59,13 @@ export async function POST(
     recorded += 1;
   }
   return Response.json({ recorded });
+}
+
+function parseApprovedToolList(value: string | undefined): string[] {
+  try {
+    const parsed = JSON.parse(value ?? "[]") as unknown;
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
 }

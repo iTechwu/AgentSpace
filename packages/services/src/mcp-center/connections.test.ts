@@ -52,6 +52,7 @@ beforeEach(() => {
   db.exec("DELETE FROM runtime_mcp_tool_audit");
   db.exec("DELETE FROM runtime_mcp_operation");
   db.exec("DELETE FROM runtime_mcp_discovery_snapshot");
+  db.exec("DELETE FROM mcp_task_session_grant");
   db.exec("DELETE FROM runtime_mcp_secret");
   db.exec("DELETE FROM runtime_mcp_connection");
   db.exec("DELETE FROM mcp_catalog_item");
@@ -619,6 +620,13 @@ test("claimMcpTaskSession is one-time: second claim returns empty connections", 
   ).run(runtimeId, now, now, now);
 
   // Fresh attempt claims the one-time bundle.
+  // A missing/blank attempt id must be rejected outright: it can never replay
+  // another caller's persisted grant.
+  assert.throws(
+    () => claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-1", attemptId: "" }),
+    /mcp.session_claim_requires_attempt/,
+  );
+
   const first = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-1", attemptId: "attempt-1" });
   assert.equal(first.connections.length, 1);
   assert.equal(first.connections[0]?.connectionId, connection.id);

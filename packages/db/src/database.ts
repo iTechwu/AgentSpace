@@ -79,8 +79,6 @@ async function handleRequest(message) {
   } catch (error) {
     response.ok = false;
     response.error = serializeError(error);
-    // DEBUG: surface the failing SQL alongside the error.
-    response.error.failedSql = typeof request.sql === "string" ? request.sql : undefined;
   }
 
   postResponse(response);
@@ -132,10 +130,6 @@ function serializeError(error) {
       name: error.name,
       message: error.message,
       stack: error.stack,
-      // DEBUG: include the failing SQL for diagnostics.
-      query: typeof (error as { query?: unknown }).query === "string"
-        ? (error as { query: string }).query
-        : undefined,
     };
   }
 
@@ -1068,11 +1062,6 @@ function deserializeWorkerError(error: WorkerResponse["error"]): Error {
   if (error?.stack) {
     nextError.stack = error.stack;
   }
-  // DEBUG: carry the failing SQL through for diagnostics.
-  Object.assign(nextError, {
-    query: (error as { query?: unknown }).query,
-    failedSql: (error as { failedSql?: unknown }).failedSql,
-  });
   return nextError;
 }
 

@@ -1,4 +1,5 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { getDaemonSkillInstallCachePath, getDaemonSkillInstallWorkDirPath } from "@dofe-agent/db";
 import type { ClaimedSkillInstallationOperation } from "@dofe-agent/domain";
@@ -55,7 +56,9 @@ export async function executeSkillInstallationOperation(
 
   try {
     let materializeResult: MaterializeResult;
-    if (cacheEnabled && existsSync(join(cachePath, CACHE_COMPLETE_SENTINEL))) {
+    if (cacheEnabled && existsSync(join(cachePath, CACHE_COMPLETE_SENTINEL)) && verifyCachedFiles(cachePath)) {
+      // Cache hit only when the actual cached files still match the recorded
+      // manifest (existence + size). A truncated/tampered cache is re-materialized.
       copyTree(cachePath, workDir);
       materializeResult = readCachedMaterializeResult(cachePath);
       cacheHit = true;
@@ -135,17 +138,17 @@ function readCachedMaterializeResult(cachePath: string): MaterializeResult {
 
 /**
  * Atomically publishes a verified materialization into the digest-keyed cache:
- * copy to a per-op staging dir, write the completion sentinel, then rename into
- * place. If another operation for the same digest won the race, the rename fails
- * and we discard our staging copy — the winner's entry is identical (content
- * addressed by digest).
+ * copy to a UNIQUE per-operation staging dir, write the completion sentinel,
+ * then rename into place. Concurrent operations never share a staging path, and
+ * if another operation for the same digest won the race the rename fails and we
+ * discard our staging copy — the winner's entry is identical (content addressed
+ * by digest), i.e. atomic first-write-wins.
  */
 function publishToCache(workDir: string, cachePath: string, result: MaterializeResult): void {
   if (existsSync(cachePath)) {
     return;
   }
-  const stagingPath = `${cachePath}.staging`;
-  rmSync(stagingPath, { recursive: true, force: true });
+  const stagingPath = `${cachePath}.staging-${randomUUID()}`;
   mkdirSync(dirname(stagingPath), { recursive: true });
   copyTree(workDir, stagingPath);
 
@@ -161,6 +164,29 @@ function publishToCache(workDir: string, cachePath: string, result: MaterializeR
     renameSync(stagingPath, cachePath);
   } catch {
     rmSync(stagingPath, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Validates that every file recorded in the cache manifest still exists on disk
+ * with the recorded size (lstat, so a symlink swap is rejected). The cache is
+ * trusted for reuse only when the actual files match; otherwise it is treated as
+ * a miss and re-materialized.
+ */
+function verifyCachedFiles(cachePath: string): boolean {
+  try {
+    const raw = readFileSync(join(cachePath, CACHE_META_FILE), "utf8");
+    const meta = JSON.parse(raw) as CachedMaterializeResult;
+    for (const file of meta.files) {
+      const candidate = join(cachePath, file.path);
+      const st = lstatSync(candidate);
+      if (!st.isFile() || st.size !== file.size) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
   }
 }
 

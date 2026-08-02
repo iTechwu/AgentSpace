@@ -7,6 +7,7 @@ import {
   listSkillInstallationOperationsSync,
   readActiveArtifactDigestForSkillSync,
   readSkillInstallationComponentsSync,
+  readSkillInstallationOperationSync,
   readSkillInstallationSync,
 } from "@dofe-agent/db";
 import {
@@ -17,6 +18,8 @@ import {
   createSkillUpgradePlanSync,
   createWorkspaceSkillSync,
   failSkillInstallationOperationSync,
+  parseCompleteSkillInstallationOperationPayload,
+  parseFailSkillInstallationOperationPayload,
   resolveClaimedSkillInstallationOperation,
   resetWorkspaceStateSync,
   rollbackSkillInstallationSync,
@@ -238,4 +241,230 @@ test("upgrade creates a candidate revision and rollback reactivates the previous
 
   const gateAfterRollback = assertSkillInstallationReadyForTaskSync({ runtimeId, artifactDigest: first.digest });
   assert.equal(gateAfterRollback.ok, true);
+});
+
+/* ------------------------------------------------------------------ */
+/* P0-5: complete/fail protocol integrity (fail-closed)                 */
+/* ------------------------------------------------------------------ */
+
+const EXPECTED_COMPONENTS = [
+  { kind: "dependency" as const, key: "npm:left-pad@1.3.0" },
+  { kind: "script" as const, key: "scripts/render.py" },
+];
+
+function readyStatuses(components: typeof EXPECTED_COMPONENTS) {
+  return components.map((component) => ({ ...component, status: "ready" as const }));
+}
+
+function setupClaimedPrepareOperation(): {
+  runtimeId: string;
+  digest: string;
+  installationId: string;
+  claimed: NonNullable<ReturnType<typeof claimNextSkillInstallationOperationForRuntimeSync>>;
+} {
+  const runtimeId = createTestRuntime();
+  const { digest } = buildArtifact();
+  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  const claimed = claimNextSkillInstallationOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  assert.ok(claimed);
+  return { runtimeId, digest, installationId: installation.id, claimed: claimed! };
+}
+
+function assertOperationState(
+  operationId: string,
+  expected: { status: string; componentStatuses: string[] },
+): void {
+  const operation = readSkillInstallationOperationSync(operationId, "default");
+  assert.ok(operation);
+  assert.equal(operation.status, expected.status);
+  const components = readSkillInstallationComponentsSync(operation.installationId);
+  const byKey = new Map(components.map((component) => [`${component.kind}:${component.key}`, component.status]));
+  for (const [key, status] of Object.entries(expected.componentStatuses)) {
+    assert.equal(byKey.get(key), status, `expected component "${key}" to be ${status}`);
+  }
+}
+
+test("complete rejects a duplicate component key and leaves the operation claimed", () => {
+  const { claimed, digest } = setupClaimedPrepareOperation();
+  const result = completeSkillInstallationOperationSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    safeResultJson: JSON.stringify({ computedDigest: digest }),
+    componentStatuses: [
+      ...readyStatuses(EXPECTED_COMPONENTS),
+      { kind: "dependency", key: "npm:left-pad@1.3.0", status: "ready" },
+    ],
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.code, "component_set_mismatch");
+  }
+  assertOperationState(claimed.id, { status: "claimed", componentStatuses: { "dependency:npm:left-pad@1.3.0": "pending" } });
+});
+
+test("complete rejects an unknown component and leaves the operation claimed", () => {
+  const { claimed, digest } = setupClaimedPrepareOperation();
+  const result = completeSkillInstallationOperationSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    safeResultJson: JSON.stringify({ computedDigest: digest }),
+    componentStatuses: [
+      ...readyStatuses(EXPECTED_COMPONENTS),
+      { kind: "script", key: "scripts/evil.sh", status: "ready" },
+    ],
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.code, "component_set_mismatch");
+  }
+  assertOperationState(claimed.id, { status: "claimed", componentStatuses: { "dependency:npm:left-pad@1.3.0": "pending" } });
+});
+
+test("complete rejects a missing component and leaves the operation claimed", () => {
+  const { claimed, digest } = setupClaimedPrepareOperation();
+  const result = completeSkillInstallationOperationSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    safeResultJson: JSON.stringify({ computedDigest: digest }),
+    componentStatuses: readyStatuses([EXPECTED_COMPONENTS[0]!]),
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.code, "component_set_mismatch");
+  }
+  assertOperationState(claimed.id, { status: "claimed", componentStatuses: { "dependency:npm:left-pad@1.3.0": "pending" } });
+});
+
+test("complete rejects evidence whose digest does not match the artifact", () => {
+  const { claimed, installationId } = setupClaimedPrepareOperation();
+  const result = completeSkillInstallationOperationSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    safeResultJson: JSON.stringify({ computedDigest: "deadbeef".repeat(8) }),
+    componentStatuses: readyStatuses(EXPECTED_COMPONENTS),
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.code, "evidence_mismatch");
+  }
+  const refreshed = readSkillInstallationSync(installationId, "default");
+  assert.notEqual(refreshed?.preparedDigest, "deadbeef".repeat(8));
+  assertOperationState(claimed.id, { status: "claimed", componentStatuses: { "dependency:npm:left-pad@1.3.0": "pending" } });
+});
+
+test("complete rejects malformed or empty evidence", () => {
+  const { claimed } = setupClaimedPrepareOperation();
+  for (const safeResultJson of ["not-json", "{}", undefined]) {
+    const result = completeSkillInstallationOperationSync({
+      operationId: claimed.id,
+      workspaceId: "default",
+      safeResultJson,
+      componentStatuses: readyStatuses(EXPECTED_COMPONENTS),
+    });
+    assert.equal(result.ok, false, `expected rejection for safeResultJson=${safeResultJson}`);
+    if (!result.ok) {
+      assert.equal(result.code, "evidence_mismatch");
+    }
+  }
+  assertOperationState(claimed.id, { status: "claimed", componentStatuses: { "dependency:npm:left-pad@1.3.0": "pending" } });
+});
+
+test("complete is atomic: a missing component row rolls back the op succeed", () => {
+  const { claimed, installationId, digest } = setupClaimedPrepareOperation();
+  // Simulate drift: delete one live component row so the set-match passes (from
+  // the frozen snapshot) but the UPDATE inside the transaction hits 0 rows.
+  getDatabase().prepare(
+    `DELETE FROM skill_installation_component WHERE installation_id = ? AND kind = ? AND key = ?`,
+  ).run(installationId, "script", "scripts/render.py");
+
+  const result = completeSkillInstallationOperationSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    safeResultJson: JSON.stringify({ computedDigest: digest }),
+    componentStatuses: readyStatuses(EXPECTED_COMPONENTS),
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.code, "component_set_mismatch");
+  }
+  // The op must NOT be succeeded and the surviving component must be untouched.
+  assertOperationState(claimed.id, { status: "claimed", componentStatuses: { "dependency:npm:left-pad@1.3.0": "pending" } });
+});
+
+test("fail accepts partial component statuses and blocks the remainder", () => {
+  const { claimed } = setupClaimedPrepareOperation();
+  const failed = failSkillInstallationOperationSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    errorCode: "skill_installation.verify_failed",
+    errorMessage: "script syntax check failed",
+    componentStatuses: [
+      { kind: "dependency", key: "npm:left-pad@1.3.0", status: "ready" },
+      { kind: "script", key: "scripts/render.py", status: "failed", errorCode: "skill_installation.script_syntax_error" },
+    ],
+  });
+  assert.equal(failed.ok, true);
+  assertOperationState(claimed.id, {
+    status: "failed",
+    componentStatuses: {
+      "dependency:npm:left-pad@1.3.0": "ready",
+      "script:scripts/render.py": "failed",
+    },
+  });
+});
+
+test("fail rejects a component that is not in the expected set", () => {
+  const { claimed } = setupClaimedPrepareOperation();
+  const failed = failSkillInstallationOperationSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    errorCode: "x",
+    errorMessage: "boom",
+    componentStatuses: [{ kind: "script", key: "scripts/evil.sh", status: "failed" }],
+  });
+  assert.equal(failed.ok, false);
+  if (!failed.ok) {
+    assert.equal(failed.code, "component_set_mismatch");
+  }
+  assertOperationState(claimed.id, { status: "claimed", componentStatuses: { "dependency:npm:left-pad@1.3.0": "pending" } });
+});
+
+test("complete falls back to the live component set for legacy request snapshots", async () => {
+  const { claimed, installationId, digest } = setupClaimedPrepareOperation();
+  // Rewrite the request snapshot to the legacy shape (no expectedComponents).
+  getDatabase().prepare(
+    `UPDATE skill_installation_operation SET request_snapshot_json = ? WHERE id = ?`,
+  ).run(JSON.stringify({ artifactDigest: digest, components: EXPECTED_COMPONENTS.map((c) => c.key) }), claimed.id);
+
+  const result = completeSkillInstallationOperationSync({
+    operationId: claimed.id,
+    workspaceId: "default",
+    safeResultJson: JSON.stringify({ computedDigest: digest }),
+    componentStatuses: readyStatuses(EXPECTED_COMPONENTS),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(readSkillInstallationSync(installationId, "default")?.status, "ready");
+});
+
+test("shared payload parsers reject malformed complete/fail bodies", () => {
+  const badComplete = parseCompleteSkillInstallationOperationPayload({ componentStatuses: [{ kind: "script", key: "x.sh", status: "banana" }] });
+  assert.equal(badComplete.ok, false);
+  const dup = parseCompleteSkillInstallationOperationPayload({
+    componentStatuses: [
+      { kind: "script", key: "x.sh", status: "ready" },
+      { kind: "script", key: "x.sh", status: "ready" },
+    ],
+  });
+  assert.equal(dup.ok, false);
+  const unknownKind = parseCompleteSkillInstallationOperationPayload({ componentStatuses: [{ kind: "plugin", key: "x", status: "ready" }] });
+  assert.equal(unknownKind.ok, false);
+  const nonObject = parseCompleteSkillInstallationOperationPayload("nope");
+  assert.equal(nonObject.ok, false);
+
+  const badFail = parseFailSkillInstallationOperationPayload({ errorMessage: 42 });
+  assert.equal(badFail.ok, false);
+  const missingMessage = parseFailSkillInstallationOperationPayload({});
+  assert.equal(missingMessage.ok, false);
+  const okFail = parseFailSkillInstallationOperationPayload({ errorMessage: "boom", componentStatuses: [{ kind: "script", key: "x.sh", status: "failed" }] });
+  assert.equal(okFail.ok, true);
 });

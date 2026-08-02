@@ -293,10 +293,13 @@ export function readTaskSkillExecutionSnapshotSync(taskId: string): TaskSkillExe
 
 export function writeTaskSkillExecutionSnapshotSync(taskId: string, snapshot: TaskSkillExecutionSnapshot): boolean {
   const now = new Date().toISOString();
+  // First-write-wins: only the first preparation may persist the snapshot.
+  // `AND ... IS NULL` makes a concurrent duplicate preparation a no-op instead
+  // of silently overwriting the resolved snapshot.
   const result = getDatabase().prepare(
     `UPDATE agent_task_queue
      SET skill_execution_snapshot_json = ?, updated_at = ?
-     WHERE id = ?`,
+     WHERE id = ? AND skill_execution_snapshot_json IS NULL`,
   ).run(JSON.stringify(snapshot), now, taskId);
   return result.changes > 0;
 }

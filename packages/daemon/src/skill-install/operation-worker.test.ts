@@ -187,3 +187,42 @@ test("a cache-miss materialization that fails verification never publishes the c
   assert.equal(existsSync(cachePath), false, "no cache published on failure");
   assert.equal(existsSync(join(cachePath, ".cache-complete")), false);
 });
+
+test("a verification failure reports component statuses via FAIL (no complete-after-fail)", async () => {
+  // Pre-warm a cache whose digest matches, so materialization succeeds; the
+  // component verifier then fails because the script is not in the manifest.
+  const operation = buildOperation({
+    components: [{ kind: "script", key: "run.sh", status: "pending" }],
+    manifestJson: JSON.stringify({
+      schemaVersion: 1,
+      artifact: { name: "test-skill", version: "1.0.0" },
+      files: [],
+      dependencies: [],
+    }),
+  });
+  const cachePath = getDaemonSkillInstallCachePath(stateDir, {
+    workspaceId: operation.workspaceId,
+    artifactDigest: operation.artifactDigest,
+  });
+  mkdirSync(cachePath, { recursive: true });
+  writeFileSync(join(cachePath, "SKILL.md"), "abc");
+  writeFileSync(join(cachePath, ".cache-complete"), new Date().toISOString());
+  writeFileSync(
+    join(cachePath, ".cache-result.json"),
+    JSON.stringify({
+      files: [{ path: "SKILL.md", sha256: operation.files[0]!.sha256, size: 3 }],
+      computedDigest: operation.artifactDigest,
+      expectedDigest: operation.artifactDigest,
+    }),
+  );
+
+  await executeSkillInstallationOperation(fakeClient, buildConfig(), operation);
+
+  assert.ok(lastFail, "operation failed");
+  assert.equal(lastComplete, undefined, "no complete-after-fail");
+  const statuses = lastFail!.body.componentStatuses as Array<{ key: string; status: string }> | undefined;
+  assert.ok(Array.isArray(statuses) && statuses.length > 0, "fail carries partial component statuses");
+  assert.equal(statuses![0]!.key, "run.sh");
+  assert.equal(statuses![0]!.status, "failed");
+  assert.equal(lastFail!.body.errorCode, "skill_installation.script_not_in_manifest");
+});

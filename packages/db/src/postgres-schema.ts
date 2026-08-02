@@ -1027,7 +1027,9 @@ export function getPostgresSchemaStatements(): string[] {
         safe_summary TEXT,
         event_id TEXT,
         created_at TIMESTAMPTZ NOT NULL
-      ),
+      )
+    `,
+    `
       CREATE TABLE IF NOT EXISTS mcp_task_session_grant (
         task_id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
