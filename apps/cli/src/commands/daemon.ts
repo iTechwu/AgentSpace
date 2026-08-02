@@ -18,6 +18,7 @@ import {
   detectProviders as detectSharedProviders,
   collectRuntimeOutputBundle,
   collectWorkDirChanges,
+  materializeInputBundle,
   readEmployeeHeadManifestSync,
   applyDocumentRuntimeOutputOperations,
   applyKnowledgeProposalOperations,
@@ -1841,14 +1842,6 @@ function toQueuedTaskRecord(task: Awaited<ReturnType<HttpDaemonClient["claimTask
     createdAt: task.queuedAt,
     updatedAt: task.queuedAt,
   };
-}
-
-function materializeInputBundle(workDir: string, bundle: Awaited<ReturnType<HttpDaemonClient["getInputBundle"]>>): void {
-  for (const file of bundle.files) {
-    const targetPath = join(workDir, file.path);
-    mkdirSync(dirname(targetPath), { recursive: true });
-    writeFileSync(targetPath, Buffer.from(file.contentBase64, "base64"));
-  }
 }
 
 function sameValue(left: string, right: string): boolean {
