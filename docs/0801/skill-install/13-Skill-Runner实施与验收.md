@@ -23,6 +23,7 @@ Runner 容器固定策略：
 - artifact、task workspace 与 installation dependency env 只读；只允许 `/output` 写入。`/output` 实际绑定 daemon 状态目录中的随机一次性目录并显式设为 `0777`，不直接绑定 Provider 可写的 task workspace；执行后 daemon 只生成带路径、大小、mode 和 SHA-256 的文件 manifest，任务 launcher 校验 digest 后在 Provider 文件系统命名空间中以临时文件和原子 rename 发布到 `runtime-output/skill-runs/<entrypoint>`。宿主 daemon 不再向 Provider 可控路径写文件。
 - stdout/stderr 聚合上限 64 KiB，请求 64 KiB，参数最多 64 个且单参数最多 8 KiB。
 - 每次调用使用随机且受限的 Docker 容器名。超时、输出超限和 broker 关闭都会执行并等待 `docker rm -f`；只有确认容器退出后才删除短时配置与私有输出。清理失败时保留 daemon 私有目录并返回结构化错误，禁止把“Docker CLI 已退出”误当成脚本容器已退出。
+- broker 默认每个任务最多并发运行 2 个 Runner，可通过 `DOFE_SKILL_RUNNER_MAX_CONCURRENCY` 下调或上调但硬上限为 32；超过时返回 `skill_runner.concurrency_limit_exceeded`，不创建输出/config 或容器。
 - 输出发布最多 1000 个目录项、目录深度 32、单文件 20 MiB、总计 64 MiB；私有输出发现符号链接或特殊文件、launcher 目标路径发现链接/非普通文件、manifest digest 不符或预算越界时整次调用失败，临时目录和临时文件始终清理。
 - entrypoint 的 `configKeys` 最多 64 个且必须匹配大写环境键格式。daemon 将声明键从 Provider 环境中剥离，只把声明且已解析的值写入随机短时 JSON，通过只读 secret mount 暴露；Provider 环境、Docker 参数、workspace 和未声明键中不出现值，调用完成立即删除。
 - 宿主执行只保留 Docker 所需的最小环境，不传 Provider credential 或 Skill env。
@@ -40,6 +41,8 @@ Runner 容器固定策略：
 | 容器隔离、digest、参数预算、依赖只读挂载、私有可写输出、symlink 拒绝、超时容器强制删除与配置清理顺序 | `packages/daemon/src/skill-runner.test.ts` |
 | entrypoint 规范化唯一、broker key/命令冲突拒绝 | `manifest-schema.test.ts`、`skill-runner.test.ts` |
 | configKeys snapshot、Provider/Runner 环境分区、按键筛选、只读短时挂载与清理 | `installations.test.ts`、`skill-runner.test.ts` |
+| 任务级并发拒绝、超时容器强制删除 | `skill-runner.test.ts` |
+| Linux 真实 Node/Python/Bash、冻结依赖、网络/写入/secret/socket 负面验证 | `skill-runner.e2e-real-docker.test.ts`、`scripts/dofe-skill-runner-e2e-run.sh` |
 | 未配置/本地缺镜像阻断安装、镜像内 runtime/语法检查、路径逃逸与符号链接拒绝 | `packages/daemon/src/skill-install/component-verifier.test.ts` |
 | snapshot 到 Runner manifest 与 executable hash | `packages/services/src/skills/installations.test.ts` |
 | 原始脚本不进入 Provider、stub/mode 正确 | `packages/services/src/skills/injection.test.ts` |
