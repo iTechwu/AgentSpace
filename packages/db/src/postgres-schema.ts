@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "90";
+export const POSTGRES_SCHEMA_VERSION = "91";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -2605,9 +2605,11 @@ export function getPostgresSchemaStatements(): string[] {
         actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL,
         consumed_at TIMESTAMPTZ,
-        UNIQUE(workspace_id, from_digest, to_digest, diff_hash)
+        UNIQUE(workspace_id, from_digest, to_digest, diff_hash, policy_version)
       )
     `,
+    `ALTER TABLE skill_upgrade_approval DROP CONSTRAINT IF EXISTS skill_upgrade_approval_workspace_id_from_digest_to_digest_diff_hash_key`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_upgrade_approval_policy_lock ON skill_upgrade_approval(workspace_id, from_digest, to_digest, diff_hash, policy_version)`,
     `
       CREATE TABLE IF NOT EXISTS skill_installation (
         id TEXT PRIMARY KEY,

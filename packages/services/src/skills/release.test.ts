@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes as cryptoRandomBytes } from "node:crypto";
 import { after, test } from "node:test";
 import {
+  createSkillUpgradeApprovalSync,
   getDatabase,
   listManagedSkillServiceOperationsSync,
   randomLikeId,
@@ -23,6 +24,7 @@ import {
   diffSkillArtifactsSync,
   isSkillUpgradeApprovalRequiredSync,
   readSkillInstallationLockSync,
+  SKILL_PROVIDER_COMPATIBILITY_REVISION,
   verifySkillInstallationLockReconstructableSync,
 } from "./release.ts";
 import { stableStringify } from "./package/package-digest.ts";
@@ -345,6 +347,25 @@ test("createSkillUpgradePlanSync consumes the approval exactly once", () => {
   assert.throws(
     () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
     /already been consumed/,
+  );
+});
+
+test("createSkillUpgradePlanSync rejects an approval from an obsolete policy version", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const { first, second } = buildUpgradeArtifacts();
+  const v1 = readyInstall(runtimeId, first.digest);
+  const approval = createSkillUpgradeApprovalSync({
+    fromDigest: first.digest,
+    toDigest: second.digest,
+    diffHash: breakingDiffHash(first, second),
+    policyVersion: "obsolete-policy",
+    decision: "approved",
+  });
+
+  assert.throws(
+    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId: approval.id }),
+    /policy version/,
   );
 });
 

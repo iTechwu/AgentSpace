@@ -61,6 +61,9 @@ export interface McpCatalogReleaseLock {
   toolFingerprint: string;
 }
 
+export const SKILL_UPGRADE_POLICY_VERSION = "v1";
+export const SKILL_PROVIDER_COMPATIBILITY_REVISION = 1;
+
 /**
  * Resolves the FULL immutable release lock for an artifact (05-运维服务与版本治理.md
  * §4). Reproducible: the same artifact + catalog state always yields the same
@@ -69,8 +72,8 @@ export interface McpCatalogReleaseLock {
  * fingerprints are derived deterministically from the catalog item's declared
  * tools. Entries whose catalog row is missing are left out of the lock (a
  * required-but-unresolvable service is later blocked by its service component,
- * not here). No provider-compatibility model exists yet, so
- * `providerCompatibilityRevision` stays 0.
+ * not here). `providerCompatibilityRevision` identifies the platform projection
+ * contract used to build the lock and must change when that contract changes.
  */
 export function computeSkillReleaseLockSync(
   artifact: SkillArtifactRecord,
@@ -151,7 +154,7 @@ function computeSkillReleaseLockInternal(
     serviceConfigSchemaVersions,
     mcpToolFingerprints,
     mcpCatalogReleases,
-    providerCompatibilityRevision: 0,
+    providerCompatibilityRevision: SKILL_PROVIDER_COMPATIBILITY_REVISION,
   };
   const lockDigest = createHash("sha256").update(stableStringify(lockWithoutDigest)).digest("hex");
   return { ...lockWithoutDigest, lockDigest, unresolvedRequired };
@@ -557,6 +560,7 @@ export function approveSkillUpgradeSync(input: {
     decision: input.decision ?? "approved",
     reason: input.reason,
     actorUserId: input.actorUserId,
+    policyVersion: SKILL_UPGRADE_POLICY_VERSION,
   });
   return { approvalId: approval.id, created: !approval.consumedAt };
 }
@@ -627,9 +631,10 @@ export function createSkillUpgradePlanSync(input: {
     if (
       approval.fromDigest !== previous.artifactDigest ||
       approval.toDigest !== input.artifactDigest ||
-      approval.diffHash !== diffHash
+      approval.diffHash !== diffHash ||
+      approval.policyVersion !== SKILL_UPGRADE_POLICY_VERSION
     ) {
-      throw new Error("Approval does not match this upgrade's from/to digest + diff hash; a new approval is required.");
+      throw new Error("Approval does not match this upgrade's from/to digest, diff hash, and policy version; a new approval is required.");
     }
     if (approval.consumedAt) {
       throw new Error("Approval has already been consumed by another upgrade.");
@@ -642,7 +647,11 @@ export function createSkillUpgradePlanSync(input: {
   const lock = computeSkillReleaseLockSync(artifact, workspaceId);
   return withTransaction(getDatabase(), () => {
     if (diff.breaking && input.approvalId) {
-      const consumed = consumeSkillUpgradeApprovalSync(input.approvalId, workspaceId);
+      const consumed = consumeSkillUpgradeApprovalSync(
+        input.approvalId,
+        workspaceId,
+        SKILL_UPGRADE_POLICY_VERSION,
+      );
       if (!consumed) {
         throw new Error("Approval was concurrently consumed; retry with a fresh approval.");
       }

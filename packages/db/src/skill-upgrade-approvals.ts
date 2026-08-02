@@ -33,6 +33,7 @@ export function createSkillUpgradeApprovalSync(input: CreateSkillUpgradeApproval
     fromDigest: input.fromDigest,
     toDigest: input.toDigest,
     diffHash: input.diffHash,
+    policyVersion: input.policyVersion,
   });
   if (existing) {
     return existing;
@@ -75,16 +76,18 @@ export function readSkillUpgradeApprovalByLockSync(input: {
   fromDigest: string;
   toDigest: string;
   diffHash: string;
+  policyVersion?: string;
 }): SkillUpgradeApprovalRecord | null {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const row = getDatabase().prepare(
     `${APPROVAL_COLUMNS} FROM skill_upgrade_approval
-     WHERE workspace_id = ? AND from_digest = ? AND to_digest = ? AND diff_hash = ?`,
+     WHERE workspace_id = ? AND from_digest = ? AND to_digest = ? AND diff_hash = ? AND policy_version = ?`,
   ).get(
     workspaceId,
     input.fromDigest.trim().toLowerCase(),
     input.toDigest.trim().toLowerCase(),
     input.diffHash.trim().toLowerCase(),
+    input.policyVersion?.trim() || "v1",
   ) as Record<string, unknown> | undefined;
   return row ? mapApprovalRecord(row) : null;
 }
@@ -102,12 +105,13 @@ export function listSkillUpgradeApprovalsSync(
 export function consumeSkillUpgradeApprovalSync(
   approvalId: string,
   workspaceId = DEFAULT_WORKSPACE_ID,
+  policyVersion = "v1",
 ): boolean {
   const now = new Date().toISOString();
   const result = getDatabase().prepare(
     `UPDATE skill_upgrade_approval SET consumed_at = ?
-     WHERE id = ? AND workspace_id = ? AND consumed_at IS NULL`,
-  ).run(now, approvalId, workspaceId);
+     WHERE id = ? AND workspace_id = ? AND policy_version = ? AND consumed_at IS NULL`,
+  ).run(now, approvalId, workspaceId, policyVersion);
   return result.changes > 0;
 }
 

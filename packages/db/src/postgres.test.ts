@@ -42,7 +42,7 @@ test("postgres schema includes the expected core and derived tables", () => {
 test("postgres schema enforces SSO-only identities", () => {
   const statements = getPostgresSchemaStatements().join("\n");
 
-  assert.equal(POSTGRES_SCHEMA_VERSION, "90");
+  assert.equal(POSTGRES_SCHEMA_VERSION, "91");
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_token TEXT/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_expires_at TIMESTAMPTZ/);
   assert.match(statements, /runtime_workspace_mount_operation\s+ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ/);
@@ -53,6 +53,7 @@ test("postgres schema enforces SSO-only identities", () => {
   assert.match(statements, /DELETE FROM session WHERE user_id NOT IN \(SELECT user_id FROM auth_identity WHERE provider = 'sso'\)/);
   assert.match(statements, /DELETE FROM auth_identity WHERE provider <> 'sso'/);
   assert.match(statements, /auth_identity_provider_check CHECK \(provider = 'sso'\)/);
+  assert.match(statements, /idx_skill_upgrade_approval_policy_lock/);
 });
 
 test("token usage gateway usage uniqueness migration clears duplicate remote identifiers first", () => {
