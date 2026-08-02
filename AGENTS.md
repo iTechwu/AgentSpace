@@ -1,4 +1,13 @@
 <!-- code-review-graph MCP tools -->
+## Git 提交约定
+
+每次完成修改（实现、修复、重构、文档更新等）后，立即实施 git 提交。
+
+- 提交时机：一个可独立交付的改动完成并验证后即提交，不要攒多个任务一起提交。
+- commit message 必须使用中文，简洁描述本次改动做了什么。
+- 提交前先 `git add -A` 纳入所有相关改动，不要遗漏新文件。
+- 不要随意 push，除非用户明确要求。
+
 ## Test Resource Limits
 
 For pnpm, Turbo, and Jest monorepos, the root `test` script must use `turbo run test --concurrency=2`, and the API package `test` script must use `jest --passWithNoTests --maxWorkers=2`.
