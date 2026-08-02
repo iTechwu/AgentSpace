@@ -5,6 +5,7 @@ import {
   listSkillServiceCatalogSync,
   readManagedSkillServiceSync,
   readSkillArtifactByDigestSync,
+  readSkillInstallationSync,
   readSkillInstallationComponentsSync,
   updateSkillInstallationComponentStatusSync,
 } from "@dofe-agent/db";
@@ -36,21 +37,28 @@ export function resolveSkillMcpCapabilitySync(input: {
   workspaceId: string;
   runtimeId: string;
   catalogSlug: string;
+  expectedCatalogItemId?: string;
+  expectedCatalogVersion?: string;
   requiredTools?: string[];
 }): SkillCapabilityResolution {
   const readyConnections = listReadyMcpConnectionsForTaskSync({
     workspaceId: input.workspaceId,
     runtimeId: input.runtimeId,
   });
-  const candidates = readyConnections.filter((connection) =>
-    sameValue(connection.catalogItemSlug, input.catalogSlug),
-  );
+  const candidates = readyConnections.filter((connection) => {
+    if (!sameValue(connection.catalogItemSlug, input.catalogSlug)) return false;
+    if (input.expectedCatalogItemId && connection.catalogItemId !== input.expectedCatalogItemId) return false;
+    if (input.expectedCatalogVersion && connection.catalogItemVersion !== input.expectedCatalogVersion) return false;
+    return true;
+  });
   if (candidates.length === 0) {
     return {
       ready: false,
       matchedTools: [],
       missingTools: input.requiredTools ?? [],
-      reason: `No ready MCP connection matches catalog slug "${input.catalogSlug}" on this runtime.`,
+      reason: input.expectedCatalogVersion
+        ? `No ready MCP connection matches catalog release "${input.catalogSlug}@${input.expectedCatalogVersion}" on this runtime.`
+        : `No ready MCP connection matches catalog slug "${input.catalogSlug}" on this runtime.`,
     };
   }
 
@@ -146,6 +154,8 @@ export function evaluateSkillInstallationCapabilitiesSync(input: {
   artifactDigest: string;
 }): void {
   const components = readSkillInstallationComponentsSync(input.installationId);
+  const installation = readSkillInstallationSync(input.installationId, input.workspaceId);
+  const mcpReleaseLocks = readMcpReleaseLocks(installation?.resolvedLockJson);
   const artifact = readSkillArtifactByDigestSync(input.artifactDigest, input.workspaceId);
   let manifestCapabilities: Array<{ kind?: string; catalogSlug?: string; requiredTools?: string[] }> = [];
   if (artifact) {
@@ -167,6 +177,8 @@ export function evaluateSkillInstallationCapabilitiesSync(input: {
         workspaceId: input.workspaceId,
         runtimeId: input.runtimeId,
         catalogSlug: slug,
+        expectedCatalogItemId: mcpReleaseLocks[slug]?.catalogItemId,
+        expectedCatalogVersion: mcpReleaseLocks[slug]?.version,
         requiredTools: declaration?.requiredTools,
       });
       updateSkillInstallationComponentStatusSync({
@@ -208,5 +220,27 @@ export function evaluateSkillInstallationCapabilitiesSync(input: {
         verifiedAt: resolved.status === "ready" ? new Date().toISOString() : undefined,
       });
     }
+  }
+}
+
+function readMcpReleaseLocks(resolvedLockJson: string | undefined): Record<string, {
+  catalogItemId: string;
+  version: string;
+}> {
+  if (!resolvedLockJson) return {};
+  try {
+    const parsed = JSON.parse(resolvedLockJson) as { mcpCatalogReleases?: unknown };
+    if (!parsed.mcpCatalogReleases || typeof parsed.mcpCatalogReleases !== "object") return {};
+    const result: Record<string, { catalogItemId: string; version: string }> = {};
+    for (const [slug, value] of Object.entries(parsed.mcpCatalogReleases)) {
+      if (!value || typeof value !== "object") continue;
+      const release = value as { catalogItemId?: unknown; version?: unknown };
+      if (typeof release.catalogItemId === "string" && typeof release.version === "string") {
+        result[slug] = { catalogItemId: release.catalogItemId, version: release.version };
+      }
+    }
+    return result;
+  } catch {
+    return {};
   }
 }

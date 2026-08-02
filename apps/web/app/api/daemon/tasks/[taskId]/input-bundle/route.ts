@@ -261,7 +261,9 @@ export function buildMcpConnectionsForTaskBundle(
     status: connections.length > 0 ? "available" : "none",
     connections: connections.map((connection) => ({
       connectionId: connection.connectionId,
+      catalogItemId: connection.catalogItemId,
       catalogItemSlug: connection.catalogItemSlug,
+      catalogItemVersion: connection.catalogItemVersion,
       displayName: connection.displayName,
       transport: connection.transport,
       approvedTools: [...connection.approvedTools],

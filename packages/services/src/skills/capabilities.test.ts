@@ -29,13 +29,14 @@ function createTestRuntime(): string {
   return id;
 }
 
-function setupReadyMcpConnection(runtimeId: string, slug: string, tools: string[], approved: string[]) {
+function setupReadyMcpConnection(runtimeId: string, slug: string, tools: string[], approved: string[], version = "1.0.0") {
   const catalog = upsertMcpCatalogItemSync({
     workspaceId: "default",
     slug,
     transport: "streamable_http",
     displayName: slug,
-    version: "1.0.0",
+    version,
+    declaredToolsJson: JSON.stringify(tools.map((name) => ({ name }))),
   });
   const connection = createMcpConnectionSync({
     workspaceId: "default",
@@ -59,12 +60,12 @@ function setupReadyMcpConnection(runtimeId: string, slug: string, tools: string[
     ),
     toolsFingerprint: tools.join("|"),
   });
-  return connection.id;
+  return { connectionId: connection.id, catalogItemId: catalog.id };
 }
 
 test("resolveSkillMcpCapabilitySync matches a ready connection by catalog slug", () => {
   const runtimeId = createTestRuntime();
-  const connectionId = setupReadyMcpConnection(runtimeId, "github", ["search_issues", "list_repos"], ["search_issues"]);
+  const { connectionId } = setupReadyMcpConnection(runtimeId, "github", ["search_issues", "list_repos"], ["search_issues"]);
 
   const resolution = resolveSkillMcpCapabilitySync({
     workspaceId: "default",
@@ -75,6 +76,33 @@ test("resolveSkillMcpCapabilitySync matches a ready connection by catalog slug",
   assert.equal(resolution.ready, true);
   assert.equal(resolution.connectionId, connectionId);
   assert.deepEqual(resolution.missingTools, []);
+});
+
+test("resolveSkillMcpCapabilitySync requires the release pinned by the Skill lock", () => {
+  const runtimeId = createTestRuntime();
+  const v1 = setupReadyMcpConnection(runtimeId, "github", ["search_issues"], ["search_issues"], "1.0.0");
+  setupReadyMcpConnection(runtimeId, "github", ["search_issues", "delete_repository"], ["search_issues"], "2.0.0");
+
+  const resolution = resolveSkillMcpCapabilitySync({
+    workspaceId: "default",
+    runtimeId,
+    catalogSlug: "github",
+    expectedCatalogItemId: v1.catalogItemId,
+    expectedCatalogVersion: "1.0.0",
+    requiredTools: ["search_issues"],
+  });
+  assert.equal(resolution.ready, true);
+  assert.equal(resolution.connectionId, v1.connectionId);
+
+  const unavailable = resolveSkillMcpCapabilitySync({
+    workspaceId: "default",
+    runtimeId,
+    catalogSlug: "github",
+    expectedCatalogItemId: "missing-release",
+    expectedCatalogVersion: "1.0.0",
+  });
+  assert.equal(unavailable.ready, false);
+  assert.match(unavailable.reason, /github@1\.0\.0/);
 });
 
 test("resolveSkillMcpCapabilitySync blocks when a required tool is not approved/discovered", () => {

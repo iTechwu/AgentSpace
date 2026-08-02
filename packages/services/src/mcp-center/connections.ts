@@ -1028,7 +1028,9 @@ export function listReadyMcpConnectionsForTaskSync(input: {
     if (!resolved) continue;
     entries.push({
       connectionId: resolved.connectionId,
+      catalogItemId: resolved.catalog.id,
       catalogItemSlug: resolved.catalog.slug,
+      catalogItemVersion: resolved.catalog.version,
       displayName: resolved.catalog.displayName,
       transport: resolved.catalog.transport,
       approvedTools: resolved.approved,
@@ -1159,7 +1161,9 @@ function resolveClaimedMcpTaskSessionResult(input: {
     result.push({
       connectionId: resolved.connectionId,
       workspaceId: input.workspaceId,
+      catalogItemId: resolved.catalog.id,
       catalogItemSlug: resolved.catalog.slug,
+      catalogItemVersion: resolved.catalog.version,
       displayName: resolved.catalog.displayName,
       transport: resolved.catalog.transport,
       endpoint: resolved.fresh.endpoint,

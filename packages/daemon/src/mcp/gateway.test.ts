@@ -18,7 +18,9 @@ function buildTaskSession(): McpGatewayTaskSession {
       {
         connectionId: CONNECTION_ID,
         workspaceId: "workspace-1",
+        catalogItemId: "catalog-github-1",
         catalogItemSlug: "github",
+        catalogItemVersion: "1.0.0",
         displayName: "GitHub MCP",
         transport: "streamable_http",
         endpoint: "https://github-mcp.example.com/mcp",

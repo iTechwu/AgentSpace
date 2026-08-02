@@ -6,7 +6,9 @@ describe("buildMcpConnectionsForTaskBundle", () => {
   it("projects only the approved non-secret tool manifest", () => {
     const connection = {
       connectionId: "connection-1",
+      catalogItemId: "catalog-1",
       catalogItemSlug: "github",
+      catalogItemVersion: "1.2.3",
       displayName: "GitHub MCP",
       transport: "streamable_http",
       approvedTools: ["search"],
@@ -30,7 +32,9 @@ describe("buildMcpConnectionsForTaskBundle", () => {
     expect(bundle.status).toBe("available");
     expect(bundle.connections).toEqual([{
       connectionId: "connection-1",
+      catalogItemId: "catalog-1",
       catalogItemSlug: "github",
+      catalogItemVersion: "1.2.3",
       displayName: "GitHub MCP",
       transport: "streamable_http",
       approvedTools: ["search"],

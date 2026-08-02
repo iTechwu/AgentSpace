@@ -529,7 +529,9 @@ export interface McpVerificationResult {
  */
 export interface RuntimeMcpConnectionContextEntry {
   connectionId: string;
+  catalogItemId: string;
   catalogItemSlug: string;
+  catalogItemVersion: string;
   displayName: string;
   transport: McpTransport;
   approvedTools: string[];
@@ -624,7 +626,9 @@ export interface FailMcpConnectionOperationRequest {
 export interface McpTaskSessionConnection {
   connectionId: string;
   workspaceId: string;
+  catalogItemId: string;
   catalogItemSlug: string;
+  catalogItemVersion: string;
   displayName: string;
   transport: McpTransport;
   endpoint: string;
