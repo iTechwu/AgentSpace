@@ -60,7 +60,7 @@
 3. 原子导入生成的 artifact 没有绑定新 Skill，安装历史和回滚可能断链，单一 `artifact.skill_id` 也无法表达共享 artifact lineage。
 4. entrypoint 同时为 `0755` 时会生成重复 script component，触发数据库唯一约束。
 5. 任务 bundle 不传 mode/SHA，安装阶段验证通过的 executable 到 Remote task workDir 后会丢失执行位；任务也没有复用已验证 cache。
-6. skill-install operation 的租约/心跳/fencing/崩溃重排已实现；**service operation 的 CRUD/lease 与完整流程缺专属测试**（当前仅被安装测试间接触发）。
+6. skill-install 与 service operation 的租约/心跳/fencing/崩溃重排均已实现并有专属测试（service 层新增 DB 7/7 + services 8/8 + 路由 2/2）；**managed-node worker 未实现**——远程 daemon 无消费者 claim skill-service 操作。
 
 此外，下载 URL 仍缺 storage origin/redirect 限制和流式硬上限；package manifest 的 version/integrity/mode/完整文件集合仍会丢失；持久审批、managed-node worker、五步 UI、迁移与可观测性尚未完成。Release lock 已接入安装和升级路径，service/MCP 字段、可重现 `lockDigest`、落库与 claim 均有测试；但 unresolved required 项、Daemon/task/approval/rollback 消费链和历史重建仍未完成。
 

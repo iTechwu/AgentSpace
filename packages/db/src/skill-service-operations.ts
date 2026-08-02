@@ -61,6 +61,7 @@ export function readManagedSkillServiceOperationSync(
 export function listManagedSkillServiceOperationsSync(options: {
   workspaceId?: string;
   runtimeId?: string;
+  serviceId?: string;
   status?: string;
   limit?: number;
 } = {}): ManagedSkillServiceOperationRecord[] {
@@ -70,6 +71,10 @@ export function listManagedSkillServiceOperationsSync(options: {
   if (options.runtimeId) {
     where.push("runtime_id = ?");
     params.push(options.runtimeId);
+  }
+  if (options.serviceId) {
+    where.push("service_id = ?");
+    params.push(options.serviceId);
   }
   if (options.status) {
     where.push("status = ?");

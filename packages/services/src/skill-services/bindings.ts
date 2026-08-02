@@ -4,6 +4,7 @@ import {
   createManagedSkillServiceOperationSync,
   createManagedSkillServiceSync,
   createSkillServiceBindingSync,
+  listManagedSkillServiceOperationsSync,
   listSkillServiceCatalogSync,
   readManagedSkillServiceOperationSync,
   readManagedSkillServiceSync,
@@ -53,8 +54,11 @@ export function resolveClaimedManagedSkillServiceOperation(
 /**
  * Queues a `provision` operation for a required service on a runtime. Dedupes
  * the managed service per (workspace, runtime, catalog) so re-plans reuse the
- * instance; the operation records the triggering installation so the control
- * plane can bind it on completion.
+ * instance (createManagedSkillServiceSync is idempotent on the 3-tuple), and
+ * skips creating a NEW operation while the service already has an active
+ * (pending/claimed/running) provision operation — so a re-plan does not stack
+ * duplicate container-lifecycle requests. The operation records the triggering
+ * installation so the control plane can bind it on completion.
  */
 export function queueManagedSkillServiceForInstallationSync(input: {
   workspaceId?: string;
@@ -74,7 +78,14 @@ export function queueManagedSkillServiceForInstallationSync(input: {
     catalogId: catalog.id,
     status: "provisioning",
   });
-  const operation = createManagedSkillServiceOperationSync({
+  const hasActiveProvisionOperation = listManagedSkillServiceOperationsSync({
+    workspaceId,
+    serviceId: service.id,
+  }).some((operation) => operation.operation === "provision" && ACTIVE_OPERATION_STATUSES.has(operation.status));
+  if (hasActiveProvisionOperation) {
+    return { serviceId: service.id, queued: false };
+  }
+  createManagedSkillServiceOperationSync({
     workspaceId,
     runtimeId: input.runtimeId,
     serviceId: service.id,
@@ -83,6 +94,8 @@ export function queueManagedSkillServiceForInstallationSync(input: {
   });
   return { serviceId: service.id, queued: true };
 }
+
+const ACTIVE_OPERATION_STATUSES = new Set(["pending", "claimed", "running"]);
 
 /**
  * Completes a managed service provision operation reported by the daemon:
