@@ -70,3 +70,30 @@ test("validateDspManifest rejects entrypoint ids that normalize to the same comm
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((error) => error.includes("duplicate normalized id")));
 });
+
+test("validateDspManifest accepts bounded config keys and rejects unsafe names", () => {
+  const accepted = validateDspManifest({
+    ...VALID_MANIFEST,
+    entrypoints: [{
+      id: "render",
+      kind: "script",
+      path: "scripts/render.py",
+      runtime: "python",
+      configKeys: ["RENDER_API_TOKEN"],
+    }],
+  });
+  assert.equal(accepted.ok, true);
+
+  const rejected = validateDspManifest({
+    ...VALID_MANIFEST,
+    entrypoints: [{
+      id: "render",
+      kind: "script",
+      path: "scripts/render.py",
+      runtime: "python",
+      configKeys: ["../../TOKEN"],
+    }],
+  });
+  assert.equal(rejected.ok, false);
+  assert.ok(rejected.errors.some((error) => error.includes("configKeys")));
+});

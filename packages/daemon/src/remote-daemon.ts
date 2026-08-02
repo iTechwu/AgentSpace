@@ -928,6 +928,7 @@ async function executeRemoteTask(
       workDir,
       entrypoints: bundle.metadata.skillRunnerEntrypoints ?? [],
       dependencyEnvironments: bundle.metadata.skillDependencyEnvironments,
+      skillEnv: bundle.metadata.skillEnv,
     });
 
     if (bundle.metadata.mcpConnections?.status === "available") {

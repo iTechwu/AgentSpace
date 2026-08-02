@@ -88,6 +88,11 @@ test("startSkillRunnerBroker exposes a task-scoped launcher and removes it on cl
   chmodSync(join(artifactDir, "scripts"), 0o555);
   chmodSync(artifactDir, 0o555);
   const calls: string[][] = [];
+  let mountedConfigFile = "";
+  const skillEnv: Record<string, string> = {
+    RENDER_TOKEN: "task-secret",
+    UNRELATED_SECRET: "must-not-mount",
+  };
   const runnerEnvironment = {
     ...process.env,
     DOFE_SKILL_RUNNER_NODE_IMAGE: `registry.example.com/runner@sha256:${"a".repeat(64)}`,
@@ -106,7 +111,9 @@ test("startSkillRunnerBroker exposes a task-scoped launcher and removes it on cl
       id: "render",
       path: "scripts/render.mjs",
       runtime: "node",
+      configKeys: ["RENDER_TOKEN"],
     }],
+    skillEnv,
     environment: runnerEnvironment,
     inspectImage: () => true,
     execute: async (args) => {
@@ -116,6 +123,14 @@ test("startSkillRunnerBroker exposes a task-scoped launcher and removes it on cl
       const outputDir = outputMount.slice("type=bind,src=".length, -",dst=/output".length);
       assert.equal(statSync(outputDir).mode & 0o777, 0o777);
       writeFileSync(join(outputDir, "result.txt"), "published", "utf8");
+      const configMount = args.find((value) => value.endsWith(",dst=/run/secrets/dofe-skill-config.json,readonly"));
+      assert.ok(configMount);
+      mountedConfigFile = configMount.slice(
+        "type=bind,src=".length,
+        -",dst=/run/secrets/dofe-skill-config.json,readonly".length,
+      );
+      assert.deepEqual(JSON.parse(readFileSync(mountedConfigFile, "utf8")), { RENDER_TOKEN: "task-secret" });
+      assert.equal(args.some((value) => value.includes("task-secret") || value.includes("must-not-mount")), false);
       return { exitCode: 0, stdout: "rendered\n", stderr: "", timedOut: false };
     },
   });
@@ -129,6 +144,10 @@ test("startSkillRunnerBroker exposes a task-scoped launcher and removes it on cl
     assert.deepEqual(calls[0]?.slice(-4), ["node", "/skill/scripts/render.mjs", "--title", "quarterly"]);
     assert.ok(calls[0]?.includes(`registry.example.com/runner@sha256:${"a".repeat(64)}`));
     assert.equal(calls[0]?.includes(`registry.example.com/runner@sha256:${"d".repeat(64)}`), false);
+    assert.equal(existsSync(mountedConfigFile), false);
+    delete skillEnv.RENDER_TOKEN;
+    await assert.rejects(execFileAsync(launcher), /skill_runner\.config_missing: RENDER_TOKEN/);
+    assert.equal(calls.length, 1);
     assert.equal(readFileSync(join(workDir, "runtime-output", "skill-runs", "skill-1-render", "result.txt"), "utf8"), "published");
     await broker.close();
     assert.equal(existsSync(launcher), false);

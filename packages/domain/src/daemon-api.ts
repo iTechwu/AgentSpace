@@ -357,6 +357,7 @@ export interface DaemonSkillRunnerEntrypoint {
   id: string;
   path: string;
   runtime: SkillEntrypointRuntime;
+  configKeys?: string[];
 }
 
 export interface RuntimeToolCapability {

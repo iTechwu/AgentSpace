@@ -921,6 +921,7 @@ async function executeRemoteQueuedTask(
       workDir,
       entrypoints: bundle.metadata.skillRunnerEntrypoints ?? [],
       dependencyEnvironments: bundle.metadata.skillDependencyEnvironments,
+      skillEnv: bundle.metadata.skillEnv,
     });
     const skillDependencyEnv = buildSkillDependencyTaskEnvironment({
       stateDir: ensureDaemonStateDir(),

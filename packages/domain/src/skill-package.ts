@@ -79,6 +79,8 @@ export interface DspEntrypoint {
   kind: "script";
   path: string;
   runtime: SkillEntrypointRuntime;
+  /** Task-resolved config/secret keys exposed only through a short-lived read-only JSON file. */
+  configKeys?: string[];
 }
 
 /** Stable executable name used by provider projections and the daemon broker. */

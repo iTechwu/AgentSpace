@@ -708,7 +708,7 @@ export function buildSkillRunnerEntrypointsForSnapshotSync(
     if (!artifact) continue;
     let manifest: {
       files?: Array<{ path?: string; mode?: string; sha256?: string }>;
-      entrypoints?: Array<{ id?: string; path?: string; runtime?: string }>;
+      entrypoints?: Array<{ id?: string; path?: string; runtime?: string; configKeys?: string[] }>;
     };
     try {
       manifest = JSON.parse(artifact.manifestJson) as typeof manifest;
@@ -720,12 +720,24 @@ export function buildSkillRunnerEntrypointsForSnapshotSync(
         .filter((file): file is { path: string; mode?: string; sha256: string } => Boolean(file.path && file.sha256))
         .map((file) => [file.path, file]),
     );
-    const declared = new Map<string, { id: string; path: string; runtime: SkillEntrypointRuntime; sha256: string }>();
+    const declared = new Map<string, {
+      id: string;
+      path: string;
+      runtime: SkillEntrypointRuntime;
+      sha256: string;
+      configKeys?: string[];
+    }>();
     for (const candidate of manifest.entrypoints ?? []) {
       const runtime = normalizeEntrypointRuntime(candidate.runtime);
       const file = candidate.path ? filesByPath.get(candidate.path) : undefined;
       if (!candidate.id || !candidate.path || !runtime || file?.mode !== "0755") continue;
-      declared.set(candidate.path, { id: candidate.id, path: candidate.path, runtime, sha256: file.sha256 });
+      declared.set(candidate.path, {
+        id: candidate.id,
+        path: candidate.path,
+        runtime,
+        sha256: file.sha256,
+        ...(candidate.configKeys?.length ? { configKeys: candidate.configKeys } : {}),
+      });
     }
     for (const file of manifest.files ?? []) {
       if (!file.path || !file.sha256 || file.mode !== "0755" || declared.has(file.path)) continue;

@@ -314,7 +314,7 @@ interface ManifestLike {
   dependencies?: Array<{ manager?: string; kind?: string; name?: string; version?: string }>;
   capabilities?: Array<{ kind?: string; catalogSlug?: string; requiredTools?: string[] }>;
   services?: Array<{ catalogSlug?: string; templateVersion?: string; required?: boolean }>;
-  entrypoints?: Array<{ id?: string; kind?: string; path?: string; runtime?: string }>;
+  entrypoints?: Array<{ id?: string; kind?: string; path?: string; runtime?: string; configKeys?: string[] }>;
 }
 
 function parseManifest(json: string): ManifestLike {
@@ -354,8 +354,11 @@ export function diffSkillArtifactsSync(input: {
   const fromEntrypoints = from.entrypoints ?? [];
   const toEntrypoints = to.entrypoints ?? [];
   for (const entrypoint of toEntrypoints) {
-    if (!fromEntrypoints.some((existing) => existing.id === entrypoint.id)) {
+    const previous = fromEntrypoints.find((existing) => existing.id === entrypoint.id);
+    if (!previous) {
       executionChanges.push(`entrypoint added: ${entrypoint.id} (${entrypoint.path ?? ""})`);
+    } else if (stableStringify(previous) !== stableStringify(entrypoint)) {
+      executionChanges.push(`entrypoint changed: ${entrypoint.id} (${entrypoint.path ?? ""})`);
     }
   }
   for (const entrypoint of fromEntrypoints) {

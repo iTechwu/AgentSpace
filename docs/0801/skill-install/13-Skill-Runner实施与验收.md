@@ -23,6 +23,7 @@ Runner 容器固定策略：
 - artifact、task workspace 与 installation dependency env 只读；只允许 `/output` 写入。`/output` 实际绑定 daemon 状态目录中的随机一次性目录并显式设为 `0777`，不直接绑定 Provider 可写的 task workspace；执行后才将普通文件发布到 `runtime-output/skill-runs/<entrypoint>`。
 - stdout/stderr 聚合上限 64 KiB，请求 64 KiB，参数最多 64 个且单参数最多 8 KiB。
 - 输出发布最多 1000 个文件、单文件 20 MiB、总计 64 MiB；源或目标路径发现符号链接、特殊文件、越界或目录解析变化时整次调用失败，临时目录始终清理。
+- entrypoint 的 `configKeys` 最多 64 个且必须匹配大写环境键格式。daemon 只把声明且已解析的值写入随机短时 JSON，通过只读 secret mount 暴露；Docker 参数、workspace 和未声明键中不出现值，调用完成立即删除。
 - 宿主执行只保留 Docker 所需的最小环境，不传 Provider credential 或 Skill env。
 
 ## 2. 安装与更新
@@ -37,6 +38,7 @@ Runner 容器固定策略：
 | --- | --- |
 | 容器隔离、digest、参数预算、依赖只读挂载、私有可写输出与 symlink 拒绝 | `packages/daemon/src/skill-runner.test.ts` |
 | entrypoint 规范化唯一、broker key/命令冲突拒绝 | `manifest-schema.test.ts`、`skill-runner.test.ts` |
+| configKeys snapshot、按键筛选、只读短时挂载与清理 | `installations.test.ts`、`skill-runner.test.ts` |
 | 未配置/本地缺镜像阻断安装、runtime/语法检查 | `packages/daemon/src/skill-install/component-verifier.test.ts` |
 | snapshot 到 Runner manifest 与 executable hash | `packages/services/src/skills/installations.test.ts` |
 | 原始脚本不进入 Provider、stub/mode 正确 | `packages/services/src/skills/injection.test.ts` |
@@ -53,6 +55,7 @@ Runner 容器固定策略：
 [ ] managed Provider 内可发现稳定 dofe-skill-* 命令并通过 Unix socket调用
 [ ] npm require / Python import 使用冻结 installation dependency env 成功
 [ ] 网络、Provider HOME/credential、Docker socket、workspace 写入均失败
+[ ] 仅声明的 configKeys 可从 DOFE_SKILL_CONFIG_FILE 读取，文件在调用结束后消失且 docker argv 不含值
 [ ] Runner UID 65532 可写 daemon 私有 `/output`，Provider 工作目录不作为 Docker 可写挂载源
 [ ] 产物仅发布到 runtime-output/skill-runs，symlink/特殊文件/文件数与容量越界均 fail-closed
 [ ] cache sentinel、entrypoint hash、dependency metadata 任一篡改均 fail-closed

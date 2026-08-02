@@ -95,6 +95,12 @@ export const dspManifestJsonSchema = {
           kind: { type: "string", const: "script" },
           path: { type: "string", minLength: 1 },
           runtime: { type: "string", enum: ["node", "python", "bash"] },
+          configKeys: {
+            type: "array",
+            uniqueItems: true,
+            maxItems: 64,
+            items: { type: "string", pattern: "^[A-Z][A-Z0-9_]{0,127}$" },
+          },
         },
       },
     },

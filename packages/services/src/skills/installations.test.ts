@@ -84,6 +84,13 @@ function buildArtifact(skillId?: string) {
     files: ARTIFACT_FILES,
     sourceType: "local",
     dependencies: [{ manager: "npm", name: "left-pad", version: "1.3.0" }],
+    entrypoints: [{
+      id: "scripts-render",
+      kind: "script",
+      path: "scripts/render.py",
+      runtime: "python",
+      configKeys: ["RENDER_TOKEN"],
+    }],
   });
 }
 
@@ -141,6 +148,7 @@ test("buildSkillRunnerEntrypointsForSnapshotSync derives executable scripts from
     id: "scripts-render",
     path: "scripts/render.py",
     runtime: "python",
+    configKeys: ["RENDER_TOKEN"],
   }]);
 });
 

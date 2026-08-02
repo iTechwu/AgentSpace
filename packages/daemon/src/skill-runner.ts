@@ -42,6 +42,7 @@ export interface SkillRunnerDockerPlanInput {
   artifactDir: string;
   workspaceDir: string;
   outputDir: string;
+  configFile?: string;
   dependencyDir?: string;
   entrypointPath: string;
   argv: string[];
@@ -52,7 +53,7 @@ export function buildSkillRunnerDockerArgs(input: SkillRunnerDockerPlanInput): s
     throw new Error("Skill Runner image must be pinned by an immutable digest.");
   }
   const entrypointPath = normalizeEntrypointPath(input.entrypointPath);
-  for (const hostPath of [input.artifactDir, input.workspaceDir, input.outputDir, input.dependencyDir].filter(
+  for (const hostPath of [input.artifactDir, input.workspaceDir, input.outputDir, input.configFile, input.dependencyDir].filter(
     (value): value is string => Boolean(value),
   )) {
     if (!isAbsolute(hostPath) || /[\r\n,]/.test(hostPath)) {
@@ -77,6 +78,10 @@ export function buildSkillRunnerDockerArgs(input: SkillRunnerDockerPlanInput): s
     "--mount", `type=bind,src=${input.artifactDir},dst=/skill,readonly`,
     "--mount", `type=bind,src=${input.workspaceDir},dst=/workspace,readonly`,
     "--mount", `type=bind,src=${input.outputDir},dst=/output`,
+    ...(input.configFile ? [
+      "--mount", `type=bind,src=${input.configFile},dst=/run/secrets/dofe-skill-config.json,readonly`,
+      "--env", "DOFE_SKILL_CONFIG_FILE=/run/secrets/dofe-skill-config.json",
+    ] : []),
     ...(input.dependencyDir ? [
       "--mount", `type=bind,src=${input.dependencyDir},dst=/deps,readonly`,
       "--env", "NODE_PATH=/deps/node_modules",
@@ -111,6 +116,7 @@ export async function startSkillRunnerBroker(input: {
   workDir: string;
   entrypoints: DaemonSkillRunnerEntrypoint[];
   dependencyEnvironments?: readonly DaemonSkillDependencyEnvironment[];
+  skillEnv?: Readonly<Record<string, string>>;
   environment?: NodeJS.ProcessEnv;
   inspectImage?: (image: string, environment: NodeJS.ProcessEnv) => boolean;
   execute?: (args: string[], timeoutMs: number) => Promise<SkillRunnerExecutionResult>;
@@ -207,6 +213,7 @@ async function handleBrokerRequest(
     workspaceId: string;
     workDir: string;
     dependencyEnvironments?: readonly DaemonSkillDependencyEnvironment[];
+    skillEnv?: Readonly<Record<string, string>>;
     token: string;
     byKey: Map<string, DaemonSkillRunnerEntrypoint>;
     runnerImages: Map<SkillEntrypointRuntime, string>;
@@ -240,29 +247,32 @@ async function handleBrokerRequest(
     assertSkillRunnerCacheEntry(artifactDir, entrypoint);
     const publishedOutputDir = preparePublishedOutputDir(context.workDir, entrypoint.key);
     const outputDir = createPrivateRunnerOutputDir(context.stateDir, entrypoint.key);
-    const dependencyReference = context.dependencyEnvironments?.find(
-      (candidate) => candidate.installationId === entrypoint.installationId,
-    );
-    let dependencyDir: string | undefined;
-    if (dependencyReference) {
-      buildSkillDependencyTaskEnvironment({
-        stateDir: context.stateDir,
-        workspaceId: context.workspaceId,
-        environments: [dependencyReference],
-        baseEnv: {},
-      });
-      dependencyDir = getDaemonSkillInstallEnvsDirPath(context.stateDir, {
-        workspaceId: context.workspaceId,
-        installationId: entrypoint.installationId,
-      });
-    }
+    let privateConfig: { dir: string; file: string } | undefined;
     try {
+      const dependencyReference = context.dependencyEnvironments?.find(
+        (candidate) => candidate.installationId === entrypoint.installationId,
+      );
+      let dependencyDir: string | undefined;
+      if (dependencyReference) {
+        buildSkillDependencyTaskEnvironment({
+          stateDir: context.stateDir,
+          workspaceId: context.workspaceId,
+          environments: [dependencyReference],
+          baseEnv: {},
+        });
+        dependencyDir = getDaemonSkillInstallEnvsDirPath(context.stateDir, {
+          workspaceId: context.workspaceId,
+          installationId: entrypoint.installationId,
+        });
+      }
+      privateConfig = createPrivateRunnerConfig(context.stateDir, entrypoint, context.skillEnv ?? {});
       const args = buildSkillRunnerDockerArgs({
         image,
         runtime: entrypoint.runtime,
         artifactDir,
         workspaceDir: resolve(context.workDir),
         outputDir,
+        configFile: privateConfig?.file,
         dependencyDir,
         entrypointPath: entrypoint.path,
         argv,
@@ -272,6 +282,7 @@ async function handleBrokerRequest(
       publishRunnerOutput(outputDir, publishedOutputDir);
       sendJson(response, result.exitCode === 0 && !result.timedOut ? 200 : 422, result);
     } finally {
+      if (privateConfig) rmSync(privateConfig.dir, { recursive: true, force: true });
       rmSync(outputDir, { recursive: true, force: true });
     }
   } catch (error) {
@@ -473,6 +484,44 @@ function createPrivateRunnerOutputDir(stateDir: string, entrypointKey: string): 
   const outputDir = mkdtempSync(join(root, `${sanitizeSegment(entrypointKey)}-`));
   chmodSync(outputDir, 0o777);
   return outputDir;
+}
+
+function createPrivateRunnerConfig(
+  stateDir: string,
+  entrypoint: Pick<DaemonSkillRunnerEntrypoint, "key" | "configKeys">,
+  skillEnv: Readonly<Record<string, string>>,
+): { dir: string; file: string } | undefined {
+  const keys = entrypoint.configKeys ?? [];
+  if (keys.length === 0) return undefined;
+  const values: Record<string, string> = {};
+  for (const key of keys) {
+    if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key)) {
+      throw new Error(`skill_runner.config_key_invalid: ${key}`);
+    }
+    if (!Object.prototype.hasOwnProperty.call(skillEnv, key) || typeof skillEnv[key] !== "string") {
+      throw new Error(`skill_runner.config_missing: ${key}`);
+    }
+    values[key] = skillEnv[key]!;
+  }
+  const root = resolve(stateDir, "skill-runner-config");
+  if (existsSync(root)) {
+    const stats = lstatSync(root);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      throw new Error("skill_runner.private_config_untrusted");
+    }
+  } else {
+    mkdirSync(root, { mode: 0o700 });
+  }
+  const dir = mkdtempSync(join(root, `${sanitizeSegment(entrypoint.key)}-`));
+  const file = join(dir, "config.json");
+  try {
+    writeFileSync(file, JSON.stringify(values), { encoding: "utf8", mode: 0o400 });
+    chmodSync(file, 0o444);
+    return { dir, file };
+  } catch (error) {
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function publishRunnerOutput(sourceDir: string, targetDir: string): void {
