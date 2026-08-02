@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import { strToU8, zipSync } from "fflate";
 import {
+  getDatabase,
   listSkillArtifactBindingsForSkillSync,
   listSkillArtifactsForSkillSync,
   listStoredAgentSkillAssignmentsSync,
@@ -15,6 +16,7 @@ import {
   readStoredWorkspaceSkillSync,
 } from "@dofe-agent/db";
 import {
+  buildAndPersistSkillArtifactSync,
   createEmployeeSync,
   createWorkspaceSkillSync,
   importWorkspaceSkillFromUrl,
@@ -135,6 +137,37 @@ test("inspectWorkspaceSkillSourceUpdate honors the operations freeze before netw
     restoreEnvironmentVariable("DOFE_SKILL_SOURCE_UPDATE_CHECKS_ENABLED", previousFlag);
     globalThis.fetch = previousFetch;
   }
+});
+
+test("inspectWorkspaceSkillSourceUpdate handles a deduplicated artifact with different provenance", async () => {
+  const seeded = buildAndPersistSkillArtifactSync({
+    name: "research-pack",
+    files: [
+      {
+        path: "SKILL.md",
+        bytes: strToU8("---\nname: research-pack\ndescription: Research helper\n---\n\n# Research Pack\n\nUse for structured research.\n"),
+      },
+      { path: "templates/checklist.md", bytes: strToU8("- confirm sources\n") },
+    ],
+    sourceType: "local",
+    sourceUrl: "/seed/research-pack",
+    provenance: { provider: "local" },
+  });
+  getDatabase().prepare(
+    "UPDATE skill_artifact SET provenance_json = ? WHERE workspace_id = ? AND digest = ?",
+  ).run(JSON.stringify({ provider: "local" }), "default", seeded.digest);
+
+  const imported = await importWorkspaceSkillFromUrl({
+    url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
+  });
+  const artifact = readSkillArtifactByDigestSync(imported.artifactDigest!, "default");
+  assert.ok(artifact);
+  assert.equal((JSON.parse(artifact.provenanceJson) as { provider?: string }).provider, "local");
+  assert.deepEqual(listSkillArtifactBindingsForSkillSync(imported.skillId), [imported.artifactDigest]);
+
+  const inspection = await inspectWorkspaceSkillSourceUpdate({ skillId: imported.skillId });
+  assert.equal(inspection.status, "up_to_date");
+  assert.equal(inspection.currentResolvedRef, "abc123def456789012345678901234567890abcd");
 });
 
 test("importWorkspaceSkillFromUrl imports a paginated GitLab directory at an immutable commit", async () => {

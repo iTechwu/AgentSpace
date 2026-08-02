@@ -3,6 +3,7 @@ import { basename, extname, resolve } from "node:path";
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import {
   getDatabase,
+  listSkillArtifactBindingsForSkillSync,
   readActiveArtifactDigestForSkillSync,
   readSkillArtifactByDigestSync,
   recordStoredSkillImportEventSync,
@@ -209,7 +210,10 @@ export async function inspectWorkspaceSkillSourceUpdate(input: {
   const activeDigest = readActiveArtifactDigestForSkillSync(skillId, workspaceId);
   const activeArtifact = activeDigest ? readSkillArtifactByDigestSync(activeDigest, workspaceId) : null;
   const provenance = activeArtifact ? parseJsonSafely(activeArtifact.provenanceJson) : undefined;
-  const currentResolvedRef = readResolvedRef(provenance);
+  const artifactResolvedRef = readResolvedRef(provenance);
+  const bindings = listSkillArtifactBindingsForSkillSync(skillId, workspaceId);
+  const skillResolvedRef = bindings.length === 1 ? readResolvedRef(parseJsonSafely(skill.configJson)) : undefined;
+  const currentResolvedRef = artifactResolvedRef ?? skillResolvedRef;
   if (!activeArtifact || !currentResolvedRef) {
     return { ...base, status: "not_checkable", reason: "skill_source_active_ref_missing" };
   }
