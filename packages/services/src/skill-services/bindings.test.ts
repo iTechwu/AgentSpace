@@ -194,6 +194,11 @@ test("queue dedupes: re-plan for the same runtime+catalog reuses the instance an
     endpointRef: "runtime-private://renderer",
   });
   assert.equal(completed.ok, true);
+  assert.equal(
+    listSkillServiceBindingsSync(secondInstallation)[0]?.endpointRef,
+    "runtime-private://renderer",
+    "the single provision completion resolves every waiting installation binding",
+  );
 
   const thirdInstallation = createMinimalInstallation(runtimeId);
   const third = queueManagedSkillServiceForInstallationSync({
@@ -204,7 +209,9 @@ test("queue dedupes: re-plan for the same runtime+catalog reuses the instance an
     templateVersion: "1.0.0",
   });
   assert.equal(third.serviceId, first.serviceId, "still the same reusable instance");
-  assert.equal(third.queued, true, "after completion a new provision op is queued");
+  assert.equal(third.queued, false, "a ready instance is reused without another provision operation");
+  assert.equal(listSkillServiceBindingsSync(thirdInstallation)[0]?.endpointRef, "runtime-private://renderer");
+  assert.equal(listManagedSkillServiceOperationsSync({ workspaceId: "default", serviceId: first.serviceId }).length, 1);
 });
 
 /* ------------------------------------------------------------------ */
@@ -329,6 +336,8 @@ test("complete marks the service ready, creates the binding, and the installatio
   assert.equal(bindings[0]!.serviceId, claimed.serviceId);
   assert.equal(bindings[0]!.endpointRef, "runtime-private://bindings-renderer");
   assert.equal(bindings[0]!.healthRevision, "2");
+  assert.equal(bindings[0]!.catalogTemplateVersion, "1.0.0");
+  assert.equal(bindings[0]!.serviceImageDigest, `sha256:${"a".repeat(64)}`);
 
   // Provision complete re-evaluates the service component from the binding →
   // ready; with the service as the only component the installation is ready.
@@ -360,7 +369,9 @@ test("complete fails an unclaimed operation closed", () => {
 
   const serviceStillProvisioning = readManagedSkillServiceSync(serviceId, "default");
   assert.equal(serviceStillProvisioning?.status, "provisioning");
-  assert.equal(listSkillServiceBindingsSync(installationId).length, 0);
+  const waitingBinding = listSkillServiceBindingsSync(installationId);
+  assert.equal(waitingBinding.length, 1);
+  assert.equal(waitingBinding[0]?.endpointRef, "", "an unclaimed operation cannot publish a live endpoint");
 });
 
 test("retire marks the service retired and the dependent installation goes blocked", async () => {

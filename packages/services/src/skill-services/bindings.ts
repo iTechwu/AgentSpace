@@ -4,6 +4,7 @@ import {
   createManagedSkillServiceOperationSync,
   createManagedSkillServiceSync,
   createSkillServiceBindingSync,
+  getDatabase,
   listManagedSkillServiceOperationsSync,
   listManagedSkillServicesSync,
   listSkillServiceBindingsForServiceSync,
@@ -14,6 +15,7 @@ import {
   retireManagedSkillServiceSync,
   setManagedSkillServiceUnreferencedSinceSync,
   switchSkillServiceBindingsSync,
+  withTransaction,
   type ManagedSkillServiceOperationRecord,
 } from "@dofe-agent/db";
 import type { ClaimedManagedSkillServiceOperation } from "@dofe-agent/domain";
@@ -98,6 +100,21 @@ export function queueManagedSkillServiceForInstallationSync(input: {
     catalogId: catalog.id,
     status: "provisioning",
   });
+  const existingBinding = listSkillServiceBindingsForServiceSync(service.id)
+    .find((binding) => binding.endpointRef.startsWith("runtime-private://"));
+  createSkillServiceBindingSync({
+    installationId: input.installationId,
+    serviceId: service.id,
+    catalogTemplateVersion: catalog.templateVersion,
+    serviceImageDigest: catalog.imageDigest,
+    endpointRef: existingBinding?.endpointRef ?? "",
+    healthRevision: existingBinding?.healthRevision ?? "",
+    configSchemaVersion: catalog.configSchemaVersion,
+  });
+  if (service.status === "ready" && existingBinding) {
+    setManagedSkillServiceUnreferencedSinceSync({ serviceId: service.id, workspaceId });
+    return { serviceId: service.id, queued: false };
+  }
   const hasActiveProvisionOperation = listManagedSkillServiceOperationsSync({
     workspaceId,
     serviceId: service.id,
@@ -138,61 +155,64 @@ export function completeManagedSkillServiceProvisionOperationSync(input: {
   if (!operation) {
     return { ok: false, code: "operation_not_found", reason: "Service operation does not exist." };
   }
-  // For a canary upgrade resolve the BLUE catalog BEFORE marking anything ready,
-  // so a missing upgrade context cannot leave a ready-but-unbound service.
-  const blueCatalog = operation.replacesServiceId
-    ? (() => {
-        const blue = readManagedSkillServiceSync(operation.serviceId, workspaceId);
-        const catalog = blue
-          ? listSkillServiceCatalogSync(workspaceId).find((entry) => entry.id === blue.catalogId)
-          : undefined;
-        return blue && catalog ? catalog : null;
-      })()
-    : null;
-  if (operation.replacesServiceId && !blueCatalog) {
+  // Resolve catalog BEFORE marking anything ready so a missing context cannot
+  // leave a succeeded operation or ready-but-unbound service.
+  const service = readManagedSkillServiceSync(operation.serviceId, workspaceId);
+  const catalog = service
+    ? listSkillServiceCatalogSync(workspaceId).find((entry) => entry.id === service.catalogId)
+    : undefined;
+  if (!service || !catalog) {
     return { ok: false, code: "upgrade_context_missing", reason: "Canary upgrade context (service/catalog) is missing." };
   }
-  const done = completeOperationDbSync({
-    operationId: input.operationId,
-    claimGeneration: input.claimGeneration,
-    workspaceId,
-  });
-  if (!done) {
-    return { ok: false, code: "not_completable", reason: "Operation is no longer completable." };
-  }
-  completeManagedSkillServiceProvisioningSync({ serviceId: operation.serviceId, workspaceId });
-  if (operation.replacesServiceId && blueCatalog) {
-    // Canary: switch every green binding onto this (blue) instance, re-stamped
-    // with the blue catalog + the live endpoint. Green becomes unreferenced →
-    // the rollback_class-aware retire sweep tears it down after its cooldown.
-    const switched = switchSkillServiceBindingsSync({
+  return withTransaction(getDatabase(), () => {
+    const done = completeOperationDbSync({
+      operationId: input.operationId,
+      claimGeneration: input.claimGeneration,
       workspaceId,
-      fromServiceId: operation.replacesServiceId,
-      toServiceId: operation.serviceId,
-      toCatalogTemplateVersion: blueCatalog.templateVersion,
-      toServiceImageDigest: blueCatalog.imageDigest,
-      endpointRef: input.endpointRef.trim(),
-      healthRevision: input.healthRevision,
-      configSchemaVersion: blueCatalog.configSchemaVersion,
     });
-    for (const installationId of switched.installationIds) {
+    if (!done) {
+      return { ok: false, code: "not_completable", reason: "Operation is no longer completable." };
+    }
+    completeManagedSkillServiceProvisioningSync({ serviceId: operation.serviceId, workspaceId });
+    if (operation.replacesServiceId) {
+      // Blue-green: switch every green binding onto this instance, re-stamped
+      // with the new catalog + live endpoint in the same transaction.
+      const switched = switchSkillServiceBindingsSync({
+        workspaceId,
+        fromServiceId: operation.replacesServiceId,
+        toServiceId: operation.serviceId,
+        toCatalogTemplateVersion: catalog.templateVersion,
+        toServiceImageDigest: catalog.imageDigest,
+        endpointRef: input.endpointRef.trim(),
+        healthRevision: input.healthRevision,
+        configSchemaVersion: catalog.configSchemaVersion,
+      });
+      for (const installationId of switched.installationIds) {
+        evaluateSkillInstallationReadinessSync(installationId, workspaceId);
+      }
+      return { ok: true };
+    }
+
+    const waitingInstallationIds = new Set(
+      listSkillServiceBindingsForServiceSync(operation.serviceId).map((binding) => binding.installationId),
+    );
+    if (operation.installationId) {
+      waitingInstallationIds.add(operation.installationId);
+    }
+    for (const installationId of waitingInstallationIds) {
+      createSkillServiceBindingSync({
+        installationId,
+        serviceId: operation.serviceId,
+        catalogTemplateVersion: catalog.templateVersion,
+        serviceImageDigest: catalog.imageDigest,
+        endpointRef: input.endpointRef.trim(),
+        healthRevision: input.healthRevision ?? "1",
+        configSchemaVersion: catalog.configSchemaVersion,
+      });
       evaluateSkillInstallationReadinessSync(installationId, workspaceId);
     }
     return { ok: true };
-  }
-  if (operation.installationId) {
-    createSkillServiceBindingSync({
-      installationId: operation.installationId,
-      serviceId: operation.serviceId,
-      catalogTemplateVersion: "1",
-      serviceImageDigest: "managed",
-      endpointRef: input.endpointRef.trim(),
-      healthRevision: input.healthRevision ?? "1",
-      configSchemaVersion: 1,
-    });
-    evaluateSkillInstallationReadinessSync(operation.installationId, workspaceId);
-  }
-  return { ok: true };
+  });
 }
 
 /**
@@ -211,19 +231,21 @@ export function completeManagedSkillServiceRetireOperationSync(input: {
   if (!operation) {
     return { ok: false, code: "operation_not_found", reason: "Service operation does not exist." };
   }
-  const done = completeOperationDbSync({
-    operationId: input.operationId,
-    claimGeneration: input.claimGeneration,
-    workspaceId,
+  return withTransaction(getDatabase(), () => {
+    const done = completeOperationDbSync({
+      operationId: input.operationId,
+      claimGeneration: input.claimGeneration,
+      workspaceId,
+    });
+    if (!done) {
+      return { ok: false, code: "not_completable", reason: "Operation is no longer completable." };
+    }
+    retireManagedSkillServiceSync({ serviceId: operation.serviceId, workspaceId });
+    if (operation.installationId) {
+      evaluateSkillInstallationReadinessSync(operation.installationId, workspaceId);
+    }
+    return { ok: true };
   });
-  if (!done) {
-    return { ok: false, code: "not_completable", reason: "Operation is no longer completable." };
-  }
-  retireManagedSkillServiceSync({ serviceId: operation.serviceId, workspaceId });
-  if (operation.installationId) {
-    evaluateSkillInstallationReadinessSync(operation.installationId, workspaceId);
-  }
-  return { ok: true };
 }
 
 /**

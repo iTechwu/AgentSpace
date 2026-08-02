@@ -21,7 +21,10 @@ import {
   type SkillArtifactRecord,
   type StoredSkillInstallationRecord,
 } from "@dofe-agent/db";
-import { buildSkillInstallationComponentsSync } from "./installations.ts";
+import {
+  buildSkillInstallationComponentsSync,
+  queueDeclaredSkillServicesForInstallationSync,
+} from "./installations.ts";
 import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
 import { stableStringify } from "./package/package-digest.ts";
 
@@ -552,43 +555,50 @@ export function createSkillUpgradePlanSync(input: {
   const revision = nextRevision(previous.revision);
   const components = buildSkillInstallationComponentsSync({ workspaceId, artifactDigest: input.artifactDigest });
 
-  withTransaction(getDatabase(), () => {
+  const lock = computeSkillReleaseLockSync(artifact, workspaceId);
+  return withTransaction(getDatabase(), () => {
     if (diff.breaking && input.approvalId) {
       const consumed = consumeSkillUpgradeApprovalSync(input.approvalId, workspaceId);
       if (!consumed) {
         throw new Error("Approval was concurrently consumed; retry with a fresh approval.");
       }
     }
-  });
 
-  const lock = computeSkillReleaseLockSync(artifact, workspaceId);
-  const installation = createSkillInstallationSync({
-    workspaceId,
-    runtimeId: input.runtimeId,
-    artifactDigest: input.artifactDigest,
-    // Fail-closed: unresolved required services/MCP capabilities block the candidate.
-    status: lock.unresolvedRequired.length > 0 ? "blocked" : "preparing",
-    revision,
-    previousReadyRevision: previous.revision,
-    previousReadyArtifactDigest: previous.artifactDigest,
-    resolvedLockJson: JSON.stringify(lock),
-    components,
-  });
-
-  createSkillInstallationOperationSync({
-    workspaceId,
-    runtimeId: input.runtimeId,
-    installationId: installation.id,
-    operation: "prepare",
-    requestedByUserId: input.requestedByUserId,
-    requestSnapshotJson: buildSkillOperationRequestSnapshotJson({
+    const installation = createSkillInstallationSync({
+      workspaceId,
+      runtimeId: input.runtimeId,
       artifactDigest: input.artifactDigest,
-      expectedComponents: components.map((component) => ({ kind: component.kind, key: component.key })),
-      extra: { upgradeFrom: previous.artifactDigest },
-    }),
-  });
+      // Fail-closed: unresolved required services/MCP capabilities block the candidate.
+      status: lock.unresolvedRequired.length > 0 ? "blocked" : "preparing",
+      revision,
+      previousReadyRevision: previous.revision,
+      previousReadyArtifactDigest: previous.artifactDigest,
+      resolvedLockJson: JSON.stringify(lock),
+      components,
+    });
 
-  return installation;
+    createSkillInstallationOperationSync({
+      workspaceId,
+      runtimeId: input.runtimeId,
+      installationId: installation.id,
+      operation: "prepare",
+      requestedByUserId: input.requestedByUserId,
+      requestSnapshotJson: buildSkillOperationRequestSnapshotJson({
+        artifactDigest: input.artifactDigest,
+        expectedComponents: components.map((component) => ({ kind: component.kind, key: component.key })),
+        extra: { upgradeFrom: previous.artifactDigest },
+      }),
+    });
+
+    queueDeclaredSkillServicesForInstallationSync({
+      workspaceId,
+      runtimeId: input.runtimeId,
+      installationId: installation.id,
+      manifestJson: artifact.manifestJson,
+    });
+
+    return installation;
+  });
 }
 
 function assertSameSkillLineage(

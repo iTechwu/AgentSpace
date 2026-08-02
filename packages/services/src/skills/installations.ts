@@ -10,6 +10,7 @@ import {
   readSkillInstallationComponentsSync,
   readSkillInstallationOperationSync,
   readSkillInstallationSync,
+  readSkillServiceCatalogSync,
   listSkillInstallationsSync,
   readStoredSkillActiveArtifactDigestSync,
   listStoredAgentSkillAssignmentsSync,
@@ -92,52 +93,80 @@ export function createSkillInstallationPlanSync(input: {
   const lock = computeSkillReleaseLockSync(artifact, input.workspaceId ?? "default");
   const resolvedLockJson = JSON.stringify(lock);
 
-  const installation = createSkillInstallationSync({
-    workspaceId: input.workspaceId,
-    runtimeId: input.runtimeId,
-    artifactDigest: artifact.digest,
-    // Fail-closed: an artifact whose required services/MCP capabilities cannot be
-    // pinned by the catalog is blocked at plan time — it can never reach ready.
-    status: lock.unresolvedRequired.length > 0 ? "blocked" : "preparing",
-    components,
-    resolvedLockJson,
-  });
-
-  createSkillInstallationOperationSync({
-    workspaceId: input.workspaceId,
-    runtimeId: input.runtimeId,
-    installationId: installation.id,
-    operation: "prepare",
-    requestedByUserId: input.requestedByUserId,
-    requestSnapshotJson: buildSkillOperationRequestSnapshotJson({
+  return withTransaction(getDatabase(), () => {
+    const installation = createSkillInstallationSync({
+      workspaceId: input.workspaceId,
+      runtimeId: input.runtimeId,
       artifactDigest: artifact.digest,
-      expectedComponents: components.map((c) => ({ kind: c.kind, key: c.key })),
-    }),
+      // Fail-closed: an artifact whose required services/MCP capabilities cannot be
+      // pinned by the catalog is blocked at plan time — it can never reach ready.
+      status: lock.unresolvedRequired.length > 0 ? "blocked" : "preparing",
+      components,
+      resolvedLockJson,
+    });
+
+    createSkillInstallationOperationSync({
+      workspaceId: input.workspaceId,
+      runtimeId: input.runtimeId,
+      installationId: installation.id,
+      operation: "prepare",
+      requestedByUserId: input.requestedByUserId,
+      requestSnapshotJson: buildSkillOperationRequestSnapshotJson({
+        artifactDigest: artifact.digest,
+        expectedComponents: components.map((c) => ({ kind: c.kind, key: c.key })),
+      }),
+    });
+
+    // Missing required catalogs are already captured by unresolvedRequired and
+    // leave the plan blocked. Missing optional catalogs do not block readiness.
+    queueDeclaredSkillServicesForInstallationSync({
+      workspaceId: input.workspaceId,
+      runtimeId: input.runtimeId,
+      installationId: installation.id,
+      manifestJson: artifact.manifestJson,
+    });
+
+    return installation;
   });
-
-  // Queue a managed-service provision operation for every declared service so the
-  // managed node can bring it up; the control plane binds it on completion.
-  for (const service of readManifestServices(artifact.manifestJson)) {
-    if (service.catalogSlug) {
-      queueManagedSkillServiceForInstallationSync({
-        workspaceId: input.workspaceId,
-        runtimeId: input.runtimeId,
-        installationId: installation.id,
-        catalogSlug: service.catalogSlug,
-        templateVersion: service.templateVersion ?? "1",
-      });
-    }
-  }
-
-  return installation;
 }
 
-function readManifestServices(manifestJson: string): Array<{ catalogSlug?: string; templateVersion?: string }> {
+export function readManifestServices(manifestJson: string): Array<{
+  catalogSlug?: string;
+  templateVersion?: string;
+  required?: boolean;
+}> {
   try {
-    const manifest = JSON.parse(manifestJson) as { services?: Array<{ catalogSlug?: string; templateVersion?: string }> };
+    const manifest = JSON.parse(manifestJson) as {
+      services?: Array<{ catalogSlug?: string; templateVersion?: string; required?: boolean }>;
+    };
     return manifest.services ?? [];
   } catch {
     return [];
+  }
+}
+
+export function queueDeclaredSkillServicesForInstallationSync(input: {
+  workspaceId?: string;
+  runtimeId: string;
+  installationId: string;
+  manifestJson: string;
+}): void {
+  const workspaceId = input.workspaceId ?? "default";
+  for (const service of readManifestServices(input.manifestJson)) {
+    if (!service.catalogSlug) {
+      continue;
+    }
+    const templateVersion = service.templateVersion ?? "1";
+    if (!readSkillServiceCatalogSync(service.catalogSlug, templateVersion, workspaceId)) {
+      continue;
+    }
+    queueManagedSkillServiceForInstallationSync({
+      workspaceId,
+      runtimeId: input.runtimeId,
+      installationId: input.installationId,
+      catalogSlug: service.catalogSlug,
+      templateVersion,
+    });
   }
 }
 
@@ -176,11 +205,10 @@ function buildInstallationComponents(
     const kind = capability.kind === "cli" ? "cli" : "mcp";
     components.set(`${kind}:${capability.catalogSlug}`, { kind, key: `${kind}:${capability.catalogSlug}` });
   }
-  // Every declared service gets a `service` component so a required service can
-  // never be silently skipped — the daemon's service verifier blocks it until the
-  // managed-service worker exists, which is the correct fail-closed behavior.
+  // Required services participate in readiness. Optional services can still be
+  // provisioned when a catalog exists, but their absence/failure cannot block the Skill.
   for (const service of manifest.services ?? []) {
-    if (!service.catalogSlug) {
+    if (!service.catalogSlug || service.required === false) {
       continue;
     }
     const key = `service:${service.catalogSlug}`;

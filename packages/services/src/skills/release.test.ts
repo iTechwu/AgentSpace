@@ -3,6 +3,7 @@ import { randomBytes as cryptoRandomBytes } from "node:crypto";
 import { after, test } from "node:test";
 import {
   getDatabase,
+  listManagedSkillServiceOperationsSync,
   randomLikeId,
   setSkillInstallationStatusSync,
   upsertMcpCatalogItemSync,
@@ -30,6 +31,9 @@ const sha = (fill: string) => fill.repeat(64);
 after(() => {
   // Best-effort cleanup so the shared test DB does not leak catalog rows.
   const db = getDatabase();
+  db.prepare("DELETE FROM skill_service_binding").run();
+  db.prepare("DELETE FROM managed_skill_service_operation WHERE workspace_id = ?").run("default");
+  db.prepare("DELETE FROM managed_skill_service WHERE workspace_id = ?").run("default");
   db.prepare("DELETE FROM skill_service_catalog WHERE workspace_id = ?").run("default");
   db.prepare("DELETE FROM mcp_catalog_item WHERE workspace_id = ?").run("default");
 });
@@ -418,6 +422,50 @@ test("createSkillUpgradePlanSync rejects artifacts bound to different skills", (
     () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
     /crosses skill lineage/,
   );
+});
+
+test("createSkillUpgradePlanSync queues services newly declared by the candidate artifact", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const skill = createWorkspaceSkillSync({ name: `Service Upgrade ${cryptoRandomBytes(3).toString("hex")}` });
+  const salt = cryptoRandomBytes(4).toString("hex");
+  const first = buildAndPersistSkillArtifactSync({
+    skillId: skill.id,
+    name: "Service Upgrade",
+    files: [{ path: "SKILL.md", bytes: ENCODER.encode(`# v1 ${salt}\n`) }],
+  });
+  const second = buildAndPersistSkillArtifactSync({
+    skillId: skill.id,
+    name: "Service Upgrade",
+    files: [{ path: "SKILL.md", bytes: ENCODER.encode(`# v2 ${salt}\n`) }],
+    services: [{ catalogSlug: "candidate-renderer", templateVersion: "2.0.0", required: true }],
+  });
+  upsertSkillServiceCatalogSync({
+    workspaceId: "default",
+    slug: "candidate-renderer",
+    templateVersion: "2.0.0",
+    deploymentType: "managed_service",
+    imageDigest: sha("d"),
+  });
+  const v1 = readyInstall(runtimeId, first.digest);
+  const diffHash = breakingDiffHash(first, second);
+  const { approvalId } = approveSkillUpgradeSync({
+    skillId: skill.id,
+    fromDigest: first.digest,
+    toDigest: second.digest,
+    diffHash,
+  });
+
+  const v2 = createSkillUpgradePlanSync({
+    runtimeId,
+    artifactDigest: second.digest,
+    previousReadyInstallationId: v1.id,
+    approvalId,
+  });
+  const serviceOperations = listManagedSkillServiceOperationsSync({ workspaceId: "default", runtimeId });
+  assert.equal(serviceOperations.length, 1);
+  assert.equal(serviceOperations[0]?.installationId, v2.id);
+  assert.equal(serviceOperations[0]?.operation, "provision");
 });
 
 test("a required service without a catalog entry makes the lock unresolved and blocks the plan", () => {
