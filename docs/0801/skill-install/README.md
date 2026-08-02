@@ -1,6 +1,6 @@
 # 全形态 Skill 安装与使用方案
 
-> 状态：提案
+> 状态：核心链路已实施，生产环境门禁待验收
 >
 > 范围：让 AgentSpace 在本地与 Remote Runtime 模式下，可靠地导入、安装、配置、验证并使用受支持的 Skill；不把第三方代码或 MCP 服务安装到宿主机。
 
@@ -51,19 +51,13 @@
 
 ## 当前基线与目标差距
 
-当前实现已经形成高级 Remote 安装原型：不可变 artifact/blob、Daemon materializer、组件 evidence、任务 revision snapshot、真实 npm/pip/uv 安装验证、release lock/approval，以及 managed service 的 Docker provision、健康、binding、卸载、退役、签名和蓝绿切换均已进入生产调用链。旧问题中的 script component 重复和任务 executable mode 丢失已经关闭。
+第五轮实施后，Remote 核心链路已闭环：不可变 artifact/blob、统一 package authority 和来源预算、安全下载、安装 cache 证据、真实 npm/pip/uv 隔离安装、任务 dependency env 消费、task bundle SHA/聚合预算、release lock/approval/fencing、service 原子编排、L3/L4 egress、file secret、严格 catalog admission、五步安装审阅和安装证据/卸载 UI 均已进入生产调用链。
 
-第四次复审确认，剩余问题不再是“有没有 worker”，而是 worker 的结果能否被任务真实使用，以及安全边界是否不可绕过：
+当前不再存在已知“组件 ready 但任务必然不可用”的代码缺口。生产放行仍有两个环境门禁：
 
-1. dependency env 安装并验证后没有挂载到任务，也未注入 `NODE_PATH/PYTHONPATH/PATH`，仍会出现 ready 后无法 import/require。
-2. 空 egress allow-list 同时连接 internal 与共享网络，不能保证零出站；非空列表只阻断 DNS，raw-IP 可绕过。
-3. service secret 通过 `docker create --env NAME=value` 进入 argv 和 Docker inspect。
-4. installation plan、approval 消费、service operation complete/binding 跨多个事务，失败会留下部分状态；本轮 release 测试为 **15/18**。
-5. Skill upgrade 不会为 candidate artifact 的新增/升级 service 排队或绑定，service-enabled v2 可能永久 blocked。
-6. cache 虽重算 SHA/root digest，但仍信任可改写 meta，未与当前 claim 比对；cache 也未只读。
-7. lease 有 heartbeat/requeue，但没有 claim generation/token，旧 worker 可能提交新 lease 的结果。
-8. `skill_artifact_binding` 数据表已存在，但导入、history UI、upgrade/rollback 尚未完整消费。
+1. 在与生产一致的 Linux managed node 上执行真实 egress、IPv6、DNS/DoH、secret inspect、轮换和 daemon restart 负面 E2E。
+2. 在真实 Remote Runtime 执行 npm `require` 与 Python `import` smoke，并证明 env 删除/篡改后任务在 Provider 启动前 fail-closed。
 
-此外仍缺 artifact 下载 SSRF/流式上限、统一 package authority/ingress budget、真正 canary、bundle SHA/聚合预算、五步 UI、lineage backfill/GC、更新检查和指标告警。managed service 的 real-Docker E2E 证明生命周期可运行，但没有验证 egress 不可绕过、secret 不泄漏或 stale-worker fencing。
+继续优化项为：把当前一次性 binding 切换准确定位为 blue-green 或实现真正 canary；加强 rollback 的 artifact/env/service 预检与 compare-and-set；将 base64 task bundle 改为 content-addressed 分块/缓存传输；提供 system dependency catalog resolver；完成更新检查、legacy backfill、orphan GC、feature flag、指标告警、独立升级审批和 service 运维体验。
 
-因此当前状态应标记为 **Remote 安装高级原型 / 不可用于不受信任 Skill 的生产安装**。下一里程碑应优先打通 dependency task env，并修复 service 网络/secret 边界和跨层事务，再扩展新来源或 UI。详见 [实施差距第四次复审](./07-实施差距审查.md)。
+详见 [实施差距第五次复审](./07-实施差距审查.md)。
