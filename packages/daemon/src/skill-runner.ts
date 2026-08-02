@@ -2,14 +2,12 @@ import { createHash, randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
-  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
-  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -33,6 +31,7 @@ const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_ARGUMENTS = 64;
 const MAX_ARGUMENT_BYTES = 8 * 1024;
 const MAX_OUTPUT_FILES = 1_000;
+const MAX_OUTPUT_DEPTH = 32;
 const MAX_OUTPUT_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_OUTPUT_TOTAL_BYTES = 64 * 1024 * 1024;
 
@@ -108,6 +107,14 @@ export interface SkillRunnerExecutionResult {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+}
+
+interface SkillRunnerOutputFile {
+  path: string;
+  contentBase64: string;
+  sha256: string;
+  size: number;
+  mode: number;
 }
 
 export interface SkillRunnerBroker {
@@ -193,6 +200,7 @@ export async function startSkillRunnerBroker(input: {
     writeFileSync(launcherPath, buildLauncherSource({
       token,
       key: entrypoint.key,
+      outputSegment: sanitizeSegment(entrypoint.key),
     }), { encoding: "utf8", mode: 0o500 });
     chmodSync(launcherPath, 0o500);
     const image = runnerImages.get(entrypoint.runtime);
@@ -287,7 +295,6 @@ async function handleBrokerRequest(
       sendJson(response, 503, { error: "skill_runner.broker_closing" });
       return;
     }
-    const publishedOutputDir = preparePublishedOutputDir(context.workDir, entrypoint.key);
     const outputDir = createPrivateRunnerOutputDir(context.stateDir, entrypoint.key);
     let privateConfig: { dir: string; file: string } | undefined;
     let preservePrivateState = false;
@@ -335,9 +342,8 @@ async function handleBrokerRequest(
         context.activeContainers.delete(containerName);
         context.brokerCleanup.delete(containerName);
       }
-      assertPublishedOutputDirTrusted(context.workDir, publishedOutputDir);
-      publishRunnerOutput(outputDir, publishedOutputDir);
-      sendJson(response, result.exitCode === 0 && !result.timedOut ? 200 : 422, result);
+      const outputFiles = collectRunnerOutput(outputDir);
+      sendJson(response, result.exitCode === 0 && !result.timedOut ? 200 : 422, { ...result, outputFiles });
     } finally {
       if (!preservePrivateState) {
         if (privateConfig) rmSync(privateConfig.dir, { recursive: true, force: true });
@@ -463,11 +469,63 @@ function forceRemoveDockerSkillRunnerContainer(containerName: string, environmen
   });
 }
 
-function buildLauncherSource(input: { token: string; key: string }): string {
+function buildLauncherSource(input: { token: string; key: string; outputSegment: string }): string {
   return `#!/usr/bin/env node
+import { createHash, randomBytes } from "node:crypto";
+import { chmodSync, existsSync, lstatSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
-import { dirname, resolve as resolvePath } from "node:path";
+import { dirname, join, relative, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
+const workspaceDir = resolvePath(dirname(fileURLToPath(import.meta.url)), "../..");
+const outputDir = resolvePath(workspaceDir, "runtime-output", "skill-runs", ${JSON.stringify(input.outputSegment)});
+const ensureRealDirectory = (directory) => {
+  if (existsSync(directory)) {
+    const stats = lstatSync(directory);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) throw new Error("skill_runner.output_symlink_forbidden: " + relative(workspaceDir, directory));
+    return;
+  }
+  mkdirSync(directory, { mode: 0o700 });
+};
+const prepareOutputDir = () => {
+  const workspaceStats = lstatSync(workspaceDir);
+  if (!workspaceStats.isDirectory() || workspaceStats.isSymbolicLink()) throw new Error("skill_runner.output_symlink_forbidden: task workspace must be a real directory");
+  let current = workspaceDir;
+  for (const segment of ["runtime-output", "skill-runs", ${JSON.stringify(input.outputSegment)}]) {
+    current = join(current, segment);
+    ensureRealDirectory(current);
+  }
+};
+const publishOutput = (files) => {
+  if (!Array.isArray(files)) throw new Error("skill_runner.output_manifest_invalid");
+  prepareOutputDir();
+  for (const file of files) {
+    if (!file || typeof file.path !== "string" || typeof file.contentBase64 !== "string" || typeof file.sha256 !== "string" || !Number.isInteger(file.size) || !Number.isInteger(file.mode)) {
+      throw new Error("skill_runner.output_manifest_invalid");
+    }
+    const segments = file.path.split("/");
+    if (segments.some((segment) => !segment || segment === "." || segment === "..")) throw new Error("skill_runner.output_path_invalid");
+    let parent = outputDir;
+    for (const segment of segments.slice(0, -1)) {
+      parent = join(parent, segment);
+      ensureRealDirectory(parent);
+    }
+    const bytes = Buffer.from(file.contentBase64, "base64");
+    if (bytes.byteLength !== file.size || createHash("sha256").update(bytes).digest("hex") !== file.sha256) throw new Error("skill_runner.output_digest_mismatch");
+    const target = join(parent, segments.at(-1));
+    if (existsSync(target)) {
+      const stats = lstatSync(target);
+      if (!stats.isFile() || stats.isSymbolicLink()) throw new Error("skill_runner.output_symlink_forbidden: " + file.path);
+    }
+    const temporary = join(parent, ".dofe-output-" + process.pid + "-" + randomBytes(8).toString("hex"));
+    try {
+      writeFileSync(temporary, bytes, { flag: "wx", mode: 0o600 });
+      chmodSync(temporary, file.mode & 0o777);
+      renameSync(temporary, target);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
+  }
+};
 const requestBody = JSON.stringify({ key: ${JSON.stringify(input.key)}, argv: process.argv.slice(2) });
 const response = await new Promise((resolve, reject) => {
   const req = request({
@@ -491,6 +549,7 @@ const response = await new Promise((resolve, reject) => {
   req.end(requestBody);
 });
 const body = response.body;
+if (Object.prototype.hasOwnProperty.call(body, "outputFiles")) publishOutput(body.outputFiles);
 if (body.stdout) process.stdout.write(String(body.stdout));
 if (body.stderr) process.stderr.write(String(body.stderr));
 if (!response.ok) { if (body.message) process.stderr.write(String(body.message) + "\\n"); process.exit(1); }
@@ -572,44 +631,6 @@ function assertInside(root: string, path: string): void {
   }
 }
 
-function preparePublishedOutputDir(workDir: string, entrypointKey: string): string {
-  const resolvedWorkDir = resolve(workDir);
-  const workDirStat = lstatSync(resolvedWorkDir);
-  if (!workDirStat.isDirectory() || workDirStat.isSymbolicLink()) {
-    throw new Error("skill_runner.output_symlink_forbidden: task workspace must be a real directory");
-  }
-  let current = resolvedWorkDir;
-  for (const segment of ["runtime-output", "skill-runs", sanitizeSegment(entrypointKey)]) {
-    current = join(current, segment);
-    if (existsSync(current)) {
-      const stats = lstatSync(current);
-      if (!stats.isDirectory() || stats.isSymbolicLink()) {
-        throw new Error(`skill_runner.output_symlink_forbidden: ${relative(resolvedWorkDir, current)}`);
-      }
-    } else {
-      mkdirSync(current, { mode: 0o700 });
-    }
-    assertInside(realpathSync(resolvedWorkDir), realpathSync(current));
-  }
-  return current;
-}
-
-function assertPublishedOutputDirTrusted(workDir: string, outputDir: string): void {
-  const resolvedWorkDir = resolve(workDir);
-  assertInside(resolvedWorkDir, outputDir);
-  let current = outputDir;
-  while (current !== resolvedWorkDir) {
-    const stats = lstatSync(current);
-    if (!stats.isDirectory() || stats.isSymbolicLink()) {
-      throw new Error(`skill_runner.output_symlink_forbidden: ${relative(resolvedWorkDir, current)}`);
-    }
-    current = resolve(current, "..");
-  }
-  if (realpathSync(outputDir) !== resolve(realpathSync(resolvedWorkDir), relative(resolvedWorkDir, outputDir))) {
-    throw new Error("skill_runner.output_symlink_forbidden: output directory resolution changed");
-  }
-}
-
 function createPrivateRunnerOutputDir(stateDir: string, entrypointKey: string): string {
   const root = resolve(stateDir, "skill-runner-output");
   if (existsSync(root)) {
@@ -663,30 +684,27 @@ function createPrivateRunnerConfig(
   }
 }
 
-function publishRunnerOutput(sourceDir: string, targetDir: string): void {
+function collectRunnerOutput(sourceDir: string): SkillRunnerOutputFile[] {
+  const files: SkillRunnerOutputFile[] = [];
+  let entryCount = 0;
   let fileCount = 0;
   let totalBytes = 0;
-  const copyDirectory = (source: string, target: string): void => {
+  const collectDirectory = (source: string, prefix: string, depth: number): void => {
+    if (depth > MAX_OUTPUT_DEPTH) throw new Error("skill_runner.output_budget_exceeded");
     for (const entry of readdirSync(source, { withFileTypes: true })) {
+      entryCount += 1;
+      if (entryCount > MAX_OUTPUT_FILES) throw new Error("skill_runner.output_budget_exceeded");
       const sourcePath = join(source, entry.name);
-      const targetPath = join(target, entry.name);
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.isSymbolicLink()) {
-        throw new Error(`skill_runner.output_symlink_forbidden: ${entry.name}`);
+        throw new Error(`skill_runner.output_symlink_forbidden: ${relativePath}`);
       }
       if (entry.isDirectory()) {
-        if (existsSync(targetPath)) {
-          const targetStats = lstatSync(targetPath);
-          if (!targetStats.isDirectory() || targetStats.isSymbolicLink()) {
-            throw new Error(`skill_runner.output_symlink_forbidden: ${entry.name}`);
-          }
-        } else {
-          mkdirSync(targetPath, { mode: 0o700 });
-        }
-        copyDirectory(sourcePath, targetPath);
+        collectDirectory(sourcePath, relativePath, depth + 1);
         continue;
       }
       if (!entry.isFile()) {
-        throw new Error(`skill_runner.output_file_type_forbidden: ${entry.name}`);
+        throw new Error(`skill_runner.output_file_type_forbidden: ${relativePath}`);
       }
       const stats = statSync(sourcePath);
       fileCount += 1;
@@ -694,14 +712,19 @@ function publishRunnerOutput(sourceDir: string, targetDir: string): void {
       if (fileCount > MAX_OUTPUT_FILES || stats.size > MAX_OUTPUT_FILE_BYTES || totalBytes > MAX_OUTPUT_TOTAL_BYTES) {
         throw new Error("skill_runner.output_budget_exceeded");
       }
-      if (existsSync(targetPath) && lstatSync(targetPath).isSymbolicLink()) {
-        throw new Error(`skill_runner.output_symlink_forbidden: ${entry.name}`);
-      }
-      copyFileSync(sourcePath, targetPath);
-      chmodSync(targetPath, stats.mode & 0o777);
+      const bytes = readFileSync(sourcePath);
+      if (bytes.byteLength !== stats.size) throw new Error("skill_runner.output_changed_during_collection");
+      files.push({
+        path: relativePath,
+        contentBase64: bytes.toString("base64"),
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        size: bytes.byteLength,
+        mode: stats.mode & 0o777,
+      });
     }
   };
-  copyDirectory(sourceDir, targetDir);
+  collectDirectory(sourceDir, "", 0);
+  return files;
 }
 
 function shellQuote(value: string): string {

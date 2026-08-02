@@ -160,7 +160,7 @@ test("startSkillRunnerBroker exposes a task-scoped launcher and removes it on cl
   }
 });
 
-test("startSkillRunnerBroker rejects a symlinked output directory before execution", async () => {
+test("startSkillRunnerBroker keeps output publication inside the launcher namespace", async () => {
   const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-state-"));
   const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-task-"));
   const outsideDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-outside-"));
@@ -208,7 +208,67 @@ test("startSkillRunnerBroker rejects a symlinked output directory before executi
     const launcher = broker.capabilities[0]?.binPath;
     assert.ok(launcher);
     await assert.rejects(execFileAsync(launcher), /symlink/i);
-    assert.equal(executeCalls, 0);
+    assert.equal(executeCalls, 1);
+    assert.equal(existsSync(join(outsideDir, "result.txt")), false);
+  } finally {
+    await broker.close().catch(() => {});
+    chmodSync(artifactDir, 0o755);
+    chmodSync(join(artifactDir, "scripts"), 0o755);
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+    rmSync(outsideDir, { recursive: true, force: true });
+  }
+});
+
+test("startSkillRunnerBroker rejects Runner output symlinks before publication", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-state-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-task-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-outside-"));
+  const artifactDigest = "d".repeat(64);
+  const scriptBytes = Buffer.from("console.log('rendered');\n", "utf8");
+  const artifactDir = getDaemonSkillInstallCachePath(stateDir, {
+    workspaceId: "workspace-1",
+    artifactDigest,
+  });
+  mkdirSync(join(artifactDir, "scripts"), { recursive: true });
+  writeFileSync(join(artifactDir, "scripts", "render.mjs"), scriptBytes, { mode: 0o555 });
+  writeFileSync(join(artifactDir, ".cache-complete"), "ready", { mode: 0o444 });
+  chmodSync(join(artifactDir, "scripts"), 0o555);
+  chmodSync(artifactDir, 0o555);
+  writeFileSync(join(outsideDir, "secret.txt"), "must-not-publish", "utf8");
+  const broker = await startSkillRunnerBroker({
+    stateDir,
+    workspaceId: "workspace-1",
+    workDir,
+    entrypoints: [{
+      key: "skill-output-link:render",
+      skillId: "skill-output-link",
+      skillName: "Output Link Renderer",
+      installationId: "installation-output-link",
+      artifactDigest,
+      sha256: createHash("sha256").update(scriptBytes).digest("hex"),
+      id: "render",
+      path: "scripts/render.mjs",
+      runtime: "node",
+    }],
+    environment: {
+      ...process.env,
+      DOFE_SKILL_RUNNER_NODE_IMAGE: `registry.example.com/runner@sha256:${"a".repeat(64)}`,
+    },
+    inspectImage: () => true,
+    execute: async (args) => {
+      const outputMount = args.find((value) => value.endsWith(",dst=/output"));
+      assert.ok(outputMount);
+      const outputDir = outputMount.slice("type=bind,src=".length, -",dst=/output".length);
+      symlinkSync(join(outsideDir, "secret.txt"), join(outputDir, "leak.txt"));
+      return { exitCode: 0, stdout: "rendered\n", stderr: "", timedOut: false };
+    },
+  });
+  try {
+    const launcher = broker.capabilities[0]?.binPath;
+    assert.ok(launcher);
+    await assert.rejects(execFileAsync(launcher), /skill_runner\.output_symlink_forbidden/);
+    assert.equal(existsSync(join(workDir, "runtime-output", "skill-runs", "skill-output-link-render", "leak.txt")), false);
   } finally {
     await broker.close().catch(() => {});
     chmodSync(artifactDir, 0o755);
