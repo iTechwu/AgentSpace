@@ -29,6 +29,6 @@
 - Codex 注入已实现（`--ignore-user-config` + 整表替换 `--config mcp_servers=…`，尽力隔离用户/项目预置 MCP），但**隔离与真实 E2E 未验证**：市场页默认不将 Codex 标记为 MCP 可用，需显式开启 `MCP_CODEX_EXPERIMENTAL_ENABLED=1` 才可选。在指定 CI 环境通过端到端验证前，Codex 不得对外宣称支持 MCP。
 - 其他 Provider（openclaw / hermes / opencode 等）未接入；接入方式是在 `packages/daemon/src/agent-router/mcp-gateway.ts` 增加对应 harness 的 builder。
 
-不可变目录 release、Skill 对 MCP catalog release 的版本固定及运行时精确消费、托管 Skill 服务的 fail-closed 出站策略、市场分类筛选、持久审计 outbox、执行主体快照、终态授权清理和主密钥轮换已经落地。托管 Skill 服务的出站控制不等同于 Provider Runtime 二层隔离；完整“任务可调用 MCP”发布仍需等待：真实 Claude CLI 端到端验证、Codex 隔离与端到端验证、Provider Runtime 二层 egress 策略、受管 stdio/OAuth。
+不可变目录 release、Skill 对 MCP catalog release 的版本固定及运行时精确消费、托管 Skill 服务的 fail-closed 出站策略、市场分类筛选、持久审计 outbox、执行主体快照、终态授权清理和主密钥轮换已经落地。Provider Runtime egress proxy 的 Phase 0/1（独立镜像、policy/lease 契约、L7 限制、受限网络与宿主机规则脚本）也已落地，但尚未接入 daemon 强制调用链；完整“任务可调用 MCP”发布仍需等待真实 Claude/Codex E2E、managed-node reconcile、Provider 旁路负向验证、受管 stdio/OAuth。
 
-2026-08-03 的复审进一步关闭了 Skill Runner 配置泄漏、输出权限竞态、无并发上限、旧版 MCP lock 版本替换、Web 本地路径导入、ZIP 解压前资源消耗、managed-node 缺少 cosign 以及根测试空任务问题。真实 Runner Docker 发布测试已具备环境门禁；Provider 二层 egress 仍以独立代理方案推进，在容器负面验证通过前不改变发布边界。
+2026-08-03 的复审进一步关闭了 Skill Runner 配置泄漏、输出权限竞态、无并发上限、旧版 MCP lock 版本替换、Web 本地路径导入、ZIP 解压前资源消耗、managed-node 缺少 cosign、根测试空任务和 remote durable head 残留冒充问题。Egress proxy 镜像已完成真实容器启动验证；由于 policy/撤销同步、daemon client、Provider 进程隔离和完整网络负向探针仍缺失，发布边界保持不变。
