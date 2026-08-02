@@ -13,7 +13,7 @@ import { readSkillDependencyDeclarations, type SkillDependencyDeclaration } from
 
 const DEPENDENCY_SOURCE = "skill_dependency" as const;
 
-export function queueGitHubSkillDependenciesForAgentSync(input: {
+export function queueSkillDependenciesForAgentSync(input: {
   workspaceId: string;
   employeeName: string;
   skillIds: string[];
@@ -36,7 +36,7 @@ export function queueGitHubSkillDependenciesForAgentSync(input: {
   let skipped = 0;
   for (const skillId of new Set(input.skillIds)) {
     const skill = readWorkspaceSkillSync(skillId, input.workspaceId);
-    if (!skill || skill.sourceType !== "github") {
+    if (!skill) {
       continue;
     }
     for (const dependency of readSkillDependencyDeclarations(skill.configJson)) {
@@ -82,7 +82,7 @@ export function queueGitHubSkillDependenciesForAgentSync(input: {
     tryRecordWorkspaceAuditEventSync({
       workspaceId: input.workspaceId,
       title: "Skill dependency installation approved",
-      note: `${input.actorDisplayName} approved ${queued} declared GitHub skill dependenc${queued === 1 ? "y" : "ies"} for ${input.employeeName}.`,
+      note: `${input.actorDisplayName} approved ${queued} declared skill dependenc${queued === 1 ? "y" : "ies"} for ${input.employeeName}.`,
       code: "workspace.skill_dependency_install_approved",
       data: {
         actorType: "session_user",
@@ -96,12 +96,17 @@ export function queueGitHubSkillDependenciesForAgentSync(input: {
   return { queued, skipped, waitingForRuntime: false };
 }
 
-export function hasGitHubSkillDependenciesSync(input: { workspaceId: string; skillIds: string[] }): boolean {
+export function hasSkillDependenciesSync(input: { workspaceId: string; skillIds: string[] }): boolean {
   return input.skillIds.some((skillId) => {
     const skill = readWorkspaceSkillSync(skillId, input.workspaceId);
-    return skill?.sourceType === "github" && readSkillDependencyDeclarations(skill.configJson).length > 0;
+    return Boolean(skill && readSkillDependencyDeclarations(skill.configJson).length > 0);
   });
 }
+
+/** @deprecated Use the source-agnostic queueSkillDependenciesForAgentSync. */
+export const queueGitHubSkillDependenciesForAgentSync = queueSkillDependenciesForAgentSync;
+/** @deprecated Use the source-agnostic hasSkillDependenciesSync. */
+export const hasGitHubSkillDependenciesSync = hasSkillDependenciesSync;
 
 export type SkillDependencyInstallStatus =
   | "none"
@@ -113,8 +118,8 @@ export type SkillDependencyInstallStatus =
 
 /**
  * Computes the aggregate dependency-install status for one skill on one employee
- * (spec §5.3 "环境就绪 / 依赖安装失败"). Non-GitHub skills or skills without
- * declared dependencies report `none`. Worst-status-wins across dependencies.
+ * (spec §5.3 "环境就绪 / 依赖安装失败"). Skills without declared dependencies
+ * report `none`. Worst-status-wins across dependencies.
  */
 export function readSkillDependencyInstallStatusSync(input: {
   workspaceId: string;
@@ -122,7 +127,7 @@ export function readSkillDependencyInstallStatusSync(input: {
   skillId: string;
 }): SkillDependencyInstallStatus {
   const skill = readWorkspaceSkillSync(input.skillId, input.workspaceId);
-  if (!skill || skill.sourceType !== "github") {
+  if (!skill) {
     return "none";
   }
   const dependencies = readSkillDependencyDeclarations(skill.configJson);
@@ -227,7 +232,7 @@ export function buildSkillDependencyInstallPlan(
     risk: "medium",
     requiresApproval: true,
     notes: [
-      `Declared by GitHub skill ${skillId}.`,
+      `Declared by skill ${skillId}.`,
       `Exact ${dependency.manager} dependency: ${packageReference}.`,
       "The plan uses fixed argument arrays and does not execute repository scripts.",
       "Dependencies install into the runtime's isolated deps root (never --global/--user).",

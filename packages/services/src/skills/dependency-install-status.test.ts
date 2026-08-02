@@ -37,17 +37,17 @@ after(() => {
   process.chdir(originalCwd);
 });
 
-test("readSkillDependencyInstallStatusSync reports none for non-GitHub skills", () => {
+test("readSkillDependencyInstallStatusSync applies declared dependencies to GitLab skills", () => {
   createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
   const skill = createWorkspaceSkillSync({
-    name: "local-skill",
-    description: "Local",
-    sourceType: "clihub_runtime_app",
+    name: "gitlab-skill",
+    description: "GitLab",
+    sourceType: "gitlab",
     configJson: JSON.stringify({ dependencies: [{ manager: "npm", name: "lodash", version: "4.17.21" }] }),
   }, WORKSPACE_ID);
   assert.equal(
     readSkillDependencyInstallStatusSync({ workspaceId: WORKSPACE_ID, employeeName: "Researcher", skillId: skill.id }),
-    "none",
+    "waiting_runtime",
   );
 });
 

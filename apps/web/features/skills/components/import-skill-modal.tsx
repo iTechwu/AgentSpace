@@ -4,7 +4,7 @@ import { getField } from "@/shared/lib/form";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import { AppIcon } from "@/shared/ui/app-icon";
 
-type SkillImportSource = "github" | "skills.sh" | "clawhub" | "upload";
+type SkillImportSource = "github" | "gitlab" | "skills.sh" | "clawhub" | "upload";
 
 interface ImportSkillModalProps {
   readonly pending: boolean;
@@ -36,6 +36,12 @@ export function ImportSkillModal({
         label: "GitHub",
         hint: tx("粘贴 GitHub tree/blob/raw skill 链接。", "Paste a GitHub tree/blob/raw skill URL."),
         placeholder: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
+      },
+      {
+        value: "gitlab" as const,
+        label: "GitLab",
+        hint: tx("粘贴 gitlab.com 的 tree/blob/raw Skill 链接。", "Paste a gitlab.com tree/blob/raw skill URL."),
+        placeholder: "https://gitlab.com/octo-group/skill-repo/-/tree/main/skills/research-pack",
       },
       {
         value: "skills.sh" as const,
@@ -85,7 +91,7 @@ export function ImportSkillModal({
         <div className="modal-card__header">
           <div>
             <h3 id={labelId}>{tx("导入 Skill", "Import skill")}</h3>
-            <p id={descriptionId}>{tx("支持 GitHub / skills.sh / ClawHub，以及上传本机 zip 后导入。", "Supports GitHub / skills.sh / ClawHub and locally uploaded zip files.")}</p>
+            <p id={descriptionId}>{tx("支持 GitHub / GitLab / skills.sh / ClawHub，以及上传本机 zip 后导入。", "Supports GitHub / GitLab / skills.sh / ClawHub and locally uploaded zip files.")}</p>
           </div>
           <button className="modal-close" onClick={onCancel} type="button">
             <AppIcon name="close" />

@@ -52,7 +52,7 @@ import {
 import { classifySkillFilePath } from "./package/path-safety.ts";
 
 export type SkillImportConflict = "reject" | "rename" | "replace" | "skip";
-export type SkillImportSourceType = "github" | "skills.sh" | "clawhub" | "local" | "tos";
+export type SkillImportSourceType = "github" | "gitlab" | "skills.sh" | "clawhub" | "local" | "tos";
 
 export interface SkillImportResult {
   skillId: string;
@@ -106,6 +106,16 @@ interface ImportedSkillDefinition {
 interface GitHubDirectoryPointer {
   owner: string;
   repo: string;
+  /** Original branch/tag/ref from the user URL. */
+  ref: string;
+  path: string;
+  /** Immutable commit SHA resolved from `ref` before any content fetch. */
+  resolvedSha?: string;
+}
+
+interface GitLabDirectoryPointer {
+  /** URL-encoded as one API project identifier, including namespace segments. */
+  projectPath: string;
   /** Original branch/tag/ref from the user URL. */
   ref: string;
   path: string;
@@ -451,6 +461,9 @@ async function importSkillDefinition(
   if (parsed.hostname === "skills.sh") {
     return importSkillsShSkillDefinition(sourceUrl, parsed);
   }
+  if (parsed.hostname === "gitlab.com") {
+    return importGitLabSkillDefinition(sourceUrl);
+  }
   if (parsed.hostname === "clawhub.ai" || parsed.hostname.endsWith(".clawhub.ai")) {
     return importClawHubSkillDefinition(sourceUrl);
   }
@@ -586,6 +599,54 @@ async function importGitHubSkillDefinition(sourceUrl: string): Promise<ImportedS
   }
   pointer.resolvedSha = await resolveGitHubRefToSha(pointer.owner, pointer.repo, pointer.ref);
   return importGitHubSkillDefinitionFromPointer(pointer, sourceUrl, "github");
+}
+
+async function importGitLabSkillDefinition(sourceUrl: string): Promise<ImportedSkillDefinition> {
+  const pointer = parseGitLabDirectoryUrl(sourceUrl);
+  if (!pointer) {
+    throw new Error("GitLab skill URL must use a gitlab.com /-/tree, /-/blob, or /-/raw path.");
+  }
+
+  const budget: SkillSourceBudget = { fileCount: 0, totalBytes: 0, requestCount: 0 };
+  pointer.resolvedSha = await resolveGitLabRefToSha(pointer.projectPath, pointer.ref, budget);
+  const resolvedRef = pointer.resolvedSha;
+  const provenance = {
+    provider: "gitlab",
+    projectPath: pointer.projectPath,
+    ref: pointer.ref,
+    path: pointer.path,
+    resolvedRef,
+    originalUrl: sourceUrl,
+  };
+
+  let files: ImportedSkillFile[];
+  const warnings: string[] = [];
+  if (pointer.path.endsWith("/SKILL.md") || sameValue(pointer.path, "SKILL.md")) {
+    const bytes = await fetchGitLabRawFile(pointer, budget);
+    assertSkillSourceFileBudget(budget, "SKILL.md", bytes, "GitLab skill");
+    files = [{ path: "SKILL.md", bytes }];
+  } else {
+    files = await fetchGitLabDirectoryFiles(pointer, warnings, budget);
+  }
+
+  const skillMd = readSkillMarkdown(files);
+  const metadata = parseSkillMetadata(skillMd, deriveSkillNameFromPath(pointer.path));
+  return {
+    name: metadata.name,
+    description: metadata.description,
+    files,
+    sourceType: "gitlab",
+    sourceUrl,
+    configJson: JSON.stringify({
+      ...provenance,
+      warnings,
+      dependencies: parseSkillDependencyDeclarations(skillMd),
+      requirements: parseSkillRequirementDeclarations(skillMd),
+    }),
+    warnings,
+    resolvedRef,
+    originalUrl: sourceUrl,
+  };
 }
 
 async function importGitHubSkillDefinitionFromPointer(
@@ -787,6 +848,44 @@ function parseGitHubDirectoryUrl(sourceUrl: string): GitHubDirectoryPointer | nu
   }
 
   return null;
+}
+
+function parseGitLabDirectoryUrl(sourceUrl: string): GitLabDirectoryPointer | null {
+  const parsed = parseUrl(sourceUrl);
+  if (!parsed || parsed.hostname !== "gitlab.com") {
+    return null;
+  }
+
+  const parts = parsed.pathname.split("/").filter(Boolean);
+  const separatorIndex = parts.indexOf("-");
+  if (separatorIndex < 2 || separatorIndex + 3 > parts.length) {
+    return null;
+  }
+  const kind = parts[separatorIndex + 1];
+  if (kind !== "tree" && kind !== "blob" && kind !== "raw") {
+    return null;
+  }
+
+  const projectSegments = parts.slice(0, separatorIndex);
+  const rawRef = parts[separatorIndex + 2];
+  if (!rawRef) {
+    return null;
+  }
+  const repoIndex = projectSegments.length - 1;
+  projectSegments[repoIndex] = projectSegments[repoIndex]!.replace(/\.git$/i, "");
+  if (projectSegments.some((segment) => !segment || segment === "." || segment === "..")) {
+    return null;
+  }
+
+  try {
+    return {
+      projectPath: projectSegments.map((segment) => decodeURIComponent(segment)).join("/"),
+      ref: decodeURIComponent(rawRef),
+      path: parts.slice(separatorIndex + 3).map((segment) => decodeURIComponent(segment)).join("/"),
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function readLocalSkillDirectoryFiles(
@@ -991,6 +1090,31 @@ async function resolveGitHubRefToSha(owner: string, repo: string, ref: string): 
   return sha;
 }
 
+async function resolveGitLabRefToSha(
+  projectPath: string,
+  ref: string,
+  budget: SkillSourceBudget,
+): Promise<string> {
+  assertSkillSourceRequestBudget(budget, "GitLab skill");
+  const response = await fetch(
+    `https://gitlab.com/api/v4/projects/${encodeURIComponent(projectPath)}/repository/commits/${encodeURIComponent(ref)}`,
+    { headers: { "User-Agent": "DofeAgent/0.1.0" } },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to resolve GitLab ref "${ref}" to commit SHA: ${response.status}`);
+  }
+  const payload = await readResponseJsonWithLimit(
+    response,
+    MAX_SKILL_SOURCE_METADATA_BYTES,
+    "GitLab commit metadata",
+  ) as { id?: string };
+  const sha = payload.id?.trim().toLowerCase();
+  if (!sha || !/^[a-f0-9]{40}$/.test(sha)) {
+    throw new Error(`GitLab commit response did not contain a valid SHA for ref "${ref}".`);
+  }
+  return sha;
+}
+
 async function resolveGitHubSkillPointerBySlug(input: {
   owner: string;
   repo: string;
@@ -1149,6 +1273,100 @@ async function fetchGitHubDirectoryFiles(
   }
 
   return sortImportedSkillFiles(files);
+}
+
+async function fetchGitLabDirectoryFiles(
+  pointer: GitLabDirectoryPointer,
+  warnings: string[],
+  budget: SkillSourceBudget,
+): Promise<ImportedSkillFile[]> {
+  const ref = pointer.resolvedSha ?? pointer.ref;
+  const entries: Array<{ type?: string; path?: string; mode?: string }> = [];
+  let page = "1";
+
+  while (page) {
+    assertSkillSourceRequestBudget(budget, "GitLab skill");
+    const query = new URLSearchParams({
+      path: pointer.path,
+      ref,
+      recursive: "true",
+      per_page: "100",
+      page,
+    });
+    const response = await fetch(
+      `https://gitlab.com/api/v4/projects/${encodeURIComponent(pointer.projectPath)}/repository/tree?${query}`,
+      { headers: { "User-Agent": "DofeAgent/0.1.0" } },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to fetch GitLab skill directory: ${response.status}`);
+    }
+    const payload = await readResponseJsonWithLimit(
+      response,
+      MAX_SKILL_SOURCE_METADATA_BYTES,
+      "GitLab directory listing",
+    );
+    if (!Array.isArray(payload)) {
+      throw new Error("GitLab URL must point to a directory that contains SKILL.md.");
+    }
+    entries.push(...payload as Array<{ type?: string; path?: string; mode?: string }>);
+    page = response.headers.get("x-next-page")?.trim() ?? "";
+    if (page && !/^\d+$/.test(page)) {
+      throw new Error("GitLab directory listing returned an invalid pagination cursor.");
+    }
+  }
+
+  const blobEntries = entries.filter((entry) => entry.type === "blob" && typeof entry.path === "string");
+  if (blobEntries.length > MAX_SKILL_PACKAGE_FILES) {
+    throw new Error(`GitLab skill contains more than ${MAX_SKILL_PACKAGE_FILES} files.`);
+  }
+
+  const files: ImportedSkillFile[] = [];
+  const prefix = pointer.path ? `${pointer.path.replace(/\/+$/, "")}/` : "";
+  for (const entry of entries) {
+    if (!entry.path || !entry.type || entry.type === "tree") {
+      continue;
+    }
+    if (entry.type !== "blob") {
+      warnings.push(`Skipped unsupported GitLab entry: ${entry.path}`);
+      continue;
+    }
+    if (prefix && !entry.path.startsWith(prefix)) {
+      throw new Error(`GitLab directory listing returned an entry outside the requested path: ${entry.path}`);
+    }
+    const rawRelativePath = prefix ? entry.path.slice(prefix.length) : entry.path;
+    const pathResult = classifySkillFilePath(rawRelativePath);
+    if (!pathResult.ok) {
+      throw new Error(`GitLab skill contains unsafe path "${rawRelativePath}": ${pathResult.message}`);
+    }
+    const bytes = await fetchGitLabRawFile({ ...pointer, path: entry.path }, budget);
+    assertSkillSourceFileBudget(budget, pathResult.normalized, bytes, "GitLab skill");
+    files.push({
+      path: pathResult.normalized,
+      bytes,
+      ...(entry.mode === "100755" ? { mode: "0755" } : entry.mode === "100644" ? { mode: "0644" } : {}),
+    });
+  }
+
+  if (!files.some((file) => sameValue(file.path, "SKILL.md"))) {
+    throw new Error("Imported GitLab skill must contain SKILL.md.");
+  }
+  return sortImportedSkillFiles(files);
+}
+
+async function fetchGitLabRawFile(
+  pointer: GitLabDirectoryPointer,
+  budget: SkillSourceBudget,
+): Promise<Uint8Array> {
+  assertSkillSourceRequestBudget(budget, "GitLab skill");
+  const ref = pointer.resolvedSha ?? pointer.ref;
+  const response = await fetch(
+    `https://gitlab.com/api/v4/projects/${encodeURIComponent(pointer.projectPath)}/repository/files/${encodeURIComponent(pointer.path)}/raw?ref=${encodeURIComponent(ref)}`,
+    { headers: { "User-Agent": "DofeAgent/0.1.0" } },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch GitLab skill file "${pointer.path}": ${response.status}`);
+  }
+  return readResponseBytesWithLimit(response, MAX_SKILL_SINGLE_FILE_BYTES, `GitLab skill file "${pointer.path}"`);
 }
 
 function assertSkillSourceRequestBudget(budget: SkillSourceBudget, sourceLabel: string): void {

@@ -277,6 +277,25 @@ describe("SkillsPageClient", () => {
     });
   });
 
+  it("submits GitLab skill URLs from the import modal", async () => {
+    const user = userEvent.setup();
+
+    renderSkillsPage();
+
+    await user.click(screen.getByRole("button", { name: "导入 Skill" }));
+    await user.click(screen.getByRole("button", { name: "选择 GitLab 导入来源" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "来源 URL" }),
+      "https://gitlab.com/octo-group/skill-repo/-/tree/main/skills/research-pack",
+    );
+    await user.click(screen.getByRole("button", { name: "开始导入" }));
+
+    expect(mockImportWorkspaceSkillFromUrlAction).toHaveBeenCalledWith({
+      url: "https://gitlab.com/octo-group/skill-repo/-/tree/main/skills/research-pack",
+      conflict: "rename",
+    });
+  });
+
   it("normalizes ClawHub shorthand imports before submitting", async () => {
     const user = userEvent.setup();
 

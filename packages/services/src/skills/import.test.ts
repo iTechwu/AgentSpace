@@ -82,6 +82,27 @@ test("importWorkspaceSkillFromUrl locks GitHub imports to an immutable commit SH
   assert.deepEqual(listSkillArtifactsForSkillSync(result.skillId).map((item) => item.digest), [result.artifactDigest]);
 });
 
+test("importWorkspaceSkillFromUrl imports a paginated GitLab directory at an immutable commit", async () => {
+  const result = await importWorkspaceSkillFromUrl({
+    url: "https://gitlab.com/octo-group/skill-repo/-/tree/main/skills/research-pack",
+  });
+
+  const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
+  assert.ok(skill);
+  assert.equal(skill.sourceType, "gitlab");
+  assert.equal(skill.name, "gitlab-research-pack");
+  assert.equal(skill.files.some((file) => file.path === "references/checklist.md"), true);
+  assert.equal(skill.files.some((file) => file.path === "scripts/run.sh"), true);
+
+  const artifact = readSkillArtifactByDigestSync(result.artifactDigest!, "default");
+  assert.ok(artifact);
+  const provenance = JSON.parse(artifact.provenanceJson) as { resolvedRef?: string; originalUrl?: string };
+  assert.equal(provenance.resolvedRef, "def456abc789012345678901234567890abcdef1");
+  assert.equal(provenance.originalUrl, "https://gitlab.com/octo-group/skill-repo/-/tree/main/skills/research-pack");
+  const manifest = JSON.parse(artifact.manifestJson) as { files: Array<{ path: string; mode?: string }> };
+  assert.equal(manifest.files.find((file) => file.path === "scripts/run.sh")?.mode, "0755");
+});
+
 test("importWorkspaceSkillFromUrl imports a skills.sh page by resolving its GitHub source", async () => {
   const result = await importWorkspaceSkillFromUrl({
     url: "https://skills.sh/apollographql/skills/skill-creator",
@@ -496,6 +517,39 @@ test("a successful replace records a candidate artifact without activating it", 
 function createGitHubFetchMock(): typeof fetch {
   return (async (input: string | URL | Request) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://gitlab.com/api/v4/projects/octo-group%2Fskill-repo/repository/commits/main") {
+      return jsonResponse({
+        id: "def456abc789012345678901234567890abcdef1",
+      });
+    }
+    if (url.startsWith("https://gitlab.com/api/v4/projects/octo-group%2Fskill-repo/repository/tree?")) {
+      const parsed = new URL(url);
+      assert.equal(parsed.searchParams.get("path"), "skills/research-pack");
+      assert.equal(parsed.searchParams.get("ref"), "def456abc789012345678901234567890abcdef1");
+      assert.equal(parsed.searchParams.get("recursive"), "true");
+      if (parsed.searchParams.get("page") === "2") {
+        return jsonResponse([
+          { type: "blob", path: "skills/research-pack/scripts/run.sh", mode: "100755" },
+        ]);
+      }
+      return jsonResponse([
+        { type: "blob", path: "skills/research-pack/SKILL.md", mode: "100644" },
+        { type: "blob", path: "skills/research-pack/references/checklist.md", mode: "100644" },
+      ], { "x-next-page": "2" });
+    }
+    if (url.startsWith("https://gitlab.com/api/v4/projects/octo-group%2Fskill-repo/repository/files/")) {
+      const parsed = new URL(url);
+      assert.equal(parsed.searchParams.get("ref"), "def456abc789012345678901234567890abcdef1");
+      const filePath = decodeURIComponent(parsed.pathname.split("/repository/files/")[1]!.replace(/\/raw$/, ""));
+      const contents: Record<string, string> = {
+        "skills/research-pack/SKILL.md": "---\nname: gitlab-research-pack\ndescription: GitLab research helper\n---\n# GitLab Research\n",
+        "skills/research-pack/references/checklist.md": "- verify immutable ref\n",
+        "skills/research-pack/scripts/run.sh": "#!/bin/sh\necho ready\n",
+      };
+      return contents[filePath] === undefined
+        ? new Response("Not found", { status: 404 })
+        : new Response(contents[filePath], { status: 200 });
+    }
     if (url === "https://api.github.com/repos/apollographql/skills") {
       return jsonResponse({
         default_branch: "main",
@@ -715,11 +769,12 @@ description: Search and discover skills
   }) as typeof fetch;
 }
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: {
       "content-type": "application/json",
+      ...headers,
     },
   });
 }

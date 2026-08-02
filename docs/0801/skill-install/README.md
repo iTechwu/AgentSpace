@@ -37,7 +37,7 @@
 
 | 维度 | 必须支持 | 处理方式 |
 | --- | --- | --- |
-| 来源 | 手工创建、目录、ZIP、Git SHA、Skills.sh、ClawHub、审核私有仓库、Runtime 产物、CLI 市场同步 | 均解析为不可变 artifact；注册表和分支只用于解析来源 |
+| 来源 | 手工创建、目录、ZIP、GitHub、GitLab.com、Skills.sh、ClawHub；私有仓库、Runtime 产物和 CLI 市场同步为目标形态 | 已支持的 Git 来源先锁定 commit SHA，再解析为不可变 artifact；私有来源必须先建设凭证引用模型 |
 | 内容 | `SKILL.md`、Markdown/配置、脚本、二进制 assets、references、模板、数据文件 | 文件清单保存 type、mode、size、sha256；只读 materialization |
 | 依赖 | npm、Python、系统工具、CLI 市场应用 | 受控的锁定计划、专属目录、就绪门禁；禁止来源返回自由 shell |
 | 外部能力 | 远程 Streamable HTTP MCP、受管 stdio MCP、已安装 CLI | 连接/能力绑定，不以环境变量或说明文本伪装为“已安装” |
@@ -52,7 +52,7 @@
 
 ## 当前基线与目标差距
 
-第六轮实施后，Remote 核心链路已闭环：不可变 artifact/blob、统一 package authority 和来源预算、安全下载、安装 cache 证据、真实 npm/pip/uv 隔离安装、任务 dependency env 消费、受控 Skill Runner、task bundle SHA/聚合预算、release lock/approval/fencing、`managed_service` 原子编排、L3/L4 egress、file secret、严格 catalog admission、五步安装审阅和安装证据/卸载 UI 均已进入生产调用链。`external_connection`、`platform_shared` 与 managed stdio MCP 已在 catalog/queue/claim/complete/upgrade 层 fail-closed，尚未计入支持范围。
+第六轮实施后，Remote 核心链路已闭环：不可变 artifact/blob、统一 package authority 和来源预算、安全下载、GitHub/GitLab.com commit SHA 锁定、安装 cache 证据、来源无关的 npm/pip/uv 隔离安装、任务 dependency env 消费、受控 Skill Runner、task bundle SHA/聚合预算、release lock/approval/fencing、`managed_service` 原子编排、L3/L4 egress、file secret、严格 catalog admission、五步安装审阅和安装证据/卸载 UI 均已进入生产调用链。GitLab 当前仅支持 `gitlab.com` 公共仓库的 `tree/blob/raw` URL；自建 GitLab 和私有仓库未在没有凭证引用/轮换/审计模型时开放。`external_connection`、`platform_shared` 与 managed stdio MCP 已在 catalog/queue/claim/complete/upgrade 层 fail-closed，尚未计入支持范围。
 
 当前不再存在已知“组件 ready 但任务必然不可用”的代码缺口。生产放行仍有两个环境门禁：
 

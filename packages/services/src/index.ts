@@ -127,7 +127,9 @@ export {
   type LifecycleMaintenanceResult,
 } from "./employees/lifecycle-maintenance.ts";
 export {
+  hasSkillDependenciesSync,
   hasGitHubSkillDependenciesSync,
+  queueSkillDependenciesForAgentSync,
   queueGitHubSkillDependenciesForAgentSync,
   readSkillDependencyInstallStatusSync,
   type SkillDependencyInstallStatus,

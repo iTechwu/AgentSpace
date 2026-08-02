@@ -38,7 +38,7 @@ export function SkillsPageClient({
   const router = useRouter();
   const navigationSearchParams = useSearchParams();
   const searchParams = moduleSearchParams ?? navigationSearchParams;
-  const [activeSourceFilter, setActiveSourceFilter] = useState<"all" | "builtin" | "manual" | "github" | "skills.sh" | "clawhub" | "tos">("all");
+  const [activeSourceFilter, setActiveSourceFilter] = useState<"all" | "builtin" | "manual" | "github" | "gitlab" | "skills.sh" | "clawhub" | "tos">("all");
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(data.skills[0]?.id ?? null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(data.skills[0]?.files[0]?.id ?? null);
   const [showCreateSkill, setShowCreateSkill] = useState(false);
@@ -106,7 +106,7 @@ export function SkillsPageClient({
     if (activeSourceFilter === "manual") {
       return customSkills.filter((skill) => !skill.sourceType || skill.sourceType === "manual");
     }
-    if (activeSourceFilter === "github" || activeSourceFilter === "skills.sh" || activeSourceFilter === "clawhub" || activeSourceFilter === "tos") {
+    if (activeSourceFilter === "github" || activeSourceFilter === "gitlab" || activeSourceFilter === "skills.sh" || activeSourceFilter === "clawhub" || activeSourceFilter === "tos") {
       return importedSkills.filter((skill) => skill.sourceType === activeSourceFilter);
     }
     return data.skills;
@@ -329,6 +329,7 @@ export function SkillsPageClient({
                   ["builtin", tx("系统默认", "System")],
                   ["manual", tx("手动创建", "Manual")],
                   ["github", "GitHub"],
+                  ["gitlab", "GitLab"],
                   ["skills.sh", "skills.sh"],
                   ["clawhub", "ClawHub"],
                   ["tos", tx("TOS 上传", "TOS upload")],
@@ -336,7 +337,7 @@ export function SkillsPageClient({
                   <button
                     className={`filter-pill${activeSourceFilter === value ? " filter-pill--active" : ""}`}
                     key={value}
-                    onClick={() => setActiveSourceFilter(value as "all" | "builtin" | "manual" | "github" | "skills.sh" | "clawhub" | "tos")}
+                    onClick={() => setActiveSourceFilter(value as "all" | "builtin" | "manual" | "github" | "gitlab" | "skills.sh" | "clawhub" | "tos")}
                     type="button"
                   >
                     {label}
@@ -492,6 +493,9 @@ function translateSkillSourceBadge(
   }
   if (skill.sourceType === "github") {
     return "GitHub";
+  }
+  if (skill.sourceType === "gitlab") {
+    return "GitLab";
   }
   if (skill.sourceType === "skills.sh") {
     return "skills.sh";

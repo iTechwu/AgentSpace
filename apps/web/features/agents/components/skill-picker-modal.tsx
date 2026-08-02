@@ -100,6 +100,9 @@ function translateSkillSourceLabel(
   if (skill.sourceType === "github") {
     return tx("来自 GitHub 导入", "Imported from GitHub");
   }
+  if (skill.sourceType === "gitlab") {
+    return tx("来自 GitLab 导入", "Imported from GitLab");
+  }
   if (skill.sourceType === "skills.sh") {
     return tx("来自 skills.sh 导入", "Imported from skills.sh");
   }
