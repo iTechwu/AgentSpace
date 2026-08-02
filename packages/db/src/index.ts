@@ -934,6 +934,7 @@ export {
   readManagedSkillServiceSync,
   listManagedSkillServicesSync,
   setManagedSkillServiceHealthSync,
+  setManagedSkillServiceUnreferencedSinceSync,
   completeManagedSkillServiceProvisioningSync,
   retireManagedSkillServiceSync,
   createSkillServiceBindingSync,

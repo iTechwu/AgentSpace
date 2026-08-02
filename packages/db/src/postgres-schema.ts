@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "77";
+export const POSTGRES_SCHEMA_VERSION = "78";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -2688,6 +2688,9 @@ export function getPostgresSchemaStatements(): string[] {
         updated_at TIMESTAMPTZ NOT NULL,
         UNIQUE(workspace_id, runtime_id, catalog_id)
       )
+    `,
+    `
+      ALTER TABLE managed_skill_service ADD COLUMN IF NOT EXISTS unreferenced_since TIMESTAMPTZ
     `,
     `
       CREATE TABLE IF NOT EXISTS skill_service_binding (

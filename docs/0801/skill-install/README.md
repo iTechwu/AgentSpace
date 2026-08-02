@@ -60,7 +60,7 @@
 3. 原子导入生成的 artifact 没有绑定新 Skill，安装历史和回滚可能断链，单一 `artifact.skill_id` 也无法表达共享 artifact lineage。
 4. entrypoint 同时为 `0755` 时会生成重复 script component，触发数据库唯一约束。
 5. 任务 bundle 不传 mode/SHA，安装阶段验证通过的 executable 到 Remote task workDir 后会丢失执行位；任务也没有复用已验证 cache。
-6. skill-install 与 service operation 的租约/心跳/fencing/崩溃重排、service managed-node worker（docker 生命周期 + retire）、retire 生命周期 + catalog 准入加固（schema v77）均已实现并有专属测试（catalog 14/14 + bindings 14/14 + db 8/8 + runtime 13/13 + worker 6/6 + 路由 3/3 + maintenance 5/5）；**剩余**：secret 注入、egress 强制、真实 uninstall 路径。
+6. skill-install 与 service operation 的租约/心跳/fencing/崩溃重排、service managed-node worker（docker 生命周期 + retire）、retire 生命周期 + catalog 准入加固（schema v77）+ rollback_class 感知退役（schema v78，冷却窗/不可逆保护）均已实现并有专属测试（catalog 14/14 + bindings 17/17 + db 8/8 + runtime 13/13 + worker 6/6 + 路由 3/3 + maintenance 5/5）；**剩余**：secret 注入、egress 运行时强制、真实 uninstall 路径。
 
 此外，下载 URL 仍缺 storage origin/redirect 限制和流式硬上限；package manifest 的 version/integrity/mode/完整文件集合仍会丢失；持久审批、managed-node worker、五步 UI、迁移与可观测性尚未完成。Release lock 已接入安装和升级路径，service/MCP 字段、可重现 `lockDigest`、落库与 claim 均有测试；但 unresolved required 项、Daemon/task/approval/rollback 消费链和历史重建仍未完成。
 

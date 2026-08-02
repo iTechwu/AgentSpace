@@ -55,6 +55,18 @@ function createTestRuntime(): string {
 
 const CATALOG_SLUG = "bindings-renderer";
 
+/** Distinct slug per rollback class so the immutable catalog first-write is not poisoned across tests. */
+function seedCatalogWithRollback(slug: string, rollbackClass: string): string {
+  return upsertSkillServiceCatalogSync({
+    workspaceId: "default",
+    slug,
+    templateVersion: "1.0.0",
+    deploymentType: "managed_service",
+    imageDigest: `sha256:${"a".repeat(64)}`,
+    rollbackClass,
+  }).id;
+}
+
 function seedRendererCatalog(): string {
   return upsertSkillServiceCatalogSync({
     workspaceId: "default",
@@ -481,4 +493,87 @@ test("sweep skips already-retired and still-provisioning services", async () => 
   const retired = retireUnreferencedManagedSkillServicesSync({ workspaceId: "default" });
   assert.ok(!retired.includes(retiredService.id));
   assert.ok(!retired.includes(provisioningService.id));
+});
+
+test("sweep honors the backward_compatible cooldown before retiring", async () => {
+  const runtimeId = createTestRuntime();
+  const catalogId = seedCatalogWithRollback("compat-renderer", "backward_compatible");
+  const service = createManagedSkillServiceSync({ workspaceId: "default", runtimeId, catalogId, status: "ready" });
+
+  // First pass: record unreferenced_since, do not retire.
+  const first = retireUnreferencedManagedSkillServicesSync({
+    workspaceId: "default",
+    now: new Date("2026-01-01T00:00:00Z"),
+    cooldownMs: 60_000,
+  });
+  assert.deepEqual(first, []);
+  assert.ok(readManagedSkillServiceSync(service.id, "default")?.unreferencedSince);
+  assert.equal(listManagedSkillServiceOperationsSync({ workspaceId: "default", serviceId: service.id }).length, 0);
+
+  // Inside the cooldown window: still no retire (rollback could re-bind).
+  const inside = retireUnreferencedManagedSkillServicesSync({
+    workspaceId: "default",
+    now: new Date("2026-01-01T00:00:30Z"),
+    cooldownMs: 60_000,
+  });
+  assert.deepEqual(inside, []);
+
+  // After the window elapses: retire is queued.
+  const after = retireUnreferencedManagedSkillServicesSync({
+    workspaceId: "default",
+    now: new Date("2026-01-01T00:01:01Z"),
+    cooldownMs: 60_000,
+  });
+  assert.deepEqual(after, [service.id]);
+  const ops = listManagedSkillServiceOperationsSync({ workspaceId: "default", serviceId: service.id });
+  assert.equal(ops.length, 1);
+  assert.equal(ops[0]!.operation, "retire");
+});
+
+test("sweep never auto-retires an irreversible_migration service", async () => {
+  const runtimeId = createTestRuntime();
+  const catalogId = seedCatalogWithRollback("irreversible-renderer", "irreversible_migration");
+  const service = createManagedSkillServiceSync({ workspaceId: "default", runtimeId, catalogId, status: "ready" });
+
+  const retired = retireUnreferencedManagedSkillServicesSync({
+    workspaceId: "default",
+    now: new Date("2026-01-01T00:00:00Z"),
+    cooldownMs: 0,
+  });
+  assert.deepEqual(retired, []);
+  assert.equal(listManagedSkillServiceOperationsSync({ workspaceId: "default", serviceId: service.id }).length, 0);
+  assert.equal(
+    readManagedSkillServiceSync(service.id, "default")?.unreferencedSince,
+    undefined,
+    "irreversible services are never marked for cooldown",
+  );
+});
+
+test("sweep resets the cooldown when a backward_compatible service is re-referenced", async () => {
+  const runtimeId = createTestRuntime();
+  const catalogId = seedCatalogWithRollback("compat-reref", "backward_compatible");
+  const service = createManagedSkillServiceSync({ workspaceId: "default", runtimeId, catalogId, status: "ready" });
+
+  retireUnreferencedManagedSkillServicesSync({
+    workspaceId: "default",
+    now: new Date("2026-01-01T00:00:00Z"),
+    cooldownMs: 60_000,
+  });
+  assert.ok(readManagedSkillServiceSync(service.id, "default")?.unreferencedSince);
+
+  // Re-bind → the window resets so a rollback is not torn down.
+  const installationId = createMinimalInstallation(runtimeId);
+  createSkillServiceBindingSync({
+    installationId,
+    serviceId: service.id,
+    catalogTemplateVersion: "1.0.0",
+    serviceImageDigest: `sha256:${"a".repeat(64)}`,
+    endpointRef: "runtime-private://compat-reref",
+  });
+  retireUnreferencedManagedSkillServicesSync({
+    workspaceId: "default",
+    now: new Date("2026-01-01T00:00:10Z"),
+    cooldownMs: 60_000,
+  });
+  assert.equal(readManagedSkillServiceSync(service.id, "default")?.unreferencedSince, undefined);
 });

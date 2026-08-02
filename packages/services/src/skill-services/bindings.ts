@@ -12,6 +12,7 @@ import {
   readManagedSkillServiceSync,
   readSkillServiceCatalogSync,
   retireManagedSkillServiceSync,
+  setManagedSkillServiceUnreferencedSinceSync,
   type ManagedSkillServiceOperationRecord,
 } from "@dofe-agent/db";
 import type { ClaimedManagedSkillServiceOperation } from "@dofe-agent/domain";
@@ -218,24 +219,63 @@ export function queueManagedSkillServiceRetireSync(input: {
 }
 
 /**
- * Service lifecycle sweep: queues a retire operation for every `ready`/`degraded`
- * managed service that has no remaining `skill_service_binding` — i.e. the last
- * referencing installation is gone (bindings cascade-delete with their
- * installation). Conservative by design: a service bound to ANY existing
- * installation stays up. Returns the service ids newly queued for retirement.
+ * Default cooldown before a `backward_compatible` service is auto-retired after
+ * it stops being referenced — an upgrade window in which a rollback can re-bind
+ * the same instance instead of re-provisioning. Env-overridable.
+ */
+export const SERVICE_RETIRE_COOLDOWN_MS = Number(
+  process.env.DOFE_AGENT_SERVICE_RETIRE_COOLDOWN_MS ?? 24 * 60 * 60 * 1000,
+);
+
+/**
+ * Service lifecycle sweep. A service is unreferenced when it has no remaining
+ * `skill_service_binding` (the last referencing installation is gone — bindings
+ * cascade-delete with their installation). Retirement honors the catalog
+ * `rollback_class`:
+ *  - `stateless` (default): queue the retire operation immediately.
+ *  - `backward_compatible`: keep the instance for a cooldown window after it
+ *    first becomes unreferenced, so an upgrade rollback can re-bind it; only
+ *    retire once the window elapses.
+ *  - `irreversible_migration`: never auto-retire (manual ops only).
+ * A re-reference resets the cooldown window. Returns the newly-queued ids.
  */
 export function retireUnreferencedManagedSkillServicesSync(
-  options?: { workspaceId?: string },
+  options?: { workspaceId?: string; now?: Date; cooldownMs?: number },
 ): string[] {
   const workspaceId = options?.workspaceId ?? "default";
+  const now = options?.now ?? new Date();
+  const cooldownMs = options?.cooldownMs ?? SERVICE_RETIRE_COOLDOWN_MS;
+  const catalogByRollbackClass = new Map(
+    listSkillServiceCatalogSync(workspaceId).map((catalog) => [catalog.id, catalog.rollbackClass]),
+  );
   const retired: string[] = [];
+
   for (const service of listManagedSkillServicesSync(workspaceId)) {
     if (service.status !== "ready" && service.status !== "degraded") {
       continue;
     }
-    if (listSkillServiceBindingsForServiceSync(service.id).length > 0) {
+    const referenced = listSkillServiceBindingsForServiceSync(service.id).length > 0;
+    if (referenced) {
+      if (service.unreferencedSince) {
+        setManagedSkillServiceUnreferencedSinceSync({ serviceId: service.id, workspaceId });
+      }
       continue;
     }
+
+    const rollbackClass = catalogByRollbackClass.get(service.catalogId) ?? "stateless";
+    if (rollbackClass === "irreversible_migration") {
+      continue;
+    }
+    if (rollbackClass === "backward_compatible") {
+      if (!service.unreferencedSince) {
+        setManagedSkillServiceUnreferencedSinceSync({ serviceId: service.id, workspaceId, since: now.toISOString() });
+        continue;
+      }
+      if (Date.parse(service.unreferencedSince) + cooldownMs > now.getTime()) {
+        continue;
+      }
+    }
+
     const result = queueManagedSkillServiceRetireSync({ workspaceId, serviceId: service.id });
     if (result.queued) {
       retired.push(service.id);

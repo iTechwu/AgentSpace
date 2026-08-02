@@ -1555,6 +1555,8 @@ export interface StoredManagedSkillServiceRecord {
   lastHealth?: string;
   lastHealthAt?: string;
   rolloutRevision: string;
+  /** Set by the retire sweep when the service first became unreferenced (rollback-cooldown window). */
+  unreferencedSince?: string;
   createdAt: string;
   updatedAt: string;
 }

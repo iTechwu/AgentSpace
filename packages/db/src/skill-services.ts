@@ -47,7 +47,7 @@ const MANAGED_SKILL_SERVICE_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, runtime_id AS runtimeId, catalog_id AS catalogId,
   status, network_identity AS networkIdentity, resource_profile_json AS resourceProfileJson,
   last_health AS lastHealth, last_health_at AS lastHealthAt,
-  rollout_revision AS rolloutRevision, created_at AS createdAt, updated_at AS updatedAt`;
+  rollout_revision AS rolloutRevision, unreferenced_since, created_at AS createdAt, updated_at AS updatedAt`;
 
 const SKILL_SERVICE_BINDING_COLUMNS = `SELECT
   installation_id AS installationId, service_id AS serviceId,
@@ -225,6 +225,21 @@ export function completeManagedSkillServiceProvisioningSync(input: {
   });
 }
 
+/** Records when a service first became unreferenced (or clears it on re-reference). */
+export function setManagedSkillServiceUnreferencedSinceSync(input: {
+  serviceId: string;
+  workspaceId?: string;
+  since?: string;
+}): boolean {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const result = db.prepare(
+    `UPDATE managed_skill_service SET unreferenced_since = ?, updated_at = ?
+     WHERE id = ? AND workspace_id = ?`,
+  ).run(input.since ?? null, new Date().toISOString(), input.serviceId, workspaceId);
+  return result.changes > 0;
+}
+
 /** Retires a managed service (ready/degraded → retired). */
 export function retireManagedSkillServiceSync(input: {
   serviceId: string;
@@ -384,6 +399,7 @@ function mapManagedSkillServiceRecord(value: Record<string, unknown>): StoredMan
     lastHealth: readOptionalString(value.lastHealth),
     lastHealthAt: readOptionalString(value.lastHealthAt),
     rolloutRevision: value.rolloutRevision,
+    unreferencedSince: readOptionalString(value.unreferencedSince),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };
