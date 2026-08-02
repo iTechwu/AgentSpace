@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Client } from "pg";
@@ -211,7 +212,7 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "document_permission_request", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_access_request", conflictColumns: ["id"], jsonColumns: ["audit_data_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "workspace_notification", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "created_at ASC, id ASC" },
-  { tableName: "employee_runtime_binding", conflictColumns: ["workspace_id", "employee_name"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC" },
+  { tableName: "employee_runtime_binding", conflictColumns: ["workspace_id", "employee_id"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC" },
   { tableName: "runtime_app_catalog_item", conflictColumns: ["source", "name"], jsonColumns: ["registry_json"], orderBy: "synced_at ASC, source ASC, name ASC" },
   { tableName: "runtime_installed_app", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "updated_at ASC, id ASC" },
   { tableName: "runtime_app_operation", conflictColumns: ["id"], jsonColumns: ["command_plan_json"], orderBy: "created_at ASC, id ASC" },
@@ -219,10 +220,10 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "skill_file", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
   { tableName: "runtime_app_skill_binding", conflictColumns: ["workspace_id", "runtime_app_id", "skill_id"], orderBy: "created_at ASC, workspace_id ASC, runtime_app_id ASC, skill_id ASC" },
   { tableName: "skill_import_event", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "imported_at ASC, id ASC" },
-  { tableName: "agent_skill", conflictColumns: ["workspace_id", "employee_name", "skill_id"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC, skill_id ASC" },
-  { tableName: "agent_skill_requirement_config", conflictColumns: ["workspace_id", "employee_name", "skill_id"], jsonColumns: ["config_json", "encrypted_secrets_json"], optionalWhenMissing: true, orderBy: "created_at ASC, workspace_id ASC, employee_name ASC, skill_id ASC" },
+  { tableName: "agent_skill", conflictColumns: ["workspace_id", "employee_id", "skill_id"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC, skill_id ASC" },
+  { tableName: "agent_skill_requirement_config", conflictColumns: ["workspace_id", "employee_id", "skill_id"], jsonColumns: ["config_json", "encrypted_secrets_json"], optionalWhenMissing: true, orderBy: "created_at ASC, workspace_id ASC, employee_name ASC, skill_id ASC" },
   { tableName: "knowledge_page_assignment_policy", conflictColumns: ["workspace_id", "knowledge_page_id"], orderBy: "updated_at ASC, workspace_id ASC, knowledge_page_id ASC" },
-  { tableName: "agent_knowledge_page", conflictColumns: ["workspace_id", "employee_name", "knowledge_page_id"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC, knowledge_page_id ASC" },
+  { tableName: "agent_knowledge_page", conflictColumns: ["workspace_id", "employee_id", "knowledge_page_id"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC, knowledge_page_id ASC" },
   { tableName: "agent_router_session", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_router_provider_session", conflictColumns: ["id"], jsonColumns: ["metadata_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_task_queue", conflictColumns: ["id"], jsonColumns: ["input_json", "result_json"], orderBy: "created_at ASC, id ASC" },
@@ -468,6 +469,7 @@ export function collectSqliteMigrationSnapshotSync(
     rows: readSqliteTableRowsSync(sourceDb, plan, warnings),
   }));
   filterMigrationTablesToSsoIdentities(tables);
+  backfillStableEmployeeIds(tables, warnings);
 
   const workspaceSnapshots = tables.find((table) => table.tableName === "workspace_snapshot")?.rows as LegacyWorkspaceRow[] | undefined;
   const derivedAttachments = workspaceSnapshots
@@ -622,6 +624,48 @@ function readSqliteTableRowsSync(
   ).all() as MigrationRow[];
 
   return rows.map((row) => normalizeSqliteRow(row, plan.jsonColumns ?? []));
+}
+
+function backfillStableEmployeeIds(tables: TableMigrationSnapshot[], warnings: string[]): void {
+  const employeeRows = tables.find((table) => table.tableName === "workspace_employee")?.rows ?? [];
+  const employeeIds = new Map<string, string>();
+  for (const row of employeeRows) {
+    if (typeof row.workspace_id === "string" && typeof row.name === "string") {
+      const key = `${row.workspace_id}\u0000${row.name.trim().toLowerCase()}`;
+      const employeeId = typeof row.id === "string" && row.id.trim()
+        ? row.id.trim()
+        : `employee-${createHash("sha256").update(key).digest("hex").slice(0, 32)}`;
+      row.id = employeeId;
+      employeeIds.set(key, employeeId);
+    }
+  }
+
+  for (const tableName of [
+    "employee_runtime_binding",
+    "agent_skill",
+    "agent_skill_requirement_config",
+    "agent_knowledge_page",
+  ]) {
+    const table = tables.find((candidate) => candidate.tableName === tableName);
+    if (!table) continue;
+    table.rows = table.rows.filter((row) => {
+      const existingId = typeof row.employee_id === "string" ? row.employee_id.trim() : "";
+      const workspaceId = typeof row.workspace_id === "string" ? row.workspace_id : "";
+      const employeeName = typeof row.employee_name === "string" ? row.employee_name.trim() : "";
+      const employeeId = existingId || employeeIds.get(`${workspaceId}\u0000${employeeName.toLowerCase()}`);
+      if (!employeeId) {
+        warnings.push(
+          `SQLite ${tableName} row for employee "${employeeName || "(missing)"}" in workspace "${workspaceId || "(missing)"}" was skipped because no stable employee id exists.`,
+        );
+        return false;
+      }
+      row.employee_id = employeeId;
+      if (tableName === "agent_skill" || tableName === "agent_knowledge_page") {
+        row.agent_id = employeeId;
+      }
+      return true;
+    });
+  }
 }
 
 async function collectPostgresMigrationSnapshot(client: Client): Promise<TableMigrationSnapshot[]> {

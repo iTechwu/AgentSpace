@@ -258,16 +258,16 @@ export function hardDeleteWorkspaceSync(id: string): HardDeleteWorkspaceResult {
       db.prepare("DELETE FROM workspace_channel WHERE workspace_id = ?").run(id).changes,
     );
 
-    const removedEmployeeRows = Number(
-      db.prepare("DELETE FROM workspace_employee WHERE workspace_id = ?").run(id).changes,
-    );
-
     const removedAgentSkillRows = Number(
       db.prepare("DELETE FROM agent_skill WHERE workspace_id = ?").run(id).changes,
     );
 
     const removedAgentKnowledgePageRows = Number(
       db.prepare("DELETE FROM agent_knowledge_page WHERE workspace_id = ?").run(id).changes,
+    );
+
+    const removedEmployeeRows = Number(
+      db.prepare("DELETE FROM workspace_employee WHERE workspace_id = ?").run(id).changes,
     );
 
     const removedKnowledgeAssignmentPolicyRows = Number(

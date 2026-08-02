@@ -42,7 +42,7 @@ test("postgres schema includes the expected core and derived tables", () => {
 test("postgres schema enforces SSO-only identities", () => {
   const statements = getPostgresSchemaStatements().join("\n");
 
-  assert.equal(POSTGRES_SCHEMA_VERSION, "91");
+  assert.equal(POSTGRES_SCHEMA_VERSION, "92");
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_token TEXT/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_expires_at TIMESTAMPTZ/);
   assert.match(statements, /runtime_workspace_mount_operation\s+ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ/);
@@ -654,6 +654,21 @@ test("collectSqliteMigrationSnapshotSync extracts relational rows and derived at
       `INSERT INTO workspace_membership (id, workspace_id, user_id, role, status, joined_at, invited_by)
        VALUES (?, ?, ?, ?, ?, ?, NULL)`,
     ).run("membership-1", "default", "user-1", "owner", "active", timestamp);
+    db.prepare(
+      `INSERT INTO workspace_employee (
+         workspace_id, name, role, origin, summary, traits_json, fit, status,
+         instructions, version, created_at, updated_at
+       ) VALUES (?, ?, 'Agent', 'manual', '', '[]', 'Ready', 'active', '', 1, ?, ?)`,
+    ).run("default", "Atlas", timestamp, timestamp);
+    db.prepare(
+      `INSERT INTO skill (
+         id, workspace_id, name, description, source_type, config_json, created_at, updated_at
+       ) VALUES (?, ?, ?, '', 'manual', '{}', ?, ?)`,
+    ).run("skill-atlas", "default", "Atlas Skill", timestamp, timestamp);
+    db.prepare(
+      `INSERT INTO agent_skill (workspace_id, employee_name, skill_id, created_at)
+       VALUES (?, ?, ?, ?)`,
+    ).run("default", "Atlas", "skill-atlas", timestamp);
 
     const stateJson = JSON.stringify({
       organizationName: "Northstar Labs",
@@ -753,6 +768,8 @@ test("collectSqliteMigrationSnapshotSync extracts relational rows and derived at
     const snapshot = collectSqliteMigrationSnapshotSync(sourceDb, "2026-04-23T13:00:00.000Z");
 
     const workspaceRows = snapshot.tables.find((table) => table.tableName === "workspace")?.rows ?? [];
+    const employeeRows = snapshot.tables.find((table) => table.tableName === "workspace_employee")?.rows ?? [];
+    const agentSkillRows = snapshot.tables.find((table) => table.tableName === "agent_skill")?.rows ?? [];
     const authIdentityRows = snapshot.tables.find((table) => table.tableName === "auth_identity")?.rows ?? [];
     const sessionRows = snapshot.tables.find((table) => table.tableName === "session")?.rows ?? [];
     const workspaceSnapshotRows = snapshot.tables.find((table) => table.tableName === "workspace_snapshot")?.rows ?? [];
@@ -762,6 +779,9 @@ test("collectSqliteMigrationSnapshotSync extracts relational rows and derived at
     const auditLogRows = snapshot.tables.find((table) => table.tableName === "audit_log")?.rows ?? [];
 
     assert.equal(workspaceRows.length, 1);
+    assert.equal(typeof employeeRows[0]?.id, "string");
+    assert.equal(agentSkillRows[0]?.employee_id, employeeRows[0]?.id);
+    assert.equal(agentSkillRows[0]?.agent_id, employeeRows[0]?.id);
     assert.equal(authIdentityRows.length, 0);
     assert.equal(sessionRows.length, 0);
     assert.equal(workspaceSnapshotRows.length, 1);
