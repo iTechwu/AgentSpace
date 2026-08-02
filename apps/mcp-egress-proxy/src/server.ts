@@ -293,7 +293,13 @@ function leaseErrorStatus(code: McpEgressErrorCode): number {
 
 function setTrustedHeader(headers: Record<string, string>, name: string, value: string): void {
   const lower = name.toLowerCase();
-  if (!lower || FORBIDDEN_TRUSTED_HEADERS.has(lower) || lower.startsWith("proxy-") || lower.startsWith("x-dofe-")) {
+  if (
+    !/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(lower) ||
+    /[\r\n]/.test(value) ||
+    FORBIDDEN_TRUSTED_HEADERS.has(lower) ||
+    lower.startsWith("proxy-") ||
+    lower.startsWith("x-dofe-")
+  ) {
     throw new Error("Trusted authentication policy contains a forbidden header.");
   }
   headers[lower] = value;

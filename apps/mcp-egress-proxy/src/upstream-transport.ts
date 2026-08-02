@@ -5,12 +5,10 @@ import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision 
 import { validateMcpEndpoint, validateMcpResolvedAddresses } from "@dofe-agent/services/mcp-center/security";
 
 const ALLOWED_METHODS = new Set(["GET", "POST", "DELETE"]);
-const MCP_CONTENT_TYPES = [
+const MCP_CONTENT_TYPES = new Set([
   "application/json",
   "text/event-stream",
-  "application/json; charset=utf-8",
-  "text/event-stream; charset=utf-8",
-];
+]);
 const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
   "connection",
   "keep-alive",
@@ -97,7 +95,7 @@ export async function forwardToUpstream(
   }
 
   const contentType = String(request.headers["content-type"] ?? "").toLowerCase();
-  if (request.method === "POST" && !MCP_CONTENT_TYPES.some((allowed) => contentType.startsWith(allowed))) {
+  if (request.method === "POST" && !isAllowedMcpContentType(contentType)) {
     return reject("mcp_egress.policy_denied", "Content-Type is not allowed for MCP Streamable HTTP.");
   }
 
@@ -156,8 +154,14 @@ export function normalizeAllowedPath(requestPath: string, prefix: string): strin
     return undefined;
   }
   const normalizedPrefix = prefix.length > 1 && prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+  if (normalizedPrefix === "/") return pathname;
   if (pathname !== normalizedPrefix && !pathname.startsWith(`${normalizedPrefix}/`)) return undefined;
   return pathname;
+}
+
+export function isAllowedMcpContentType(value: string): boolean {
+  const [mediaType] = value.split(";", 1);
+  return MCP_CONTENT_TYPES.has(mediaType?.trim().toLowerCase() ?? "");
 }
 
 interface PinnedHttpsRequestInput {
