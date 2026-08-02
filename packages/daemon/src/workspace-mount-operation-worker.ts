@@ -44,8 +44,8 @@ export async function executeWorkspaceMountOperation(
       runtimeId: operation.runtimeId,
     });
   } finally {
-    // The persistent runtime workspace is deliberately KEPT — only a stale
-    // partially-materialized dir from a previous failed mount is cleared by the
-    // strict materializer's per-file overwrite. No cleanup here.
+    // The persistent runtime workspace is deliberately kept. A retry reuses
+    // only regular files whose digest matches the pinned durable revision;
+    // divergent or symlinked targets remain a fail-closed mount error.
   }
 }

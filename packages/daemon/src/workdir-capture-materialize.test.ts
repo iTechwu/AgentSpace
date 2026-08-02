@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
@@ -68,6 +68,21 @@ test("materializeHeadRevisionToWorkDir counts a missing blob instead of silently
   seedHeadRevision(JSON.stringify({
     files: [{ path: "repository/src/main.ts", sha256: "f".repeat(64), size: 4, mediaType: "text/typescript" }],
   }));
+
+  const result = materializeHeadRevisionToWorkDir(tempRoot, {
+    workspaceId: WORKSPACE_ID,
+    employeeName: "WDC Worker",
+  });
+  assert.equal(result.materializedFiles, 0);
+  assert.equal(result.missingBlobs, 1);
+});
+
+test("an existing local file cannot hide a missing durable blob", () => {
+  seedHeadRevision(JSON.stringify({
+    files: [{ path: "repository/src/main.ts", sha256: "d".repeat(64), size: 4, mediaType: "text/typescript" }],
+  }));
+  mkdirSync(join(tempRoot, "repository/src"), { recursive: true });
+  writeFileSync(join(tempRoot, "repository/src/main.ts"), "stale local copy");
 
   const result = materializeHeadRevisionToWorkDir(tempRoot, {
     workspaceId: WORKSPACE_ID,

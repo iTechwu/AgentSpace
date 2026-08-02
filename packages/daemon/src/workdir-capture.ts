@@ -240,9 +240,6 @@ export function materializeHeadRevisionToWorkDir(
   let missingBlobs = 0;
   for (const file of manifest.files ?? []) {
     const targetPath = resolveCapturedPath(workDir, file.path);
-    if (existsSync(targetPath)) {
-      continue;
-    }
     let bytes: Uint8Array;
     try {
       bytes = storage.getContentAddressedBlobSync({
@@ -257,6 +254,20 @@ export function materializeHeadRevisionToWorkDir(
     // never be restored as if it were the durable revision.
     if (sha256Hex(bytes) !== file.sha256.toLowerCase()) {
       missingBlobs += 1;
+      continue;
+    }
+    if (existsSync(targetPath)) {
+      try {
+        const stat = lstatSync(targetPath);
+        const localBytes = stat.isFile() && !stat.isSymbolicLink()
+          ? readFileSync(targetPath)
+          : null;
+        if (!localBytes || sha256Hex(localBytes) !== file.sha256.toLowerCase()) {
+          missingBlobs += 1;
+        }
+      } catch {
+        missingBlobs += 1;
+      }
       continue;
     }
     try {
@@ -303,6 +314,7 @@ export function materializeHeadRevisionToWorkDirStrict(
   const expectedFiles = (manifest.files ?? []).length;
   let materializedFiles = 0;
   for (const file of manifest.files ?? []) {
+    const targetPath = resolveCapturedPath(workDir, file.path);
     let bytes: Uint8Array;
     try {
       bytes = storage.getContentAddressedBlobSync({
@@ -316,12 +328,24 @@ export function materializeHeadRevisionToWorkDirStrict(
       throw new Error(`Workspace mount failed: blob digest mismatch for "${file.path}".`);
     }
     try {
-      mkdirParentsNoFollow(dirname(resolveCapturedPath(workDir, file.path)), workDir);
-      writeFileNoFollow(resolveCapturedPath(workDir, file.path), bytes);
-      applyCapturedMode(resolveCapturedPath(workDir, file.path), file.mode);
+      mkdirParentsNoFollow(dirname(targetPath), workDir);
+      if (existsSync(targetPath)) {
+        const stat = lstatSync(targetPath);
+        if (!stat.isFile() || stat.isSymbolicLink()) {
+          throw new Error("existing target is not a regular file");
+        }
+        const existingBytes = readFileBytesNoFollow(targetPath);
+        if (sha256Hex(existingBytes) !== file.sha256.toLowerCase()) {
+          throw new Error("existing target digest differs from the durable revision");
+        }
+      } else {
+        writeFileNoFollow(targetPath, bytes);
+      }
+      applyCapturedMode(targetPath, file.mode);
       materializedFiles += 1;
-    } catch {
-      throw new Error(`Workspace mount failed: could not write "${file.path}" into the verify dir.`);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Workspace mount failed: could not safely materialize "${file.path}": ${detail}.`);
     }
   }
   if (materializedFiles !== expectedFiles) {
