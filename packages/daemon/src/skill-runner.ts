@@ -26,6 +26,8 @@ import { buildSkillDependencyTaskEnvironment } from "./skill-install/task-enviro
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_MAX_CONCURRENT_RUNS = 2;
+const MAX_CONCURRENT_RUNS = 32;
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_ARGUMENTS = 64;
@@ -158,6 +160,7 @@ export async function startSkillRunnerBroker(input: {
   const token = randomBytes(32).toString("hex");
   const environment = input.environment ?? process.env;
   const runnerTimeoutMs = resolveRunnerTimeout(environment);
+  const maxConcurrentRuns = resolveRunnerMaxConcurrency(environment);
   const inspectImage = input.inspectImage ?? isSkillRunnerImageAvailableLocally;
   const configuredImages = new Map<SkillEntrypointRuntime, string>();
   const runnerImages = new Map<SkillEntrypointRuntime, string>();
@@ -169,6 +172,7 @@ export async function startSkillRunnerBroker(input: {
   }
   const execute = input.execute ?? executeDockerSkillRunner;
   const activeContainers = new Set<string>();
+  const activeRuns = new Set<string>();
   const brokerCleanup = new Map<string, Promise<void>>();
   let closing = false;
   const server = createServer((request, response) => {
@@ -178,9 +182,11 @@ export async function startSkillRunnerBroker(input: {
       byKey,
       runnerImages,
       runnerTimeoutMs,
+      maxConcurrentRuns,
       environment,
       execute,
       activeContainers,
+      activeRuns,
       brokerCleanup,
       isClosing: () => closing,
     });
@@ -261,8 +267,10 @@ async function handleBrokerRequest(
     byKey: Map<string, DaemonSkillRunnerEntrypoint>;
     runnerImages: Map<SkillEntrypointRuntime, string>;
     runnerTimeoutMs: number;
+    maxConcurrentRuns: number;
     execute: (args: string[], timeoutMs: number, containerName?: string, environment?: NodeJS.ProcessEnv) => Promise<SkillRunnerExecutionResult>;
     activeContainers: Set<string>;
+    activeRuns: Set<string>;
     brokerCleanup: Map<string, Promise<void>>;
     isClosing: () => boolean;
   },
@@ -295,60 +303,73 @@ async function handleBrokerRequest(
       sendJson(response, 503, { error: "skill_runner.broker_closing" });
       return;
     }
-    const outputDir = createPrivateRunnerOutputDir(context.stateDir, entrypoint.key);
-    let privateConfig: { dir: string; file: string } | undefined;
-    let preservePrivateState = false;
-    try {
-      const dependencyReference = context.dependencyEnvironments?.find(
-        (candidate) => candidate.installationId === entrypoint.installationId,
-      );
-      let dependencyDir: string | undefined;
-      if (dependencyReference) {
-        buildSkillDependencyTaskEnvironment({
-          stateDir: context.stateDir,
-          workspaceId: context.workspaceId,
-          environments: [dependencyReference],
-          baseEnv: {},
-        });
-        dependencyDir = getDaemonSkillInstallEnvsDirPath(context.stateDir, {
-          workspaceId: context.workspaceId,
-          installationId: entrypoint.installationId,
-        });
-      }
-      privateConfig = createPrivateRunnerConfig(context.stateDir, entrypoint, context.skillEnv ?? {});
-      const containerName = buildSkillRunnerContainerName(entrypoint.key);
-      const args = buildSkillRunnerDockerArgs({
-        image,
-        containerName,
-        runtime: entrypoint.runtime,
-        artifactDir,
-        workspaceDir: resolve(context.workDir),
-        outputDir,
-        configFile: privateConfig?.file,
-        dependencyDir,
-        entrypointPath: entrypoint.path,
-        argv,
+    if (context.activeRuns.size >= context.maxConcurrentRuns) {
+      sendJson(response, 429, {
+        error: "skill_runner.concurrency_limit_exceeded",
+        message: "Skill Runner is at its task-scoped concurrency limit.",
       });
-      context.activeContainers.add(containerName);
-      let result: SkillRunnerExecutionResult;
+      return;
+    }
+    const runLease = randomBytes(16).toString("hex");
+    context.activeRuns.add(runLease);
+    try {
+      const outputDir = createPrivateRunnerOutputDir(context.stateDir, entrypoint.key);
+      let privateConfig: { dir: string; file: string } | undefined;
+      let preservePrivateState = false;
       try {
-        result = await context.execute(args, context.runnerTimeoutMs, containerName, context.environment);
-        const cleanup = context.brokerCleanup.get(containerName);
-        if (cleanup) await cleanup;
-      } catch (error) {
-        preservePrivateState = error instanceof SkillRunnerContainerCleanupError;
-        throw error;
+        const dependencyReference = context.dependencyEnvironments?.find(
+          (candidate) => candidate.installationId === entrypoint.installationId,
+        );
+        let dependencyDir: string | undefined;
+        if (dependencyReference) {
+          buildSkillDependencyTaskEnvironment({
+            stateDir: context.stateDir,
+            workspaceId: context.workspaceId,
+            environments: [dependencyReference],
+            baseEnv: {},
+          });
+          dependencyDir = getDaemonSkillInstallEnvsDirPath(context.stateDir, {
+            workspaceId: context.workspaceId,
+            installationId: entrypoint.installationId,
+          });
+        }
+        privateConfig = createPrivateRunnerConfig(context.stateDir, entrypoint, context.skillEnv ?? {});
+        const containerName = buildSkillRunnerContainerName(entrypoint.key);
+        const args = buildSkillRunnerDockerArgs({
+          image,
+          containerName,
+          runtime: entrypoint.runtime,
+          artifactDir,
+          workspaceDir: resolve(context.workDir),
+          outputDir,
+          configFile: privateConfig?.file,
+          dependencyDir,
+          entrypointPath: entrypoint.path,
+          argv,
+        });
+        context.activeContainers.add(containerName);
+        let result: SkillRunnerExecutionResult;
+        try {
+          result = await context.execute(args, context.runnerTimeoutMs, containerName, context.environment);
+          const cleanup = context.brokerCleanup.get(containerName);
+          if (cleanup) await cleanup;
+        } catch (error) {
+          preservePrivateState = error instanceof SkillRunnerContainerCleanupError;
+          throw error;
+        } finally {
+          context.activeContainers.delete(containerName);
+          context.brokerCleanup.delete(containerName);
+        }
+        const outputFiles = collectRunnerOutput(outputDir);
+        sendJson(response, result.exitCode === 0 && !result.timedOut ? 200 : 422, { ...result, outputFiles });
       } finally {
-        context.activeContainers.delete(containerName);
-        context.brokerCleanup.delete(containerName);
+        if (!preservePrivateState) {
+          if (privateConfig) rmSync(privateConfig.dir, { recursive: true, force: true });
+          rmSync(outputDir, { recursive: true, force: true });
+        }
       }
-      const outputFiles = collectRunnerOutput(outputDir);
-      sendJson(response, result.exitCode === 0 && !result.timedOut ? 200 : 422, { ...result, outputFiles });
     } finally {
-      if (!preservePrivateState) {
-        if (privateConfig) rmSync(privateConfig.dir, { recursive: true, force: true });
-        rmSync(outputDir, { recursive: true, force: true });
-      }
+      context.activeRuns.delete(runLease);
     }
   } catch (error) {
     sendJson(response, 500, {
@@ -597,6 +618,13 @@ export function isSkillRunnerImageAvailableLocally(image: string, env: NodeJS.Pr
 function resolveRunnerTimeout(env: NodeJS.ProcessEnv): number {
   const parsed = Number(env.DOFE_SKILL_RUNNER_TIMEOUT_MS);
   return Number.isFinite(parsed) && parsed > 0 ? Math.min(Math.floor(parsed), MAX_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS;
+}
+
+function resolveRunnerMaxConcurrency(env: NodeJS.ProcessEnv): number {
+  const parsed = Number(env.DOFE_SKILL_RUNNER_MAX_CONCURRENCY);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.min(Math.floor(parsed), MAX_CONCURRENT_RUNS)
+    : DEFAULT_MAX_CONCURRENT_RUNS;
 }
 
 function interpreterForRuntime(runtime: SkillEntrypointRuntime): string {

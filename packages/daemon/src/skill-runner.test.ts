@@ -310,6 +310,72 @@ test("startSkillRunnerBroker rejects duplicate task-scoped entrypoint keys", asy
   }
 });
 
+test("startSkillRunnerBroker rejects calls above the configured concurrency limit", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-state-"));
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-task-"));
+  const artifactDigest = "f".repeat(64);
+  const scriptBytes = Buffer.from("console.log('rendered');\n", "utf8");
+  const artifactDir = getDaemonSkillInstallCachePath(stateDir, {
+    workspaceId: "workspace-1",
+    artifactDigest,
+  });
+  mkdirSync(join(artifactDir, "scripts"), { recursive: true });
+  writeFileSync(join(artifactDir, "scripts", "render.mjs"), scriptBytes, { mode: 0o555 });
+  writeFileSync(join(artifactDir, ".cache-complete"), "ready", { mode: 0o444 });
+  chmodSync(join(artifactDir, "scripts"), 0o555);
+  chmodSync(artifactDir, 0o555);
+  let releaseExecution: (() => void) | undefined;
+  const executionGate = new Promise<void>((resolve) => { releaseExecution = resolve; });
+  let markStarted: (() => void) | undefined;
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  let executeCalls = 0;
+  const broker = await startSkillRunnerBroker({
+    stateDir,
+    workspaceId: "workspace-1",
+    workDir,
+    entrypoints: [{
+      key: "skill-limited:render",
+      skillId: "skill-limited",
+      skillName: "Limited Renderer",
+      installationId: "installation-limited",
+      artifactDigest,
+      sha256: createHash("sha256").update(scriptBytes).digest("hex"),
+      id: "render",
+      path: "scripts/render.mjs",
+      runtime: "node",
+    }],
+    environment: {
+      ...process.env,
+      DOFE_SKILL_RUNNER_NODE_IMAGE: `registry.example.com/runner@sha256:${"a".repeat(64)}`,
+      DOFE_SKILL_RUNNER_MAX_CONCURRENCY: "1",
+    },
+    inspectImage: () => true,
+    execute: async () => {
+      executeCalls += 1;
+      markStarted?.();
+      await executionGate;
+      return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
+    },
+  });
+  try {
+    const launcher = broker.capabilities[0]?.binPath;
+    assert.ok(launcher);
+    const first = execFileAsync(launcher);
+    await started;
+    await assert.rejects(execFileAsync(launcher));
+    assert.equal(executeCalls, 1);
+    releaseExecution?.();
+    await first;
+  } finally {
+    releaseExecution?.();
+    await broker.close().catch(() => {});
+    chmodSync(artifactDir, 0o755);
+    chmodSync(join(artifactDir, "scripts"), 0o755);
+    rmSync(stateDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("startSkillRunnerBroker force-removes a timed-out Docker container before deleting config", async () => {
   const stateDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-state-"));
   const workDir = mkdtempSync(join(tmpdir(), "dofe-skill-runner-task-"));
