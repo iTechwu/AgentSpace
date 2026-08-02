@@ -150,6 +150,8 @@ describe("KnowledgePageClient", () => {
       </LanguageProvider>,
     );
 
+    expect(screen.getByRole("combobox", { name: "筛选知识范围" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "筛选 AI员工" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "知识页面" })).toBeDisabled();
     await user.click(screen.getByRole("tab", { name: "文档页面" }));
 
@@ -209,6 +211,12 @@ describe("KnowledgePageClient", () => {
       </LanguageProvider>,
     );
 
+    expect(screen.getByRole("textbox", { name: "搜索文档" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "筛选群组" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "筛选上传人" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "筛选文档类型" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "筛选沉淀状态" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "文档排序" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "itinerary.md" })).toBeInTheDocument();
     expect(screen.getByText("共享附件")).toBeInTheDocument();
     expect(screen.getByText((content) => content.includes("# Osaka Trip") && content.includes("Day 1"))).toBeInTheDocument();

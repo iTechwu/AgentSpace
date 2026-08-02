@@ -224,6 +224,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
           <label className="market-search">
             <AppIcon name="search" />
             <input
+              aria-label={tx("搜索 MCP 服务", "Search MCP services")}
               onChange={(event) => setQuery(event.currentTarget.value)}
               placeholder={tx("搜索服务、工具或数据域", "Search service, tool or data domain")}
               value={query}

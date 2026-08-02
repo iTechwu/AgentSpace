@@ -545,6 +545,7 @@ export function KnowledgePageClient({
 
               <div className="knowledge-documents__filter-grid knowledge-filter-bar">
                 <select
+                  aria-label={tx("筛选知识范围", "Filter knowledge scope")}
                   className="knowledge-documents__select"
                   onChange={(event) => setKnowledgeModeFilter(event.target.value as "all" | KnowledgeAssignmentMode)}
                   value={knowledgeModeFilter}
@@ -554,6 +555,7 @@ export function KnowledgePageClient({
                   <option value="selected_agents">{tx("指定 AI员工", "Selected AI employees")}</option>
                 </select>
                 <select
+                  aria-label={tx("筛选 AI员工", "Filter AI employee")}
                   className="knowledge-documents__select"
                   onChange={(event) => setKnowledgeAgentFilter(event.target.value)}
                   value={knowledgeAgentFilter}
@@ -617,13 +619,14 @@ export function KnowledgePageClient({
 
               <div className="knowledge-documents__filters">
                 <input
+                  aria-label={tx("搜索文档", "Search documents")}
                   className="knowledge-documents__search"
                   onChange={(event) => setDocumentSearch(event.target.value)}
                   placeholder={tx("搜索文档、来源或类型", "Search documents, source, or type")}
                   value={documentSearch}
                 />
                 <div className="knowledge-documents__filter-grid">
-                  <select className="knowledge-documents__select" onChange={(event) => setDocumentChannelFilter(event.target.value)} value={documentChannelFilter}>
+                  <select aria-label={tx("筛选群组", "Filter channel")} className="knowledge-documents__select" onChange={(event) => setDocumentChannelFilter(event.target.value)} value={documentChannelFilter}>
                     <option value="all">{tx("全部群组", "All channels")}</option>
                     {documentChannelOptions.map((channelName) => (
                       <option key={channelName} value={channelName}>
@@ -631,7 +634,7 @@ export function KnowledgePageClient({
                       </option>
                     ))}
                   </select>
-                  <select className="knowledge-documents__select" onChange={(event) => setDocumentUploaderFilter(event.target.value)} value={documentUploaderFilter}>
+                  <select aria-label={tx("筛选上传人", "Filter uploader")} className="knowledge-documents__select" onChange={(event) => setDocumentUploaderFilter(event.target.value)} value={documentUploaderFilter}>
                     <option value="all">{tx("全部上传人", "All uploaders")}</option>
                     {documentUploaderOptions.map((uploader) => (
                       <option key={uploader} value={uploader}>
@@ -639,18 +642,18 @@ export function KnowledgePageClient({
                       </option>
                     ))}
                   </select>
-                  <select className="knowledge-documents__select" onChange={(event) => setDocumentTypeFilter(event.target.value as "all" | "channelDocument" | "markdown" | "nonMarkdown")} value={documentTypeFilter}>
+                  <select aria-label={tx("筛选文档类型", "Filter document type")} className="knowledge-documents__select" onChange={(event) => setDocumentTypeFilter(event.target.value as "all" | "channelDocument" | "markdown" | "nonMarkdown")} value={documentTypeFilter}>
                     <option value="all">{tx("全部类型", "All types")}</option>
                     <option value="channelDocument">{tx("共享文档", "Shared documents")}</option>
                     <option value="markdown">{tx("Markdown", "Markdown")}</option>
                     <option value="nonMarkdown">{tx("非 Markdown", "Non-Markdown")}</option>
                   </select>
-                  <select className="knowledge-documents__select" onChange={(event) => setDocumentLinkFilter(event.target.value as "all" | "linked" | "unlinked")} value={documentLinkFilter}>
+                  <select aria-label={tx("筛选沉淀状态", "Filter linkage status")} className="knowledge-documents__select" onChange={(event) => setDocumentLinkFilter(event.target.value as "all" | "linked" | "unlinked")} value={documentLinkFilter}>
                     <option value="all">{tx("全部沉淀状态", "All linkage")}</option>
                     <option value="linked">{tx("已沉淀为知识页", "Linked to knowledge")}</option>
                     <option value="unlinked">{tx("未沉淀", "Unlinked")}</option>
                   </select>
-                  <select className="knowledge-documents__select" onChange={(event) => setDocumentTimeSort(event.target.value as "newest" | "oldest")} value={documentTimeSort}>
+                  <select aria-label={tx("文档排序", "Sort documents")} className="knowledge-documents__select" onChange={(event) => setDocumentTimeSort(event.target.value as "newest" | "oldest")} value={documentTimeSort}>
                     <option value="newest">{tx("最新优先", "Newest first")}</option>
                     <option value="oldest">{tx("最早优先", "Oldest first")}</option>
                   </select>

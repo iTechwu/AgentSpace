@@ -282,6 +282,7 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
           <label className="market-search">
             <AppIcon name="search" />
             <input
+              aria-label={tx("搜索应用", "Search apps")}
               onChange={(event) => setQuery(event.currentTarget.value)}
               placeholder={tx("搜索 app、entry point、描述", "Search app, entry point, description")}
               value={query}

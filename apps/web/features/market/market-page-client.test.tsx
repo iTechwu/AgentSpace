@@ -136,6 +136,7 @@ describe("MarketPageClient", () => {
       </LanguageProvider>,
     );
 
+    expect(screen.getByRole("textbox", { name: "搜索应用" })).toBeInTheDocument();
     const runtimeSelect = screen.getByRole("combobox", { name: "目标 runtime" });
     expect(runtimeSelect).toHaveValue("runtime-online");
     expect(screen.getByRole("option", { name: /Online Runtime/ })).toBeInTheDocument();
@@ -153,6 +154,7 @@ describe("MarketPageClient", () => {
     );
 
     await user.click(screen.getByRole("tab", { name: /MCP/ }));
+    expect(screen.getByRole("textbox", { name: "搜索 MCP 服务" })).toBeInTheDocument();
     expect(navigationMocks.push).toHaveBeenCalledWith("?tab=mcp", { scroll: false });
     expect(screen.getByRole("tab", { name: /MCP/ })).toHaveAttribute("aria-current", "page");
 
