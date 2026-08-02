@@ -12986,6 +12986,17 @@ textarea:focus {
 }
 
 @media (max-width: 720px) {
+  .settings-workspace-profile .form-field,
+  .settings-group .page-panel > .form-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+
+  .settings-group .page-panel > .form-field select {
+    width: 100%;
+    min-width: 0;
+  }
+
   .settings-danger-callout,
   .settings-member-card__danger {
     flex-direction: column;
