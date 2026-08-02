@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
@@ -82,14 +82,7 @@ test("reuses a pre-warmed digest-keyed cache and reports cacheHit + preparedPath
     artifactDigest,
     manifestJson,
     components: [],
-    files: [{
-      path: "SKILL.md",
-      sha256: sha256Of(skillMdBytes),
-      size: skillMdBytes.length,
-      mediaType: "text/markdown",
-      mode: "0644",
-      storedPath: "local:///unused",
-    }],
+    files: manifest.files.map((file) => ({ ...file, storedPath: "local:///unused" })),
   });
   const cachePath = getDaemonSkillInstallCachePath(stateDir, {
     workspaceId: operation.workspaceId,
@@ -116,6 +109,12 @@ test("reuses a pre-warmed digest-keyed cache and reports cacheHit + preparedPath
       manifestJson,
     }),
   );
+  chmodSync(join(cachePath, "SKILL.md"), 0o444);
+  chmodSync(join(cachePath, "sub", "nested.txt"), 0o444);
+  chmodSync(join(cachePath, ".cache-complete"), 0o444);
+  chmodSync(join(cachePath, ".cache-result.json"), 0o444);
+  chmodSync(join(cachePath, "sub"), 0o555);
+  chmodSync(cachePath, 0o555);
 
   await executeSkillInstallationOperation(fakeClient, buildConfig(), operation);
 
@@ -169,7 +168,13 @@ test("materializes on a cache miss, publishes the cache, and the next run hits i
     const manifest: SkillArtifactManifest = {
       schemaVersion: 1,
       artifact: { name: "test-skill", version: "1.0.0" },
-      files: [],
+      files: [{
+        path: "SKILL.md",
+        sha256: contentSha,
+        size: content.length,
+        mediaType: "text/markdown",
+        mode: "0644",
+      }],
       dependencies: [],
     };
     const manifestJson = JSON.stringify(manifest);
@@ -194,9 +199,28 @@ test("materializes on a cache miss, publishes the cache, and the next run hits i
     assert.ok(firstComplete, "first op completed");
     const firstResult = JSON.parse(String(firstComplete.body.safeResultJson)) as Record<string, unknown>;
     assert.equal(firstResult.cacheHit, false);
+    const cachePath = getDaemonSkillInstallCachePath(stateDir, {
+      workspaceId: operation.workspaceId,
+      artifactDigest,
+    });
+    assert.equal(statSync(cachePath).mode & 0o222, 0, "published cache root is read-only");
+    assert.equal(statSync(join(cachePath, "SKILL.md")).mode & 0o222, 0, "published cache files are read-only");
+    const publishedMeta = JSON.parse(readFileSync(join(cachePath, ".cache-result.json"), "utf8")) as {
+      files: Array<{ path: string; sha256: string; size: number; mode: string }>;
+      computedDigest: string;
+      expectedDigest: string;
+    };
+    assert.deepEqual(
+      publishedMeta.files.map(({ path, sha256, size, mode }) => ({ path, sha256, size, mode })),
+      operation.files.map(({ path, sha256, size, mode }) => ({ path, sha256, size, mode })),
+      `published cache evidence diverged from the claim: ${JSON.stringify(publishedMeta)}`,
+    );
+    assert.equal(publishedMeta.computedDigest, artifactDigest);
+    assert.equal(publishedMeta.expectedDigest, artifactDigest);
 
     // Second run for the same digest must hit the cache.
     await executeSkillInstallationOperation(fakeClient, buildConfig(), { ...operation, operationId: "op-2", installationId: "inst-2" });
+    assert.equal(lastFail, undefined, `second operation failed: ${JSON.stringify(lastFail?.body)}`);
     const secondComplete = lastComplete;
     assert.ok(secondComplete, "second op completed");
     const secondResult = JSON.parse(String(secondComplete.body.safeResultJson)) as Record<string, unknown>;
@@ -207,6 +231,55 @@ test("materializes on a cache miss, publishes the cache, and the next run hits i
     delete process.env.ATTACHMENT_ENABLE_LOCAL_FALLBACK;
     delete process.env.SELF_HOSTED_ATTACHMENT_LOCAL_ROOT;
   }
+});
+
+test("rejects a self-consistent cache whose meta and files do not match the current operation", async () => {
+  const originalBytes = Buffer.from("original", "utf8");
+  const forgedBytes = Buffer.from("forged", "utf8");
+  const sha256Of = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
+  const originalManifest: SkillArtifactManifest = {
+    schemaVersion: 1,
+    artifact: { name: "test-skill", version: "1.0.0" },
+    files: [{
+      path: "SKILL.md",
+      sha256: sha256Of(originalBytes),
+      size: originalBytes.length,
+      mediaType: "text/markdown",
+      mode: "0644",
+    }],
+    dependencies: [],
+  };
+  const forgedManifest: SkillArtifactManifest = {
+    ...originalManifest,
+    files: [{ ...originalManifest.files[0]!, sha256: sha256Of(forgedBytes), size: forgedBytes.length }],
+  };
+  const artifactDigest = computeArtifactDigest(originalManifest, [sha256Of(originalBytes)]);
+  const forgedDigest = computeArtifactDigest(forgedManifest, [sha256Of(forgedBytes)]);
+  const operation = buildOperation({
+    artifactDigest,
+    manifestJson: JSON.stringify(originalManifest),
+    components: [],
+    files: [{ ...originalManifest.files[0]!, storedPath: "local:///missing" }],
+  });
+  const cachePath = getDaemonSkillInstallCachePath(stateDir, {
+    workspaceId: operation.workspaceId,
+    artifactDigest,
+  });
+  mkdirSync(cachePath, { recursive: true });
+  writeFileSync(join(cachePath, "SKILL.md"), forgedBytes);
+  writeFileSync(join(cachePath, ".cache-complete"), new Date().toISOString());
+  writeFileSync(join(cachePath, ".cache-result.json"), JSON.stringify({
+    files: forgedManifest.files,
+    computedDigest: forgedDigest,
+    expectedDigest: forgedDigest,
+    manifestJson: JSON.stringify(forgedManifest),
+  }));
+
+  await executeSkillInstallationOperation(fakeClient, buildConfig(), operation);
+
+  assert.equal(lastComplete, undefined, "forged cache is never reported as a hit");
+  assert.ok(lastFail, "worker attempts authoritative materialization and fails without a real source");
+  assert.equal(existsSync(cachePath), false, "invalid cache entry is removed so a retry can rebuild it");
 });
 
 test("a cache-miss materialization that fails verification never publishes the cache", async () => {
@@ -248,6 +321,7 @@ test("a verification failure reports component statuses via FAIL (no complete-af
     artifactDigest,
     manifestJson,
     components: [{ kind: "script", key: "run.sh", status: "pending" }],
+    files: [{ ...manifest.files[0]!, storedPath: "local:///unused" }],
   });
   const cachePath = getDaemonSkillInstallCachePath(stateDir, {
     workspaceId: operation.workspaceId,
@@ -271,13 +345,20 @@ test("a verification failure reports component statuses via FAIL (no complete-af
       manifestJson,
     }),
   );
+  chmodSync(join(cachePath, "SKILL.md"), 0o444);
+  chmodSync(join(cachePath, ".cache-complete"), 0o444);
+  chmodSync(join(cachePath, ".cache-result.json"), 0o444);
+  chmodSync(cachePath, 0o555);
 
   await executeSkillInstallationOperation(fakeClient, buildConfig(), operation);
 
   assert.ok(lastFail, "operation failed");
   assert.equal(lastComplete, undefined, "no complete-after-fail");
   const statuses = lastFail!.body.componentStatuses as Array<{ key: string; status: string }> | undefined;
-  assert.ok(Array.isArray(statuses) && statuses.length > 0, "fail carries partial component statuses");
+  assert.ok(
+    Array.isArray(statuses) && statuses.length > 0,
+    `fail carries partial component statuses: ${JSON.stringify(lastFail!.body)}`,
+  );
   assert.equal(statuses![0]!.key, "run.sh");
   assert.equal(statuses![0]!.status, "failed");
   assert.equal(lastFail!.body.errorCode, "skill_installation.script_not_in_manifest");

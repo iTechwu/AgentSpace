@@ -25,7 +25,7 @@ const CACHE_META_FILE = ".cache-result.json";
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
 interface CachedMaterializeResult {
-  files: MaterializedSkillFile[];
+  files: Array<MaterializedSkillFile & { mode: string }>;
   computedDigest: string;
   expectedDigest: string;
   /** Manifest used to compute the digest — required to re-verify the root digest. */
@@ -81,16 +81,21 @@ export async function executeSkillInstallationOperation(
 
   try {
     let materializeResult: MaterializeResult;
-    if (cacheEnabled && existsSync(join(cachePath, CACHE_COMPLETE_SENTINEL)) && verifyCachedFiles(cachePath)) {
-      // Cache hit only when the actual cached files still match the recorded
-      // manifest (existence + size). A truncated/tampered cache is re-materialized.
-      copyTree(cachePath, workDir);
-      materializeResult = readCachedMaterializeResult(cachePath);
+    if (
+      cacheEnabled
+      && existsSync(join(cachePath, CACHE_COMPLETE_SENTINEL))
+      && verifyCachedFiles(cachePath, operation)
+    ) {
+      copyCachedFiles(cachePath, workDir, operation.files);
+      materializeResult = readCachedMaterializeResult(cachePath, operation);
       cacheHit = true;
     } else {
+      if (cacheEnabled && existsSync(cachePath)) {
+        discardCacheEntry(cachePath);
+      }
       materializeResult = await materializeSkillInstallationArtifact(operation, workDir);
       if (cacheEnabled && materializeResult.rootDigestMatches) {
-        publishToCache(workDir, cachePath, materializeResult, operation.manifestJson);
+        publishToCache(workDir, cachePath, materializeResult, operation);
       }
     }
 
@@ -227,14 +232,17 @@ function readManifestDependencies(manifestJson: string): Array<{ manager: "npm" 
   }
 }
 
-function readCachedMaterializeResult(cachePath: string): MaterializeResult {
+function readCachedMaterializeResult(
+  cachePath: string,
+  operation: ClaimedSkillInstallationOperation,
+): MaterializeResult {
   const raw = readFileSync(join(cachePath, CACHE_META_FILE), "utf8");
   const meta = JSON.parse(raw) as CachedMaterializeResult;
   return {
     files: meta.files,
-    rootDigestMatches: meta.computedDigest === meta.expectedDigest,
-    computedDigest: meta.computedDigest,
-    expectedDigest: meta.expectedDigest,
+    rootDigestMatches: true,
+    computedDigest: operation.artifactDigest,
+    expectedDigest: operation.artifactDigest,
   };
 }
 
@@ -246,27 +254,50 @@ function readCachedMaterializeResult(cachePath: string): MaterializeResult {
  * discard our staging copy — the winner's entry is identical (content addressed
  * by digest), i.e. atomic first-write-wins.
  */
-function publishToCache(workDir: string, cachePath: string, result: MaterializeResult, manifestJson: string): void {
+function publishToCache(
+  workDir: string,
+  cachePath: string,
+  result: MaterializeResult,
+  operation: ClaimedSkillInstallationOperation,
+): void {
   if (existsSync(cachePath)) {
-    return;
+    if (verifyCachedFiles(cachePath, operation)) {
+      return;
+    }
+    discardCacheEntry(cachePath);
   }
   const stagingPath = `${cachePath}.staging-${randomUUID()}`;
   mkdirSync(dirname(stagingPath), { recursive: true });
   copyTree(workDir, stagingPath);
 
   const meta: CachedMaterializeResult = {
-    files: result.files,
+    files: operation.files.map((file) => ({
+      path: file.path,
+      sha256: file.sha256,
+      size: file.size,
+      mediaType: file.mediaType,
+      mode: file.mode,
+    })),
     computedDigest: result.computedDigest,
     expectedDigest: result.expectedDigest,
-    manifestJson,
+    manifestJson: operation.manifestJson,
   };
   writeFileSync(join(stagingPath, CACHE_META_FILE), JSON.stringify(meta));
   writeFileSync(join(stagingPath, CACHE_COMPLETE_SENTINEL), new Date().toISOString());
+  sealReadOnlyTree(stagingPath);
 
   try {
     renameSync(stagingPath, cachePath);
   } catch {
+    resetReadOnlyTree(stagingPath);
     rmSync(stagingPath, { recursive: true, force: true });
+  }
+  if (!verifyCachedFiles(cachePath, operation)) {
+    discardCacheEntry(cachePath);
+    throw new SkillMaterializationError(
+      "Published cache does not match the current installation operation.",
+      "skill_installation.cache_publish_failed",
+    );
   }
 }
 
@@ -280,56 +311,97 @@ function publishToCache(workDir: string, cachePath: string, result: MaterializeR
  *     must equal the recorded digest.
  * A lstat/symlink or any mismatch treats the cache as a miss (re-materialize).
  */
-function verifyCachedFiles(cachePath: string): boolean {
+function verifyCachedFiles(
+  cachePath: string,
+  operation: ClaimedSkillInstallationOperation,
+): boolean {
   try {
-    const raw = readFileSync(join(cachePath, CACHE_META_FILE), "utf8");
-    const meta = JSON.parse(raw) as CachedMaterializeResult;
-    if (meta.computedDigest !== meta.expectedDigest) {
+    const cacheStat = lstatSync(cachePath);
+    if (!cacheStat.isDirectory() || cacheStat.isSymbolicLink() || (cacheStat.mode & 0o222) !== 0) {
       return false;
     }
-    if (typeof meta.manifestJson !== "string" || !meta.manifestJson.trim()) {
+    const raw = readFileSync(join(cachePath, CACHE_META_FILE), "utf8");
+    const meta = JSON.parse(raw) as CachedMaterializeResult;
+    if (
+      meta.computedDigest !== operation.artifactDigest
+      || meta.expectedDigest !== operation.artifactDigest
+    ) {
+      return false;
+    }
+    if (!Array.isArray(meta.files) || meta.files.length !== operation.files.length) {
       return false;
     }
 
+    const cachedByPath = new Map(meta.files.map((file) => [file.path, file]));
     const declaredPaths = new Set<string>();
-    for (const file of meta.files) {
+    const actualDigests: string[] = [];
+    for (const file of operation.files) {
+      const cached = cachedByPath.get(file.path);
+      if (
+        !cached
+        || cached.sha256.toLowerCase() !== file.sha256.toLowerCase()
+        || cached.size !== file.size
+        || cached.mode !== file.mode
+      ) {
+        return false;
+      }
       declaredPaths.add(file.path);
       const candidate = join(cachePath, file.path);
       const st = lstatSync(candidate);
-      if (!st.isFile()) {
+      if (
+        !st.isFile()
+        || st.isSymbolicLink()
+        || st.nlink !== 1
+        || st.size !== file.size
+        || (st.mode & 0o222) !== 0
+        || (st.mode & 0o777) !== sealedMode(file.mode)
+      ) {
         return false;
       }
       const actual = sha256Hex(readFileBytesNoFollow(candidate));
       if (actual !== file.sha256.toLowerCase()) {
         return false;
       }
+      actualDigests.push(actual);
     }
 
     for (const entry of readdirSync(cachePath, { recursive: true, withFileTypes: true })) {
-      if (!entry.isFile()) continue;
       const rel = relative(cachePath, join(entry.parentPath, entry.name)).replace(/\\/g, "/");
-      if (rel === CACHE_META_FILE || rel === CACHE_COMPLETE_SENTINEL) continue;
-      if (!declaredPaths.has(rel)) {
+      if (entry.isSymbolicLink()) {
+        return false;
+      }
+      if (entry.isDirectory()) {
+        if (![...declaredPaths].some((path) => path.startsWith(`${rel}/`))) {
+          return false;
+        }
+        continue;
+      }
+      if (!entry.isFile()) {
+        return false;
+      }
+      if (rel !== CACHE_META_FILE && rel !== CACHE_COMPLETE_SENTINEL && !declaredPaths.has(rel)) {
         return false;
       }
     }
 
     let manifest: SkillArtifactManifest;
     try {
-      manifest = JSON.parse(meta.manifestJson) as SkillArtifactManifest;
+      manifest = JSON.parse(operation.manifestJson) as SkillArtifactManifest;
     } catch {
       return false;
     }
-    const sortedDigests = meta.files
-      .map((file) => file.sha256)
-      .sort((left, right) => left.localeCompare(right, "en-US"));
-    if (computeArtifactDigest(manifest, sortedDigests) !== meta.computedDigest) {
+    actualDigests.sort((left, right) => left.localeCompare(right, "en-US"));
+    if (computeArtifactDigest(manifest, actualDigests) !== operation.artifactDigest) {
       return false;
     }
     return true;
   } catch {
     return false;
   }
+}
+
+function sealedMode(mode: string): number {
+  return Number.parseInt(mode, 8) & ~0o222;
 }
 
 function sha256Hex(bytes: Uint8Array): string {
@@ -361,6 +433,64 @@ function copyTree(sourceDir: string, targetDir: string): void {
         chmodSync(targetPath, statSync(sourcePath).mode & 0o777);
       }
     }
+  }
+}
+
+function copyCachedFiles(
+  cachePath: string,
+  workDir: string,
+  files: ClaimedSkillInstallationOperation["files"],
+): void {
+  for (const file of files) {
+    const sourcePath = join(cachePath, file.path);
+    const targetPath = join(workDir, file.path);
+    mkdirSync(dirname(targetPath), { recursive: true });
+    copyFileSync(sourcePath, targetPath);
+    chmodSync(targetPath, Number.parseInt(file.mode, 8));
+  }
+}
+
+function discardCacheEntry(cachePath: string): void {
+  const discardedPath = `${cachePath}.invalid-${randomUUID()}`;
+  try {
+    renameSync(cachePath, discardedPath);
+  } catch {
+    return;
+  }
+  resetReadOnlyTree(discardedPath);
+  rmSync(discardedPath, { recursive: true, force: true });
+}
+
+function sealReadOnlyTree(path: string): void {
+  const entry = lstatSync(path);
+  if (entry.isSymbolicLink()) {
+    return;
+  }
+  if (entry.isDirectory()) {
+    for (const child of readdirSync(path)) {
+      sealReadOnlyTree(join(path, child));
+    }
+    chmodSync(path, 0o555);
+    return;
+  }
+  chmodSync(path, entry.mode & 0o111 ? 0o555 : 0o444);
+}
+
+function resetReadOnlyTree(path: string): void {
+  if (!existsSync(path)) {
+    return;
+  }
+  const entry = lstatSync(path);
+  if (entry.isSymbolicLink()) {
+    return;
+  }
+  if (!entry.isDirectory()) {
+    chmodSync(path, entry.mode & 0o111 ? 0o755 : 0o644);
+    return;
+  }
+  chmodSync(path, 0o755);
+  for (const child of readdirSync(path)) {
+    resetReadOnlyTree(join(path, child));
   }
 }
 
