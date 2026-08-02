@@ -575,6 +575,7 @@ export type DaemonApiTokenPurpose = "general" | "managed_node_bootstrap";
 
 export interface EmployeeRuntimeBindingRecord {
   workspaceId: string;
+  employeeId: string;
   employeeName: string;
   runtimeId: string;
   provider: DaemonProvider;
@@ -935,6 +936,7 @@ export type McpConnectionStatus =
   | "disabled";
 export type McpConnectionOperationType = "verify" | "enable" | "disable" | "remove";
 export type McpConnectionOperationStatus = "pending" | "claimed" | "running" | "succeeded" | "failed" | "cancelled";
+export type McpConnectionOperationSource = "user_verify" | "config_change" | "secret_rotation" | "health_check" | "enable" | "remove";
 export type McpToolCallOutcome = "succeeded" | "failed";
 export type McpErrorCode =
   | "mcp.policy_denied"
@@ -980,6 +982,8 @@ export interface RuntimeMcpConnectionRecord {
   nonSecretParamsJson: string;
   endpointFingerprint?: string;
   lastVerifiedAt?: string;
+  nextHealthCheckAt?: string;
+  healthCheckConsecutiveFailures: number;
   lastStatus?: string;
   lastErrorCode?: string;
   lastErrorMessage?: string;
@@ -1014,6 +1018,7 @@ export interface RuntimeMcpOperationRecord {
   runtimeId: string;
   connectionId: string;
   operation: McpConnectionOperationType;
+  source: McpConnectionOperationSource;
   status: McpConnectionOperationStatus;
   requestSnapshotJson: string;
   safeStdoutTail?: string;
@@ -1540,6 +1545,7 @@ export interface StoredSkillServiceBindingRecord {
 export interface EmployeePersistentWorkspaceRecord {
   id: string;
   workspaceId: string;
+  employeeId: string;
   employeeName: string;
   headRevisionId?: string;
   storageRef?: string;
@@ -1556,6 +1562,7 @@ export interface EmployeeWorkspaceRevisionRecord {
   id: string;
   workspaceId: string;
   workspaceIdRef: string;
+  employeeId: string;
   employeeName: string;
   parentRevisionId?: string;
   manifestDigest: string;
@@ -1570,6 +1577,7 @@ export interface EmployeeArtifactRecord {
   id: string;
   workspaceId: string;
   workspaceIdRef: string;
+  employeeId: string;
   employeeName: string;
   contentDigest: string;
   mediaType: string;
@@ -1580,11 +1588,29 @@ export interface EmployeeArtifactRecord {
   deletedAt?: string;
 }
 
+export interface BackupRestoreDrillRunRecord {
+  id: string;
+  workspaceId: string;
+  drillType: "metadata" | "external_restore";
+  trigger: "manual" | "cron";
+  status: "running" | "completed" | "failed";
+  startedAt: string;
+  finishedAt?: string;
+  sampleCount: number;
+  successCount: number;
+  failureCount: number;
+  resultJson: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type TaskCommitState = "preparing" | "committed" | "rolled_back";
 
 export interface TaskCommitJournalRecord {
   taskId: string;
   workspaceId: string;
+  employeeId?: string;
   employeeName?: string;
   workspaceRevisionId?: string;
   artifactIdsJson: string;
@@ -1616,6 +1642,7 @@ export type RecoveryPhase =
 export interface EmployeeRecoveryOperationRecord {
   id: string;
   workspaceId: string;
+  employeeId: string;
   employeeName: string;
   fromGeneration?: number;
   toGeneration: number;

@@ -64,12 +64,12 @@ export class McpGateway {
   private readonly taskSessions = new Map<string, McpGatewayTaskSession>();
   private readonly mcpSessions = new Map<string, McpSessionEntry>();
   private readonly taskSessionToMcpSessions = new Map<string, Set<string>>();
-  private readonly onAudit: (audit: McpToolAuditRecord) => void;
+  private readonly onAudit: (audit: McpToolAuditRecord) => void | Promise<void>;
   private readonly mcpClient: ReturnType<typeof createRuntimeMcpClient>;
   private readonly validateConnection?: McpGatewayValidateConnection;
 
   constructor(
-    onAudit: (audit: McpToolAuditRecord) => void,
+    onAudit: (audit: McpToolAuditRecord) => void | Promise<void>,
     mcpClient?: ReturnType<typeof createRuntimeMcpClient>,
     validateConnection?: McpGatewayValidateConnection,
   ) {
@@ -244,10 +244,10 @@ export class McpGateway {
       });
       const latencyMs = Date.now() - startedAt;
       if (!result.ok) {
-        this.emitAudit(taskSession, registered.connectionId, registered.toolName, "failed", latencyMs, result.error.safeMessage);
+        await this.emitAudit(taskSession, registered.connectionId, registered.toolName, "failed", latencyMs, result.error.safeMessage);
         return { content: [{ type: "text", text: result.error.safeMessage }], isError: true };
       }
-      this.emitAudit(taskSession, registered.connectionId, registered.toolName, "succeeded", latencyMs, undefined);
+      await this.emitAudit(taskSession, registered.connectionId, registered.toolName, "succeeded", latencyMs, undefined);
       const text = typeof result.result === "string" ? result.result : JSON.stringify(result.result ?? "");
       return { content: [{ type: "text", text }] };
     });
@@ -255,16 +255,16 @@ export class McpGateway {
     return server;
   }
 
-  private emitAudit(
+  private async emitAudit(
     taskSession: McpGatewayTaskSession,
     connectionId: string,
     toolName: string,
     outcome: "succeeded" | "failed",
     latencyMs: number,
     safeSummary?: string,
-  ): void {
+  ): Promise<void> {
     try {
-      this.onAudit({
+      await this.onAudit({
         connectionId,
         taskId: taskSession.taskId,
         toolName,

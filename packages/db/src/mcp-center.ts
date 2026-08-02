@@ -2,6 +2,7 @@ import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from
 import type {
   McpCatalogItemRecord,
   McpCatalogSource,
+  McpConnectionOperationSource,
   McpConnectionOperationStatus,
   McpConnectionOperationType,
   McpConnectionStatus,
@@ -69,6 +70,8 @@ export interface UpdateMcpConnectionStatusInput {
   lastErrorCode?: string | null;
   lastErrorMessage?: string | null;
   lastStatus?: string | null;
+  nextHealthCheckAt?: string | null;
+  healthCheckConsecutiveFailures?: number;
 }
 
 export interface UpsertMcpSecretInput {
@@ -95,6 +98,7 @@ export interface CreateMcpOperationInput {
   runtimeId: string;
   connectionId: string;
   operation: McpConnectionOperationType;
+  source?: McpConnectionOperationSource;
   requestedByUserId?: string;
   requestSnapshotJson?: string;
 }
@@ -104,6 +108,8 @@ export interface CompleteMcpOperationInput {
   workspaceId?: string;
   safeStdoutTail?: string;
   safeStderrTail?: string;
+  /** When present, advances the connection's next scheduled health check. */
+  nextHealthCheckAt?: string;
   /** When present (typically for a `verify` operation), a discovery snapshot is written and the connection status is updated. */
   verification?: {
     status: McpConnectionStatus;
@@ -126,6 +132,10 @@ export interface FailMcpOperationInput {
   errorMessage: string;
   /** Connection status to apply on failure (defaults to "failed" for verify operations). */
   connectionStatus?: McpConnectionStatus;
+  /** When present, advances the connection's next scheduled health check. */
+  nextHealthCheckAt?: string;
+  /** When present, updates the consecutive health-check failure counter. */
+  healthCheckConsecutiveFailures?: number;
 }
 
 export interface RecordMcpToolAuditInput {
@@ -289,9 +299,10 @@ export function createMcpConnectionSync(input: CreateMcpConnectionInput): Runtim
     `INSERT INTO runtime_mcp_connection (
       id, workspace_id, runtime_id, catalog_item_id, status,
       approved_tools_json, endpoint, non_secret_params_json, endpoint_fingerprint,
-      last_verified_at, last_status, last_error_code, last_error_message,
+      last_verified_at, next_health_check_at, health_check_consecutive_failures,
+      last_status, last_error_code, last_error_message,
       created_by_user_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, 'queued_verification', ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, 'queued_verification', ?, ?, ?, NULL, NULL, NULL, 0, NULL, NULL, NULL, ?, ?, ?)`,
   ).run(
     id,
     workspaceId,
@@ -361,7 +372,7 @@ export function updateMcpConnectionConfigSync(input: UpdateMcpConnectionConfigIn
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const now = new Date().toISOString();
-  const sets = ["updated_at = ?", "status = 'queued_verification'", "last_verified_at = NULL", "endpoint_fingerprint = NULL"];
+  const sets = ["updated_at = ?", "status = 'queued_verification'", "last_verified_at = NULL", "endpoint_fingerprint = NULL", "next_health_check_at = NULL", "health_check_consecutive_failures = 0"];
   const params: unknown[] = [now];
   if (input.endpoint !== undefined) {
     sets.push("endpoint = ?");
@@ -414,6 +425,14 @@ export function updateMcpConnectionStatusSync(input: UpdateMcpConnectionStatusIn
   if (input.lastErrorMessage !== undefined) {
     sets.push("last_error_message = ?");
     params.push(input.lastErrorMessage ?? null);
+  }
+  if (input.nextHealthCheckAt !== undefined) {
+    sets.push("next_health_check_at = ?");
+    params.push(input.nextHealthCheckAt ?? null);
+  }
+  if (input.healthCheckConsecutiveFailures !== undefined) {
+    sets.push("health_check_consecutive_failures = ?");
+    params.push(input.healthCheckConsecutiveFailures);
   }
   params.push(input.connectionId, workspaceId);
   const result = db.prepare(
@@ -555,15 +574,16 @@ export function createMcpOperationSync(input: CreateMcpOperationInput): RuntimeM
   }
   db.prepare(
     `INSERT INTO runtime_mcp_operation (
-      id, workspace_id, runtime_id, connection_id, operation, status,
+      id, workspace_id, runtime_id, connection_id, operation, source, status,
       request_snapshot_json, requested_by_user_id, created_at
-    ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
   ).run(
     id,
     workspaceId,
     input.runtimeId,
     input.connectionId,
     input.operation,
+    input.source ?? "user_verify",
     input.requestSnapshotJson ?? "{}",
     input.requestedByUserId ?? null,
     now,
@@ -641,8 +661,10 @@ export function claimNextMcpOperationForRuntimeSync(input: {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   let claimedId: string | null = null;
   withTransaction(db, () => {
-    const row = db.prepare(
-      `SELECT operation.id, operation.connection_id, operation.operation
+    // 1. Priority: user-initiated operations that require the connection to be
+    //    queued for verification, plus removal operations.
+    const userRow = db.prepare(
+      `SELECT operation.id, operation.connection_id, operation.operation, operation.source
        FROM runtime_mcp_operation operation
        JOIN runtime_mcp_connection connection
          ON connection.id = operation.connection_id AND connection.workspace_id = operation.workspace_id
@@ -650,6 +672,7 @@ export function claimNextMcpOperationForRuntimeSync(input: {
          AND (operation.operation = 'remove' OR connection.status = 'queued_verification')
        ORDER BY operation.created_at ASC LIMIT 1`,
     ).get(workspaceId, input.runtimeId) as Record<string, unknown> | undefined;
+    const row = userRow ?? claimDueHealthCheckOperationSync(db, workspaceId, input.runtimeId);
     if (typeof row?.id !== "string") {
       return;
     }
@@ -657,7 +680,7 @@ export function claimNextMcpOperationForRuntimeSync(input: {
       `UPDATE runtime_mcp_operation SET status = 'claimed' WHERE id = ? AND status = 'pending'`,
     ).run(row.id);
     if (result.changes > 0) {
-      if (row.operation !== "remove") {
+      if (row.operation !== "remove" && row.source !== "health_check") {
         const connectionResult = db.prepare(
           `UPDATE runtime_mcp_connection
            SET status = 'verifying', updated_at = ?
@@ -677,6 +700,81 @@ export function claimNextMcpOperationForRuntimeSync(input: {
     return null;
   }
   return readMcpOperationSync(claimedId, workspaceId);
+}
+
+function claimDueHealthCheckOperationSync(
+  db: ReturnType<typeof getDatabase>,
+  workspaceId: string,
+  runtimeId: string,
+): Record<string, unknown> | undefined {
+  return db.prepare(
+    `SELECT operation.id, operation.connection_id, operation.operation, operation.source
+     FROM runtime_mcp_operation operation
+     JOIN runtime_mcp_connection connection
+       ON connection.id = operation.connection_id AND connection.workspace_id = operation.workspace_id
+     WHERE operation.workspace_id = ? AND operation.runtime_id = ? AND operation.status = 'pending'
+       AND operation.source = 'health_check'
+       AND connection.status = 'ready'
+       AND connection.next_health_check_at <= ?
+     ORDER BY connection.next_health_check_at ASC, operation.created_at ASC
+     LIMIT 1`,
+  ).get(workspaceId, runtimeId, new Date().toISOString()) as Record<string, unknown> | undefined;
+}
+
+/**
+ * Schedules periodic health-check verify operations for ready connections whose
+ * next check is due. Idempotent: skips connections that already have a pending
+ * health-check operation. Returns the number of operations created.
+ */
+export function scheduleMcpHealthChecksSync(input: {
+  workspaceId?: string;
+  runtimeId?: string;
+  now?: string;
+} = {}): number {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = input.now ?? new Date().toISOString();
+  const runtimeFilter = input.runtimeId ? "AND connection.runtime_id = ?" : "";
+  const params: unknown[] = [workspaceId, now];
+  if (input.runtimeId) {
+    params.push(input.runtimeId);
+  }
+  const dueRows = db.prepare(
+    `SELECT
+      connection.id AS connection_id,
+      connection.runtime_id AS runtime_id
+     FROM runtime_mcp_connection connection
+     WHERE connection.workspace_id = ?
+       AND connection.status = 'ready'
+       AND (connection.next_health_check_at IS NULL OR connection.next_health_check_at <= ?)
+       ${runtimeFilter}
+       AND NOT EXISTS (
+         SELECT 1 FROM runtime_mcp_operation operation
+         WHERE operation.workspace_id = connection.workspace_id
+           AND operation.connection_id = connection.id
+           AND operation.source = 'health_check'
+           AND operation.status = 'pending'
+       )
+     ORDER BY connection.next_health_check_at ASC NULLS FIRST`,
+  ).all(...params) as Array<{ connection_id: string; runtime_id: string }>;
+
+  let created = 0;
+  for (const row of dueRows) {
+    try {
+      createMcpOperationSync({
+        workspaceId,
+        runtimeId: row.runtime_id,
+        connectionId: row.connection_id,
+        operation: "verify",
+        source: "health_check",
+      });
+      created += 1;
+    } catch {
+      // If a connection was removed or reconfigured between the select and the
+      // insert, skip it and continue with the next row.
+    }
+  }
+  return created;
 }
 
 export function startMcpOperationSync(operationId: string, workspaceId = DEFAULT_WORKSPACE_ID): RuntimeMcpOperationRecord {
@@ -729,12 +827,14 @@ export function completeMcpOperationSync(input: CompleteMcpOperationInput): Runt
       db.prepare(
         `UPDATE runtime_mcp_connection
          SET status = ?, last_verified_at = ?, endpoint_fingerprint = ?,
+             next_health_check_at = ?, health_check_consecutive_failures = 0,
              last_status = ?, last_error_code = ?, last_error_message = ?, updated_at = ?
          WHERE id = ? AND workspace_id = ?`,
       ).run(
         input.verification.status,
         now,
         snap.toolsFingerprint,
+        input.nextHealthCheckAt ?? null,
         input.verification.status,
         input.verification.errorCode ?? null,
         input.verification.errorMessage ?? null,
@@ -784,25 +884,39 @@ export function failMcpOperationSync(input: FailMcpOperationInput): RuntimeMcpOp
     if (failed.operation === "remove") {
       return;
     }
-    const connectionStatus: McpConnectionStatus = input.connectionStatus ?? (failed.operation === "verify" ? "failed" : "degraded");
+    const connectionStatus: McpConnectionStatus = input.connectionStatus ?? defaultConnectionStatusForFailedOperation(failed);
+    const sets = ["status = ?", "last_status = ?", "last_error_code = ?", "last_error_message = ?", "updated_at = ?"];
+    const params: unknown[] = [connectionStatus, connectionStatus, input.errorCode ?? null, input.errorMessage, now];
+    if (input.nextHealthCheckAt !== undefined) {
+      sets.push("next_health_check_at = ?");
+      params.push(input.nextHealthCheckAt ?? null);
+    }
+    if (input.healthCheckConsecutiveFailures !== undefined) {
+      sets.push("health_check_consecutive_failures = ?");
+      params.push(input.healthCheckConsecutiveFailures);
+    }
+    params.push(failed.connectionId, workspaceId);
     db.prepare(
-      `UPDATE runtime_mcp_connection
-       SET status = ?, last_status = ?, last_error_code = ?, last_error_message = ?, updated_at = ?
-       WHERE id = ? AND workspace_id = ?`,
-    ).run(
-      connectionStatus,
-      connectionStatus,
-      input.errorCode ?? null,
-      input.errorMessage,
-      now,
-      failed.connectionId,
-      workspaceId,
-    );
+      `UPDATE runtime_mcp_connection SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`,
+    ).run(...params);
   });
   if (!failed) {
     throw new Error(`MCP operation "${input.operationId}" does not exist.`);
   }
   return failed;
+}
+
+function defaultConnectionStatusForFailedOperation(operation: RuntimeMcpOperationRecord): McpConnectionStatus {
+  if (operation.source === "health_check") {
+    // A periodic health check should not take a previously-ready connection
+    // straight to failed; degradation lets operators see the issue and keeps
+    // the failure surface bounded.
+    return "degraded";
+  }
+  if (operation.operation === "verify") {
+    return "failed";
+  }
+  return "degraded";
 }
 
 /* ------------------------------------------------------------------ */
@@ -882,8 +996,9 @@ const MCP_CONNECTION_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, runtime_id AS runtimeId, catalog_item_id AS catalogItemId,
   status, approved_tools_json AS approvedToolsJson, endpoint,
   non_secret_params_json AS nonSecretParamsJson, endpoint_fingerprint AS endpointFingerprint,
-  last_verified_at AS lastVerifiedAt, last_status AS lastStatus,
-  last_error_code AS lastErrorCode, last_error_message AS lastErrorMessage,
+  last_verified_at AS lastVerifiedAt, next_health_check_at AS nextHealthCheckAt,
+  health_check_consecutive_failures AS healthCheckConsecutiveFailures,
+  last_status AS lastStatus, last_error_code AS lastErrorCode, last_error_message AS lastErrorMessage,
   created_by_user_id AS createdByUserId, created_at AS createdAt, updated_at AS updatedAt`;
 
 const MCP_DISCOVERY_COLUMNS = `SELECT
@@ -894,7 +1009,7 @@ const MCP_DISCOVERY_COLUMNS = `SELECT
 
 const MCP_OPERATION_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, runtime_id AS runtimeId, connection_id AS connectionId,
-  operation, status, request_snapshot_json AS requestSnapshotJson,
+  operation, source, status, request_snapshot_json AS requestSnapshotJson,
   safe_stdout_tail AS safeStdoutTail, safe_stderr_tail AS safeStderrTail,
   error_code AS errorCode, error_message AS errorMessage,
   requested_by_user_id AS requestedByUserId,
@@ -965,7 +1080,8 @@ function mapRuntimeMcpConnectionRecord(value: Record<string, unknown>): RuntimeM
     typeof value.endpoint !== "string" ||
     typeof value.nonSecretParamsJson !== "string" ||
     typeof value.createdAt !== "string" ||
-    typeof value.updatedAt !== "string"
+    typeof value.updatedAt !== "string" ||
+    typeof value.healthCheckConsecutiveFailures !== "number"
   ) {
     return null;
   }
@@ -980,6 +1096,8 @@ function mapRuntimeMcpConnectionRecord(value: Record<string, unknown>): RuntimeM
     nonSecretParamsJson: value.nonSecretParamsJson,
     endpointFingerprint: readOptionalString(value.endpointFingerprint),
     lastVerifiedAt: readOptionalString(value.lastVerifiedAt),
+    nextHealthCheckAt: readOptionalString(value.nextHealthCheckAt),
+    healthCheckConsecutiveFailures: value.healthCheckConsecutiveFailures,
     lastStatus: readOptionalString(value.lastStatus),
     lastErrorCode: readOptionalString(value.lastErrorCode),
     lastErrorMessage: readOptionalString(value.lastErrorMessage),
@@ -1039,6 +1157,7 @@ function mapRuntimeMcpOperationRecord(value: Record<string, unknown>): RuntimeMc
     typeof value.runtimeId !== "string" ||
     typeof value.connectionId !== "string" ||
     !isMcpConnectionOperationType(value.operation) ||
+    !isMcpConnectionOperationSource(value.source) ||
     !isMcpConnectionOperationStatus(value.status) ||
     typeof value.requestSnapshotJson !== "string" ||
     typeof value.createdAt !== "string"
@@ -1051,6 +1170,7 @@ function mapRuntimeMcpOperationRecord(value: Record<string, unknown>): RuntimeMc
     runtimeId: value.runtimeId,
     connectionId: value.connectionId,
     operation: value.operation,
+    source: value.source,
     status: value.status,
     requestSnapshotJson: value.requestSnapshotJson,
     safeStdoutTail: readOptionalString(value.safeStdoutTail),
@@ -1114,6 +1234,9 @@ function isMcpConnectionOperationType(value: unknown): value is McpConnectionOpe
 function isMcpConnectionOperationStatus(value: unknown): value is McpConnectionOperationStatus {
   return value === "pending" || value === "claimed" || value === "running" || value === "succeeded" || value === "failed" || value === "cancelled";
 }
+function isMcpConnectionOperationSource(value: unknown): value is McpConnectionOperationSource {
+  return value === "user_verify" || value === "config_change" || value === "secret_rotation" || value === "health_check" || value === "enable" || value === "remove";
+}
 function isMcpToolCallOutcome(value: unknown): value is McpToolCallOutcome {
   return value === "succeeded" || value === "failed";
 }
@@ -1125,3 +1248,5 @@ function readOptionalString(value: unknown): string | undefined {
 function throwMissing(label: string): never {
   throw new Error(`Failed to persist MCP ${label}.`);
 }
+
+export type { McpConnectionOperationSource, McpConnectionOperationType } from "./types.ts";

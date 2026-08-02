@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "56";
+export const POSTGRES_SCHEMA_VERSION = "60";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -98,6 +98,9 @@ export type PostgresTableName = (typeof POSTGRES_TABLE_NAMES)[number];
 
 export function getPostgresSchemaStatements(): string[] {
   return [
+    `
+      CREATE EXTENSION IF NOT EXISTS "pgcrypto"
+    `,
     `
       CREATE TABLE IF NOT EXISTS app_metadata (
         key TEXT PRIMARY KEY,
@@ -534,6 +537,19 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `
       ALTER TABLE workspace_employee
+        ADD COLUMN IF NOT EXISTS id TEXT NOT NULL DEFAULT gen_random_uuid()
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_employee_id
+        ON workspace_employee(id)
+    `,
+    `
+      UPDATE workspace_employee
+        SET id = COALESCE(id, gen_random_uuid()::text)
+        WHERE id IS NULL
+    `,
+    `
+      ALTER TABLE workspace_employee
         ADD COLUMN IF NOT EXISTS default_model TEXT
     `,
     `
@@ -943,6 +959,8 @@ export function getPostgresSchemaStatements(): string[] {
         non_secret_params_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         endpoint_fingerprint TEXT,
         last_verified_at TIMESTAMPTZ,
+        next_health_check_at TIMESTAMPTZ,
+        health_check_consecutive_failures INTEGER NOT NULL DEFAULT 0,
         last_status TEXT,
         last_error_code TEXT,
         last_error_message TEXT,
@@ -982,6 +1000,7 @@ export function getPostgresSchemaStatements(): string[] {
         runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
         connection_id TEXT NOT NULL REFERENCES runtime_mcp_connection(id) ON DELETE CASCADE,
         operation TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'user_verify',
         status TEXT NOT NULL,
         request_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         safe_stdout_tail TEXT,
@@ -2038,8 +2057,13 @@ export function getPostgresSchemaStatements(): string[] {
         ON runtime_mcp_connection(workspace_id, runtime_id, status)
     `,
     `
+      CREATE INDEX IF NOT EXISTS idx_runtime_mcp_connection_health_due
+        ON runtime_mcp_connection(workspace_id, status, next_health_check_at)
+        WHERE status = 'ready'
+    `,
+    `
       CREATE INDEX IF NOT EXISTS idx_runtime_mcp_operation_runtime_status
-        ON runtime_mcp_operation(workspace_id, runtime_id, status, created_at ASC)
+        ON runtime_mcp_operation(workspace_id, runtime_id, status, source, created_at ASC)
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_runtime_mcp_operation_connection
@@ -2714,6 +2738,141 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_employee_recovery_workspace
         ON employee_recovery_operation(workspace_id, employee_name, created_at DESC)
+    `,
+    `
+      ALTER TABLE employee_persistent_workspace
+        ADD COLUMN IF NOT EXISTS employee_id TEXT
+    `,
+    `
+      UPDATE employee_persistent_workspace AS epw
+        SET employee_id = COALESCE(epw.employee_id, we.id)
+        FROM workspace_employee AS we
+        WHERE epw.workspace_id = we.workspace_id
+          AND LOWER(epw.employee_name) = LOWER(we.name)
+          AND epw.employee_id IS NULL
+    `,
+    `
+      ALTER TABLE employee_persistent_workspace
+        ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_employee_persistent_workspace_employee_id
+        ON employee_persistent_workspace(workspace_id, employee_id)
+    `,
+    `
+      ALTER TABLE employee_workspace_revision
+        ADD COLUMN IF NOT EXISTS employee_id TEXT
+    `,
+    `
+      UPDATE employee_workspace_revision AS ewr
+        SET employee_id = COALESCE(ewr.employee_id, we.id)
+        FROM workspace_employee AS we
+        WHERE ewr.workspace_id = we.workspace_id
+          AND LOWER(ewr.employee_name) = LOWER(we.name)
+          AND ewr.employee_id IS NULL
+    `,
+    `
+      ALTER TABLE employee_workspace_revision
+        ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      ALTER TABLE employee_artifact
+        ADD COLUMN IF NOT EXISTS employee_id TEXT
+    `,
+    `
+      UPDATE employee_artifact AS ea
+        SET employee_id = COALESCE(ea.employee_id, we.id)
+        FROM workspace_employee AS we
+        WHERE ea.workspace_id = we.workspace_id
+          AND LOWER(ea.employee_name) = LOWER(we.name)
+          AND ea.employee_id IS NULL
+    `,
+    `
+      ALTER TABLE employee_artifact
+        ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      ALTER TABLE employee_runtime_binding
+        ADD COLUMN IF NOT EXISTS employee_id TEXT
+    `,
+    `
+      UPDATE employee_runtime_binding AS erb
+        SET employee_id = COALESCE(erb.employee_id, we.id)
+        FROM workspace_employee AS we
+        WHERE erb.workspace_id = we.workspace_id
+          AND LOWER(erb.employee_name) = LOWER(we.name)
+          AND erb.employee_id IS NULL
+    `,
+    `
+      ALTER TABLE employee_runtime_binding
+        ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS employee_id TEXT
+    `,
+    `
+      UPDATE employee_recovery_operation AS ero
+        SET employee_id = COALESCE(ero.employee_id, we.id)
+        FROM workspace_employee AS we
+        WHERE ero.workspace_id = we.workspace_id
+          AND LOWER(ero.employee_name) = LOWER(we.name)
+          AND ero.employee_id IS NULL
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      ALTER TABLE task_commit_journal
+        ADD COLUMN IF NOT EXISTS employee_id TEXT
+    `,
+    `
+      UPDATE task_commit_journal AS tcj
+        SET employee_id = COALESCE(tcj.employee_id, we.id)
+        FROM workspace_employee AS we
+        WHERE tcj.workspace_id = we.workspace_id
+          AND tcj.employee_name IS NOT NULL
+          AND LOWER(tcj.employee_name) = LOWER(we.name)
+          AND tcj.employee_id IS NULL
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_task_commit_journal_employee_id
+        ON task_commit_journal(workspace_id, employee_id)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS backup_restore_drill_run (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        drill_type TEXT NOT NULL DEFAULT 'metadata',
+        trigger TEXT NOT NULL,
+        status TEXT NOT NULL,
+        started_at TIMESTAMPTZ NOT NULL,
+        finished_at TIMESTAMPTZ,
+        sample_count INTEGER NOT NULL DEFAULT 0,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        failure_count INTEGER NOT NULL DEFAULT 0,
+        result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error_message TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_backup_restore_drill_run_workspace
+        ON backup_restore_drill_run(workspace_id, created_at DESC)
+    `,
+    `
+      ALTER TABLE runtime_mcp_connection
+        ADD COLUMN IF NOT EXISTS next_health_check_at TIMESTAMPTZ
+    `,
+    `
+      ALTER TABLE runtime_mcp_connection
+        ADD COLUMN IF NOT EXISTS health_check_consecutive_failures INTEGER NOT NULL DEFAULT 0
+    `,
+    `
+      ALTER TABLE runtime_mcp_operation
+        ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user_verify'
     `,
     `
       INSERT INTO app_metadata (key, value)

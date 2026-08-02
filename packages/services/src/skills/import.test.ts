@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import { strToU8, zipSync } from "fflate";
-import { listStoredAgentSkillAssignmentsSync, listStoredSkillImportEventsSync, readSkillArtifactByDigestSync } from "@dofe-agent/db";
+import { listStoredAgentSkillAssignmentsSync, listStoredSkillImportEventsSync, readSkillArtifactByDigestSync, readStoredSkillActiveArtifactDigestSync, readStoredWorkspaceSkillSync } from "@dofe-agent/db";
 import {
   createEmployeeSync,
   createWorkspaceSkillSync,
@@ -314,6 +314,89 @@ test("importWorkspaceSkillFromUrl can skip an existing conflict", async () => {
 
   assert.equal(result.skipped, true);
   assert.equal(result.skillId, existing.id);
+});
+
+test("a failed zip import leaves no new skill, files, active digest or import event", async () => {
+  const beforeSkillIds = new Set(listWorkspaceSkillsSync().map((skill) => skill.id));
+  const beforeEventCount = listStoredSkillImportEventsSync(undefined, 100).length;
+
+  const badArchive = zipSync({
+    "README.md": strToU8("# missing SKILL.md"),
+  });
+
+  await assert.rejects(
+    () =>
+      importWorkspaceSkillFromZipUpload({
+        fileName: "bad.zip",
+        contentBytes: badArchive,
+      }),
+    /must contain SKILL\.md/,
+  );
+
+  const newSkills = listWorkspaceSkillsSync().filter((skill) => !beforeSkillIds.has(skill.id));
+  assert.deepEqual(newSkills, []);
+  assert.equal(listStoredSkillImportEventsSync(undefined, 100).length, beforeEventCount);
+});
+
+test("a failed zip replace leaves the existing skill and assignment pin unchanged", async () => {
+  const archive = zipSync({
+    "SKILL.md": strToU8(`---
+name: atomic-replace
+description: Original
+---
+
+# Original
+`),
+    "script.sh": strToU8("#!/bin/sh\necho ok\n"),
+  });
+
+  const original = await importWorkspaceSkillFromZipUpload({
+    fileName: "original.zip",
+    contentBytes: archive,
+  });
+
+  createEmployeeSync({ name: "Tester" });
+  setEmployeeSkillIdsSync("Tester", [original.skillId]);
+
+  const originalSkill = readStoredWorkspaceSkillSync(original.skillId);
+  assert.ok(originalSkill);
+  const originalDigest = readStoredSkillActiveArtifactDigestSync(original.skillId);
+  const originalFileIds = originalSkill.files.map((file) => file.id).sort();
+  const beforeEventCount = listStoredSkillImportEventsSync(undefined, 100).length;
+
+  const badArchive = zipSync({
+    "SKILL.md": strToU8(`---
+name: atomic-replace
+description: Bad replace
+---
+
+# Bad
+`),
+    ".dofe/manifest.json": strToU8("{ not json"),
+  });
+
+  await assert.rejects(
+    () =>
+      importWorkspaceSkillFromZipUpload({
+        fileName: "bad.zip",
+        contentBytes: badArchive,
+        conflict: "replace",
+      }),
+    /manifest/i,
+  );
+
+  const afterSkill = readStoredWorkspaceSkillSync(original.skillId);
+  assert.ok(afterSkill);
+  assert.equal(afterSkill.name, originalSkill.name);
+  assert.equal(afterSkill.description, originalSkill.description);
+  assert.deepEqual(afterSkill.files.map((file) => file.id).sort(), originalFileIds);
+  assert.equal(readStoredSkillActiveArtifactDigestSync(original.skillId), originalDigest);
+  assert.ok(
+    listStoredAgentSkillAssignmentsSync().some(
+      (assignment) => assignment.employeeName === "Tester" && assignment.skillId === original.skillId,
+    ),
+  );
+  assert.equal(listStoredSkillImportEventsSync(undefined, 100).length, beforeEventCount);
 });
 
 function createGitHubFetchMock(): typeof fetch {

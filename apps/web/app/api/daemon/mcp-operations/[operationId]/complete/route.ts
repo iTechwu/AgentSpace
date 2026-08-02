@@ -1,6 +1,6 @@
-import { completeMcpOperationSync, failMcpOperationSync } from "@dofe-agent/db";
+import { completeMcpConnectionOperationWithHealthScheduleSync } from "@dofe-agent/services";
 import type { CompleteMcpConnectionOperationRequest, McpVerificationResult } from "@dofe-agent/domain";
-import { classifyVerificationOutcome, findMissingApprovedMcpTools, redactMcpText, resolveClaimedMcpOperationSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import { classifyVerificationOutcome, failMcpConnectionOperationWithHealthScheduleSync, findMissingApprovedMcpTools, redactMcpText, resolveClaimedMcpOperationSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { readMcpOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -30,7 +30,7 @@ export async function POST(
   if (verification && (operation.operation === "verify" || operation.operation === "enable")) {
     const claimed = resolveClaimedMcpOperationSync({ workspaceId: auth.workspaceId, operation });
     if (!claimed) {
-      const failed = failMcpOperationSync({
+      const failed = failMcpConnectionOperationWithHealthScheduleSync({
         operationId,
         workspaceId: auth.workspaceId,
         errorCode: "mcp.policy_denied",
@@ -74,7 +74,7 @@ export async function POST(
     };
   }
 
-  const completed = completeMcpOperationSync({
+  const completed = completeMcpConnectionOperationWithHealthScheduleSync({
     operationId,
     workspaceId: auth.workspaceId,
     safeStdoutTail: redactOptionalText(body.safeStdoutTail),

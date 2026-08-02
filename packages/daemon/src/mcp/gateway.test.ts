@@ -194,6 +194,35 @@ test("revoked sessions reject subsequent requests", async () => {
   await g.close();
 });
 
+test("gateway awaits an async onAudit callback before returning the tool result", async () => {
+  const mock = buildMockClient();
+  const order: string[] = [];
+  const g = new McpGateway(
+    async (audit) => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      order.push(`audit:${audit.outcome}`);
+    },
+    mock.client,
+  );
+  await g.start();
+  const session = g.createTaskSession(buildTaskSession());
+  const client = new Client({ name: "test-client", version: "1" }, { capabilities: {} });
+  const transport = new StreamableHTTPClientTransport(new URL(session.url));
+  await client.connect(transport);
+  try {
+    const listed = await client.listTools();
+    const name = listed.tools[0]!.name;
+    const callPromise = client.callTool({ name, arguments: { q: "acme" } });
+    assert.equal(order.length, 0, "audit should not fire before tool call completes");
+    await callPromise;
+    assert.deepEqual(order, ["audit:succeeded"]);
+  } finally {
+    await client.close();
+    session.revoke();
+    await g.close();
+  }
+});
+
 test("revoke closes established MCP transports and removes them from gateway memory", async () => {
   const g = new McpGateway(() => undefined, buildMockClient().client);
   await g.start();

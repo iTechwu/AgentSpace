@@ -384,6 +384,7 @@ export interface FailRuntimeAppOperationRequest {
 /* ------------------------------------------------------------------ */
 
 export type McpConnectionOperationType = "verify" | "enable" | "disable" | "remove";
+export type McpConnectionOperationSource = "user_verify" | "config_change" | "secret_rotation" | "health_check" | "enable" | "remove";
 export type McpConnectionOperationStatus = "pending" | "claimed" | "running" | "succeeded" | "failed" | "cancelled";
 export type McpConnectionStatus =
   | "pending_configuration"
@@ -480,6 +481,7 @@ export interface ClaimedMcpConnectionOperation {
   runtimeId: string;
   connectionId: string;
   operation: McpConnectionOperationType;
+  source: McpConnectionOperationSource;
   status: McpConnectionOperationStatus;
   transport: McpTransport;
   endpoint: string;
@@ -511,6 +513,8 @@ export interface FailMcpConnectionOperationRequest {
   safeStderrTail?: string;
   errorCode?: McpErrorCode;
   errorMessage: string;
+  /** When present, overrides the control-plane default connection status on failure. */
+  connectionStatus?: McpConnectionStatus;
 }
 
 /**

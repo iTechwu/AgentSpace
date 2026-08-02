@@ -1,4 +1,6 @@
 import {
+  completeBackupRestoreDrillRunSync,
+  createBackupRestoreDrillRunSync,
   listEmployeePersistentWorkspacesSync,
   listRecoveryOperationsSync,
   listSkillArtifactsSync,
@@ -6,6 +8,7 @@ import {
   readAssignmentArtifactDigestSync,
   readHeadRevisionSync,
   readSkillArtifactByDigestSync,
+  type BackupRestoreDrillRunRecord,
   type EmployeeWorkspaceRevisionRecord,
 } from "@dofe-agent/db";
 import { listEmployeeSkillIdsSync } from "./employees.ts";
@@ -214,6 +217,56 @@ export function runBackupRestoreDrillSync(options: {
     checkedAt: new Date().toISOString(),
     samples,
   };
+}
+
+/**
+ * Persistent backup/restore drill (D-10). Wraps `runBackupRestoreDrillSync` and
+ * writes a `backup_restore_drill_run` record so the result is auditable and can
+ * be surfaced in the data-protection UI. Returns the persisted run record.
+ */
+export function runBackupRestoreDrillRunSync(options: {
+  workspaceId?: string;
+  employeeNames?: string[];
+  sampleLimit?: number;
+  trigger?: BackupRestoreDrillRunRecord["trigger"];
+}): BackupRestoreDrillRunRecord {
+  const workspaceId = options.workspaceId ?? "default";
+  const run = createBackupRestoreDrillRunSync({
+    workspaceId,
+    trigger: options.trigger ?? "manual",
+    drillType: "metadata",
+  });
+
+  try {
+    const result = runBackupRestoreDrillSync({
+      workspaceId,
+      employeeNames: options.employeeNames,
+      sampleLimit: options.sampleLimit,
+    });
+    const successCount = result.samples.filter((s) => s.workspaceManifestMatch && s.skillDigestsMatch).length;
+    const failureCount = result.samples.length - successCount;
+    return completeBackupRestoreDrillRunSync({
+      id: run.id,
+      workspaceId,
+      status: result.ok ? "completed" : "failed",
+      sampleCount: result.samples.length,
+      successCount,
+      failureCount,
+      resultJson: JSON.stringify(result),
+      errorMessage: result.ok ? undefined : `${failureCount}/${result.samples.length} sample(s) failed`,
+    });
+  } catch (error) {
+    return completeBackupRestoreDrillRunSync({
+      id: run.id,
+      workspaceId,
+      status: "failed",
+      sampleCount: 0,
+      successCount: 0,
+      failureCount: 1,
+      resultJson: "{}",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function sampleEmployeeDrill(employeeName: string, workspaceId: string): BackupRestoreDrillResult["samples"][number] {

@@ -18,6 +18,10 @@ import {
   updateRuntimeProvisionRequestSync,
   withTransaction,
   updateWorkspaceRuntimeDisplayNameSync,
+  listBackupRestoreDrillRunsSync,
+  listRecoveryOperationsSync,
+  type BackupRestoreDrillRunRecord,
+  type EmployeeRecoveryOperationRecord,
 } from "@dofe-agent/db";
 import type { AgentForkOptions } from "@dofe-agent/services";
 import { requireCurrentWorkspaceContext } from "@/features/auth/server-workspace";
@@ -65,6 +69,10 @@ import {
   updateEmployeeDefaultModelSync,
   updateEmployeeExecutionPolicySync,
   updateEmployeeInstructionsSync,
+  evaluateDataProtectionHealthSync,
+  runBackupRestoreDrillRunSync,
+  type DataProtectionHealthResult,
+  type DataProtectionAlert,
 } from "@dofe-agent/services";
 import type { TaskRecord } from "@dofe-agent/domain/workspace";
 import { isDaemonProvider, type DaemonProvider, type EmployeeExecutionPolicy } from "@dofe-agent/domain";
@@ -1408,12 +1416,20 @@ export interface AgentDataProtectionSummary {
   recentArtifactCount: number;
   bindingStatus: string | null;
   bindingGeneration: number | null;
+  /** Employee-scoped health alerts from the latest workspace evaluation. */
+  alerts: DataProtectionAlert[];
+  /** Workspace-level durability metrics. */
+  metrics: DataProtectionHealthResult["metrics"];
+  /** Recent recovery operations for this employee. */
+  recentRecoveryOperations: EmployeeRecoveryOperationRecord[];
+  /** Recent backup/restore drill runs for the workspace. */
+  recentDrillRuns: BackupRestoreDrillRunRecord[];
 }
 
 /**
- * Read-only data-protection summary for the agent detail panel (P4). Fetches
- * the employee's persistent-workspace head revision, published artifacts and
- * runtime-binding generation/status from the durability control plane.
+ * Read-only data-protection summary for the agent detail panel (P4). Surfaces the
+ * employee's persistent-workspace head revision, published artifacts, runtime-binding
+ * generation/status, health alerts, recovery history, and recent drill runs.
  */
 export async function readWorkspaceAgentDataProtectionAction(
   employeeName: string,
@@ -1430,6 +1446,10 @@ export async function readWorkspaceAgentDataProtectionAction(
 
   const snapshot = readEmployeeDataProtectionSnapshotSync({ workspaceId, employeeName: normalized });
   const binding = readEmployeeRuntimeBindingSync(normalized, workspaceId);
+  const health = evaluateDataProtectionHealthSync({ workspaceId });
+  const employeeAlerts = health.alerts.filter((alert) => alert.employeeName === normalized);
+  const recentRecoveryOperations = listRecoveryOperationsSync({ workspaceId, employeeName: normalized, limit: 5 });
+  const recentDrillRuns = listBackupRestoreDrillRunsSync({ workspaceId, limit: 5 });
   return {
     employeeName: normalized,
     headRevisionId: snapshot.headRevision?.id ?? null,
@@ -1440,5 +1460,78 @@ export async function readWorkspaceAgentDataProtectionAction(
     recentArtifactCount: snapshot.recentArtifacts.length,
     bindingStatus: binding?.status ?? null,
     bindingGeneration: binding?.generation ?? null,
+    alerts: employeeAlerts,
+    metrics: health.metrics,
+    recentRecoveryOperations,
+    recentDrillRuns,
   };
+}
+
+/**
+ * Workspace-level data-protection health evaluation. Returns alerts and metrics used
+ * by the data-protection dashboard and scheduling integrations.
+ */
+export async function evaluateWorkspaceDataProtectionHealthAction(): Promise<DataProtectionHealthResult> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  return evaluateDataProtectionHealthSync({ workspaceId: workspaceContext.currentWorkspace.id });
+}
+
+/**
+ * List recent backup/restore drill runs for the current workspace.
+ */
+export async function listWorkspaceBackupRestoreDrillRunsAction(
+  limit = 20,
+): Promise<BackupRestoreDrillRunRecord[]> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  return listBackupRestoreDrillRunsSync({ workspaceId: workspaceContext.currentWorkspace.id, limit });
+}
+
+/**
+ * Trigger a manual backup/restore drill for a single employee. Admins and owners can
+ * run drills; the result is persisted and surfaced in the data-protection panel.
+ */
+export async function triggerEmployeeBackupRestoreDrillAction(
+  employeeName: string,
+): Promise<ActionToastResult<BackupRestoreDrillRunRecord>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  const normalized = employeeName.trim();
+  assertRequired(normalized, "employee name");
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertCanManageEmployeeForActorSync({
+    workspaceId,
+    employeeName: normalized,
+    actorUserId: workspaceContext.currentUser.id,
+  });
+
+  const run = runBackupRestoreDrillRunSync({
+    workspaceId,
+    employeeNames: [normalized],
+    trigger: "manual",
+  });
+
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId,
+    title: "Backup/restore drill triggered",
+    note: `${workspaceContext.currentUser.displayName} ran a backup/restore drill for "${normalized}".`,
+    code: "employee.backup_restore_drill_triggered",
+    data: {
+      actorType: "session_user",
+      resourceType: "data_protection_drill",
+      resourceId: run.id,
+      employeeName: normalized,
+      status: run.status,
+    },
+  });
+
+  const toast =
+    run.status === "completed"
+      ? successToast("备份/恢复演练已通过。", "Backup/restore drill passed.")
+      : errorToast(
+          run.errorMessage ?? "备份/恢复演练未通过。",
+          run.errorMessage ?? "Backup/restore drill failed.",
+        );
+  return actionToastResult(run, toast);
 }

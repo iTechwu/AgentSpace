@@ -41,7 +41,20 @@ beforeEach(() => {
   db.exec("DELETE FROM employee_runtime_binding");
   db.exec("DELETE FROM agent_runtime");
   db.exec("DELETE FROM daemon_connection");
+  seedTestEmployees();
 });
+
+function seedTestEmployees(): void {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  for (const name of ["Atlas"]) {
+    db.prepare(
+      `INSERT INTO workspace_employee (id, workspace_id, name, role, origin, summary, fit, status, instructions, created_at, updated_at)
+       VALUES (?, 'default', ?, 'Agent', 'manual', ?, 'Ready', 'active', '', ?, ?)
+       ON CONFLICT (workspace_id, name) DO NOTHING`,
+    ).run(`emp-${name.toLowerCase()}`, name, `${name} test employee`, now, now);
+  }
+}
 
 after(() => {
   process.chdir(originalCwd);

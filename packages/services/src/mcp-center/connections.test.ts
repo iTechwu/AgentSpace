@@ -605,6 +605,12 @@ test("claimMcpTaskSession is one-time: second claim returns empty connections", 
     },
   });
 
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO agent_task_queue (id, workspace_id, agent_id, runtime_id, status, input_json, queued_at, created_at, updated_at)
+     VALUES ('task-1', 'default', 'agent-1', ?, 'running', '{}'::jsonb, ?, ?, ?)`,
+  ).run(runtimeId, now, now, now);
+
   const first = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-1" });
   assert.equal(first.connections.length, 1);
   assert.equal(first.connections[0]?.connectionId, connection.id);

@@ -100,6 +100,7 @@ export {
 export {
   evaluateDataProtectionHealthSync,
   runBackupRestoreDrillSync,
+  runBackupRestoreDrillRunSync,
   type DataProtectionHealthResult,
   type DataProtectionAlert,
   type DataProtectionAlertSeverity,
@@ -255,8 +256,10 @@ export {
 export {
   claimMcpTaskSessionSync,
   classifyVerificationOutcome,
+  completeMcpConnectionOperationWithHealthScheduleSync,
   disableMcpConnectionSync,
   enableMcpConnectionSync,
+  failMcpConnectionOperationWithHealthScheduleSync,
   findMissingApprovedMcpTools,
   listMcpConnectionActivitySync,
   listMcpConnectionsForRuntimeServiceSync,
@@ -268,6 +271,7 @@ export {
   resolveClaimedMcpOperationSync,
   reverifyMcpConnectionSync,
   rotateMcpSecretSync,
+  scheduleMcpHealthChecksSync,
   updateMcpConnectionConfigServiceSync,
   validateMcpConnectionForGatewaySync,
   type McpConnectionActivity,
@@ -334,7 +338,7 @@ export {
 } from "./skills/skill-artifacts.ts";
 export {
   createSkillInstallationPlanSync,
-  resolveClaimedSkillInstallationOperationSync,
+  resolveClaimedSkillInstallationOperation,
   completeSkillInstallationOperationSync,
   failSkillInstallationOperationSync,
   evaluateSkillInstallationReadinessSync,

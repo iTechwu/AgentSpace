@@ -28,6 +28,7 @@ export async function executeMcpConnectionOperation(
       await client.failMcpConnectionOperation(operation.id, {
         errorCode: result.error?.code ?? "mcp.protocol_invalid",
         errorMessage: result.error?.safeMessage ?? "MCP verification failed.",
+        connectionStatus: operation.source === "health_check" ? "degraded" : undefined,
       });
       return;
     }
@@ -45,6 +46,7 @@ export async function executeMcpConnectionOperation(
     await client.failMcpConnectionOperation(operation.id, {
       errorCode: "mcp.protocol_invalid",
       errorMessage: message,
+      connectionStatus: operation.source === "health_check" ? "degraded" : undefined,
     });
   }
 }

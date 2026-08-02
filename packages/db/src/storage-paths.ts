@@ -83,6 +83,22 @@ export function getDaemonRemoteTaskWorkDirPath(
   );
 }
 
+export function getDaemonSkillInstallWorkDirPath(
+  stateDir: string,
+  input: {
+    workspaceId?: string;
+    installationId: string;
+    operationId: string;
+  },
+): string {
+  return join(
+    getDaemonWorkspaceExecutionRootDir(stateDir, input.workspaceId ?? DEFAULT_WORKSPACE_ID),
+    "skill-install",
+    sanitizeStoragePathSegment(input.installationId, "installation"),
+    sanitizeStoragePathSegment(input.operationId, "operation"),
+  );
+}
+
 export function sanitizeStoragePathSegment(value: string, fallback = "item"): string {
   const normalized = value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   return normalized || fallback;

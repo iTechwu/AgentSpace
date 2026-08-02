@@ -778,6 +778,7 @@ describe("dashboard data", () => {
       ],
       activeEmployees: [
         {
+          id: "employee-finance-analyst",
           name: "finance-analyst",
           role: "Finance",
           remarkName: "Finance Analyst",

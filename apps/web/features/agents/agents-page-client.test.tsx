@@ -268,6 +268,7 @@ const data: AgentsPageData = {
   agents: [
     {
       id: "agent:planner",
+      employeeId: "emp-planner",
       kind: "agent",
       name: "Planner",
       subtitle: "Travel planner",

@@ -17,7 +17,7 @@ import {
   createSkillUpgradePlanSync,
   createWorkspaceSkillSync,
   failSkillInstallationOperationSync,
-  resolveClaimedSkillInstallationOperationSync,
+  resolveClaimedSkillInstallationOperation,
   resetWorkspaceStateSync,
   rollbackSkillInstallationSync,
   setAttachmentStorageClientForTests,
@@ -89,7 +89,7 @@ test("createSkillInstallationPlanSync builds installation, components, and a que
   assert.equal(operations[0]?.operation, "prepare");
 });
 
-test("claim → resolve → complete drives the installation to ready", () => {
+test("claim → resolve → complete drives the installation to ready", async () => {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();
   const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
@@ -98,7 +98,7 @@ test("claim → resolve → complete drives the installation to ready", () => {
   assert.ok(claimed);
   assert.equal(claimed!.status, "claimed");
 
-  const resolved = resolveClaimedSkillInstallationOperationSync({ workspaceId: "default", operation: claimed! });
+  const resolved = await resolveClaimedSkillInstallationOperation({ workspaceId: "default", operation: claimed! });
   assert.ok(resolved);
   assert.equal(resolved!.artifactDigest, digest);
   assert.ok(resolved!.files.some((file) => file.path === "scripts/render.py" && file.mode === "0755"));
@@ -159,10 +159,10 @@ test("installation plan creation is idempotent by release lock", () => {
   assert.equal(first.id, second.id);
 });
 
-function completeAllComponents(installationId: string, runtimeId: string): void {
+async function completeAllComponents(installationId: string, runtimeId: string): Promise<void> {
   const claimed = claimNextSkillInstallationOperationForRuntimeSync({ workspaceId: "default", runtimeId });
   assert.ok(claimed);
-  const resolved = resolveClaimedSkillInstallationOperationSync({ workspaceId: "default", operation: claimed! });
+  const resolved = await resolveClaimedSkillInstallationOperation({ workspaceId: "default", operation: claimed! });
   assert.ok(resolved);
   const done = completeSkillInstallationOperationSync({
     operationId: claimed!.id,
@@ -172,7 +172,7 @@ function completeAllComponents(installationId: string, runtimeId: string): void 
   assert.equal(done, true);
 }
 
-test("upgrade creates a candidate revision and rollback reactivates the previous ready digest", () => {
+test("upgrade creates a candidate revision and rollback reactivates the previous ready digest", async () => {
   const skill = createWorkspaceSkillSync({ name: "Rollback Test", description: "rollback" });
   const runtimeId = createTestRuntime();
   const first = buildArtifact(skill.id);

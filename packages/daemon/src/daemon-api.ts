@@ -39,6 +39,7 @@ export type {
   ManagedProvisioningTask,
   ManagedRuntimeCleanupRequest,
   McpConnectionOperationType,
+  McpConnectionOperationSource,
   McpConnectionStatus,
   McpDiscoveredTool,
   McpErrorCode,

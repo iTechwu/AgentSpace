@@ -13,6 +13,7 @@ import {
   evaluateDataProtectionHealthSync,
   promoteTaskOutputsToWorkspaceSync,
   runBackupRestoreDrillSync,
+  runBackupRestoreDrillRunSync,
   setAttachmentStorageClientForTests,
 } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
@@ -78,7 +79,20 @@ beforeEach(() => {
   db.exec("DELETE FROM skill");
   db.exec("DELETE FROM agent_task_queue");
   db.exec("DELETE FROM agent_runtime");
+  seedTestEmployees();
 });
+
+function seedTestEmployees(): void {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  for (const name of ["Alice", "Bob", "Carol", "Dan", "Dave"]) {
+    db.prepare(
+      `INSERT INTO workspace_employee (id, workspace_id, name, role, origin, summary, fit, status, instructions, created_at, updated_at)
+       VALUES (?, 'default', ?, 'Agent', 'manual', ?, 'Ready', 'active', '', ?, ?)
+       ON CONFLICT (workspace_id, name) DO NOTHING`,
+    ).run(`emp-${name.toLowerCase()}`, name, `${name} test employee`, now, now);
+  }
+}
 
 after(() => {
   process.chdir(originalCwd);
@@ -175,4 +189,28 @@ test("drill reports a mismatch when the stored manifest digest disagrees with th
   const drill = runBackupRestoreDrillSync({ workspaceId: "default", employeeNames: ["Dave"] });
   assert.equal(drill.ok, false);
   assert.equal(drill.samples[0]!.workspaceManifestMatch, false);
+});
+
+test("D-10: persistent drill run records the result and status", () => {
+  promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Alice",
+    outputs: [{ path: "a.txt", bytes: new TextEncoder().encode("v1") }],
+  });
+
+  const run = runBackupRestoreDrillRunSync({
+    workspaceId: "default",
+    employeeNames: ["Alice"],
+    trigger: "manual",
+  });
+
+  assert.equal(run.status, "completed");
+  assert.equal(run.workspaceId, "default");
+  assert.equal(run.drillType, "metadata");
+  assert.equal(run.trigger, "manual");
+  assert.ok(run.sampleCount >= 1);
+  assert.equal(run.successCount, run.sampleCount);
+  assert.equal(run.failureCount, 0);
+  assert.ok(run.resultJson.length > 2);
 });

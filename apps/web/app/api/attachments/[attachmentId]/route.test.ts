@@ -70,6 +70,7 @@ beforeEach(() => {
     ],
     activeEmployees: [
       {
+        id: "employee-atlas",
         name: "Atlas",
         role: "Planner",
         remarkName: "Atlas",

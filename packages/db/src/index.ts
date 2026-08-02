@@ -85,6 +85,7 @@ export type {
   RuntimeInstalledAppStatus,
   McpCatalogItemRecord,
   McpCatalogSource,
+  McpConnectionOperationSource,
   McpConnectionOperationStatus,
   McpConnectionOperationType,
   McpConnectionStatus,
@@ -111,6 +112,7 @@ export type {
   EmployeeBindingStatus,
   EmployeeRecoveryOperationRecord,
   RecoveryPhase,
+  BackupRestoreDrillRunRecord,
   NativeTaskStatus,
   QueuedTaskRecord,
   TaskMessageRecord,
@@ -592,6 +594,7 @@ export {
   readMcpConnectionSync,
   readMcpOperationSync,
   recordMcpToolAuditSync,
+  scheduleMcpHealthChecksSync,
   startMcpOperationSync,
   updateMcpConnectionConfigSync,
   updateMcpConnectionStatusSync,
@@ -813,6 +816,8 @@ export {
 export {
   listStoredEmployeesSync,
   readStoredEmployeeSync,
+  readStoredEmployeeByIdSync,
+  resolveStoredEmployeeIdSync,
   createStoredEmployeeSync,
   updateStoredEmployeeSync,
   deleteStoredEmployeeSync,
@@ -914,6 +919,7 @@ export {
 export {
   ensureEmployeePersistentWorkspaceSync,
   readEmployeePersistentWorkspaceSync,
+  readEmployeePersistentWorkspaceByIdSync,
   listEmployeePersistentWorkspacesSync,
   updateWorkspaceStorageHealthSync,
   createWorkspaceRevisionSync,
@@ -940,3 +946,10 @@ export {
   failRecoveryOperationSync,
   type CreateRecoveryOperationInput,
 } from "./recovery-operations.ts";
+export {
+  createBackupRestoreDrillRunSync,
+  readBackupRestoreDrillRunSync,
+  listBackupRestoreDrillRunsSync,
+  completeBackupRestoreDrillRunSync,
+  type CreateBackupRestoreDrillRunInput,
+} from "./backup-restore-drill-runs.ts";

@@ -1,6 +1,6 @@
 import { claimNextSkillInstallationOperationForRuntimeSync } from "@dofe-agent/db";
 import type { ClaimSkillInstallationOperationResponse } from "@dofe-agent/domain";
-import { resolveClaimedSkillInstallationOperationSync } from "@dofe-agent/services";
+import { resolveClaimedSkillInstallationOperation } from "@dofe-agent/services";
 import { readRuntimeForDaemon, requireDaemonAuth } from "../../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -29,7 +29,7 @@ export async function POST(
     return Response.json({ operation: null } satisfies ClaimSkillInstallationOperationResponse);
   }
 
-  const operation = resolveClaimedSkillInstallationOperationSync({
+  const operation = await resolveClaimedSkillInstallationOperation({
     workspaceId: auth.workspaceId,
     operation: claimed,
   });

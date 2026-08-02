@@ -9,10 +9,11 @@ import {
   type DaemonTaskUsage,
 } from "@dofe-agent/domain";
 import { getStringFlag, parseArgs } from "./args.ts";
-import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, ClaimedSkillInstallationOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, McpToolAuditReport, RegisterDaemonResponse } from "./daemon-api.ts";
+import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, ClaimedSkillInstallationOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, RegisterDaemonResponse } from "./daemon-api.ts";
 import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputBundle } from "./bundle.ts";
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
+import { executeSkillInstallationOperation } from "./skill-install/operation-worker.ts";
 import {
   type DetectedProvider,
   detectProviders,
@@ -716,7 +717,7 @@ async function pollRemoteTasks(
       const skillOperation = await client.claimSkillInstallationOperation(runtime.id);
       if (skillOperation.operation) {
         activeRuntimes.add(runtime.id);
-        void executeRemoteSkillInstallationOperation(client, skillOperation.operation)
+        void executeRemoteSkillInstallationOperation(client, config, skillOperation.operation)
           .catch((error) => {
             const message = error instanceof Error ? error.message : String(error);
             console.error(`Skill installation operation ${skillOperation.operation?.operationId ?? "unknown"} crashed: ${message}`);
@@ -803,19 +804,10 @@ async function executeRemoteRuntimeAppOperation(
 
 async function executeRemoteSkillInstallationOperation(
   client: HttpDaemonClient,
+  config: RemoteDaemonConfig,
   operation: ClaimedSkillInstallationOperation,
 ): Promise<void> {
-  await client.startSkillInstallationOperation(operation.operationId);
-  // The real materializer/runner is not implemented yet. Instead of silently
-  // leaving operations in `preparing` or faking success, fail fast with an
-  // explicit, auditable code so users and operators know the execution face is
-  // still under construction.
-  await client.failSkillInstallationOperation(operation.operationId, {
-    errorCode: "skill_installation.remote_execution_not_implemented",
-    errorMessage:
-      "Remote skill installation execution is not implemented on this daemon. " +
-      "The control plane created the plan, but artifact materialization, dependency verification, and script validation are not yet wired.",
-  });
+  await executeSkillInstallationOperation(client, config, operation);
 }
 
 async function resolveManagedCredentialProfile(
@@ -846,14 +838,12 @@ async function executeRemoteTask(
   // through its authenticated channel and hosts a loopback gateway. The
   // Provider's own MCP config only ever receives the gateway URL.
   let mcpSession: { url: string; revoke: () => void } | undefined;
-  const mcpAuditSink: McpToolAuditReport[] = [];
 
   try {
     await client.startTask(task.id);
     const bundle = await client.getInputBundle(task.id);
     materializeInputBundle(workDir, bundle);
 
-    mcpGatewayAuditSinks.set(task.id, mcpAuditSink);
     if (bundle.metadata.mcpConnections?.status === "available") {
       try {
         const claimed = await client.claimMcpTaskSession(task.id);
@@ -1004,15 +994,10 @@ async function executeRemoteTask(
       workDir: failureMetadata?.workDir ?? workDir,
     });
   } finally {
-    // Revoke the MCP session and flush any redacted tool audits, best-effort.
+    // Revoke the MCP session. Tool audits are now flushed per-call by the
+    // gateway's onAudit handler, so a daemon crash loses at most the in-flight
+    // call rather than the entire task's audit trail.
     mcpSession?.revoke();
-    mcpGatewayAuditSinks.delete(task.id);
-    if (mcpAuditSink.length > 0) {
-      await client.reportMcpToolAudits(task.id, mcpAuditSink).catch((error) => {
-        const detail = error instanceof Error ? error.message : String(error);
-        console.error(`MCP audit report failed for task ${task.id}: ${detail}`);
-      });
-    }
     clearTaskOutputArtifacts(workDir);
     if (!isPersistentConversationWorkspace) {
       rmSync(workDir, { recursive: true, force: true });
@@ -1020,15 +1005,23 @@ async function executeRemoteTask(
   }
 }
 
-const mcpGatewayAuditSinks = new Map<string, McpToolAuditReport[]>();
 let sharedMcpGateway: McpGateway | null = null;
 
 async function getMcpGatewayForTask(client: HttpDaemonClient): Promise<McpGateway> {
   if (!sharedMcpGateway) {
     const gateway = new McpGateway(
-      (audit) => {
-        const sink = mcpGatewayAuditSinks.get(audit.taskId);
-        if (sink) sink.push(audit);
+      async (audit) => {
+        await client.reportMcpToolAudits(audit.taskId, [{
+          taskId: audit.taskId,
+          connectionId: audit.connectionId,
+          toolName: audit.toolName,
+          outcome: audit.outcome,
+          latencyMs: audit.latencyMs,
+          safeSummary: audit.safeSummary,
+        }]).catch((error) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          console.error(`MCP audit report failed for task ${audit.taskId}: ${detail}`);
+        });
       },
       undefined,
       async (input) => {

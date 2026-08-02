@@ -33,6 +33,7 @@ beforeEach(() => {
     organizationName: "Northstar Labs",
     activeEmployees: [
       {
+        id: "employee-atlas",
         name: "Atlas",
         role: "Planner",
         remarkName: "Atlas",
@@ -46,6 +47,7 @@ beforeEach(() => {
         instructions: "",
       },
       {
+        id: "employee-echo",
         name: "Echo",
         role: "Reviewer",
         remarkName: "Echo",
@@ -74,6 +76,7 @@ beforeEach(() => {
     organizationName: "Mars Labs",
     activeEmployees: [
       {
+        id: "employee-atlas-mars",
         name: "Atlas",
         role: "Planner",
         remarkName: "Atlas",
@@ -87,6 +90,7 @@ beforeEach(() => {
         instructions: "",
       },
       {
+        id: "employee-nova-mars",
         name: "Nova",
         role: "Researcher",
         remarkName: "Nova",

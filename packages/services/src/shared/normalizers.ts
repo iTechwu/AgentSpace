@@ -205,6 +205,7 @@ export function buildRecoveredActiveEmployee(
     .map((channel) => channel.name);
 
   return {
+    id: `employee-${createOpaqueId()}`,
     name: employeeName,
     role: "Agent",
     remarkName: employeeName,
@@ -561,6 +562,9 @@ function normalizeActiveEmployee(employee: unknown, skillPool: WorkspaceSkill[])
   }
 
   return {
+    id: typeof candidate.id === "string" && candidate.id.trim().length > 0
+      ? candidate.id
+      : `employee-${createOpaqueId()}`,
     name: candidate.name,
     role: typeof candidate.role === "string" ? candidate.role : "Agent",
     remarkName:

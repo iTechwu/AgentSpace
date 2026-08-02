@@ -174,6 +174,10 @@ export interface SkillInstallationOperationFile {
   size: number;
   mediaType: string;
   mode: string;
+  /** Short-lived signed URL for remote daemons to download the blob. */
+  downloadUrl?: string;
+  /** Local storage path (e.g. `local:///...` or `tos://...`) for fallback/direct access. */
+  storedPath?: string;
 }
 
 /** One-time authenticated payload delivered to the daemon on claim. */
@@ -185,6 +189,8 @@ export interface ClaimedSkillInstallationOperation {
   operation: SkillInstallationOperationKind;
   artifactDigest: string;
   artifactName: string;
+  /** Canonical manifest JSON so the daemon can recompute the root digest. */
+  manifestJson: string;
   files: SkillInstallationOperationFile[];
   /** Components the daemon is expected to prepare/verify for this operation. */
   components: Array<{ kind: SkillComponentKind; key: string; status: string }>;

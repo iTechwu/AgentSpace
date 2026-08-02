@@ -1,4 +1,5 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId } from "./database.ts";
+import { resolveStoredEmployeeIdSync } from "./workspace-employees.ts";
 import type { EmployeeRecoveryOperationRecord, RecoveryPhase } from "./types.ts";
 
 /* ------------------------------------------------------------------ */
@@ -20,7 +21,7 @@ export interface CreateRecoveryOperationInput {
 /* ------------------------------------------------------------------ */
 
 const RECOVERY_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, employee_name AS employeeName,
+  id, workspace_id AS workspaceId, employee_id AS employeeId, employee_name AS employeeName,
   from_generation AS fromGeneration, to_generation AS toGeneration, phase,
   target_revision_id AS targetRevisionId, requested_by_user_id AS requestedByUserId,
   error_code AS errorCode, error_message AS errorMessage, context_json AS contextJson,
@@ -40,17 +41,22 @@ export function createRecoveryOperationSync(input: CreateRecoveryOperationInput)
   if (!input.toGeneration || input.toGeneration < 1) {
     throw new Error("Recovery operation to_generation must be a positive integer.");
   }
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+  if (!employeeId) {
+    throw new Error(`Employee "${employeeName}" not found in workspace ${workspaceId}.`);
+  }
   const id = `recover-${randomLikeId()}`;
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO employee_recovery_operation (
-      id, workspace_id, employee_name, from_generation, to_generation, phase,
+      id, workspace_id, employee_id, employee_name, from_generation, to_generation, phase,
       target_revision_id, requested_by_user_id, error_code, error_message, context_json,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 'allocate', ?, ?, NULL, NULL, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, 'allocate', ?, ?, NULL, NULL, ?, ?, ?)`,
   ).run(
     id,
     workspaceId,
+    employeeId,
     employeeName,
     input.fromGeneration ?? null,
     input.toGeneration,
@@ -153,6 +159,7 @@ function mapRecoveryRecord(value: Record<string, unknown>): EmployeeRecoveryOper
   if (
     typeof value.id !== "string" ||
     typeof value.workspaceId !== "string" ||
+    typeof value.employeeId !== "string" ||
     typeof value.employeeName !== "string" ||
     typeof value.toGeneration !== "number" ||
     typeof value.phase !== "string" ||
@@ -165,6 +172,7 @@ function mapRecoveryRecord(value: Record<string, unknown>): EmployeeRecoveryOper
   return {
     id: value.id,
     workspaceId: value.workspaceId,
+    employeeId: value.employeeId,
     employeeName: value.employeeName,
     fromGeneration: typeof value.fromGeneration === "number" ? value.fromGeneration : undefined,
     toGeneration: value.toGeneration,

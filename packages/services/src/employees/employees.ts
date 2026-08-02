@@ -30,7 +30,7 @@ import { listWorkspaceSkillsSync, readWorkspaceSkillSync } from "../skills/skill
 import { skillDeclaresRequirementKey } from "../skills/requirements.ts";
 import { getManagedRuntimeCredentialEnvKey } from "../runtime-provisioning/provider-templates.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
-import { sameValue, normalizeSkillIds, uniqueStringValues } from "../shared/helpers.ts";
+import { sameValue, normalizeSkillIds, uniqueStringValues, createOpaqueId } from "../shared/helpers.ts";
 import { normalizeWorkspaceState } from "../shared/normalizers.ts";
 import { pushWorkspaceMessageIfChannel } from "../shared/messaging.ts";
 import { resolveAgentRuntimeMode } from "../config/deployment.ts";
@@ -366,6 +366,7 @@ export function createEmployeeSync(input: {
   }
 
   const activeEmployee: ActiveEmployee = {
+    id: `employee-${createOpaqueId()}`,
     name: input.name,
     role: input.role ?? "Agent",
     remarkName: input.remarkName?.trim() || input.name,

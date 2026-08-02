@@ -10,6 +10,7 @@ import {
 } from "./openagent-persona-sign.ts";
 
 const employee: ActiveEmployee = {
+  id: "employee-atlas-1",
   name: "Atlas",
   role: "Research Lead",
   remarkName: "阿特拉斯",

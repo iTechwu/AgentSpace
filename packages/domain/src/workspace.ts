@@ -149,6 +149,7 @@ export interface WorkspaceSkill {
 }
 
 export interface ActiveEmployee {
+  id: string;
   name: string;
   role: string;
   remarkName?: string;

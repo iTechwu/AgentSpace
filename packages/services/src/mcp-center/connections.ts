@@ -1,8 +1,10 @@
 import {
   cancelUnfinishedMcpOperationsForConnectionSync,
   claimMcpTaskSessionMarkerSync,
+  completeMcpOperationSync,
   createMcpConnectionSync,
   createMcpOperationSync,
+  failMcpOperationSync,
   getDatabase,
   withTransaction,
   listMcpConnectionsForRuntimeSync,
@@ -15,6 +17,7 @@ import {
   readMcpConnectionSecretsSync,
   readMcpConnectionSync,
   readMcpOperationSync,
+  scheduleMcpHealthChecksSync as dbScheduleMcpHealthChecksSync,
   updateMcpConnectionConfigSync,
   updateMcpConnectionStatusSync,
   upsertMcpSecretsSync,
@@ -29,6 +32,8 @@ import {
 import type {
   ClaimMcpTaskSessionResponse,
   ClaimedMcpConnectionOperation,
+  McpConnectionOperationSource,
+  McpConnectionStatus,
   McpDiscoveredTool,
   McpTaskSessionConnection,
   McpVerificationOutcome,
@@ -144,6 +149,7 @@ export function requestMcpConnectionSync(input: RequestMcpConnectionInput): Requ
     runtimeId: runtime.id,
     connectionId: connection.id,
     operation: "verify",
+    source: "user_verify",
     requestedByUserId: input.actorUserId,
     requestSnapshotJson: JSON.stringify({
       endpoint: endpointCheck.host ? `https://${endpointCheck.host}` : undefined,
@@ -260,6 +266,7 @@ function createConnectionOperationSync(input: {
     runtimeId: connection.runtimeId,
     connectionId: connection.id,
     operation: input.operation,
+    source: sourceForConnectionOperation(input.operation),
     requestedByUserId: input.actorUserId,
   });
   auditLifecycleEvent(input.workspaceId, connection, input.operation, input.actorUserId);
@@ -342,6 +349,7 @@ export function updateMcpConnectionConfigServiceSync(input: UpdateMcpConnectionC
       runtimeId: connection.runtimeId,
       connectionId: connection.id,
       operation: "verify",
+      source: "config_change",
       requestedByUserId: input.actorUserId,
     });
   } else if (!reverifyAllowed) {
@@ -397,6 +405,7 @@ export function rotateMcpSecretSync(input: {
       runtimeId: connection.runtimeId,
       connectionId: connection.id,
       operation: "verify",
+      source: "secret_rotation",
       requestedByUserId: input.actorUserId,
     });
   } else {
@@ -532,6 +541,7 @@ export function replaceMcpConnectionConfigSync(input: ReplaceMcpConnectionConfig
         runtimeId: connection.runtimeId,
         connectionId: connection.id,
         operation: "verify",
+        source: "config_change",
         requestedByUserId: input.actorUserId,
       });
     } else if (!reverifyAllowed) {
@@ -631,6 +641,99 @@ export function listMcpConnectionActivitySync(input: {
   };
 }
 
+const MCP_HEALTH_CHECK_BASE_INTERVAL_MS = 60 * 60 * 1000;
+const MCP_HEALTH_CHECK_MAX_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/** Schedules periodic health-check verify operations for due ready connections. */
+export function scheduleMcpHealthChecksSync(input: {
+  workspaceId?: string;
+  runtimeId?: string;
+  now?: string;
+} = {}): number {
+  return dbScheduleMcpHealthChecksSync(input);
+}
+
+/** Computes the next health-check timestamp after a verification result. */
+export function computeMcpConnectionNextHealthCheckAt(input: {
+  connection: RuntimeMcpConnectionRecord;
+  now?: string;
+  verificationStatus?: "ready" | "degraded" | "failed";
+}): string {
+  const now = input.now ?? new Date().toISOString();
+  if (input.verificationStatus === "failed" || input.verificationStatus === "degraded") {
+    const failures = input.connection.healthCheckConsecutiveFailures;
+    const backoffMs = Math.min(
+      MCP_HEALTH_CHECK_BASE_INTERVAL_MS * 2 ** failures,
+      MCP_HEALTH_CHECK_MAX_INTERVAL_MS,
+    );
+    return new Date(new Date(now).getTime() + backoffMs).toISOString();
+  }
+  return new Date(new Date(now).getTime() + MCP_HEALTH_CHECK_BASE_INTERVAL_MS).toISOString();
+}
+
+/** Complete wrapper that also advances the connection's health-check schedule. */
+export function completeMcpConnectionOperationWithHealthScheduleSync(input: {
+  operationId: string;
+  workspaceId?: string;
+  safeStdoutTail?: string;
+  safeStderrTail?: string;
+  verification?: {
+    status: McpConnectionStatus;
+    protocolVersion?: string;
+    toolsMetadataJson: string;
+    toolsFingerprint: string;
+    latencyMs?: number;
+    discoveredAt?: string;
+    errorCode?: string;
+    errorMessage?: string;
+  };
+}): RuntimeMcpOperationRecord {
+  const operation = readMcpOperationSync(input.operationId, input.workspaceId);
+  const connection = operation ? readMcpConnectionSync(operation.connectionId, operation.workspaceId) : null;
+  const nextHealthCheckAt = connection
+    ? computeMcpConnectionNextHealthCheckAt({ connection, verificationStatus: input.verification?.status })
+    : undefined;
+  return completeMcpOperationSync({
+    operationId: input.operationId,
+    workspaceId: input.workspaceId,
+    safeStdoutTail: input.safeStdoutTail,
+    safeStderrTail: input.safeStderrTail,
+    nextHealthCheckAt,
+    verification: input.verification,
+  });
+}
+
+/** Fail wrapper that also advances the health-check schedule and increments failures. */
+export function failMcpConnectionOperationWithHealthScheduleSync(input: {
+  operationId: string;
+  workspaceId?: string;
+  safeStdoutTail?: string;
+  safeStderrTail?: string;
+  errorCode?: string;
+  errorMessage: string;
+  connectionStatus?: McpConnectionStatus;
+}): RuntimeMcpOperationRecord {
+  const operation = readMcpOperationSync(input.operationId, input.workspaceId);
+  const connection = operation ? readMcpConnectionSync(operation.connectionId, operation.workspaceId) : null;
+  const nextHealthCheckAt = connection
+    ? computeMcpConnectionNextHealthCheckAt({ connection, verificationStatus: "failed" })
+    : undefined;
+  const healthCheckConsecutiveFailures = connection && operation?.source === "health_check"
+    ? connection.healthCheckConsecutiveFailures + 1
+    : undefined;
+  return failMcpOperationSync({
+    operationId: input.operationId,
+    workspaceId: input.workspaceId,
+    safeStdoutTail: input.safeStdoutTail,
+    safeStderrTail: input.safeStderrTail,
+    errorCode: input.errorCode,
+    errorMessage: input.errorMessage,
+    connectionStatus: input.connectionStatus,
+    nextHealthCheckAt,
+    healthCheckConsecutiveFailures,
+  });
+}
+
 export function listMcpConnectionsForRuntimeServiceSync(input: {
   workspaceId: string;
   runtimeId: string;
@@ -659,6 +762,7 @@ export function resolveClaimedMcpOperationSync(input: {
       runtimeId: input.operation.runtimeId,
       connectionId: input.operation.connectionId,
       operation: input.operation.operation,
+      source: input.operation.source,
       status: input.operation.status,
       transport: "streamable_http",
       endpoint: "",
@@ -701,6 +805,7 @@ export function resolveClaimedMcpOperationSync(input: {
     runtimeId: input.operation.runtimeId,
     connectionId: input.operation.connectionId,
     operation: input.operation.operation,
+    source: input.operation.source,
     status: input.operation.status,
     transport: catalog.transport,
     endpoint: connection.endpoint,
@@ -989,6 +1094,19 @@ function auditLifecycleEvent(
       runtimeId: connection.runtimeId,
     },
   });
+}
+
+function sourceForConnectionOperation(operation: McpConnectionOperationType): McpConnectionOperationSource {
+  switch (operation) {
+    case "verify":
+      return "user_verify";
+    case "enable":
+      return "enable";
+    case "disable":
+      return "config_change";
+    case "remove":
+      return "remove";
+  }
 }
 
 function parseJsonArray(value: string): string[] {

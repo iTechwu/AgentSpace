@@ -2,6 +2,7 @@ import {
   createSkillInstallationSync,
   completeSkillInstallationOperationSync as completeSkillOperationDbSync,
   failSkillInstallationOperationSync as failSkillOperationDbSync,
+  readContentBlobSync,
   readSkillArtifactByDigestSync,
   readSkillArtifactFilesSync,
   readSkillInstallationByLockSync,
@@ -10,6 +11,7 @@ import {
   readSkillInstallationSync,
   setSkillInstallationStatusSync,
   updateSkillInstallationComponentStatusSync,
+  type ContentBlobRecord,
   type SkillInstallationComponentInput,
   type StoredSkillInstallationOperationRecord,
   type StoredSkillInstallationRecord,
@@ -21,6 +23,7 @@ import type {
   SkillInstallationOperationKind,
 } from "@dofe-agent/domain";
 import { createSkillInstallationOperationSync } from "@dofe-agent/db";
+import { createAttachmentStorageClient, type AttachmentStorageReadInput } from "../attachments/storage.ts";
 import { evaluateSkillInstallationCapabilitiesSync } from "./capabilities.ts";
 
 /* ------------------------------------------------------------------ */
@@ -151,10 +154,10 @@ function buildResolvedLockJson(artifactDigest: string, packageSchemaVersion: num
 /* ------------------------------------------------------------------ */
 
 /** Builds the one-time authenticated payload delivered to the daemon on claim. */
-export function resolveClaimedSkillInstallationOperationSync(input: {
+export async function resolveClaimedSkillInstallationOperation(input: {
   workspaceId: string;
   operation: StoredSkillInstallationOperationRecord;
-}): ClaimedSkillInstallationOperation | null {
+}): Promise<ClaimedSkillInstallationOperation | null> {
   const installation = readSkillInstallationSync(input.operation.installationId, input.workspaceId);
   if (!installation) {
     return null;
@@ -165,6 +168,7 @@ export function resolveClaimedSkillInstallationOperationSync(input: {
   }
   const fileRecords = readSkillArtifactFilesSync(artifact.id);
   const components = readSkillInstallationComponentsSync(installation.id);
+  const storageClient = createAttachmentStorageClient();
 
   return {
     operationId: input.operation.id,
@@ -174,13 +178,31 @@ export function resolveClaimedSkillInstallationOperationSync(input: {
     operation: input.operation.operation as SkillInstallationOperationKind,
     artifactDigest: artifact.digest,
     artifactName: artifact.name,
-    files: fileRecords.map((file) => ({
-      path: file.path,
-      sha256: file.sha256,
-      size: file.sizeBytes,
-      mediaType: file.mediaType,
-      mode: file.mode,
-    })),
+    manifestJson: artifact.manifestJson,
+    files: await Promise.all(
+      fileRecords.map(async (file) => {
+        const blob = readContentBlobSync(file.sha256, input.workspaceId);
+        const readInput: AttachmentStorageReadInput | undefined = blob
+          ? {
+              storageProvider: blob.storageProvider,
+              storageBucket: blob.storageBucket,
+              storageRegion: blob.storageRegion,
+              storageEndpoint: blob.storageEndpoint,
+              storageKey: blob.storageKey,
+              storedPath: buildBlobStoredPath(blob),
+            }
+          : undefined;
+        return {
+          path: file.path,
+          sha256: file.sha256,
+          size: file.sizeBytes,
+          mediaType: file.mediaType,
+          mode: file.mode,
+          downloadUrl: readInput ? (await storageClient.createReadUrl(readInput)) ?? undefined : undefined,
+          storedPath: readInput?.storedPath,
+        };
+      }),
+    ),
     components: components.map((component) => ({
       kind: component.kind,
       key: component.key,
@@ -188,6 +210,16 @@ export function resolveClaimedSkillInstallationOperationSync(input: {
     })),
     createdAt: input.operation.createdAt,
   };
+}
+
+function buildBlobStoredPath(blob: ContentBlobRecord): string {
+  if (blob.storageProvider === "local") {
+    return `local:///${blob.storageKey}`;
+  }
+  if (blob.storageBucket) {
+    return `tos://${blob.storageBucket}/${blob.storageKey}`;
+  }
+  return blob.storageKey;
 }
 
 export function completeSkillInstallationOperationSync(input: {

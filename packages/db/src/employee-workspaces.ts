@@ -1,4 +1,5 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
+import { resolveStoredEmployeeIdSync } from "./workspace-employees.ts";
 import type {
   EmployeeArtifactRecord,
   EmployeePersistentWorkspaceRecord,
@@ -42,22 +43,36 @@ export interface PublishEmployeeArtifactInput {
 /* ------------------------------------------------------------------ */
 
 const WORKSPACE_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, employee_name AS employeeName,
+  id, workspace_id AS workspaceId, employee_id AS employeeId, employee_name AS employeeName,
   head_revision_id AS headRevisionId, storage_ref AS storageRef,
   retention_policy_json AS retentionPolicyJson, storage_health AS storageHealth,
   last_snapshot_at AS lastSnapshotAt, created_at AS createdAt, updated_at AS updatedAt`;
 
 const REVISION_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, workspace_id_ref AS workspaceIdRef,
-  employee_name AS employeeName, parent_revision_id AS parentRevisionId,
-  manifest_digest AS manifestDigest, manifest_json AS manifestJson,
-  source_task_id AS sourceTaskId, status, created_by AS createdBy, created_at AS createdAt`;
+  employee_id AS employeeId, employee_name AS employeeName,
+  parent_revision_id AS parentRevisionId, manifest_digest AS manifestDigest,
+  manifest_json AS manifestJson, source_task_id AS sourceTaskId, status,
+  created_by AS createdBy, created_at AS createdAt`;
 
 const ARTIFACT_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, workspace_id_ref AS workspaceIdRef,
-  employee_name AS employeeName, content_digest AS contentDigest, media_type AS mediaType,
+  employee_id AS employeeId, employee_name AS employeeName,
+  content_digest AS contentDigest, media_type AS mediaType,
   file_name AS fileName, size_bytes AS sizeBytes, source_task_id AS sourceTaskId,
   published_at AS publishedAt, deleted_at AS deletedAt`;
+
+/* ------------------------------------------------------------------ */
+/* Employee ID resolution                                              */
+/* ------------------------------------------------------------------ */
+
+function resolveEmployeeId(employeeName: string, workspaceId: string): string {
+  const id = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+  if (!id) {
+    throw new Error(`Employee "${employeeName}" does not exist in workspace "${workspaceId}".`);
+  }
+  return id;
+}
 
 /* ------------------------------------------------------------------ */
 /* Persistent workspace                                                */
@@ -76,15 +91,16 @@ export function ensureEmployeePersistentWorkspaceSync(
   if (existing) {
     return existing;
   }
+  const employeeId = resolveEmployeeId(employeeName, workspaceId);
   const id = `ews-${randomLikeId()}`;
   const now = new Date().toISOString();
   withTransaction(db, () => {
     db.prepare(
       `INSERT INTO employee_persistent_workspace (
-        id, workspace_id, employee_name, head_revision_id, storage_ref,
+        id, workspace_id, employee_id, employee_name, head_revision_id, storage_ref,
         retention_policy_json, storage_health, last_snapshot_at, created_at, updated_at
-      ) VALUES (?, ?, ?, NULL, NULL, ?, 'unknown', NULL, ?, ?)`,
-    ).run(id, workspaceId, employeeName, input.retentionPolicyJson ?? "{}", now, now);
+      ) VALUES (?, ?, ?, ?, NULL, NULL, ?, 'unknown', NULL, ?, ?)`,
+    ).run(id, workspaceId, employeeId, employeeName, input.retentionPolicyJson ?? "{}", now, now);
   });
   const record = readEmployeePersistentWorkspaceSync(employeeName, workspaceId);
   if (!record) {
@@ -100,6 +116,16 @@ export function readEmployeePersistentWorkspaceSync(
   const row = getDatabase().prepare(
     `${WORKSPACE_COLUMNS} FROM employee_persistent_workspace WHERE workspace_id = ? AND employee_name = ?`,
   ).get(workspaceId, employeeName.trim()) as Record<string, unknown> | undefined;
+  return row ? mapWorkspaceRecord(row) : null;
+}
+
+export function readEmployeePersistentWorkspaceByIdSync(
+  employeeId: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): EmployeePersistentWorkspaceRecord | null {
+  const row = getDatabase().prepare(
+    `${WORKSPACE_COLUMNS} FROM employee_persistent_workspace WHERE workspace_id = ? AND employee_id = ?`,
+  ).get(workspaceId, employeeId) as Record<string, unknown> | undefined;
   return row ? mapWorkspaceRecord(row) : null;
 }
 
@@ -161,13 +187,14 @@ export function createWorkspaceRevisionSync(input: CreateWorkspaceRevisionInput)
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO employee_workspace_revision (
-      id, workspace_id, workspace_id_ref, employee_name, parent_revision_id,
+      id, workspace_id, workspace_id_ref, employee_id, employee_name, parent_revision_id,
       manifest_digest, manifest_json, source_task_id, status, created_by, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     workspaceId,
     workspace.id,
+    workspace.employeeId,
     employeeName,
     input.parentRevisionId?.trim() || null,
     digest,
@@ -290,13 +317,14 @@ export function publishEmployeeArtifactSync(input: PublishEmployeeArtifactInput)
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO employee_artifact (
-      id, workspace_id, workspace_id_ref, employee_name, content_digest, media_type,
+      id, workspace_id, workspace_id_ref, employee_id, employee_name, content_digest, media_type,
       file_name, size_bytes, source_task_id, published_at, deleted_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
   ).run(
     id,
     workspaceId,
     workspace.id,
+    workspace.employeeId,
     input.employeeName.trim(),
     input.contentDigest.trim().toLowerCase(),
     input.mediaType,
@@ -388,6 +416,7 @@ function mapWorkspaceRecord(value: Record<string, unknown>): EmployeePersistentW
   if (
     typeof value.id !== "string" ||
     typeof value.workspaceId !== "string" ||
+    typeof value.employeeId !== "string" ||
     typeof value.employeeName !== "string" ||
     typeof value.retentionPolicyJson !== "string" ||
     typeof value.storageHealth !== "string" ||
@@ -399,6 +428,7 @@ function mapWorkspaceRecord(value: Record<string, unknown>): EmployeePersistentW
   return {
     id: value.id,
     workspaceId: value.workspaceId,
+    employeeId: value.employeeId,
     employeeName: value.employeeName,
     headRevisionId: readOptionalString(value.headRevisionId),
     storageRef: readOptionalString(value.storageRef),
@@ -415,6 +445,7 @@ function mapRevisionRecord(value: Record<string, unknown>): EmployeeWorkspaceRev
     typeof value.id !== "string" ||
     typeof value.workspaceId !== "string" ||
     typeof value.workspaceIdRef !== "string" ||
+    typeof value.employeeId !== "string" ||
     typeof value.employeeName !== "string" ||
     typeof value.manifestDigest !== "string" ||
     typeof value.manifestJson !== "string" ||
@@ -427,6 +458,7 @@ function mapRevisionRecord(value: Record<string, unknown>): EmployeeWorkspaceRev
     id: value.id,
     workspaceId: value.workspaceId,
     workspaceIdRef: value.workspaceIdRef,
+    employeeId: value.employeeId,
     employeeName: value.employeeName,
     parentRevisionId: readOptionalString(value.parentRevisionId),
     manifestDigest: value.manifestDigest,
@@ -443,6 +475,7 @@ function mapArtifactRecord(value: Record<string, unknown>): EmployeeArtifactReco
     typeof value.id !== "string" ||
     typeof value.workspaceId !== "string" ||
     typeof value.workspaceIdRef !== "string" ||
+    typeof value.employeeId !== "string" ||
     typeof value.employeeName !== "string" ||
     typeof value.contentDigest !== "string" ||
     typeof value.mediaType !== "string" ||
@@ -456,6 +489,7 @@ function mapArtifactRecord(value: Record<string, unknown>): EmployeeArtifactReco
     id: value.id,
     workspaceId: value.workspaceId,
     workspaceIdRef: value.workspaceIdRef,
+    employeeId: value.employeeId,
     employeeName: value.employeeName,
     contentDigest: value.contentDigest,
     mediaType: value.mediaType,

@@ -1,4 +1,5 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, withTransaction } from "./database.ts";
+import { resolveStoredEmployeeIdSync } from "./workspace-employees.ts";
 import type { TaskCommitJournalRecord, TaskCommitState } from "./types.ts";
 
 /* ------------------------------------------------------------------ */
@@ -21,9 +22,10 @@ export interface UpsertTaskCommitJournalInput {
 /* ------------------------------------------------------------------ */
 
 const JOURNAL_COLUMNS = `SELECT
-  task_id AS taskId, workspace_id AS workspaceId, employee_name AS employeeName,
-  workspace_revision_id AS workspaceRevisionId, artifact_ids_json AS artifactIdsJson,
-  commit_state AS commitState, attempt, error_code AS errorCode, error_message AS errorMessage,
+  task_id AS taskId, workspace_id AS workspaceId, employee_id AS employeeId,
+  employee_name AS employeeName, workspace_revision_id AS workspaceRevisionId,
+  artifact_ids_json AS artifactIdsJson, commit_state AS commitState, attempt,
+  error_code AS errorCode, error_message AS errorMessage,
   created_at AS createdAt, updated_at AS updatedAt`;
 
 /* ------------------------------------------------------------------ */
@@ -33,16 +35,19 @@ const JOURNAL_COLUMNS = `SELECT
 export function upsertTaskCommitJournalSync(input: UpsertTaskCommitJournalInput): TaskCommitJournalRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employeeName = input.employeeName?.trim();
+  const employeeId = employeeName ? resolveStoredEmployeeIdSync(employeeName, workspaceId) : null;
   const now = new Date().toISOString();
   withTransaction(db, () => {
     db.prepare(
       `INSERT INTO task_commit_journal (
-        task_id, workspace_id, employee_name, workspace_revision_id, artifact_ids_json,
+        task_id, workspace_id, employee_id, employee_name, workspace_revision_id, artifact_ids_json,
         commit_state, attempt, error_code, error_message, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
       ON CONFLICT (task_id) DO UPDATE SET
         workspace_id = excluded.workspace_id,
-        employee_name = excluded.employee_name,
+        employee_id = COALESCE(excluded.employee_id, task_commit_journal.employee_id),
+        employee_name = COALESCE(excluded.employee_name, task_commit_journal.employee_name),
         workspace_revision_id = COALESCE(excluded.workspace_revision_id, task_commit_journal.workspace_revision_id),
         artifact_ids_json = COALESCE(excluded.artifact_ids_json, task_commit_journal.artifact_ids_json),
         commit_state = excluded.commit_state,
@@ -53,7 +58,8 @@ export function upsertTaskCommitJournalSync(input: UpsertTaskCommitJournalInput)
     ).run(
       input.taskId,
       workspaceId,
-      input.employeeName?.trim() || null,
+      employeeId,
+      employeeName || null,
       input.workspaceRevisionId?.trim() || null,
       input.artifactIdsJson ?? "[]",
       input.commitState,
@@ -132,6 +138,7 @@ function mapTaskCommitJournalRecord(value: Record<string, unknown>): TaskCommitJ
   return {
     taskId: value.taskId,
     workspaceId: value.workspaceId,
+    employeeId: readOptionalString(value.employeeId),
     employeeName: readOptionalString(value.employeeName),
     workspaceRevisionId: readOptionalString(value.workspaceRevisionId),
     artifactIdsJson: value.artifactIdsJson,

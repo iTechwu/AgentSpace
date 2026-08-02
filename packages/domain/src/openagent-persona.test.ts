@@ -4,6 +4,7 @@ import { employeeToPersona, slugifyPersonaId } from "./openagent-persona.ts";
 import type { ActiveEmployee } from "./workspace.ts";
 
 const employee: ActiveEmployee = {
+  id: "employee-atlas-1",
   name: "Atlas",
   role: "Research Lead",
   remarkName: "阿特拉斯",

@@ -720,6 +720,7 @@ export interface DigitalEmployeeShowcaseAgentRecord extends ManagementRecordBase
 
 export interface WorkspaceAgentRecord extends ManagementRecordBase {
   kind: "agent";
+  employeeId: string;
   internalName: string;
   ownerUserId?: string;
   ownerDisplayName?: string;
@@ -3980,6 +3981,7 @@ function buildWorkspaceAgentRecord(
 
   return {
     id: buildLegacyAgentIdForEmployeeName(employee.name),
+    employeeId: employee.id,
     kind: "agent",
     name: employee.remarkName?.trim() || employee.name,
     subtitle: employee.name,

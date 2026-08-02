@@ -1,5 +1,6 @@
 import { isDaemonProvider } from "@dofe-agent/domain";
 import { getDatabase, withTransaction, DEFAULT_WORKSPACE_ID } from "./database.ts";
+import { resolveStoredEmployeeIdSync } from "./workspace-employees.ts";
 import type { EmployeeBindingStatus, EmployeeRuntimeBindingRecord } from "./types.ts";
 
 export function bindEmployeeRuntimeSync(input: {
@@ -18,6 +19,11 @@ export function bindEmployeeRuntimeSync(input: {
   }
   if (!runtimeId) {
     throw new Error("runtimeId is required.");
+  }
+
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+  if (!employeeId) {
+    throw new Error(`Employee "${employeeName}" does not exist.`);
   }
 
   const runtime = db
@@ -45,6 +51,7 @@ export function bindEmployeeRuntimeSync(input: {
     db.prepare(
       `INSERT INTO employee_runtime_binding (
         workspace_id,
+        employee_id,
         employee_name,
         runtime_id,
         status,
@@ -52,14 +59,14 @@ export function bindEmployeeRuntimeSync(input: {
         desired_provider,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, 'online', ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?)
       ON CONFLICT(workspace_id, employee_name) DO UPDATE SET
         runtime_id = excluded.runtime_id,
         status = 'online',
         generation = excluded.generation,
         desired_provider = excluded.desired_provider,
         updated_at = excluded.updated_at`,
-    ).run(workspaceId, employeeName, runtimeId, nextGeneration, runtime.provider, now, now);
+    ).run(workspaceId, employeeId, employeeName, runtimeId, nextGeneration, runtime.provider, now, now);
   });
 
   return readEmployeeRuntimeBindingSync(employeeName, workspaceId)!;
@@ -212,6 +219,7 @@ export function readEmployeeRuntimeBindingSync(
     .prepare(
       `SELECT
         erb.workspace_id AS workspaceId,
+        erb.employee_id AS employeeId,
         erb.employee_name AS employeeName,
         erb.runtime_id AS runtimeId,
         ar.provider AS provider,
@@ -236,6 +244,7 @@ export function listEmployeeRuntimeBindingsSync(workspaceId = DEFAULT_WORKSPACE_
     .prepare(
       `SELECT
         erb.workspace_id AS workspaceId,
+        erb.employee_id AS employeeId,
         erb.employee_name AS employeeName,
         erb.runtime_id AS runtimeId,
         ar.provider AS provider,
@@ -260,6 +269,7 @@ export function listEmployeeRuntimeBindingsSync(workspaceId = DEFAULT_WORKSPACE_
 function mapEmployeeRuntimeBindingRecord(value: Record<string, unknown>): EmployeeRuntimeBindingRecord | null {
   if (
     typeof value.workspaceId !== "string" ||
+    typeof value.employeeId !== "string" ||
     typeof value.employeeName !== "string" ||
     typeof value.runtimeId !== "string" ||
     !isDaemonProvider(value.provider as string) ||
@@ -274,6 +284,7 @@ function mapEmployeeRuntimeBindingRecord(value: Record<string, unknown>): Employ
 
   return {
     workspaceId: value.workspaceId,
+    employeeId: value.employeeId,
     employeeName: value.employeeName,
     runtimeId: value.runtimeId,
     provider: value.provider as EmployeeRuntimeBindingRecord["provider"],

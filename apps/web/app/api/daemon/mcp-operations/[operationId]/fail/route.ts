@@ -1,4 +1,4 @@
-import { failMcpOperationSync } from "@dofe-agent/db";
+import { failMcpConnectionOperationWithHealthScheduleSync } from "@dofe-agent/services";
 import type { FailMcpConnectionOperationRequest } from "@dofe-agent/domain";
 import { redactMcpText, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
 import { readMcpOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
@@ -26,13 +26,14 @@ export async function POST(
     return Response.json({ error: "errorMessage is required." }, { status: 400 });
   }
   const safeErrorMessage = redactMcpText(body.errorMessage.trim());
-  const failed = failMcpOperationSync({
+  const failed = failMcpConnectionOperationWithHealthScheduleSync({
     operationId,
     workspaceId: auth.workspaceId,
     safeStdoutTail: typeof body.safeStdoutTail === "string" ? redactMcpText(body.safeStdoutTail) : undefined,
     safeStderrTail: typeof body.safeStderrTail === "string" ? redactMcpText(body.safeStderrTail) : undefined,
     errorCode: body.errorCode,
     errorMessage: safeErrorMessage,
+    connectionStatus: body.connectionStatus,
   });
 
   tryRecordWorkspaceAuditEventSync({

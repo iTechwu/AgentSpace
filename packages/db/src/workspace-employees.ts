@@ -5,6 +5,7 @@ export function listStoredEmployeesSync(workspaceId = DEFAULT_WORKSPACE_ID): Act
   const db = getDatabase();
   const rows = db.prepare(
     `SELECT
+      id,
       name,
       role,
       remark_name AS remarkName,
@@ -34,11 +35,46 @@ export function readStoredEmployeeSync(employeeName: string, workspaceId = DEFAU
   return listStoredEmployeesSync(workspaceId).find((employee) => employee.name === employeeName) ?? null;
 }
 
+export function readStoredEmployeeByIdSync(employeeId: string, workspaceId = DEFAULT_WORKSPACE_ID): ActiveEmployee | null {
+  const db = getDatabase();
+  const row = db.prepare(
+    `SELECT
+      id,
+      name,
+      role,
+      remark_name AS remarkName,
+      owner_user_id AS ownerUserId,
+      origin,
+      summary,
+      traits_json AS traitsJson,
+      fit,
+      status,
+      instructions,
+      channel_member_access AS channelMemberAccess,
+      default_model AS defaultModel,
+      execution_policy_json AS executionPolicyJson,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+     FROM workspace_employee
+     WHERE workspace_id = ? AND id = ?`,
+  ).get(workspaceId, employeeId) as Record<string, unknown> | undefined;
+  return row ? mapStoredEmployeeRecord(row) : null;
+}
+
+export function resolveStoredEmployeeIdSync(
+  employeeName: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): string | null {
+  const employee = readStoredEmployeeSync(employeeName, workspaceId);
+  return employee?.id ?? null;
+}
+
 export function createStoredEmployeeSync(employee: ActiveEmployee, workspaceId = DEFAULT_WORKSPACE_ID): ActiveEmployee {
   const db = getDatabase();
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO workspace_employee (
+      id,
       workspace_id,
       name,
       role,
@@ -56,8 +92,9 @@ export function createStoredEmployeeSync(employee: ActiveEmployee, workspaceId =
       version,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
   ).run(
+    employee.id,
     workspaceId,
     employee.name,
     employee.role,
@@ -144,6 +181,7 @@ export function replaceStoredEmployeesSync(employees: ActiveEmployee[], workspac
 
 function mapStoredEmployeeRecord(row: Record<string, unknown>): ActiveEmployee | null {
   if (
+    typeof row.id !== "string" ||
     typeof row.name !== "string" ||
     typeof row.role !== "string" ||
     typeof row.origin !== "string" ||
@@ -154,6 +192,7 @@ function mapStoredEmployeeRecord(row: Record<string, unknown>): ActiveEmployee |
   }
 
   return {
+    id: row.id,
     name: row.name,
     role: row.role,
     remarkName: typeof row.remarkName === "string" ? row.remarkName : undefined,

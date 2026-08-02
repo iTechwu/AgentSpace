@@ -24,7 +24,7 @@
 
 - 目录浏览、连接配置、密钥管理、daemon 远程验证、状态机、工具白名单和基础安全控制已完成。
 - `ready` 在界面中显示为“已验证”，**不承诺任务可调用**。
-- Claude Runtime 的 task-scoped loopback gateway、一次性凭据 claim 和调用审计链路已实现；gateway 在每次工具调用前进行连接状态复核，被停用或改配的连接会立即停止服务运行中任务。
+- Claude Runtime 的 task-scoped loopback gateway、一次性凭据 claim、调用审计逐调用持久化，以及 gateway 在每次工具调用前的连接状态复核已实现；被停用或改配的连接会立即停止服务运行中任务。
 - Codex 及其他 Provider 未接入 MCP；在确认其支持等价的一次性 task-scoped MCP 配置前不得对外宣称支持。
 
-完整“任务可调用 MCP”发布需等待：健康巡检与降级、二层 egress 策略、目录 release 版本、连接详情活动页、真实 Claude CLI 端到端验证、Codex 接入验证、一次性 session claim 标记、受管 stdio/OAuth。
+完整“任务可调用 MCP”发布需等待：健康巡检与降级、二层 egress 策略、目录 release 版本、连接详情活动页、真实 Claude CLI 端到端验证、Codex 接入验证、受管 stdio/OAuth。
