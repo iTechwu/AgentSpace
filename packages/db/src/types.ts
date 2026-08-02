@@ -1699,6 +1699,15 @@ export interface EmployeeDataLegalHoldRecord {
   releaseReason?: string;
 }
 
+export interface EmployeeDurabilityUsageRecord {
+  workspaceId: string;
+  employeeId: string;
+  blobCount: number;
+  totalBytes: number;
+  artifactCount: number;
+  revisionCount: number;
+}
+
 export interface BackupRestoreDrillRunRecord {
   id: string;
   workspaceId: string;

@@ -3,6 +3,7 @@ import { recordAuditLogSync } from "./audit-log.ts";
 import { resolveStoredEmployeeIdSync } from "./workspace-employees.ts";
 import type {
   EmployeeArtifactRecord,
+  EmployeeDurabilityUsageRecord,
   EmployeePersistentWorkspaceRecord,
   EmployeeWorkspaceRevisionRecord,
   WorkspaceRevisionStatus,
@@ -592,6 +593,54 @@ export function listWorkspaceRevisionDigestsSync(workspaceId = DEFAULT_WORKSPACE
     }
   }
   return [...digests];
+}
+
+/** Deduplicated bytes reachable from one employee's revisions and artifacts. */
+export function readEmployeeDurabilityUsageSync(input: {
+  workspaceId?: string;
+  employeeId: string;
+}): EmployeeDurabilityUsageRecord {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const db = getDatabase();
+  const usage = db.prepare(
+    `WITH reachable_digest AS (
+       SELECT DISTINCT file ->> 'sha256' AS digest
+         FROM employee_workspace_revision revision
+         CROSS JOIN LATERAL jsonb_array_elements(revision.manifest_json -> 'files') AS file
+        WHERE revision.workspace_id = ? AND revision.employee_id = ? AND revision.status = 'committed'
+       UNION
+       SELECT DISTINCT artifact.content_digest AS digest
+         FROM employee_artifact artifact
+        WHERE artifact.workspace_id = ? AND artifact.employee_id = ?
+     )
+     SELECT COUNT(blob.sha256) AS "blobCount", COALESCE(SUM(blob.size_bytes), 0) AS "totalBytes"
+       FROM reachable_digest reachable
+       JOIN content_blob blob ON blob.workspace_id = ? AND blob.sha256 = reachable.digest`,
+  ).get(workspaceId, input.employeeId, workspaceId, input.employeeId, workspaceId) as {
+    blobCount?: number;
+    totalBytes?: number;
+  } | undefined;
+  const counts = db.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM employee_artifact WHERE workspace_id = ? AND employee_id = ?) AS "artifactCount",
+       (SELECT COUNT(*) FROM employee_workspace_revision WHERE workspace_id = ? AND employee_id = ? AND status = 'committed') AS "revisionCount"`,
+  ).get(workspaceId, input.employeeId, workspaceId, input.employeeId) as {
+    artifactCount?: number;
+    revisionCount?: number;
+  } | undefined;
+  return {
+    workspaceId,
+    employeeId: input.employeeId,
+    blobCount: nonNegativeNumber(usage?.blobCount),
+    totalBytes: nonNegativeNumber(usage?.totalBytes),
+    artifactCount: nonNegativeNumber(counts?.artifactCount),
+    revisionCount: nonNegativeNumber(counts?.revisionCount),
+  };
+}
+
+function nonNegativeNumber(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 /* ------------------------------------------------------------------ */

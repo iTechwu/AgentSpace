@@ -10,6 +10,7 @@ import {
   restoreWorkspaceRevisionSync,
   upsertTaskCommitJournalSync,
   createRecoveryOperationSync,
+  createEmployeeDataLegalHoldSync,
   failRecoveryOperationSync,
 } from "@dofe-agent/db";
 import {
@@ -71,6 +72,7 @@ function seedDefaultWorkspaceIfMissing(): void {
 
 beforeEach(() => {
   const db = getDatabase();
+  db.exec("DELETE FROM employee_data_legal_hold");
   db.exec("DELETE FROM audit_log WHERE code = 'employee.workspace_revision_restored'");
   db.exec("DELETE FROM employee_recovery_operation");
   db.exec("DELETE FROM employee_artifact");
@@ -158,6 +160,37 @@ test("health check flags a stale preparing_commit backlog", () => {
     health.alerts.some((alert) => alert.code === "task_commit_reconciliation_backlog"),
     JSON.stringify(health.alerts),
   );
+});
+
+test("health check closes retention quota and legal-hold metrics into error alerting", () => {
+  const promoted = promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Alice",
+    outputs: [{ path: "quota.txt", bytes: new TextEncoder().encode("quota-data") }],
+  });
+  const db = getDatabase();
+  const employeeWorkspace = db.prepare(
+    `SELECT id, employee_id AS "employeeId" FROM employee_persistent_workspace
+      WHERE workspace_id = 'default' AND employee_name = 'Alice'`,
+  ).get() as { id: string; employeeId: string };
+  db.prepare(
+    `UPDATE employee_persistent_workspace SET retention_policy_json = ? WHERE id = ?`,
+  ).run(JSON.stringify({ quotaBytes: 1 }), employeeWorkspace.id);
+  createEmployeeDataLegalHoldSync({
+    workspaceId: "default",
+    employeeId: employeeWorkspace.employeeId,
+    resourceType: "revision",
+    resourceId: promoted.revision.id,
+    reason: "retain quota evidence",
+  });
+
+  const health = evaluateDataProtectionHealthSync({ workspaceId: "default" });
+  assert.equal(health.metrics.employeeDataUsageBytes, 10);
+  assert.equal(health.metrics.retentionQuotaExceededEmployees, 1);
+  assert.equal(health.metrics.activeLegalHolds, 1);
+  assert.ok(health.alerts.some((alert) =>
+    alert.code === "employee_data_retention_quota_exceeded" && alert.severity === "error"));
 });
 
 test("D-10: backup/restore drill recomputes the workspace manifest digest identically", () => {

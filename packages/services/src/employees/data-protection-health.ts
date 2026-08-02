@@ -3,11 +3,13 @@ import {
   completeBackupRestoreDrillRunSync,
   createBackupRestoreDrillRunSync,
   listEmployeePersistentWorkspacesSync,
+  listEmployeeDataLegalHoldsSync,
   listRecoveryOperationsSync,
   listSkillArtifactsSync,
   listStaleCommitJournalsSync,
   readAssignmentArtifactDigestSync,
   readHeadRevisionSync,
+  readEmployeeDurabilityUsageSync,
   readSkillArtifactByDigestSync,
   type BackupRestoreDrillRunRecord,
   type EmployeeWorkspaceRevisionRecord,
@@ -16,6 +18,7 @@ import { listEmployeeSkillIdsSync } from "./employees.ts";
 import { verifySkillArtifactIntegritySync } from "../skills/skill-artifacts.ts";
 import { createAttachmentStorageClient } from "../attachments/storage.ts";
 import { computeRevisionManifestDigest, type WorkspaceRevisionManifest } from "./persistent-workspace.ts";
+import { readRetentionPolicy } from "./lifecycle-maintenance.ts";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -40,6 +43,9 @@ export interface DataProtectionHealthResult {
     runtimeBindingGenerationConflicts: number;
     taskCommitReconciliationBacklog: number;
     runtimeRecoveryDurationSeconds: number;
+    employeeDataUsageBytes: number;
+    retentionQuotaExceededEmployees: number;
+    activeLegalHolds: number;
   };
   checkedAt: string;
 }
@@ -85,9 +91,26 @@ export function evaluateDataProtectionHealthSync(
   let runtimeBindingGenerationConflicts = 0;
   let taskCommitReconciliationBacklog = 0;
   let runtimeRecoveryDurationSeconds = 0;
+  let employeeDataUsageBytes = 0;
+  let retentionQuotaExceededEmployees = 0;
+  const activeLegalHolds = listEmployeeDataLegalHoldsSync({ workspaceId, activeOnly: true }).length;
 
   // workspace_head_age: most recent committed revision across the workspace.
   for (const workspace of workspaces) {
+    const usage = readEmployeeDurabilityUsageSync({ workspaceId, employeeId: workspace.employeeId });
+    employeeDataUsageBytes += usage.totalBytes;
+    const quotaBytes = readRetentionPolicy(workspace.retentionPolicyJson).quotaBytes;
+    if (quotaBytes && usage.totalBytes > quotaBytes) {
+      retentionQuotaExceededEmployees += 1;
+      alerts.push({
+        code: "employee_data_retention_quota_exceeded",
+        severity: "error",
+        employeeName: workspace.employeeName,
+        metric: "employee_data_usage_bytes",
+        value: usage.totalBytes,
+        message: `Employee "${workspace.employeeName}" durable data uses ${usage.totalBytes} bytes (quota ${quotaBytes} bytes).`,
+      });
+    }
     const head = readHeadRevisionSync(workspace.employeeName, workspaceId);
     if (!head) {
       continue;
@@ -184,6 +207,9 @@ export function evaluateDataProtectionHealthSync(
       runtimeBindingGenerationConflicts,
       taskCommitReconciliationBacklog,
       runtimeRecoveryDurationSeconds,
+      employeeDataUsageBytes,
+      retentionQuotaExceededEmployees,
+      activeLegalHolds,
     },
     checkedAt: now,
   };
