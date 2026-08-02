@@ -27,6 +27,7 @@ function makeOperation(overrides?: Partial<ClaimedManagedSkillServiceOperation>)
       runAsNonRoot: false,
       readOnlyRootfs: true,
       capDrop: ["ALL"],
+      signatureRequired: false,
     },
     ...overrides,
   };
@@ -104,6 +105,8 @@ test("provision passes catalog fields to the runtime", async () => {
     runAsNonRoot: false,
     readOnlyRootfs: true,
     capDrop: ["ALL"],
+    signatureKeyPem: undefined,
+    signatureRequired: false,
     secrets: {},
   }]);
 });
@@ -149,6 +152,8 @@ function makeProvisionInput(): Record<string, unknown> {
     runAsNonRoot: false,
     readOnlyRootfs: true,
     capDrop: ["ALL"],
+    signatureKeyPem: undefined,
+    signatureRequired: false,
   };
 }
 
