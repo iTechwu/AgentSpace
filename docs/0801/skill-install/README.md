@@ -51,17 +51,19 @@
 
 ## 当前基线与目标差距
 
-当前实现已经形成可运行的 Remote 安装闭环原型：不可变 artifact/blob、installation/component/operation、Daemon claim/start/complete/fail、artifact materializer、digest cache、component verifier、控制面 evidence 校验、任务的 Runtime readiness gate 和不可变 revision snapshot，以及**真实依赖安装验证**和 **service 控制面操作生命周期**（plan 排队 provision operation → claim → complete → 绑定 → 就绪传播，带 lease/fencing/维护重排）均已进入真实调用链。导入坏包不会修改 Skill；GitHub/Skills.sh 也会在读取前锁定 commit SHA。
+当前实现已经形成高级 Remote 安装原型：不可变 artifact/blob、Daemon materializer、组件 evidence、任务 revision snapshot、真实 npm/pip/uv 安装验证、release lock/approval，以及 managed service 的 Docker provision、健康、binding、卸载、退役、签名和蓝绿切换均已进入生产调用链。旧问题中的 script component 重复和任务 executable mode 丢失已经关闭。
 
-这不等于已经达到生产可用。第三次复审确认仍有以下阻断上线的问题（排序已按事实更新）：
+第四次复审确认，剩余问题不再是“有没有 worker”，而是 worker 的结果能否被任务真实使用，以及安全边界是否不可绕过：
 
-1. Runtime cache hit 只校验文件大小并信任旧 meta，同尺寸内容篡改不会重算 SHA/root digest。
-2. 依赖已真实安装+校验；**service 控制面 + managed-node worker + retire 生命周期 + catalog 准入加固 + secret 注入 + egress 强制 + uninstall + canary 升级编排 + image 签名验证 + 真实 Docker 端到端已全部实现并验证**（daemon claim → cosign 验证签名 → docker pull/create/start/health → complete 回报 endpointRef，retire 拆除；retire 生产者 + 未引用扫描；SBOM/安全字段/JSON 校验 + docker 加固；secrets 认证通道注入 + 脱敏；egress 内部网络/DNS+hosts；uninstall 级联 binding 触发退休；canary 蓝绿切换 + 冷却窗退役；cosign 公钥信任锚点 + pull 前强制验证；**本机真实 docker + cosign + 本地 registry 签名镜像 E2E 2/2 通过**），服务组件按**绑定实例的 catalog slug** 裁决。
-3. 原子导入生成的 artifact 没有绑定新 Skill，安装历史和回滚可能断链，单一 `artifact.skill_id` 也无法表达共享 artifact lineage。
-4. entrypoint 同时为 `0755` 时会生成重复 script component，触发数据库唯一约束。
-5. 任务 bundle 不传 mode/SHA，安装阶段验证通过的 executable 到 Remote task workDir 后会丢失执行位；任务也没有复用已验证 cache。
-6. skill-install 与 service operation 的租约/心跳/fencing/崩溃重排、service managed-node worker（docker 生命周期 + retire）、retire 生命周期 + catalog 准入加固（schema v77）+ rollback_class 感知退役（schema v78）+ secret 注入（schema v79）+ egress allow-list 强制 + uninstall 路径 + canary 升级编排（schema v81）+ cosign image 签名验证（schema v82）+ 真实 Docker 端到端均已实现并有专属测试（catalog 21/21 + bindings 23/23 + secrets 4/4 + db 9/9 + runtime 27/27 + worker 8/8 + uninstall 3/3 + 路由 4/4 + maintenance 5/5 + E2E 2/2）。
+1. dependency env 安装并验证后没有挂载到任务，也未注入 `NODE_PATH/PYTHONPATH/PATH`，仍会出现 ready 后无法 import/require。
+2. 空 egress allow-list 同时连接 internal 与共享网络，不能保证零出站；非空列表只阻断 DNS，raw-IP 可绕过。
+3. service secret 通过 `docker create --env NAME=value` 进入 argv 和 Docker inspect。
+4. installation plan、approval 消费、service operation complete/binding 跨多个事务，失败会留下部分状态；本轮 release 测试为 **15/18**。
+5. Skill upgrade 不会为 candidate artifact 的新增/升级 service 排队或绑定，service-enabled v2 可能永久 blocked。
+6. cache 虽重算 SHA/root digest，但仍信任可改写 meta，未与当前 claim 比对；cache 也未只读。
+7. lease 有 heartbeat/requeue，但没有 claim generation/token，旧 worker 可能提交新 lease 的结果。
+8. `skill_artifact_binding` 数据表已存在，但导入、history UI、upgrade/rollback 尚未完整消费。
 
-此外，下载 URL 仍缺 storage origin/redirect 限制和流式硬上限；package manifest 的 version/integrity/mode/完整文件集合仍会丢失；持久审批、五步 UI、迁移与可观测性尚未完成。Release lock 已接入安装和升级路径，service/MCP 字段、可重现 `lockDigest`、落库与 claim 均有测试；但 unresolved required 项、Daemon/task/approval/rollback 消费链和历史重建仍未完成。
+此外仍缺 artifact 下载 SSRF/流式上限、统一 package authority/ingress budget、真正 canary、bundle SHA/聚合预算、五步 UI、lineage backfill/GC、更新检查和指标告警。managed service 的 real-Docker E2E 证明生命周期可运行，但没有验证 egress 不可绕过、secret 不泄漏或 stale-worker fencing。
 
-因此当前状态应标记为 **Remote 安装闭环原型 / 不可用于不受信任 Skill 的生产安装**。下一里程碑不是增加更多入口，而是先补 service managed-node worker、cache 完整性校验、artifact lineage 和任务 mode 丢失。详见 [实施差距第三次复审](./07-实施差距审查.md)。
+因此当前状态应标记为 **Remote 安装高级原型 / 不可用于不受信任 Skill 的生产安装**。下一里程碑应优先打通 dependency task env，并修复 service 网络/secret 边界和跨层事务，再扩展新来源或 UI。详见 [实施差距第四次复审](./07-实施差距审查.md)。
