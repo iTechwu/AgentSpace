@@ -141,6 +141,7 @@ export function TemplatesPageClient({ data, onDataChanged }: { data: TemplatesPa
         <div className="templates-sidebar__header">
           <h2>{tx("模板", "Templates")}</h2>
           <button
+            aria-label={tx("创建模板", "Create template")}
             className="knowledge-btn knowledge-btn--primary"
             onClick={() => {
               setCreateName("");

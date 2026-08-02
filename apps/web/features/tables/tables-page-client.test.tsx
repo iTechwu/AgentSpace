@@ -79,6 +79,7 @@ describe("TablesPageClient", () => {
       </LanguageProvider>,
     );
 
+    expect(screen.getByRole("button", { name: "创建数据表" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /行程表/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "返回数据表列表" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /\+ 添加行/i })).not.toBeInTheDocument();

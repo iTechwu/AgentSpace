@@ -67,6 +67,7 @@ describe("TemplatesPageClient", () => {
       </LanguageProvider>,
     );
 
+    expect(screen.getByRole("button", { name: "创建模板" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /旅行任务模板/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "返回模板列表" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "编辑" })).not.toBeInTheDocument();

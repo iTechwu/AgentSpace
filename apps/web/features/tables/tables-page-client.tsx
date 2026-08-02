@@ -124,6 +124,7 @@ export function TablesPageClient({ data, onDataChanged }: { data: DataTablesPage
         <div className="tables-sidebar__header">
           <h2>{tx("数据表", "Data Tables")}</h2>
           <button
+            aria-label={tx("创建数据表", "Create table")}
             className="knowledge-btn knowledge-btn--primary"
             onClick={() => setShowCreateModal(true)}
             type="button"
