@@ -4,6 +4,7 @@ export interface SkillDependencyDeclaration {
   manager: SkillDependencyManager;
   name: string;
   version: string;
+  integrity?: string;
 }
 
 export function parseSkillDependencyDeclarations(skillMarkdown: string): SkillDependencyDeclaration[] {
@@ -85,11 +86,14 @@ function parseStoredDeclaration(value: unknown): SkillDependencyDeclaration {
   if (typeof record.manager !== "string" || typeof record.name !== "string" || typeof record.version !== "string") {
     throw new Error("Invalid stored skill dependency.");
   }
-  return parseSkillDependencyDeclaration(
+  const parsed = parseSkillDependencyDeclaration(
     record.manager === "npm"
       ? `npm:${record.name}@${record.version}`
       : `${record.manager}:${record.name}==${record.version}`,
   );
+  return typeof record.integrity === "string" && record.integrity.trim()
+    ? { ...parsed, integrity: record.integrity.trim() }
+    : parsed;
 }
 
 function uniqueDeclarations(declarations: SkillDependencyDeclaration[]): SkillDependencyDeclaration[] {

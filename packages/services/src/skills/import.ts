@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, readlink, stat } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { getDatabase, recordStoredSkillImportEventSync, setActiveArtifactDigestForSkillSync, withTransaction } from "@dofe-agent/db";
@@ -39,7 +39,10 @@ import {
   MAX_SKILL_ARCHIVE_FILES,
   MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES,
   MAX_SKILL_ARCHIVE_NESTING_DEPTH,
+  MAX_SKILL_PACKAGE_FILES,
+  MAX_SKILL_SINGLE_FILE_BYTES,
 } from "./package/archive-limits.ts";
+import { classifySkillFilePath } from "./package/path-safety.ts";
 
 export type SkillImportConflict = "reject" | "rename" | "replace" | "skip";
 export type SkillImportSourceType = "github" | "skills.sh" | "clawhub" | "local" | "tos";
@@ -67,7 +70,17 @@ export interface SkillImportResult {
 interface ImportedSkillFile {
   path: string;
   bytes: Uint8Array;
+  mode?: string;
 }
+
+interface SkillSourceBudget {
+  fileCount: number;
+  totalBytes: number;
+  requestCount: number;
+}
+
+const MAX_SKILL_SOURCE_REQUESTS = 256;
+const MAX_SKILL_SOURCE_METADATA_BYTES = 2 * 1024 * 1024;
 
 interface ImportedSkillDefinition {
   name: string;
@@ -364,6 +377,7 @@ function prepareSkillArtifact(
     const packageFiles: SkillPackageInputFile[] = imported.files.map((file) => ({
       path: file.path,
       bytes: file.bytes,
+      mode: file.mode,
     }));
     const validation = validateSkillPackage({ files: packageFiles });
     if (!validation.ok) {
@@ -372,14 +386,28 @@ function prepareSkillArtifact(
       throw new Error(`Package validation failed (${codes}): ${messages}`);
     }
     const manifest = validation.manifest;
+    const bytesByPath = new Map(imported.files.map((file) => [normalizeSkillFilePath(file.path), file.bytes]));
+    const artifactFiles = validation.files
+      .filter((file) => file.path !== ".dofe/manifest.json")
+      .map((file) => {
+        const bytes = bytesByPath.get(file.path);
+        if (!bytes) throw new Error(`Validated file "${file.path}" has no source bytes.`);
+        return { path: file.path, bytes, mode: file.mode };
+      });
 
     const result = buildAndPersistSkillArtifactSync({
       workspaceId,
-      name: imported.name,
-      files: imported.files.map((file) => ({ path: file.path, bytes: file.bytes })),
+      name: manifest!.artifact.name,
+      version: manifest!.artifact.version,
+      files: artifactFiles,
       sourceType: imported.sourceType,
       sourceUrl: imported.sourceUrl,
-      dependencies: parseSkillDependencyDeclarations(readSkillMarkdown(imported.files)),
+      dependencies: (manifest?.dependencies ?? []).map((dependency) => ({
+        manager: dependency.kind,
+        name: dependency.name,
+        version: dependency.version,
+        ...(dependency.integrity ? { integrity: dependency.integrity } : {}),
+      })),
       ...(manifest?.capabilities ? { capabilities: manifest.capabilities } : {}),
       ...(manifest?.services ? { services: manifest.services } : {}),
       ...(manifest?.entrypoints ? { entrypoints: manifest.entrypoints } : {}),
@@ -511,9 +539,12 @@ async function importLocalSkillDefinition(sourcePath: string): Promise<ImportedS
   } else if (stats.isFile() && extname(absolutePath).toLowerCase() === ".zip") {
     files = await readLocalSkillZipFiles(absolutePath, warnings);
   } else if (stats.isFile() && sameValue(basename(absolutePath), "SKILL.md")) {
+    const bytes = new Uint8Array(await readFile(absolutePath));
+    assertSkillSourceFileBudget({ fileCount: 0, totalBytes: 0, requestCount: 0 }, "SKILL.md", bytes, "Local skill");
     files = [{
       path: "SKILL.md",
-      bytes: new Uint8Array(await readFile(absolutePath)),
+      bytes,
+      mode: (stats.mode & 0o777).toString(8),
     }];
   } else {
     throw new Error("Local skill import currently supports a skill directory, a .zip archive, or a direct SKILL.md file.");
@@ -566,12 +597,19 @@ async function importGitHubSkillDefinitionFromPointer(
 
   if (pointer.path.endsWith("/SKILL.md") || sameValue(pointer.path, "SKILL.md")) {
     const skillMd = await fetchGitHubRawFile(pointer);
+    const skillBytes = encodeUtf8(skillMd);
+    assertSkillSourceFileBudget(
+      { fileCount: 0, totalBytes: 0, requestCount: 0 },
+      "SKILL.md",
+      skillBytes,
+      "GitHub skill",
+    );
     const fallbackName = deriveSkillNameFromPath(pointer.path);
     const metadata = parseSkillMetadata(skillMd, fallbackName);
     return {
       name: metadata.name,
       description: metadata.description,
-      files: [{ path: "SKILL.md", bytes: encodeUtf8(skillMd) }],
+      files: [{ path: "SKILL.md", bytes: skillBytes }],
       sourceType,
       sourceUrl,
       configJson: JSON.stringify({
@@ -617,7 +655,11 @@ async function importSkillsShSkillDefinition(sourceUrl: string, parsedUrl: URL):
   if (!installPageResponse.ok) {
     throw new Error(`Failed to fetch skills.sh page: ${installPageResponse.status}`);
   }
-  const html = await installPageResponse.text();
+  const html = await readResponseTextWithLimit(
+    installPageResponse,
+    MAX_SKILL_SOURCE_METADATA_BYTES,
+    "skills.sh page",
+  );
   const fromCommand = parseSkillsShInstallCommand(html);
   const pathParts = parsedUrl.pathname.split("/").filter(Boolean);
   const owner = fromCommand?.owner ?? pathParts[0];
@@ -646,7 +688,11 @@ async function importClawHubSkillDefinition(sourceUrl: string): Promise<Imported
   if (!pageResponse.ok) {
     throw new Error(`Failed to fetch ClawHub skill page: ${pageResponse.status}`);
   }
-  const html = await pageResponse.text();
+  const html = await readResponseTextWithLimit(
+    pageResponse,
+    MAX_SKILL_SOURCE_METADATA_BYTES,
+    "ClawHub skill page",
+  );
   const downloadUrl = extractClawHubDownloadUrl(html);
   if (!downloadUrl) {
     throw new Error("ClawHub skill page does not expose a downloadable package.");
@@ -661,12 +707,11 @@ async function importClawHubSkillDefinition(sourceUrl: string): Promise<Imported
     throw new Error(`Failed to download ClawHub skill: ${downloadResponse.status}`);
   }
 
-  const contentLength = downloadResponse.headers.get("content-length");
-  if (contentLength && Number(contentLength) > MAX_SKILL_ARCHIVE_BYTES) {
-    throw new Error(`ClawHub skill archive exceeds the ${MAX_SKILL_ARCHIVE_BYTES} byte download limit.`);
-  }
-
-  const archiveBytes = new Uint8Array(await downloadResponse.arrayBuffer());
+  const archiveBytes = await readResponseBytesWithLimit(
+    downloadResponse,
+    MAX_SKILL_ARCHIVE_BYTES,
+    "ClawHub skill archive",
+  );
   const warnings: string[] = [];
   const files = readSkillZipFiles(archiveBytes, warnings, "ClawHub skill archive");
   let rawMetaJson: string | undefined;
@@ -738,27 +783,30 @@ async function readLocalSkillDirectoryFiles(
   warnings: string[],
   relativePrefix = "",
   requireSkillFile = true,
+  budget: SkillSourceBudget = { fileCount: 0, totalBytes: 0, requestCount: 0 },
 ): Promise<ImportedSkillFile[]> {
   const entries = await readdir(directoryPath, { withFileTypes: true });
   const files: ImportedSkillFile[] = [];
 
   for (const entry of entries) {
-    const relativePath = normalizeSkillFilePath(relativePrefix ? `${relativePrefix}/${entry.name}` : entry.name);
-    if (!relativePath) {
-      continue;
+    const rawRelativePath = relativePrefix ? `${relativePrefix}/${entry.name}` : entry.name;
+    const pathResult = classifySkillFilePath(rawRelativePath);
+    if (!pathResult.ok) {
+      throw new Error(`Local skill directory contains unsafe path "${rawRelativePath}": ${pathResult.message}`);
     }
+    const relativePath = pathResult.normalized;
 
     const absoluteEntryPath = resolve(directoryPath, entry.name);
 
     if (entry.isSymbolicLink()) {
-      const linkTarget = await readFile(absoluteEntryPath, "utf8").catch(() => undefined);
+      const linkTarget = await readlink(absoluteEntryPath).catch(() => undefined);
       throw new Error(
         `Symlink "${relativePath}"${linkTarget ? ` -> "${linkTarget}"` : ""} is not allowed in skill packages.`,
       );
     }
 
     if (entry.isDirectory()) {
-      files.push(...await readLocalSkillDirectoryFiles(absoluteEntryPath, warnings, relativePath, false));
+      files.push(...await readLocalSkillDirectoryFiles(absoluteEntryPath, warnings, relativePath, false, budget));
       continue;
     }
 
@@ -767,9 +815,13 @@ async function readLocalSkillDirectoryFiles(
       continue;
     }
 
+    const entryStats = await stat(absoluteEntryPath);
+    const bytes = new Uint8Array(await readFile(absoluteEntryPath));
+    assertSkillSourceFileBudget(budget, relativePath, bytes, "Local skill directory");
     files.push({
       path: relativePath,
-      bytes: new Uint8Array(await readFile(absoluteEntryPath)),
+      bytes,
+      mode: (entryStats.mode & 0o777).toString(8),
     });
   }
 
@@ -815,7 +867,11 @@ function readSkillZipFiles(
   let nestingDepth = 0;
 
   for (const [entryName, content] of entries) {
-    const normalizedPath = normalizeSkillFilePath(entryName);
+    const rawPath = classifySkillFilePath(entryName);
+    if (!rawPath.ok) {
+      throw new Error(`${sourceLabel} contains unsafe entry "${entryName}": ${rawPath.message}`);
+    }
+    const normalizedPath = rawPath.normalized;
     if (!normalizedPath) {
       continue;
     }
@@ -829,6 +885,9 @@ function readSkillZipFiles(
     uncompressedBytes += content.byteLength;
     if (uncompressedBytes > MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES) {
       throw new Error(`${sourceLabel} expands beyond the ${MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES} byte extraction limit.`);
+    }
+    if (content.byteLength > MAX_SKILL_SINGLE_FILE_BYTES) {
+      throw new Error(`${sourceLabel} entry "${normalizedPath}" exceeds the ${MAX_SKILL_SINGLE_FILE_BYTES} byte single-file limit.`);
     }
     files.push({
       path: normalizedPath,
@@ -891,7 +950,11 @@ async function fetchGitHubDefaultBranch(owner: string, repo: string): Promise<st
     throw new Error(`Failed to fetch GitHub repository metadata: ${response.status}`);
   }
 
-  const payload = await response.json() as { default_branch?: string };
+  const payload = await readResponseJsonWithLimit(
+    response,
+    MAX_SKILL_SOURCE_METADATA_BYTES,
+    "GitHub repository metadata",
+  ) as { default_branch?: string };
   return payload.default_branch?.trim() || "main";
 }
 
@@ -905,7 +968,11 @@ async function resolveGitHubRefToSha(owner: string, repo: string, ref: string): 
   if (!response.ok) {
     throw new Error(`Failed to resolve GitHub ref "${ref}" to commit SHA: ${response.status}`);
   }
-  const payload = await response.json() as { sha?: string };
+  const payload = await readResponseJsonWithLimit(
+    response,
+    MAX_SKILL_SOURCE_METADATA_BYTES,
+    "GitHub commit metadata",
+  ) as { sha?: string };
   const sha = payload.sha?.trim().toLowerCase();
   if (!sha || sha.length !== 40) {
     throw new Error(`GitHub commit response did not contain a valid SHA for ref "${ref}".`);
@@ -930,7 +997,11 @@ async function resolveGitHubSkillPointerBySlug(input: {
     throw new Error(`Failed to inspect GitHub repository tree: ${response.status}`);
   }
 
-  const payload = await response.json() as {
+  const payload = await readResponseJsonWithLimit(
+    response,
+    MAX_SKILL_SINGLE_FILE_BYTES,
+    "GitHub repository tree",
+  ) as {
     tree?: Array<{ path?: string; type?: string }>;
   };
   const skillCandidates = (payload.tree ?? [])
@@ -975,7 +1046,9 @@ async function fetchGitHubDirectoryFiles(
   warnings: string[],
   relativePrefix = "",
   requireSkillFile = true,
+  budget: SkillSourceBudget = { fileCount: 0, totalBytes: 0, requestCount: 0 },
 ): Promise<ImportedSkillFile[]> {
+  assertSkillSourceRequestBudget(budget, "GitHub skill");
   const ref = pointer.resolvedSha ?? pointer.ref;
   const contentsUrl = buildGitHubContentsApiUrl(pointer.owner, pointer.repo, pointer.path, ref);
   const response = await fetch(contentsUrl, {
@@ -988,7 +1061,11 @@ async function fetchGitHubDirectoryFiles(
     throw new Error(`Failed to fetch GitHub skill directory: ${response.status}`);
   }
 
-  const payload = await response.json() as Array<{
+  const payload = await readResponseJsonWithLimit(
+    response,
+    MAX_SKILL_SOURCE_METADATA_BYTES,
+    "GitHub directory listing",
+  ) as Array<{
     type?: string;
     name?: string;
     path?: string;
@@ -1004,17 +1081,19 @@ async function fetchGitHubDirectoryFiles(
       continue;
     }
 
-    const relativePath = normalizeSkillFilePath(joinRelative(relativePrefix, entry.name));
-    if (!relativePath) {
-      continue;
+    const rawRelativePath = joinRelative(relativePrefix, entry.name);
+    const pathResult = classifySkillFilePath(rawRelativePath);
+    if (!pathResult.ok) {
+      throw new Error(`GitHub skill contains unsafe path "${rawRelativePath}": ${pathResult.message}`);
     }
+    const relativePath = pathResult.normalized;
 
     if (entry.type === "dir") {
       const nestedPointer: GitHubDirectoryPointer = {
         ...pointer,
         path: entry.path,
       };
-      files.push(...await fetchGitHubDirectoryFiles(nestedPointer, warnings, relativePath, false));
+      files.push(...await fetchGitHubDirectoryFiles(nestedPointer, warnings, relativePath, false, budget));
       continue;
     }
 
@@ -1023,6 +1102,7 @@ async function fetchGitHubDirectoryFiles(
       continue;
     }
 
+    assertSkillSourceRequestBudget(budget, "GitHub skill");
     const fileResponse = await fetch(buildGitHubContentsApiUrl(pointer.owner, pointer.repo, entry.path, ref), {
       headers: {
         Accept: "application/vnd.github+json",
@@ -1032,7 +1112,11 @@ async function fetchGitHubDirectoryFiles(
     if (!fileResponse.ok) {
       throw new Error(`Failed to fetch GitHub skill file: ${entry.path}`);
     }
-    const filePayload = await fileResponse.json() as {
+    const filePayload = await readResponseJsonWithLimit(
+      fileResponse,
+      Math.ceil(MAX_SKILL_SINGLE_FILE_BYTES * 1.5) + MAX_SKILL_SOURCE_METADATA_BYTES,
+      `GitHub skill file "${entry.path}"`,
+    ) as {
       type?: string;
       encoding?: string;
       content?: string;
@@ -1041,9 +1125,11 @@ async function fetchGitHubDirectoryFiles(
       throw new Error(`GitHub skill file "${entry.path}" is not a supported file.`);
     }
 
+    const bytes = new Uint8Array(Buffer.from(filePayload.content.replace(/\n/g, ""), "base64"));
+    assertSkillSourceFileBudget(budget, relativePath, bytes, "GitHub skill");
     files.push({
       path: relativePath,
-      bytes: new Uint8Array(Buffer.from(filePayload.content.replace(/\n/g, ""), "base64")),
+      bytes,
     });
   }
 
@@ -1052,6 +1138,39 @@ async function fetchGitHubDirectoryFiles(
   }
 
   return sortImportedSkillFiles(files);
+}
+
+function assertSkillSourceRequestBudget(budget: SkillSourceBudget, sourceLabel: string): void {
+  budget.requestCount += 1;
+  if (budget.requestCount > MAX_SKILL_SOURCE_REQUESTS) {
+    throw new Error(`${sourceLabel} requires more than ${MAX_SKILL_SOURCE_REQUESTS} remote requests.`);
+  }
+}
+
+function assertSkillSourceFileBudget(
+  budget: SkillSourceBudget,
+  path: string,
+  bytes: Uint8Array,
+  sourceLabel: string,
+): void {
+  const pathResult = classifySkillFilePath(path);
+  if (!pathResult.ok) {
+    throw new Error(`${sourceLabel} contains unsafe path "${path}": ${pathResult.message}`);
+  }
+  if (pathResult.depth > MAX_SKILL_ARCHIVE_NESTING_DEPTH) {
+    throw new Error(`${sourceLabel} exceeds ${MAX_SKILL_ARCHIVE_NESTING_DEPTH} levels of directory nesting.`);
+  }
+  if (bytes.byteLength > MAX_SKILL_SINGLE_FILE_BYTES) {
+    throw new Error(`${sourceLabel} file "${path}" exceeds the ${MAX_SKILL_SINGLE_FILE_BYTES} byte single-file limit.`);
+  }
+  budget.fileCount += 1;
+  budget.totalBytes += bytes.byteLength;
+  if (budget.fileCount > MAX_SKILL_PACKAGE_FILES) {
+    throw new Error(`${sourceLabel} contains more than ${MAX_SKILL_PACKAGE_FILES} files.`);
+  }
+  if (budget.totalBytes > MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES) {
+    throw new Error(`${sourceLabel} exceeds the ${MAX_SKILL_ARCHIVE_UNCOMPRESSED_BYTES} byte total content limit.`);
+  }
 }
 
 async function fetchGitHubRawFile(pointer: GitHubDirectoryPointer): Promise<string> {
@@ -1063,7 +1182,69 @@ async function fetchGitHubRawFile(pointer: GitHubDirectoryPointer): Promise<stri
   if (!response.ok) {
     throw new Error(`Failed to fetch GitHub skill file: ${response.status}`);
   }
-  return response.text();
+  return readResponseTextWithLimit(response, MAX_SKILL_SINGLE_FILE_BYTES, "GitHub skill file");
+}
+
+async function readResponseJsonWithLimit(response: Response, maxBytes: number, label: string): Promise<unknown> {
+  const text = await readResponseTextWithLimit(response, maxBytes, label);
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new Error(`${label} returned invalid JSON.`);
+  }
+}
+
+async function readResponseTextWithLimit(response: Response, maxBytes: number, label: string): Promise<string> {
+  return new TextDecoder("utf-8", { fatal: true }).decode(
+    await readResponseBytesWithLimit(response, maxBytes, label),
+  );
+}
+
+async function readResponseBytesWithLimit(response: Response, maxBytes: number, label: string): Promise<Uint8Array> {
+  const contentLength = response.headers.get("content-length");
+  if (contentLength) {
+    const declaredBytes = Number(contentLength);
+    if (!Number.isSafeInteger(declaredBytes) || declaredBytes < 0) {
+      throw new Error(`${label} returned an invalid Content-Length header.`);
+    }
+    if (declaredBytes > maxBytes) {
+      throw new Error(`${label} exceeds the ${maxBytes} byte download limit.`);
+    }
+  }
+
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) {
+      throw new Error(`${label} exceeds the ${maxBytes} byte download limit.`);
+    }
+    return bytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+        throw new Error(`${label} exceeds the ${maxBytes} byte download limit.`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
 function buildGitHubContentsApiUrl(owner: string, repo: string, path: string, ref: string): string {

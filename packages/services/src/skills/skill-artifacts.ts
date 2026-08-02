@@ -22,7 +22,7 @@ import type {
   DspEntrypoint,
   DspServiceRef,
 } from "@dofe-agent/domain";
-import type { SkillDependencyDeclaration } from "./dependencies.ts";
+import { inferSkillMediaType } from "./package/skill-file-policy.ts";
 
 /* ------------------------------------------------------------------ */
 /* DSP manifest types (Dofe Skill Package v1)                          */
@@ -40,11 +40,18 @@ export interface SkillArtifactManifest {
   schemaVersion: number;
   artifact: { name: string; version: string };
   files: SkillArtifactManifestFile[];
-  dependencies: SkillDependencyDeclaration[];
+  dependencies: ArtifactSkillDependency[];
   capabilities?: DspCapability[];
   services?: DspServiceRef[];
   entrypoints?: DspEntrypoint[];
   source?: { type?: string; url?: string };
+}
+
+export interface ArtifactSkillDependency {
+  manager: "npm" | "pip" | "uv" | "system";
+  name: string;
+  version: string;
+  integrity?: string;
 }
 
 export interface ArtifactFileInput {
@@ -82,74 +89,8 @@ const TEXT_MEDIA_TYPES = new Set([
 
 const EXECUTABLE_SCRIPT_EXTENSIONS = new Set([".sh", ".bash", ".zsh", ".py", ".rb", ".pl"]);
 
-/** Comprehensive extension → media type map covering text + binary skill resources. */
-const EXTENSION_MEDIA_TYPES: Record<string, string> = {
-  ".md": "text/markdown",
-  ".markdown": "text/markdown",
-  ".txt": "text/plain",
-  ".html": "text/html",
-  ".htm": "text/html",
-  ".css": "text/css",
-  ".js": "text/javascript",
-  ".mjs": "text/javascript",
-  ".cjs": "text/javascript",
-  ".ts": "application/typescript",
-  ".tsx": "application/typescript",
-  ".jsx": "text/javascript",
-  ".json": "application/json",
-  ".yaml": "application/yaml",
-  ".yml": "application/yaml",
-  ".toml": "application/toml",
-  ".ini": "text/plain",
-  ".cfg": "text/plain",
-  ".csv": "text/csv",
-  ".py": "text/x-python",
-  ".sh": "text/x-shellscript",
-  ".bash": "text/x-shellscript",
-  ".zsh": "text/x-shellscript",
-  ".rb": "text/x-ruby",
-  ".go": "text/x-go",
-  ".rs": "text/rust",
-  ".java": "text/x-java-source",
-  ".c": "text/x-c",
-  ".h": "text/x-c",
-  ".cpp": "text/x-c++",
-  ".xml": "application/xml",
-  ".svg": "image/svg+xml",
-  // binary
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".ico": "image/x-icon",
-  ".bmp": "image/bmp",
-  ".tiff": "image/tiff",
-  ".pdf": "application/pdf",
-  ".zip": "application/zip",
-  ".gz": "application/gzip",
-  ".tar": "application/x-tar",
-  ".doc": "application/msword",
-  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ".xls": "application/vnd.ms-excel",
-  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  ".ppt": "application/vnd.ms-powerpoint",
-  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".ttf": "font/ttf",
-  ".otf": "font/otf",
-  ".eot": "application/vnd.ms-fontobject",
-  ".mp3": "audio/mpeg",
-  ".mp4": "video/mp4",
-  ".webm": "video/webm",
-  ".bin": "application/octet-stream",
-};
-
 export function mediaTypeForPath(path: string): string {
-  const normalized = path.toLowerCase();
-  const extension = normalized.includes(".") ? normalized.slice(normalized.lastIndexOf(".")) : "";
-  return EXTENSION_MEDIA_TYPES[extension] ?? "application/octet-stream";
+  return inferSkillMediaType(path);
 }
 
 export function isTextMediaType(mediaType: string): boolean {
@@ -233,7 +174,7 @@ export interface BuildAndPersistSkillArtifactInput {
   sourceType?: string;
   sourceUrl?: string;
   provenance?: Record<string, unknown>;
-  dependencies?: SkillDependencyDeclaration[];
+  dependencies?: ArtifactSkillDependency[];
   capabilities?: DspCapability[];
   services?: DspServiceRef[];
   entrypoints?: DspEntrypoint[];

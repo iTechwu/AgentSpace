@@ -60,6 +60,7 @@ export function validateSkillPackage(input: {
   const errors: SkillPackageError[] = [];
   const validated: ValidatedSkillFile[] = [];
   const seenPaths = new Set<string>();
+  let totalBytes = 0;
 
   if (input.files.length === 0) {
     errors.push(skillPackageError("EMPTY_PACKAGE", "Skill package contains no files."));
@@ -91,6 +92,17 @@ export function validateSkillPackage(input: {
       continue;
     }
     seenPaths.add(path);
+    totalBytes += file.bytes.byteLength;
+
+    if (pathResult.depth > limits.nestingDepth) {
+      errors.push(
+        skillPackageError(
+          "PATH_TRAVERSAL",
+          `File "${path}" exceeds the ${limits.nestingDepth} level nesting limit.`,
+          { path },
+        ),
+      );
+    }
 
     if (file.bytes.byteLength > limits.singleFileBytes) {
       errors.push(
@@ -125,6 +137,14 @@ export function validateSkillPackage(input: {
       skillPackageError(
         "MAX_FILES_EXCEEDED",
         `Package contains ${validated.length} files; limit is ${limits.packageFiles}.`,
+      ),
+    );
+  }
+  if (totalBytes > limits.uncompressedBytes) {
+    errors.push(
+      skillPackageError(
+        "ARCHIVE_TOO_LARGE",
+        `Package content is ${totalBytes} bytes; limit is ${limits.uncompressedBytes}.`,
       ),
     );
   }
@@ -194,20 +214,38 @@ export function validateSkillPackage(input: {
       submittedManifest = submittedManifestResult.manifest as DspManifest;
       if (Array.isArray((submittedManifest as { files?: unknown }).files)) {
         // Cross-check declared file digests against computed content.
-        const declared = (submittedManifest as { files: Array<{ path: string; sha256: string; size?: number }> }).files;
+        const declared = submittedManifest.files;
         const computedByPath = new Map(
           validated
             .filter((file) => file.path !== MANIFEST_PATH)
             .map((file) => [file.path, file]),
         );
+        const declaredPaths = new Set<string>();
         for (const entry of declared) {
-          const computed = computedByPath.get(entry.path);
+          const declaredPathResult = classifySkillFilePath(entry.path);
+          if (!declaredPathResult.ok || declaredPathResult.normalized === MANIFEST_PATH) {
+            errors.push(
+              skillPackageError("MANIFEST_INVALID", `manifest.json contains an invalid file path "${entry.path}".`, {
+                path: entry.path,
+              }),
+            );
+            continue;
+          }
+          const declaredPath = declaredPathResult.normalized;
+          if (declaredPaths.has(declaredPath)) {
+            errors.push(skillPackageError("MANIFEST_INVALID", `manifest.json declares "${declaredPath}" more than once.`, {
+              path: declaredPath,
+            }));
+            continue;
+          }
+          declaredPaths.add(declaredPath);
+          const computed = computedByPath.get(declaredPath);
           if (!computed) {
             errors.push(
               skillPackageError(
                 "MANIFEST_INVALID",
-                `manifest.json declares file "${entry.path}" that is not present in the package.`,
-                { path: entry.path },
+                `manifest.json declares file "${declaredPath}" that is not present in the package.`,
+                { path: declaredPath },
               ),
             );
             continue;
@@ -220,6 +258,61 @@ export function validateSkillPackage(input: {
                 { path: entry.path, detail: `declared ${entry.sha256.slice(0, 12)}… vs computed ${computed.sha256.slice(0, 12)}…` },
               ),
             );
+          }
+          if (entry.mediaType !== computed.mediaType) {
+            errors.push(skillPackageError(
+              "MANIFEST_INVALID",
+              `manifest.json declares mediaType "${entry.mediaType}" for "${declaredPath}", computed "${computed.mediaType}".`,
+              { path: declaredPath },
+            ));
+          }
+          if (entry.mode) {
+            computed.mode = normalizeSkillFileMode(entry.mode);
+          }
+        }
+        for (const computedPath of computedByPath.keys()) {
+          if (!declaredPaths.has(computedPath)) {
+            errors.push(skillPackageError(
+              "MANIFEST_INVALID",
+              `Package contains undeclared file "${computedPath}".`,
+              { path: computedPath },
+            ));
+          }
+        }
+        if (parsed?.ok) {
+          if (submittedManifest.artifact.name !== parsed.frontmatter.name) {
+            errors.push(skillPackageError(
+              "MANIFEST_INVALID",
+              `manifest artifact name "${submittedManifest.artifact.name}" does not match SKILL.md name "${parsed.frontmatter.name}".`,
+              { path: MANIFEST_PATH },
+            ));
+          }
+          const frontmatterVersion = readFrontmatterString(parsed.frontmatter.raw, "version");
+          if (frontmatterVersion && submittedManifest.artifact.version
+            && frontmatterVersion !== submittedManifest.artifact.version) {
+            errors.push(skillPackageError(
+              "MANIFEST_INVALID",
+              `manifest version "${submittedManifest.artifact.version}" conflicts with SKILL.md version "${frontmatterVersion}".`,
+              { path: MANIFEST_PATH },
+            ));
+          }
+          const frontmatterDependencies = parseSkillDependencyDeclarations(
+            `---\n${serializeFrontmatter(parsed.frontmatter.raw)}\n---\n${parsed.body}`,
+          );
+          if (frontmatterDependencies.length > 0 && submittedManifest.dependencies) {
+            const submittedKeys = submittedManifest.dependencies
+              .map((dependency) => `${dependency.kind}:${dependency.name}@${dependency.version}`)
+              .sort();
+            const frontmatterKeys = frontmatterDependencies
+              .map((dependency) => `${dependency.manager}:${dependency.name}@${dependency.version}`)
+              .sort();
+            if (JSON.stringify(submittedKeys) !== JSON.stringify(frontmatterKeys)) {
+              errors.push(skillPackageError(
+                "MANIFEST_INVALID",
+                "manifest dependencies conflict with SKILL.md dependencies.",
+                { path: MANIFEST_PATH },
+              ));
+            }
           }
         }
       }
@@ -267,7 +360,9 @@ function synthesizeManifest(
   files: ValidatedSkillFile[],
   submittedManifest?: DspManifest,
 ): DspManifest {
-  const version = readFrontmatterString(frontmatter.raw, "version") ?? "";
+  const version = submittedManifest?.artifact.version
+    ?? readFrontmatterString(frontmatter.raw, "version")
+    ?? "";
 
   // Content files exclude the platform metadata file itself.
   const contentFiles: DspFileEntry[] = files
@@ -290,9 +385,11 @@ function synthesizeManifest(
   // Reuse the validated dependency parser so the synthesized manifest matches
   // the existing `dependencies:` frontmatter contract exactly.
   const skillMarkdown = `---\n${serializeFrontmatter(frontmatter.raw)}\n---\n${skillMdBody}`;
-  const dependencies = parseSkillDependencyDeclarations(skillMarkdown);
-  if (dependencies.length > 0) {
-    manifest.dependencies = dependencies.map((dependency) => ({
+  const frontmatterDependencies = parseSkillDependencyDeclarations(skillMarkdown);
+  if (submittedManifest?.dependencies) {
+    manifest.dependencies = submittedManifest.dependencies;
+  } else if (frontmatterDependencies.length > 0) {
+    manifest.dependencies = frontmatterDependencies.map((dependency) => ({
       kind: dependency.manager,
       name: dependency.name,
       version: dependency.version,

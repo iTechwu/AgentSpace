@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
@@ -24,7 +25,7 @@ import {
   setEmployeeSkillIdsSync,
 } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
-import { MAX_SKILL_ARCHIVE_BYTES } from "./package/archive-limits.ts";
+import { MAX_SKILL_ARCHIVE_BYTES, MAX_SKILL_PACKAGE_FILES } from "./package/archive-limits.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-skill-import-"));
@@ -204,6 +205,7 @@ description: Local skill
   `);
   writeFileSync(join(localSkillDir, "references", "notes.md"), "- local notes\n");
   writeFileSync(join(localSkillDir, "bin", "render.mjs"), "export default {};\n");
+  chmodSync(join(localSkillDir, "bin", "render.mjs"), 0o755);
   writeFileSync(join(localSkillDir, "assets", "template.html"), "<main>template</main>\n");
 
   const result = await importWorkspaceSkillFromUrl({
@@ -216,6 +218,35 @@ description: Local skill
   assert.equal(skill?.files.some((file) => file.path === "references/notes.md"), true);
   assert.equal(skill?.files.some((file) => file.path === "bin/render.mjs"), true);
   assert.equal(skill?.files.some((file) => file.path === "assets/template.html"), true);
+  const artifact = readSkillArtifactByDigestSync(result.artifactDigest!, "default");
+  assert.ok(artifact);
+  const manifest = JSON.parse(artifact.manifestJson) as { files: Array<{ path: string; mode?: string }> };
+  assert.equal(manifest.files.find((file) => file.path === "bin/render.mjs")?.mode, "0755");
+});
+
+test("local directory import rejects packages that exceed the file-count budget", async () => {
+  const localSkillDir = mkdtempSync(join(tempRoot, "oversized-local-skill-"));
+  writeFileSync(join(localSkillDir, "SKILL.md"), "---\nname: oversized-local\ndescription: Too many files\n---\n# Skill\n");
+  for (let index = 0; index < MAX_SKILL_PACKAGE_FILES; index += 1) {
+    writeFileSync(join(localSkillDir, `file-${index}.txt`), "x");
+  }
+
+  await assert.rejects(
+    () => importWorkspaceSkillFromUrl({ url: localSkillDir }),
+    new RegExp(`more than ${MAX_SKILL_PACKAGE_FILES} files`),
+  );
+});
+
+test("zip import rejects traversal entries before path normalization", async () => {
+  const archive = zipSync({
+    "SKILL.md": strToU8("---\nname: unsafe-zip\ndescription: Unsafe zip\n---\n# Skill\n"),
+    "../escape.txt": strToU8("escape"),
+  });
+
+  await assert.rejects(
+    () => importWorkspaceSkillFromZipUpload({ fileName: "unsafe.zip", contentBytes: archive }),
+    /unsafe entry.*Parent-directory/,
+  );
 });
 
 test("importWorkspaceSkillFromUrl renames a builtin-named local skill with conflict: rename", async () => {
@@ -274,6 +305,33 @@ description: TOS upload
   });
   assert.equal(reimported.replaced, true);
   assert.equal(reimported.sourceType, "tos");
+});
+
+test("zip manifest version and executable mode survive validation into the stored artifact", async () => {
+  const skillBytes = strToU8("---\nname: manifest-skill\ndescription: Manifest contract\n---\n# Skill\n");
+  const toolBytes = new Uint8Array([1, 2, 3, 4]);
+  const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+  const manifest = {
+    schemaVersion: 1,
+    artifact: { name: "manifest-skill", version: "2.3.4" },
+    files: [
+      { path: "SKILL.md", sha256: digest(skillBytes), size: skillBytes.byteLength, mediaType: "text/markdown", mode: "0644" },
+      { path: "bin/tool", sha256: digest(toolBytes), size: toolBytes.byteLength, mediaType: "application/octet-stream", mode: "0755" },
+    ],
+  };
+  const archive = zipSync({
+    "SKILL.md": skillBytes,
+    "bin/tool": toolBytes,
+    ".dofe/manifest.json": strToU8(JSON.stringify(manifest)),
+  });
+
+  const result = await importWorkspaceSkillFromZipUpload({ fileName: "manifest-skill.zip", contentBytes: archive });
+  const artifact = readSkillArtifactByDigestSync(result.artifactDigest!, "default");
+  assert.ok(artifact);
+  const storedManifest = JSON.parse(artifact.manifestJson) as typeof manifest;
+  assert.equal(storedManifest.artifact.version, "2.3.4");
+  assert.equal(storedManifest.files.find((file) => file.path === "bin/tool")?.mode, "0755");
+  assert.equal(storedManifest.files.some((file) => file.path === ".dofe/manifest.json"), false);
 });
 
 test("imports and reimports an uploaded zip from explicit local attachment storage", async () => {

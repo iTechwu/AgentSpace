@@ -131,6 +131,7 @@ test("preserves capabilities, services and entrypoints from a submitted manifest
     files: [
       { path: "SKILL.md", sha256: sha256Hex(skillMdBytes), size: skillMdBytes.byteLength, mediaType: "text/markdown" },
       { path: "scripts/render.py", sha256: sha256Hex(scriptBytes), size: scriptBytes.byteLength, mediaType: "text/x-python", mode: "0755" },
+      { path: "assets/template.docx", sha256: sha256Hex(baseFiles()[2]!.bytes), size: baseFiles()[2]!.bytes.byteLength, mediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
     ],
     capabilities: [{ kind: "mcp" as const, catalogSlug: "render", requiredTools: ["render"] }],
     services: [{ catalogSlug: "postgres", templateVersion: "1.0.0", required: true }],
@@ -145,7 +146,57 @@ test("preserves capabilities, services and entrypoints from a submitted manifest
   assert.deepEqual(result.manifest!.services, submittedManifest.services);
   assert.deepEqual(result.manifest!.entrypoints, submittedManifest.entrypoints);
   // Computed fields still come from content, not submission.
-  assert.equal(result.manifest!.artifact.version, "");
+  assert.equal(result.manifest!.artifact.version, "1.0.0");
+});
+
+test("submitted manifest must declare the complete actual file set", () => {
+  const skillBytes = skillMd();
+  const result = validateSkillPackage({
+    files: [
+      { path: "SKILL.md", bytes: skillBytes },
+      { path: "scripts/undeclared.sh", bytes: encoder.encode("#!/bin/sh\n") },
+    ],
+    manifest: {
+      schemaVersion: 1,
+      artifact: { name: "Render Skill", version: "1.0.0" },
+      files: [{ path: "SKILL.md", sha256: sha256Hex(skillBytes), size: skillBytes.byteLength, mediaType: "text/markdown" }],
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((error) => error.message.includes("undeclared file")));
+});
+
+test("submitted manifest mode is authoritative when the source cannot preserve it", () => {
+  const skillBytes = skillMd();
+  const toolBytes = new Uint8Array([1, 2, 3]);
+  const result = validateSkillPackage({
+    files: [{ path: "SKILL.md", bytes: skillBytes }, { path: "bin/tool", bytes: toolBytes }],
+    manifest: {
+      schemaVersion: 1,
+      artifact: { name: "Render Skill", version: "2.0.0" },
+      files: [
+        { path: "SKILL.md", sha256: sha256Hex(skillBytes), size: skillBytes.byteLength, mediaType: "text/markdown" },
+        { path: "bin/tool", sha256: sha256Hex(toolBytes), size: toolBytes.byteLength, mediaType: "application/octet-stream", mode: "0755" },
+      ],
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.manifest?.artifact.version, "2.0.0");
+  assert.equal(result.manifest?.files.find((file) => file.path === "bin/tool")?.mode, "0755");
+});
+
+test("conflicting SKILL.md and manifest versions are rejected", () => {
+  const skillBytes = skillMd("Render Skill", "version: 1.0.0\n");
+  const result = validateSkillPackage({
+    files: [{ path: "SKILL.md", bytes: skillBytes }],
+    manifest: {
+      schemaVersion: 1,
+      artifact: { name: "Render Skill", version: "2.0.0" },
+      files: [{ path: "SKILL.md", sha256: sha256Hex(skillBytes), size: skillBytes.byteLength, mediaType: "text/markdown" }],
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((error) => error.message.includes("conflicts with SKILL.md version")));
 });
 
 test("rejects an invalid JSON .dofe/manifest.json", () => {

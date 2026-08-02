@@ -112,6 +112,16 @@ function verifyDependencyComponent(
   if (key === "package:integrity") {
     return { kind: "dependency", key, status: "ready" };
   }
+  const source = key.split(":", 1)[0];
+  if (source !== "npm" && source !== "pip" && source !== "uv") {
+    return {
+      kind: "dependency",
+      key,
+      status: "blocked",
+      errorCode: "skill_installation.dependency_manager_unsupported",
+      errorMessage: `Dependency manager "${source}" requires a managed Runtime catalog resolver.`,
+    };
+  }
   // When the daemon actually installed + verified dependencies, the install
   // outcome is the source of truth: ready only after a real install+verify.
   if (dependencyInstallResults) {

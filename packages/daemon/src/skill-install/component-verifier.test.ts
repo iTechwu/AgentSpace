@@ -147,6 +147,20 @@ test("marks dependency blocked when version is missing", () => {
   assert.equal(results[0]?.errorCode, "skill_installation.dependency_version_missing");
 });
 
+test("blocks system dependencies until a managed Runtime resolver verifies them", () => {
+  const manifest = buildManifest({
+    dependencies: [{ manager: "system", name: "ffmpeg", version: "7.1.0" }],
+  });
+  const results = buildOperation(
+    manifest,
+    [{ kind: "dependency", key: "system:ffmpeg@7.1.0", status: "pending" }],
+    "",
+  );
+
+  assert.equal(results[0]?.status, "blocked");
+  assert.equal(results[0]?.errorCode, "skill_installation.dependency_manager_unsupported");
+});
+
 test("marks script ready when file exists, is executable, and passes syntax check", () => {
   const artifactDir = mkdtempSync(join(tmpdir(), "dofe-agent-verify-script-"));
 
