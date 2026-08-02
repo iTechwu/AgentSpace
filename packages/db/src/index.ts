@@ -599,6 +599,7 @@ export {
   readLatestMcpDiscoverySnapshotSync,
   readMcpCatalogItemBySlugSync,
   readMcpCatalogItemReleaseSync,
+  listMcpCatalogItemReleasesSync,
   readMcpCatalogItemSync,
   readMcpConnectionSecretsSync,
   readMcpConnectionSync,

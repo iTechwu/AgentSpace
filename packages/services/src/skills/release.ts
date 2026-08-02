@@ -7,7 +7,9 @@ import {
   createSkillUpgradeApprovalSync,
   getDatabase,
   listSkillIdsForArtifactDigestSync,
+  listMcpCatalogItemReleasesSync,
   readMcpCatalogItemBySlugSync,
+  readMcpCatalogItemReleaseSync,
   readSkillArtifactByDigestSync,
   readSkillInstallationSync,
   readSkillInstallationByLockSync,
@@ -41,8 +43,9 @@ export interface ResolvedSkillReleaseLock {
   serviceImageDigests: Record<string, string>;
   serviceConfigSchemaVersions: Record<string, number>;
   mcpToolFingerprints: Record<string, string>;
+  mcpCatalogReleases: Record<string, McpCatalogReleaseLock>;
   providerCompatibilityRevision: number;
-  /** sha256 of the canonical (stable-sorted) JSON of the eight lock fields above. */
+  /** sha256 of the canonical (stable-sorted) JSON of the immutable lock fields above. */
   lockDigest: string;
   /**
    * Required services/MCP capabilities whose catalog entry is missing, so the
@@ -50,6 +53,12 @@ export interface ResolvedSkillReleaseLock {
    * entries must never reach `ready` (fail-closed). NOT part of the lockDigest.
    */
   unresolvedRequired: string[];
+}
+
+export interface McpCatalogReleaseLock {
+  catalogItemId: string;
+  version: string;
+  toolFingerprint: string;
 }
 
 /**
@@ -66,6 +75,14 @@ export interface ResolvedSkillReleaseLock {
 export function computeSkillReleaseLockSync(
   artifact: SkillArtifactRecord,
   workspaceId = "default",
+): ResolvedSkillReleaseLock {
+  return computeSkillReleaseLockInternal(artifact, workspaceId);
+}
+
+function computeSkillReleaseLockInternal(
+  artifact: SkillArtifactRecord,
+  workspaceId: string,
+  pinnedMcpReleases?: Record<string, McpCatalogReleaseLock>,
 ): ResolvedSkillReleaseLock {
   const manifest = parseManifest(artifact.manifestJson);
   const dependencies = manifest.dependencies ?? [];
@@ -98,13 +115,27 @@ export function computeSkillReleaseLockSync(
   }
 
   const mcpToolFingerprints: Record<string, string> = {};
+  const mcpCatalogReleases: Record<string, McpCatalogReleaseLock> = {};
   for (const capability of manifest.capabilities ?? []) {
     if (capability.kind !== "mcp" || !capability.catalogSlug) {
       continue;
     }
-    const fingerprint = computeMcpToolFingerprint(capability.catalogSlug, workspaceId);
-    if (fingerprint) {
+    const pinned = pinnedMcpReleases?.[capability.catalogSlug];
+    const catalog = pinned
+      ? readMcpCatalogItemReleaseSync(capability.catalogSlug, pinned.version, workspaceId)
+      : readMcpCatalogItemBySlugSync(capability.catalogSlug, workspaceId);
+    const fingerprint = catalog ? computeMcpToolFingerprint(catalog.declaredToolsJson) : undefined;
+    if (
+      catalog
+      && fingerprint
+      && (!pinned || (catalog.id === pinned.catalogItemId && fingerprint === pinned.toolFingerprint))
+    ) {
       mcpToolFingerprints[capability.catalogSlug] = fingerprint;
+      mcpCatalogReleases[capability.catalogSlug] = {
+        catalogItemId: catalog.id,
+        version: catalog.version,
+        toolFingerprint: fingerprint,
+      };
     } else {
       // Every declared MCP capability must be pinned by the catalog to be usable.
       unresolvedRequired.push(`mcp:${capability.catalogSlug}`);
@@ -119,6 +150,7 @@ export function computeSkillReleaseLockSync(
     serviceImageDigests,
     serviceConfigSchemaVersions,
     mcpToolFingerprints,
+    mcpCatalogReleases,
     providerCompatibilityRevision: 0,
   };
   const lockDigest = createHash("sha256").update(stableStringify(lockWithoutDigest)).digest("hex");
@@ -145,26 +177,78 @@ export function verifySkillInstallationLockReconstructableSync(
   if (!artifact) {
     return false;
   }
-  const recomputed = computeSkillReleaseLockSync(artifact, workspaceId);
   try {
-    const stored = JSON.parse(installation.resolvedLockJson) as { lockDigest?: unknown };
-    return typeof stored.lockDigest === "string" && stored.lockDigest === recomputed.lockDigest;
+    const stored = JSON.parse(installation.resolvedLockJson) as Partial<ResolvedSkillReleaseLock>;
+    if (typeof stored.lockDigest !== "string") {
+      return false;
+    }
+    const pinnedReleases = isMcpCatalogReleaseLockMap(stored.mcpCatalogReleases)
+      ? stored.mcpCatalogReleases
+      : resolveLegacyMcpReleasePins(stored.mcpToolFingerprints, workspaceId);
+    if (!pinnedReleases) {
+      return false;
+    }
+    const recomputed = computeSkillReleaseLockInternal(artifact, workspaceId, pinnedReleases);
+    if (stored.mcpCatalogReleases) {
+      return stored.lockDigest === recomputed.lockDigest;
+    }
+    return stored.lockDigest === computeLegacyLockDigest(recomputed);
   } catch {
     return false;
   }
 }
 
-function computeMcpToolFingerprint(catalogSlug: string, workspaceId: string): string | undefined {
-  const catalog = readMcpCatalogItemBySlugSync(catalogSlug, workspaceId);
-  if (!catalog) {
-    return undefined;
-  }
+function computeMcpToolFingerprint(declaredToolsJson: string): string | undefined {
   try {
-    const declaredTools = JSON.parse(catalog.declaredToolsJson) as unknown;
+    const declaredTools = JSON.parse(declaredToolsJson) as unknown;
     return createHash("sha256").update(stableStringify(declaredTools)).digest("hex");
   } catch {
     return undefined;
   }
+}
+
+function resolveLegacyMcpReleasePins(
+  fingerprints: Record<string, string> | undefined,
+  workspaceId: string,
+): Record<string, McpCatalogReleaseLock> | null {
+  const resolved: Record<string, McpCatalogReleaseLock> = {};
+  for (const [slug, expectedFingerprint] of Object.entries(fingerprints ?? {})) {
+    const release = listMcpCatalogItemReleasesSync(slug, workspaceId).find(
+      (candidate) => computeMcpToolFingerprint(candidate.declaredToolsJson) === expectedFingerprint,
+    );
+    if (!release) {
+      return null;
+    }
+    resolved[slug] = {
+      catalogItemId: release.id,
+      version: release.version,
+      toolFingerprint: expectedFingerprint,
+    };
+  }
+  return resolved;
+}
+
+function isMcpCatalogReleaseLockMap(value: unknown): value is Record<string, McpCatalogReleaseLock> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return Object.values(value).every((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const lock = entry as Partial<McpCatalogReleaseLock>;
+    return typeof lock.catalogItemId === "string"
+      && typeof lock.version === "string"
+      && typeof lock.toolFingerprint === "string";
+  });
+}
+
+function computeLegacyLockDigest(lock: ResolvedSkillReleaseLock): string {
+  const {
+    lockDigest: _lockDigest,
+    unresolvedRequired: _unresolvedRequired,
+    mcpCatalogReleases: _mcpCatalogReleases,
+    ...legacyFields
+  } = lock;
+  return createHash("sha256").update(stableStringify(legacyFields)).digest("hex");
 }
 
 /** Reads a stored installation's release lock; returns null when absent or unparseable. */

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomBytes as cryptoRandomBytes } from "node:crypto";
+import { createHash, randomBytes as cryptoRandomBytes } from "node:crypto";
 import { after, test } from "node:test";
 import {
   getDatabase,
@@ -25,6 +25,7 @@ import {
   readSkillInstallationLockSync,
   verifySkillInstallationLockReconstructableSync,
 } from "./release.ts";
+import { stableStringify } from "./package/package-digest.ts";
 
 const sha = (fill: string) => fill.repeat(64);
 
@@ -538,4 +539,69 @@ test("verifySkillInstallationLockReconstructableSync proves reproducibility, and
   // itself were replaced, which the immutability prevents.
   assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, "default"), true);
   assert.equal(readSkillInstallationLockSync(installation.id, "default")?.serviceImageDigests["document-renderer"], sha("img"));
+});
+
+test("MCP release locks remain reconstructable after a newer catalog release is published", () => {
+  resetWorkspaceStateSync("default");
+  const firstRelease = upsertMcpCatalogItemSync({
+    workspaceId: "default",
+    slug: "github-versioned",
+    version: "1.0.0",
+    transport: "streamable_http",
+    displayName: "GitHub v1",
+    declaredToolsJson: JSON.stringify([{ name: "search_issues" }]),
+  });
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: "Pinned MCP Release",
+    files: [{ path: "SKILL.md", bytes: ENCODER.encode("# Body\n") }],
+    capabilities: [{ kind: "mcp", catalogSlug: "github-versioned", requiredTools: ["search_issues"] }],
+  });
+  const installation = createSkillInstallationPlanSync({
+    runtimeId: createTestRuntime(),
+    artifactDigest: artifact.digest,
+  });
+  const lock = readSkillInstallationLockSync(installation.id, "default");
+  assert.deepEqual(lock?.mcpCatalogReleases["github-versioned"], {
+    catalogItemId: firstRelease.id,
+    version: "1.0.0",
+    toolFingerprint: lock?.mcpToolFingerprints["github-versioned"],
+  });
+
+  upsertMcpCatalogItemSync({
+    workspaceId: "default",
+    slug: "github-versioned",
+    version: "2.0.0",
+    transport: "streamable_http",
+    displayName: "GitHub v2",
+    declaredToolsJson: JSON.stringify([{ name: "search_issues" }, { name: "create_issue" }]),
+  });
+  assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, "default"), true);
+
+  const {
+    mcpCatalogReleases: _mcpCatalogReleases,
+    lockDigest: _lockDigest,
+    unresolvedRequired,
+    ...legacyFields
+  } = lock!;
+  const legacyLockDigest = createHash("sha256").update(stableStringify(legacyFields)).digest("hex");
+  getDatabase().prepare(
+    `UPDATE skill_installation SET resolved_lock_json = ?::jsonb WHERE id = ? AND workspace_id = ?`,
+  ).run(JSON.stringify({ ...legacyFields, lockDigest: legacyLockDigest, unresolvedRequired }), installation.id, "default");
+  assert.equal(
+    verifySkillInstallationLockReconstructableSync(installation.id, "default"),
+    true,
+    "legacy fingerprint-only locks resolve their original release instead of the latest",
+  );
+
+  // A release is immutable. If an administrative upsert violates that contract,
+  // reconstruction must detect the changed tool surface instead of accepting it.
+  upsertMcpCatalogItemSync({
+    workspaceId: "default",
+    slug: "github-versioned",
+    version: "1.0.0",
+    transport: "streamable_http",
+    displayName: "GitHub v1 mutated",
+    declaredToolsJson: JSON.stringify([{ name: "delete_repository" }]),
+  });
+  assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, "default"), false);
 });

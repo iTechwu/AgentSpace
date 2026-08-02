@@ -149,6 +149,12 @@ export interface SkillReleaseLock {
   serviceImageDigests: Record<string, string>;
   serviceConfigSchemaVersions: Record<string, number>;
   mcpToolFingerprints: Record<string, string>;
+  /** Exact immutable MCP catalog releases used to derive the tool fingerprints. */
+  mcpCatalogReleases?: Record<string, {
+    catalogItemId: string;
+    version: string;
+    toolFingerprint: string;
+  }>;
   providerCompatibilityRevision: number;
   /** sha256 of the canonical (stable-sorted) JSON of the fields above. */
   lockDigest: string;

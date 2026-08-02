@@ -287,6 +287,18 @@ export function readMcpCatalogItemReleaseSync(
   return row ? mapMcpCatalogItemRecord(row) : null;
 }
 
+export function listMcpCatalogItemReleasesSync(
+  slug: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): McpCatalogItemRecord[] {
+  const rows = getDatabase().prepare(
+    `${MCP_CATALOG_ITEM_COLUMNS} FROM mcp_catalog_item
+     WHERE workspace_id = ? AND slug = ?
+     ORDER BY created_at DESC, version DESC`,
+  ).all(workspaceId, slug.trim()) as Array<Record<string, unknown>>;
+  return rows.map(mapMcpCatalogItemRecord).filter((row): row is McpCatalogItemRecord => row !== null);
+}
+
 export function listMcpCatalogItemsSync(options: { workspaceId?: string; limit?: number } = {}): McpCatalogItemRecord[] {
   const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const limit = Math.max(1, Math.min(options.limit ?? 200, 500));
