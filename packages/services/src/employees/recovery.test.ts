@@ -85,10 +85,15 @@ function insertSkill(seed: string): string {
 function assignSkill(employeeName: string, skillId: string, digest?: string): void {
   const db = getDatabase();
   const now = new Date().toISOString();
+  const employeeId = (db.prepare(
+    `SELECT id FROM workspace_employee WHERE workspace_id = 'default' AND name = ?`,
+  ).get(employeeName) as { id?: string } | undefined)?.id;
+  assert.ok(employeeId, `employee ${employeeName} exists`);
   db.prepare(
-    `INSERT INTO agent_skill (workspace_id, employee_name, skill_id, created_at)
-     VALUES ('default', ?, ?, ?) ON CONFLICT(workspace_id, employee_name, skill_id) DO NOTHING`,
-  ).run(employeeName, skillId, now);
+    `INSERT INTO agent_skill (workspace_id, agent_id, employee_id, employee_name, skill_id, created_at)
+     VALUES ('default', ?, ?, ?, ?, ?)
+     ON CONFLICT(workspace_id, employee_id, skill_id) DO NOTHING`,
+  ).run(employeeId, employeeId, employeeName, skillId, now);
   if (digest) {
     setAssignmentArtifactDigestSync({ workspaceId: "default", employeeName, skillId, digest });
   }
@@ -155,12 +160,21 @@ function seedTestEmployees(): void {
   const db = getDatabase();
   const now = new Date().toISOString();
   for (const name of ["Alice", "Bob", "Carol", "Dan", "Erin", "Retry Worker"]) {
+    const employeeId = `emp-recovery-${name.toLowerCase().replaceAll(" ", "-")}`;
     db.prepare(
       `INSERT INTO workspace_employee (id, workspace_id, name, role, origin, summary, fit, status, instructions, created_at, updated_at)
        VALUES (?, 'default', ?, 'Agent', 'manual', ?, 'Ready', 'active', '', ?, ?)
-       ON CONFLICT (workspace_id, name) DO NOTHING`,
-    ).run(`emp-${name.toLowerCase()}`, name, `${name} test employee`, now, now);
+       ON CONFLICT (workspace_id, name) DO UPDATE SET
+         role = EXCLUDED.role,
+         summary = EXCLUDED.summary,
+         updated_at = EXCLUDED.updated_at`,
+    ).run(employeeId, name, `${name} test employee`, now, now);
   }
+  const seeded = db.prepare(
+    `SELECT COUNT(*) AS count FROM workspace_employee
+     WHERE workspace_id = 'default' AND name IN ('Alice', 'Bob', 'Carol', 'Dan', 'Erin', 'Retry Worker')`,
+  ).get() as { count?: number } | undefined;
+  assert.equal(seeded?.count, 6, "recovery test employees are seeded");
 }
 
 after(() => {

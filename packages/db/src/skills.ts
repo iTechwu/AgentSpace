@@ -92,6 +92,7 @@ export function listStoredAgentSkillAssignmentsSync(workspaceId = DEFAULT_WORKSP
       `SELECT
         workspace_id AS workspaceId,
         ${hasAgentIdColumn ? "agent_id" : "NULL"} AS agentId,
+        employee_id AS employeeId,
         employee_name AS employeeName,
         skill_id AS skillId,
         skill_artifact_digest AS skillartifactdigest,
@@ -453,7 +454,7 @@ export function replaceStoredAgentSkillAssignmentsSync(
               skill_id,
               created_at
             ) VALUES (?, ?, ?, ?, ?, ?)`,
-          ).run(workspaceId, buildLegacyAgentId(assignment.employeeName), employeeId, assignment.employeeName, skillId, now);
+          ).run(workspaceId, employeeId, employeeId, assignment.employeeName, skillId, now);
         } else {
           db.prepare(
             `INSERT INTO agent_skill (
@@ -478,24 +479,25 @@ export function setStoredEmployeeSkillAssignmentsSync(
   const db = getDatabase();
   const now = new Date().toISOString();
   const hasAgentIdColumn = agentSkillTableHasAgentIdColumn(db);
+  const employeeId = resolveEmployeeIdForWrite(employeeName, workspaceId);
 
   withTransaction(db, () => {
     if (skillIds.length === 0) {
       db.prepare(
         `DELETE FROM agent_skill_requirement_config
-         WHERE workspace_id = ? AND employee_name = ?`,
-      ).run(workspaceId, employeeName);
+         WHERE workspace_id = ? AND employee_id = ?`,
+      ).run(workspaceId, employeeId);
     } else {
       const placeholders = skillIds.map(() => "?").join(", ");
       db.prepare(
         `DELETE FROM agent_skill_requirement_config
-         WHERE workspace_id = ? AND employee_name = ? AND skill_id NOT IN (${placeholders})`,
-      ).run(workspaceId, employeeName, ...skillIds);
+         WHERE workspace_id = ? AND employee_id = ? AND skill_id NOT IN (${placeholders})`,
+      ).run(workspaceId, employeeId, ...skillIds);
     }
     db.prepare(
       `DELETE FROM agent_skill
-       WHERE workspace_id = ? AND employee_name = ?`,
-    ).run(workspaceId, employeeName);
+       WHERE workspace_id = ? AND employee_id = ?`,
+    ).run(workspaceId, employeeId);
 
     const activeDigests = new Map<string, string | undefined>();
     if (skillIds.length > 0) {
@@ -514,7 +516,6 @@ export function setStoredEmployeeSkillAssignmentsSync(
       }
     }
 
-    const employeeId = resolveEmployeeIdForWrite(employeeName, workspaceId);
     for (const skillId of skillIds) {
       const digest = activeDigests.get(skillId);
       if (hasAgentIdColumn) {
@@ -529,7 +530,7 @@ export function setStoredEmployeeSkillAssignmentsSync(
             rollout_pin,
             created_at
           ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
-        ).run(workspaceId, buildLegacyAgentId(employeeName), employeeId, employeeName, skillId, digest ?? null, now);
+        ).run(workspaceId, employeeId, employeeId, employeeName, skillId, digest ?? null, now);
       } else {
         db.prepare(
           `INSERT INTO agent_skill (
@@ -572,10 +573,11 @@ export function setEmployeeSkillRolloutPinSync(input: {
   revision: string | null;
 }): number {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employeeId = resolveEmployeeIdForWrite(input.employeeName, workspaceId);
   const result = getDatabase().prepare(
     `UPDATE agent_skill SET rollout_pin = ?
-     WHERE workspace_id = ? AND employee_name = ? AND skill_id = ?`,
-  ).run(input.revision?.trim() || null, workspaceId, input.employeeName.trim(), input.skillId);
+     WHERE workspace_id = ? AND employee_id = ? AND skill_id = ?`,
+  ).run(input.revision?.trim() || null, workspaceId, employeeId, input.skillId);
   return result.changes;
 }
 
@@ -646,6 +648,8 @@ function mapStoredSkillFileRecord(value: Record<string, unknown>): StoredSkillFi
 function mapStoredAgentSkillRecord(value: Record<string, unknown>): StoredAgentSkillRecord | null {
   if (
     typeof value.workspaceId !== "string" ||
+    typeof value.employeeId !== "string" ||
+    typeof value.agentId !== "string" ||
     typeof value.employeeName !== "string" ||
     typeof value.skillId !== "string" ||
     typeof value.createdAt !== "string"
@@ -655,17 +659,14 @@ function mapStoredAgentSkillRecord(value: Record<string, unknown>): StoredAgentS
 
   return {
     workspaceId: value.workspaceId,
-    agentId: typeof value.agentId === "string" ? value.agentId : undefined,
+    agentId: value.agentId,
+    employeeId: value.employeeId,
     employeeName: value.employeeName,
     skillId: value.skillId,
     skillArtifactDigest: typeof value.skillartifactdigest === "string" ? value.skillartifactdigest : undefined,
     rolloutPin: typeof value.rolloutpin === "string" && value.rolloutpin.length > 0 ? value.rolloutpin : undefined,
     createdAt: value.createdAt,
   };
-}
-
-function buildLegacyAgentId(employeeName: string): string {
-  return `agent:${employeeName.trim()}`;
 }
 
 function agentSkillTableHasAgentIdColumn(_db: ReturnType<typeof getDatabase>): boolean {

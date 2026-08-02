@@ -1082,7 +1082,8 @@ export interface StoredSkillFileRecord {
 
 export interface StoredAgentSkillRecord {
   workspaceId: string;
-  agentId?: string;
+  agentId: string;
+  employeeId: string;
   employeeName: string;
   skillId: string;
   skillArtifactDigest?: string;
@@ -1093,6 +1094,7 @@ export interface StoredAgentSkillRecord {
 
 export interface StoredAgentSkillRequirementConfigRecord {
   workspaceId: string;
+  employeeId: string;
   employeeName: string;
   skillId: string;
   configJson: string;
@@ -1113,7 +1115,8 @@ export interface StoredKnowledgeAssignmentPolicyRecord {
 
 export interface StoredAgentKnowledgePageRecord {
   workspaceId: string;
-  agentId?: string;
+  agentId: string;
+  employeeId: string;
   employeeName: string;
   knowledgePageId: string;
   createdAt: string;

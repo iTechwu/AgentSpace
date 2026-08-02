@@ -92,6 +92,7 @@ export function listStoredAgentKnowledgePageAssignmentsSync(
     `SELECT
        workspace_id AS workspaceId,
        agent_id AS agentId,
+       employee_id AS employeeId,
        employee_name AS employeeName,
        knowledge_page_id AS knowledgePageId,
        created_at AS createdAt,
@@ -118,8 +119,10 @@ export function listStoredKnowledgeAssignmentsByEmployeeSync(
   employeeName: string,
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): StoredAgentKnowledgePageRecord[] {
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+  if (!employeeId) return [];
   return listStoredAgentKnowledgePageAssignmentsSync(workspaceId)
-    .filter((assignment) => assignment.employeeName === employeeName);
+    .filter((assignment) => assignment.employeeId === employeeId);
 }
 
 export function setStoredKnowledgePageAssignedEmployeesSync(input: {
@@ -152,7 +155,7 @@ export function setStoredKnowledgePageAssignedEmployeesSync(input: {
            created_at,
            created_by
          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      ).run(workspaceId, buildLegacyAgentId(employeeName), employeeId, employeeName, input.knowledgePageId, now, createdBy);
+      ).run(workspaceId, employeeId, employeeId, employeeName, input.knowledgePageId, now, createdBy);
     }
   });
 }
@@ -168,14 +171,14 @@ export function setStoredEmployeeKnowledgePageAssignmentsSync(input: {
   const now = new Date().toISOString();
   const createdBy = input.createdBy?.trim() ?? "";
   const knowledgePageIds = normalizeIds(input.knowledgePageIds);
+  const employeeId = resolveEmployeeIdForWrite(input.employeeName, workspaceId);
 
   withTransaction(db, () => {
     db.prepare(
       `DELETE FROM agent_knowledge_page
-       WHERE workspace_id = ? AND employee_name = ?`,
-    ).run(workspaceId, input.employeeName);
+       WHERE workspace_id = ? AND employee_id = ?`,
+    ).run(workspaceId, employeeId);
 
-    const employeeId = resolveEmployeeIdForWrite(input.employeeName, workspaceId);
     for (const knowledgePageId of knowledgePageIds) {
       db.prepare(
         `INSERT INTO agent_knowledge_page (
@@ -187,7 +190,7 @@ export function setStoredEmployeeKnowledgePageAssignmentsSync(input: {
            created_at,
            created_by
          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      ).run(workspaceId, buildLegacyAgentId(input.employeeName), employeeId, input.employeeName, knowledgePageId, now, createdBy);
+      ).run(workspaceId, employeeId, employeeId, input.employeeName, knowledgePageId, now, createdBy);
     }
   });
 }
@@ -219,10 +222,12 @@ export function deleteStoredKnowledgeAssignmentsForEmployeeSync(
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): number {
   const db = getDatabase();
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+  if (!employeeId) return 0;
   return db.prepare(
     `DELETE FROM agent_knowledge_page
-     WHERE workspace_id = ? AND employee_name = ?`,
-  ).run(workspaceId, employeeName).changes;
+     WHERE workspace_id = ? AND employee_id = ?`,
+  ).run(workspaceId, employeeId).changes;
 }
 
 export function resetStoredKnowledgeAssignmentsSync(workspaceId = DEFAULT_WORKSPACE_ID): void {
@@ -257,6 +262,8 @@ function mapStoredKnowledgeAssignmentPolicyRecord(
 function mapStoredAgentKnowledgePageRecord(value: Record<string, unknown>): StoredAgentKnowledgePageRecord | null {
   if (
     typeof value.workspaceId !== "string" ||
+    typeof value.employeeId !== "string" ||
+    typeof value.agentId !== "string" ||
     typeof value.employeeName !== "string" ||
     typeof value.knowledgePageId !== "string" ||
     typeof value.createdAt !== "string"
@@ -266,7 +273,8 @@ function mapStoredAgentKnowledgePageRecord(value: Record<string, unknown>): Stor
 
   return {
     workspaceId: value.workspaceId,
-    agentId: typeof value.agentId === "string" ? value.agentId : undefined,
+    agentId: value.agentId,
+    employeeId: value.employeeId,
     employeeName: value.employeeName,
     knowledgePageId: value.knowledgePageId,
     createdAt: value.createdAt,
@@ -288,10 +296,6 @@ function normalizeIds(values: string[]): string[] {
     result.push(trimmed);
   }
   return result;
-}
-
-function buildLegacyAgentId(employeeName: string): string {
-  return `agent:${employeeName.trim()}`;
 }
 
 /** Resolves the stable employee id for a write; the employee must exist. */

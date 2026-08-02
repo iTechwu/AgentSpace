@@ -118,10 +118,18 @@ export function createStoredEmployeeSync(employee: ActiveEmployee, workspaceId =
 
 export function updateStoredEmployeeSync(employeeName: string, next: ActiveEmployee, workspaceId = DEFAULT_WORKSPACE_ID): ActiveEmployee | null {
   const db = getDatabase();
+  const current = readStoredEmployeeSync(employeeName, workspaceId);
+  if (!current) {
+    return null;
+  }
+  if (next.id !== current.id) {
+    throw new Error(`Employee identity is immutable: expected id "${current.id}", got "${next.id}".`);
+  }
   const now = new Date().toISOString();
   const result = db.prepare(
     `UPDATE workspace_employee
-     SET role = ?,
+     SET name = ?,
+         role = ?,
          remark_name = ?,
          owner_user_id = ?,
          origin = ?,
@@ -135,8 +143,9 @@ export function updateStoredEmployeeSync(employeeName: string, next: ActiveEmplo
          execution_policy_json = ?,
          version = version + 1,
          updated_at = ?
-     WHERE workspace_id = ? AND name = ?`,
+     WHERE workspace_id = ? AND id = ?`,
   ).run(
+    next.name,
     next.role,
     next.remarkName ?? null,
     next.ownerUserId ?? null,
@@ -151,13 +160,13 @@ export function updateStoredEmployeeSync(employeeName: string, next: ActiveEmplo
     JSON.stringify(next.executionPolicy ?? {}),
     now,
     workspaceId,
-    employeeName,
+    current.id,
   );
   if (result.changes === 0) {
     return null;
   }
 
-  return readStoredEmployeeSync(next.name, workspaceId);
+  return readStoredEmployeeByIdSync(current.id, workspaceId);
 }
 
 export function deleteStoredEmployeeSync(employeeName: string, workspaceId = DEFAULT_WORKSPACE_ID): boolean {
@@ -172,8 +181,8 @@ export function deleteStoredEmployeeSync(employeeName: string, workspaceId = DEF
 export function replaceStoredEmployeesSync(employees: ActiveEmployee[], workspaceId = DEFAULT_WORKSPACE_ID): void {
   const db = getDatabase();
   withTransaction(db, () => {
-    const nextNames = employees.map((employee) => employee.name);
-    if (nextNames.length === 0) {
+    const nextIds = employees.map((employee) => employee.id);
+    if (nextIds.length === 0) {
       db.prepare("DELETE FROM workspace_employee WHERE workspace_id = ?").run(workspaceId);
       return;
     }
@@ -185,10 +194,15 @@ export function replaceStoredEmployeesSync(employees: ActiveEmployee[], workspac
     db.prepare(
       `DELETE FROM workspace_employee
        WHERE workspace_id = ?
-         AND name NOT IN (${nextNames.map(() => "?").join(", ")})`,
-    ).run(workspaceId, ...nextNames);
+         AND id NOT IN (${nextIds.map(() => "?").join(", ")})`,
+    ).run(workspaceId, ...nextIds);
     for (const employee of employees) {
-      updateStoredEmployeeSync(employee.name, employee, workspaceId) ?? createStoredEmployeeSync(employee, workspaceId);
+      const existing = readStoredEmployeeByIdSync(employee.id, workspaceId);
+      if (existing) {
+        updateStoredEmployeeSync(existing.name, employee, workspaceId);
+      } else {
+        createStoredEmployeeSync(employee, workspaceId);
+      }
     }
   });
 }

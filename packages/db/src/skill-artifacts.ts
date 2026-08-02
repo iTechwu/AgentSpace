@@ -1,4 +1,5 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
+import { resolveStoredEmployeeIdSync } from "./workspace-employees.ts";
 import type {
   SkillArtifactFileRecord,
   SkillArtifactRecord,
@@ -374,11 +375,13 @@ export function setAssignmentArtifactDigestSync(input: {
   if (!agentSkillTableHasDigestColumn(db)) {
     return false;
   }
+  const employeeId = resolveStoredEmployeeIdSync(input.employeeName, workspaceId);
+  if (!employeeId) return false;
   const result = db.prepare(
     `UPDATE agent_skill
        SET skill_artifact_digest = ?
-     WHERE workspace_id = ? AND employee_name = ? AND skill_id = ?`,
-  ).run(input.digest?.trim().toLowerCase() || null, workspaceId, input.employeeName, input.skillId);
+     WHERE workspace_id = ? AND employee_id = ? AND skill_id = ?`,
+  ).run(input.digest?.trim().toLowerCase() || null, workspaceId, employeeId, input.skillId);
   return result.changes > 0;
 }
 
@@ -392,10 +395,12 @@ export function readAssignmentArtifactDigestSync(input: {
   if (!agentSkillTableHasDigestColumn(db)) {
     return undefined;
   }
+  const employeeId = resolveStoredEmployeeIdSync(input.employeeName, workspaceId);
+  if (!employeeId) return undefined;
   const row = db.prepare(
     `SELECT skill_artifact_digest AS digest FROM agent_skill
-      WHERE workspace_id = ? AND employee_name = ? AND skill_id = ?`,
-  ).get(workspaceId, input.employeeName, input.skillId) as { digest?: string } | undefined;
+      WHERE workspace_id = ? AND employee_id = ? AND skill_id = ?`,
+  ).get(workspaceId, employeeId, input.skillId) as { digest?: string } | undefined;
   const digest = row?.digest;
   return typeof digest === "string" && digest.length > 0 ? digest : undefined;
 }

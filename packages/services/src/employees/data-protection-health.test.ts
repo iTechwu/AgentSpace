@@ -305,14 +305,18 @@ test("D-10 fails when a bound skill has no pinned digest", () => {
   });
   const db = getDatabase();
   const now = new Date().toISOString();
+  const employeeId = (db.prepare(
+    `SELECT id FROM workspace_employee WHERE workspace_id = 'default' AND name = 'Carol'`,
+  ).get() as { id?: string } | undefined)?.id;
+  assert.ok(employeeId, "Carol exists");
   db.prepare(
     `INSERT INTO skill (id, workspace_id, name, description, config_json, created_at, updated_at)
      VALUES ('skill-no-digest', 'default', 'skill-no-digest', '', '{}', ?, ?)`,
   ).run(now, now);
   db.prepare(
-    `INSERT INTO agent_skill (workspace_id, employee_name, skill_id, created_at)
-     VALUES ('default', 'Carol', 'skill-no-digest', ?)`,
-  ).run(now);
+    `INSERT INTO agent_skill (workspace_id, agent_id, employee_id, employee_name, skill_id, created_at)
+     VALUES ('default', ?, ?, 'Carol', 'skill-no-digest', ?)`,
+  ).run(employeeId, employeeId, now);
 
   const drill = runBackupRestoreDrillSync({ workspaceId: "default", employeeNames: ["Carol"] });
   assert.equal(drill.ok, false);

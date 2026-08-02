@@ -419,6 +419,10 @@ function seedWorkspaceRecords(workspaceId: string, suffix: string): void {
     `INSERT INTO workspace_employee (workspace_id, name, created_at, updated_at)
      VALUES (?, ?, ?, ?)`,
   ).run(workspaceId, `employee-${suffix}`, now, now);
+  const employeeId = (db.prepare(
+    `SELECT id FROM workspace_employee WHERE workspace_id = ? AND name = ?`,
+  ).get(workspaceId, `employee-${suffix}`) as { id?: string } | undefined)?.id;
+  assert.ok(employeeId, "workspace employee id exists");
 
   db.prepare(
     `INSERT INTO workspace_task (id, workspace_id, title, channel_name, assignee, priority, status, created_at, updated_at)
@@ -446,9 +450,10 @@ function seedWorkspaceRecords(workspaceId: string, suffix: string): void {
   ).run(workspaceId, `runtime-${suffix}`, `Display ${suffix}`, now, now);
 
   db.prepare(
-    `INSERT INTO employee_runtime_binding (workspace_id, employee_name, runtime_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(workspaceId, `employee-${suffix}`, `runtime-${suffix}`, now, now);
+    `INSERT INTO employee_runtime_binding (
+       workspace_id, employee_id, employee_name, runtime_id, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(workspaceId, employeeId, `employee-${suffix}`, `runtime-${suffix}`, now, now);
 
   db.prepare(
     `INSERT INTO agent_task_queue (
@@ -607,9 +612,9 @@ function seedWorkspaceRecords(workspaceId: string, suffix: string): void {
   ).run(`skill-file-${suffix}`, `skill-${suffix}`, `skill body ${suffix}`, now, now);
 
   db.prepare(
-    `INSERT INTO agent_skill (workspace_id, agent_id, employee_name, skill_id, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(workspaceId, `agent:${suffix}`, `employee-${suffix}`, `skill-${suffix}`, now);
+    `INSERT INTO agent_skill (workspace_id, agent_id, employee_id, employee_name, skill_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(workspaceId, employeeId, employeeId, `employee-${suffix}`, `skill-${suffix}`, now);
 
   db.prepare(
     `INSERT INTO knowledge_page_assignment_policy (workspace_id, knowledge_page_id, assignment_mode, updated_at, updated_by)
@@ -617,9 +622,10 @@ function seedWorkspaceRecords(workspaceId: string, suffix: string): void {
   ).run(workspaceId, `knowledge-${suffix}`, now);
 
   db.prepare(
-    `INSERT INTO agent_knowledge_page (workspace_id, agent_id, employee_name, knowledge_page_id, created_at, created_by)
-     VALUES (?, ?, ?, ?, ?, 'system')`,
-  ).run(workspaceId, `agent:${suffix}`, `employee-${suffix}`, `knowledge-${suffix}`, now);
+    `INSERT INTO agent_knowledge_page (
+       workspace_id, agent_id, employee_id, employee_name, knowledge_page_id, created_at, created_by
+     ) VALUES (?, ?, ?, ?, ?, ?, 'system')`,
+  ).run(workspaceId, employeeId, employeeId, `employee-${suffix}`, `knowledge-${suffix}`, now);
 
   db.prepare(
     `INSERT INTO skill_import_event (id, workspace_id, skill_id, skill_name, source_type, imported_at)

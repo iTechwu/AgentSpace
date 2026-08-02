@@ -118,9 +118,11 @@ export function readEmployeePersistentWorkspaceSync(
   employeeName: string,
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): EmployeePersistentWorkspaceRecord | null {
+  const employeeId = resolveStoredEmployeeIdSync(employeeName.trim(), workspaceId);
+  if (!employeeId) return null;
   const row = getDatabase().prepare(
-    `${WORKSPACE_COLUMNS} FROM employee_persistent_workspace WHERE workspace_id = ? AND employee_name = ?`,
-  ).get(workspaceId, employeeName.trim()) as Record<string, unknown> | undefined;
+    `${WORKSPACE_COLUMNS} FROM employee_persistent_workspace WHERE workspace_id = ? AND employee_id = ?`,
+  ).get(workspaceId, employeeId) as Record<string, unknown> | undefined;
   return row ? mapWorkspaceRecord(row) : null;
 }
 
@@ -151,6 +153,7 @@ export function updateWorkspaceStorageHealthSync(input: {
 }): EmployeePersistentWorkspaceRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employeeId = resolveEmployeeId(input.employeeName, workspaceId);
   const now = new Date().toISOString();
   const sets = ["storage_health = ?", "updated_at = ?"];
   const params: unknown[] = [input.storageHealth, now];
@@ -158,9 +161,9 @@ export function updateWorkspaceStorageHealthSync(input: {
     sets.push("last_snapshot_at = ?");
     params.push(input.lastSnapshotAt);
   }
-  params.push(input.employeeName.trim(), workspaceId);
+  params.push(employeeId, workspaceId);
   const result = db.prepare(
-    `UPDATE employee_persistent_workspace SET ${sets.join(", ")} WHERE employee_name = ? AND workspace_id = ?`,
+    `UPDATE employee_persistent_workspace SET ${sets.join(", ")} WHERE employee_id = ? AND workspace_id = ?`,
   ).run(...params);
   if (result.changes === 0) {
     throw new Error(`Employee workspace for "${input.employeeName}" does not exist.`);
@@ -252,11 +255,13 @@ export function listWorkspaceRevisionsSync(options: {
   limit?: number;
 }): EmployeeWorkspaceRevisionRecord[] {
   const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employeeId = resolveStoredEmployeeIdSync(options.employeeName.trim(), workspaceId);
+  if (!employeeId) return [];
   const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
   const rows = getDatabase().prepare(
     `${REVISION_COLUMNS} FROM employee_workspace_revision
-     WHERE workspace_id = ? AND employee_name = ? ORDER BY created_at DESC LIMIT ${limit}`,
-  ).all(workspaceId, options.employeeName.trim()) as Array<Record<string, unknown>>;
+     WHERE workspace_id = ? AND employee_id = ? ORDER BY created_at DESC LIMIT ${limit}`,
+  ).all(workspaceId, employeeId) as Array<Record<string, unknown>>;
   return rows.map(mapRevisionRecord).filter((r): r is EmployeeWorkspaceRevisionRecord => r !== null);
 }
 
@@ -469,9 +474,11 @@ export function listEmployeeArtifactsSync(options: {
   limit?: number;
 }): EmployeeArtifactRecord[] {
   const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employeeId = resolveStoredEmployeeIdSync(options.employeeName.trim(), workspaceId);
+  if (!employeeId) return [];
   const limit = Math.max(1, Math.min(options.limit ?? 100, 500));
-  const where = ["workspace_id = ?", "employee_name = ?"];
-  const params: unknown[] = [workspaceId, options.employeeName.trim()];
+  const where = ["workspace_id = ?", "employee_id = ?"];
+  const params: unknown[] = [workspaceId, employeeId];
   if (!options.includeDeleted) {
     where.push("deleted_at IS NULL");
   }
@@ -661,27 +668,29 @@ export function deleteEmployeeDurabilityRecordsSync(
   if (!normalized) {
     throw new Error("Employee name is required.");
   }
+  const employeeId = resolveStoredEmployeeIdSync(normalized, workspaceId);
+  if (!employeeId) return;
 
   // Persistent workspace rows cascade to revisions and artifacts via FK.
   db.prepare(
     `DELETE FROM employee_persistent_workspace
-     WHERE workspace_id = ? AND employee_name = ?`,
-  ).run(workspaceId, normalized);
+     WHERE workspace_id = ? AND employee_id = ?`,
+  ).run(workspaceId, employeeId);
 
   db.prepare(
     `DELETE FROM employee_runtime_binding
-     WHERE workspace_id = ? AND employee_name = ?`,
-  ).run(workspaceId, normalized);
+     WHERE workspace_id = ? AND employee_id = ?`,
+  ).run(workspaceId, employeeId);
 
   db.prepare(
     `DELETE FROM employee_recovery_operation
-     WHERE workspace_id = ? AND employee_name = ?`,
-  ).run(workspaceId, normalized);
+     WHERE workspace_id = ? AND employee_id = ?`,
+  ).run(workspaceId, employeeId);
 
   db.prepare(
     `DELETE FROM task_commit_journal
-     WHERE workspace_id = ? AND employee_name = ?`,
-  ).run(workspaceId, normalized);
+     WHERE workspace_id = ? AND employee_id = ?`,
+  ).run(workspaceId, employeeId);
 }
 
 function readOptionalString(value: unknown): string | undefined {

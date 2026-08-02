@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "91";
+export const POSTGRES_SCHEMA_VERSION = "92";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -825,7 +825,7 @@ export function getPostgresSchemaStatements(): string[] {
         runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL,
-        PRIMARY KEY (workspace_id, employee_name)
+        PRIMARY KEY (workspace_id, employee_id)
       )
     `,
     `
@@ -1085,16 +1085,18 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE TABLE IF NOT EXISTS agent_skill (
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-        agent_id TEXT,
+        agent_id TEXT NOT NULL,
+        employee_id TEXT NOT NULL REFERENCES workspace_employee(id) ON DELETE CASCADE,
         employee_name TEXT NOT NULL,
         skill_id TEXT NOT NULL REFERENCES skill(id) ON DELETE CASCADE,
         created_at TIMESTAMPTZ NOT NULL,
-        PRIMARY KEY (workspace_id, employee_name, skill_id)
+        PRIMARY KEY (workspace_id, employee_id, skill_id)
       )
     `,
     `
       CREATE TABLE IF NOT EXISTS agent_skill_requirement_config (
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        employee_id TEXT NOT NULL REFERENCES workspace_employee(id) ON DELETE CASCADE,
         employee_name TEXT NOT NULL,
         skill_id TEXT NOT NULL REFERENCES skill(id) ON DELETE CASCADE,
         config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -1103,7 +1105,7 @@ export function getPostgresSchemaStatements(): string[] {
         updated_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL,
-        PRIMARY KEY (workspace_id, employee_name, skill_id)
+        PRIMARY KEY (workspace_id, employee_id, skill_id)
       )
     `,
     `
@@ -1123,12 +1125,13 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE TABLE IF NOT EXISTS agent_knowledge_page (
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-        agent_id TEXT,
+        agent_id TEXT NOT NULL,
+        employee_id TEXT NOT NULL REFERENCES workspace_employee(id) ON DELETE CASCADE,
         employee_name TEXT NOT NULL,
         knowledge_page_id TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL,
         created_by TEXT NOT NULL DEFAULT '',
-        PRIMARY KEY (workspace_id, employee_name, knowledge_page_id)
+        PRIMARY KEY (workspace_id, employee_id, knowledge_page_id)
       )
     `,
     `
@@ -2812,7 +2815,7 @@ export function getPostgresSchemaStatements(): string[] {
         last_snapshot_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL,
-        UNIQUE(workspace_id, employee_name)
+        UNIQUE(workspace_id, employee_id)
       )
     `,
     `
@@ -3334,6 +3337,7 @@ export function getPostgresSchemaStatements(): string[] {
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL,
         runtime_id TEXT NOT NULL,
+        employee_id TEXT NOT NULL REFERENCES workspace_employee(id) ON DELETE CASCADE,
         employee_name TEXT NOT NULL,
         head_revision_id TEXT,
         status TEXT NOT NULL,
@@ -3442,6 +3446,155 @@ export function getPostgresSchemaStatements(): string[] {
     `
       ALTER TABLE task_message
         ADD COLUMN IF NOT EXISTS ref_id TEXT
+    `,
+    `
+      ALTER TABLE agent_skill
+        ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      UPDATE agent_skill SET agent_id = employee_id
+    `,
+    `
+      ALTER TABLE agent_skill
+        ALTER COLUMN agent_id SET NOT NULL
+    `,
+    `
+      ALTER TABLE agent_skill
+        DROP CONSTRAINT IF EXISTS agent_skill_pkey
+    `,
+    `
+      ALTER TABLE agent_skill
+        ADD CONSTRAINT agent_skill_pkey PRIMARY KEY (workspace_id, employee_id, skill_id)
+    `,
+    `
+      ALTER TABLE agent_skill_requirement_config
+        ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      ALTER TABLE agent_skill_requirement_config
+        DROP CONSTRAINT IF EXISTS agent_skill_requirement_config_pkey
+    `,
+    `
+      ALTER TABLE agent_skill_requirement_config
+        ADD CONSTRAINT agent_skill_requirement_config_pkey PRIMARY KEY (workspace_id, employee_id, skill_id)
+    `,
+    `
+      ALTER TABLE agent_knowledge_page
+        ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      UPDATE agent_knowledge_page SET agent_id = employee_id
+    `,
+    `
+      ALTER TABLE agent_knowledge_page
+        ALTER COLUMN agent_id SET NOT NULL
+    `,
+    `
+      ALTER TABLE agent_knowledge_page
+        DROP CONSTRAINT IF EXISTS agent_knowledge_page_pkey
+    `,
+    `
+      ALTER TABLE agent_knowledge_page
+        ADD CONSTRAINT agent_knowledge_page_pkey PRIMARY KEY (workspace_id, employee_id, knowledge_page_id)
+    `,
+    `
+      ALTER TABLE employee_runtime_binding
+        DROP CONSTRAINT IF EXISTS employee_runtime_binding_pkey
+    `,
+    `
+      ALTER TABLE employee_runtime_binding
+        ADD CONSTRAINT employee_runtime_binding_pkey PRIMARY KEY (workspace_id, employee_id)
+    `,
+    `
+      ALTER TABLE employee_persistent_workspace
+        DROP CONSTRAINT IF EXISTS employee_persistent_workspace_workspace_id_employee_name_key
+    `,
+    `
+      ALTER TABLE employee_persistent_workspace
+        DROP CONSTRAINT IF EXISTS employee_persistent_workspace_workspace_id_employee_id_key
+    `,
+    `
+      ALTER TABLE employee_persistent_workspace
+        ADD CONSTRAINT employee_persistent_workspace_workspace_id_employee_id_key UNIQUE (workspace_id, employee_id)
+    `,
+    `
+      ALTER TABLE runtime_workspace_mount_operation
+        ADD COLUMN IF NOT EXISTS employee_id TEXT
+    `,
+    `
+      UPDATE runtime_workspace_mount_operation AS mount
+         SET employee_id = recovery.employee_id
+        FROM employee_recovery_operation AS recovery
+       WHERE recovery.mount_operation_id = mount.id
+         AND recovery.workspace_id = mount.workspace_id
+         AND mount.employee_id IS NULL
+    `,
+    `
+      UPDATE runtime_workspace_mount_operation AS mount
+         SET employee_id = we.id
+        FROM workspace_employee AS we
+       WHERE mount.workspace_id = we.workspace_id
+         AND LOWER(mount.employee_name) = LOWER(we.name)
+         AND mount.employee_id IS NULL
+    `,
+    `
+      DELETE FROM runtime_workspace_mount_operation
+       WHERE employee_id IS NULL
+    `,
+    `
+      ALTER TABLE runtime_workspace_mount_operation
+        ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      ALTER TABLE runtime_workspace_mount_operation
+        DROP CONSTRAINT IF EXISTS fk_runtime_workspace_mount_employee_id
+    `,
+    `
+      ALTER TABLE runtime_workspace_mount_operation
+        ADD CONSTRAINT fk_runtime_workspace_mount_employee_id
+        FOREIGN KEY (employee_id) REFERENCES workspace_employee(id) ON DELETE CASCADE
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_workspace_mount_employee_id
+        ON runtime_workspace_mount_operation(workspace_id, employee_id, created_at DESC)
+    `,
+    `
+      CREATE OR REPLACE FUNCTION sync_employee_display_name()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        IF NEW.name IS DISTINCT FROM OLD.name THEN
+          UPDATE agent_skill SET employee_name = NEW.name
+           WHERE workspace_id = NEW.workspace_id AND employee_id = NEW.id;
+          UPDATE agent_skill_requirement_config SET employee_name = NEW.name
+           WHERE workspace_id = NEW.workspace_id AND employee_id = NEW.id;
+          UPDATE agent_knowledge_page SET employee_name = NEW.name
+           WHERE workspace_id = NEW.workspace_id AND employee_id = NEW.id;
+          UPDATE employee_persistent_workspace SET employee_name = NEW.name
+           WHERE workspace_id = NEW.workspace_id AND employee_id = NEW.id;
+          UPDATE employee_workspace_revision SET employee_name = NEW.name
+           WHERE workspace_id = NEW.workspace_id AND employee_id = NEW.id;
+          UPDATE employee_artifact SET employee_name = NEW.name
+           WHERE workspace_id = NEW.workspace_id AND employee_id = NEW.id;
+          UPDATE employee_runtime_binding SET employee_name = NEW.name
+           WHERE workspace_id = NEW.workspace_id AND employee_id = NEW.id;
+          UPDATE employee_recovery_operation SET employee_name = NEW.name
+           WHERE workspace_id = NEW.workspace_id AND employee_id = NEW.id;
+          UPDATE task_commit_journal SET employee_name = NEW.name
+           WHERE workspace_id = NEW.workspace_id AND employee_id = NEW.id;
+          UPDATE runtime_workspace_mount_operation SET employee_name = NEW.name
+           WHERE workspace_id = NEW.workspace_id AND employee_id = NEW.id;
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `,
+    `
+      DROP TRIGGER IF EXISTS trg_workspace_employee_sync_display_name ON workspace_employee
+    `,
+    `
+      CREATE TRIGGER trg_workspace_employee_sync_display_name
+      AFTER UPDATE OF name ON workspace_employee
+      FOR EACH ROW EXECUTE FUNCTION sync_employee_display_name()
     `,
     `
       INSERT INTO app_metadata (key, value)

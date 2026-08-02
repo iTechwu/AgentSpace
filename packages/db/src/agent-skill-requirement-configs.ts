@@ -7,14 +7,18 @@ export function readAgentSkillRequirementConfigSync(input: {
   employeeName: string;
   skillId: string;
 }): StoredAgentSkillRequirementConfigRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employeeId = resolveStoredEmployeeIdSync(input.employeeName.trim(), workspaceId);
+  if (!employeeId) return null;
   const row = getDatabase().prepare(
-    `SELECT workspace_id AS "workspaceId", employee_name AS "employeeName", skill_id AS "skillId",
+    `SELECT workspace_id AS "workspaceId", employee_id AS "employeeId",
+            employee_name AS "employeeName", skill_id AS "skillId",
             config_json AS "configJson", encrypted_secrets_json AS "encryptedSecretsJson",
             created_by_user_id AS "createdByUserId", updated_by_user_id AS "updatedByUserId",
             created_at AS "createdAt", updated_at AS "updatedAt"
        FROM agent_skill_requirement_config
-      WHERE workspace_id = ? AND employee_name = ? AND skill_id = ?`,
-  ).get(input.workspaceId ?? DEFAULT_WORKSPACE_ID, input.employeeName.trim(), input.skillId.trim());
+      WHERE workspace_id = ? AND employee_id = ? AND skill_id = ?`,
+  ).get(workspaceId, employeeId, input.skillId.trim());
   return row ? mapRecord(row) : null;
 }
 
@@ -38,7 +42,8 @@ export function upsertAgentSkillRequirementConfigSync(input: {
        workspace_id, employee_id, employee_name, skill_id, config_json, encrypted_secrets_json,
        created_by_user_id, updated_by_user_id, created_at, updated_at
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (workspace_id, employee_name, skill_id) DO UPDATE SET
+     ON CONFLICT (workspace_id, employee_id, skill_id) DO UPDATE SET
+       employee_name = EXCLUDED.employee_name,
        config_json = EXCLUDED.config_json,
        encrypted_secrets_json = EXCLUDED.encrypted_secrets_json,
        updated_by_user_id = EXCLUDED.updated_by_user_id,
@@ -50,17 +55,22 @@ export function upsertAgentSkillRequirementConfigSync(input: {
 }
 
 export function deleteAgentSkillRequirementConfigSync(input: { workspaceId?: string; employeeName: string; skillId: string }): void {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employeeId = resolveStoredEmployeeIdSync(input.employeeName.trim(), workspaceId);
+  if (!employeeId) return;
   getDatabase().prepare(
-    `DELETE FROM agent_skill_requirement_config WHERE workspace_id = ? AND employee_name = ? AND skill_id = ?`,
-  ).run(input.workspaceId ?? DEFAULT_WORKSPACE_ID, input.employeeName.trim(), input.skillId.trim());
+    `DELETE FROM agent_skill_requirement_config WHERE workspace_id = ? AND employee_id = ? AND skill_id = ?`,
+  ).run(workspaceId, employeeId, input.skillId.trim());
 }
 
 function mapRecord(value: Record<string, unknown>): StoredAgentSkillRequirementConfigRecord | null {
-  return typeof value.workspaceId === "string" && typeof value.employeeName === "string" && typeof value.skillId === "string"
+  return typeof value.workspaceId === "string" && typeof value.employeeId === "string"
+    && typeof value.employeeName === "string" && typeof value.skillId === "string"
     && typeof value.configJson === "string" && typeof value.encryptedSecretsJson === "string"
     && typeof value.createdAt === "string" && typeof value.updatedAt === "string"
     ? {
-      workspaceId: value.workspaceId, employeeName: value.employeeName, skillId: value.skillId,
+      workspaceId: value.workspaceId, employeeId: value.employeeId,
+      employeeName: value.employeeName, skillId: value.skillId,
       configJson: value.configJson, encryptedSecretsJson: value.encryptedSecretsJson,
       createdByUserId: typeof value.createdByUserId === "string" ? value.createdByUserId : undefined,
       updatedByUserId: typeof value.updatedByUserId === "string" ? value.updatedByUserId : undefined,

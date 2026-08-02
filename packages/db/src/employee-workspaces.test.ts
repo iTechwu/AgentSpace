@@ -6,18 +6,28 @@ import test, { after, before, beforeEach } from "node:test";
 import {
   commitWorkspaceRevisionSync,
   bindEmployeeRuntimeSync,
+  createStoredEmployeeSync,
+  createWorkspaceMountOperationSync,
   createRecoveryOperationSync,
   createWorkspaceRevisionSync,
   ensureEmployeePersistentWorkspaceSync,
   listEmployeeArtifactsSync,
+  listRecoveryOperationsSync,
+  listStoredAgentKnowledgePageAssignmentsSync,
+  listStoredAgentSkillAssignmentsSync,
   listWorkspaceRevisionsSync,
   publishEmployeeArtifactSync,
   readEmployeePersistentWorkspaceSync,
   readEmployeeBindingGenerationSync,
+  readAgentSkillRequirementConfigSync,
   readHeadRevisionSync,
+  readStoredEmployeeSync,
+  readWorkspaceMountOperationSync,
   restoreWorkspaceRevisionSync,
   setStoredEmployeeSkillAssignmentsSync,
+  setStoredEmployeeKnowledgePageAssignmentsSync,
   softDeleteEmployeeArtifactSync,
+  updateStoredEmployeeSync,
   upsertAgentSkillRequirementConfigSync,
   getDatabase,
 } from "./index.ts";
@@ -358,6 +368,128 @@ test("publishing the same (task, digest, file) is idempotent and never duplicate
   );
 });
 
+test("employeeId survives rename and prevents historical-name identity reuse", () => {
+  const db = getDatabase();
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const employeeId = `emp-identity-${suffix}`;
+  const replacementId = `emp-identity-replacement-${suffix}`;
+  const originalName = `Identity Alpha ${suffix}`;
+  const renamedName = `Identity Beta ${suffix}`;
+  const skillId = `skill-identity-${suffix}`;
+  const runtimeId = `runtime-identity-${suffix}`;
+  const now = new Date().toISOString();
+
+  const employee = createStoredEmployeeSync({
+    id: employeeId,
+    name: originalName,
+    role: "Agent",
+    origin: "manual",
+    summary: "Stable identity test employee",
+    traits: [],
+    fit: "Ready",
+    status: "active",
+    instructions: "",
+    skillIds: [],
+    channels: [],
+  }, "default");
+  db.prepare(
+    `INSERT INTO skill (id, workspace_id, name, description, config_json, created_at, updated_at)
+     VALUES (?, 'default', ?, '', '{}', ?, ?)`,
+  ).run(skillId, skillId, now, now);
+  db.prepare(
+    `INSERT INTO agent_runtime (id, workspace_id, provider, name, status, created_at, updated_at)
+     VALUES (?, 'default', 'codex', ?, 'online', ?, ?)`,
+  ).run(runtimeId, runtimeId, now, now);
+
+  try {
+    const workspace = ensureEmployeePersistentWorkspaceSync({ workspaceId: "default", employeeName: originalName });
+    const revision = commitWorkspaceRevisionSync(createWorkspaceRevisionSync({
+      workspaceId: "default",
+      employeeName: originalName,
+      manifestDigest: "9".repeat(64),
+      manifestJson: MANIFEST_JSON(`identity-${suffix}`),
+    }).id, "default");
+    const artifact = publishEmployeeArtifactSync({
+      workspaceId: "default",
+      employeeName: originalName,
+      contentDigest: "8".repeat(64),
+      mediaType: "text/plain",
+      fileName: "identity.txt",
+      sizeBytes: 1,
+    });
+    const binding = bindEmployeeRuntimeSync({ workspaceId: "default", employeeName: originalName, runtimeId });
+    setStoredEmployeeSkillAssignmentsSync(originalName, [skillId], "default");
+    upsertAgentSkillRequirementConfigSync({
+      workspaceId: "default",
+      employeeName: originalName,
+      skillId,
+      configJson: '{"region":"test"}',
+      encryptedSecretsJson: '{"token":"sealed"}',
+    });
+    setStoredEmployeeKnowledgePageAssignmentsSync({
+      workspaceId: "default",
+      employeeName: originalName,
+      knowledgePageIds: [`knowledge-${suffix}`],
+    });
+    const recovery = createRecoveryOperationSync({
+      workspaceId: "default",
+      employeeName: originalName,
+      fromGeneration: binding.generation,
+      toGeneration: binding.generation + 1,
+    });
+    db.prepare(
+      `UPDATE employee_recovery_operation SET phase = 'completed' WHERE id = ?`,
+    ).run(recovery.id);
+    const mount = createWorkspaceMountOperationSync({
+      workspaceId: "default",
+      runtimeId,
+      employeeName: originalName,
+      headRevisionId: revision.id,
+    });
+
+    const renamed = updateStoredEmployeeSync(originalName, { ...employee, name: renamedName }, "default");
+    assert.equal(renamed?.id, employeeId);
+    assert.equal(readStoredEmployeeSync(originalName, "default"), null);
+    assert.equal(readHeadRevisionSync(renamedName, "default")?.id, revision.id);
+    assert.equal(readEmployeeBindingGenerationSync(renamedName, "default"), binding.generation);
+    assert.equal(listEmployeeArtifactsSync({ employeeName: renamedName, workspaceId: "default" })[0]?.id, artifact.id);
+    assert.deepEqual(
+      listStoredAgentSkillAssignmentsSync("default")
+        .filter((assignment) => assignment.employeeId === employeeId)
+        .map((assignment) => [assignment.agentId, assignment.employeeName, assignment.skillId]),
+      [[employeeId, renamedName, skillId]],
+    );
+    assert.equal(
+      readAgentSkillRequirementConfigSync({ workspaceId: "default", employeeName: renamedName, skillId })?.employeeId,
+      employeeId,
+    );
+    assert.equal(
+      listStoredAgentKnowledgePageAssignmentsSync("default")
+        .find((assignment) => assignment.employeeId === employeeId)?.employeeName,
+      renamedName,
+    );
+    assert.equal(listRecoveryOperationsSync({ workspaceId: "default", employeeName: renamedName })[0]?.id, recovery.id);
+    assert.deepEqual(
+      { employeeId: readWorkspaceMountOperationSync(mount.id, "default")?.employeeId,
+        employeeName: readWorkspaceMountOperationSync(mount.id, "default")?.employeeName },
+      { employeeId, employeeName: renamedName },
+    );
+
+    createStoredEmployeeSync({ ...employee, id: replacementId, name: originalName }, "default");
+    const replacementWorkspace = ensureEmployeePersistentWorkspaceSync({ workspaceId: "default", employeeName: originalName });
+    assert.notEqual(replacementWorkspace.id, workspace.id);
+    assert.equal(replacementWorkspace.employeeId, replacementId);
+    assert.equal(readHeadRevisionSync(originalName, "default"), null);
+    assert.equal(readEmployeeBindingGenerationSync(originalName, "default"), undefined);
+    assert.equal(readAgentSkillRequirementConfigSync({ workspaceId: "default", employeeName: originalName, skillId }), null);
+    assert.equal(listRecoveryOperationsSync({ workspaceId: "default", employeeName: originalName }).length, 0);
+  } finally {
+    db.prepare(`DELETE FROM workspace_employee WHERE workspace_id = 'default' AND id IN (?, ?)`).run(employeeId, replacementId);
+    db.prepare(`DELETE FROM agent_runtime WHERE id = ?`).run(runtimeId);
+    db.prepare(`DELETE FROM skill WHERE id = ?`).run(skillId);
+  }
+});
+
 test("head commit CAS: a stale parent can no longer advance head", () => {
   ensureEmployeePersistentWorkspaceSync({ workspaceId: "default", employeeName: "Erin" });
   const v1 = createWorkspaceRevisionSync({
@@ -392,6 +524,10 @@ test("head commit CAS: a stale parent can no longer advance head", () => {
 test("non-EAD assignments store the stable employee_id and cascade on employee delete", () => {
   const db = getDatabase();
   const now = new Date().toISOString();
+  const employeeId = (db.prepare(
+    `SELECT id FROM workspace_employee WHERE workspace_id = 'default' AND name = 'Alice'`,
+  ).get() as { id?: string } | undefined)?.id;
+  assert.ok(employeeId, "Alice exists");
   // Real skill row (agent_skill.skill_id is a hard FK).
   db.prepare(
     `INSERT INTO skill (id, workspace_id, name, description, config_json, created_at, updated_at)
@@ -403,7 +539,7 @@ test("non-EAD assignments store the stable employee_id and cascade on employee d
   const assignment = db.prepare(
     `SELECT employee_id AS employeeId FROM agent_skill WHERE workspace_id = 'default' AND employee_name = 'Alice'`,
   ).get() as { employeeId?: string } | undefined;
-  assert.equal(assignment?.employeeId, "emp-alice", "agent_skill must store employee_id");
+  assert.equal(assignment?.employeeId, employeeId, "agent_skill must store employee_id");
 
   upsertAgentSkillRequirementConfigSync({
     workspaceId: "default",
@@ -415,10 +551,10 @@ test("non-EAD assignments store the stable employee_id and cascade on employee d
   const config = db.prepare(
     `SELECT employee_id AS employeeId FROM agent_skill_requirement_config WHERE workspace_id = 'default' AND employee_name = 'Alice'`,
   ).get() as { employeeId?: string } | undefined;
-  assert.equal(config?.employeeId, "emp-alice", "requirement config must store employee_id");
+  assert.equal(config?.employeeId, employeeId, "requirement config must store employee_id");
 
   // Deleting the workspace_employee cascades the non-EAD rows (FK CASCADE).
-  db.prepare(`DELETE FROM workspace_employee WHERE id = 'emp-alice'`).run();
+  db.prepare(`DELETE FROM workspace_employee WHERE id = ?`).run(employeeId);
   const remainingAssignments = db.prepare(
     `SELECT 1 AS x FROM agent_skill WHERE workspace_id = 'default' AND employee_name = 'Alice'`,
   ).all();

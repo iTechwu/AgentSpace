@@ -96,8 +96,10 @@ export function listRecoveryOperationsSync(options: {
   const where = ["workspace_id = ?"];
   const params: unknown[] = [workspaceId];
   if (options.employeeName) {
-    where.push("employee_name = ?");
-    params.push(options.employeeName.trim());
+    const employeeId = resolveStoredEmployeeIdSync(options.employeeName.trim(), workspaceId);
+    if (!employeeId) return [];
+    where.push("employee_id = ?");
+    params.push(employeeId);
   }
   const rows = getDatabase().prepare(
     `${RECOVERY_COLUMNS} FROM employee_recovery_operation WHERE ${where.join(" AND ")} ORDER BY created_at DESC LIMIT ${limit}`,
@@ -110,11 +112,13 @@ export function readActiveRecoveryOperationSync(options: {
   workspaceId?: string;
 }): EmployeeRecoveryOperationRecord | null {
   const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employeeId = resolveStoredEmployeeIdSync(options.employeeName.trim(), workspaceId);
+  if (!employeeId) return null;
   const row = getDatabase().prepare(
     `${RECOVERY_COLUMNS} FROM employee_recovery_operation
-     WHERE workspace_id = ? AND employee_name = ? AND phase NOT IN ('completed', 'failed')
+     WHERE workspace_id = ? AND employee_id = ? AND phase NOT IN ('completed', 'failed')
      ORDER BY created_at DESC LIMIT 1`,
-  ).get(workspaceId, options.employeeName.trim()) as Record<string, unknown> | undefined;
+  ).get(workspaceId, employeeId) as Record<string, unknown> | undefined;
   return row ? mapRecoveryRecord(row) : null;
 }
 

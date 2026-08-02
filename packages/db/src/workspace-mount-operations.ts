@@ -1,4 +1,5 @@
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
+import { resolveStoredEmployeeIdSync } from "./workspace-employees.ts";
 
 export const WORKSPACE_MOUNT_OPERATION_LEASE_SECONDS = 120;
 
@@ -12,6 +13,7 @@ export interface WorkspaceMountOperationRecord {
   id: string;
   workspaceId: string;
   runtimeId: string;
+  employeeId: string;
   employeeName: string;
   headRevisionId?: string;
   status: WorkspaceMountOperationStatus;
@@ -37,7 +39,8 @@ export interface CreateWorkspaceMountOperationInput {
 }
 
 const MOUNT_COLUMNS = `SELECT
-  id, workspace_id AS workspaceId, runtime_id AS runtimeId, employee_name AS employeeName,
+  id, workspace_id AS workspaceId, runtime_id AS runtimeId,
+  employee_id AS employeeId, employee_name AS employeeName,
   head_revision_id AS headRevisionId, status, claimed_at AS claimedAt, completed_at AS completedAt,
   lease_expires_at AS leaseExpiresAt, claim_generation AS claimGeneration,
   error_code AS errorCode, error_message AS errorMessage,
@@ -49,18 +52,24 @@ export function createWorkspaceMountOperationSync(
 ): WorkspaceMountOperationRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employeeName = input.employeeName.trim();
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+  if (!employeeId) {
+    throw new Error(`Employee "${employeeName}" does not exist in workspace ${workspaceId}.`);
+  }
   const id = `mount-${randomLikeId()}`;
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO runtime_workspace_mount_operation (
-      id, workspace_id, runtime_id, employee_name, head_revision_id, status,
+      id, workspace_id, runtime_id, employee_id, employee_name, head_revision_id, status,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
   ).run(
     id,
     workspaceId,
     input.runtimeId.trim(),
-    input.employeeName.trim(),
+    employeeId,
+    employeeName,
     input.headRevisionId?.trim() || null,
     now,
     now,
@@ -273,6 +282,7 @@ function mapMountOperationRecord(value: Record<string, unknown>): WorkspaceMount
     typeof value.id !== "string" ||
     typeof value.workspaceId !== "string" ||
     typeof value.runtimeId !== "string" ||
+    typeof value.employeeId !== "string" ||
     typeof value.employeeName !== "string" ||
     typeof value.status !== "string" ||
     typeof value.createdAt !== "string" ||
@@ -284,6 +294,7 @@ function mapMountOperationRecord(value: Record<string, unknown>): WorkspaceMount
     id: value.id,
     workspaceId: value.workspaceId,
     runtimeId: value.runtimeId,
+    employeeId: value.employeeId,
     employeeName: value.employeeName,
     headRevisionId: typeof value.headRevisionId === "string" ? value.headRevisionId : undefined,
     status: value.status as WorkspaceMountOperationStatus,

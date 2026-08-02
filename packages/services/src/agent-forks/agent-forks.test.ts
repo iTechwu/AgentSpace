@@ -467,7 +467,7 @@ function seedForkServiceWorkspace(): {
     description: "Document work",
     content: "# Docs\n",
   }, workspace.id);
-  createEmployeeSync({
+  const plannerState = createEmployeeSync({
     name: "Planner",
     role: "Product Agent",
     remarkName: "Product Planner",
@@ -478,15 +478,18 @@ function seedForkServiceWorkspace(): {
     ownerUserId: agentOwner.id,
     skillIds: [skill.id],
   }, workspace.id);
+  const planner = plannerState.activeEmployees.find((employee) => employee.name === "Planner");
+  assert.ok(planner, "Planner employee exists");
   setEmployeeSkillIdsSync("Planner", [skill.id], workspace.id);
   setKnowledgePageAssignmentModeSync("page-prd", "selected_agents", admin.displayName, workspace.id);
   setEmployeeKnowledgePageIdsSync("Planner", ["page-prd"], admin.displayName, workspace.id);
   const now = new Date().toISOString();
   listEmployeeRuntimeBindingsSync(workspace.id);
   getDatabase().prepare(
-    `INSERT INTO employee_runtime_binding (workspace_id, employee_name, runtime_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(workspace.id, "Planner", sourceRuntimeId, now, now);
+    `INSERT INTO employee_runtime_binding (
+       workspace_id, employee_id, employee_name, runtime_id, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(workspace.id, planner.id, "Planner", sourceRuntimeId, now, now);
 
   return {
     workspaceId: workspace.id,

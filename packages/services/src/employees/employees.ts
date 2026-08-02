@@ -12,6 +12,7 @@ import {
   listEmployeeRuntimeBindingsSync,
   readAgentRuntimeSync,
   readEmployeeRuntimeBindingSync,
+  resolveStoredEmployeeIdSync,
   replaceStoredChannelsSync,
   setStoredEmployeeSkillAssignmentsSync,
   unbindEmployeeRuntimeSync as unbindEmployeeRuntimeRecordSync,
@@ -77,7 +78,12 @@ export function listEmployeeSkillIdsByAgentIdMapSync(workspaceId?: string): Map<
 export function listEmployeeSkillIdsSync(employeeName: string, workspaceId?: string): string[] {
   const byAgentId = listEmployeeSkillIdsByAgentIdMapSync(workspaceId);
   const byName = listEmployeeSkillIdsMapSync(workspaceId);
-  return byAgentId.get(buildLegacyAgentIdForEmployeeName(employeeName)) ?? byName.get(employeeName) ?? [];
+  const resolvedWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, resolvedWorkspaceId);
+  return (employeeId ? byAgentId.get(employeeId) : undefined)
+    ?? byAgentId.get(buildLegacyAgentIdForEmployeeName(employeeName))
+    ?? byName.get(employeeName)
+    ?? [];
 }
 
 export function buildLegacyAgentIdForEmployeeName(employeeName: string): string {

@@ -44,6 +44,15 @@ beforeEach(() => {
   const db = getDatabase();
   db.exec("DELETE FROM runtime_workspace_mount_operation");
   db.exec("DELETE FROM agent_runtime");
+  const now = new Date().toISOString();
+  for (const name of ["Alice", "Bob", "Carol", "Dan", "Erin", "Frank", "Grace", "Helen", "Ian"]) {
+    db.prepare(
+      `INSERT INTO workspace_employee (
+         id, workspace_id, name, role, origin, summary, fit, status, instructions, created_at, updated_at
+       ) VALUES (?, 'default', ?, 'Agent', 'manual', ?, 'Ready', 'active', '', ?, ?)
+       ON CONFLICT (workspace_id, name) DO NOTHING`,
+    ).run(`emp-mount-${name.toLowerCase()}`, name, `${name} mount test employee`, now, now);
+  }
 });
 
 after(() => {

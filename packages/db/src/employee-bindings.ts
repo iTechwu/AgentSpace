@@ -44,8 +44,8 @@ export function bindEmployeeRuntimeSync(input: {
   // old runtime that comes back holds a stale generation and loses write rights.
   withTransaction(db, () => {
     const previous = db.prepare(
-      `SELECT generation FROM employee_runtime_binding WHERE workspace_id = ? AND employee_name = ?`,
-    ).get(workspaceId, employeeName) as { generation?: number } | undefined;
+      `SELECT generation FROM employee_runtime_binding WHERE workspace_id = ? AND employee_id = ?`,
+    ).get(workspaceId, employeeId) as { generation?: number } | undefined;
     const nextGeneration = typeof previous?.generation === "number" ? previous.generation + 1 : 1;
 
     db.prepare(
@@ -60,7 +60,8 @@ export function bindEmployeeRuntimeSync(input: {
         created_at,
         updated_at
       ) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?)
-      ON CONFLICT(workspace_id, employee_name) DO UPDATE SET
+      ON CONFLICT(workspace_id, employee_id) DO UPDATE SET
+        employee_name = excluded.employee_name,
         runtime_id = excluded.runtime_id,
         status = 'online',
         generation = excluded.generation,
@@ -79,11 +80,13 @@ export function setEmployeeBindingStatusSync(
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): EmployeeRuntimeBindingRecord | null {
   const db = getDatabase();
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+  if (!employeeId) return null;
   const now = new Date().toISOString();
   const result = db.prepare(
     `UPDATE employee_runtime_binding SET status = ?, updated_at = ?
-     WHERE workspace_id = ? AND employee_name = ?`,
-  ).run(status, now, workspaceId, employeeName.trim());
+     WHERE workspace_id = ? AND employee_id = ?`,
+  ).run(status, now, workspaceId, employeeId);
   if (result.changes === 0) {
     return null;
   }
@@ -98,9 +101,11 @@ export function readEmployeeBindingGenerationSync(
   employeeName: string,
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): number | undefined {
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+  if (!employeeId) return undefined;
   const row = getDatabase().prepare(
-    `SELECT generation FROM employee_runtime_binding WHERE workspace_id = ? AND employee_name = ?`,
-  ).get(workspaceId, employeeName.trim()) as { generation?: number } | undefined;
+    `SELECT generation FROM employee_runtime_binding WHERE workspace_id = ? AND employee_id = ?`,
+  ).get(workspaceId, employeeId) as { generation?: number } | undefined;
   return typeof row?.generation === "number" ? row.generation : undefined;
 }
 
@@ -147,6 +152,7 @@ export function activateRecoveryBindingSync(input: {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const employeeName = input.employeeName.trim();
   const runtimeId = input.runtimeId.trim();
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
   const now = new Date().toISOString();
 
   if (!employeeName) {
@@ -154,6 +160,9 @@ export function activateRecoveryBindingSync(input: {
   }
   if (!runtimeId) {
     throw new Error("runtimeId is required.");
+  }
+  if (!employeeId) {
+    throw new Error(`Employee "${employeeName}" does not exist.`);
   }
 
   const runtime = getDatabase().prepare(
@@ -163,8 +172,8 @@ export function activateRecoveryBindingSync(input: {
     throw new Error(`Runtime "${runtimeId}" does not exist in workspace ${workspaceId}.`);
   }
 
-  const params: unknown[] = [runtimeId, input.generation, now, workspaceId, employeeName];
-  let where = "WHERE workspace_id = ? AND employee_name = ?";
+  const params: unknown[] = [runtimeId, input.generation, now, workspaceId, employeeId];
+  let where = "WHERE workspace_id = ? AND employee_id = ?";
   if (input.expectedPreviousGeneration !== undefined) {
     where += " AND generation = ?";
     params.push(input.expectedPreviousGeneration);
@@ -191,12 +200,14 @@ export function activateRecoveryBindingSync(input: {
 
 export function unbindEmployeeRuntimeSync(employeeName: string, workspaceId = DEFAULT_WORKSPACE_ID): boolean {
   const db = getDatabase();
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+  if (!employeeId) return false;
   const result = db
     .prepare(
       `DELETE FROM employee_runtime_binding
-       WHERE workspace_id = ? AND employee_name = ?`,
+       WHERE workspace_id = ? AND employee_id = ?`,
     )
-    .run(workspaceId, employeeName.trim());
+    .run(workspaceId, employeeId);
   return result.changes > 0;
 }
 
@@ -206,6 +217,10 @@ export function deleteEmployeeExecutionStateSync(
 ): { removedBinding: boolean; removedQueuedTasks: number } {
   const db = getDatabase();
   const normalizedEmployeeName = employeeName.trim();
+  const employeeId = resolveStoredEmployeeIdSync(normalizedEmployeeName, workspaceId);
+  if (!employeeId) {
+    return { removedBinding: false, removedQueuedTasks: 0 };
+  }
   let removedBinding = false;
   let removedQueuedTasks = 0;
 
@@ -213,9 +228,9 @@ export function deleteEmployeeExecutionStateSync(
     const bindingResult = db
       .prepare(
         `DELETE FROM employee_runtime_binding
-         WHERE workspace_id = ? AND employee_name = ?`,
+         WHERE workspace_id = ? AND employee_id = ?`,
       )
-      .run(workspaceId, normalizedEmployeeName);
+      .run(workspaceId, employeeId);
     removedBinding = bindingResult.changes > 0;
 
     const queueResult = db
@@ -235,6 +250,8 @@ export function readEmployeeRuntimeBindingSync(
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): EmployeeRuntimeBindingRecord | null {
   const db = getDatabase();
+  const employeeId = resolveStoredEmployeeIdSync(employeeName, workspaceId);
+  if (!employeeId) return null;
   const row = db
     .prepare(
       `SELECT
@@ -251,9 +268,9 @@ export function readEmployeeRuntimeBindingSync(
         erb.updated_at AS updatedAt
       FROM employee_runtime_binding erb
       JOIN agent_runtime ar ON ar.id = erb.runtime_id
-      WHERE erb.workspace_id = ? AND erb.employee_name = ?`,
+      WHERE erb.workspace_id = ? AND erb.employee_id = ?`,
     )
-    .get(workspaceId, employeeName.trim()) as Record<string, unknown> | undefined;
+    .get(workspaceId, employeeId) as Record<string, unknown> | undefined;
 
   return row ? mapEmployeeRuntimeBindingRecord(row) : null;
 }
