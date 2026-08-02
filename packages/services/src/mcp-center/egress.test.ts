@@ -104,6 +104,44 @@ test("verifyMcpEgressLease rejects an expired lease", () => {
   assert.equal(result.code, "mcp_egress.lease_expired");
 });
 
+test("verifyMcpEgressLease rejects a lease at its exact expiration", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const token = signMcpEgressLease(baseClaims(now), SECRET);
+  const result = verifyMcpEgressLease(token, SECRET, { nowSeconds: now });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_expired");
+});
+
+test("verifyMcpEgressLease rejects purpose TTL escalation", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const token = signMcpEgressLease(baseClaims(now + 61), SECRET);
+  const result = verifyMcpEgressLease(token, SECRET, { nowSeconds: now });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_invalid");
+});
+
+test("verifyMcpEgressLease rejects signed tokens with incomplete binding claims", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const claims = { ...baseClaims(now + 60), workspaceId: "" };
+  const token = signMcpEgressLease(claims, SECRET);
+  const result = verifyMcpEgressLease(token, SECRET, { nowSeconds: now });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_invalid");
+});
+
+test("verifyMcpEgressLease requires task-call task and tool binding", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const claims = { ...baseClaims(now + 60), toolName: undefined };
+  const token = signMcpEgressLease(claims as McpEgressLeaseClaims, SECRET);
+  const result = verifyMcpEgressLease(token, SECRET, { nowSeconds: now });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_invalid");
+});
+
 test("verifyMcpEgressLease rejects tampered payload", () => {
   const claims = baseClaims(Math.floor(Date.now() / 1000) + 60);
   const token = signMcpEgressLease(claims, SECRET);

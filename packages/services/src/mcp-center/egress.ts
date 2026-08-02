@@ -1,8 +1,12 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision } from "@dofe-agent/domain";
 
 const LEASE_VERSION = "deg1";
-const LEASE_MAX_CLOCK_SKEW_SECONDS = 60;
+const LEASE_MAX_TTL_SECONDS = {
+  verify: 120,
+  health_check: 60,
+  task_call: 60,
+} as const;
 
 interface DecodedLease {
   header: string;
@@ -62,7 +66,7 @@ export function canonicalizeMcpEgressPolicyRevision(policy: McpEgressPolicyRevis
  * This is the value that appears in `policy.manifestDigest`.
  */
 export function digestMcpEgressPolicyRevision(policy: McpEgressPolicyRevision): `sha256:${string}` {
-  const digest = createHmac("sha256", "").update(canonicalizeMcpEgressPolicyRevision(policy)).digest("hex");
+  const digest = createHash("sha256").update(canonicalizeMcpEgressPolicyRevision(policy)).digest("hex");
   return `sha256:${digest}`;
 }
 
@@ -160,16 +164,37 @@ export function verifyMcpEgressLease(
   if (parsed.iss !== "agentspace-control-plane") {
     return { ok: false, code: "mcp_egress.lease_invalid", message: "Lease issuer is incorrect." };
   }
-  if (!parsed.jti || typeof parsed.jti !== "string") {
-    return { ok: false, code: "mcp_egress.lease_invalid", message: "Lease is missing a JTI." };
+  const requiredStringClaims = [
+    "jti",
+    "workspaceId",
+    "runtimeId",
+    "connectionId",
+    "releaseId",
+    "policyRevisionId",
+  ] as const;
+  for (const field of requiredStringClaims) {
+    if (typeof parsed[field] !== "string" || parsed[field]!.trim().length === 0) {
+      return { ok: false, code: "mcp_egress.lease_invalid", message: `Lease is missing a valid ${field}.` };
+    }
   }
-  if (typeof parsed.exp !== "number" || parsed.exp <= 0) {
+  if (!parsed.purpose || !(parsed.purpose in LEASE_MAX_TTL_SECONDS)) {
+    return { ok: false, code: "mcp_egress.lease_invalid", message: "Lease purpose is invalid." };
+  }
+  if (parsed.purpose === "task_call") {
+    if (typeof parsed.taskId !== "string" || !parsed.taskId.trim() || typeof parsed.toolName !== "string" || !parsed.toolName.trim()) {
+      return { ok: false, code: "mcp_egress.lease_invalid", message: "Task-call lease must bind a task and tool." };
+    }
+  }
+  if (!Number.isSafeInteger(parsed.exp) || parsed.exp! <= 0) {
     return { ok: false, code: "mcp_egress.lease_invalid", message: "Lease is missing a valid expiration." };
   }
 
   const now = options.nowSeconds ?? Math.floor(Date.now() / 1000);
-  if (parsed.exp < now - LEASE_MAX_CLOCK_SKEW_SECONDS) {
+  if (parsed.exp! <= now) {
     return { ok: false, code: "mcp_egress.lease_expired", message: "Lease has expired." };
+  }
+  if (parsed.exp! > now + LEASE_MAX_TTL_SECONDS[parsed.purpose]) {
+    return { ok: false, code: "mcp_egress.lease_invalid", message: "Lease expiration exceeds the allowed purpose TTL." };
   }
 
   const typedClaims = parsed as McpEgressLeaseClaims;
