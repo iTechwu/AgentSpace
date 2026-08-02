@@ -22,8 +22,8 @@ test("buildSkillRunnerDockerArgs creates a non-root, read-only and networkless e
     argv: ["--title", "hello; rm -rf /"],
   });
 
-  assert.deepEqual(args.slice(0, 12), [
-    "run", "--rm", "--init", "--read-only", "--network", "none",
+  assert.deepEqual(args.slice(0, 14), [
+    "run", "--rm", "--init", "--pull", "never", "--read-only", "--network", "none",
     "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "65532:65532",
   ]);
   assert.ok(args.includes("/tmp:rw,nosuid,nodev,noexec,size=32m"));
@@ -88,6 +88,10 @@ test("startSkillRunnerBroker exposes a task-scoped launcher and removes it on cl
   chmodSync(join(artifactDir, "scripts"), 0o555);
   chmodSync(artifactDir, 0o555);
   const calls: string[][] = [];
+  const runnerEnvironment = {
+    ...process.env,
+    DOFE_SKILL_RUNNER_NODE_IMAGE: `registry.example.com/runner@sha256:${"a".repeat(64)}`,
+  };
   const broker = await startSkillRunnerBroker({
     stateDir,
     workspaceId: "workspace-1",
@@ -103,10 +107,8 @@ test("startSkillRunnerBroker exposes a task-scoped launcher and removes it on cl
       path: "scripts/render.mjs",
       runtime: "node",
     }],
-    environment: {
-      ...process.env,
-      DOFE_SKILL_RUNNER_NODE_IMAGE: `registry.example.com/runner@sha256:${"a".repeat(64)}`,
-    },
+    environment: runnerEnvironment,
+    inspectImage: () => true,
     execute: async (args) => {
       calls.push(args);
       const outputMount = args.find((value) => value.endsWith(",dst=/output"));
@@ -118,12 +120,15 @@ test("startSkillRunnerBroker exposes a task-scoped launcher and removes it on cl
     },
   });
   try {
+    runnerEnvironment.DOFE_SKILL_RUNNER_NODE_IMAGE = `registry.example.com/runner@sha256:${"d".repeat(64)}`;
     assert.equal(broker.capabilities[0]?.status, "available");
     const launcher = broker.capabilities[0]?.binPath;
     assert.ok(launcher && existsSync(launcher));
     const result = await execFileAsync(launcher, ["--title", "quarterly"]);
     assert.equal(result.stdout, "rendered\n");
     assert.deepEqual(calls[0]?.slice(-4), ["node", "/skill/scripts/render.mjs", "--title", "quarterly"]);
+    assert.ok(calls[0]?.includes(`registry.example.com/runner@sha256:${"a".repeat(64)}`));
+    assert.equal(calls[0]?.includes(`registry.example.com/runner@sha256:${"d".repeat(64)}`), false);
     assert.equal(readFileSync(join(workDir, "runtime-output", "skill-runs", "skill-1-render", "result.txt"), "utf8"), "published");
     await broker.close();
     assert.equal(existsSync(launcher), false);
@@ -174,6 +179,7 @@ test("startSkillRunnerBroker rejects a symlinked output directory before executi
       ...process.env,
       DOFE_SKILL_RUNNER_NODE_IMAGE: `registry.example.com/runner@sha256:${"a".repeat(64)}`,
     },
+    inspectImage: () => true,
     execute: async () => {
       executeCalls += 1;
       return { exitCode: 0, stdout: "rendered\n", stderr: "", timedOut: false };

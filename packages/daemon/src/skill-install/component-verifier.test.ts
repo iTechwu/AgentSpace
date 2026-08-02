@@ -43,6 +43,7 @@ function buildOperation(
     rootDigestMatches,
     undefined,
     () => `registry.example.com/skill-runner@sha256:${"a".repeat(64)}`,
+    () => true,
   );
 }
 
@@ -228,6 +229,46 @@ test("blocks an otherwise valid script when its immutable runner image is not co
 
     assert.equal(results[0]?.status, "blocked");
     assert.equal(results[0]?.errorCode, "skill_runner.image_not_configured");
+  } finally {
+    rmSync(artifactDir, { recursive: true, force: true });
+  }
+});
+
+test("blocks an otherwise valid script when its immutable runner image is not available locally", () => {
+  const artifactDir = mkdtempSync(join(tmpdir(), "dofe-agent-verify-runner-local-image-"));
+
+  try {
+    writeFileSync(join(artifactDir, "run.sh"), "#!/bin/sh\necho hello\n", "utf8");
+    chmodSync(join(artifactDir, "run.sh"), 0o755);
+    const manifest = buildManifest({
+      files: [{ path: "run.sh", sha256: "any", size: 1, mediaType: "text/x-shellscript", mode: "0755" }],
+    });
+    const operation = {
+      operationId: "op-1",
+      claimGeneration: 1,
+      workspaceId: "default",
+      runtimeId: "runtime-1",
+      installationId: "install-1",
+      operation: "prepare" as const,
+      artifactDigest: "sha256:any",
+      artifactName: "test-skill",
+      manifestJson: JSON.stringify(manifest),
+      files: [],
+      components: [{ kind: "script" as const, key: "run.sh", status: "pending" as const }],
+      createdAt: new Date().toISOString(),
+    };
+
+    const results = verifySkillInstallationComponents(
+      operation,
+      artifactDir,
+      true,
+      undefined,
+      () => `registry.example.com/skill-runner@sha256:${"a".repeat(64)}`,
+      () => false,
+    );
+
+    assert.equal(results[0]?.status, "blocked");
+    assert.equal(results[0]?.errorCode, "skill_runner.image_unavailable");
   } finally {
     rmSync(artifactDir, { recursive: true, force: true });
   }

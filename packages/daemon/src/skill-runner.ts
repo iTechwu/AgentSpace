@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   copyFileSync,
@@ -63,7 +63,7 @@ export function buildSkillRunnerDockerArgs(input: SkillRunnerDockerPlanInput): s
     throw new Error("Skill Runner arguments exceed the configured budget.");
   }
   return [
-    "run", "--rm", "--init",
+    "run", "--rm", "--init", "--pull", "never",
     "--read-only",
     "--network", "none",
     "--cap-drop", "ALL",
@@ -112,6 +112,7 @@ export async function startSkillRunnerBroker(input: {
   entrypoints: DaemonSkillRunnerEntrypoint[];
   dependencyEnvironments?: readonly DaemonSkillDependencyEnvironment[];
   environment?: NodeJS.ProcessEnv;
+  inspectImage?: (image: string, environment: NodeJS.ProcessEnv) => boolean;
   execute?: (args: string[], timeoutMs: number) => Promise<SkillRunnerExecutionResult>;
 }): Promise<SkillRunnerBroker> {
   if (input.entrypoints.length === 0) {
@@ -124,9 +125,20 @@ export async function startSkillRunnerBroker(input: {
   rmSync(socketPath, { force: true });
   const token = randomBytes(32).toString("hex");
   const byKey = new Map(input.entrypoints.map((entrypoint) => [entrypoint.key, entrypoint]));
+  const environment = input.environment ?? process.env;
+  const runnerTimeoutMs = resolveRunnerTimeout(environment);
+  const inspectImage = input.inspectImage ?? isSkillRunnerImageAvailableLocally;
+  const configuredImages = new Map<SkillEntrypointRuntime, string>();
+  const runnerImages = new Map<SkillEntrypointRuntime, string>();
+  for (const runtime of new Set(input.entrypoints.map((entrypoint) => entrypoint.runtime))) {
+    const image = resolveSkillRunnerImage(runtime, environment);
+    if (!image) continue;
+    configuredImages.set(runtime, image);
+    if (inspectImage(image, environment)) runnerImages.set(runtime, image);
+  }
   const execute = input.execute ?? executeDockerSkillRunner;
   const server = createServer((request, response) => {
-    void handleBrokerRequest(request, response, { ...input, token, byKey, execute });
+    void handleBrokerRequest(request, response, { ...input, token, byKey, runnerImages, runnerTimeoutMs, execute });
   });
   await new Promise<void>((resolvePromise, rejectPromise) => {
     server.once("error", rejectPromise);
@@ -145,7 +157,8 @@ export async function startSkillRunnerBroker(input: {
       key: entrypoint.key,
     }), { encoding: "utf8", mode: 0o500 });
     chmodSync(launcherPath, 0o500);
-    const image = resolveSkillRunnerImage(entrypoint.runtime, input.environment ?? process.env);
+    const image = runnerImages.get(entrypoint.runtime);
+    const configuredImage = configuredImages.get(entrypoint.runtime);
     return {
       id: `skill-runner:${entrypoint.key}`,
       command,
@@ -156,7 +169,11 @@ export async function startSkillRunnerBroker(input: {
       diagnosticCommands: image ? [`test -x ${shellQuote(launcherPath)}`] : [],
       source: "runtime",
       status: image ? "available" : "missing",
-      denialReason: image ? undefined : `No immutable ${entrypoint.runtime} Skill Runner image is configured.`,
+      denialReason: image
+        ? undefined
+        : configuredImage
+          ? `Immutable ${entrypoint.runtime} Skill Runner image is not available locally.`
+          : `No immutable ${entrypoint.runtime} Skill Runner image is configured.`,
     };
   });
   return {
@@ -176,10 +193,11 @@ async function handleBrokerRequest(
     stateDir: string;
     workspaceId: string;
     workDir: string;
-    environment?: NodeJS.ProcessEnv;
     dependencyEnvironments?: readonly DaemonSkillDependencyEnvironment[];
     token: string;
     byKey: Map<string, DaemonSkillRunnerEntrypoint>;
+    runnerImages: Map<SkillEntrypointRuntime, string>;
+    runnerTimeoutMs: number;
     execute: (args: string[], timeoutMs: number) => Promise<SkillRunnerExecutionResult>;
   },
 ): Promise<void> {
@@ -197,7 +215,7 @@ async function handleBrokerRequest(
       sendJson(response, 400, { error: "skill_runner.invalid_request" });
       return;
     }
-    const image = resolveSkillRunnerImage(entrypoint.runtime, context.environment ?? process.env);
+    const image = context.runnerImages.get(entrypoint.runtime);
     if (!image) {
       sendJson(response, 424, { error: "skill_runner.image_not_configured" });
       return;
@@ -236,8 +254,7 @@ async function handleBrokerRequest(
         entrypointPath: entrypoint.path,
         argv,
       });
-      const timeoutMs = resolveRunnerTimeout(context.environment ?? process.env);
-      const result = await context.execute(args, timeoutMs);
+      const result = await context.execute(args, context.runnerTimeoutMs);
       assertPublishedOutputDirTrusted(context.workDir, publishedOutputDir);
       publishRunnerOutput(outputDir, publishedOutputDir);
       sendJson(response, result.exitCode === 0 && !result.timedOut ? 200 : 422, result);
@@ -348,6 +365,16 @@ export function resolveSkillRunnerImage(runtime: SkillEntrypointRuntime, env: No
       : "DOFE_SKILL_RUNNER_BASH_IMAGE";
   const value = env[key]?.trim();
   return value && /@sha256:[a-f0-9]{64}$/i.test(value) ? value : undefined;
+}
+
+export function isSkillRunnerImageAvailableLocally(image: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const result = spawnSync(env.DOFE_SKILL_RUNNER_DOCKER_BIN?.trim() || "docker", ["image", "inspect", image], {
+    env: minimalRunnerHostEnvironment(env),
+    encoding: "utf8",
+    timeout: 10_000,
+    stdio: "ignore",
+  });
+  return !result.error && result.status === 0;
 }
 
 function resolveRunnerTimeout(env: NodeJS.ProcessEnv): number {

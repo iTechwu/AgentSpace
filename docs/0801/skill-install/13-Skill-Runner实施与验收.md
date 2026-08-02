@@ -14,7 +14,8 @@ daemon 为每个任务创建 Unix socket broker 和 `0500` launcher。managed Pr
 
 Runner 容器固定策略：
 
-- image 必须是 `repo@sha256:<64 hex>`；Node/Python/Bash 分开配置。
+- image 必须是 `repo@sha256:<64 hex>`；Node/Python/Bash 分开配置。安装验证和每次 broker 启动均执行本地 `docker image inspect`，缺失时组件/能力立即阻断。
+- broker 启动时一次性冻结 image digest 与 timeout；单次任务内不再读取变化后的环境变量。`docker run --pull never` 禁止任务执行期间隐式拉取。
 - `--read-only --network none --cap-drop ALL --security-opt no-new-privileges`。
 - UID/GID `65532:65532`，PID 64、内存 256 MiB、CPU 0.5、默认 60 秒且最长 10 分钟。
 - artifact、task workspace 与 installation dependency env 只读；只允许 `/output` 写入。`/output` 实际绑定 daemon 状态目录中的随机一次性目录并显式设为 `0777`，不直接绑定 Provider 可写的 task workspace；执行后才将普通文件发布到 `runtime-output/skill-runs/<entrypoint>`。
@@ -33,7 +34,7 @@ Runner 容器固定策略：
 | 合约 | 测试 |
 | --- | --- |
 | 容器隔离、digest、参数预算、依赖只读挂载、私有可写输出与 symlink 拒绝 | `packages/daemon/src/skill-runner.test.ts` |
-| 缺镜像阻断安装、runtime/语法检查 | `packages/daemon/src/skill-install/component-verifier.test.ts` |
+| 未配置/本地缺镜像阻断安装、runtime/语法检查 | `packages/daemon/src/skill-install/component-verifier.test.ts` |
 | snapshot 到 Runner manifest 与 executable hash | `packages/services/src/skills/installations.test.ts` |
 | 原始脚本不进入 Provider、stub/mode 正确 | `packages/services/src/skills/injection.test.ts` |
 | dependency env metadata/release-lock fail-closed | `packages/daemon/src/skill-install/task-environment.test.ts` |
@@ -45,6 +46,7 @@ Runner 容器固定策略：
 
 ```text
 [ ] 三类 Runner image inspect 的 RepoDigest 与配置一致
+[ ] 删除本地 Runner image 后安装与新任务能力均立即 blocked，任务执行不会触发 pull
 [ ] managed Provider 内可发现稳定 dofe-skill-* 命令并通过 Unix socket调用
 [ ] npm require / Python import 使用冻结 installation dependency env 成功
 [ ] 网络、Provider HOME/credential、Docker socket、workspace 写入均失败

@@ -7,7 +7,7 @@ import type {
   SkillComponentStatus,
 } from "@dofe-agent/domain";
 import type { SkillArtifactManifest } from "@dofe-agent/services";
-import { resolveSkillRunnerImage } from "../skill-runner.ts";
+import { isSkillRunnerImageAvailableLocally, resolveSkillRunnerImage } from "../skill-runner.ts";
 
 export interface ComponentVerificationResult {
   kind: SkillComponentKind;
@@ -23,6 +23,7 @@ export interface DependencyInstallOutcome {
 }
 
 export type SkillRunnerImageResolver = (runtime: "node" | "python" | "bash") => string | undefined;
+export type SkillRunnerImageInspector = (image: string) => boolean;
 
 const SYNTAX_CHECK_TIMEOUT_MS = 10_000;
 const MAX_TAIL_CHARS = 2_000;
@@ -43,6 +44,7 @@ export function verifySkillInstallationComponents(
   rootDigestMatches: boolean,
   dependencyInstallResults?: Map<string, DependencyInstallOutcome>,
   resolveRunnerImage: SkillRunnerImageResolver = (runtime) => resolveSkillRunnerImage(runtime, process.env),
+  inspectRunnerImage: SkillRunnerImageInspector = isSkillRunnerImageAvailableLocally,
 ): ComponentVerificationResult[] {
   if (!rootDigestMatches) {
     return operation.components.map((component) => ({
@@ -68,7 +70,15 @@ export function verifySkillInstallationComponents(
   }
 
   return operation.components.map((component) =>
-    verifyComponent(component.kind, component.key, manifest, artifactDir, dependencyInstallResults, resolveRunnerImage));
+    verifyComponent(
+      component.kind,
+      component.key,
+      manifest,
+      artifactDir,
+      dependencyInstallResults,
+      resolveRunnerImage,
+      inspectRunnerImage,
+    ));
 }
 
 function verifyComponent(
@@ -78,12 +88,13 @@ function verifyComponent(
   artifactDir: string,
   dependencyInstallResults?: Map<string, DependencyInstallOutcome>,
   resolveRunnerImage?: SkillRunnerImageResolver,
+  inspectRunnerImage?: SkillRunnerImageInspector,
 ): ComponentVerificationResult {
   switch (kind) {
     case "dependency":
       return verifyDependencyComponent(key, manifest, dependencyInstallResults);
     case "script":
-      return verifyScriptComponent(key, manifest, artifactDir, resolveRunnerImage!);
+      return verifyScriptComponent(key, manifest, artifactDir, resolveRunnerImage!, inspectRunnerImage!);
     case "cli":
     case "mcp":
       return verifyCapabilityComponent(kind, key, manifest);
@@ -185,6 +196,7 @@ function verifyScriptComponent(
   manifest: SkillArtifactManifest,
   artifactDir: string,
   resolveRunnerImage: SkillRunnerImageResolver,
+  inspectRunnerImage: SkillRunnerImageInspector,
 ): ComponentVerificationResult {
   const manifestFile = manifest.files.find((file) => file.path === key);
   if (!manifestFile) {
@@ -260,13 +272,23 @@ function verifyScriptComponent(
   }
 
   const runtime = interpreter === "python" ? "python" : interpreter === "node" ? "node" : "bash";
-  if (!resolveRunnerImage(runtime)) {
+  const runnerImage = resolveRunnerImage(runtime);
+  if (!runnerImage) {
     return {
       kind: "script",
       key,
       status: "blocked",
       errorCode: "skill_runner.image_not_configured",
       errorMessage: `No immutable ${runtime} Skill Runner image is configured on this Runtime.`,
+    };
+  }
+  if (!inspectRunnerImage(runnerImage)) {
+    return {
+      kind: "script",
+      key,
+      status: "blocked",
+      errorCode: "skill_runner.image_unavailable",
+      errorMessage: `Immutable ${runtime} Skill Runner image is not available locally on this Runtime.`,
     };
   }
 
