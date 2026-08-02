@@ -1,6 +1,5 @@
 import {
   defaultRuntimeMaintenanceDependencies,
-  resolveAgentRuntimeMode,
   runRuntimeMaintenanceAsync,
 } from "@dofe-agent/services";
 import { runCommitReconciliationStage } from "../../daemon/_lib/commit-reconciliation";
@@ -18,10 +17,6 @@ export async function GET(request: Request): Promise<Response> {
   if (!header.startsWith("Bearer ") || header.slice("Bearer ".length).trim() !== expected) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
-  if (resolveAgentRuntimeMode() !== "remote") {
-    return Response.json({ ok: true, status: "skipped", reason: "remote_mode_required" });
-  }
-
   const result = await runRuntimeMaintenanceAsync({
     ...defaultRuntimeMaintenanceDependencies,
     commitReconciliation: runCommitReconciliationStage,

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const services = vi.hoisted(() => ({
-  resolveAgentRuntimeMode: vi.fn(),
+  defaultRuntimeMaintenanceDependencies: {},
   runRuntimeMaintenanceAsync: vi.fn(),
 }));
 
@@ -25,7 +25,6 @@ const successfulMaintenanceResult = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  services.resolveAgentRuntimeMode.mockReturnValue("remote");
   services.runRuntimeMaintenanceAsync.mockResolvedValue(successfulMaintenanceResult);
 });
 
@@ -50,17 +49,16 @@ describe("runtime provisioning maintenance route", () => {
     expect(response.status).toBe(401);
   });
 
-  it("skips managed maintenance in local mode", async () => {
+  it("runs MCP housekeeping and maintenance in local mode", async () => {
     process.env.CRON_SECRET = "expected-secret";
-    services.resolveAgentRuntimeMode.mockReturnValue("local");
 
     const response = await GET(new Request("http://localhost/api/cron/runtime-provisioning", {
       headers: { authorization: "Bearer expected-secret" },
     }));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, status: "skipped", reason: "remote_mode_required" });
-    expect(services.runRuntimeMaintenanceAsync).not.toHaveBeenCalled();
+    expect(await response.json()).toEqual(successfulMaintenanceResult);
+    expect(services.runRuntimeMaintenanceAsync).toHaveBeenCalledOnce();
   });
 
   it("resumes provisioning and cleanup work for an authorized scheduler", async () => {
