@@ -36,6 +36,7 @@ export async function POST(
       status: task.status,
       inputJson: task.inputJson,
       queuedAt: task.queuedAt,
+      bindingGeneration: task.bindingGeneration,
     },
   });
 }

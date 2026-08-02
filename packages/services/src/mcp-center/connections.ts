@@ -657,7 +657,7 @@ export function scheduleMcpHealthChecksSync(input: {
 export function computeMcpConnectionNextHealthCheckAt(input: {
   connection: RuntimeMcpConnectionRecord;
   now?: string;
-  verificationStatus?: "ready" | "degraded" | "failed";
+  verificationStatus?: McpConnectionStatus;
 }): string {
   const now = input.now ?? new Date().toISOString();
   if (input.verificationStatus === "failed" || input.verificationStatus === "degraded") {
@@ -690,8 +690,10 @@ export function completeMcpConnectionOperationWithHealthScheduleSync(input: {
 }): RuntimeMcpOperationRecord {
   const operation = readMcpOperationSync(input.operationId, input.workspaceId);
   const connection = operation ? readMcpConnectionSync(operation.connectionId, operation.workspaceId) : null;
-  const nextHealthCheckAt = connection
-    ? computeMcpConnectionNextHealthCheckAt({ connection, verificationStatus: input.verification?.status })
+  const verificationStatus = input.verification?.status;
+  const nextHealthCheckAt = connection &&
+    (verificationStatus === "ready" || verificationStatus === "degraded" || verificationStatus === "failed")
+    ? computeMcpConnectionNextHealthCheckAt({ connection, verificationStatus })
     : undefined;
   return completeMcpOperationSync({
     operationId: input.operationId,
@@ -699,7 +701,9 @@ export function completeMcpConnectionOperationWithHealthScheduleSync(input: {
     safeStdoutTail: input.safeStdoutTail,
     safeStderrTail: input.safeStderrTail,
     nextHealthCheckAt,
-    verification: input.verification,
+    verification: input.verification
+      ? { ...input.verification, errorCode: input.verification.errorCode as import("@dofe-agent/domain").McpErrorCode | undefined }
+      : undefined,
   });
 }
 

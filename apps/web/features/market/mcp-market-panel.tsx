@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
 import {
   disableMcpConnectionAction,
   enableMcpConnectionAction,
@@ -469,6 +470,9 @@ function ConnectionRow(props: {
 }) {
   const { tx } = useLanguage();
   const { connection, canManage, disabled } = props;
+  const params = useParams<{ workspaceSlug?: string }>();
+  const workspaceSlug = params.workspaceSlug;
+  const detailHref = workspaceSlug ? `/w/${workspaceSlug}/market/mcp-connections/${connection.id}` : undefined;
   return (
     <li className="mcp-connection-row">
       <div className="mcp-connection-head">
@@ -488,6 +492,11 @@ function ConnectionRow(props: {
         </details>
       ) : null}
       <div className="market-action-row">
+        {detailHref ? (
+          <Link className="modal-secondary-button" href={detailHref}>
+            {tx("详情", "Details")}
+          </Link>
+        ) : null}
         <button className="modal-secondary-button" disabled={disabled || !canManage} onClick={props.onManage} type="button">
           {tx("管理配置", "Manage configuration")}
         </button>

@@ -327,8 +327,9 @@ export async function POST(
     // `preparing_commit` and returns a retryable 503: the daemon retries and the
     // journal is the reconciliation source. The task is NOT completed — the
     // user must never see "success" for an uncommitted result (design §7).
+    // Lease generation is the one captured at claim time; fallback only for legacy tasks.
     const agentName = payload.assignee ?? task.agentId;
-    const bindingGeneration = readEmployeeBindingGenerationSync(agentName, task.workspaceId);
+    const bindingGeneration = task.bindingGeneration ?? readEmployeeBindingGenerationSync(agentName, task.workspaceId);
     let promotionError: string | undefined;
     try {
       markTaskPreparingCommitSync(task.id);

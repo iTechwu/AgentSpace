@@ -211,6 +211,8 @@ export interface ClaimedDaemonTask {
   status: string;
   inputJson: string;
   queuedAt: string;
+  /** Binding generation captured at claim time; completion must match this lease. */
+  bindingGeneration?: number;
 }
 
 export interface ClaimTaskResponse {

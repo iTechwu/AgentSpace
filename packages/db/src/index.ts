@@ -276,6 +276,7 @@ export {
 export {
   getDaemonChannelWorkDirPath,
   getDaemonRemoteTaskWorkDirPath,
+  getDaemonSkillInstallWorkDirPath,
   getDaemonTaskWorkDirPath,
   getDaemonWorkspaceExecutionRootDir,
   getLocalDaemonStateDirPath,

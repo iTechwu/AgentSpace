@@ -771,7 +771,19 @@ function isRuntimeSchemaCurrent(db: PostgresSyncDatabase): boolean {
   if (table?.tableName !== "app_metadata") {
     return false;
   }
-  return readMetadataValue(db, "schema_version") === POSTGRES_SCHEMA_VERSION;
+  if (readMetadataValue(db, "schema_version") !== POSTGRES_SCHEMA_VERSION) {
+    return false;
+  }
+  // Sentinel: if a known recently-added column is missing, the schema version
+  // row was bumped without running the full migration. Force re-application.
+  const sentinel = db.prepare(
+    `SELECT 1
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'agent_task_queue'
+       AND column_name = 'binding_generation'`,
+  ).get() as { "1"?: number } | undefined;
+  return sentinel?.["1"] === 1;
 }
 
 function seedDefaultWorkspace(db: PostgresSyncDatabase): void {

@@ -1,4 +1,4 @@
-import Ajv from "ajv";
+import { Ajv } from "ajv";
 import addFormats from "ajv-formats";
 
 /**
@@ -101,7 +101,7 @@ export const dspManifestJsonSchema = {
 } as const;
 
 const ajv = new Ajv({ allErrors: true, strict: "log" });
-addFormats(ajv);
+(addFormats as unknown as (ajv: Ajv) => Ajv)(ajv);
 const compiledValidate = ajv.compile(dspManifestJsonSchema);
 
 export interface ManifestValidation {

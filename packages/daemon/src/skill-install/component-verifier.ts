@@ -57,7 +57,7 @@ export function verifySkillInstallationComponents(
     }));
   }
 
-  return operation.components.map((component) =
+  return operation.components.map((component) =>
     verifyComponent(component.kind, component.key, manifest, artifactDir));
 }
 
@@ -95,8 +95,8 @@ function verifyComponent(
 }
 
 function verifyDependencyComponent(key: string, manifest: SkillArtifactManifest): ComponentVerificationResult {
-  const declared = (manifest.dependencies ?? []).find((dep) =
-    `${dep.manager ?? dep.kind}:${dep.name}@${dep.version}` === key);
+  const declared = (manifest.dependencies ?? []).find((dep) =>
+    `${dep.manager}:${dep.name}@${dep.version}` === key);
   if (!declared) {
     return {
       kind: "dependency",

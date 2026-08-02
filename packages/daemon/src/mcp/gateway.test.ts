@@ -53,7 +53,7 @@ let audits: McpToolAuditRecord[] = [];
 
 before(async () => {
   audits = [];
-  gateway = new McpGateway((audit) => audits.push(audit), buildMockClient().client);
+  gateway = new McpGateway((audit) => { audits.push(audit); }, buildMockClient().client);
   await gateway.start();
 });
 
@@ -82,7 +82,7 @@ test("gateway serves approved tools with sanitized names and never leaks the end
 
 test("gateway routes an approved tool call through the client and emits an audit", async () => {
   const mock = buildMockClient();
-  const g = new McpGateway((audit) => audits.push(audit), mock.client);
+  const g = new McpGateway((audit) => { audits.push(audit); }, mock.client);
   await g.start();
   const session = g.createTaskSession(buildTaskSession());
   const client = new Client({ name: "test-client", version: "1" }, { capabilities: {} });

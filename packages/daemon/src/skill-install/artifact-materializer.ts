@@ -28,13 +28,14 @@ export interface MaterializeResult {
 }
 
 export class SkillMaterializationError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string,
-    public readonly cause?: unknown,
-  ) {
+  readonly code: string;
+  readonly cause?: unknown;
+
+  constructor(message: string, code: string, cause?: unknown) {
     super(message);
     this.name = "SkillMaterializationError";
+    this.code = code;
+    this.cause = cause;
   }
 }
 
@@ -54,7 +55,6 @@ export async function materializeSkillInstallationArtifact(
   mkdirSync(targetDir, { recursive: true });
 
   const manifest = parseManifestJson(operation.manifestJson);
-  const fileDigests: string[] = [];
   const materialized: MaterializedSkillFile[] = [];
   const errors: string[] = [];
 
@@ -82,7 +82,6 @@ export async function materializeSkillInstallationArtifact(
         chmodSync(targetPath, 0o755);
       }
 
-      fileDigests.push(actualSha256);
       materialized.push({ path: file.path, sha256: actualSha256, size: bytes.byteLength });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -97,7 +96,13 @@ export async function materializeSkillInstallationArtifact(
     );
   }
 
-  const computedDigest = computeArtifactDigest(manifest, fileDigests);
+  // The canonical root digest is computed over file digests sorted by path
+  // using the same locale-aware comparator as the build/verify paths.
+  const digestsSortedByPath = materialized
+    .slice()
+    .sort((left, right) => left.path.localeCompare(right.path, "en-US"))
+    .map((file) => file.sha256);
+  const computedDigest = computeArtifactDigest(manifest, digestsSortedByPath);
   const rootDigestMatches = computedDigest === operation.artifactDigest;
 
   return {
@@ -155,8 +160,8 @@ function readLocalBlobBytes(storedPath: string, workspaceId: string): Uint8Array
     throw new Error("Local blob fallback requested but attachment runtime config is not local");
   }
   const key = storedPath.slice("local:///".length);
-  const targetPath = resolve(config.localRoot, key);
-  const rel = relative(config.localRoot, targetPath);
+  const targetPath = resolve(config.local.root, key);
+  const rel = relative(config.local.root, targetPath);
   if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     throw new Error("Local blob path escapes the configured attachment root");
   }

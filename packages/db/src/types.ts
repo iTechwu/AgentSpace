@@ -1212,6 +1212,7 @@ export interface QueuedTaskRecord {
   errorText?: string;
   sessionId?: string;
   workDir?: string;
+  bindingGeneration?: number;
   queuedAt: string;
   claimedAt?: string;
   startedAt?: string;

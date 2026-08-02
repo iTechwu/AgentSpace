@@ -1,7 +1,7 @@
 import { isDaemonProvider, type DaemonProvider } from "@dofe-agent/domain";
 import { getDatabase, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import { type QueuedTaskRecord, type EnqueueTaskInput, isNativeTaskStatus, priorityToNumber } from "./types.ts";
-import { readEmployeeRuntimeBindingSync } from "./employee-bindings.ts";
+import { readEmployeeBindingGenerationSync, readEmployeeRuntimeBindingSync } from "./employee-bindings.ts";
 import { buildTaskExecutionEventContext, recordTaskExecutionEventSync } from "./task-execution-events.ts";
 import {
   chooseProviderSessionForTaskSync,
@@ -150,6 +150,7 @@ export function listQueuedTasksSync(options?: {
         error_text AS errorText,
         session_id AS sessionId,
         work_dir AS workDir,
+        binding_generation AS bindingGeneration,
         queued_at AS queuedAt,
         claimed_at AS claimedAt,
         started_at AS startedAt,
@@ -229,6 +230,7 @@ export function readQueuedTaskSync(taskId: string): QueuedTaskRecord | null {
         error_text AS errorText,
         session_id AS sessionId,
         work_dir AS workDir,
+        binding_generation AS bindingGeneration,
         queued_at AS queuedAt,
         claimed_at AS claimedAt,
         started_at AS startedAt,
@@ -278,13 +280,17 @@ export function claimNextQueuedTaskForRuntimeSync(runtimeId: string, workspaceId
     const row = selectQueuedTaskForRuntime(db, runtimeId, workspaceId);
 
     if (row && typeof row.id === "string") {
+      const agentId = typeof row.agentId === "string" ? row.agentId : "";
+      const taskWorkspaceId = typeof row.workspaceId === "string" ? row.workspaceId : (workspaceId ?? DEFAULT_WORKSPACE_ID);
+      const bindingGeneration = agentId ? readEmployeeBindingGenerationSync(agentId, taskWorkspaceId) : undefined;
       db.prepare(
         `UPDATE agent_task_queue
          SET status = 'claimed',
              claimed_at = ?,
+             binding_generation = ?,
              updated_at = ?
          WHERE id = ? AND status = 'queued'`,
-      ).run(now, now, row.id);
+      ).run(now, bindingGeneration ?? null, now, row.id);
       claimedId = row.id;
     }
     db.exec("COMMIT");
@@ -952,7 +958,7 @@ function selectQueuedTaskForRuntime(
 ): Record<string, unknown> | undefined {
   return db
     .prepare(
-      `SELECT queue.id
+      `SELECT queue.id, queue.agent_id AS agentId, queue.workspace_id AS workspaceId
        FROM agent_task_queue queue
        JOIN agent_runtime runtime ON runtime.id = queue.runtime_id
        JOIN employee_runtime_binding binding
@@ -1139,6 +1145,7 @@ function mapQueuedTaskRecord(value: Record<string, unknown>): QueuedTaskRecord |
     startedAt: typeof value.startedAt === "string" ? value.startedAt : undefined,
     finishedAt: typeof value.finishedAt === "string" ? value.finishedAt : undefined,
     mcpSessionClaimedAt: typeof value.mcpSessionClaimedAt === "string" ? value.mcpSessionClaimedAt : undefined,
+    bindingGeneration: typeof value.bindingGeneration === "number" ? value.bindingGeneration : undefined,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };

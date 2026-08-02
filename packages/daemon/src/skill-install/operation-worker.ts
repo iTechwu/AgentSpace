@@ -48,7 +48,7 @@ export async function executeSkillInstallationOperation(
 
     const allReady = componentStatuses.every((component) => component.status === "ready");
     if (!allReady) {
-      const blocked = componentStatuses.find((component) =
+      const blocked = componentStatuses.find((component) =>
         component.status !== "ready");
       throw new SkillVerificationError(
         blocked?.errorMessage ?? "One or more components failed verification",
@@ -94,12 +94,17 @@ export async function executeSkillInstallationOperation(
 }
 
 class SkillVerificationError extends Error {
+  readonly code: string;
+  readonly componentStatuses: ReturnType<typeof verifySkillInstallationComponents>;
+
   constructor(
     message: string,
-    public readonly code: string,
-    public readonly componentStatuses: ReturnType<typeof verifySkillInstallationComponents>,
+    code: string,
+    componentStatuses: ReturnType<typeof verifySkillInstallationComponents>,
   ) {
     super(message);
     this.name = "SkillVerificationError";
+    this.code = code;
+    this.componentStatuses = componentStatuses;
   }
 }

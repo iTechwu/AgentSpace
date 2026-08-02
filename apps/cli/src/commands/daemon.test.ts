@@ -418,6 +418,7 @@ test("buildTaskPrompt uses user-provided identity for direct-channel chat", () =
     },
     [],
     {
+      id: "techwu-assistant",
       name: "techwu's assistant",
       role: "Agent",
       remarkName: "个人助手",
@@ -460,6 +461,7 @@ test("buildTaskPrompt for channel tasks includes channel document context and up
     },
     [],
     {
+      id: "atlas-1",
       name: "Atlas",
       role: "Planner",
       remarkName: "Atlas",
@@ -548,6 +550,7 @@ test("buildTaskPrompt labels Feishu inbound text as untrusted external user inpu
     },
     [],
     {
+      id: "atlas-1",
       name: "Atlas",
       role: "Planner",
       remarkName: "Atlas",
@@ -618,6 +621,7 @@ test("buildTaskPrompt for direct-channel chat includes workspace relationship fa
     },
     [],
     {
+      id: "test-1",
       name: "Test",
       role: "Agent",
       remarkName: "Test",
@@ -688,6 +692,7 @@ test("buildTaskPrompt for direct-channel chat prefers unified channel prompt", (
     },
     [],
     {
+      id: "test-1",
       name: "Test",
       role: "Agent",
       remarkName: "Test",

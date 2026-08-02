@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "60";
+export const POSTGRES_SCHEMA_VERSION = "61";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -1134,6 +1134,7 @@ export function getPostgresSchemaStatements(): string[] {
         error_text TEXT,
         session_id TEXT,
         work_dir TEXT,
+        binding_generation INTEGER,
         queued_at TIMESTAMPTZ NOT NULL,
         claimed_at TIMESTAMPTZ,
         started_at TIMESTAMPTZ,
@@ -1145,6 +1146,9 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `
       ALTER TABLE agent_task_queue ADD COLUMN IF NOT EXISTS mcp_session_claimed_at TIMESTAMPTZ
+    `,
+    `
+      ALTER TABLE agent_task_queue ADD COLUMN IF NOT EXISTS binding_generation INTEGER
     `,
     `
       CREATE TABLE IF NOT EXISTS external_thread_binding (
@@ -2047,6 +2051,18 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_runtime_app_skill_binding_skill
         ON runtime_app_skill_binding(workspace_id, skill_id)
+    `,
+    `
+      ALTER TABLE runtime_mcp_connection
+        ADD COLUMN IF NOT EXISTS next_health_check_at TIMESTAMPTZ
+    `,
+    `
+      ALTER TABLE runtime_mcp_connection
+        ADD COLUMN IF NOT EXISTS health_check_consecutive_failures INTEGER NOT NULL DEFAULT 0
+    `,
+    `
+      ALTER TABLE runtime_mcp_operation
+        ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user_verify'
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_mcp_catalog_item_workspace
