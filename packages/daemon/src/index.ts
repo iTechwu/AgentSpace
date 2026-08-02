@@ -10,6 +10,15 @@ export {
   materializeInputBundle,
   sanitizePathSegment,
 } from "./bundle.ts";
+export {
+  collectWorkDirChanges,
+  materializeHeadRevisionToWorkDir,
+  readEmployeeHeadManifestSync,
+  WORKDIR_CAPTURE_INCLUDE_DIRS,
+  WORKDIR_CAPTURE_MAX_FILES,
+  type CapturedWorkDirFile,
+  type WorkDirCaptureResult,
+} from "./workdir-capture.ts";
 export * from "./channel-documents.ts";
 export * from "./openclaw-health.ts";
 export * from "./agent-router/index.ts";

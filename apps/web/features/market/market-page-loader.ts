@@ -58,10 +58,15 @@ export async function loadMarketPageData(input: {
           status: runtime.status,
           daemonKey: snapshot.daemon.daemonKey,
           cliHubReady: readiness.cliHub.available,
-          // MCP gateway eligibility: only Claude has a validated one-shot
-          // --mcp-config path. Codex config injection is pending validation on
-          // its target version; other providers are not eligible yet.
-          mcpEligible: runtime.provider === "claude",
+          // MCP gateway eligibility: claude has a validated one-shot --mcp-config
+          // path. codex injection (--ignore-user-config + --config mcp_servers=…) is
+          // implemented and unit-covered, BUT isolation of pre-existing
+          // user/project MCP config and real E2E on a live codex version are NOT
+          // yet validated — "being able to build launch args" is not "supported".
+          // Keep codex behind an explicit experimental flag until the designated
+          // CI env validates it. Other providers are not eligible yet.
+          mcpEligible: runtime.provider === "claude"
+            || (runtime.provider === "codex" && process.env.MCP_CODEX_EXPERIMENTAL_ENABLED === "1"),
         };
       }),
     ),

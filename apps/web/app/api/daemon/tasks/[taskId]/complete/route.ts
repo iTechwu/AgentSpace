@@ -51,6 +51,7 @@ import {
   clearDaemonTaskOutputStaging,
   getDaemonTaskOutputStagingDir,
   materializeOutputBundleToStaging,
+  readStagedWorkDirFiles,
 } from "../../../_lib/output-bundle";
 
 export const runtime = "nodejs";
@@ -334,16 +335,21 @@ export async function POST(
       markTaskPreparingCommitSync(task.id);
       let workspaceRevisionId: string | undefined;
       let committedArtifactIds: string[] = [];
-      if (persistedAttachments.length > 0) {
+      const workDirFiles = readStagedWorkDirFiles(task.id, task.workspaceId);
+      const outputs = [
+        ...workDirFiles,
+        ...persistedAttachments.map((attachment) => ({
+          path: attachment.fileName,
+          bytes: readWorkspaceAttachmentBytesSync(attachment),
+          mediaType: attachment.mediaType,
+        })),
+      ];
+      if (outputs.length > 0) {
         const promoted = promoteTaskOutputsToWorkspaceSync({
           workspaceId: task.workspaceId,
           taskId: task.id,
           employeeName: agentName,
-          outputs: persistedAttachments.map((attachment) => ({
-            path: attachment.fileName,
-            bytes: readWorkspaceAttachmentBytesSync(attachment),
-            mediaType: attachment.mediaType,
-          })),
+          outputs,
           publishArtifacts: true,
           expectedBindingGeneration: bindingGeneration,
         });

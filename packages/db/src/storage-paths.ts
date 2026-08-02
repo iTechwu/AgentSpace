@@ -99,6 +99,28 @@ export function getDaemonSkillInstallWorkDirPath(
   );
 }
 
+/**
+ * Root of the digest-keyed Runtime skill cache. A cache entry survives across
+ * operations so a re-install of the same artifact digest reuses materialized
+ * files instead of re-downloading them.
+ */
+export function getDaemonSkillInstallCacheRoot(stateDir: string, input: { workspaceId?: string }): string {
+  return join(
+    getDaemonWorkspaceExecutionRootDir(stateDir, input.workspaceId ?? DEFAULT_WORKSPACE_ID),
+    "skill-install-cache",
+  );
+}
+
+export function getDaemonSkillInstallCachePath(
+  stateDir: string,
+  input: { workspaceId?: string; artifactDigest: string },
+): string {
+  return join(
+    getDaemonSkillInstallCacheRoot(stateDir, input),
+    sanitizeStoragePathSegment(input.artifactDigest.toLowerCase(), "digest"),
+  );
+}
+
 export function sanitizeStoragePathSegment(value: string, fallback = "item"): string {
   const normalized = value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   return normalized || fallback;

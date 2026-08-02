@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { collectRuntimeOutputBundle, materializeInputBundle } from "./bundle.ts";
+import { WORKDIR_CAPTURE_MAX_FILES } from "./workdir-capture.ts";
 
 test("materializeInputBundle rejects path traversal", () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-standalone-daemon-"));
@@ -113,6 +114,20 @@ test("collectRuntimeOutputBundle recursively captures referenced skill artifact 
         "runtime-output/skill-imports.json",
       ],
     );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("collectRuntimeOutputBundle fails closed when the workDir capture is truncated", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-standalone-daemon-"));
+
+  try {
+    for (let index = 0; index < WORKDIR_CAPTURE_MAX_FILES + 1; index += 1) {
+      writeFileSync(join(workDir, "repository", "file-" + String(index).padStart(3, "0") + ".txt"), "x", "utf8");
+    }
+
+    assert.throws(() => collectRuntimeOutputBundle(workDir), /output_limit_exceeded/);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

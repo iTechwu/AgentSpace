@@ -276,6 +276,8 @@ export {
 export {
   getDaemonChannelWorkDirPath,
   getDaemonRemoteTaskWorkDirPath,
+  getDaemonSkillInstallCachePath,
+  getDaemonSkillInstallCacheRoot,
   getDaemonSkillInstallWorkDirPath,
   getDaemonTaskWorkDirPath,
   getDaemonWorkspaceExecutionRootDir,
@@ -658,6 +660,8 @@ export {
   readQueuedTaskSync,
   claimMcpTaskSessionMarkerSync,
   readMcpTaskSessionClaimedSync,
+  readTaskSkillExecutionSnapshotSync,
+  writeTaskSkillExecutionSnapshotSync,
   claimNextQueuedTaskForRuntimeSync,
   startQueuedTaskSync,
   markTaskPreparingCommitSync,
@@ -870,6 +874,7 @@ export {
   readSkillInstallationByLockSync,
   listSkillInstallationsSync,
   setSkillInstallationStatusSync,
+  setSkillInstallationPreparedDigestSync,
   setSkillInstallationPreparedPathSync,
   readSkillInstallationComponentsSync,
   updateSkillInstallationComponentStatusSync,
@@ -946,8 +951,22 @@ export {
   listRecoveryOperationsSync,
   advanceRecoveryPhaseSync,
   failRecoveryOperationSync,
+  updateRecoveryContextSync,
+  approveRecoveryOperationSync,
+  rejectRecoveryOperationSync,
   type CreateRecoveryOperationInput,
 } from "./recovery-operations.ts";
+export {
+  createWorkspaceMountOperationSync,
+  readWorkspaceMountOperationSync,
+  claimNextWorkspaceMountOperationForRuntimeSync,
+  startWorkspaceMountOperationSync,
+  completeWorkspaceMountOperationSync,
+  failWorkspaceMountOperationSync,
+  type WorkspaceMountOperationRecord,
+  type WorkspaceMountOperationStatus,
+  type CreateWorkspaceMountOperationInput,
+} from "./workspace-mount-operations.ts";
 export {
   createBackupRestoreDrillRunSync,
   readBackupRestoreDrillRunSync,

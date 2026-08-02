@@ -1,4 +1,9 @@
-import { isDaemonProvider, type DaemonProvider } from "@dofe-agent/domain";
+import {
+  isDaemonProvider,
+  type DaemonProvider,
+  type TaskSkillExecutionSnapshot,
+  type TaskSkillExecutionSnapshotEntry,
+} from "@dofe-agent/domain";
 import { getDatabase, randomLikeId, DEFAULT_WORKSPACE_ID } from "./database.ts";
 import { type QueuedTaskRecord, type EnqueueTaskInput, isNativeTaskStatus, priorityToNumber } from "./types.ts";
 import { readEmployeeBindingGenerationSync, readEmployeeRuntimeBindingSync } from "./employee-bindings.ts";
@@ -268,6 +273,32 @@ export function claimMcpTaskSessionMarkerSync(taskId: string): boolean {
 export function readMcpTaskSessionClaimedSync(taskId: string): string | null {
   const task = readQueuedTaskSync(taskId);
   return task?.mcpSessionClaimedAt ?? null;
+}
+
+export function readTaskSkillExecutionSnapshotSync(taskId: string): TaskSkillExecutionSnapshot | null {
+  // Select the raw snake_case column (no `AS camelCase` alias): Postgres
+  // lowercases unquoted aliases, and NORMALIZED_ROW_KEY_ALIASES has no entry for
+  // the lowered form, so an alias would read back as undefined. The underscore
+  // key is converted to `skillExecutionSnapshotJson` by normalizeRowKey.
+  const row = getDatabase().prepare(
+    `SELECT skill_execution_snapshot_json
+     FROM agent_task_queue WHERE id = ?`,
+  ).get(taskId) as { skillExecutionSnapshotJson: string | null } | undefined;
+  const raw = row?.skillExecutionSnapshotJson;
+  if (!raw) {
+    return null;
+  }
+  return parseTaskSkillExecutionSnapshotJson(raw);
+}
+
+export function writeTaskSkillExecutionSnapshotSync(taskId: string, snapshot: TaskSkillExecutionSnapshot): boolean {
+  const now = new Date().toISOString();
+  const result = getDatabase().prepare(
+    `UPDATE agent_task_queue
+     SET skill_execution_snapshot_json = ?, updated_at = ?
+     WHERE id = ?`,
+  ).run(JSON.stringify(snapshot), now, taskId);
+  return result.changes > 0;
 }
 
 export function claimNextQueuedTaskForRuntimeSync(runtimeId: string, workspaceId?: string): QueuedTaskRecord | null {
@@ -1063,6 +1094,59 @@ function safeParseJsonObject(value: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+/** Parses the persisted task skill-execution snapshot JSON, tolerating corrupt rows. */
+function parseTaskSkillExecutionSnapshotJson(raw: string): TaskSkillExecutionSnapshot | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const value = parsed as Record<string, unknown>;
+  if (
+    typeof value.workspaceId !== "string" ||
+    typeof value.runtimeId !== "string" ||
+    typeof value.resolvedAt !== "string" ||
+    !Array.isArray(value.entries)
+  ) {
+    return null;
+  }
+  const entries: TaskSkillExecutionSnapshotEntry[] = [];
+  for (const entry of value.entries) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+    const item = entry as Record<string, unknown>;
+    if (
+      typeof item.skillId !== "string" ||
+      typeof item.skillName !== "string" ||
+      typeof item.artifactDigest !== "string" ||
+      typeof item.installationId !== "string" ||
+      typeof item.revision !== "string" ||
+      typeof item.status !== "string"
+    ) {
+      continue;
+    }
+    entries.push({
+      skillId: item.skillId,
+      skillName: item.skillName,
+      artifactDigest: item.artifactDigest,
+      installationId: item.installationId,
+      revision: item.revision,
+      status: item.status,
+    });
+  }
+  return {
+    workspaceId: value.workspaceId,
+    runtimeId: value.runtimeId,
+    resolvedAt: value.resolvedAt,
+    entries,
+  };
 }
 
 function readStringFromTaskInput(inputJson: string, key: string): string | undefined {

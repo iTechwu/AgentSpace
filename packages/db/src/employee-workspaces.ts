@@ -26,6 +26,8 @@ export interface CreateWorkspaceRevisionInput {
   sourceTaskId?: string;
   status?: WorkspaceRevisionStatus;
   createdBy?: string;
+  /** `task_output` (explicit attachments) or `workdir_snapshot` (workDir capture). */
+  sourceKind?: string;
 }
 
 export interface PublishEmployeeArtifactInput {
@@ -53,7 +55,7 @@ const REVISION_COLUMNS = `SELECT
   employee_id AS employeeId, employee_name AS employeeName,
   parent_revision_id AS parentRevisionId, manifest_digest AS manifestDigest,
   manifest_json AS manifestJson, source_task_id AS sourceTaskId, status,
-  created_by AS createdBy, created_at AS createdAt`;
+  source_kind AS sourceKind, created_by AS createdBy, created_at AS createdAt`;
 
 const ARTIFACT_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, workspace_id_ref AS workspaceIdRef,
@@ -188,8 +190,8 @@ export function createWorkspaceRevisionSync(input: CreateWorkspaceRevisionInput)
   db.prepare(
     `INSERT INTO employee_workspace_revision (
       id, workspace_id, workspace_id_ref, employee_id, employee_name, parent_revision_id,
-      manifest_digest, manifest_json, source_task_id, status, created_by, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      manifest_digest, manifest_json, source_task_id, status, source_kind, created_by, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     workspaceId,
@@ -201,6 +203,7 @@ export function createWorkspaceRevisionSync(input: CreateWorkspaceRevisionInput)
     input.manifestJson,
     input.sourceTaskId?.trim() || null,
     input.status ?? "pending",
+    input.sourceKind?.trim() || "task_output",
     input.createdBy?.trim() || null,
     now,
   );
@@ -465,6 +468,7 @@ function mapRevisionRecord(value: Record<string, unknown>): EmployeeWorkspaceRev
     manifestJson: value.manifestJson,
     sourceTaskId: readOptionalString(value.sourceTaskId),
     status: value.status as WorkspaceRevisionStatus,
+    sourceKind: typeof value.sourceKind === "string" ? value.sourceKind : "task_output",
     createdBy: readOptionalString(value.createdBy),
     createdAt: value.createdAt,
   };

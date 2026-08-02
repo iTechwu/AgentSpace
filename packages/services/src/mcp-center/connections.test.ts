@@ -618,12 +618,61 @@ test("claimMcpTaskSession is one-time: second claim returns empty connections", 
      VALUES ('task-1', 'default', 'agent-1', ?, 'running', '{}'::jsonb, ?, ?, ?)`,
   ).run(runtimeId, now, now, now);
 
-  const first = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-1" });
+  // Fresh attempt claims the one-time bundle.
+  const first = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-1", attemptId: "attempt-1" });
   assert.equal(first.connections.length, 1);
   assert.equal(first.connections[0]?.connectionId, connection.id);
 
-  const second = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-1" });
-  assert.equal(second.connections.length, 0);
+  // A DIFFERENT attempt id is a genuine duplicate execution → refused, empty.
+  const other = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-1", attemptId: "attempt-2" });
+  assert.equal(other.connections.length, 0);
+});
+
+test("claimMcpTaskSession replays the first result for an HTTP retry of the same attempt", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection, operation } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    approvedTools: ["search_repos"],
+    confirmHighRisk: true,
+  });
+  claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  startMcpOperationSync(operation.id, "default");
+  completeMcpOperationSync({
+    operationId: operation.id,
+    workspaceId: "default",
+    verification: {
+      status: "ready",
+      protocolVersion: "2025-06-18",
+      toolsMetadataJson: JSON.stringify([
+        { name: "search_repos", description: "Search repositories", inputSchema: { type: "object" }, inputSchemaDigest: "d1" },
+      ]),
+      toolsFingerprint: "fp",
+      latencyMs: 50,
+    },
+  });
+
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO agent_task_queue (id, workspace_id, agent_id, runtime_id, status, input_json, queued_at, created_at, updated_at)
+     VALUES ('task-retry', 'default', 'agent-1', ?, 'running', '{}'::jsonb, ?, ?, ?)`,
+  ).run(runtimeId, now, now, now);
+
+  // First request succeeds but its response is lost on the wire. The client
+  // retries with the SAME attempt id — the server must replay the resolved
+  // bundle, not return an empty (degraded) authorization.
+  const attempt = "attempt-retry-1";
+  const first = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-retry", attemptId: attempt });
+  assert.equal(first.connections.length, 1);
+  const retry = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-retry", attemptId: attempt });
+  assert.equal(retry.connections.length, 1);
+  assert.equal(retry.connections[0]?.connectionId, connection.id);
+  assert.equal(retry.connections[0]?.secrets.api_key, "x");
 });
 
 test("computeMcpConnectionNextHealthCheckAt schedules base interval on ready and exponential backoff on failure", () => {
@@ -822,6 +871,42 @@ test("listMcpConnectionActivitySync aggregates operations and tool audits", () =
   assert.equal(activity.audits.length, 1);
   assert.equal(activity.audits[0]?.toolName, "search_repos");
   assert.equal(activity.audits[0]?.outcome, "succeeded");
+});
+
+test("recordMcpToolAuditSync dedupes a re-sent event_id", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    confirmHighRisk: true,
+  });
+
+  const eventId = "evt-dedup-1";
+  const first = recordMcpToolAuditSync({
+    workspaceId: "default",
+    connectionId: connection.id,
+    taskId: "task-1",
+    toolName: "search_repos",
+    outcome: "succeeded",
+    eventId,
+  });
+  // A re-sent audit with the same event_id must return the original row, not insert a duplicate.
+  const replay = recordMcpToolAuditSync({
+    workspaceId: "default",
+    connectionId: connection.id,
+    taskId: "task-1",
+    toolName: "search_repos",
+    outcome: "succeeded",
+    eventId,
+  });
+  assert.equal(replay.id, first.id);
+  const audits = listMcpConnectionActivitySync({ workspaceId: "default", connectionId: connection.id }).audits;
+  assert.equal(audits.filter((a) => a.eventId === eventId).length, 1);
 });
 
 function createRuntime(): string {

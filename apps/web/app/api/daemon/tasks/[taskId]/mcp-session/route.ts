@@ -38,10 +38,21 @@ export async function POST(
     return Response.json({ error: `Runtime "${task.runtimeId}" does not exist.` }, { status: 404 });
   }
 
+  // The client sends an attempt id so an HTTP retry of the same attempt replays
+  // the original resolved bundle instead of degrading to an empty authorization.
+  let attemptId: string | undefined;
+  try {
+    const body = (await request.json()) as { attemptId?: unknown };
+    attemptId = typeof body.attemptId === "string" && body.attemptId.trim() ? body.attemptId.trim() : undefined;
+  } catch {
+    // Empty/malformed body → treated as a fresh attempt (first claim wins).
+  }
+
   const session = claimMcpTaskSessionSync({
     workspaceId: auth.workspaceId,
     runtimeId: runtime.id,
     taskId: task.id,
+    attemptId: attemptId ?? "",
   });
 
   return Response.json(session satisfies ClaimMcpTaskSessionResponse);

@@ -222,6 +222,34 @@ export interface FailSkillInstallationOperationRequest {
   errorMessage: string;
 }
 
+/**
+ * One skill's frozen execution pin inside a task snapshot. Captured at task prep
+ * time so a running task always materializes the same artifact revision even if
+ * the skill is upgraded or rolled back mid-flight (02-架构设计.md §6).
+ */
+export interface TaskSkillExecutionSnapshotEntry {
+  skillId: string;
+  skillName: string;
+  artifactDigest: string;
+  installationId: string;
+  revision: string;
+  /** Installation status at snapshot resolution time (typically "ready"). */
+  status: string;
+}
+
+/**
+ * Immutable per-task record of which skill-installation revisions a task was
+ * prepared against. Persisted on the task (`agent_task_queue.skill_execution_snapshot_json`)
+ * for retry reproducibility and in-flight audit.
+ */
+export interface TaskSkillExecutionSnapshot {
+  workspaceId: string;
+  runtimeId: string;
+  /** ISO timestamp when the snapshot was resolved. */
+  resolvedAt: string;
+  entries: TaskSkillExecutionSnapshotEntry[];
+}
+
 /** Deployment type for a managed support service. */
 export type SkillServiceDeploymentType =
   | "external_connection"

@@ -9,6 +9,13 @@ import {
   readSkillInstallationComponentsSync,
   readSkillInstallationOperationSync,
   readSkillInstallationSync,
+  listSkillInstallationsSync,
+  readStoredSkillActiveArtifactDigestSync,
+  listStoredAgentSkillAssignmentsSync,
+  readTaskSkillExecutionSnapshotSync,
+  writeTaskSkillExecutionSnapshotSync,
+  setSkillInstallationPreparedDigestSync,
+  setSkillInstallationPreparedPathSync,
   setSkillInstallationStatusSync,
   updateSkillInstallationComponentStatusSync,
   type ContentBlobRecord,
@@ -21,7 +28,9 @@ import type {
   SkillComponentKind,
   SkillComponentStatus,
   SkillInstallationOperationKind,
+  TaskSkillExecutionSnapshot,
 } from "@dofe-agent/domain";
+import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { createSkillInstallationOperationSync } from "@dofe-agent/db";
 import { createAttachmentStorageClient, type AttachmentStorageReadInput } from "../attachments/storage.ts";
 import { evaluateSkillInstallationCapabilitiesSync } from "./capabilities.ts";
@@ -258,6 +267,33 @@ export function completeSkillInstallationOperationSync(input: {
       lastOperationId: operation.id,
     });
   }
+  // Record the daemon-side materialized path (digest-keyed Runtime cache) so the
+  // control plane can observe cache reuse and the concrete location on the node.
+  if (input.safeResultJson) {
+    try {
+      const safeResult = JSON.parse(input.safeResultJson) as {
+        preparedPath?: string;
+        cacheHit?: boolean;
+        computedDigest?: string;
+      };
+      if (typeof safeResult.preparedPath === "string" && safeResult.preparedPath.length > 0) {
+        setSkillInstallationPreparedPathSync({
+          installationId: operation.installationId,
+          workspaceId: input.workspaceId,
+          preparedPath: safeResult.preparedPath,
+        });
+      }
+      if (typeof safeResult.computedDigest === "string") {
+        setSkillInstallationPreparedDigestSync({
+          installationId: operation.installationId,
+          workspaceId: input.workspaceId,
+          preparedDigest: safeResult.computedDigest,
+        });
+      }
+    } catch {
+      // Malformed safeResultJson must not fail completion; evidence is best-effort.
+    }
+  }
   evaluateSkillInstallationReadinessSync(operation.installationId, input.workspaceId);
   return true;
 }
@@ -348,17 +384,26 @@ export function evaluateSkillInstallationReadinessSync(
   return "preparing";
 }
 
-/** Task-time freshness gate: only a `ready` installation may enter a task. */
+/**
+ * Task-time freshness gate: only a `ready` installation may enter a task.
+ *
+ * Resolves the installation by `(workspace, runtime, artifactDigest)` WITHOUT a
+ * hardcoded revision — an upgraded skill creates v2/v3 installations, so the
+ * gate must pick the highest revision (matching `nextRevision` v1→v2→v3 in
+ * release.ts) rather than always looking up `v1`. Among the installations for
+ * the 3-tuple the highest revision is selected; its real status is returned so
+ * the blocker message stays truthful (a degraded installation reports
+ * `degraded`, not a misleading "no installation").
+ */
 export function assertSkillInstallationReadyForTaskSync(input: {
   workspaceId?: string;
   runtimeId: string;
   artifactDigest: string;
-}): { ok: true; installationId: string } | { ok: false; status: string; reason: string } {
-  const installation = readSkillInstallationByLockSync({
+}): { ok: true; installationId: string; revision: string } | { ok: false; status: string; reason: string } {
+  const installation = readHighestRevisionSkillInstallationSync({
     workspaceId: input.workspaceId,
     runtimeId: input.runtimeId,
     artifactDigest: input.artifactDigest,
-    revision: "v1",
   });
   if (!installation) {
     return {
@@ -374,5 +419,123 @@ export function assertSkillInstallationReadyForTaskSync(input: {
       reason: `Installation is "${installation.status}" (not ready); new tasks will not load this skill.`,
     };
   }
-  return { ok: true, installationId: installation.id };
+  return { ok: true, installationId: installation.id, revision: installation.revision };
+}
+
+/**
+ * Returns the highest-revision installation for a `(workspace, runtime, artifactDigest)`
+ * triple, regardless of status. Revision labels follow `^v(\d+)$` (release.ts
+ * `nextRevision`); non-conforming labels sort below conforming ones. Returns null
+ * when no installation exists for the triple.
+ */
+export function readHighestRevisionSkillInstallationSync(input: {
+  workspaceId?: string;
+  runtimeId: string;
+  artifactDigest: string;
+}): StoredSkillInstallationRecord | null {
+  const installations = listSkillInstallationsSync({
+    workspaceId: input.workspaceId,
+    runtimeId: input.runtimeId,
+    artifactDigest: input.artifactDigest,
+  });
+  if (installations.length === 0) {
+    return null;
+  }
+  return installations.reduce((best, current) =>
+    compareRevision(current.revision) > compareRevision(best.revision) ? current : best,
+  );
+}
+
+function compareRevision(revision: string): number {
+  const match = revision.match(/^v(\d+)$/);
+  if (!match) {
+    return -1;
+  }
+  return Number.parseInt(match[1]!, 10);
+}
+
+/**
+ * Resolves the immutable Skill execution snapshot for a task: for every
+ * assigned (non-builtin) skill, the digest is the assignment pin
+ * (`agent_skill.skill_artifact_digest`) falling back to the skill's active
+ * digest, then the highest-revision `ready` installation on the runtime is
+ * pinned. Skills without a ready installation are omitted — the task-time
+ * readiness gate surfaces their blocker. The snapshot is what a running task
+ * materializes against, so a mid-flight upgrade/rollback cannot drift it.
+ */
+export function resolveTaskSkillExecutionSnapshotSync(input: {
+  workspaceId?: string;
+  runtimeId: string;
+  agentName: string | undefined;
+  agentSkills: WorkspaceSkill[];
+}): TaskSkillExecutionSnapshot {
+  const workspaceId = input.workspaceId ?? "default";
+  const now = new Date().toISOString();
+  const entries: TaskSkillExecutionSnapshot["entries"] = [];
+
+  const assignments = input.agentName
+    ? listStoredAgentSkillAssignmentsSync(workspaceId).filter(
+        (assignment) => assignment.employeeName === input.agentName,
+      )
+    : [];
+  const digestBySkillId = new Map<string, string | undefined>(
+    assignments.map((assignment) => [assignment.skillId, assignment.skillArtifactDigest]),
+  );
+
+  for (const skill of input.agentSkills) {
+    if (skill.sourceType === "builtin") {
+      continue;
+    }
+    const pinnedDigest = digestBySkillId.get(skill.id);
+    const artifactDigest = pinnedDigest ?? readStoredSkillActiveArtifactDigestSync(skill.id, workspaceId) ?? undefined;
+    if (!artifactDigest) {
+      continue;
+    }
+    const installation = readHighestRevisionSkillInstallationSync({
+      workspaceId,
+      runtimeId: input.runtimeId,
+      artifactDigest,
+    });
+    if (!installation) {
+      continue;
+    }
+    if (installation.status !== "ready") {
+      continue;
+    }
+    entries.push({
+      skillId: skill.id,
+      skillName: skill.name,
+      artifactDigest: installation.artifactDigest,
+      installationId: installation.id,
+      revision: installation.revision,
+      status: installation.status,
+    });
+  }
+
+  return { workspaceId, runtimeId: input.runtimeId, resolvedAt: now, entries };
+}
+
+/**
+ * Loads a task's persisted Skill execution snapshot, or resolves + persists one
+ * on first prep. The snapshot is frozen once written: retries reuse it (guarded
+ * by runtimeId) so a retried task reproduces the same revision even if the skill
+ * was upgraded between attempts. Freshness of the pinned installations is
+ * re-checked separately at prep time (fail-closed on degraded/rolled back).
+ */
+export function resolveOrLoadTaskSkillExecutionSnapshotSync(
+  taskId: string,
+  input: {
+    workspaceId?: string;
+    runtimeId: string;
+    agentName: string | undefined;
+    agentSkills: WorkspaceSkill[];
+  },
+): TaskSkillExecutionSnapshot {
+  const persisted = readTaskSkillExecutionSnapshotSync(taskId);
+  if (persisted && persisted.runtimeId === input.runtimeId && persisted.workspaceId === (input.workspaceId ?? "default")) {
+    return persisted;
+  }
+  const resolved = resolveTaskSkillExecutionSnapshotSync(input);
+  writeTaskSkillExecutionSnapshotSync(taskId, resolved);
+  return resolved;
 }

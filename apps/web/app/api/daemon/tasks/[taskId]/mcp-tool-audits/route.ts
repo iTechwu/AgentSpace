@@ -1,4 +1,4 @@
-import { recordMcpToolAuditSync } from "@dofe-agent/db";
+import { readMcpConnectionSync, recordMcpToolAuditSync } from "@dofe-agent/db";
 import type { McpToolAuditReport } from "@dofe-agent/domain";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
@@ -34,14 +34,22 @@ export async function POST(
     if (!audit || typeof audit.connectionId !== "string" || typeof audit.toolName !== "string") {
       continue;
     }
+    // The URL's taskId is authoritative — a client-supplied taskId must never
+    // re-attribute an audit to a different task. The connection must also belong
+    // to this workspace.
+    const connection = readMcpConnectionSync(audit.connectionId, auth.workspaceId);
+    if (!connection) {
+      continue;
+    }
     recordMcpToolAuditSync({
       workspaceId: auth.workspaceId,
       connectionId: audit.connectionId,
-      taskId: audit.taskId || taskId,
+      taskId,
       toolName: audit.toolName.slice(0, 128),
       outcome: audit.outcome === "failed" ? "failed" : "succeeded",
       latencyMs: typeof audit.latencyMs === "number" ? Math.max(0, audit.latencyMs) : undefined,
       safeSummary: typeof audit.safeSummary === "string" ? audit.safeSummary.slice(0, 1000) : undefined,
+      eventId: typeof audit.eventId === "string" && audit.eventId.trim() ? audit.eventId.trim() : undefined,
     });
     recorded += 1;
   }

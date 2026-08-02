@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "63";
+export const POSTGRES_SCHEMA_VERSION = "66";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -1024,6 +1024,7 @@ export function getPostgresSchemaStatements(): string[] {
         outcome TEXT NOT NULL,
         latency_ms INTEGER,
         safe_summary TEXT,
+        event_id TEXT,
         created_at TIMESTAMPTZ NOT NULL
       )
     `,
@@ -2074,6 +2075,14 @@ export function getPostgresSchemaStatements(): string[] {
         ON runtime_mcp_connection(workspace_id, runtime_id, status)
     `,
     `
+      ALTER TABLE runtime_mcp_tool_audit
+        ADD COLUMN IF NOT EXISTS event_id TEXT
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_mcp_tool_audit_event
+        ON runtime_mcp_tool_audit(workspace_id, event_id)
+    `,
+    `
       CREATE INDEX IF NOT EXISTS idx_runtime_mcp_connection_health_due
         ON runtime_mcp_connection(workspace_id, status, next_health_check_at)
         WHERE status = 'ready'
@@ -2535,10 +2544,15 @@ export function getPostgresSchemaStatements(): string[] {
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL,
         previous_ready_artifact_digest TEXT,
+        prepared_digest TEXT,
         UNIQUE(workspace_id, runtime_id, artifact_digest, revision),
         FOREIGN KEY (workspace_id, artifact_digest)
           REFERENCES skill_artifact(workspace_id, digest) ON DELETE RESTRICT
       )
+    `,
+    `
+      ALTER TABLE skill_installation
+        ADD COLUMN IF NOT EXISTS prepared_digest TEXT
     `,
     `
       ALTER TABLE skill_installation ADD COLUMN IF NOT EXISTS previous_ready_artifact_digest TEXT
@@ -2844,6 +2858,10 @@ export function getPostgresSchemaStatements(): string[] {
       END $$
     `,
     `
+      ALTER TABLE employee_workspace_revision
+        ADD COLUMN IF NOT EXISTS source_kind TEXT NOT NULL DEFAULT 'task_output'
+    `,
+    `
       ALTER TABLE employee_artifact
         ADD COLUMN IF NOT EXISTS employee_id TEXT
     `,
@@ -2983,6 +3001,54 @@ export function getPostgresSchemaStatements(): string[] {
         ON task_commit_journal(workspace_id, employee_id)
     `,
     `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS provisioning_task_id TEXT
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS mount_operation_id TEXT
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS health_checked_at TIMESTAMPTZ
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS approval_state TEXT NOT NULL DEFAULT 'not_required'
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS approved_by_user_id TEXT
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS actor_user_id TEXT
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS runtime_workspace_mount_operation (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        runtime_id TEXT NOT NULL,
+        employee_name TEXT NOT NULL,
+        head_revision_id TEXT,
+        status TEXT NOT NULL,
+        claimed_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        error_code TEXT,
+        error_message TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_runtime_workspace_mount_claim
+        ON runtime_workspace_mount_operation(workspace_id, runtime_id, status)
+    `,
+    `
       ALTER TABLE task_commit_journal
         DROP CONSTRAINT IF EXISTS fk_task_commit_journal_employee_id
     `,
@@ -3033,6 +3099,10 @@ export function getPostgresSchemaStatements(): string[] {
     `
       ALTER TABLE runtime_mcp_operation
         ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user_verify'
+    `,
+    `
+      ALTER TABLE agent_task_queue
+        ADD COLUMN IF NOT EXISTS skill_execution_snapshot_json JSONB
     `,
     `
       INSERT INTO app_metadata (key, value)

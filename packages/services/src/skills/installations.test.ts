@@ -123,6 +123,36 @@ test("claim → resolve → complete drives the installation to ready", async ()
   }
 });
 
+test("completion records the daemon's Runtime cache preparedPath + preparedDigest", () => {
+  const runtimeId = createTestRuntime();
+  const { digest } = buildArtifact();
+  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+
+  const claimed = claimNextSkillInstallationOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  assert.ok(claimed);
+
+  const done = completeSkillInstallationOperationSync({
+    operationId: claimed!.id,
+    workspaceId: "default",
+    safeResultJson: JSON.stringify({
+      materializedFiles: 2,
+      computedDigest: digest,
+      cacheHit: false,
+      preparedPath: "/tmp/state/skill-install-cache/abc123",
+    }),
+    componentStatuses: [
+      { kind: "dependency", key: "npm:left-pad@1.3.0", status: "ready" },
+      { kind: "script", key: "scripts/render.py", status: "ready" },
+    ],
+  });
+  assert.equal(done, true);
+
+  const refreshed = readSkillInstallationSync(installation.id, "default");
+  assert.equal(refreshed?.status, "ready");
+  assert.equal(refreshed?.preparedPath, "/tmp/state/skill-install-cache/abc123");
+  assert.equal(refreshed?.preparedDigest, digest);
+});
+
 test("a failed prepare blocks components and the installation never reaches ready", () => {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();
@@ -177,7 +207,7 @@ test("upgrade creates a candidate revision and rollback reactivates the previous
   const runtimeId = createTestRuntime();
   const first = buildArtifact(skill.id);
   const v1 = createSkillInstallationPlanSync({ runtimeId, artifactDigest: first.digest });
-  completeAllComponents(v1.id, runtimeId);
+  await completeAllComponents(v1.id, runtimeId);
 
   // New artifact content → different digest.
   const second = buildAndPersistSkillArtifactSync({
@@ -194,7 +224,7 @@ test("upgrade creates a candidate revision and rollback reactivates the previous
 
   const v2 = createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id });
   assert.equal(v2.previousReadyRevision, "v1");
-  completeAllComponents(v2.id, runtimeId);
+  await completeAllComponents(v2.id, runtimeId);
 
   const rollback = rollbackSkillInstallationSync({ installationId: v2.id, workspaceId: "default", skillId: skill.id });
   assert.equal(rollback.ok, true);

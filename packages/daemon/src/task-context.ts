@@ -1,6 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ContactAgentContext, MaterializedSkillDirectories } from "@dofe-agent/services";
+import { materializeHeadRevisionToWorkDir } from "./workdir-capture.ts";
 import {
   type AgentRuntimeRecord,
   type QueuedTaskRecord,
@@ -28,13 +29,19 @@ import {
   FEISHU_LARK_CLI_RESULT_MANIFEST_KIND,
   FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
   assertSkillInstallationReadyForTaskSync,
+  resolveOrLoadTaskSkillExecutionSnapshotSync,
   type AgentDocumentContext,
   type DocumentPermissionRequestRecord,
   type FeishuLarkCliResourceGrant,
   type WorkspaceDataPolicyDecision,
   type WorkspaceNotificationRecord,
 } from "@dofe-agent/services";
-import type { DaemonProvider, RuntimeAppContextEntry, RuntimeMcpConnectionContextEntry } from "@dofe-agent/domain";
+import type {
+  DaemonProvider,
+  RuntimeAppContextEntry,
+  RuntimeMcpConnectionContextEntry,
+  TaskSkillExecutionSnapshot,
+} from "@dofe-agent/domain";
 import {
   buildChannelDocumentPromptLines,
   materializeChannelDocuments,
@@ -142,6 +149,12 @@ export interface PreparedDaemonTaskContext {
   skillEnv: Record<string, string>;
   skillEnvConflicts: string[];
   skillReadinessBlockers: string[];
+  /**
+   * Frozen per-task Skill execution snapshot: which installation revisions this
+   * task was prepared against. Persisted on the task for audit; used to drive
+   * materialization so a mid-flight upgrade cannot drift the artifact.
+   */
+  skillExecutionSnapshot?: TaskSkillExecutionSnapshot;
   /** Unanimously-declared project working dir for this employee's skills, if any. */
   projectWorkDir?: string;
 }
@@ -434,6 +447,14 @@ export function prepareDaemonTaskContext(input: {
     ...parseTaskPayload(input.task),
     ...(input.payloadOverride ?? {}),
   } satisfies ParsedTaskPayload;
+  // Restore the employee's durable workspace head into the workDir first so a
+  // fresh runtime is seeded with committed files; per-task input (bundle,
+  // attachments, skills) overlays on top. Skips existing paths so a persistent
+  // conversation workDir is never clobbered by an older snapshot.
+  materializeHeadRevisionToWorkDir(input.workDir, {
+    workspaceId: input.task.workspaceId,
+    employeeName: payload.assignee ?? input.task.agentId,
+  });
   const attachmentLines = materializeAttachments(payload.attachments, input.workDir);
   const workspaceState = readWorkspaceStateSync(input.task.workspaceId);
   const runtimeApps = listRuntimeAppContextEntriesForRuntimeSync({
@@ -461,7 +482,26 @@ export function prepareDaemonTaskContext(input: {
   let agentSkills = resolveAgentSkills(workspaceState, input.agentProfile, input.task.workspaceId);
   agentSkills = filterRuntimeAppSkillsByRuntimeAvailability(agentSkills, runtimeApps);
   const agentKnowledgePages = resolveAgentKnowledgePages(workspaceState, input.agentProfile, input.task.workspaceId);
-  const skillDirectories = materializeAgentSkills(agentSkills, input.workDir, input.runtime.provider);
+  // Resolve (or reuse the persisted) Skill execution snapshot: the frozen
+  // artifact-digest pins for this task's skills on this runtime. Materialization
+  // uses ONLY these digests so a mid-flight upgrade/rollback cannot drift the
+  // artifact a running task executes against (02-架构设计.md §6).
+  const skillExecutionSnapshot = resolveOrLoadTaskSkillExecutionSnapshotSync(input.task.id, {
+    workspaceId: input.task.workspaceId,
+    runtimeId: input.runtime.id,
+    agentName,
+    agentSkills,
+  });
+  const digestBySkillId = new Map<string, string>(
+    skillExecutionSnapshot.entries.map((entry) => [entry.skillId, entry.artifactDigest]),
+  );
+  const skillDirectories = materializeAgentSkills(
+    agentSkills,
+    input.workDir,
+    input.runtime.provider,
+    digestBySkillId,
+    input.task.workspaceId,
+  );
   const { env: skillEnv, conflicts: skillEnvConflicts } = resolveAgentSkillEnvironment(
     input.task.workspaceId,
     agentName,
@@ -474,6 +514,7 @@ export function prepareDaemonTaskContext(input: {
     input.runtime.id,
     input.runtime.provider,
     buildRuntimeCapabilityIds(runtimeApps),
+    skillExecutionSnapshot,
   );
   const knowledgeContextDir = materializeAgentKnowledgePages(agentKnowledgePages, input.workDir);
   const channelDocumentsContextDir =
@@ -520,6 +561,7 @@ export function prepareDaemonTaskContext(input: {
     skillEnv,
     skillEnvConflicts,
     skillReadinessBlockers,
+    skillExecutionSnapshot,
     projectWorkDir,
   };
 }
@@ -1025,11 +1067,15 @@ export function materializeAgentSkills(
   skills: WorkspaceSkill[],
   workDir: string,
   provider: AgentRuntimeRecord["provider"] = "gemini",
+  digestBySkillId?: Map<string, string>,
+  workspaceId?: string,
 ): MaterializedSkillDirectories {
   return materializeWorkspaceSkillsForProvider({
     skills,
     workDir,
     provider,
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(digestBySkillId ? { digestBySkillId } : {}),
   });
 }
 
@@ -1152,15 +1198,21 @@ export function collectSkillReadinessBlockers(
    * form-confirmation behavior until a capability convention is agreed.
    */
   availableCapabilityIds?: readonly string[],
+  /**
+   * The task's frozen Skill execution snapshot. When present it is the source of
+   * truth for the installation check: each assigned skill must be pinned in the
+   * snapshot AND that pinned installation must still be `ready` (freshness
+   * fail-closed — a rollback that degraded the pinned revision blocks the task).
+   * Omit to preserve the legacy per-skill digest-resolution behavior.
+   */
+  snapshot?: TaskSkillExecutionSnapshot,
 ): string[] {
   if (!agentName || agentSkills.length === 0) {
     return [];
   }
   const blockers: string[] = [];
-  const assignments = listStoredAgentSkillAssignmentsSync(workspaceId)
-    .filter((assignment) => assignment.employeeName === agentName);
-  const digestBySkillId = new Map<string, string | undefined>(
-    assignments.map((assignment) => [assignment.skillId, assignment.skillArtifactDigest]),
+  const snapshotEntryBySkillId = new Map<string, TaskSkillExecutionSnapshot["entries"][number]>(
+    (snapshot?.entries ?? []).map((entry) => [entry.skillId, entry]),
   );
   for (const skill of agentSkills) {
     if (skill.sourceType === "builtin") {
@@ -1177,6 +1229,21 @@ export function collectSkillReadinessBlockers(
       blockers.push(`"${skill.name}": ${blocker}`);
     }
 
+    if (snapshot) {
+      blockers.push(...collectSnapshotInstallationBlockers({
+        skill,
+        workspaceId,
+        runtimeId,
+        entry: snapshotEntryBySkillId.get(skill.id),
+      }));
+      continue;
+    }
+
+    const assignments = listStoredAgentSkillAssignmentsSync(workspaceId)
+      .filter((assignment) => assignment.employeeName === agentName);
+    const digestBySkillId = new Map<string, string | undefined>(
+      assignments.map((assignment) => [assignment.skillId, assignment.skillArtifactDigest]),
+    );
     const pinnedDigest = digestBySkillId.get(skill.id);
     const artifactDigest = pinnedDigest ?? readStoredSkillActiveArtifactDigestSync(skill.id, workspaceId) ?? undefined;
     if (!artifactDigest) {
@@ -1189,6 +1256,35 @@ export function collectSkillReadinessBlockers(
     }
   }
   return blockers;
+}
+
+/**
+ * Snapshot-based installation gate: the skill must be pinned in the task's
+ * snapshot AND its pinned installation must still be the currently-ready one
+ * (same installationId) — a rollback that degraded or re-resolved the pinned
+ * revision fails closed.
+ */
+function collectSnapshotInstallationBlockers(input: {
+  skill: WorkspaceSkill;
+  workspaceId: string;
+  runtimeId: string;
+  entry: TaskSkillExecutionSnapshot["entries"][number] | undefined;
+}): string[] {
+  const { skill, workspaceId, runtimeId, entry } = input;
+  if (!entry) {
+    return [`"${skill.name}": has no ready skill installation on this runtime; install the skill before running tasks.`];
+  }
+  const gate = assertSkillInstallationReadyForTaskSync({ workspaceId, runtimeId, artifactDigest: entry.artifactDigest });
+  if (!gate.ok) {
+    return [`"${skill.name}": ${gate.reason}`];
+  }
+  if (gate.installationId !== entry.installationId) {
+    return [
+      `"${skill.name}": the pinned installation revision (${entry.revision}) is no longer the active ready installation; ` +
+        "re-install or re-assign the skill before retrying.",
+    ];
+  }
+  return [];
 }
 
 function buildRuntimeCapabilityIds(runtimeApps: RuntimeAppContextEntry[]): string[] {

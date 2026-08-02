@@ -44,6 +44,16 @@ export interface TaskOutputFile {
   mediaType?: string;
 }
 
+/** True when a promoted path came from the daemon's bounded workDir capture. */
+export function isWorkDirCapturePath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/");
+  return (
+    normalized.startsWith("repository/") ||
+    normalized.startsWith("state/") ||
+    normalized.startsWith("artifacts/")
+  );
+}
+
 export interface PromoteTaskOutputsResult {
   revision: EmployeeWorkspaceRevisionRecord;
   artifactIds: string[];
@@ -174,6 +184,12 @@ export function promoteTaskOutputsToWorkspaceSync(input: {
   };
   const manifestDigest = computeRevisionManifestDigest(manifest);
 
+  // A revision whose manifest contains any workDir-captured path is a
+  // `workdir_snapshot`; otherwise it is an explicit `task_output` promotion.
+  const sourceKind = manifestFiles.some((file) => isWorkDirCapturePath(file.path))
+    ? "workdir_snapshot"
+    : "task_output";
+
   // createWorkspaceRevisionSync is idempotent on (workspace, manifestDigest).
   const revision = createWorkspaceRevisionSync({
     workspaceId,
@@ -183,6 +199,7 @@ export function promoteTaskOutputsToWorkspaceSync(input: {
     manifestJson: JSON.stringify(manifest),
     sourceTaskId: input.taskId,
     status: "pending",
+    sourceKind,
     createdBy: input.createdBy,
   });
 

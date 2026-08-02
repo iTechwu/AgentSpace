@@ -10,6 +10,7 @@ import {
 import { drainTokenUsageRetriesSync } from "../models/usage-retry.ts";
 import { reconcileAllManagedRuntimeUsageAsync } from "../models/usage-sync.ts";
 import { scheduleMcpHealthChecksSync } from "../mcp-center/connections.ts";
+import { advanceRecoverableOperationsSync } from "../employees/recovery-worker.ts";
 
 export interface RuntimeMaintenanceStageResult {
   status: "succeeded" | "failed";
@@ -28,6 +29,7 @@ export interface RuntimeMaintenanceResult {
     usageRetries: RuntimeMaintenanceStageResult;
     usageReconciliation: RuntimeMaintenanceStageResult;
     mcpHealthChecks: RuntimeMaintenanceStageResult;
+    recovery: RuntimeMaintenanceStageResult;
   };
 }
 
@@ -45,6 +47,7 @@ interface RuntimeMaintenanceDependencies {
   drainUsageRetries: () => unknown;
   reconcileUsage: () => Promise<unknown>;
   scheduleMcpHealthChecks: () => unknown;
+  advanceRecoveries: () => unknown;
 }
 
 const defaultDependencies: RuntimeMaintenanceDependencies = {
@@ -56,6 +59,7 @@ const defaultDependencies: RuntimeMaintenanceDependencies = {
   drainUsageRetries: drainTokenUsageRetriesSync,
   reconcileUsage: reconcileAllManagedRuntimeUsageAsync,
   scheduleMcpHealthChecks: scheduleMcpHealthChecksSync,
+  advanceRecoveries: advanceRecoverableOperationsSync,
 };
 
 export async function runRuntimeMaintenanceAsync(
@@ -86,6 +90,7 @@ export async function runRuntimeMaintenanceAsync(
     ["usageRetries", dependencies.drainUsageRetries],
     ["usageReconciliation", dependencies.reconcileUsage],
     ["mcpHealthChecks", dependencies.scheduleMcpHealthChecks],
+    ["recovery", dependencies.advanceRecoveries],
   ] as const;
   for (const [name, operation] of operations) {
     stages[name] = leaseHealthy

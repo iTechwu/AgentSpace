@@ -24,7 +24,9 @@
 
 - 目录浏览、连接配置、密钥管理、daemon 远程验证、状态机、工具白名单和基础安全控制已完成。
 - `ready` 在界面中显示为“已验证”，**不承诺任务可调用**。
-- Claude Runtime 的 task-scoped loopback gateway、一次性凭据 claim、调用审计逐调用持久化，以及 gateway 在每次工具调用前的连接状态复核已实现；被停用或改配的连接会立即停止服务运行中任务。
-- Codex 及其他 Provider 未接入 MCP；在确认其支持等价的一次性 task-scoped MCP 配置前不得对外宣称支持。
+- Claude Runtime 的 task-scoped loopback gateway、一次性凭据 claim（同 attempt 幂等重试）、调用审计逐调用持久化（固定 URL taskId + event_id 幂等去重）、gateway 在每次工具调用前的连接状态复核、MCP session 与任务 token 强绑定均已实现；被停用或改配的连接会立即停止服务运行中任务，跨任务复用 session 会被拒绝。
+- 健康巡检已实现：`scheduleMcpHealthChecksSync` 由 runtime-maintenance 定时创建 `source='health_check'` 的 verify 操作，失败指数退避并置 `degraded`；连接详情页提供“概览/工具/配置/活动”四 Tab（`/market/mcp-connections/:id`）。
+- Codex 注入已实现（`--ignore-user-config` + 整表替换 `--config mcp_servers=…`，尽力隔离用户/项目预置 MCP），但**隔离与真实 E2E 未验证**：市场页默认不将 Codex 标记为 MCP 可用，需显式开启 `MCP_CODEX_EXPERIMENTAL_ENABLED=1` 才可选。在指定 CI 环境通过端到端验证前，Codex 不得对外宣称支持 MCP。
+- 其他 Provider（openclaw / hermes / opencode 等）未接入；接入方式是在 `packages/daemon/src/agent-router/mcp-gateway.ts` 增加对应 harness 的 builder。
 
-完整“任务可调用 MCP”发布需等待：健康巡检与降级、二层 egress 策略、目录 release 版本、连接详情活动页、真实 Claude CLI 端到端验证、Codex 接入验证、受管 stdio/OAuth。
+完整“任务可调用 MCP”发布需等待：真实 Claude CLI 端到端验证、Codex 隔离与端到端验证、二层 egress 策略、目录 release 版本、市场分类筛选、受管 stdio/OAuth。

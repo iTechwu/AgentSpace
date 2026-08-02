@@ -14,6 +14,8 @@ export interface CreateRecoveryOperationInput {
   targetRevisionId?: string;
   requestedByUserId?: string;
   contextJson?: string;
+  actorUserId?: string;
+  approvalState?: "pending" | "not_required";
 }
 
 /* ------------------------------------------------------------------ */
@@ -25,6 +27,9 @@ const RECOVERY_COLUMNS = `SELECT
   from_generation AS fromGeneration, to_generation AS toGeneration, phase,
   target_revision_id AS targetRevisionId, requested_by_user_id AS requestedByUserId,
   error_code AS errorCode, error_message AS errorMessage, context_json AS contextJson,
+  provisioning_task_id AS provisioningTaskId, mount_operation_id AS mountOperationId,
+  health_checked_at AS healthCheckedAt, approval_state AS approvalState,
+  approved_by_user_id AS approvedByUserId, approved_at AS approvedAt, actor_user_id AS actorUserId,
   created_at AS createdAt, updated_at AS updatedAt`;
 
 /* ------------------------------------------------------------------ */
@@ -51,8 +56,8 @@ export function createRecoveryOperationSync(input: CreateRecoveryOperationInput)
     `INSERT INTO employee_recovery_operation (
       id, workspace_id, employee_id, employee_name, from_generation, to_generation, phase,
       target_revision_id, requested_by_user_id, error_code, error_message, context_json,
-      created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 'allocate', ?, ?, NULL, NULL, ?, ?, ?)`,
+      approval_state, actor_user_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'allocate', ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     workspaceId,
@@ -63,6 +68,8 @@ export function createRecoveryOperationSync(input: CreateRecoveryOperationInput)
     input.targetRevisionId?.trim() || null,
     input.requestedByUserId?.trim() || null,
     input.contextJson ?? "{}",
+    input.approvalState ?? "not_required",
+    input.actorUserId?.trim() || null,
     now,
     now,
   );
@@ -151,6 +158,61 @@ export function failRecoveryOperationSync(input: {
   return readRecoveryOperationSync(input.operationId, workspaceId)!;
 }
 
+/**
+ * Updates the operation context JSON without changing phase. Used by the async
+ * recovery phases to record in-flight handles (provisioning task id, mount op
+ * id, plan-created flag) while staying in the same phase across worker ticks.
+ */
+export function updateRecoveryContextSync(input: {
+  operationId: string;
+  workspaceId?: string;
+  contextJson: string;
+}): EmployeeRecoveryOperationRecord {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  db.prepare(
+    `UPDATE employee_recovery_operation SET context_json = ?, updated_at = ?
+     WHERE id = ? AND workspace_id = ?`,
+  ).run(input.contextJson, new Date().toISOString(), input.operationId, workspaceId);
+  const record = readRecoveryOperationSync(input.operationId, workspaceId);
+  if (!record) {
+    throw new Error(`Recovery operation "${input.operationId}" does not exist.`);
+  }
+  return record;
+}
+
+export function approveRecoveryOperationSync(input: {
+  operationId: string;
+  workspaceId?: string;
+  approvedByUserId: string;
+}): EmployeeRecoveryOperationRecord {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE employee_recovery_operation
+       SET approval_state = 'approved', approved_by_user_id = ?, approved_at = ?, updated_at = ?
+     WHERE id = ? AND workspace_id = ? AND approval_state = 'pending'`,
+  ).run(input.approvedByUserId, now, now, input.operationId, workspaceId);
+  return readRecoveryOperationSync(input.operationId, workspaceId)!;
+}
+
+export function rejectRecoveryOperationSync(input: {
+  operationId: string;
+  workspaceId?: string;
+  approvedByUserId: string;
+}): EmployeeRecoveryOperationRecord {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE employee_recovery_operation
+       SET approval_state = 'rejected', approved_by_user_id = ?, approved_at = ?, updated_at = ?
+     WHERE id = ? AND workspace_id = ? AND approval_state = 'pending'`,
+  ).run(input.approvedByUserId, now, now, input.operationId, workspaceId);
+  return readRecoveryOperationSync(input.operationId, workspaceId)!;
+}
+
 /* ------------------------------------------------------------------ */
 /* Mapper                                                              */
 /* ------------------------------------------------------------------ */
@@ -182,9 +244,22 @@ function mapRecoveryRecord(value: Record<string, unknown>): EmployeeRecoveryOper
     errorCode: readOptionalString(value.errorCode),
     errorMessage: readOptionalString(value.errorMessage),
     contextJson: value.contextJson,
+    provisioningTaskId: readOptionalString(value.provisioningTaskId),
+    mountOperationId: readOptionalString(value.mountOperationId),
+    healthCheckedAt: readOptionalString(value.healthCheckedAt),
+    approvalState: readOptionalApprovalState(value.approvalState),
+    approvedByUserId: readOptionalString(value.approvedByUserId),
+    approvedAt: readOptionalString(value.approvedAt),
+    actorUserId: readOptionalString(value.actorUserId),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };
+}
+
+function readOptionalApprovalState(value: unknown): EmployeeRecoveryOperationRecord["approvalState"] {
+  return value === "pending" || value === "approved" || value === "rejected" || value === "not_required"
+    ? value
+    : undefined;
 }
 
 function readOptionalString(value: unknown): string | undefined {

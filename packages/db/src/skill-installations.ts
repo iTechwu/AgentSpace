@@ -50,7 +50,8 @@ export interface CreateSkillInstallationOperationInput {
 const SKILL_INSTALLATION_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, runtime_id AS runtimeId,
   artifact_digest AS artifactDigest, status, resolved_lock_json AS resolvedLockJson,
-  prepared_path AS preparedPath, health, previous_ready_revision AS previousReadyRevision,
+  prepared_path AS preparedPath, prepared_digest AS preparedDigest, health,
+  previous_ready_revision AS previousReadyRevision,
   previous_ready_artifact_digest AS previousReadyArtifactDigest,
   revision, installed_at AS installedAt, verified_at AS verifiedAt,
   created_at AS createdAt, updated_at AS updatedAt`;
@@ -248,6 +249,20 @@ export function setSkillInstallationPreparedPathSync(input: {
     `UPDATE skill_installation SET prepared_path = ?, updated_at = ?
      WHERE id = ? AND workspace_id = ?`,
   ).run(input.preparedPath ?? null, new Date().toISOString(), input.installationId, workspaceId);
+  return result.changes > 0;
+}
+
+export function setSkillInstallationPreparedDigestSync(input: {
+  installationId: string;
+  workspaceId?: string;
+  preparedDigest?: string;
+}): boolean {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const result = db.prepare(
+    `UPDATE skill_installation SET prepared_digest = ?, updated_at = ?
+     WHERE id = ? AND workspace_id = ?`,
+  ).run(input.preparedDigest ?? null, new Date().toISOString(), input.installationId, workspaceId);
   return result.changes > 0;
 }
 
@@ -521,6 +536,7 @@ function mapSkillInstallationRecord(value: Record<string, unknown>): StoredSkill
     status: value.status,
     resolvedLockJson: value.resolvedLockJson,
     preparedPath: readOptionalString(value.preparedPath),
+    preparedDigest: readOptionalString(value.preparedDigest),
     health: value.health,
     previousReadyRevision: readOptionalString(value.previousReadyRevision),
     previousReadyArtifactDigest: readOptionalString(value.previousReadyArtifactDigest),

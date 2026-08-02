@@ -14,6 +14,8 @@ export interface McpToolAuditRecord {
   outcome: "succeeded" | "failed";
   latencyMs?: number;
   safeSummary?: string;
+  /** Idempotency key: a re-sent audit with the same eventId is deduped server-side. */
+  eventId: string;
 }
 
 export interface McpGatewayTaskSession {
@@ -33,6 +35,8 @@ interface RegisteredTool {
 interface McpSessionEntry {
   server: Server;
   transport: StreamableHTTPServerTransport;
+  /** The task-session token that owns this MCP session. Every request must match it. */
+  token: string;
 }
 
 export interface McpGatewayValidateConnectionResult {
@@ -151,17 +155,24 @@ export class McpGateway {
     const sessionHeader = req.headers["mcp-session-id"];
     const sessionKey = typeof sessionHeader === "string" ? sessionHeader : "";
     let entry = sessionKey ? this.mcpSessions.get(sessionKey) : undefined;
+    if (entry && entry.token !== token) {
+      // The mcp-session-id belongs to a different task session. A provider must
+      // never reuse another task's MCP session by replaying its session header.
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "mcp.session_mismatch" }));
+      return;
+    }
     if (!entry) {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomBytes(16).toString("hex"),
         onsessioninitialized: (id) => {
-          this.mcpSessions.set(id, { server, transport });
+          this.mcpSessions.set(id, { server, transport, token });
           this.taskSessionToMcpSessions.get(token)?.add(id);
         },
       });
       const server = this.buildMcpServer(taskSession);
       await server.connect(transport);
-      entry = { server, transport };
+      entry = { server, transport, token };
     }
 
     try {
@@ -271,6 +282,7 @@ export class McpGateway {
         outcome,
         latencyMs,
         safeSummary: safeSummary ? redactMcpText(safeSummary).slice(0, 400) : undefined,
+        eventId: randomBytes(16).toString("hex"),
       });
     } catch {
       // Audit reporting must never break the tool call.

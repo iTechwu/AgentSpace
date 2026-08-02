@@ -17,6 +17,8 @@ import { arch, platform, version as nodeVersion } from "node:process";
 import {
   detectProviders as detectSharedProviders,
   collectRuntimeOutputBundle,
+  collectWorkDirChanges,
+  readEmployeeHeadManifestSync,
   applyDocumentRuntimeOutputOperations,
   applyKnowledgeProposalOperations,
   buildDocumentRuntimeToolCapabilities,
@@ -1293,16 +1295,30 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       markTaskPreparingCommitSync(task.id);
       let workspaceRevisionId: string | undefined;
       let committedArtifactIds: string[] = [];
-      if (outputEnvelope.attachments.length > 0) {
+      const workDirCapture = collectWorkDirChanges(
+        workDir,
+        readEmployeeHeadManifestSync(task.workspaceId, agentName),
+      );
+      if (workDirCapture.truncated) {
+        // Fail closed: never commit a partial workspace snapshot. Until chunked
+        // upload exists, any truncation aborts the promotion with an explicit
+        // limit error instead of silently dropping files into the revision.
+        throw new Error("output_limit_exceeded: workDir capture exceeded its file/size budget and was truncated");
+      }
+      const outputs = [
+        ...workDirCapture.files.map((file) => ({ path: file.path, bytes: file.bytes })),
+        ...outputEnvelope.attachments.map((attachment) => ({
+          path: attachment.fileName,
+          bytes: readWorkspaceAttachmentBytesSync(attachment),
+          mediaType: attachment.mediaType,
+        })),
+      ];
+      if (outputs.length > 0) {
         const promoted = promoteTaskOutputsToWorkspaceSync({
           workspaceId: task.workspaceId,
           taskId: task.id,
           employeeName: agentName,
-          outputs: outputEnvelope.attachments.map((attachment) => ({
-            path: attachment.fileName,
-            bytes: readWorkspaceAttachmentBytesSync(attachment),
-            mediaType: attachment.mediaType,
-          })),
+          outputs,
           publishArtifacts: true,
           expectedBindingGeneration: bindingGeneration,
         });

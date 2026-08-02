@@ -2,22 +2,31 @@ import {
   activateRecoveryBindingSync,
   advanceRecoveryPhaseSync,
   createRecoveryOperationSync,
+  createWorkspaceMountOperationSync,
   failRecoveryOperationSync,
+  getDatabase,
   readAgentSkillRequirementConfigSync,
+  readAgentRuntimeSync,
   readAssignmentArtifactDigestSync,
   readEmployeeBindingGenerationSync,
   readEmployeePersistentWorkspaceSync,
   readEmployeeRuntimeBindingSync,
   readHeadRevisionSync,
   readRecoveryOperationSync,
+  readWorkspaceMountOperationSync,
   setEmployeeBindingStatusSync,
+  updateRecoveryContextSync,
   readSkillArtifactByDigestSync,
   type EmployeeRecoveryOperationRecord,
   type RecoveryPhase,
 } from "@dofe-agent/db";
+import type { DaemonProvider } from "@dofe-agent/domain";
 import { createAttachmentStorageClient } from "../attachments/storage.ts";
 import { listEmployeeSkillIdsSync } from "./employees.ts";
 import { verifySkillArtifactIntegritySync } from "../skills/skill-artifacts.ts";
+import { createSkillInstallationPlanSync, assertSkillInstallationReadyForTaskSync } from "../skills/installations.ts";
+import { ensureManagedRuntimeCapacitySync, getRuntimeProvisioningTaskDetailSync } from "../runtime-provisioning/runtime-provisioning.ts";
+import { resolveAgentRuntimeMode } from "../config/deployment.ts";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -44,6 +53,9 @@ export interface RunRecoveryInput {
   workspaceId?: string;
   employeeName: string;
   requestedByUserId?: string;
+  actorUserId?: string;
+  /** When true the operation is created with approval_state=pending and the worker skips it until approved. */
+  requireApproval?: boolean;
   /** Target runtime for the new generation. Provided by the caller (control plane) or the allocate step. */
   targetRuntimeId?: string;
   /** Optional verification overrides; when absent real checks run (workspace readable, skills verified, secrets resolvable). */
@@ -68,6 +80,8 @@ export function createEmployeeRecoveryOperationSync(input: {
   workspaceId?: string;
   employeeName: string;
   requestedByUserId?: string;
+  actorUserId?: string;
+  requireApproval?: boolean;
   fromGeneration?: number;
 }): EmployeeRecoveryOperationRecord {
   const workspaceId = input.workspaceId ?? "default";
@@ -80,6 +94,8 @@ export function createEmployeeRecoveryOperationSync(input: {
     fromGeneration: input.fromGeneration ?? currentGeneration,
     toGeneration,
     requestedByUserId: input.requestedByUserId,
+    actorUserId: input.actorUserId,
+    approvalState: input.requireApproval ? "pending" : "not_required",
     contextJson: JSON.stringify({ startedAt: new Date().toISOString() }),
   });
 
@@ -192,20 +208,81 @@ function runPhase(
       // PROVISIONAL allocation: resolve/validate the target runtime and record
       // it in the operation context WITHOUT touching the live binding. The
       // current runtime_id/generation stays intact until `activate` passes all
-      // recovery checks (EAD-005). Container creation is delegated to the
-      // runtime-provisioning service by the caller; here we require a runtime id.
-      const runtimeId = targetRuntimeId?.trim() || readExistingRuntimeId(employeeName, workspaceId);
-      if (!runtimeId) {
-        throw new Error("No target runtime available for allocation.");
+      // recovery checks (EAD-005).
+      const ctx = parseRecoveryContextRecord(operation.contextJson);
+      // An explicit target (caller-supplied or already recorded in context) is
+      // used unconditionally — recovery may target a runtime coming back online.
+      const explicitTarget = typeof ctx.runtimeId === "string"
+        ? ctx.runtimeId
+        : targetRuntimeId?.trim();
+      if (explicitTarget) {
+        return advanceRecoveryPhaseSync({
+          operationId: operation.id,
+          phase: "mount_workspace",
+          workspaceId,
+          contextJson: JSON.stringify({ runtimeId: explicitTarget }),
+        });
       }
-      return advanceRecoveryPhaseSync({
-        operationId: operation.id,
-        phase: "mount_workspace",
-        workspaceId,
-        contextJson: JSON.stringify({ runtimeId }),
-      });
+      // Reuse the current binding's runtime when it is still online.
+      const existing = readExistingRuntimeId(employeeName, workspaceId);
+      if (existing && runtimeIsOnline(existing, workspaceId)) {
+        return advanceRecoveryPhaseSync({
+          operationId: operation.id,
+          phase: "mount_workspace",
+          workspaceId,
+          contextJson: JSON.stringify({ runtimeId: existing }),
+        });
+      }
+      // No online runtime: request managed capacity once (remote/managed only),
+      // then wait for the provisioning pipeline to reach `succeeded`.
+      if (resolveAgentRuntimeMode() === "remote") {
+        const actorUserId = operation.actorUserId;
+        if (!actorUserId) {
+          throw new Error("Recovery runtime provisioning requires an actor user.");
+        }
+        if (typeof ctx.provisioningTaskId !== "string") {
+          const capacity = ensureManagedRuntimeCapacitySync({
+            workspaceId,
+            actorUserId,
+            provider: resolveDesiredProvider(employeeName, workspaceId),
+            idempotencyKey: `recovery-${operation.id}`,
+          });
+          if (capacity.kind === "reused") {
+            return advanceRecoveryPhaseSync({
+              operationId: operation.id,
+              phase: "mount_workspace",
+              workspaceId,
+              contextJson: JSON.stringify({ runtimeId: capacity.runtimeId }),
+            });
+          }
+          return updateRecoveryContext(operation, { provisioningTaskId: capacity.task.id, waitingFor: "provisioning" });
+        }
+        const detail = getRuntimeProvisioningTaskDetailSync({
+          workspaceId,
+          taskId: ctx.provisioningTaskId,
+          actorUserId,
+        });
+        if (detail.task.status === "succeeded" && detail.runtime?.id) {
+          return advanceRecoveryPhaseSync({
+            operationId: operation.id,
+            phase: "mount_workspace",
+            workspaceId,
+            contextJson: JSON.stringify({ runtimeId: detail.runtime.id }),
+          });
+        }
+        if (detail.task.status === "failed") {
+          throw new Error(`Runtime provisioning failed: ${detail.task.lastErrorMessage ?? "unknown error"}.`);
+        }
+        return operation; // still waiting on the provisioning pipeline
+      }
+      throw new Error("No online target runtime available for allocation.");
     }
     case "mount_workspace": {
+      const ctx = parseRecoveryContextRecord(operation.contextJson);
+      const runtimeId = typeof ctx.runtimeId === "string" ? ctx.runtimeId : targetRuntimeId?.trim();
+      if (!runtimeId) {
+        throw new Error("Recovery has no target runtime to mount.");
+      }
       const workspace = readEmployeePersistentWorkspaceSync(employeeName, workspaceId);
       if (!workspace) {
         throw new Error("Employee has no persistent workspace to mount.");
@@ -231,6 +308,33 @@ function runPhase(
           `Workspace mount failed: ${unreadable.length}/${blobDigests.length} manifest blob(s) unreadable (${unreadable.slice(0, 3).join(", ")}…).`,
         );
       }
+      // Real mount (managed runtimes only): dispatch a daemon workspace-mount
+      // operation once, then wait for it to materialize the head revision onto
+      // the runtime. Plain runtimes keep the verify-only sync behavior.
+      if (resolveAgentRuntimeMode() === "remote" && runtimeIsManaged(runtimeId, workspaceId)) {
+        if (typeof ctx.mountOperationId !== "string") {
+          const mountOp = createWorkspaceMountOperationSync({
+            workspaceId,
+            runtimeId,
+            employeeName,
+            headRevisionId: head.id,
+          });
+          return updateRecoveryContext(operation, { mountOperationId: mountOp.id, waitingFor: "mount" });
+        }
+        const mount = readWorkspaceMountOperationSync(ctx.mountOperationId, workspaceId);
+        if (mount?.status === "completed") {
+          return advanceRecoveryPhaseSync({
+            operationId: operation.id,
+            phase: "install_skills",
+            workspaceId,
+            contextJson: JSON.stringify({ headRevisionId: head.id, manifestDigest: head.manifestDigest, blobCount: blobDigests.length }),
+          });
+        }
+        if (mount?.status === "failed") {
+          throw new Error(`Workspace mount failed: ${mount.errorMessage ?? "unknown error"}.`);
+        }
+        return operation; // waiting for the daemon mount worker
+      }
       return advanceRecoveryPhaseSync({
         operationId: operation.id,
         phase: "install_skills",
@@ -239,6 +343,7 @@ function runPhase(
       });
     }
     case "install_skills": {
+      const ctx = parseRecoveryContextRecord(operation.contextJson);
       const skillIds = listEmployeeSkillIdsSync(employeeName, workspaceId);
       const verified: Array<{ skillId: string; digest: string; ok: boolean }> = [];
       for (const skillId of skillIds) {
@@ -257,6 +362,50 @@ function runPhase(
             `Skill "${skillId}" artifact integrity failed: missing=${integrity.missing.length}, mismatched=${integrity.mismatched.length}.`,
           );
         }
+      }
+      // Real install (managed runtimes only): create installation plans once,
+      // then wait until every bound skill's installation is ready on the target
+      // runtime. Plain runtimes keep the verify-only sync behavior.
+      const installRuntimeId = typeof ctx.runtimeId === "string" ? ctx.runtimeId : targetRuntimeId?.trim();
+      const isManagedInstallTarget = typeof installRuntimeId === "string"
+        && resolveAgentRuntimeMode() === "remote"
+        && runtimeIsManaged(installRuntimeId, workspaceId);
+      if (isManagedInstallTarget) {
+        const runtimeId = installRuntimeId;
+        if (ctx.plansCreated !== true) {
+          for (const skillId of skillIds) {
+            const digest = readAssignmentArtifactDigestSync({ employeeName, skillId, workspaceId });
+            if (!digest) {
+              continue;
+            }
+            const gate = assertSkillInstallationReadyForTaskSync({ workspaceId, runtimeId, artifactDigest: digest });
+            if (!gate.ok) {
+              createSkillInstallationPlanSync({
+                workspaceId,
+                runtimeId,
+                artifactDigest: digest,
+                requestedByUserId: operation.actorUserId,
+              });
+            }
+          }
+          return updateRecoveryContext(operation, { plansCreated: true, waitingFor: "skill_install" });
+        }
+        const allReady = skillIds.every((skillId) => {
+          const digest = readAssignmentArtifactDigestSync({ employeeName, skillId, workspaceId });
+          if (!digest) {
+            return true;
+          }
+          return assertSkillInstallationReadyForTaskSync({ workspaceId, runtimeId, artifactDigest: digest }).ok;
+        });
+        if (allReady) {
+          return advanceRecoveryPhaseSync({
+            operationId: operation.id,
+            phase: "resolve_secrets",
+            workspaceId,
+            contextJson: JSON.stringify({ skillsVerified: verified }),
+          });
+        }
+        return operation; // waiting for daemon skill-install workers
       }
       return advanceRecoveryPhaseSync({
         operationId: operation.id,
@@ -281,6 +430,33 @@ function runPhase(
       });
     }
     case "health_check": {
+      // Real runtime probe (managed runtimes only): the target must be online
+      // with a fresh heartbeat before activation. Plain runtimes keep the
+      // DB-level health check.
+      const ctx = parseRecoveryContextRecord(operation.contextJson);
+      const healthRuntimeId = typeof ctx.runtimeId === "string" ? ctx.runtimeId : targetRuntimeId?.trim();
+      const isManagedHealthTarget = typeof healthRuntimeId === "string"
+        && resolveAgentRuntimeMode() === "remote"
+        && runtimeIsManaged(healthRuntimeId, workspaceId);
+      if (isManagedHealthTarget) {
+        const runtimeId = healthRuntimeId;
+        const rt = readAgentRuntimeSync(runtimeId);
+        if (!rt || rt.status !== "online") {
+          throw new Error("Target runtime is not online; refusing to activate.");
+        }
+        if (rt.lastHeartbeatAt) {
+          const ageMs = Date.now() - Date.parse(rt.lastHeartbeatAt);
+          if (!Number.isFinite(ageMs) || ageMs > 90_000) {
+            throw new Error("Target runtime heartbeat is stale; refusing to activate.");
+          }
+        }
+        return advanceRecoveryPhaseSync({
+          operationId: operation.id,
+          phase: "activate",
+          workspaceId,
+          contextJson: JSON.stringify({ healthCheck: "passed", healthCheckedAt: new Date().toISOString() }),
+        });
+      }
       const healthy = runHealthChecks(employeeName, workspaceId, options.verify);
       if (!healthy) {
         throw new Error("Recovery health pre-check failed; unverified runtime not activated.");
@@ -324,6 +500,65 @@ function runPhase(
 function readExistingRuntimeId(employeeName: string, workspaceId: string): string | undefined {
   // The allocate step may reuse the current binding's runtime if it still exists.
   return readEmployeeRuntimeBindingSync(employeeName, workspaceId)?.runtimeId;
+}
+
+/** Merges a patch into the operation's context JSON without advancing the phase. */
+function updateRecoveryContext(
+  operation: EmployeeRecoveryOperationRecord,
+  patch: Record<string, unknown>,
+): EmployeeRecoveryOperationRecord {
+  const current = parseRecoveryContextRecord(operation.contextJson);
+  return updateRecoveryContextSync({
+    operationId: operation.id,
+    workspaceId: operation.workspaceId,
+    contextJson: JSON.stringify({ ...current, ...patch }),
+  });
+}
+
+function parseRecoveryContextRecord(contextJson: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(contextJson) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Lightweight existence + online check that does not go through the strict runtime mapper. */
+function runtimeIsOnline(runtimeId: string, workspaceId: string): boolean {
+  const row = getDatabase().prepare(
+    `SELECT status FROM agent_runtime WHERE id = ? AND workspace_id = ?`,
+  ).get(runtimeId, workspaceId) as { status?: string } | undefined;
+  return row?.status === "online";
+}
+
+/**
+ * True when the target runtime is a managed runtime that a daemon provisions and
+ * claims (has a managed credential or managed provisioning state). The async
+ * data-plane recovery steps (workspace mount, skill install, real health probe)
+ * only make sense against such runtimes; plain runtimes keep verify-only checks.
+ */
+function runtimeIsManaged(runtimeId: string, workspaceId: string): boolean {
+  const row = getDatabase().prepare(
+    `SELECT managed_credential_id AS managedCredentialId,
+            provisioning_state AS provisioningState
+     FROM agent_runtime WHERE id = ? AND workspace_id = ?`,
+  ).get(runtimeId, workspaceId) as { managedCredentialId?: string | null; provisioningState?: string | null } | undefined;
+  return Boolean(row?.managedCredentialId) || row?.provisioningState === "managed";
+}
+
+/** Provider of the current binding's runtime, used to request managed capacity. */
+function resolveDesiredProvider(employeeName: string, workspaceId: string): DaemonProvider {
+  const binding = readEmployeeRuntimeBindingSync(employeeName, workspaceId);
+  if (binding?.runtimeId) {
+    const runtime = readAgentRuntimeSync(binding.runtimeId);
+    if (runtime?.provider) {
+      return runtime.provider;
+    }
+  }
+  return "codex";
 }
 
 function resolveSecretsResolvable(

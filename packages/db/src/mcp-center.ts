@@ -146,6 +146,8 @@ export interface RecordMcpToolAuditInput {
   outcome: McpToolCallOutcome;
   latencyMs?: number;
   safeSummary?: string;
+  /** Client-generated idempotency key; a replayed event_id returns the original row. */
+  eventId?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -925,11 +927,24 @@ function defaultConnectionStatusForFailedOperation(operation: RuntimeMcpOperatio
 
 export function recordMcpToolAuditSync(input: RecordMcpToolAuditInput): RuntimeMcpToolAuditRecord {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const eventId = input.eventId?.trim() || "";
+  if (eventId) {
+    // Idempotent replay: a re-sent event_id returns the original row instead of
+    // inserting a duplicate audit.
+    const existing = getDatabase().prepare(
+      `${MCP_TOOL_AUDIT_COLUMNS} FROM runtime_mcp_tool_audit WHERE workspace_id = ? AND event_id = ?`,
+    ).get(workspaceId, eventId) as Record<string, unknown> | undefined;
+    if (existing) {
+      const record = mapRuntimeMcpToolAuditRecord(existing);
+      if (record) return record;
+    }
+  }
   const id = `mcp-audit-${randomLikeId()}`;
   const now = new Date().toISOString();
   getDatabase().prepare(
-    `INSERT INTO runtime_mcp_tool_audit (id, workspace_id, connection_id, task_id, tool_name, outcome, latency_ms, safe_summary, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO runtime_mcp_tool_audit (id, workspace_id, connection_id, task_id, tool_name, outcome, latency_ms, safe_summary, event_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (workspace_id, event_id) DO NOTHING`,
   ).run(
     id,
     workspaceId,
@@ -939,6 +954,7 @@ export function recordMcpToolAuditSync(input: RecordMcpToolAuditInput): RuntimeM
     input.outcome,
     input.latencyMs ?? null,
     input.safeSummary ?? null,
+    eventId || null,
     now,
   );
   const row = getDatabase().prepare(
@@ -1018,7 +1034,7 @@ const MCP_OPERATION_COLUMNS = `SELECT
 const MCP_TOOL_AUDIT_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, connection_id AS connectionId, task_id AS taskId,
   tool_name AS toolName, outcome, latency_ms AS latencyMs, safe_summary AS safeSummary,
-  created_at AS createdAt`;
+  event_id AS eventId, created_at AS createdAt`;
 
 function mapMcpCatalogItemRecord(value: Record<string, unknown>): McpCatalogItemRecord | null {
   if (
@@ -1204,6 +1220,7 @@ function mapRuntimeMcpToolAuditRecord(value: Record<string, unknown>): RuntimeMc
     outcome: value.outcome,
     latencyMs: typeof value.latencyMs === "number" ? value.latencyMs : undefined,
     safeSummary: readOptionalString(value.safeSummary),
+    eventId: readOptionalString(value.eventId),
     createdAt: value.createdAt,
   };
 }

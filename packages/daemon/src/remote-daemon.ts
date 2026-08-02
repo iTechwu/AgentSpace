@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { chmodSync, createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
@@ -11,6 +12,7 @@ import {
 import { getStringFlag, parseArgs } from "./args.ts";
 import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, ClaimedSkillInstallationOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, RegisterDaemonResponse } from "./daemon-api.ts";
 import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputBundle } from "./bundle.ts";
+import { readEmployeeHeadManifestSync } from "./workdir-capture.ts";
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
 import { executeSkillInstallationOperation } from "./skill-install/operation-worker.ts";
@@ -846,7 +848,11 @@ async function executeRemoteTask(
 
     if (bundle.metadata.mcpConnections?.status === "available") {
       try {
-        const claimed = await client.claimMcpTaskSession(task.id);
+        // One attempt id per task execution makes the claim idempotent under
+        // HTTP retry: a lost response retries with the same id and the server
+        // replays the original resolved bundle instead of returning "no MCP".
+        const claimAttemptId = randomUUID();
+        const claimed = await client.claimMcpTaskSession(task.id, claimAttemptId);
         if (claimed.connections.length > 0) {
           const gateway = await getMcpGatewayForTask(client);
           mcpSession = gateway.createTaskSession({
@@ -967,7 +973,10 @@ async function executeRemoteTask(
       reportTaskMessage({ type: "status", content: warning });
     }
 
-    const outputBundle = collectRuntimeOutputBundle(workDir);
+    const outputBundle = collectRuntimeOutputBundle(
+      workDir,
+      readEmployeeHeadManifestSync(task.workspaceId, task.agentId),
+    );
     if (outputBundle) {
       await client.uploadOutputBundle(task.id, outputBundle);
     }
@@ -1018,6 +1027,7 @@ async function getMcpGatewayForTask(client: HttpDaemonClient): Promise<McpGatewa
           outcome: audit.outcome,
           latencyMs: audit.latencyMs,
           safeSummary: audit.safeSummary,
+          eventId: audit.eventId,
         }]).catch((error) => {
           const detail = error instanceof Error ? error.message : String(error);
           console.error(`MCP audit report failed for task ${audit.taskId}: ${detail}`);

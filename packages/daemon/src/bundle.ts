@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { DaemonTaskInputBundle, DaemonTaskOutputBundle } from "./daemon-api.ts";
 import { getRuntimeOutputDir } from "./runtime-output.ts";
 import { collectRuntimeOutputBundleFiles } from "./runtime-output-manifests.ts";
+import { collectWorkDirChanges, type WorkDirFileEntry } from "./workdir-capture.ts";
 
 export function clearTaskOutputArtifacts(workDir: string): void {
   rmSync(join(workDir, "last-message.txt"), { force: true });
@@ -17,20 +18,33 @@ export function materializeInputBundle(workDir: string, bundle: DaemonTaskInputB
   }
 }
 
-export function collectRuntimeOutputBundle(workDir: string): DaemonTaskOutputBundle | undefined {
+export function collectRuntimeOutputBundle(
+  workDir: string,
+  headManifest?: { files?: WorkDirFileEntry[] },
+): DaemonTaskOutputBundle | undefined {
   const runtimeOutputDir = getRuntimeOutputDir(workDir);
-  if (!existsSync(runtimeOutputDir)) {
-    return undefined;
-  }
+  const files = existsSync(runtimeOutputDir) ? collectRuntimeOutputBundleFiles(workDir) : [];
 
-  const files = collectRuntimeOutputBundleFiles(workDir);
-  if (files.length === 0) {
+  const capture = collectWorkDirChanges(workDir, headManifest);
+  if (capture.truncated) {
+    // Fail closed: never ship a partial workspace snapshot. Until chunked upload
+    // exists, any truncation aborts the commit with an explicit limit error
+    // instead of silently dropping files and publishing an incomplete revision.
+    throw new Error("output_limit_exceeded: workDir capture exceeded its file/size budget and was truncated");
+  }
+  const workspaceFiles = capture.files.map((file) => ({
+    path: file.path,
+    contentBase64: Buffer.from(file.bytes).toString("base64"),
+  }));
+
+  if (files.length === 0 && workspaceFiles.length === 0) {
     return undefined;
   }
   return {
     version: 1,
     format: "json-inline-v1",
     files,
+    ...(workspaceFiles.length > 0 ? { workspaceFiles } : {}),
   };
 }
 

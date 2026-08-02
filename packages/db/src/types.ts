@@ -1040,6 +1040,8 @@ export interface RuntimeMcpToolAuditRecord {
   outcome: McpToolCallOutcome;
   latencyMs?: number;
   safeSummary?: string;
+  /** Client-generated idempotency key (unique per workspace). */
+  eventId?: string;
   createdAt: string;
 }
 
@@ -1450,6 +1452,7 @@ export interface StoredSkillInstallationRecord {
   status: string;
   resolvedLockJson: string;
   preparedPath?: string;
+  preparedDigest?: string;
   health: string;
   previousReadyRevision?: string;
   previousReadyArtifactDigest?: string;
@@ -1570,6 +1573,8 @@ export interface EmployeeWorkspaceRevisionRecord {
   manifestJson: string;
   sourceTaskId?: string;
   status: WorkspaceRevisionStatus;
+  /** `task_output` (explicit attachments) or `workdir_snapshot` (workDir capture). */
+  sourceKind: string;
   createdBy?: string;
   createdAt: string;
 }
@@ -1653,6 +1658,15 @@ export interface EmployeeRecoveryOperationRecord {
   errorCode?: string;
   errorMessage?: string;
   contextJson: string;
+  /** In-flight managed-runtime provisioning task handle for the async allocate step. */
+  provisioningTaskId?: string;
+  /** In-flight daemon workspace-mount operation handle for the async mount step. */
+  mountOperationId?: string;
+  healthCheckedAt?: string;
+  approvalState?: "not_required" | "pending" | "approved" | "rejected";
+  approvedByUserId?: string;
+  approvedAt?: string;
+  actorUserId?: string;
   createdAt: string;
   updatedAt: string;
 }

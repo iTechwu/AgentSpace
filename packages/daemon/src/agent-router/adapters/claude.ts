@@ -14,6 +14,7 @@ import {
   buildCapabilityEnv,
   buildCapabilityPathDirs,
 } from "../capabilities.ts";
+import { buildClaudeMcpGatewayArgs } from "../mcp-gateway.ts";
 import {
   buildBaseEnv,
   buildRedactions,
@@ -106,13 +107,13 @@ async function buildClaudeLaunch(input: AgentRouterRunRequest): Promise<HarnessL
   if (input.claudeTools) {
     args.push("--tools", input.claudeTools);
   }
+  // One-shot, task-scoped MCP config: the gateway URL is the ONLY thing the
+  // Provider learns. --strict-mcp-config disables any pre-existing servers.
+  let mcpRedactions: HarnessLaunchPlan["redactions"] = [];
   if (input.mcpGatewayUrl) {
-    // One-shot, task-scoped MCP config: the gateway URL is the ONLY thing the
-    // Provider learns. --strict-mcp-config disables any pre-existing servers.
-    const mcpConfig = JSON.stringify({
-      "dofe-mcp-gateway": { type: "http", url: input.mcpGatewayUrl },
-    });
-    args.push("--mcp-config", mcpConfig, "--strict-mcp-config");
+    const injection = buildClaudeMcpGatewayArgs(input.mcpGatewayUrl);
+    args.push(...injection.args);
+    mcpRedactions = injection.redactions;
   }
   const env = buildBaseEnv(
     executable,
@@ -127,7 +128,7 @@ async function buildClaudeLaunch(input: AgentRouterRunRequest): Promise<HarnessL
     stdin: usesRealtimeInput ? buildClaudeStreamJsonInput(input.prompt) : undefined,
     keepStdinOpen: usesRealtimeInput,
     timeoutMs: resolveTimeoutMs(input.timeoutMs),
-    redactions: buildRedactions(env),
+    redactions: [...buildRedactions(env), ...mcpRedactions],
   };
 }
 

@@ -23,6 +23,7 @@ import {
 } from "../utils.ts";
 import { discoverSessionId, emitSessionUpdate, normalizeAdapterError, parseJsonEventOutput, runNativeHarness } from "./shared.ts";
 import { runVersionCommand } from "./versions.ts";
+import { buildCodexMcpGatewayArgs } from "../mcp-gateway.ts";
 
 const CODEX_OUTPUT_ENV = "AGENT_ROUTER_CODEX_OUTPUT_FILE";
 
@@ -61,6 +62,13 @@ async function buildCodexLaunch(input: AgentRouterRunRequest): Promise<HarnessLa
   const baseArgs = [
     "--json",
     "--skip-git-repo-check",
+    // Blank the user config.toml layer ($CODEX_HOME/config.toml) so pre-existing
+    // MCP servers or other ambient settings from the user's machine never leak
+    // into a task. Auth still uses CODEX_HOME, so the operator's login state is
+    // preserved. Applies to both first run and `exec resume` (shared baseArgs).
+    // NOTE: codex has no flag that disables project/cloud config layers; the MCP
+    // market eligibility gate for codex stays closed until E2E validates isolation.
+    "--ignore-user-config",
     "-o", outputFile,
   ];
   if (input.model) {
@@ -74,6 +82,16 @@ async function buildCodexLaunch(input: AgentRouterRunRequest): Promise<HarnessLa
   }
   if (input.codexFullAccess && !input.sessionId) {
     baseArgs.push("--dangerously-bypass-approvals-and-sandbox");
+  }
+  // Task-scoped MCP gateway: inject the loopback gateway URL as one
+  // streamable-HTTP `mcp_servers` entry via a `--config` override. The URL is
+  // the only thing codex learns; secrets stay in the daemon. `--config` is a
+  // global flag so it must land in baseArgs (before the `exec` subcommand).
+  let mcpRedactions: HarnessLaunchPlan["redactions"] = [];
+  if (input.mcpGatewayUrl) {
+    const injection = buildCodexMcpGatewayArgs(input.mcpGatewayUrl);
+    baseArgs.push(...injection.args);
+    mcpRedactions = injection.redactions;
   }
   const args = input.sessionId
     ? ["exec", "resume", ...baseArgs, input.sessionId, input.prompt]
@@ -89,7 +107,7 @@ async function buildCodexLaunch(input: AgentRouterRunRequest): Promise<HarnessLa
     cwd: input.cwd,
     env,
     timeoutMs: resolveTimeoutMs(input.timeoutMs),
-    redactions: buildRedactions(env),
+    redactions: [...buildRedactions(env), ...mcpRedactions],
   };
 }
 

@@ -567,12 +567,20 @@ export interface McpToolAuditReport {
   outcome: "succeeded" | "failed";
   latencyMs?: number;
   safeSummary?: string;
+  /** Client-generated idempotency key; a re-sent event_id is deduped server-side. */
+  eventId: string;
 }
 
 export interface DaemonTaskOutputBundle {
   version: 1;
   format: "json-inline-v1";
   files: DaemonBundleFile[];
+  /**
+   * Changed files from the employee's real workDir (repository/state/artifacts),
+   * diffed against the head-revision manifest. Empty/omitted when the task
+   * produced no durable workdir changes.
+   */
+  workspaceFiles?: DaemonBundleFile[];
 }
 
 export interface DaemonTaskUsage {

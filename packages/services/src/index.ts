@@ -108,6 +108,10 @@ export {
   type DataProtectionHealthOptions,
 } from "./employees/data-protection-health.ts";
 export {
+  advanceRecoverableOperationsSync,
+  type AdvanceRecoveriesResult,
+} from "./employees/recovery-worker.ts";
+export {
   hasGitHubSkillDependenciesSync,
   queueGitHubSkillDependenciesForAgentSync,
   readSkillDependencyInstallStatusSync,
@@ -343,6 +347,9 @@ export {
   failSkillInstallationOperationSync,
   evaluateSkillInstallationReadinessSync,
   assertSkillInstallationReadyForTaskSync,
+  readHighestRevisionSkillInstallationSync,
+  resolveTaskSkillExecutionSnapshotSync,
+  resolveOrLoadTaskSkillExecutionSnapshotSync,
 } from "./skills/installations.ts";
 export {
   resolveSkillMcpCapabilitySync,

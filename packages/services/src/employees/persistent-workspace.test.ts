@@ -228,3 +228,41 @@ test("D-04: orphan blob scan reclaims unreferenced blobs but keeps referenced on
   assert.equal(readContentBlobSync(orphanSha, "default"), null, "orphan index row deleted");
   assert.ok(readContentBlobSync(sha256Hex(referencedBytes), "default"), "referenced blob index kept");
 });
+
+test("workDir capture promotion is marked workdir_snapshot and merges with task_output", () => {
+  // A workDir-captured file (repository/...) and a plain explicit attachment.
+  const workDirBytes = new TextEncoder().encode("export function main() {}");
+  const attachmentBytes = new TextEncoder().encode("final report");
+
+  const first = promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Alice",
+    outputs: [{ path: "repository/src/main.ts", bytes: workDirBytes, mediaType: "text/typescript" }],
+  });
+  assert.equal(first.revision.sourceKind, "workdir_snapshot");
+  assert.equal(readHeadRevisionSync("Alice", "default")?.sourceKind, "workdir_snapshot");
+
+  // Promoting only explicit attachments yields task_output.
+  const second = promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Bob",
+    outputs: [{ path: "report.txt", bytes: attachmentBytes, mediaType: "text/plain" }],
+  });
+  assert.equal(second.revision.sourceKind, "task_output");
+
+  // A later task_output promotion with the same path keeps both files; head is
+  // a full snapshot and the explicit attachment overlays the workDir file.
+  const third = promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Alice",
+    outputs: [{ path: "repository/src/main.ts", bytes: new TextEncoder().encode("export function main() { return 2; }") }],
+  });
+  const head = readHeadRevisionSync("Alice", "default");
+  assert.ok(head, "head revision exists");
+  const manifest = JSON.parse(head.manifestJson) as { files: Array<{ path: string; sha256: string }> };
+  assert.ok(manifest.files.some((f) => f.path === "repository/src/main.ts"), "workDir file retained in head");
+  assert.equal(third.revision.sourceKind, "workdir_snapshot");
+});

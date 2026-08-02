@@ -630,6 +630,18 @@ export interface McpConnectionActivity {
   audits: RuntimeMcpToolAuditRecord[];
 }
 
+interface ClaimedMcpTaskSessionCacheEntry {
+  attemptId: string;
+  result: ClaimMcpTaskSessionResponse;
+}
+
+/**
+ * In-process replay cache for one-time MCP task-session claims. Lets an HTTP
+ * retry of the same attempt return the original resolved bundle instead of an
+ * empty (degraded) authorization. See {@link claimMcpTaskSessionSync}.
+ */
+const claimedMcpTaskSessionCache = new Map<string, ClaimedMcpTaskSessionCacheEntry>();
+
 export function listMcpConnectionActivitySync(input: {
   workspaceId: string;
   connectionId: string;
@@ -967,19 +979,44 @@ export function listReadyMcpConnectionsForTaskSync(input: {
  * check), then decrypts the secret bundle. The result is delivered only to the
  * daemon's memory for the loopback gateway — never into the Provider-visible
  * task bundle.
+ *
+ * Claim semantics are one-time per task, keyed by an attempt id:
+ * - first claim for the task → resolve bundles and cache them by attempt id;
+ * - retry of the SAME attempt (HTTP retry after a lost response) → replay the
+ *   cached first result, so a lost response never degrades the task to "no MCP";
+ * - a DIFFERENT attempt id (a genuine duplicate execution) → empty connections,
+ *   which is a refusal, not a legitimate-looking empty authorization.
+ *
+ * The cache is in-process memory: if the control plane restarts between a
+ * successful claim and a retry, the retry degrades to empty rather than
+ * pretending to be authorized.
  */
 export function claimMcpTaskSessionSync(input: {
   workspaceId: string;
   runtimeId: string;
   taskId: string;
+  attemptId: string;
 }): ClaimMcpTaskSessionResponse {
-  // One-time claim: only the first successful claim for a task may return
-  // resolved connection bundles. Subsequent claims are idempotent and empty.
   const newlyClaimed = claimMcpTaskSessionMarkerSync(input.taskId);
-  if (!newlyClaimed) {
-    return { connections: [] };
+  if (newlyClaimed) {
+    const result = resolveClaimedMcpTaskSessionResult({
+      workspaceId: input.workspaceId,
+      runtimeId: input.runtimeId,
+    });
+    claimedMcpTaskSessionCache.set(input.taskId, { attemptId: input.attemptId, result });
+    return result;
   }
+  const cached = claimedMcpTaskSessionCache.get(input.taskId);
+  if (cached && cached.attemptId === input.attemptId) {
+    return cached.result;
+  }
+  return { connections: [] };
+}
 
+function resolveClaimedMcpTaskSessionResult(input: {
+  workspaceId: string;
+  runtimeId: string;
+}): ClaimMcpTaskSessionResponse {
   const connections = listMcpConnectionsSync({ workspaceId: input.workspaceId, runtimeId: input.runtimeId, status: "ready", limit: 500 });
   const result: McpTaskSessionConnection[] = [];
   for (const connection of connections) {

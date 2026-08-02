@@ -205,8 +205,15 @@ export class HttpDaemonClient {
     await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/fail`, body);
   }
 
-  async claimMcpTaskSession(taskId: string): Promise<ClaimMcpTaskSessionResponse> {
-    return this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/mcp-session`, {}, { retryable: true });
+  async claimMcpTaskSession(taskId: string, attemptId: string): Promise<ClaimMcpTaskSessionResponse> {
+    // attemptId makes the claim idempotent under HTTP retry: the server replays
+    // the cached first result for the same attemptId, so a lost response does
+    // not degrade the task to "no MCP".
+    return this.postJson(
+      `/api/daemon/tasks/${encodeURIComponent(taskId)}/mcp-session`,
+      { attemptId },
+      { retryable: true },
+    );
   }
 
   async validateMcpConnectionForTask(

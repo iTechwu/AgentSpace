@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { request as httpRequest } from "node:http";
 import test, { after, before } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -243,3 +244,56 @@ test("revoke closes established MCP transports and removes them from gateway mem
     await g.close();
   }
 });
+
+test("gateway rejects replaying another task session's mcp-session-id header", async () => {
+  const g = new McpGateway(() => undefined, buildMockClient().client);
+  await g.start();
+  const sessionA = g.createTaskSession(buildTaskSession());
+  const sessionB = g.createTaskSession(buildTaskSession());
+  const clientA = new Client({ name: "test-client", version: "1" }, { capabilities: {} });
+  const transportA = new StreamableHTTPClientTransport(new URL(sessionA.url));
+  try {
+    await clientA.connect(transportA);
+    const stolenSessionId = transportA.sessionId;
+    assert.ok(stolenSessionId, "client A should hold an mcp-session-id after initialize");
+
+    // Attacker replays session A's mcp-session-id against session B's URL. The
+    // gateway must refuse: the session entry belongs to a different task token.
+    // (Verified via raw HTTP because the MCP SDK transparently re-initializes a
+    // fresh session on a 403, which would mask the gateway's own response.)
+    const status = await rawPostStatus(new URL(sessionB.url), stolenSessionId);
+    assert.equal(status, 403);
+  } finally {
+    await clientA.close();
+    sessionA.revoke();
+    sessionB.revoke();
+    await g.close();
+  }
+});
+
+function rawPostStatus(url: URL, sessionId: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(url, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        "mcp-session-id": sessionId,
+      },
+    }, (res) => {
+      res.resume();
+      res.on("end", () => resolve(res.statusCode ?? 0));
+    });
+    req.on("error", reject);
+    req.end(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "attacker", version: "1" },
+      },
+    }));
+  });
+}

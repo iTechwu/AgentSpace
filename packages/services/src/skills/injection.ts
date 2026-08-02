@@ -29,18 +29,25 @@ export function materializeWorkspaceSkillsForProvider(input: {
   workDir: string;
   provider: DaemonProvider;
   workspaceId?: string;
+  /**
+   * Per-skill artifact digest override (e.g. a task execution snapshot pin).
+   * When present, the skill is materialized from this digest instead of its
+   * current `active_artifact_digest`, so a running task does not drift if the
+   * skill is upgraded/rolled back mid-flight. Omit to preserve legacy behavior.
+   */
+  digestBySkillId?: Map<string, string>;
 }): MaterializedSkillDirectories {
   if (input.skills.length === 0) {
     return {};
   }
 
   const compatibilityDir = join(input.workDir, ".agent_context", "skills");
-  writeSkillsToRoot(input.skills, compatibilityDir, input.workspaceId);
+  writeSkillsToRoot(input.skills, compatibilityDir, input.workspaceId, input.digestBySkillId);
 
   const nativeSegments = PROVIDER_NATIVE_SKILL_ROOT_SEGMENTS[input.provider];
   const nativeDir = nativeSegments ? join(input.workDir, ...nativeSegments) : undefined;
   if (nativeDir && nativeDir !== compatibilityDir) {
-    writeSkillsToRoot(input.skills, nativeDir, input.workspaceId);
+    writeSkillsToRoot(input.skills, nativeDir, input.workspaceId, input.digestBySkillId);
   }
 
   return {
@@ -57,7 +64,12 @@ export function materializeWorkspaceSkillsForProvider(input: {
  * verifies each file's digest as it is written. Skills without an artifact
  * (legacy / manually edited) fall back to their text skill_file content.
  */
-function writeSkillsToRoot(skills: WorkspaceSkill[], rootDir: string, workspaceId?: string): void {
+function writeSkillsToRoot(
+  skills: WorkspaceSkill[],
+  rootDir: string,
+  workspaceId?: string,
+  digestBySkillId?: Map<string, string>,
+): void {
   rmSync(rootDir, { recursive: true, force: true });
   mkdirSync(rootDir, { recursive: true });
 
@@ -65,7 +77,8 @@ function writeSkillsToRoot(skills: WorkspaceSkill[], rootDir: string, workspaceI
     const skillDir = join(rootDir, `${sanitizeSkillDirectoryName(skill.name)}-${skill.id.slice(-6)}`);
     mkdirSync(skillDir, { recursive: true });
 
-    const materializedFromArtifact = tryMaterializeFromArtifact(skill, skillDir, workspaceId);
+    const overrideDigest = digestBySkillId?.get(skill.id);
+    const materializedFromArtifact = tryMaterializeFromArtifact(skill, skillDir, workspaceId, overrideDigest);
     if (!materializedFromArtifact) {
       for (const file of skill.files) {
         const relativePath = normalizeSkillFilePath(file.path);
@@ -92,8 +105,13 @@ function writeSkillsToRoot(skills: WorkspaceSkill[], rootDir: string, workspaceI
  * skills WITHOUT an artifact (legacy / manually edited, never artifactized) may
  * fall back to their text skill_file projection.
  */
-function tryMaterializeFromArtifact(skill: WorkspaceSkill, skillDir: string, workspaceId?: string): boolean {
-  const digest = readActiveArtifactDigestForSkillSync(skill.id, workspaceId);
+function tryMaterializeFromArtifact(
+  skill: WorkspaceSkill,
+  skillDir: string,
+  workspaceId?: string,
+  overrideDigest?: string,
+): boolean {
+  const digest = overrideDigest ?? readActiveArtifactDigestForSkillSync(skill.id, workspaceId);
   if (!digest) {
     return false; // legacy skill without a pinned digest → text projection
   }

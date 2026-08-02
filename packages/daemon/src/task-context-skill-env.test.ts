@@ -1,20 +1,29 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import test, { after, before, beforeEach } from "node:test";
-import { getDatabase, setSkillInstallationStatusSync, registerDaemonRuntimesSync } from "@dofe-agent/db";
 import {
+  getDatabase,
+  setSkillInstallationStatusSync,
+  registerDaemonRuntimesSync,
+  readTaskSkillExecutionSnapshotSync,
+} from "@dofe-agent/db";
+import {
+  assertSkillInstallationReadyForTaskSync,
   buildAndPersistSkillArtifactSync,
   createEmployeeSync,
   createSkillInstallationPlanSync,
+  createSkillUpgradePlanSync,
   createWorkspaceSkillSync,
   resetWorkspaceStateSync,
+  resolveOrLoadTaskSkillExecutionSnapshotSync,
   updateWorkspaceSkillSync,
   upsertAgentSkillRequirementsSync,
 } from "@dofe-agent/services";
-import { collectSkillReadinessBlockers, resolveAgentSkillEnvironment } from "./task-context.ts";
+import type { WorkspaceSkill } from "@dofe-agent/domain";
+import { collectSkillReadinessBlockers, materializeAgentSkills, resolveAgentSkillEnvironment } from "./task-context.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-task-context-skill-env-"));
@@ -246,4 +255,227 @@ test("collectSkillReadinessBlockers surfaces a missing requirement after a skill
 
   const blockers = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], runtimeId, undefined);
   assert.ok(blockers.some((b) => b.includes("SECOND_KEY")), "expected the newly-required key to block the task");
+});
+
+/* ------------------------------------------------------------------ */
+/* Task execution snapshot + multi-revision readiness                   */
+/* ------------------------------------------------------------------ */
+
+function createRuntime(): string {
+  const snapshot = registerDaemonRuntimesSync({
+    workspaceId: WORKSPACE_ID,
+    daemonKey: `daemon-${WORKSPACE_ID}`,
+    deviceName: "Test Daemon",
+    runtimes: [{ provider: "claude", name: "Test Runtime", version: "test" }],
+  });
+  return snapshot.runtimes[0]!.id;
+}
+
+function insertTaskRow(runtimeId: string, agentName = "Researcher"): string {
+  const db = getDatabase();
+  const taskId = `task-${randomBytes(8).toString("hex")}`;
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO agent_task_queue (
+      id, workspace_id, agent_id, runtime_id, trigger_type, status, input_json, queued_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'manual', 'queued', '{}', ?, ?, ?)`,
+  ).run(taskId, WORKSPACE_ID, agentName, runtimeId, now, now, now);
+  return taskId;
+}
+
+/**
+ * Builds an artifact from UNIQUE content (so a fresh digest is produced and the
+ * skill's active digest is pinned), installs it on `runtimeId`, and marks it
+ * `ready`. Returns the digest + installation id for follow-up assertions.
+ */
+function buildReadyInstallation(
+  skill: { id: string; name: string },
+  runtimeId: string,
+  name: string,
+  content: string,
+): { artifactDigest: string; installationId: string; installation: { id: string; revision: string } } {
+  const artifact = buildAndPersistSkillArtifactSync({
+    workspaceId: WORKSPACE_ID,
+    skillId: skill.id,
+    name,
+    files: [{ path: "SKILL.md", bytes: Buffer.from(`${content}\n${randomBytes(4).toString("hex")}\n`) }],
+  });
+  const installation = createSkillInstallationPlanSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    artifactDigest: artifact.digest,
+  });
+  setSkillInstallationStatusSync({
+    installationId: installation.id,
+    workspaceId: WORKSPACE_ID,
+    status: "ready",
+    health: "healthy",
+    verifiedAt: new Date().toISOString(),
+  });
+  return { artifactDigest: artifact.digest, installationId: installation.id, installation };
+}
+
+function resolveSnapshotForTask(taskId: string, runtimeId: string, agentSkills: WorkspaceSkill[]) {
+  return resolveOrLoadTaskSkillExecutionSnapshotSync(taskId, {
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    agentName: "Researcher",
+    agentSkills,
+  });
+}
+
+function readMaterializedSkillContent(workDir: string): string {
+  const compatibilityDir = join(workDir, ".agent_context", "skills");
+  const entry = readdirSync(compatibilityDir, { withFileTypes: true }).find((item) => item.isDirectory());
+  if (!entry) {
+    return "";
+  }
+  return readFileSync(join(compatibilityDir, entry.name, "SKILL.md"), "utf8");
+}
+
+test("assertSkillInstallationReadyForTaskSync resolves the highest ready revision after an upgrade", () => {
+  createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
+  const skill = createWorkspaceSkillSync({ name: "multi-rev-gate", description: "Upg" }, WORKSPACE_ID);
+  const runtimeId = createRuntime();
+
+  const v1 = buildReadyInstallation(skill, runtimeId, "multi-rev-gate", "# Body v1");
+  const gateV1 = assertSkillInstallationReadyForTaskSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    artifactDigest: v1.artifactDigest,
+  });
+  assert.equal(gateV1.ok, true);
+  if (gateV1.ok) {
+    assert.equal(gateV1.revision, "v1");
+    assert.equal(gateV1.installationId, v1.installationId);
+  }
+
+  // Upgrade to a new digest creates a v2 installation that is still preparing.
+  const v2Artifact = buildAndPersistSkillArtifactSync({
+    workspaceId: WORKSPACE_ID,
+    skillId: skill.id,
+    name: "multi-rev-gate",
+    files: [{ path: "SKILL.md", bytes: Buffer.from(`# Body v2\n${randomBytes(4).toString("hex")}\n`) }],
+  });
+  const v2 = createSkillUpgradePlanSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    artifactDigest: v2Artifact.digest,
+    previousReadyInstallationId: v1.installationId,
+  });
+  assert.equal(v2.revision, "v2");
+
+  // The gate must find the v2 row and report its real status, not "no installation".
+  const gateV2 = assertSkillInstallationReadyForTaskSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    artifactDigest: v2Artifact.digest,
+  });
+  assert.equal(gateV2.ok, false);
+  if (!gateV2.ok) {
+    assert.equal(gateV2.status, "preparing");
+  }
+
+  // Once v2 is ready, the gate resolves it (no longer stuck on the v1 hardcode).
+  setSkillInstallationStatusSync({
+    installationId: v2.id,
+    workspaceId: WORKSPACE_ID,
+    status: "ready",
+    health: "healthy",
+    verifiedAt: new Date().toISOString(),
+  });
+  const gateV2Ready = assertSkillInstallationReadyForTaskSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    artifactDigest: v2Artifact.digest,
+  });
+  assert.equal(gateV2Ready.ok, true);
+  if (gateV2Ready.ok) {
+    assert.equal(gateV2Ready.revision, "v2");
+    assert.equal(gateV2Ready.installationId, v2.id);
+  }
+});
+
+test("task skill execution snapshot pins the artifact digest across an upgrade", () => {
+  createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
+  const skill = createWorkspaceSkillSync({ name: "snapshot-pin", description: "Pin" }, WORKSPACE_ID);
+  const runtimeId = createRuntime();
+  const taskId = insertTaskRow(runtimeId);
+
+  const v1 = buildReadyInstallation(skill, runtimeId, "snapshot-pin", "# Body v1");
+
+  const snapshot = resolveSnapshotForTask(taskId, runtimeId, [skill]);
+  assert.equal(snapshot.entries.length, 1);
+  assert.equal(snapshot.entries[0]!.artifactDigest, v1.artifactDigest);
+  assert.equal(snapshot.entries[0]!.revision, "v1");
+
+  // Upgrade: a new artifact + v2 installation moves the skill's active digest.
+  const v2Artifact = buildAndPersistSkillArtifactSync({
+    workspaceId: WORKSPACE_ID,
+    skillId: skill.id,
+    name: "snapshot-pin",
+    files: [{ path: "SKILL.md", bytes: Buffer.from(`# Body v2\n${randomBytes(4).toString("hex")}\n`) }],
+  });
+  createSkillUpgradePlanSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    artifactDigest: v2Artifact.digest,
+    previousReadyInstallationId: v1.installationId,
+  });
+
+  // Same taskId → the persisted snapshot is reused and still pinned to v1.
+  const reused = resolveSnapshotForTask(taskId, runtimeId, [skill]);
+  assert.equal(reused.entries[0]!.artifactDigest, v1.artifactDigest);
+  assert.equal(reused.resolvedAt, snapshot.resolvedAt);
+
+  // Materialization uses the snapshot digest → v1 content, not the upgraded v2.
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-snapshot-pin-"));
+  try {
+    const digestBySkillId = new Map(snapshot.entries.map((entry) => [entry.skillId, entry.artifactDigest]));
+    materializeAgentSkills([skill], workDir, "claude", digestBySkillId, WORKSPACE_ID);
+    assert.match(readMaterializedSkillContent(workDir), /# Body v1/);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("collectSkillReadinessBlockers fails closed when the pinned installation is rolled back", () => {
+  createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
+  const skill = createWorkspaceSkillSync({ name: "freshness", description: "F" }, WORKSPACE_ID);
+  const runtimeId = createRuntime();
+  const taskId = insertTaskRow(runtimeId);
+  const v1 = buildReadyInstallation(skill, runtimeId, "freshness", "# Body v1");
+
+  const snapshot = resolveSnapshotForTask(taskId, runtimeId, [skill]);
+  assert.deepEqual(
+    collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], runtimeId, undefined, undefined, snapshot),
+    [],
+  );
+
+  // Simulate a rollback: the pinned installation is degraded.
+  setSkillInstallationStatusSync({
+    installationId: v1.installationId,
+    workspaceId: WORKSPACE_ID,
+    status: "degraded",
+    health: "rolled_back",
+  });
+
+  const blockers = collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], runtimeId, undefined, undefined, snapshot);
+  assert.ok(blockers.some((blocker) => blocker.includes("freshness")), "expected a freshness blocker after rollback");
+});
+
+test("task skill execution snapshot persists and round-trips for audit", () => {
+  createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
+  const skill = createWorkspaceSkillSync({ name: "snapshot-roundtrip", description: "R" }, WORKSPACE_ID);
+  const runtimeId = createRuntime();
+  const taskId = insertTaskRow(runtimeId);
+  const v1 = buildReadyInstallation(skill, runtimeId, "snapshot-roundtrip", "# Body v1");
+
+  const snapshot = resolveSnapshotForTask(taskId, runtimeId, [skill]);
+  const persisted = readTaskSkillExecutionSnapshotSync(taskId);
+  assert.deepEqual(persisted, snapshot);
+  assert.equal(persisted?.entries.length, 1);
+  assert.equal(persisted?.entries[0]?.artifactDigest, v1.artifactDigest);
+  assert.equal(persisted?.entries[0]?.installationId, v1.installationId);
+  assert.equal(persisted?.entries[0]?.revision, "v1");
 });
