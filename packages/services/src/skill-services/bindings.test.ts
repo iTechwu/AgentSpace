@@ -62,6 +62,11 @@ function seedRendererCatalog(): string {
     templateVersion: "1.0.0",
     deploymentType: "managed_service",
     imageDigest: `sha256:${"a".repeat(64)}`,
+    templateDigest: `sha256:${"b".repeat(64)}`,
+    sbomDigest: `sha256:${"c".repeat(64)}`,
+    runAsNonRoot: true,
+    readOnlyRootfs: true,
+    capDropJson: JSON.stringify(["NET_ADMIN"]),
     protocol: "http",
     networkJson: JSON.stringify({ ingress: "private" }),
     healthJson: JSON.stringify({ path: "/healthz" }),
@@ -216,6 +221,9 @@ test("resolve builds the one-time claim payload with catalog fields", () => {
   assert.deepEqual(JSON.parse(claimed.catalog.networkJson!), { ingress: "private" });
   assert.deepEqual(JSON.parse(claimed.catalog.healthJson!), { path: "/healthz" });
   assert.deepEqual(JSON.parse(claimed.catalog.resourcesJson!), { cpu: "250m", memory: "128Mi" });
+  assert.equal(claimed.catalog.runAsNonRoot, true);
+  assert.equal(claimed.catalog.readOnlyRootfs, true);
+  assert.deepEqual(claimed.catalog.capDrop, ["NET_ADMIN"]);
 });
 
 test("resolve returns null when the managed service row is gone", () => {

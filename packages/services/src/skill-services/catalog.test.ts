@@ -11,8 +11,15 @@ function validInput() {
     deploymentType: "managed_service",
     imageDigest: `sha256:${sha("a")}`,
     templateDigest: `sha256:${sha("b")}`,
+    sbomDigest: `sha256:${sha("c")}`,
     rollbackClass: "stateless",
     networkJson: JSON.stringify({ egressAllowlist: ["https://example.com"] }),
+    healthJson: JSON.stringify({ path: "/healthz", port: 8080 }),
+    resourcesJson: JSON.stringify({ memory: "128Mi", cpu: "250m" }),
+    secretFieldsJson: JSON.stringify(["RENDER_LICENSE"]),
+    runAsNonRoot: true,
+    readOnlyRootfs: true,
+    capDrop: ["ALL"],
     externalDependenciesJson: JSON.stringify(["postgres:central-render-db"]),
   };
 }
@@ -115,4 +122,130 @@ test("catalog admission rejects a missing template digest", () => {
   if (!result.ok) {
     assert.match(result.reason, /templateDigest/);
   }
+});
+
+test("catalog admission requires a digest-locked SBOM for image templates", () => {
+  const missing = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    sbomDigest: "",
+  });
+  assert.equal(missing.ok, false);
+  if (!missing.ok) {
+    assert.match(missing.reason, /sbomDigest/);
+  }
+
+  const unLocked = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    sbomDigest: "sbom.json",
+  });
+  assert.equal(unLocked.ok, false);
+
+  const ok = assertSkillServiceCatalogAdmissionSync(validInput());
+  assert.equal(ok.ok, true);
+});
+
+test("catalog admission does not require an SBOM for external_connection templates", () => {
+  const result = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    deploymentType: "external_connection",
+    imageDigest: `sha256:${sha("e")}`,
+    sbomDigest: "",
+  });
+  assert.equal(result.ok, true);
+});
+
+test("catalog admission validates the container hardening profile", () => {
+  const badBool = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    runAsNonRoot: "yes" as unknown as boolean,
+  });
+  assert.equal(badBool.ok, false);
+
+  const badReadOnly = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    readOnlyRootfs: 1 as unknown as boolean,
+  });
+  assert.equal(badReadOnly.ok, false);
+
+  const notArray = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    capDrop: "ALL" as unknown as string[],
+  });
+  assert.equal(notArray.ok, false);
+
+  const badCap = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    capDrop: ["net-admin"],
+  });
+  assert.equal(badCap.ok, false);
+  if (!badCap.ok) {
+    assert.match(badCap.reason, /capDrop/);
+  }
+
+  const okCaps = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    capDrop: ["NET_ADMIN", "SYS_TIME"],
+  });
+  assert.equal(okCaps.ok, true);
+
+  const emptyCaps = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    capDrop: [],
+  });
+  assert.equal(emptyCaps.ok, true);
+});
+
+test("catalog admission validates health, resources and secret-field JSON shapes", () => {
+  const noProbe = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    healthJson: JSON.stringify({ interval: "10s" }),
+  });
+  assert.equal(noProbe.ok, false);
+  if (!noProbe.ok) {
+    assert.match(noProbe.reason, /healthJson/);
+  }
+
+  const badPort = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    healthJson: JSON.stringify({ path: "/healthz", port: "8080" }),
+  });
+  assert.equal(badPort.ok, false);
+
+  const badResource = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    resourcesJson: JSON.stringify({ memory: { value: 128 } }),
+  });
+  assert.equal(badResource.ok, false);
+
+  const badSecret = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    secretFieldsJson: JSON.stringify(["license-key"]),
+  });
+  assert.equal(badSecret.ok, false);
+  if (!badSecret.ok) {
+    assert.match(badSecret.reason, /secretFieldsJson/);
+  }
+
+  const okSecret = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    secretFieldsJson: JSON.stringify(["RENDER_LICENSE", "API_KEY"]),
+  });
+  assert.equal(okSecret.ok, true);
+});
+
+test("catalog admission validates egress allow-list entry format", () => {
+  const bad = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    networkJson: JSON.stringify({ egressAllowlist: ["has space.example.com"] }),
+  });
+  assert.equal(bad.ok, false);
+  if (!bad.ok) {
+    assert.match(bad.reason, /egressAllowlist/);
+  }
+
+  const ok = assertSkillServiceCatalogAdmissionSync({
+    ...validInput(),
+    networkJson: JSON.stringify({ egressAllowlist: ["fonts.example.com:443"] }),
+  });
+  assert.equal(ok.ok, true);
 });

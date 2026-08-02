@@ -53,6 +53,9 @@ export async function executeSkillServiceOperation(
         networkJson: operation.catalog.networkJson,
         healthJson: operation.catalog.healthJson,
         resourcesJson: operation.catalog.resourcesJson,
+        runAsNonRoot: operation.catalog.runAsNonRoot,
+        readOnlyRootfs: operation.catalog.readOnlyRootfs,
+        capDrop: operation.catalog.capDrop,
       });
     }
 

@@ -58,6 +58,43 @@ function createMinimalArtifactAndInstallation(runtimeId: string): string {
   return installationId;
 }
 
+test("service catalog persists and reads back the hardened admission fields", () => {
+  const entry = upsertSkillServiceCatalogSync({
+    workspaceId: "default",
+    slug: "hardened-renderer",
+    templateVersion: "1.0.0",
+    deploymentType: "managed_service",
+    imageDigest: `sha256:${"a".repeat(64)}`,
+    templateDigest: `sha256:${"b".repeat(64)}`,
+    sbomDigest: `sha256:${"c".repeat(64)}`,
+    runAsNonRoot: true,
+    readOnlyRootfs: true,
+    capDropJson: JSON.stringify(["NET_ADMIN", "SYS_TIME"]),
+  });
+
+  const reread = readSkillServiceCatalogSync("hardened-renderer", "1.0.0", "default");
+  assert.ok(reread);
+  assert.equal(reread!.sbomDigest, `sha256:${"c".repeat(64)}`);
+  assert.equal(reread!.runAsNonRoot, true);
+  assert.equal(reread!.readOnlyRootfs, true);
+  assert.deepEqual(JSON.parse(reread!.capDropJson), ["NET_ADMIN", "SYS_TIME"]);
+
+  // Defaults when the fields are omitted.
+  const minimal = upsertSkillServiceCatalogSync({
+    workspaceId: "default",
+    slug: "minimal-renderer",
+    templateVersion: "1.0.0",
+    deploymentType: "managed_service",
+    imageDigest: `sha256:${"d".repeat(64)}`,
+  });
+  const minimalReread = readSkillServiceCatalogSync("minimal-renderer", "1.0.0", "default");
+  assert.ok(minimalReread);
+  assert.equal(minimalReread!.sbomDigest, undefined);
+  assert.equal(minimalReread!.runAsNonRoot, false);
+  assert.equal(minimalReread!.readOnlyRootfs, true);
+  assert.deepEqual(JSON.parse(minimalReread!.capDropJson), ["ALL"]);
+});
+
 test("service catalog entry is immutable per (slug, templateVersion) and readable", () => {
   const entry = upsertSkillServiceCatalogSync({
     workspaceId: "default",

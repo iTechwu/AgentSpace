@@ -95,6 +95,39 @@ test("buildManagedServiceContainerCreateArgs pins digest, isolated network, labe
   assert.equal(args[args.length - 1], "sha256:abc", "image digest is the final pinned arg");
 });
 
+test("create args honor the catalog hardening profile", () => {
+  const base = {
+    containerName: "dofe-svc-svc-1",
+    serviceId: "svc-1",
+    workspaceId: "default",
+    imageDigest: "sha256:abc",
+    network: NETWORK,
+  };
+
+  // Default: read-only rootfs + drop ALL + no explicit user.
+  const defaults = buildManagedServiceContainerCreateArgs(base);
+  assert.ok(defaults.includes("--read-only"));
+  assert.equal(defaults[defaults.indexOf("--cap-drop") + 1], "ALL");
+  assert.ok(!defaults.includes("--user"));
+
+  // runAsNonRoot → explicit non-root user.
+  const nonRoot = buildManagedServiceContainerCreateArgs({ ...base, runAsNonRoot: true });
+  assert.equal(nonRoot[nonRoot.indexOf("--user") + 1], "65532:65532");
+
+  // readOnlyRootfs: false → no --read-only.
+  const writable = buildManagedServiceContainerCreateArgs({ ...base, readOnlyRootfs: false });
+  assert.ok(!writable.includes("--read-only"));
+
+  // capDrop list → one --cap-drop per capability.
+  const capDrop = buildManagedServiceContainerCreateArgs({ ...base, capDrop: ["NET_ADMIN", "SYS_TIME"] });
+  assert.deepEqual(
+    capDrop.filter((arg) => arg === "--cap-drop").length,
+    2,
+  );
+  assert.ok(capDrop.includes("NET_ADMIN"));
+  assert.ok(capDrop.includes("SYS_TIME"));
+});
+
 test("computeManagedServiceHealthRevision is deterministic per config + state", () => {
   assert.equal(computeManagedServiceHealthRevision("{}", "healthy"), computeManagedServiceHealthRevision("{}", "healthy"));
   assert.notEqual(computeManagedServiceHealthRevision("{}", "healthy"), computeManagedServiceHealthRevision("{}", "starting"));

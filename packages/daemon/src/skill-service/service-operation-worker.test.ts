@@ -24,6 +24,9 @@ function makeOperation(overrides?: Partial<ClaimedManagedSkillServiceOperation>)
       networkJson: "{}",
       healthJson: "{}",
       resourcesJson: "{}",
+      runAsNonRoot: false,
+      readOnlyRootfs: true,
+      capDrop: ["ALL"],
     },
     ...overrides,
   };
@@ -97,6 +100,9 @@ test("provision passes catalog fields to the runtime", async () => {
     networkJson: "{}",
     healthJson: "{}",
     resourcesJson: "{}",
+    runAsNonRoot: false,
+    readOnlyRootfs: true,
+    capDrop: ["ALL"],
   }]);
 });
 

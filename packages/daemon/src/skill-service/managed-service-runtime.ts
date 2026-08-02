@@ -20,6 +20,10 @@ export interface ManagedServiceContainerRuntime {
     networkJson?: string;
     healthJson?: string;
     resourcesJson?: string;
+    /** Hardening from the admitted catalog template. */
+    runAsNonRoot?: boolean;
+    readOnlyRootfs?: boolean;
+    capDrop?: string[];
   }): Promise<{ endpointRef: string; healthRevision: string; containerName: string }>;
   retire(input: { serviceId: string; workspaceId: string }): Promise<void>;
 }
@@ -47,9 +51,11 @@ export function buildManagedServiceContainerName(serviceId: string): string {
 /**
  * Pure command builder for `docker create`. Pins the image by digest (no tag
  * drift), joins the isolated managed-runtime network, applies the catalog
- * resource limits + healthcheck, and runs non-root hardened (read-only rootfs,
- * no-new-privileges, all caps dropped). Network policy beyond the isolated
- * network (egress allow-lists from networkJson) is deferred hardening.
+ * resource limits + healthcheck, and honors the admitted hardening profile:
+ * read-only rootfs (default on), all caps dropped by default (or the catalog
+ * cap-drop list), no-new-privileges, and an explicit non-root user when the
+ * template declares `runAsNonRoot`. Network policy beyond the isolated network
+ * (egress allow-lists from networkJson) is enforced separately.
  */
 export function buildManagedServiceContainerCreateArgs(input: {
   containerName: string;
@@ -60,23 +66,37 @@ export function buildManagedServiceContainerCreateArgs(input: {
   networkJson?: string;
   healthJson?: string;
   resourcesJson?: string;
+  runAsNonRoot?: boolean;
+  readOnlyRootfs?: boolean;
+  capDrop?: string[];
 }): string[] {
-  return [
+  const args = [
     "create",
     "--name", input.containerName,
     "--restart", "unless-stopped",
-    "--read-only",
     "--tmpfs", "/tmp:rw,nosuid,nodev,noexec",
     "--security-opt", "no-new-privileges",
-    "--cap-drop", "ALL",
     "--network", input.network,
     "--label", `dofe.agent.serviceId=${input.serviceId}`,
     "--label", `dofe.agent.workspaceId=${input.workspaceId}`,
+  ];
+  if (input.readOnlyRootfs !== false) {
+    args.push("--read-only");
+  }
+  for (const cap of input.capDrop?.length ? input.capDrop : ["ALL"]) {
+    args.push("--cap-drop", cap);
+  }
+  if (input.runAsNonRoot) {
+    // UID/GID 65532:65532 (nobody) — the runtime refuses to guess a root user.
+    args.push("--user", "65532:65532");
+  }
+  args.push(
     ...buildManagedRuntimeDockerConnectivityArgs(),
     ...buildManagedServiceResourceArgs(input.resourcesJson),
     ...buildManagedServiceHealthcheckArgs(input.healthJson),
     input.imageDigest,
-  ];
+  );
+  return args;
 }
 
 /** Pure: `--memory`/`--cpus`/`--memory-swap` from the catalog resourcesJson. */
@@ -163,6 +183,9 @@ export function createDockerManagedServiceContainerRuntime(
         networkJson: input.networkJson,
         healthJson: input.healthJson,
         resourcesJson: input.resourcesJson,
+        runAsNonRoot: input.runAsNonRoot,
+        readOnlyRootfs: input.readOnlyRootfs,
+        capDrop: input.capDrop,
       });
       const create = await exec(createArgs, { timeoutMs: DOCKER_CONTAINER_TIMEOUT_MS });
       let createResult = create;

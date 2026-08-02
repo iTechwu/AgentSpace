@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "76";
+export const POSTGRES_SCHEMA_VERSION = "77";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -2659,6 +2659,18 @@ export function getPostgresSchemaStatements(): string[] {
         updated_at TIMESTAMPTZ NOT NULL,
         UNIQUE(workspace_id, slug, template_version)
       )
+    `,
+    `
+      ALTER TABLE skill_service_catalog ADD COLUMN IF NOT EXISTS sbom_digest TEXT
+    `,
+    `
+      ALTER TABLE skill_service_catalog ADD COLUMN IF NOT EXISTS run_as_non_root BOOLEAN NOT NULL DEFAULT FALSE
+    `,
+    `
+      ALTER TABLE skill_service_catalog ADD COLUMN IF NOT EXISTS read_only_rootfs BOOLEAN NOT NULL DEFAULT TRUE
+    `,
+    `
+      ALTER TABLE skill_service_catalog ADD COLUMN IF NOT EXISTS cap_drop_json JSONB NOT NULL DEFAULT '["ALL"]'::jsonb
     `,
     `
       CREATE TABLE IF NOT EXISTS managed_skill_service (

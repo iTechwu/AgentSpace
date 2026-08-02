@@ -403,6 +403,10 @@ export interface ClaimedManagedSkillServiceOperation {
     networkJson?: string;
     healthJson?: string;
     resourcesJson?: string;
+    /** Container hardening declared by the admitted catalog template. */
+    runAsNonRoot: boolean;
+    readOnlyRootfs: boolean;
+    capDrop: string[];
   };
 }
 

@@ -26,6 +26,10 @@ export interface UpsertSkillServiceCatalogInput {
   externalDependenciesJson?: string;
   rollbackClass?: string;
   templateDigest?: string;
+  sbomDigest?: string;
+  runAsNonRoot?: boolean;
+  readOnlyRootfs?: boolean;
+  capDropJson?: string;
   risk?: string;
 }
 
@@ -35,7 +39,8 @@ const SKILL_SERVICE_CATALOG_COLUMNS = `SELECT
   resources_json AS resourcesJson, health_json AS healthJson, network_json AS networkJson,
   config_schema_version AS configSchemaVersion, config_schema_json AS configSchemaJson,
   secret_fields_json AS secretFieldsJson, external_dependencies_json AS externalDependenciesJson,
-  rollback_class AS rollbackClass, template_digest AS templateDigest, risk,
+  rollback_class AS rollbackClass, template_digest AS templateDigest,
+  sbom_digest, run_as_non_root, read_only_rootfs, cap_drop_json, risk,
   created_at AS createdAt, updated_at AS updatedAt`;
 
 const MANAGED_SKILL_SERVICE_COLUMNS = `SELECT
@@ -64,9 +69,10 @@ export function upsertSkillServiceCatalogSync(input: UpsertSkillServiceCatalogIn
       `INSERT INTO skill_service_catalog (
         id, workspace_id, slug, template_version, deployment_type, image_digest, protocol, scope,
         resources_json, health_json, network_json, config_schema_version, config_schema_json,
-        secret_fields_json, external_dependencies_json, rollback_class, template_digest, risk,
+        secret_fields_json, external_dependencies_json, rollback_class, template_digest,
+        sbom_digest, run_as_non_root, read_only_rootfs, cap_drop_json, risk,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       workspaceId,
@@ -85,6 +91,10 @@ export function upsertSkillServiceCatalogSync(input: UpsertSkillServiceCatalogIn
       input.externalDependenciesJson ?? "[]",
       input.rollbackClass ?? "stateless",
       input.templateDigest ?? "",
+      input.sbomDigest ?? null,
+      input.runAsNonRoot ?? false,
+      input.readOnlyRootfs ?? true,
+      input.capDropJson ?? JSON.stringify(["ALL"]),
       input.risk ?? "high",
       now,
       now,
@@ -339,6 +349,10 @@ function mapSkillServiceCatalogRecord(value: Record<string, unknown>): StoredSki
     externalDependenciesJson: value.externalDependenciesJson,
     rollbackClass: value.rollbackClass,
     templateDigest: value.templateDigest,
+    sbomDigest: readOptionalString(value.sbomDigest),
+    runAsNonRoot: value.runAsNonRoot === true,
+    readOnlyRootfs: value.readOnlyRootfs !== false,
+    capDropJson: typeof value.capDropJson === "string" ? value.capDropJson : JSON.stringify(["ALL"]),
     risk: value.risk,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,

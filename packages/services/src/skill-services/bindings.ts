@@ -43,8 +43,20 @@ export function resolveClaimedManagedSkillServiceOperation(
       networkJson: catalog.networkJson,
       healthJson: catalog.healthJson,
       resourcesJson: catalog.resourcesJson,
+      runAsNonRoot: catalog.runAsNonRoot,
+      readOnlyRootfs: catalog.readOnlyRootfs,
+      capDrop: parseCapDropJson(catalog.capDropJson),
     },
   };
+}
+
+function parseCapDropJson(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : ["ALL"];
+  } catch {
+    return ["ALL"];
+  }
 }
 
 /**

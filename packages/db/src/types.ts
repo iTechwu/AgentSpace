@@ -1535,6 +1535,10 @@ export interface StoredSkillServiceCatalogRecord {
   externalDependenciesJson: string;
   rollbackClass: string;
   templateDigest: string;
+  sbomDigest?: string;
+  runAsNonRoot: boolean;
+  readOnlyRootfs: boolean;
+  capDropJson: string;
   risk: string;
   createdAt: string;
   updatedAt: string;

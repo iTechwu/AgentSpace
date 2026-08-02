@@ -16,6 +16,18 @@ const ROLLBACK_CLASSES = new Set(["stateless", "backward_compatible", "irreversi
 
 const DEPLOYMENT_TYPES = new Set(["external_connection", "managed_service", "platform_shared"]);
 
+/** Types that run a real container image — these carry an SBOM. */
+const IMAGE_TEMPLATE_TYPES = new Set(["managed_service", "platform_shared"]);
+
+/** Docker capability names (upper snake); an empty array means "drop nothing extra". */
+const CAP_DROP_PATTERN = /^[A-Z][A-Z0-9_]*$/;
+
+/** Environment-variable-like secret field names (e.g. RENDER_LICENSE). */
+const SECRET_FIELD_PATTERN = /^[A-Z][A-Z0-9_]*$/;
+
+/** Egress allow-list entries: a host or host:port or URL, no spaces/controls. */
+const EGRESS_ENTRY_PATTERN = /^[^\s]{1,253}$/;
+
 /**
  * Data-store kinds a template may only REFERENCE (centrally managed), never
  * create. The catalog template itself carries no image/volume/init-job fields
@@ -31,9 +43,16 @@ export interface SkillServiceCatalogAdmissionInput {
   deploymentType: string;
   imageDigest: string;
   templateDigest?: string;
+  sbomDigest?: string;
   rollbackClass?: string;
   networkJson?: string;
+  healthJson?: string;
+  resourcesJson?: string;
+  secretFieldsJson?: string;
   externalDependenciesJson?: string;
+  runAsNonRoot?: boolean;
+  readOnlyRootfs?: boolean;
+  capDrop?: string[];
 }
 
 export type AdmissionResult = { ok: true } | { ok: false; reason: string };
@@ -67,12 +86,86 @@ export function assertSkillServiceCatalogAdmissionSync(
     return { ok: false, reason: "templateDigest is required for an immutable template." };
   }
 
+  // Images that actually run a container must ship an SBOM so vulnerability/
+  // license posture is part of the immutable template (05-运维 §准入检查).
+  if (IMAGE_TEMPLATE_TYPES.has(input.deploymentType)) {
+    if (!input.sbomDigest?.trim() || !IMAGE_DIGEST_PATTERN.test(input.sbomDigest.trim().toLowerCase())) {
+      return {
+        ok: false,
+        reason: `managed_service/platform_shared templates must declare a digest-locked sbomDigest (sha256:<64 hex>), got "${input.sbomDigest ?? ""}".`,
+      };
+    }
+  } else if (input.sbomDigest?.trim()) {
+    // external_connection has no image; an SBOM is meaningless but harmless.
+  }
+
+  if (input.runAsNonRoot !== undefined && typeof input.runAsNonRoot !== "boolean") {
+    return { ok: false, reason: "runAsNonRoot must be a boolean." };
+  }
+  if (input.readOnlyRootfs !== undefined && typeof input.readOnlyRootfs !== "boolean") {
+    return { ok: false, reason: "readOnlyRootfs must be a boolean." };
+  }
+  if (input.capDrop !== undefined) {
+    if (!Array.isArray(input.capDrop)) {
+      return { ok: false, reason: "capDrop must be an array of Docker capability names." };
+    }
+    for (const cap of input.capDrop) {
+      if (typeof cap !== "string" || !CAP_DROP_PATTERN.test(cap)) {
+        return { ok: false, reason: `Invalid capDrop entry "${String(cap)}"; expected an upper-snake Docker capability name.` };
+      }
+    }
+  }
+
   const network = parseJsonObject(input.networkJson, "networkJson");
   if (!network.ok) {
     return network;
   }
   if (network.value && !Array.isArray(network.value.egressAllowlist)) {
     return { ok: false, reason: "networkJson must contain an egressAllowlist array." };
+  }
+  for (const entry of (network.value?.egressAllowlist as unknown[]) ?? []) {
+    if (typeof entry !== "string" || !EGRESS_ENTRY_PATTERN.test(entry)) {
+      return { ok: false, reason: `Invalid egressAllowlist entry "${String(entry)}"; expected a host, host:port or URL.` };
+    }
+  }
+
+  const health = parseJsonObject(input.healthJson, "healthJson");
+  if (!health.ok) {
+    return health;
+  }
+  if (health.value && Object.keys(health.value).length > 0) {
+    const hasPath = typeof health.value.path === "string" && health.value.path.startsWith("/");
+    const hasCmd = typeof health.value.cmd === "string" && health.value.cmd.length > 0;
+    if (!hasPath && !hasCmd) {
+      return { ok: false, reason: "healthJson must declare a \"/...\" path or a non-empty cmd string." };
+    }
+    if (health.value.port !== undefined && typeof health.value.port !== "number") {
+      return { ok: false, reason: "healthJson.port must be a number when present." };
+    }
+  }
+
+  const resources = parseJsonObject(input.resourcesJson, "resourcesJson");
+  if (!resources.ok) {
+    return resources;
+  }
+  for (const key of ["memory", "cpu", "memorySwap"] as const) {
+    const value = resources.value?.[key];
+    if (value !== undefined && typeof value !== "string" && typeof value !== "number") {
+      return { ok: false, reason: `resourcesJson.${key} must be a string or number.` };
+    }
+  }
+
+  const secrets = parseJsonArray(input.secretFieldsJson, "secretFieldsJson");
+  if (!secrets.ok) {
+    return secrets;
+  }
+  for (const secret of secrets.value ?? []) {
+    if (typeof secret !== "string" || !SECRET_FIELD_PATTERN.test(secret)) {
+      return {
+        ok: false,
+        reason: `secretFieldsJson entries must be env-var names (e.g. RENDER_LICENSE), got "${String(secret)}".`,
+      };
+    }
   }
 
   const deps = parseJsonArray(input.externalDependenciesJson, "externalDependenciesJson");
@@ -116,8 +209,15 @@ export function createSkillServiceCatalogEntrySync(
     imageDigest: input.imageDigest.trim().toLowerCase(),
     rollbackClass: input.rollbackClass,
     networkJson: input.networkJson,
+    healthJson: input.healthJson,
+    resourcesJson: input.resourcesJson,
+    secretFieldsJson: input.secretFieldsJson,
     externalDependenciesJson: input.externalDependenciesJson,
     templateDigest: input.templateDigest,
+    sbomDigest: input.sbomDigest?.trim().toLowerCase(),
+    runAsNonRoot: input.runAsNonRoot,
+    readOnlyRootfs: input.readOnlyRootfs,
+    capDropJson: input.capDrop ? JSON.stringify(input.capDrop) : undefined,
   });
 }
 
