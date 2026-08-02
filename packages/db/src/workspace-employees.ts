@@ -172,9 +172,23 @@ export function deleteStoredEmployeeSync(employeeName: string, workspaceId = DEF
 export function replaceStoredEmployeesSync(employees: ActiveEmployee[], workspaceId = DEFAULT_WORKSPACE_ID): void {
   const db = getDatabase();
   withTransaction(db, () => {
-    db.prepare("DELETE FROM workspace_employee WHERE workspace_id = ?").run(workspaceId);
+    const nextNames = employees.map((employee) => employee.name);
+    if (nextNames.length === 0) {
+      db.prepare("DELETE FROM workspace_employee WHERE workspace_id = ?").run(workspaceId);
+      return;
+    }
+
+    // Only delete employees that were actually removed from state. A blanket
+    // delete-then-reinsert cascades through workspace_employee(id) foreign keys
+    // and silently wipes employee_runtime_binding, agent_skill, persistent
+    // workspaces, recovery operations, and more on every state write.
+    db.prepare(
+      `DELETE FROM workspace_employee
+       WHERE workspace_id = ?
+         AND name NOT IN (${nextNames.map(() => "?").join(", ")})`,
+    ).run(workspaceId, ...nextNames);
     for (const employee of employees) {
-      createStoredEmployeeSync(employee, workspaceId);
+      updateStoredEmployeeSync(employee.name, employee, workspaceId) ?? createStoredEmployeeSync(employee, workspaceId);
     }
   });
 }
