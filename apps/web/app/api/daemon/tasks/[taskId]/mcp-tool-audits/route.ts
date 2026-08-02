@@ -85,7 +85,7 @@ export async function POST(
         safeSummary: audit.safeSummary?.slice(0, 1000),
         eventId: audit.eventId,
         actorType: "agent",
-        actorId: task.agentId,
+        actorId: task.employeeId,
         runtimeId: task.runtimeId,
       });
     }

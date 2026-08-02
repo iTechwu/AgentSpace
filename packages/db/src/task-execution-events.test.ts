@@ -95,7 +95,7 @@ test("records lifecycle, tool, message, and artifact execution events", () => {
     "completed",
   ]);
   assert.equal(events[0]?.channelName, "general");
-  assert.equal(events[0]?.agentId, "Atlas");
+  assert.equal(events[0]?.agentId, "emp-atlas");
   const attachmentEvent = events.find((event) => event.title.includes("launch-plan.md"));
   assert.ok(attachmentEvent);
   const data = JSON.parse(attachmentEvent.dataJson) as { artifactKind?: string; targetHref?: string };

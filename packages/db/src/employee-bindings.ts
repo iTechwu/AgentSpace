@@ -236,9 +236,9 @@ export function deleteEmployeeExecutionStateSync(
     const queueResult = db
       .prepare(
         `DELETE FROM agent_task_queue
-         WHERE workspace_id = ? AND agent_id = ?`,
+         WHERE workspace_id = ? AND (employee_id = ? OR (employee_id IS NULL AND agent_id = ?))`,
       )
-      .run(workspaceId, normalizedEmployeeName);
+      .run(workspaceId, employeeId, normalizedEmployeeName);
     removedQueuedTasks = Number(queueResult.changes);
   });
 

@@ -13,6 +13,7 @@ import {
   enqueueNativeTaskSync,
   failQueuedTaskSync,
   getDatabase,
+  listTaskExecutionEventsSync,
   markTaskCommittedSync,
   readMcpTaskSessionGrantSync,
   registerDaemonRuntimesSync,
@@ -56,7 +57,7 @@ function seedTestEmployees(): void {
     db.prepare(
       `INSERT INTO workspace_employee (id, workspace_id, name, role, origin, summary, fit, status, instructions, created_at, updated_at)
        VALUES (?, 'default', ?, 'Agent', 'manual', ?, 'Ready', 'active', '', ?, ?)
-       ON CONFLICT (workspace_id, name) DO NOTHING`,
+       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at`,
     ).run(`emp-${name.toLowerCase()}`, name, `${name} test employee`, now, now);
   }
 }
@@ -122,6 +123,38 @@ test("completeQueuedTaskSync still allows legacy completion from running for com
 
   const completed = completeQueuedTaskSync({ taskId: queued.id });
   assert.equal(completed.status, "completed");
+});
+
+test("queued task identity survives employee rename through employeeId", () => {
+  const runtimeId = createRuntimeAndBinding();
+  const queued = enqueueNativeTaskSync({
+    assignee: "Atlas",
+    title: "Rename-safe task",
+    channel: "general",
+    priority: "high",
+  });
+  assert.ok(queued);
+  assert.equal(queued.employeeId, "emp-atlas");
+  assert.equal(queued.employeeName, "Atlas");
+  assert.equal(queued.agentId, "Atlas", "legacy display-name field remains compatible");
+
+  getDatabase().prepare(
+    `UPDATE workspace_employee SET name = 'Atlas Renamed', updated_at = ?
+      WHERE workspace_id = 'default' AND id = 'emp-atlas'`,
+  ).run(new Date().toISOString());
+
+  const claimed = claimNextQueuedTaskForRuntimeSync(runtimeId);
+  assert.equal(claimed?.id, queued.id);
+  assert.equal(claimed?.employeeId, "emp-atlas");
+  assert.equal(claimed?.bindingGeneration, 1);
+  assert.equal(
+    getDatabase().prepare(`SELECT agent_id AS "agentId" FROM agent_router_session WHERE id = ?`).get(queued.routerSessionId)?.agentId,
+    "emp-atlas",
+  );
+  assert.ok(
+    listTaskExecutionEventsSync({ workspaceId: "default", taskId: queued.id })
+      .every((event) => event.agentId === "emp-atlas"),
+  );
 });
 
 test("cancelQueuedTaskSync removes the MCP session grant from the task workspace", () => {

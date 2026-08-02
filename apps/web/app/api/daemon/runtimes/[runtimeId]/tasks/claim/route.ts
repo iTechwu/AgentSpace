@@ -28,7 +28,7 @@ export async function POST(
     task: {
       id: task.id,
       workspaceId: task.workspaceId,
-      agentId: task.agentId,
+      agentId: task.employeeId,
       runtimeId: task.runtimeId,
       routerSessionId: task.routerSessionId,
       triggerType: task.triggerType,

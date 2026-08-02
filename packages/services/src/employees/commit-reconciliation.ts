@@ -95,7 +95,7 @@ export function reconcileStaleCommitJournalsSync(
       const promoted = promoteTaskOutputsToWorkspaceSync({
         workspaceId: task.workspaceId,
         taskId: task.id,
-        employeeName: task.agentId,
+        employeeName: task.employeeName,
         outputs: derived.outputs,
         deletedPaths: derived.deletedPaths,
         publishArtifacts: true,
@@ -103,7 +103,7 @@ export function reconcileStaleCommitJournalsSync(
       });
       markTaskCommittedSync({
         taskId: task.id,
-        employeeName: task.agentId,
+        employeeName: task.employeeName,
         workspaceRevisionId: promoted.revision.id,
         artifactIds: promoted.artifactIds,
       });

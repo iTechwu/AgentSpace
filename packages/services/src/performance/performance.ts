@@ -33,34 +33,36 @@ export function getPerformanceDashboardDataSync(workspaceId?: string): Performan
 
   const tasksByAgent = new Map<string, QueuedTaskRecord[]>();
   for (const task of queuedTasks) {
-    const list = tasksByAgent.get(task.agentId) ?? [];
+    const list = tasksByAgent.get(task.employeeId) ?? [];
     list.push(task);
-    tasksByAgent.set(task.agentId, list);
+    tasksByAgent.set(task.employeeId, list);
   }
 
+  const employeeIdByName = new Map(state.activeEmployees.map((employee) => [employee.name, employee.id]));
   const approvalsByAgent = new Map<string, { approved: number; rejected: number }>();
   for (const approval of state.approvals ?? []) {
-    const entry = approvalsByAgent.get(approval.agentId) ?? { approved: 0, rejected: 0 };
+    const approvalEmployeeId = employeeIdByName.get(approval.agentId) ?? approval.agentId;
+    const entry = approvalsByAgent.get(approvalEmployeeId) ?? { approved: 0, rejected: 0 };
     if (approval.status === "approved") {
       entry.approved += 1;
     } else if (approval.status === "rejected") {
       entry.rejected += 1;
     }
-    approvalsByAgent.set(approval.agentId, entry);
+    approvalsByAgent.set(approvalEmployeeId, entry);
   }
 
   const employeeEntries: Array<[string, ActiveEmployee]> = state.activeEmployees.map((employee: ActiveEmployee) => [
-    employee.name,
+    employee.id,
     employee,
   ]);
   const employeeIndex = new Map<string, ActiveEmployee>(employeeEntries);
 
   const agentIds = new Set<string>();
   for (const task of queuedTasks) {
-    agentIds.add(task.agentId);
+    agentIds.add(task.employeeId);
   }
   for (const employee of state.activeEmployees) {
-    agentIds.add(employee.name);
+    agentIds.add(employee.id);
   }
 
   const agents: AgentPerformanceMetrics[] = Array.from(agentIds)
@@ -76,7 +78,7 @@ export function getPerformanceDashboardDataSync(workspaceId?: string): Performan
 
       return {
         agentId,
-        displayName: employee?.remarkName?.trim() || agentId,
+        displayName: employee?.remarkName?.trim() || employee?.name || agentId,
         totalTasks: total,
         completedTasks: completed,
         failedTasks: failed,

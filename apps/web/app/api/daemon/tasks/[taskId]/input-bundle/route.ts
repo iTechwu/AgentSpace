@@ -201,7 +201,7 @@ export async function GET(
               {
                 taskId: task.id,
                 runtimeId: runtime.id,
-                agentId: task.agentId,
+                agentId: task.employeeId,
                 triggerType: task.triggerType,
                 payload: prepared.payload,
               },
@@ -211,7 +211,7 @@ export async function GET(
         ),
         ...collectBundleFiles(tempDir),
       ],
-      workspace: readWorkspaceInputManifest(task.agentId, auth.workspaceId),
+      workspace: readWorkspaceInputManifest(task.employeeId, auth.workspaceId),
     };
 
     assertDaemonInputBundleBudget(bundle.files);

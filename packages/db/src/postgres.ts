@@ -666,6 +666,18 @@ function backfillStableEmployeeIds(tables: TableMigrationSnapshot[], warnings: s
       return true;
     });
   }
+
+  const taskQueue = tables.find((candidate) => candidate.tableName === "agent_task_queue");
+  if (taskQueue) {
+    for (const row of taskQueue.rows) {
+      const workspaceId = typeof row.workspace_id === "string" ? row.workspace_id : "";
+      const legacyAgentId = typeof row.agent_id === "string" ? row.agent_id.trim() : "";
+      const employeeId = employeeIds.get(`${workspaceId}\u0000${legacyAgentId.toLowerCase()}`) ?? legacyAgentId;
+      if (employeeId) row.employee_id = employeeId;
+      const employee = employeeRows.find((candidate) => candidate.id === employeeId && candidate.workspace_id === workspaceId);
+      if (typeof employee?.name === "string") row.employee_name = employee.name;
+    }
+  }
 }
 
 async function collectPostgresMigrationSnapshot(client: Client): Promise<TableMigrationSnapshot[]> {

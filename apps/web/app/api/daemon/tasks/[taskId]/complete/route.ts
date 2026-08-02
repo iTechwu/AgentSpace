@@ -157,7 +157,7 @@ export async function POST(
         usages,
         workspaceId: task.workspaceId,
         taskId: task.id,
-        agentId: task.agentId,
+        agentId: task.employeeId,
         routerSessionId: task.routerSessionId,
         runtimeCredentialId: runtime.managedCredentialId,
         onError: (error) => {

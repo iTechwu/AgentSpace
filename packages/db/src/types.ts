@@ -1219,6 +1219,11 @@ export type TaskExecutionEventStatus = "pending" | "running" | "succeeded" | "fa
 export interface QueuedTaskRecord {
   id: string;
   workspaceId: string;
+  /** Stable employee identity used for authorization, attribution and fencing. */
+  employeeId: string;
+  /** Display-name snapshot captured when the task was queued. */
+  employeeName: string;
+  /** @deprecated Legacy display-name field. Use employeeId for identity. */
   agentId: string;
   runtimeId: string;
   routerSessionId?: string;

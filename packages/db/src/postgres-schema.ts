@@ -1087,6 +1087,8 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE TABLE IF NOT EXISTS agent_skill (
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         agent_id TEXT NOT NULL,
+        employee_id TEXT,
+        employee_name TEXT,
         employee_id TEXT NOT NULL REFERENCES workspace_employee(id) ON DELETE CASCADE,
         employee_name TEXT NOT NULL,
         skill_id TEXT NOT NULL REFERENCES skill(id) ON DELETE CASCADE,
@@ -1196,6 +1198,25 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `
       ALTER TABLE agent_task_queue ADD COLUMN IF NOT EXISTS binding_generation INTEGER
+    `,
+    `
+      ALTER TABLE agent_task_queue ADD COLUMN IF NOT EXISTS employee_id TEXT
+    `,
+    `
+      ALTER TABLE agent_task_queue ADD COLUMN IF NOT EXISTS employee_name TEXT
+    `,
+    `
+      UPDATE agent_task_queue queue
+         SET employee_id = employee.id,
+             employee_name = COALESCE(queue.employee_name, employee.name)
+        FROM workspace_employee employee
+       WHERE queue.workspace_id = employee.workspace_id
+         AND queue.employee_id IS NULL
+         AND (queue.agent_id = employee.id OR LOWER(queue.agent_id) = LOWER(employee.name))
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_agent_task_queue_employee
+        ON agent_task_queue(workspace_id, employee_id, created_at DESC)
     `,
     `
       CREATE TABLE IF NOT EXISTS external_thread_binding (

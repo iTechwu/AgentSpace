@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readWorkspaceRevisionSync, resolveStoredEmployeeIdSync } from "@dofe-agent/db";
+import { readWorkspaceRevisionSync } from "@dofe-agent/db";
 import { createAttachmentStorageClient } from "@dofe-agent/services";
 import { readTaskForDaemon, requireDaemonAuth } from "../../../../_lib/auth";
 
@@ -55,7 +55,7 @@ export async function GET(
   }
   const revisionId = new URL(request.url).searchParams.get("revisionId")?.trim() ?? "";
   const revision = revisionId ? readWorkspaceRevisionSync(revisionId, auth.workspaceId) : null;
-  const taskEmployeeId = resolveStoredEmployeeIdSync(task.agentId, auth.workspaceId) ?? task.agentId;
+  const taskEmployeeId = task.employeeId;
   const entry = revision?.employeeId === taskEmployeeId && revision.status === "committed"
     ? readManifestEntry(revision.manifestJson, sha256)
     : undefined;

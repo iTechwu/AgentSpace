@@ -51,7 +51,7 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
   const routerSession = resolveRouterSessionForTaskSync({
     id: queueId,
     workspaceId,
-    agentId: input.assignee,
+    agentId: binding.employeeId,
     triggerType: input.triggerType ?? "manual",
     inputJson: JSON.stringify(payload),
     issueId: input.taskId,
@@ -62,6 +62,8 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
       id,
       workspace_id,
       agent_id,
+      employee_id,
+      employee_name,
       runtime_id,
       router_session_id,
       issue_id,
@@ -74,11 +76,13 @@ export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord
       queued_at,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)`,
   ).run(
     queueId,
     workspaceId,
     input.assignee,
+    binding.employeeId,
+    binding.employeeName,
     binding.runtimeId,
     routerSession.id,
     input.taskId ?? null,
@@ -142,6 +146,8 @@ export function listQueuedTasksSync(options?: {
       `SELECT
         id,
         workspace_id AS workspaceId,
+        COALESCE(employee_id, agent_id) AS employeeId,
+        COALESCE(employee_name, agent_id) AS employeeName,
         agent_id AS agentId,
         runtime_id AS runtimeId,
         router_session_id AS routerSessionId,
@@ -191,9 +197,10 @@ export function readLatestConversationExecutionSync(
   },
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): QueuedTaskRecord | null {
+  const employeeId = readEmployeeRuntimeBindingSync(agentId, workspaceId)?.employeeId ?? agentId;
   return (
     listQueuedTasksSync({ workspaceId })
-      .filter((task) => task.agentId === agentId)
+      .filter((task) => task.employeeId === employeeId || task.agentId === agentId)
       .filter((task) => {
         try {
           const payload = JSON.parse(task.inputJson) as Record<string, unknown>;
@@ -222,6 +229,8 @@ export function readQueuedTaskSync(taskId: string): QueuedTaskRecord | null {
       `SELECT
         id,
         workspace_id AS workspaceId,
+        COALESCE(employee_id, agent_id) AS employeeId,
+        COALESCE(employee_name, agent_id) AS employeeName,
         agent_id AS agentId,
         runtime_id AS runtimeId,
         router_session_id AS routerSessionId,
@@ -315,9 +324,9 @@ export function claimNextQueuedTaskForRuntimeSync(runtimeId: string, workspaceId
     const row = selectQueuedTaskForRuntime(db, runtimeId, workspaceId);
 
     if (row && typeof row.id === "string") {
-      const agentId = typeof row.agentId === "string" ? row.agentId : "";
+      const employeeId = typeof row.employeeId === "string" ? row.employeeId : "";
       const taskWorkspaceId = typeof row.workspaceId === "string" ? row.workspaceId : (workspaceId ?? DEFAULT_WORKSPACE_ID);
-      const bindingGeneration = agentId ? readEmployeeBindingGenerationSync(agentId, taskWorkspaceId) : undefined;
+      const bindingGeneration = employeeId ? readEmployeeBindingGenerationSync(employeeId, taskWorkspaceId) : undefined;
       db.prepare(
         `UPDATE agent_task_queue
          SET status = 'claimed',
@@ -605,7 +614,7 @@ function completeQueuedTaskInternalSync(
       attemptId: attempt?.id,
       type: "final_answer",
       actorType: "agent",
-      actorId: task.agentId,
+      actorId: task.employeeId,
       runtimeId: task.runtimeId,
       provider: runtime?.provider,
       summary: readResultSummary(input.resultJson),
@@ -1008,12 +1017,16 @@ function selectQueuedTaskForRuntime(
 ): Record<string, unknown> | undefined {
   return db
     .prepare(
-      `SELECT queue.id, queue.agent_id AS agentId, queue.workspace_id AS workspaceId
+      `SELECT queue.id, COALESCE(queue.employee_id, queue.agent_id) AS employeeId,
+              queue.agent_id AS agentId, queue.workspace_id AS workspaceId
        FROM agent_task_queue queue
        JOIN agent_runtime runtime ON runtime.id = queue.runtime_id
        JOIN employee_runtime_binding binding
          ON binding.workspace_id = queue.workspace_id
-         AND binding.employee_name = queue.agent_id
+         AND (
+           binding.employee_id = queue.employee_id
+           OR (queue.employee_id IS NULL AND (binding.employee_id = queue.agent_id OR binding.employee_name = queue.agent_id))
+         )
          AND binding.runtime_id = queue.runtime_id
        WHERE queue.runtime_id = ? AND queue.status = 'queued'
          AND (runtime.managed_credential_id IS NULL OR runtime.provisioning_state = 'managed')
@@ -1217,6 +1230,8 @@ function mapQueuedTaskRecord(value: Record<string, unknown>): QueuedTaskRecord |
   if (
     typeof value.id !== "string" ||
     typeof value.workspaceId !== "string" ||
+    typeof value.employeeId !== "string" ||
+    typeof value.employeeName !== "string" ||
     typeof value.agentId !== "string" ||
     typeof value.runtimeId !== "string" ||
     typeof value.triggerType !== "string" ||
@@ -1233,6 +1248,8 @@ function mapQueuedTaskRecord(value: Record<string, unknown>): QueuedTaskRecord |
   return {
     id: value.id,
     workspaceId: value.workspaceId,
+    employeeId: value.employeeId,
+    employeeName: value.employeeName,
     agentId: value.agentId,
     runtimeId: value.runtimeId,
     routerSessionId: typeof value.routerSessionId === "string" ? value.routerSessionId : undefined,

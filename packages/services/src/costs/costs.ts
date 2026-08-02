@@ -95,9 +95,12 @@ export function getCostDashboardDataSync(
 ): CostDashboardData {
   const since = period === "monthly" ? getMonthStartIso() : undefined;
   const state = readWorkspaceStateSync(workspaceId);
-  const employeeIndex = new Map<string, string>(
-    state.activeEmployees.map((e: ActiveEmployee) => [e.name, e.remarkName?.trim() ?? e.name]),
-  );
+  const employeeIndex = new Map<string, string>();
+  for (const employee of state.activeEmployees) {
+    const displayName = employee.remarkName?.trim() ?? employee.name;
+    employeeIndex.set(employee.id, displayName);
+    employeeIndex.set(employee.name, displayName);
+  }
 
   const summaries = getWorkspaceCostSummarySync(since, workspaceId);
   const recentUsage = listTokenUsageSync({ since, workspaceId }).slice(0, 50);

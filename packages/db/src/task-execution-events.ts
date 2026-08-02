@@ -166,7 +166,7 @@ export function buildTaskExecutionEventContext(task: QueuedTaskRecord): TaskExec
     workspaceId: task.workspaceId,
     taskId: task.id,
     channelName,
-    agentId: readFirstString(payload, ["assignee"]) ?? task.agentId,
+    agentId: task.employeeId,
     runtimeId: task.runtimeId,
     runId: task.sessionId,
     taskTitle: readFirstString(payload, ["title", "taskTitle"]),

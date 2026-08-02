@@ -275,6 +275,12 @@ function createTestWorkspace(prefix: string): ReturnType<typeof createWorkspaceS
 
 function seedWorkspaceRuntime(prefix: string): { workspaceId: string; runtimeId: string } {
   const workspace = createTestWorkspace(prefix);
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO workspace_employee (
+       id, workspace_id, name, role, origin, summary, fit, status, instructions, created_at, updated_at
+     ) VALUES (?, ?, 'Atlas', 'Agent', 'manual', 'Router test employee', 'Ready', 'active', '', ?, ?)`,
+  ).run(`emp-${workspace.id}`, workspace.id, now, now);
   const runtime = registerDaemonRuntimesSync({
     workspaceId: workspace.id,
     daemonKey: `${workspace.id}-daemon`,

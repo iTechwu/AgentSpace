@@ -62,10 +62,12 @@ export function readStoredEmployeeByIdSync(employeeId: string, workspaceId = DEF
 }
 
 export function resolveStoredEmployeeIdSync(
-  employeeName: string,
+  employeeNameOrId: string,
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): string | null {
-  const employee = readStoredEmployeeSync(employeeName, workspaceId);
+  const normalized = employeeNameOrId.trim();
+  const employee = readStoredEmployeeByIdSync(normalized, workspaceId)
+    ?? readStoredEmployeeSync(normalized, workspaceId);
   return employee?.id ?? null;
 }
 

@@ -1092,6 +1092,7 @@ describe("daemon API routes", () => {
 
     expect(claimResponse.status).toBe(200);
     expect(claimPayload.task.id).toBe(queued?.id);
+    expect(claimPayload.task.agentId).toBe(queued?.employeeId);
 
     const bundleResponse = await inputBundleGET(
       new Request(`http://localhost/api/daemon/tasks/${queued?.id}/input-bundle`, {
