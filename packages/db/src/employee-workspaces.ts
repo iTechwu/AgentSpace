@@ -501,6 +501,38 @@ function mapArtifactRecord(value: Record<string, unknown>): EmployeeArtifactReco
   };
 }
 
+export function deleteEmployeeDurabilityRecordsSync(
+  employeeName: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): void {
+  const db = getDatabase();
+  const normalized = employeeName.trim();
+  if (!normalized) {
+    throw new Error("Employee name is required.");
+  }
+
+  // Persistent workspace rows cascade to revisions and artifacts via FK.
+  db.prepare(
+    `DELETE FROM employee_persistent_workspace
+     WHERE workspace_id = ? AND employee_name = ?`,
+  ).run(workspaceId, normalized);
+
+  db.prepare(
+    `DELETE FROM employee_runtime_binding
+     WHERE workspace_id = ? AND employee_name = ?`,
+  ).run(workspaceId, normalized);
+
+  db.prepare(
+    `DELETE FROM employee_recovery_operation
+     WHERE workspace_id = ? AND employee_name = ?`,
+  ).run(workspaceId, normalized);
+
+  db.prepare(
+    `DELETE FROM task_commit_journal
+     WHERE workspace_id = ? AND employee_name = ?`,
+  ).run(workspaceId, normalized);
+}
+
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }

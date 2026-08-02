@@ -7,9 +7,10 @@ import type {
 } from "@dofe-agent/domain";
 import {
   computeArtifactDigest,
+  resolveAttachmentRuntimeConfig,
+  type AttachmentRuntimeConfig,
   type SkillArtifactManifest,
 } from "@dofe-agent/services";
-import { resolveAttachmentRuntimeConfig } from "@dofe-agent/services";
 
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024;
@@ -39,6 +40,10 @@ export class SkillMaterializationError extends Error {
   }
 }
 
+export interface MaterializeOptions {
+  resolveAttachmentRuntimeConfig?: () => AttachmentRuntimeConfig;
+}
+
 /**
  * Downloads/decodes an artifact file from the claim payload and writes it into
  * `targetDir` while preserving the executable bit and verifying per-file sha256.
@@ -51,6 +56,7 @@ export class SkillMaterializationError extends Error {
 export async function materializeSkillInstallationArtifact(
   operation: ClaimedSkillInstallationOperation,
   targetDir: string,
+  options?: MaterializeOptions,
 ): Promise<MaterializeResult> {
   mkdirSync(targetDir, { recursive: true });
 
@@ -60,7 +66,7 @@ export async function materializeSkillInstallationArtifact(
 
   for (const file of operation.files) {
     try {
-      const bytes = await fetchFileBytes(file, operation.workspaceId);
+      const bytes = await fetchFileBytes(file, operation.workspaceId, options);
       const actualSha256 = sha256Hex(bytes);
       if (actualSha256 !== file.sha256.toLowerCase()) {
         throw new SkillMaterializationError(
@@ -113,12 +119,16 @@ export async function materializeSkillInstallationArtifact(
   };
 }
 
-async function fetchFileBytes(file: SkillInstallationOperationFile, workspaceId: string): Promise<Uint8Array> {
+async function fetchFileBytes(
+  file: SkillInstallationOperationFile,
+  workspaceId: string,
+  options?: MaterializeOptions,
+): Promise<Uint8Array> {
   if (file.downloadUrl) {
     return downloadWithTimeout(file.downloadUrl, file.size);
   }
   if (file.storedPath?.startsWith("local:///")) {
-    return readLocalBlobBytes(file.storedPath, workspaceId);
+    return readLocalBlobBytes(file.storedPath, workspaceId, options);
   }
   if (file.storedPath?.startsWith("tos://")) {
     throw new SkillMaterializationError(
@@ -154,8 +164,14 @@ async function downloadWithTimeout(url: string, expectedSize: number): Promise<U
   }
 }
 
-function readLocalBlobBytes(storedPath: string, workspaceId: string): Uint8Array {
-  const config = resolveAttachmentRuntimeConfig();
+function readLocalBlobBytes(
+  storedPath: string,
+  _workspaceId: string,
+  options?: MaterializeOptions,
+): Uint8Array {
+  const config = options?.resolveAttachmentRuntimeConfig
+    ? options.resolveAttachmentRuntimeConfig()
+    : resolveAttachmentRuntimeConfig();
   if (config.provider !== "local") {
     throw new Error("Local blob fallback requested but attachment runtime config is not local");
   }

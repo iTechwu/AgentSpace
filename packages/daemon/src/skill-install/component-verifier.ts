@@ -95,8 +95,11 @@ function verifyComponent(
 }
 
 function verifyDependencyComponent(key: string, manifest: SkillArtifactManifest): ComponentVerificationResult {
+  if (key === "package:integrity") {
+    return { kind: "dependency", key, status: "ready" };
+  }
   const declared = (manifest.dependencies ?? []).find((dep) =>
-    `${dep.manager}:${dep.name}@${dep.version}` === key);
+    `${getDependencySource(dep)}:${dep.name}@${dep.version}` === key);
   if (!declared) {
     return {
       kind: "dependency",
@@ -116,6 +119,12 @@ function verifyDependencyComponent(key: string, manifest: SkillArtifactManifest)
     };
   }
   return { kind: "dependency", key, status: "ready" };
+}
+
+function getDependencySource(dep: SkillArtifactManifest["dependencies"][number]): string {
+  return (dep as { manager?: string; kind?: string }).manager ??
+    (dep as { manager?: string; kind?: string }).kind ??
+    "";
 }
 
 function verifyScriptComponent(

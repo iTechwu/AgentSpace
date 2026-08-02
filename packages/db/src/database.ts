@@ -218,6 +218,8 @@ const NORMALIZED_ROW_KEY_ALIASES = new Map([
   ["lasterror", "lastError"],
   ["lastheartbeatat", "lastHeartbeatAt"],
   ["lastcheckedat", "lastCheckedAt"],
+  ["healthcheckconsecutivefailures", "healthCheckConsecutiveFailures"],
+  ["nexthealthcheckat", "nextHealthCheckAt"],
   ["lastloginat", "lastLoginAt"],
   ["lastseenat", "lastSeenAt"],
   ["lastusedat", "lastUsedAt"],

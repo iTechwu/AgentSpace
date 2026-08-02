@@ -207,6 +207,14 @@ export function runBackupRestoreDrillSync(options: {
   const workspaces = listEmployeePersistentWorkspacesSync(workspaceId);
   const employees = options.employeeNames ?? workspaces.slice(0, options.sampleLimit ?? 3).map((w) => w.employeeName);
 
+  if (employees.length === 0) {
+    return {
+      ok: false,
+      checkedAt: new Date().toISOString(),
+      samples: [],
+    };
+  }
+
   const samples: BackupRestoreDrillResult["samples"] = [];
   for (const employeeName of employees) {
     samples.push(sampleEmployeeDrill(employeeName, workspaceId));

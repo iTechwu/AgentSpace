@@ -355,14 +355,18 @@ function resolveSecretsResolvable(
 }
 
 function parseRevisionManifestBlobDigests(manifestJson: string): string[] {
+  let manifest: { files?: Array<{ sha256?: string }> };
   try {
-    const manifest = JSON.parse(manifestJson) as { files?: Array<{ sha256?: string }> };
-    return (manifest.files ?? [])
-      .map((file) => file.sha256)
-      .filter((sha): sha is string => typeof sha === "string" && sha.length > 0);
+    manifest = JSON.parse(manifestJson) as { files?: Array<{ sha256?: string }> };
   } catch {
-    return [];
+    throw new Error("Workspace head manifest JSON is invalid; cannot verify mountable blobs.");
   }
+  if (!Array.isArray(manifest.files)) {
+    throw new Error("Workspace head manifest is missing a files array; cannot verify mountable blobs.");
+  }
+  return manifest.files
+    .map((file) => file.sha256)
+    .filter((sha): sha is string => typeof sha === "string" && sha.length > 0);
 }
 
 function parseRecoveryContext(contextJson: string): { runtimeId?: string } {

@@ -2,6 +2,7 @@ import {
   bindEmployeeRuntimeSync as bindEmployeeRuntimeRecordSync,
   DEFAULT_WORKSPACE_ID,
   createStoredEmployeeSync,
+  deleteEmployeeDurabilityRecordsSync,
   deleteStoredEmployeeSync,
   deleteStoredTasksForAssigneeSync,
   deleteStoredKnowledgeAssignmentsForEmployeeSync,
@@ -209,6 +210,7 @@ export function deleteEmployeeSync(employeeName: string, workspaceId?: string): 
   ).length;
 
   deleteEmployeeExecutionStateSync(employee.name, workspaceId);
+  deleteEmployeeDurabilityRecordsSync(employee.name, workspaceId);
 
   state.activeEmployees = state.activeEmployees.filter((item) => !sameValue(item.name, employee.name));
   state.directConversations = state.directConversations.filter((thread) => !sameValue(thread.contactId, employee.name));

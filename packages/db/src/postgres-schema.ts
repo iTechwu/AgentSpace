@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "61";
+export const POSTGRES_SCHEMA_VERSION = "63";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -815,6 +815,7 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE TABLE IF NOT EXISTS employee_runtime_binding (
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        employee_id TEXT NOT NULL REFERENCES workspace_employee(id) ON DELETE CASCADE,
         employee_name TEXT NOT NULL,
         runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
         created_at TIMESTAMPTZ NOT NULL,
@@ -2640,6 +2641,7 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE TABLE IF NOT EXISTS employee_persistent_workspace (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        employee_id TEXT NOT NULL REFERENCES workspace_employee(id) ON DELETE CASCADE,
         employee_name TEXT NOT NULL,
         head_revision_id TEXT,
         storage_ref TEXT,
@@ -2656,6 +2658,7 @@ export function getPostgresSchemaStatements(): string[] {
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         workspace_id_ref TEXT NOT NULL REFERENCES employee_persistent_workspace(id) ON DELETE CASCADE,
+        employee_id TEXT NOT NULL REFERENCES workspace_employee(id) ON DELETE CASCADE,
         employee_name TEXT NOT NULL,
         parent_revision_id TEXT REFERENCES employee_workspace_revision(id) ON DELETE SET NULL,
         manifest_digest TEXT NOT NULL,
@@ -2672,6 +2675,7 @@ export function getPostgresSchemaStatements(): string[] {
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         workspace_id_ref TEXT NOT NULL REFERENCES employee_persistent_workspace(id) ON DELETE CASCADE,
+        employee_id TEXT NOT NULL REFERENCES workspace_employee(id) ON DELETE CASCADE,
         employee_name TEXT NOT NULL,
         content_digest TEXT NOT NULL,
         media_type TEXT NOT NULL,
@@ -2686,6 +2690,7 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE TABLE IF NOT EXISTS task_commit_journal (
         task_id TEXT NOT NULL REFERENCES agent_task_queue(id) ON DELETE CASCADE,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        employee_id TEXT REFERENCES workspace_employee(id) ON DELETE SET NULL,
         employee_name TEXT,
         workspace_revision_id TEXT,
         artifact_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -2714,6 +2719,7 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE TABLE IF NOT EXISTS employee_recovery_operation (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        employee_id TEXT NOT NULL REFERENCES workspace_employee(id) ON DELETE CASCADE,
         employee_name TEXT NOT NULL,
         from_generation INTEGER,
         to_generation INTEGER NOT NULL,
@@ -2768,8 +2774,31 @@ export function getPostgresSchemaStatements(): string[] {
           AND epw.employee_id IS NULL
     `,
     `
+      DELETE FROM employee_persistent_workspace
+        WHERE employee_id IS NULL
+           OR employee_id NOT IN (SELECT id FROM workspace_employee)
+    `,
+    `
       ALTER TABLE employee_persistent_workspace
         ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      ALTER TABLE employee_persistent_workspace
+        DROP CONSTRAINT IF EXISTS fk_employee_persistent_workspace_employee_id
+    `,
+    `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'fk_employee_persistent_workspace_employee_id'
+            AND conrelid = 'employee_persistent_workspace'::regclass
+        ) THEN
+          ALTER TABLE employee_persistent_workspace
+            ADD CONSTRAINT fk_employee_persistent_workspace_employee_id
+            FOREIGN KEY (employee_id) REFERENCES workspace_employee(id) ON DELETE CASCADE;
+        END IF;
+      END $$
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_employee_persistent_workspace_employee_id
@@ -2788,8 +2817,31 @@ export function getPostgresSchemaStatements(): string[] {
           AND ewr.employee_id IS NULL
     `,
     `
+      DELETE FROM employee_workspace_revision
+        WHERE employee_id IS NULL
+           OR employee_id NOT IN (SELECT id FROM workspace_employee)
+    `,
+    `
       ALTER TABLE employee_workspace_revision
         ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      ALTER TABLE employee_workspace_revision
+        DROP CONSTRAINT IF EXISTS fk_employee_workspace_revision_employee_id
+    `,
+    `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'fk_employee_workspace_revision_employee_id'
+            AND conrelid = 'employee_workspace_revision'::regclass
+        ) THEN
+          ALTER TABLE employee_workspace_revision
+            ADD CONSTRAINT fk_employee_workspace_revision_employee_id
+            FOREIGN KEY (employee_id) REFERENCES workspace_employee(id) ON DELETE CASCADE;
+        END IF;
+      END $$
     `,
     `
       ALTER TABLE employee_artifact
@@ -2804,8 +2856,31 @@ export function getPostgresSchemaStatements(): string[] {
           AND ea.employee_id IS NULL
     `,
     `
+      DELETE FROM employee_artifact
+        WHERE employee_id IS NULL
+           OR employee_id NOT IN (SELECT id FROM workspace_employee)
+    `,
+    `
       ALTER TABLE employee_artifact
         ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      ALTER TABLE employee_artifact
+        DROP CONSTRAINT IF EXISTS fk_employee_artifact_employee_id
+    `,
+    `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'fk_employee_artifact_employee_id'
+            AND conrelid = 'employee_artifact'::regclass
+        ) THEN
+          ALTER TABLE employee_artifact
+            ADD CONSTRAINT fk_employee_artifact_employee_id
+            FOREIGN KEY (employee_id) REFERENCES workspace_employee(id) ON DELETE CASCADE;
+        END IF;
+      END $$
     `,
     `
       ALTER TABLE employee_runtime_binding
@@ -2820,8 +2895,31 @@ export function getPostgresSchemaStatements(): string[] {
           AND erb.employee_id IS NULL
     `,
     `
+      DELETE FROM employee_runtime_binding
+        WHERE employee_id IS NULL
+           OR employee_id NOT IN (SELECT id FROM workspace_employee)
+    `,
+    `
       ALTER TABLE employee_runtime_binding
         ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      ALTER TABLE employee_runtime_binding
+        DROP CONSTRAINT IF EXISTS fk_employee_runtime_binding_employee_id
+    `,
+    `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'fk_employee_runtime_binding_employee_id'
+            AND conrelid = 'employee_runtime_binding'::regclass
+        ) THEN
+          ALTER TABLE employee_runtime_binding
+            ADD CONSTRAINT fk_employee_runtime_binding_employee_id
+            FOREIGN KEY (employee_id) REFERENCES workspace_employee(id) ON DELETE CASCADE;
+        END IF;
+      END $$
     `,
     `
       ALTER TABLE employee_recovery_operation
@@ -2836,8 +2934,31 @@ export function getPostgresSchemaStatements(): string[] {
           AND ero.employee_id IS NULL
     `,
     `
+      DELETE FROM employee_recovery_operation
+        WHERE employee_id IS NULL
+           OR employee_id NOT IN (SELECT id FROM workspace_employee)
+    `,
+    `
       ALTER TABLE employee_recovery_operation
         ALTER COLUMN employee_id SET NOT NULL
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        DROP CONSTRAINT IF EXISTS fk_employee_recovery_operation_employee_id
+    `,
+    `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'fk_employee_recovery_operation_employee_id'
+            AND conrelid = 'employee_recovery_operation'::regclass
+        ) THEN
+          ALTER TABLE employee_recovery_operation
+            ADD CONSTRAINT fk_employee_recovery_operation_employee_id
+            FOREIGN KEY (employee_id) REFERENCES workspace_employee(id) ON DELETE CASCADE;
+        END IF;
+      END $$
     `,
     `
       ALTER TABLE task_commit_journal
@@ -2853,8 +2974,31 @@ export function getPostgresSchemaStatements(): string[] {
           AND tcj.employee_id IS NULL
     `,
     `
+      DELETE FROM task_commit_journal
+        WHERE employee_id IS NOT NULL
+          AND employee_id NOT IN (SELECT id FROM workspace_employee)
+    `,
+    `
       CREATE INDEX IF NOT EXISTS idx_task_commit_journal_employee_id
         ON task_commit_journal(workspace_id, employee_id)
+    `,
+    `
+      ALTER TABLE task_commit_journal
+        DROP CONSTRAINT IF EXISTS fk_task_commit_journal_employee_id
+    `,
+    `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'fk_task_commit_journal_employee_id'
+            AND conrelid = 'task_commit_journal'::regclass
+        ) THEN
+          ALTER TABLE task_commit_journal
+            ADD CONSTRAINT fk_task_commit_journal_employee_id
+            FOREIGN KEY (employee_id) REFERENCES workspace_employee(id) ON DELETE SET NULL;
+        END IF;
+      END $$
     `,
     `
       CREATE TABLE IF NOT EXISTS backup_restore_drill_run (

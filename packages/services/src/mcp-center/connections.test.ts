@@ -7,14 +7,21 @@ import {
   claimNextMcpOperationForRuntimeSync,
   completeMcpOperationSync,
   createUserSync,
+  getDatabase,
+  listMcpOperationsSync,
+  readMcpConnectionSync,
+  recordMcpToolAuditSync,
   registerDaemonRuntimesSync,
   startMcpOperationSync,
 } from "@dofe-agent/db";
-import { getDatabase } from "@dofe-agent/db";
 import { createMcpCatalogItemSync } from "./catalog.ts";
 import {
   claimMcpTaskSessionSync,
+  completeMcpConnectionOperationWithHealthScheduleSync,
+  computeMcpConnectionNextHealthCheckAt,
   disableMcpConnectionSync,
+  failMcpConnectionOperationWithHealthScheduleSync,
+  listMcpConnectionActivitySync,
   listReadyMcpConnectionsForTaskSync,
   readMcpConnectionDetailSync,
   removeMcpConnectionSync,
@@ -22,10 +29,10 @@ import {
   requestMcpConnectionSync,
   resolveClaimedMcpOperationSync,
   rotateMcpSecretSync,
+  scheduleMcpHealthChecksSync,
   updateMcpConnectionConfigServiceSync,
   validateMcpConnectionForGatewaySync,
 } from "./connections.ts";
-import { listMcpOperationsSync } from "@dofe-agent/db";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-mcp-connections-"));
@@ -617,6 +624,204 @@ test("claimMcpTaskSession is one-time: second claim returns empty connections", 
 
   const second = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-1" });
   assert.equal(second.connections.length, 0);
+});
+
+test("computeMcpConnectionNextHealthCheckAt schedules base interval on ready and exponential backoff on failure", () => {
+  const base = new Date("2026-08-02T00:00:00.000Z").toISOString();
+  const connection = {
+    id: "conn-1",
+    workspaceId: "default",
+    runtimeId: "runtime-1",
+    catalogItemId: "cat-1",
+    status: "ready" as const,
+    approvedToolsJson: "[]",
+    endpoint: "https://example.com/mcp",
+    nonSecretParamsJson: "{}",
+    healthCheckConsecutiveFailures: 0,
+    createdAt: base,
+    updatedAt: base,
+  };
+  const readyAt = computeMcpConnectionNextHealthCheckAt({ connection, now: base, verificationStatus: "ready" });
+  assert.equal(readyAt, "2026-08-02T01:00:00.000Z");
+
+  const failedOnce = computeMcpConnectionNextHealthCheckAt({
+    connection: { ...connection, healthCheckConsecutiveFailures: 1 },
+    now: base,
+    verificationStatus: "failed",
+  });
+  assert.equal(failedOnce, "2026-08-02T02:00:00.000Z");
+
+  const degradedTwice = computeMcpConnectionNextHealthCheckAt({
+    connection: { ...connection, healthCheckConsecutiveFailures: 2 },
+    now: base,
+    verificationStatus: "degraded",
+  });
+  assert.equal(degradedTwice, "2026-08-02T04:00:00.000Z");
+});
+
+test("completeMcpConnectionOperationWithHealthScheduleSync resets failures and advances next health check", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection, operation } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    confirmHighRisk: true,
+  });
+  claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  startMcpOperationSync(operation.id, "default");
+
+  getDatabase().prepare(
+    "UPDATE runtime_mcp_connection SET health_check_consecutive_failures = 2, next_health_check_at = ? WHERE id = ?",
+  ).run("2026-08-01T00:00:00.000Z", connection.id);
+
+  const completed = completeMcpConnectionOperationWithHealthScheduleSync({
+    operationId: operation.id,
+    workspaceId: "default",
+    verification: {
+      status: "ready",
+      protocolVersion: "2025-06-18",
+      toolsMetadataJson: JSON.stringify([
+        { name: "search_repos", description: "Search repositories", inputSchema: { type: "object" }, inputSchemaDigest: "d1" },
+      ]),
+      toolsFingerprint: "fp",
+      latencyMs: 50,
+    },
+  });
+  assert.equal(completed.status, "succeeded");
+
+  const updated = readMcpConnectionSync(connection.id, "default");
+  assert.equal(updated?.healthCheckConsecutiveFailures, 0);
+  assert.ok(updated?.nextHealthCheckAt && updated.nextHealthCheckAt > "2026-08-01T00:00:00.000Z");
+});
+
+test("failMcpConnectionOperationWithHealthScheduleSync increments failures and backs off health checks from health_check source", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection, operation } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    confirmHighRisk: true,
+  });
+  claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  startMcpOperationSync(operation.id, "default");
+  completeMcpOperationSync({
+    operationId: operation.id,
+    workspaceId: "default",
+    verification: {
+      status: "ready",
+      protocolVersion: "2025-06-18",
+      toolsMetadataJson: JSON.stringify([
+        { name: "search_repos", description: "Search repositories", inputSchema: { type: "object" }, inputSchemaDigest: "d1" },
+      ]),
+      toolsFingerprint: "fp",
+      latencyMs: 50,
+    },
+  });
+
+  getDatabase().prepare(
+    "UPDATE runtime_mcp_connection SET next_health_check_at = ? WHERE id = ?",
+  ).run("2026-08-02T00:00:00.000Z", connection.id);
+  getDatabase().prepare(
+    `INSERT INTO runtime_mcp_operation (id, workspace_id, runtime_id, connection_id, operation, source, status, request_snapshot_json, created_at, started_at)
+     VALUES ('health-op-1', 'default', ?, ?, 'verify', 'health_check', 'running', '{}', ?, ?)`,
+  ).run(runtimeId, connection.id, "2026-08-02T00:00:00.000Z", "2026-08-02T00:00:00.000Z");
+
+  const failed = failMcpConnectionOperationWithHealthScheduleSync({
+    operationId: "health-op-1",
+    workspaceId: "default",
+    errorCode: "mcp.network_unreachable",
+    errorMessage: "Unreachable.",
+    connectionStatus: "degraded",
+  });
+  assert.equal(failed.status, "failed");
+
+  const updated = readMcpConnectionSync(connection.id, "default");
+  assert.equal(updated?.status, "degraded");
+  assert.equal(updated?.healthCheckConsecutiveFailures, 1);
+  assert.ok(updated?.nextHealthCheckAt && updated.nextHealthCheckAt > "2026-08-02T00:00:00.000Z");
+});
+
+test("scheduleMcpHealthChecksSync creates pending verify operations for due ready connections", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection, operation } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    confirmHighRisk: true,
+  });
+  claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  startMcpOperationSync(operation.id, "default");
+  completeMcpOperationSync({
+    operationId: operation.id,
+    workspaceId: "default",
+    verification: {
+      status: "ready",
+      protocolVersion: "2025-06-18",
+      toolsMetadataJson: JSON.stringify([
+        { name: "search_repos", description: "Search repositories", inputSchema: { type: "object" }, inputSchemaDigest: "d1" },
+      ]),
+      toolsFingerprint: "fp",
+      latencyMs: 50,
+    },
+  });
+
+  getDatabase().prepare(
+    "UPDATE runtime_mcp_connection SET next_health_check_at = ? WHERE id = ?",
+  ).run("2026-08-01T00:00:00.000Z", connection.id);
+
+  const scheduled = scheduleMcpHealthChecksSync({ workspaceId: "default", now: "2026-08-02T00:00:00.000Z" });
+  assert.equal(scheduled, 1);
+
+  const healthOp = claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  assert.equal(healthOp?.operation, "verify");
+  assert.equal(healthOp?.source, "health_check");
+
+  // A second scheduling pass should not create duplicates while the health op is pending.
+  const second = scheduleMcpHealthChecksSync({ workspaceId: "default", now: "2026-08-02T00:00:00.000Z" });
+  assert.equal(second, 0);
+});
+
+test("listMcpConnectionActivitySync aggregates operations and tool audits", () => {
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    confirmHighRisk: true,
+  });
+
+  recordMcpToolAuditSync({
+    workspaceId: "default",
+    connectionId: connection.id,
+    taskId: "task-1",
+    toolName: "search_repos",
+    outcome: "succeeded",
+    latencyMs: 42,
+    safeSummary: "q=acme",
+  });
+
+  const activity = listMcpConnectionActivitySync({ workspaceId: "default", connectionId: connection.id });
+  assert.equal(activity.operations.length, 1);
+  assert.equal(activity.operations[0]?.operation, "verify");
+  assert.equal(activity.audits.length, 1);
+  assert.equal(activity.audits[0]?.toolName, "search_repos");
+  assert.equal(activity.audits[0]?.outcome, "succeeded");
 });
 
 function createRuntime(): string {

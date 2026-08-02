@@ -753,7 +753,7 @@ export function scheduleMcpHealthChecksSync(input: {
          WHERE operation.workspace_id = connection.workspace_id
            AND operation.connection_id = connection.id
            AND operation.source = 'health_check'
-           AND operation.status = 'pending'
+           AND operation.status IN ('pending', 'claimed', 'running')
        )
      ORDER BY connection.next_health_check_at ASC NULLS FIRST`,
   ).all(...params) as Array<{ connection_id: string; runtime_id: string }>;

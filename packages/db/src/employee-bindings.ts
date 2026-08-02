@@ -146,24 +146,44 @@ export function activateRecoveryBindingSync(input: {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const employeeName = input.employeeName.trim();
+  const runtimeId = input.runtimeId.trim();
   const now = new Date().toISOString();
 
+  if (!employeeName) {
+    throw new Error("employeeName is required.");
+  }
+  if (!runtimeId) {
+    throw new Error("runtimeId is required.");
+  }
+
+  const runtime = getDatabase().prepare(
+    `SELECT id FROM agent_runtime WHERE id = ? AND workspace_id = ?`,
+  ).get(runtimeId, workspaceId) as { id?: string } | undefined;
+  if (typeof runtime?.id !== "string") {
+    throw new Error(`Runtime "${runtimeId}" does not exist in workspace ${workspaceId}.`);
+  }
+
+  const params: unknown[] = [runtimeId, input.generation, now, workspaceId, employeeName];
+  let where = "WHERE workspace_id = ? AND employee_name = ?";
   if (input.expectedPreviousGeneration !== undefined) {
-    const current = readEmployeeBindingGenerationSync(employeeName, workspaceId);
-    if (typeof current !== "number" || current !== input.expectedPreviousGeneration) {
-      throw new Error(
-        `RECOVERY_ACTIVATION_CONFLICT: expected previous generation ${input.expectedPreviousGeneration}, ` +
-          `got ${typeof current === "number" ? current : "none"}. A concurrent rebind invalidated this recovery.`,
-      );
-    }
+    where += " AND generation = ?";
+    params.push(input.expectedPreviousGeneration);
   }
 
   const result = db.prepare(
     `UPDATE employee_runtime_binding
        SET runtime_id = ?, generation = ?, status = 'online', desired_provider = NULL, updated_at = ?
-     WHERE workspace_id = ? AND employee_name = ?`,
-  ).run(input.runtimeId, input.generation, now, workspaceId, employeeName);
+     ${where}`,
+  ).run(...params);
+
   if (result.changes === 0) {
+    if (input.expectedPreviousGeneration !== undefined) {
+      const current = readEmployeeBindingGenerationSync(employeeName, workspaceId);
+      throw new Error(
+        `RECOVERY_ACTIVATION_CONFLICT: expected previous generation ${input.expectedPreviousGeneration}, ` +
+          `got ${typeof current === "number" ? current : "none"}. A concurrent rebind invalidated this recovery.`,
+      );
+    }
     throw new Error(`Employee "${employeeName}" has no runtime binding to activate.`);
   }
   return readEmployeeRuntimeBindingSync(employeeName, workspaceId)!;

@@ -935,6 +935,7 @@ export {
   softDeleteEmployeeArtifactSync,
   listEmployeeArtifactDigestsSync,
   listWorkspaceRevisionDigestsSync,
+  deleteEmployeeDurabilityRecordsSync,
   type EnsureEmployeePersistentWorkspaceInput,
   type CreateWorkspaceRevisionInput,
   type PublishEmployeeArtifactInput,

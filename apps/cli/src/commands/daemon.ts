@@ -40,7 +40,6 @@ import {
   failQueuedTaskSync,
   markTaskCommittedSync,
   markTaskPreparingCommitSync,
-  readEmployeeBindingGenerationSync,
   upsertTaskCommitJournalSync,
   getDaemonChannelWorkDirPath,
   getDaemonRemoteTaskWorkDirPath,
@@ -1287,9 +1286,8 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
     // persistent workspace → committed. A promotion failure keeps the task in
     // `preparing_commit` (result received but NOT durably committed) and the
     // task is NOT completed nor announced — the journal drives reconciliation.
-    // The lease generation was captured at claim time; if missing (legacy tasks),
-    // fall back to the current binding generation.
-    const bindingGeneration = task.bindingGeneration ?? readEmployeeBindingGenerationSync(agentName, task.workspaceId);
+    // The lease generation was captured at claim time.
+    const bindingGeneration = task.bindingGeneration;
     let promotionError: string | undefined;
     try {
       markTaskPreparingCommitSync(task.id);
