@@ -19,9 +19,6 @@ import {
   setSkillInstallationPreparedPathSync,
   setSkillInstallationStatusSync,
   updateSkillInstallationComponentStatusSync,
-  listSkillServiceBindingsSync,
-  listSkillServiceCatalogSync,
-  readManagedSkillServiceSync,
   withTransaction,
   type ContentBlobRecord,
   type SkillInstallationComponentInput,
@@ -40,7 +37,7 @@ import type {
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { createSkillInstallationOperationSync } from "@dofe-agent/db";
 import { createAttachmentStorageClient, type AttachmentStorageReadInput } from "../attachments/storage.ts";
-import { evaluateSkillInstallationCapabilitiesSync } from "./capabilities.ts";
+import { evaluateSkillInstallationCapabilitiesSync, resolveSkillServiceComponentStatusSync } from "./capabilities.ts";
 import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
 import { computeSkillReleaseLockSync } from "./release.ts";
 import { queueManagedSkillServiceForInstallationSync } from "../skill-services/bindings.ts";
@@ -430,7 +427,7 @@ export function completeSkillInstallationOperationSync(input: {
         // `pending`, and readiness is overridden from the service binding state
         // (bound + managed service ready → ready; otherwise blocked, fail-closed).
         const resolved = component.kind === "service"
-          ? resolveServiceComponentStatus(component.key, operation.installationId, workspaceId)
+          ? resolveSkillServiceComponentStatusSync(component.key, operation.installationId, workspaceId)
           : { status: component.status };
         const changed = updateSkillInstallationComponentStatusSync({
           installationId: operation.installationId,
@@ -562,29 +559,6 @@ export function failSkillInstallationOperationSync(input: {
  * service is `ready` on the runtime; otherwise `blocked` (fail-closed — a
  * declared service must never be silently skipped).
  */
-function resolveServiceComponentStatus(
-  componentKey: string,
-  installationId: string,
-  workspaceId: string,
-): { status: "ready" | "blocked" } {
-  const slug = componentKey.startsWith("service:") ? componentKey.slice("service:".length) : componentKey;
-  const catalogIdBySlug = new Map(
-    listSkillServiceCatalogSync(workspaceId).map((catalog) => [catalog.slug, catalog.id]),
-  );
-  const bindings = listSkillServiceBindingsSync(installationId);
-  for (const binding of bindings) {
-    const managed = readManagedSkillServiceSync(binding.serviceId, workspaceId);
-    if (!managed) {
-      continue;
-    }
-    const catalogId = catalogIdBySlug.get(slug);
-    if (managed.catalogId === catalogId && managed.status === "ready") {
-      return { status: "ready" };
-    }
-  }
-  return { status: "blocked" };
-}
-
 function parseCompletionEvidence(
   safeResultJson: string | undefined,
 ): { computedDigest?: string; preparedPath?: string } | null {

@@ -2770,7 +2770,11 @@ describe("daemon API routes", () => {
   });
 
   describe("skill service operation routes", () => {
-    function seedSkillServiceOperation(daemonTokenId: string, daemonKey: string) {
+    function seedSkillServiceOperation(
+      daemonTokenId: string,
+      daemonKey: string,
+      operationType: "provision" | "retire" = "provision",
+    ) {
       const snapshot = registerDaemonRuntimesSync({
         daemonTokenId,
         daemonKey,
@@ -2791,13 +2795,13 @@ describe("daemon API routes", () => {
         workspaceId: "default",
         runtimeId,
         catalogId: catalog.id,
-        status: "provisioning",
+        status: operationType === "retire" ? "ready" : "provisioning",
       });
       const operation = createManagedSkillServiceOperationSync({
         workspaceId: "default",
         runtimeId,
         serviceId: managed.id,
-        operation: "provision",
+        operation: operationType,
       });
       return { runtimeId, serviceId: managed.id, operationId: operation.id };
     }
@@ -2884,6 +2888,34 @@ describe("daemon API routes", () => {
       expect(failed?.errorCode).toBe("skill_service.image_pull_failed");
       expect(failed?.errorMessage).toBe("registry timeout");
       expect(readManagedSkillServiceSync(serviceId, "default")?.status).toBe("provisioning");
+    });
+
+    it("completes a retire operation through the daemon route without an endpoint", async () => {
+      const daemonToken = createDaemonApiTokenSync({ label: "remote-daemon", createdBy: "techwu" });
+      const { runtimeId, serviceId, operationId } = seedSkillServiceOperation(daemonToken.id, "build-box-svc-retire", "retire");
+
+      const claimResponse = await skillServiceClaimGET(
+        new Request(`http://localhost/api/daemon/runtimes/${runtimeId}/skill-services/operations/claim`, {
+          method: "GET",
+          headers: daemonHeaders(daemonToken.token),
+        }),
+        { params: Promise.resolve({ runtimeId }) },
+      );
+      expect(claimResponse.status).toBe(200);
+
+      const completeResponse = await skillServiceCompletePOST(
+        new Request(`http://localhost/api/daemon/skill-service-operations/${operationId}/complete`, {
+          method: "POST",
+          headers: daemonHeaders(daemonToken.token),
+          body: JSON.stringify({}),
+        }),
+        { params: Promise.resolve({ operationId }) },
+      );
+      const completePayload = (await completeResponse.json()) as { operation: { status: string } };
+      expect(completeResponse.status).toBe(200);
+      expect(completePayload.operation.status).toBe("succeeded");
+
+      expect(readManagedSkillServiceSync(serviceId, "default")?.status).toBe("retired");
     });
   });
 });

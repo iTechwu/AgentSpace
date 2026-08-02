@@ -14,12 +14,13 @@ import {
   type DaemonTaskUsage,
 } from "@dofe-agent/domain";
 import { getStringFlag, parseArgs } from "./args.ts";
-import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, ClaimedSkillInstallationOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, RegisterDaemonResponse } from "./daemon-api.ts";
+import type { ClaimedDaemonTask, ClaimedManagedSkillServiceOperation, ClaimedRuntimeAppOperation, ClaimedSkillInstallationOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, RegisterDaemonResponse } from "./daemon-api.ts";
 import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputBundle } from "./bundle.ts";
 import { readEmployeeHeadManifestSync } from "./workdir-capture.ts";
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
 import { executeSkillInstallationOperation } from "./skill-install/operation-worker.ts";
+import { executeSkillServiceOperation } from "./skill-service/service-operation-worker.ts";
 import { executeWorkspaceMountOperation } from "./workspace-mount-operation-worker.ts";
 import {
   type DetectedProvider,
@@ -735,6 +736,20 @@ async function pollRemoteTasks(
         continue;
       }
 
+      const serviceOperation = await client.claimSkillServiceOperation(runtime.id);
+      if (serviceOperation.operation) {
+        activeRuntimes.add(runtime.id);
+        void executeRemoteSkillServiceOperation(client, config, serviceOperation.operation)
+          .catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(`Skill service operation ${serviceOperation.operation?.operationId ?? "unknown"} crashed: ${message}`);
+          })
+          .finally(() => {
+            activeRuntimes.delete(runtime.id);
+          });
+        continue;
+      }
+
       const mountOperation = await client.claimWorkspaceMountOperation(runtime.id);
       if (mountOperation.operation) {
         activeRuntimes.add(runtime.id);
@@ -836,6 +851,14 @@ async function executeRemoteSkillInstallationOperation(
   operation: ClaimedSkillInstallationOperation,
 ): Promise<void> {
   await executeSkillInstallationOperation(client, config, operation);
+}
+
+async function executeRemoteSkillServiceOperation(
+  client: HttpDaemonClient,
+  config: RemoteDaemonConfig,
+  operation: ClaimedManagedSkillServiceOperation,
+): Promise<void> {
+  await executeSkillServiceOperation(client, config, operation);
 }
 
 async function resolveManagedCredentialProfile(

@@ -9,6 +9,7 @@ import {
   readManagedSkillServiceOperationSync,
   readManagedSkillServiceSync,
   readSkillServiceCatalogSync,
+  retireManagedSkillServiceSync,
   type ManagedSkillServiceOperationRecord,
 } from "@dofe-agent/db";
 import type { ClaimedManagedSkillServiceOperation } from "@dofe-agent/domain";
@@ -132,6 +133,32 @@ export function completeManagedSkillServiceProvisionOperationSync(input: {
       healthRevision: input.healthRevision ?? "1",
       configSchemaVersion: 1,
     });
+    evaluateSkillInstallationReadinessSync(operation.installationId, workspaceId);
+  }
+  return { ok: true };
+}
+
+/**
+ * Completes a managed service RETIRE operation reported by the daemon: marks
+ * the service retired and re-evaluates the dependent installation (its service
+ * component goes blocked again — resolveServiceComponentStatus requires a ready
+ * managed service). No endpointRef is involved; a retire has nothing to bind.
+ */
+export function completeManagedSkillServiceRetireOperationSync(input: {
+  operationId: string;
+  workspaceId?: string;
+}): { ok: true } | { ok: false; code: string; reason: string } {
+  const workspaceId = input.workspaceId ?? "default";
+  const operation = readManagedSkillServiceOperationSync(input.operationId, workspaceId);
+  if (!operation) {
+    return { ok: false, code: "operation_not_found", reason: "Service operation does not exist." };
+  }
+  const done = completeOperationDbSync({ operationId: input.operationId, workspaceId });
+  if (!done) {
+    return { ok: false, code: "not_completable", reason: "Operation is no longer completable." };
+  }
+  retireManagedSkillServiceSync({ serviceId: operation.serviceId, workspaceId });
+  if (operation.installationId) {
     evaluateSkillInstallationReadinessSync(operation.installationId, workspaceId);
   }
   return { ok: true };

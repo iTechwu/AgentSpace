@@ -1,8 +1,13 @@
 import { getDatabase } from "@dofe-agent/db";
 import { listReadyMcpConnectionsForTaskSync } from "../mcp-center/connections.ts";
-import { readSkillArtifactByDigestSync } from "@dofe-agent/db";
-import { readSkillInstallationComponentsSync } from "@dofe-agent/db";
-import { updateSkillInstallationComponentStatusSync } from "@dofe-agent/db";
+import {
+  listSkillServiceBindingsSync,
+  listSkillServiceCatalogSync,
+  readManagedSkillServiceSync,
+  readSkillArtifactByDigestSync,
+  readSkillInstallationComponentsSync,
+  updateSkillInstallationComponentStatusSync,
+} from "@dofe-agent/db";
 import { sameValue } from "../shared/helpers.ts";
 
 /**
@@ -97,9 +102,40 @@ export function resolveSkillCliCapabilitySync(input: {
 }
 
 /**
- * Re-resolves every mcp/cli component of an installation against ready
+ * Control-plane service component resolution: `service:<slug>` is ready only
+ * when the installation has a binding to a managed service whose catalog slug
+ * matches AND the managed service instance is `ready`. Any other state
+ * (no binding, retired/degraded service) blocks the component, fail-closed.
+ */
+export function resolveSkillServiceComponentStatusSync(
+  componentKey: string,
+  installationId: string,
+  workspaceId: string,
+): { status: "ready" | "blocked" } {
+  const slug = componentKey.startsWith("service:") ? componentKey.slice("service:".length) : componentKey;
+  const catalogIdBySlug = new Map(
+    listSkillServiceCatalogSync(workspaceId).map((catalog) => [catalog.slug, catalog.id]),
+  );
+  const bindings = listSkillServiceBindingsSync(installationId);
+  for (const binding of bindings) {
+    const managed = readManagedSkillServiceSync(binding.serviceId, workspaceId);
+    if (!managed) {
+      continue;
+    }
+    const catalogId = catalogIdBySlug.get(slug);
+    if (managed.catalogId === catalogId && managed.status === "ready") {
+      return { status: "ready" };
+    }
+  }
+  return { status: "blocked" };
+}
+
+/**
+ * Re-resolves every mcp/cli/service component of an installation against ready
  * platform capabilities and updates its status. Called by the readiness gate
- * so `ready` can never be reached while a declared capability is unresolved.
+ * (and service provision/retire completion) so `ready` can never be reached
+ * while a declared capability is unresolved — and a retired service re-blocks
+ * its dependent installation.
  */
 export function evaluateSkillInstallationCapabilitiesSync(input: {
   installationId: string;
@@ -155,6 +191,19 @@ export function evaluateSkillInstallationCapabilitiesSync(input: {
         errorCode: resolution.ready ? undefined : "capability.unresolved",
         errorMessage: resolution.ready ? undefined : resolution.reason,
         verifiedAt: resolution.ready ? new Date().toISOString() : undefined,
+      });
+    } else if (component.kind === "service") {
+      const resolved = resolveSkillServiceComponentStatusSync(component.key, input.installationId, input.workspaceId);
+      updateSkillInstallationComponentStatusSync({
+        installationId: input.installationId,
+        kind: "service",
+        key: component.key,
+        status: resolved.status,
+        errorCode: resolved.status === "ready" ? undefined : "skill_installation.service_not_ready",
+        errorMessage: resolved.status === "ready"
+          ? undefined
+          : "Service is not ready on this runtime (binding missing or not healthy).",
+        verifiedAt: resolved.status === "ready" ? new Date().toISOString() : undefined,
       });
     }
   }

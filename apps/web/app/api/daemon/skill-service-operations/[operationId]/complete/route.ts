@@ -1,4 +1,8 @@
-import { completeManagedSkillServiceProvisionOperationSync, tryRecordWorkspaceAuditEventSync } from "@dofe-agent/services";
+import {
+  completeManagedSkillServiceProvisionOperationSync,
+  completeManagedSkillServiceRetireOperationSync,
+  tryRecordWorkspaceAuditEventSync,
+} from "@dofe-agent/services";
 import { readManagedSkillServiceOperationForDaemon, requireDaemonAuth } from "../../../_lib/auth";
 
 export const runtime = "nodejs";
@@ -20,12 +24,14 @@ export async function POST(
   }
 
   const body = (await request.json()) as { endpointRef?: string; healthRevision?: string; safeResultJson?: string };
-  const completed = completeManagedSkillServiceProvisionOperationSync({
-    operationId,
-    workspaceId: auth.workspaceId,
-    endpointRef: body.endpointRef ?? "",
-    healthRevision: body.healthRevision,
-  });
+  const completed = operation.operation === "retire"
+    ? completeManagedSkillServiceRetireOperationSync({ operationId, workspaceId: auth.workspaceId })
+    : completeManagedSkillServiceProvisionOperationSync({
+        operationId,
+        workspaceId: auth.workspaceId,
+        endpointRef: body.endpointRef ?? "",
+        healthRevision: body.healthRevision,
+      });
   if (!completed.ok) {
     return Response.json({ error: completed.reason }, { status: 400 });
   }

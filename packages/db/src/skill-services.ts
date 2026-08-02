@@ -251,7 +251,12 @@ export function createSkillServiceBindingSync(input: CreateSkillServiceBindingIn
         installation_id, service_id, catalog_template_version, service_image_digest,
         endpoint_ref, health_revision, config_schema_version, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (installation_id, service_id) DO NOTHING`,
+      ON CONFLICT (installation_id, service_id) DO UPDATE SET
+        catalog_template_version = excluded.catalog_template_version,
+        service_image_digest = excluded.service_image_digest,
+        endpoint_ref = excluded.endpoint_ref,
+        health_revision = excluded.health_revision,
+        config_schema_version = excluded.config_schema_version`,
     ).run(
       input.installationId,
       input.serviceId,

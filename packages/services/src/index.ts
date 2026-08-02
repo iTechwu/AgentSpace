@@ -387,6 +387,7 @@ export {
 export {
   queueManagedSkillServiceForInstallationSync,
   completeManagedSkillServiceProvisionOperationSync,
+  completeManagedSkillServiceRetireOperationSync,
   resolveClaimedManagedSkillServiceOperation,
 } from "./skill-services/bindings.ts";
 export {

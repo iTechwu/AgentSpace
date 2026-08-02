@@ -3,7 +3,7 @@ import test, { after, before, beforeEach } from "node:test";
 import { getDatabase, randomLikeId } from "@dofe-agent/db";
 import {
   claimNextManagedSkillServiceOperationForRuntimeSync,
-  claimNextSkillInstallationOperationForRuntimeSync,
+  createManagedSkillServiceOperationSync,
   createManagedSkillServiceSync,
   listManagedSkillServiceOperationsSync,
   listSkillServiceBindingsSync,
@@ -14,12 +14,11 @@ import {
 import {
   buildAndPersistSkillArtifactSync,
   completeManagedSkillServiceProvisionOperationSync,
-  completeSkillInstallationOperationSync,
+  completeManagedSkillServiceRetireOperationSync,
   createSkillInstallationPlanSync,
   queueManagedSkillServiceForInstallationSync,
   resetWorkspaceStateSync,
   resolveClaimedManagedSkillServiceOperation,
-  resolveClaimedSkillInstallationOperation,
   setAttachmentStorageClientForTests,
 } from "../index.ts";
 import { createTestTosAttachmentStorage } from "../testing/tos-attachment-storage.ts";
@@ -302,27 +301,8 @@ test("complete marks the service ready, creates the binding, and the installatio
   assert.equal(bindings[0]!.endpointRef, "runtime-private://bindings-renderer");
   assert.equal(bindings[0]!.healthRevision, "2");
 
-  // Provision complete leaves the service component pending; the daemon
-  // completing the installation finalizes it from the binding → ready.
-  assert.equal(readSkillInstallationSync(installation.id, "default")?.status, "preparing");
-  const installationClaimed = claimNextSkillInstallationOperationForRuntimeSync({ workspaceId: "default", runtimeId });
-  assert.ok(installationClaimed);
-  const installationResolved = await resolveClaimedSkillInstallationOperation({
-    workspaceId: "default",
-    operation: installationClaimed,
-  });
-  assert.ok(installationResolved);
-  const installationDone = completeSkillInstallationOperationSync({
-    operationId: installationClaimed.id,
-    workspaceId: "default",
-    safeResultJson: JSON.stringify({ computedDigest: installationResolved.artifactDigest }),
-    componentStatuses: installationResolved.components.map((component) => ({
-      kind: component.kind,
-      key: component.key,
-      status: "ready",
-    })),
-  });
-  assert.equal(installationDone.ok, true);
+  // Provision complete re-evaluates the service component from the binding →
+  // ready; with the service as the only component the installation is ready.
   assert.equal(readSkillInstallationSync(installation.id, "default")?.status, "ready");
 });
 
@@ -351,4 +331,46 @@ test("complete fails an unclaimed operation closed", () => {
   const serviceStillProvisioning = readManagedSkillServiceSync(serviceId, "default");
   assert.equal(serviceStillProvisioning?.status, "provisioning");
   assert.equal(listSkillServiceBindingsSync(installationId).length, 0);
+});
+
+test("retire marks the service retired and the dependent installation goes blocked", async () => {
+  const runtimeId = createTestRuntime();
+  seedRendererCatalog();
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: "Service Skill Retire",
+    files: [{ path: "SKILL.md", bytes: encoder.encode("# Retire\n") }],
+    services: [{ catalogSlug: CATALOG_SLUG, templateVersion: "1.0.0", required: true }],
+  });
+  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+
+  // Provision to ready first (queues a provision op; complete binds it).
+  const provisionClaimed = claimNextManagedSkillServiceOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  assert.ok(provisionClaimed);
+  const provisioned = completeManagedSkillServiceProvisionOperationSync({
+    operationId: provisionClaimed.id,
+    workspaceId: "default",
+    endpointRef: "runtime-private://bindings-renderer",
+  });
+  assert.equal(provisioned.ok, true);
+  assert.equal(readManagedSkillServiceSync(provisionClaimed.serviceId, "default")?.status, "ready");
+  assert.equal(readSkillInstallationSync(installation.id, "default")?.status, "ready");
+
+  // Queue + claim a retire operation and complete it (no endpoint involved).
+  createManagedSkillServiceOperationSync({
+    workspaceId: "default",
+    runtimeId,
+    serviceId: provisionClaimed.serviceId,
+    installationId: installation.id,
+    operation: "retire",
+  });
+  const retireClaimed = claimNextManagedSkillServiceOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  assert.ok(retireClaimed);
+  assert.equal(retireClaimed.operation, "retire");
+
+  const retired = completeManagedSkillServiceRetireOperationSync({ operationId: retireClaimed.id, workspaceId: "default" });
+  assert.equal(retired.ok, true);
+  assert.equal(readManagedSkillServiceSync(retireClaimed.serviceId, "default")?.status, "retired");
+
+  // The dependent installation's service component resolves blocked again.
+  assert.equal(readSkillInstallationSync(installation.id, "default")?.status, "blocked");
 });

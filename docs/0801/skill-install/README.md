@@ -56,11 +56,11 @@
 这不等于已经达到生产可用。第三次复审确认仍有以下阻断上线的问题（排序已按事实更新）：
 
 1. Runtime cache hit 只校验文件大小并信任旧 meta，同尺寸内容篡改不会重算 SHA/root digest。
-2. 依赖已真实安装+校验；**service 控制面已裁决 ready/blocked，但 managed-node worker 未实现**——没有任何 daemon 消费者 claim skill-service 操作，服务容器永远不会被拉起，required service 的 Skill 无法真正 ready。
+2. 依赖已真实安装+校验；**service 控制面 + managed-node worker 已实现**（daemon claim → docker pull/create/start/health → complete 回报 endpointRef，retire 拆除），服务组件按 binding 裁决；剩余是 `retire` 生产者、catalog 准入加固与 secret/network policy。
 3. 原子导入生成的 artifact 没有绑定新 Skill，安装历史和回滚可能断链，单一 `artifact.skill_id` 也无法表达共享 artifact lineage。
 4. entrypoint 同时为 `0755` 时会生成重复 script component，触发数据库唯一约束。
 5. 任务 bundle 不传 mode/SHA，安装阶段验证通过的 executable 到 Remote task workDir 后会丢失执行位；任务也没有复用已验证 cache。
-6. skill-install 与 service operation 的租约/心跳/fencing/崩溃重排均已实现并有专属测试（service 层新增 DB 7/7 + services 8/8 + 路由 2/2）；**managed-node worker 未实现**——远程 daemon 无消费者 claim skill-service 操作。
+6. skill-install 与 service operation 的租约/心跳/fencing/崩溃重排、service managed-node worker（docker 生命周期 + retire）均已实现并有专属测试（DB 7/7 + services 9/9 + runtime 12/12 + worker 6/6 + 路由 3/3）；**剩余**：`retire` 生产者、catalog 准入加固、secret/network policy。
 
 此外，下载 URL 仍缺 storage origin/redirect 限制和流式硬上限；package manifest 的 version/integrity/mode/完整文件集合仍会丢失；持久审批、managed-node worker、五步 UI、迁移与可观测性尚未完成。Release lock 已接入安装和升级路径，service/MCP 字段、可重现 `lockDigest`、落库与 claim 均有测试；但 unresolved required 项、Daemon/task/approval/rollback 消费链和历史重建仍未完成。
 
