@@ -388,6 +388,40 @@ export interface ClaimRuntimeAppOperationResponse {
   operation: ClaimedRuntimeAppOperation | null;
 }
 
+/** Managed service container operation claimed by a managed node. */
+export interface ClaimedManagedSkillServiceOperation {
+  operationId: string;
+  workspaceId: string;
+  runtimeId: string;
+  serviceId: string;
+  installationId?: string;
+  operation: "provision" | "retire";
+  status: string;
+  catalog: {
+    imageDigest: string;
+    protocol: string;
+    networkJson?: string;
+    healthJson?: string;
+    resourcesJson?: string;
+  };
+}
+
+export interface ClaimManagedSkillServiceOperationResponse {
+  operation: ClaimedManagedSkillServiceOperation | null;
+}
+
+export interface CompleteManagedSkillServiceOperationRequest {
+  endpointRef?: string;
+  healthRevision?: string;
+  safeResultJson?: string;
+}
+
+export interface FailManagedSkillServiceOperationRequest {
+  errorCode: string;
+  errorMessage: string;
+  safeResultJson?: string;
+}
+
 export interface StartRuntimeAppOperationRequest {
   status?: "running";
 }

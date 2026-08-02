@@ -43,6 +43,7 @@ import { createAttachmentStorageClient, type AttachmentStorageReadInput } from "
 import { evaluateSkillInstallationCapabilitiesSync } from "./capabilities.ts";
 import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
 import { computeSkillReleaseLockSync } from "./release.ts";
+import { queueManagedSkillServiceForInstallationSync } from "../skill-services/bindings.ts";
 
 /* ------------------------------------------------------------------ */
 /* Control plane: installation plans                                   */
@@ -117,7 +118,30 @@ export function createSkillInstallationPlanSync(input: {
     }),
   });
 
+  // Queue a managed-service provision operation for every declared service so the
+  // managed node can bring it up; the control plane binds it on completion.
+  for (const service of readManifestServices(artifact.manifestJson)) {
+    if (service.catalogSlug) {
+      queueManagedSkillServiceForInstallationSync({
+        workspaceId: input.workspaceId,
+        runtimeId: input.runtimeId,
+        installationId: installation.id,
+        catalogSlug: service.catalogSlug,
+        templateVersion: service.templateVersion ?? "1",
+      });
+    }
+  }
+
   return installation;
+}
+
+function readManifestServices(manifestJson: string): Array<{ catalogSlug?: string; templateVersion?: string }> {
+  try {
+    const manifest = JSON.parse(manifestJson) as { services?: Array<{ catalogSlug?: string; templateVersion?: string }> };
+    return manifest.services ?? [];
+  } catch {
+    return [];
+  }
 }
 
 function buildInstallationComponents(

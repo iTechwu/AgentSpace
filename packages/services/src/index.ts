@@ -385,6 +385,11 @@ export {
   type SkillServiceCatalogAdmissionInput,
 } from "./skill-services/catalog.ts";
 export {
+  queueManagedSkillServiceForInstallationSync,
+  completeManagedSkillServiceProvisionOperationSync,
+  resolveClaimedManagedSkillServiceOperation,
+} from "./skill-services/bindings.ts";
+export {
   computeSkillReleaseLockSync,
   diffSkillArtifactsSync,
   isSkillUpgradeApprovalRequiredSync,

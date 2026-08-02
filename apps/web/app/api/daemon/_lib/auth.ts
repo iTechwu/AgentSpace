@@ -2,6 +2,7 @@ import {
   readAgentRuntimeSync,
   readDaemonConnectionSync,
   readMcpOperationSync,
+  readManagedSkillServiceOperationSync,
   readQueuedTaskSync,
   readRuntimeAppOperationSync,
   readSkillInstallationOperationSync,
@@ -9,6 +10,7 @@ import {
   type AgentRuntimeRecord,
   type DaemonApiTokenRecord,
   type DaemonConnectionRecord,
+  type ManagedSkillServiceOperationRecord,
   type QueuedTaskRecord,
   type RuntimeMcpOperationRecord,
   type StoredSkillInstallationOperationRecord,
@@ -151,6 +153,21 @@ export function readRuntimeAppOperationForDaemon(
   const operation = readRuntimeAppOperationSync(operationId, auth.workspaceId);
   if (!operation) {
     return Response.json({ error: `Runtime app operation "${operationId}" does not exist.` }, { status: 404 });
+  }
+  const runtime = readRuntimeForDaemon(operation.runtimeId, auth);
+  if (runtime instanceof Response) {
+    return runtime;
+  }
+  return operation;
+}
+
+export function readManagedSkillServiceOperationForDaemon(
+  operationId: string,
+  auth: DaemonAuthContext,
+): ManagedSkillServiceOperationRecord | Response {
+  const operation = readManagedSkillServiceOperationSync(operationId, auth.workspaceId);
+  if (!operation) {
+    return Response.json({ error: `Skill service operation "${operationId}" does not exist.` }, { status: 404 });
   }
   const runtime = readRuntimeForDaemon(operation.runtimeId, auth);
   if (runtime instanceof Response) {

@@ -4,10 +4,44 @@ import {
   createManagedSkillServiceOperationSync,
   createManagedSkillServiceSync,
   createSkillServiceBindingSync,
+  listSkillServiceCatalogSync,
   readManagedSkillServiceOperationSync,
+  readManagedSkillServiceSync,
   readSkillServiceCatalogSync,
+  type ManagedSkillServiceOperationRecord,
 } from "@dofe-agent/db";
+import type { ClaimedManagedSkillServiceOperation } from "@dofe-agent/domain";
 import { evaluateSkillInstallationReadinessSync } from "../skills/installations.ts";
+
+/** Builds the one-time authenticated payload delivered to the managed node on claim. */
+export function resolveClaimedManagedSkillServiceOperation(
+  operation: ManagedSkillServiceOperationRecord,
+): ClaimedManagedSkillServiceOperation | null {
+  const managed = readManagedSkillServiceSync(operation.serviceId, operation.workspaceId);
+  if (!managed) {
+    return null;
+  }
+  const catalog = listSkillServiceCatalogSync(operation.workspaceId).find((entry) => entry.id === managed.catalogId);
+  if (!catalog) {
+    return null;
+  }
+  return {
+    operationId: operation.id,
+    workspaceId: operation.workspaceId,
+    runtimeId: operation.runtimeId,
+    serviceId: operation.serviceId,
+    installationId: operation.installationId,
+    operation: operation.operation,
+    status: operation.status,
+    catalog: {
+      imageDigest: catalog.imageDigest,
+      protocol: catalog.protocol,
+      networkJson: catalog.networkJson,
+      healthJson: catalog.healthJson,
+      resourcesJson: catalog.resourcesJson,
+    },
+  };
+}
 
 /**
  * Control-plane service lifecycle (02-架构设计.md §4.3): the managed node

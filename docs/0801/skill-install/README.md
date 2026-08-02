@@ -15,7 +15,11 @@
 | [05-运维服务与版本治理.md](./05-运维服务与版本治理.md) | 支撑服务准入、部署、健康、升级、回滚和退役手册 |
 | [06-实施计划.md](./06-实施计划.md) | 工程落地：表 DDL、领域类型、文件落点、迁移、测试矩阵与 7 阶段 PR 序列 |
 | [07-实施差距审查.md](./07-实施差距审查.md) | 当前代码对照设计的阻断项、阶段完成度、测试证据与补齐顺序 |
+| [08-任务执行快照计划.md](./08-任务执行快照计划.md) | 任务按 runtime/assignment digest 解析并持久化安装 revision 快照 |
+| [09-complete协议防伪造计划.md](./09-complete协议防伪造计划.md) | complete/fail 共享 payload 解析、冻结组件集合、evidence 校验与原子提交 |
 | [10-release-lock计划.md](./10-release-lock计划.md) | Release lock 生产接入、可重现性、消费链和测试计划 |
+| [11-版本治理后端核心计划.md](./11-版本治理后端核心计划.md) | 升级审批、lineage invariant、并发控制与回滚 |
+| [12-依赖安装验证计划.md](./12-依赖安装验证计划.md) | npm/pip 隔离安装、registry 固定与真实产物验证 |
 
 ## 决策摘要
 
@@ -47,17 +51,17 @@
 
 ## 当前基线与目标差距
 
-当前实现已经形成可运行的 Remote 安装闭环原型：不可变 artifact/blob、installation/component/operation、Daemon claim/start/complete/fail、artifact materializer、digest cache、component verifier、控制面 evidence 校验，以及任务的 Runtime readiness gate 和不可变 revision snapshot 均已进入真实调用链。导入坏包不会修改 Skill；GitHub/Skills.sh 也会在读取前锁定 commit SHA。
+当前实现已经形成可运行的 Remote 安装闭环原型：不可变 artifact/blob、installation/component/operation、Daemon claim/start/complete/fail、artifact materializer、digest cache、component verifier、控制面 evidence 校验、任务的 Runtime readiness gate 和不可变 revision snapshot，以及**真实依赖安装验证**和 **service 控制面操作生命周期**（plan 排队 provision operation → claim → complete → 绑定 → 就绪传播，带 lease/fencing/维护重排）均已进入真实调用链。导入坏包不会修改 Skill；GitHub/Skills.sh 也会在读取前锁定 commit SHA。
 
-这不等于已经达到生产可用。第二次复审确认仍有六个直接阻断上线的问题：
+这不等于已经达到生产可用。第三次复审确认仍有以下阻断上线的问题（排序已按事实更新）：
 
 1. Runtime cache hit 只校验文件大小并信任旧 meta，同尺寸内容篡改不会重算 SHA/root digest。
-2. npm/Python 等依赖只要 manifest 声明了版本就会被判 ready，实际没有安装或验证；required service 甚至不会生成 installation component。
+2. 依赖已真实安装+校验；**service 控制面已裁决 ready/blocked，但 managed-node worker 未实现**——没有任何 daemon 消费者 claim skill-service 操作，服务容器永远不会被拉起，required service 的 Skill 无法真正 ready。
 3. 原子导入生成的 artifact 没有绑定新 Skill，安装历史和回滚可能断链，单一 `artifact.skill_id` 也无法表达共享 artifact lineage。
 4. entrypoint 同时为 `0755` 时会生成重复 script component，触发数据库唯一约束。
 5. 任务 bundle 不传 mode/SHA，安装阶段验证通过的 executable 到 Remote task workDir 后会丢失执行位；任务也没有复用已验证 cache。
-6. operation 没有租约、心跳、fencing token 和 stale recovery，Daemon 崩溃会留下永久 claimed/running 状态。
+6. skill-install operation 的租约/心跳/fencing/崩溃重排已实现；**service operation 的 CRUD/lease 与完整流程缺专属测试**（当前仅被安装测试间接触发）。
 
-此外，下载 URL 仍缺 storage origin/redirect 限制和流式硬上限；package manifest 的 version/integrity/mode/完整文件集合仍会丢失；持久审批、支撑服务生命周期、五步 UI、迁移与可观测性尚未完成。Release lock 已在当前未提交实现中接入安装和升级路径，service/MCP 字段、可重现 `lockDigest`、落库与 claim 均有测试；但 unresolved required 项、Daemon/task/approval/rollback 消费链和历史重建仍未完成。
+此外，下载 URL 仍缺 storage origin/redirect 限制和流式硬上限；package manifest 的 version/integrity/mode/完整文件集合仍会丢失；持久审批、managed-node worker、五步 UI、迁移与可观测性尚未完成。Release lock 已接入安装和升级路径，service/MCP 字段、可重现 `lockDigest`、落库与 claim 均有测试；但 unresolved required 项、Daemon/task/approval/rollback 消费链和历史重建仍未完成。
 
-因此当前状态应标记为 **Remote 安装闭环原型 / 不可用于不受信任 Skill 的生产安装**。下一里程碑不是增加更多入口，而是先消除假 ready、缓存完整性绕过、artifact lineage、任务 mode 丢失和 operation 不可恢复。详见 [实施差距第二次复审](./07-实施差距审查.md)。
+因此当前状态应标记为 **Remote 安装闭环原型 / 不可用于不受信任 Skill 的生产安装**。下一里程碑不是增加更多入口，而是先补 service managed-node worker、cache 完整性校验、artifact lineage 和任务 mode 丢失。详见 [实施差距第三次复审](./07-实施差距审查.md)。

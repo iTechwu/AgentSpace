@@ -1,10 +1,13 @@
 import type {
   ClaimManagedProvisioningTaskResponse,
+  ClaimManagedSkillServiceOperationResponse,
   ClaimMcpConnectionOperationResponse,
   ClaimMcpTaskSessionResponse,
   ClaimRuntimeAppOperationResponse,
   ClaimSkillInstallationOperationResponse,
   ClaimTaskResponse,
+  CompleteManagedSkillServiceOperationRequest,
+  FailManagedSkillServiceOperationRequest,
   ClaimWorkspaceMountOperationResponse,
   CompleteManagedProvisioningStageRequest,
   CompleteManagedProvisioningStageResponse,
@@ -225,6 +228,34 @@ export class HttpDaemonClient {
 
   async failSkillInstallationOperation(operationId: string, body: FailSkillInstallationOperationRequest): Promise<void> {
     await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/fail`, body);
+  }
+
+  async claimSkillServiceOperation(runtimeId: string): Promise<ClaimManagedSkillServiceOperationResponse> {
+    return this.postJson(`/api/daemon/runtimes/${encodeURIComponent(runtimeId)}/skill-services/operations/claim`, {}, { retryable: true });
+  }
+
+  async startSkillServiceOperation(operationId: string): Promise<void> {
+    await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/start`, {});
+  }
+
+  async renewSkillServiceOperationLease(operationId: string): Promise<boolean> {
+    try {
+      await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/renew-lease`, {});
+      return true;
+    } catch (error) {
+      if (error instanceof DaemonRuntimeUnavailableError) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async completeSkillServiceOperation(operationId: string, body: CompleteManagedSkillServiceOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/complete`, body);
+  }
+
+  async failSkillServiceOperation(operationId: string, body: FailManagedSkillServiceOperationRequest): Promise<void> {
+    await this.postJson(`/api/daemon/skill-service-operations/${encodeURIComponent(operationId)}/fail`, body);
   }
 
   async claimWorkspaceMountOperation(runtimeId: string): Promise<ClaimWorkspaceMountOperationResponse> {
