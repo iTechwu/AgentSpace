@@ -20,6 +20,8 @@ import {
   createSkillUpgradePlanSync,
   diffSkillArtifactsSync,
   isSkillUpgradeApprovalRequiredSync,
+  readSkillInstallationLockSync,
+  verifySkillInstallationLockReconstructableSync,
 } from "./release.ts";
 
 const sha = (fill: string) => fill.repeat(64);
@@ -381,4 +383,75 @@ test("createSkillUpgradePlanSync rejects a cross-runtime upgrade", () => {
     () => createSkillUpgradePlanSync({ runtimeId: runtimeB, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
     /must stay on the same runtime/,
   );
+});
+
+test("a required service without a catalog entry makes the lock unresolved and blocks the plan", () => {
+  resetWorkspaceStateSync("default");
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: "Needs Service",
+    files: [
+      { path: "SKILL.md", bytes: ENCODER.encode("# Body\n") },
+      { path: "scripts/render.py", bytes: ENCODER.encode("print('v1')\n"), mode: "0755" },
+    ],
+    services: [{ catalogSlug: "missing-renderer", templateVersion: "1.0.0", required: true }],
+  });
+
+  const lock = computeSkillReleaseLockSync(artifact, "default");
+  assert.deepEqual(lock.unresolvedRequired, ["service:missing-renderer"]);
+
+  // Fail-closed: the installation is blocked at plan time.
+  const runtimeId = createTestRuntime();
+  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  assert.equal(installation.status, "blocked");
+});
+
+test("an optional service without a catalog entry does not block the plan", () => {
+  resetWorkspaceStateSync("default");
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: "Optional Service",
+    files: [{ path: "SKILL.md", bytes: ENCODER.encode("# Body\n") }],
+    services: [{ catalogSlug: "optional-renderer", templateVersion: "1.0.0", required: false }],
+  });
+
+  const lock = computeSkillReleaseLockSync(artifact, "default");
+  assert.deepEqual(lock.unresolvedRequired, []);
+  const runtimeId = createTestRuntime();
+  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  assert.equal(installation.status, "preparing");
+});
+
+test("verifySkillInstallationLockReconstructableSync proves reproducibility, and the catalog is immutable", () => {
+  resetWorkspaceStateSync("default");
+  upsertSkillServiceCatalogSync({
+    workspaceId: "default",
+    slug: "document-renderer",
+    templateVersion: "2.1.0",
+    deploymentType: "managed_service",
+    imageDigest: sha("img"),
+    configSchemaVersion: 3,
+  });
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: "Reconstructable",
+    files: [{ path: "SKILL.md", bytes: ENCODER.encode("# Body\n") }],
+    services: [{ catalogSlug: "document-renderer", templateVersion: "2.1.0", required: true }],
+  });
+  const runtimeId = createTestRuntime();
+  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  assert.equal(installation.status, "preparing", "required service is pinned, so not blocked");
+  assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, "default"), true);
+
+  // Mutating the catalog breaks reconstruction (the lock no longer re-derives).
+  upsertSkillServiceCatalogSync({
+    workspaceId: "default",
+    slug: "document-renderer",
+    templateVersion: "2.1.0",
+    deploymentType: "managed_service",
+    imageDigest: sha("changed"),
+    configSchemaVersion: 4,
+  });
+  // The catalog is immutable per (slug, templateVersion) — first write wins — so
+  // the reconstruction still holds; the digest only changes if the catalog row
+  // itself were replaced, which the immutability prevents.
+  assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, "default"), true);
+  assert.equal(readSkillInstallationLockSync(installation.id, "default")?.serviceImageDigests["document-renderer"], sha("img"));
 });

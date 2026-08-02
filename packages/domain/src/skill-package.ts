@@ -152,6 +152,8 @@ export interface SkillReleaseLock {
   providerCompatibilityRevision: number;
   /** sha256 of the canonical (stable-sorted) JSON of the fields above. */
   lockDigest: string;
+  /** Required services/MCP capabilities the lock could NOT pin; non-empty → installation must stay blocked. */
+  unresolvedRequired?: string[];
 }
 
 /**
@@ -256,6 +258,8 @@ export interface TaskSkillExecutionSnapshotEntry {
   revision: string;
   /** Installation status at snapshot resolution time (typically "ready"). */
   status: string;
+  /** sha256 of the release lock the installation was created against (audit handle). */
+  releaseLockDigest?: string;
 }
 
 /**

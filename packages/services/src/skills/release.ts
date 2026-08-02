@@ -41,6 +41,12 @@ export interface ResolvedSkillReleaseLock {
   providerCompatibilityRevision: number;
   /** sha256 of the canonical (stable-sorted) JSON of the eight lock fields above. */
   lockDigest: string;
+  /**
+   * Required services/MCP capabilities whose catalog entry is missing, so the
+   * lock could NOT pin them. An installation whose lock has unresolved required
+   * entries must never reach `ready` (fail-closed). NOT part of the lockDigest.
+   */
+  unresolvedRequired: string[];
 }
 
 /**
@@ -67,6 +73,7 @@ export function computeSkillReleaseLockSync(
   const serviceTemplateVersions: Record<string, string> = {};
   const serviceImageDigests: Record<string, string> = {};
   const serviceConfigSchemaVersions: Record<string, number> = {};
+  const unresolvedRequired: string[] = [];
   for (const service of manifest.services ?? []) {
     if (!service.catalogSlug || !service.templateVersion) {
       continue;
@@ -80,6 +87,10 @@ export function computeSkillReleaseLockSync(
       if (typeof catalog.configSchemaVersion === "number") {
         serviceConfigSchemaVersions[service.catalogSlug] = catalog.configSchemaVersion;
       }
+    } else if (service.required !== false) {
+      // A required service that cannot be pinned by the catalog is a hard blocker
+      // (fail-closed: the installation must never reach ready without it).
+      unresolvedRequired.push(`service:${service.catalogSlug}`);
     }
   }
 
@@ -91,6 +102,9 @@ export function computeSkillReleaseLockSync(
     const fingerprint = computeMcpToolFingerprint(capability.catalogSlug, workspaceId);
     if (fingerprint) {
       mcpToolFingerprints[capability.catalogSlug] = fingerprint;
+    } else {
+      // Every declared MCP capability must be pinned by the catalog to be usable.
+      unresolvedRequired.push(`mcp:${capability.catalogSlug}`);
     }
   }
 
@@ -105,7 +119,36 @@ export function computeSkillReleaseLockSync(
     providerCompatibilityRevision: 0,
   };
   const lockDigest = createHash("sha256").update(stableStringify(lockWithoutDigest)).digest("hex");
-  return { ...lockWithoutDigest, lockDigest };
+  return { ...lockWithoutDigest, lockDigest, unresolvedRequired };
+}
+
+/**
+ * History reconstruction (05-运维服务与版本治理.md §历史重建): proves an
+ * installation's release state is fully reproducible from the immutable
+ * artifact + catalog state alone. Recomputes the lock from the stored artifact
+ * and compares the lockDigest against the one recorded at install time; a match
+ * means the old revision can be re-derived even if the original source
+ * (Git/registry) is gone.
+ */
+export function verifySkillInstallationLockReconstructableSync(
+  installationId: string,
+  workspaceId = "default",
+): boolean {
+  const installation = readSkillInstallationSync(installationId, workspaceId);
+  if (!installation) {
+    return false;
+  }
+  const artifact = readSkillArtifactByDigestSync(installation.artifactDigest, workspaceId);
+  if (!artifact) {
+    return false;
+  }
+  const recomputed = computeSkillReleaseLockSync(artifact, workspaceId);
+  try {
+    const stored = JSON.parse(installation.resolvedLockJson) as { lockDigest?: unknown };
+    return typeof stored.lockDigest === "string" && stored.lockDigest === recomputed.lockDigest;
+  } catch {
+    return false;
+  }
 }
 
 function computeMcpToolFingerprint(catalogSlug: string, workspaceId: string): string | undefined {
@@ -518,15 +561,17 @@ export function createSkillUpgradePlanSync(input: {
     }
   });
 
+  const lock = computeSkillReleaseLockSync(artifact, workspaceId);
   const installation = createSkillInstallationSync({
     workspaceId,
     runtimeId: input.runtimeId,
     artifactDigest: input.artifactDigest,
-    status: "preparing",
+    // Fail-closed: unresolved required services/MCP capabilities block the candidate.
+    status: lock.unresolvedRequired.length > 0 ? "blocked" : "preparing",
     revision,
     previousReadyRevision: previous.revision,
     previousReadyArtifactDigest: previous.artifactDigest,
-    resolvedLockJson: JSON.stringify(computeSkillReleaseLockSync(artifact, workspaceId)),
+    resolvedLockJson: JSON.stringify(lock),
     components,
   });
 

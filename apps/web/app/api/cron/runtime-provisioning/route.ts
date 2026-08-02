@@ -1,4 +1,9 @@
-import { resolveAgentRuntimeMode, runRuntimeMaintenanceAsync } from "@dofe-agent/services";
+import {
+  defaultRuntimeMaintenanceDependencies,
+  resolveAgentRuntimeMode,
+  runRuntimeMaintenanceAsync,
+} from "@dofe-agent/services";
+import { runCommitReconciliationStage } from "../../daemon/_lib/commit-reconciliation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +22,9 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ ok: true, status: "skipped", reason: "remote_mode_required" });
   }
 
-  const result = await runRuntimeMaintenanceAsync();
+  const result = await runRuntimeMaintenanceAsync({
+    ...defaultRuntimeMaintenanceDependencies,
+    commitReconciliation: runCommitReconciliationStage,
+  });
   return Response.json(result, { status: result.ok ? 200 : 503 });
 }

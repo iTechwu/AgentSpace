@@ -1,6 +1,8 @@
 // State I/O
 export {
+  defaultDependencies as defaultRuntimeMaintenanceDependencies,
   runRuntimeMaintenanceAsync,
+  type RuntimeMaintenanceDependencies,
   type RuntimeMaintenanceResult,
   type RuntimeMaintenanceStageResult,
 } from "./runtime-maintenance/runtime-maintenance.ts";
@@ -111,6 +113,13 @@ export {
   advanceRecoverableOperationsSync,
   type AdvanceRecoveriesResult,
 } from "./employees/recovery-worker.ts";
+export {
+  reconcileStaleCommitJournalsSync,
+  type CommitReconciliationDerivedOutputs,
+  type CommitReconciliationOutputDeriver,
+  type ReconcileCommitJournalsOptions,
+  type ReconcileCommitJournalsResult,
+} from "./employees/commit-reconciliation.ts";
 export {
   hasGitHubSkillDependenciesSync,
   queueGitHubSkillDependenciesForAgentSync,
@@ -377,6 +386,7 @@ export {
   createSkillUpgradePlanSync,
   rollbackSkillInstallationSync,
   readSkillInstallationLockSync,
+  verifySkillInstallationLockReconstructableSync,
   approveSkillUpgradeSync,
   computeSkillUpgradeDiffHashSync,
   type ResolvedSkillReleaseLock,

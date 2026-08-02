@@ -32,10 +32,11 @@ export interface RuntimeMaintenanceResult {
     mcpHealthChecks: RuntimeMaintenanceStageResult;
     recovery: RuntimeMaintenanceStageResult;
     skillOperationLeases: RuntimeMaintenanceStageResult;
+    commitReconciliation?: RuntimeMaintenanceStageResult;
   };
 }
 
-interface RuntimeMaintenanceDependencies {
+export interface RuntimeMaintenanceDependencies {
   createRun: () => { id: string };
   completeRun: (input: {
     id: string;
@@ -51,9 +52,11 @@ interface RuntimeMaintenanceDependencies {
   scheduleMcpHealthChecks: () => unknown;
   advanceRecoveries: () => unknown;
   requeueSkillOperationLeases: () => unknown;
+  /** Optional web-side stage: re-drives stale preparing_commit journals. */
+  commitReconciliation?: () => unknown;
 }
 
-const defaultDependencies: RuntimeMaintenanceDependencies = {
+export const defaultDependencies: RuntimeMaintenanceDependencies = {
   createRun: createRuntimeMaintenanceRunSync,
   completeRun: completeRuntimeMaintenanceRunSync,
   heartbeatRun: heartbeatRuntimeMaintenanceRunSync,
@@ -88,7 +91,8 @@ export async function runRuntimeMaintenanceAsync(
     : undefined;
   heartbeatTimer?.unref();
   const stages = {} as RuntimeMaintenanceResult["stages"];
-  const operations = [
+  type StageName = keyof RuntimeMaintenanceResult["stages"];
+  const operations: Array<readonly [StageName, () => unknown]> = [
     ["provisioning", dependencies.resumeProvisioning],
     ["cleanup", dependencies.resumeCleanup],
     ["usageRetries", dependencies.drainUsageRetries],
@@ -96,7 +100,8 @@ export async function runRuntimeMaintenanceAsync(
     ["mcpHealthChecks", dependencies.scheduleMcpHealthChecks],
     ["recovery", dependencies.advanceRecoveries],
     ["skillOperationLeases", dependencies.requeueSkillOperationLeases],
-  ] as const;
+    ...(dependencies.commitReconciliation ? [["commitReconciliation", dependencies.commitReconciliation] as const] : []),
+  ];
   for (const [name, operation] of operations) {
     stages[name] = leaseHealthy
       ? await runStage(operation)

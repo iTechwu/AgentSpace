@@ -88,13 +88,16 @@ export function createSkillInstallationPlanSync(input: {
   }
 
   const components = buildSkillInstallationComponentsSync({ workspaceId: input.workspaceId, artifactDigest: input.artifactDigest });
-  const resolvedLockJson = JSON.stringify(computeSkillReleaseLockSync(artifact, input.workspaceId ?? "default"));
+  const lock = computeSkillReleaseLockSync(artifact, input.workspaceId ?? "default");
+  const resolvedLockJson = JSON.stringify(lock);
 
   const installation = createSkillInstallationSync({
     workspaceId: input.workspaceId,
     runtimeId: input.runtimeId,
     artifactDigest: artifact.digest,
-    status: "preparing",
+    // Fail-closed: an artifact whose required services/MCP capabilities cannot be
+    // pinned by the catalog is blocked at plan time — it can never reach ready.
+    status: lock.unresolvedRequired.length > 0 ? "blocked" : "preparing",
     components,
     resolvedLockJson,
   });
@@ -736,6 +739,7 @@ export function resolveTaskSkillExecutionSnapshotSync(input: {
       installationId: installation.id,
       revision: installation.revision,
       status: installation.status,
+      ...readReleaseLockDigest(installation.resolvedLockJson),
     });
   }
 

@@ -481,6 +481,7 @@ test("task skill execution snapshot persists and round-trips for audit", () => {
   assert.equal(persisted?.entries[0]?.artifactDigest, v1.artifactDigest);
   assert.equal(persisted?.entries[0]?.installationId, v1.installationId);
   assert.equal(persisted?.entries[0]?.revision, "v1");
+  assert.equal(persisted?.entries[0]?.releaseLockDigest?.length, 64, "snapshot records the release lock digest");
 });
 
 test("rollout_pin fixes new tasks to the pinned installation revision until the rollout switches", () => {
