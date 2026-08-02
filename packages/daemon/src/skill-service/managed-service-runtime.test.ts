@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test, { afterEach, beforeEach } from "node:test";
 import {
   buildCosignVerificationArgs,
@@ -8,6 +11,7 @@ import {
   buildManagedServiceHealthcheckArgs,
   buildManagedServiceInspectArgs,
   buildManagedServiceInternalNetworkName,
+  buildManagedServiceSecretDir,
   buildManagedServiceNetworkArgs,
   buildManagedServiceResourceArgs,
   computeManagedServiceHealthRevision,
@@ -15,6 +19,7 @@ import {
   DockerContainerError,
   parseEgressAllowlistHostnames,
   verifyManagedServiceImageSignatureSync,
+  writeManagedServiceSecretFiles,
   type ManagedContainerExec,
 } from "./managed-service-runtime.ts";
 
@@ -134,20 +139,25 @@ test("create args honor the catalog hardening profile", () => {
   assert.ok(capDrop.includes("SYS_TIME"));
 });
 
-test("create args inject declared secrets as env pairs", () => {
+test("create args mount declared secrets as read-only files without plaintext argv", () => {
   const args = buildManagedServiceContainerCreateArgs({
     containerName: "dofe-svc-svc-1",
     serviceId: "svc-1",
     workspaceId: "default",
     imageDigest: "sha256:abc",
     network: NETWORK,
-    secrets: { RENDER_LICENSE: "sk-secret", API_KEY: "ak-123" },
+    secretMounts: [
+      { name: "RENDER_LICENSE", hostPath: "/state/generation-1/RENDER_LICENSE" },
+      { name: "API_KEY", hostPath: "/state/generation-1/API_KEY" },
+    ],
   });
 
   const envIndex = args.indexOf("--env");
   assert.ok(envIndex >= 0);
-  assert.equal(args[envIndex + 1], "RENDER_LICENSE=sk-secret");
-  assert.ok(args.includes("API_KEY=ak-123"));
+  assert.equal(args[envIndex + 1], "RENDER_LICENSE_FILE=/run/secrets/RENDER_LICENSE");
+  assert.ok(args.includes("API_KEY_FILE=/run/secrets/API_KEY"));
+  assert.ok(args.some((arg) => arg.includes("dst=/run/secrets/RENDER_LICENSE,readonly")));
+  assert.ok(!args.some((arg) => arg.includes("sk-secret") || arg.includes("ak-123")));
 
   // No secrets → no --env flags.
   const noSecrets = buildManagedServiceContainerCreateArgs({
@@ -158,6 +168,38 @@ test("create args inject declared secrets as env pairs", () => {
     network: NETWORK,
   });
   assert.ok(!noSecrets.includes("--env"));
+});
+
+test("secret files are generation-scoped with restrictive permissions", async () => {
+  const rootDir = await fs.mkdtemp(join(tmpdir(), "dofe-secret-test-"));
+  try {
+    const result = await writeManagedServiceSecretFiles({
+      rootDir,
+      serviceId: "svc/one",
+      secrets: { API_KEY: "secret-value" },
+    });
+    assert.equal(result.serviceDir, buildManagedServiceSecretDir(rootDir, "svc/one"));
+    assert.ok(result.generationDir?.startsWith(result.serviceDir));
+    assert.equal(await fs.readFile(result.mounts[0]!.hostPath, "utf8"), "secret-value");
+    assert.equal((await fs.stat(rootDir)).mode & 0o777, 0o700);
+    assert.equal((await fs.stat(result.serviceDir)).mode & 0o777, 0o700);
+    assert.equal((await fs.stat(result.mounts[0]!.hostPath)).mode & 0o777, 0o400);
+  } finally {
+    await fs.rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("secret writer rejects traversal and shell-style field names", async () => {
+  const rootDir = await fs.mkdtemp(join(tmpdir(), "dofe-secret-test-"));
+  try {
+    await assert.rejects(
+      writeManagedServiceSecretFiles({ rootDir, serviceId: "svc-1", secrets: { "../TOKEN": "secret" } }),
+      (error: unknown) => error instanceof DockerContainerError && error.code === "skill_service.secret_name_invalid",
+    );
+    assert.deepEqual(await fs.readdir(rootDir), []);
+  } finally {
+    await fs.rm(rootDir, { recursive: true, force: true });
+  }
 });
 
 /* ------------------------------------------------------------------ */
@@ -284,6 +326,51 @@ test("provision runs pull → create → start → inspect and returns the endpo
   assert.equal(inspect[inspect.indexOf("--format") + 1], "{{.State.Running}}", "no healthcheck → wait for running");
 });
 
+test("provision keeps only the active secret generation and never passes plaintext to docker", async () => {
+  const secretRootDir = await fs.mkdtemp(join(tmpdir(), "dofe-secret-runtime-"));
+  const serviceDir = buildManagedServiceSecretDir(secretRootDir, provisionInput.serviceId);
+  await fs.mkdir(join(serviceDir, "generation-stale"), { recursive: true });
+  try {
+    const { exec, calls } = fakeExec((args) => {
+      if (args[0] === "create") return { stdout: "cid\n" };
+      if (args[0] === "inspect") return { stdout: "true\n" };
+      return {};
+    });
+    const runtime = createDockerManagedServiceContainerRuntime(exec, { secretRootDir });
+
+    await runtime.provision({ ...provisionInput, secrets: { API_KEY: "runtime-secret" } });
+
+    const createCall = calls.find((args) => args[0] === "create")!;
+    assert.ok(!createCall.some((arg) => arg.includes("runtime-secret")));
+    const generations = await fs.readdir(serviceDir);
+    assert.equal(generations.length, 1);
+    assert.ok(generations[0]!.startsWith("generation-"));
+    assert.notEqual(generations[0], "generation-stale");
+  } finally {
+    await fs.rm(secretRootDir, { recursive: true, force: true });
+  }
+});
+
+test("successful provision without secrets clears stale secret generations", async () => {
+  const secretRootDir = await fs.mkdtemp(join(tmpdir(), "dofe-secret-runtime-"));
+  const serviceDir = buildManagedServiceSecretDir(secretRootDir, provisionInput.serviceId);
+  await fs.mkdir(join(serviceDir, "generation-stale"), { recursive: true });
+  try {
+    const { exec } = fakeExec((args) => {
+      if (args[0] === "create") return { stdout: "cid\n" };
+      if (args[0] === "inspect") return { stdout: "true\n" };
+      return {};
+    });
+    const runtime = createDockerManagedServiceContainerRuntime(exec, { secretRootDir });
+
+    await runtime.provision(provisionInput);
+
+    assert.deepEqual(await fs.readdir(serviceDir), []);
+  } finally {
+    await fs.rm(secretRootDir, { recursive: true, force: true });
+  }
+});
+
 test("provision waits for the healthy state when a healthcheck is configured", async () => {
   let healthy = false;
   const { exec } = fakeExec((args) => {
@@ -328,13 +415,29 @@ test("provision retries create when a stale container name exists", async () => 
 });
 
 test("provision fails with a health timeout when the container never becomes healthy", async () => {
-  const { exec } = fakeExec((args) => args[0] === "inspect" ? { stdout: "starting\n" } : { stdout: "abc\n" });
-  const runtime = createDockerManagedServiceContainerRuntime(exec, { healthPollIntervalMs: 5, healthWaitMs: 30 });
+  const secretRootDir = await fs.mkdtemp(join(tmpdir(), "dofe-secret-runtime-"));
+  const { exec, calls } = fakeExec((args) => args[0] === "inspect" ? { stdout: "starting\n" } : { stdout: "abc\n" });
+  const runtime = createDockerManagedServiceContainerRuntime(exec, {
+    healthPollIntervalMs: 5,
+    healthWaitMs: 30,
+    secretRootDir,
+  });
 
-  await assert.rejects(
-    runtime.provision({ ...provisionInput, healthJson: JSON.stringify({ path: "/healthz" }) }),
-    (error: unknown) => error instanceof DockerContainerError && error.code === "skill_service.container_health_timeout",
-  );
+  try {
+    await assert.rejects(
+      runtime.provision({
+        ...provisionInput,
+        healthJson: JSON.stringify({ path: "/healthz" }),
+        secrets: { API_KEY: "failed-secret" },
+      }),
+      (error: unknown) => error instanceof DockerContainerError && error.code === "skill_service.container_health_timeout",
+    );
+    assert.ok(calls.some((args) => args[0] === "rm" && args.includes("-f")), "failed container must be removed");
+    const serviceDir = buildManagedServiceSecretDir(secretRootDir, provisionInput.serviceId);
+    assert.deepEqual(await fs.readdir(serviceDir), [], "failed secret generation must be removed");
+  } finally {
+    await fs.rm(secretRootDir, { recursive: true, force: true });
+  }
 });
 
 test("provision fails closed when the managed docker network env is missing", async () => {
@@ -349,13 +452,21 @@ test("provision fails closed when the managed docker network env is missing", as
 });
 
 test("retire removes the container and tolerates a missing container", async () => {
+  const secretRootDir = await fs.mkdtemp(join(tmpdir(), "dofe-secret-runtime-"));
+  const serviceDir = buildManagedServiceSecretDir(secretRootDir, "svc-1");
+  await fs.mkdir(join(serviceDir, "generation-old"), { recursive: true });
   const { exec, calls } = fakeExec((args) => args[0] === "rm"
     ? { stderr: "Error response from daemon: No such container: dofe-svc-svc-1", exitCode: 1 }
     : {});
-  const runtime = createDockerManagedServiceContainerRuntime(exec);
+  const runtime = createDockerManagedServiceContainerRuntime(exec, { secretRootDir });
 
-  await runtime.retire({ serviceId: "svc-1", workspaceId: "default" });
-  assert.deepEqual(calls.map((args) => args[0]), ["rm"]);
+  try {
+    await runtime.retire({ serviceId: "svc-1", workspaceId: "default" });
+    assert.deepEqual(calls.map((args) => args[0]), ["rm"]);
+    await assert.rejects(fs.stat(serviceDir), /ENOENT/);
+  } finally {
+    await fs.rm(secretRootDir, { recursive: true, force: true });
+  }
 });
 
 test("retire surfaces a real removal error", async () => {

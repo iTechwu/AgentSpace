@@ -24,6 +24,11 @@ export type ManagedContainerExec = (
   options?: { timeoutMs?: number },
 ) => Promise<{ stdout: string; stderr: string; exitCode: number | null }>;
 
+export interface ManagedServiceSecretMount {
+  name: string;
+  hostPath: string;
+}
+
 /** Container lifecycle the worker consumes. Provision returns the reachable endpoint. */
 export interface ManagedServiceContainerRuntime {
   provision(input: {
@@ -41,7 +46,7 @@ export interface ManagedServiceContainerRuntime {
     signatureKeyPem?: string;
     /** When true the image signature MUST verify before the pull starts. */
     signatureRequired?: boolean;
-    /** Decrypted values for the catalog's declared secret fields (injected as env). */
+    /** Decrypted values for the catalog's declared secret fields. */
     secrets?: Record<string, string>;
   }): Promise<{ endpointRef: string; healthRevision: string; containerName: string }>;
   retire(input: { serviceId: string; workspaceId: string }): Promise<void>;
@@ -152,7 +157,7 @@ export function buildManagedServiceContainerCreateArgs(input: {
   runAsNonRoot?: boolean;
   readOnlyRootfs?: boolean;
   capDrop?: string[];
-  secrets?: Record<string, string>;
+  secretMounts?: ManagedServiceSecretMount[];
   /** Precomputed network args (egress enforcement); default = shared network. */
   networkArgs?: string[];
 }): string[] {
@@ -166,8 +171,14 @@ export function buildManagedServiceContainerCreateArgs(input: {
     "--label", `dofe.agent.serviceId=${input.serviceId}`,
     "--label", `dofe.agent.workspaceId=${input.workspaceId}`,
   ];
-  for (const [name, value] of Object.entries(input.secrets ?? {})) {
-    args.push("--env", `${name}=${value}`);
+  for (const secret of input.secretMounts ?? []) {
+    const containerPath = `/run/secrets/${secret.name}`;
+    args.push(
+      "--mount",
+      `type=bind,src=${secret.hostPath},dst=${containerPath},readonly`,
+      "--env",
+      `${secret.name}_FILE=${containerPath}`,
+    );
   }
   if (input.readOnlyRootfs !== false) {
     args.push("--read-only");
@@ -328,12 +339,17 @@ export function createDockerManagedServiceContainerRuntime(
     lookupHost?: EgressHostLookup;
     /** cosign is a separate binary — injectable so tests never need it installed. */
     cosignExec?: ManagedContainerExec;
+    /** Daemon-owned persistent root for container secret files. */
+    secretRootDir?: string;
   },
 ): ManagedServiceContainerRuntime {
   const healthWaitMs = options?.healthWaitMs ?? SKILL_SERVICE_HEALTH_WAIT_MS;
   const healthPollIntervalMs = options?.healthPollIntervalMs ?? SKILL_SERVICE_HEALTH_POLL_INTERVAL_MS;
   const lookupHost = options?.lookupHost ?? defaultLookupHost;
   const cosignExec = options?.cosignExec ?? defaultCosignExec;
+  const secretRootDir = options?.secretRootDir
+    ?? process.env.DOFE_AGENT_SKILL_SERVICE_SECRET_ROOT?.trim()
+    ?? join(tmpdir(), "dofe-agent-skill-service-secrets");
   return {
     async provision(input) {
       const network = resolveManagedRuntimeDockerNetwork();
@@ -358,6 +374,8 @@ export function createDockerManagedServiceContainerRuntime(
       // else.
       const egress = parseEgressPolicy(input.networkJson);
       let tmpDir: string | undefined;
+      let secretGenerationDir: string | undefined;
+      let containerCreated = false;
       try {
         let hostsFilePath: string | undefined;
         let internalNetworkName: string | undefined;
@@ -389,6 +407,13 @@ export function createDockerManagedServiceContainerRuntime(
           }
         }
 
+        const secretFiles = await writeManagedServiceSecretFiles({
+          rootDir: secretRootDir,
+          serviceId: input.serviceId,
+          secrets: input.secrets ?? {},
+        });
+        secretGenerationDir = secretFiles.generationDir;
+
         const createArgs = buildManagedServiceContainerCreateArgs({
           containerName,
           serviceId: input.serviceId,
@@ -402,7 +427,7 @@ export function createDockerManagedServiceContainerRuntime(
           runAsNonRoot: input.runAsNonRoot,
           readOnlyRootfs: input.readOnlyRootfs,
           capDrop: input.capDrop,
-          secrets: input.secrets,
+          secretMounts: secretFiles.mounts,
         });
         const create = await exec(createArgs, { timeoutMs: DOCKER_CONTAINER_TIMEOUT_MS });
         let createResult = create;
@@ -416,18 +441,29 @@ export function createDockerManagedServiceContainerRuntime(
           }
         }
         const containerId = createResult.stdout.trim().split(/\s+/).pop() ?? containerName;
+        containerCreated = true;
 
         await runChecked(exec, ["start", containerId], { timeoutMs: DOCKER_CONTAINER_TIMEOUT_MS }, "skill_service.container_start_failed");
 
         const state = await waitForHealthy(exec, containerId, input.healthJson, healthWaitMs, healthPollIntervalMs);
+        await removeOtherManagedServiceSecretGenerations(secretFiles.serviceDir, secretFiles.generationDir);
+        secretGenerationDir = undefined;
         return {
           endpointRef: `runtime-private://${containerName}`,
           healthRevision: computeManagedServiceHealthRevision(input.healthJson, state),
           containerName,
         };
+      } catch (error) {
+        if (containerCreated) {
+          await exec(["rm", "-f", containerName], { timeoutMs: 30_000 }).catch(() => undefined);
+        }
+        throw error;
       } finally {
         if (tmpDir) {
           await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+        }
+        if (secretGenerationDir) {
+          await fs.rm(secretGenerationDir, { recursive: true, force: true }).catch(() => {});
         }
       }
     },
@@ -438,8 +474,79 @@ export function createDockerManagedServiceContainerRuntime(
       if (removed.exitCode !== 0 && !/no such container/i.test(removed.stderr)) {
         throw new DockerContainerError("skill_service.container_remove_failed", (removed.stderr || removed.stdout).trim());
       }
+      await fs.rm(buildManagedServiceSecretDir(secretRootDir, input.serviceId), { recursive: true, force: true });
     },
   };
+}
+
+const MANAGED_SERVICE_SECRET_NAME = /^[A-Z][A-Z0-9_]{0,127}$/;
+
+/** Stable, collision-resistant service directory below the daemon-owned root. */
+export function buildManagedServiceSecretDir(rootDir: string, serviceId: string): string {
+  const safeId = serviceId.replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 48) || "service";
+  const suffix = createHash("sha256").update(serviceId).digest("hex").slice(0, 12);
+  return join(rootDir, `${safeId}-${suffix}`);
+}
+
+/**
+ * Writes a fresh immutable secret generation. Secret values never enter docker
+ * argv or container metadata; callers mount these 0400 files read-only and
+ * expose only the conventional NAME_FILE path.
+ */
+export async function writeManagedServiceSecretFiles(input: {
+  rootDir: string;
+  serviceId: string;
+  secrets: Record<string, string>;
+}): Promise<{
+  serviceDir: string;
+  generationDir?: string;
+  mounts: ManagedServiceSecretMount[];
+}> {
+  const entries = Object.entries(input.secrets);
+  for (const [name] of entries) {
+    if (!MANAGED_SERVICE_SECRET_NAME.test(name)) {
+      throw new DockerContainerError(
+        "skill_service.secret_name_invalid",
+        `Secret field name is not a valid environment identifier: ${name}`,
+      );
+    }
+  }
+
+  const serviceDir = buildManagedServiceSecretDir(input.rootDir, input.serviceId);
+  if (entries.length === 0) {
+    return { serviceDir, mounts: [] };
+  }
+
+  await fs.mkdir(input.rootDir, { recursive: true, mode: 0o700 });
+  await fs.chmod(input.rootDir, 0o700);
+  await fs.mkdir(serviceDir, { recursive: true, mode: 0o700 });
+  await fs.chmod(serviceDir, 0o700);
+  const generationDir = await fs.mkdtemp(join(serviceDir, "generation-"));
+  await fs.chmod(generationDir, 0o700);
+  try {
+    const mounts: ManagedServiceSecretMount[] = [];
+    for (const [name, value] of entries) {
+      const hostPath = join(generationDir, name);
+      await fs.writeFile(hostPath, value, { encoding: "utf8", mode: 0o400, flag: "wx" });
+      await fs.chmod(hostPath, 0o400);
+      mounts.push({ name, hostPath });
+    }
+    return { serviceDir, generationDir, mounts };
+  } catch (error) {
+    await fs.rm(generationDir, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+async function removeOtherManagedServiceSecretGenerations(
+  serviceDir: string,
+  activeGenerationDir: string | undefined,
+): Promise<void> {
+  const activeName = activeGenerationDir?.slice(serviceDir.length + 1);
+  const entries = await fs.readdir(serviceDir, { withFileTypes: true }).catch(() => []);
+  await Promise.all(entries
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("generation-") && entry.name !== activeName)
+    .map((entry) => fs.rm(join(serviceDir, entry.name), { recursive: true, force: true })));
 }
 
 /** Extracts the egress policy from the claim's networkJson (only an EXPLICIT

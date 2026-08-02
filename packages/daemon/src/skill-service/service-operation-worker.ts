@@ -1,4 +1,5 @@
 import type { ClaimedManagedSkillServiceOperation } from "@dofe-agent/domain";
+import { join } from "node:path";
 import type { HttpDaemonClient } from "../daemon-client.ts";
 import type { RemoteDaemonConfig } from "../remote-daemon.ts";
 import {
@@ -21,8 +22,11 @@ export async function executeSkillServiceOperation(
   client: HttpDaemonClient,
   config: RemoteDaemonConfig,
   operation: ClaimedManagedSkillServiceOperation,
-  runtime: ManagedServiceContainerRuntime = createDockerManagedServiceContainerRuntime(),
+  runtime?: ManagedServiceContainerRuntime,
 ): Promise<void> {
+  const containerRuntime = runtime ?? createDockerManagedServiceContainerRuntime(undefined, {
+    secretRootDir: join(config.stateDir, "skill-service-secrets"),
+  });
   await client.startSkillServiceOperation(operation.operationId, operation.claimGeneration);
 
   // Lease heartbeat: if the lease is lost (crash recovery re-queued the op) the
@@ -45,12 +49,12 @@ export async function executeSkillServiceOperation(
   try {
     let provisioned: Awaited<ReturnType<ManagedServiceContainerRuntime["provision"]>> | undefined;
     if (operation.operation === "retire") {
-      await runtime.retire({ serviceId: operation.serviceId, workspaceId: operation.workspaceId });
+      await containerRuntime.retire({ serviceId: operation.serviceId, workspaceId: operation.workspaceId });
     } else {
       // Secrets are fetched over the authenticated channel AFTER claim, never in
       // the audited claim payload, and injected as container env.
       secrets = await client.getSkillServiceSecrets(operation.operationId, operation.claimGeneration);
-      provisioned = await runtime.provision({
+      provisioned = await containerRuntime.provision({
         serviceId: operation.serviceId,
         workspaceId: operation.workspaceId,
         imageDigest: operation.catalog.imageDigest,
