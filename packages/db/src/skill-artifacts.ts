@@ -75,13 +75,7 @@ export function createSkillArtifactSync(input: CreateSkillArtifactInput): SkillA
 
   const existing = readSkillArtifactByDigestSync(digest, workspaceId);
   if (existing) {
-    // If a skill_id is being associated and the stored row lacks one, attach it.
-    if (input.skillId && !existing.skillId) {
-      db.prepare(
-        `UPDATE skill_artifact SET skill_id = ? WHERE id = ? AND workspace_id = ?`,
-      ).run(input.skillId, existing.id, workspaceId);
-    }
-    return readSkillArtifactByDigestSync(digest, workspaceId) ?? existing;
+    return existing;
   }
 
   const id = `skill-art-${randomLikeId()}`;
@@ -165,8 +159,17 @@ export function listSkillArtifactsForSkillSync(
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): SkillArtifactRecord[] {
   const rows = getDatabase().prepare(
-    `${SKILL_ARTIFACT_COLUMNS} FROM skill_artifact WHERE workspace_id = ? AND skill_id = ? ORDER BY created_at DESC`,
-  ).all(workspaceId, skillId) as Array<Record<string, unknown>>;
+    `${SKILL_ARTIFACT_COLUMNS} FROM skill_artifact
+     WHERE workspace_id = ? AND (
+       skill_id = ? OR EXISTS (
+         SELECT 1 FROM skill_artifact_binding binding
+         WHERE binding.workspace_id = skill_artifact.workspace_id
+           AND binding.artifact_digest = skill_artifact.digest
+           AND binding.skill_id = ?
+       )
+     )
+     ORDER BY created_at DESC`,
+  ).all(workspaceId, skillId, skillId) as Array<Record<string, unknown>>;
   return rows.map(mapSkillArtifactRecord).filter((r): r is SkillArtifactRecord => r !== null);
 }
 
@@ -205,10 +208,19 @@ export function setActiveArtifactDigestForSkillSync(input: {
 }): boolean {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  const result = db.prepare(
-    `UPDATE skill SET active_artifact_digest = ? WHERE id = ? AND workspace_id = ?`,
-  ).run(input.digest?.trim().toLowerCase() || null, input.skillId, workspaceId);
-  return result.changes > 0;
+  const digest = input.digest?.trim().toLowerCase() || undefined;
+  return withTransaction(db, () => {
+    if (digest && !readSkillArtifactByDigestSync(digest, workspaceId)) {
+      throw new Error(`Skill artifact "${digest}" does not exist in workspace "${workspaceId}".`);
+    }
+    const result = db.prepare(
+      `UPDATE skill SET active_artifact_digest = ? WHERE id = ? AND workspace_id = ?`,
+    ).run(digest ?? null, input.skillId, workspaceId);
+    if (result.changes > 0 && digest) {
+      upsertSkillArtifactBindingSync({ workspaceId, skillId: input.skillId, digest });
+    }
+    return result.changes > 0;
+  });
 }
 
 /**
@@ -226,11 +238,21 @@ export function upsertSkillArtifactBindingSync(input: {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
   const digest = input.digest.trim().toLowerCase();
   const now = new Date().toISOString();
-  db.prepare(
+  const result = db.prepare(
     `INSERT INTO skill_artifact_binding (id, workspace_id, skill_id, artifact_digest, created_at)
-     VALUES (?, ?, ?, ?, ?)
+     SELECT ?, ?, ?, ?, ?
+     WHERE EXISTS (
+       SELECT 1 FROM skill_artifact WHERE workspace_id = ? AND digest = ?
+     )
      ON CONFLICT(workspace_id, skill_id, artifact_digest) DO NOTHING`,
-  ).run(`sab-${randomLikeId()}`, workspaceId, input.skillId, digest, now);
+  ).run(`sab-${randomLikeId()}`, workspaceId, input.skillId, digest, now, workspaceId, digest);
+  const exists = db.prepare(
+    `SELECT 1 FROM skill_artifact_binding
+     WHERE workspace_id = ? AND skill_id = ? AND artifact_digest = ?`,
+  ).get(workspaceId, input.skillId, digest);
+  if (result.changes === 0 && !exists) {
+    throw new Error(`Cannot bind missing skill artifact "${digest}" in workspace "${workspaceId}".`);
+  }
 }
 
 /** Lists the artifact digests bound to a skill (lineage history). */
@@ -245,6 +267,49 @@ export function listSkillArtifactBindingsForSkillSync(
   return rows.map((row) => row.digest).filter(Boolean);
 }
 
+/** Returns every Skill explicitly or historically associated with a digest. */
+export function listSkillIdsForArtifactDigestSync(
+  digest: string,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+): string[] {
+  const normalizedDigest = digest.trim().toLowerCase();
+  const rows = getDatabase().prepare(
+    `SELECT skill_id AS skillId FROM skill_artifact_binding
+     WHERE workspace_id = ? AND artifact_digest = ?
+     UNION
+     SELECT skill_id AS skillId FROM skill_artifact
+     WHERE workspace_id = ? AND digest = ? AND skill_id IS NOT NULL
+     ORDER BY skillId ASC`,
+  ).all(workspaceId, normalizedDigest, workspaceId, normalizedDigest) as Array<Record<string, unknown>>;
+  return rows
+    .map((row) => row.skillId ?? row.skillid)
+    .filter((skillId): skillId is string => typeof skillId === "string" && skillId.length > 0);
+}
+
+/** Idempotently migrates legacy artifact.skill_id ownership into the binding table. */
+export function backfillLegacySkillArtifactBindingsSync(workspaceId = DEFAULT_WORKSPACE_ID): number {
+  const rows = getDatabase().prepare(
+    `SELECT skill_id AS skillId, digest FROM skill_artifact
+     WHERE workspace_id = ? AND skill_id IS NOT NULL`,
+  ).all(workspaceId) as Array<Record<string, unknown>>;
+  let created = 0;
+  withTransaction(getDatabase(), () => {
+    for (const row of rows) {
+      const skillId = typeof (row.skillId ?? row.skillid) === "string" ? String(row.skillId ?? row.skillid) : "";
+      const digest = typeof row.digest === "string" ? row.digest : "";
+      if (!skillId || !digest) {
+        continue;
+      }
+      const before = listSkillArtifactBindingsForSkillSync(skillId, workspaceId).includes(digest);
+      upsertSkillArtifactBindingSync({ workspaceId, skillId, digest });
+      if (!before) {
+        created += 1;
+      }
+    }
+  });
+  return created;
+}
+
 /**
  * Resolves the owning Skill for an artifact digest when the artifact's single
  * `skill_id` FK is null or points elsewhere (dedup reuse). Prefers the artifact
@@ -254,15 +319,8 @@ export function resolveSkillIdForArtifactDigestSync(
   digest: string,
   workspaceId = DEFAULT_WORKSPACE_ID,
 ): string | undefined {
-  const artifact = readSkillArtifactByDigestSync(digest, workspaceId);
-  if (artifact?.skillId) {
-    return artifact.skillId;
-  }
-  const row = getDatabase().prepare(
-    `SELECT skill_id AS skillId FROM skill_artifact_binding
-     WHERE workspace_id = ? AND artifact_digest = ? ORDER BY created_at ASC LIMIT 1`,
-  ).get(workspaceId, digest.trim().toLowerCase()) as { skillId?: string } | undefined;
-  return row?.skillId;
+  const skillIds = listSkillIdsForArtifactDigestSync(digest, workspaceId);
+  return skillIds.length === 1 ? skillIds[0] : undefined;
 }
 
 export function readActiveArtifactDigestForSkillSync(

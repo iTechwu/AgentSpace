@@ -4,7 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
 import { strToU8, zipSync } from "fflate";
-import { listStoredAgentSkillAssignmentsSync, listStoredSkillImportEventsSync, readSkillArtifactByDigestSync, readStoredSkillActiveArtifactDigestSync, readStoredWorkspaceSkillSync } from "@dofe-agent/db";
+import {
+  listSkillArtifactBindingsForSkillSync,
+  listSkillArtifactsForSkillSync,
+  listStoredAgentSkillAssignmentsSync,
+  listStoredSkillImportEventsSync,
+  readSkillArtifactByDigestSync,
+  readStoredSkillActiveArtifactDigestSync,
+  readStoredWorkspaceSkillSync,
+} from "@dofe-agent/db";
 import {
   createEmployeeSync,
   createWorkspaceSkillSync,
@@ -69,6 +77,8 @@ test("importWorkspaceSkillFromUrl locks GitHub imports to an immutable commit SH
   const provenance = JSON.parse(artifact.provenanceJson) as { resolvedRef?: string; originalUrl?: string };
   assert.equal(provenance.resolvedRef, "abc123def456789012345678901234567890abcd");
   assert.equal(provenance.originalUrl, "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack");
+  assert.deepEqual(listSkillArtifactBindingsForSkillSync(result.skillId), [result.artifactDigest]);
+  assert.deepEqual(listSkillArtifactsForSkillSync(result.skillId).map((item) => item.digest), [result.artifactDigest]);
 });
 
 test("importWorkspaceSkillFromUrl imports a skills.sh page by resolving its GitHub source", async () => {

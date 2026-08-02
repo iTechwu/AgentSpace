@@ -885,6 +885,8 @@ export {
   readActiveArtifactDigestForSkillSync,
   upsertSkillArtifactBindingSync,
   listSkillArtifactBindingsForSkillSync,
+  listSkillIdsForArtifactDigestSync,
+  backfillLegacySkillArtifactBindingsSync,
   resolveSkillIdForArtifactDigestSync,
   setAssignmentArtifactDigestSync,
   setAssignmentArtifactDigestsForSkillSync,

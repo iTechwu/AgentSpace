@@ -6,6 +6,7 @@ import {
   createSkillInstallationSync,
   createSkillUpgradeApprovalSync,
   getDatabase,
+  listSkillIdsForArtifactDigestSync,
   readMcpCatalogItemBySlugSync,
   readSkillArtifactByDigestSync,
   readSkillInstallationSync,
@@ -13,7 +14,6 @@ import {
   readSkillServiceCatalogSync,
   readSkillUpgradeApprovalByLockSync,
   readSkillUpgradeApprovalSync,
-  resolveSkillIdForArtifactDigestSync,
   setActiveArtifactDigestForSkillSync,
   setAssignmentArtifactDigestsForSkillSync,
   setSkillInstallationStatusSync,
@@ -513,7 +513,7 @@ export function createSkillUpgradePlanSync(input: {
     throw new Error(`Skill artifact "${input.artifactDigest}" does not exist in this workspace.`);
   }
   const previousArtifact = readSkillArtifactByDigestSync(previous.artifactDigest, workspaceId);
-  assertSameSkillLineage(previousArtifact, previous.artifactDigest, artifact, input.artifactDigest, workspaceId);
+  assertSameSkillLineage(previous.artifactDigest, input.artifactDigest, workspaceId);
 
   // Breaking upgrades require an unconsumed immutable approval bound to the
   // exact (fromDigest, toDigest, diffHash); it is consumed atomically with plan
@@ -592,19 +592,19 @@ export function createSkillUpgradePlanSync(input: {
 }
 
 function assertSameSkillLineage(
-  previousArtifact: SkillArtifactRecord | null,
   fromDigest: string,
-  toArtifact: SkillArtifactRecord,
   toDigest: string,
   workspaceId: string,
 ): void {
-  const fromSkillId = previousArtifact?.skillId ?? resolveSkillIdForArtifactDigestSync(fromDigest, workspaceId);
-  const toSkillId = toArtifact.skillId ?? resolveSkillIdForArtifactDigestSync(toDigest, workspaceId);
-  if (fromSkillId && toSkillId && fromSkillId !== toSkillId) {
-    throw new Error(`Upgrade crosses skill lineage (${fromSkillId} → ${toSkillId}); refusing to upgrade across skills.`);
+  const fromSkillIds = listSkillIdsForArtifactDigestSync(fromDigest, workspaceId);
+  const toSkillIds = listSkillIdsForArtifactDigestSync(toDigest, workspaceId);
+  if (fromSkillIds.length === 0 || toSkillIds.length === 0) {
+    throw new Error("Upgrade source and target artifacts must both be bound to a skill lineage.");
   }
-  if (fromSkillId && !toSkillId) {
-    throw new Error("Upgrade target artifact is not bound to a skill lineage.");
+  if (!fromSkillIds.some((skillId) => toSkillIds.includes(skillId))) {
+    throw new Error(
+      `Upgrade crosses skill lineage (${fromSkillIds.join(",")} -> ${toSkillIds.join(",")}); refusing to upgrade across skills.`,
+    );
   }
 }
 
@@ -646,12 +646,16 @@ export function rollbackSkillInstallationSync(input: {
     return { ok: false, reason: `Previous revision is "${previous.status}", not ready; cannot roll back.` };
   }
 
-  const skillId =
-    input.skillId
-    ?? readSkillArtifactByDigestSync(current.artifactDigest, input.workspaceId)?.skillId
-    ?? resolveSkillIdForArtifactDigestSync(current.artifactDigest, input.workspaceId ?? "default");
+  const workspaceId = input.workspaceId ?? "default";
+  const currentSkillIds = listSkillIdsForArtifactDigestSync(current.artifactDigest, workspaceId);
+  const previousSkillIds = listSkillIdsForArtifactDigestSync(previous.artifactDigest, workspaceId);
+  const commonSkillIds = currentSkillIds.filter((skillId) => previousSkillIds.includes(skillId));
+  const skillId = input.skillId ?? (commonSkillIds.length === 1 ? commonSkillIds[0] : undefined);
   if (!skillId) {
-    return { ok: false, reason: "Cannot determine skill id for rollback; pass skillId explicitly." };
+    return { ok: false, reason: "Cannot determine one shared skill lineage for rollback; pass skillId explicitly." };
+  }
+  if (!currentSkillIds.includes(skillId) || !previousSkillIds.includes(skillId)) {
+    return { ok: false, reason: `Skill "${skillId}" is not bound to both rollback revisions.` };
   }
 
   const db = getDatabase();

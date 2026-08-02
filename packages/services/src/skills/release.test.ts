@@ -11,6 +11,7 @@ import {
 import {
   buildAndPersistSkillArtifactSync,
   createSkillInstallationPlanSync,
+  createWorkspaceSkillSync,
   resetWorkspaceStateSync,
 } from "../index.ts";
 import {
@@ -266,14 +267,17 @@ function createTestRuntime(): string {
 
 const ENCODER = new TextEncoder();
 
-function buildUpgradeArtifacts(skillId?: string) {
+function buildUpgradeArtifacts(skillId?: string | null) {
   // Salt the content so each test run produces fresh digests: approvals persist
   // across runs (resetWorkspaceStateSync does not clear skill_upgrade_approval),
   // so deterministic digests would collide with a consumed approval from a
   // previous run via the UNIQUE first-write-wins.
   const salt = cryptoRandomBytes(4).toString("hex");
+  const resolvedSkillId = skillId === null
+    ? undefined
+    : skillId ?? createWorkspaceSkillSync({ name: `Upgrade Test ${salt}` }).id;
   const first = buildAndPersistSkillArtifactSync({
-    skillId,
+    skillId: resolvedSkillId,
     name: "Upgrade Test",
     files: [
       { path: "SKILL.md", bytes: ENCODER.encode(`# Body v1 ${salt}\n`) },
@@ -281,7 +285,7 @@ function buildUpgradeArtifacts(skillId?: string) {
     ],
   });
   const second = buildAndPersistSkillArtifactSync({
-    skillId,
+    skillId: resolvedSkillId,
     name: "Upgrade Test",
     files: [
       { path: "SKILL.md", bytes: ENCODER.encode(`# Body v2 ${salt}\n`) },
@@ -382,6 +386,37 @@ test("createSkillUpgradePlanSync rejects a cross-runtime upgrade", () => {
   assert.throws(
     () => createSkillUpgradePlanSync({ runtimeId: runtimeB, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
     /must stay on the same runtime/,
+  );
+});
+
+test("createSkillUpgradePlanSync rejects artifacts with no lineage bindings", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const { first, second } = buildUpgradeArtifacts(null);
+  const v1 = readyInstall(runtimeId, first.digest);
+  const diffHash = breakingDiffHash(first, second);
+  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+
+  assert.throws(
+    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+    /bound to a skill lineage/,
+  );
+});
+
+test("createSkillUpgradePlanSync rejects artifacts bound to different skills", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const firstSkill = createWorkspaceSkillSync({ name: `Lineage A ${cryptoRandomBytes(3).toString("hex")}` });
+  const secondSkill = createWorkspaceSkillSync({ name: `Lineage B ${cryptoRandomBytes(3).toString("hex")}` });
+  const first = buildUpgradeArtifacts(firstSkill.id).first;
+  const second = buildUpgradeArtifacts(secondSkill.id).second;
+  const v1 = readyInstall(runtimeId, first.digest);
+  const diffHash = breakingDiffHash(first, second);
+  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+
+  assert.throws(
+    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+    /crosses skill lineage/,
   );
 });
 

@@ -192,15 +192,9 @@ export async function rollbackSkillInstallationAction(input: {
   assertWorkspaceRoleForContext(workspaceContext, "admin");
   assertRequired(input.installationId, "installation id");
 
-  const installation = readSkillInstallationSync(input.installationId.trim(), workspaceContext.currentWorkspace.id);
-  const artifact = installation
-    ? readSkillArtifactByDigestSync(installation.artifactDigest, workspaceContext.currentWorkspace.id)
-    : null;
-
   const result = rollbackSkillInstallationSync({
     installationId: input.installationId.trim(),
     workspaceId: workspaceContext.currentWorkspace.id,
-    skillId: artifact?.skillId,
   });
   if (!result.ok) {
     throw new Error(result.reason ?? "回滚失败。");

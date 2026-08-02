@@ -274,6 +274,16 @@ test("upgrade creates a candidate revision and rollback reactivates the previous
   assert.equal(v2Lock.lockDigest.length, 64);
   await completeAllComponents(v2.id, runtimeId);
 
+  const unrelatedSkill = createWorkspaceSkillSync({ name: "Unrelated Rollback Target" });
+  const rejected = rollbackSkillInstallationSync({
+    installationId: v2.id,
+    workspaceId: "default",
+    skillId: unrelatedSkill.id,
+  });
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.reason ?? "", /not bound to both rollback revisions/);
+  assert.equal(readActiveArtifactDigestForSkillSync(unrelatedSkill.id, "default"), undefined);
+
   const rollback = rollbackSkillInstallationSync({ installationId: v2.id, workspaceId: "default", skillId: skill.id });
   assert.equal(rollback.ok, true);
   assert.equal(rollback.previousReadyDigest, first.digest);

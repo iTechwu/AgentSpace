@@ -4,9 +4,17 @@ import { homedir } from "node:os";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
-import { getDatabase, readSkillArtifactFilesSync } from "@dofe-agent/db";
+import {
+  backfillLegacySkillArtifactBindingsSync,
+  getDatabase,
+  listSkillArtifactBindingsForSkillSync,
+  listSkillArtifactsForSkillSync,
+  readSkillArtifactFilesSync,
+  resolveSkillIdForArtifactDigestSync,
+} from "@dofe-agent/db";
 import {
   buildAndPersistSkillArtifactSync,
+  createWorkspaceSkillSync,
   materializeSkillArtifactFilesSync,
   mediaTypeForPath,
   setAttachmentStorageClientForTests,
@@ -77,6 +85,7 @@ function seedDefaultWorkspaceIfMissing(): void {
 
 beforeEach(() => {
   const db = getDatabase();
+  db.exec("DELETE FROM skill_artifact_binding");
   db.exec("DELETE FROM skill_artifact_file");
   db.exec("DELETE FROM skill_artifact");
   db.exec("DELETE FROM content_blob");
@@ -166,6 +175,46 @@ test("identical content re-imports to the same digest without duplication", () =
   assert.equal(second.digest, first.digest);
   assert.equal(second.created, false);
   assert.equal(second.artifact.id, first.artifact.id);
+});
+
+test("one immutable digest can be bound to multiple skills without inventing a single owner", () => {
+  const firstSkill = createWorkspaceSkillSync({ name: `shared-a-${Date.now()}` });
+  const secondSkill = createWorkspaceSkillSync({ name: `shared-b-${Date.now()}` });
+  const first = buildAndPersistSkillArtifactSync({
+    workspaceId: "default",
+    skillId: firstSkill.id,
+    name: "shared-content",
+    files: sampleFiles(),
+  });
+  const second = buildAndPersistSkillArtifactSync({
+    workspaceId: "default",
+    skillId: secondSkill.id,
+    name: "shared-content",
+    files: sampleFiles(),
+  });
+
+  assert.equal(second.digest, first.digest);
+  assert.deepEqual(listSkillArtifactBindingsForSkillSync(firstSkill.id), [first.digest]);
+  assert.deepEqual(listSkillArtifactBindingsForSkillSync(secondSkill.id), [first.digest]);
+  assert.deepEqual(listSkillArtifactsForSkillSync(secondSkill.id).map((item) => item.digest), [first.digest]);
+  assert.equal(resolveSkillIdForArtifactDigestSync(first.digest), undefined);
+});
+
+test("legacy artifact ownership backfills into immutable bindings idempotently", () => {
+  const skill = createWorkspaceSkillSync({ name: `legacy-owner-${Date.now()}` });
+  const artifact = buildAndPersistSkillArtifactSync({
+    workspaceId: "default",
+    skillId: skill.id,
+    name: "legacy-content",
+    files: sampleFiles(),
+  });
+  getDatabase().prepare(
+    "DELETE FROM skill_artifact_binding WHERE workspace_id = ? AND skill_id = ? AND artifact_digest = ?",
+  ).run("default", skill.id, artifact.digest);
+
+  assert.equal(backfillLegacySkillArtifactBindingsSync("default"), 1);
+  assert.equal(backfillLegacySkillArtifactBindingsSync("default"), 0);
+  assert.deepEqual(listSkillArtifactBindingsForSkillSync(skill.id), [artifact.digest]);
 });
 
 test("removing a file changes the digest and file count", () => {
