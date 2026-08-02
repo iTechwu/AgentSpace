@@ -35,19 +35,21 @@ test("catalog admission accepts a well-formed managed-service template", () => {
   assert.equal(result.ok, true);
 });
 
-test("catalog admission accepts an external_connection template without an image", () => {
-  const result = assertSkillServiceCatalogAdmissionSync({
+test("catalog admission rejects deployment types without an implemented binding model", () => {
+  const external = assertSkillServiceCatalogAdmissionSync({
     ...validInput(),
     deploymentType: "external_connection",
     imageDigest: "external-connection",
   });
-  assert.equal(result.ok, false, "external_connection still requires a digest-form imageDigest");
-  const relaxed = assertSkillServiceCatalogAdmissionSync({
+  assert.equal(external.ok, false);
+  if (!external.ok) assert.match(external.reason, /MCP Center connection reference/);
+
+  const shared = assertSkillServiceCatalogAdmissionSync({
     ...validInput(),
-    deploymentType: "external_connection",
-    imageDigest: `sha256:${sha("c")}`,
+    deploymentType: "platform_shared",
   });
-  assert.equal(relaxed.ok, true);
+  assert.equal(shared.ok, false);
+  if (!shared.ok) assert.match(shared.reason, /shared-service inventory/);
 });
 
 test("catalog admission accepts a full digest-pinned image ref from an allowed registry", () => {
@@ -185,14 +187,15 @@ test("catalog admission requires a digest-locked SBOM for image templates", () =
   assert.equal(ok.ok, true);
 });
 
-test("catalog admission does not require an SBOM for external_connection templates", () => {
+test("catalog admission does not misclassify external connections as image templates", () => {
   const result = assertSkillServiceCatalogAdmissionSync({
     ...validInput(),
     deploymentType: "external_connection",
     imageDigest: `sha256:${sha("e")}`,
     sbomDigest: "",
   });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.doesNotMatch(result.reason, /sbomDigest/);
 });
 
 test("catalog admission validates the container hardening profile", () => {

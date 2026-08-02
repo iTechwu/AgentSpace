@@ -26,7 +26,7 @@
 
 1. 以 [Agent Skills specification](https://agentskills.io/specification) 的 `SKILL.md` 目录为兼容基线，完整保留 `scripts/`、`references/`、`assets/` 和其他受允许文件；平台附加元数据放在独立 manifest，绝不改写上游 `SKILL.md`。
 2. “安装”拆成四种不同语义：导入内容包、准备依赖、绑定 Runtime 能力、激活到员工。界面与状态机不得把它们混成一次同步操作。
-3. Remote Runtime 下，指令、文件、依赖、脚本和 MCP 都能直接使用，但各自有明确执行位置。第三方脚本不得继承 Provider 凭据；远程 MCP 是受控连接，`stdio` MCP 是受管服务，不是任意命令执行。
+3. Remote Runtime 下，指令、文件、依赖、脚本和远程 Streamable HTTP MCP 已能直接使用，但各自有明确执行位置。第三方脚本不得继承 Provider 凭据；`stdio` MCP 的目标形态是受管服务，不是任意命令执行，在私网 bridge 完成前保持 fail-closed。
 4. 每次安装锁定不可变 artifact digest。Git/注册表链接只用于发现；实际安装记录 commit/digest、文件清单、风险结论、依赖解析结果和审批。
 5. Skill 与 MCP 关联但不等同。Skill 声明它需要的逻辑能力；MCP Center 管理 Runtime x MCP connection、密钥、发现工具、网络策略和调用审计。沿用 [MCP 中心架构](../mcp-extension/02-架构设计.md) 的安全边界。
 6. Skill 若需要常驻支持服务，只能引用审核的 `service catalog template@version`。运维以 image digest、资源边界、外部依赖、健康检查和回滚计划创建服务；Skill 包不能自行创建 Compose、容器、数据库或后台进程。
@@ -52,13 +52,13 @@
 
 ## 当前基线与目标差距
 
-第六轮实施后，Remote 核心链路已闭环：不可变 artifact/blob、统一 package authority 和来源预算、安全下载、安装 cache 证据、真实 npm/pip/uv 隔离安装、任务 dependency env 消费、受控 Skill Runner、task bundle SHA/聚合预算、release lock/approval/fencing、service 原子编排、L3/L4 egress、file secret、严格 catalog admission、五步安装审阅和安装证据/卸载 UI 均已进入生产调用链。
+第六轮实施后，Remote 核心链路已闭环：不可变 artifact/blob、统一 package authority 和来源预算、安全下载、安装 cache 证据、真实 npm/pip/uv 隔离安装、任务 dependency env 消费、受控 Skill Runner、task bundle SHA/聚合预算、release lock/approval/fencing、`managed_service` 原子编排、L3/L4 egress、file secret、严格 catalog admission、五步安装审阅和安装证据/卸载 UI 均已进入生产调用链。`external_connection`、`platform_shared` 与 managed stdio MCP 已在 catalog/queue/claim/complete/upgrade 层 fail-closed，尚未计入支持范围。
 
 当前不再存在已知“组件 ready 但任务必然不可用”的代码缺口。生产放行仍有两个环境门禁：
 
 1. 在与生产一致的 Linux managed node 上执行真实 egress、IPv6、DNS/DoH、secret inspect、轮换和 daemon restart 负面 E2E。
 2. 在真实 Remote Runtime 通过 Runner 执行 npm `require` 与 Python `import` smoke，并证明镜像缺失、cache/env 删除或篡改后任务在 Provider 启动前或脚本调用时 fail-closed。
 
-继续优化项为：把当前一次性 binding 切换准确定位为 blue-green 或实现真正 canary；加强 rollback 的 artifact/env/service 预检与 compare-and-set；将 base64 task bundle 改为 content-addressed 分块/缓存传输；提供 system dependency catalog resolver；完成更新检查、legacy backfill、orphan GC、feature flag、指标告警、独立升级审批和 service 运维体验。
+继续优化项为：建设外部连接引用与 shared-service inventory、managed MCP 私网 bridge；把当前一次性 binding 切换准确定位为 blue-green 或实现真正 canary；加强 rollback 的 artifact/env/service 预检；将 base64 task bundle 改为 content-addressed 分块/缓存传输；提供 system dependency catalog resolver；完成更新检查、legacy backfill、orphan GC、feature flag、指标告警、独立升级审批和 service 运维体验。
 
 详见 [实施差距第五次复审](./07-实施差距审查.md)。

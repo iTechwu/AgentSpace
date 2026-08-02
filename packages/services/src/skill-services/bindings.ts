@@ -33,6 +33,9 @@ export function resolveClaimedManagedSkillServiceOperation(
   if (!catalog) {
     return null;
   }
+  if (catalog.deploymentType !== "managed_service") {
+    return null;
+  }
   return {
     operationId: operation.id,
     claimGeneration: operation.claimGeneration,
@@ -93,6 +96,11 @@ export function queueManagedSkillServiceForInstallationSync(input: {
   const catalog = readSkillServiceCatalogSync(input.catalogSlug, input.templateVersion, workspaceId);
   if (!catalog) {
     throw new Error(`Skill service catalog entry "${input.catalogSlug}@${input.templateVersion}" does not exist.`);
+  }
+  if (catalog.deploymentType !== "managed_service") {
+    throw new Error(
+      `skill_service.deployment_type_not_executable: "${catalog.deploymentType}" cannot create a managed-node Docker operation.`,
+    );
   }
   const service = createManagedSkillServiceSync({
     workspaceId,
@@ -163,6 +171,13 @@ export function completeManagedSkillServiceProvisionOperationSync(input: {
     : undefined;
   if (!service || !catalog) {
     return { ok: false, code: "upgrade_context_missing", reason: "Canary upgrade context (service/catalog) is missing." };
+  }
+  if (catalog.deploymentType !== "managed_service") {
+    return {
+      ok: false,
+      code: "deployment_type_not_executable",
+      reason: `Service deployment type "${catalog.deploymentType}" cannot be completed by a managed-node Docker operation.`,
+    };
   }
   return withTransaction(getDatabase(), () => {
     const done = completeOperationDbSync({
@@ -271,6 +286,10 @@ export function queueManagedSkillServiceRetireSync(input: {
   if (service.status === "provisioning") {
     return { queued: false, reason: "still_provisioning" };
   }
+  const catalog = listSkillServiceCatalogSync(workspaceId).find((entry) => entry.id === service.catalogId);
+  if (!catalog || catalog.deploymentType !== "managed_service") {
+    return { queued: false, reason: "deployment_type_not_executable" };
+  }
   const hasActiveRetire = listManagedSkillServiceOperationsSync({
     workspaceId,
     serviceId: input.serviceId,
@@ -320,6 +339,9 @@ export function upgradeManagedSkillServiceSync(input: {
   if (!greenCatalog) {
     return { ok: false, code: "catalog_not_found", reason: "The green service's catalog entry is missing." };
   }
+  if (greenCatalog.deploymentType !== "managed_service") {
+    return { ok: false, code: "deployment_type_not_executable", reason: "Only managed_service instances support blue-green upgrades." };
+  }
   const blueCatalog = readSkillServiceCatalogSync(input.catalogSlug, input.templateVersion, workspaceId);
   if (!blueCatalog) {
     return {
@@ -327,6 +349,9 @@ export function upgradeManagedSkillServiceSync(input: {
       code: "catalog_not_found",
       reason: `Catalog "${input.catalogSlug}@${input.templateVersion}" does not exist.`,
     };
+  }
+  if (blueCatalog.deploymentType !== "managed_service") {
+    return { ok: false, code: "deployment_type_not_executable", reason: "The target catalog is not a managed_service template." };
   }
   if (blueCatalog.slug !== greenCatalog.slug) {
     return { ok: false, code: "catalog_lineage_mismatch", reason: "Upgrade must stay on the same catalog lineage (slug)." };
@@ -391,9 +416,15 @@ export function retireUnreferencedManagedSkillServicesSync(
   const catalogByRollbackClass = new Map(
     listSkillServiceCatalogSync(workspaceId).map((catalog) => [catalog.id, catalog.rollbackClass]),
   );
+  const deploymentTypeByCatalogId = new Map(
+    listSkillServiceCatalogSync(workspaceId).map((catalog) => [catalog.id, catalog.deploymentType]),
+  );
   const retired: string[] = [];
 
   for (const service of listManagedSkillServicesSync(workspaceId)) {
+    if (deploymentTypeByCatalogId.get(service.catalogId) !== "managed_service") {
+      continue;
+    }
     if (service.status !== "ready" && service.status !== "degraded") {
       continue;
     }

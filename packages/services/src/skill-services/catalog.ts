@@ -91,6 +91,18 @@ export function assertSkillServiceCatalogAdmissionSync(
       reason: `Unknown deploymentType "${input.deploymentType}"; expected external_connection | managed_service | platform_shared.`,
     };
   }
+  if (input.deploymentType === "external_connection") {
+    return {
+      ok: false,
+      reason: "external_connection requires an immutable MCP Center connection reference; endpoint-in-catalog bindings are not implemented.",
+    };
+  }
+  if (input.deploymentType === "platform_shared") {
+    return {
+      ok: false,
+      reason: "platform_shared requires an approved shared-service inventory and tenant isolation binding; per-install Docker provisioning is forbidden.",
+    };
+  }
   if (!IMAGE_REF_DIGEST_PATTERN.test(input.imageDigest.trim().toLowerCase())) {
     return {
       ok: false,
@@ -311,8 +323,9 @@ function imageRegistry(imageRef: string): string {
 }
 
 /**
- * Validates admission then persists the catalog entry. `external_connection`
- * templates carry no image and are admitted with an empty (validated) digest.
+ * Validates admission then persists an executable managed-service template.
+ * Other deployment types remain reserved until their reference inventories
+ * exist; accepting them here would route them into the Docker worker.
  */
 export function createSkillServiceCatalogEntrySync(
   input: SkillServiceCatalogAdmissionInput,

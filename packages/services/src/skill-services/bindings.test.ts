@@ -152,6 +152,45 @@ test("queue throws when the catalog entry does not exist", () => {
   );
 });
 
+test("queue rejects legacy non-managed deployment types instead of creating a Docker operation", () => {
+  const runtimeId = createTestRuntime();
+  const installationId = createMinimalInstallation(runtimeId);
+  const catalog = upsertSkillServiceCatalogSync({
+    workspaceId: "default",
+    slug: "legacy-external",
+    templateVersion: "1.0.0",
+    deploymentType: "external_connection",
+    imageDigest: `sha256:${"d".repeat(64)}`,
+  });
+
+  assert.throws(
+    () => queueManagedSkillServiceForInstallationSync({
+      workspaceId: "default",
+      runtimeId,
+      installationId,
+      catalogSlug: "legacy-external",
+      templateVersion: "1.0.0",
+    }),
+    /deployment_type_not_executable/,
+  );
+  assert.equal(listManagedSkillServiceOperationsSync({ workspaceId: "default", runtimeId }).length, 0);
+
+  const legacyService = createManagedSkillServiceSync({
+    workspaceId: "default",
+    runtimeId,
+    catalogId: catalog.id,
+    status: "provisioning",
+  });
+  const legacyOperation = createManagedSkillServiceOperationSync({
+    workspaceId: "default",
+    runtimeId,
+    serviceId: legacyService.id,
+    installationId,
+    operation: "provision",
+  });
+  assert.equal(resolveClaimedManagedSkillServiceOperation(legacyOperation), null);
+});
+
 test("queue dedupes: re-plan for the same runtime+catalog reuses the instance and does not stack an active operation", () => {
   const runtimeId = createTestRuntime();
   seedRendererCatalog();
