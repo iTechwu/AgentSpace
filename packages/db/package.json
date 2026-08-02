@@ -19,6 +19,7 @@
     }
   },
   "scripts": {
+    "test": "node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 src/skill-service-operations.test.ts src/skill-services.test.ts",
     "types": "../../apps/web/node_modules/.bin/tsc -p tsconfig.types.json --incremental false",
     "postgres": "node --experimental-strip-types ./src/postgres-cli.ts",
     "postgres:status": "node --experimental-strip-types ./src/postgres-cli.ts status",

@@ -50,7 +50,7 @@ test("classifySkillFile marks a binary asset as non-inlineable", () => {
   const result = classifySkillFile("assets/template.docx", binary);
   assert.equal(result.isBinary, true);
   assert.equal(result.inlineableText, false);
-  assert.equal(result.mediaType, "application/octet-stream");
+  assert.equal(result.mediaType, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
   assert.equal(result.suggestedMode, "0644");
 });
 
