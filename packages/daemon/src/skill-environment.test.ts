@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { partitionSkillEnvironment } from "./skill-environment.ts";
 
-test("partitionSkillEnvironment keeps declared Runner configuration out of Provider env", () => {
+test("partitionSkillEnvironment keeps every Skill value out of Provider env", () => {
   const partitioned = partitionSkillEnvironment({
     RENDER_TOKEN: "runner-secret",
     LEGACY_REGION: "cn-north-1",
@@ -10,10 +10,7 @@ test("partitionSkillEnvironment keeps declared Runner configuration out of Provi
   }, [{ configKeys: ["RENDER_TOKEN"] }]);
 
   assert.deepEqual(partitioned.runnerEnv, { RENDER_TOKEN: "runner-secret" });
-  assert.deepEqual(partitioned.providerEnv, {
-    LEGACY_REGION: "cn-north-1",
-    UNUSED_SECRET: "not-declared",
-  });
+  assert.deepEqual(partitioned.providerEnv, {});
 });
 
 test("partitionSkillEnvironment does not expose undeclared values to Runner", () => {
@@ -23,5 +20,5 @@ test("partitionSkillEnvironment does not expose undeclared values to Runner", ()
   }, [{ configKeys: ["REQUIRED_TOKEN", "MISSING_TOKEN"] }]);
 
   assert.deepEqual(partitioned.runnerEnv, { REQUIRED_TOKEN: "allowed" });
-  assert.deepEqual(partitioned.providerEnv, { EXTRA_TOKEN: "denied" });
+  assert.deepEqual(partitioned.providerEnv, {});
 });
