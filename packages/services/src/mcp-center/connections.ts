@@ -657,6 +657,10 @@ export function scheduleMcpHealthChecksSync(input: {
   runtimeId?: string;
   now?: string;
 } = {}): number {
+  // The runtime-maintenance cron stage doubles as the MCP housekeeping sweep:
+  // expired session grants are reaped here so cleanup does not depend on the
+  // next task claim happening to trigger it.
+  deleteExpiredMcpTaskSessionGrantsSync();
   return dbScheduleMcpHealthChecksSync(input);
 }
 
@@ -999,8 +1003,31 @@ export function claimMcpTaskSessionSync(input: {
   }
   deleteExpiredMcpTaskSessionGrantsSync();
 
-  // Resolve + encrypt BEFORE any mutation, so a serialization/size failure never
-  // consumes the one-time claim marker.
+  // Read the persisted grant FIRST: an unexpired grant for the SAME attempt and
+  // runtime is replayed directly, so a retry never depends on the CURRENT
+  // connection state (a later config that bloats past the size limit or fails to
+  // parse cannot break replay of an already-granted bundle).
+  const existing = readMcpTaskSessionGrantSync(input.taskId, input.workspaceId);
+  if (existing) {
+    if (
+      existing.attemptId === attemptId &&
+      existing.runtimeId === input.runtimeId &&
+      existing.expiresAt > new Date().toISOString()
+    ) {
+      try {
+        return JSON.parse(decryptMcpGrant(existing.encryptedBundleJson)) as ClaimMcpTaskSessionResponse;
+      } catch {
+        // Undecryptable/corrupt grant → refuse rather than leak or fabricate.
+        return { connections: [] };
+      }
+    }
+    // A grant exists but belongs to a different attempt, runtime, or expired →
+    // this is not the first claim; refuse.
+    return { connections: [] };
+  }
+
+  // First claim: resolve + encrypt BEFORE any mutation, so a serialization/size
+  // failure never consumes the one-time claim marker.
   const result = resolveClaimedMcpTaskSessionResult({
     workspaceId: input.workspaceId,
     runtimeId: input.runtimeId,
@@ -1025,20 +1052,7 @@ export function claimMcpTaskSessionSync(input: {
     encryptedBundleJson: encryptedBundle,
     expiresAt,
   });
-  if (claimed) {
-    return result;
-  }
-
-  const grant = readMcpTaskSessionGrantSync(input.taskId, input.workspaceId);
-  if (grant && grant.attemptId === attemptId) {
-    try {
-      return JSON.parse(decryptMcpGrant(grant.encryptedBundleJson)) as ClaimMcpTaskSessionResponse;
-    } catch {
-      // Undecryptable/corrupt grant → refuse rather than leak or fabricate.
-      return { connections: [] };
-    }
-  }
-  return { connections: [] };
+  return claimed ? result : { connections: [] };
 }
 
 function resolveClaimedMcpTaskSessionResult(input: {

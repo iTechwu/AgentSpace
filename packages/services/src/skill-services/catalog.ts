@@ -16,8 +16,13 @@ const ROLLBACK_CLASSES = new Set(["stateless", "backward_compatible", "irreversi
 
 const DEPLOYMENT_TYPES = new Set(["external_connection", "managed_service", "platform_shared"]);
 
-/** Data-store kinds that must never be created by a template (CLAUDE.md). */
-const FORBIDDEN_CREATED_KINDS = new Set(["postgres", "postgresql", "redis", "rabbitmq", "rabbit"]);
+/**
+ * Data-store kinds a template may only REFERENCE (centrally managed), never
+ * create. The catalog template itself carries no image/volume/init-job fields
+ * for these; the only place they may appear is the external-dependency REFERENCE
+ * list, which the validator below enforces to be kind:name references.
+ */
+const CENTRALLY_MANAGED_REFERENCE_KINDS = new Set(["postgres", "postgresql", "redis", "rabbitmq", "rabbit"]);
 
 export interface SkillServiceCatalogAdmissionInput {
   workspaceId?: string;
@@ -75,15 +80,17 @@ export function assertSkillServiceCatalogAdmissionSync(
     return deps;
   }
   for (const dep of deps.value ?? []) {
-    if (typeof dep !== "string") {
-      return { ok: false, reason: "externalDependenciesJson entries must be strings of the form kind:name." };
-    }
-    const kind = dep.split(":")[0]?.trim().toLowerCase() ?? "";
-    if (FORBIDDEN_CREATED_KINDS.has(kind)) {
+    if (typeof dep !== "string" || !/^[a-z0-9-]+:[a-zA-Z0-9._-]+$/.test(dep.trim())) {
       return {
         ok: false,
-        reason: `External dependency "${dep}" would create a ${kind} service; only centrally-managed references are allowed (CLAUDE.md).`,
+        reason: `externalDependenciesJson entries must be references of the form kind:name, got "${String(dep)}".`,
       };
+    }
+    const kind = dep.split(":")[0]!.trim().toLowerCase();
+    if (CENTRALLY_MANAGED_REFERENCE_KINDS.has(kind)) {
+      // Allowed: this is a REFERENCE to a centrally-managed data store
+      // (CLAUDE.md: app deployments connect to externally managed services).
+      continue;
     }
   }
 

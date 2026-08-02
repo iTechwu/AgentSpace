@@ -18,6 +18,8 @@ const KEEP_WORK_DIR_ENV = "DOFE_AGENT_KEEP_SKILL_INSTALL_WORK_DIR";
 const DISABLE_CACHE_ENV = "DOFE_AGENT_DISABLE_SKILL_INSTALL_CACHE";
 const CACHE_COMPLETE_SENTINEL = ".cache-complete";
 const CACHE_META_FILE = ".cache-result.json";
+/** Lease heartbeat cadence; must be well under the control-plane lease duration (120s). */
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
 interface CachedMaterializeResult {
   files: MaterializedSkillFile[];
@@ -56,6 +58,23 @@ export async function executeSkillInstallationOperation(
     artifactDigest: operation.artifactDigest,
   });
   let cacheHit = false;
+
+  // Lease heartbeat: renew while executing; if the lease is lost (crash recovery
+  // re-queued the op) abort — the completion would be fenced by the control plane
+  // anyway, so stopping early avoids wasted work on a superseded operation.
+  let leaseLost = false;
+  const heartbeat = setInterval(() => {
+    void client.renewSkillInstallationOperationLease(operation.operationId)
+      .then((renewed) => {
+        if (!renewed) {
+          leaseLost = true;
+        }
+      })
+      .catch(() => {
+        // A transient renew failure is not fatal; the next beat retries.
+      });
+  }, HEARTBEAT_INTERVAL_MS);
+  heartbeat.unref();
 
   try {
     let materializeResult: MaterializeResult;
@@ -96,6 +115,10 @@ export async function executeSkillInstallationOperation(
       );
     }
 
+    if (leaseLost) {
+      throw new Error("skill_installation.lease_lost: operation lease expired while executing; aborting.");
+    }
+
     await client.completeSkillInstallationOperation(operation.operationId, {
       safeResultJson: JSON.stringify({
         materializedFiles: materializeResult.files.length,
@@ -124,6 +147,7 @@ export async function executeSkillInstallationOperation(
       ...(componentStatuses.length > 0 ? { componentStatuses } : {}),
     });
   } finally {
+    clearInterval(heartbeat);
     if (!process.env[KEEP_WORK_DIR_ENV]) {
       rmSync(workDir, { recursive: true, force: true });
     }

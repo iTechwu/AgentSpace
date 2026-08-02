@@ -20,6 +20,7 @@ import {
   upsertAgentRouterProviderSessionSync,
 } from "./agent-router-sessions.ts";
 import { readAgentRuntimeSync } from "./daemons.ts";
+import { deleteMcpTaskSessionGrantSync } from "./mcp-session-grant.ts";
 import { readTaskCommitJournalSync, upsertTaskCommitJournalSync } from "./task-commit-journal.ts";
 
 export function enqueueNativeTaskSync(input: EnqueueTaskInput): QueuedTaskRecord | null {
@@ -785,6 +786,9 @@ export function cancelQueuedTaskSync(input: {
          updated_at = ?
      WHERE id = ? AND status IN ('queued', 'claimed', 'running')`,
   ).run(input.errorText ?? null, now, now, input.taskId);
+
+  // Cancel is a task terminal state: destroy any MCP session grant immediately.
+  deleteMcpTaskSessionGrantSync(input.taskId);
 
   const task = readQueuedTaskSync(input.taskId);
   if (!task) {

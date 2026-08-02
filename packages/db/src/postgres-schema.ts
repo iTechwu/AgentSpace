@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "71";
+export const POSTGRES_SCHEMA_VERSION = "73";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -2617,6 +2617,9 @@ export function getPostgresSchemaStatements(): string[] {
       )
     `,
     `
+      ALTER TABLE skill_installation_operation ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ
+    `,
+    `
       CREATE TABLE IF NOT EXISTS skill_installation_component (
         id TEXT PRIMARY KEY,
         installation_id TEXT NOT NULL REFERENCES skill_installation(id) ON DELETE CASCADE,
@@ -2810,6 +2813,11 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_employee_artifact_workspace
         ON employee_artifact(workspace_id_ref, deleted_at)
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_artifact_publish_idempotent
+        ON employee_artifact(workspace_id, source_task_id, content_digest, file_name)
+        WHERE source_task_id IS NOT NULL AND deleted_at IS NULL
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_task_commit_journal_state

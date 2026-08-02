@@ -9,6 +9,8 @@ import {
   setSkillInstallationStatusSync,
   registerDaemonRuntimesSync,
   readTaskSkillExecutionSnapshotSync,
+  setSkillRolloutPinSync,
+  setStoredEmployeeSkillAssignmentsSync,
 } from "@dofe-agent/db";
 import {
   assertSkillInstallationReadyForTaskSync,
@@ -19,6 +21,7 @@ import {
   createWorkspaceSkillSync,
   resetWorkspaceStateSync,
   resolveOrLoadTaskSkillExecutionSnapshotSync,
+  resolveTaskSkillExecutionSnapshotSync,
   updateWorkspaceSkillSync,
   upsertAgentSkillRequirementsSync,
 } from "@dofe-agent/services";
@@ -478,4 +481,58 @@ test("task skill execution snapshot persists and round-trips for audit", () => {
   assert.equal(persisted?.entries[0]?.artifactDigest, v1.artifactDigest);
   assert.equal(persisted?.entries[0]?.installationId, v1.installationId);
   assert.equal(persisted?.entries[0]?.revision, "v1");
+});
+
+test("rollout_pin fixes new tasks to the pinned installation revision until the rollout switches", () => {
+  createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
+  const skill = createWorkspaceSkillSync({ name: "rollout-pin", description: "Pin" }, WORKSPACE_ID);
+  const runtimeId = createRuntime();
+  const taskId = insertTaskRow(runtimeId);
+
+  // Two ready installations of the SAME digest at v1 and v2 (re-install bumps
+  // the revision while the digest is unchanged) so the pin has a choice.
+  const artifact = buildAndPersistSkillArtifactSync({
+    workspaceId: WORKSPACE_ID,
+    skillId: skill.id,
+    name: "rollout-pin",
+    files: [{ path: "SKILL.md", bytes: Buffer.from(`# Pin v1\n${randomBytes(4).toString("hex")}\n`) }],
+  });
+  const v1 = createSkillInstallationPlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest: artifact.digest });
+  setSkillInstallationStatusSync({ installationId: v1.id, workspaceId: WORKSPACE_ID, status: "ready", health: "healthy" });
+  const v2 = createSkillUpgradePlanSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    artifactDigest: artifact.digest,
+    previousReadyInstallationId: v1.id,
+  });
+  setSkillInstallationStatusSync({ installationId: v2.id, workspaceId: WORKSPACE_ID, status: "ready", health: "healthy" });
+  assert.equal(v2.revision, "v2");
+
+  // Assign the skill so the assignment row carries the rollout pin.
+  setStoredEmployeeSkillAssignmentsSync("Researcher", [skill.id], WORKSPACE_ID);
+
+  // Resolve fresh each time (NOT resolveOrLoad, which freezes the persisted
+  // snapshot) so the pin switch is observable.
+  const resolveFresh = () => resolveTaskSkillExecutionSnapshotSync({
+    workspaceId: WORKSPACE_ID,
+    runtimeId,
+    agentName: "Researcher",
+    agentSkills: [skill],
+  });
+
+  // Unpinned → highest ready revision (v2).
+  const unpinned = resolveFresh();
+  assert.equal(unpinned.entries[0]?.revision, "v2");
+
+  // Pin to v1 → new tasks resolve v1 even though v2 is ready.
+  setSkillRolloutPinSync({ workspaceId: WORKSPACE_ID, skillId: skill.id, revision: "v1" });
+  const pinnedV1 = resolveFresh();
+  assert.equal(pinnedV1.entries[0]?.revision, "v1");
+  assert.equal(pinnedV1.entries[0]?.installationId, v1.id);
+
+  // Rollout switch to v2 → new tasks resolve v2.
+  setSkillRolloutPinSync({ workspaceId: WORKSPACE_ID, skillId: skill.id, revision: "v2" });
+  const pinnedV2 = resolveFresh();
+  assert.equal(pinnedV2.entries[0]?.revision, "v2");
+  assert.equal(pinnedV2.entries[0]?.installationId, v2.id);
 });

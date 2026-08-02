@@ -2,13 +2,18 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, st
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { getWorkspaceDaemonRemoteStagingDirPath } from "@dofe-agent/db";
 import type { DaemonTaskOutputBundle } from "@dofe-agent/domain";
+import { WORKDIR_CAPTURE_INCLUDE_DIRS } from "dofe-agent-daemon";
 
 const MAX_OUTPUT_BUNDLE_FILES = 64;
 const MAX_OUTPUT_BUNDLE_SINGLE_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_OUTPUT_BUNDLE_TOTAL_BYTES = 25 * 1024 * 1024;
 const OUTPUT_BUNDLE_ALLOWED_PREFIX = "runtime-output/";
-/** Bounded workDir subtrees captured by the daemon (see workdir-capture.ts). */
-const WORKDIR_BUNDLE_ALLOWED_PREFIXES = ["repository/", "state/", "artifacts/"] as const;
+/**
+ * Bounded workDir subtrees captured by the daemon — SINGLE source of truth,
+ * derived from the daemon's own capture list so a new capture dir (e.g.
+ * `checkpoints/`) can never silently break the staging/promotion path.
+ */
+const WORKDIR_BUNDLE_ALLOWED_PREFIXES = WORKDIR_CAPTURE_INCLUDE_DIRS.map((dir) => `${dir}/`);
 /** Staging-side marker carrying the paths the provider deleted this task. */
 const DELETED_PATHS_META_FILE = ".workdir-deleted.json";
 

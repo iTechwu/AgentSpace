@@ -34,6 +34,26 @@ before(() => {
   seedDefaultWorkspaceIfMissing();
 });
 
+let taskSeq = 0;
+
+/** Inserts a real agent_task_queue row (employee_artifact.source_task_id is a hard FK). */
+function insertTestTask(): string {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  taskSeq += 1;
+  const runtimeId = `runtime-ew-${taskSeq}`;
+  const taskId = `task-ew-${taskSeq}`;
+  db.prepare(
+    `INSERT INTO agent_runtime (id, workspace_id, provider, name, status, created_at, updated_at)
+     VALUES (?, 'default', 'codex', ?, 'active', ?, ?)`,
+  ).run(runtimeId, runtimeId, now, now);
+  db.prepare(
+    `INSERT INTO agent_task_queue (id, workspace_id, agent_id, runtime_id, status, priority, input_json, queued_at, created_at, updated_at)
+     VALUES (?, 'default', 'agent-ew', ?, 'queued', 0, '{}', ?, ?, ?)`,
+  ).run(taskId, runtimeId, now, now, now);
+  return taskId;
+}
+
 /** The shared test PG occasionally loses the default workspace row; re-seed it. */
 function seedDefaultWorkspaceIfMissing(): void {
   const db = getDatabase();
@@ -57,7 +77,7 @@ beforeEach(() => {
 function seedTestEmployees(): void {
   const db = getDatabase();
   const now = new Date().toISOString();
-  for (const name of ["Alice", "Bob", "Carol"]) {
+  for (const name of ["Alice", "Bob", "Carol", "Dan", "Erin"]) {
     db.prepare(
       `INSERT INTO workspace_employee (id, workspace_id, name, role, origin, summary, fit, status, instructions, created_at, updated_at)
        VALUES (?, 'default', ?, 'Agent', 'manual', ?, 'Ready', 'active', '', ?, ?)
@@ -194,4 +214,57 @@ test("published artifacts are listed and soft-deleted", () => {
   assert.equal(listEmployeeArtifactsSync({ employeeName: "Carol", workspaceId: "default" }).length, 1);
   assert.equal(softDeleteEmployeeArtifactSync(artifact.id, "default"), true);
   assert.equal(listEmployeeArtifactsSync({ employeeName: "Carol", workspaceId: "default" }).length, 0);
+});
+
+test("publishing the same (task, digest, file) is idempotent and never duplicates", () => {
+  ensureEmployeePersistentWorkspaceSync({ workspaceId: "default", employeeName: "Dan" });
+  const taskId = insertTestTask();
+  const input = {
+    workspaceId: "default",
+    employeeName: "Dan",
+    contentDigest: "i".repeat(64),
+    mediaType: "text/plain",
+    fileName: "out.txt",
+    sizeBytes: 8,
+    sourceTaskId: taskId,
+  };
+  const first = publishEmployeeArtifactSync(input);
+  const second = publishEmployeeArtifactSync(input);
+  assert.equal(second.id, first.id, "retry must return the existing artifact");
+  assert.equal(
+    listEmployeeArtifactsSync({ employeeName: "Dan", workspaceId: "default" }).length,
+    1,
+    "no duplicate artifact rows",
+  );
+});
+
+test("head commit CAS: a stale parent can no longer advance head", () => {
+  ensureEmployeePersistentWorkspaceSync({ workspaceId: "default", employeeName: "Erin" });
+  const v1 = createWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Erin",
+    manifestDigest: "j".repeat(64),
+    manifestJson: MANIFEST_JSON("10"),
+  });
+  commitWorkspaceRevisionSync(v1.id, "default");
+
+  // v2 is created with parent v1, but v3 is committed first — v2 is now stale.
+  const v2 = createWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Erin",
+    parentRevisionId: v1.id,
+    manifestDigest: "k".repeat(64),
+    manifestJson: MANIFEST_JSON("11"),
+  });
+  const v3 = createWorkspaceRevisionSync({
+    workspaceId: "default",
+    employeeName: "Erin",
+    parentRevisionId: v1.id,
+    manifestDigest: "l".repeat(64),
+    manifestJson: MANIFEST_JSON("12"),
+  });
+  commitWorkspaceRevisionSync(v3.id, "default");
+
+  assert.throws(() => commitWorkspaceRevisionSync(v2.id, "default"), /REVISION_CONFLICT/);
+  assert.equal(readHeadRevisionSync("Erin", "default")?.id, v3.id, "stale commit must not advance head");
 });

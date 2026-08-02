@@ -237,10 +237,9 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
             <span>{tx("传输", "Transport")}</span>
             <select onChange={(event) => setTransportFilter(event.currentTarget.value as "all" | CatalogEntry["transport"])} value={transportFilter}>
               <option value="all">{tx("全部传输", "All transports")}</option>
+              {/* Only streamable_http is implemented; the other transports are
+                  type/UI placeholders and must not be selectable yet. */}
               <option value="streamable_http">streamable_http</option>
-              <option value="sse">sse</option>
-              <option value="managed_service">managed_service</option>
-              <option value="managed_stdio">managed_stdio</option>
             </select>
           </label>
           <label className="form-field">
@@ -284,7 +283,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                 >
                   <span className={`market-risk-dot market-risk-dot--${item.risk}`} />
                   <strong>{item.displayName}</strong>
-                  <span>{item.transport}</span>
+                  <span>{transportLabel(item.transport, tx)}</span>
                   <small>
                     {tx(`已连接 ${connectedCount} 个 Runtime · `, `${connectedCount} runtime(s) · `)}
                     {connectionState === "needs_attention" ? tx("需要处理", "Needs attention") : connectionState === "connected" ? tx("已连接", "Connected") : tx("未连接", "Not connected")}
@@ -531,6 +530,13 @@ function Fact({ label, value }: { label: string; value: string }) {
 
 function isActiveStatus(status: string): boolean {
   return status === "pending" || status === "claimed" || status === "running";
+}
+
+function transportLabel(transport: string, tx: (zh: string, en: string) => string): string {
+  if (transport === "streamable_http") return transport;
+  // Transports beyond streamable_http are type/UI placeholders: they are
+  // visible in the catalog but not connectable yet, so they must say so.
+  return `${transport} · ${tx("待支持", "not yet")}`;
 }
 
 function riskTone(risk: "low" | "medium" | "high"): "positive" | "warning" | "danger" {

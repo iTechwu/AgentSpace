@@ -196,6 +196,19 @@ function isCapturedIncludePath(path: string): boolean {
   return WORKDIR_CAPTURE_INCLUDE_DIRS.some((dir) => path === dir || path.startsWith(`${dir}/`));
 }
 
+/** Shared head-manifest parser used by the regular and strict restore paths. */
+function parseHeadRevisionManifest(manifestJson: string): WorkspaceRevisionManifest | null {
+  try {
+    const parsed = JSON.parse(manifestJson) as WorkspaceRevisionManifest;
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.files)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Materializes the head revision's files into a task workDir. Used at task
  * start so a fresh runtime is seeded with the durable workspace before the
@@ -215,11 +228,11 @@ export function materializeHeadRevisionToWorkDir(
   if (!head) {
     return { materializedFiles: 0, missingBlobs: 0 };
   }
-  let manifest: WorkspaceRevisionManifest;
-  try {
-    manifest = JSON.parse(head.manifestJson) as WorkspaceRevisionManifest;
-  } catch {
-    return { materializedFiles: 0, missingBlobs: 0 };
+  const manifest = parseHeadRevisionManifest(head.manifestJson);
+  if (!manifest) {
+    // An invalid manifest is NOT a silent 0/0 success: the whole head is
+    // unreadable, which must surface as a degraded workspace (>=1 missing blob).
+    return { materializedFiles: 0, missingBlobs: 1 };
   }
 
   const storage = createAttachmentStorageClient();
@@ -237,6 +250,12 @@ export function materializeHeadRevisionToWorkDir(
         sha256: file.sha256,
       });
     } catch {
+      missingBlobs += 1;
+      continue;
+    }
+    // Same content verification as the strict mount path: a tampered blob must
+    // never be restored as if it were the durable revision.
+    if (sha256Hex(bytes) !== file.sha256.toLowerCase()) {
       missingBlobs += 1;
       continue;
     }
@@ -275,10 +294,8 @@ export function materializeHeadRevisionToWorkDirStrict(
       `Workspace mount failed: head revision ${head.id.slice(0, 12)}… differs from the pinned ${input.expectedHeadRevisionId.slice(0, 12)}….`,
     );
   }
-  let manifest: WorkspaceRevisionManifest;
-  try {
-    manifest = JSON.parse(head.manifestJson) as WorkspaceRevisionManifest;
-  } catch {
+  const manifest = parseHeadRevisionManifest(head.manifestJson);
+  if (!manifest) {
     throw new Error("Workspace mount failed: head revision manifest is invalid.");
   }
 

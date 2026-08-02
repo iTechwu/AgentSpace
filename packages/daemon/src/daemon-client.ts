@@ -203,6 +203,22 @@ export class HttpDaemonClient {
     await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/start`, body);
   }
 
+  /**
+   * Heartbeat for the operation lease. Returns false when the lease was lost
+   * (crash recovery re-queued the op) — the caller must abort execution.
+   */
+  async renewSkillInstallationOperationLease(operationId: string): Promise<boolean> {
+    try {
+      await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/renew-lease`, {});
+      return true;
+    } catch (error) {
+      if (error instanceof DaemonRuntimeUnavailableError) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
   async completeSkillInstallationOperation(operationId: string, body: CompleteSkillInstallationOperationRequest): Promise<void> {
     await this.postJson(`/api/daemon/skill-operations/${encodeURIComponent(operationId)}/complete`, body);
   }

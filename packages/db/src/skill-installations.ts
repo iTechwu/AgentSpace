@@ -68,6 +68,7 @@ const SKILL_INSTALLATION_OPERATION_COLUMNS = `SELECT
   request_snapshot_json AS requestSnapshotJson, safe_result_json AS safeResultJson,
   error_code AS errorCode, error_message AS errorMessage,
   claimed_at AS claimedAt, completed_at AS completedAt,
+  lease_expires_at,
   requested_by_user_id AS requestedByUserId, created_at AS createdAt`;
 
 /* ------------------------------------------------------------------ */
@@ -441,12 +442,21 @@ export function cancelUnfinishedSkillInstallationOperationsSync(input: {
   return result.changes;
 }
 
+/** Lease duration for a claimed skill installation operation; the daemon heartbeats to renew. */
+export const SKILL_OPERATION_LEASE_SECONDS = 120;
+
+function leaseExpiryIso(now: Date): string {
+  return new Date(now.getTime() + SKILL_OPERATION_LEASE_SECONDS * 1000).toISOString();
+}
+
 export function claimNextSkillInstallationOperationForRuntimeSync(input: {
   workspaceId?: string;
   runtimeId: string;
+  now?: Date;
 }): StoredSkillInstallationOperationRecord | null {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = input.now ?? new Date();
   let claimedId: string | null = null;
   withTransaction(db, () => {
     const row = db.prepare(
@@ -458,9 +468,10 @@ export function claimNextSkillInstallationOperationForRuntimeSync(input: {
       return;
     }
     const result = db.prepare(
-      `UPDATE skill_installation_operation SET status = 'claimed', claimed_at = COALESCE(claimed_at, ?)
+      `UPDATE skill_installation_operation
+       SET status = 'claimed', claimed_at = COALESCE(claimed_at, ?), lease_expires_at = ?
        WHERE id = ? AND status = 'pending'`,
-    ).run(new Date().toISOString(), row.id);
+    ).run(now.toISOString(), leaseExpiryIso(now), row.id);
     if (result.changes > 0) {
       claimedId = row.id;
     }
@@ -471,26 +482,68 @@ export function claimNextSkillInstallationOperationForRuntimeSync(input: {
 export function startSkillInstallationOperationSync(input: {
   operationId: string;
   workspaceId?: string;
+  now?: Date;
 }): boolean {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = input.now ?? new Date();
   const result = getDatabase().prepare(
-    `UPDATE skill_installation_operation SET status = 'running'
-     WHERE id = ? AND workspace_id = ? AND status = 'claimed'`,
-  ).run(input.operationId, workspaceId);
+    `UPDATE skill_installation_operation
+     SET status = 'running', lease_expires_at = ?
+     WHERE id = ? AND workspace_id = ? AND status = 'claimed' AND lease_expires_at > ?`,
+  ).run(leaseExpiryIso(now), input.operationId, workspaceId, now.toISOString());
   return result.changes > 0;
+}
+
+/**
+ * Heartbeat: extends the lease while the daemon is still executing. Returns false
+ * when the lease was already lost (expired + re-queued) — the daemon must abort.
+ */
+export function renewSkillInstallationOperationLeaseSync(input: {
+  operationId: string;
+  workspaceId?: string;
+  now?: Date;
+}): boolean {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = input.now ?? new Date();
+  const result = getDatabase().prepare(
+    `UPDATE skill_installation_operation SET lease_expires_at = ?
+     WHERE id = ? AND workspace_id = ? AND status IN ('claimed', 'running') AND lease_expires_at > ?`,
+  ).run(leaseExpiryIso(now), input.operationId, workspaceId, now.toISOString());
+  return result.changes > 0;
+}
+
+/**
+ * Crash recovery: re-queues operations whose lease expired while claimed/running
+ * (the daemon crashed without completing). Returns the number of re-queued ops.
+ */
+export function requeueExpiredSkillInstallationOperationLeasesSync(input?: {
+  workspaceId?: string;
+  now?: Date;
+}): number {
+  const now = (input?.now ?? new Date()).toISOString();
+  const workspaceId = input?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const result = getDatabase().prepare(
+    `UPDATE skill_installation_operation
+     SET status = 'pending', claimed_at = NULL, lease_expires_at = NULL
+     WHERE workspace_id = ? AND status IN ('claimed', 'running') AND lease_expires_at < ?`,
+  ).run(workspaceId, now);
+  return result.changes;
 }
 
 export function completeSkillInstallationOperationSync(input: {
   operationId: string;
   workspaceId?: string;
   safeResultJson?: string;
+  now?: Date;
 }): boolean {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = input.now ?? new Date();
   const result = getDatabase().prepare(
     `UPDATE skill_installation_operation
-     SET status = 'succeeded', safe_result_json = ?, error_code = NULL, error_message = NULL, completed_at = ?
-     WHERE id = ? AND workspace_id = ? AND status IN ('claimed', 'running')`,
-  ).run(input.safeResultJson ?? "{}", new Date().toISOString(), input.operationId, workspaceId);
+     SET status = 'succeeded', safe_result_json = ?, error_code = NULL, error_message = NULL,
+         completed_at = ?, lease_expires_at = NULL
+     WHERE id = ? AND workspace_id = ? AND status IN ('claimed', 'running') AND lease_expires_at > ?`,
+  ).run(input.safeResultJson ?? "{}", now.toISOString(), input.operationId, workspaceId, now.toISOString());
   return result.changes > 0;
 }
 
@@ -499,13 +552,15 @@ export function failSkillInstallationOperationSync(input: {
   workspaceId?: string;
   errorCode?: string;
   errorMessage?: string;
+  now?: Date;
 }): boolean {
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = input.now ?? new Date();
   const result = getDatabase().prepare(
     `UPDATE skill_installation_operation
-     SET status = 'failed', error_code = ?, error_message = ?, completed_at = ?
-     WHERE id = ? AND workspace_id = ? AND status IN ('claimed', 'running')`,
-  ).run(input.errorCode ?? null, input.errorMessage ?? null, new Date().toISOString(), input.operationId, workspaceId);
+     SET status = 'failed', error_code = ?, error_message = ?, completed_at = ?, lease_expires_at = NULL
+     WHERE id = ? AND workspace_id = ? AND status IN ('claimed', 'running') AND lease_expires_at > ?`,
+  ).run(input.errorCode ?? null, input.errorMessage ?? null, now.toISOString(), input.operationId, workspaceId, now.toISOString());
   return result.changes > 0;
 }
 
@@ -604,6 +659,7 @@ function mapSkillInstallationOperationRecord(
     errorMessage: readOptionalString(value.errorMessage),
     claimedAt: readOptionalString(value.claimedAt),
     completedAt: readOptionalString(value.completedAt),
+    leaseExpiresAt: readOptionalString(value.leaseExpiresAt),
     requestedByUserId: readOptionalString(value.requestedByUserId),
     createdAt: value.createdAt,
   };

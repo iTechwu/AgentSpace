@@ -37,7 +37,9 @@ export async function POST(
   // what the task is allowed to report as having used.
   let grantBundle: ClaimMcpTaskSessionResponse | undefined;
   const grant = readMcpTaskSessionGrantSync(taskId, auth.workspaceId);
-  if (grant) {
+  // An expired grant is not a valid authorization snapshot: audits reported
+  // against it are refused (the task should no longer be able to claim MCP).
+  if (grant && grant.expiresAt > new Date().toISOString()) {
     try {
       grantBundle = JSON.parse(decryptMcpGrant(grant.encryptedBundleJson)) as ClaimMcpTaskSessionResponse;
     } catch {
@@ -55,6 +57,12 @@ export async function POST(
     if (!grantedConnection || !grantedConnection.approvedTools.includes(audit.toolName)) {
       continue;
     }
+    // eventId is REQUIRED for idempotency — missing/blank/oversized ids are
+    // refused so a retry can never produce a duplicate row via NULL event_id.
+    const eventId = typeof audit.eventId === "string" ? audit.eventId.trim() : "";
+    if (!eventId || eventId.length > 200) {
+      continue;
+    }
     recordMcpToolAuditSync({
       workspaceId: auth.workspaceId,
       connectionId: audit.connectionId,
@@ -63,7 +71,7 @@ export async function POST(
       outcome: audit.outcome === "failed" ? "failed" : "succeeded",
       latencyMs: typeof audit.latencyMs === "number" ? Math.max(0, audit.latencyMs) : undefined,
       safeSummary: typeof audit.safeSummary === "string" ? audit.safeSummary.slice(0, 1000) : undefined,
-      eventId: typeof audit.eventId === "string" && audit.eventId.trim() ? audit.eventId.trim() : undefined,
+      eventId,
     });
     recorded += 1;
   }

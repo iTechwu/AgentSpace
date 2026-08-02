@@ -11,6 +11,7 @@ import { drainTokenUsageRetriesSync } from "../models/usage-retry.ts";
 import { reconcileAllManagedRuntimeUsageAsync } from "../models/usage-sync.ts";
 import { scheduleMcpHealthChecksSync } from "../mcp-center/connections.ts";
 import { advanceRecoverableOperationsSync } from "../employees/recovery-worker.ts";
+import { requeueExpiredSkillInstallationOperationLeasesSync } from "@dofe-agent/db";
 
 export interface RuntimeMaintenanceStageResult {
   status: "succeeded" | "failed";
@@ -30,6 +31,7 @@ export interface RuntimeMaintenanceResult {
     usageReconciliation: RuntimeMaintenanceStageResult;
     mcpHealthChecks: RuntimeMaintenanceStageResult;
     recovery: RuntimeMaintenanceStageResult;
+    skillOperationLeases: RuntimeMaintenanceStageResult;
   };
 }
 
@@ -48,6 +50,7 @@ interface RuntimeMaintenanceDependencies {
   reconcileUsage: () => Promise<unknown>;
   scheduleMcpHealthChecks: () => unknown;
   advanceRecoveries: () => unknown;
+  requeueSkillOperationLeases: () => unknown;
 }
 
 const defaultDependencies: RuntimeMaintenanceDependencies = {
@@ -60,6 +63,7 @@ const defaultDependencies: RuntimeMaintenanceDependencies = {
   reconcileUsage: reconcileAllManagedRuntimeUsageAsync,
   scheduleMcpHealthChecks: scheduleMcpHealthChecksSync,
   advanceRecoveries: advanceRecoverableOperationsSync,
+  requeueSkillOperationLeases: () => requeueExpiredSkillInstallationOperationLeasesSync(),
 };
 
 export async function runRuntimeMaintenanceAsync(
@@ -91,6 +95,7 @@ export async function runRuntimeMaintenanceAsync(
     ["usageReconciliation", dependencies.reconcileUsage],
     ["mcpHealthChecks", dependencies.scheduleMcpHealthChecks],
     ["recovery", dependencies.advanceRecoveries],
+    ["skillOperationLeases", dependencies.requeueSkillOperationLeases],
   ] as const;
   for (const [name, operation] of operations) {
     stages[name] = leaseHealthy

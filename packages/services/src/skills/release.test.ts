@@ -1,12 +1,26 @@
 import assert from "node:assert/strict";
+import { randomBytes as cryptoRandomBytes } from "node:crypto";
 import { after, test } from "node:test";
 import {
   getDatabase,
+  randomLikeId,
+  setSkillInstallationStatusSync,
   upsertMcpCatalogItemSync,
   upsertSkillServiceCatalogSync,
 } from "@dofe-agent/db";
-import { resetWorkspaceStateSync } from "../index.ts";
-import { computeSkillReleaseLockSync, diffSkillArtifactsSync, isSkillUpgradeApprovalRequiredSync } from "./release.ts";
+import {
+  buildAndPersistSkillArtifactSync,
+  createSkillInstallationPlanSync,
+  resetWorkspaceStateSync,
+} from "../index.ts";
+import {
+  approveSkillUpgradeSync,
+  computeSkillReleaseLockSync,
+  computeSkillUpgradeDiffHashSync,
+  createSkillUpgradePlanSync,
+  diffSkillArtifactsSync,
+  isSkillUpgradeApprovalRequiredSync,
+} from "./release.ts";
 
 const sha = (fill: string) => fill.repeat(64);
 
@@ -232,4 +246,139 @@ test("computeSkillReleaseLockSync lockDigest is reproducible and provenance-inde
     }),
   });
   assert.notEqual(changed.lockDigest, first.lockDigest, "a dependency change perturbs the lock digest");
+});
+
+/* ------------------------------------------------------------------ */
+/* Upgrade approval gate + invariants                                   */
+/* ------------------------------------------------------------------ */
+
+function createTestRuntime(): string {
+  const id = `rt-${randomLikeId()}`;
+  const now = new Date().toISOString();
+  getDatabase().prepare(
+    `INSERT INTO agent_runtime (id, workspace_id, provider, name, status, created_at, updated_at)
+     VALUES (?, 'default', 'test-provider', ?, 'online', ?, ?)`,
+  ).run(id, `Test Runtime ${id}`, now, now);
+  return id;
+}
+
+const ENCODER = new TextEncoder();
+
+function buildUpgradeArtifacts(skillId?: string) {
+  // Salt the content so each test run produces fresh digests: approvals persist
+  // across runs (resetWorkspaceStateSync does not clear skill_upgrade_approval),
+  // so deterministic digests would collide with a consumed approval from a
+  // previous run via the UNIQUE first-write-wins.
+  const salt = cryptoRandomBytes(4).toString("hex");
+  const first = buildAndPersistSkillArtifactSync({
+    skillId,
+    name: "Upgrade Test",
+    files: [
+      { path: "SKILL.md", bytes: ENCODER.encode(`# Body v1 ${salt}\n`) },
+      { path: "scripts/render.py", bytes: ENCODER.encode("print('v1')\n"), mode: "0755" },
+    ],
+  });
+  const second = buildAndPersistSkillArtifactSync({
+    skillId,
+    name: "Upgrade Test",
+    files: [
+      { path: "SKILL.md", bytes: ENCODER.encode(`# Body v2 ${salt}\n`) },
+      { path: "scripts/render.py", bytes: ENCODER.encode("print('v2 changed')\n"), mode: "0755" },
+    ],
+  });
+  return { first, second };
+}
+
+function readyInstall(runtimeId: string, digest: string): { id: string } {
+  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  setSkillInstallationStatusSync({
+    installationId: installation.id,
+    workspaceId: "default",
+    status: "ready",
+    health: "healthy",
+  });
+  return installation;
+}
+
+function breakingDiffHash(first: { digest: string; artifact: { manifestJson: string } }, second: { digest: string; artifact: { manifestJson: string } }): string {
+  return computeSkillUpgradeDiffHashSync({
+    fromManifestJson: first.artifact.manifestJson,
+    toManifestJson: second.artifact.manifestJson,
+  });
+}
+
+test("createSkillUpgradePlanSync rejects a breaking upgrade without an approval", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const { first, second } = buildUpgradeArtifacts();
+  const v1 = readyInstall(runtimeId, first.digest);
+
+  assert.throws(
+    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id }),
+    /breaking changes/,
+  );
+});
+
+test("createSkillUpgradePlanSync consumes the approval exactly once", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const { first, second } = buildUpgradeArtifacts();
+  const v1 = readyInstall(runtimeId, first.digest);
+  const diffHash = breakingDiffHash(first, second);
+  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+
+  const v2 = createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId });
+  assert.equal(v2.previousReadyRevision, "v1");
+
+  // A second plan with the same (consumed) approval must be rejected.
+  assert.throws(
+    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+    /already been consumed/,
+  );
+});
+
+test("createSkillUpgradePlanSync rejects an approval whose diffHash does not match", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const { first, second } = buildUpgradeArtifacts();
+  const v1 = readyInstall(runtimeId, first.digest);
+  const { approvalId } = approveSkillUpgradeSync({
+    fromDigest: first.digest,
+    toDigest: second.digest,
+    diffHash: "0".repeat(64),
+  });
+
+  assert.throws(
+    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+    /does not match this upgrade/,
+  );
+});
+
+test("createSkillUpgradePlanSync rejects a non-ready previous installation", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const { first, second } = buildUpgradeArtifacts();
+  const v1 = createSkillInstallationPlanSync({ runtimeId, artifactDigest: first.digest }); // still preparing
+  const diffHash = breakingDiffHash(first, second);
+  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+
+  assert.throws(
+    () => createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+    /not ready/,
+  );
+});
+
+test("createSkillUpgradePlanSync rejects a cross-runtime upgrade", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeA = createTestRuntime();
+  const runtimeB = createTestRuntime();
+  const { first, second } = buildUpgradeArtifacts();
+  const v1 = readyInstall(runtimeA, first.digest);
+  const diffHash = breakingDiffHash(first, second);
+  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+
+  assert.throws(
+    () => createSkillUpgradePlanSync({ runtimeId: runtimeB, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+    /must stay on the same runtime/,
+  );
 });

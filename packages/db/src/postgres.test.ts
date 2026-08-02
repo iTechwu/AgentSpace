@@ -42,7 +42,7 @@ test("postgres schema includes the expected core and derived tables", () => {
 test("postgres schema enforces SSO-only identities", () => {
   const statements = getPostgresSchemaStatements().join("\n");
 
-  assert.equal(POSTGRES_SCHEMA_VERSION, "71");
+  assert.equal(POSTGRES_SCHEMA_VERSION, "73");
   assert.match(statements, /ALTER TABLE daemon_api_token\s+ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'general'/);
   assert.match(statements, /DELETE FROM session WHERE user_id NOT IN \(SELECT user_id FROM auth_identity WHERE provider = 'sso'\)/);
   assert.match(statements, /DELETE FROM auth_identity WHERE provider <> 'sso'/);

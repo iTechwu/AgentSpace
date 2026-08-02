@@ -4,11 +4,15 @@ import { getDatabase } from "@dofe-agent/db";
 import { randomLikeId } from "@dofe-agent/db";
 import {
   claimNextSkillInstallationOperationForRuntimeSync,
+  completeSkillInstallationOperationSync as completeSkillOperationDbSync,
   listSkillInstallationOperationsSync,
   readActiveArtifactDigestForSkillSync,
   readSkillInstallationComponentsSync,
   readSkillInstallationOperationSync,
   readSkillInstallationSync,
+  renewSkillInstallationOperationLeaseSync,
+  requeueExpiredSkillInstallationOperationLeasesSync,
+  startSkillInstallationOperationSync,
 } from "@dofe-agent/db";
 import {
   approveSkillUpgradeSync,
@@ -497,4 +501,126 @@ test("shared payload parsers reject malformed complete/fail bodies", () => {
   assert.equal(missingMessage.ok, false);
   const okFail = parseFailSkillInstallationOperationPayload({ errorMessage: "boom", componentStatuses: [{ kind: "script", key: "x.sh", status: "failed" }] });
   assert.equal(okFail.ok, true);
+});
+
+/* ------------------------------------------------------------------ */
+/* Operation lease, fencing and crash recovery                          */
+/* ------------------------------------------------------------------ */
+
+function claimForTest(runtimeId: string, now: Date) {
+  return claimNextSkillInstallationOperationForRuntimeSync({ workspaceId: "default", runtimeId, now });
+}
+
+test("claim grants a lease and fences a second claim", () => {
+  const runtimeId = createTestRuntime();
+  const { digest } = buildArtifact();
+  createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+
+  const claimed = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
+  assert.ok(claimed);
+  assert.ok(claimed!.leaseExpiresAt, "claim sets a lease expiry");
+  assert.ok(
+    new Date(claimed!.leaseExpiresAt!).getTime() > new Date("2026-01-01T00:00:00Z").getTime(),
+    "lease expires in the future",
+  );
+
+  // Fencing: the claimed op is no longer claimable.
+  assert.equal(claimForTest(runtimeId, new Date("2026-01-01T00:00:01Z")), null);
+});
+
+test("start and complete require an unexpired lease", () => {
+  const runtimeId = createTestRuntime();
+  const { digest } = buildArtifact();
+  createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+
+  // Claim with a lease that expires almost immediately.
+  const claimed = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
+  assert.ok(claimed);
+
+  // Start after the lease expired → fenced.
+  assert.equal(
+    startSkillInstallationOperationSync({ operationId: claimed!.id, workspaceId: "default", now: new Date("2026-01-01T00:05:00Z") }),
+    false,
+  );
+
+  // A live lease completes fine (the maintenance loop re-queues the expired op
+  // first, so a fresh claim is available).
+  requeueExpiredSkillInstallationOperationLeasesSync({ workspaceId: "default", now: new Date("2026-01-01T01:00:00Z") });
+  const fresh = claimForTest(runtimeId, new Date("2026-01-01T01:00:00Z"));
+  assert.ok(fresh);
+  assert.equal(
+    completeSkillOperationDbSync({
+      operationId: fresh!.id,
+      workspaceId: "default",
+      safeResultJson: "{}",
+      now: new Date("2026-01-01T01:00:30Z"),
+    }),
+    true,
+  );
+  // Completing the expired op is fenced.
+  assert.equal(
+    completeSkillOperationDbSync({ operationId: claimed!.id, workspaceId: "default", now: new Date("2026-01-01T00:05:00Z") }),
+    false,
+  );
+});
+
+test("heartbeat renews the operation lease", () => {
+  const runtimeId = createTestRuntime();
+  const { digest } = buildArtifact();
+  createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+
+  const claimed = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
+  assert.ok(claimed);
+  const originalExpiry = new Date(claimed!.leaseExpiresAt!).getTime();
+
+  // Renewing just before expiry extends the lease.
+  assert.equal(
+    renewSkillInstallationOperationLeaseSync({
+      operationId: claimed!.id,
+      workspaceId: "default",
+      now: new Date("2026-01-01T00:01:30Z"),
+    }),
+    true,
+  );
+  const refreshed = readSkillInstallationOperationSync(claimed!.id, "default");
+  assert.ok(refreshed?.leaseExpiresAt);
+  assert.ok(new Date(refreshed.leaseExpiresAt).getTime() > originalExpiry, "lease was extended");
+
+  // Renewing AFTER expiry is fenced (the op was re-queued by the reaper).
+  assert.equal(
+    renewSkillInstallationOperationLeaseSync({
+      operationId: claimed!.id,
+      workspaceId: "default",
+      now: new Date("2026-01-01T00:10:00Z"),
+    }),
+    false,
+  );
+});
+
+test("the reaper re-queues expired operations for crash recovery", () => {
+  const runtimeId = createTestRuntime();
+  const { digest } = buildArtifact();
+  createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+
+  const claimed = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
+  assert.ok(claimed);
+
+  // Nothing to re-queue while the lease is still live.
+  assert.equal(
+    requeueExpiredSkillInstallationOperationLeasesSync({ workspaceId: "default", now: new Date("2026-01-01T00:01:00Z") }),
+    0,
+  );
+
+  // After expiry, the crashed op returns to pending and is claimable again.
+  assert.equal(
+    requeueExpiredSkillInstallationOperationLeasesSync({ workspaceId: "default", now: new Date("2026-01-01T00:05:00Z") }),
+    1,
+  );
+  const reQueued = readSkillInstallationOperationSync(claimed!.id, "default");
+  assert.equal(reQueued?.status, "pending");
+  assert.equal(reQueued?.leaseExpiresAt, undefined);
+
+  const reClaimed = claimForTest(runtimeId, new Date("2026-01-01T00:06:00Z"));
+  assert.ok(reClaimed);
+  assert.equal(reClaimed!.id, claimed!.id);
 });

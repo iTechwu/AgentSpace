@@ -1504,6 +1504,8 @@ export interface StoredSkillInstallationOperationRecord {
   requestSnapshotJson: string;
   safeResultJson: string;
   errorCode?: string;
+  /** Lease expiry while claimed/running; null once completed/failed/pending. */
+  leaseExpiresAt?: string;
   errorMessage?: string;
   claimedAt?: string;
   completedAt?: string;

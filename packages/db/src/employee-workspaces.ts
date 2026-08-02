@@ -274,14 +274,27 @@ export function commitWorkspaceRevisionSync(
   }
   const now = new Date().toISOString();
   withTransaction(db, () => {
-    db.prepare(
-      `UPDATE employee_workspace_revision SET status = 'committed' WHERE id = ? AND workspace_id = ?`,
+    // Only a pending revision can be committed; a concurrent commit changes 0 rows.
+    const revisionUpdate = db.prepare(
+      `UPDATE employee_workspace_revision SET status = 'committed' WHERE id = ? AND workspace_id = ? AND status = 'pending'`,
     ).run(revisionId, workspaceId);
-    db.prepare(
+    if (revisionUpdate.changes === 0) {
+      throw new Error("REVISION_CONFLICT: revision is no longer pending.");
+    }
+    // Expected-head CAS: advance head only while it still equals the revision's
+    // parent (or the workspace has no head yet). A concurrent commit that moved
+    // head between our pre-check and here fails the update and rolls back.
+    const headUpdate = db.prepare(
       `UPDATE employee_persistent_workspace
          SET head_revision_id = ?, storage_health = 'healthy', last_snapshot_at = ?, updated_at = ?
-       WHERE id = ? AND workspace_id = ?`,
-    ).run(revisionId, now, now, workspace.id, workspaceId);
+       WHERE id = ? AND workspace_id = ?
+         AND (head_revision_id IS NULL OR head_revision_id = ?)`,
+    ).run(revisionId, now, now, workspace.id, workspaceId, revision.parentRevisionId);
+    if (headUpdate.changes === 0) {
+      throw new Error(
+        `REVISION_CONFLICT: revision parent ${revision.parentRevisionId ?? "none"} does not match head.`,
+      );
+    }
   });
   return readWorkspaceRevisionSync(revisionId, workspaceId)!;
 }
@@ -324,6 +337,22 @@ export function restoreWorkspaceRevisionSync(input: {
 export function publishEmployeeArtifactSync(input: PublishEmployeeArtifactInput): EmployeeArtifactRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const sourceTaskId = input.sourceTaskId?.trim() || null;
+  const contentDigest = input.contentDigest.trim().toLowerCase();
+  const fileName = input.fileName.trim();
+
+  // Idempotent publish: a task retry re-promoting the same (task, digest, file)
+  // returns the existing non-deleted artifact instead of duplicating it.
+  if (sourceTaskId) {
+    const existing = db.prepare(
+      `${ARTIFACT_COLUMNS} FROM employee_artifact
+       WHERE workspace_id = ? AND source_task_id = ? AND content_digest = ? AND file_name = ? AND deleted_at IS NULL`,
+    ).get(workspaceId, sourceTaskId, contentDigest, fileName) as Record<string, unknown> | undefined;
+    if (existing) {
+      return mapArtifactRecord(existing)!;
+    }
+  }
+
   const workspace = ensureEmployeePersistentWorkspaceSync({ workspaceId, employeeName: input.employeeName });
   const id = `eart-${randomLikeId()}`;
   const now = new Date().toISOString();
@@ -338,11 +367,11 @@ export function publishEmployeeArtifactSync(input: PublishEmployeeArtifactInput)
     workspace.id,
     workspace.employeeId,
     input.employeeName.trim(),
-    input.contentDigest.trim().toLowerCase(),
+    contentDigest,
     input.mediaType,
-    input.fileName.trim(),
+    fileName,
     input.sizeBytes,
-    input.sourceTaskId?.trim() || null,
+    sourceTaskId,
     now,
   );
   return readEmployeeArtifactSync(id, workspaceId)!;
