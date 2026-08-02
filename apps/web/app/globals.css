@@ -13879,8 +13879,8 @@ textarea:focus {
     width: 100%;
   }
 
-  .tables-layout--compact,
-  .templates-layout--compact {
+  .tables-layout.tables-layout--compact,
+  .templates-layout.templates-layout--compact {
     display: block;
     height: auto;
     min-height: auto;
@@ -13896,7 +13896,9 @@ textarea:focus {
   .tables-layout--compact .tables-sidebar,
   .templates-layout--compact .templates-sidebar {
     border-right: 0;
+    min-width: 0;
     padding-bottom: 0;
+    width: 100%;
   }
 
   .tables-layout--compact .tables-content,
