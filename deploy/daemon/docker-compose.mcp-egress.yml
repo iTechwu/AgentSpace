@@ -35,6 +35,7 @@ networks:
   dofe-runtime-restricted:
     name: dofe-runtime-restricted
     driver: bridge
+    enable_ipv6: false
     labels:
       dofe.managed-egress: restricted
   dofe-mcp-proxy-egress:

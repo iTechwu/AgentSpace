@@ -20,6 +20,8 @@ set -euo pipefail
 IPTABLES=${IPTABLES:-iptables}
 IP6TABLES=${IP6TABLES:-ip6tables}
 CHAIN="DOCKER-USER"
+OWNED_CHAIN="DOFE-MCP-EGRESS"
+OWNED_CHAIN_V6="DOFE-MCP-EGRESS6"
 
 die() {
   echo "$1" >&2
@@ -36,40 +38,62 @@ comment_for() {
   echo "dofe:mcp-egress:$1"
 }
 
-flush_dofe_rules() {
-  # Remove every rule in DOCKER-USER that carries our comment prefix.
-  while "$IPTABLES" -C "$CHAIN" -m comment --comment "dofe:mcp-egress" 2>/dev/null; do
-    local line
-    line=$("$IPTABLES" -n -L "$CHAIN" --line-numbers | grep "dofe:mcp-egress" | head -1 | awk '{print $1}')
-    [ -n "$line" ] && "$IPTABLES" -D "$CHAIN" "$line" || true
-  done
+remove_owned_rules() {
+  local tool=$1
+  local chain=$2
+  "$tool" -n -L "$chain" --line-numbers 2>/dev/null \
+    | awk '/dofe:mcp-egress/ {print $1}' \
+    | sort -rn \
+    | while IFS= read -r line; do
+        [ -n "$line" ] && "$tool" -D "$chain" "$line"
+      done
+}
+
+reset_owned_chain() {
+  local tool=$1
+  local chain=$2
+  if "$tool" -n -L "$chain" >/dev/null 2>&1; then
+    "$tool" -F "$chain"
+  else
+    "$tool" -N "$chain"
+  fi
+}
+
+delete_owned_chain() {
+  local tool=$1
+  local chain=$2
+  if "$tool" -n -L "$chain" >/dev/null 2>&1; then
+    "$tool" -F "$chain"
+    "$tool" -X "$chain"
+  fi
 }
 
 install_ipv4_rules() {
   ensure_chain
 
-  # Idempotent cleanup first.
-  flush_dofe_rules
+  # A first-position jump prevents an existing broad ACCEPT in DOCKER-USER
+  # from bypassing the runtime policy. All managed rules live in our chain.
+  remove_owned_rules "$IPTABLES" "$CHAIN"
+  reset_owned_chain "$IPTABLES" "$OWNED_CHAIN"
 
-  # Allow established/related before any default drop.
-  "$IPTABLES" -I "$CHAIN" 1 -s "$RUNTIME_SUBNET" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT -m comment --comment "$(comment_for established)"
+  "$IPTABLES" -A "$OWNED_CHAIN" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT -m comment --comment "$(comment_for established)"
 
-  # Allow proxy.
-  "$IPTABLES" -I "$CHAIN" 2 -s "$RUNTIME_SUBNET" -d "$PROXY_RUNTIME_IP" -p tcp --dport 8080 -j ACCEPT -m comment --comment "$(comment_for proxy)"
+  "$IPTABLES" -A "$OWNED_CHAIN" -d "$PROXY_RUNTIME_IP" -p tcp --dport 8080 -j ACCEPT -m comment --comment "$(comment_for proxy)"
 
   # Allow fixed control-plane/models-gateway HTTPS endpoints.
   for addr in "$CONTROL_PLANE_IPV4" "$MODELS_GATEWAY_IPV4"; do
-    "$IPTABLES" -I "$CHAIN" 3 -s "$RUNTIME_SUBNET" -d "$addr" -p tcp --dport 443 -j ACCEPT -m comment --comment "$(comment_for control-plane-or-models)"
+    "$IPTABLES" -A "$OWNED_CHAIN" -d "$addr" -p tcp --dport 443 -j ACCEPT -m comment --comment "$(comment_for control-plane-or-models)"
   done
 
   # Optional DNS resolver.
   if [ -n "${DNS_RESOLVER_IPV4:-}" ]; then
-    "$IPTABLES" -I "$CHAIN" 4 -s "$RUNTIME_SUBNET" -d "$DNS_RESOLVER_IPV4" -p udp --dport 53 -j ACCEPT -m comment --comment "$(comment_for dns-udp)"
-    "$IPTABLES" -I "$CHAIN" 5 -s "$RUNTIME_SUBNET" -d "$DNS_RESOLVER_IPV4" -p tcp --dport 53 -j ACCEPT -m comment --comment "$(comment_for dns-tcp)"
+    "$IPTABLES" -A "$OWNED_CHAIN" -d "$DNS_RESOLVER_IPV4" -p udp --dport 53 -j ACCEPT -m comment --comment "$(comment_for dns-udp)"
+    "$IPTABLES" -A "$OWNED_CHAIN" -d "$DNS_RESOLVER_IPV4" -p tcp --dport 53 -j ACCEPT -m comment --comment "$(comment_for dns-tcp)"
+    "$IPTABLES" -A "$OWNED_CHAIN" -d "$DNS_RESOLVER_IPV4" -p tcp --dport 853 -j ACCEPT -m comment --comment "$(comment_for dns-tls)"
   fi
 
-  # Default drop everything else from the runtime subnet.
-  "$IPTABLES" -A "$CHAIN" -s "$RUNTIME_SUBNET" -j DROP -m comment --comment "$(comment_for default-drop)"
+  "$IPTABLES" -A "$OWNED_CHAIN" -j DROP -m comment --comment "$(comment_for default-drop)"
+  "$IPTABLES" -I "$CHAIN" 1 -s "$RUNTIME_SUBNET" -j "$OWNED_CHAIN" -m comment --comment "$(comment_for jump)"
 }
 
 install_ipv6_drop() {
@@ -78,14 +102,17 @@ install_ipv6_drop() {
     return 0
   fi
 
-  # Remove prior dofe IPv6 rules.
-  while "$IP6TABLES" -C "$CHAIN" -m comment --comment "dofe:mcp-egress" 2>/dev/null; do
-    local line
-    line=$("$IP6TABLES" -n -L "$CHAIN" --line-numbers | grep "dofe:mcp-egress" | head -1 | awk '{print $1}')
-    [ -n "$line" ] && "$IP6TABLES" -D "$CHAIN" "$line" || true
-  done
+  remove_owned_rules "$IP6TABLES" "$CHAIN"
+  delete_owned_chain "$IP6TABLES" "$OWNED_CHAIN_V6"
 
-  "$IP6TABLES" -A "$CHAIN" -s "$RUNTIME_SUBNET" -j DROP -m comment --comment "$(comment_for default-drop-ipv6)"
+  if [ -z "${RUNTIME_SUBNET_IPV6:-}" ]; then
+    echo "No runtime IPv6 subnet configured; Compose must keep IPv6 disabled." >&2
+    return 0
+  fi
+
+  reset_owned_chain "$IP6TABLES" "$OWNED_CHAIN_V6"
+  "$IP6TABLES" -A "$OWNED_CHAIN_V6" -j DROP -m comment --comment "$(comment_for default-drop-ipv6)"
+  "$IP6TABLES" -I "$CHAIN" 1 -s "$RUNTIME_SUBNET_IPV6" -j "$OWNED_CHAIN_V6" -m comment --comment "$(comment_for jump-ipv6)"
 }
 
 case "${1:-apply}" in
@@ -96,13 +123,11 @@ case "${1:-apply}" in
     ;;
   remove)
     ensure_chain
-    flush_dofe_rules
+    remove_owned_rules "$IPTABLES" "$CHAIN"
+    delete_owned_chain "$IPTABLES" "$OWNED_CHAIN"
     if "$IP6TABLES" -n -L "$CHAIN" >/dev/null 2>&1; then
-      while "$IP6TABLES" -C "$CHAIN" -m comment --comment "dofe:mcp-egress" 2>/dev/null; do
-        local line
-        line=$("$IP6TABLES" -n -L "$CHAIN" --line-numbers | grep "dofe:mcp-egress" | head -1 | awk '{print $1}')
-        [ -n "$line" ] && "$IP6TABLES" -D "$CHAIN" "$line" || true
-      done
+      remove_owned_rules "$IP6TABLES" "$CHAIN"
+      delete_owned_chain "$IP6TABLES" "$OWNED_CHAIN_V6"
     fi
     echo "Runtime egress rules removed."
     ;;
