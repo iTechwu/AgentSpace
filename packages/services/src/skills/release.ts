@@ -14,6 +14,7 @@ import {
   readSkillArtifactByDigestSync,
   readSkillInstallationSync,
   readSkillInstallationByLockSync,
+  readSkillInstallationComponentsSync,
   readSkillServiceCatalogSync,
   readSkillUpgradeApprovalByLockSync,
   readSkillUpgradeApprovalSync,
@@ -27,6 +28,8 @@ import {
   buildSkillInstallationComponentsSync,
   queueDeclaredSkillServicesForInstallationSync,
 } from "./installations.ts";
+import { evaluateSkillInstallationCapabilitiesSync } from "./capabilities.ts";
+import { verifySkillArtifactIntegritySync } from "./skill-artifacts.ts";
 import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
 import { stableStringify } from "./package/package-digest.ts";
 
@@ -59,6 +62,17 @@ export interface McpCatalogReleaseLock {
   catalogItemId: string;
   version: string;
   toolFingerprint: string;
+}
+
+export interface SkillRollbackPreflightIssue {
+  code:
+    | "artifact_missing"
+    | "artifact_integrity_failed"
+    | "prepared_digest_mismatch"
+    | "installation_component_not_ready";
+  message: string;
+  componentKind?: string;
+  componentKey?: string;
 }
 
 export const SKILL_UPGRADE_POLICY_VERSION = "v1";
@@ -800,7 +814,7 @@ export function rollbackSkillInstallationSync(input: {
   installationId: string;
   workspaceId?: string;
   skillId?: string;
-}): { ok: boolean; previousReadyDigest?: string; reason?: string } {
+}): { ok: boolean; previousReadyDigest?: string; reason?: string; preflight?: SkillRollbackPreflightIssue[] } {
   const current = readSkillInstallationSync(input.installationId, input.workspaceId);
   if (!current) {
     return { ok: false, reason: `Installation "${input.installationId}" does not exist.` };
@@ -838,6 +852,14 @@ export function rollbackSkillInstallationSync(input: {
   const activeDigest = readActiveArtifactDigestForSkillSync(skillId, workspaceId);
   if (activeDigest !== current.artifactDigest) {
     return { ok: false, reason: "The installation is not the current active digest; refusing stale rollback." };
+  }
+  const preflight = inspectSkillRollbackTargetSync(previous, workspaceId);
+  if (preflight.length > 0) {
+    return {
+      ok: false,
+      reason: preflight[0]!.message,
+      preflight,
+    };
   }
 
   const db = getDatabase();
@@ -888,6 +910,55 @@ export function rollbackSkillInstallationSync(input: {
   }
 
   return { ok: true, previousReadyDigest: previous.artifactDigest };
+}
+
+function inspectSkillRollbackTargetSync(
+  installation: StoredSkillInstallationRecord,
+  workspaceId: string,
+): SkillRollbackPreflightIssue[] {
+  const artifact = readSkillArtifactByDigestSync(installation.artifactDigest, workspaceId);
+  if (!artifact) {
+    return [{
+      code: "artifact_missing",
+      message: `Rollback artifact "${installation.artifactDigest}" is missing.`,
+    }];
+  }
+  let integrity: ReturnType<typeof verifySkillArtifactIntegritySync>;
+  try {
+    integrity = verifySkillArtifactIntegritySync(artifact);
+  } catch {
+    return [{
+      code: "artifact_integrity_failed",
+      message: "Rollback artifact storage could not be read for integrity verification.",
+    }];
+  }
+  if (!integrity.ok) {
+    return [{
+      code: "artifact_integrity_failed",
+      message: `Rollback artifact failed integrity verification (missing=${integrity.missing.length}, mismatched=${integrity.mismatched.length}, rootDigestMatches=${integrity.rootDigestMatches}).`,
+    }];
+  }
+  if (installation.preparedDigest !== installation.artifactDigest) {
+    return [{
+      code: "prepared_digest_mismatch",
+      message: "Rollback installation no longer has preparation evidence for the requested artifact digest.",
+    }];
+  }
+
+  evaluateSkillInstallationCapabilitiesSync({
+    installationId: installation.id,
+    workspaceId,
+    runtimeId: installation.runtimeId,
+    artifactDigest: installation.artifactDigest,
+  });
+  return readSkillInstallationComponentsSync(installation.id)
+    .filter((component) => component.status !== "ready")
+    .map((component) => ({
+      code: "installation_component_not_ready" as const,
+      message: `Rollback component "${component.kind}:${component.key}" is "${component.status}", not ready.`,
+      componentKind: component.kind,
+      componentKey: component.key,
+    }));
 }
 
 class SkillReleaseConflictError extends Error {}

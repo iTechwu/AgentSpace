@@ -424,6 +424,7 @@ export {
   approveSkillUpgradeSync,
   computeSkillUpgradeDiffHashSync,
   type ResolvedSkillReleaseLock,
+  type SkillRollbackPreflightIssue,
   type SkillReleaseDiff,
   type SkillDiffCategory,
 } from "./skills/release.ts";

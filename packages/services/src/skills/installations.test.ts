@@ -16,6 +16,7 @@ import {
   renewSkillInstallationOperationLeaseSync,
   requeueExpiredSkillInstallationOperationLeasesSync,
   startSkillInstallationOperationSync,
+  updateSkillInstallationComponentStatusSync,
   upsertSkillServiceCatalogSync,
 } from "@dofe-agent/db";
 import {
@@ -79,7 +80,7 @@ const ARTIFACT_FILES = [
 function buildArtifact(skillId?: string) {
   return buildAndPersistSkillArtifactSync({
     skillId,
-    name: "Install Test",
+    name: skillId ? `Install Test ${skillId}` : "Install Test",
     files: ARTIFACT_FILES,
     sourceType: "local",
     dependencies: [{ manager: "npm", name: "left-pad", version: "1.3.0" }],
@@ -324,6 +325,42 @@ test("upgrade creates a candidate revision and rollback reactivates the previous
   assert.equal(rejected.ok, false);
   assert.match(rejected.reason ?? "", /not bound to both rollback revisions/);
   assert.equal(readActiveArtifactDigestForSkillSync(unrelatedSkill.id, "default"), undefined);
+
+  const previousDependency = readSkillInstallationComponentsSync(v1.id)
+    .find((component) => component.kind === "dependency");
+  assert.ok(previousDependency);
+  updateSkillInstallationComponentStatusSync({
+    installationId: v1.id,
+    kind: previousDependency.kind,
+    key: previousDependency.key,
+    status: "failed",
+  });
+  const unhealthyRollback = rollbackSkillInstallationSync({ installationId: v2.id, workspaceId: "default", skillId: skill.id });
+  assert.equal(unhealthyRollback.ok, false);
+  assert.equal(unhealthyRollback.preflight?.[0]?.code, "installation_component_not_ready");
+  assert.equal(readActiveArtifactDigestForSkillSync(skill.id, "default"), second.digest);
+  updateSkillInstallationComponentStatusSync({
+    installationId: v1.id,
+    kind: previousDependency.kind,
+    key: previousDependency.key,
+    status: "ready",
+    verifiedAt: new Date().toISOString(),
+  });
+
+  const firstManifest = JSON.parse(first.artifact.manifestJson) as { files: Array<{ path: string; sha256: string; mediaType: string }> };
+  const skillFile = firstManifest.files.find((file) => file.path === "SKILL.md");
+  assert.ok(skillFile);
+  testTosStorage.client.deleteContentAddressedBlobSync({ workspaceId: "default", sha256: skillFile.sha256 });
+  const corruptRollback = rollbackSkillInstallationSync({ installationId: v2.id, workspaceId: "default", skillId: skill.id });
+  assert.equal(corruptRollback.ok, false);
+  assert.equal(corruptRollback.preflight?.[0]?.code, "artifact_integrity_failed");
+  assert.equal(readActiveArtifactDigestForSkillSync(skill.id, "default"), second.digest);
+  testTosStorage.client.putContentAddressedBlobSync({
+    workspaceId: "default",
+    sha256: skillFile.sha256,
+    contentBytes: ARTIFACT_FILES[0]!.bytes,
+    mediaType: skillFile.mediaType,
+  });
 
   const rollback = rollbackSkillInstallationSync({ installationId: v2.id, workspaceId: "default", skillId: skill.id });
   assert.equal(rollback.ok, true);
