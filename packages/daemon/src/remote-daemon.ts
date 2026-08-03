@@ -59,12 +59,18 @@ import {
   resolveDefaultDaemonStateDir,
 } from "./state.ts";
 import { parseTaskInputJson, resolveConversationThreadId } from "./task-context.ts";
-import { executeRuntimeAppPlan, parseRuntimeAppInstallPlan, tailAndRedact } from "./runtime-apps.ts";
+import { buildManagedRuntimeAppPlan, executeRuntimeAppPlan, parseRuntimeAppInstallPlan, tailAndRedact } from "./runtime-apps.ts";
 import { executeMcpConnectionOperation } from "./mcp/verify-executor.ts";
 import { McpGateway } from "./mcp/gateway.ts";
 import { McpAuditOutbox } from "./mcp/audit-outbox.ts";
 import { applyProviderCredentialProfile, resolveProviderCredentialProfile, type ProviderCredentialProfile } from "./provider-credentials.ts";
-import { createManagedCredentialResolver, type ManagedCredentialResolver } from "./managed-provider-credentials.ts";
+import {
+  buildManagedRuntimeDockerConnectivityArgs,
+  createManagedCredentialResolver,
+  getManagedRuntimeHomeDir,
+  resolveManagedRuntimeDockerNetwork,
+  type ManagedCredentialResolver,
+} from "./managed-provider-credentials.ts";
 import { createManagedProvisioningExecutor } from "./managed-runtime-provisioning.ts";
 
 export interface RemoteDaemonConfig {
@@ -767,7 +773,7 @@ async function pollRemoteTasks(
       });
       if (appOperation?.operation) {
         activeRuntimes.add(runtime.id);
-        void executeRemoteRuntimeAppOperation(client, config, appOperation.operation)
+        void executeRemoteRuntimeAppOperation(client, config, runtime, appOperation.operation)
           .catch((error) => {
             const message = error instanceof Error ? error.message : String(error);
             console.error(`Runtime app operation ${appOperation.operation?.id ?? "unknown"} crashed: ${message}`);
@@ -892,6 +898,7 @@ async function pollRemoteTasks(
 async function executeRemoteRuntimeAppOperation(
   client: HttpDaemonClient,
   config: RemoteDaemonConfig,
+  runtime: RemoteRuntimeRecord,
   operation: ClaimedRuntimeAppOperation,
 ): Promise<void> {
   await client.startRuntimeAppOperation(operation.id);
@@ -910,7 +917,18 @@ async function executeRemoteRuntimeAppOperation(
     const depsRoot = getDaemonRuntimeAppDepsRootPath(config.stateDir, {
       workspaceId: operation.workspaceId,
     });
-    const result = await executeRuntimeAppPlan(plan, { cwd: depsRoot });
+    mkdirSync(depsRoot, { recursive: true });
+    const executionPlan = config.managedNode
+      ? buildManagedRuntimeAppPlan(plan, {
+          image: `dofe/agent-runtime-${runtime.provider}:${process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest"}`,
+          runtimeHomeDir: ensureManagedRuntimeHomeDir(config.stateDir, runtime.id),
+          depsRoot,
+          dockerNetwork: resolveManagedRuntimeDockerNetwork(),
+          dockerConnectivityArgs: buildManagedRuntimeDockerConnectivityArgs(),
+          user: `${process.getuid?.() ?? 10001}:${process.getgid?.() ?? 10001}`,
+        })
+      : plan;
+    const result = await executeRuntimeAppPlan(executionPlan, { cwd: depsRoot });
     await client.completeRuntimeAppOperation(operation.id, {
       safeStdoutTail: result.safeStdoutTail,
       safeStderrTail: result.safeStderrTail,
@@ -1128,6 +1146,9 @@ async function executeRemoteTask(
           } : {}),
         },
         runtimeApps: bundle.metadata.runtimeApps?.apps ?? [],
+        runtimeAppBinDir: managedCredentialId
+          ? join(getManagedRuntimeHomeDir(config.stateDir, runtime.id), ".local", "bin")
+          : undefined,
         runtimeToolCapabilities: [
           ...(bundle.metadata.runtimeToolCapabilities?.capabilities ?? []),
           ...skillRunner.capabilities,
@@ -1221,6 +1242,12 @@ async function executeRemoteTask(
       rmSync(workDir, { recursive: true, force: true });
     }
   }
+}
+
+function ensureManagedRuntimeHomeDir(stateDir: string, runtimeId: string): string {
+  const homeDir = getManagedRuntimeHomeDir(stateDir, runtimeId);
+  mkdirSync(homeDir, { recursive: true, mode: 0o700 });
+  return homeDir;
 }
 
 let sharedMcpGateway: McpGateway | null = null;

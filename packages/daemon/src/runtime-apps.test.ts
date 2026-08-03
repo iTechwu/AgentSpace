@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { computeDirectoryDigestSync, executeRuntimeAppPlan } from "./runtime-apps.ts";
+import * as runtimeApps from "./runtime-apps.ts";
 
 function sha256(...parts: Buffer[]): string {
   const hash = createHash("sha256");
@@ -60,4 +61,54 @@ test("executeRuntimeAppPlan records the download digest over the plan's depsDir"
     Buffer.from("print('requests')\n"),
   );
   assert.equal(result.downloadedDigest, expected);
+});
+
+test("managed runtime app plans execute inside the target provider image", () => {
+  const buildManagedRuntimeAppPlan = Reflect.get(runtimeApps, "buildManagedRuntimeAppPlan");
+  assert.equal(typeof buildManagedRuntimeAppPlan, "function");
+  if (typeof buildManagedRuntimeAppPlan !== "function") return;
+
+  const plan = buildManagedRuntimeAppPlan(
+    {
+      app: { source: "clihub_harness", name: "blender", version: "1.0.0", entryPoint: "cli-anything-blender" },
+      strategy: "pip",
+      commands: [{
+        executable: "python3",
+        args: ["-m", "pip", "install", "--user", "cli-anything-hub"],
+        env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
+      }],
+      verifyCommands: [{ executable: "cli-anything-blender", args: ["--help"] }],
+      risk: "low",
+      requiresApproval: true,
+      notes: [],
+    },
+    {
+      image: "dofe/agent-runtime-codex:test",
+      runtimeHomeDir: "/state/managed-runtimes/runtime-codex/home",
+      depsRoot: "/state/workspaces/ws/runtime-app-deps",
+      dockerNetwork: "dofe-models-egress",
+      dockerConnectivityArgs: ["--add-host", "model.local:host-gateway"],
+      user: "10001:10001",
+    },
+  );
+
+  assert.equal(plan.commands[0]?.executable, "docker");
+  assert.deepEqual(plan.commands[0]?.args, [
+    "run", "--rm", "--init", "--pull", "never", "--read-only",
+    "--tmpfs", "/tmp:rw,nosuid,nodev,noexec",
+    "--security-opt", "no-new-privileges", "--cap-drop", "ALL",
+    "--add-host", "model.local:host-gateway",
+    "--network", "dofe-models-egress", "--user", "10001:10001",
+    "--mount", "type=bind,src=/state/managed-runtimes/runtime-codex/home,dst=/dofe-home",
+    "--mount", "type=bind,src=/state/workspaces/ws/runtime-app-deps,dst=/runtime-app-deps",
+    "--workdir", "/runtime-app-deps",
+    "--env", "HOME=/dofe-home",
+    "--env", "PATH=/dofe-home/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "--env", "PIP_BREAK_SYSTEM_PACKAGES=1",
+    "--entrypoint", "python3",
+    "dofe/agent-runtime-codex:test",
+    "-m", "pip", "install", "--user", "cli-anything-hub",
+  ]);
+  assert.equal(plan.verifyCommands[0]?.args.includes("--entrypoint"), true);
+  assert.equal(plan.verifyCommands[0]?.args.includes("cli-anything-blender"), true);
 });

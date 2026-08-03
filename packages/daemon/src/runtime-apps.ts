@@ -33,6 +33,59 @@ export interface RuntimeAppExecutionResult {
   downloadedDigest?: string;
 }
 
+export interface ManagedRuntimeAppPlanOptions {
+  image: string;
+  runtimeHomeDir: string;
+  depsRoot: string;
+  dockerNetwork: string;
+  dockerConnectivityArgs?: string[];
+  user: string;
+}
+
+const RUNTIME_APP_CONTAINER_HOME = "/dofe-home";
+const RUNTIME_APP_CONTAINER_DEPS_ROOT = "/runtime-app-deps";
+const RUNTIME_APP_CONTAINER_PATH = [
+  `${RUNTIME_APP_CONTAINER_HOME}/.local/bin`,
+  "/usr/local/sbin",
+  "/usr/local/bin",
+  "/usr/sbin",
+  "/usr/bin",
+  "/sbin",
+  "/bin",
+].join(":");
+
+export function buildManagedRuntimeAppPlan(
+  plan: RuntimeAppInstallPlan,
+  options: ManagedRuntimeAppPlanOptions,
+): RuntimeAppInstallPlan {
+  const wrap = (command: RuntimeAppCommandPlanItem): RuntimeAppCommandPlanItem => ({
+    executable: "docker",
+    args: [
+      "run", "--rm", "--init", "--pull", "never", "--read-only",
+      "--tmpfs", "/tmp:rw,nosuid,nodev,noexec",
+      "--security-opt", "no-new-privileges",
+      "--cap-drop", "ALL",
+      ...(options.dockerConnectivityArgs ?? []),
+      "--network", options.dockerNetwork,
+      "--user", options.user,
+      "--mount", `type=bind,src=${options.runtimeHomeDir},dst=${RUNTIME_APP_CONTAINER_HOME}`,
+      "--mount", `type=bind,src=${options.depsRoot},dst=${RUNTIME_APP_CONTAINER_DEPS_ROOT}`,
+      "--workdir", RUNTIME_APP_CONTAINER_DEPS_ROOT,
+      "--env", `HOME=${RUNTIME_APP_CONTAINER_HOME}`,
+      "--env", `PATH=${RUNTIME_APP_CONTAINER_PATH}`,
+      ...Object.entries(command.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
+      "--entrypoint", command.executable,
+      options.image,
+      ...command.args,
+    ],
+  });
+  return {
+    ...plan,
+    commands: plan.commands.map(wrap),
+    verifyCommands: plan.verifyCommands.map(wrap),
+  };
+}
+
 /**
  * Deterministic sha256 over a directory tree (relative path + file bytes, sorted).
  * Returns undefined when the directory is missing or unreadable — the download

@@ -85,6 +85,8 @@ export interface ProviderTaskOptions {
   onApprovalRequest?: (request: ProviderApprovalRequest) => Promise<ProviderApprovalDecision>;
   temporaryAllowedTools?: string[];
   runtimeApps?: RuntimeAppContextEntry[];
+  /** Host path corresponding to the managed Runtime's mounted HOME/.local/bin. */
+  runtimeAppBinDir?: string;
   runtimeToolCapabilities?: RuntimeToolCapability[];
   /** Loopback MCP gateway URL for a task-scoped session; passed to the provider as a one-shot MCP config. */
   mcpGatewayUrl?: string;
@@ -407,7 +409,7 @@ function resolveClaudePermissionMode(): string {
 function buildRuntimeToolCapabilities(options: ProviderTaskOptions): RuntimeToolCapability[] {
   return dedupeRuntimeToolCapabilities([
     ...buildBuiltinRuntimeToolCapabilities(options.contextEnv),
-    ...buildCliHubRuntimeToolCapabilities(options.runtimeApps ?? []),
+    ...buildCliHubRuntimeToolCapabilities(options.runtimeApps ?? [], options.runtimeAppBinDir),
     ...(options.runtimeToolCapabilities ?? []),
   ]);
 }
@@ -449,7 +451,10 @@ function buildBuiltinRuntimeToolCapabilities(contextEnv?: Record<string, string>
   return capabilities;
 }
 
-function buildCliHubRuntimeToolCapabilities(runtimeApps: RuntimeAppContextEntry[]): RuntimeToolCapability[] {
+function buildCliHubRuntimeToolCapabilities(
+  runtimeApps: RuntimeAppContextEntry[],
+  runtimeAppBinDir?: string,
+): RuntimeToolCapability[] {
   return runtimeApps.flatMap((app): RuntimeToolCapability[] => {
     const command = app.entryPoint?.trim();
     if (!command) {
@@ -459,7 +464,7 @@ function buildCliHubRuntimeToolCapabilities(runtimeApps: RuntimeAppContextEntry[
       id: `clihub:${app.source}:${app.name}`,
       command,
       displayName: app.displayName || app.name,
-      binDir: resolveCommandDirFromCurrentEnv(command),
+      binDir: runtimeAppBinDir?.trim() || resolveCommandDirFromCurrentEnv(command),
       allowedShellPatterns: [`${command} *`, `${command} --help`, `command -v ${command}`],
       diagnosticCommands: [`command -v ${shellQuote(command)}`],
       source: "cli-hub",

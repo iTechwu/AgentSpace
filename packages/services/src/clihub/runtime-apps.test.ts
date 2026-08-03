@@ -88,7 +88,11 @@ test("builds controlled cli-hub plans without executing registry shell strings",
   });
 
   assert.equal(plan.strategy, "cli_hub");
-  assert.deepEqual(plan.commands, [{ executable: "cli-hub", args: ["install", "gimp"] }]);
+  assert.deepEqual(plan.commands, [{
+    executable: "cli-hub",
+    args: ["install", "gimp"],
+    env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
+  }]);
   assert.equal(plan.verifyCommands.some((command) => command.executable === "cli-anything-gimp"), true);
   assert.equal(plan.risk, "medium");
 });
@@ -118,7 +122,11 @@ test("builds uninstall plans without post-uninstall availability checks", () => 
     },
   });
 
-  assert.deepEqual(plan.commands, [{ executable: "cli-hub", args: ["uninstall", "mermaid"] }]);
+  assert.deepEqual(plan.commands, [{
+    executable: "cli-hub",
+    args: ["uninstall", "mermaid"],
+    env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
+  }]);
   assert.deepEqual(plan.verifyCommands, []);
 });
 
@@ -147,12 +155,12 @@ test("bootstraps cli-hub before update and uninstall when readiness is missing",
   });
 
   assert.deepEqual(updatePlan.commands, [
-    { executable: "python3", args: ["-m", "pip", "install", "--user", "cli-anything-hub"] },
-    { executable: "cli-hub", args: ["update", "toolkit"] },
+    { executable: "python3", args: ["-m", "pip", "install", "--user", "cli-anything-hub"], env: { PIP_BREAK_SYSTEM_PACKAGES: "1" } },
+    { executable: "cli-hub", args: ["update", "toolkit"], env: { PIP_BREAK_SYSTEM_PACKAGES: "1" } },
   ]);
   assert.deepEqual(uninstallPlan.commands, [
-    { executable: "python3", args: ["-m", "pip", "install", "--user", "cli-anything-hub"] },
-    { executable: "cli-hub", args: ["uninstall", "toolkit"] },
+    { executable: "python3", args: ["-m", "pip", "install", "--user", "cli-anything-hub"], env: { PIP_BREAK_SYSTEM_PACKAGES: "1" } },
+    { executable: "cli-hub", args: ["uninstall", "toolkit"], env: { PIP_BREAK_SYSTEM_PACKAGES: "1" } },
   ]);
   assert.deepEqual(uninstallPlan.verifyCommands, []);
 });
@@ -178,5 +186,9 @@ test("marks shell metacharacter registry commands high risk", () => {
 
   assert.equal(plan.risk, "high");
   assert.equal(plan.requiresApproval, true);
-  assert.deepEqual(plan.commands[0], { executable: "python3", args: ["-m", "pip", "install", "--user", "cli-anything-hub"] });
+  assert.deepEqual(plan.commands[0], {
+    executable: "python3",
+    args: ["-m", "pip", "install", "--user", "cli-anything-hub"],
+    env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
+  });
 });

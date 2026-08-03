@@ -81,6 +81,10 @@ export interface ManagedGatewayUsage {
   cacheTokens?: number;
 }
 
+export function getManagedRuntimeHomeDir(stateDir: string, runtimeId: string): string {
+  return join(pathResolve(stateDir, "managed-runtimes"), normalizeRuntimeId(runtimeId), "home");
+}
+
 const MANAGED_GATEWAY_USAGE_EXTRACTOR_SOURCE = String.raw`
 function extractGatewayUsage(value) {
   let inputTokens = 0;

@@ -1049,7 +1049,7 @@ test("runProviderTask exposes CLI-Hub runtime app capabilities without adapter-s
   };
 
   try {
-    process.env.PATH = `${providerBinDir}${delimiter}${toolBinDir}`;
+    process.env.PATH = providerBinDir;
     await withProcessGetuid(0, async () => {
       const result = await runProviderTask(runtime, "use fooctl", workDir, {
         contextEnv: {
@@ -1062,6 +1062,7 @@ test("runProviderTask exposes CLI-Hub runtime app capabilities without adapter-s
           displayName: "Foo CLI",
           entryPoint: "fooctl",
         }],
+        runtimeAppBinDir: toolBinDir,
         taskTimeoutMs: 5_000,
       });
       const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);

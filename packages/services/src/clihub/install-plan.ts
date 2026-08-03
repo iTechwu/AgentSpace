@@ -2,6 +2,7 @@ import type { RuntimeAppCatalogItemRecord, RuntimeAppInstallStrategy, RuntimeApp
 import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan, RuntimeAppOperationType } from "@dofe-agent/domain";
 
 const UNSAFE_COMMAND_PATTERN = /(\||&&|;|`|\$\(|<\(|>\(|\bcurl\b|\bwget\b|\bsudo\b|\bsu\b|\bchmod\b|\bchown\b|\bsystemctl\b|\blaunchctl\b|\btee\s+-a\b|>>|~\/\.(?:bash|zsh|profile|config))/i;
+const CLI_HUB_PIP_ENV = { PIP_BREAK_SYSTEM_PACKAGES: "1" } as const;
 
 export function buildRuntimeAppInstallPlan(input: {
   item: RuntimeAppCatalogItemRecord;
@@ -62,20 +63,28 @@ function buildOperationCommands(
     return [];
   }
   if (strategy === "cli_hub") {
-    const operationCommand = { executable: "cli-hub", args: [operation, item.name] };
+    const operationCommand = buildCliHubCommand([operation, item.name]);
     return cliHubAvailable ? [operationCommand] : [buildCliHubBootstrapCommand(), operationCommand];
   }
   if (operation !== "install") {
-    return cliHubAvailable ? [{ executable: "cli-hub", args: [operation, item.name] }] : [];
+    return cliHubAvailable ? [buildCliHubCommand([operation, item.name])] : [];
   }
   return [
     buildCliHubBootstrapCommand(),
-    { executable: "cli-hub", args: ["install", item.name] },
+    buildCliHubCommand(["install", item.name]),
   ];
 }
 
 function buildCliHubBootstrapCommand(): RuntimeAppCommandPlanItem {
-  return { executable: "python3", args: ["-m", "pip", "install", "--user", "cli-anything-hub"] };
+  return {
+    executable: "python3",
+    args: ["-m", "pip", "install", "--user", "cli-anything-hub"],
+    env: CLI_HUB_PIP_ENV,
+  };
+}
+
+function buildCliHubCommand(args: string[]): RuntimeAppCommandPlanItem {
+  return { executable: "cli-hub", args, env: CLI_HUB_PIP_ENV };
 }
 
 function shouldVerifyAfterOperation(operation: RuntimeAppOperationType): boolean {
@@ -84,7 +93,7 @@ function shouldVerifyAfterOperation(operation: RuntimeAppOperationType): boolean
 
 function buildVerifyCommands(item: RuntimeAppCatalogItemRecord): RuntimeAppCommandPlanItem[] {
   const commands: RuntimeAppCommandPlanItem[] = [
-    { executable: "cli-hub", args: ["info", item.name] },
+    buildCliHubCommand(["info", item.name]),
   ];
   if (item.entryPoint.trim()) {
     commands.push({ executable: "which", args: [item.entryPoint.trim()] });
