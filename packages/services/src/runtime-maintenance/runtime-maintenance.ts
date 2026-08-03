@@ -12,6 +12,7 @@ import { reconcileAllManagedRuntimeUsageAsync } from "../models/usage-sync.ts";
 import { scheduleMcpHealthChecksSync } from "../mcp-center/connections.ts";
 import { advanceRecoverableOperationsSync } from "../employees/recovery-worker.ts";
 import { runEmployeeLifecycleMaintenanceSync } from "../employees/lifecycle-maintenance.ts";
+import { sendExternalPagerAlert } from "../observability/external-pager.ts";
 import { retireUnreferencedManagedSkillServicesSync } from "../skill-services/bindings.ts";
 import {
   requeueExpiredManagedSkillServiceOperationLeasesSync,
@@ -136,7 +137,46 @@ export async function runRuntimeMaintenanceAsync(
   }
   const ok = stagesSucceeded && evidence.status === "succeeded";
   const status = ok ? "succeeded" : "partial_failure";
+  if (!ok) {
+    const alerts = buildRuntimeMaintenanceFailureAlerts(runId, stages, evidence);
+    await sendExternalPagerAlert({ alerts, checkedAt: new Date().toISOString() });
+  }
   return { ok, status, runId, evidence, stages };
+}
+
+function buildRuntimeMaintenanceFailureAlerts(
+  runId: string,
+  stages: RuntimeMaintenanceResult["stages"],
+  evidence: RuntimeMaintenanceStageResult,
+): Array<{ code: string; severity: "error"; message: string; metric?: string; value?: number }> {
+  const alerts: Array<{ code: string; severity: "error"; message: string; metric?: string; value?: number }> = [];
+  let failedStages = 0;
+  for (const [name, result] of Object.entries(stages)) {
+    if (result.status === "failed") {
+      failedStages += 1;
+      alerts.push({
+        code: "runtime_maintenance_stage_failed",
+        severity: "error",
+        message: `Runtime maintenance stage "${name}" failed: ${result.error ?? "unknown error"} (run ${runId}).`,
+        metric: "runtime_maintenance_failed_stage",
+      });
+    }
+  }
+  if (evidence.status === "failed") {
+    alerts.push({
+      code: "runtime_maintenance_persistence_failed",
+      severity: "error",
+      message: `Runtime maintenance persistence/heartbeat failed: ${evidence.error ?? "unknown error"} (run ${runId}).`,
+    });
+  }
+  if (failedStages === 0 && evidence.status === "succeeded") {
+    alerts.push({
+      code: "runtime_maintenance_unknown_failure",
+      severity: "error",
+      message: `Runtime maintenance reported a failure with no explicit failed stage (run ${runId}).`,
+    });
+  }
+  return alerts;
 }
 
 async function runStage(operation: () => unknown | Promise<unknown>): Promise<RuntimeMaintenanceStageResult> {

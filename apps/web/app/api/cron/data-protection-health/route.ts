@@ -1,5 +1,5 @@
 import { listWorkspacesSync } from "@dofe-agent/db";
-import { evaluateDataProtectionHealthSync } from "@dofe-agent/services";
+import { evaluateDataProtectionHealthSync, sendExternalPagerAlert } from "@dofe-agent/services";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +22,7 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 
+  const checkedAt = new Date().toISOString();
   const workspaces = listWorkspacesSync();
   const perWorkspace = workspaces.map((workspace) => {
     const health = evaluateDataProtectionHealthSync({ workspaceId: workspace.id });
@@ -36,10 +37,27 @@ export async function GET(request: Request): Promise<Response> {
   });
 
   const anyError = perWorkspace.some((result) => !result.ok);
+  if (anyError) {
+    // Fire external paging webhook for every workspace that has error alerts.
+    // Failures are logged but do not change the HTTP response so the Cron stays
+    // healthy enough to retry on the next cycle.
+    await Promise.all(
+      perWorkspace.map((result) =>
+        result.ok
+          ? Promise.resolve()
+          : sendExternalPagerAlert({
+              workspaceId: result.workspaceId,
+              alerts: result.alerts,
+              checkedAt,
+            }),
+      ),
+    );
+  }
+
   return Response.json(
     {
       ok: !anyError,
-      checkedAt: new Date().toISOString(),
+      checkedAt,
       workspaceCount: perWorkspace.length,
       workspaces: perWorkspace,
     },

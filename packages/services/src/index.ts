@@ -129,6 +129,12 @@ export {
   type EmployeeDataRetentionPolicy,
 } from "./employees/lifecycle-maintenance.ts";
 export {
+  sendExternalPagerAlert,
+  readExternalPagerConfigFromEnv,
+  type ExternalPagerConfig,
+  type PagerAlertPayload,
+} from "./observability/external-pager.ts";
+export {
   hasSkillDependenciesSync,
   hasGitHubSkillDependenciesSync,
   queueSkillDependenciesForAgentSync,

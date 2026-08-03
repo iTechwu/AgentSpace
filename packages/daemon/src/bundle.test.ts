@@ -334,7 +334,7 @@ test("materializeRemoteInputBundle rejects a tampered blob before changing the w
         },
         fetchWorkspaceBlob: async () => Buffer.from("tampered"),
       }),
-      /workspace\.blob_mismatch/,
+      /workspace\.blob_(digest_)?mismatch/,
     );
     assert.equal(existsSync(join(workDir, "repository", "a.txt")), false);
     assert.equal(existsSync(join(workDir, "prompt.txt")), false);
