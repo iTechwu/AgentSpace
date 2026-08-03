@@ -181,11 +181,17 @@ export function readCliHubReadinessForRuntimeSync(input: {
   const daemonMetadataJson = listDaemonSnapshotsSync(input.workspaceId)
     .find((snapshot) => snapshot.runtimes.some((runtime) => runtime.id === input.runtimeId))
     ?.daemon.metadataJson;
+  return selectCliHubReadiness(input.runtimeMetadataJson, daemonMetadataJson);
+}
+
+export function selectCliHubReadiness(
+  runtimeMetadataJson?: string,
+  daemonMetadataJson?: string,
+): CliHubReadinessView {
+  const fromRuntime = readCliHubReadinessFromRuntimeMetadata(runtimeMetadataJson ?? "{}");
+  if (hasCliHubReadinessSignal(fromRuntime)) return fromRuntime;
   const fromDaemon = daemonMetadataJson ? readCliHubReadinessFromRuntimeMetadata(daemonMetadataJson) : undefined;
-  if (fromDaemon && hasCliHubReadinessSignal(fromDaemon)) {
-    return fromDaemon;
-  }
-  return readCliHubReadinessFromRuntimeMetadata(input.runtimeMetadataJson ?? "{}");
+  return fromDaemon && hasCliHubReadinessSignal(fromDaemon) ? fromDaemon : fromRuntime;
 }
 
 export function normalizeCliHubReadiness(value: unknown): CliHubReadinessView {

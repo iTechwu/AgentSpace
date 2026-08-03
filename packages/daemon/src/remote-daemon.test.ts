@@ -432,6 +432,27 @@ test("managed runtime metadata overrides a stale empty executable path", () => {
   assert.equal(records[0]?.metadata.executablePath, "/managed/runtime-managed-1/run-provider");
 });
 
+test("heartbeat publishes CLI readiness on the target Runtime instead of only the daemon", () => {
+  const readiness = {
+    checkedAt: "2026-08-03T00:00:00.000Z",
+    python: { available: true, version: "Python 3.12" },
+    pip: { available: true, version: "pip 25" },
+    cliHub: { available: true, version: "cli-hub 1" },
+    npm: { available: true, version: "10" },
+    uv: { available: false, error: "not installed" },
+  };
+  const records = buildRemoteRuntimeHeartbeatMetadata([{
+    id: "runtime-1",
+    workspaceId: "ws-1",
+    provider: "codex",
+    name: "Runtime 1",
+    status: "online",
+    metadata: { executablePath: "codex", mode: "remote" },
+  }], undefined, undefined, new Map([["runtime-1", readiness]]));
+
+  assert.deepEqual(records[0]?.metadata.cliHubReadiness, readiness);
+});
+
 test("managed runtime profiles are restored after a daemon restart", async () => {
   const restored = new Map();
   const resolved: Array<{ runtimeId: string; credentialId?: string }> = [];

@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "test": "node --experimental-strip-types --test --test-concurrency=1 src/*.test.ts src/cube/*.test.ts src/local/*.test.ts"
+    "test": "sh -c 'node --experimental-strip-types --test --test-concurrency=1 src/*.test.ts src/cube/*.test.ts src/local/*.test.ts' --"
   },
   "exports": {
     ".": {

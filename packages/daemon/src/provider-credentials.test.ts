@@ -15,6 +15,7 @@ import {
   extractManagedGatewayUsage,
   parseManagedRuntimeDockerGateway,
   resolveManagedRuntimeDockerNetwork,
+  resolveManagedRuntimeInstallDockerNetwork,
 } from "./managed-provider-credentials.ts";
 
 process.env.MANAGED_RUNTIME_DOCKER_NETWORK = "dofe-models-egress";
@@ -342,6 +343,22 @@ test("managed runtime network is fixed when MCP egress enforcement is enabled", 
     }),
     /managed_runtime\.mcp_egress_network_required/,
   );
+});
+
+test("managed runtime app installation uses a separate isolated Docker network", () => {
+  assert.equal(resolveManagedRuntimeInstallDockerNetwork({
+    MANAGED_RUNTIME_DOCKER_NETWORK: "runtime-egress",
+  }), "runtime-egress");
+  assert.equal(resolveManagedRuntimeInstallDockerNetwork({
+    MCP_EGRESS_ENFORCE: "true",
+    MANAGED_RUNTIME_DOCKER_NETWORK: "dofe-runtime-restricted",
+    MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK: "dofe-managed-install",
+  }), "dofe-managed-install");
+  assert.throws(() => resolveManagedRuntimeInstallDockerNetwork({
+    MCP_EGRESS_ENFORCE: "true",
+    MANAGED_RUNTIME_DOCKER_NETWORK: "dofe-runtime-restricted",
+    MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK: "dofe-runtime-restricted",
+  }), /install_network_must_be_separate/);
 });
 
 test("managed runtime MCP gateway accepts only a concrete Docker bridge IPv4 address", () => {

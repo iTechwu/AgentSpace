@@ -59,7 +59,16 @@ import {
   resolveDefaultDaemonStateDir,
 } from "./state.ts";
 import { parseTaskInputJson, resolveConversationThreadId } from "./task-context.ts";
-import { buildManagedRuntimeAppPlan, executeRuntimeAppPlan, parseRuntimeAppInstallPlan, tailAndRedact } from "./runtime-apps.ts";
+import {
+  buildManagedRuntimeAppPlan,
+  executeRuntimeAppPlan,
+  parseRuntimeAppInstallPlan,
+  readCliHubReadiness,
+  readManagedCliHubReadiness,
+  resolveRuntimeAppRegistryEnvironment,
+  tailAndRedact,
+  type CliHubReadiness,
+} from "./runtime-apps.ts";
 import { executeMcpConnectionOperation } from "./mcp/verify-executor.ts";
 import { McpGateway, McpGatewayPool } from "./mcp/gateway.ts";
 import { McpAuditOutbox } from "./mcp/audit-outbox.ts";
@@ -70,6 +79,7 @@ import {
   getManagedRuntimeHomeDir,
   resolveManagedRuntimeDockerGateway,
   resolveManagedRuntimeDockerNetwork,
+  resolveManagedRuntimeInstallDockerNetwork,
   type ManagedCredentialResolver,
 } from "./managed-provider-credentials.ts";
 import { createManagedProvisioningExecutor } from "./managed-runtime-provisioning.ts";
@@ -325,6 +335,8 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
   const provisioningExecutor = createManagedProvisioningExecutor(config.stateDir, credentialResolver);
 
   const activeRuntimes = new Set<string>();
+  let runtimeCliHubReadiness = new Map<string, CliHubReadiness>();
+  let runtimeCliHubReadinessExpiresAt = 0;
   let auditOutboxFlushing = false;
   const flushMcpAuditOutbox = (): void => {
     if (auditOutboxFlushing) return;
@@ -355,10 +367,22 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
         );
         const managedRuntimeMetadata = buildManagedRuntimeHeartbeatMetadata(managedRuntimes);
         const verificationEnvironments = await resolveManagedProviderVerificationEnvironments(runtimes, credentialResolver);
+        const readinessRuntimeIds = new Set([
+          ...runtimes.map((runtime) => runtime.id),
+          ...managedRuntimes.keys(),
+        ]);
+        if (
+          Date.now() >= runtimeCliHubReadinessExpiresAt
+          || runtimeCliHubReadiness.size !== readinessRuntimeIds.size
+          || [...readinessRuntimeIds].some((runtimeId) => !runtimeCliHubReadiness.has(runtimeId))
+        ) {
+          runtimeCliHubReadiness = resolveRemoteRuntimeCliHubReadiness(config, runtimes, managedRuntimes);
+          runtimeCliHubReadinessExpiresAt = Date.now() + 60_000;
+        }
         const heartbeat = await client.sendHeartbeatWithMetadata(
           config.daemonKey,
           { ...metadata, managedRuntimes: managedRuntimeMetadata },
-          buildRemoteRuntimeHeartbeatMetadata(runtimes, managedRuntimes, verificationEnvironments),
+          buildRemoteRuntimeHeartbeatMetadata(runtimes, managedRuntimes, verificationEnvironments, runtimeCliHubReadiness),
         );
         runtimes = reconcileRemoteRuntimesWithHeartbeat(runtimes, heartbeat, registered.daemon.workspaceId, config.deviceName);
         await restoreManagedRuntimesFromHeartbeat(heartbeat, managedRuntimes, credentialResolver);
@@ -367,7 +391,7 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
           const verificationHeartbeat = await client.sendHeartbeatWithMetadata(
             config.daemonKey,
             metadata,
-            buildRemoteRuntimeHeartbeatMetadata(runtimes, managedRuntimes, verificationEnvironments),
+            buildRemoteRuntimeHeartbeatMetadata(runtimes, managedRuntimes, verificationEnvironments, runtimeCliHubReadiness),
           );
           runtimes = reconcileRemoteRuntimesWithHeartbeat(runtimes, verificationHeartbeat, registered.daemon.workspaceId, config.deviceName);
         }
@@ -925,8 +949,9 @@ async function executeRemoteRuntimeAppOperation(
           image: `dofe/agent-runtime-${runtime.provider}:${process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest"}`,
           runtimeHomeDir,
           depsRoot,
-          dockerNetwork: resolveManagedRuntimeDockerNetwork(),
+          dockerNetwork: resolveManagedRuntimeInstallDockerNetwork(),
           dockerConnectivityArgs: buildManagedRuntimeDockerConnectivityArgs(),
+          registryEnvironment: resolveRuntimeAppRegistryEnvironment(),
           user: `${process.getuid?.() ?? 10001}:${process.getgid?.() ?? 10001}`,
         })
       : plan;
@@ -1484,12 +1509,17 @@ export function buildRemoteRuntimeHeartbeatMetadata(
   runtimes: RemoteRuntimeRecord[],
   managedRuntimes?: Map<string, ManagedRuntimeEntry>,
   verificationEnvironments?: Map<string, Record<string, string>>,
+  cliHubReadiness?: Map<string, CliHubReadiness>,
 ): Array<{
   id: string;
   provider: RemoteRuntimeRecord["provider"];
   metadata: Record<string, unknown>;
 }> {
-  const records = runtimes.map((runtime) => {
+  const records: Array<{
+    id: string;
+    provider: RemoteRuntimeRecord["provider"];
+    metadata: Record<string, unknown>;
+  }> = runtimes.map((runtime) => {
     const managedRuntime = managedRuntimes?.get(runtime.id);
     const heartbeatRuntime = managedRuntime
       ? {
@@ -1507,9 +1537,12 @@ export function buildRemoteRuntimeHeartbeatMetadata(
     return {
       id: heartbeatRuntime.id,
       provider: heartbeatRuntime.provider,
-      metadata: buildProviderRuntimeMetadata(heartbeatRuntime, {
-        environment: verificationEnvironments?.get(runtime.id),
-      }),
+      metadata: {
+        ...buildProviderRuntimeMetadata(heartbeatRuntime, {
+          environment: verificationEnvironments?.get(runtime.id),
+        }),
+        ...(cliHubReadiness?.get(runtime.id) ? { cliHubReadiness: cliHubReadiness.get(runtime.id) } : {}),
+      },
     };
   });
   const knownRuntimeIds = new Set(records.map((runtime) => runtime.id));
@@ -1525,10 +1558,35 @@ export function buildRemoteRuntimeHeartbeatMetadata(
         mode: "remote",
         managedCredentialId: runtime.runtimeCredentialId,
         provisioningState: "managed",
+        ...(cliHubReadiness?.get(runtime.id) ? { cliHubReadiness: cliHubReadiness.get(runtime.id) } : {}),
       },
     });
   }
   return records;
+}
+
+export function resolveRemoteRuntimeCliHubReadiness(
+  config: Pick<RemoteDaemonConfig, "stateDir" | "managedNode">,
+  runtimes: RemoteRuntimeRecord[],
+  managedRuntimes: Map<string, ManagedRuntimeEntry>,
+): Map<string, CliHubReadiness> {
+  const result = new Map<string, CliHubReadiness>();
+  const runtimeById = new Map(runtimes.map((runtime) => [runtime.id, runtime]));
+  for (const runtimeId of new Set([...runtimeById.keys(), ...managedRuntimes.keys()])) {
+    const runtime = runtimeById.get(runtimeId);
+    const managed = managedRuntimes.get(runtimeId);
+    const provider = managed?.provider ?? runtime?.provider;
+    if (!provider) continue;
+    const runtimeHomeDir = ensureManagedRuntimeHomeDir(config.stateDir, runtimeId);
+    result.set(runtimeId, managed || config.managedNode
+      ? readManagedCliHubReadiness({
+          image: `dofe/agent-runtime-${provider}:${process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest"}`,
+          runtimeHomeDir,
+          user: `${process.getuid?.() ?? 10001}:${process.getgid?.() ?? 10001}`,
+        })
+      : readCliHubReadiness({ runtimeHomeDir }));
+  }
+  return result;
 }
 
 export async function resolveManagedProviderVerificationEnvironments(

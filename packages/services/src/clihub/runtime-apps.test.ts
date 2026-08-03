@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildRuntimeAppInstallPlan } from "./install-plan.ts";
 import { normalizeCliHubRegistryPayload, syncCliHubCatalog } from "./catalog.ts";
+import { selectCliHubReadiness } from "./runtime-apps.ts";
 
 test("normalizes CLI-Hub registry entries and infers install strategy", () => {
   const items = normalizeCliHubRegistryPayload(
@@ -112,6 +113,22 @@ test("builds controlled cli-hub plans without executing registry shell strings",
   }]);
   assert.equal(plan.verifyCommands.some((command) => command.executable === "cli-anything-gimp"), true);
   assert.equal(plan.risk, "medium");
+});
+
+test("target Runtime CLI readiness takes precedence over daemon host readiness", () => {
+  const selected = selectCliHubReadiness(
+    JSON.stringify({ cliHubReadiness: {
+      checkedAt: "2026-08-03T00:00:00.000Z",
+      cliHub: { available: false, error: "not installed in Runtime HOME" },
+    } }),
+    JSON.stringify({ cliHubReadiness: {
+      checkedAt: "2026-08-03T00:00:00.000Z",
+      cliHub: { available: true, version: "host cli-hub" },
+    } }),
+  );
+
+  assert.equal(selected.cliHub.available, false);
+  assert.equal(selected.cliHub.error, "not installed in Runtime HOME");
 });
 
 function jsonResponse(payload: unknown): Response {

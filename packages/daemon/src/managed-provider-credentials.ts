@@ -322,6 +322,24 @@ export function resolveManagedRuntimeDockerNetwork(
   return network;
 }
 
+export function resolveManagedRuntimeInstallDockerNetwork(
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  const network = environment.MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK?.trim()
+    || (environment.MCP_EGRESS_ENFORCE === "true" ? "" : resolveManagedRuntimeDockerNetwork(environment));
+  if (!network) throw new Error("managed_runtime.install_docker_network_required");
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(network)) {
+    throw new Error("managed_runtime.install_docker_network_invalid");
+  }
+  if (["bridge", "default", "host", "none"].includes(network.toLowerCase())) {
+    throw new Error("managed_runtime.install_docker_network_not_isolated");
+  }
+  if (environment.MCP_EGRESS_ENFORCE === "true" && network === resolveManagedRuntimeDockerNetwork(environment)) {
+    throw new Error("managed_runtime.install_network_must_be_separate");
+  }
+  return network;
+}
+
 export function resolveManagedRuntimeDockerGateway(
   dockerNetwork: string,
   environment: NodeJS.ProcessEnv = process.env,

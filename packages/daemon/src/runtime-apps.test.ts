@@ -4,7 +4,7 @@ import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { computeDirectoryDigestSync, executeRuntimeAppPlan, readCliHubReadiness } from "./runtime-apps.ts";
+import { computeDirectoryDigestSync, executeRuntimeAppPlan, readCliHubReadiness, resolveRuntimeAppRegistryEnvironment } from "./runtime-apps.ts";
 import * as runtimeApps from "./runtime-apps.ts";
 
 function sha256(...parts: Buffer[]): string {
@@ -88,6 +88,10 @@ test("managed runtime app plans execute inside the target provider image", () =>
       depsRoot: "/state/workspaces/ws/runtime-app-deps",
       dockerNetwork: "dofe-models-egress",
       dockerConnectivityArgs: ["--add-host", "model.local:host-gateway"],
+      registryEnvironment: {
+        NPM_CONFIG_REGISTRY: "https://npm.example.com/",
+        PIP_INDEX_URL: "https://pypi.example.com/simple",
+      },
       user: "10001:10001",
     },
   );
@@ -103,6 +107,8 @@ test("managed runtime app plans execute inside the target provider image", () =>
     "--mount", "type=bind,src=/state/workspaces/ws/runtime-app-deps,dst=/runtime-app-deps",
     "--workdir", "/runtime-app-deps",
     "--env", "PIP_BREAK_SYSTEM_PACKAGES=1",
+    "--env", "NPM_CONFIG_REGISTRY=https://npm.example.com/",
+    "--env", "PIP_INDEX_URL=https://pypi.example.com/simple",
     "--env", "HOME=/dofe-home",
     "--env", "PYTHONUSERBASE=/dofe-home/.local",
     "--env", "NPM_CONFIG_PREFIX=/dofe-home/.local",
@@ -113,6 +119,23 @@ test("managed runtime app plans execute inside the target provider image", () =>
   ]);
   assert.equal(plan.verifyCommands[0]?.args.includes("--entrypoint"), true);
   assert.equal(plan.verifyCommands[0]?.args.includes("cli-anything-blender"), true);
+});
+
+test("runtime app registries are validated and required for enforced egress", () => {
+  assert.deepEqual(resolveRuntimeAppRegistryEnvironment({
+    DOFE_AGENT_NPM_REGISTRY: "https://npm.example.com",
+    DOFE_AGENT_PYPI_INDEX_URL: "https://pypi.example.com/simple",
+  }), {
+    NPM_CONFIG_REGISTRY: "https://npm.example.com/",
+    PIP_INDEX_URL: "https://pypi.example.com/simple",
+    UV_DEFAULT_INDEX: "https://pypi.example.com/simple",
+  });
+  assert.throws(() => resolveRuntimeAppRegistryEnvironment({
+    MCP_EGRESS_ENFORCE: "true",
+  }), /controlled_registries_required/);
+  assert.throws(() => resolveRuntimeAppRegistryEnvironment({
+    DOFE_AGENT_NPM_REGISTRY: "http://npm.example.com",
+  }), /npm_registry_invalid/);
 });
 
 test("runtime app execution installs into the selected runtime private home", async () => {

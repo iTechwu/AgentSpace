@@ -39,6 +39,7 @@ export interface ManagedRuntimeAppPlanOptions {
   depsRoot: string;
   dockerNetwork: string;
   dockerConnectivityArgs?: string[];
+  registryEnvironment?: Record<string, string>;
   user: string;
 }
 
@@ -79,6 +80,7 @@ export function buildManagedRuntimeAppPlan(
       "--mount", `type=bind,src=${options.depsRoot},dst=${RUNTIME_APP_CONTAINER_DEPS_ROOT}`,
       "--workdir", RUNTIME_APP_CONTAINER_DEPS_ROOT,
       ...Object.entries(command.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
+      ...Object.entries(options.registryEnvironment ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
       "--env", `HOME=${RUNTIME_APP_CONTAINER_HOME}`,
       "--env", `PYTHONUSERBASE=${RUNTIME_APP_CONTAINER_HOME}/.local`,
       "--env", `NPM_CONFIG_PREFIX=${RUNTIME_APP_CONTAINER_HOME}/.local`,
@@ -157,16 +159,70 @@ export async function executeRuntimeAppPlan(
   };
 }
 
-export function readCliHubReadiness(): CliHubReadiness {
-  const executionEnvironment = resolveRuntimeAppExecutionEnvironment();
+export function readCliHubReadiness(options: {
+  environment?: NodeJS.ProcessEnv;
+  runtimeHomeDir?: string;
+} = {}): CliHubReadiness {
+  const environment = options.environment ?? process.env;
+  const executionEnvironment = resolveRuntimeAppExecutionEnvironment(environment, options.runtimeHomeDir);
   const pythonExecutable = executionEnvironment.pythonExecutable ?? "python3";
   return {
     checkedAt: new Date().toISOString(),
-    python: checkCommand(pythonExecutable, ["--version"], executionEnvironment.path),
-    pip: checkCommand(pythonExecutable, ["-m", "pip", "--version"], executionEnvironment.path),
-    cliHub: checkCommand("cli-hub", ["--version"], executionEnvironment.path),
-    npm: checkCommand("npm", ["--version"], executionEnvironment.path),
-    uv: checkCommand("uv", ["--version"], executionEnvironment.path),
+    python: checkCommand(pythonExecutable, ["--version"], executionEnvironment.path, environment),
+    pip: checkCommand(pythonExecutable, ["-m", "pip", "--version"], executionEnvironment.path, environment),
+    cliHub: checkCommand("cli-hub", ["--version"], executionEnvironment.path, environment),
+    npm: checkCommand("npm", ["--version"], executionEnvironment.path, environment),
+    uv: checkCommand("uv", ["--version"], executionEnvironment.path, environment),
+  };
+}
+
+export function readManagedCliHubReadiness(options: {
+  image: string;
+  runtimeHomeDir: string;
+  user: string;
+  environment?: NodeJS.ProcessEnv;
+}): CliHubReadiness {
+  const environment = options.environment ?? process.env;
+  const result = spawnSync("docker", [
+    "run", "--rm", "--pull", "never", "--read-only", "--network", "none",
+    "--tmpfs", "/tmp:rw,nosuid,nodev,noexec",
+    "--security-opt", "no-new-privileges", "--cap-drop", "ALL",
+    "--user", options.user,
+    "--mount", `type=bind,src=${options.runtimeHomeDir},dst=${RUNTIME_APP_CONTAINER_HOME},readonly`,
+    "--env", `HOME=${RUNTIME_APP_CONTAINER_HOME}`,
+    "--env", `PATH=${RUNTIME_APP_CONTAINER_PATH}`,
+    "--entrypoint", "node",
+    options.image,
+    "-e", MANAGED_READINESS_SCRIPT,
+  ], {
+    env: environment,
+    encoding: "utf8",
+    timeout: 20_000,
+    maxBuffer: 64 * 1024,
+  });
+  if (result.error || result.status !== 0) {
+    return unavailableCliHubReadiness(tailAndRedact(result.error?.message || result.stderr || "Managed Runtime readiness probe failed."));
+  }
+  try {
+    const parsed = JSON.parse(result.stdout.trim()) as CliHubReadiness;
+    if (!parsed.checkedAt || !parsed.python || !parsed.cliHub || !parsed.npm) throw new Error("invalid readiness response");
+    return parsed;
+  } catch {
+    return unavailableCliHubReadiness("Managed Runtime readiness probe returned invalid output.");
+  }
+}
+
+export function resolveRuntimeAppRegistryEnvironment(
+  environment: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const npmRegistry = validateRegistryUrl(environment.DOFE_AGENT_NPM_REGISTRY, "runtime_app.npm_registry_invalid");
+  const pypiIndex = validateRegistryUrl(environment.DOFE_AGENT_PYPI_INDEX_URL, "runtime_app.pypi_index_invalid");
+  if (environment.MCP_EGRESS_ENFORCE === "true" && (!npmRegistry || !pypiIndex)) {
+    throw new Error("runtime_app.controlled_registries_required");
+  }
+  return {
+    ...(npmRegistry ? { NPM_CONFIG_REGISTRY: npmRegistry } : {}),
+    ...(pypiIndex ? { PIP_INDEX_URL: pypiIndex, UV_DEFAULT_INDEX: pypiIndex } : {}),
   };
 }
 
@@ -193,9 +249,14 @@ export function parseRuntimeAppInstallPlan(value: unknown): RuntimeAppInstallPla
   return plan;
 }
 
-function checkCommand(command: string, args: string[], pathValue = process.env.PATH ?? ""): RuntimeAppReadinessItem {
+function checkCommand(
+  command: string,
+  args: string[],
+  pathValue = process.env.PATH ?? "",
+  environment: NodeJS.ProcessEnv = process.env,
+): RuntimeAppReadinessItem {
   const result = spawnSync(command, args, {
-    env: { ...process.env, PATH: pathValue },
+    env: { ...environment, PATH: pathValue },
     encoding: "utf8",
     timeout: 5_000,
   });
@@ -214,6 +275,50 @@ function checkCommand(command: string, args: string[], pathValue = process.env.P
     version: version || undefined,
   };
 }
+
+function validateRegistryUrl(value: string | undefined, errorCode: string): string | undefined {
+  const candidate = value?.trim();
+  if (!candidate) return undefined;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "https:" || url.username || url.password || url.hash) throw new Error(errorCode);
+    return url.toString();
+  } catch {
+    throw new Error(errorCode);
+  }
+}
+
+function unavailableCliHubReadiness(error: string): CliHubReadiness {
+  const unavailable = (): RuntimeAppReadinessItem => ({ available: false, error });
+  return {
+    checkedAt: new Date().toISOString(),
+    python: unavailable(),
+    pip: unavailable(),
+    cliHub: unavailable(),
+    npm: unavailable(),
+    uv: unavailable(),
+  };
+}
+
+const MANAGED_READINESS_SCRIPT = `
+const { spawnSync } = require("node:child_process");
+const check = (command, args) => {
+  const result = spawnSync(command, args, { encoding: "utf8", timeout: 5000, env: process.env });
+  if (result.error) return { available: false, error: result.error.message };
+  if (result.status !== 0) return { available: false, error: String(result.stderr || result.stdout || command + " failed").slice(-8000) };
+  const version = String(result.stdout + "\\n" + result.stderr).trim().split(/\\r?\\n/)[0];
+  return { available: true, ...(version ? { version } : {}) };
+};
+const python = ["python3", "python"].find((candidate) => check(candidate, ["--version"]).available) || "python3";
+process.stdout.write(JSON.stringify({
+  checkedAt: new Date().toISOString(),
+  python: check(python, ["--version"]),
+  pip: check(python, ["-m", "pip", "--version"]),
+  cliHub: check("cli-hub", ["--version"]),
+  npm: check("npm", ["--version"]),
+  uv: check("uv", ["--version"]),
+}));
+`;
 
 const RUNTIME_APP_COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
 const KILL_GRACE_MS = 5_000;

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/index.js",
-    "test": "node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 src/**/*.test.ts",
+    "test": "sh -c 'node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 src/**/*.test.ts' --",
     "types": "../../apps/web/node_modules/.bin/tsc -p tsconfig.json --incremental false"
   },
   "dependencies": {

@@ -36,6 +36,8 @@ Web 市场发起 install/update/uninstall
   -> managed remote: docker run --rm target-provider-image
        mount runtime home -> /dofe-home
        mount workspace deps -> /runtime-app-deps
+       join MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK
+       inject validated npm/PyPI registry URLs
   -> 在同一环境执行 verifyCommands
   -> 回传状态、脱敏 stdout/stderr、依赖 digest 与安装位置元数据
 ```
@@ -47,11 +49,16 @@ HOME=<runtime-home>                  # Docker 中为 /dofe-home
 PYTHONUSERBASE=<runtime-home>/.local
 NPM_CONFIG_PREFIX=<runtime-home>/.local
 PATH=<runtime-home>/.local/bin:$PATH
+NPM_CONFIG_REGISTRY=<DOFE_AGENT_NPM_REGISTRY>
+PIP_INDEX_URL=<DOFE_AGENT_PYPI_INDEX_URL>
+UV_DEFAULT_INDEX=<DOFE_AGENT_PYPI_INDEX_URL>
 ```
 
 安装计划本身不得写死 `/dofe-home`、宿主机绝对目录或 shell 展开符。npm public catalog 使用 `npm install --global <validated-package>`；pip/CLI-Hub 使用参数数组，并由 daemon 决定最终安装根。
 
 Provider task 启动时复用相同 `.local/bin`：host remote 将宿主机目录加入 Agent Router capability PATH；managed remote launcher 将 `/dofe-home/.local/bin` 加入容器 PATH。因此“市场安装成功但任务找不到命令”应视为发布阻断缺陷。
+
+CLI 下载不复用 MCP 的协议代理。daemon 为批准的安装操作启动短生命周期容器，并接入单独的 `MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK`；生产防火墙只允许该网络访问 `DOFE_AGENT_NPM_REGISTRY` 与 `DOFE_AGENT_PYPI_INDEX_URL`。当 `MCP_EGRESS_ENFORCE=true` 时，安装网络必须与 `dofe-runtime-restricted` 分离，两个 HTTPS registry 也必须显式配置。readiness 每 60 秒在目标 provider 镜像中以 `--network none` 挂载同一 Runtime HOME 探测，控制面优先采用 Runtime 级结果，不能再用 daemon 主机结果跳过 bootstrap。
 
 ## 3. MCP 与 Runtime Docker 的交互
 
@@ -81,9 +88,10 @@ remote daemon 在托管节点上执行：
 
 - 验证当前用户可执行 Docker；
 - 读取或创建 `MANAGED_RUNTIME_DOCKER_NETWORK`；
+- 读取或创建独立的 `MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK`，标记为 `dofe.managed-egress=package-install`；
 - `MCP_EGRESS_ENFORCE=true` 时要求既有 `dofe-runtime-restricted`，不自行创建一个冒充受限网络；
 - 非 enforce 模式自动创建的普通 bridge 明确标记为 `dofe.managed-egress=unrestricted`，不能作为出口安全证明；
-- 将 network、image tag、TLS CA、extra hosts 与 enforce 状态写入 daemon env；
+- 将两个 network、受控 registry、image tag、TLS CA、extra hosts 与 enforce 状态写入 daemon env；
 - 保存 daemon 访问 proxy 所需的 `MCP_EGRESS_PROXY_URL` 与 `MCP_EGRESS_PROXY_ADMIN_TOKEN`；env 文件权限为 `0600`，Provider 环境不得继承 admin token；
 - launcher 使用 `set -a` 导出配置，并以 `--managed-node` 启动 daemon。
 

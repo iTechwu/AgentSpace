@@ -235,6 +235,7 @@ test("managed-node install requires Docker but not a host provider CLI", () => {
     const generatedLauncher = readFileSync(join(baseDir, "start-daemon.sh"), "utf8");
     assert.match(generatedEnv, /DOFE_AGENT_MANAGED_NODE=true/);
     assert.match(generatedEnv, /MANAGED_RUNTIME_DOCKER_NETWORK=dofe-managed-egress/);
+    assert.match(generatedEnv, /MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK=dofe-managed-install/);
     assert.match(generatedEnv, /MANAGED_RUNTIME_IMAGE_TAG=latest/);
     assert.match(generatedLauncher, /set -a\nsource /);
     assert.match(generatedLauncher, /MANAGED_NODE_FLAG=""/);
@@ -280,6 +281,7 @@ test("managed-node install preserves an operator-provided Docker network", () =>
       env: {
         ...process.env,
         MANAGED_RUNTIME_DOCKER_NETWORK: "team-runtime-egress",
+        MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK: "team-runtime-install",
         MANAGED_RUNTIME_IMAGE_TAG: "stable",
         MCP_EGRESS_PROXY_URL: "http://172.31.240.2:8080",
         MCP_EGRESS_PROXY_ADMIN_TOKEN: "test-admin-token-value",
@@ -291,6 +293,7 @@ test("managed-node install preserves an operator-provided Docker network", () =>
     assert.equal(result.status, 0, result.stderr);
     const generatedEnv = readFileSync(join(baseDir, "daemon.env"), "utf8");
     assert.match(generatedEnv, /MANAGED_RUNTIME_DOCKER_NETWORK=team-runtime-egress/);
+    assert.match(generatedEnv, /MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK=team-runtime-install/);
     assert.match(generatedEnv, /MANAGED_RUNTIME_IMAGE_TAG=stable/);
     assert.match(generatedEnv, /MCP_EGRESS_PROXY_URL=http:\/\/172\.31\.240\.2:8080/);
     assert.match(generatedEnv, /MCP_EGRESS_PROXY_ADMIN_TOKEN=test-admin-token-value/);
@@ -309,6 +312,9 @@ test("managed-node install fails closed when enforced MCP egress has no proxy cr
   assert.match(source, /MCP_EGRESS_PROXY_URL is required when MCP_EGRESS_ENFORCE=true/);
   assert.match(source, /MCP_EGRESS_PROXY_ADMIN_TOKEN must contain at least 16 characters/);
   assert.match(source, /MCP_EGRESS_ENFORCE=true requires MANAGED_RUNTIME_DOCKER_NETWORK=dofe-runtime-restricted/);
+  assert.match(source, /MANAGED_RUNTIME_INSTALL_DOCKER_NETWORK must be separate/);
+  assert.match(source, /DOFE_AGENT_NPM_REGISTRY must be an HTTPS registry/);
+  assert.match(source, /DOFE_AGENT_PYPI_INDEX_URL must be an HTTPS index/);
 });
 
 test("install script update-existing reinstalls into the existing daemon binary root", () => {

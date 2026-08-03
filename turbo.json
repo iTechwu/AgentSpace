@@ -4,6 +4,10 @@
     "test": {
       "dependsOn": ["^test"],
       "outputs": []
+    },
+    "@dofe-agent/cli#test": {
+      "dependsOn": ["^test", "@dofe-agent/web#test"],
+      "outputs": []
     }
   }
 }

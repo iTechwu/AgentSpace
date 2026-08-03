@@ -10,7 +10,7 @@
   "scripts": {
     "dofe-agent": "node --experimental-strip-types src/index.ts",
     "pretest": "pnpm --dir ../../packages/daemon run build",
-    "test": "node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 src/commands/output.test.ts src/lib/daemon-client.test.ts src/lib/daemon-task-context.test.ts",
+    "test": "sh -c 'node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 src/commands/output.test.ts src/lib/daemon-client.test.ts src/lib/daemon-task-context.test.ts' --",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
