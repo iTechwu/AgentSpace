@@ -25,6 +25,12 @@ export type SkillArtifactHttpsRequest = (
   signal: AbortSignal,
 ) => Promise<SkillArtifactDownloadResponse>;
 
+export type SkillArtifactPinnedLookup = (
+  hostname: string,
+  options: number | { all?: boolean },
+  callback: (...args: unknown[]) => void,
+) => void;
+
 export class SkillArtifactDownloadError extends Error {
   readonly code: string;
 
@@ -273,15 +279,29 @@ async function defaultLookupHost(hostname: string): Promise<SkillArtifactResolve
   }
 }
 
+export function createPinnedAddressLookup(
+  pinnedAddresses: SkillArtifactResolvedAddress[],
+): SkillArtifactPinnedLookup {
+  return (_hostname, options, callback) => {
+    const addresses = pinnedAddresses.map((entry) => ({
+      address: entry.address,
+      family: entry.family === "ipv6" ? 6 : 4,
+    }));
+    if (typeof options === "object" && options.all) {
+      callback(null, addresses);
+      return;
+    }
+    const selected = addresses[0]!;
+    callback(null, selected.address, selected.family);
+  };
+}
+
 const defaultHttpsRequest: SkillArtifactHttpsRequest = (url, pinnedAddresses, signal) =>
   new Promise((resolve, reject) => {
-    const selected = pinnedAddresses[0]!;
     const request = httpsRequest(url, {
       method: "GET",
       signal,
-      lookup: ((_hostname: string, _options: unknown, callback: (error: Error | null, address: string, family: number) => void) => {
-        callback(null, selected.address, selected.family === "ipv6" ? 6 : 4);
-      }) as never,
+      lookup: createPinnedAddressLookup(pinnedAddresses) as never,
     }, (response) => {
       resolve({
         statusCode: response.statusCode ?? 0,

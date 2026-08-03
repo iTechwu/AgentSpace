@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  createPinnedAddressLookup,
   downloadSkillArtifactFile,
   SkillArtifactDownloadError,
   type SkillArtifactHttpsRequest,
@@ -22,6 +23,25 @@ function response(input: {
 }
 
 const publicLookup = async () => [{ family: "ipv4" as const, address: "8.8.8.8" }];
+
+test("pinned lookup supports Node HTTPS all-address and legacy single-address callbacks", async () => {
+  const lookup = createPinnedAddressLookup([
+    { family: "ipv4", address: "8.8.8.8" },
+    { family: "ipv6", address: "2001:4860:4860::8888" },
+  ]);
+  const allResult = await new Promise<unknown[]>((resolve) => {
+    lookup("objects.example.com", { all: true }, (...args) => resolve(args));
+  });
+  const singleResult = await new Promise<unknown[]>((resolve) => {
+    lookup("objects.example.com", { all: false }, (...args) => resolve(args));
+  });
+
+  assert.deepEqual(allResult, [null, [
+    { address: "8.8.8.8", family: 4 },
+    { address: "2001:4860:4860::8888", family: 6 },
+  ]]);
+  assert.deepEqual(singleResult, [null, "8.8.8.8", 4]);
+});
 
 test("secure artifact download streams the exact declared bytes through a pinned address", async () => {
   const seen: unknown[] = [];
