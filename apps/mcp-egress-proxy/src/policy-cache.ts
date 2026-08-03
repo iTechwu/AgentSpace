@@ -2,6 +2,12 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-agent/domain";
 
+interface PersistedPolicyState {
+  version: 1;
+  snapshots: McpEgressPolicySnapshot[];
+  revokedRevisionIds: string[];
+}
+
 /**
  * Policy/revoke cache (P1-1 持久重放). The proxy never reads the application
  * database — snapshots are pushed by the control plane. When a `stateFile` is
@@ -10,6 +16,7 @@ import type { McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-age
  */
 export class McpEgressPolicyCache {
   private readonly revisions = new Map<string, McpEgressPolicySnapshot>();
+  private readonly revokedRevisionIds = new Set<string>();
   private readonly stateFile?: string;
 
   constructor(options: { stateFile?: string } = {}) {
@@ -21,7 +28,10 @@ export class McpEgressPolicyCache {
   }
 
   set(snapshot: McpEgressPolicySnapshot): void {
-    this.revisions.set(snapshot.revision.id, snapshot);
+    const id = snapshot.revision.id;
+    const revoked = snapshot.revoked || this.revokedRevisionIds.has(id) || this.revisions.get(id)?.revoked === true;
+    if (revoked) this.revokedRevisionIds.add(id);
+    this.revisions.set(id, revoked ? { ...snapshot, revoked: true } : snapshot);
     this.persist();
   }
 
@@ -30,11 +40,12 @@ export class McpEgressPolicyCache {
   }
 
   revoke(policyRevisionId: string): void {
+    this.revokedRevisionIds.add(policyRevisionId);
     const snapshot = this.revisions.get(policyRevisionId);
     if (snapshot) {
       this.revisions.set(policyRevisionId, { ...snapshot, revoked: true });
-      this.persist();
     }
+    this.persist();
   }
 
   list(): McpEgressPolicySnapshot[] {
@@ -47,14 +58,21 @@ export class McpEgressPolicyCache {
     }
     try {
       const parsed = JSON.parse(readFileSync(this.stateFile, "utf8")) as unknown;
-      if (!Array.isArray(parsed)) {
-        return;
+      const legacySnapshots = Array.isArray(parsed) ? parsed : undefined;
+      const state = isPersistedPolicyState(parsed) ? parsed : undefined;
+      if (!legacySnapshots && !state) return;
+      for (const id of state?.revokedRevisionIds ?? []) {
+        this.revokedRevisionIds.add(id);
       }
-      for (const item of parsed) {
+      for (const item of legacySnapshots ?? state!.snapshots) {
         const snapshot = item as Partial<McpEgressPolicySnapshot>;
         if (snapshot?.revision && typeof snapshot.revision.id === "string") {
           const { staticHeaders: _legacyStaticHeaders, ...durableSnapshot } = snapshot as McpEgressPolicySnapshot;
-          this.revisions.set(snapshot.revision.id, durableSnapshot);
+          if (durableSnapshot.revoked) this.revokedRevisionIds.add(snapshot.revision.id);
+          this.revisions.set(
+            snapshot.revision.id,
+            this.revokedRevisionIds.has(snapshot.revision.id) ? { ...durableSnapshot, revoked: true } : durableSnapshot,
+          );
         }
       }
     } catch {
@@ -68,10 +86,22 @@ export class McpEgressPolicyCache {
     }
     mkdirSync(dirname(this.stateFile), { recursive: true });
     const durableSnapshots = this.list().map(({ staticHeaders: _staticHeaders, ...snapshot }) => snapshot);
+    const state: PersistedPolicyState = {
+      version: 1,
+      snapshots: durableSnapshots,
+      revokedRevisionIds: Array.from(this.revokedRevisionIds),
+    };
     const temporaryFile = `${this.stateFile}.tmp`;
-    writeFileSync(temporaryFile, JSON.stringify(durableSnapshots), { encoding: "utf8", mode: 0o600 });
+    writeFileSync(temporaryFile, JSON.stringify(state), { encoding: "utf8", mode: 0o600 });
     renameSync(temporaryFile, this.stateFile);
   }
+}
+
+function isPersistedPolicyState(value: unknown): value is PersistedPolicyState {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<PersistedPolicyState>;
+  return candidate.version === 1 && Array.isArray(candidate.snapshots) && Array.isArray(candidate.revokedRevisionIds)
+    && candidate.revokedRevisionIds.every((id) => typeof id === "string");
 }
 
 export { type McpEgressPolicyRevision, type McpEgressPolicySnapshot };

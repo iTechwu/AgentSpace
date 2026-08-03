@@ -72,3 +72,25 @@ test("policy cache without a state file stays in-memory (no persistence)", () =>
   assert.ok(cache.get("pol-1"));
   assert.equal(cache.list().length, 1);
 });
+
+test("policy revocation is monotonic across stale pushes", () => {
+  const cache = new McpEgressPolicyCache();
+  cache.set(snapshot("pol-revoked"));
+  cache.revoke("pol-revoked");
+  cache.set(snapshot("pol-revoked", false));
+
+  assert.equal(cache.get("pol-revoked")?.revoked, true);
+});
+
+test("an out-of-order revocation tombstone survives push and restart", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dofe-egress-tombstone-"));
+  const stateFile = join(dir, "policy.json");
+  const first = new McpEgressPolicyCache({ stateFile });
+  first.revoke("pol-late");
+  first.set(snapshot("pol-late", false));
+  assert.equal(first.get("pol-late")?.revoked, true);
+
+  const restarted = new McpEgressPolicyCache({ stateFile });
+  restarted.set(snapshot("pol-late", false));
+  assert.equal(restarted.get("pol-late")?.revoked, true);
+});

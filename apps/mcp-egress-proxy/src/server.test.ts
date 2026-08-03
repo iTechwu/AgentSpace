@@ -260,7 +260,7 @@ test("forwards only MCP protocol headers and counts successful response bytes", 
         cookie: "must-not-leave-runtime=true",
         "x-custom": "must-not-leave-runtime",
       },
-      body: "{}",
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
     });
     assert.equal(res.status, 200);
     assert.equal(await res.text(), "ok");
@@ -357,6 +357,56 @@ test("task-call lease rejects a different JSON-RPC tool name", async () => {
     });
     assert.equal(res.status, 403);
     assert.equal(forwarded, false);
+  } finally {
+    await close();
+  }
+});
+
+test("task-call lease rejects malformed and cross-tool JSON-RPC batches", async () => {
+  const cache = new McpEgressPolicyCache();
+  cache.set(buildSnapshot(basePolicy()));
+  let forwarded = 0;
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
+    auditSink: { record: () => undefined },
+    forwardToUpstream: async () => {
+      forwarded += 1;
+      return { ok: true, upstreamHost: "github-mcp.example.com", response: { statusCode: 200, statusMessage: "OK", headers: {}, body: null } };
+    },
+  });
+  const { url, close } = await server.start();
+  const lease = buildLeaseToken({ toolName: "allowed_tool" });
+  const headers = {
+    authorization: `DofeEgressLease ${lease}`,
+    "content-type": "application/json",
+    "x-dofe-egress-session": "batch-session",
+  };
+  try {
+    const malformed = await fetch(`${url}/mcp`, { method: "POST", headers, body: "{" });
+    assert.equal(malformed.status, 403);
+
+    const crossToolBatch = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify([
+        { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "allowed_tool", arguments: {} } },
+        { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "other_tool", arguments: {} } },
+      ]),
+    });
+    assert.equal(crossToolBatch.status, 403);
+
+    const allowedBatch = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify([
+        { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "allowed_tool", arguments: {} } },
+      ]),
+    });
+    assert.equal(allowedBatch.status, 200);
+    assert.equal(forwarded, 1);
   } finally {
     await close();
   }
@@ -495,6 +545,13 @@ test("revoke endpoint requires admin token and revokes the policy", async () => 
     });
     assert.equal(ok.status, 200);
     assert.equal(((await ok.json()) as { revoked: string }).revoked, "pol-1");
+
+    const stalePush = await fetch(`${url}/v1/admin/policies`, {
+      method: "POST",
+      headers: { "x-dofe-admin-token": "admin-secret", "content-type": "application/json" },
+      body: JSON.stringify(buildSnapshot(basePolicy())),
+    });
+    assert.equal(stalePush.status, 200);
 
     const after = await fetch(`${url}/mcp`, {
       headers: { authorization: `DofeEgressLease ${buildLeaseToken()}` },

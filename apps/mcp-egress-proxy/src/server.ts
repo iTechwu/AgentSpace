@@ -375,12 +375,21 @@ function extractProxySessionId(req: IncomingMessage): string | undefined {
 function isTaskToolCallAllowed(claims: McpEgressLeaseClaims, method: string, body: Buffer): boolean {
   if (claims.purpose !== "task_call" || method !== "POST" || body.length === 0) return true;
   try {
-    const message = JSON.parse(body.toString("utf8")) as { method?: unknown; params?: { name?: unknown } };
-    if (message.method !== "tools/call") return true;
-    return typeof message.params?.name === "string" && message.params.name === claims.toolName;
+    const payload = JSON.parse(body.toString("utf8")) as unknown;
+    const messages = Array.isArray(payload) ? payload : [payload];
+    return messages.length > 0 && messages.every((message) => isTaskJsonRpcMessageAllowed(message, claims.toolName));
   } catch {
-    return true;
+    return false;
   }
+}
+
+function isTaskJsonRpcMessageAllowed(message: unknown, toolName: string | undefined): boolean {
+  if (!message || typeof message !== "object" || Array.isArray(message)) return false;
+  const record = message as { jsonrpc?: unknown; method?: unknown; params?: unknown };
+  if (record.jsonrpc !== "2.0" || typeof record.method !== "string") return false;
+  if (record.method !== "tools/call") return true;
+  if (!record.params || typeof record.params !== "object" || Array.isArray(record.params)) return false;
+  return (record.params as { name?: unknown }).name === toolName;
 }
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
