@@ -41,7 +41,9 @@ beforeEach(() => {
 });
 
 test("skills and assignments are mirrored into the dedicated store", () => {
-  createEmployeeSync({ name: "Planner" });
+  const state = createEmployeeSync({ name: "Planner" });
+  const planner = state.activeEmployees.find((employee) => employee.name === "Planner");
+  assert.ok(planner);
   const skill = createWorkspaceSkillSync({
     name: "research-pack",
     description: "Research helper",
@@ -63,7 +65,7 @@ test("skills and assignments are mirrored into the dedicated store", () => {
     storedAssignments.some((assignment) => assignment.employeeName === "Planner" && assignment.skillId === skill.id),
   );
   assert.ok(
-    storedAssignments.some((assignment) => assignment.agentId === "agent:Planner" && assignment.skillId === skill.id),
+    storedAssignments.some((assignment) => assignment.agentId === planner!.id && assignment.skillId === skill.id),
   );
 });
 
@@ -291,11 +293,14 @@ test("resetWorkspaceStateSync clears dedicated skill storage", () => {
 
 test("agent template skills are preloaded into skill storage and state", () => {
   const skills = listWorkspaceSkillsSync();
-  const financeSkill = skills.find((item) => item.name === "financial-analysis-agent");
+  const financeSkill = skills.find(
+    (item) => item.sourceUrl === "https://skills.sh/qodex-ai/ai-agent-skills/financial-analysis-agent",
+  );
   assert.ok(financeSkill);
+  assert.equal(financeSkill.name, "金融分析代理");
   assert.equal(financeSkill.sourceType, "skills.sh");
   assert.equal(financeSkill.sourceUrl, "https://skills.sh/qodex-ai/ai-agent-skills/financial-analysis-agent");
-  assert.equal(financeSkill.description.startsWith("Create agents for financial analysis"), true);
+  assert.equal(financeSkill.description.startsWith("创建用于金融分析"), true);
   assert.equal(financeSkill.files.some((file) => file.path === "examples/financial_data_collector.py"), true);
   assert.equal(
     financeSkill.files.find((file) => file.path === "SKILL.md")?.content.includes("preloaded by DofeAgent"),
@@ -308,7 +313,9 @@ test("agent template skills are preloaded into skill storage and state", () => {
 
 test("agent template resolution binds preloaded skills automatically", () => {
   const resolved = resolveSystemAgentTemplateForWorkspaceSync("finance-analyst");
-  const financeSkill = listWorkspaceSkillsSync().find((item) => item.name === "financial-analysis-agent");
+  const financeSkill = listWorkspaceSkillsSync().find(
+    (item) => item.sourceUrl === "https://skills.sh/qodex-ai/ai-agent-skills/financial-analysis-agent",
+  );
 
   assert.ok(financeSkill);
   assert.deepEqual(resolved.skillIds, [financeSkill.id]);

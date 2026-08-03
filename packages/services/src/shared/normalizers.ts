@@ -24,7 +24,10 @@ import {
   normalizeChannelDocuments,
   normalizeChannelDocumentVersions,
 } from "../documents/model.ts";
-import { findPreloadedAgentTemplateSkillSource } from "../agent-templates/preloaded-skill-sources.ts";
+import {
+  findPreloadedAgentTemplateSkillSource,
+  PRELOADED_AGENT_TEMPLATE_SKILL_SOURCES,
+} from "../agent-templates/preloaded-skill-sources.ts";
 import {
   normalizeChannelDocumentAccesses,
   normalizeChannelDocumentBlocks,
@@ -307,7 +310,7 @@ export function createPredefinedAgentTemplateSkillRecords(): WorkspaceSkill[] {
 export function isPredefinedAgentTemplateSkillName(name: string): boolean {
   return SYSTEM_AGENT_TEMPLATE_PRESETS.some((template) =>
     template.skillRecommendations.some((recommendation) => sameValue(recommendation.key, name)),
-  );
+  ) || PRELOADED_AGENT_TEMPLATE_SKILL_SOURCES.some((source) => sameValue(source.name, name));
 }
 
 function replaceBuiltinWorkspaceSkill(

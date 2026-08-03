@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "test": "for file in src/skills/capabilities.test.ts src/skills/dependencies.test.ts src/skills/dependency-install-status.test.ts src/skills/dependency-install.test.ts src/skills/import.test.ts src/skills/injection.test.ts src/skills/installations.test.ts src/skills/release.test.ts src/skills/skill-artifacts.persistence.test.ts src/skills/skill-artifacts.test.ts src/skills/skill-storage-reconciliation.test.ts src/skills/uninstall.test.ts src/skills/package/*.test.ts src/skill-services/*.test.ts; do node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 \"$file\" || exit 1; done",
+    "test": "node --experimental-strip-types scripts/verify-test-coverage.mjs && for file in src/skills/*.test.ts src/skills/package/*.test.ts src/mcp-center/*.test.ts src/skill-services/*.test.ts; do node --env-file-if-exists=../../.env --experimental-strip-types --test --test-concurrency=1 \"$file\" || exit 1; done",
     "types": "../../apps/web/node_modules/.bin/tsc -p tsconfig.types.json --incremental false"
   },
   "dependencies": {
