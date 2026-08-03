@@ -30,6 +30,23 @@ test("normalizes CLI-Hub registry entries and infers install strategy", () => {
   assert.equal(items[0]?.skillMd, "skills/mermaid/SKILL.md");
 });
 
+test("corrects the known MiniMax npm binary name from the public registry", () => {
+  const items = normalizeCliHubRegistryPayload(
+    "clihub_public",
+    {
+      clis: [{
+        name: "minimax-cli",
+        display_name: "MiniMax CLI",
+        install_cmd: "npm install -g minimax-cli",
+        entry_point: "minimax-cli",
+      }],
+    },
+    "2026-08-03T00:00:00.000Z",
+  );
+
+  assert.equal(items[0]?.entryPoint, "minimax");
+});
+
 test("syncs public registry from fallback URL when the primary URL is unavailable", async () => {
   const requestedUrls: string[] = [];
   const result = await syncCliHubCatalog({

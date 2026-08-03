@@ -11,6 +11,9 @@ import {
 export const CLIHUB_HARNESS_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/registry.json";
 export const CLIHUB_PUBLIC_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/public_registry.json";
 export const CLIHUB_PUBLIC_REGISTRY_FALLBACK_URL = "https://raw.githubusercontent.com/HKUDS/CLI-Anything/main/public_registry.json";
+const PUBLIC_ENTRY_POINT_OVERRIDES: Readonly<Record<string, string>> = {
+  "minimax-cli": "minimax",
+};
 
 export interface CliHubCatalogSyncResult {
   status: "fresh" | "stale";
@@ -147,7 +150,9 @@ function normalizeCliHubRegistryEntry(
     return null;
   }
   const installCmd = readString(entry.install_cmd) ?? readString(entry.installCmd);
-  const entryPoint = readString(entry.entry_point) ?? readString(entry.entryPoint);
+  const entryPoint = source === "clihub_public"
+    ? PUBLIC_ENTRY_POINT_OVERRIDES[name] ?? readString(entry.entry_point) ?? readString(entry.entryPoint)
+    : readString(entry.entry_point) ?? readString(entry.entryPoint);
   return {
     source,
     name,
