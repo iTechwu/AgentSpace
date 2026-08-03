@@ -32,9 +32,13 @@ function signCanonical(input: string, secret: string): Buffer {
 }
 
 /**
- * Produces a canonical JSON digest of a policy revision.
+ * Produces a canonical JSON representation of a policy revision.
  * The digest appears in the policy revision and must be reproduced by the
  * proxy when it loads a snapshot from the control plane.
+ *
+ * `manifestDigest` is intentionally excluded: it is the output of this
+ * canonicalization, so including it would make the digest unstable and
+ * impossible to re-derive from the same inputs.
  */
 export function canonicalizeMcpEgressPolicyRevision(policy: McpEgressPolicyRevision): string {
   return JSON.stringify({
@@ -42,7 +46,6 @@ export function canonicalizeMcpEgressPolicyRevision(policy: McpEgressPolicyRevis
     workspaceId: policy.workspaceId,
     connectionId: policy.connectionId,
     releaseId: policy.releaseId,
-    manifestDigest: policy.manifestDigest,
     upstream: {
       origin: policy.upstream.origin,
       allowedHosts: [...policy.upstream.allowedHosts].sort(),
@@ -281,6 +284,7 @@ function normalizeOrigin(endpoint: string): string {
 }
 
 function derivePolicyRevisionId(input: McpEgressPolicyInput): string {
+  const allowedPathPrefix = new URL(input.endpoint).pathname || "/";
   const hash = createHash("sha256")
     .update(input.workspaceId)
     .update("|")
@@ -290,9 +294,27 @@ function derivePolicyRevisionId(input: McpEgressPolicyInput): string {
     .update("|")
     .update(normalizeOrigin(input.endpoint))
     .update("|")
+    .update(allowedPathPrefix)
+    .update("|")
     .update([...input.allowedHosts].sort().join(","))
     .update("|")
     .update([...input.approvedTools].sort().join(","))
+    .update("|")
+    .update("streamable_http")
+    .update("|")
+    .update("deny")
+    .update("|")
+    .update(String(true))
+    .update("|")
+    .update("verify_system")
+    .update("|")
+    .update(input.authMode ?? "none")
+    .update("|")
+    .update(String(input.maxRequestBytes ?? DEFAULT_POLICY_MAX_REQUEST_BYTES))
+    .update("|")
+    .update(String(input.maxResponseBytes ?? DEFAULT_POLICY_MAX_RESPONSE_BYTES))
+    .update("|")
+    .update(String(input.maxConcurrentStreams ?? DEFAULT_POLICY_MAX_CONCURRENT_STREAMS))
     .digest("hex");
   return `pol-${hash.slice(0, 32)}`;
 }

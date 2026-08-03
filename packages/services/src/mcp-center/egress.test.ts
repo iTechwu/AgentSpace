@@ -64,10 +64,22 @@ test("canonicalizeMcpEgressPolicyRevision is stable across field reordering", ()
   assert.equal(canonicalizeMcpEgressPolicyRevision(c), canonicalizeMcpEgressPolicyRevision(d));
 });
 
-test("digestMcpEgressPolicyRevision returns a sha256 prefix", () => {
+test("canonicalizeMcpEgressPolicyRevision excludes manifestDigest from the canonical form", () => {
+  const a = basePolicy();
+  const b = { ...a, manifestDigest: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" };
+  assert.equal(canonicalizeMcpEgressPolicyRevision(a), canonicalizeMcpEgressPolicyRevision(b));
+});
+
+test("digestMcpEgressPolicyRevision returns a stable sha256 prefix independent of manifestDigest", () => {
   const digest = digestMcpEgressPolicyRevision(basePolicy());
   assert.match(digest, /^sha256:[a-f0-9]{64}$/);
   assert.equal(digestMcpEgressPolicyRevision(basePolicy()), digest);
+
+  const withDifferentManifest = {
+    ...basePolicy(),
+    manifestDigest: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  };
+  assert.equal(digestMcpEgressPolicyRevision(withDifferentManifest), digest);
 });
 
 test("signMcpEgressLease produces a three-part token", () => {
