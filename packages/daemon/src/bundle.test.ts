@@ -298,8 +298,8 @@ test("materializeRemoteInputBundle downloads workspace blobs once and reuses the
   try {
     const first = await materializeRemoteInputBundle({ stateDir, workDir: firstWorkDir, bundle, fetchWorkspaceBlob });
     const second = await materializeRemoteInputBundle({ stateDir, workDir: secondWorkDir, bundle, fetchWorkspaceBlob });
-    assert.deepEqual(first, { downloadedBlobs: 1, reusedBlobs: 0 });
-    assert.deepEqual(second, { downloadedBlobs: 0, reusedBlobs: 1 });
+    assert.deepEqual(first, { downloadedBlobs: 1, reusedBlobs: 0, downloadedBytes: bytes.byteLength, reusedBytes: 0 });
+    assert.deepEqual(second, { downloadedBlobs: 0, reusedBlobs: 1, downloadedBytes: 0, reusedBytes: bytes.byteLength });
     assert.equal(fetches, 1);
     assert.equal(readFileSync(join(secondWorkDir, "repository", "large.txt"), "utf8"), "durable workspace");
     assert.equal(readFileSync(join(secondWorkDir, "prompt.txt"), "utf8"), "hi");
@@ -373,7 +373,7 @@ test("materializeRemoteInputBundle accepts an existing file only when it matches
       bundle,
       fetchWorkspaceBlob: async () => bytes,
     });
-    assert.deepEqual(result, { downloadedBlobs: 1, reusedBlobs: 0 });
+    assert.deepEqual(result, { downloadedBlobs: 1, reusedBlobs: 0, downloadedBytes: bytes.byteLength, reusedBytes: 0 });
     assert.equal(readFileSync(join(workDir, file.path), "utf8"), "durable workspace");
   } finally {
     rmSync(root, { recursive: true, force: true });
