@@ -162,6 +162,8 @@ test("prepareDaemonTaskContext materializes agent knowledge and mentions it in t
     task: {
       id: "queue-1",
       workspaceId: "default",
+      employeeId: "employee-planner",
+      employeeName: "Planner",
       agentId: "Planner",
       runtimeId: "runtime-1",
       triggerType: "manual",
@@ -219,6 +221,8 @@ test("prepareDaemonTaskContext refuses to run when the durable head is incomplet
       task: {
         id: "queue-missing-blob",
         workspaceId: "default",
+        employeeId: "employee-durable-planner",
+        employeeName: "Durable Planner",
         agentId: "Durable Planner",
         runtimeId: "runtime-missing-blob",
         triggerType: "manual",
@@ -279,6 +283,8 @@ test("prepareDaemonTaskContext includes rejected document permission requests", 
     task: {
       id: "queue-1",
       workspaceId: "default",
+      employeeId: "employee-planner",
+      employeeName: "Planner",
       agentId: "Planner",
       runtimeId: "runtime-1",
       triggerType: "channel_chat",
@@ -358,6 +364,8 @@ test("prepareDaemonTaskContext includes unread agent notifications related to th
     task: {
       id: "queue-1",
       workspaceId: workspace.id,
+      employeeId: "employee-planner",
+      employeeName: "Planner",
       agentId: "Planner",
       runtimeId: "runtime-1",
       triggerType: "channel_chat",
@@ -386,6 +394,8 @@ test("parseTaskPayload ignores legacy channel workdir metadata", () => {
   const payload = parseTaskPayload({
     id: "queue-1",
     workspaceId: "default",
+    employeeId: "employee-planner",
+    employeeName: "Planner",
     agentId: "Planner",
     runtimeId: "runtime-1",
     triggerType: "channel_chat",

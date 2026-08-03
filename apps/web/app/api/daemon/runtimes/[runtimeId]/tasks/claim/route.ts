@@ -28,6 +28,8 @@ export async function POST(
     task: {
       id: task.id,
       workspaceId: task.workspaceId,
+      employeeId: task.employeeId,
+      employeeName: task.employeeName,
       agentId: task.employeeId,
       runtimeId: task.runtimeId,
       routerSessionId: task.routerSessionId,

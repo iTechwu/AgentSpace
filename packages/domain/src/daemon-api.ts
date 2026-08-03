@@ -205,6 +205,11 @@ export interface HeartbeatDaemonResponse {
 export interface ClaimedDaemonTask {
   id: string;
   workspaceId: string;
+  /** Stable employee identity. Optional while older control planes are still supported. */
+  employeeId?: string;
+  /** Display-name snapshot captured when the task was queued. */
+  employeeName?: string;
+  /** @deprecated Compatibility identity field. New clients should use employeeId. */
   agentId: string;
   runtimeId: string;
   routerSessionId?: string;

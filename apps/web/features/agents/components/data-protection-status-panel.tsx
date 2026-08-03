@@ -54,7 +54,6 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
   const [newHoldReason, setNewHoldReason] = useState("");
   const [newHoldExpiresAt, setNewHoldExpiresAt] = useState("");
   const [releasingHoldId, setReleasingHoldId] = useState("");
-  const [releaseReason, setReleaseReason] = useState("");
 
   const loadSummary = () => {
     void readWorkspaceAgentDataProtectionAction(employeeName)

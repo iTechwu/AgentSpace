@@ -1872,7 +1872,9 @@ function toQueuedTaskRecord(task: Awaited<ReturnType<HttpDaemonClient["claimTask
   return {
     id: task.id,
     workspaceId: task.workspaceId,
-    agentId: task.agentId,
+    employeeId: task.employeeId ?? task.agentId,
+    employeeName: task.employeeName ?? task.agentId,
+    agentId: task.employeeName ?? task.agentId,
     runtimeId: task.runtimeId,
     routerSessionId: task.routerSessionId,
     triggerType: task.triggerType,
