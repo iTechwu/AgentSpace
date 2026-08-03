@@ -4,6 +4,7 @@ import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import {
   getDatabase,
   listSkillArtifactBindingsForSkillSync,
+  listStoredWorkspaceSkillsSync,
   readActiveArtifactDigestForSkillSync,
   readSkillArtifactByDigestSync,
   recordStoredSkillImportEventSync,
@@ -30,6 +31,7 @@ import { parseSkillMetadata } from "./skill-metadata.ts";
 import { parseSkillDependencyDeclarations } from "./dependencies.ts";
 import { parseSkillRequirementDeclarations } from "./requirements.ts";
 import { gitAuthHeadersSync, resolveWorkspaceGitCredentialSecretSync } from "./git-credentials.ts";
+import { notifyWorkspaceAdminsSync } from "../notifications/notifications.ts";
 import {
   deleteWorkspaceAttachmentsSync,
   persistWorkspaceAttachmentFromBytesSync,
@@ -259,6 +261,55 @@ export async function inspectWorkspaceSkillSourceUpdate(input: {
     currentResolvedRef,
     latestResolvedRef,
   };
+}
+
+export interface SkillSourceUpdateCheckSummary {
+  checked: number;
+  updateAvailable: number;
+  notificationsCreated: number;
+  errors: Array<{ skillId: string; reason: string }>;
+}
+
+/**
+ * Registry / Git-source periodic update check (P1-3): scans every GitHub/GitLab
+ * sourced skill in the workspace, resolves the latest source ref, and notifies
+ * workspace admins when a new candidate is available. Deduped per
+ * (skillId, latestRef) so repeated runs never stack duplicate notifications.
+ * Callable from a scheduler; returns a summary for SLO/audit.
+ */
+export async function checkSkillSourceUpdatesForWorkspaceSync(input: {
+  workspaceId?: string;
+}): Promise<SkillSourceUpdateCheckSummary> {
+  const workspaceId = input.workspaceId ?? "default";
+  const summary: SkillSourceUpdateCheckSummary = { checked: 0, updateAvailable: 0, notificationsCreated: 0, errors: [] };
+  const gitSkills = listStoredWorkspaceSkillsSync(workspaceId).filter(
+    (skill) => (skill.sourceType === "github" || skill.sourceType === "gitlab") && Boolean(skill.sourceUrl),
+  );
+  for (const skill of gitSkills) {
+    try {
+      const inspection = await inspectWorkspaceSkillSourceUpdate({ workspaceId, skillId: skill.id });
+      summary.checked += 1;
+      if (inspection.status !== "update_available" || !inspection.latestResolvedRef) {
+        continue;
+      }
+      summary.updateAvailable += 1;
+      const created = notifyWorkspaceAdminsSync({
+        workspaceId,
+        title: "Skill 有可用更新",
+        body: `Skill "${skill.name}" 有新的候选版本（${inspection.latestResolvedRef.slice(0, 8)}…）。`,
+        type: "skill_source_update",
+        severity: "info",
+        resourceType: "skill",
+        resourceId: skill.id,
+        actionHref: `/skills?skill=${encodeURIComponent(skill.id)}`,
+        dedupeKey: `skill_source_update:${skill.id}:${inspection.latestResolvedRef}`,
+      });
+      summary.notificationsCreated += created.length;
+    } catch (error) {
+      summary.errors.push({ skillId: skill.id, reason: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return summary;
 }
 
 export async function importWorkspaceSkillFromZipUpload(input: {

@@ -796,7 +796,8 @@ export type WorkspaceNotificationResourceType =
   | "runtime"
   | "task"
   | "approval"
-  | "data_protection";
+  | "data_protection"
+  | "skill";
 export type WorkspaceNotificationSeverity = "info" | "success" | "warning" | "critical";
 export type WorkspaceNotificationStatus = "unread" | "read" | "archived";
 

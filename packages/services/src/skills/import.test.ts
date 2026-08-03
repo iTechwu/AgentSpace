@@ -11,12 +11,14 @@ import {
   listSkillArtifactsForSkillSync,
   listStoredAgentSkillAssignmentsSync,
   listStoredSkillImportEventsSync,
+  randomLikeId,
   readSkillArtifactByDigestSync,
   readStoredSkillActiveArtifactDigestSync,
   readStoredWorkspaceSkillSync,
 } from "@dofe-agent/db";
 import {
   buildAndPersistSkillArtifactSync,
+  checkSkillSourceUpdatesForWorkspaceSync,
   createEmployeeSync,
   createWorkspaceSkillSync,
   importWorkspaceSkillFromUrl,
@@ -643,6 +645,44 @@ test("a successful replace records a candidate artifact without activating it", 
     new Set(listSkillArtifactBindingsForSkillSync(first.skillId)),
     new Set([activeBefore!, second.artifactDigest!]),
   );
+});
+
+test("checkSkillSourceUpdatesForWorkspaceSync notifies admins when a Git source moves forward", async () => {
+  // Seed an owner so notifyWorkspaceAdminsSync has a recipient.
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO users (id, display_name, is_admin, created_at, updated_at) VALUES (?, ?, 0, ?, ?) ON CONFLICT (id) DO NOTHING`,
+  ).run("admin-user-1", "Admin", now, now);
+  db.prepare(
+    `INSERT INTO workspace_membership (id, workspace_id, user_id, role, status, joined_at)
+     VALUES (?, 'default', 'admin-user-1', 'owner', 'active', ?) ON CONFLICT (workspace_id, user_id) DO NOTHING`,
+  ).run(`wm-${randomLikeId()}`, now);
+
+  // Import the skill pinned at the mock's resolved ref (abc123…).
+  await importWorkspaceSkillFromUrl({
+    url: "https://github.com/octo-org/skill-repo/tree/main/skills/research-pack",
+  });
+
+  // The upstream source moves forward → the next check sees an update.
+  const advancedMock = createGitHubFetchMock();
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://api.github.com/repos/octo-org/skill-repo/commits/main") {
+      return jsonResponse({ sha: "fedcba987654321001234567890123456789abcd" });
+    }
+    return advancedMock(input);
+  }) as typeof fetch;
+
+  const summary = await checkSkillSourceUpdatesForWorkspaceSync({ workspaceId: "default" });
+  assert.equal(summary.checked, 1);
+  assert.equal(summary.updateAvailable, 1);
+  assert.ok(summary.notificationsCreated >= 1, "admins should be notified of the available update");
+  assert.deepEqual(summary.errors, []);
+
+  // Re-running with the same ref is deduped → no duplicate notification count growth.
+  const second = await checkSkillSourceUpdatesForWorkspaceSync({ workspaceId: "default" });
+  assert.equal(second.updateAvailable, 1);
 });
 
 function createGitHubFetchMock(): typeof fetch {

@@ -381,8 +381,10 @@ export {
   importWorkspaceSkillFromZipUpload,
   importWorkspaceSkillFromUrl,
   inspectWorkspaceSkillSourceUpdate,
+  checkSkillSourceUpdatesForWorkspaceSync,
   type SkillImportConflict,
   type SkillImportResult,
+  type SkillSourceUpdateCheckSummary,
   type SkillSourceUpdateInspection,
   type SkillSourceUpdateStatus,
 } from "./skills/import.ts";

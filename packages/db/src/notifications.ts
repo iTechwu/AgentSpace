@@ -446,7 +446,9 @@ function isResourceType(value: unknown): value is WorkspaceNotificationResourceT
     value === "document" ||
     value === "runtime" ||
     value === "task" ||
-    value === "approval"
+    value === "approval" ||
+    value === "data_protection" ||
+    value === "skill"
   );
 }
 
