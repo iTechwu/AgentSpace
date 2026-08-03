@@ -213,3 +213,47 @@ test("reconciliation rolls back a stale-lease promotion that cannot commit", () 
   assert.equal(result.rolledBack, 1);
   assert.equal(readTaskCommitJournalSync(taskId, "default")?.commitState, "rolled_back");
 });
+
+test("duplicate reconciliation runs are idempotent (no double-commit across replicas)", () => {
+  const { taskId } = createRunningTask();
+  upsertTaskCommitJournalSync({
+    taskId,
+    workspaceId: "default",
+    employeeName: "Alice",
+    commitState: "preparing",
+    errorCode: "workspace_promotion_failed",
+    errorMessage: "transient",
+  });
+  getDatabase().prepare(
+    `UPDATE task_commit_journal SET updated_at = ? WHERE task_id = ?`,
+  ).run(new Date(Date.now() - 7200 * 1000).toISOString(), taskId);
+
+  const derive = () => ({
+    outputs: [{ path: "idempotent.txt", bytes: new TextEncoder().encode("once") }],
+    deletedPaths: [],
+  });
+
+  // Replica A commits the stale journal.
+  const first = reconcileStaleCommitJournalsSync({
+    workspaceId: "default",
+    staleBeforeSeconds: 3600,
+    maxAttempts: 3,
+    deriveOutputs: derive,
+  });
+  assert.equal(first.committed, 1);
+  assert.equal(readTaskCommitJournalSync(taskId, "default")?.commitState, "committed");
+
+  // Replica B processes the same journal afterwards → no-op, no second revision.
+  const second = reconcileStaleCommitJournalsSync({
+    workspaceId: "default",
+    staleBeforeSeconds: 3600,
+    maxAttempts: 3,
+    deriveOutputs: derive,
+  });
+  assert.equal(second.committed, 0, "a committed journal is never re-committed");
+
+  const revisionCount = getDatabase().prepare(
+    `SELECT COUNT(*) AS c FROM employee_workspace_revision WHERE workspace_id = 'default'`,
+  ).get();
+  assert.equal(Number(revisionCount?.c), 1, "exactly one revision is created despite two runs");
+});
