@@ -27,6 +27,7 @@ export interface LeaseVerifierDependencies {
   fetchPolicySnapshot: (policyRevisionId: string) => McpEgressPolicySnapshot | undefined | Promise<McpEgressPolicySnapshot | undefined>;
   isJtiRevoked?: (jti: string) => boolean | Promise<boolean>;
   bindJtiToSession: (jti: string, sessionId: string | undefined, exp: number) => boolean | Promise<boolean>;
+  consumeTaskCallJti: (jti: string) => boolean | Promise<boolean>;
 }
 
 /**

@@ -19,6 +19,17 @@ test("JTI without a proxy session remains one-shot", () => {
   assert.equal(guard.bind("jti-1", undefined, 110, 100), false);
 });
 
+test("a task-call JTI can execute one tool call and persists consumption", () => {
+  const stateFile = join(mkdtempSync(join(tmpdir(), "dofe-egress-task-call-")), "bindings.json");
+  const guard = new SingleReplicaJtiReplayGuard({ stateFile });
+  assert.equal(guard.bind("jti-1", "session-a", 120, 100), true);
+  assert.equal(guard.consumeTaskCall("jti-1", 100), true);
+  assert.equal(guard.consumeTaskCall("jti-1", 100), false);
+
+  const restarted = new SingleReplicaJtiReplayGuard({ stateFile });
+  assert.equal(restarted.consumeTaskCall("jti-1", 100), false);
+});
+
 test("JTI session binding survives a proxy restart when stateFile is configured", () => {
   const stateFile = join(mkdtempSync(join(tmpdir(), "dofe-egress-jti-")), "bindings.json");
   const first = new SingleReplicaJtiReplayGuard({ stateFile });

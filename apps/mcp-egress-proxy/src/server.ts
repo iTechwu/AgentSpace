@@ -231,10 +231,17 @@ export class McpEgressProxyServer {
       sendJson(res, leaseErrorStatus(requestBody.code), { error: requestBody.code, message: requestBody.message });
       return;
     }
-    if (!isTaskCallJsonRpcPayloadAllowed(claims, method, requestBody.body)) {
+    const payloadCheck = isTaskCallJsonRpcPayloadAllowed(claims, method, requestBody.body);
+    if (!payloadCheck.allowed) {
       this.options.metrics?.recordReject();
       await this.recordRejection(requestPath, method, "mcp_egress.policy_denied", claims);
       sendJson(res, 403, { error: "mcp_egress.policy_denied", message: "Tool call does not match the lease binding." });
+      return;
+    }
+    if (payloadCheck.containsToolCall && !(await this.options.leaseVerifier.consumeTaskCallJti(claims.jti))) {
+      this.options.metrics?.recordReject();
+      await this.recordRejection(requestPath, method, "mcp_egress.lease_replayed", claims);
+      sendJson(res, 403, { error: "mcp_egress.lease_replayed", message: "Task-call lease has already been consumed." });
       return;
     }
 
@@ -426,15 +433,26 @@ function extractProxySessionId(req: IncomingMessage): string | undefined {
   return normalized && normalized.length <= 128 ? normalized : undefined;
 }
 
-function isTaskCallJsonRpcPayloadAllowed(claims: McpEgressLeaseClaims, method: string, body: Buffer): boolean {
-  if (claims.purpose !== "task_call" || method !== "POST" || body.length === 0) return true;
+function isTaskCallJsonRpcPayloadAllowed(
+  claims: McpEgressLeaseClaims,
+  method: string,
+  body: Buffer,
+): { allowed: boolean; containsToolCall: boolean } {
+  if (claims.purpose !== "task_call" || method !== "POST" || body.length === 0) return { allowed: true, containsToolCall: false };
   try {
     const payload = JSON.parse(body.toString("utf8")) as unknown;
     const messages = Array.isArray(payload) ? payload : [payload];
-    return messages.length > 0 && messages.every((message) => isTaskJsonRpcMessageAllowed(message, claims.toolName));
+    const allowed = messages.length > 0 && messages.every((message) => isTaskJsonRpcMessageAllowed(message, claims.toolName));
+    const toolCallCount = messages.filter((message) => isJsonRpcMethod(message, "tools/call")).length;
+    return { allowed: allowed && toolCallCount <= 1, containsToolCall: toolCallCount === 1 };
   } catch {
-    return false;
+    return { allowed: false, containsToolCall: false };
   }
+}
+
+function isJsonRpcMethod(message: unknown, method: string): boolean {
+  return Boolean(message && typeof message === "object" && !Array.isArray(message)
+    && (message as { method?: unknown }).method === method);
 }
 
 function isTaskJsonRpcMessageAllowed(message: unknown, toolName: string | undefined): boolean {

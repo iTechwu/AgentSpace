@@ -47,6 +47,7 @@ function buildLeaseVerifier(cache: McpEgressPolicyCache) {
     leaseSecret: SECRET,
     fetchPolicySnapshot: (id: string) => cache.get(id),
     bindJtiToSession: (jti: string, sessionId: string | undefined, exp: number) => guard.bind(jti, sessionId, exp),
+    consumeTaskCallJti: (jti: string) => guard.consumeTaskCall(jti),
   };
 }
 
@@ -539,6 +540,14 @@ test("task-call lease rejects malformed and cross-tool JSON-RPC batches", async 
     });
     assert.equal(allowedBatch.status, 200);
     assert.equal(forwarded, 1);
+
+    const replayedToolCall = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "allowed_tool", arguments: {} } }),
+    });
+    assert.equal(replayedToolCall.status, 403);
+    assert.equal(((await replayedToolCall.json()) as { error: string }).error, "mcp_egress.lease_replayed");
   } finally {
     await close();
   }

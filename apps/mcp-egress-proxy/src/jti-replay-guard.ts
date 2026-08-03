@@ -3,6 +3,7 @@ import { readJsonStateFile, writeJsonStateFile } from "./atomic-json-state.ts";
 interface JtiBinding {
   expiration: number;
   sessionId?: string;
+  taskCallConsumed?: boolean;
 }
 
 /** Lease-to-session guard with optional single-replica file persistence. */
@@ -40,6 +41,14 @@ export class SingleReplicaJtiReplayGuard {
     return true;
   }
 
+  consumeTaskCall(jti: string, nowSeconds = Math.floor(Date.now() / 1000)): boolean {
+    const binding = this.bindings.get(jti);
+    if (!binding || binding.expiration <= nowSeconds || binding.taskCallConsumed) return false;
+    this.bindings.set(jti, { ...binding, taskCallConsumed: true });
+    this.persist();
+    return true;
+  }
+
   private persist(): void {
     if (!this.stateFile) return;
     writeJsonStateFile(this.stateFile, Array.from(this.bindings.entries()));
@@ -50,5 +59,6 @@ function isJtiBindingEntry(value: unknown): value is [string, JtiBinding] {
   if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== "string") return false;
   const binding = value[1] as Partial<JtiBinding> | undefined;
   return Boolean(binding && Number.isSafeInteger(binding.expiration)
-    && (binding.sessionId === undefined || typeof binding.sessionId === "string"));
+    && (binding.sessionId === undefined || typeof binding.sessionId === "string")
+    && (binding.taskCallConsumed === undefined || typeof binding.taskCallConsumed === "boolean"));
 }
