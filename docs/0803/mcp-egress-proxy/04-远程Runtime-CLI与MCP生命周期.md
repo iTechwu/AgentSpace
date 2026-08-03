@@ -84,6 +84,7 @@ remote daemon 在托管节点上执行：
 - `MCP_EGRESS_ENFORCE=true` 时要求既有 `dofe-runtime-restricted`，不自行创建一个冒充受限网络；
 - 非 enforce 模式自动创建的普通 bridge 明确标记为 `dofe.managed-egress=unrestricted`，不能作为出口安全证明；
 - 将 network、image tag、TLS CA、extra hosts 与 enforce 状态写入 daemon env；
+- 保存 daemon 访问 proxy 所需的 `MCP_EGRESS_PROXY_URL` 与 `MCP_EGRESS_PROXY_ADMIN_TOKEN`；env 文件权限为 `0600`，Provider 环境不得继承 admin token；
 - launcher 使用 `set -a` 导出配置，并以 `--managed-node` 启动 daemon。
 
 生产 Compose 仍由本目录的网络拓扑负责创建 proxy 和 restricted network。应用 Compose 不得创建 PostgreSQL、Redis 或 RabbitMQ；这些依赖继续使用 `../docker-helm.dofe.ai` 的共享服务。

@@ -22,6 +22,8 @@ MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS="${MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS:-}"
 MANAGED_RUNTIME_TLS_CA_PATH="${MANAGED_RUNTIME_TLS_CA_PATH:-}"
 MANAGED_RUNTIME_IMAGE_TAG="${MANAGED_RUNTIME_IMAGE_TAG:-latest}"
 MCP_EGRESS_ENFORCE="${MCP_EGRESS_ENFORCE:-false}"
+MCP_EGRESS_PROXY_URL="${MCP_EGRESS_PROXY_URL:-}"
+MCP_EGRESS_PROXY_ADMIN_TOKEN="${MCP_EGRESS_PROXY_ADMIN_TOKEN:-}"
 BASE_DIR="${DOFE_AGENT_DAEMON_HOME:-$HOME/.dofe-agent-daemon}"
 STATE_DIR="${DOFE_AGENT_DAEMON_STATE_DIR:-$BASE_DIR}"
 INSTALL_ROOT="${DOFE_AGENT_DAEMON_INSTALL_ROOT:-$BASE_DIR/runtime}"
@@ -109,6 +111,7 @@ Notes:
   - Managed nodes require Docker access for the installing user.
   - Managed nodes reuse MANAGED_RUNTIME_DOCKER_NETWORK when set; otherwise the installer creates dofe-managed-egress.
   - MCP_EGRESS_ENFORCE=true requires an existing dofe-runtime-restricted network managed by the deployment stack.
+  - MCP_EGRESS_ENFORCE=true also requires MCP_EGRESS_PROXY_URL and MCP_EGRESS_PROXY_ADMIN_TOKEN.
   - Run this script as a user that has access to codex / claude / agy / gemini / opencode / openclaw / nanobot / hermes.
   - Root is supported for server installs, but Claude Code must be logged in for /root and task commands run with root privileges.
   - Feishu document and data operations are enabled through a bound Feishu Bot and resource bindings in the web application.
@@ -476,6 +479,14 @@ if [[ "$MANAGED_NODE" == "true" ]]; then
   if [[ ! "$MANAGED_RUNTIME_DOCKER_NETWORK" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]; then
     fail "Invalid MANAGED_RUNTIME_DOCKER_NETWORK: $MANAGED_RUNTIME_DOCKER_NETWORK"
   fi
+  if [[ -n "$MCP_EGRESS_PROXY_URL" && ! "$MCP_EGRESS_PROXY_URL" =~ ^https?://[^/?#[:space:]]+/?$ ]]; then
+    fail "MCP_EGRESS_PROXY_URL must be an HTTP(S) origin without a path, query, or fragment"
+  fi
+  if [[ "$MCP_EGRESS_ENFORCE" == "true" ]]; then
+    [[ "$MANAGED_RUNTIME_DOCKER_NETWORK" == "dofe-runtime-restricted" ]] || fail "MCP_EGRESS_ENFORCE=true requires MANAGED_RUNTIME_DOCKER_NETWORK=dofe-runtime-restricted"
+    [[ -n "$MCP_EGRESS_PROXY_URL" ]] || fail "MCP_EGRESS_PROXY_URL is required when MCP_EGRESS_ENFORCE=true"
+    [[ ${#MCP_EGRESS_PROXY_ADMIN_TOKEN} -ge 16 ]] || fail "MCP_EGRESS_PROXY_ADMIN_TOKEN must contain at least 16 characters when MCP_EGRESS_ENFORCE=true"
+  fi
   NORMALIZED_MANAGED_NETWORK="$(printf '%s' "$MANAGED_RUNTIME_DOCKER_NETWORK" | tr '[:upper:]' '[:lower:]')"
   case "$NORMALIZED_MANAGED_NETWORK" in
     bridge|default|host|none)
@@ -514,6 +525,8 @@ MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS=$(printf '%q' "$MANAGED_RUNTIME_DOCKER_EXTRA_
 MANAGED_RUNTIME_TLS_CA_PATH=$(printf '%q' "$MANAGED_RUNTIME_TLS_CA_PATH")
 MANAGED_RUNTIME_IMAGE_TAG=$(printf '%q' "$MANAGED_RUNTIME_IMAGE_TAG")
 MCP_EGRESS_ENFORCE=$(printf '%q' "$MCP_EGRESS_ENFORCE")
+MCP_EGRESS_PROXY_URL=$(printf '%q' "$MCP_EGRESS_PROXY_URL")
+MCP_EGRESS_PROXY_ADMIN_TOKEN=$(printf '%q' "$MCP_EGRESS_PROXY_ADMIN_TOKEN")
 DOFE_AGENT_DAEMON_STATE_DIR=$(printf '%q' "$STATE_DIR")
 DOFE_AGENT_DAEMON_INSTALL_ROOT=$(printf '%q' "$INSTALL_ROOT")
 DOFE_AGENT_DAEMON_BIN=$(printf '%q' "$BIN_PATH")

@@ -281,6 +281,8 @@ test("managed-node install preserves an operator-provided Docker network", () =>
         ...process.env,
         MANAGED_RUNTIME_DOCKER_NETWORK: "team-runtime-egress",
         MANAGED_RUNTIME_IMAGE_TAG: "stable",
+        MCP_EGRESS_PROXY_URL: "http://172.31.240.2:8080",
+        MCP_EGRESS_PROXY_ADMIN_TOKEN: "test-admin-token-value",
         PATH: `${toolDir}:${process.env.PATH ?? ""}`,
       },
       encoding: "utf8",
@@ -290,9 +292,23 @@ test("managed-node install preserves an operator-provided Docker network", () =>
     const generatedEnv = readFileSync(join(baseDir, "daemon.env"), "utf8");
     assert.match(generatedEnv, /MANAGED_RUNTIME_DOCKER_NETWORK=team-runtime-egress/);
     assert.match(generatedEnv, /MANAGED_RUNTIME_IMAGE_TAG=stable/);
+    assert.match(generatedEnv, /MCP_EGRESS_PROXY_URL=http:\/\/172\.31\.240\.2:8080/);
+    assert.match(generatedEnv, /MCP_EGRESS_PROXY_ADMIN_TOKEN=test-admin-token-value/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("managed-node install fails closed when enforced MCP egress has no proxy credentials", () => {
+  const result = spawnSync("bash", [installerPath, "--managed-node", "--help"], {
+    env: { ...process.env, MCP_EGRESS_ENFORCE: "true" },
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const source = readFileSync(installerPath, "utf8");
+  assert.match(source, /MCP_EGRESS_PROXY_URL is required when MCP_EGRESS_ENFORCE=true/);
+  assert.match(source, /MCP_EGRESS_PROXY_ADMIN_TOKEN must contain at least 16 characters/);
+  assert.match(source, /MCP_EGRESS_ENFORCE=true requires MANAGED_RUNTIME_DOCKER_NETWORK=dofe-runtime-restricted/);
 });
 
 test("install script update-existing reinstalls into the existing daemon binary root", () => {
