@@ -1,3 +1,8 @@
+x-mcp-egress-environment: &mcp-egress-environment
+  MCP_EGRESS_ENFORCE: "true"
+  MCP_EGRESS_PROXY_URL: http://mcp-egress-proxy:8080
+  MCP_EGRESS_PROXY_ADMIN_TOKEN: ${MCP_EGRESS_PROXY_ADMIN_TOKEN:?Set the active MCP egress proxy admin token}
+
 services:
   runtime-codex:
     build:
@@ -19,6 +24,7 @@ services:
     networks:
       - dofe-runtime-restricted
     environment:
+      <<: *mcp-egress-environment
       # Explicitly prevent Provider from observing or using any proxy variable.
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
@@ -45,6 +51,7 @@ services:
     networks:
       - dofe-runtime-restricted
     environment:
+      <<: *mcp-egress-environment
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
@@ -70,6 +77,7 @@ services:
     networks:
       - dofe-runtime-restricted
     environment:
+      <<: *mcp-egress-environment
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
@@ -95,6 +103,7 @@ services:
     networks:
       - dofe-runtime-restricted
     environment:
+      <<: *mcp-egress-environment
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
@@ -115,5 +124,8 @@ networks:
     name: dofe-runtime-restricted
     driver: bridge
     enable_ipv6: false
+    ipam:
+      config:
+        - subnet: ${MCP_EGRESS_RUNTIME_SUBNET:-172.31.240.0/24}
     labels:
       dofe.managed-egress: restricted

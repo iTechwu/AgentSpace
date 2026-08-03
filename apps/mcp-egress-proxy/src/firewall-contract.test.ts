@@ -6,6 +6,10 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const reconcileScript = new URL("../../../deploy/daemon/reconcile-runtime-egress.sh", import.meta.url).pathname;
+const proxyCompose = new URL("../../../deploy/daemon/docker-compose.mcp-egress.yml", import.meta.url).pathname;
+const runtimesCompose = new URL("../../../deploy/daemon/docker-compose.runtimes.yml", import.meta.url).pathname;
+const managedNodeCompose = new URL("../../../deploy/daemon/docker-compose.managed-node.yml", import.meta.url).pathname;
+const managedNodeEnvExample = new URL("../../../deploy/daemon/managed-node.env.example", import.meta.url).pathname;
 
 test("firewall apply installs a first-position jump into a fail-closed owned chain", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "dofe-egress-firewall-"));
@@ -54,4 +58,31 @@ test("firewall remove deletes owned jumps without shell local-scope errors", () 
   assert.doesNotMatch(source, /while .*iptables.*-C/);
   assert.match(source, /delete_owned_chain "\$IPTABLES" "\$OWNED_CHAIN"/);
   assert.doesNotMatch(source, /-A "\$CHAIN" .*default-drop/);
+});
+
+test("proxy compose uses public-key verification and durable single-replica state", () => {
+  const source = readFileSync(proxyCompose, "utf8");
+  assert.match(source, /MCP_EGRESS_PROXY_LEASE_VERIFY_PUBLIC_KEY_FILE/);
+  assert.doesNotMatch(source, /MCP_EGRESS_PROXY_LEASE_SECRET:/);
+  assert.match(source, /MCP_EGRESS_PROXY_ADMIN_TOKENS/);
+  assert.match(source, /MCP_EGRESS_PROXY_STATE_FILE/);
+  assert.match(source, /MCP_EGRESS_PROXY_JTI_STATE_FILE/);
+  assert.match(source, /mcp-egress-state:\/var\/lib\/dofe-mcp-egress/);
+  assert.match(source, /gw_priority:\s*1/);
+  assert.match(source, /ipv4_address:/);
+});
+
+test("runtime and managed-node compose enforce MCP proxy configuration", () => {
+  const runtimes = readFileSync(runtimesCompose, "utf8");
+  assert.match(runtimes, /MCP_EGRESS_ENFORCE:\s*"true"/);
+  assert.match(runtimes, /MCP_EGRESS_PROXY_URL:\s*http:\/\/mcp-egress-proxy:8080/);
+  assert.match(runtimes, /MCP_EGRESS_PROXY_ADMIN_TOKEN:/);
+
+  const managedNode = readFileSync(managedNodeCompose, "utf8");
+  assert.match(managedNode, /MCP_EGRESS_PROXY_URL:/);
+  assert.match(managedNode, /MCP_EGRESS_PROXY_ADMIN_TOKEN:/);
+
+  const example = readFileSync(managedNodeEnvExample, "utf8");
+  assert.match(example, /MANAGED_RUNTIME_DOCKER_NETWORK=dofe-runtime-restricted/);
+  assert.match(example, /MCP_EGRESS_ENFORCE=true/);
 });

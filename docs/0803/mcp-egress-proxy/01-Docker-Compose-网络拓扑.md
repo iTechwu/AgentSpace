@@ -87,6 +87,8 @@ networks:
 
 proxy 不发布 host port。Runtime 只用 Docker DNS 名 `mcp-egress-proxy:8080` 调用它；外部服务不能通过宿主机端口进入 proxy。
 
+当前 Compose 固定 restricted subnet 与 proxy ingress IP，并将 proxy 的 egress network 设置为更高 `gw_priority`，避免 proxy 上游请求从 Runtime subnet 发出后被 `DOCKER-USER` 默认拒绝规则误伤。proxy 的 policy/revoke 与 JTI/session 状态保存在 UID 10001 可写的单副本 volume；验签只挂载 Ed25519 公钥。
+
 ### 2.2 宿主机防火墙责任
 
 只有现有 `managed-node` 编排器可以在宿主机维护 `DOCKER-USER` 规则。规则逻辑必须为：

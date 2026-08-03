@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   // P1-1 持久重放: with a state file, a proxy restart replays the pushed
   // policy/revoke feed instead of starting empty.
   const stateFile = process.env.MCP_EGRESS_PROXY_STATE_FILE;
-  const replayStateFile = process.env.MCP_EGRESS_PROXY_REPLAY_STATE_FILE ?? (stateFile ? `${stateFile}.jti` : undefined);
+  const replayStateFile = process.env.MCP_EGRESS_PROXY_JTI_STATE_FILE ?? (stateFile ? `${stateFile}.jti` : undefined);
   const policyCache = new McpEgressPolicyCache(stateFile ? { stateFile } : {});
   const metrics = new McpEgressMetrics();
   const auditSink = new ConsoleMcpEgressAuditSink();

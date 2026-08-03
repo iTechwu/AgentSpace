@@ -314,6 +314,9 @@ export function resolveManagedRuntimeDockerNetwork(
   if (["bridge", "default", "host", "none"].includes(network.toLowerCase())) {
     throw new Error("managed_runtime.docker_network_not_isolated");
   }
+  if (environment.MCP_EGRESS_ENFORCE === "true" && network !== "dofe-runtime-restricted") {
+    throw new Error("managed_runtime.mcp_egress_network_required");
+  }
   return network;
 }
 

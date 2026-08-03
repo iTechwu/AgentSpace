@@ -326,6 +326,23 @@ test("managed runtime network configuration fails closed for permissive Docker n
   );
 });
 
+test("managed runtime network is fixed when MCP egress enforcement is enabled", () => {
+  assert.equal(
+    resolveManagedRuntimeDockerNetwork({
+      MCP_EGRESS_ENFORCE: "true",
+      MANAGED_RUNTIME_DOCKER_NETWORK: "dofe-runtime-restricted",
+    }),
+    "dofe-runtime-restricted",
+  );
+  assert.throws(
+    () => resolveManagedRuntimeDockerNetwork({
+      MCP_EGRESS_ENFORCE: "true",
+      MANAGED_RUNTIME_DOCKER_NETWORK: "other-isolated-network",
+    }),
+    /managed_runtime\.mcp_egress_network_required/,
+  );
+});
+
 test("managed runtime connectivity configuration injects only validated host and CA options", () => {
   assert.deepEqual(buildManagedRuntimeDockerConnectivityArgs({
     MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS: "model.local.dofe.ai:host-gateway",

@@ -9,19 +9,27 @@ services:
     user: "10001:10001"
     tmpfs:
       - /tmp
+    volumes:
+      - ${MCP_EGRESS_PROXY_LEASE_VERIFY_PUBLIC_KEY_HOST_FILE:?Set an absolute Ed25519 public key path}:/run/secrets/mcp-egress-lease-public.pem:ro
+      - mcp-egress-state:/var/lib/dofe-mcp-egress
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     networks:
-      dofe-runtime-restricted: {}
-      dofe-mcp-proxy-egress: {}
+      dofe-runtime-restricted:
+        ipv4_address: ${MCP_EGRESS_PROXY_RUNTIME_IP:-172.31.240.2}
+      dofe-mcp-proxy-egress:
+        gw_priority: 1
     expose:
       - "8080"
     environment:
       MCP_EGRESS_PROXY_PORT: "8080"
       MCP_EGRESS_PROXY_HOST: "0.0.0.0"
-      MCP_EGRESS_PROXY_LEASE_SECRET: ${MCP_EGRESS_PROXY_LEASE_SECRET:?Set MCP_EGRESS_PROXY_LEASE_SECRET to an HS256 secret}
+      MCP_EGRESS_PROXY_LEASE_VERIFY_PUBLIC_KEY_FILE: /run/secrets/mcp-egress-lease-public.pem
+      MCP_EGRESS_PROXY_ADMIN_TOKENS: ${MCP_EGRESS_PROXY_ADMIN_TOKENS:?Set at least one proxy admin token}
+      MCP_EGRESS_PROXY_STATE_FILE: /var/lib/dofe-mcp-egress/policies.json
+      MCP_EGRESS_PROXY_JTI_STATE_FILE: /var/lib/dofe-mcp-egress/jti-bindings.json
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>r.ok||process.exit(1)).catch(()=>process.exit(1))"]
       interval: 10s
@@ -36,8 +44,15 @@ networks:
     name: dofe-runtime-restricted
     driver: bridge
     enable_ipv6: false
+    ipam:
+      config:
+        - subnet: ${MCP_EGRESS_RUNTIME_SUBNET:-172.31.240.0/24}
     labels:
       dofe.managed-egress: restricted
   dofe-mcp-proxy-egress:
     name: dofe-mcp-proxy-egress
     driver: bridge
+
+volumes:
+  mcp-egress-state:
+    name: dofe-mcp-egress-state

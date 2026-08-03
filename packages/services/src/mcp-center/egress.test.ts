@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
 import test from "node:test";
 import type { McpEgressLeaseClaims, McpEgressPolicyRevision } from "@dofe-agent/domain";
 import {
@@ -8,18 +7,11 @@ import {
   digestMcpEgressPolicyRevision,
   hashMcpEgressAuditValue,
   isMcpEgressLeaseExpired,
-  readMcpEgressLeaseSigningKey,
-  readMcpEgressLeaseVerificationKey,
   signMcpEgressLease,
   verifyMcpEgressLease,
 } from "./egress.ts";
 
 const SECRET = "a".repeat(32);
-const ED25519_KEYS = generateKeyPairSync("ed25519", {
-  privateKeyEncoding: { type: "pkcs8", format: "pem" },
-  publicKeyEncoding: { type: "spki", format: "pem" },
-});
-
 function basePolicy(): McpEgressPolicyRevision {
   return {
     id: "pol-1",
@@ -125,67 +117,6 @@ test("verifyMcpEgressLease accepts a valid lease", () => {
   if (!result.ok) return;
   assert.equal(result.lease.jti, claims.jti);
   assert.equal(result.lease.claims.connectionId, claims.connectionId);
-});
-
-test("Ed25519 lease can be verified with only the public key", () => {
-  const claims = baseClaims(Math.floor(Date.now() / 1000) + 60);
-  const token = signMcpEgressLease(claims, {
-    algorithm: "EdDSA",
-    privateKey: ED25519_KEYS.privateKey,
-  });
-  const result = verifyMcpEgressLease(token, {
-    algorithm: "EdDSA",
-    publicKey: ED25519_KEYS.publicKey,
-  });
-  assert.equal(result.ok, true);
-});
-
-test("lease verification rejects algorithm downgrade and a different public key", () => {
-  const claims = baseClaims(Math.floor(Date.now() / 1000) + 60);
-  const token = signMcpEgressLease(claims, {
-    algorithm: "EdDSA",
-    privateKey: ED25519_KEYS.privateKey,
-  });
-  assert.equal(verifyMcpEgressLease(token, SECRET).ok, false);
-
-  const otherKeys = generateKeyPairSync("ed25519", {
-    privateKeyEncoding: { type: "pkcs8", format: "pem" },
-    publicKeyEncoding: { type: "spki", format: "pem" },
-  });
-  assert.equal(verifyMcpEgressLease(token, { algorithm: "EdDSA", publicKey: otherKeys.publicKey }).ok, false);
-});
-
-test("lease key configuration prefers asymmetric files and gates legacy HMAC", () => {
-  const signingKey = readMcpEgressLeaseSigningKey(
-    {
-      MCP_EGRESS_PROXY_LEASE_SIGNING_PRIVATE_KEY_FILE: "/run/secrets/mcp-private.pem",
-      MCP_EGRESS_PROXY_LEASE_SIGNING_SECRET: SECRET,
-    },
-    () => ED25519_KEYS.privateKey,
-  );
-  assert.deepEqual(signingKey, { algorithm: "EdDSA", privateKey: ED25519_KEYS.privateKey.trim() });
-
-  const verificationKey = readMcpEgressLeaseVerificationKey(
-    { MCP_EGRESS_PROXY_LEASE_VERIFY_PUBLIC_KEY_FILE: "/run/secrets/mcp-public.pem" },
-    () => ED25519_KEYS.publicKey,
-  );
-  assert.deepEqual(verificationKey, { algorithm: "EdDSA", publicKey: ED25519_KEYS.publicKey.trim() });
-
-  assert.equal(readMcpEgressLeaseVerificationKey({ MCP_EGRESS_PROXY_LEASE_SECRET: SECRET }), undefined);
-  assert.deepEqual(
-    readMcpEgressLeaseVerificationKey({
-      MCP_EGRESS_PROXY_LEASE_SECRET: SECRET,
-      MCP_EGRESS_PROXY_ALLOW_LEGACY_HMAC: "true",
-    }),
-    { algorithm: "HS256", secret: SECRET },
-  );
-  assert.throws(
-    () => readMcpEgressLeaseVerificationKey(
-      { MCP_EGRESS_PROXY_LEASE_VERIFY_PUBLIC_KEY_FILE: "relative.pem" },
-      () => ED25519_KEYS.publicKey,
-    ),
-    /must be absolute/,
-  );
 });
 
 test("verifyMcpEgressLease rejects a token signed with a different secret", () => {

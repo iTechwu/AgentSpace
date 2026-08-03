@@ -16,7 +16,8 @@ RUN npm install --global pnpm@10.26.2 \
 FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
 
 RUN groupadd --gid 10001 dofe-agent \
-  && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent
+  && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent \
+  && install -d -o dofe-agent -g dofe-agent -m 0700 /var/lib/dofe-mcp-egress
 
 COPY --from=proxy-build --chown=dofe-agent:dofe-agent /workspace/apps/mcp-egress-proxy/dist/index.js /opt/mcp-egress-proxy/index.js
 

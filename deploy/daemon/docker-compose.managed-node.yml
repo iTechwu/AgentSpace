@@ -16,6 +16,8 @@ services:
       # rules before dropping privileges and starting the managed node daemon.
       # Defaults to true so a missing override does not leave egress open.
       MCP_EGRESS_ENFORCE: ${MCP_EGRESS_ENFORCE:-true}
+      MCP_EGRESS_PROXY_URL: ${MCP_EGRESS_PROXY_URL:?Set MCP_EGRESS_PROXY_URL to the proxy runtime-network IP}
+      MCP_EGRESS_PROXY_ADMIN_TOKEN: ${MCP_EGRESS_PROXY_ADMIN_TOKEN:?Set the active MCP egress proxy admin token}
       RUNTIME_SUBNET: ${RUNTIME_SUBNET:-}
       PROXY_RUNTIME_IP: ${PROXY_RUNTIME_IP:-}
       CONTROL_PLANE_IPV4: ${CONTROL_PLANE_IPV4:-}
