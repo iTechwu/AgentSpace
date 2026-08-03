@@ -36,7 +36,9 @@ import type {
   RegisterDaemonRequest,
   RegisterDaemonResponse,
   ReportMcpToolAuditsResponse,
+  ReportSkillRunnerInvocationsResponse,
   ReportTaskMessagesRequest,
+  SkillRunnerInvocationReport,
   StartMcpConnectionOperationRequest,
   StartRuntimeAppOperationRequest,
   StartSkillInstallationOperationRequest,
@@ -79,7 +81,9 @@ export type {
   RegisterDaemonRequest,
   RegisterDaemonResponse,
   ReportMcpToolAuditsResponse,
+  ReportSkillRunnerInvocationsResponse,
   ReportTaskMessagesRequest,
+  SkillRunnerInvocationReport,
   StartMcpConnectionOperationRequest,
   StartRuntimeAppOperationRequest,
   StartSkillInstallationOperationRequest,
@@ -337,6 +341,21 @@ export class HttpDaemonClient {
     for (const audit of audits) {
       if (!accepted.has(audit.eventId)) {
         throw new Error(`MCP audit server did not acknowledge ${audit.eventId}.`);
+      }
+    }
+  }
+
+  async reportSkillRunnerInvocations(taskId: string, invocations: SkillRunnerInvocationReport[]): Promise<void> {
+    if (invocations.length === 0) return;
+    const response = await this.postJson<ReportSkillRunnerInvocationsResponse>(
+      `/api/daemon/tasks/${encodeURIComponent(taskId)}/skill-runner-invocations`,
+      { invocations },
+      { retryable: true },
+    );
+    const accepted = new Set(response.acceptedEventIds);
+    for (const invocation of invocations) {
+      if (!accepted.has(invocation.eventId)) {
+        throw new Error(`Skill runner invocation server did not acknowledge ${invocation.eventId}.`);
       }
     }
   }

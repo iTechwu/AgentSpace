@@ -1502,6 +1502,30 @@ export interface StoredSkillInstallationComponentRecord {
   updatedAt: string;
 }
 
+export interface SkillRunnerInvocationRecord {
+  id: string;
+  workspaceId: string;
+  taskId?: string;
+  runtimeId?: string;
+  installationId?: string;
+  skillId?: string;
+  skillName: string;
+  artifactDigest: string;
+  revision?: string;
+  entrypointId: string;
+  entrypointKey: string;
+  entrypointPath?: string;
+  entrypointRuntime?: string;
+  actorId: string;
+  actorType: string;
+  resultCode: number;
+  timedOut: boolean;
+  durationMs?: number;
+  safeSummary?: string;
+  eventId?: string;
+  createdAt: string;
+}
+
 export interface SkillInstallApprovalRiskItem {
   category: "script" | "network" | "mcp_tool" | "write";
   key: string;

@@ -124,6 +124,16 @@ export interface SkillRunnerBroker {
   close(): Promise<void>;
 }
 
+/** A completed entrypoint run, reported for persistent audit (P1-3). */
+export interface SkillRunnerBrokerInvocationReport {
+  entrypoint: DaemonSkillRunnerEntrypoint;
+  exitCode: number;
+  timedOut: boolean;
+  durationMs: number;
+  safeSummary?: string;
+  eventId: string;
+}
+
 export async function startSkillRunnerBroker(input: {
   stateDir: string;
   workspaceId: string;
@@ -134,6 +144,8 @@ export async function startSkillRunnerBroker(input: {
   environment?: NodeJS.ProcessEnv;
   inspectImage?: (image: string, environment: NodeJS.ProcessEnv) => boolean;
   execute?: (args: string[], timeoutMs: number) => Promise<SkillRunnerExecutionResult>;
+  /** Best-effort durable audit hook invoked after each entrypoint run completes. */
+  reportInvocation?: (report: SkillRunnerBrokerInvocationReport) => void | Promise<void>;
 }): Promise<SkillRunnerBroker> {
   if (input.entrypoints.length === 0) {
     return { capabilities: [], close: async () => {} };
@@ -273,6 +285,7 @@ async function handleBrokerRequest(
     activeRuns: Set<string>;
     brokerCleanup: Map<string, Promise<void>>;
     isClosing: () => boolean;
+    reportInvocation?: (report: SkillRunnerBrokerInvocationReport) => void | Promise<void>;
   },
 ): Promise<void> {
   try {
@@ -348,6 +361,7 @@ async function handleBrokerRequest(
           argv,
         });
         context.activeContainers.add(containerName);
+        const startedAt = Date.now();
         let result: SkillRunnerExecutionResult;
         try {
           result = await context.execute(args, context.runnerTimeoutMs, containerName, context.environment);
@@ -361,6 +375,22 @@ async function handleBrokerRequest(
           context.brokerCleanup.delete(containerName);
         }
         const outputFiles = collectRunnerOutput(outputDir);
+        if (context.reportInvocation) {
+          // Persistent invocation audit (P1-3). Best-effort: the server dedups
+          // by eventId, so a lost response on retry never duplicates a record.
+          // safeSummary carries no raw output or secrets.
+          const eventId = runLease;
+          const exitCode = result.exitCode ?? 1;
+          const durationMs = Date.now() - startedAt;
+          void Promise.resolve(context.reportInvocation({
+            entrypoint,
+            exitCode,
+            timedOut: result.timedOut,
+            durationMs,
+            safeSummary: `Skill entrypoint ${entrypoint.key} exited with code ${exitCode}${result.timedOut ? " (timed out)" : ""}.`,
+            eventId,
+          })).catch(() => { /* audit delivery is best-effort */ });
+        }
         sendJson(response, result.exitCode === 0 && !result.timedOut ? 200 : 422, { ...result, outputFiles });
       } finally {
         if (!preservePrivateState) {

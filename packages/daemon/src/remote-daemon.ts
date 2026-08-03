@@ -945,6 +945,28 @@ async function executeRemoteTask(
       entrypoints: runnerEntrypoints,
       dependencyEnvironments: bundle.metadata.skillDependencyEnvironments,
       skillEnv: skillEnvironment.runnerEnv,
+      // Persistent Skill Runner invocation audit (P1-3): report each entrypoint
+      // run to the control plane; the server dedups by eventId.
+      reportInvocation: (report) => client.reportSkillRunnerInvocations(task.id, [{
+        eventId: report.eventId,
+        workspaceId: task.workspaceId,
+        runtimeId: runtime.id,
+        agentId: task.agentId,
+        entrypoint: {
+          key: report.entrypoint.key,
+          skillId: report.entrypoint.skillId,
+          skillName: report.entrypoint.skillName,
+          installationId: report.entrypoint.installationId,
+          artifactDigest: report.entrypoint.artifactDigest,
+          id: report.entrypoint.id,
+          path: report.entrypoint.path,
+          runtime: report.entrypoint.runtime,
+        },
+        exitCode: report.exitCode,
+        timedOut: report.timedOut,
+        durationMs: report.durationMs,
+        safeSummary: report.safeSummary,
+      }]),
     });
 
     if (bundle.metadata.mcpConnections?.status === "available") {

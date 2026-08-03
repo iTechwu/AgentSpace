@@ -451,6 +451,13 @@ const NORMALIZED_ROW_KEY_ALIASES = new Map([
   ["toolname", "toolName"],
   ["latencyms", "latencyMs"],
   ["safesummary", "safeSummary"],
+  ["durationms", "durationMs"],
+  ["resultcode", "resultCode"],
+  ["timedout", "timedOut"],
+  ["entrypointid", "entrypointId"],
+  ["entrypointkey", "entrypointKey"],
+  ["entrypointpath", "entrypointPath"],
+  ["entrypointruntime", "entrypointRuntime"],
   // Skill artifact / blob / workspace-revision / recovery tables.
   ["artifactdigest", "artifactDigest"],
   ["artifactid", "artifactId"],

@@ -9,11 +9,13 @@ import {
   createSkillUpgradeAction,
   listSkillInstallApprovalsAction,
   listSkillInstallationRowsForSkillAction,
+  listSkillRunnerInvocationsAction,
   promoteSkillUpgradeAction,
   rollbackSkillInstallationAction,
   uninstallSkillInstallationAction,
   type SkillInstallApprovalAuditView,
   type SkillInstallationRowView,
+  type SkillRunnerInvocationAuditView,
 } from "@/features/skills/installation-actions";
 
 interface SkillInstallationPanelProps {
@@ -48,6 +50,7 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
   const { pushToast } = useFeedbackToast();
   const [rows, setRows] = useState<SkillInstallationRowView[]>([]);
   const [approvals, setApprovals] = useState<SkillInstallApprovalAuditView[]>([]);
+  const [invocations, setInvocations] = useState<SkillRunnerInvocationAuditView[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [pendingRollbackId, setPendingRollbackId] = useState<string>("");
@@ -61,9 +64,12 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
     void Promise.all([
       listSkillInstallationRowsForSkillAction({ skillId }),
       listSkillInstallApprovalsAction(),
-    ]).then(([nextRows, nextApprovals]) => {
+      listSkillRunnerInvocationsAction(),
+    ]).then(([nextRows, nextApprovals, nextInvocations]) => {
       setRows(nextRows);
       setApprovals(nextApprovals.filter((approval) => approval.skillId === skillId));
+      const installationIds = new Set(nextRows.map((row) => row.installationId));
+      setInvocations(nextInvocations.filter((invocation) => invocation.installationId && installationIds.has(invocation.installationId)));
     }).catch(() => setLoadFailed(true)).finally(() => setLoading(false));
   }, [skillId]);
 
@@ -171,6 +177,7 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
           {tx("该 Skill 尚未安装到任何 Runtime。", "This skill is not installed on any runtime yet.")}
         </p>
         {approvals.length > 0 ? <SkillInstallApprovalsAudit approvals={approvals} tx={tx} /> : null}
+        {invocations.length > 0 ? <SkillRunnerInvocationsAudit invocations={invocations} tx={tx} /> : null}
       </div>
     );
   }
@@ -182,6 +189,7 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
         <button aria-label={tx("刷新安装状态", "Refresh installation state")} className="action-button action-button--compact action-button--icon" onClick={reload} title={tx("刷新", "Refresh")} type="button"><AppIcon name="refresh" /></button>
       </div>
       {approvals.length > 0 ? <SkillInstallApprovalsAudit approvals={approvals} tx={tx} /> : null}
+      {invocations.length > 0 ? <SkillRunnerInvocationsAudit invocations={invocations} tx={tx} /> : null}
       {rows.map((row) => {
         const [statusZh, statusEn] = INSTALLATION_STATUS_LABELS[row.status] ?? [row.status, row.status];
         return (
@@ -287,6 +295,41 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
         );
       })}
     </div>
+  );
+}
+
+/** Skill Runner 调用审计入口：展示该 Skill 各安装上的 entrypoint 调用记录（P1-3）。 */
+function SkillRunnerInvocationsAudit({
+  invocations,
+  tx,
+}: {
+  invocations: SkillRunnerInvocationAuditView[];
+  tx: (zh: string, en: string) => string;
+}) {
+  return (
+    <details className="skill-install-approvals-audit">
+      <summary>
+        {tx(`Runner 调用记录（${invocations.length}）`, `Runner invocation records (${invocations.length})`)}
+      </summary>
+      <ul>
+        {invocations.map((invocation) => (
+          <li key={invocation.id}>
+            <div>
+              <span className={`skill-install-approvals-audit__decision ${invocation.resultCode === 0 && !invocation.timedOut ? "" : "skill-install-approvals-audit__decision--fail"}`}>
+                {invocation.resultCode === 0 && !invocation.timedOut ? tx("成功", "OK") : tx(`失败 ${invocation.resultCode}`, `exit ${invocation.resultCode}`)}
+              </span>
+              <code className="skill-install-approvals-audit__digest">{invocation.entrypointKey}</code>
+              {invocation.timedOut ? <span className="skill-install-approvals-audit__consumed">{tx("超时", "timeout")}</span> : null}
+            </div>
+            <div>
+              <span>{new Date(invocation.createdAt).toLocaleString()}</span>
+              {invocation.durationMs !== undefined ? <span> · {invocation.durationMs}ms</span> : null}
+              {invocation.safeSummary ? <span className="skill-install-approvals-audit__reason">{invocation.safeSummary}</span> : null}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

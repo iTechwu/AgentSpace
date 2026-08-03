@@ -4,6 +4,7 @@ import {
   listInstallableRuntimesForWorkspaceSync,
   listSkillInstallApprovalsSync,
   listSkillArtifactsForSkillSync,
+  listSkillRunnerInvocationsSync,
   listSkillInstallationOperationsSync,
   listSkillInstallationsSync,
   readActiveArtifactDigestForSkillSync,
@@ -256,6 +257,50 @@ export async function listSkillInstallApprovalsAction(): Promise<SkillInstallApp
     createdAt: approval.createdAt,
     consumedAt: approval.consumedAt,
   }));
+}
+
+export interface SkillRunnerInvocationAuditView {
+  id: string;
+  taskId?: string;
+  runtimeId?: string;
+  installationId?: string;
+  skillId?: string;
+  skillName: string;
+  artifactDigest: string;
+  entrypointKey: string;
+  entrypointPath?: string;
+  entrypointRuntime?: string;
+  actorId: string;
+  resultCode: number;
+  timedOut: boolean;
+  durationMs?: number;
+  safeSummary?: string;
+  createdAt: string;
+}
+
+export async function listSkillRunnerInvocationsAction(limit = 20): Promise<SkillRunnerInvocationAuditView[]> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  return listSkillRunnerInvocationsSync({ workspaceId: workspaceContext.currentWorkspace.id, limit }).map(
+    (invocation) => ({
+      id: invocation.id,
+      taskId: invocation.taskId,
+      runtimeId: invocation.runtimeId,
+      installationId: invocation.installationId,
+      skillId: invocation.skillId,
+      skillName: invocation.skillName,
+      artifactDigest: invocation.artifactDigest,
+      entrypointKey: invocation.entrypointKey,
+      entrypointPath: invocation.entrypointPath,
+      entrypointRuntime: invocation.entrypointRuntime,
+      actorId: invocation.actorId,
+      resultCode: invocation.resultCode,
+      timedOut: invocation.timedOut,
+      durationMs: invocation.durationMs,
+      safeSummary: invocation.safeSummary,
+      createdAt: invocation.createdAt,
+    }),
+  );
 }
 
 export async function createSkillUpgradeAction(input: {

@@ -925,6 +925,13 @@ export {
   type SkillInstallationComponentInput,
 } from "./skill-installations.ts";
 export {
+  recordSkillRunnerInvocationSync,
+  readSkillRunnerInvocationSync,
+  readSkillRunnerInvocationByEventSync,
+  listSkillRunnerInvocationsSync,
+  type RecordSkillRunnerInvocationInput,
+} from "./skill-runner-invocations.ts";
+export {
   createSkillInstallApprovalSync,
   readSkillInstallApprovalSync,
   readSkillInstallApprovalByLockSync,
@@ -947,6 +954,7 @@ export type {
   SkillUpgradeApprovalRecord,
   SkillInstallApprovalRecord,
   SkillInstallApprovalRiskItem,
+  SkillRunnerInvocationRecord,
 } from "./types.ts";
 export {
   upsertSkillServiceCatalogSync,

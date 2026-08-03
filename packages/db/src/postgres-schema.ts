@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "95";
+export const POSTGRES_SCHEMA_VERSION = "96";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -89,6 +89,7 @@ export const POSTGRES_TABLE_NAMES = [
   "skill_upgrade_approval",
   "skill_install_approval",
   "skill_installation_component",
+  "skill_runner_invocation",
   "skill_service_catalog",
   "managed_skill_service",
   "skill_service_binding",
@@ -2666,6 +2667,40 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_skill_install_approval_lock
         ON skill_install_approval(workspace_id, artifact_digest, release_lock_digest, policy_version, risk_decision_digest)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS skill_runner_invocation (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        task_id TEXT,
+        runtime_id TEXT,
+        installation_id TEXT,
+        skill_id TEXT,
+        skill_name TEXT NOT NULL,
+        artifact_digest TEXT NOT NULL,
+        revision TEXT,
+        entrypoint_id TEXT NOT NULL,
+        entrypoint_key TEXT NOT NULL,
+        entrypoint_path TEXT,
+        entrypoint_runtime TEXT,
+        actor_id TEXT NOT NULL,
+        actor_type TEXT NOT NULL,
+        result_code INTEGER NOT NULL,
+        timed_out BOOLEAN NOT NULL DEFAULT false,
+        duration_ms INTEGER,
+        safe_summary TEXT,
+        event_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, event_id)
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_skill_runner_invocation_task
+        ON skill_runner_invocation(workspace_id, task_id, created_at DESC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_skill_runner_invocation_installation
+        ON skill_runner_invocation(workspace_id, installation_id, created_at DESC)
     `,
     `
       CREATE TABLE IF NOT EXISTS skill_installation (

@@ -32493,6 +32493,10 @@ button[aria-disabled="true"] svg {
   color: var(--muted);
 }
 
+.skill-install-approvals-audit__decision--fail {
+  color: var(--danger);
+}
+
 .skill-install-approvals-audit__reason {
   color: var(--muted);
   font-size: 0.8rem;

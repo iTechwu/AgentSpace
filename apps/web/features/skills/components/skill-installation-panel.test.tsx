@@ -17,6 +17,7 @@ vi.mock("@/features/skills/installation-actions", () => ({
   createSkillUpgradeAction: createUpgrade,
   listSkillInstallApprovalsAction: vi.fn(async () => []),
   listSkillInstallationRowsForSkillAction: listRows,
+  listSkillRunnerInvocationsAction: vi.fn(async () => []),
   promoteSkillUpgradeAction: vi.fn(),
   rollbackSkillInstallationAction: vi.fn(),
   uninstallSkillInstallationAction: vi.fn(),

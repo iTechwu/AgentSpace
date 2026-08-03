@@ -733,6 +733,42 @@ export interface ReportMcpToolAuditsResponse {
 }
 
 /* ------------------------------------------------------------------ */
+/* Skill Runner invocation audit                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One Skill Runner entrypoint invocation, daemon-reported for persistent
+ * audit (docs/0803 P1-3). Only redacted fields travel — the audit never
+ * receives raw runner output, credentials or private config.
+ */
+export interface SkillRunnerInvocationReport {
+  eventId: string;
+  workspaceId: string;
+  runtimeId?: string;
+  agentId: string;
+  entrypoint: {
+    key: string;
+    skillId: string;
+    skillName: string;
+    installationId: string;
+    artifactDigest: string;
+    id: string;
+    path: string;
+    runtime: string;
+  };
+  exitCode: number;
+  timedOut: boolean;
+  durationMs?: number;
+  safeSummary?: string;
+}
+
+/** Explicit acknowledgement for an idempotent skill-runner invocation batch. */
+export interface ReportSkillRunnerInvocationsResponse {
+  recorded: number;
+  acceptedEventIds: string[];
+}
+
+/* ------------------------------------------------------------------ */
 /* MCP egress proxy — lease/policy contract                            */
 /* ------------------------------------------------------------------ */
 
