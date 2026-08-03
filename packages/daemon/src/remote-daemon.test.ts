@@ -7,6 +7,7 @@ import {
   buildRemoteDaemonConfig,
   buildRemoteDaemonRelaunchCommand,
   buildRemoteRuntimeHeartbeatMetadata,
+  claimRemoteQueue,
   classifyRemoteLoopError,
   mergeRemoteGatewayUsages,
   reconcileRemoteRuntimesWithHeartbeat,
@@ -273,6 +274,58 @@ test("classifyRemoteLoopError routes auth failures to shutdown and 404 to skip-r
   assert.equal(classifyRemoteLoopError(new Error("connect ECONNREFUSED 127.0.0.1:5432")), "log");
   assert.equal(classifyRemoteLoopError(new Error("temporary failure")), "log");
   assert.equal(classifyRemoteLoopError("string error"), "log");
+});
+
+test("claimRemoteQueue contains one subqueue failure so later work can still be claimed", async () => {
+  const originalWarn = console.warn;
+  const calls: string[] = [];
+  console.warn = () => {};
+
+  try {
+    const unavailable = await claimRemoteQueue({
+      runtimeId: "runtime-1",
+      queue: "skill service operation",
+      now: 30_000,
+      claim: async () => {
+        calls.push("skill-service");
+        throw new Error("405 Method Not Allowed");
+      },
+    });
+    const task = await claimRemoteQueue({
+      runtimeId: "runtime-1",
+      queue: "task",
+      now: 30_000,
+      claim: async () => {
+        calls.push("task");
+        return { task: { id: "task-1" } };
+      },
+    });
+
+    assert.equal(unavailable, undefined);
+    assert.equal(task?.task.id, "task-1");
+    assert.deepEqual(calls, ["skill-service", "task"]);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("claimRemoteQueue keeps auth and runtime eligibility failures fail-fast", async () => {
+  await assert.rejects(
+    () => claimRemoteQueue({
+      runtimeId: "runtime-1",
+      queue: "task",
+      claim: async () => { throw new DaemonAuthError("Invalid daemon token.", 403); },
+    }),
+    DaemonAuthError,
+  );
+  await assert.rejects(
+    () => claimRemoteQueue({
+      runtimeId: "runtime-1",
+      queue: "task",
+      claim: async () => { throw new DaemonRuntimeUnavailableError("Runtime is offline.", 409); },
+    }),
+    DaemonRuntimeUnavailableError,
+  );
 });
 
 test("reconcileRemoteRuntimesWithHeartbeat adds managed runtimes from heartbeat", () => {
