@@ -617,6 +617,15 @@ export interface ResolvedMcpConnection {
   egressProxyLease?: string;
   /** Policy snapshot the daemon must push to the proxy before use. */
   egressProxyPolicySnapshot?: McpEgressPolicySnapshot;
+  /** Daemon-built process launch; never accepted from browser/catalog input. */
+  managedStdioLaunch?: McpManagedStdioLaunch;
+}
+
+export interface McpManagedStdioLaunch {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  cwd?: string;
 }
 
 /** Protocol-agnostic MCP client used by the verify executor and future protected gateway. */
@@ -700,6 +709,8 @@ export interface McpTaskSessionConnection {
   secrets: Record<string, string>;
   /** Approved ∩ discovered tools with their real input schemas. */
   tools: RuntimeMcpTool[];
+  /** Added by the remote daemon after claim resolution. */
+  managedStdioLaunch?: McpManagedStdioLaunch;
 }
 
 export interface ClaimMcpTaskSessionResponse {
@@ -870,6 +881,8 @@ export interface McpEgressPolicySnapshot {
    * immutable policy digest; delivered separately through the policy sync path.
    */
   staticHeaders?: Record<string, string>;
+  /** Opaque token-vault reference resolved by the proxy's OAuth broker. */
+  oauthGrantReference?: string;
   /** Private CA material held only in proxy memory and never persisted. */
   privateCaPem?: string;
 }

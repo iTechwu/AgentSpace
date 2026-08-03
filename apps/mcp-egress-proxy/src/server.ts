@@ -351,7 +351,14 @@ export class McpEgressProxyServer {
     }
 
     if (policy.authMode === "oauth_proxy") {
-      const oauth = await this.oauthInjector.inject(policy.authMode, claims.operationId);
+      const snapshot = await this.options.leaseVerifier.fetchPolicySnapshot(claims.policyRevisionId);
+      const oauth = await this.oauthInjector.inject(policy.authMode, snapshot?.oauthGrantReference, {
+        workspaceId: claims.workspaceId,
+        runtimeId: claims.runtimeId,
+        connectionId: claims.connectionId,
+        taskId: claims.taskId,
+        operationId: claims.operationId,
+      });
       for (const [name, value] of Object.entries(oauth.headers)) {
         setTrustedHeader(headers, name, value);
       }

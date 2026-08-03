@@ -6,6 +6,7 @@ import type { LookupFunction } from "node:net";
 import { Readable } from "node:stream";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { McpDiscoveredTool, McpErrorCode, McpVerificationResult, ResolvedMcpConnection, RuntimeMcpClient } from "@dofe-agent/domain";
 import { redactMcpText, redactToolInputSchema, validateMcpEndpoint, validateMcpResolvedAddresses } from "@dofe-agent/services";
 import { buildMcpEgressProxyRequestHeaders, createMcpEgressProxyClient } from "./egress-client.ts";
@@ -20,6 +21,7 @@ const CLIENT_NAME = "dofe-agent-daemon";
 const CLIENT_VERSION = "1";
 
 function enforceEgressError(connection: ResolvedMcpConnection): { code: McpErrorCode; safeMessage: string } | undefined {
+  if (connection.transport === "managed_stdio") return undefined;
   const enforceEgress = process.env.MCP_EGRESS_ENFORCE === "true";
   const hasProxyLease = Boolean(connection.egressProxyLease && connection.egressProxyPolicySnapshot);
   if (enforceEgress && !hasProxyLease) {
@@ -104,6 +106,28 @@ async function callTool(input: {
 }
 
 async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Client) => Promise<T>): Promise<T> {
+  if (connection.transport === "managed_stdio") {
+    const launch = connection.managedStdioLaunch;
+    if (!launch) throw new Error("Managed stdio MCP launch was not resolved by the Runtime daemon.");
+    const transport = new StdioClientTransport({
+      command: launch.command,
+      args: launch.args,
+      env: launch.env,
+      cwd: launch.cwd,
+      stderr: "pipe",
+      maxBufferSize: MAX_RESPONSE_BYTES,
+    });
+    const client = new Client({ name: CLIENT_NAME, version: CLIENT_VERSION }, { capabilities: {} });
+    try {
+      await withProtocolTimeout(client.connect(transport));
+      return await withProtocolTimeout(fn(client));
+    } finally {
+      await client.close().catch(() => undefined);
+    }
+  }
+  if (connection.transport !== "streamable_http") {
+    throw new Error(`Unsupported MCP transport: ${connection.transport}`);
+  }
   const endpointUrl = new URL(connection.endpoint);
   const useProxy = Boolean(connection.egressProxyLease && connection.egressProxyPolicySnapshot);
   const enforceEgress = process.env.MCP_EGRESS_ENFORCE === "true";
@@ -135,12 +159,26 @@ async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Cli
   });
   const client = new Client({ name: CLIENT_NAME, version: CLIENT_VERSION }, { capabilities: {} });
   try {
-    await client.connect(transport);
-    return await fn(client);
+    await withProtocolTimeout(client.connect(transport));
+    return await withProtocolTimeout(fn(client));
   } finally {
     await client.close().catch(() => {
       /* best-effort teardown */
     });
+  }
+}
+
+async function withProtocolTimeout<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("MCP protocol operation timed out.")), REQUEST_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -352,6 +390,14 @@ export function normalizeDiscoveredTools(rawTools: unknown[]):
 }
 
 function guardEndpoint(connection: ResolvedMcpConnection): { ok: true } | { ok: false; code: McpErrorCode; message: string } {
+  if (connection.transport === "managed_stdio") {
+    return connection.managedStdioLaunch
+      ? { ok: true }
+      : { ok: false, code: "mcp.policy_denied", message: "Managed stdio launch is unavailable." };
+  }
+  if (connection.transport !== "streamable_http") {
+    return { ok: false, code: "mcp.policy_denied", message: "MCP transport is not supported." };
+  }
   const check = validateMcpEndpoint(connection.endpoint, connection.allowedHosts);
   if (!check.ok) {
     return { ok: false, code: check.code ?? "mcp.policy_denied", message: check.message ?? "Endpoint rejected." };

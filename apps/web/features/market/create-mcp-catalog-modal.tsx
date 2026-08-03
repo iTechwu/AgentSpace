@@ -1,6 +1,6 @@
 "use client";
 
-import type { McpCatalogCategory, McpRisk } from "@dofe-agent/db";
+import type { McpCatalogCategory, McpRisk, McpTransport } from "@dofe-agent/db";
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { CreateMcpCatalogItemActionInput } from "@/features/market/mcp-actions";
 import { useLanguage } from "@/features/i18n/language-provider";
@@ -33,6 +33,7 @@ export function CreateMcpCatalogModal(props: {
   const [displayName, setDisplayName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
+  const [transport, setTransport] = useState<McpTransport>("streamable_http");
   const [tools, setTools] = useState<ToolDraft[]>([
     { id: 1, name: "", description: "", risk: "medium", approvedByDefault: false },
   ]);
@@ -62,10 +63,15 @@ export function CreateMcpCatalogModal(props: {
         onSubmit={(event) => {
           event.preventDefault();
           const values = new FormData(event.currentTarget);
-          const endpoint = String(values.get("endpoint") ?? "").trim();
-          const endpointHost = new URL(endpoint).hostname;
-          const allowedHosts = uniqueTokens(String(values.get("allowedHosts") ?? ""));
-          if (!allowedHosts.includes(endpointHost)) allowedHosts.unshift(endpointHost);
+          const endpointInput = String(values.get("endpoint") ?? "").trim();
+          const endpoint = transport === "managed_stdio" ? `stdio://${endpointInput}` : endpointInput;
+          const allowedHosts = transport === "streamable_http"
+            ? uniqueTokens(String(values.get("allowedHosts") ?? ""))
+            : [];
+          if (transport === "streamable_http") {
+            const endpointHost = new URL(endpoint).hostname;
+            if (!allowedHosts.includes(endpointHost)) allowedHosts.unshift(endpointHost);
+          }
           const declaredTools = tools.map((tool) => ({
             name: tool.name.trim(),
             description: tool.description.trim(),
@@ -84,7 +90,7 @@ export function CreateMcpCatalogModal(props: {
             description: String(values.get("description") ?? "").trim(),
             version: String(values.get("version") ?? "").trim(),
             category: String(values.get("category") ?? "other") as McpCatalogCategory,
-            transport: "streamable_http",
+            transport,
             allowedHosts,
             configurationSchema: {
               type: "object",
@@ -171,6 +177,13 @@ export function CreateMcpCatalogModal(props: {
                   <option value="other">{tx("其他", "Other")}</option>
                 </select>
               </label>
+              <label className="form-field">
+                <span>{tx("传输", "Transport")}</span>
+                <select onChange={(event) => setTransport(event.currentTarget.value as McpTransport)} value={transport}>
+                  <option value="streamable_http">Streamable HTTP</option>
+                  <option value="managed_stdio">Managed stdio</option>
+                </select>
+              </label>
               <label className="form-field form-field--full">
                 <span>{tx("描述", "Description")}</span>
                 <textarea maxLength={600} name="description" placeholder={tx("说明服务用途和可访问的数据。", "Describe the service and the data it can access.")} rows={3} />
@@ -182,22 +195,32 @@ export function CreateMcpCatalogModal(props: {
             <div className="mcp-catalog-form-section__heading">
               <div>
                 <h4 id="mcp-catalog-endpoint">{tx("连接与边界", "Connection and boundary")}</h4>
-                <p>{tx("Runtime 只通过 daemon 任务网关访问这些允许域名。", "The runtime reaches these hosts only through the daemon task gateway.")}</p>
+                <p>{transport === "managed_stdio"
+                  ? tx("入口固定到目标 Runtime 的私有安装目录。", "The entrypoint is fixed to the target runtime's private installation.")
+                  : tx("Runtime 只通过 daemon 任务网关访问这些允许域名。", "The runtime reaches these hosts only through the daemon task gateway.")}</p>
               </div>
-              <span className="status-chip status-chip--neutral">streamable_http</span>
+              <span className="status-chip status-chip--neutral">{transport}</span>
             </div>
             <div className="mcp-catalog-form-grid">
               <label className="form-field form-field--full">
-                <span>Endpoint (HTTPS)</span>
-                <input name="endpoint" pattern="https://.*" placeholder="https://mcp.example.com/mcp" required type="url" />
+                <span>{transport === "managed_stdio" ? tx("已安装入口命令", "Installed entrypoint") : "Endpoint (HTTPS)"}</span>
+                <input
+                  name="endpoint"
+                  pattern={transport === "managed_stdio" ? "[a-z0-9][a-z0-9._-]{0,127}" : "https://.*"}
+                  placeholder={transport === "managed_stdio" ? "my-mcp-server" : "https://mcp.example.com/mcp"}
+                  required
+                  type={transport === "managed_stdio" ? "text" : "url"}
+                />
               </label>
-              <label className="form-field form-field--full">
-                <span>{tx("额外允许域名", "Additional allowed hosts")}</span>
-                <input name="allowedHosts" placeholder={tx("逗号分隔；Endpoint 域名会自动加入", "Comma-separated; the endpoint host is added automatically")} />
-              </label>
+              {transport === "streamable_http" ? (
+                <label className="form-field form-field--full">
+                  <span>{tx("额外允许域名", "Additional allowed hosts")}</span>
+                  <input name="allowedHosts" placeholder={tx("逗号分隔；Endpoint 域名会自动加入", "Comma-separated; the endpoint host is added automatically")} />
+                </label>
+              ) : null}
               <label className="form-field">
                 <span>{tx("密钥字段", "Secret fields")}</span>
-                <input name="secretFields" placeholder="Authorization, X-API-Key" />
+                <input name="secretFields" placeholder={transport === "managed_stdio" ? "API_TOKEN, CLIENT_SECRET" : "Authorization, X-API-Key"} />
               </label>
               <label className="form-field">
                 <span>{tx("数据域", "Data domains")}</span>
@@ -269,7 +292,13 @@ export function CreateMcpCatalogModal(props: {
                 <div className="mcp-catalog-config-draft" key={field.id}>
                   <label className="form-field">
                     <span>{tx(`字段 ${index + 1}`, `Field ${index + 1}`)}</span>
-                    <input onChange={(event) => updateConfigField(setConfigFields, field.id, { name: event.currentTarget.value })} pattern="[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}" placeholder="X-Workspace" required value={field.name} />
+                    <input
+                      onChange={(event) => updateConfigField(setConfigFields, field.id, { name: event.currentTarget.value })}
+                      pattern={transport === "managed_stdio" ? "[A-Z][A-Z0-9_]{0,63}" : "[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}"}
+                      placeholder={transport === "managed_stdio" ? "TENANT_ID" : "X-Workspace"}
+                      required
+                      value={field.name}
+                    />
                   </label>
                   <label className="form-field">
                     <span>{tx("最大长度", "Max length")}</span>

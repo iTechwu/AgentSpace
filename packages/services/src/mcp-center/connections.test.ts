@@ -121,6 +121,82 @@ test("requestMcpConnection creates a connection and queues a verify operation", 
   assert.equal(detail?.secretFields[0]?.configured, true);
 });
 
+test("managed stdio catalog connects an installed Runtime entrypoint without an egress lease", () => {
+  const runtimeId = createRuntime();
+  const catalog = createMcpCatalogItemSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    slug: "internal-stdio",
+    displayName: "Internal stdio MCP",
+    transport: "managed_stdio",
+    allowedHosts: [],
+    endpointTemplate: "stdio://internal-mcp",
+    configurationSchema: {
+      type: "object",
+      properties: { TENANT_ID: { type: "string" } },
+      required: ["TENANT_ID"],
+      additionalProperties: false,
+    },
+    declaredTools: [{ name: "search", description: "Search", risk: "low" }],
+    defaultApprovedTools: ["search"],
+    secretFields: ["API_TOKEN"],
+  });
+  const { connection, operation } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalog.id,
+    endpoint: "stdio://internal-mcp",
+    nonSecretParams: { TENANT_ID: "tenant-1" },
+    secrets: { API_TOKEN: "secret" },
+    approvedTools: ["search"],
+    confirmHighRisk: true,
+  });
+  const claimed = resolveClaimedMcpOperationSync({ workspaceId: "default", operation });
+
+  assert.equal(connection.endpoint, "stdio://internal-mcp");
+  assert.equal(claimed?.transport, "managed_stdio");
+  assert.equal(claimed?.egressProxyLease, undefined);
+  assert.equal(claimed?.nonSecretParams.TENANT_ID, "tenant-1");
+  assert.equal(claimed?.secrets.API_TOKEN, "secret");
+  assert.throws(() => requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId: createRuntime(),
+    catalogItemId: catalog.id,
+    endpoint: "stdio://different-installed-command",
+    nonSecretParams: { TENANT_ID: "tenant-1" },
+    secrets: { API_TOKEN: "secret" },
+    approvedTools: ["search"],
+    confirmHighRisk: true,
+  }), /mcp\.policy_denied/);
+});
+
+test("managed stdio catalog rejects untrusted commands and reserved environment names", () => {
+  assert.throws(() => createMcpCatalogItemSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    slug: "invalid-stdio-command",
+    displayName: "Invalid stdio",
+    transport: "managed_stdio",
+    allowedHosts: [],
+    endpointTemplate: "stdio://server/path",
+    configurationSchema: { type: "object" },
+    declaredTools: [{ name: "search", description: "Search", risk: "low" }],
+  }), /invalid_managed_stdio_endpoint/);
+  assert.throws(() => createMcpCatalogItemSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    slug: "invalid-stdio-env",
+    displayName: "Invalid stdio env",
+    transport: "managed_stdio",
+    allowedHosts: [],
+    endpointTemplate: "stdio://server",
+    configurationSchema: { type: "object", properties: { PATH: { type: "string" } } },
+    declaredTools: [{ name: "search", description: "Search", risk: "low" }],
+  }), /invalid_managed_stdio_environment/);
+});
+
 test("catalog publishing keeps releases immutable and exposes only the latest release", () => {
   const firstId = seedCatalog();
   const firstRelease = readMcpCatalogItemBySlugSync("github", "default");

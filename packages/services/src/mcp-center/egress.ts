@@ -431,6 +431,9 @@ export function buildMcpEgressPolicySnapshot(
     revoked: false,
     fetchedAt,
     ...(staticHeaders && Object.keys(staticHeaders).length > 0 ? { staticHeaders } : {}),
+    ...(revision.authMode === "oauth_proxy" && secrets["oauth-proxy"]?.trim()
+      ? { oauthGrantReference: secrets["oauth-proxy"].trim() }
+      : {}),
     ...(revision.tlsMode === "verify_private_ca" && privateCaPem ? { privateCaPem } : {}),
   };
 }

@@ -282,6 +282,7 @@ export class McpGateway {
         nonSecretParams: connection.nonSecretParams,
         egressProxyLease: validatedEgressLease,
         egressProxyPolicySnapshot: validatedPolicySnapshot,
+        managedStdioLaunch: connection.managedStdioLaunch,
       };
       const startedAt = Date.now();
       const result = await this.mcpClient.call({

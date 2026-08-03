@@ -4,6 +4,7 @@ import { McpEgressMetrics } from "./metrics.ts";
 import { McpEgressProxyServer } from "./server.ts";
 import { ConsoleMcpEgressAuditSink } from "./audit.ts";
 import { SingleReplicaJtiReplayGuard } from "./jti-replay-guard.ts";
+import { OAuthInjector } from "./oauth-injector.ts";
 
 async function main(): Promise<void> {
   const port = Number(process.env.MCP_EGRESS_PROXY_PORT ?? "8080");
@@ -43,6 +44,11 @@ async function main(): Promise<void> {
     policyCache,
     auditSink,
     metrics,
+    oauthInjector: new OAuthInjector({
+      brokerUrl: process.env.MCP_OAUTH_BROKER_URL,
+      brokerToken: process.env.MCP_OAUTH_BROKER_TOKEN,
+      allowInsecureHttp: process.env.MCP_OAUTH_BROKER_ALLOW_INSECURE_HTTP === "true",
+    }),
     adminToken: process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN,
     ...(adminTokens && adminTokens.size > 0 ? { adminTokens } : {}),
   });

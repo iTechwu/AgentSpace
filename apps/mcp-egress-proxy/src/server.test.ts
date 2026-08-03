@@ -5,6 +5,7 @@ import { digestMcpEgressPolicyRevision, digestMcpPrivateCa, signMcpEgressLease }
 import { McpEgressPolicyCache } from "./policy-cache.ts";
 import { McpEgressProxyServer } from "./server.ts";
 import { SingleReplicaJtiReplayGuard } from "./jti-replay-guard.ts";
+import { OAuthInjector } from "./oauth-injector.ts";
 
 const SECRET = "a".repeat(32);
 let leaseSequence = 0;
@@ -450,6 +451,51 @@ test("static authentication headers are injected by the proxy", async () => {
     const res = await fetch(`${url}/mcp`, { headers: { authorization: `DofeEgressLease ${buildLeaseToken({ policyDigest: policy.manifestDigest })}` } });
     assert.equal(res.status, 200);
     assert.equal(forwardedHeaders?.authorization, "Bearer upstream-secret");
+  } finally {
+    await close();
+  }
+});
+
+test("OAuth grant references are exchanged and injected only inside the proxy", async () => {
+  const cache = new McpEgressPolicyCache();
+  const policyBase = { ...basePolicy(), authMode: "oauth_proxy" as const };
+  const policy = { ...policyBase, manifestDigest: digestMcpEgressPolicyRevision(policyBase) };
+  cache.set({ ...buildSnapshot(policy), oauthGrantReference: "opaque-grant-reference" });
+  let brokerBody: Record<string, unknown> | undefined;
+  let forwardedHeaders: Record<string, string> | undefined;
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
+    auditSink: { record: () => undefined },
+    oauthInjector: new OAuthInjector({
+      brokerUrl: "https://oauth-broker.example.com",
+      brokerToken: "broker-service-token",
+      fetchImpl: async (_url, init) => {
+        brokerBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return Response.json({ accessToken: "short-lived-token", tokenType: "Bearer", expiresIn: 300 });
+      },
+    }),
+    forwardToUpstream: async (_policy, _claims, _request, headers) => {
+      forwardedHeaders = headers;
+      return { ok: true, upstreamHost: "github-mcp.example.com", response: { statusCode: 200, statusMessage: "OK", headers: {}, body: null } };
+    },
+  });
+  const { url, close } = await server.start();
+  try {
+    const response = await fetch(`${url}/mcp`, {
+      headers: { authorization: `DofeEgressLease ${buildLeaseToken({ policyDigest: policy.manifestDigest })}` },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(forwardedHeaders?.authorization, "Bearer short-lived-token");
+    assert.deepEqual(brokerBody, {
+      grantReference: "opaque-grant-reference",
+      workspaceId: "ws-1",
+      runtimeId: "rt-1",
+      connectionId: "conn-1",
+      taskId: "task-1",
+    });
   } finally {
     await close();
   }

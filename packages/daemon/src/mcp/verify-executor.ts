@@ -11,6 +11,7 @@ import { createRuntimeMcpClient } from "./client.ts";
 export async function executeMcpConnectionOperation(
   client: HttpDaemonClient,
   operation: ClaimedMcpConnectionOperation,
+  options: { resolveConnection?: (connection: ResolvedMcpConnection) => ResolvedMcpConnection } = {},
 ): Promise<void> {
   await client.startMcpConnectionOperation(operation.id);
 
@@ -20,7 +21,7 @@ export async function executeMcpConnectionOperation(
     return;
   }
 
-  const resolved = resolveConnection(operation);
+  const resolved = options.resolveConnection?.(resolveConnection(operation)) ?? resolveConnection(operation);
 
   try {
     const result = await createRuntimeMcpClient().verify(resolved);

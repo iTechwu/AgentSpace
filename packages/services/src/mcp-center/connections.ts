@@ -26,6 +26,7 @@ import {
   updateMcpConnectionStatusSync,
   upsertMcpSecretsSync,
   type McpCatalogItemRecord,
+  type McpTransport,
   type McpConnectionOperationType,
   type RuntimeMcpConnectionRecord,
   type RuntimeMcpDiscoverySnapshotRecord,
@@ -55,6 +56,8 @@ import {
   getMcpSecretKeyVersion,
   validateMcpConnectionConfiguration,
   validateMcpEndpoint,
+  validateManagedStdioEndpoint,
+  validateManagedStdioEnvironmentConfiguration,
   validateMcpRequestHeaders,
 } from "./security.ts";
 import {
@@ -107,16 +110,12 @@ export function requestMcpConnectionSync(input: RequestMcpConnectionInput): Requ
   if (!catalog) {
     throw new Error("mcp_catalog.not_found");
   }
-  if (catalog.transport !== "streamable_http") {
-    throw new Error("mcp.unsupported_transport");
-  }
-
   const allowedHosts = parseJsonArray(catalog.allowedHostsJson);
-  const endpointCheck = validateMcpEndpoint(input.endpoint, allowedHosts);
+  const endpointCheck = validateConnectionEndpoint(catalog.transport, input.endpoint, allowedHosts, catalog.endpointTemplate);
   if (!endpointCheck.ok) {
     throw new Error(endpointCheck.code ?? "mcp.policy_denied");
   }
-  const headerCheck = validateMcpRequestHeaders(input.nonSecretParams ?? {});
+  const headerCheck = validateConnectionParameters(catalog.transport, input.nonSecretParams ?? {});
   if (!headerCheck.ok) {
     throw new Error(headerCheck.code ?? "mcp.policy_denied");
   }
@@ -213,10 +212,10 @@ export function reverifyMcpConnectionSync(input: {
 }
 
 function revokeActiveMcpEgressPolicyForConnectionSync(connection: RuntimeMcpConnectionRecord): void {
+  const catalog = readMcpCatalogItemSync(connection.catalogItemId, connection.workspaceId);
+  if (!catalog || catalog.transport !== "streamable_http") return;
   const leaseSigningKey = readMcpEgressLeaseSigningKey();
   if (!leaseSigningKey) return;
-  const catalog = readMcpCatalogItemSync(connection.catalogItemId, connection.workspaceId);
-  if (!catalog) return;
   const allowedHosts = parseJsonArray(catalog.allowedHostsJson);
   const approvedTools = parseJsonArray(connection.approvedToolsJson);
   const secrets = resolveDaemonSecretBundle(readMcpConnectionSecretsSync(connection.id, connection.workspaceId));
@@ -348,7 +347,7 @@ export function updateMcpConnectionConfigServiceSync(input: UpdateMcpConnectionC
     throw new Error("mcp_catalog.not_found");
   }
   if (input.endpoint !== undefined) {
-    const check = validateMcpEndpoint(input.endpoint, parseJsonArray(catalog.allowedHostsJson));
+    const check = validateConnectionEndpoint(catalog.transport, input.endpoint, parseJsonArray(catalog.allowedHostsJson), catalog.endpointTemplate);
     if (!check.ok) {
       throw new Error(check.code ?? "mcp.policy_denied");
     }
@@ -357,7 +356,7 @@ export function updateMcpConnectionConfigServiceSync(input: UpdateMcpConnectionC
     ? undefined
     : { ...parseJsonObject(connection.nonSecretParamsJson), ...input.nonSecretParams };
   if (mergedNonSecretParamsForUpdate !== undefined) {
-    const check = validateMcpRequestHeaders(mergedNonSecretParamsForUpdate);
+    const check = validateConnectionParameters(catalog.transport, mergedNonSecretParamsForUpdate);
     if (!check.ok) {
       throw new Error(check.code ?? "mcp.policy_denied");
     }
@@ -514,7 +513,7 @@ export function replaceMcpConnectionConfigSync(input: ReplaceMcpConnectionConfig
     throw new Error("mcp_catalog.not_found");
   }
   if (input.endpoint !== undefined) {
-    const check = validateMcpEndpoint(input.endpoint, parseJsonArray(catalog.allowedHostsJson));
+    const check = validateConnectionEndpoint(catalog.transport, input.endpoint, parseJsonArray(catalog.allowedHostsJson), catalog.endpointTemplate);
     if (!check.ok) {
       throw new Error(check.code ?? "mcp.policy_denied");
     }
@@ -526,7 +525,7 @@ export function replaceMcpConnectionConfigSync(input: ReplaceMcpConnectionConfig
     ? undefined
     : { ...parseJsonObject(connection.nonSecretParamsJson), ...input.nonSecretParams };
   if (mergedNonSecretParams !== undefined) {
-    const headersCheck = validateMcpRequestHeaders(mergedNonSecretParams);
+    const headersCheck = validateConnectionParameters(catalog.transport, mergedNonSecretParams);
     if (!headersCheck.ok) {
       throw new Error(headersCheck.code ?? "mcp.policy_denied");
     }
@@ -914,8 +913,8 @@ export function resolveClaimedMcpOperationSync(input: {
   }
   const allowedHosts = parseJsonArray(catalog.allowedHostsJson);
   const nonSecretParams = parseJsonObject(connection.nonSecretParamsJson);
-  const endpointCheck = validateMcpEndpoint(connection.endpoint, allowedHosts);
-  const headerCheck = validateMcpRequestHeaders(nonSecretParams);
+  const endpointCheck = validateConnectionEndpoint(catalog.transport, connection.endpoint, allowedHosts, catalog.endpointTemplate);
+  const headerCheck = validateConnectionParameters(catalog.transport, nonSecretParams);
   const configurationCheck = validateMcpConnectionConfiguration(parseJsonObject(catalog.configurationSchemaJson), nonSecretParams);
   const declaredTools = parseDeclaredTools(catalog.declaredToolsJson);
   const approvedTools = parseJsonArray(connection.approvedToolsJson);
@@ -933,21 +932,23 @@ export function resolveClaimedMcpOperationSync(input: {
   if (!secrets) {
     return null;
   }
-  const leaseSigningKey = readMcpEgressLeaseSigningKey();
+  const leaseSigningKey = catalog.transport === "streamable_http" ? readMcpEgressLeaseSigningKey() : undefined;
   const authMode = inferAuthMode(secrets);
-  const policyInput = {
-    workspaceId: input.operation.workspaceId,
-    connectionId: input.operation.connectionId,
-    releaseId: catalog.id,
-    releaseManifestDigest: digestMcpCatalogRelease(catalog),
-    endpoint: connection.endpoint,
-    allowedHosts,
-    approvedTools,
-    authMode,
-    privateCaPem: extractMcpPrivateCaPem(secrets),
-  };
-  const policyRevision = leaseSigningKey ? buildMcpEgressPolicyRevision(policyInput) : undefined;
-  const egressProxyLease = policyRevision
+  const policyInput = catalog.transport === "streamable_http"
+    ? {
+        workspaceId: input.operation.workspaceId,
+        connectionId: input.operation.connectionId,
+        releaseId: catalog.id,
+        releaseManifestDigest: digestMcpCatalogRelease(catalog),
+        endpoint: connection.endpoint,
+        allowedHosts,
+        approvedTools,
+        authMode,
+        privateCaPem: extractMcpPrivateCaPem(secrets),
+      }
+    : undefined;
+  const policyRevision = leaseSigningKey && policyInput ? buildMcpEgressPolicyRevision(policyInput) : undefined;
+  const egressProxyLease = policyRevision && policyInput
     ? signMcpEgressLeaseForOperation({
         ...policyInput,
         runtimeId: input.operation.runtimeId,
@@ -1115,9 +1116,14 @@ function resolveClaimedMcpTaskSessionResult(input: {
       markDegradedOnMissingTool: true,
     });
     if (!resolved) continue;
+    const allowedHosts = parseJsonArray(resolved.catalog.allowedHostsJson);
+    const nonSecretParams = parseJsonObject(resolved.fresh.nonSecretParamsJson);
+    if (
+      !validateConnectionEndpoint(resolved.catalog.transport, resolved.fresh.endpoint, allowedHosts, resolved.catalog.endpointTemplate).ok ||
+      !validateConnectionParameters(resolved.catalog.transport, nonSecretParams).ok
+    ) continue;
     const secrets = resolveDaemonSecretBundle(readMcpConnectionSecretsSync(connection.id, input.workspaceId));
     if (secrets === null) continue;
-    const allowedHosts = parseJsonArray(resolved.catalog.allowedHostsJson);
     result.push({
       connectionId: resolved.connectionId,
       workspaceId: input.workspaceId,
@@ -1129,7 +1135,7 @@ function resolveClaimedMcpTaskSessionResult(input: {
       endpoint: resolved.fresh.endpoint,
       allowedHosts,
       approvedTools: resolved.approved,
-      nonSecretParams: parseJsonObject(resolved.fresh.nonSecretParamsJson),
+      nonSecretParams,
       secrets,
       tools: resolved.tools,
     });
@@ -1171,6 +1177,15 @@ export function validateMcpConnectionForGatewaySync(input: {
   if (!resolved || !resolved.approved.includes(input.toolName)) {
     return { ok: false };
   }
+  const allowedHosts = parseJsonArray(resolved.catalog.allowedHostsJson);
+  const nonSecretParams = parseJsonObject(resolved.fresh.nonSecretParamsJson);
+  if (
+    !validateConnectionEndpoint(resolved.catalog.transport, resolved.fresh.endpoint, allowedHosts, resolved.catalog.endpointTemplate).ok ||
+    !validateConnectionParameters(resolved.catalog.transport, nonSecretParams).ok
+  ) return { ok: false };
+  if (resolved.catalog.transport === "managed_stdio") {
+    return { ok: true, approvedTools: resolved.approved };
+  }
 
   const leaseSigningKey = readMcpEgressLeaseSigningKey();
   if (!leaseSigningKey) {
@@ -1184,7 +1199,7 @@ export function validateMcpConnectionForGatewaySync(input: {
     releaseId: resolved.catalog.id,
     releaseManifestDigest: digestMcpCatalogRelease(resolved.catalog),
     endpoint: resolved.fresh.endpoint,
-    allowedHosts: parseJsonArray(resolved.catalog.allowedHostsJson),
+    allowedHosts,
     approvedTools: resolved.approved,
     authMode: inferAuthMode(secrets),
     privateCaPem: extractMcpPrivateCaPem(secrets),
@@ -1289,6 +1304,29 @@ function parseJsonObject(value: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function validateConnectionEndpoint(
+  transport: McpTransport,
+  endpoint: string,
+  allowedHosts: string[],
+  endpointTemplate?: string | null,
+) {
+  if (transport === "streamable_http") return validateMcpEndpoint(endpoint, allowedHosts);
+  if (transport === "managed_stdio") {
+    const validation = validateManagedStdioEndpoint(endpoint);
+    if (!validation.ok) return validation;
+    return endpoint === endpointTemplate
+      ? validation
+      : { ok: false, code: "mcp.policy_denied" as const, message: "Managed stdio entrypoint must match the immutable catalog release." };
+  }
+  return { ok: false, code: "mcp.policy_denied" as const, message: "MCP transport is not supported." };
+}
+
+function validateConnectionParameters(transport: McpTransport, params: Record<string, unknown>) {
+  if (transport === "streamable_http") return validateMcpRequestHeaders(params);
+  if (transport === "managed_stdio") return validateManagedStdioEnvironmentConfiguration(params);
+  return { ok: false, code: "mcp.policy_denied" as const, message: "MCP transport is not supported." };
 }
 
 function parseDeclaredTools(value: string): McpDeclaredTool[] {

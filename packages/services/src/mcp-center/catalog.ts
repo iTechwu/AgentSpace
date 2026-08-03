@@ -13,6 +13,7 @@ import {
 } from "@dofe-agent/db";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
+import { validateManagedStdioEndpoint } from "./security.ts";
 
 export interface McpDeclaredTool {
   name: string;
@@ -66,12 +67,11 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
   if (!input.displayName.trim()) {
     throw new Error("mcp_catalog.invalid_display_name");
   }
-  if (input.transport !== "streamable_http") {
-    // SSE / managed transports arrive in later phases; do not let them into the MVP catalog.
+  if (input.transport !== "streamable_http" && input.transport !== "managed_stdio") {
     throw new Error("mcp_catalog.unsupported_transport");
   }
   const allowedHosts = (input.allowedHosts ?? []).map((h) => h.trim()).filter(Boolean);
-  if (allowedHosts.length === 0) {
+  if (input.transport === "streamable_http" && allowedHosts.length === 0) {
     throw new Error("mcp_catalog.allowed_hosts_required");
   }
   for (const host of allowedHosts) {
@@ -105,6 +105,17 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
     }
   }
   const secretFields = (input.secretFields ?? []).map((s) => s.trim()).filter(Boolean);
+  if (input.transport === "managed_stdio") {
+    if (!input.endpointTemplate || !validateManagedStdioEndpoint(input.endpointTemplate).ok) {
+      throw new Error("mcp_catalog.invalid_managed_stdio_endpoint");
+    }
+    const schemaProperties = configurationSchema.properties && typeof configurationSchema.properties === "object"
+      ? Object.keys(configurationSchema.properties as Record<string, unknown>)
+      : [];
+    if ([...schemaProperties, ...secretFields].some((name) => !/^[A-Z][A-Z0-9_]{0,63}$/.test(name) || ["HOME", "PATH"].includes(name) || name.startsWith("DOFE_"))) {
+      throw new Error("mcp_catalog.invalid_managed_stdio_environment");
+    }
+  }
 
   // Workspace-created catalog entries have not passed platform review, so they
   // always retain high-risk treatment irrespective of a caller-provided label.

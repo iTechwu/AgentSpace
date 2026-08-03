@@ -178,6 +178,36 @@ export function validateMcpEndpoint(endpoint: string, allowedHosts: string[]): M
   return { ok: true, host };
 }
 
+export function validateManagedStdioEndpoint(endpoint: string): McpEndpointValidation {
+  let parsed: URL;
+  try {
+    parsed = new URL(endpoint.trim());
+  } catch {
+    return { ok: false, code: "mcp.policy_denied", message: "Managed stdio endpoint is invalid." };
+  }
+  if (
+    parsed.protocol !== "stdio:" ||
+    !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(parsed.hostname) ||
+    parsed.pathname !== "" || parsed.search || parsed.hash || parsed.username || parsed.password
+  ) {
+    return { ok: false, code: "mcp.policy_denied", message: "Managed stdio endpoint must be stdio://<installed-entrypoint>." };
+  }
+  return { ok: true };
+}
+
+export function validateManagedStdioEnvironmentConfiguration(params: Record<string, unknown>): McpEndpointValidation {
+  for (const [key, value] of Object.entries(params)) {
+    if (
+      !/^[A-Z][A-Z0-9_]{0,63}$/.test(key) ||
+      key === "HOME" || key === "PATH" || key.startsWith("DOFE_") ||
+      typeof value !== "string" || value.length > 8192
+    ) {
+      return { ok: false, code: "mcp.policy_denied", message: "Managed stdio configuration must contain only approved environment variables." };
+    }
+  }
+  return { ok: true };
+}
+
 /** True for IP literals and DNS answers that must never be reachable from MCP. */
 export function isForbiddenMcpNetworkAddress(host: string): boolean {
   if (host === "localhost" || host === "0.0.0.0" || host === "::1" || host === "[::1]") {

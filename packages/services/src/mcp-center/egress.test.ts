@@ -108,6 +108,17 @@ test("buildMcpEgressPolicySnapshot carries static headers only for in-memory pro
   assert.equal(unauthenticated.staticHeaders, undefined);
 });
 
+test("buildMcpEgressPolicySnapshot carries only the opaque OAuth grant reference", () => {
+  const policy = { ...basePolicy(), authMode: "oauth_proxy" as const };
+  const snapshot = buildMcpEgressPolicySnapshot(policy, {
+    "oauth-proxy": "grant-reference-1",
+    Authorization: "must-not-be-forwarded",
+  });
+
+  assert.equal(snapshot.oauthGrantReference, "grant-reference-1");
+  assert.equal(snapshot.staticHeaders, undefined);
+});
+
 test("private CA material is digest-bound, kept in memory, and excluded from static headers", () => {
   const privateCaPem = "-----BEGIN CERTIFICATE-----\nprivate-ca\n-----END CERTIFICATE-----";
   const policy = buildMcpEgressPolicyRevision({

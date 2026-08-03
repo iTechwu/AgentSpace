@@ -1,6 +1,6 @@
 # 远程 Runtime 的 CLI 与 MCP 生命周期
 
-> 状态：remote CLI 私有安装、托管 Docker 共享、Streamable HTTP MCP task gateway 与市场发布入口已实施
+> 状态：remote CLI 私有安装、托管 Docker 共享、Streamable HTTP/managed stdio MCP、OAuth broker、task gateway 与市场发布入口均已实施
 >
 > 部署前提：Docker Compose，不依赖 Kubernetes
 
@@ -16,14 +16,17 @@
 | Skill/CLI 依赖产物 | `<state>/workspaces/<workspace-id>/runtime-app-deps` | `/runtime-app-deps` | 工作区级依赖缓存与审计 digest |
 | MCP 目录 release | 控制面现有数据库 | 不挂载 | `slug + semver` 不可变 |
 | MCP connection 密钥 | 控制面加密存储，任务 claim 后仅在 daemon 内存解密 | 不挂载、不注入环境变量 | task session 结束即释放 |
+| managed stdio MCP 可执行文件 | `<runtime-home>/.local/bin` | `/dofe-home/.local/bin/<entrypoint>` | 先通过 CLI 市场安装，跟随 Runtime 私有 HOME |
 | MCP task gateway | remote daemon 进程内存 | Provider 只收到 task URL | task 结束/取消/超时即撤销 |
 | MCP egress policy/lease | 控制面签发，daemon/proxy 短期持有 | Provider 不可见 | 按调用复核与消费 |
 
-### Streamable HTTP MCP 是否“安装”进 Runtime
+### 两类 MCP transport 的安装方式
 
-不安装。当前已支持的 MCP transport 是 `streamable_http`：市场发布的是不可变目录元数据，连接由 daemon 托管，远端 MCP Server 独立运行。Runtime Docker 内没有 MCP server package、长期 token 或 endpoint 配置。
+`streamable_http` 不安装进 Runtime：市场发布不可变目录元数据，连接由 daemon 托管，远端 MCP Server 独立运行。Runtime Docker 内没有 MCP server package、长期 token 或 endpoint 配置。
 
-`managed_stdio`/OAuth broker 是独立后续能力，不能用本地 `npx`/`uvx` 临时下载或把 refresh token 写进 Runtime HOME 来冒充已支持。
+`managed_stdio` 的服务包必须先通过同一个 Runtime 的 CLI 市场安装到私有 `.local`，MCP release 只引用 `stdio://<entrypoint>`，不能包含任意 argv、宿主机路径、`npx`/`uvx` 临时下载命令。daemon 在验证和任务调用时将它解析为私有 `.local/bin/<entrypoint>`；托管节点使用目标 provider 镜像、同一 `/dofe-home`、只读根文件系统和 `--network none` 启动一次性 stdio 容器，并保持 stdin 打开。非托管节点从相同的宿主机私有路径启动。
+
+OAuth broker 客户端在 egress proxy 中运行，refresh token 只属于控制面 token vault。控制面向 proxy snapshot 提供 opaque grant reference，proxy 按调用换取最长一小时的短期 access token；Runtime HOME、Provider 容器和持久 policy cache 均不保存 token material。
 
 ## 2. CLI 安装执行链
 
@@ -62,6 +65,8 @@ CLI 下载不复用 MCP 的协议代理。daemon 为批准的安装操作启动�
 
 ## 3. MCP 与 Runtime Docker 的交互
 
+### Streamable HTTP
+
 ```text
 managed Provider container
   -> http://<restricted-bridge-gateway>:<ephemeral-port>/mcp?session=<random>
@@ -81,6 +86,18 @@ remote daemon 在托管节点上执行：
 5. task 结束时撤销 session 并关闭已建立的 MCP transport。
 
 非托管 host remote Runtime 继续绑定 `127.0.0.1`，不会扩大监听面。
+
+### Managed stdio
+
+```text
+Provider -> daemon task gateway -> RuntimeMcpClient
+  -> docker run --interactive --network none target-provider-image
+       mount <runtime-home> -> /dofe-home
+       entrypoint=/dofe-home/.local/bin/<catalog-entrypoint>
+  -> MCP stdin/stdout
+```
+
+连接验证与任务调用使用同一启动构造器，均不接受浏览器传入的 command/args。只有大写环境变量名称可进入进程；`HOME`、`PATH` 与 `DOFE_*` 由 daemon 保留。stdio server 如需访问外部 SaaS，必须等待受控 worker egress 能力并显式发布相应策略；当前 `--network none` 会 fail closed，不得临时接入安装网络或 Runtime 普通网络。
 
 ## 4. Remote 节点安装与 Compose 约定
 
@@ -102,7 +119,7 @@ remote daemon 在托管节点上执行：
 工作区管理员在“应用市场 -> MCP 服务”选择“添加 MCP 服务”，填写：
 
 - 服务名、slug、不可变 semver 和类别；
-- HTTPS endpoint 与额外 allowed hosts；endpoint host 自动加入 allowlist；
+- transport；Streamable HTTP 填写 HTTPS endpoint 与额外 allowed hosts，managed stdio 填写已安装入口命令；
 - declared tools、逐工具风险和默认批准集合；
 - 非密钥字符串配置 schema、密钥字段和数据域；
 - 可选文档地址。
@@ -136,11 +153,14 @@ docker inspect <runtime-container> --format '{{json .Config.Env}}' | \
 | `managed_runtime.docker_network_gateway_unavailable` | daemon 无法 inspect 网络 | 检查 Docker 权限和网络是否存在 |
 | `managed_runtime.docker_network_gateway_invalid` | gateway 不是具体 IPv4 | 修复 Docker IPAM，不回退 `0.0.0.0` |
 | `managed_runtime.mcp_egress_network_required` | enforce 模式未接 restricted network | 先完成 Compose egress 部署 |
+| `mcp.managed_stdio_endpoint_invalid` | stdio release 不是单一已安装入口名 | 使用 `stdio://<entrypoint>`，禁止路径和参数 |
+| `mcp.managed_stdio_environment_invalid` | stdio 配置试图覆盖保留环境变量 | 仅声明受控的大写业务变量 |
 
 ## 7. 验收底线
 
 - 两个 Runtime 安装同名 CLI 时，home 与 `.local/bin` 必须互不相同；
 - Runtime 容器重建后，已安装 CLI 仍可执行；
+- managed stdio 必须从目标 Runtime 私有 `.local/bin` 启动，Docker stdin 保持打开且网络为 `none`；
 - CLI 安装计划 JSON 不得出现 `/dofe-home` 或 daemon 宿主机路径；
 - managed Provider 获得的 MCP URL 不得是 `127.0.0.1`，gateway 监听地址不得是 `0.0.0.0`；
 - task bundle、Provider env、Runtime HOME 和日志均不得出现 MCP plaintext secret；

@@ -7,6 +7,7 @@ import {
   buildRemoteDaemonConfig,
   buildRemoteDaemonRelaunchCommand,
   buildRemoteRuntimeHeartbeatMetadata,
+  buildManagedStdioLaunch,
   claimRemoteQueue,
   classifyRemoteLoopError,
   mergeRemoteGatewayUsages,
@@ -96,6 +97,41 @@ test("buildRemoteDaemonConfig prefers explicit flags over env", () => {
   assert.equal(config.heartbeatIntervalMs, 20000);
   assert.equal(config.taskPollIntervalMs, 5000);
   assert.equal(config.taskTimeoutMs, 28800000);
+});
+
+test("managed stdio MCP launches the installed entrypoint inside the target Runtime image", () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-managed-stdio-"));
+  try {
+    const launch = buildManagedStdioLaunch({
+      endpoint: "stdio://internal-mcp",
+      nonSecretParams: { TENANT_ID: "tenant-1" },
+      secrets: { API_TOKEN: "secret-value" },
+    }, { stateDir, managedNode: true }, { id: "runtime-1", provider: "codex" });
+
+    assert.equal(launch.command, "docker");
+    assert.equal(launch.args.includes("--interactive"), true);
+    assert.equal(launch.args.includes("none"), true);
+    assert.equal(launch.args.includes("/dofe-home/.local/bin/internal-mcp"), true);
+    assert.equal(launch.args.some((value) => value.includes("/dofe-home")), true);
+    assert.equal(launch.args.includes("TENANT_ID=tenant-1"), true);
+    assert.equal(launch.args.includes("API_TOKEN=secret-value"), true);
+    assert.equal(launch.args.at(-1), "dofe/agent-runtime-codex:latest");
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("managed stdio MCP rejects shell syntax and reserved environment variables", () => {
+  assert.throws(() => buildManagedStdioLaunch({
+    endpoint: "stdio://server/path",
+    nonSecretParams: {},
+    secrets: {},
+  }, { stateDir: "/tmp/dofe-test", managedNode: false }, { id: "runtime-1", provider: "codex" }), /endpoint_invalid/);
+  assert.throws(() => buildManagedStdioLaunch({
+    endpoint: "stdio://server",
+    nonSecretParams: { PATH: "/untrusted" },
+    secrets: {},
+  }, { stateDir: "/tmp/dofe-test", managedNode: false }, { id: "runtime-1", provider: "codex" }), /environment_invalid/);
 });
 
 test("buildRemoteDaemonRelaunchCommand reuses the installed daemon bin without strip-types", () => {

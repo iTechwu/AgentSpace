@@ -195,6 +195,34 @@ describe("MarketPageClient", () => {
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
   });
 
+  it("publishes a managed stdio release that targets an installed Runtime entrypoint", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "MCP 市场" }));
+    await user.click(screen.getByRole("button", { name: "添加 MCP 服务" }));
+    const catalogForm = within(screen.getByRole("dialog", { name: "添加 MCP 服务" }));
+    await user.type(catalogForm.getByLabelText("服务名称", { selector: "input" }), "Local MCP");
+    await user.selectOptions(catalogForm.getByLabelText("传输"), "managed_stdio");
+    await user.type(catalogForm.getByLabelText("已安装入口命令"), "local-mcp");
+    await user.type(catalogForm.getByLabelText("工具 1"), "lookup_record");
+    await user.type(catalogForm.getByLabelText("说明", { selector: "input" }), "Look up a local record");
+    await user.click(catalogForm.getByRole("button", { name: "发布到目录" }));
+
+    await waitFor(() => expect(actionMocks.createMcpCatalogItem).toHaveBeenCalledTimes(1));
+    expect(actionMocks.createMcpCatalogItem).toHaveBeenCalledWith(expect.objectContaining({
+      transport: "managed_stdio",
+      endpointTemplate: "stdio://local-mcp",
+      allowedHosts: [],
+    }));
+  });
+
   it("only shows online runtimes in the target runtime selector", () => {
     render(
       <LanguageProvider>

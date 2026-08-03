@@ -76,6 +76,7 @@ export class McpEgressPolicyCache {
       }
       const {
         staticHeaders: _legacyStaticHeaders,
+        oauthGrantReference: _legacyOauthGrantReference,
         privateCaPem: _legacyPrivateCaPem,
         ...durableSnapshot
       } = snapshot as McpEgressPolicySnapshot;
@@ -96,6 +97,7 @@ export class McpEgressPolicyCache {
     }
     const durableSnapshots = Array.from(revisions.values()).map(({
       staticHeaders: _staticHeaders,
+      oauthGrantReference: _oauthGrantReference,
       privateCaPem: _privateCaPem,
       ...snapshot
     }) => snapshot);

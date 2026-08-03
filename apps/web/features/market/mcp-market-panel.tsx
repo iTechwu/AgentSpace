@@ -90,7 +90,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     ? data.runtimes.filter((runtime) => runtime.id === editingConnection.runtimeId)
     : onlineRuntimes;
   const formRuntimeId = editingConnection?.runtimeId ?? selectedRuntime?.id ?? "";
-  const supportsSelectedTransport = selected?.transport === "streamable_http";
+  const supportsSelectedTransport = selected?.transport === "streamable_http" || selected?.transport === "managed_stdio";
   const requiresHighRiskConfirmation = Boolean(selected && (
     !editingConnection
       ? selected.risk === "high" || selected.declaredTools.some((tool) => tool.risk === "high" && approvedTools.has(tool.name))
@@ -443,13 +443,14 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                   </select>
                 </label>
                 <label className="form-field">
-                  <span>{tx("Endpoint (HTTPS)", "Endpoint (HTTPS)")}</span>
+                  <span>{selected.transport === "managed_stdio" ? tx("受管 stdio 入口", "Managed stdio entrypoint") : tx("Endpoint (HTTPS)", "Endpoint (HTTPS)")}</span>
                   <input
                     onChange={(event) => {
                       setDirtyEndpoint(true);
                       setEndpoint(event.currentTarget.value);
                     }}
-                    placeholder="https://mcp.example.com/mcp"
+                    placeholder={selected.transport === "managed_stdio" ? "stdio://my-mcp-server" : "https://mcp.example.com/mcp"}
+                    readOnly={selected.transport === "managed_stdio"}
                     value={endpoint}
                   />
                 </label>
@@ -514,7 +515,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                 ) : null}
               </div>
               {!supportsSelectedTransport ? (
-                <p className="panel-note">{tx("当前版本仅支持 Streamable HTTP MCP。", "This version supports Streamable HTTP MCP only.")}</p>
+                <p className="panel-note">{tx("当前传输尚未开放连接。", "This transport is not connectable yet.")}</p>
               ) : null}
               </>
             ) : null}
@@ -637,7 +638,7 @@ function isActiveStatus(status: string): boolean {
 }
 
 function transportLabel(transport: string, tx: (zh: string, en: string) => string): string {
-  if (transport === "streamable_http") return transport;
+  if (transport === "streamable_http" || transport === "managed_stdio") return transport;
   // Transports beyond streamable_http are type/UI placeholders: they are
   // visible in the catalog but not connectable yet, so they must say so.
   return `${transport} · ${tx("待支持", "not yet")}`;

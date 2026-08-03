@@ -30,6 +30,10 @@ services:
       MCP_EGRESS_PROXY_ADMIN_TOKENS: ${MCP_EGRESS_PROXY_ADMIN_TOKENS:?Set at least one proxy admin token}
       MCP_EGRESS_PROXY_STATE_FILE: /var/lib/dofe-mcp-egress/policies.json
       MCP_EGRESS_PROXY_JTI_STATE_FILE: /var/lib/dofe-mcp-egress/jti-bindings.json
+      # Optional managed OAuth broker. The proxy receives only opaque grant
+      # references and short-lived access tokens, never refresh tokens.
+      MCP_OAUTH_BROKER_URL: ${MCP_OAUTH_BROKER_URL:-}
+      MCP_OAUTH_BROKER_TOKEN: ${MCP_OAUTH_BROKER_TOKEN:-}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>r.ok||process.exit(1)).catch(()=>process.exit(1))"]
       interval: 10s

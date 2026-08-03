@@ -12,6 +12,9 @@ import {
   resolveProviderProtocols,
   type DaemonProvider,
   type DaemonTaskUsage,
+  type McpManagedStdioLaunch,
+  type McpTaskSessionConnection,
+  type ResolvedMcpConnection,
 } from "@dofe-agent/domain";
 import { getStringFlag, parseArgs } from "./args.ts";
 import type { ClaimedDaemonTask, ClaimedManagedSkillServiceOperation, ClaimedRuntimeAppOperation, ClaimedSkillInstallationOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, ManagedProvisioningTask, ManagedRuntimeCleanupRequest, RegisterDaemonResponse } from "./daemon-api.ts";
@@ -816,7 +819,9 @@ async function pollRemoteTasks(
       });
       if (mcpOperation?.operation) {
         activeRuntimes.add(runtime.id);
-        void executeMcpConnectionOperation(client, mcpOperation.operation)
+        void executeMcpConnectionOperation(client, mcpOperation.operation, {
+          resolveConnection: (connection) => attachManagedStdioLaunch(connection, config, runtime),
+        })
           .catch((error) => {
             const message = error instanceof Error ? error.message : String(error);
             console.error(`MCP operation ${mcpOperation.operation?.id ?? "unknown"} crashed: ${message}`);
@@ -1099,7 +1104,7 @@ async function executeRemoteTask(
         taskId: task.id,
         runtimeId: runtime.id,
         workspaceId: task.workspaceId,
-        connections: claimed.connections,
+        connections: claimed.connections.map((connection) => attachTaskManagedStdioLaunch(connection, config, runtime)),
       });
     }
 
@@ -1280,6 +1285,90 @@ function ensureManagedRuntimeHomeDir(stateDir: string, runtimeId: string): strin
   const homeDir = getManagedRuntimeHomeDir(stateDir, runtimeId);
   mkdirSync(homeDir, { recursive: true, mode: 0o700 });
   return homeDir;
+}
+
+function attachTaskManagedStdioLaunch(
+  connection: McpTaskSessionConnection,
+  config: RemoteDaemonConfig,
+  runtime: RemoteRuntimeRecord,
+): McpTaskSessionConnection {
+  if (connection.transport !== "managed_stdio") return connection;
+  return { ...connection, managedStdioLaunch: buildManagedStdioLaunch(connection, config, runtime) };
+}
+
+function attachManagedStdioLaunch(
+  connection: ResolvedMcpConnection,
+  config: RemoteDaemonConfig,
+  runtime: RemoteRuntimeRecord,
+): ResolvedMcpConnection {
+  if (connection.transport !== "managed_stdio") return connection;
+  return { ...connection, managedStdioLaunch: buildManagedStdioLaunch(connection, config, runtime) };
+}
+
+export function buildManagedStdioLaunch(
+  connection: Pick<ResolvedMcpConnection, "endpoint" | "nonSecretParams" | "secrets">,
+  config: Pick<RemoteDaemonConfig, "stateDir" | "managedNode">,
+  runtime: Pick<RemoteRuntimeRecord, "id" | "provider">,
+): McpManagedStdioLaunch {
+  const entryPoint = parseManagedStdioEndpoint(connection.endpoint);
+  const runtimeHomeDir = ensureManagedRuntimeHomeDir(config.stateDir, runtime.id);
+  const env = resolveManagedStdioEnvironment(connection.nonSecretParams, connection.secrets);
+  if (!config.managedNode) {
+    return {
+      command: join(runtimeHomeDir, ".local", "bin", entryPoint),
+      args: [],
+      env: {
+        ...env,
+        HOME: runtimeHomeDir,
+        PATH: `${join(runtimeHomeDir, ".local", "bin")}:${process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin"}`,
+      },
+    };
+  }
+  const containerPath = "/dofe-home/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+  return {
+    command: "docker",
+    args: [
+      "run", "--rm", "--interactive", "--init", "--pull", "never", "--read-only", "--network", "none",
+      "--tmpfs", "/tmp:rw,nosuid,nodev,noexec",
+      "--security-opt", "no-new-privileges", "--cap-drop", "ALL",
+      "--user", `${process.getuid?.() ?? 10001}:${process.getgid?.() ?? 10001}`,
+      "--mount", `type=bind,src=${runtimeHomeDir},dst=/dofe-home`,
+      ...Object.entries(env).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
+      "--env", "HOME=/dofe-home", "--env", `PATH=${containerPath}`,
+      "--entrypoint", `/dofe-home/.local/bin/${entryPoint}`,
+      `dofe/agent-runtime-${runtime.provider}:${process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest"}`,
+    ],
+    env: { PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin" },
+  };
+}
+
+function parseManagedStdioEndpoint(endpoint: string): string {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new Error("mcp.managed_stdio_endpoint_invalid");
+  }
+  const command = url.hostname;
+  if (url.protocol !== "stdio:" || url.pathname !== "" || url.search || url.hash || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(command)) {
+    throw new Error("mcp.managed_stdio_endpoint_invalid");
+  }
+  return command;
+}
+
+function resolveManagedStdioEnvironment(
+  nonSecretParams: Record<string, unknown>,
+  secrets: Record<string, string>,
+): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const [key, raw] of [...Object.entries(nonSecretParams), ...Object.entries(secrets)]) {
+    if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(key) || ["HOME", "PATH"].includes(key) || key.startsWith("DOFE_")) {
+      throw new Error("mcp.managed_stdio_environment_invalid");
+    }
+    if (typeof raw !== "string" || raw.length > 8192) throw new Error("mcp.managed_stdio_environment_invalid");
+    values[key] = raw;
+  }
+  return values;
 }
 
 const sharedMcpGateways = new McpGatewayPool();
