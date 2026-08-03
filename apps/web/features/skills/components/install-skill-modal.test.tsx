@@ -5,7 +5,8 @@ import { LanguageProvider } from "@/features/i18n/language-provider";
 import { FeedbackToastProvider } from "@/shared/ui/feedback-toast-provider";
 import { InstallSkillModal } from "./install-skill-modal";
 
-const { createPlan, inspectSkill, listRuntimes } = vi.hoisted(() => ({
+const { approveSkill, createPlan, inspectSkill, listRuntimes } = vi.hoisted(() => ({
+  approveSkill: vi.fn(async () => ({ approvalId: "approval-1" })),
   createPlan: vi.fn(async () => ({
     data: { installationId: "installation-1", status: "preparing" },
     toast: { tone: "info" as const, zh: "安装计划已创建。", en: "Installation planned." },
@@ -18,6 +19,7 @@ const { createPlan, inspectSkill, listRuntimes } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/features/skills/installation-actions", () => ({
+  approveSkillInstallAction: approveSkill,
   createSkillInstallationAction: createPlan,
   inspectSkillInstallationAction: inspectSkill,
   listSkillInstallableRuntimesAction: listRuntimes,
@@ -46,6 +48,8 @@ const inspection = {
   ],
   releaseLockDigest: "b".repeat(64),
   unresolvedRequired: [] as string[],
+  riskItems: [] as Array<{ category: "script" | "network" | "mcp_tool" | "write"; key: string; description: string }>,
+  riskDecisionDigest: "c".repeat(64),
 };
 
 function renderModal(onInstalled = vi.fn()) {
@@ -83,8 +87,59 @@ describe("InstallSkillModal", () => {
     await user.click(screen.getByRole("button", { name: "下一步" }));
     await user.click(screen.getByRole("button", { name: "创建安装计划" }));
 
-    await waitFor(() => expect(createPlan).toHaveBeenCalledWith({ skillId: "skill-1", runtimeId: "runtime-online" }));
+    await waitFor(() => expect(createPlan).toHaveBeenCalledWith({ skillId: "skill-1", runtimeId: "runtime-online", approvalId: undefined }));
     await waitFor(() => expect(onInstalled).toHaveBeenCalled());
+  });
+
+  it("requires per-item authorization of every high-risk capability before creating the plan", async () => {
+    const riskItems = [
+      { category: "script" as const, key: "entrypoint:bin/render.py", description: "可执行脚本入口 bin/render.py（python）" },
+      { category: "network" as const, key: "dependency:pip:pillow@11.0.0", description: "运行时安装依赖 pip:pillow@11.0.0 会访问软件源" },
+    ];
+    inspectSkill.mockResolvedValue({ ...inspection, riskItems });
+    approveSkill.mockClear();
+    const user = userEvent.setup();
+    renderModal();
+
+    await screen.findByText("document-renderer · 2.3.4 · aaaaaaaaaaaa…");
+
+    // Reach the Access step (2) where per-item risk authorization lives.
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(screen.getByText("高风险能力逐项授权")).toBeInTheDocument();
+
+    // No per-item approval → the confirm step stays blocked.
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(screen.getByRole("button", { name: "创建安装计划" })).toBeDisabled();
+
+    // Go back to the Access step and authorize only the FIRST risk item.
+    await user.click(screen.getByRole("button", { name: "上一步" }));
+    await user.click(screen.getByRole("button", { name: "上一步" }));
+    await user.click(screen.getByRole("checkbox", { name: /entrypoint:bin\/render\.py/ }));
+
+    // Still not all authorized → confirm stays blocked (no single global switch).
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(screen.getByRole("button", { name: "创建安装计划" })).toBeDisabled();
+
+    // Authorize the remaining item in the Access step.
+    await user.click(screen.getByRole("button", { name: "上一步" }));
+    await user.click(screen.getByRole("button", { name: "上一步" }));
+    await user.click(screen.getByRole("checkbox", { name: /dependency:pip:pillow@11\.0\.0/ }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+
+    // Reason + create → approval recorded first, then the plan consumes it.
+    await user.type(screen.getByPlaceholderText(/说明授权该 Skill 高风险能力的理由/), "团队已评审该渲染脚本");
+    await user.click(screen.getByRole("button", { name: "创建安装计划" }));
+
+    await waitFor(() =>
+      expect(approveSkill).toHaveBeenCalledWith({ skillId: "skill-1", reason: "团队已评审该渲染脚本" }),
+    );
+    await waitFor(() =>
+      expect(createPlan).toHaveBeenCalledWith({ skillId: "skill-1", runtimeId: "runtime-online", approvalId: "approval-1" }),
+    );
   });
 
   it("blocks plan creation when required release-lock entries are unresolved", async () => {

@@ -2,6 +2,7 @@
 
 import {
   listInstallableRuntimesForWorkspaceSync,
+  listSkillInstallApprovalsSync,
   listSkillArtifactsForSkillSync,
   listSkillInstallationOperationsSync,
   listSkillInstallationsSync,
@@ -12,8 +13,11 @@ import {
   readSkillInstallationSync,
 } from "@dofe-agent/db";
 import {
+  approveSkillInstallSync,
   approveSkillUpgradeSync,
+  buildSkillInstallRiskItemsSync,
   buildSkillInstallationComponentsSync,
+  computeSkillInstallRiskDecisionDigestSync,
   computeSkillReleaseLockSync,
   computeSkillUpgradeDiffHashSync,
   createSkillInstallationPlanSync,
@@ -67,6 +71,10 @@ export interface SkillInstallationInspectionView {
   components: Array<{ kind: string; key: string }>;
   releaseLockDigest: string;
   unresolvedRequired: string[];
+  /** Explicit high-risk capability items the admin must authorize one-by-one (P0-2). */
+  riskItems: Array<{ category: "script" | "network" | "mcp_tool" | "write"; key: string; description: string }>;
+  /** sha256 of the canonical risk decision — binds an approval to this artifact/lock/risk set. */
+  riskDecisionDigest: string;
 }
 
 export async function inspectSkillInstallationAction(input: {
@@ -86,6 +94,15 @@ export async function inspectSkillInstallationAction(input: {
   }
   const manifest = parseInspectionManifest(artifact.manifestJson);
   const releaseLock = computeSkillReleaseLockSync(artifact, workspaceContext.currentWorkspace.id);
+  const riskItems = buildSkillInstallRiskItemsSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    artifactDigest: artifact.digest,
+  });
+  const riskDecisionDigest = computeSkillInstallRiskDecisionDigestSync({
+    artifactDigest: artifact.digest,
+    releaseLockDigest: releaseLock.lockDigest,
+    riskItems,
+  });
   return {
     artifact: {
       name: artifact.name,
@@ -114,6 +131,8 @@ export async function inspectSkillInstallationAction(input: {
     }).map((component) => ({ kind: component.kind, key: component.key })),
     releaseLockDigest: releaseLock.lockDigest,
     unresolvedRequired: releaseLock.unresolvedRequired,
+    riskItems,
+    riskDecisionDigest,
   };
 }
 
@@ -127,6 +146,12 @@ export async function listSkillInstallableRuntimesAction(): Promise<SkillInstall
 export async function createSkillInstallationAction(input: {
   skillId: string;
   runtimeId: string;
+  /**
+   * Immutable per-item risk approval obtained via `approveSkillInstallAction`.
+   * Required when the artifact declares any script/network/high-risk-MCP/write
+   * capability (first-install risk gate, P0-2).
+   */
+  approvalId?: string;
 }): Promise<ActionToastResult<{ installationId: string; status: string }>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "admin");
@@ -143,6 +168,7 @@ export async function createSkillInstallationAction(input: {
     runtimeId: input.runtimeId.trim(),
     artifactDigest: digest,
     requestedByUserId: workspaceContext.currentUser.id,
+    approvalId: input.approvalId?.trim() || undefined,
   });
 
   tryRecordWorkspaceAuditEventSync({
@@ -165,6 +191,71 @@ export async function createSkillInstallationAction(input: {
     { installationId: installation.id, status: installation.status },
     infoToast("安装计划已创建，daemon 将在目标 Runtime 上准备环境。", "Installation plan created; the daemon will prepare on the target runtime."),
   );
+}
+
+export async function approveSkillInstallAction(input: {
+  skillId: string;
+  reason: string;
+}): Promise<{ approvalId: string }> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertRequired(input.skillId, "skill id");
+
+  const digest = readActiveArtifactDigestForSkillSync(input.skillId.trim(), workspaceContext.currentWorkspace.id);
+  if (!digest) {
+    throw new Error("此 Skill 尚无不可变 artifact，请先重新导入以生成 artifact。");
+  }
+  const artifact = readSkillArtifactByDigestSync(digest, workspaceContext.currentWorkspace.id);
+  if (!artifact) {
+    throw new Error("Skill artifact 不存在或不属于当前工作区。");
+  }
+  const riskItems = buildSkillInstallRiskItemsSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    artifactDigest: digest,
+  });
+  const lock = computeSkillReleaseLockSync(artifact, workspaceContext.currentWorkspace.id);
+  const { approvalId } = approveSkillInstallSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    skillId: input.skillId.trim(),
+    artifactDigest: digest,
+    releaseLockDigest: lock.lockDigest,
+    riskItems,
+    reason: input.reason.trim() || "管理员逐项审批授权",
+    actorUserId: workspaceContext.currentUser.id,
+  });
+  return { approvalId };
+}
+
+export interface SkillInstallApprovalAuditView {
+  id: string;
+  skillId?: string;
+  artifactDigest: string;
+  releaseLockDigest: string;
+  policyVersion: string;
+  riskDecisionDigest: string;
+  decision: string;
+  riskItems: Array<{ category: string; key: string; description: string }>;
+  reason?: string;
+  createdAt: string;
+  consumedAt?: string;
+}
+
+export async function listSkillInstallApprovalsAction(): Promise<SkillInstallApprovalAuditView[]> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  return listSkillInstallApprovalsSync(workspaceContext.currentWorkspace.id).map((approval) => ({
+    id: approval.id,
+    skillId: approval.skillId,
+    artifactDigest: approval.artifactDigest,
+    releaseLockDigest: approval.releaseLockDigest,
+    policyVersion: approval.policyVersion,
+    riskDecisionDigest: approval.riskDecisionDigest,
+    decision: approval.decision,
+    riskItems: approval.riskItems,
+    reason: approval.reason,
+    createdAt: approval.createdAt,
+    consumedAt: approval.consumedAt,
+  }));
 }
 
 export async function createSkillUpgradeAction(input: {

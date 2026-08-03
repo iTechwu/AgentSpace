@@ -15,6 +15,7 @@ const { createUpgrade, listRows } = vi.hoisted(() => ({
 
 vi.mock("@/features/skills/installation-actions", () => ({
   createSkillUpgradeAction: createUpgrade,
+  listSkillInstallApprovalsAction: vi.fn(async () => []),
   listSkillInstallationRowsForSkillAction: listRows,
   promoteSkillUpgradeAction: vi.fn(),
   rollbackSkillInstallationAction: vi.fn(),

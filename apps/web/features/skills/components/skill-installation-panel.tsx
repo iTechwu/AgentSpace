@@ -7,10 +7,12 @@ import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import {
   createSkillUpgradeAction,
+  listSkillInstallApprovalsAction,
   listSkillInstallationRowsForSkillAction,
   promoteSkillUpgradeAction,
   rollbackSkillInstallationAction,
   uninstallSkillInstallationAction,
+  type SkillInstallApprovalAuditView,
   type SkillInstallationRowView,
 } from "@/features/skills/installation-actions";
 
@@ -45,6 +47,7 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
   const { tx } = useLanguage();
   const { pushToast } = useFeedbackToast();
   const [rows, setRows] = useState<SkillInstallationRowView[]>([]);
+  const [approvals, setApprovals] = useState<SkillInstallApprovalAuditView[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [pendingRollbackId, setPendingRollbackId] = useState<string>("");
@@ -55,10 +58,13 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
   const reload = useCallback(() => {
     setLoading(true);
     setLoadFailed(false);
-    void listSkillInstallationRowsForSkillAction({ skillId })
-      .then(setRows)
-      .catch(() => setLoadFailed(true))
-      .finally(() => setLoading(false));
+    void Promise.all([
+      listSkillInstallationRowsForSkillAction({ skillId }),
+      listSkillInstallApprovalsAction(),
+    ]).then(([nextRows, nextApprovals]) => {
+      setRows(nextRows);
+      setApprovals(nextApprovals.filter((approval) => approval.skillId === skillId));
+    }).catch(() => setLoadFailed(true)).finally(() => setLoading(false));
   }, [skillId]);
 
   useEffect(() => {
@@ -152,9 +158,12 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
 
   if (rows.length === 0) {
     return (
-      <p className="form-field__hint" role="status">
-        {tx("该 Skill 尚未安装到任何 Runtime。", "This skill is not installed on any runtime yet.")}
-      </p>
+      <div>
+        <p className="form-field__hint" role="status">
+          {tx("该 Skill 尚未安装到任何 Runtime。", "This skill is not installed on any runtime yet.")}
+        </p>
+        {approvals.length > 0 ? <SkillInstallApprovalsAudit approvals={approvals} tx={tx} /> : null}
+      </div>
     );
   }
 
@@ -164,6 +173,7 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
         <span>{tx(`${rows.length} 个安装版本`, `${rows.length} installation revisions`)}</span>
         <button aria-label={tx("刷新安装状态", "Refresh installation state")} className="action-button action-button--compact action-button--icon" onClick={reload} title={tx("刷新", "Refresh")} type="button"><AppIcon name="refresh" /></button>
       </div>
+      {approvals.length > 0 ? <SkillInstallApprovalsAudit approvals={approvals} tx={tx} /> : null}
       {rows.map((row) => {
         const [statusZh, statusEn] = INSTALLATION_STATUS_LABELS[row.status] ?? [row.status, row.status];
         return (
@@ -269,5 +279,42 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
         );
       })}
     </div>
+  );
+}
+
+/** 审批审计入口：展示该 Skill 的首次安装逐项授权记录（P0-2）。 */
+function SkillInstallApprovalsAudit({
+  approvals,
+  tx,
+}: {
+  approvals: SkillInstallApprovalAuditView[];
+  tx: (zh: string, en: string) => string;
+}) {
+  return (
+    <details className="skill-install-approvals-audit">
+      <summary>
+        {tx(`审批记录（${approvals.length}）`, `Approval records (${approvals.length})`)}
+      </summary>
+      <ul>
+        {approvals.map((approval) => (
+          <li key={approval.id}>
+            <div>
+              <span className="skill-install-approvals-audit__decision">{approval.decision}</span>
+              <code className="skill-install-approvals-audit__digest">{approval.artifactDigest.slice(0, 12)}…</code>
+              {approval.consumedAt ? <span className="skill-install-approvals-audit__consumed">{tx("已消费", "consumed")}</span> : null}
+            </div>
+            <div>
+              <span>{new Date(approval.createdAt).toLocaleString()}</span>
+              {approval.reason ? <span className="skill-install-approvals-audit__reason">{approval.reason}</span> : null}
+            </div>
+            <ul>
+              {approval.riskItems.map((item) => (
+                <li key={item.key}><code>{item.key}</code></li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }

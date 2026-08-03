@@ -32352,6 +32352,161 @@ button[aria-disabled="true"] svg {
   overflow-wrap: anywhere;
 }
 
+.skill-install-risk-approvals {
+  grid-column: 1 / -1;
+  margin: 0.75rem 0 0;
+  padding: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: 8px;
+}
+
+.skill-install-risk-approvals legend {
+  font-weight: 700;
+  color: var(--danger);
+  padding: 0 0.3rem;
+}
+
+.skill-install-risk-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.skill-install-risk-approvals ul {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skill-install-risk-option {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.skill-install-risk-category {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--danger);
+  white-space: nowrap;
+}
+
+.skill-install-risk-description {
+  color: var(--muted);
+  font-size: 0.82rem;
+  grid-column: 2 / -1;
+}
+
+.skill-install-risk-confirmation {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.skill-install-risk-confirmation > div:first-child {
+  display: flex;
+  justify-content: space-between;
+}
+
+.skill-install-risk-confirmation > div:first-child span {
+  color: var(--muted);
+}
+
+.skill-install-risk-confirmation ul {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skill-install-risk-confirmation li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  opacity: 0.55;
+}
+
+.skill-install-risk-confirmation li.skill-install-risk-confirmed {
+  opacity: 1;
+}
+
+.skill-install-risk-confirmation li::before {
+  content: "☐";
+}
+
+.skill-install-risk-confirmation li.skill-install-risk-confirmed::before {
+  content: "☑";
+  color: var(--success);
+}
+
+.skill-install-approvals-audit {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.skill-install-approvals-audit summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.skill-install-approvals-audit > ul {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skill-install-approvals-audit > ul > li {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.skill-install-approvals-audit > ul > li > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.skill-install-approvals-audit__decision {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--success);
+}
+
+.skill-install-approvals-audit__consumed {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.skill-install-approvals-audit__reason {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.skill-install-approvals-audit > ul > li > ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .skill-install-alert {
   display: flex;
   align-items: flex-start;

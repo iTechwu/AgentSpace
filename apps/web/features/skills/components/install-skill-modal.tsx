@@ -7,6 +7,7 @@ import { runToastAction } from "@/shared/lib/toast-action";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import {
+  approveSkillInstallAction,
   createSkillInstallationAction,
   inspectSkillInstallationAction,
   listSkillInstallableRuntimesAction,
@@ -32,6 +33,8 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [pending, setPending] = useState(false);
+  const [riskApprovals, setRiskApprovals] = useState<Record<string, boolean>>({});
+  const [approvalReason, setApprovalReason] = useState("");
 
   const load = useCallback(() => setLoadGeneration((value) => value + 1), []);
 
@@ -48,6 +51,9 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
       setRuntimes(rows);
       const firstOnline = rows.find((runtime) => runtime.status === "online");
       setSelectedRuntimeId((current) => current || firstOnline?.id || "");
+      // A fresh inspection resets the per-item risk authorization state.
+      setRiskApprovals({});
+      setApprovalReason("");
     }).catch((error: unknown) => {
       if (!cancelled) setLoadError(error instanceof Error ? error.message : tx("安装检查失败。", "Installation inspection failed."));
     }).finally(() => {
@@ -61,6 +67,8 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
     [runtimes, selectedRuntimeId],
   );
   const blocked = (inspection?.unresolvedRequired.length ?? 0) > 0;
+  const riskItems = inspection?.riskItems ?? [];
+  const allRisksApproved = riskItems.length > 0 && riskItems.every((item) => riskApprovals[item.key]);
   const steps = [
     tx("包检查", "Package"),
     tx("Runtime", "Runtime"),
@@ -69,16 +77,32 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
     tx("确认", "Confirm"),
   ];
 
-  const confirmInstall = () => {
+  const confirmInstall = async () => {
     if (!selectedRuntimeId || !inspection || blocked) return;
+    if (riskItems.length > 0 && !allRisksApproved) return;
     setPending(true);
-    void runToastAction({
-      action: () => createSkillInstallationAction({ skillId, runtimeId: selectedRuntimeId }),
-      pushToast,
-      tx,
-      fallbackError: { zh: "创建安装计划失败。", en: "Failed to create the installation plan." },
-      onSuccess: () => onInstalled?.(),
-    }).finally(() => setPending(false));
+    try {
+      // First-install risk gate (P0-2): record an immutable per-item approval
+      // bound to artifact + release lock + risk decision, then create the plan
+      // which consumes it atomically.
+      let approvalId: string | undefined;
+      if (riskItems.length > 0) {
+        const approved = await approveSkillInstallAction({
+          skillId,
+          reason: approvalReason.trim() || tx("管理员逐项审批授权", "Admin per-item risk approval"),
+        });
+        approvalId = approved.approvalId;
+      }
+      await runToastAction({
+        action: () => createSkillInstallationAction({ skillId, runtimeId: selectedRuntimeId, approvalId }),
+        pushToast,
+        tx,
+        fallbackError: { zh: "创建安装计划失败。", en: "Failed to create the installation plan." },
+        onSuccess: () => onInstalled?.(),
+      });
+    } finally {
+      setPending(false);
+    }
   };
 
   return (
@@ -174,6 +198,30 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
               <DeclarationGroup title={tx("CLI / MCP 能力", "CLI / MCP access")} empty={tx("无", "None")} rows={inspection.capabilities.map((item) => `${item.kind}:${item.catalogSlug}${item.requiredTools.length ? ` · ${item.requiredTools.join(", ")}` : ""}`)} />
               <DeclarationGroup title={tx("支撑服务", "Support services")} empty={tx("无", "None")} rows={inspection.services.map((item) => `${item.catalogSlug}@${item.templateVersion} · ${item.required ? tx("必需", "required") : tx("可选", "optional")}`)} />
               <DeclarationGroup title={tx("脚本入口", "Script entrypoints")} empty={tx("无", "None")} rows={inspection.entrypoints.map((item) => `${item.runtime}:${item.path}`)} />
+              {riskItems.length > 0 ? (
+                <fieldset className="skill-install-risk-approvals">
+                  <legend>{tx("高风险能力逐项授权", "Per-item high-risk approval")}</legend>
+                  <p className="skill-install-risk-hint">
+                    {tx("此 Skill 声明了以下高风险能力，请逐项确认已了解其影响后授权。未全部授权无法创建安装计划。", "This skill declares high-risk capabilities. Confirm each item individually to authorize. The plan cannot be created until all are authorized.")}
+                  </p>
+                  <ul>
+                    {riskItems.map((item) => (
+                      <li key={item.key}>
+                        <label className="skill-install-risk-option">
+                          <input
+                            checked={riskApprovals[item.key] === true}
+                            onChange={(event) => setRiskApprovals((current) => ({ ...current, [item.key]: event.target.checked }))}
+                            type="checkbox"
+                          />
+                          <span className="skill-install-risk-category">{riskCategoryLabel(item.category, tx)}</span>
+                          <code>{item.key}</code>
+                          <span className="skill-install-risk-description">{item.description}</span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </fieldset>
+              ) : null}
             </section>
           ) : null}
 
@@ -201,6 +249,31 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
                 <div><dt>{tx("验证组件", "Verification components")}</dt><dd>{inspection.components.length}</dd></div>
               </dl>
               {blocked ? <p className="skill-install-alert skill-install-alert--danger">{tx("必需能力未解析，不能创建安装计划。", "Required capabilities are unresolved; the plan cannot be created.")}</p> : null}
+              {riskItems.length > 0 ? (
+                <div className="skill-install-risk-confirmation">
+                  <div>
+                    <span>{tx("待授权风险项", "Risk items to authorize")}</span>
+                    <strong>{riskItems.filter((item) => riskApprovals[item.key]).length} / {riskItems.length}</strong>
+                  </div>
+                  <ul>
+                    {riskItems.map((item) => (
+                      <li className={riskApprovals[item.key] ? "skill-install-risk-confirmed" : ""} key={item.key}>
+                        <span className="skill-install-risk-category">{riskCategoryLabel(item.category, tx)}</span>
+                        <code>{item.key}</code>
+                      </li>
+                    ))}
+                  </ul>
+                  <label className="form-field">
+                    <span>{tx("审批理由", "Approval reason")}</span>
+                    <input
+                      className="text-input"
+                      onChange={(event) => setApprovalReason(event.target.value)}
+                      placeholder={tx("说明授权该 Skill 高风险能力的理由…", "Explain why these high-risk capabilities are authorized…")}
+                      value={approvalReason}
+                    />
+                  </label>
+                </div>
+              ) : null}
             </section>
           ) : null}
         </div>
@@ -209,7 +282,7 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
           <button className="modal-secondary-button" disabled={pending} onClick={step === 0 ? onCancel : () => setStep((value) => Math.max(0, value - 1))} type="button">
             {step > 0 ? <AppIcon name="arrowLeft" /> : null}{step === 0 ? tx("取消", "Cancel") : tx("上一步", "Back")}
           </button>
-          <button className="primary-button" disabled={pending || loading || Boolean(loadError) || (step >= 1 && !selectedRuntimeId) || (step === steps.length - 1 && blocked)} type="submit">
+          <button className="primary-button" disabled={pending || loading || Boolean(loadError) || (step >= 1 && !selectedRuntimeId) || (step === steps.length - 1 && (blocked || (riskItems.length > 0 && !allRisksApproved)))} type="submit">
             {step === steps.length - 1 ? (pending ? tx("创建中…", "Creating…") : <><AppIcon name="checkCircle" />{tx("创建安装计划", "Create plan")}</>) : <>{tx("下一步", "Next")}<AppIcon name="arrowRight" /></>}
           </button>
         </div>
@@ -220,6 +293,21 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
 
 function DeclarationGroup({ title, empty, rows }: { title: string; empty: string; rows: string[] }) {
   return <div><h4>{title}</h4>{rows.length ? <ul>{rows.map((row) => <li key={row}><code>{row}</code></li>)}</ul> : <p>{empty}</p>}</div>;
+}
+
+function riskCategoryLabel(category: string, tx: (zh: string, en: string) => string): string {
+  switch (category) {
+    case "script":
+      return tx("脚本", "Script");
+    case "network":
+      return tx("网络", "Network");
+    case "mcp_tool":
+      return tx("高风险 MCP 工具", "High-risk MCP tool");
+    case "write":
+      return tx("写能力", "Write");
+    default:
+      return category;
+  }
 }
 
 function formatBytes(bytes: number): string {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test, { before, beforeEach } from "node:test";
+import test, { after, before, beforeEach } from "node:test";
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId, withTransaction } from "./database.ts";
 import {
   createManagedSkillServiceSync,
@@ -12,6 +12,16 @@ import {
 
 before(() => {
   process.env.NODE_ENV = "test";
+});
+
+// The shared agent_space_test DB is reused by the services package tests; the
+// last seeded catalog row would otherwise leak into `release.test.ts` (its
+// upsert is first-write-wins) and break the root test gate.
+after(() => {
+  const db = getDatabase();
+  db.prepare("DELETE FROM skill_service_binding").run();
+  db.prepare("DELETE FROM managed_skill_service").run();
+  db.prepare("DELETE FROM skill_service_catalog").run();
 });
 
 beforeEach(() => {
