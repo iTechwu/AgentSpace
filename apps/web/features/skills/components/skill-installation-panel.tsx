@@ -7,6 +7,7 @@ import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import {
   createSkillUpgradeAction,
+  downloadSkillInstallationDiagnosticsAction,
   listSkillInstallApprovalsAction,
   listSkillInstallationRowsForSkillAction,
   listSkillRunnerInvocationsAction,
@@ -57,6 +58,7 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
   const [pendingPromoteId, setPendingPromoteId] = useState<string>("");
   const [pendingUpgradeId, setPendingUpgradeId] = useState<string>("");
   const [pendingUninstallId, setPendingUninstallId] = useState<string>("");
+  const [downloadingDiagnostics, setDownloadingDiagnostics] = useState(false);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -157,6 +159,17 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
     }).finally(() => setPendingUpgradeId(""));
   };
 
+  const downloadDiagnostics = () => {
+    setDownloadingDiagnostics(true);
+    void runToastAction({
+      action: () => downloadSkillInstallationDiagnosticsAction({ skillId }),
+      pushToast,
+      tx,
+      fallbackError: { zh: "诊断包生成失败。", en: "Failed to generate diagnostics." },
+      onSuccess: (data) => downloadBase64Json(data.fileName, data.contentBase64),
+    }).finally(() => setDownloadingDiagnostics(false));
+  };
+
   if (loading) {
     return <p className="form-field__hint">{tx("正在加载安装状态…", "Loading installation state…")}</p>;
   }
@@ -186,7 +199,10 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
     <div className="skill-installation-list">
       <div className="skill-installation-list__toolbar">
         <span>{tx(`${rows.length} 个安装版本`, `${rows.length} installation revisions`)}</span>
-        <button aria-label={tx("刷新安装状态", "Refresh installation state")} className="action-button action-button--compact action-button--icon" onClick={reload} title={tx("刷新", "Refresh")} type="button"><AppIcon name="refresh" /></button>
+        <div className="skill-installation-card__actions">
+          <button aria-label={tx("下载脱敏诊断包", "Download redacted diagnostics")} className="action-button action-button--compact action-button--icon" disabled={downloadingDiagnostics} onClick={downloadDiagnostics} title={tx("下载脱敏诊断包", "Download redacted diagnostics")} type="button"><AppIcon className={downloadingDiagnostics ? "spin" : undefined} name={downloadingDiagnostics ? "loader" : "download"} /></button>
+          <button aria-label={tx("刷新安装状态", "Refresh installation state")} className="action-button action-button--compact action-button--icon" onClick={reload} title={tx("刷新", "Refresh")} type="button"><AppIcon name="refresh" /></button>
+        </div>
       </div>
       {approvals.length > 0 ? <SkillInstallApprovalsAudit approvals={approvals} tx={tx} /> : null}
       {invocations.length > 0 ? <SkillRunnerInvocationsAudit invocations={invocations} tx={tx} /> : null}
@@ -296,6 +312,21 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
       })}
     </div>
   );
+}
+
+function downloadBase64Json(fileName: string, contentBase64: string): void {
+  const binary = atob(contentBase64);
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  const url = URL.createObjectURL(new Blob([buffer], { type: "application/json" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 /** Skill Runner 调用审计入口：展示该 Skill 各安装上的 entrypoint 调用记录（P1-3）。 */

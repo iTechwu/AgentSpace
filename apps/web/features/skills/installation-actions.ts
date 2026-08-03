@@ -1,5 +1,6 @@
 "use server";
 
+import { createHash, randomBytes } from "node:crypto";
 import {
   listInstallableRuntimesForWorkspaceSync,
   listSkillInstallApprovalsSync,
@@ -40,6 +41,7 @@ import {
   successToast,
   type ActionToastResult,
 } from "@/shared/lib/toast-action";
+import { buildSkillInstallationDiagnostics } from "@/features/skills/skill-installation-diagnostics";
 
 /**
  * Skill installation Server Actions (Phase 5 UI plumbing). These wrap the
@@ -704,6 +706,88 @@ export async function listSkillInstallationRowsForSkillAction(input: {
   }
   rows.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   return rows;
+}
+
+export async function downloadSkillInstallationDiagnosticsAction(input: {
+  skillId: string;
+}): Promise<ActionToastResult<{ fileName: string; contentBase64: string; sha256: string }>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertRequired(input.skillId, "skill id");
+  const skillId = input.skillId.trim();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  const artifacts = listSkillArtifactsForSkillSync(skillId, workspaceId);
+  if (artifacts.length === 0) {
+    throw new Error("此 Skill 尚无可导出的安装诊断数据。");
+  }
+  const installations = artifacts.flatMap((artifact) => listSkillInstallationsSync({
+    workspaceId,
+    artifactDigest: artifact.digest,
+    limit: 100,
+  }));
+  const bundle = buildSkillInstallationDiagnostics({
+    generatedAt: new Date().toISOString(),
+    referenceSalt: randomBytes(32),
+    workspaceId,
+    skillId,
+    artifacts: artifacts.map((artifact) => ({
+      digest: artifact.digest,
+      version: artifact.version,
+      sourceType: artifact.sourceType,
+      fileCount: artifact.fileCount,
+      totalSizeBytes: artifact.totalSizeBytes,
+    })),
+    installations: installations.map((installation) => ({
+      id: installation.id,
+      runtimeId: installation.runtimeId,
+      artifactDigest: installation.artifactDigest,
+      status: installation.status,
+      revision: installation.revision,
+      health: installation.health,
+      releaseLockDigest: readReleaseLockDigest(installation.resolvedLockJson),
+      preparedDigest: installation.preparedDigest,
+      createdAt: installation.createdAt,
+      components: readSkillInstallationComponentsSync(installation.id),
+      operations: listSkillInstallationOperationsSync({
+        workspaceId,
+        installationId: installation.id,
+        limit: 50,
+      }).map((operation) => ({
+        id: operation.id,
+        operation: operation.operation,
+        status: operation.status,
+        claimGeneration: operation.claimGeneration,
+        errorCode: operation.errorCode,
+        errorMessage: operation.errorMessage,
+        createdAt: operation.createdAt,
+        evidence: readOperationEvidence(operation.safeResultJson),
+      })),
+    })),
+    approvals: listSkillInstallApprovalsSync(workspaceId).filter((approval) => approval.skillId === skillId),
+    invocations: listSkillRunnerInvocationsSync({ workspaceId, skillId, limit: 100 }),
+  });
+  const content = Buffer.from(`${JSON.stringify(bundle, null, 2)}\n`, "utf8");
+  const sha256 = createHash("sha256").update(content).digest("hex");
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId,
+    title: "Skill installation diagnostics exported",
+    note: `Redacted installation diagnostics for skill "${skillId}" were exported by ${workspaceContext.currentUser.displayName}.`,
+    code: "skill_installation.diagnostics_exported",
+    data: {
+      actorType: "session_user",
+      resourceType: "skill",
+      resourceId: skillId,
+      artifactCount: artifacts.length,
+      installationCount: installations.length,
+      sha256,
+    },
+  });
+
+  return actionToastResult({
+    fileName: `skill-installation-diagnostics-${new Date().toISOString().slice(0, 10)}.json`,
+    contentBase64: content.toString("base64"),
+    sha256,
+  }, successToast("脱敏诊断包已生成。", "Redacted diagnostics generated."));
 }
 
 export async function readSkillInstallationDetailAction(input: {

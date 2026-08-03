@@ -5,16 +5,21 @@ import { LanguageProvider } from "@/features/i18n/language-provider";
 import { FeedbackToastProvider } from "@/shared/ui/feedback-toast-provider";
 import { SkillInstallationPanel } from "./skill-installation-panel";
 
-const { createUpgrade, listRows } = vi.hoisted(() => ({
+const { createUpgrade, downloadDiagnostics, listRows } = vi.hoisted(() => ({
   createUpgrade: vi.fn(async () => ({
     data: { installationId: "candidate-installation", breaking: true, changeCount: 3 },
     toast: { tone: "info" as const, zh: "升级计划已创建。", en: "Upgrade planned." },
+  })),
+  downloadDiagnostics: vi.fn(async () => ({
+    data: { fileName: "skill-diagnostics.json", contentBase64: "e30=", sha256: "a".repeat(64) },
+    toast: { tone: "success" as const, zh: "脱敏诊断包已生成。", en: "Redacted diagnostics generated." },
   })),
   listRows: vi.fn(),
 }));
 
 vi.mock("@/features/skills/installation-actions", () => ({
   createSkillUpgradeAction: createUpgrade,
+  downloadSkillInstallationDiagnosticsAction: downloadDiagnostics,
   listSkillInstallApprovalsAction: vi.fn(async () => []),
   listSkillInstallationRowsForSkillAction: listRows,
   listSkillRunnerInvocationsAction: vi.fn(async () => []),
@@ -44,9 +49,13 @@ const activeRow = {
 describe("SkillInstallationPanel", () => {
   beforeEach(() => {
     createUpgrade.mockClear();
+    downloadDiagnostics.mockClear();
     listRows.mockReset();
     listRows.mockResolvedValue([activeRow]);
     vi.spyOn(window, "confirm").mockReturnValue(true);
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:diagnostics") });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
   });
 
   it("creates an explicitly approved upgrade plan for a breaking candidate", async () => {
@@ -71,5 +80,23 @@ describe("SkillInstallationPanel", () => {
       approvedRisks: false,
     }));
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("breaking"));
+  });
+
+  it("downloads the redacted installation diagnostics", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <SkillInstallationPanel skillId="skill-1" />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "下载脱敏诊断包" }));
+
+    await waitFor(() => expect(downloadDiagnostics).toHaveBeenCalledWith({ skillId: "skill-1" }));
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledTimes(1);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:diagnostics");
   });
 });
