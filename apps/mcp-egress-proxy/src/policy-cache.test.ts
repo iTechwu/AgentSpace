@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -106,4 +106,22 @@ test("corrupt policy state fails proxy startup instead of discarding deny state"
   const stateFile = join(mkdtempSync(join(tmpdir(), "dofe-egress-policy-corrupt-")), "policy.json");
   writeFileSync(stateFile, "{", "utf8");
   assert.throws(() => new McpEgressPolicyCache({ stateFile }), /state file is unreadable/);
+});
+
+test("failed persistence does not commit policy or revocation changes in memory", () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-egress-policy-write-failure-"));
+  const stateDirectory = join(root, "state");
+  const stateFile = join(stateDirectory, "policy.json");
+  const cache = new McpEgressPolicyCache({ stateFile });
+  cache.set(snapshot("pol-existing", false));
+
+  unlinkSync(stateFile);
+  rmdirSync(stateDirectory);
+  writeFileSync(stateDirectory, "blocks state directory recreation", "utf8");
+
+  assert.throws(() => cache.set(snapshot("pol-uncommitted", false)));
+  assert.equal(cache.get("pol-uncommitted"), undefined);
+
+  assert.throws(() => cache.revoke("pol-existing"));
+  assert.equal(cache.get("pol-existing")?.revoked, false);
 });

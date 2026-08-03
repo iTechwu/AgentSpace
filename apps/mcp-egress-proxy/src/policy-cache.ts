@@ -28,10 +28,13 @@ export class McpEgressPolicyCache {
 
   set(snapshot: McpEgressPolicySnapshot): void {
     const id = snapshot.revision.id;
-    const revoked = snapshot.revoked || this.revokedRevisionIds.has(id) || this.revisions.get(id)?.revoked === true;
-    if (revoked) this.revokedRevisionIds.add(id);
-    this.revisions.set(id, revoked ? { ...snapshot, revoked: true } : snapshot);
-    this.persist();
+    const nextRevisions = new Map(this.revisions);
+    const nextRevokedRevisionIds = new Set(this.revokedRevisionIds);
+    const revoked = snapshot.revoked || nextRevokedRevisionIds.has(id) || nextRevisions.get(id)?.revoked === true;
+    if (revoked) nextRevokedRevisionIds.add(id);
+    nextRevisions.set(id, revoked ? { ...snapshot, revoked: true } : snapshot);
+    this.persist(nextRevisions, nextRevokedRevisionIds);
+    this.commit(nextRevisions, nextRevokedRevisionIds);
   }
 
   get(policyRevisionId: string): McpEgressPolicySnapshot | undefined {
@@ -39,12 +42,15 @@ export class McpEgressPolicyCache {
   }
 
   revoke(policyRevisionId: string): void {
-    this.revokedRevisionIds.add(policyRevisionId);
-    const snapshot = this.revisions.get(policyRevisionId);
+    const nextRevisions = new Map(this.revisions);
+    const nextRevokedRevisionIds = new Set(this.revokedRevisionIds);
+    nextRevokedRevisionIds.add(policyRevisionId);
+    const snapshot = nextRevisions.get(policyRevisionId);
     if (snapshot) {
-      this.revisions.set(policyRevisionId, { ...snapshot, revoked: true });
+      nextRevisions.set(policyRevisionId, { ...snapshot, revoked: true });
     }
-    this.persist();
+    this.persist(nextRevisions, nextRevokedRevisionIds);
+    this.commit(nextRevisions, nextRevokedRevisionIds);
   }
 
   list(): McpEgressPolicySnapshot[] {
@@ -81,11 +87,14 @@ export class McpEgressPolicyCache {
     }
   }
 
-  private persist(): void {
+  private persist(
+    revisions: ReadonlyMap<string, McpEgressPolicySnapshot> = this.revisions,
+    revokedRevisionIds: ReadonlySet<string> = this.revokedRevisionIds,
+  ): void {
     if (!this.stateFile) {
       return;
     }
-    const durableSnapshots = this.list().map(({
+    const durableSnapshots = Array.from(revisions.values()).map(({
       staticHeaders: _staticHeaders,
       privateCaPem: _privateCaPem,
       ...snapshot
@@ -93,9 +102,19 @@ export class McpEgressPolicyCache {
     const state: PersistedPolicyState = {
       version: 1,
       snapshots: durableSnapshots,
-      revokedRevisionIds: Array.from(this.revokedRevisionIds),
+      revokedRevisionIds: Array.from(revokedRevisionIds),
     };
     writeJsonStateFile(this.stateFile, state);
+  }
+
+  private commit(
+    revisions: ReadonlyMap<string, McpEgressPolicySnapshot>,
+    revokedRevisionIds: ReadonlySet<string>,
+  ): void {
+    this.revisions.clear();
+    for (const [id, snapshot] of revisions) this.revisions.set(id, snapshot);
+    this.revokedRevisionIds.clear();
+    for (const id of revokedRevisionIds) this.revokedRevisionIds.add(id);
   }
 }
 
