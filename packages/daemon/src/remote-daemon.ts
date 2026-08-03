@@ -68,6 +68,7 @@ import {
   buildManagedRuntimeDockerConnectivityArgs,
   createManagedCredentialResolver,
   getManagedRuntimeHomeDir,
+  resolveManagedRuntimeDockerGateway,
   resolveManagedRuntimeDockerNetwork,
   type ManagedCredentialResolver,
 } from "./managed-provider-credentials.ts";
@@ -1003,7 +1004,7 @@ async function executeRemoteTask(
   mkdirSync(workDir, { recursive: true });
 
   // Task-scoped MCP session: the daemon claims resolved connection bundles
-  // through its authenticated channel and hosts a loopback gateway. The
+  // through its authenticated channel and hosts a task-scoped gateway. The
   // Provider's own MCP config only ever receives the gateway URL.
   let mcpSession: { url: string; revoke: () => void } | undefined;
   let skillRunner: SkillRunnerBroker | undefined;
@@ -1064,7 +1065,11 @@ async function executeRemoteTask(
         // task without MCP would silently lose the authorized capability.
         throw new Error("mcp.session_claim_failed: task expects MCP connections but claim returned none");
       }
-      const gateway = await getMcpGatewayForTask(client, mcpAuditOutbox ?? new McpAuditOutbox(config.stateDir));
+      const gateway = await getMcpGatewayForTask(
+        client,
+        mcpAuditOutbox ?? new McpAuditOutbox(config.stateDir),
+        config.managedNode,
+      );
       mcpSession = gateway.createTaskSession({
         taskId: task.id,
         runtimeId: runtime.id,
@@ -1252,10 +1257,19 @@ function ensureManagedRuntimeHomeDir(stateDir: string, runtimeId: string): strin
   return homeDir;
 }
 
-let sharedMcpGateway: McpGateway | null = null;
+const sharedMcpGateways = new Map<string, McpGateway>();
 
-async function getMcpGatewayForTask(client: HttpDaemonClient, auditOutbox: McpAuditOutbox): Promise<McpGateway> {
-  if (!sharedMcpGateway) {
+async function getMcpGatewayForTask(
+  client: HttpDaemonClient,
+  auditOutbox: McpAuditOutbox,
+  managedNode: boolean,
+): Promise<McpGateway> {
+  const gatewayHost = managedNode
+    ? resolveManagedRuntimeDockerGateway(resolveManagedRuntimeDockerNetwork())
+    : "127.0.0.1";
+  const existing = sharedMcpGateways.get(gatewayHost);
+  if (existing) return existing;
+  {
     const gateway = new McpGateway(
       async (audit) => {
         const report = {
@@ -1296,11 +1310,12 @@ async function getMcpGatewayForTask(client: HttpDaemonClient, auditOutbox: McpAu
           return { ok: false };
         }
       },
+      { listenHost: gatewayHost, advertisedHost: gatewayHost },
     );
     await gateway.start();
-    sharedMcpGateway = gateway;
+    sharedMcpGateways.set(gatewayHost, gateway);
+    return gateway;
   }
-  return sharedMcpGateway;
 }
 
 function readFiniteNumber(value: unknown): number {

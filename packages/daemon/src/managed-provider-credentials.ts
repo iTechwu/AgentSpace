@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { isIP } from "node:net";
 import { dirname, isAbsolute, join, resolve as pathResolve } from "node:path";
 import type { DaemonProvider } from "@dofe-agent/domain";
 import type { ManagedCredentialBundleDocument } from "./daemon-api.ts";
@@ -318,6 +320,35 @@ export function resolveManagedRuntimeDockerNetwork(
     throw new Error("managed_runtime.mcp_egress_network_required");
   }
   return network;
+}
+
+export function resolveManagedRuntimeDockerGateway(
+  dockerNetwork: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  const result = spawnSync("docker", [
+    "network",
+    "inspect",
+    "--format",
+    "{{(index .IPAM.Config 0).Gateway}}",
+    dockerNetwork,
+  ], {
+    env: environment,
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+  if (result.error || result.status !== 0) {
+    throw new Error("managed_runtime.docker_network_gateway_unavailable");
+  }
+  return parseManagedRuntimeDockerGateway(result.stdout);
+}
+
+export function parseManagedRuntimeDockerGateway(value: string): string {
+  const gateway = value.trim();
+  if (isIP(gateway) !== 4 || gateway === "0.0.0.0") {
+    throw new Error("managed_runtime.docker_network_gateway_invalid");
+  }
+  return gateway;
 }
 
 export function buildManagedRuntimeDockerConnectivityArgs(

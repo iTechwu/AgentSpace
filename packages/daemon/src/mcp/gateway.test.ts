@@ -83,6 +83,23 @@ test("gateway serves approved tools with sanitized names and never leaks the end
   }
 });
 
+test("gateway can advertise a Docker bridge address without listening on all interfaces", async () => {
+  const dockerGateway = new McpGateway(
+    () => undefined,
+    buildMockClient().client,
+    undefined,
+    { listenHost: "127.0.0.1", advertisedHost: "172.31.240.1" },
+  );
+  await dockerGateway.start();
+  try {
+    const session = dockerGateway.createTaskSession(buildTaskSession());
+    assert.equal(new URL(session.url).hostname, "172.31.240.1");
+    session.revoke();
+  } finally {
+    await dockerGateway.close();
+  }
+});
+
 test("gateway routes an approved tool call through the client and emits an audit", async () => {
   const mock = buildMockClient();
   const g = new McpGateway((audit) => { audits.push(audit); }, mock.client);

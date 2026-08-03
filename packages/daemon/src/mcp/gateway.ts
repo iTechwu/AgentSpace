@@ -53,8 +53,13 @@ export type McpGatewayValidateConnection = (input: {
   toolName: string;
 }) => Promise<McpGatewayValidateConnectionResult | { ok: false }>;
 
+export interface McpGatewayNetworkOptions {
+  listenHost?: string;
+  advertisedHost?: string;
+}
+
 /**
- * Daemon-resident loopback MCP gateway.
+ * Daemon-resident task-scoped MCP gateway.
  *
  * The daemon holds the resolved connection bundles (endpoint + secrets) in
  * memory; the Provider-visible task bundle and the Provider's own MCP config
@@ -73,15 +78,20 @@ export class McpGateway {
   private readonly onAudit: (audit: McpToolAuditRecord) => void | Promise<void>;
   private readonly mcpClient: ReturnType<typeof createRuntimeMcpClient>;
   private readonly validateConnection?: McpGatewayValidateConnection;
+  private readonly listenHost: string;
+  private readonly advertisedHost: string;
 
   constructor(
     onAudit: (audit: McpToolAuditRecord) => void | Promise<void>,
     mcpClient?: ReturnType<typeof createRuntimeMcpClient>,
     validateConnection?: McpGatewayValidateConnection,
+    network?: McpGatewayNetworkOptions,
   ) {
     this.onAudit = onAudit;
     this.mcpClient = mcpClient ?? createRuntimeMcpClient();
     this.validateConnection = validateConnection;
+    this.listenHost = network?.listenHost?.trim() || "127.0.0.1";
+    this.advertisedHost = network?.advertisedHost?.trim() || this.listenHost;
   }
 
   async start(): Promise<void> {
@@ -89,7 +99,7 @@ export class McpGateway {
     this.httpServer = createServer((req, res) => void this.handleRequest(req, res));
     await new Promise<void>((resolve, reject) => {
       this.httpServer!.once("error", reject);
-      this.httpServer!.listen(0, "127.0.0.1", () => resolve());
+      this.httpServer!.listen(0, this.listenHost, () => resolve());
     });
     const address = this.httpServer.address();
     if (typeof address === "object" && address) {
@@ -98,7 +108,7 @@ export class McpGateway {
   }
 
   get baseUrl(): string {
-    return `http://127.0.0.1:${this.port}`;
+    return `http://${formatUrlHost(this.advertisedHost)}:${this.port}`;
   }
 
   get isRunning(): boolean {
@@ -305,4 +315,8 @@ function sanitizeToolName(id: string): string {
   if (raw.length <= 64) return raw;
   const hash = randomBytes(4).toString("hex");
   return `${raw.slice(0, 55)}_${hash}`;
+}
+
+function formatUrlHost(host: string): string {
+  return host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
 }

@@ -13,6 +13,7 @@ import {
   buildManagedRuntimeAttributionHeaders,
   createManagedCredentialResolver,
   extractManagedGatewayUsage,
+  parseManagedRuntimeDockerGateway,
   resolveManagedRuntimeDockerNetwork,
 } from "./managed-provider-credentials.ts";
 
@@ -341,6 +342,12 @@ test("managed runtime network is fixed when MCP egress enforcement is enabled", 
     }),
     /managed_runtime\.mcp_egress_network_required/,
   );
+});
+
+test("managed runtime MCP gateway accepts only a concrete Docker bridge IPv4 address", () => {
+  assert.equal(parseManagedRuntimeDockerGateway("172.31.240.1\n"), "172.31.240.1");
+  assert.throws(() => parseManagedRuntimeDockerGateway("host-gateway"), /docker_network_gateway_invalid/);
+  assert.throws(() => parseManagedRuntimeDockerGateway("0.0.0.0"), /docker_network_gateway_invalid/);
 });
 
 test("managed runtime connectivity configuration injects only validated host and CA options", () => {
