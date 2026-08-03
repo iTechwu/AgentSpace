@@ -38,6 +38,13 @@ export interface AgentRouterRunRequest {
    * Provider never receives remote endpoints or credentials.
    */
   mcpGatewayUrl?: string;
+  /**
+   * Codex MCP experiment switch (P1-2): when false, the codex adapter does NOT
+   * inject the loopback gateway as `mcp_servers`, even if `mcpGatewayUrl` is
+   * set — a gradual-rollout / kill switch for codex MCP isolation before the
+   * market eligibility gate passes E2E.
+   */
+  codexMcpInjectionEnabled?: boolean;
   onApprovalRequest?: (request: AgentRouterApprovalRequest) => Promise<AgentRouterApprovalDecision>;
 }
 

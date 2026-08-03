@@ -5,6 +5,7 @@ import {
   buildClaudeMcpGatewayArgs,
   buildCodexMcpGatewayArgs,
   mcpGatewayUrlRedactions,
+  shouldInjectCodexMcpGateway,
 } from "./mcp-gateway.ts";
 import { redactText } from "./utils.ts";
 
@@ -53,4 +54,11 @@ test("both builders redact the gateway URL (which carries the session token)", (
 
 test("mcpGatewayUrlRedactions is empty for an empty url and does not throw", () => {
   assert.deepEqual(mcpGatewayUrlRedactions(""), []);
+});
+
+test("shouldInjectCodexMcpGateway honors the experiment switch", () => {
+  assert.equal(shouldInjectCodexMcpGateway({ mcpGatewayUrl: GATEWAY_URL }), true, "defaults to enabled with a URL");
+  assert.equal(shouldInjectCodexMcpGateway({ mcpGatewayUrl: GATEWAY_URL, codexMcpInjectionEnabled: false }), false, "kill switch disables injection");
+  assert.equal(shouldInjectCodexMcpGateway({}), false, "no URL → no injection");
+  assert.equal(shouldInjectCodexMcpGateway({ mcpGatewayUrl: GATEWAY_URL, codexMcpInjectionEnabled: true }), true);
 });

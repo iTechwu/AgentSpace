@@ -24,7 +24,7 @@ import {
 } from "../utils.ts";
 import { discoverSessionId, emitSessionUpdate, normalizeAdapterError, parseJsonEventOutput, runNativeHarness } from "./shared.ts";
 import { runVersionCommand } from "./versions.ts";
-import { buildCodexMcpGatewayArgs } from "../mcp-gateway.ts";
+import { buildCodexMcpGatewayArgs, shouldInjectCodexMcpGateway } from "../mcp-gateway.ts";
 
 const CODEX_OUTPUT_ENV = "AGENT_ROUTER_CODEX_OUTPUT_FILE";
 
@@ -89,8 +89,10 @@ async function buildCodexLaunch(input: AgentRouterRunRequest): Promise<HarnessLa
   // the only thing codex learns; secrets stay in the daemon. `--config` is a
   // global flag so it must land in baseArgs (before the `exec` subcommand).
   let mcpRedactions: HarnessLaunchPlan["redactions"] = [];
-  if (input.mcpGatewayUrl) {
-    const injection = buildCodexMcpGatewayArgs(input.mcpGatewayUrl);
+  // P1-2 experiment switch: ops may disable the codex MCP gateway injection
+  // for gradual rollout / incident kill-switch, independent of the session URL.
+  if (shouldInjectCodexMcpGateway(input)) {
+    const injection = buildCodexMcpGatewayArgs(input.mcpGatewayUrl!);
     baseArgs.push(...injection.args);
     mcpRedactions = injection.redactions;
   }

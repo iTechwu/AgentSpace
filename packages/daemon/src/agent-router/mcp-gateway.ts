@@ -61,6 +61,18 @@ export function buildClaudeMcpGatewayArgs(url: string): McpGatewayInjection {
  *
  * `startup_timeout_sec` tolerates the gateway's lazy listener warm-up.
  */
+/**
+ * P1-2 Codex MCP experiment switch: the gateway injection applies only when a
+ * session URL is present AND the switch is not explicitly disabled. Ops can
+ * kill the codex MCP isolation rollout without touching session wiring.
+ */
+export function shouldInjectCodexMcpGateway(input: {
+  mcpGatewayUrl?: string;
+  codexMcpInjectionEnabled?: boolean;
+}): boolean {
+  return Boolean(input.mcpGatewayUrl) && input.codexMcpInjectionEnabled !== false;
+}
+
 export function buildCodexMcpGatewayArgs(url: string): McpGatewayInjection {
   const inlineTable = `{ "${MCP_GATEWAY_SERVER_KEY}" = { url = "${url}", startup_timeout_sec = 30 } }`;
   return {
