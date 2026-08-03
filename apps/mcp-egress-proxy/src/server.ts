@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-agent/domain";
 import { digestMcpEgressPolicyRevision, digestMcpPrivateCa } from "@dofe-agent/services/mcp-center/egress";
 import { buildRejectedAuditRecord, buildUpstreamAuditRecord, type McpEgressAuditSink } from "./audit.ts";
-import { verifyLeaseForRequest, type LeaseVerifierDependencies } from "./lease-verifier.ts";
+import { isMcpEgressPolicySnapshotFresh, verifyLeaseForRequest, type LeaseVerifierDependencies } from "./lease-verifier.ts";
 import { OAuthInjector } from "./oauth-injector.ts";
 import { McpEgressMetrics } from "./metrics.ts";
 import { McpEgressPolicyCache } from "./policy-cache.ts";
@@ -174,6 +174,7 @@ export class McpEgressProxyServer {
       if (
         !snapshot.revision?.id ||
         !snapshot.revision?.upstream?.origin ||
+        !isMcpEgressPolicySnapshotFresh(snapshot) ||
         !isPolicyLimitConfigurationValid(snapshot.revision) ||
         digestMcpEgressPolicyRevision(snapshot.revision) !== snapshot.revision.manifestDigest ||
         !isPrivateCaSnapshotValid(snapshot)

@@ -182,6 +182,37 @@ test("request with valid lease but unknown policy returns policy_mismatch", asyn
   }
 });
 
+test("request with a stale policy snapshot fails closed before forwarding", async () => {
+  const cache = new McpEgressPolicyCache();
+  cache.set({
+    ...buildSnapshot(basePolicy()),
+    fetchedAt: new Date(Date.now() - 10 * 60 * 1_000).toISOString(),
+  });
+  let forwarded = false;
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
+    auditSink: { record: () => undefined },
+    forwardToUpstream: async () => {
+      forwarded = true;
+      return { ok: true, upstreamHost: "github-mcp.example.com", response: { statusCode: 200, statusMessage: "OK", headers: {}, body: null } };
+    },
+  });
+  const { url, close } = await server.start();
+  try {
+    const response = await fetch(`${url}/mcp`, {
+      headers: { authorization: `DofeEgressLease ${buildLeaseToken()}` },
+    });
+    assert.equal(response.status, 403);
+    assert.equal(((await response.json()) as { error: string }).error, "mcp_egress.policy_mismatch");
+    assert.equal(forwarded, false);
+  } finally {
+    await close();
+  }
+});
+
 test("admin policy push rejects a snapshot whose canonical digest was tampered", async () => {
   const cache = new McpEgressPolicyCache();
   const server = new McpEgressProxyServer({

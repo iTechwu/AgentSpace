@@ -5,6 +5,9 @@ import {
   type McpEgressLeaseVerificationKey,
 } from "@dofe-agent/services/mcp-center/egress";
 
+export const MCP_EGRESS_POLICY_SNAPSHOT_MAX_AGE_MS = 120_000;
+const MCP_EGRESS_POLICY_SNAPSHOT_FUTURE_SKEW_MS = 30_000;
+
 export interface LeaseVerificationResult {
   ok: true;
   claims: McpEgressLeaseClaims;
@@ -58,6 +61,9 @@ export async function verifyLeaseForRequest(
   if (!snapshot) {
     return { ok: false, code: "mcp_egress.policy_mismatch", message: "Policy revision is not available to the proxy." };
   }
+  if (!isMcpEgressPolicySnapshotFresh(snapshot)) {
+    return { ok: false, code: "mcp_egress.policy_mismatch", message: "Policy snapshot is stale or has an invalid timestamp." };
+  }
   if (snapshot.revoked) {
     return { ok: false, code: "mcp_egress.lease_revoked", message: "Policy revision has been revoked." };
   }
@@ -77,4 +83,14 @@ export async function verifyLeaseForRequest(
   }
 
   return { ok: true, claims, policy: snapshot.revision };
+}
+
+export function isMcpEgressPolicySnapshotFresh(
+  snapshot: McpEgressPolicySnapshot,
+  nowMs = Date.now(),
+): boolean {
+  const fetchedAtMs = Date.parse(snapshot.fetchedAt);
+  return Number.isFinite(fetchedAtMs)
+    && fetchedAtMs <= nowMs + MCP_EGRESS_POLICY_SNAPSHOT_FUTURE_SKEW_MS
+    && nowMs - fetchedAtMs <= MCP_EGRESS_POLICY_SNAPSHOT_MAX_AGE_MS;
 }
