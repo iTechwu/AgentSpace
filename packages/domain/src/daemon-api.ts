@@ -59,6 +59,7 @@ export interface ProviderHealthSnapshot {
   status: ProviderHealthStatus;
   reason?: string;
   checkedAt?: string;
+  verificationKind?: "cli_preflight" | "provider_auth" | "provider_request";
   error?: ProviderStructuredError;
 }
 

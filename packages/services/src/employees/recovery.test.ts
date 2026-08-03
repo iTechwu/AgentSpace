@@ -471,14 +471,26 @@ test("remote recovery waits for a fresh Provider/CLI smoke before activation", (
       checkedAt,
       JSON.stringify({
         providerVerificationRequestedAt: context.providerVerificationRequestedAt,
-        providerHealth: { status: "healthy", checkedAt, reason: "CLI preflight passed" },
+        providerHealth: {
+          status: "healthy",
+          checkedAt,
+          verificationKind: "provider_request",
+          reason: "Authenticated provider request passed",
+        },
       }),
       runtimeId,
     );
     const healthy = runRecoveryStepSync({ operationId: operation.id, workspaceId: "default" });
     assert.equal(healthy.ok, true, healthy.error);
     assert.equal(healthy.phase, "activate");
-    assert.equal((JSON.parse(healthy.operation.contextJson) as { providerCliSmoke?: string }).providerCliSmoke, "passed");
+    const healthyContext = JSON.parse(healthy.operation.contextJson) as {
+      providerCliSmoke?: string;
+      providerVerificationKind?: string;
+      providerRequestSmoke?: string;
+    };
+    assert.equal(healthyContext.providerCliSmoke, "passed");
+    assert.equal(healthyContext.providerVerificationKind, "provider_request");
+    assert.equal(healthyContext.providerRequestSmoke, "passed");
   } finally {
     if (previousMode === undefined) delete process.env.DOFE_AGENT_RUNTIME_MODE;
     else process.env.DOFE_AGENT_RUNTIME_MODE = previousMode;

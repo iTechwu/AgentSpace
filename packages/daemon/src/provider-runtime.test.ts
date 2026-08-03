@@ -179,6 +179,81 @@ test("buildProviderRuntimeMetadata passes the managed provider environment to a 
   }
 });
 
+test("buildProviderRuntimeMetadata performs an authenticated provider request without exposing the key", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-probe-bin-"));
+  const executablePath = join(binDir, "claude");
+  const curlPath = join(binDir, "curl");
+  const previousPath = process.env.PATH;
+
+  try {
+    writeFileSync(executablePath, "#!/bin/sh\necho 1.0.0\n", "utf8");
+    writeFileSync(
+      curlPath,
+      "#!/bin/sh\nconfig=$(cat)\ncase \"$config\" in *\"managed-provider-key\"*) printf 204;; *) printf 401;; esac\n",
+      "utf8",
+    );
+    chmodSync(executablePath, 0o755);
+    chmodSync(curlPath, 0o755);
+    process.env.PATH = `${binDir}${delimiter}${previousPath ?? ""}`;
+
+    const metadata = buildProviderRuntimeMetadata({
+      provider: "claude",
+      metadata: {
+        executablePath,
+        mode: "remote",
+        managedCredentialId: "credential-managed-provider-probe",
+        providerVerificationRequestedAt: new Date().toISOString(),
+      },
+    }, {
+      environment: {
+        ANTHROPIC_API_KEY: "managed-provider-key",
+        ANTHROPIC_BASE_URL: "https://gateway.example.test/v1",
+      },
+    });
+
+    const health = metadata.providerHealth as { status?: unknown; verificationKind?: unknown; reason?: unknown } | undefined;
+    assert.equal(health?.status, "healthy");
+    assert.equal(health?.verificationKind, "provider_request");
+    assert.equal(JSON.stringify(metadata).includes("managed-provider-key"), false);
+  } finally {
+    process.env.PATH = previousPath;
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("buildProviderRuntimeMetadata reports invalid provider probe configuration without interrupting the daemon", () => {
+  const binDir = mkdtempSync(join(tmpdir(), "dofe-agent-provider-probe-config-"));
+  const executablePath = join(binDir, "claude");
+
+  try {
+    writeFileSync(executablePath, "#!/bin/sh\necho 1.0.0\n", "utf8");
+    chmodSync(executablePath, 0o755);
+
+    assert.doesNotThrow(() => {
+      const metadata = buildProviderRuntimeMetadata({
+        provider: "claude",
+        metadata: {
+          executablePath,
+          mode: "remote",
+          providerVerificationRequestedAt: new Date().toISOString(),
+        },
+      }, {
+        environment: {
+          ANTHROPIC_API_KEY: "managed-provider-key",
+          ANTHROPIC_BASE_URL: "file:///tmp/not-an-api",
+        },
+      });
+
+      const health = metadata.providerHealth as { status?: unknown; verificationKind?: unknown } | undefined;
+      assert.equal(health?.status, "broken");
+      assert.equal(health?.verificationKind, "provider_auth");
+      assert.equal(JSON.stringify(metadata).includes("managed-provider-key"), false);
+    });
+  } finally {
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
 test("buildProviderRuntimeMetadata accepts managed OpenClaw gateway credentials without a daemon profile", () => {
   const metadata = buildProviderRuntimeMetadata({
     provider: "openclaw",

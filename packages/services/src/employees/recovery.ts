@@ -549,6 +549,11 @@ function runPhase(
           ? runtimeMetadata.providerHealth as Record<string, unknown>
           : undefined;
         const providerCheckedAt = typeof providerHealth?.checkedAt === "string" ? providerHealth.checkedAt : undefined;
+        const providerVerificationKind = providerHealth?.verificationKind === "provider_request"
+          || providerHealth?.verificationKind === "provider_auth"
+          || providerHealth?.verificationKind === "cli_preflight"
+          ? providerHealth.verificationKind
+          : "cli_preflight";
         if (!providerCheckedAt || Date.parse(providerCheckedAt) < Date.parse(providerRequestedAt)) {
           return operation;
         }
@@ -588,6 +593,7 @@ function runPhase(
                 mcpSmokeOperationIds: operations.map((item) => item.id),
                 waitingFor: "mcp_smoke",
                 providerHealthCheckedAt: providerCheckedAt,
+                providerVerificationKind,
               },
               options.workerLeaseToken,
             );
@@ -609,6 +615,8 @@ function runPhase(
           contextJson: mergeContextJson(operation.contextJson, {
             healthCheck: "passed",
             providerCliSmoke: "passed",
+            providerVerificationKind,
+            providerRequestSmoke: providerVerificationKind === "provider_request" ? "passed" : "not_applicable",
             mcpSmoke: "passed",
             healthCheckedAt: new Date().toISOString(),
           }),

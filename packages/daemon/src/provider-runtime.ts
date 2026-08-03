@@ -956,9 +956,12 @@ function inspectProviderCliHealth(
     env: environment ? { ...process.env, ...environment } : undefined,
   });
   if (!result.error && result.status === 0) {
+    const providerRequest = inspectProviderCredentialRequest(runtime.provider, environment, checkedAt);
+    if (providerRequest) return providerRequest;
     return {
       status: "healthy",
       checkedAt,
+      verificationKind: "cli_preflight",
       reason: `${formatDaemonProviderLabel(runtime.provider)} CLI preflight passed.`,
     };
   }
@@ -978,6 +981,126 @@ function inspectProviderCliHealth(
       message,
     },
   };
+}
+
+function inspectProviderCredentialRequest(
+  provider: DaemonProvider,
+  environment: Record<string, string> | undefined,
+  checkedAt: string,
+): ProviderHealthSnapshot | null {
+  if (!environment) return null;
+  let request: ReturnType<typeof buildProviderCredentialProbe>;
+  try {
+    request = buildProviderCredentialProbe(provider, environment);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      status: "broken",
+      checkedAt,
+      verificationKind: "provider_auth",
+      reason: message,
+      error: {
+        code: "provider.runtime_generic_failure",
+        category: "configuration",
+        provider,
+        message,
+      },
+    };
+  }
+  if (!request) return null;
+  const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
+  const config = request.headers.map((header) => `header = "${escapeCurlConfigValue(header)}"`).join("\n");
+  const result = spawnSync("curl", [
+    "--silent",
+    "--show-error",
+    "--max-time", "10",
+    "--output", nullDevice,
+    "--write-out", "%{http_code}",
+    "--config", "-",
+    request.url,
+  ], {
+    input: `${config}\n`,
+    encoding: "utf8",
+    timeout: 12_000,
+    windowsHide: true,
+    env: { ...process.env, ...environment },
+  });
+  const statusCode = Number(result.stdout?.trim());
+  if (!result.error && result.status === 0 && statusCode >= 200 && statusCode < 300) {
+    return {
+      status: "healthy",
+      checkedAt,
+      verificationKind: "provider_request",
+      reason: `${formatDaemonProviderLabel(provider)} authenticated provider request passed.`,
+    };
+  }
+  const message = result.error?.message
+    || result.stderr?.trim()
+    || `${formatDaemonProviderLabel(provider)} provider probe returned HTTP ${Number.isFinite(statusCode) ? statusCode : "unknown"}.`;
+  return {
+    status: "broken",
+    checkedAt,
+    verificationKind: "provider_request",
+    reason: message,
+    error: {
+      code: result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT"
+        ? "provider.cli_missing"
+        : "provider.runtime_generic_failure",
+      category: result.error ? "runtime" : "provider",
+      provider,
+      message,
+    },
+  };
+}
+
+function buildProviderCredentialProbe(
+  provider: DaemonProvider,
+  environment: Record<string, string>,
+): { url: string; headers: string[] } | null {
+  if (provider === "claude") {
+    const apiKey = environment.ANTHROPIC_API_KEY?.trim() || environment.ANTHROPIC_AUTH_TOKEN?.trim();
+    if (!apiKey) return null;
+    assertSafeProviderCredential(apiKey);
+    const baseUrl = normalizeProviderApiBase(environment.ANTHROPIC_BASE_URL, "https://api.anthropic.com/v1");
+    return {
+      url: `${baseUrl}/models?limit=1`,
+      headers: [`x-api-key: ${apiKey}`, "anthropic-version: 2023-06-01", "accept: application/json"],
+    };
+  }
+  if (provider === "codex") {
+    const apiKey = environment.OPENAI_API_KEY?.trim();
+    if (!apiKey) return null;
+    assertSafeProviderCredential(apiKey);
+    const baseUrl = normalizeProviderApiBase(environment.OPENAI_BASE_URL, "https://api.openai.com/v1");
+    return {
+      url: `${baseUrl}/models`,
+      headers: [`Authorization: Bearer ${apiKey}`, "accept: application/json"],
+    };
+  }
+  return null;
+}
+
+function normalizeProviderApiBase(value: string | undefined, fallback: string): string {
+  const candidate = value?.trim() || fallback;
+  const parsed = new URL(candidate);
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("Provider base URL must use HTTP or HTTPS.");
+  }
+  parsed.search = "";
+  parsed.hash = "";
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  parsed.pathname = /\/v\d+$/.test(pathname) ? pathname : `${pathname}/v1`;
+  return parsed.toString().replace(/\/$/, "");
+}
+
+function assertSafeProviderCredential(value: string): void {
+  if (/[\r\n\0]/.test(value)) {
+    throw new Error("Provider credential contains invalid control characters.");
+  }
+}
+
+function escapeCurlConfigValue(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
 function readRuntimeProviderHealthMetadata(runtime: ProviderRuntimeRecord): ReturnType<typeof buildOpenClawProviderHealthSnapshot> | undefined {
