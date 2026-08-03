@@ -345,6 +345,8 @@ export {
   BUILTIN_WORKSPACE_CONTEXT_SKILL_NAME,
   BUILTIN_UPDATE_CHANNEL_DOCUMENTS_SKILL_NAME,
   listWorkspaceSkillsSync,
+  reconcileWorkspaceSkillStorageSync,
+  type WorkspaceSkillStorageReconciliation,
   readWorkspaceSkillSync,
   createWorkspaceSkillSync,
   updateWorkspaceSkillSync,

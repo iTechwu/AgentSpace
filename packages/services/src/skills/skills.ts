@@ -3,9 +3,11 @@ import {
   createStoredWorkspaceSkillSync,
   deleteStoredWorkspaceSkillFileSync,
   deleteStoredWorkspaceSkillSync,
+  getDatabase,
   listStoredWorkspaceSkillsSync,
   readWorkspaceStateRecordSync,
   readStoredWorkspaceSkillSync,
+  withTransaction,
   writeWorkspaceStateRecordSync,
   updateStoredWorkspaceSkillMetaSync,
   upsertStoredWorkspaceSkillFileSync,
@@ -35,7 +37,67 @@ export function isSystemSkillName(name: string): boolean {
 }
 
 export function listWorkspaceSkillsSync(workspaceId?: string): WorkspaceSkill[] {
+  reconcileWorkspaceSkillStorageSync(workspaceId);
   return ensurePredefinedAgentTemplateSkillsSync(workspaceId);
+}
+
+export interface WorkspaceSkillStorageReconciliation {
+  recoveredSkillIds: string[];
+  canonicalSkillCount: number;
+  snapshotUpdated: boolean;
+}
+
+export function reconcileWorkspaceSkillStorageSync(workspaceId?: string): WorkspaceSkillStorageReconciliation {
+  const db = getDatabase();
+
+  return withTransaction(db, () => {
+    const state = readWorkspaceStateRecordSync(workspaceId);
+    let storedSkills = listStoredWorkspaceSkillsSync(workspaceId);
+    if (!state || !Array.isArray(state.skills) || state.skills.length === 0) {
+      return {
+        recoveredSkillIds: [],
+        canonicalSkillCount: storedSkills.length,
+        snapshotUpdated: false,
+      };
+    }
+
+    const recoveredSkillIds: string[] = [];
+    for (const snapshotSkill of state.skills) {
+      if (findCanonicalStoredSkill(storedSkills, snapshotSkill)) {
+        continue;
+      }
+
+      const recoveredSkill = createStoredWorkspaceSkillSync(snapshotSkill, workspaceId);
+      storedSkills = [...storedSkills, recoveredSkill];
+      recoveredSkillIds.push(recoveredSkill.id);
+    }
+
+    const canonicalSkills = listStoredWorkspaceSkillsSync(workspaceId);
+    const snapshotUpdated = !sameSkillSnapshotSet(state.skills, canonicalSkills);
+    if (snapshotUpdated) {
+      const recoveryEntry = recoveredSkillIds.length > 0
+        ? [{
+            title: "Skill storage reconciled",
+            note: `${recoveredSkillIds.length} Skill(s) were recovered from the workspace snapshot.`,
+            code: "workspace.skill_storage_reconciled",
+            data: {
+              recoveredSkillCount: String(recoveredSkillIds.length),
+            },
+          }]
+        : [];
+      writeWorkspaceStateRecordSync({
+        ...state,
+        skills: canonicalSkills,
+        ledger: [...recoveryEntry, ...state.ledger].slice(0, 200),
+      }, workspaceId, { skipVersionCheck: true });
+    }
+
+    return {
+      recoveredSkillIds,
+      canonicalSkillCount: canonicalSkills.length,
+      snapshotUpdated,
+    };
+  });
 }
 
 export function ensurePredefinedAgentTemplateSkillsSync(workspaceId?: string): WorkspaceSkill[] {
@@ -350,6 +412,31 @@ function findPredefinedAgentTemplateSkill(
     && typeof skill.sourceUrl === "string"
     && skill.sourceUrl === expectedSkill.sourceUrl
   ));
+}
+
+function findCanonicalStoredSkill(
+  storedSkills: WorkspaceSkill[],
+  snapshotSkill: WorkspaceSkill,
+): WorkspaceSkill | undefined {
+  return storedSkills.find((skill) => skill.id === snapshotSkill.id)
+    ?? storedSkills.find((skill) => sameValue(skill.name, snapshotSkill.name))
+    ?? storedSkills.find((skill) => (
+      Boolean(skill.sourceType)
+      && Boolean(skill.sourceUrl)
+      && skill.sourceType === snapshotSkill.sourceType
+      && skill.sourceUrl === snapshotSkill.sourceUrl
+    ));
+}
+
+function sameSkillSnapshotSet(left: WorkspaceSkill[], right: WorkspaceSkill[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((leftSkill) => {
+    const rightSkill = findCanonicalStoredSkill(right, leftSkill);
+    return rightSkill ? predefinedSkillSnapshotsMatch(leftSkill, rightSkill) : false;
+  });
 }
 
 function syncPredefinedAgentTemplateSkill(
