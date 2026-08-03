@@ -37,9 +37,11 @@ test("buildMcpEgressProxyRequestHeaders returns DofeEgressLease Authorization he
     proxyBaseUrl: "http://proxy.test",
     leaseToken: "lease-123",
     policySnapshot: makeSnapshot(),
+    proxySessionId: "proxy-session-123",
   });
   const headers = buildMcpEgressProxyRequestHeaders(client);
   assert.equal(headers.Authorization, "DofeEgressLease lease-123");
+  assert.equal(headers["X-Dofe-Egress-Session"], "proxy-session-123");
 });
 
 test("ensurePolicyPushed posts the snapshot to /v1/admin/policies with admin token", async () => {

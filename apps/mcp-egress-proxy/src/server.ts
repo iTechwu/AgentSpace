@@ -12,6 +12,7 @@ import { forwardToUpstream, type UpstreamRequest } from "./upstream-transport.ts
 
 const LEASE_HEADER_PREFIX = "DofeEgressLease ";
 const ADMIN_AUTH_HEADER = "x-dofe-admin-token";
+const PROXY_SESSION_HEADER = "x-dofe-egress-session";
 
 export interface McpEgressProxyOptions {
   port: number;
@@ -113,7 +114,7 @@ export class McpEgressProxyServer {
     this.options.metrics?.recordRequest();
     const leaseToken = extractLeaseToken(req);
 
-    const verification = await verifyLeaseForRequest(leaseToken, this.options.leaseVerifier);
+    const verification = await verifyLeaseForRequest(leaseToken, this.options.leaseVerifier, extractProxySessionId(req));
     if (!verification.ok) {
       this.options.metrics?.recordReject();
       await this.recordRejection(requestPath, method, verification.code);
@@ -347,6 +348,14 @@ function extractLeaseToken(req: IncomingMessage): string | undefined {
   const value = Array.isArray(auth) ? auth[0] : auth;
   if (!value || !value.startsWith(LEASE_HEADER_PREFIX)) return undefined;
   return value.slice(LEASE_HEADER_PREFIX.length).trim();
+}
+
+function extractProxySessionId(req: IncomingMessage): string | undefined {
+  const header = req.headers[PROXY_SESSION_HEADER];
+  const value = Array.isArray(header) ? header[0] : header;
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized && normalized.length <= 128 ? normalized : undefined;
 }
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {

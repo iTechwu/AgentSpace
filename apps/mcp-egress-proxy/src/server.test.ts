@@ -44,7 +44,7 @@ function buildLeaseVerifier(cache: McpEgressPolicyCache) {
   return {
     leaseSecret: SECRET,
     fetchPolicySnapshot: (id: string) => cache.get(id),
-    consumeJti: (jti: string, exp: number) => guard.consume(jti, exp),
+    bindJtiToSession: (jti: string, sessionId: string | undefined, exp: number) => guard.bind(jti, sessionId, exp),
   };
 }
 
@@ -251,6 +251,37 @@ test("forwards only MCP protocol headers and counts successful response bytes", 
       "mcp-protocol-version": "2025-06-18",
     });
     assert.equal(auditRecords.at(-1)?.sizeBucket, "0-1k");
+  } finally {
+    await close();
+  }
+});
+
+test("a lease is reusable only within its bound proxy session", async () => {
+  const cache = new McpEgressPolicyCache();
+  cache.set(buildSnapshot(basePolicy()));
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
+    auditSink: { record: () => undefined },
+    forwardToUpstream: async () => ({
+      ok: true,
+      upstreamHost: "github-mcp.example.com",
+      response: { statusCode: 200, statusMessage: "OK", headers: {}, body: null },
+    }),
+  });
+  const { url, close } = await server.start();
+  const lease = buildLeaseToken();
+  const headers = { authorization: `DofeEgressLease ${lease}`, "x-dofe-egress-session": "session-a" };
+  try {
+    assert.equal((await fetch(`${url}/mcp`, { headers })).status, 200);
+    assert.equal((await fetch(`${url}/mcp`, { headers })).status, 200);
+    const replay = await fetch(`${url}/mcp`, {
+      headers: { authorization: `DofeEgressLease ${lease}`, "x-dofe-egress-session": "session-b" },
+    });
+    assert.equal(replay.status, 403);
+    assert.equal(((await replay.json()) as { error: string }).error, "mcp_egress.lease_replayed");
   } finally {
     await close();
   }

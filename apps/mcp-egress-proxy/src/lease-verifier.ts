@@ -17,7 +17,7 @@ export interface LeaseVerifierDependencies {
   leaseSecret: string;
   fetchPolicySnapshot: (policyRevisionId: string) => McpEgressPolicySnapshot | undefined | Promise<McpEgressPolicySnapshot | undefined>;
   isJtiRevoked?: (jti: string) => boolean | Promise<boolean>;
-  consumeJti: (jti: string, exp: number) => boolean | Promise<boolean>;
+  bindJtiToSession: (jti: string, sessionId: string | undefined, exp: number) => boolean | Promise<boolean>;
 }
 
 /**
@@ -27,6 +27,7 @@ export interface LeaseVerifierDependencies {
 export async function verifyLeaseForRequest(
   token: string | undefined,
   deps: LeaseVerifierDependencies,
+  proxySessionId?: string,
 ): Promise<LeaseVerificationResult | LeaseVerificationFailure> {
   if (!token) {
     return { ok: false, code: "mcp_egress.lease_missing", message: "Request is missing a DofeEgressLease token." };
@@ -60,7 +61,7 @@ export async function verifyLeaseForRequest(
   ) {
     return { ok: false, code: "mcp_egress.policy_mismatch", message: "Lease does not match the policy revision." };
   }
-  if (!(await deps.consumeJti(jti, claims.exp))) {
+  if (!(await deps.bindJtiToSession(jti, proxySessionId, claims.exp))) {
     return { ok: false, code: "mcp_egress.lease_replayed", message: "Lease JTI has already been consumed." };
   }
 

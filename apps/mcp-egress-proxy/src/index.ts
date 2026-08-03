@@ -38,7 +38,7 @@ async function main(): Promise<void> {
     leaseVerifier: {
       leaseSecret,
       fetchPolicySnapshot: (id) => policyCache.get(id),
-      consumeJti: (jti, exp) => replayGuard.consume(jti, exp),
+      bindJtiToSession: (jti, sessionId, exp) => replayGuard.bind(jti, sessionId, exp),
     },
     policyCache,
     auditSink,

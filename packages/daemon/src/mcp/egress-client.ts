@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import type { McpEgressPolicySnapshot } from "@dofe-agent/domain";
 
 export interface McpEgressProxyClient {
   baseUrl: string;
   leaseToken: string;
+  proxySessionId: string;
   /** Push the policy snapshot to the proxy if it hasn't been pushed yet. */
   ensurePolicyPushed(): Promise<void>;
 }
@@ -12,6 +14,8 @@ export interface CreateMcpEgressProxyClientInput {
   leaseToken: string;
   policySnapshot: McpEgressPolicySnapshot;
   adminToken?: string;
+  /** Test hook; production callers use an unguessable UUID generated per transport. */
+  proxySessionId?: string;
 }
 
 /**
@@ -24,6 +28,7 @@ export interface CreateMcpEgressProxyClientInput {
 export function createMcpEgressProxyClient(input: CreateMcpEgressProxyClientInput): McpEgressProxyClient {
   const pushedPolicyIds = new Set<string>();
   const adminAuthHeader = input.adminToken ? { "x-dofe-admin-token": input.adminToken } : undefined;
+  const proxySessionId = input.proxySessionId ?? randomUUID();
 
   async function ensurePolicyPushed(): Promise<void> {
     const id = input.policySnapshot.revision.id;
@@ -48,6 +53,7 @@ export function createMcpEgressProxyClient(input: CreateMcpEgressProxyClientInpu
   return {
     baseUrl: input.proxyBaseUrl,
     leaseToken: input.leaseToken,
+    proxySessionId,
     ensurePolicyPushed,
   };
 }
@@ -56,5 +62,6 @@ export function createMcpEgressProxyClient(input: CreateMcpEgressProxyClientInpu
 export function buildMcpEgressProxyRequestHeaders(client: McpEgressProxyClient): Record<string, string> {
   return {
     Authorization: `DofeEgressLease ${client.leaseToken}`,
+    "X-Dofe-Egress-Session": client.proxySessionId,
   };
 }
