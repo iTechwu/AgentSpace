@@ -1,4 +1,5 @@
 import {
+  deleteWorkspaceRevisionsOlderThanSync,
   hardDeleteExpiredSoftDeletedArtifactsSync,
   listEmployeePersistentWorkspacesSync,
   listWorkspacesSync,
@@ -20,10 +21,13 @@ export interface LifecycleMaintenanceResult {
     workspaceId: string;
     artifactsHardDeleted: number;
     artifactsHeld: number;
+    revisionsPruned: number;
+    revisionsHeld: number;
     freedDigests: number;
     orphanBlobsReclaimed: number;
   }>;
   totalArtifactsHardDeleted: number;
+  totalRevisionsPruned: number;
   totalOrphanBlobsReclaimed: number;
   checkedAt: string;
 }
@@ -55,12 +59,15 @@ export function runEmployeeLifecycleMaintenanceSync(
 
   const results: LifecycleMaintenanceResult["workspaces"] = [];
   let totalArtifactsHardDeleted = 0;
+  let totalRevisionsPruned = 0;
   let totalOrphanBlobsReclaimed = 0;
 
   for (const workspace of workspaces) {
     const employeeWorkspaces = listEmployeePersistentWorkspacesSync(workspace.id);
     let artifactsHardDeleted = 0;
     let artifactsHeld = 0;
+    let revisionsPruned = 0;
+    let revisionsHeld = 0;
     const freedDigests = new Set<string>();
     let workspaceOrphanRetainSeconds = orphanBlobRetainSeconds;
     for (const employeeWorkspace of employeeWorkspaces) {
@@ -81,6 +88,20 @@ export function runEmployeeLifecycleMaintenanceSync(
       artifactsHardDeleted += hardDeleted.removed;
       artifactsHeld += hardDeleted.held;
       for (const digest of hardDeleted.digests) freedDigests.add(digest);
+
+      // Revision retention (P1-6 删除证明): prune revisions older than the
+      // policy window, keeping the head and anything under an active legal hold.
+      if (policy.revisionRetentionDays) {
+        const revisionCutoff = new Date(nowMs - policy.revisionRetentionDays * 24 * 3600 * 1000).toISOString();
+        const pruned = deleteWorkspaceRevisionsOlderThanSync({
+          workspaceId: workspace.id,
+          employeeName: employeeWorkspace.employeeName,
+          cutoff: revisionCutoff,
+        });
+        revisionsPruned += pruned.removed;
+        revisionsHeld += pruned.held;
+        for (const digest of pruned.freedDigests) freedDigests.add(digest);
+      }
     }
 
     const orphanScan = reclaimOrphanContentBlobsSync({
@@ -92,11 +113,14 @@ export function runEmployeeLifecycleMaintenanceSync(
     });
 
     totalArtifactsHardDeleted += artifactsHardDeleted;
+    totalRevisionsPruned += revisionsPruned;
     totalOrphanBlobsReclaimed += orphanScan.reclaimedCount ?? 0;
     results.push({
       workspaceId: workspace.id,
       artifactsHardDeleted,
       artifactsHeld,
+      revisionsPruned,
+      revisionsHeld,
       freedDigests: freedDigests.size,
       orphanBlobsReclaimed: orphanScan.reclaimedCount ?? 0,
     });
@@ -105,6 +129,7 @@ export function runEmployeeLifecycleMaintenanceSync(
   return {
     workspaces: results,
     totalArtifactsHardDeleted,
+    totalRevisionsPruned,
     totalOrphanBlobsReclaimed,
     checkedAt: now,
   };
@@ -114,6 +139,8 @@ export interface EmployeeDataRetentionPolicy {
   softDeleteDays?: number;
   orphanBlobRetainDays?: number;
   quotaBytes?: number;
+  /** Workspace revisions older than this are pruned (P1-6 删除证明). */
+  revisionRetentionDays?: number;
 }
 
 export function readRetentionPolicy(value: string): EmployeeDataRetentionPolicy {
@@ -123,6 +150,7 @@ export function readRetentionPolicy(value: string): EmployeeDataRetentionPolicy 
       softDeleteDays: positiveFiniteNumber(parsed.softDeleteDays),
       orphanBlobRetainDays: positiveFiniteNumber(parsed.orphanBlobRetainDays),
       quotaBytes: positiveFiniteNumber(parsed.quotaBytes),
+      revisionRetentionDays: positiveFiniteNumber(parsed.revisionRetentionDays),
     };
   } catch {
     return {};

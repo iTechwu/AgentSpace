@@ -267,6 +267,63 @@ export function listWorkspaceRevisionsSync(options: {
 }
 
 /**
+ * Deletes an employee's workspace revisions older than `cutoff`, keeping the
+ * head revision and any revision under an active legal hold (P1-6 删除证明).
+ * Returns the freed manifest digests so the caller can feed orphan-blob
+ * reclamation, plus a held count for the proof.
+ */
+export function deleteWorkspaceRevisionsOlderThanSync(input: {
+  workspaceId?: string;
+  employeeName: string;
+  cutoff: string;
+}): { removed: number; freedDigests: string[]; held: number } {
+  const db = getDatabase();
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const employeeId = resolveStoredEmployeeIdSync(input.employeeName.trim(), workspaceId);
+  if (!employeeId) {
+    return { removed: 0, freedDigests: [], held: 0 };
+  }
+  const workspace = readEmployeePersistentWorkspaceSync(input.employeeName.trim(), workspaceId);
+  const headId = workspace?.headRevisionId ?? "";
+
+  const candidates = db.prepare(
+    `${REVISION_COLUMNS} FROM employee_workspace_revision
+     WHERE workspace_id = ? AND employee_id = ? AND created_at < ? AND id <> ?
+     ORDER BY created_at DESC`,
+  ).all(workspaceId, employeeId, input.cutoff, headId) as Array<Record<string, unknown>>;
+
+  let removed = 0;
+  let held = 0;
+  const freedDigests: string[] = [];
+  for (const row of candidates) {
+    const revisionId = row.id;
+    if (typeof revisionId !== "string") {
+      continue;
+    }
+    const heldRow = db.prepare(
+      `SELECT 1 AS present FROM employee_data_legal_hold
+       WHERE workspace_id = ? AND resource_type = 'revision' AND resource_id = ?
+         AND released_at IS NULL AND (expires_at IS NULL OR expires_at > NOW())`,
+    ).get(workspaceId, revisionId);
+    if (heldRow) {
+      held += 1;
+      continue;
+    }
+    const result = db.prepare(
+      `DELETE FROM employee_workspace_revision WHERE id = ? AND workspace_id = ?`,
+    ).run(revisionId, workspaceId);
+    if (result.changes > 0) {
+      removed += 1;
+      const digest = row.manifestDigest ?? row.manifest_digest;
+      if (typeof digest === "string" && digest.length > 0) {
+        freedDigests.push(digest);
+      }
+    }
+  }
+  return { removed, freedDigests, held };
+}
+
+/**
  * Atomically promote a pending revision to committed and advance the workspace
  * head. Split-brain guard: the revision's parent must equal the current head
  * (or head must be empty for the first commit). Throws on conflict.

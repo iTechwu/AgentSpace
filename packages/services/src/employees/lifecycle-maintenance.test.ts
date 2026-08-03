@@ -278,3 +278,46 @@ test("content blob legal hold protects an otherwise orphaned object", () => {
   assert.equal(result.totalOrphanBlobsReclaimed, 0);
   assert.ok(readContentBlobSync(digest, "default"));
 });
+
+test("lifecycle prunes old workspace revisions but keeps the head", () => {
+  const db = getDatabase();
+  ensureEmployeePersistentWorkspaceSync({ workspaceId: "default", employeeName: "Alice" });
+
+  // Old revision, backdated beyond the 7-day retention window.
+  const oldBytes = new TextEncoder().encode("old rev");
+  persistTestBlob(oldBytes);
+  const old = promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Alice",
+    outputs: [{ path: "old.txt", bytes: oldBytes }],
+  });
+  db.prepare(`UPDATE employee_workspace_revision SET created_at = ? WHERE id = ?`).run(
+    new Date(Date.now() - 40 * 24 * 3600 * 1000).toISOString(),
+    old.revision.id,
+  );
+
+  // Recent revision becomes the head → kept.
+  const recentBytes = new TextEncoder().encode("recent rev");
+  promoteTaskOutputsToWorkspaceSync({
+    workspaceId: "default",
+    taskId: insertTestTask(),
+    employeeName: "Alice",
+    outputs: [{ path: "recent.txt", bytes: recentBytes }],
+  });
+
+  db.prepare(`UPDATE employee_persistent_workspace SET retention_policy_json = ? WHERE employee_name = 'Alice'`).run(
+    JSON.stringify({ revisionRetentionDays: 7 }),
+  );
+
+  const result = runEmployeeLifecycleMaintenanceSync({ workspaceId: "default" });
+  assert.equal(result.totalRevisionsPruned, 1);
+  assert.equal(result.workspaces[0]?.revisionsPruned, 1);
+  assert.equal(
+    db.prepare(`SELECT 1 AS x FROM employee_workspace_revision WHERE id = ?`).get(old.revision.id),
+    undefined,
+    "the old revision is pruned",
+  );
+  const remaining = db.prepare(`SELECT COUNT(*) AS c FROM employee_workspace_revision WHERE workspace_id = 'default'`).get();
+  assert.equal(Number(remaining?.c), 1, "the head revision is retained");
+});

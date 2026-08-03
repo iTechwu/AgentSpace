@@ -1028,6 +1028,7 @@ export {
   readWorkspaceRevisionSync,
   readHeadRevisionSync,
   listWorkspaceRevisionsSync,
+  deleteWorkspaceRevisionsOlderThanSync,
   commitWorkspaceRevisionSync,
   restoreWorkspaceRevisionSync,
   publishEmployeeArtifactSync,
