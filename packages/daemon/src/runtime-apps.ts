@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan } from "@dofe-agent/domain";
 
 const MAX_TAIL_CHARS = 8_000;
@@ -40,6 +40,12 @@ export interface ManagedRuntimeAppPlanOptions {
   dockerNetwork: string;
   dockerConnectivityArgs?: string[];
   user: string;
+}
+
+interface RuntimeAppExecutionEnvironment {
+  path: string;
+  pythonExecutable?: string;
+  pythonUserBinDir?: string;
 }
 
 const RUNTIME_APP_CONTAINER_HOME = "/dofe-home";
@@ -128,8 +134,12 @@ export async function executeRuntimeAppPlan(
 ): Promise<RuntimeAppExecutionResult> {
   let stdout = "";
   let stderr = "";
+  const executionEnvironment = resolveRuntimeAppExecutionEnvironment();
   for (const command of [...plan.commands, ...plan.verifyCommands]) {
-    const result = await execCommand(command, { cwd: options?.cwd });
+    const result = await execCommand(command, {
+      cwd: options?.cwd,
+      executionEnvironment,
+    });
     stdout += `\n$ ${renderCommand(command)}\n${result.stdout}`;
     stderr += result.stderr ? `\n$ ${renderCommand(command)}\n${result.stderr}` : "";
   }
@@ -145,14 +155,20 @@ export async function executeRuntimeAppPlan(
 }
 
 export function readCliHubReadiness(): CliHubReadiness {
+  const executionEnvironment = resolveRuntimeAppExecutionEnvironment();
+  const pythonExecutable = executionEnvironment.pythonExecutable ?? "python3";
   return {
     checkedAt: new Date().toISOString(),
-    python: checkCommand("python3", ["--version"]),
-    pip: checkCommand("python3", ["-m", "pip", "--version"]),
-    cliHub: checkCommand("cli-hub", ["--version"]),
-    npm: checkCommand("npm", ["--version"]),
-    uv: checkCommand("uv", ["--version"]),
+    python: checkCommand(pythonExecutable, ["--version"], executionEnvironment.path),
+    pip: checkCommand(pythonExecutable, ["-m", "pip", "--version"], executionEnvironment.path),
+    cliHub: checkCommand("cli-hub", ["--version"], executionEnvironment.path),
+    npm: checkCommand("npm", ["--version"], executionEnvironment.path),
+    uv: checkCommand("uv", ["--version"], executionEnvironment.path),
   };
+}
+
+export function resolveRuntimeAppUserBinDir(): string | undefined {
+  return resolveRuntimeAppExecutionEnvironment().pythonUserBinDir;
 }
 
 export function parseRuntimeAppInstallPlan(value: unknown): RuntimeAppInstallPlan | null {
@@ -174,9 +190,9 @@ export function parseRuntimeAppInstallPlan(value: unknown): RuntimeAppInstallPla
   return plan;
 }
 
-function checkCommand(command: string, args: string[]): RuntimeAppReadinessItem {
+function checkCommand(command: string, args: string[], pathValue = process.env.PATH ?? ""): RuntimeAppReadinessItem {
   const result = spawnSync(command, args, {
-    env: process.env,
+    env: { ...process.env, PATH: pathValue },
     encoding: "utf8",
     timeout: 5_000,
   });
@@ -201,16 +217,23 @@ const KILL_GRACE_MS = 5_000;
 
 function execCommand(
   command: RuntimeAppCommandPlanItem,
-  options?: { cwd?: string },
+  options: { cwd?: string; executionEnvironment: RuntimeAppExecutionEnvironment },
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command.executable, command.args, {
+    const executable = command.executable === "python3"
+      ? options.executionEnvironment.pythonExecutable ?? command.executable
+      : command.executable;
+    const commandPath = prependPath(
+      command.env?.PATH ?? options.executionEnvironment.path,
+      options.executionEnvironment.pythonUserBinDir,
+    );
+    const child = spawn(executable, command.args, {
       cwd: options?.cwd,
       // Minimal env: only PATH + the plan's own env — host secrets must not leak
       // into package-manager subprocesses.
       env: {
-        PATH: process.env.PATH ?? "",
         ...(command.env ?? {}),
+        PATH: commandPath,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -245,6 +268,41 @@ function execCommand(
       }));
     });
   });
+}
+
+function resolveRuntimeAppExecutionEnvironment(
+  environment: NodeJS.ProcessEnv = process.env,
+): RuntimeAppExecutionEnvironment {
+  const basePath = environment.PATH ?? "";
+  for (const candidate of ["python3", "python"]) {
+    const version = spawnSync(candidate, ["--version"], {
+      env: environment,
+      encoding: "utf8",
+      timeout: 5_000,
+    });
+    if (version.error || version.status !== 0) continue;
+
+    const userBase = spawnSync(candidate, ["-c", "import site; print(site.USER_BASE)"], {
+      env: environment,
+      encoding: "utf8",
+      timeout: 5_000,
+    });
+    const pythonUserBase = userBase.status === 0 ? userBase.stdout.trim() : "";
+    const pythonUserBinDir = pythonUserBase
+      ? join(pythonUserBase, process.platform === "win32" ? "Scripts" : "bin")
+      : undefined;
+    return {
+      pythonExecutable: candidate,
+      pythonUserBinDir,
+      path: prependPath(basePath, pythonUserBinDir),
+    };
+  }
+  return { path: basePath };
+}
+
+function prependPath(pathValue: string, directory?: string): string {
+  if (!directory) return pathValue;
+  return [directory, ...pathValue.split(delimiter).filter((entry) => entry && entry !== directory)].join(delimiter);
 }
 
 function isCommandPlanItem(value: unknown): value is RuntimeAppCommandPlanItem {

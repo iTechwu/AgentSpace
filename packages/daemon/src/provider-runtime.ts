@@ -17,7 +17,7 @@ import {
 import { buildEnvValueRedactions, buildRedactions, redactText } from "./agent-router/utils.ts";
 import { clearTaskOutputArtifacts } from "./bundle.ts";
 import { buildOpenClawProviderHealthSnapshot, inspectOpenClawDaemonAuthHealth } from "./openclaw-health.ts";
-import { readCliHubReadiness } from "./runtime-apps.ts";
+import { readCliHubReadiness, resolveRuntimeAppUserBinDir } from "./runtime-apps.ts";
 
 export interface ProviderRuntimeRecord {
   id: string;
@@ -455,6 +455,8 @@ function buildCliHubRuntimeToolCapabilities(
   runtimeApps: RuntimeAppContextEntry[],
   runtimeAppBinDir?: string,
 ): RuntimeToolCapability[] {
+  if (runtimeApps.length === 0) return [];
+  const pythonUserBinDir = runtimeAppBinDir?.trim() || resolveRuntimeAppUserBinDir();
   return runtimeApps.flatMap((app): RuntimeToolCapability[] => {
     const command = app.entryPoint?.trim();
     if (!command) {
@@ -464,7 +466,9 @@ function buildCliHubRuntimeToolCapabilities(
       id: `clihub:${app.source}:${app.name}`,
       command,
       displayName: app.displayName || app.name,
-      binDir: runtimeAppBinDir?.trim() || resolveCommandDirFromCurrentEnv(command),
+      binDir: runtimeAppBinDir?.trim()
+        || resolveCommandDirFromCurrentEnv(command)
+        || (pythonUserBinDir && existsSync(join(pythonUserBinDir, command)) ? pythonUserBinDir : undefined),
       allowedShellPatterns: [`${command} *`, `${command} --help`, `command -v ${command}`],
       diagnosticCommands: [`command -v ${shellQuote(command)}`],
       source: "cli-hub",

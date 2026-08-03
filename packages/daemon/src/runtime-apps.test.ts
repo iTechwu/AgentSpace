@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { computeDirectoryDigestSync, executeRuntimeAppPlan } from "./runtime-apps.ts";
+import { computeDirectoryDigestSync, executeRuntimeAppPlan, readCliHubReadiness } from "./runtime-apps.ts";
 import * as runtimeApps from "./runtime-apps.ts";
 
 function sha256(...parts: Buffer[]): string {
@@ -111,4 +111,51 @@ test("managed runtime app plans execute inside the target provider image", () =>
   ]);
   assert.equal(plan.verifyCommands[0]?.args.includes("--entrypoint"), true);
   assert.equal(plan.verifyCommands[0]?.args.includes("cli-anything-blender"), true);
+});
+
+test("runtime app execution supports python fallback and platform-specific user scripts", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-runtime-app-platform-"));
+  const binDir = join(root, "bin");
+  const pythonUserBase = join(root, "Library", "Python", "3.12");
+  const pythonUserBin = join(pythonUserBase, "bin");
+  const originalPath = process.env.PATH;
+  const originalPythonUserBase = process.env.FAKE_PYTHON_USER_BASE;
+  mkdirSync(binDir, { recursive: true });
+  mkdirSync(pythonUserBin, { recursive: true });
+  writeFileSync(join(binDir, "python"), [
+    "#!/bin/sh",
+    "if [ \"$1\" = \"--version\" ]; then echo 'Python 3.12.0'; exit 0; fi",
+    "if [ \"$1\" = \"-c\" ]; then printf '%s\\n' \"$FAKE_PYTHON_USER_BASE\"; exit 0; fi",
+    "exit 1",
+    "",
+  ].join("\n"));
+  writeFileSync(join(pythonUserBin, "cli-hub"), "#!/bin/sh\necho 'cli-hub 1.0.0'\n");
+  chmodSync(join(binDir, "python"), 0o755);
+  chmodSync(join(pythonUserBin, "cli-hub"), 0o755);
+
+  try {
+    process.env.PATH = binDir;
+    process.env.FAKE_PYTHON_USER_BASE = pythonUserBase;
+    const result = await executeRuntimeAppPlan({
+      app: { source: "clihub_harness", name: "portable", version: "1.0.0", entryPoint: "cli-hub" },
+      strategy: "pip",
+      commands: [{ executable: "python3", args: ["--version"] }],
+      verifyCommands: [{ executable: "cli-hub", args: ["--version"] }],
+      risk: "low",
+      requiresApproval: true,
+      notes: [],
+    });
+    const readiness = readCliHubReadiness();
+
+    assert.match(result.safeStdoutTail, /Python 3\.12\.0/);
+    assert.match(result.safeStdoutTail, /cli-hub 1\.0\.0/);
+    assert.equal(readiness.python.available, true);
+    assert.equal(readiness.cliHub.available, true);
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    if (originalPythonUserBase === undefined) delete process.env.FAKE_PYTHON_USER_BASE;
+    else process.env.FAKE_PYTHON_USER_BASE = originalPythonUserBase;
+    rmSync(root, { recursive: true, force: true });
+  }
 });

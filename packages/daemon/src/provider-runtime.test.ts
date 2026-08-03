@@ -1012,12 +1012,14 @@ test("runProviderTask exposes Feishu lark-cli diagnostic grants only when enable
 test("runProviderTask exposes CLI-Hub runtime app capabilities without adapter-specific code", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-claude-clihub-capability-"));
   const providerBinDir = join(workDir, "provider-bin");
-  const toolBinDir = join(workDir, "tool-bin");
+  const pythonUserBase = join(workDir, "python-user");
+  const toolBinDir = join(pythonUserBase, "bin");
   const binPath = join(providerBinDir, "claude");
   const fakeCliPath = join(toolBinDir, "fooctl");
   const argsPath = join(workDir, "claude-args.txt");
   const seenPathFile = join(workDir, "seen-path.txt");
   const originalPath = process.env.PATH;
+  const originalPythonUserBase = process.env.PYTHONUSERBASE;
   mkdirSync(providerBinDir, { recursive: true });
   mkdirSync(toolBinDir, { recursive: true });
   writeFileSync(
@@ -1049,7 +1051,8 @@ test("runProviderTask exposes CLI-Hub runtime app capabilities without adapter-s
   };
 
   try {
-    process.env.PATH = providerBinDir;
+    process.env.PATH = `${providerBinDir}${delimiter}${originalPath ?? ""}`;
+    process.env.PYTHONUSERBASE = pythonUserBase;
     await withProcessGetuid(0, async () => {
       const result = await runProviderTask(runtime, "use fooctl", workDir, {
         contextEnv: {
@@ -1062,7 +1065,6 @@ test("runProviderTask exposes CLI-Hub runtime app capabilities without adapter-s
           displayName: "Foo CLI",
           entryPoint: "fooctl",
         }],
-        runtimeAppBinDir: toolBinDir,
         taskTimeoutMs: 5_000,
       });
       const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
@@ -1077,6 +1079,8 @@ test("runProviderTask exposes CLI-Hub runtime app capabilities without adapter-s
     });
   } finally {
     process.env.PATH = originalPath;
+    if (originalPythonUserBase === undefined) delete process.env.PYTHONUSERBASE;
+    else process.env.PYTHONUSERBASE = originalPythonUserBase;
     rmSync(workDir, { recursive: true, force: true });
   }
 });
