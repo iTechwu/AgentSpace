@@ -8,6 +8,7 @@
     "dofe-agent": "./apps/cli/bin/dofe-agent.js"
   },
   "scripts": {
+    "pretest": "node scripts/verify-test-inventory.mjs",
     "cli": "node --experimental-strip-types apps/cli/src/index.ts",
     "daemon:pack": "pnpm --filter dofe-agent-daemon pack",
     "setup": "pnpm install --frozen-lockfile",
