@@ -392,6 +392,13 @@ function useChannelRealtimeRefresh({
   refresh: () => void;
 }): void {
   const refreshTimerRef = useRef<number | null>(null);
+  const onInvalidationRef = useRef(onInvalidation);
+  const refreshRef = useRef(refresh);
+
+  useEffect(() => {
+    onInvalidationRef.current = onInvalidation;
+    refreshRef.current = refresh;
+  }, [onInvalidation, refresh]);
 
   useEffect(() => {
     if (!enabled || !channelName?.trim() || typeof window.EventSource !== "function") {
@@ -412,7 +419,7 @@ function useChannelRealtimeRefresh({
       } catch {
         return;
       }
-      onInvalidation?.({
+      onInvalidationRef.current?.({
         workspaceId,
         resources: eventChannelName ? [{ type: "channel", id: eventChannelName }] : [{ type: "channel" }],
         shell: "counters",
@@ -422,7 +429,7 @@ function useChannelRealtimeRefresh({
       }
       refreshTimerRef.current = window.setTimeout(() => {
         refreshTimerRef.current = null;
-        refresh();
+        refreshRef.current();
       }, CHANNEL_REALTIME_REFRESH_DEBOUNCE_MS);
     };
 
@@ -438,7 +445,7 @@ function useChannelRealtimeRefresh({
         refreshTimerRef.current = null;
       }
     };
-  }, [channelName, enabled, onInvalidation, refresh, workspaceId]);
+  }, [channelName, enabled, workspaceId]);
 }
 
 function useChannelRouteState({

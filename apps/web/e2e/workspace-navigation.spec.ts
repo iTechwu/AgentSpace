@@ -53,7 +53,7 @@ test("keeps runtime management destination and active content through navigation
   const session = await openSeededWorkspacePage(page, "/agents?mode=container");
   const runtimePath = runtimeMode === "remote" ? "/runtimes" : "/agents?mode=container";
   const runtimeHeading = runtimeMode === "remote"
-    ? /创建托管执行引擎|Create managed runtime/i
+    ? /执行能力管理|Execution capacity/i
     : /在线执行引擎|Online execution engines/i;
 
   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}${escapeRegExp(runtimePath)}$`));
@@ -88,9 +88,11 @@ test("opens the deployment-appropriate execution engine management experience", 
   if (runtimeMode === "remote") {
     await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/runtimes$`));
     await expect(
-      page.getByRole("heading", { name: /创建托管执行引擎|Create managed runtime/i }),
+      page.getByRole("heading", { name: /执行能力管理|Execution capacity/i }),
       `Client errors: ${clientErrors.join("\n") || "none"}`,
     ).toBeVisible();
+    await expect(page.getByRole("tab", { name: /新增执行引擎|Add runtime/i })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("heading", { name: /配置执行能力|Configure execution capacity/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /接入服务器|Connect server/i })).toHaveCount(0);
   } else {
     await page.locator("button.agents-pane__container-button").click();
@@ -160,8 +162,11 @@ test("keeps managed runtime settings reachable in a constrained viewport", async
   expect(await detail.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 
   await page.setViewportSize({ width: 390, height: 720 });
+  const layout = page.locator(".workspace-layout");
   const sidebarOverlay = page.locator(".workspace-sidebar-overlay");
-  if (await sidebarOverlay.isVisible()) await sidebarOverlay.click();
+  if (await layout.evaluate((element) => element.classList.contains("workspace-layout--sidebar-open"))) {
+    await sidebarOverlay.click();
+  }
   const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(horizontalOverflow).toBeLessThanOrEqual(1);
   await sharingHeading.scrollIntoViewIfNeeded();
@@ -339,5 +344,5 @@ function escapeRegExp(value: string): string {
 }
 
 function settingsSectionLabel(page: Page, name: RegExp) {
-  return page.locator(".settings-group__eyebrow").filter({ hasText: name });
+  return page.getByRole("heading", { name }).first();
 }

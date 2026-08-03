@@ -538,6 +538,7 @@ describe("ChannelsPageClient", () => {
     const composer = screen.getByPlaceholderText("发送到 tour visit");
     fireEvent.change(composer, { target: { value: "草稿", selectionStart: 2 } });
     composer.focus();
+    expect(eventSources).toHaveLength(1);
     expect(eventSources[0]?.url).toBe("/api/workspaces/workspace-1/channels/tour%20visit/events");
 
     const activeSource = eventSources.at(-1);
@@ -554,6 +555,8 @@ describe("ChannelsPageClient", () => {
 
     expect(routerRefreshMock).not.toHaveBeenCalled();
     await waitFor(() => expect(routerRefreshMock).toHaveBeenCalledTimes(1));
+    expect(eventSources).toHaveLength(1);
+    expect(activeSource?.close).not.toHaveBeenCalled();
     expect(composer).toHaveValue("草稿");
   });
 

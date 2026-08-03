@@ -24,7 +24,8 @@ test("mobile workspace drill-down flows render and navigate", async ({ page }) =
   await firstSkill.click();
   await expect(page.getByRole("button", { name: /返回技能列表|Back to skills/i })).toBeVisible();
   await expect(page.getByRole("textbox", { name: /Skill name/i })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: /编辑文件内容|Edit file content/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /只读预览|Read-only preview/i })).toBeVisible();
+  await expect(page.locator(".skills-editor__md-preview")).toBeVisible();
 
   await page.goto("/approvals");
   await expect(page.getByRole("button", { name: /全部|All/i })).toBeVisible();

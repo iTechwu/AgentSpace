@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   createSsoAuthorizationRequest,
   encodeSsoOidcState,
+  buildSsoCallbackRedirectUrl,
   OIDC_STATE_TTL_SECONDS,
   SSO_OIDC_STATE_COOKIE,
 } from "@/features/auth/sso-oidc";
@@ -23,6 +24,8 @@ export async function GET(request: Request): Promise<NextResponse> {
     return response;
   } catch (error) {
     const code = error instanceof Error ? error.message : "auth.sso_start_failed";
-    return NextResponse.redirect(new URL(`/auth/error?code=${encodeURIComponent(code)}`, request.url));
+    return NextResponse.redirect(
+      buildSsoCallbackRedirectUrl(`/auth/error?code=${encodeURIComponent(code)}`, request.url),
+    );
   }
 }
