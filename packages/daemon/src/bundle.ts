@@ -23,6 +23,13 @@ import {
   type WorkDirBlobUploadEntry,
   type WorkDirFileEntry,
 } from "./workdir-capture.ts";
+import {
+  downloadBlobWithResume,
+  uploadBlobsWithConcurrency,
+  type DownloadBlobEntry,
+  type UploadBlob,
+  type ReadBlobBytes,
+} from "./resumable-transfer.ts";
 
 export function clearTaskOutputArtifacts(workDir: string): void {
   rmSync(join(workDir, "last-message.txt"), { force: true });
@@ -118,11 +125,12 @@ export async function materializeRemoteInputBundle(input: {
   stateDir: string;
   bundle: DaemonTaskInputBundle;
   fetchWorkspaceBlob: (taskId: string, revisionId: string, sha256: string) => Promise<Uint8Array>;
-}): Promise<{ downloadedBlobs: number; reusedBlobs: number }> {
+  fetchWorkspaceBlobRange?: (taskId: string, revisionId: string, sha256: string, start: number, end: number) => Promise<Uint8Array>;
+}): Promise<{ downloadedBlobs: number; reusedBlobs: number; downloadedBytes: number; reusedBytes: number }> {
   const workspace = input.bundle.workspace;
   if (!workspace) {
     materializeInputBundle(input.workDir, input.bundle);
-    return { downloadedBlobs: 0, reusedBlobs: 0 };
+    return { downloadedBlobs: 0, reusedBlobs: 0, downloadedBytes: 0, reusedBytes: 0 };
   }
   assertWorkspaceManifestBudget(workspace.files);
   const cacheRoot = resolve(input.stateDir, "workspace-blob-cache");
@@ -130,31 +138,32 @@ export async function materializeRemoteInputBundle(input: {
   const cachePaths = new Map<string, string>();
   let downloadedBlobs = 0;
   let reusedBlobs = 0;
+  let downloadedBytes = 0;
+  let reusedBytes = 0;
 
   for (const file of workspace.files) {
     resolveBundleTargetPath(input.workDir, file.path);
     const cachePath = resolve(cacheRoot, file.sha256.slice(0, 2), file.sha256);
     if (isVerifiedBlobFile(cachePath, file.sha256, file.size)) {
       reusedBlobs += 1;
+      reusedBytes += file.size;
       cachePaths.set(file.sha256, cachePath);
       continue;
     }
     if (existsSync(cachePath)) rmSync(cachePath, { force: true });
-    const bytes = Buffer.from(await input.fetchWorkspaceBlob(input.bundle.taskId, workspace.revisionId, file.sha256));
-    assertBlobBytes(file.path, file.sha256, file.size, bytes);
-    mkdirSync(dirname(cachePath), { recursive: true });
-    const temporaryPath = `${cachePath}.${process.pid}.${randomUUID()}.tmp`;
-    try {
-      writeFileSync(temporaryPath, bytes, { flag: "wx", mode: 0o600 });
-      try {
-        renameSync(temporaryPath, cachePath);
-      } catch {
-        if (!isVerifiedBlobFile(cachePath, file.sha256, file.size)) throw new Error("workspace.cache_publish_failed");
-      }
-    } finally {
-      rmSync(temporaryPath, { force: true });
-    }
-    downloadedBlobs += 1;
+
+    const result = await downloadBlobWithResume({
+      taskId: input.bundle.taskId,
+      revisionId: workspace.revisionId,
+      entry: { sha256: file.sha256, size: file.size, mediaType: file.mediaType },
+      targetPath: cachePath,
+      stateDir: input.stateDir,
+      fetchRange: input.fetchWorkspaceBlobRange,
+      fetchWhole: input.fetchWorkspaceBlob,
+    });
+    downloadedBlobs += result.downloadedBytes > 0 ? 1 : 0;
+    downloadedBytes += result.downloadedBytes;
+    reusedBytes += result.reusedBytes;
     cachePaths.set(file.sha256, cachePath);
   }
 
@@ -187,7 +196,7 @@ export async function materializeRemoteInputBundle(input: {
   }
   // Per-task files intentionally overlay the durable workspace head.
   materializeInputBundle(input.workDir, input.bundle);
-  return { downloadedBlobs, reusedBlobs };
+  return { downloadedBlobs, reusedBlobs, downloadedBytes, reusedBytes };
 }
 
 function assertWorkspaceManifestBudget(files: NonNullable<DaemonTaskInputBundle["workspace"]>["files"]): void {

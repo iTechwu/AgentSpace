@@ -21,6 +21,7 @@ import {
   prepareRemoteOutputBundle,
   readWorkspaceBlobUploadBytes,
 } from "./bundle.ts";
+import { uploadBlobsWithConcurrency } from "./resumable-transfer.ts";
 import { readEmployeeHeadManifestSync } from "./workdir-capture.ts";
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
@@ -932,6 +933,8 @@ async function executeRemoteTask(
       stateDir: config.stateDir,
       bundle,
       fetchWorkspaceBlob: (taskId, revisionId, sha256) => client.getWorkspaceBlob(taskId, revisionId, sha256),
+      fetchWorkspaceBlobRange: (taskId, revisionId, sha256, start, end) =>
+        client.getWorkspaceBlobRange(taskId, revisionId, sha256, start, end),
     });
     const runnerEntrypoints = bundle.metadata.skillRunnerEntrypoints ?? [];
     const skillEnvironment = partitionSkillEnvironment(bundle.metadata.skillEnv, runnerEntrypoints);
@@ -1088,8 +1091,16 @@ async function executeRemoteTask(
       workDir,
       readEmployeeHeadManifestSync(task.workspaceId, task.agentId),
     );
-    for (const upload of preparedOutput.uploads) {
-      await client.uploadWorkspaceBlob(task.id, upload.sha256, readWorkspaceBlobUploadBytes(upload));
+    if (preparedOutput.uploads.length > 0) {
+      await uploadBlobsWithConcurrency({
+        taskId: task.id,
+        entries: preparedOutput.uploads.map((upload) => ({
+          sha256: upload.sha256,
+          size: upload.size,
+          readBytes: async () => readWorkspaceBlobUploadBytes(upload),
+        })),
+        uploadBlob: (taskId, sha256, bytes) => client.uploadWorkspaceBlob(taskId, sha256, bytes),
+      });
     }
     if (preparedOutput.bundle) {
       await client.uploadOutputBundle(task.id, preparedOutput.bundle);

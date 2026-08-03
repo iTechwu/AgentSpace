@@ -370,6 +370,36 @@ export class HttpDaemonClient {
     throw lastError instanceof Error ? lastError : new Error("Workspace blob download failed.");
   }
 
+  async getWorkspaceBlobRange(taskId: string, revisionId: string, sha256: string, start: number, end: number): Promise<Uint8Array> {
+    const path = `/api/daemon/tasks/${encodeURIComponent(taskId)}/workspace-blobs/${encodeURIComponent(sha256)}?revisionId=${encodeURIComponent(revisionId)}`;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt += 1) {
+      try {
+        const response = await fetch(this.resolveUrl(path), {
+          method: "GET",
+          headers: {
+            ...this.buildHeaders(),
+            range: `bytes=${start}-${end}`,
+          },
+        });
+        if (response.status >= 500 && attempt < this.maxRetryAttempts) {
+          await sleep(this.retryDelayMs);
+          continue;
+        }
+        if (response.status === 416) {
+          throw new Error(`Workspace blob range ${start}-${end} is unsatisfiable.`);
+        }
+        if (!response.ok) await this.readJson<never>(response);
+        return new Uint8Array(await response.arrayBuffer());
+      } catch (error) {
+        lastError = error;
+        if (attempt >= this.maxRetryAttempts) throw error;
+        await sleep(this.retryDelayMs);
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error("Workspace blob range download failed.");
+  }
+
   async reportMessages(taskId: string, body: ReportTaskMessagesRequest): Promise<void> {
     await this.postJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/messages`, body);
   }
