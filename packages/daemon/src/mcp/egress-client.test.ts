@@ -27,6 +27,8 @@ function makeSnapshot(id = "pol-test"): McpEgressPolicySnapshot {
       maxConcurrentStreams: 8,
       createdAt: new Date().toISOString(),
     },
+    revoked: false,
+    fetchedAt: new Date().toISOString(),
   };
 }
 
@@ -61,11 +63,9 @@ test("ensurePolicyPushed posts the snapshot to /v1/admin/policies with admin tok
     assert.ok(captured);
     assert.equal(captured!.url, "http://proxy.test/v1/admin/policies");
     assert.equal((captured!.init.method as string | undefined) ?? "POST", "POST");
-    assert.equal(captured!.init.headers?.["x-dofe-admin-token"], "admin-secret");
-    assert.equal(
-      (captured!.init.headers as Record<string, string>)?.["content-type"],
-      "application/json",
-    );
+    const capturedHeaders = captured!.init.headers as Record<string, string>;
+    assert.equal(capturedHeaders["x-dofe-admin-token"], "admin-secret");
+    assert.equal(capturedHeaders["content-type"], "application/json");
     assert.equal(JSON.parse(captured!.init.body as string).revision.id, snapshot.revision.id);
   } finally {
     globalThis.fetch = originalFetch;

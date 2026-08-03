@@ -327,6 +327,45 @@ test("rejects a declared oversized upstream response before writing headers", as
   }
 });
 
+test("revoke endpoint requires admin token and revokes the policy", async () => {
+  const cache = new McpEgressPolicyCache();
+  cache.set(buildSnapshot(basePolicy()));
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
+    auditSink: { record: () => undefined },
+    adminToken: "admin-secret",
+  });
+  const { url, close } = await server.start();
+  try {
+    const noToken = await fetch(`${url}/v1/admin/policies/pol-1/revoke`, { method: "POST" });
+    assert.equal(noToken.status, 401);
+
+    const badToken = await fetch(`${url}/v1/admin/policies/pol-1/revoke`, {
+      method: "POST",
+      headers: { "x-dofe-admin-token": "wrong" },
+    });
+    assert.equal(badToken.status, 401);
+
+    const ok = await fetch(`${url}/v1/admin/policies/pol-1/revoke`, {
+      method: "POST",
+      headers: { "x-dofe-admin-token": "admin-secret" },
+    });
+    assert.equal(ok.status, 200);
+    assert.equal(((await ok.json()) as { revoked: string }).revoked, "pol-1");
+
+    const after = await fetch(`${url}/mcp`, {
+      headers: { authorization: `DofeEgressLease ${buildLeaseToken()}` },
+    });
+    assert.equal(after.status, 403);
+    assert.equal(((await after.json()) as { error: string }).error, "mcp_egress.lease_revoked");
+  } finally {
+    await close();
+  }
+});
+
 function byteStream(value: string): ReadableStream<Uint8Array> {
   const bytes = new TextEncoder().encode(value);
   return new ReadableStream({

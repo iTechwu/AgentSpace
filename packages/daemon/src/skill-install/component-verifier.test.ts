@@ -8,6 +8,7 @@ import type { SkillArtifactManifest } from "@dofe-agent/services";
 import {
   buildSkillRunnerSyntaxCheckDockerArgs,
   verifySkillInstallationComponents,
+  type SkillRunnerSyntaxCheckInput,
 } from "./component-verifier.ts";
 
 const testRunnerSyntaxChecker = (input: { artifactDir: string; entrypointPath: string }) => {
@@ -201,7 +202,7 @@ test("verifies script syntax with the pinned runner image instead of the host in
     const manifest = buildManifest({
       files: [{ path: "index.mjs", sha256: "any", size: 1, mediaType: "text/javascript", mode: "0755" }],
     });
-    const calls: Array<Record<string, unknown>> = [];
+    const calls: Array<SkillRunnerSyntaxCheckInput> = [];
     const result = verifySkillInstallationComponents(
       {
         operationId: "op-runner-syntax",

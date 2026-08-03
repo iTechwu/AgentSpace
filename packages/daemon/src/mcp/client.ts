@@ -19,6 +19,15 @@ const MAX_DISCOVERY_SCHEMA_BYTES = 262_144;
 const CLIENT_NAME = "dofe-agent-daemon";
 const CLIENT_VERSION = "1";
 
+function enforceEgressError(connection: ResolvedMcpConnection): { code: McpErrorCode; safeMessage: string } | undefined {
+  const enforceEgress = process.env.MCP_EGRESS_ENFORCE === "true";
+  const hasProxyLease = Boolean(connection.egressProxyLease && connection.egressProxyPolicySnapshot);
+  if (enforceEgress && !hasProxyLease) {
+    return { code: "mcp.policy_denied", safeMessage: "MCP egress is enforced but no proxy lease is available for this connection." };
+  }
+  return undefined;
+}
+
 /**
  * The only component that talks to a remote MCP server. Lives inside the
  * Runtime container so egress is constrained by the container network policy.
@@ -34,6 +43,10 @@ async function verifyConnection(connection: ResolvedMcpConnection): Promise<McpV
   const guard = guardEndpoint(connection);
   if (!guard.ok) {
     return { status: "failed", error: { code: guard.code, safeMessage: guard.message } };
+  }
+  const enforceError = enforceEgressError(connection);
+  if (enforceError) {
+    return { status: "failed", error: enforceError };
   }
   const startedAt = Date.now();
   try {
@@ -72,6 +85,10 @@ async function callTool(input: {
   const guard = guardEndpoint(input.connection);
   if (!guard.ok) {
     return { ok: false, error: { code: guard.code, safeMessage: guard.message } };
+  }
+  const enforceError = enforceEgressError(input.connection);
+  if (enforceError) {
+    return { ok: false, error: enforceError };
   }
   try {
     const result = await withClient(input.connection, async (client) =>

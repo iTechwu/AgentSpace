@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPinnedLookup, normalizeDiscoveredTools } from "./client.ts";
+import type { ResolvedMcpConnection } from "@dofe-agent/domain";
+import { createPinnedLookup, createRuntimeMcpClient, normalizeDiscoveredTools } from "./client.ts";
 
 test("normalizeDiscoveredTools accepts bounded unique tool definitions", () => {
   const result = normalizeDiscoveredTools([
@@ -44,4 +45,33 @@ test("createPinnedLookup supports Node single-address and all-address callback s
     });
   });
   assert.deepEqual(all, [{ address: "203.0.113.10", family: 4 }]);
+});
+
+test("call rejects when egress is enforced and no proxy lease is present", async () => {
+  const original = process.env.MCP_EGRESS_ENFORCE;
+  process.env.MCP_EGRESS_ENFORCE = "true";
+  try {
+    const result = await createRuntimeMcpClient().call({
+      connection: {
+        connectionId: "conn-1",
+        runtimeId: "rt-1",
+        workspaceId: "ws-1",
+        transport: "streamable_http",
+        endpoint: "https://mcp.example.test/mcp",
+        allowedHosts: ["mcp.example.test"],
+        approvedTools: ["tool"],
+        secrets: {},
+        nonSecretParams: {},
+      } as unknown as ResolvedMcpConnection,
+      toolName: "tool",
+      arguments: {},
+      taskId: "task-1",
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, "mcp.policy_denied");
+    }
+  } finally {
+    process.env.MCP_EGRESS_ENFORCE = original;
+  }
 });

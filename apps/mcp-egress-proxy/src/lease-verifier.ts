@@ -48,7 +48,7 @@ export async function verifyLeaseForRequest(
     return { ok: false, code: "mcp_egress.policy_mismatch", message: "Policy revision is not available to the proxy." };
   }
   if (snapshot.revoked) {
-    return { ok: false, code: "mcp_egress.policy_denied", message: "Policy revision has been revoked." };
+    return { ok: false, code: "mcp_egress.lease_revoked", message: "Policy revision has been revoked." };
   }
   if (
     snapshot.revision.id !== claims.policyRevisionId ||
