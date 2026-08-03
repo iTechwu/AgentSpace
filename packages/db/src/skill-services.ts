@@ -334,7 +334,7 @@ export function deleteSkillServiceBindingSync(input: {
 }
 
 /**
- * Canary binding switch: atomically moves every binding that currently points
+ * Blue-green binding switch: atomically moves every binding that currently points
  * at `fromServiceId` (the green instance) onto `toServiceId` (the blue
  * instance), re-stamping the binding with the BLUE catalog's metadata and the
  * live endpoint the daemon reported for it. Returns the number switched and the

@@ -663,13 +663,13 @@ test("sweep resets the cooldown when a backward_compatible service is re-referen
 });
 
 /* ------------------------------------------------------------------ */
-/* Canary upgrade orchestration                                        */
+/* Blue-green upgrade orchestration                                    */
 /* ------------------------------------------------------------------ */
 
-const CANARY_SLUG = "canary-renderer";
+const BLUE_GREEN_SLUG = "blue-green-renderer";
 
 /** Distinct slug per test so the immutable catalog first-write is not reused. */
-function seedCanaryCatalogs(rollbackClass: string, slug = CANARY_SLUG): { greenCatalogId: string; blueCatalogId: string } {
+function seedBlueGreenCatalogs(rollbackClass: string, slug = BLUE_GREEN_SLUG): { greenCatalogId: string; blueCatalogId: string } {
   return {
     greenCatalogId: upsertSkillServiceCatalogSync({
       workspaceId: "default",
@@ -699,9 +699,9 @@ function seedCanaryCatalogs(rollbackClass: string, slug = CANARY_SLUG): { greenC
 }
 
 /** Plans an installation against the green (1.0.0) catalog and provisions it to ready. */
-async function provisionGreenToReady(runtimeId: string, salt: string, slug = CANARY_SLUG) {
+async function provisionGreenToReady(runtimeId: string, salt: string, slug = BLUE_GREEN_SLUG) {
   const artifact = buildAndPersistSkillArtifactSync({
-    name: `Canary ${salt}`,
+    name: `Blue Green ${salt}`,
     files: [{ path: "SKILL.md", bytes: encoder.encode(`# ${salt}\n`) }],
     services: [{ catalogSlug: slug, templateVersion: "1.0.0", required: true }],
   });
@@ -713,7 +713,7 @@ async function provisionGreenToReady(runtimeId: string, salt: string, slug = CAN
     operationId: claimed.id,
     workspaceId: "default",
     claimGeneration: claimed.claimGeneration,
-    endpointRef: "runtime-private://canary-v1",
+    endpointRef: "runtime-private://blue-green-v1",
   });
   assert.equal(completed.ok, true);
   assert.equal(readSkillInstallationSync(installation.id, "default")?.status, "ready");
@@ -721,12 +721,12 @@ async function provisionGreenToReady(runtimeId: string, salt: string, slug = CAN
 }
 
 test("upgrade refuses unknown/retired/provisioning services, wrong lineage, same version, and no bindings", async () => {
-  const { greenCatalogId } = seedCanaryCatalogs("stateless");
+  const { greenCatalogId } = seedBlueGreenCatalogs("stateless");
 
   const missing = upgradeManagedSkillServiceSync({
     workspaceId: "default",
     serviceId: `svc-${randomLikeId()}`,
-    catalogSlug: CANARY_SLUG,
+    catalogSlug: BLUE_GREEN_SLUG,
     templateVersion: "2.0.0",
   });
   assert.equal(missing.ok, false);
@@ -741,7 +741,7 @@ test("upgrade refuses unknown/retired/provisioning services, wrong lineage, same
   const retiredResult = upgradeManagedSkillServiceSync({
     workspaceId: "default",
     serviceId: realRetired.id,
-    catalogSlug: CANARY_SLUG,
+    catalogSlug: BLUE_GREEN_SLUG,
     templateVersion: "2.0.0",
   });
   assert.equal(retiredResult.ok, false);
@@ -754,7 +754,7 @@ test("upgrade refuses unknown/retired/provisioning services, wrong lineage, same
   const provisioningResult = upgradeManagedSkillServiceSync({
     workspaceId: "default",
     serviceId: provisioning.id,
-    catalogSlug: CANARY_SLUG,
+    catalogSlug: BLUE_GREEN_SLUG,
     templateVersion: "2.0.0",
   });
   assert.equal(provisioningResult.ok, false);
@@ -767,7 +767,7 @@ test("upgrade refuses unknown/retired/provisioning services, wrong lineage, same
   const noBindingsResult = upgradeManagedSkillServiceSync({
     workspaceId: "default",
     serviceId: noBindings.id,
-    catalogSlug: CANARY_SLUG,
+    catalogSlug: BLUE_GREEN_SLUG,
     templateVersion: "2.0.0",
   });
   assert.equal(noBindingsResult.ok, false);
@@ -780,12 +780,12 @@ test("upgrade refuses unknown/retired/provisioning services, wrong lineage, same
     serviceId: noBindings.id,
     catalogTemplateVersion: "1.0.0",
     serviceImageDigest: `sha256:${"1".repeat(64)}`,
-    endpointRef: "runtime-private://canary-v1",
+    endpointRef: "runtime-private://blue-green-v1",
   });
   const sameVersion = upgradeManagedSkillServiceSync({
     workspaceId: "default",
     serviceId: noBindings.id,
-    catalogSlug: CANARY_SLUG,
+    catalogSlug: BLUE_GREEN_SLUG,
     templateVersion: "1.0.0",
   });
   assert.equal(sameVersion.ok, false);
@@ -810,14 +810,14 @@ test("upgrade refuses unknown/retired/provisioning services, wrong lineage, same
 });
 
 test("upgrade provisions a blue instance on the same runtime recording the replaced service", async () => {
-  seedCanaryCatalogs("stateless");
+  seedBlueGreenCatalogs("stateless");
   const runtimeId = createTestRuntime();
   const green = await provisionGreenToReady(runtimeId, "upgrade-a");
 
   const result = upgradeManagedSkillServiceSync({
     workspaceId: "default",
     serviceId: green.serviceId,
-    catalogSlug: CANARY_SLUG,
+    catalogSlug: BLUE_GREEN_SLUG,
     templateVersion: "2.0.0",
   });
   assert.equal(result.ok, true);
@@ -835,25 +835,25 @@ test("upgrade provisions a blue instance on the same runtime recording the repla
   const ops = listManagedSkillServiceOperationsSync({ workspaceId: "default", serviceId: result.blueServiceId });
   assert.equal(ops.length, 1);
   assert.equal(ops[0]!.operation, "provision");
-  assert.equal(ops[0]!.replacesServiceId, green.serviceId, "canary op must record which service it replaces");
+  assert.equal(ops[0]!.replacesServiceId, green.serviceId, "blue-green op must record which service it replaces");
 });
 
 test("upgrade dedupes: re-running reuses the blue instance without stacking an active provision", async () => {
-  seedCanaryCatalogs("stateless");
+  seedBlueGreenCatalogs("stateless");
   const runtimeId = createTestRuntime();
   const green = await provisionGreenToReady(runtimeId, "upgrade-b");
 
   const first = upgradeManagedSkillServiceSync({
     workspaceId: "default",
     serviceId: green.serviceId,
-    catalogSlug: CANARY_SLUG,
+    catalogSlug: BLUE_GREEN_SLUG,
     templateVersion: "2.0.0",
   });
   assert.equal(first.ok, true);
   const second = upgradeManagedSkillServiceSync({
     workspaceId: "default",
     serviceId: green.serviceId,
-    catalogSlug: CANARY_SLUG,
+    catalogSlug: BLUE_GREEN_SLUG,
     templateVersion: "2.0.0",
   });
   assert.equal(second.ok, true);
@@ -868,8 +868,8 @@ test("upgrade dedupes: re-running reuses the blue instance without stacking an a
   assert.equal(activeOps.length, 1);
 });
 
-test("canary complete switches bindings to blue (blue-green) and green becomes unreferenced", async () => {
-  seedCanaryCatalogs("stateless");
+test("blue-green completion atomically switches bindings to blue and leaves green unreferenced", async () => {
+  seedBlueGreenCatalogs("stateless");
   const runtimeId = createTestRuntime();
   const green = await provisionGreenToReady(runtimeId, "upgrade-c");
   assert.equal(listSkillServiceBindingsForServiceSync(green.serviceId).length, 1);
@@ -877,7 +877,7 @@ test("canary complete switches bindings to blue (blue-green) and green becomes u
   const upgrade = upgradeManagedSkillServiceSync({
     workspaceId: "default",
     serviceId: green.serviceId,
-    catalogSlug: CANARY_SLUG,
+    catalogSlug: BLUE_GREEN_SLUG,
     templateVersion: "2.0.0",
   });
   assert.equal(upgrade.ok, true);
@@ -893,7 +893,7 @@ test("canary complete switches bindings to blue (blue-green) and green becomes u
     operationId: claimed.id,
     workspaceId: "default",
     claimGeneration: claimed.claimGeneration,
-    endpointRef: "runtime-private://canary-v2",
+    endpointRef: "runtime-private://blue-green-v2",
     healthRevision: "7",
   });
   assert.equal(completed.ok, true);
@@ -902,7 +902,7 @@ test("canary complete switches bindings to blue (blue-green) and green becomes u
   const binding = listSkillServiceBindingsSync(green.installation.id);
   assert.equal(binding.length, 1);
   assert.equal(binding[0]!.serviceId, upgrade.blueServiceId);
-  assert.equal(binding[0]!.endpointRef, "runtime-private://canary-v2");
+  assert.equal(binding[0]!.endpointRef, "runtime-private://blue-green-v2");
   assert.equal(binding[0]!.healthRevision, "7");
   assert.equal(binding[0]!.catalogTemplateVersion, "2.0.0");
   assert.equal(binding[0]!.serviceImageDigest, `sha256:${"4".repeat(64)}`);
@@ -918,9 +918,9 @@ test("canary complete switches bindings to blue (blue-green) and green becomes u
   assert.ok(retired.includes(green.serviceId));
 });
 
-test("canary green is kept for the backward_compatible cooldown window, then retired", async () => {
-  const compatSlug = "canary-compat";
-  seedCanaryCatalogs("backward_compatible", compatSlug);
+test("blue-green keeps green for the backward-compatible cooldown window, then retires it", async () => {
+  const compatSlug = "blue-green-compat";
+  seedBlueGreenCatalogs("backward_compatible", compatSlug);
   const runtimeId = createTestRuntime();
   const green = await provisionGreenToReady(runtimeId, "upgrade-d", compatSlug);
 
@@ -940,7 +940,7 @@ test("canary green is kept for the backward_compatible cooldown window, then ret
     operationId: claimed.id,
     workspaceId: "default",
     claimGeneration: claimed.claimGeneration,
-    endpointRef: "runtime-private://canary-v2",
+    endpointRef: "runtime-private://blue-green-v2",
   });
   assert.equal(completed.ok, true);
 

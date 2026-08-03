@@ -170,7 +170,7 @@ export function completeManagedSkillServiceProvisionOperationSync(input: {
     ? listSkillServiceCatalogSync(workspaceId).find((entry) => entry.id === service.catalogId)
     : undefined;
   if (!service || !catalog) {
-    return { ok: false, code: "upgrade_context_missing", reason: "Canary upgrade context (service/catalog) is missing." };
+    return { ok: false, code: "upgrade_context_missing", reason: "Blue-green upgrade context (service/catalog) is missing." };
   }
   if (catalog.deploymentType !== "managed_service") {
     return {
@@ -307,13 +307,13 @@ export function queueManagedSkillServiceRetireSync(input: {
 }
 
 /**
- * Canary upgrade orchestration (explicit, 05-运维服务与版本治理.md §升级): provisions
+ * Blue-green upgrade orchestration (explicit, 05-运维服务与版本治理.md §升级): provisions
  * a NEW catalog instance (blue) alongside the currently-bound instance (green)
  * on the same runtime, and records which service it replaces on the provision
  * operation. When the daemon reports blue healthy, the control plane switches
  * every green binding onto blue (blue-green) — the switch, not the provision,
  * is the cutover. Green then becomes unreferenced and the rollback_class-aware
- * retire sweep tears it down after its cooldown window, so a failed canary can
+ * retire sweep tears it down after its cooldown window, so a failed rollout can
  * be rolled back to green within that window.
  */
 export function upgradeManagedSkillServiceSync(input: {
@@ -360,7 +360,7 @@ export function upgradeManagedSkillServiceSync(input: {
     return { ok: false, code: "already_current", reason: "The service already runs the target template version." };
   }
   if (listSkillServiceBindingsForServiceSync(green.id).length === 0) {
-    return { ok: false, code: "no_bindings", reason: "Nothing references this service; there is nothing to canary." };
+    return { ok: false, code: "no_bindings", reason: "Nothing references this service; there is nothing to upgrade." };
   }
 
   // Blue instance is idempotent on (workspace, runtime, catalog) — re-running an
