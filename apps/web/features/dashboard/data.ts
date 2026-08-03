@@ -2260,7 +2260,7 @@ export function getChannelsPageData(
       label: employee.remarkName?.trim() || employee.name,
       provider: runtimeBindingByEmployeeName.get(employee.name)?.provider,
       executionPolicy: employee.executionPolicy,
-      skills: (skillIdsByAgentId.get(buildLegacyAgentIdForEmployeeName(employee.name)) ?? [])
+      skills: resolveAssignedSkillIdsForEmployee(skillIdsByAgentId, employee)
         .map((skillId) => workspaceSkillById.get(skillId))
         .filter((skill): skill is WorkspaceSkill => Boolean(skill))
         .map((skill) => ({ id: skill.id, name: skill.name, description: skill.description })),
@@ -3587,7 +3587,7 @@ export function getSkillsPageData(workspaceId = DEFAULT_WORKSPACE_ID, currentMem
       id: buildLegacyAgentIdForEmployeeName(employee.name),
       name: employee.remarkName?.trim() || employee.name,
       internalName: employee.name,
-      skillIds: skillIdsByAgentId.get(buildLegacyAgentIdForEmployeeName(employee.name)) ?? [],
+      skillIds: resolveAssignedSkillIdsForEmployee(skillIdsByAgentId, employee),
     })),
   };
 }
@@ -3891,6 +3891,19 @@ function buildActivityInboxItems(
   }));
 }
 
+/**
+ * Agent-skill rows created after the employee-id migration use the stable
+ * workspace employee id. Older rows retain the legacy name-derived id.
+ */
+function resolveAssignedSkillIdsForEmployee(
+  skillIdsByAgentId: Map<string, string[]>,
+  employee: ActiveEmployee,
+): string[] {
+  return skillIdsByAgentId.get(employee.id)
+    ?? skillIdsByAgentId.get(buildLegacyAgentIdForEmployeeName(employee.name))
+    ?? [];
+}
+
 function buildWorkspaceAgentRecord(
   employee: ActiveEmployee,
   state: DofeAgentState,
@@ -3910,7 +3923,7 @@ function buildWorkspaceAgentRecord(
   knowledge: WorkspaceAgentKnowledgeRecord,
   documentAccess: WorkspaceAgentDocumentAccessSummaryRecord,
 ): WorkspaceAgentRecord {
-  const assignedSkillIds = skillIdsByAgentId.get(buildLegacyAgentIdForEmployeeName(employee.name)) ?? [];
+  const assignedSkillIds = resolveAssignedSkillIdsForEmployee(skillIdsByAgentId, employee);
   const assignedSkills = assignedSkillIds
     .map((skillId) => workspaceSkillIndex.get(skillId))
     .filter((skill): skill is WorkspaceSkill => Boolean(skill));
