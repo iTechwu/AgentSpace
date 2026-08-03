@@ -247,6 +247,15 @@ function renderSkillsPage(): ReturnType<typeof render> {
   );
 }
 
+async function waitForOperationalPanels(): Promise<void> {
+  await waitFor(() => {
+    expect(screen.queryByText("正在加载升级候选…")).not.toBeInTheDocument();
+    expect(screen.queryByText("正在加载支撑服务…")).not.toBeInTheDocument();
+    expect(screen.queryByText("正在加载 SLO…")).not.toBeInTheDocument();
+    expect(screen.queryByText("正在加载安装状态…")).not.toBeInTheDocument();
+  });
+}
+
 describe("SkillsPageClient", () => {
   beforeEach(() => {
     mockMatchMedia(false);
@@ -263,7 +272,7 @@ describe("SkillsPageClient", () => {
     mockUpsertWorkspaceSkillFileAction.mockClear();
   });
 
-  it("distinguishes builtin and general skills in the list", () => {
+  it("distinguishes builtin and general skills in the list", async () => {
     renderSkillsPage();
 
     expect(screen.getAllByText("系统默认技能").length).toBeGreaterThan(0);
@@ -271,6 +280,7 @@ describe("SkillsPageClient", () => {
     expect(screen.getAllByText("系统默认").length).toBeGreaterThan(0);
     expect(screen.getAllByText("GitHub").length).toBeGreaterThan(0);
     expect(screen.queryByText("Files")).not.toBeInTheDocument();
+    await waitForOperationalPanels();
   });
 
   it("opens the import modal and submits the import request", async () => {
@@ -404,12 +414,13 @@ describe("SkillsPageClient", () => {
     expect(mockReimportWorkspaceSkillAction).toHaveBeenCalledWith("skill-3");
   });
 
-  it("shows source badges in the list without a separate import history panel", () => {
+  it("shows source badges in the list without a separate import history panel", async () => {
     renderSkillsPage();
 
     expect(screen.queryByText("最近导入")).not.toBeInTheDocument();
     expect(screen.getAllByText("GitHub").length).toBeGreaterThan(0);
     expect(screen.getByText("工作区")).toBeInTheDocument();
+    await waitForOperationalPanels();
   });
 
   it("switches between skill list and editor on compact layouts", async () => {
