@@ -253,6 +253,61 @@ describe("MarketPageClient", () => {
     expect(screen.getByRole("alert")).not.toHaveTextContent("Older installed app error");
   });
 
+  it("turns managed runtime network failures into an actionable operator message", () => {
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient
+            data={{
+              ...data,
+              operations: [{
+                id: "runtime-app-op-network",
+                runtimeId: "runtime-online",
+                appSource: "clihub_harness",
+                appName: "mermaid",
+                operation: "install",
+                status: "failed",
+                createdAt: "2026-08-03T14:44:35.301Z",
+                errorMessage: "managed_runtime.docker_network_required",
+              }],
+            }}
+          />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("目标 Runtime 缺少隔离安装网络");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("managed_runtime.docker_network_required");
+  });
+
+  it("does not expose Docker commands or stack traces in the market detail", () => {
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient
+            data={{
+              ...data,
+              operations: [{
+                id: "runtime-app-op-internal-error",
+                runtimeId: "runtime-online",
+                appSource: "clihub_harness",
+                appName: "mermaid",
+                operation: "install",
+                status: "failed",
+                createdAt: "2026-08-03T14:44:35.301Z",
+                errorMessage: "docker run --rm secret-image failed\nTraceback: internal details",
+              }],
+            }}
+          />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("完整诊断已保留在执行记录中");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("secret-image");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Traceback");
+  });
+
   it("refreshes while runtime app operations are still active", () => {
     vi.useFakeTimers();
 

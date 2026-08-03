@@ -258,6 +258,7 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
         : "neutral";
   const operationError = latestOperation?.status === "failed" ? latestOperation.errorMessage : undefined;
   const installError = operationError || selectedInstall?.lastError;
+  const installErrorMessage = installError ? formatRuntimeAppError(installError, tx) : undefined;
 
   useEffect(() => {
     if (!data.operations.some((operation) => isActiveOperationStatus(operation.status))) {
@@ -432,10 +433,10 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
                     <span className={`status-chip status-chip--${installStateTone}`}>
                       {installStateLabel}
                     </span>
-                    {installError ? (
+                    {installErrorMessage ? (
                       <div className="market-install-error" role="alert">
                         <span>{tx("错误详情", "Error details")}</span>
-                        <pre>{installError}</pre>
+                        <pre>{installErrorMessage}</pre>
                       </div>
                     ) : null}
                   </div>
@@ -510,6 +511,41 @@ function MarketEmptyState({ title, description }: { title: string; description: 
 
 function isActiveOperationStatus(status: string): boolean {
   return status === "pending" || status === "claimed" || status === "running";
+}
+
+function formatRuntimeAppError(error: string, tx: (zh: string, en: string) => string): string {
+  switch (error.trim()) {
+    case "managed_runtime.docker_network_required":
+      return tx(
+        "目标 Runtime 缺少隔离安装网络。请在执行引擎中更新托管节点配置并重启节点后重试。",
+        "The target runtime has no isolated install network. Update the managed node configuration, restart it, and try again.",
+      );
+    case "managed_runtime.docker_network_not_isolated":
+      return tx(
+        "目标 Runtime 使用了非隔离 Docker 网络。请配置用户自定义网络后重试。",
+        "The target runtime uses a non-isolated Docker network. Configure a user-defined network and try again.",
+      );
+    case "managed_runtime.mcp_egress_network_required":
+      return tx(
+        "目标 Runtime 未连接受控出口网络。请完成节点出口策略配置后重试。",
+        "The target runtime is not connected to the controlled egress network. Complete its egress policy configuration and try again.",
+      );
+    case "spawn python3 ENOENT":
+      return tx(
+        "目标 Runtime 的旧安装执行器缺少 Python。请更新并重启托管节点后重试。",
+        "The target runtime uses an outdated installer without Python. Update and restart the managed node, then try again.",
+      );
+    default: {
+      const normalized = error.toLowerCase();
+      if (normalized.includes("docker run") || normalized.includes("traceback")) {
+        return tx(
+          "Runtime 内的安装或验证命令执行失败。请检查应用依赖与网络策略后重试；完整诊断已保留在执行记录中。",
+          "The install or verification command failed inside the Runtime. Check app dependencies and network policy, then retry; full diagnostics remain in the execution record.",
+        );
+      }
+      return error;
+    }
+  }
 }
 
 function Fact({ label, value }: { label: string; value: string }) {
