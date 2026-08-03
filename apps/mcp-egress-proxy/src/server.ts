@@ -13,6 +13,12 @@ import { forwardToUpstream, type UpstreamRequest } from "./upstream-transport.ts
 const LEASE_HEADER_PREFIX = "DofeEgressLease ";
 const ADMIN_AUTH_HEADER = "x-dofe-admin-token";
 const PROXY_SESSION_HEADER = "x-dofe-egress-session";
+const TASK_CALL_PROTOCOL_METHODS = new Set([
+  "initialize",
+  "notifications/initialized",
+  "notifications/cancelled",
+  "ping",
+]);
 
 export interface McpEgressProxyOptions {
   port: number;
@@ -434,7 +440,7 @@ function isTaskJsonRpcMessageAllowed(message: unknown, toolName: string | undefi
   if (!message || typeof message !== "object" || Array.isArray(message)) return false;
   const record = message as { jsonrpc?: unknown; method?: unknown; params?: unknown };
   if (record.jsonrpc !== "2.0" || typeof record.method !== "string") return false;
-  if (record.method !== "tools/call") return true;
+  if (record.method !== "tools/call") return TASK_CALL_PROTOCOL_METHODS.has(record.method);
   if (!record.params || typeof record.params !== "object" || Array.isArray(record.params)) return false;
   return (record.params as { name?: unknown }).name === toolName;
 }

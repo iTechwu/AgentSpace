@@ -488,10 +488,21 @@ test("task-call lease rejects malformed and cross-tool JSON-RPC batches", async 
     });
     assert.equal(crossToolBatch.status, 403);
 
+    for (const method of ["resources/read", "prompts/get", "tools/list"]) {
+      const unrelatedCapability = await fetch(`${url}/mcp`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ jsonrpc: "2.0", id: method, method, params: {} }),
+      });
+      assert.equal(unrelatedCapability.status, 403);
+    }
+
     const allowedBatch = await fetch(`${url}/mcp`, {
       method: "POST",
       headers,
       body: JSON.stringify([
+        { jsonrpc: "2.0", id: 2, method: "initialize", params: {} },
+        { jsonrpc: "2.0", method: "notifications/initialized" },
         { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "allowed_tool", arguments: {} } },
       ]),
     });
