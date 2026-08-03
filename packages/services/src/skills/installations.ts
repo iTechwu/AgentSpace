@@ -1008,7 +1008,7 @@ export function resolveTaskSkillExecutionSnapshotSync(input: {
   );
 
   for (const skill of input.agentSkills) {
-    if (skill.sourceType === "builtin") {
+    if (skill.sourceType === "builtin" || skill.sourceType === "clihub_runtime_app") {
       continue;
     }
     const pinnedDigest = digestBySkillId.get(skill.id);

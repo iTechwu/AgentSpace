@@ -158,6 +158,34 @@ function daemonHeaders(token: string): HeadersInit {
   };
 }
 
+async function claimDaemonTaskForTest(token: string, runtimeId: string) {
+  const response = await claimPOST(
+    new Request(`http://localhost/api/daemon/runtimes/${runtimeId}/tasks/claim`, {
+      method: "POST",
+      headers: daemonHeaders(token),
+    }),
+    { params: Promise.resolve({ runtimeId }) },
+  );
+  const payload = await response.json() as {
+    task: null | { id: string; bindingGeneration?: number };
+  };
+  expect(response.status).toBe(200);
+  expect(payload.task).not.toBeNull();
+  expect(typeof payload.task?.bindingGeneration).toBe("number");
+  return payload.task!;
+}
+
+async function startDaemonTaskForTest(token: string, taskId: string): Promise<void> {
+  const response = await startPOST(
+    new Request(`http://localhost/api/daemon/tasks/${taskId}/start`, {
+      method: "POST",
+      headers: daemonHeaders(token),
+    }),
+    { params: Promise.resolve({ taskId }) },
+  );
+  expect(response.status).toBe(200);
+}
+
 describe("daemon API routes", () => {
   it("keeps task completion successful when usage persistence needs reconciliation", () => {
     const errors: unknown[] = [];
@@ -783,14 +811,9 @@ describe("daemon API routes", () => {
       metadata: { title: "Local managed runtime compatibility" },
     });
 
-    const claimResponse = await claimPOST(
-      new Request(`http://localhost/api/daemon/runtimes/${runtimeId}/tasks/claim`, {
-        method: "POST",
-        headers: daemonHeaders(daemonToken.token),
-      }),
-      { params: Promise.resolve({ runtimeId }) },
-    );
-    expect(claimResponse.status).toBe(200);
+    const claimed = await claimDaemonTaskForTest(daemonToken.token, runtimeId);
+    expect(claimed.id).toBe(queued!.id);
+    await startDaemonTaskForTest(daemonToken.token, queued!.id);
 
     const bundleResponse = await inputBundleGET(
       new Request(`http://localhost/api/daemon/tasks/${queued!.id}/input-bundle`, {
@@ -1206,6 +1229,7 @@ describe("daemon API routes", () => {
       metadata: { title: "Render a diagram" },
     });
     expect(availableTask?.id).toBeTruthy();
+    expect((await claimDaemonTaskForTest(daemonToken.token, runtimeWithAppId)).id).toBe(availableTask!.id);
     const availableBundleResponse = await inputBundleGET(
       new Request(`http://localhost/api/daemon/tasks/${availableTask?.id}/input-bundle`, {
         headers: daemonHeaders(daemonToken.token),
@@ -1237,6 +1261,7 @@ describe("daemon API routes", () => {
       metadata: { title: "Try diagram elsewhere" },
     });
     expect(unavailableTask?.id).toBeTruthy();
+    expect((await claimDaemonTaskForTest(daemonToken.token, runtimeWithoutAppId)).id).toBe(unavailableTask!.id);
     const unavailableBundleResponse = await inputBundleGET(
       new Request(`http://localhost/api/daemon/tasks/${unavailableTask?.id}/input-bundle`, {
         headers: daemonHeaders(daemonToken.token),
@@ -1733,6 +1758,9 @@ describe("daemon API routes", () => {
       },
     });
 
+    expect((await claimDaemonTaskForTest(daemonToken.token, runtimeId)).id).toBe(queued!.id);
+    await startDaemonTaskForTest(daemonToken.token, queued!.id);
+
     const outputBundleResponse = await outputBundlePOST(
       new Request(`http://localhost/api/daemon/tasks/${queued?.id}/output-bundle`, {
         method: "POST",
@@ -1862,6 +1890,9 @@ describe("daemon API routes", () => {
         channelName: "tour visit",
       },
     });
+
+    expect((await claimDaemonTaskForTest(daemonToken.token, runtimeId)).id).toBe(queued!.id);
+    await startDaemonTaskForTest(daemonToken.token, queued!.id);
 
     const outputBundleResponse = await outputBundlePOST(
       new Request(`http://localhost/api/daemon/tasks/${queued?.id}/output-bundle`, {
@@ -2408,6 +2439,8 @@ describe("daemon API routes", () => {
 
     const queued = listQueuedTasksSync().find((task) => task.agentId === "Atlas" && task.triggerType === "channel_chat");
     expect(queued?.id).toBeTruthy();
+    expect((await claimDaemonTaskForTest(daemonToken.token, runtimeId)).id).toBe(queued!.id);
+    await startDaemonTaskForTest(daemonToken.token, queued!.id);
 
     const completeResponse = await completePOST(
       new Request(`http://localhost/api/daemon/tasks/${queued?.id}/complete`, {
@@ -2447,7 +2480,7 @@ describe("daemon API routes", () => {
     expect(channelMessages[0]?.summary).toBe("我先给你一版大阪行程草案。");
     expect(listTokenUsageSync().find((usage) => usage.gatewayRequestId === "gateway-request-direct-1")).toMatchObject({
       taskQueueId: queued!.id,
-      agentId: "Atlas",
+      agentId: queued!.employeeId,
       modelId: "gpt-5.4",
       runtimeCredentialId: "runtime-credential-direct",
       inputTokens: 120,
@@ -2715,6 +2748,8 @@ describe("daemon API routes", () => {
 
     const queued = listQueuedTasksSync().find((task) => task.agentId === "Atlas" && task.triggerType === "mention_chat");
     expect(queued?.id).toBeTruthy();
+    expect((await claimDaemonTaskForTest(daemonToken.token, runtimeId)).id).toBe(queued!.id);
+    await startDaemonTaskForTest(daemonToken.token, queued!.id);
 
     const completeResponse = await completePOST(
       new Request(`http://localhost/api/daemon/tasks/${queued?.id}/complete`, {

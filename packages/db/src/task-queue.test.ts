@@ -18,6 +18,7 @@ import {
   readMcpTaskSessionGrantSync,
   registerDaemonRuntimesSync,
   startQueuedTaskSync,
+  updateAgentRuntimeManagedFieldsSync,
   writeMcpTaskSessionGrantSync,
 } from "./index.ts";
 
@@ -155,6 +156,35 @@ test("queued task identity survives employee rename through employeeId", () => {
     listTaskExecutionEventsSync({ workspaceId: "default", taskId: queued.id })
       .every((event) => event.agentId === "emp-atlas"),
   );
+});
+
+test("task claims allow local legacy runtimes but block incomplete managed provisioning", () => {
+  const runtimeId = createRuntimeAndBinding();
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId,
+    managedCredentialId: "legacy-local-credential",
+  });
+  const legacyTask = enqueueNativeTaskSync({
+    assignee: "Atlas",
+    title: "Legacy local task",
+    channel: "general",
+    priority: "high",
+  });
+  assert.ok(legacyTask);
+  assert.equal(claimNextQueuedTaskForRuntimeSync(runtimeId)?.id, legacyTask.id);
+
+  updateAgentRuntimeManagedFieldsSync({
+    runtimeId,
+    provisioningState: "credential_recovering",
+  });
+  const recoveringTask = enqueueNativeTaskSync({
+    assignee: "Atlas",
+    title: "Provisioning task must wait",
+    channel: "general",
+    priority: "high",
+  });
+  assert.ok(recoveringTask);
+  assert.equal(claimNextQueuedTaskForRuntimeSync(runtimeId), null);
 });
 
 test("cancelQueuedTaskSync removes the MCP session grant from the task workspace", () => {

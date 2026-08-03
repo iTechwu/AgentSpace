@@ -41,6 +41,8 @@ describe("daemon MCP tool audit route", () => {
     mockReadTaskForDaemon.mockReturnValue({
       id: "task-1",
       workspaceId: "default",
+      employeeId: "employee-1",
+      employeeName: "Agent 1",
       agentId: "agent-1",
       runtimeId: "runtime-1",
     });
@@ -64,7 +66,7 @@ describe("daemon MCP tool audit route", () => {
     expect(mockRecordAudit).toHaveBeenCalledTimes(1);
     expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
       actorType: "agent",
-      actorId: "agent-1",
+      actorId: "employee-1",
       runtimeId: "runtime-1",
     }));
   });

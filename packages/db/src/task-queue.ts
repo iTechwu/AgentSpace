@@ -1029,7 +1029,11 @@ function selectQueuedTaskForRuntime(
          )
          AND binding.runtime_id = queue.runtime_id
        WHERE queue.runtime_id = ? AND queue.status = 'queued'
-         AND (runtime.managed_credential_id IS NULL OR runtime.provisioning_state = 'managed')
+         AND (
+           runtime.managed_credential_id IS NULL
+           OR runtime.provisioning_state IS NULL
+           OR runtime.provisioning_state IN ('legacy', 'managed')
+         )
        ${typeof workspaceId === "string" ? "AND queue.workspace_id = ?" : ""}
        ORDER BY queue.priority DESC, queue.created_at ASC
        LIMIT 1`,

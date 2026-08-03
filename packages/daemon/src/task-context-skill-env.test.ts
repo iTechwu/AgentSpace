@@ -255,6 +255,32 @@ test("collectSkillReadinessBlockers flags a missing runtime capability when a ca
   assert.deepEqual(collectSkillReadinessBlockers(WORKSPACE_ID, "Researcher", [skill], runtimeId, undefined, ["ffmpeg"]), []);
 });
 
+test("collectSkillReadinessBlockers does not require a second Skill installation for runtime app skills", () => {
+  createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
+  const skill = createWorkspaceSkillSync({
+    name: "clihub-mermaid",
+    description: "Mermaid runtime app usage",
+    sourceType: "clihub_runtime_app",
+    configJson: JSON.stringify({
+      runtimeApp: { source: "clihub_harness", name: "mermaid" },
+    }),
+  }, WORKSPACE_ID);
+  const runtimeId = createRuntime();
+
+  assert.deepEqual(
+    collectSkillReadinessBlockers(
+      WORKSPACE_ID,
+      "Researcher",
+      [skill],
+      runtimeId,
+      undefined,
+      ["clihub:clihub_harness:mermaid"],
+      { workspaceId: WORKSPACE_ID, runtimeId, resolvedAt: new Date().toISOString(), entries: [] },
+    ),
+    [],
+  );
+});
+
 test("collectSkillReadinessBlockers surfaces a missing requirement after a skill requirement upgrade", () => {
   createEmployeeSync({ name: "Researcher" }, WORKSPACE_ID);
   const skill = createWorkspaceSkillSync({

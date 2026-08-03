@@ -1241,7 +1241,7 @@ export function collectSkillReadinessBlockers(
     (snapshot?.entries ?? []).map((entry) => [entry.skillId, entry]),
   );
   for (const skill of agentSkills) {
-    if (skill.sourceType === "builtin") {
+    if (skill.sourceType === "builtin" || skill.sourceType === "clihub_runtime_app") {
       continue;
     }
     const summary = readAgentSkillRequirementSummarySync({
