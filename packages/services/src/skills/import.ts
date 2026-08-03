@@ -1,5 +1,6 @@
-import { readdir, readFile, readlink, stat } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { readdir, readFile, readlink, realpath, stat } from "node:fs/promises";
+import { basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import {
   getDatabase,
@@ -171,15 +172,24 @@ export async function importWorkspaceSkillFromUrl(input: {
   url: string;
   conflict?: SkillImportConflict;
   allowFilesystemSource?: boolean;
+  allowedFilesystemRoots?: string[];
 }): Promise<SkillImportResult> {
   const workspaceId = input.workspaceId;
-  const sourceUrl = input.url.trim();
+  let sourceUrl = input.url.trim();
   if (!sourceUrl) {
     throw new Error("Skill import URL is required.");
   }
-  const parsedSourceUrl = parseUrl(sourceUrl);
-  if (!input.allowFilesystemSource && (!parsedSourceUrl || parsedSourceUrl.protocol === "file:")) {
-    throw new Error("Filesystem skill sources are not allowed for this import channel.");
+  let parsedSourceUrl = parseUrl(sourceUrl);
+  if (!parsedSourceUrl || parsedSourceUrl.protocol === "file:") {
+    if (input.allowedFilesystemRoots?.length) {
+      const filesystemPath = parsedSourceUrl?.protocol === "file:"
+        ? fileURLToPath(parsedSourceUrl)
+        : sourceUrl;
+      sourceUrl = await resolveAllowedFilesystemSkillSource(filesystemPath, input.allowedFilesystemRoots);
+      parsedSourceUrl = null;
+    } else if (!input.allowFilesystemSource) {
+      throw new Error("Filesystem skill sources are not allowed for this import channel.");
+    }
   }
 
   const hasRecordedStoredSource = listWorkspaceSkillsSync(workspaceId).some(
@@ -196,6 +206,26 @@ export async function importWorkspaceSkillFromUrl(input: {
   }
   const imported = await importSkillDefinition(sourceUrl, { hasRecordedStoredSource, workspaceId });
   return persistImportedSkillDefinition(imported, workspaceId, input.conflict);
+}
+
+async function resolveAllowedFilesystemSkillSource(sourcePath: string, allowedRoots: string[]): Promise<string> {
+  const candidate = await realpath(resolve(sourcePath));
+  const roots = await Promise.all(allowedRoots.map(async (configuredRoot) => {
+    const trimmedRoot = configuredRoot.trim();
+    if (!trimmedRoot) return null;
+    if (!isAbsolute(trimmedRoot)) {
+      throw new Error(`Skill local import root must be absolute: ${trimmedRoot}`);
+    }
+    return realpath(trimmedRoot);
+  }));
+  for (const root of roots) {
+    if (!root) continue;
+    const relativePath = relative(root, candidate);
+    if (relativePath === "" || (relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath))) {
+      return candidate;
+    }
+  }
+  throw new Error("Skill local import path is outside the configured server roots.");
 }
 
 /**

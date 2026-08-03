@@ -4,7 +4,7 @@ import { getField } from "@/shared/lib/form";
 import { useDialogSurface } from "@/shared/lib/use-dialog-surface";
 import { AppIcon } from "@/shared/ui/app-icon";
 
-type SkillImportSource = "github" | "gitlab" | "skills.sh" | "clawhub" | "upload";
+type SkillImportSource = "github" | "gitlab" | "skills.sh" | "clawhub" | "server" | "upload";
 
 interface ImportSkillModalProps {
   readonly pending: boolean;
@@ -16,6 +16,10 @@ interface ImportSkillModalProps {
     }
     | {
       archive: File;
+      conflict: "reject" | "rename" | "replace" | "skip";
+    }
+    | {
+      serverDirectory: string;
       conflict: "reject" | "rename" | "replace" | "skip";
     }) => void;
 }
@@ -56,6 +60,12 @@ export function ImportSkillModal({
         placeholder: "https://clawhub.ai/fangkelvin/find-skills-skill",
       },
       {
+        value: "server" as const,
+        label: tx("服务器目录", "Server directory"),
+        hint: tx("输入服务器上位于管理员允许根目录内的 Skill 目录绝对路径。", "Enter an absolute Skill directory path inside an administrator-approved server root."),
+        placeholder: "/srv/dofe-agent/skills/research-pack",
+      },
+      {
         value: "upload" as const,
         label: tx("上传 ZIP", "Upload ZIP"),
         hint: tx("选择本机 Skill zip，文件会先上传到 TOS，再由服务端解析导入。", "Choose a local Skill zip. It is uploaded to TOS before the server imports it."),
@@ -85,13 +95,18 @@ export function ImportSkillModal({
             }
             return;
           }
-          onConfirm({ url: normalizeImportSourceInput(getField(formData, "url"), source), conflict });
+          const sourceInput = getField(formData, "url");
+          if (source === "server") {
+            onConfirm({ serverDirectory: sourceInput.trim(), conflict });
+            return;
+          }
+          onConfirm({ url: normalizeImportSourceInput(sourceInput, source), conflict });
         }}
       >
         <div className="modal-card__header">
           <div>
             <h3 id={labelId}>{tx("导入 Skill", "Import skill")}</h3>
-            <p id={descriptionId}>{tx("支持 GitHub / GitLab / skills.sh / ClawHub，以及上传本机 zip 后导入。", "Supports GitHub / GitLab / skills.sh / ClawHub and locally uploaded zip files.")}</p>
+            <p id={descriptionId}>{tx("支持远程来源、受控服务器目录，以及上传本机 zip 后导入。", "Supports remote sources, controlled server directories, and locally uploaded zip files.")}</p>
           </div>
           <button className="modal-close" onClick={onCancel} type="button">
             <AppIcon name="close" />
@@ -132,9 +147,9 @@ export function ImportSkillModal({
             </label>
           ) : (
             <label className="form-field">
-              <span>{tx("来源 URL", "Source URL")}</span>
+              <span>{source === "server" ? tx("服务器目录路径", "Server directory path") : tx("来源 URL", "Source URL")}</span>
               <input
-                aria-label={tx("来源 URL", "Source URL")}
+                aria-label={source === "server" ? tx("服务器目录路径", "Server directory path") : tx("来源 URL", "Source URL")}
                 autoFocus
                 name="url"
                 placeholder={activeSource.placeholder}

@@ -1,5 +1,6 @@
 "use server";
 
+import { delimiter } from "node:path";
 import {
   createWorkspaceSkillSync,
   deleteWorkspaceSkillFileSync,
@@ -206,6 +207,61 @@ export async function importWorkspaceSkillFromUrlAction(input: {
       : result.renamed
         ? infoToast("Skill 已导入，并因重名自动重命名。", "Skill imported and auto-renamed due to a name conflict.")
         : successToast("Skill 已导入。", "Skill imported.");
+
+  return actionToastResult({
+    skillId: result.skillId,
+    renamed: result.renamed,
+    replaced: result.replaced,
+    skipped: result.skipped,
+    requiresConfiguration: result.requiresConfiguration,
+  }, toast);
+}
+
+export async function importWorkspaceSkillFromServerDirectoryAction(input: {
+  directoryPath: string;
+  conflict?: "reject" | "rename" | "replace" | "skip";
+}): Promise<ActionToastResult<{ skillId: string; renamed: boolean; replaced: boolean; skipped: boolean; requiresConfiguration: boolean }>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertRequired(input.directoryPath, "server skill directory");
+  const allowedFilesystemRoots = (process.env.DOFE_AGENT_SKILL_LOCAL_IMPORT_ROOTS ?? "")
+    .split(delimiter)
+    .map((root) => root.trim())
+    .filter(Boolean);
+  if (allowedFilesystemRoots.length === 0) {
+    throw new Error("服务器尚未配置 Skill 本地导入根目录。");
+  }
+
+  const result = await importWorkspaceSkillFromUrl({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    url: input.directoryPath.trim(),
+    conflict: input.conflict,
+    allowedFilesystemRoots,
+  });
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    title: "Skill imported from server directory",
+    note: `Skill "${result.skillName}" was imported from a server directory by ${workspaceContext.currentUser.displayName}.`,
+    code: "workspace.skill_imported",
+    data: {
+      actorType: "session_user",
+      resourceType: "skill",
+      resourceId: result.skillId,
+      sourceType: result.sourceType,
+      sourceUrl: result.sourceUrl,
+      renamed: result.renamed,
+      replaced: result.replaced,
+    },
+  });
+  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+
+  const toast = result.skipped
+    ? warningToast("Skill 已存在，本次导入已跳过。", "The skill already exists, so this import was skipped.")
+    : result.replaced
+      ? infoToast("Skill 已替换为服务器目录版本。", "The skill was replaced with the server directory version.")
+      : result.renamed
+        ? infoToast("Skill 已导入，并因重名自动重命名。", "Skill imported and auto-renamed due to a name conflict.")
+        : successToast("已从服务器目录导入 Skill。", "Skill imported from the server directory.");
 
   return actionToastResult({
     skillId: result.skillId,

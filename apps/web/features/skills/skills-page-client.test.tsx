@@ -13,6 +13,7 @@ const {
   mockDeleteWorkspaceSkillAction,
   mockDeleteWorkspaceSkillFileAction,
   mockImportWorkspaceSkillFromZipAction,
+  mockImportWorkspaceSkillFromServerDirectoryAction,
   mockImportWorkspaceSkillFromUrlAction,
   mockReimportWorkspaceSkillAction,
   mockUpdateWorkspaceSkillMetaAction,
@@ -47,6 +48,10 @@ const {
   }>>(async () => ({
     data: { skillId: "skill-zip", renamed: false, replaced: false, skipped: false },
     toast: { tone: "success", zh: "Skill 已上传至 TOS 并导入。", en: "Skill uploaded to TOS and imported." },
+  })),
+  mockImportWorkspaceSkillFromServerDirectoryAction: vi.fn(async () => ({
+    data: { skillId: "skill-local", renamed: false, replaced: false, skipped: false },
+    toast: { tone: "success", zh: "已从服务器目录导入 Skill。", en: "Skill imported from the server directory." },
   })),
   mockImportWorkspaceSkillFromUrlAction: vi.fn(async () => ({
     data: { skillId: "skill-3", renamed: false, replaced: false, skipped: false },
@@ -83,6 +88,7 @@ vi.mock("@/features/skills/actions", () => ({
   deleteWorkspaceSkillAction: mockDeleteWorkspaceSkillAction,
   deleteWorkspaceSkillFileAction: mockDeleteWorkspaceSkillFileAction,
   importWorkspaceSkillFromZipAction: mockImportWorkspaceSkillFromZipAction,
+  importWorkspaceSkillFromServerDirectoryAction: mockImportWorkspaceSkillFromServerDirectoryAction,
   importWorkspaceSkillFromUrlAction: mockImportWorkspaceSkillFromUrlAction,
   reimportWorkspaceSkillAction: mockReimportWorkspaceSkillAction,
   updateWorkspaceSkillMetaAction: mockUpdateWorkspaceSkillMetaAction,
@@ -249,6 +255,8 @@ describe("SkillsPageClient", () => {
     mockCheckWorkspaceSkillSourceUpdateAction.mockClear();
     mockDeleteWorkspaceSkillAction.mockClear();
     mockDeleteWorkspaceSkillFileAction.mockClear();
+    mockImportWorkspaceSkillFromServerDirectoryAction.mockClear();
+    mockImportWorkspaceSkillFromZipAction.mockClear();
     mockImportWorkspaceSkillFromUrlAction.mockClear();
     mockReimportWorkspaceSkillAction.mockClear();
     mockUpdateWorkspaceSkillMetaAction.mockClear();
@@ -350,6 +358,23 @@ describe("SkillsPageClient", () => {
     const formData = mockImportWorkspaceSkillFromZipAction.mock.calls[0]?.[0] as FormData;
     expect(formData.get("archive")).toBe(archive);
     expect(formData.get("conflict")).toBe("rename");
+  });
+
+  it("imports a skill from an administrator-approved server directory", async () => {
+    const user = userEvent.setup();
+
+    renderSkillsPage();
+
+    await user.click(screen.getByRole("button", { name: "导入 Skill" }));
+    await user.click(screen.getByRole("button", { name: "选择 服务器目录 导入来源" }));
+    await user.type(screen.getByRole("textbox", { name: "服务器目录路径" }), "/srv/dofe-agent/skills/research-pack");
+    await user.click(screen.getByRole("button", { name: "开始导入" }));
+
+    expect(mockImportWorkspaceSkillFromServerDirectoryAction).toHaveBeenCalledWith({
+      directoryPath: "/srv/dofe-agent/skills/research-pack",
+      conflict: "rename",
+    });
+    expect(mockImportWorkspaceSkillFromUrlAction).not.toHaveBeenCalled();
   });
 
   it("filters skills by source type", async () => {

@@ -6,6 +6,7 @@ import {
   checkWorkspaceSkillSourceUpdateAction,
   createWorkspaceSkillAction,
   deleteWorkspaceSkillAction,
+  importWorkspaceSkillFromServerDirectoryAction,
   importWorkspaceSkillFromZipAction,
   importWorkspaceSkillFromUrlAction,
   reimportWorkspaceSkillAction,
@@ -44,7 +45,7 @@ export function SkillsPageClient({
   const router = useRouter();
   const navigationSearchParams = useSearchParams();
   const searchParams = moduleSearchParams ?? navigationSearchParams;
-  const [activeSourceFilter, setActiveSourceFilter] = useState<"all" | "builtin" | "manual" | "github" | "gitlab" | "skills.sh" | "clawhub" | "tos">("all");
+  const [activeSourceFilter, setActiveSourceFilter] = useState<"all" | "builtin" | "manual" | "github" | "gitlab" | "skills.sh" | "clawhub" | "tos" | "local">("all");
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(data.skills[0]?.id ?? null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(data.skills[0]?.files[0]?.id ?? null);
   const [showCreateSkill, setShowCreateSkill] = useState(false);
@@ -116,7 +117,7 @@ export function SkillsPageClient({
     if (activeSourceFilter === "manual") {
       return customSkills.filter((skill) => !skill.sourceType || skill.sourceType === "manual");
     }
-    if (activeSourceFilter === "github" || activeSourceFilter === "gitlab" || activeSourceFilter === "skills.sh" || activeSourceFilter === "clawhub" || activeSourceFilter === "tos") {
+    if (activeSourceFilter === "github" || activeSourceFilter === "gitlab" || activeSourceFilter === "skills.sh" || activeSourceFilter === "clawhub" || activeSourceFilter === "tos" || activeSourceFilter === "local") {
       return importedSkills.filter((skill) => skill.sourceType === activeSourceFilter);
     }
     return data.skills;
@@ -280,6 +281,12 @@ export function SkillsPageClient({
                   formData.set("conflict", input.conflict);
                   return importWorkspaceSkillFromZipAction(formData);
                 }
+                if ("serverDirectory" in input) {
+                  return importWorkspaceSkillFromServerDirectoryAction({
+                    directoryPath: input.serverDirectory,
+                    conflict: input.conflict,
+                  });
+                }
                 return importWorkspaceSkillFromUrlAction(input);
               },
               (result) => {
@@ -343,11 +350,12 @@ export function SkillsPageClient({
                   ["skills.sh", "skills.sh"],
                   ["clawhub", "ClawHub"],
                   ["tos", tx("TOS 上传", "TOS upload")],
+                  ["local", tx("服务器目录", "Server directory")],
                 ].map(([value, label]) => (
                   <button
                     className={`filter-pill${activeSourceFilter === value ? " filter-pill--active" : ""}`}
                     key={value}
-                    onClick={() => setActiveSourceFilter(value as "all" | "builtin" | "manual" | "github" | "gitlab" | "skills.sh" | "clawhub" | "tos")}
+                    onClick={() => setActiveSourceFilter(value as "all" | "builtin" | "manual" | "github" | "gitlab" | "skills.sh" | "clawhub" | "tos" | "local")}
                     type="button"
                   >
                     {label}

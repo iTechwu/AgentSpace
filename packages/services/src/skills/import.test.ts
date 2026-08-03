@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before, beforeEach } from "node:test";
@@ -332,7 +332,7 @@ description: Local skill
 
   const result = await importWorkspaceSkillFromUrl({
     url: localSkillDir,
-    allowFilesystemSource: true,
+    allowedFilesystemRoots: [tempRoot],
   });
 
   const skill = listWorkspaceSkillsSync().find((item) => item.id === result.skillId);
@@ -345,6 +345,23 @@ description: Local skill
   assert.ok(artifact);
   const manifest = JSON.parse(artifact.manifestJson) as { files: Array<{ path: string; mode?: string }> };
   assert.equal(manifest.files.find((file) => file.path === "bin/render.mjs")?.mode, "0755");
+});
+
+test("local directory import rejects a symlink that escapes configured server roots", async () => {
+  const allowedRoot = join(tempRoot, "allowed-server-skills");
+  mkdirSync(allowedRoot, { recursive: true });
+  const outsideRoot = mkdtempSync(join(tmpdir(), "dofe-outside-skill-"));
+  try {
+    writeFileSync(join(outsideRoot, "SKILL.md"), "---\nname: outside\ndescription: Outside\n---\n# Outside\n");
+    const escapingLink = join(allowedRoot, "outside-link");
+    symlinkSync(outsideRoot, escapingLink, "dir");
+    await assert.rejects(
+      () => importWorkspaceSkillFromUrl({ url: escapingLink, allowedFilesystemRoots: [allowedRoot] }),
+      /outside the configured server roots/,
+    );
+  } finally {
+    rmSync(outsideRoot, { recursive: true, force: true });
+  }
 });
 
 test("local directory import rejects packages that exceed the file-count budget", async () => {
