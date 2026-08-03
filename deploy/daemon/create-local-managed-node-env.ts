@@ -7,6 +7,10 @@ import {
   revokeDaemonApiTokenSync,
   validateDaemonApiTokenSync,
 } from "../../packages/db/src/daemon-tokens.ts";
+import {
+  formatManagedNodeOperationalEnv,
+  resolveManagedNodeOperationalEnv,
+} from "./local-managed-node-env-config.ts";
 
 const WORKSPACE_ID = process.env.MANAGED_NODE_WORKSPACE_ID?.trim();
 if (!WORKSPACE_ID?.startsWith("sso-team-")) {
@@ -20,10 +24,13 @@ const timestamp = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
 const daemonId = `local-docker-managed-node-${timestamp}`;
 const stateDirectory = resolve(repositoryRoot, `data/${daemonId}`);
 const tlsCaPath = resolve(homedir(), "Library/Application Support/mkcert/rootCA.pem");
+const previousSource = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
+// Validate all non-identity settings before revoking the currently usable token.
+const operationalEnv = resolveManagedNodeOperationalEnv(previousSource);
 
 let revokedTokenId: string | null = null;
-if (existsSync(envPath)) {
-  const previousToken = readEnvValue(readFileSync(envPath, "utf8"), "DOFE_AGENT_DAEMON_TOKEN");
+if (previousSource) {
+  const previousToken = readEnvValue(previousSource, "DOFE_AGENT_DAEMON_TOKEN");
   if (previousToken) {
     const previousRecord = validateDaemonApiTokenSync(previousToken);
     if (previousRecord?.status === "active") {
@@ -51,10 +58,7 @@ const lines = [
   `MANAGED_RUNTIME_TLS_CA_PATH=${existsSync(tlsCaPath) ? tlsCaPath : ""}`,
   "MANAGED_RUNTIME_DOCKER_NETWORK=dofe-managed-egress",
   "MANAGED_RUNTIME_IMAGE_TAG=latest",
-  `DOFE_SKILL_RUNNER_NODE_IMAGE=${process.env.DOFE_SKILL_RUNNER_NODE_IMAGE?.trim() ?? ""}`,
-  `DOFE_SKILL_RUNNER_PYTHON_IMAGE=${process.env.DOFE_SKILL_RUNNER_PYTHON_IMAGE?.trim() ?? ""}`,
-  `DOFE_SKILL_RUNNER_BASH_IMAGE=${process.env.DOFE_SKILL_RUNNER_BASH_IMAGE?.trim() ?? ""}`,
-  `DOFE_SKILL_RUNNER_TIMEOUT_MS=${process.env.DOFE_SKILL_RUNNER_TIMEOUT_MS?.trim() || "60000"}`,
+  ...formatManagedNodeOperationalEnv(operationalEnv),
   "",
 ];
 
