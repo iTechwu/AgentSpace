@@ -148,13 +148,13 @@ export async function seedWorkspaceSession(page: Page): Promise<SeededWorkspaceS
     expiresAt: expiresAt.toISOString(),
   });
 
-  const cookieUrl = resolveCookieUrl();
+  const cookieScope = resolveCookieScope();
   const expires = Math.floor(expiresAt.getTime() / 1000);
   await page.context().addCookies([
     {
       name: AUTH_COOKIE_NAME,
       value: token,
-      url: cookieUrl,
+      ...cookieScope,
       httpOnly: true,
       sameSite: "Lax",
       expires,
@@ -162,7 +162,7 @@ export async function seedWorkspaceSession(page: Page): Promise<SeededWorkspaceS
     {
       name: WORKSPACE_SELECTION_COOKIE,
       value: workspace.slug,
-      url: cookieUrl,
+      ...cookieScope,
       httpOnly: true,
       sameSite: "Lax",
       expires,
@@ -170,7 +170,7 @@ export async function seedWorkspaceSession(page: Page): Promise<SeededWorkspaceS
     {
       name: WORKSPACE_RECENT_SELECTION_COOKIE,
       value: workspace.slug,
-      url: cookieUrl,
+      ...cookieScope,
       httpOnly: true,
       sameSite: "Lax",
       expires,
@@ -214,4 +214,13 @@ export async function openSeededWorkspacePage(
 function resolveCookieUrl(): string {
   return process.env.PLAYWRIGHT_BASE_URL?.trim()
     || `http://127.0.0.1:${process.env.PORT ?? 3000}/`;
+}
+
+function resolveCookieScope(): { domain: string; path: string; secure: boolean } {
+  const url = new URL(resolveCookieUrl());
+  return {
+    domain: url.hostname,
+    path: "/",
+    secure: url.protocol === "https:",
+  };
 }

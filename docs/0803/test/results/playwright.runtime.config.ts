@@ -1,5 +1,7 @@
 import { defineConfig } from "../../../../apps/web/node_modules/@playwright/test/index.mjs";
 
+const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "https://agentspace.local.dofe.ai";
+
 export default defineConfig({
   testDir: "../../../../apps/web/e2e",
   timeout: 30_000,
@@ -8,7 +10,7 @@ export default defineConfig({
   outputDir: "./playwright-artifacts",
   reporter: [["list"], ["json", { outputFile: "./playwright-results.json" }]],
   use: {
-    baseURL: "https://agentspace.local.dofe.ai",
+    baseURL,
     browserName: "chromium",
     channel: "chrome",
     headless: true,

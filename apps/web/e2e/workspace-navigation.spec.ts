@@ -344,5 +344,5 @@ function escapeRegExp(value: string): string {
 }
 
 function settingsSectionLabel(page: Page, name: RegExp) {
-  return page.getByRole("heading", { name }).first();
+  return page.locator(".settings-group__eyebrow").filter({ hasText: name });
 }
