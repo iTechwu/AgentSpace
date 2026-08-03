@@ -487,7 +487,7 @@ if [[ "$MANAGED_NODE" == "true" ]]; then
       fail "Required restricted Docker network does not exist: $MANAGED_RUNTIME_DOCKER_NETWORK"
     fi
     log "Creating managed Runtime Docker network: $MANAGED_RUNTIME_DOCKER_NETWORK"
-    docker network create --driver bridge --label dofe.managed-egress=restricted "$MANAGED_RUNTIME_DOCKER_NETWORK" >/dev/null
+    docker network create --driver bridge --label dofe.managed-egress=unrestricted "$MANAGED_RUNTIME_DOCKER_NETWORK" >/dev/null
   fi
 else
   log "Checking runtime output readiness"

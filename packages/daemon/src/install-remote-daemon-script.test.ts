@@ -17,6 +17,9 @@ test("install script exposes managed-node mode and remains valid bash", () => {
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /--managed-node/);
   assert.match(help.stdout, /require Docker/i);
+  const source = readFileSync(installerPath, "utf8");
+  assert.match(source, /docker network create[^\n]+dofe\.managed-egress=unrestricted/);
+  assert.doesNotMatch(source, /docker network create[^\n]+dofe\.managed-egress=restricted/);
 });
 
 test("install script readiness hook passes when dofe-agent output and bwrap are compatible", () => {

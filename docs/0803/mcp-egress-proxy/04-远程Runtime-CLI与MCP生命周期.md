@@ -82,6 +82,7 @@ remote daemon 在托管节点上执行：
 - 验证当前用户可执行 Docker；
 - 读取或创建 `MANAGED_RUNTIME_DOCKER_NETWORK`；
 - `MCP_EGRESS_ENFORCE=true` 时要求既有 `dofe-runtime-restricted`，不自行创建一个冒充受限网络；
+- 非 enforce 模式自动创建的普通 bridge 明确标记为 `dofe.managed-egress=unrestricted`，不能作为出口安全证明；
 - 将 network、image tag、TLS CA、extra hosts 与 enforce 状态写入 daemon env；
 - launcher 使用 `set -a` 导出配置，并以 `--managed-node` 启动 daemon。
 
