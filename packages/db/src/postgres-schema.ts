@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "99";
+export const POSTGRES_SCHEMA_VERSION = "100";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -92,6 +92,7 @@ export const POSTGRES_TABLE_NAMES = [
   "skill_runner_invocation",
   "workspace_git_credential",
   "pager_alert_state",
+  "skill_draft",
   "skill_service_catalog",
   "managed_skill_service",
   "skill_service_binding",
@@ -2738,6 +2739,16 @@ export function getPostgresSchemaStatements(): string[] {
         last_escalated_at TIMESTAMPTZ,
         cleared_at TIMESTAMPTZ,
         UNIQUE(workspace_id, alert_key)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS skill_draft (
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        skill_id TEXT NOT NULL REFERENCES skill(id) ON DELETE CASCADE,
+        draft_json JSONB NOT NULL,
+        updated_by_user_id TEXT,
+        updated_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (workspace_id, skill_id)
       )
     `,
     `

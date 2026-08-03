@@ -33194,6 +33194,25 @@ button[aria-disabled="true"] svg {
   list-style: none;
 }
 
+.skill-draft-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-right: 0.5rem;
+}
+
+.skill-draft-controls__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: var(--warning-soft, #fff4e0);
+  color: var(--warning, #b45309);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
 .skill-upgrade-inbox {
   margin: 0 1rem 1rem;
   padding: 0.9rem;

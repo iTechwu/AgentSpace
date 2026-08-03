@@ -925,6 +925,14 @@ export {
   type SkillInstallationComponentInput,
 } from "./skill-installations.ts";
 export {
+  upsertSkillDraftSync,
+  readSkillDraftSync,
+  deleteSkillDraftSync,
+  listSkillDraftSkillIdsSync,
+  type SkillDraftSnapshot,
+  type SkillDraftRecord,
+} from "./skill-drafts.ts";
+export {
   upsertPagerAlertStateSync,
   markPagerAlertClearedSync,
   readPagerAlertStateByKeySync,

@@ -455,6 +455,7 @@ const NORMALIZED_ROW_KEY_ALIASES = new Map([
   ["casereference", "caseReference"],
   ["clearedat", "clearedAt"],
   ["credentialtype", "credentialType"],
+  ["draftjson", "draftJson"],
   ["durationms", "durationMs"],
   ["encryptedsecret", "encryptedSecret"],
   ["fingerprint", "fingerprint"],

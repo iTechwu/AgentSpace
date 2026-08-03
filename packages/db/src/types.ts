@@ -852,7 +852,7 @@ export interface StoredAgentForkSnapshotRecord {
 }
 
 export type RuntimeAppCatalogSource = "clihub_harness" | "clihub_public" | "skill_dependency";
-export type RuntimeAppInstallStrategy = "cli_hub" | "pip" | "npm" | "uv" | "bundled" | "manual";
+export type RuntimeAppInstallStrategy = "cli_hub" | "pip" | "npm" | "uv" | "system" | "bundled" | "manual";
 export type RuntimeInstalledAppStatus = "installed" | "installing" | "failed" | "disabled" | "missing";
 export type RuntimeAppOperationType = "install" | "update" | "uninstall" | "verify" | "disable" | "enable";
 export type RuntimeAppOperationStatus = "pending" | "claimed" | "running" | "succeeded" | "failed" | "cancelled";

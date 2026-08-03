@@ -21,6 +21,7 @@ import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { SkillEditor } from "@/features/skills/components/skill-editor";
 import { InstallSkillModal } from "@/features/skills/components/install-skill-modal";
 import { ServiceOpsPanel } from "@/features/skills/components/service-ops-panel";
+import { SkillDraftControls } from "@/features/skills/components/skill-draft-controls";
 import { SkillInstallationPanel } from "@/features/skills/components/skill-installation-panel";
 import { UpgradeReviewInbox } from "@/features/skills/components/upgrade-review-inbox";
 import { CreateSkillModal } from "@/features/skills/components/create-skill-modal";
@@ -471,6 +472,13 @@ export function SkillsPageClient({
                 <div className="skills-studio__install-section">
                   <div className="skills-studio__install-header">
                     <h4>{tx("Runtime 安装", "Runtime installations")}</h4>
+                    <SkillDraftControls
+                      files={selectedSkill.files.map((file) => ({ path: file.path, content: file.content }))}
+                      onDraftChanged={() => refreshWorkspaceModule(onDataChanged, router)}
+                      skillDescription={selectedSkill.description}
+                      skillId={selectedSkill.id}
+                      skillName={selectedSkill.name}
+                    />
                     <div className="panel-header__actions">
                       {canCheckSourceUpdates ? (
                         <button

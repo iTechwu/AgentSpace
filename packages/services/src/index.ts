@@ -152,6 +152,14 @@ export {
   type SystemDependencyResolution,
 } from "./skills/system-dependency-catalog.ts";
 export {
+  saveSkillDraftSync,
+  readSkillDraftSync,
+  hasSkillDraftSync,
+  publishSkillDraftSync,
+  discardSkillDraftSync,
+  type SkillDraftView,
+} from "./skills/drafts.ts";
+export {
   setWorkspaceGitCredentialSync,
   listWorkspaceGitCredentialsSync,
   resolveWorkspaceGitCredentialSecretSync,
