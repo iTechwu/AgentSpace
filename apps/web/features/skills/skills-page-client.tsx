@@ -20,6 +20,7 @@ import { useResizablePane } from "@/shared/lib/use-resizable-pane";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { SkillEditor } from "@/features/skills/components/skill-editor";
 import { InstallSkillModal } from "@/features/skills/components/install-skill-modal";
+import { ServiceOpsPanel } from "@/features/skills/components/service-ops-panel";
 import { SkillInstallationPanel } from "@/features/skills/components/skill-installation-panel";
 import { UpgradeReviewInbox } from "@/features/skills/components/upgrade-review-inbox";
 import { CreateSkillModal } from "@/features/skills/components/create-skill-modal";
@@ -398,6 +399,7 @@ export function SkillsPageClient({
         {showEditorPane ? (
           <section className="skills-studio__editor page-panel">
             <UpgradeReviewInbox />
+            <ServiceOpsPanel />
             {selectedSkill && selectedFile ? (
               <>
                 {isCompactLayout ? (
