@@ -61,7 +61,7 @@ import {
 import { parseTaskInputJson, resolveConversationThreadId } from "./task-context.ts";
 import { buildManagedRuntimeAppPlan, executeRuntimeAppPlan, parseRuntimeAppInstallPlan, tailAndRedact } from "./runtime-apps.ts";
 import { executeMcpConnectionOperation } from "./mcp/verify-executor.ts";
-import { McpGateway } from "./mcp/gateway.ts";
+import { McpGateway, McpGatewayPool } from "./mcp/gateway.ts";
 import { McpAuditOutbox } from "./mcp/audit-outbox.ts";
 import { applyProviderCredentialProfile, resolveProviderCredentialProfile, type ProviderCredentialProfile } from "./provider-credentials.ts";
 import {
@@ -1257,7 +1257,7 @@ function ensureManagedRuntimeHomeDir(stateDir: string, runtimeId: string): strin
   return homeDir;
 }
 
-const sharedMcpGateways = new Map<string, McpGateway>();
+const sharedMcpGateways = new McpGatewayPool();
 
 async function getMcpGatewayForTask(
   client: HttpDaemonClient,
@@ -1267,9 +1267,7 @@ async function getMcpGatewayForTask(
   const gatewayHost = managedNode
     ? resolveManagedRuntimeDockerGateway(resolveManagedRuntimeDockerNetwork())
     : "127.0.0.1";
-  const existing = sharedMcpGateways.get(gatewayHost);
-  if (existing) return existing;
-  {
+  return sharedMcpGateways.getOrCreate(gatewayHost, async () => {
     const gateway = new McpGateway(
       async (audit) => {
         const report = {
@@ -1313,9 +1311,8 @@ async function getMcpGatewayForTask(
       { listenHost: gatewayHost, advertisedHost: gatewayHost },
     );
     await gateway.start();
-    sharedMcpGateways.set(gatewayHost, gateway);
     return gateway;
-  }
+  });
 }
 
 function readFiniteNumber(value: unknown): number {

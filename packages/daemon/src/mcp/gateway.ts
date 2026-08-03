@@ -58,6 +58,25 @@ export interface McpGatewayNetworkOptions {
   advertisedHost?: string;
 }
 
+export class McpGatewayPool {
+  private readonly gateways = new Map<string, Promise<McpGateway>>();
+
+  async getOrCreate(key: string, create: () => Promise<McpGateway>): Promise<McpGateway> {
+    const existing = this.gateways.get(key);
+    if (existing) return existing;
+    const pending = create();
+    this.gateways.set(key, pending);
+    try {
+      return await pending;
+    } catch (error) {
+      if (this.gateways.get(key) === pending) {
+        this.gateways.delete(key);
+      }
+      throw error;
+    }
+  }
+}
+
 /**
  * Daemon-resident task-scoped MCP gateway.
  *

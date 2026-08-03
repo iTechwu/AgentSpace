@@ -4,7 +4,7 @@ import test, { after, before } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ResolvedMcpConnection, RuntimeMcpClient } from "@dofe-agent/domain";
-import { McpGateway, type McpGatewayTaskSession, type McpToolAuditRecord } from "./gateway.ts";
+import { McpGateway, McpGatewayPool, type McpGatewayTaskSession, type McpToolAuditRecord } from "./gateway.ts";
 
 const CONNECTION_ID = "mcp-conn-test-1";
 const TASK_ID = "task-test-1";
@@ -98,6 +98,37 @@ test("gateway can advertise a Docker bridge address without listening on all int
   } finally {
     await dockerGateway.close();
   }
+});
+
+test("gateway pool initializes one gateway per host under concurrency and retries failures", async () => {
+  const pool = new McpGatewayPool();
+  const pooledGateway = new McpGateway(() => undefined, buildMockClient().client);
+  let createCalls = 0;
+  let releaseCreate: (() => void) | undefined;
+  const creationGate = new Promise<void>((resolve) => { releaseCreate = resolve; });
+  const create = async () => {
+    createCalls += 1;
+    await creationGate;
+    return pooledGateway;
+  };
+
+  const first = pool.getOrCreate("172.31.240.1", create);
+  const second = pool.getOrCreate("172.31.240.1", create);
+  assert.equal(createCalls, 1);
+  releaseCreate?.();
+  assert.equal(await first, pooledGateway);
+  assert.equal(await second, pooledGateway);
+
+  let failureCalls = 0;
+  await assert.rejects(pool.getOrCreate("172.31.240.2", async () => {
+    failureCalls += 1;
+    throw new Error("listen failed");
+  }), /listen failed/);
+  assert.equal(await pool.getOrCreate("172.31.240.2", async () => {
+    failureCalls += 1;
+    return pooledGateway;
+  }), pooledGateway);
+  assert.equal(failureCalls, 2);
 });
 
 test("gateway routes an approved tool call through the client and emits an audit", async () => {
