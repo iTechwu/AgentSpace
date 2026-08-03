@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import type { LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
+import type { LookupFunction } from "node:net";
 import { Readable } from "node:stream";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -161,7 +163,7 @@ async function pinnedHttpsFetch(input: string | URL, init?: RequestInit): Promis
       method: init?.method ?? "GET",
       headers: headersToObject(headers),
       servername: url.hostname,
-      lookup: (_hostname, _options, callback) => callback(null, target.address, target.family),
+      lookup: createPinnedLookup(target),
     }, (response) => {
       const responseHeaders = new Headers();
       for (const [name, value] of Object.entries(response.headers)) {
@@ -181,6 +183,17 @@ async function pinnedHttpsFetch(input: string | URL, init?: RequestInit): Promis
     init?.signal?.addEventListener("abort", () => request.destroy(new DOMException("Aborted", "AbortError")), { once: true });
     writeRequestBody(request, init?.body).catch((error) => request.destroy(error));
   });
+}
+
+/** Node 24 requests all addresses for Happy Eyeballs; preserve that shape while returning only vetted addresses. */
+export function createPinnedLookup(target: LookupAddress): LookupFunction {
+  return (_hostname, options, callback) => {
+    if (options.all) {
+      callback(null, [target]);
+      return;
+    }
+    callback(null, target.address, target.family);
+  };
 }
 
 async function writeRequestBody(request: ReturnType<typeof httpsRequest>, body: unknown): Promise<void> {
