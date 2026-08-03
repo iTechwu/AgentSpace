@@ -925,6 +925,13 @@ export {
   type SkillInstallationComponentInput,
 } from "./skill-installations.ts";
 export {
+  upsertPagerAlertStateSync,
+  markPagerAlertClearedSync,
+  readPagerAlertStateByKeySync,
+  listActivePagerAlertStatesSync,
+  type UpsertPagerAlertStateInput,
+} from "./pager-alert-state.ts";
+export {
   upsertWorkspaceGitCredentialSync,
   readWorkspaceGitCredentialSync,
   readWorkspaceGitCredentialByHostSync,
@@ -964,6 +971,7 @@ export type {
   SkillInstallApprovalRiskItem,
   SkillRunnerInvocationRecord,
   WorkspaceGitCredentialRecord,
+  PagerAlertStateRecord,
 } from "./types.ts";
 export {
   upsertSkillServiceCatalogSync,

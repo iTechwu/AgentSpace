@@ -93,3 +93,65 @@ test("sendExternalPagerAlert surfaces HTTP errors as reason", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("repeated alerts escalate after the threshold and cleared alerts page a recovery", async () => {
+  const { getDatabase } = await import("@dofe-agent/db");
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO workspace (id, slug, name, created_by, created_at, updated_at)
+     VALUES ('default', 'default', 'Dofe Agent', '', ?, ?) ON CONFLICT (id) DO NOTHING`,
+  ).run(now, now);
+  db.exec("DELETE FROM pager_alert_state");
+
+  let payloads: Array<{ alerts: unknown[]; recovered: unknown[] }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    payloads.push(JSON.parse(init?.body as string));
+    return new Response("ok", { status: 200 });
+  };
+  const alert = { code: "recovery.failed", severity: "error" as const, message: "backup failed", employeeName: "alice", metric: "rpo" };
+
+  try {
+    const config: ExternalPagerConfig = {
+      webhookUrl: "https://pager.example/hook",
+      severityFilter: new Set(["error"]),
+      escalateAfter: 3,
+    };
+
+    // Two occurrences → no escalation yet.
+    await sendExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config });
+    const second = await sendExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config });
+    assert.equal(second.escalatedCount, 0);
+    assert.equal(payloads[1]?.alerts[0]?.escalated, false);
+
+    // Third occurrence → escalates to critical.
+    const third = await sendExternalPagerAlert({ workspaceId: "default", alerts: [alert], checkedAt: now, config });
+    assert.equal(third.escalatedCount, 1);
+    assert.equal(payloads[2]?.alerts[0]?.severity, "critical");
+    assert.match(payloads[2]?.alerts[0]?.message as string, /ESCALATED/);
+
+    // The alert clears → the next dispatched payload carries a recovery notice.
+    const recovered = await sendExternalPagerAlert({
+      workspaceId: "default",
+      alerts: [{ code: "other.ok", severity: "info", message: "ok" }],
+      checkedAt: now,
+      config: { ...config, severityFilter: new Set(["error", "info"]) },
+    });
+    assert.equal(recovered.recoveredCount, 1);
+    const lastPayload = payloads[payloads.length - 1]!;
+    assert.equal(lastPayload.recovered[0]?.code, "recovery.failed");
+    assert.ok(lastPayload.recovered[0]?.clearedAt);
+
+    // An empty cycle never loses a pending recovery: re-send the info alert again.
+    const again = await sendExternalPagerAlert({
+      workspaceId: "default",
+      alerts: [{ code: "other.ok", severity: "info", message: "ok" }],
+      checkedAt: now,
+      config: { ...config, severityFilter: new Set(["error", "info"]) },
+    });
+    assert.equal(again.recoveredCount, 0, "recovery was consumed once on the previous dispatch");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

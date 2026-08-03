@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "98";
+export const POSTGRES_SCHEMA_VERSION = "99";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -91,6 +91,7 @@ export const POSTGRES_TABLE_NAMES = [
   "skill_installation_component",
   "skill_runner_invocation",
   "workspace_git_credential",
+  "pager_alert_state",
   "skill_service_catalog",
   "managed_skill_service",
   "skill_service_binding",
@@ -2719,6 +2720,24 @@ export function getPostgresSchemaStatements(): string[] {
         rotated_at TIMESTAMPTZ,
         revoked_at TIMESTAMPTZ,
         UNIQUE(workspace_id, host)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS pager_alert_state (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        alert_key TEXT NOT NULL,
+        code TEXT NOT NULL,
+        employee_name TEXT,
+        metric TEXT,
+        severity TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        first_seen_at TIMESTAMPTZ NOT NULL,
+        last_seen_at TIMESTAMPTZ NOT NULL,
+        occurrences INTEGER NOT NULL DEFAULT 1,
+        last_escalated_at TIMESTAMPTZ,
+        cleared_at TIMESTAMPTZ,
+        UNIQUE(workspace_id, alert_key)
       )
     `,
     `

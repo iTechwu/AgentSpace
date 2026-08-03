@@ -1503,6 +1503,22 @@ export interface StoredSkillInstallationComponentRecord {
   updatedAt: string;
 }
 
+export interface PagerAlertStateRecord {
+  id: string;
+  workspaceId: string;
+  alertKey: string;
+  code: string;
+  employeeName?: string;
+  metric?: string;
+  severity: string;
+  status: "active" | "cleared";
+  firstSeenAt: string;
+  lastSeenAt: string;
+  occurrences: number;
+  lastEscalatedAt?: string;
+  clearedAt?: string;
+}
+
 export interface WorkspaceGitCredentialRecord {
   id: string;
   workspaceId: string;
