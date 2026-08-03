@@ -4,6 +4,7 @@ import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan, RuntimeAppOperat
 const UNSAFE_COMMAND_PATTERN = /(\||&&|;|`|\$\(|<\(|>\(|\bcurl\b|\bwget\b|\bsudo\b|\bsu\b|\bchmod\b|\bchown\b|\bsystemctl\b|\blaunchctl\b|\btee\s+-a\b|>>|~\/\.(?:bash|zsh|profile|config))/i;
 const CLI_HUB_PIP_ENV = { PIP_BREAK_SYSTEM_PACKAGES: "1" } as const;
 const NPM_PACKAGE_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/i;
+const NPM_PACKAGE_SPEC_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/i;
 
 export function buildRuntimeAppInstallPlan(input: {
   item: RuntimeAppCatalogItemRecord;
@@ -157,6 +158,8 @@ function readPublicNpmPackage(item: RuntimeAppCatalogItemRecord): string | undef
   }
   try {
     const registry = JSON.parse(item.registryJson) as Record<string, unknown>;
+    const exactSpec = typeof registry.npm_package_spec === "string" ? registry.npm_package_spec.trim() : "";
+    if (NPM_PACKAGE_SPEC_PATTERN.test(exactSpec)) return exactSpec;
     const candidate = typeof registry.npm_package === "string" ? registry.npm_package.trim() : item.name.trim();
     return NPM_PACKAGE_PATTERN.test(candidate) ? candidate : undefined;
   } catch {

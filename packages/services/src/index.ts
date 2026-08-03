@@ -309,6 +309,15 @@ export {
   type McpDeclaredTool,
 } from "./mcp-center/catalog.ts";
 export {
+  CHROME_DEVTOOLS_MCP_PACKAGE_SPEC,
+  CHROME_DEVTOOLS_MCP_SLUG,
+  CHROME_DEVTOOLS_MCP_VERSION,
+  resolveOfficialManagedStdioProfile,
+  resolveOfficialMcpRuntimeAppRequirement,
+  syncOfficialMcpCatalogForWorkspaceSync,
+  type OfficialMcpRuntimeAppRequirement,
+} from "./mcp-center/official-catalog.ts";
+export {
   claimMcpTaskSessionSync,
   classifyVerificationOutcome,
   completeMcpConnectionOperationWithHealthScheduleSync,

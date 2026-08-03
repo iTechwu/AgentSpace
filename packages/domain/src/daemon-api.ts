@@ -619,6 +619,14 @@ export interface ResolvedMcpConnection {
   egressProxyPolicySnapshot?: McpEgressPolicySnapshot;
   /** Daemon-built process launch; never accepted from browser/catalog input. */
   managedStdioLaunch?: McpManagedStdioLaunch;
+  /** Trusted launch profile resolved only from a platform-owned catalog release. */
+  managedStdioProfile?: McpManagedStdioProfile;
+}
+
+export interface McpManagedStdioProfile {
+  args: string[];
+  managedArgs?: string[];
+  env: Record<string, string>;
 }
 
 export interface McpManagedStdioLaunch {
@@ -660,6 +668,8 @@ export interface ClaimedMcpConnectionOperation {
   egressProxyLease?: string;
   /** Policy snapshot the daemon must push to the proxy before use. */
   egressProxyPolicySnapshot?: McpEgressPolicySnapshot;
+  /** Trusted platform profile; never accepted from a connection request. */
+  managedStdioProfile?: McpManagedStdioProfile;
   createdAt: string;
 }
 
@@ -711,6 +721,8 @@ export interface McpTaskSessionConnection {
   tools: RuntimeMcpTool[];
   /** Added by the remote daemon after claim resolution. */
   managedStdioLaunch?: McpManagedStdioLaunch;
+  /** Trusted platform profile consumed by the remote daemon. */
+  managedStdioProfile?: McpManagedStdioProfile;
 }
 
 export interface ClaimMcpTaskSessionResponse {

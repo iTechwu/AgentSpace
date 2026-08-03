@@ -12,6 +12,8 @@ import {
   assessRuntimeAppRisk,
   listMcpCatalogItemsForWorkspaceSync,
   readCliHubReadinessForRuntimeSync,
+  resolveOfficialMcpRuntimeAppRequirement,
+  syncOfficialMcpCatalogForWorkspaceSync,
   syncCliHubCatalog,
 } from "@dofe-agent/services";
 import type { MarketPageData } from "@/features/market/market-page-client";
@@ -23,8 +25,9 @@ export async function loadMarketPageData(input: {
   let catalogHealth = readRuntimeAppCatalogHealthSync();
   if (catalogHealth.itemCount === 0) {
     await syncCliHubCatalog();
-    catalogHealth = readRuntimeAppCatalogHealthSync();
   }
+  syncOfficialMcpCatalogForWorkspaceSync(input.workspaceId);
+  catalogHealth = readRuntimeAppCatalogHealthSync();
 
   const daemonSnapshots = listDaemonSnapshotsSync(input.workspaceId);
   return {
@@ -108,6 +111,7 @@ export async function loadMarketPageData(input: {
       configurationFields: safeConfigurationFields(item.configurationSchemaJson),
       endpointTemplate: item.endpointTemplate,
       documentationUrl: item.documentationUrl,
+      requiredRuntimeApp: resolveOfficialMcpRuntimeAppRequirement(item),
     })),
     mcpConnections: listMcpConnectionsSync({ workspaceId: input.workspaceId, limit: 500 }).map((connection) => {
       const catalog = readMcpCatalogItemSync(connection.catalogItemId, input.workspaceId);

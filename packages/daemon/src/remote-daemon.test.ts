@@ -121,6 +121,42 @@ test("managed stdio MCP launches the installed entrypoint inside the target Runt
   }
 });
 
+test("official managed stdio profiles add browser flags without accepting them from user configuration", () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "dofe-managed-browser-"));
+  try {
+    const profile = {
+      args: ["--headless", "--isolated"],
+      managedArgs: ["--executable-path=/usr/bin/chromium", "--chrome-arg=--no-sandbox"],
+      env: { CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS: "1" },
+    };
+    const managed = buildManagedStdioLaunch({
+      endpoint: "stdio://chrome-devtools-mcp",
+      nonSecretParams: {},
+      secrets: {},
+      managedStdioProfile: profile,
+    }, { stateDir, managedNode: true }, { id: "runtime-browser", provider: "codex" });
+    assert.deepEqual(managed.args.slice(-5), [
+      "dofe/agent-runtime-codex:latest",
+      "--headless",
+      "--isolated",
+      "--executable-path=/usr/bin/chromium",
+      "--chrome-arg=--no-sandbox",
+    ]);
+    assert.equal(managed.args.includes("/dev/shm:rw,nosuid,nodev,noexec,size=256m"), true);
+    assert.equal(managed.args.includes("CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1"), true);
+
+    const host = buildManagedStdioLaunch({
+      endpoint: "stdio://chrome-devtools-mcp",
+      nonSecretParams: {},
+      secrets: {},
+      managedStdioProfile: profile,
+    }, { stateDir, managedNode: false }, { id: "runtime-browser", provider: "codex" });
+    assert.deepEqual(host.args, ["--headless", "--isolated"]);
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("managed stdio MCP rejects shell syntax and reserved environment variables", () => {
   assert.throws(() => buildManagedStdioLaunch({
     endpoint: "stdio://server/path",

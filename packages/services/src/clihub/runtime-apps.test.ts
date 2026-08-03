@@ -210,6 +210,27 @@ test("installs, updates, and uninstalls public npm apps without fetching the CLI
   assert.deepEqual(uninstallPlan.verifyCommands, []);
 });
 
+test("uses a validated exact npm package spec for platform-pinned applications", () => {
+  const plan = buildRuntimeAppInstallPlan({
+    operation: "install",
+    cliHubAvailable: false,
+    item: {
+      source: "clihub_public",
+      name: "chrome-devtools-mcp",
+      displayName: "Chrome DevTools MCP",
+      description: "",
+      version: "1.6.0",
+      category: "developer_tools",
+      entryPoint: "chrome-devtools-mcp",
+      installStrategy: "npm",
+      registryJson: JSON.stringify({ npm_package_spec: "chrome-devtools-mcp@1.6.0" }),
+      syncedAt: "2026-08-04T00:00:00.000Z",
+    },
+  });
+
+  assert.deepEqual(plan.commands, [{ executable: "npm", args: ["install", "--global", "chrome-devtools-mcp@1.6.0"] }]);
+});
+
 test("rejects unsafe public npm package metadata and falls back to the controlled CLI-Hub plan", () => {
   const plan = buildRuntimeAppInstallPlan({
     operation: "install",

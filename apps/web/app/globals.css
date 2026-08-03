@@ -22668,11 +22668,19 @@ textarea:focus {
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.6);
 }
-.mcp-tool-row span {
+.mcp-tool-row > input[type="checkbox"] {
+  flex: 0 0 1rem;
+  width: 1rem;
+  height: 1rem;
+}
+.mcp-tool-row > span:not(.status-chip) {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
+}
+.mcp-tool-row > .status-chip {
+  flex: 0 0 auto;
 }
 .mcp-tool-row small {
   color: rgba(20, 33, 26, 0.55);

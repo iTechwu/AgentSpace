@@ -80,6 +80,7 @@ export interface MarketPageData {
     configurationFields: Array<{ name: string; required: boolean; maxLength?: number }>;
     endpointTemplate?: string;
     documentationUrl?: string;
+    requiredRuntimeApp?: { source: RuntimeAppCatalogSource; name: string; version: string };
   }>;
   mcpConnections: Array<{
     id: string;

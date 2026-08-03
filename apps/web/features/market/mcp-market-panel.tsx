@@ -13,6 +13,7 @@ import {
   reverifyMcpConnectionAction,
 } from "@/features/market/mcp-actions";
 import type { CreateMcpCatalogItemActionInput } from "@/features/market/mcp-actions";
+import { requestRuntimeAppOperationAction } from "@/features/market/actions";
 import { CreateMcpCatalogModal } from "@/features/market/create-mcp-catalog-modal";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useLanguage } from "@/features/i18n/language-provider";
@@ -91,6 +92,25 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     : onlineRuntimes;
   const formRuntimeId = editingConnection?.runtimeId ?? selectedRuntime?.id ?? "";
   const supportsSelectedTransport = selected?.transport === "streamable_http" || selected?.transport === "managed_stdio";
+  const requiredRuntimeApp = selected?.requiredRuntimeApp;
+  const requiredRuntimeInstallation = requiredRuntimeApp && selectedRuntime
+    ? data.installedApps.find((app) =>
+        app.runtimeId === selectedRuntime.id &&
+        app.source === requiredRuntimeApp.source &&
+        app.name === requiredRuntimeApp.name,
+      )
+    : undefined;
+  const requiredRuntimeAppReady = !requiredRuntimeApp || Boolean(
+    requiredRuntimeInstallation?.status === "installed" &&
+    requiredRuntimeInstallation.enabled &&
+    requiredRuntimeInstallation.version === requiredRuntimeApp.version,
+  );
+  const requiredRuntimeAppOperationActive = Boolean(requiredRuntimeApp && selectedRuntime && data.operations.some((operation) =>
+    operation.runtimeId === selectedRuntime.id &&
+    operation.appSource === requiredRuntimeApp.source &&
+    operation.appName === requiredRuntimeApp.name &&
+    isActiveStatus(operation.status),
+  ));
   const requiresHighRiskConfirmation = Boolean(selected && (
     !editingConnection
       ? selected.risk === "high" || selected.declaredTools.some((tool) => tool.risk === "high" && approvedTools.has(tool.name))
@@ -114,10 +134,10 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   }, [selected, editingConnectionId]);
 
   useEffect(() => {
-    if (!data.mcpOperations.some((op) => isActiveStatus(op.status))) return;
+    if (![...data.mcpOperations, ...data.operations].some((op) => isActiveStatus(op.status))) return;
     const timeoutId = window.setTimeout(() => refreshWorkspaceModule(onDataChanged, router), 2_500);
     return () => window.clearTimeout(timeoutId);
-  }, [data.mcpOperations, onDataChanged, router]);
+  }, [data.mcpOperations, data.operations, onDataChanged, router]);
 
   function runAction(work: () => Promise<ActionToastResult<void>>): void {
     startTransition(async () => {
@@ -207,6 +227,16 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
       approvedTools: Array.from(approvedTools),
       secrets: dirtySecretEntries.length > 0 ? Object.fromEntries(dirtySecretEntries) : undefined,
       confirmHighRisk,
+    }));
+  }
+
+  function installRequiredRuntimeApp(): void {
+    if (!requiredRuntimeApp || !selectedRuntime) return;
+    runAction(() => requestRuntimeAppOperationAction({
+      runtimeId: selectedRuntime.id,
+      source: requiredRuntimeApp.source,
+      name: requiredRuntimeApp.name,
+      operation: "install",
     }));
   }
 
@@ -405,6 +435,12 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                 <Fact label={tx("声明工具数", "Declared tools")} value={String(selected.declaredTools.length)} />
                 <Fact label={tx("数据域", "Data domains")} value={selected.dataDomains.join(", ") || "—"} />
                 <Fact label={tx("允许网络", "Allowed hosts")} value={selected.allowedHosts.join(", ") || "—"} />
+                {requiredRuntimeApp ? (
+                  <Fact
+                    label={tx("Runtime 组件", "Runtime component")}
+                    value={requiredRuntimeAppReady ? tx("已安装", "Installed") : `${requiredRuntimeApp.name}@${requiredRuntimeApp.version}`}
+                  />
+                ) : null}
               </div>
 
               <div className="mcp-tool-scope">
@@ -499,9 +535,20 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
               ) : null}
 
               <div className="market-action-row">
+                {requiredRuntimeApp && !requiredRuntimeAppReady ? (
+                  <button
+                    className="primary-button"
+                    disabled={isPending || !data.canManage || !selectedRuntime || requiredRuntimeAppOperationActive}
+                    onClick={installRequiredRuntimeApp}
+                    type="button"
+                  >
+                    <AppIcon name="download" />
+                    <span>{requiredRuntimeAppOperationActive ? tx("正在安装", "Installing") : tx("安装 Runtime 组件", "Install runtime component")}</span>
+                  </button>
+                ) : null}
                 <button
                   className="primary-button"
-                  disabled={isPending || !data.canManage || !supportsSelectedTransport || !selectedRuntime || !isSubmittable()}
+                  disabled={isPending || !data.canManage || !supportsSelectedTransport || !selectedRuntime || !requiredRuntimeAppReady || !isSubmittable()}
                   onClick={submitConnection}
                   type="button"
                 >

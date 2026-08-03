@@ -21,6 +21,7 @@ import {
   readMcpConnectionSync,
   readMcpOperationSync,
   readMcpTaskSessionGrantSync,
+  readRuntimeInstalledAppSync,
   scheduleMcpHealthChecksSync as dbScheduleMcpHealthChecksSync,
   updateMcpConnectionConfigSync,
   updateMcpConnectionStatusSync,
@@ -71,6 +72,7 @@ import {
   signMcpEgressLeaseForOperation,
   signMcpEgressLeaseForTaskCall,
 } from "./egress.ts";
+import { resolveOfficialManagedStdioProfile, resolveOfficialMcpRuntimeAppRequirement } from "./official-catalog.ts";
 import { resolveReadyMcpConnectionForTask } from "./readiness.ts";
 export { listReadyMcpConnectionsForTaskSync } from "./readiness.ts";
 
@@ -109,6 +111,9 @@ export function requestMcpConnectionSync(input: RequestMcpConnectionInput): Requ
   const catalog = readMcpCatalogItemSync(input.catalogItemId, input.workspaceId);
   if (!catalog) {
     throw new Error("mcp_catalog.not_found");
+  }
+  if (!isRequiredRuntimeAppReady(input.workspaceId, input.runtimeId, catalog)) {
+    throw new Error("mcp.runtime_app_required");
   }
   const allowedHosts = parseJsonArray(catalog.allowedHostsJson);
   const endpointCheck = validateConnectionEndpoint(catalog.transport, input.endpoint, allowedHosts, catalog.endpointTemplate);
@@ -911,6 +916,7 @@ export function resolveClaimedMcpOperationSync(input: {
   if (!catalog) {
     return null;
   }
+  if (!isRequiredRuntimeAppReady(input.workspaceId, input.operation.runtimeId, catalog)) return null;
   const allowedHosts = parseJsonArray(catalog.allowedHostsJson);
   const nonSecretParams = parseJsonObject(connection.nonSecretParamsJson);
   const endpointCheck = validateConnectionEndpoint(catalog.transport, connection.endpoint, allowedHosts, catalog.endpointTemplate);
@@ -976,6 +982,7 @@ export function resolveClaimedMcpOperationSync(input: {
     nonSecretParams,
     egressProxyLease,
     egressProxyPolicySnapshot,
+    managedStdioProfile: resolveOfficialManagedStdioProfile(catalog),
     createdAt: input.operation.createdAt,
   };
 }
@@ -1116,6 +1123,7 @@ function resolveClaimedMcpTaskSessionResult(input: {
       markDegradedOnMissingTool: true,
     });
     if (!resolved) continue;
+    if (!isRequiredRuntimeAppReady(input.workspaceId, input.runtimeId, resolved.catalog)) continue;
     const allowedHosts = parseJsonArray(resolved.catalog.allowedHostsJson);
     const nonSecretParams = parseJsonObject(resolved.fresh.nonSecretParamsJson);
     if (
@@ -1138,6 +1146,7 @@ function resolveClaimedMcpTaskSessionResult(input: {
       nonSecretParams,
       secrets,
       tools: resolved.tools,
+      managedStdioProfile: resolveOfficialManagedStdioProfile(resolved.catalog),
     });
   }
   return { connections: result };
@@ -1177,6 +1186,7 @@ export function validateMcpConnectionForGatewaySync(input: {
   if (!resolved || !resolved.approved.includes(input.toolName)) {
     return { ok: false };
   }
+  if (!isRequiredRuntimeAppReady(input.workspaceId, input.runtimeId, resolved.catalog)) return { ok: false };
   const allowedHosts = parseJsonArray(resolved.catalog.allowedHostsJson);
   const nonSecretParams = parseJsonObject(resolved.fresh.nonSecretParamsJson);
   if (
@@ -1327,6 +1337,22 @@ function validateConnectionParameters(transport: McpTransport, params: Record<st
   if (transport === "streamable_http") return validateMcpRequestHeaders(params);
   if (transport === "managed_stdio") return validateManagedStdioEnvironmentConfiguration(params);
   return { ok: false, code: "mcp.policy_denied" as const, message: "MCP transport is not supported." };
+}
+
+function isRequiredRuntimeAppReady(
+  workspaceId: string,
+  runtimeId: string,
+  catalog: McpCatalogItemRecord,
+): boolean {
+  const requirement = resolveOfficialMcpRuntimeAppRequirement(catalog);
+  if (!requirement) return true;
+  const installed = readRuntimeInstalledAppSync({ workspaceId, runtimeId, source: requirement.source, name: requirement.name });
+  return Boolean(
+    installed &&
+    installed.status === "installed" &&
+    installed.enabled &&
+    installed.version === requirement.version,
+  );
 }
 
 function parseDeclaredTools(value: string): McpDeclaredTool[] {

@@ -6,7 +6,10 @@ import test, { before, beforeEach } from "node:test";
 import {
   claimMcpTaskSessionAtomicallySync,
   claimNextMcpOperationForRuntimeSync,
+  claimNextRuntimeAppOperationForRuntimeSync,
   completeMcpOperationSync,
+  completeRuntimeAppOperationSync,
+  createRuntimeAppOperationSync,
   createUserSync,
   getDatabase,
   listMcpOperationsSync,
@@ -14,11 +17,18 @@ import {
   readMcpCatalogItemBySlugSync,
   readMcpTaskAuditAuthorizationSync,
   readMcpConnectionSync,
+  readRuntimeAppCatalogItemSync,
   recordMcpToolAuditSync,
   registerDaemonRuntimesSync,
   startMcpOperationSync,
+  startRuntimeAppOperationSync,
 } from "@dofe-agent/db";
+import { buildRuntimeAppInstallPlan } from "../clihub/install-plan.ts";
 import { createMcpCatalogItemSync } from "./catalog.ts";
+import {
+  CHROME_DEVTOOLS_MCP_PACKAGE_SPEC,
+  syncOfficialMcpCatalogForWorkspaceSync,
+} from "./official-catalog.ts";
 import {
   claimMcpTaskSessionSync,
   completeMcpConnectionOperationWithHealthScheduleSync,
@@ -64,6 +74,9 @@ beforeEach(() => {
   db.exec("DELETE FROM runtime_mcp_secret");
   db.exec("DELETE FROM runtime_mcp_connection");
   db.exec("DELETE FROM mcp_catalog_item");
+  db.exec("DELETE FROM runtime_app_operation");
+  db.exec("DELETE FROM runtime_installed_app");
+  db.exec("DELETE FROM runtime_app_catalog_item");
   db.exec("DELETE FROM agent_runtime");
   db.exec("DELETE FROM daemon_connection");
   db.exec("DELETE FROM users");
@@ -170,6 +183,63 @@ test("managed stdio catalog connects an installed Runtime entrypoint without an 
     approvedTools: ["search"],
     confirmHighRisk: true,
   }), /mcp\.policy_denied/);
+});
+
+test("official Chrome DevTools MCP requires the pinned Runtime app and resolves a trusted launch profile", () => {
+  const runtimeId = createRuntime();
+  const catalog = syncOfficialMcpCatalogForWorkspaceSync("default");
+  const declaredTools = JSON.parse(catalog.declaredToolsJson) as Array<{ name: string }>;
+  assert.equal(declaredTools.length, 29);
+  assert.equal(declaredTools.some((tool) => tool.name === "lighthouse_audit"), true);
+  assert.equal(declaredTools.some((tool) => tool.name === "upload_file"), true);
+  const runtimeApp = readRuntimeAppCatalogItemSync("clihub_public", "chrome-devtools-mcp");
+  assert.ok(runtimeApp);
+  const plan = buildRuntimeAppInstallPlan({ item: runtimeApp, operation: "install", cliHubAvailable: false });
+  assert.deepEqual(plan.commands, [{ executable: "npm", args: ["install", "--global", CHROME_DEVTOOLS_MCP_PACKAGE_SPEC] }]);
+  assert.throws(() => requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalog.id,
+    endpoint: catalog.endpointTemplate!,
+    approvedTools: ["list_pages"],
+    confirmHighRisk: true,
+  }), /mcp\.runtime_app_required/);
+
+  const installOperation = createRuntimeAppOperationSync({
+    workspaceId: "default",
+    runtimeId,
+    appSource: "clihub_public",
+    appName: "chrome-devtools-mcp",
+    operation: "install",
+    commandPlanJson: JSON.stringify(plan),
+  });
+  assert.equal(claimNextRuntimeAppOperationForRuntimeSync({ workspaceId: "default", runtimeId })?.id, installOperation.id);
+  startRuntimeAppOperationSync(installOperation.id, "default");
+  completeRuntimeAppOperationSync({
+    workspaceId: "default",
+    operationId: installOperation.id,
+    installedApp: {
+      displayName: runtimeApp.displayName,
+      version: runtimeApp.version,
+      entryPoint: runtimeApp.entryPoint,
+      installStrategy: "npm",
+    },
+  });
+
+  const requested = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalog.id,
+    endpoint: catalog.endpointTemplate!,
+    approvedTools: ["list_pages"],
+    confirmHighRisk: true,
+  });
+  const claimed = resolveClaimedMcpOperationSync({ workspaceId: "default", operation: requested.operation });
+  assert.deepEqual(claimed?.managedStdioProfile?.args, ["--headless", "--isolated", "--no-usage-statistics", "--no-performance-crux"]);
+  assert.equal(claimed?.managedStdioProfile?.managedArgs?.includes("--executable-path=/usr/bin/chromium"), true);
+  assert.equal(claimed?.managedStdioProfile?.env.CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS, "1");
 });
 
 test("managed stdio catalog rejects untrusted commands and reserved environment names", () => {

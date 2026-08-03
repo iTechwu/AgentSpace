@@ -1306,17 +1306,21 @@ function attachManagedStdioLaunch(
 }
 
 export function buildManagedStdioLaunch(
-  connection: Pick<ResolvedMcpConnection, "endpoint" | "nonSecretParams" | "secrets">,
+  connection: Pick<ResolvedMcpConnection, "endpoint" | "nonSecretParams" | "secrets" | "managedStdioProfile">,
   config: Pick<RemoteDaemonConfig, "stateDir" | "managedNode">,
   runtime: Pick<RemoteRuntimeRecord, "id" | "provider">,
 ): McpManagedStdioLaunch {
   const entryPoint = parseManagedStdioEndpoint(connection.endpoint);
   const runtimeHomeDir = ensureManagedRuntimeHomeDir(config.stateDir, runtime.id);
-  const env = resolveManagedStdioEnvironment(connection.nonSecretParams, connection.secrets);
+  const env = {
+    ...resolveManagedStdioEnvironment(connection.nonSecretParams, connection.secrets),
+    ...resolveManagedStdioEnvironment(connection.managedStdioProfile?.env ?? {}, {}),
+  };
+  const profileArgs = connection.managedStdioProfile?.args ?? [];
   if (!config.managedNode) {
     return {
       command: join(runtimeHomeDir, ".local", "bin", entryPoint),
-      args: [],
+      args: [...profileArgs],
       env: {
         ...env,
         HOME: runtimeHomeDir,
@@ -1329,7 +1333,7 @@ export function buildManagedStdioLaunch(
     command: "docker",
     args: [
       "run", "--rm", "--interactive", "--init", "--pull", "never", "--read-only", "--network", "none",
-      "--tmpfs", "/tmp:rw,nosuid,nodev,noexec",
+      "--tmpfs", "/tmp:rw,nosuid,nodev,noexec", "--tmpfs", "/dev/shm:rw,nosuid,nodev,noexec,size=256m",
       "--security-opt", "no-new-privileges", "--cap-drop", "ALL",
       "--user", `${process.getuid?.() ?? 10001}:${process.getgid?.() ?? 10001}`,
       "--mount", `type=bind,src=${runtimeHomeDir},dst=/dofe-home`,
@@ -1337,6 +1341,8 @@ export function buildManagedStdioLaunch(
       "--env", "HOME=/dofe-home", "--env", `PATH=${containerPath}`,
       "--entrypoint", `/dofe-home/.local/bin/${entryPoint}`,
       `dofe/agent-runtime-${runtime.provider}:${process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest"}`,
+      ...profileArgs,
+      ...(connection.managedStdioProfile?.managedArgs ?? []),
     ],
     env: { PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin" },
   };

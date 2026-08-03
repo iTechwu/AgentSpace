@@ -223,6 +223,45 @@ describe("MarketPageClient", () => {
     }));
   });
 
+  it("installs the pinned Chrome DevTools runtime component from the MCP page before connecting", async () => {
+    const user = userEvent.setup();
+    const chromeCatalog: MarketPageData["mcpCatalog"][number] = {
+      ...data.mcpCatalog[0]!,
+      id: "mcp-chrome-devtools",
+      source: "official",
+      slug: "official-chrome-devtools",
+      displayName: "Chrome DevTools MCP",
+      version: "1.6.0",
+      category: "developer_tools",
+      transport: "managed_stdio",
+      risk: "high",
+      endpointTemplate: "stdio://chrome-devtools-mcp",
+      allowedHosts: [],
+      secretFields: [],
+      configurationFields: [],
+      requiredRuntimeApp: { source: "clihub_public", name: "chrome-devtools-mcp", version: "1.6.0" },
+    };
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{ ...data, mcpCatalog: [chromeCatalog] }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "MCP 市场" }));
+    expect(screen.getByText("chrome-devtools-mcp@1.6.0")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "配置并连接" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "安装 Runtime 组件" }));
+
+    await waitFor(() => expect(actionMocks.requestOperation).toHaveBeenCalledWith({
+      runtimeId: "runtime-online",
+      source: "clihub_public",
+      name: "chrome-devtools-mcp",
+      operation: "install",
+    }));
+  });
+
   it("only shows online runtimes in the target runtime selector", () => {
     render(
       <LanguageProvider>

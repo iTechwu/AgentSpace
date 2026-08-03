@@ -57,6 +57,9 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
   if (!/^[a-z0-9][a-z0-9\-]{0,62}$/.test(slug)) {
     throw new Error("mcp_catalog.invalid_slug");
   }
+  if (slug.startsWith("official-")) {
+    throw new Error("mcp_catalog.reserved_slug");
+  }
   const version = input.version?.trim() || "1.0.0";
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
     throw new Error("mcp_catalog.invalid_version");
@@ -236,6 +239,9 @@ export function deleteMcpCatalogItemForWorkspaceSync(input: {
   const existing = readMcpCatalogItemSync(input.catalogItemId, input.workspaceId);
   if (!existing) {
     throw new Error("mcp_catalog.not_found");
+  }
+  if (existing.source !== "workspace_private") {
+    throw new Error("mcp_catalog.system_release_read_only");
   }
   const connections = listMcpConnectionsSync({ workspaceId: input.workspaceId, limit: 500 });
   if (connections.some((c) => c.catalogItemId === input.catalogItemId)) {

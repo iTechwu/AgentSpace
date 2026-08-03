@@ -65,6 +65,7 @@ function resolveConnection(operation: ClaimedMcpConnectionOperation): ResolvedMc
     nonSecretParams: operation.nonSecretParams,
     egressProxyLease: operation.egressProxyLease,
     egressProxyPolicySnapshot: operation.egressProxyPolicySnapshot,
+    managedStdioProfile: operation.managedStdioProfile,
   };
 }
 
