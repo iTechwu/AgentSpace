@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "100";
+export const POSTGRES_SCHEMA_VERSION = "102";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -343,7 +343,7 @@ export function getPostgresSchemaStatements(): string[] {
         IF EXISTS (
           SELECT 1
           FROM information_schema.columns
-          WHERE table_schema = 'public'
+          WHERE table_schema = current_schema()
             AND table_name = 'external_message_mapping'
             AND column_name = 'agent_space_message_id'
         ) THEN
@@ -388,7 +388,7 @@ export function getPostgresSchemaStatements(): string[] {
         IF EXISTS (
           SELECT 1
           FROM information_schema.columns
-          WHERE table_schema = 'public'
+          WHERE table_schema = current_schema()
             AND table_name = 'external_message_outbox'
             AND column_name = 'agent_space_message_id'
         ) THEN
@@ -1092,8 +1092,6 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE TABLE IF NOT EXISTS agent_skill (
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         agent_id TEXT NOT NULL,
-        employee_id TEXT,
-        employee_name TEXT,
         employee_id TEXT NOT NULL REFERENCES workspace_employee(id) ON DELETE CASCADE,
         employee_name TEXT NOT NULL,
         skill_id TEXT NOT NULL REFERENCES skill(id) ON DELETE CASCADE,
@@ -1259,7 +1257,7 @@ export function getPostgresSchemaStatements(): string[] {
         IF EXISTS (
           SELECT 1
           FROM information_schema.columns
-          WHERE table_schema = 'public'
+          WHERE table_schema = current_schema()
             AND table_name = 'external_thread_binding'
             AND column_name = 'agent_space_message_id'
         ) THEN

@@ -37,12 +37,20 @@ test("postgres schema includes the expected core and derived tables", () => {
   assert.match(statements, /ALTER TABLE external_message_mapping\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
   assert.match(statements, /ALTER TABLE external_message_outbox\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
   assert.match(statements, /ALTER TABLE external_thread_binding\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
+  assert.equal((statements.match(/table_schema = current_schema\(\)/g) ?? []).length, 3);
+  assert.doesNotMatch(statements, /table_schema = 'public'/);
+  const agentSkillTable = getPostgresSchemaStatements().find((statement) =>
+    statement.startsWith("CREATE TABLE IF NOT EXISTS agent_skill ("),
+  );
+  assert.ok(agentSkillTable);
+  assert.equal((agentSkillTable.match(/\bemployee_id TEXT\b/g) ?? []).length, 1);
+  assert.equal((agentSkillTable.match(/\bemployee_name TEXT\b/g) ?? []).length, 1);
 });
 
 test("postgres schema enforces SSO-only identities", () => {
   const statements = getPostgresSchemaStatements().join("\n");
 
-  assert.equal(POSTGRES_SCHEMA_VERSION, "92");
+  assert.equal(POSTGRES_SCHEMA_VERSION, "102");
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_token TEXT/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_expires_at TIMESTAMPTZ/);
   assert.match(statements, /runtime_workspace_mount_operation\s+ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ/);

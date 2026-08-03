@@ -692,7 +692,10 @@ export function countRows(db: PostgresSyncDatabase, tableName: string): number {
   return typeof row?.count === "number" ? row.count : 0;
 }
 
-export function readMetadataValue(db: PostgresSyncDatabase, key: string): string | undefined {
+export function readMetadataValue(
+  db: Pick<PostgresSyncDatabase, "prepare">,
+  key: string,
+): string | undefined {
   const row = db.prepare("SELECT value FROM app_metadata WHERE key = ?").get(key) as { value: string } | undefined;
   return row?.value;
 }
@@ -810,11 +813,16 @@ function sleepSync(durationMs: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, durationMs);
 }
 
-function isRuntimeSchemaCurrent(db: PostgresSyncDatabase): boolean {
+export function isRuntimeSchemaCurrentForTests(
+  db: Pick<PostgresSyncDatabase, "prepare">,
+): boolean {
   const table = db.prepare(
-    "SELECT to_regclass('public.app_metadata') AS table_name",
-  ).get() as { tableName?: string } | undefined;
-  if (table?.tableName !== "app_metadata") {
+    `SELECT 1
+     FROM information_schema.tables
+     WHERE table_schema = current_schema()
+       AND table_name = 'app_metadata'`,
+  ).get() as { "1"?: number } | undefined;
+  if (table?.["1"] !== 1) {
     return false;
   }
   if (readMetadataValue(db, "schema_version") !== POSTGRES_SCHEMA_VERSION) {
@@ -825,11 +833,15 @@ function isRuntimeSchemaCurrent(db: PostgresSyncDatabase): boolean {
   const sentinel = db.prepare(
     `SELECT 1
      FROM information_schema.columns
-     WHERE table_schema = 'public'
+     WHERE table_schema = current_schema()
        AND table_name = 'agent_task_queue'
        AND column_name = 'binding_generation'`,
   ).get() as { "1"?: number } | undefined;
   return sentinel?.["1"] === 1;
+}
+
+function isRuntimeSchemaCurrent(db: PostgresSyncDatabase): boolean {
+  return isRuntimeSchemaCurrentForTests(db);
 }
 
 function seedDefaultWorkspace(db: PostgresSyncDatabase): void {

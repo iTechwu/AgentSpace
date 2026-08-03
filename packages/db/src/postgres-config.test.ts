@@ -79,10 +79,23 @@ test("resolvePostgresDatabaseUrl prefers the explicit test database URL", () => 
   assert.equal(url, "postgres://localhost/dofe_agent_test");
 });
 
+test("resolvePostgresDatabaseUrl prefers the runtime test override over compiled test env", () => {
+  const url = resolvePostgresDatabaseUrl({
+    env: {
+      DOFE_AGENT_E2E: "1",
+      DOFE_AGENT_TEST_DATABASE_URL_OVERRIDE: "postgres://localhost/dofe_agent_e2e?options=-c%20search_path%3De2e_123",
+      DOFE_AGENT_TEST_DATABASE_URL: "postgres://localhost/dofe_agent_test",
+    },
+  });
+
+  assert.equal(url, "postgres://localhost/dofe_agent_e2e?options=-c%20search_path%3De2e_123");
+});
+
 test("resolvePostgresDatabaseUrl ignores a test database URL outside test processes", () => {
   const url = resolvePostgresDatabaseUrl({
     env: {
       NODE_ENV: "development",
+      DOFE_AGENT_TEST_DATABASE_URL_OVERRIDE: "postgres://localhost/dofe_agent_e2e",
       DOFE_AGENT_TEST_DATABASE_URL: "postgres://localhost/dofe_agent_test",
       DOFE_AGENT_PG_URL: "postgres://localhost/dofe_agent",
     },

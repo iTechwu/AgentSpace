@@ -9,8 +9,10 @@ export function resolvePostgresDatabaseUrl(input?: PostgresConnectionInput): str
   const rawEnv = input?.env ?? process.env;
   const env = input?.env ? readEffectiveRuntimeEnv({ env: input.env, repositoryOverridesEnv: false }) : readEffectiveRuntimeEnv();
   const testDatabaseUrl = isTestProcess(env)
-    ? rawEnv.DOFE_AGENT_TEST_DATABASE_URL?.trim()
+    ? rawEnv.DOFE_AGENT_TEST_DATABASE_URL_OVERRIDE?.trim()
+      || rawEnv.DOFE_AGENT_TEST_DATABASE_URL?.trim()
       || rawEnv.DOFE_AGENT_PG_TEST_URL?.trim()
+      || env.DOFE_AGENT_TEST_DATABASE_URL_OVERRIDE?.trim()
       || env.DOFE_AGENT_TEST_DATABASE_URL?.trim()
       || env.DOFE_AGENT_PG_TEST_URL?.trim()
     : undefined;
