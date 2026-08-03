@@ -3,10 +3,14 @@
 import { useEffect, useState } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { useAutoRefresh } from "@/shared/lib/use-auto-refresh";
+import type { EmployeeDataLegalHoldRecord, EmployeeDataLegalHoldResourceType } from "@dofe-agent/db";
 import {
   approveEmployeeRecoveryAction,
+  createEmployeeDataLegalHoldAction,
+  listEmployeeDataLegalHoldsAction,
   readWorkspaceAgentDataProtectionAction,
   rejectEmployeeRecoveryAction,
+  releaseEmployeeDataLegalHoldAction,
   retryEmployeeRecoveryAction,
   restoreEmployeeWorkspaceRevisionAction,
   triggerEmployeeBackupRestoreDrillAction,
@@ -42,11 +46,28 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
   const [runningRecovery, setRunningRecovery] = useState(false);
   const [recoveryMessage, setRecoveryMessage] = useState("");
   const [restoringRevisionId, setRestoringRevisionId] = useState("");
+  const [legalHolds, setLegalHolds] = useState<EmployeeDataLegalHoldRecord[]>([]);
+  const [loadingHolds, setLoadingHolds] = useState(false);
+  const [holdMessage, setHoldMessage] = useState("");
+  const [newHoldResourceType, setNewHoldResourceType] = useState<EmployeeDataLegalHoldResourceType>("employee_workspace");
+  const [newHoldResourceId, setNewHoldResourceId] = useState("");
+  const [newHoldReason, setNewHoldReason] = useState("");
+  const [newHoldExpiresAt, setNewHoldExpiresAt] = useState("");
+  const [releasingHoldId, setReleasingHoldId] = useState("");
+  const [releaseReason, setReleaseReason] = useState("");
 
   const loadSummary = () => {
     void readWorkspaceAgentDataProtectionAction(employeeName)
       .then((value) => setSummary(value))
       .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
+  };
+
+  const loadHolds = () => {
+    setLoadingHolds(true);
+    void listEmployeeDataLegalHoldsAction(employeeName)
+      .then((value) => setLegalHolds(value))
+      .catch((cause: unknown) => setHoldMessage(cause instanceof Error ? cause.message : String(cause)))
+      .finally(() => setLoadingHolds(false));
   };
 
   useEffect(() => {
@@ -62,6 +83,7 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
           setError(cause instanceof Error ? cause.message : String(cause));
         }
       });
+    loadHolds();
     return () => {
       cancelled = true;
     };
@@ -161,6 +183,52 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
       setRecoveryMessage(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setRestoringRevisionId("");
+    }
+  };
+
+  const createHold = async () => {
+    setHoldMessage("");
+    try {
+      const result = await createEmployeeDataLegalHoldAction({
+        employeeName,
+        resourceType: newHoldResourceType,
+        resourceId: newHoldResourceId,
+        reason: newHoldReason,
+        expiresAt: newHoldExpiresAt || undefined,
+      });
+      if (result.toast) {
+        setHoldMessage(tx(result.toast.zh, result.toast.en));
+      }
+      setNewHoldResourceId("");
+      setNewHoldReason("");
+      setNewHoldExpiresAt("");
+      loadHolds();
+    } catch (cause: unknown) {
+      setHoldMessage(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const releaseHold = async (legalHoldId: string) => {
+    const reason = window.prompt(
+      tx("输入释放法律保全的原因。", "Enter the reason for releasing this legal hold."),
+    );
+    if (reason === null) return;
+    if (!reason.trim()) {
+      setHoldMessage(tx("释放原因不能为空。", "Release reason is required."));
+      return;
+    }
+    setReleasingHoldId(legalHoldId);
+    setHoldMessage("");
+    try {
+      const result = await releaseEmployeeDataLegalHoldAction({ legalHoldId, releaseReason: reason });
+      if (result.toast) {
+        setHoldMessage(tx(result.toast.zh, result.toast.en));
+      }
+      loadHolds();
+    } catch (cause: unknown) {
+      setHoldMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setReleasingHoldId("");
     }
   };
 
@@ -277,6 +345,12 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
               </ol>
               {activeOp.approvalState === "pending" && (
                 <div className="data-protection-panel__approval">
+                  <p className="data-protection-panel__approval-count">
+                    {tx(
+                      `审批进度：${activeOp.approvalCount ?? 0}/${activeOp.requiredApprovals ?? 1}`,
+                      `Approval progress: ${activeOp.approvalCount ?? 0}/${activeOp.requiredApprovals ?? 1}`,
+                    )}
+                  </p>
                   <button type="button" className="button button--small" onClick={() => decideRecovery(activeOp.id, true)}>
                     {tx("批准", "Approve")}
                   </button>
@@ -289,6 +363,80 @@ export function DataProtectionStatusPanel({ employeeName }: DataProtectionStatus
             </>
           );
         })()}
+      </div>
+
+      <div className="data-protection-panel__section">
+        <h4>{tx("法律保全", "Legal holds")}</h4>
+        {holdMessage && <p className="data-protection-panel__drill-message">{holdMessage}</p>}
+        <div className="data-protection-panel__hold-form">
+          <select
+            className="input input--small"
+            value={newHoldResourceType}
+            onChange={(e) => setNewHoldResourceType(e.target.value as EmployeeDataLegalHoldResourceType)}
+          >
+            <option value="employee_workspace">{tx("工作空间", "Workspace")}</option>
+            <option value="artifact">{tx("产物", "Artifact")}</option>
+            <option value="revision">{tx("版本", "Revision")}</option>
+            <option value="content_blob">{tx("内容 blob", "Content blob")}</option>
+          </select>
+          <input
+            type="text"
+            className="input input--small"
+            placeholder={tx("资源 ID", "Resource ID")}
+            value={newHoldResourceId}
+            onChange={(e) => setNewHoldResourceId(e.target.value)}
+          />
+          <input
+            type="text"
+            className="input input--small"
+            placeholder={tx("原因", "Reason")}
+            value={newHoldReason}
+            onChange={(e) => setNewHoldReason(e.target.value)}
+          />
+          <input
+            type="datetime-local"
+            className="input input--small"
+            value={newHoldExpiresAt}
+            onChange={(e) => setNewHoldExpiresAt(e.target.value)}
+          />
+          <button
+            type="button"
+            className="button button--small"
+            onClick={createHold}
+            disabled={!newHoldResourceId.trim() || !newHoldReason.trim()}
+          >
+            {tx("创建保全", "Create hold")}
+          </button>
+        </div>
+        {loadingHolds ? (
+          <p className="data-protection-panel__empty">{tx("加载中…", "Loading…")}</p>
+        ) : legalHolds.length === 0 ? (
+          <p className="data-protection-panel__empty">{tx("暂无法律保全。", "No legal holds.")}</p>
+        ) : (
+          <ul className="data-protection-panel__op-list">
+            {legalHolds.map((hold) => (
+              <li key={hold.id} className={`data-protection-panel__op ${hold.releasedAt ? "data-protection-panel__op--released" : ""}`}>
+                <span>{hold.resourceType}</span>
+                <span title={hold.resourceId}>{hold.resourceId.slice(-12)}</span>
+                <span>{hold.reason}</span>
+                <small>{new Date(hold.createdAt).toLocaleString()}</small>
+                {hold.expiresAt && <small>{tx("到期", "Expires")}: {new Date(hold.expiresAt).toLocaleString()}</small>}
+                {hold.releasedAt ? (
+                  <small>{tx("已释放", "Released")}</small>
+                ) : (
+                  <button
+                    type="button"
+                    className="button button--small button--danger"
+                    onClick={() => releaseHold(hold.id)}
+                    disabled={releasingHoldId === hold.id}
+                  >
+                    {releasingHoldId === hold.id ? tx("释放中…", "Releasing…") : tx("释放", "Release")}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="data-protection-panel__section">

@@ -8,6 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { McpDiscoveredTool, McpErrorCode, McpVerificationResult, ResolvedMcpConnection, RuntimeMcpClient } from "@dofe-agent/domain";
 import { redactMcpText, redactToolInputSchema, validateMcpEndpoint, validateMcpResolvedAddresses } from "@dofe-agent/services";
+import { buildMcpEgressProxyRequestHeaders, createMcpEgressProxyClient } from "./egress-client.ts";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 1_048_576;
@@ -86,10 +87,29 @@ async function callTool(input: {
 }
 
 async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Client) => Promise<T>): Promise<T> {
-  const url = new URL(connection.endpoint);
-  const transport = new StreamableHTTPClientTransport(url, {
+  const endpointUrl = new URL(connection.endpoint);
+  const useProxy = Boolean(connection.egressProxyLease && connection.egressProxyPolicySnapshot);
+
+  let transportUrl: URL;
+  let customFetch: (input: string | URL, init?: RequestInit) => Promise<Response>;
+
+  if (useProxy) {
+    const proxyClient = createMcpEgressProxyClient({
+      proxyBaseUrl: process.env.MCP_EGRESS_PROXY_URL ?? "http://mcp-egress-proxy:8080",
+      leaseToken: connection.egressProxyLease!,
+      policySnapshot: connection.egressProxyPolicySnapshot!,
+      adminToken: process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN,
+    });
+    transportUrl = new URL(`${endpointUrl.pathname}${endpointUrl.search}`, proxyClient.baseUrl);
+    customFetch = (input, init) => proxyFetch(proxyClient, input, init);
+  } else {
+    transportUrl = endpointUrl;
+    customFetch = (input, init) => timeoutFetch(input, init);
+  }
+
+  const transport = new StreamableHTTPClientTransport(transportUrl, {
     requestInit: { headers: buildHeaders(connection) },
-    fetch: (input, init) => timeoutFetch(input, init),
+    fetch: (input, init) => customFetch(input, init),
   });
   const client = new Client({ name: CLIENT_NAME, version: CLIENT_VERSION }, { capabilities: {} });
   try {
@@ -100,6 +120,19 @@ async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Cli
       /* best-effort teardown */
     });
   }
+}
+
+async function proxyFetch(
+  proxyClient: ReturnType<typeof createMcpEgressProxyClient>,
+  input: string | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  await proxyClient.ensurePolicyPushed();
+  const headers = new Headers(init?.headers);
+  for (const [name, value] of Object.entries(buildMcpEgressProxyRequestHeaders(proxyClient))) {
+    headers.set(name, value);
+  }
+  return timeoutFetch(input, { ...init, headers, redirect: "error" }, { fetchImpl: globalThis.fetch });
 }
 
 function buildHeaders(connection: ResolvedMcpConnection): Record<string, string> {
@@ -125,13 +158,18 @@ function headersToObject(headers: Headers): Record<string, string> {
   return result;
 }
 
-async function timeoutFetch(input: string | URL, init?: RequestInit): Promise<Response> {
+async function timeoutFetch(
+  input: string | URL,
+  init?: RequestInit,
+  options?: { fetchImpl?: (input: string | URL, init?: RequestInit) => Promise<Response> },
+): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const forwardAbort = () => controller.abort();
   init?.signal?.addEventListener("abort", forwardAbort, { once: true });
   try {
-    const response = await pinnedHttpsFetch(input, { ...init, redirect: "error", signal: controller.signal });
+    const fetchImpl = options?.fetchImpl ?? pinnedHttpsFetch;
+    const response = await fetchImpl(input, { ...init, redirect: "error", signal: controller.signal });
     return limitResponseBody(response);
   } finally {
     clearTimeout(timer);

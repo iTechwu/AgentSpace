@@ -108,6 +108,7 @@ export async function POST(
     requestedByUserId: auth.token?.createdBy,
     actorUserId: auth.token?.createdBy,
     requireApproval: action === "rebuild",
+    requiredApprovals: action === "rebuild" ? 2 : 1,
     targetRuntimeId: action === "rebind" ? targetRuntimeId : undefined,
   });
 

@@ -318,13 +318,18 @@ export {
   validateMcpResolvedAddresses,
 } from "./mcp-center/security.ts";
 export {
+  buildMcpEgressPolicyRevision,
   canonicalizeMcpEgressPolicyRevision,
   digestMcpEgressPolicyRevision,
   hashMcpEgressAuditValue,
   isMcpEgressLeaseExpired,
+  readMcpEgressLeaseSigningSecret,
   signMcpEgressLease,
+  signMcpEgressLeaseForOperation,
+  signMcpEgressLeaseForTaskCall,
   verifyMcpEgressLease,
   type McpEgressLeaseVerificationFailure,
+  type McpEgressPolicyInput,
   type VerifiedMcpEgressLease,
 } from "./mcp-center/egress.ts";
 

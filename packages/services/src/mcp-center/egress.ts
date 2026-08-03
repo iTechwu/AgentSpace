@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision } from "@dofe-agent/domain";
+import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision, McpEgressPurpose } from "@dofe-agent/domain";
 
 const LEASE_VERSION = "deg1";
 const LEASE_MAX_TTL_SECONDS = {
@@ -181,8 +181,8 @@ export function verifyMcpEgressLease(
     return { ok: false, code: "mcp_egress.lease_invalid", message: "Lease purpose is invalid." };
   }
   if (parsed.purpose === "task_call") {
-    if (typeof parsed.taskId !== "string" || !parsed.taskId.trim() || typeof parsed.toolName !== "string" || !parsed.toolName.trim()) {
-      return { ok: false, code: "mcp_egress.lease_invalid", message: "Task-call lease must bind a task and tool." };
+    if (typeof parsed.taskId !== "string" || !parsed.taskId.trim()) {
+      return { ok: false, code: "mcp_egress.lease_invalid", message: "Task-call lease must bind a task." };
     }
   }
   if (!Number.isSafeInteger(parsed.exp) || parsed.exp! <= 0) {
@@ -209,4 +209,133 @@ export function isMcpEgressLeaseExpired(claims: McpEgressLeaseClaims, nowSeconds
 /** One-way hash of an audit-sensitive value (host, JTI, etc). */
 export function hashMcpEgressAuditValue(value: string): string {
   return createHmac("sha256", "mcp-egress-audit").update(value).digest("base64url");
+}
+
+const DEFAULT_POLICY_MAX_REQUEST_BYTES = 1_048_576;
+const DEFAULT_POLICY_MAX_RESPONSE_BYTES = 1_048_576;
+const DEFAULT_POLICY_MAX_CONCURRENT_STREAMS = 8;
+
+/** Reads the control-plane lease signing secret from the environment. */
+export function readMcpEgressLeaseSigningSecret(): string | undefined {
+  return process.env.MCP_EGRESS_PROXY_LEASE_SIGNING_SECRET?.trim();
+}
+
+function readSigningSecretOrThrow(): string {
+  const secret = readMcpEgressLeaseSigningSecret();
+  if (!secret) {
+    throw new Error("MCP_EGRESS_PROXY_LEASE_SIGNING_SECRET is required to sign egress leases.");
+  }
+  return secret;
+}
+
+export interface McpEgressPolicyInput {
+  workspaceId: string;
+  connectionId: string;
+  releaseId: string;
+  endpoint: string;
+  allowedHosts: string[];
+  approvedTools: string[];
+  authMode?: "none" | "static_header" | "oauth_proxy";
+  maxRequestBytes?: number;
+  maxResponseBytes?: number;
+  maxConcurrentStreams?: number;
+}
+
+/**
+ * Builds an immutable policy revision for a connection. The revision id is
+ * deterministic so the proxy can re-derive it from the same inputs.
+ */
+export function buildMcpEgressPolicyRevision(input: McpEgressPolicyInput): McpEgressPolicyRevision {
+  const allowedPathPrefix = new URL(input.endpoint).pathname || "/";
+  const base: McpEgressPolicyRevision = {
+    id: derivePolicyRevisionId(input),
+    workspaceId: input.workspaceId,
+    connectionId: input.connectionId,
+    releaseId: input.releaseId,
+    manifestDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    upstream: {
+      origin: normalizeOrigin(input.endpoint),
+      allowedHosts: [...input.allowedHosts],
+      allowedPorts: [443],
+      allowedPathPrefix,
+    },
+    transport: "streamable_http",
+    redirectPolicy: "deny",
+    denyPrivateNetworks: true,
+    tlsMode: "verify_system",
+    authMode: input.authMode ?? "none",
+    maxRequestBytes: input.maxRequestBytes ?? DEFAULT_POLICY_MAX_REQUEST_BYTES,
+    maxResponseBytes: input.maxResponseBytes ?? DEFAULT_POLICY_MAX_RESPONSE_BYTES,
+    maxConcurrentStreams: input.maxConcurrentStreams ?? DEFAULT_POLICY_MAX_CONCURRENT_STREAMS,
+    createdAt: new Date().toISOString(),
+  };
+  return { ...base, manifestDigest: digestMcpEgressPolicyRevision(base) };
+}
+
+function normalizeOrigin(endpoint: string): string {
+  const url = new URL(endpoint);
+  return `${url.protocol}//${url.host}`;
+}
+
+function derivePolicyRevisionId(input: McpEgressPolicyInput): string {
+  const hash = createHash("sha256")
+    .update(input.workspaceId)
+    .update("|")
+    .update(input.connectionId)
+    .update("|")
+    .update(input.releaseId)
+    .update("|")
+    .update(normalizeOrigin(input.endpoint))
+    .update("|")
+    .update([...input.allowedHosts].sort().join(","))
+    .update("|")
+    .update([...input.approvedTools].sort().join(","))
+    .digest("hex");
+  return `pol-${hash.slice(0, 32)}`;
+}
+
+function createLeaseClaims(
+  policy: McpEgressPolicyRevision,
+  purpose: McpEgressPurpose,
+  runtimeId: string,
+  overrides: { taskId?: string; toolName?: string; operationId?: string },
+): McpEgressLeaseClaims {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    iss: "agentspace-control-plane",
+    aud: "mcp-egress-proxy",
+    jti: `${policy.connectionId}:${purpose}:${now}:${cryptoRandomHex(8)}`,
+    workspaceId: policy.workspaceId,
+    runtimeId,
+    connectionId: policy.connectionId,
+    releaseId: policy.releaseId,
+    policyRevisionId: policy.id,
+    purpose,
+    taskId: overrides.taskId,
+    operationId: overrides.operationId,
+    toolName: overrides.toolName,
+    exp: now + LEASE_MAX_TTL_SECONDS[purpose],
+  };
+}
+
+function cryptoRandomHex(bytes: number): string {
+  return createHash("sha256").update(`${Date.now()}-${Math.random()}`).digest("hex").slice(0, bytes * 2);
+}
+
+/** Signs a lease for an MCP connection verify/health_check operation. */
+export function signMcpEgressLeaseForOperation(
+  input: McpEgressPolicyInput & { runtimeId: string; operationId: string; purpose: "verify" | "health_check" },
+): string {
+  const policy = buildMcpEgressPolicyRevision(input);
+  const claims = createLeaseClaims(policy, input.purpose, input.runtimeId, { operationId: input.operationId });
+  return signMcpEgressLease(claims, readSigningSecretOrThrow());
+}
+
+/** Signs a lease for a task-scoped MCP tool call. */
+export function signMcpEgressLeaseForTaskCall(
+  input: McpEgressPolicyInput & { runtimeId: string; taskId: string; toolName: string },
+): string {
+  const policy = buildMcpEgressPolicyRevision(input);
+  const claims = createLeaseClaims(policy, "task_call", input.runtimeId, { taskId: input.taskId, toolName: input.toolName });
+  return signMcpEgressLease(claims, readSigningSecretOrThrow());
 }

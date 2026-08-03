@@ -76,6 +76,7 @@ test("healthz returns ok without lease", async () => {
     port: 0,
     host: "127.0.0.1",
     leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
     auditSink: { record: (r) => { auditRecords.push(r); } },
   });
   const { url, close } = await server.start();
@@ -95,6 +96,7 @@ test("request without lease returns 401", async () => {
     port: 0,
     host: "127.0.0.1",
     leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
     auditSink: { record: () => undefined },
   });
   const { url, close } = await server.start();
@@ -112,6 +114,7 @@ test("request with invalid lease returns 403", async () => {
     port: 0,
     host: "127.0.0.1",
     leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
     auditSink: { record: () => undefined },
   });
   const { url, close } = await server.start();
@@ -131,6 +134,7 @@ test("request with valid lease but unknown policy returns policy_mismatch", asyn
     port: 0,
     host: "127.0.0.1",
     leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
     auditSink: { record: () => undefined },
   });
   const { url, close } = await server.start();
@@ -155,6 +159,7 @@ test("request with valid lease and policy but disallowed path returns policy_den
     port: 0,
     host: "127.0.0.1",
     leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
     auditSink: { record: () => undefined },
   });
   const { url, close } = await server.start();
@@ -181,6 +186,7 @@ test("forwards only MCP protocol headers and counts successful response bytes", 
     port: 0,
     host: "127.0.0.1",
     leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
     auditSink: { record: (record) => { auditRecords.push(record); } },
     forwardToUpstream: async (_policy, _claims, _request, headers) => {
       forwardedHeaders = headers;
@@ -233,6 +239,7 @@ test("enforces the policy concurrent stream limit", async () => {
     port: 0,
     host: "127.0.0.1",
     leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
     auditSink: { record: () => undefined },
     forwardToUpstream: async () => {
       markEntered?.();
@@ -266,6 +273,7 @@ test("rejects a request body over the policy limit before forwarding", async () 
     port: 0,
     host: "127.0.0.1",
     leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
     auditSink: { record: () => undefined },
     forwardToUpstream: async () => {
       forwarded = true;
@@ -294,6 +302,7 @@ test("rejects a declared oversized upstream response before writing headers", as
     port: 0,
     host: "127.0.0.1",
     leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
     auditSink: { record: () => undefined },
     forwardToUpstream: async () => ({
       ok: true,

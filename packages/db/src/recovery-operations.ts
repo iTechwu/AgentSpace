@@ -16,6 +16,8 @@ export interface CreateRecoveryOperationInput {
   contextJson?: string;
   actorUserId?: string;
   approvalState?: "pending" | "not_required";
+  /** Number of admin approvals required before the worker can proceed. Default 1. */
+  requiredApprovals?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -29,7 +31,9 @@ const RECOVERY_COLUMNS = `SELECT
   error_code AS errorCode, error_message AS errorMessage, context_json AS contextJson,
   provisioning_task_id AS provisioningTaskId, mount_operation_id AS mountOperationId,
   health_checked_at AS healthCheckedAt, approval_state AS approvalState,
-  approved_by_user_id AS approvedByUserId, approved_at AS approvedAt, actor_user_id AS actorUserId,
+  approved_by_user_id AS approvedByUserId, approved_at AS approvedAt,
+  required_approvals AS requiredApprovals, approval_count AS approvalCount, approvers_json AS approversJson,
+  actor_user_id AS actorUserId,
   created_at AS createdAt, updated_at AS updatedAt`;
 
 /* ------------------------------------------------------------------ */
@@ -52,12 +56,13 @@ export function createRecoveryOperationSync(input: CreateRecoveryOperationInput)
   }
   const id = `recover-${randomLikeId()}`;
   const now = new Date().toISOString();
+  const requiredApprovals = Math.max(1, Math.min(input.requiredApprovals ?? 1, 5));
   db.prepare(
     `INSERT INTO employee_recovery_operation (
       id, workspace_id, employee_id, employee_name, from_generation, to_generation, phase,
       target_revision_id, requested_by_user_id, error_code, error_message, context_json,
-      approval_state, actor_user_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 'allocate', ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`,
+      approval_state, required_approvals, approval_count, approvers_json, actor_user_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'allocate', ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     workspaceId,
@@ -69,6 +74,9 @@ export function createRecoveryOperationSync(input: CreateRecoveryOperationInput)
     input.requestedByUserId?.trim() || null,
     input.contextJson ?? "{}",
     input.approvalState ?? "not_required",
+    requiredApprovals,
+    0,
+    "[]",
     input.actorUserId?.trim() || null,
     now,
     now,
@@ -424,13 +432,41 @@ export function approveRecoveryOperationSync(input: {
 }): EmployeeRecoveryOperationRecord {
   const db = getDatabase();
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
-  const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE employee_recovery_operation
-       SET approval_state = 'approved', approved_by_user_id = ?, approved_at = ?, updated_at = ?
-     WHERE id = ? AND workspace_id = ? AND approval_state = 'pending'`,
-  ).run(input.approvedByUserId, now, now, input.operationId, workspaceId);
-  return readRecoveryOperationSync(input.operationId, workspaceId)!;
+  return withTransaction(db, () => {
+    const operation = readRecoveryOperationSync(input.operationId, workspaceId);
+    if (!operation) {
+      throw new Error(`Recovery operation "${input.operationId}" does not exist.`);
+    }
+    if (operation.approvalState !== "pending") {
+      throw new Error(`Recovery operation "${input.operationId}" is not pending approval.`);
+    }
+    const approvers = operation.approvers ?? [];
+    if (approvers.some((a) => a.userId === input.approvedByUserId)) {
+      throw new Error("You have already approved this recovery operation.");
+    }
+    const requiredApprovals = operation.requiredApprovals ?? 1;
+    const nextCount = (operation.approvalCount ?? 0) + 1;
+    const nextApprovers = [...approvers, { userId: input.approvedByUserId, approvedAt: new Date().toISOString() }];
+    const now = new Date().toISOString();
+    const isFullyApproved = nextCount >= requiredApprovals;
+    db.prepare(
+      `UPDATE employee_recovery_operation
+         SET approval_count = ?, approvers_json = ?,
+             approval_state = CASE WHEN ? THEN 'approved' ELSE 'pending' END,
+             approved_by_user_id = ?, approved_at = ?, updated_at = ?
+       WHERE id = ? AND workspace_id = ? AND approval_state = 'pending'`,
+    ).run(
+      nextCount,
+      JSON.stringify(nextApprovers),
+      isFullyApproved ? 1 : 0,
+      input.approvedByUserId,
+      now,
+      now,
+      input.operationId,
+      workspaceId,
+    );
+    return readRecoveryOperationSync(input.operationId, workspaceId)!;
+  });
 }
 
 export function rejectRecoveryOperationSync(input: {
@@ -499,6 +535,9 @@ function mapRecoveryRecord(value: Record<string, unknown>): EmployeeRecoveryOper
     approvalState: readOptionalApprovalState(value.approvalState),
     approvedByUserId: readOptionalString(value.approvedByUserId),
     approvedAt: readOptionalString(value.approvedAt),
+    requiredApprovals: typeof value.requiredApprovals === "number" ? value.requiredApprovals : undefined,
+    approvalCount: typeof value.approvalCount === "number" ? value.approvalCount : undefined,
+    approvers: readApproversJson(value.approversJson),
     actorUserId: readOptionalString(value.actorUserId),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
@@ -509,6 +548,18 @@ function readOptionalApprovalState(value: unknown): EmployeeRecoveryOperationRec
   return value === "pending" || value === "approved" || value === "rejected" || value === "not_required"
     ? value
     : undefined;
+}
+
+function readApproversJson(value: unknown): Array<{ userId: string; approvedAt: string }> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((item): item is { userId: string; approvedAt: string } => {
+    return (
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as Record<string, unknown>).userId === "string" &&
+      typeof (item as Record<string, unknown>).approvedAt === "string"
+    );
+  });
 }
 
 function readOptionalString(value: unknown): string | undefined {

@@ -62,6 +62,8 @@ function resolveConnection(operation: ClaimedMcpConnectionOperation): ResolvedMc
     approvedTools: operation.approvedTools,
     secrets: operation.secrets,
     nonSecretParams: operation.nonSecretParams,
+    egressProxyLease: operation.egressProxyLease,
+    egressProxyPolicySnapshot: operation.egressProxyPolicySnapshot,
   };
 }
 

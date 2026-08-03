@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "92";
+export const POSTGRES_SCHEMA_VERSION = "93";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -3644,6 +3644,18 @@ export function getPostgresSchemaStatements(): string[] {
       CREATE TRIGGER trg_workspace_employee_sync_display_name
       AFTER UPDATE OF name ON workspace_employee
       FOR EACH ROW EXECUTE FUNCTION sync_employee_display_name()
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS required_approvals INTEGER NOT NULL DEFAULT 1
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS approval_count INTEGER NOT NULL DEFAULT 0
+    `,
+    `
+      ALTER TABLE employee_recovery_operation
+        ADD COLUMN IF NOT EXISTS approvers_json JSONB NOT NULL DEFAULT '[]'::jsonb
     `,
     `
       INSERT INTO app_metadata (key, value)

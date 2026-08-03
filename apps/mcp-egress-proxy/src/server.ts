@@ -1,21 +1,26 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
-import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision } from "@dofe-agent/domain";
+import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-agent/domain";
 import { buildRejectedAuditRecord, buildUpstreamAuditRecord, type McpEgressAuditSink } from "./audit.ts";
 import { verifyLeaseForRequest, type LeaseVerifierDependencies } from "./lease-verifier.ts";
 import { OAuthInjector } from "./oauth-injector.ts";
+import { McpEgressPolicyCache } from "./policy-cache.ts";
 import { forwardToUpstream, type UpstreamRequest } from "./upstream-transport.ts";
 
 const LEASE_HEADER_PREFIX = "DofeEgressLease ";
+const ADMIN_AUTH_HEADER = "x-dofe-admin-token";
 
 export interface McpEgressProxyOptions {
   port: number;
   host?: string;
   leaseVerifier: LeaseVerifierDependencies;
+  policyCache: McpEgressPolicyCache;
   auditSink: McpEgressAuditSink;
   oauthInjector?: OAuthInjector;
   forwardToUpstream?: typeof forwardToUpstream;
+  /** Required to accept POST /v1/admin/policies pushes. */
+  adminToken?: string;
 }
 
 const FORWARDED_REQUEST_HEADERS = new Set([
@@ -79,6 +84,11 @@ export class McpEgressProxyServer {
       return;
     }
 
+    if (method === "POST" && requestPath === "/v1/admin/policies") {
+      await this.handlePolicyPush(req, res);
+      return;
+    }
+
     const leaseToken = extractLeaseToken(req);
 
     const verification = await verifyLeaseForRequest(leaseToken, this.options.leaseVerifier);
@@ -101,6 +111,37 @@ export class McpEgressProxyServer {
     } finally {
       this.releaseStream(policy.id);
     }
+  }
+
+  private async handlePolicyPush(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const adminToken = this.options.adminToken;
+    if (!adminToken) {
+      sendJson(res, 404, { error: "mcp_egress.not_found", message: "Admin policy push is not configured." });
+      return;
+    }
+    const supplied = req.headers[ADMIN_AUTH_HEADER];
+    const value = Array.isArray(supplied) ? supplied[0] : supplied;
+    if (value !== adminToken) {
+      sendJson(res, 401, { error: "mcp_egress.lease_invalid", message: "Invalid admin token." });
+      return;
+    }
+    const bodyResult = await readRequestBody(req, 256 * 1024);
+    if (!bodyResult.ok) {
+      sendJson(res, leaseErrorStatus(bodyResult.code), { error: bodyResult.code, message: bodyResult.message });
+      return;
+    }
+    let snapshot: McpEgressPolicySnapshot;
+    try {
+      snapshot = JSON.parse(bodyResult.body.toString("utf8")) as McpEgressPolicySnapshot;
+      if (!snapshot.revision?.id || !snapshot.revision?.upstream?.origin) {
+        throw new Error("Invalid policy snapshot.");
+      }
+    } catch {
+      sendJson(res, 400, { error: "mcp_egress.policy_mismatch", message: "Policy snapshot is invalid." });
+      return;
+    }
+    this.options.policyCache.set(snapshot);
+    sendJson(res, 200, { accepted: snapshot.revision.id });
   }
 
   private async forwardVerifiedRequest(

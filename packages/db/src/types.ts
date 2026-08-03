@@ -1793,6 +1793,12 @@ export interface EmployeeRecoveryOperationRecord {
   approvalState?: "not_required" | "pending" | "approved" | "rejected";
   approvedByUserId?: string;
   approvedAt?: string;
+  /** Number of admin approvals required before the recovery worker may proceed. */
+  requiredApprovals?: number;
+  /** Current count of recorded approvals. */
+  approvalCount?: number;
+  /** Ordered list of {userId, approvedAt} approvals recorded so far. */
+  approvers?: Array<{ userId: string; approvedAt: string }>;
   actorUserId?: string;
   createdAt: string;
   updatedAt: string;

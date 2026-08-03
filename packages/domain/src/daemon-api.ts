@@ -604,6 +604,10 @@ export interface ResolvedMcpConnection {
   /** Decrypted header / OAuth / env values keyed by secret field name. Held in-process only. */
   secrets: Record<string, string>;
   nonSecretParams: Record<string, unknown>;
+  /** Signed short-lived egress proxy lease for this connection. */
+  egressProxyLease?: string;
+  /** Policy snapshot the daemon must push to the proxy before use. */
+  egressProxyPolicySnapshot?: McpEgressPolicySnapshot;
 }
 
 /** Protocol-agnostic MCP client used by the verify executor and future protected gateway. */
@@ -634,6 +638,10 @@ export interface ClaimedMcpConnectionOperation {
   /** Plaintext is delivered only in this one-time, authenticated daemon claim response. */
   secrets: Record<string, string>;
   nonSecretParams: Record<string, unknown>;
+  /** Signed short-lived egress proxy lease for this operation. */
+  egressProxyLease?: string;
+  /** Policy snapshot the daemon must push to the proxy before use. */
+  egressProxyPolicySnapshot?: McpEgressPolicySnapshot;
   createdAt: string;
 }
 
@@ -683,6 +691,10 @@ export interface McpTaskSessionConnection {
   secrets: Record<string, string>;
   /** Approved ∩ discovered tools with their real input schemas. */
   tools: RuntimeMcpTool[];
+  /** Signed short-lived egress proxy lease for this task session. */
+  egressProxyLease?: string;
+  /** Policy snapshot the daemon must push to the proxy before use. */
+  egressProxyPolicySnapshot?: McpEgressPolicySnapshot;
 }
 
 export interface ClaimMcpTaskSessionResponse {

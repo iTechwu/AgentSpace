@@ -2,6 +2,7 @@
 
 import {
   createDaemonApiTokenSync,
+  createEmployeeDataLegalHoldSync,
   createProviderAccountSync,
   createRuntimeProvisionRequestSync,
   deleteAgentRuntimeSync,
@@ -12,6 +13,7 @@ import {
   readAgentRouterSessionSync,
   readStoredEmployeeSync,
   readEmployeeRuntimeBindingSync,
+  releaseEmployeeDataLegalHoldSync,
   requestAgentRuntimeProviderVerificationSync,
   setAgentRouterSessionModelOverrideSync,
   clearAgentRouterSessionModelOverrideSync,
@@ -20,6 +22,7 @@ import {
   updateWorkspaceRuntimeDisplayNameSync,
   approveRecoveryOperationSync,
   listBackupRestoreDrillRunsSync,
+  listEmployeeDataLegalHoldsSync,
   listRecoveryOperationsSync,
   readActiveRecoveryOperationSync,
   listWorkspaceRevisionsSync,
@@ -27,6 +30,8 @@ import {
   rejectRecoveryOperationSync,
   retryRecoveryOperationSync,
   type BackupRestoreDrillRunRecord,
+  type EmployeeDataLegalHoldRecord,
+  type EmployeeDataLegalHoldResourceType,
   type EmployeeRecoveryOperationRecord,
   type EmployeeWorkspaceRevisionRecord,
 } from "@dofe-agent/db";
@@ -1628,7 +1633,7 @@ export async function triggerEmployeeBackupRestoreDrillAction(
  */
 export async function triggerEmployeeRecoveryAction(
   employeeName: string,
-  options?: { runtimeId?: string; requireApproval?: boolean },
+  options?: { runtimeId?: string; requireApproval?: boolean; action?: "rebuild" | "rebind" },
 ): Promise<ActionToastResult<EmployeeRecoveryOperationRecord>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   const workspaceId = workspaceContext.currentWorkspace.id;
@@ -1645,12 +1650,19 @@ export async function triggerEmployeeRecoveryAction(
     throw new Error(`EMPLOYEE_RECOVERY_ACTIVE: recovery "${activeRecovery.id}" is still active.`);
   }
 
+  const action = options?.action ?? (options?.runtimeId ? "rebind" : "rebuild");
+  if (action === "rebind" && !options?.runtimeId?.trim()) {
+    throw new Error("runtimeId is required when action is rebind.");
+  }
+  const requireApproval = options?.requireApproval ?? action === "rebuild";
+
   const operation = createEmployeeRecoveryOperationSync({
     workspaceId,
     employeeName: normalized,
     actorUserId: workspaceContext.currentUser.id,
-    requireApproval: options?.requireApproval ?? false,
-    targetRuntimeId: options?.runtimeId,
+    requireApproval,
+    requiredApprovals: requireApproval && action === "rebuild" ? 2 : requireApproval ? 1 : undefined,
+    targetRuntimeId: action === "rebind" ? options?.runtimeId : undefined,
   });
 
   tryRecordWorkspaceAuditEventSync({
@@ -1755,6 +1767,106 @@ export async function retryEmployeeRecoveryAction(
     data: { actorType: "session_user", resourceType: "agent", resourceId: operationId, employeeName: normalized },
   });
   return actionToastResult(operation, infoToast("恢复已从失败步骤重试。", "Recovery retried from the failed phase."));
+}
+
+export async function listEmployeeDataLegalHoldsAction(
+  employeeName: string,
+): Promise<EmployeeDataLegalHoldRecord[]> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  const normalized = employeeName.trim();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertCanManageEmployeeForActorSync({
+    workspaceId,
+    employeeName: normalized,
+    actorUserId: workspaceContext.currentUser.id,
+  });
+  const employee = readStoredEmployeeSync(normalized, workspaceId);
+  return listEmployeeDataLegalHoldsSync({
+    workspaceId,
+    employeeId: employee?.id,
+    activeOnly: false,
+    limit: 100,
+  });
+}
+
+export async function createEmployeeDataLegalHoldAction(input: {
+  employeeName: string;
+  resourceType: EmployeeDataLegalHoldResourceType;
+  resourceId: string;
+  reason: string;
+  expiresAt?: string;
+}): Promise<ActionToastResult<EmployeeDataLegalHoldRecord>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  const normalized = input.employeeName.trim();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertCanManageEmployeeForActorSync({
+    workspaceId,
+    employeeName: normalized,
+    actorUserId: workspaceContext.currentUser.id,
+  });
+  const employee = readStoredEmployeeSync(normalized, workspaceId);
+  const hold = createEmployeeDataLegalHoldSync({
+    workspaceId,
+    employeeId: employee?.id,
+    resourceType: input.resourceType,
+    resourceId: input.resourceId.trim(),
+    reason: input.reason.trim(),
+    createdByUserId: workspaceContext.currentUser.id,
+    createdByDisplayName: workspaceContext.currentUser.displayName,
+    expiresAt: input.expiresAt?.trim() || undefined,
+  });
+  recordWorkspaceAuditEventSync({
+    workspaceId,
+    title: "Employee data legal hold created",
+    note: `${workspaceContext.currentUser.displayName} created legal hold "${hold.id}" for ${hold.resourceType} "${hold.resourceId}".`,
+    code: "employee.data_legal_hold_created",
+    data: {
+      actorType: "session_user",
+      resourceType: "employee_data_legal_hold",
+      resourceId: hold.id,
+      employeeName: normalized,
+      heldResourceType: hold.resourceType,
+      heldResourceId: hold.resourceId,
+    },
+  });
+  return actionToastResult(
+    hold,
+    successToast("法律保全已创建。", "Legal hold created."),
+  );
+}
+
+export async function releaseEmployeeDataLegalHoldAction(input: {
+  legalHoldId: string;
+  releaseReason: string;
+}): Promise<ActionToastResult<EmployeeDataLegalHoldRecord>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  const hold = releaseEmployeeDataLegalHoldSync({
+    id: input.legalHoldId.trim(),
+    workspaceId,
+    releasedByUserId: workspaceContext.currentUser.id,
+    releaseReason: input.releaseReason.trim(),
+  });
+  recordWorkspaceAuditEventSync({
+    workspaceId,
+    title: "Employee data legal hold released",
+    note: `${workspaceContext.currentUser.displayName} released legal hold "${hold.id}".`,
+    code: "employee.data_legal_hold_released",
+    data: {
+      actorType: "session_user",
+      resourceType: "employee_data_legal_hold",
+      resourceId: hold.id,
+      heldResourceType: hold.resourceType,
+      heldResourceId: hold.resourceId,
+    },
+  });
+  return actionToastResult(
+    hold,
+    successToast("法律保全已释放。", "Legal hold released."),
+  );
 }
 
 export async function readEmployeeRecoveryProgressAction(

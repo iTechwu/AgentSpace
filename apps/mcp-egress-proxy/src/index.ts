@@ -28,7 +28,9 @@ async function main(): Promise<void> {
       fetchPolicySnapshot: (id) => policyCache.get(id),
       consumeJti: (jti, exp) => replayGuard.consume(jti, exp),
     },
+    policyCache,
     auditSink,
+    adminToken: process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN,
   });
 
   const { url, close } = await server.start();

@@ -39,6 +39,7 @@ import type {
   McpConnectionOperationSource,
   McpConnectionStatus,
   McpDiscoveredTool,
+  McpEgressPolicySnapshot,
   McpTaskSessionConnection,
   McpVerificationOutcome,
   McpVerificationResult,
@@ -56,6 +57,7 @@ import {
   validateMcpEndpoint,
   validateMcpRequestHeaders,
 } from "./security.ts";
+import { buildMcpEgressPolicyRevision, readMcpEgressLeaseSigningSecret, signMcpEgressLeaseForOperation, signMcpEgressLeaseForTaskCall } from "./egress.ts";
 import { resolveReadyMcpConnectionForTask } from "./readiness.ts";
 export { listReadyMcpConnectionsForTaskSync } from "./readiness.ts";
 
@@ -895,6 +897,29 @@ export function resolveClaimedMcpOperationSync(input: {
   if (!secrets) {
     return null;
   }
+  const leaseSecret = readMcpEgressLeaseSigningSecret();
+  const authMode = inferAuthMode(secrets);
+  const policyInput = {
+    workspaceId: input.operation.workspaceId,
+    connectionId: input.operation.connectionId,
+    releaseId: catalog.version,
+    endpoint: connection.endpoint,
+    allowedHosts,
+    approvedTools,
+    authMode,
+  };
+  const policyRevision = leaseSecret ? buildMcpEgressPolicyRevision(policyInput) : undefined;
+  const egressProxyLease = policyRevision
+    ? signMcpEgressLeaseForOperation({
+        ...policyInput,
+        runtimeId: input.operation.runtimeId,
+        operationId: input.operation.id,
+        purpose: input.operation.operation === "verify" ? "verify" : "health_check",
+      })
+    : undefined;
+  const egressProxyPolicySnapshot: McpEgressPolicySnapshot | undefined = policyRevision
+    ? { revision: policyRevision, revoked: false, fetchedAt: new Date().toISOString() }
+    : undefined;
   return {
     id: input.operation.id,
     workspaceId: input.operation.workspaceId,
@@ -910,8 +935,16 @@ export function resolveClaimedMcpOperationSync(input: {
     declaredTools: declaredTools.map((t) => t.name),
     secrets,
     nonSecretParams,
+    egressProxyLease,
+    egressProxyPolicySnapshot,
     createdAt: input.operation.createdAt,
   };
+}
+
+function inferAuthMode(secrets: Record<string, string>): "none" | "static_header" | "oauth_proxy" {
+  if (secrets.Authorization) return "static_header";
+  if (secrets["oauth-proxy"]) return "oauth_proxy";
+  return "none";
 }
 
 function resolveDaemonSecretBundle(secrets: RuntimeMcpSecretRecord[]): Record<string, string> | null {
@@ -973,6 +1006,7 @@ export function claimMcpTaskSessionSync(input: {
   const result = resolveClaimedMcpTaskSessionResult({
     workspaceId: input.workspaceId,
     runtimeId: input.runtimeId,
+    taskId: input.taskId,
   });
   const expiresAt = new Date(Date.now() + MCP_SESSION_GRANT_TTL_MS).toISOString();
   const auditExpiresAt = new Date(Date.now() + MCP_AUDIT_AUTHORIZATION_TTL_MS).toISOString();
@@ -1032,9 +1066,11 @@ function replayMcpTaskSessionGrant(
 function resolveClaimedMcpTaskSessionResult(input: {
   workspaceId: string;
   runtimeId: string;
+  taskId: string;
 }): ClaimMcpTaskSessionResponse {
   const connections = listMcpConnectionsSync({ workspaceId: input.workspaceId, runtimeId: input.runtimeId, status: "ready", limit: 500 });
   const result: McpTaskSessionConnection[] = [];
+  const leaseSecret = readMcpEgressLeaseSigningSecret();
   for (const connection of connections) {
     const resolved = resolveReadyMcpConnectionForTask({
       workspaceId: input.workspaceId,
@@ -1044,6 +1080,28 @@ function resolveClaimedMcpTaskSessionResult(input: {
     if (!resolved) continue;
     const secrets = resolveDaemonSecretBundle(readMcpConnectionSecretsSync(connection.id, input.workspaceId));
     if (secrets === null) continue;
+    const allowedHosts = parseJsonArray(resolved.catalog.allowedHostsJson);
+    const policyInput = {
+      workspaceId: input.workspaceId,
+      connectionId: resolved.connectionId,
+      releaseId: resolved.catalog.version,
+      endpoint: resolved.fresh.endpoint,
+      allowedHosts,
+      approvedTools: resolved.approved,
+      authMode: inferAuthMode(secrets),
+    };
+    const policyRevision = leaseSecret ? buildMcpEgressPolicyRevision(policyInput) : undefined;
+    const egressProxyLease = policyRevision
+      ? signMcpEgressLeaseForTaskCall({
+          ...policyInput,
+          runtimeId: input.runtimeId,
+          taskId: input.taskId,
+          toolName: "*",
+        })
+      : undefined;
+    const egressProxyPolicySnapshot: McpEgressPolicySnapshot | undefined = policyRevision
+      ? { revision: policyRevision, revoked: false, fetchedAt: new Date().toISOString() }
+      : undefined;
     result.push({
       connectionId: resolved.connectionId,
       workspaceId: input.workspaceId,
@@ -1053,11 +1111,13 @@ function resolveClaimedMcpTaskSessionResult(input: {
       displayName: resolved.catalog.displayName,
       transport: resolved.catalog.transport,
       endpoint: resolved.fresh.endpoint,
-      allowedHosts: parseJsonArray(resolved.catalog.allowedHostsJson),
+      allowedHosts,
       approvedTools: resolved.approved,
       nonSecretParams: parseJsonObject(resolved.fresh.nonSecretParamsJson),
       secrets,
       tools: resolved.tools,
+      egressProxyLease,
+      egressProxyPolicySnapshot,
     });
   }
   return { connections: result };

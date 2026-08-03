@@ -92,6 +92,8 @@ export function createEmployeeRecoveryOperationSync(input: {
   requestedByUserId?: string;
   actorUserId?: string;
   requireApproval?: boolean;
+  /** Number of approvals required when requireApproval is true. Default 1; rebuild typically uses 2. */
+  requiredApprovals?: number;
   fromGeneration?: number;
   targetRuntimeId?: string;
 }): EmployeeRecoveryOperationRecord {
@@ -108,6 +110,7 @@ export function createEmployeeRecoveryOperationSync(input: {
       requestedByUserId: input.requestedByUserId,
       actorUserId: input.actorUserId,
       approvalState: input.requireApproval ? "pending" : "not_required",
+      requiredApprovals: input.requireApproval ? Math.max(1, Math.min(input.requiredApprovals ?? 2, 5)) : 1,
       contextJson: JSON.stringify({
         startedAt: new Date().toISOString(),
         ...(input.targetRuntimeId?.trim() ? { runtimeId: input.targetRuntimeId.trim() } : {}),

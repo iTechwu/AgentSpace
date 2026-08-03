@@ -54,11 +54,24 @@
 
 第六轮实施后，Remote 核心链路已闭环：不可变 artifact/blob、统一 package authority 和来源预算、安全下载、GitHub/GitLab.com commit SHA 锁定、安装 cache 证据、来源无关的 npm/pip/uv 隔离安装、任务 dependency env 消费、受控 Skill Runner、task bundle SHA/聚合预算、release lock/approval/fencing、`managed_service` 原子编排、L3/L4 egress、file secret、严格 catalog admission、五步安装审阅和安装证据/卸载 UI 均已进入生产调用链。GitLab 当前仅支持 `gitlab.com` 公共仓库的 `tree/blob/raw` URL；自建 GitLab 和私有仓库未在没有凭证引用/轮换/审计模型时开放。`external_connection`、`platform_shared` 与 managed stdio MCP 已在 catalog/queue/claim/complete/upgrade 层 fail-closed，尚未计入支持范围。
 
-当前不再存在已知“组件 ready 但任务必然不可用”的代码缺口。生产放行仍有两个环境门禁：
+第六轮实施补齐了大量关键能力，但基于最新 codeview，**仍存在若干 P0/P1 代码缺口，导致“组件 ready 后任务仍可能不可用”或“风险能力可未经逐项审批即安装”**。这些缺口必须在生产放行前关闭，不能仅以环境门禁替代。
+
+当前已知阻断缺口：
+
+1. **MCP egress policy 身份模型不安全**：`packages/services/src/mcp-center/egress.ts` 的 `derivePolicyRevisionId` 未纳入 `pathPrefix`、TLS 模式、重定向策略、`authMode`、资源上限等安全字段，且 `digestMcpEgressPolicyRevision` 把 `manifestDigest` 自身纳入哈希，导致 revision ID 无法稳定复算；代理缓存仅按 ID 覆盖，同一 ID 可能对应不同权限策略。
+2. **MCP 代理执行链未闭环**：`connections.ts` 已签发任务租约但使用 `toolName: "*"`，`egress.ts` 取消工具绑定校验；`packages/daemon/src/mcp/client.ts` 仍直连上游，未消费 policy snapshot、代理地址或租约。在实现 daemon proxy transport、逐调用工具租约、snapshot 同步及吊销验证前，不能启用网络阻断。
+3. **根测试门禁遗漏真实失败**：`packages/services/package.json` 使用手写测试白名单，遗漏 `skills-storage.test.ts`、MCP egress 等套件；`skills-storage` 实测存在失败，但根测试仍可能通过。应改为完整测试发现或维护显式且可校验的清单。
+4. **依赖 ready 状态不能证明脚本可执行**：`dependency-installer.ts` 对 pip 使用 `--no-deps`，验证仅检查 `package.json` 或 `dist-info` 是否存在；真实 Runner E2E 手工创建假模块，未经过安装器。应在冻结环境中执行真实 npm/pip/uv 安装，并独立执行 Node `require`/`import`、Python `import` 和版本/ABI smoke。
+5. **首次安装缺少高风险能力逐项审批**：规格要求脚本、网络和高风险 MCP 工具独立审批；当前向导只检查 `unresolvedRequired`，`installation-actions.ts` 的提交接口无风险决定、策略版本或审批记录，管理员可直接安装带 executable/MCP 能力的 Skill。
+6. **服务型 Skill 安装向导未闭环**：`install-skill-modal.tsx` 只展示服务声明，无法选择“创建受管服务”或“绑定已有服务”。
+7. **目录来源缺少管理员入口**：`import-skill-modal.tsx` 只支持 Git、registry 和 ZIP，没有规格要求的目录选择、目录上传或可审计的服务器端目录导入。
+8. **Runner 调用审计未持久化**：`skill-runner.ts` 只执行并返回结果，未写入 script invocation 与 failure code 审计；需要记录 workspace、task、installation、artifact digest、entrypoint、调用人、结果码和安全摘要。
+
+生产放行仍有两个环境门禁尚未产生证据：
 
 1. 在与生产一致的 Linux managed node 上执行真实 egress、IPv6、DNS/DoH、secret inspect、轮换和 daemon restart 负面 E2E。
 2. 在真实 Remote Runtime 通过 Runner 执行 npm `require` 与 Python `import` smoke，并证明镜像缺失、cache/env 删除或篡改后任务在 Provider 启动前或脚本调用时 fail-closed。
 
 继续优化项为：建设外部连接引用与 shared-service inventory、managed MCP 私网 bridge；把当前一次性 binding 切换准确定位为 blue-green 或实现真正 canary；将 base64 task bundle 改为 content-addressed 分块/缓存传输；提供 system dependency catalog resolver；把现有 GitHub/GitLab 按需更新检查扩展为 registry 定时扫描与通知；完成 legacy backfill、orphan GC、指标告警、独立升级审批和 service 运维体验。rollback 控制面已重验 artifact/blob、prepared digest 和当前组件健康；节点本地 dependency env/cache 仍由 daemon 在任务执行前复验。
 
-详见 [实施差距第五次复审](./07-实施差距审查.md)。
+详见 [实施差距第六次复审](./07-实施差距审查.md)。
