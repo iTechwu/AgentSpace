@@ -282,7 +282,7 @@ function buildDockerProviderLauncher(profileDir: string, runtimeId: string, prov
     "  --tmpfs /tmp:rw,nosuid,nodev,noexec \\",
     "  --security-opt no-new-privileges \\",
     "  --cap-drop ALL \\",
-    connectivityArgs.trimEnd(),
+    ...(connectivityArgs ? [connectivityArgs.trimEnd()] : []),
     `  --network ${shellQuote(dockerNetwork)} \\`,
     "  --user \"$(id -u):$(id -g)\" \\",
     `  --name ${shellQuote(`dofe-runtime-${normalizeRuntimeId(runtimeId)}`)} \\`,

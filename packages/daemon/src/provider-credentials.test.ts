@@ -172,6 +172,7 @@ test("managed credential launchers run the provider inside its dedicated image",
     assert.match(launcher, /--read-only/);
     assert.match(launcher, /--security-opt no-new-privileges/);
     assert.match(launcher, /--cap-drop ALL/);
+    assert.doesNotMatch(launcher, /\\\n\n/, "launcher command continuation must not contain blank lines");
     assert.match(launcher, /--user "\$\(id -u\):\$\(id -g\)"/);
     assert.match(launcher, /attribution-proxy\.mjs/);
     const proxyPath = join(root, "managed-runtimes", "runtime-codex", "current", "attribution-proxy.mjs");
