@@ -1,0 +1,70 @@
+{
+  "generatedAt": "2026-08-03T00:23:11Z",
+  "drill": "Provider/Secret/CLI/MCP smoke",
+  "gitCommit": "6cd4628c2407b9c536fa0f949e2a2e0dbd1196a2",
+  "environment": {
+    "node": "v24.9.0",
+    "claudeCli": "2.1.220 (Claude Code)",
+    "codexCli": "codex-cli 0.146.0",
+    "configuredAgentSpaceWorkspaces": 75,
+    "onlineManagedRuntimes": 2,
+    "configuredAgentSpaceMcpConnections": 0
+  },
+  "assertions": {
+    "claudeAuthenticatedProviderRequestPassed": true,
+    "codexAuthenticatedProviderRequestPassed": true,
+    "providerToolsDisabledOrReadOnly": true,
+    "mcpProductionClientReachedReady": true,
+    "mcpProductionClientDiscoveredTools": true,
+    "secretValuesAbsentFromEvidence": true,
+    "agentSpaceRecoveryMcpOperationLiveRunPassed": false
+  },
+  "providerResults": [
+    {
+      "provider": "claude",
+      "credentialForm": "local CLI login",
+      "commandShape": "claude -p --tools <empty> --output-format text <fixed marker prompt>",
+      "exitCode": 0,
+      "responseMarkerMatched": true,
+      "responseMarker": "PROVIDER_SMOKE_OK"
+    },
+    {
+      "provider": "codex",
+      "credentialForm": "local CLI login",
+      "providerReportedByCli": "custom",
+      "modelReportedByCli": "gpt-5.6-terra",
+      "sandbox": "read-only",
+      "exitCode": 0,
+      "responseMarkerMatched": true,
+      "responseMarker": "PROVIDER_SMOKE_OK",
+      "warningSummary": "Provider request passed; optional plugin catalog authentication and unrelated CLI MCP startup/shutdown warnings were emitted."
+    }
+  ],
+  "mcpResult": {
+    "client": "packages/daemon/src/mcp/client.ts createRuntimeMcpClient",
+    "transport": "streamable_http",
+    "endpoint": "https://mcp.context7.com/mcp",
+    "allowedHosts": [
+      "mcp.context7.com"
+    ],
+    "operation": "initialize + tools/list",
+    "status": "ready",
+    "latencyMs": 3909,
+    "discoveredTools": [
+      "resolve-library-id",
+      "query-docs"
+    ],
+    "toolCallsExecuted": 0
+  },
+  "secretValidation": {
+    "recoveryTest": "packages/services/src/employees/recovery.test.ts: 19/19 passed",
+    "providerRuntimeTest": "packages/daemon/src/provider-runtime.test.ts: 45/45 passed",
+    "coverage": "Declared recovery Secret/config values are decrypted and required to be non-empty; API-key headers are provided to curl through stdin and are absent from runtime metadata.",
+    "liveBoundary": "No OPENAI_API_KEY/ANTHROPIC_API_KEY environment form was configured, so the authenticated /v1/models branch was not exercised against an external provider. Local CLI login credentials were exercised by the live inference requests and were not read or recorded."
+  },
+  "limitations": [
+    "The current AgentSpace database has no runtime_mcp_connection rows, so recovery-created verify operations could not be exercised against an existing tenant connection without mutating shared data.",
+    "This evidence does not replace a designated-environment recovery that provisions a new Runtime, resolves its managed Secret, verifies its configured MCP connections, and runs a post-recovery task.",
+    "No raw credential, request header, provider response body, or MCP tool result is stored in this evidence."
+  ]
+}

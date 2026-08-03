@@ -6,7 +6,7 @@
 
 > **最新实施状态（2026-08-03）**
 >
-> 主要代码链已覆盖稳定 employeeId 全链关系、workDir diff/tombstone、双向增量 blob 传输、任务前 fail-closed 还原、持久 mount、原子文件发布、mount/recovery worker 租约与写 fencing、恢复 head CAS 和原子激活、generation fencing、提交 reconciliation、真实 Skill 依赖安装与任务环境注入、Provider/Secret/CLI/MCP 恢复门禁、retention/legal hold/配额告警，以及历史 revision 内容校验/原子审计。D-07/D-08 已使用真实 runtime 镜像完成隔离容器与 named volume 销毁恢复；D-10 已完成测试 PostgreSQL custom archive 的 scratch DB 实际恢复，以及真实 TOS scratch object 的删除/回灌/摘要校验。指定测试环境中的完整控制面 E2E、PostgreSQL PITR/WAL replay 和 TOS versioning/provider undelete 仍待基础设施验收。证据见 [D-07/D-08](./evidence/d07-d08-1785714998462-e0519d.json) 与 [D-10](./evidence/d10-1785715496648-4ff3fc.json)。
+> 主要代码链已覆盖稳定 employeeId 全链关系、workDir diff/tombstone、双向增量 blob 传输、任务前 fail-closed 还原、持久 mount、原子文件发布、mount/recovery worker 租约与写 fencing、恢复 head CAS 和原子激活、generation fencing、提交 reconciliation、真实 Skill 依赖安装与任务环境注入、Provider/Secret/CLI/MCP 恢复门禁、retention/legal hold/配额告警，以及历史 revision 内容校验/原子审计。D-07/D-08 已使用真实 runtime 镜像完成隔离容器与 named volume 销毁恢复；D-10 已完成测试 PostgreSQL custom archive 的 scratch DB 实际恢复，以及真实 TOS scratch object 的删除/回灌/摘要校验；Claude/Codex 最小真实推理和生产 MCP 客户端公开端点验证也已通过。指定测试环境中的完整控制面 E2E、PostgreSQL PITR/WAL replay、TOS versioning/provider undelete、分块断点续传、legal hold 治理 UI 和外部 paging 仍待验收。证据见 [D-07/D-08](./evidence/d07-d08-1785714998462-e0519d.json)、[D-10](./evidence/d10-1785715496648-4ff3fc.json) 与 [Provider/CLI/MCP smoke](./evidence/provider-cli-mcp-smoke-1785716591000-6cd4628.json)。
 >
 > **历史实施状态（2026-08-02，已被上方取代）**
 >
