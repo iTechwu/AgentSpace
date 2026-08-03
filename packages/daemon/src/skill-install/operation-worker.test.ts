@@ -76,8 +76,11 @@ test("reuses a pre-warmed digest-keyed cache and reports cacheHit + preparedPath
     dependencies: [],
   };
   const manifestJson = JSON.stringify(manifest);
-  const sortedDigests = manifest.files.map((file) => file.sha256).sort((a, b) => a.localeCompare(b, "en-US"));
-  const artifactDigest = computeArtifactDigest(manifest, sortedDigests);
+  const digestsSortedByPath = manifest.files
+    .slice()
+    .sort((left, right) => left.path.localeCompare(right.path, "en-US"))
+    .map((file) => file.sha256);
+  const artifactDigest = computeArtifactDigest(manifest, digestsSortedByPath);
 
   const operation = buildOperation({
     artifactDigest,

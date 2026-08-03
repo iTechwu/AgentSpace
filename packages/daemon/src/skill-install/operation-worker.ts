@@ -338,7 +338,7 @@ function verifyCachedFiles(
 
     const cachedByPath = new Map(meta.files.map((file) => [file.path, file]));
     const declaredPaths = new Set<string>();
-    const actualDigests: string[] = [];
+    const actualFiles: Array<{ path: string; sha256: string }> = [];
     for (const file of operation.files) {
       const cached = cachedByPath.get(file.path);
       if (
@@ -366,7 +366,7 @@ function verifyCachedFiles(
       if (actual !== file.sha256.toLowerCase()) {
         return false;
       }
-      actualDigests.push(actual);
+      actualFiles.push({ path: file.path, sha256: actual });
     }
 
     for (const entry of readdirSync(cachePath, { recursive: true, withFileTypes: true })) {
@@ -394,8 +394,10 @@ function verifyCachedFiles(
     } catch {
       return false;
     }
-    actualDigests.sort((left, right) => left.localeCompare(right, "en-US"));
-    if (computeArtifactDigest(manifest, actualDigests) !== operation.artifactDigest) {
+    const actualDigestsSortedByPath = actualFiles
+      .sort((left, right) => left.path.localeCompare(right.path, "en-US"))
+      .map((file) => file.sha256);
+    if (computeArtifactDigest(manifest, actualDigestsSortedByPath) !== operation.artifactDigest) {
       return false;
     }
     return true;
