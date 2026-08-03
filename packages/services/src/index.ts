@@ -351,16 +351,21 @@ export {
 } from "./mcp-center/security.ts";
 export {
   buildMcpEgressPolicyRevision,
+  buildMcpEgressPolicySnapshot,
   canonicalizeMcpEgressPolicyRevision,
   digestMcpEgressPolicyRevision,
   hashMcpEgressAuditValue,
   isMcpEgressLeaseExpired,
+  readMcpEgressLeaseSigningKey,
   readMcpEgressLeaseSigningSecret,
+  readMcpEgressLeaseVerificationKey,
   signMcpEgressLease,
   signMcpEgressLeaseForOperation,
   signMcpEgressLeaseForTaskCall,
   verifyMcpEgressLease,
   type McpEgressLeaseVerificationFailure,
+  type McpEgressLeaseSigningKey,
+  type McpEgressLeaseVerificationKey,
   type McpEgressPolicyInput,
   type VerifiedMcpEgressLease,
 } from "./mcp-center/egress.ts";

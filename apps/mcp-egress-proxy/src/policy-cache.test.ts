@@ -54,6 +54,18 @@ test("policy cache persists pushed snapshots and replays them on restart", () =>
   assert.ok(readFileSync(stateFile, "utf8").includes("pol-2"));
 });
 
+test("policy cache never persists static authentication headers", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dofe-egress-secrets-"));
+  const stateFile = join(dir, "policy.json");
+  const cache = new McpEgressPolicyCache({ stateFile });
+  cache.set({ ...snapshot("pol-secret"), staticHeaders: { Authorization: "Bearer must-not-persist" } });
+
+  const stored = readFileSync(stateFile, "utf8");
+  assert.doesNotMatch(stored, /must-not-persist|Authorization/);
+  assert.equal(new McpEgressPolicyCache({ stateFile }).get("pol-secret")?.staticHeaders, undefined);
+  assert.equal(cache.get("pol-secret")?.staticHeaders?.Authorization, "Bearer must-not-persist");
+});
+
 test("policy cache without a state file stays in-memory (no persistence)", () => {
   const cache = new McpEgressPolicyCache();
   cache.set(snapshot("pol-1"));

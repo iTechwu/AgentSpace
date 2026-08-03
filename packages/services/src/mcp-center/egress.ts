@@ -1,5 +1,16 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision, McpEgressPurpose } from "@dofe-agent/domain";
+import {
+  createHash,
+  createHmac,
+  createPrivateKey,
+  createPublicKey,
+  randomBytes,
+  sign as signBytes,
+  timingSafeEqual,
+  verify as verifyBytes,
+} from "node:crypto";
+import { readFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
+import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision, McpEgressPolicySnapshot, McpEgressPurpose } from "@dofe-agent/domain";
 
 const LEASE_VERSION = "deg1";
 const LEASE_MAX_TTL_SECONDS = {
@@ -30,6 +41,14 @@ function constantTimeCompare(a: Buffer, b: Buffer): boolean {
 function signCanonical(input: string, secret: string): Buffer {
   return createHmac("sha256", secret).update(input, "utf8").digest();
 }
+
+export type McpEgressLeaseSigningKey =
+  | { algorithm: "EdDSA"; privateKey: string }
+  | { algorithm: "HS256"; secret: string };
+
+export type McpEgressLeaseVerificationKey =
+  | { algorithm: "EdDSA"; publicKey: string }
+  | { algorithm: "HS256"; secret: string };
 
 /**
  * Produces a canonical JSON representation of a policy revision.
@@ -73,21 +92,35 @@ export function digestMcpEgressPolicyRevision(policy: McpEgressPolicyRevision): 
 }
 
 /**
- * Signs MCP egress lease claims with a control-plane HMAC secret.
- *
- * Phase 0 uses HS256 so tests and local development do not need key
- * management. Production deployments should migrate to RS256/Ed25519 so the
- * proxy can verify with a public key and never hold a signing secret.
+ * Signs MCP egress lease claims. String keys retain the Phase 0 HS256 API for
+ * explicit migration compatibility; production uses an Ed25519 private key.
  */
-export function signMcpEgressLease(claims: McpEgressLeaseClaims, secret: string): string {
-  if (!secret || secret.length < 32) {
+export function signMcpEgressLease(claims: McpEgressLeaseClaims, key: string | McpEgressLeaseSigningKey): string {
+  const normalizedKey: McpEgressLeaseSigningKey = typeof key === "string"
+    ? { algorithm: "HS256", secret: key }
+    : key;
+  if (normalizedKey.algorithm === "HS256" && normalizedKey.secret.length < 32) {
     throw new Error("MCP egress lease secret must be at least 32 bytes.");
   }
-  const header = base64urlEncode(JSON.stringify({ alg: "HS256", typ: "DofeEgressLease", ver: LEASE_VERSION }));
+  const header = base64urlEncode(JSON.stringify({
+    alg: normalizedKey.algorithm,
+    typ: "DofeEgressLease",
+    ver: LEASE_VERSION,
+  }));
   const payload = base64urlEncode(JSON.stringify(claims));
   const signingInput = `${header}.${payload}`;
-  const signature = signCanonical(signingInput, secret);
+  const signature = normalizedKey.algorithm === "EdDSA"
+    ? signEd25519(signingInput, normalizedKey.privateKey)
+    : signCanonical(signingInput, normalizedKey.secret);
   return `${signingInput}.${signature.toString("base64url")}`;
+}
+
+function signEd25519(input: string, privateKeyPem: string): Buffer {
+  const privateKey = createPrivateKey(privateKeyPem);
+  if (privateKey.asymmetricKeyType !== "ed25519") {
+    throw new Error("MCP egress lease private key must be Ed25519.");
+  }
+  return signBytes(null, Buffer.from(input, "utf8"), privateKey);
 }
 
 function decodeLease(token: string): DecodedLease {
@@ -120,12 +153,12 @@ export interface McpEgressLeaseVerificationFailure {
  */
 export function verifyMcpEgressLease(
   token: string,
-  secret: string,
+  key: string | McpEgressLeaseVerificationKey,
   options: { nowSeconds?: number; expectedAud?: string } = {},
 ): { ok: true; lease: VerifiedMcpEgressLease } | McpEgressLeaseVerificationFailure {
-  if (!secret || secret.length < 32) {
-    return { ok: false, code: "mcp_egress.lease_invalid", message: "Proxy lease verification secret is not configured." };
-  }
+  const normalizedKey: McpEgressLeaseVerificationKey = typeof key === "string"
+    ? { algorithm: "HS256", secret: key }
+    : key;
 
   let decoded: DecodedLease;
   try {
@@ -143,9 +176,12 @@ export function verifyMcpEgressLease(
     return { ok: false, code: "mcp_egress.lease_invalid", message: "Lease header or payload is not valid JSON." };
   }
 
+  const headerAlgorithm = header && typeof header === "object"
+    ? (header as Record<string, unknown>).alg
+    : undefined;
   if (
     !header || typeof header !== "object" ||
-    (header as Record<string, unknown>).alg !== "HS256" ||
+    headerAlgorithm !== normalizedKey.algorithm ||
     (header as Record<string, unknown>).typ !== "DofeEgressLease" ||
     (header as Record<string, unknown>).ver !== LEASE_VERSION
   ) {
@@ -153,8 +189,19 @@ export function verifyMcpEgressLease(
   }
 
   const signingInput = `${decoded.header}.${decoded.payload}`;
-  const expectedSignature = signCanonical(signingInput, secret);
-  if (!constantTimeCompare(expectedSignature, decoded.signature)) {
+  let signatureMatches = false;
+  try {
+    if (normalizedKey.algorithm === "EdDSA") {
+      const publicKey = createPublicKey(normalizedKey.publicKey);
+      signatureMatches = publicKey.asymmetricKeyType === "ed25519"
+        && verifyBytes(null, Buffer.from(signingInput, "utf8"), publicKey, decoded.signature);
+    } else if (normalizedKey.secret.length >= 32) {
+      signatureMatches = constantTimeCompare(signCanonical(signingInput, normalizedKey.secret), decoded.signature);
+    }
+  } catch {
+    signatureMatches = false;
+  }
+  if (!signatureMatches) {
     return { ok: false, code: "mcp_egress.lease_invalid", message: "Lease signature does not match." };
   }
 
@@ -226,6 +273,45 @@ export function readMcpEgressLeaseSigningSecret(): string | undefined {
   return process.env.MCP_EGRESS_PROXY_LEASE_SIGNING_SECRET?.trim();
 }
 
+type PemFileReader = (path: string) => string;
+
+function readAbsolutePemFile(path: string, readFile: PemFileReader): string {
+  if (!isAbsolute(path)) {
+    throw new Error(`MCP egress lease key file path must be absolute: ${path}`);
+  }
+  const pem = readFile(path).trim();
+  if (!pem) throw new Error(`MCP egress lease key file is empty: ${path}`);
+  return pem;
+}
+
+/** Control-plane signing config. Ed25519 is preferred; HS256 is migration-only. */
+export function readMcpEgressLeaseSigningKey(
+  environment: NodeJS.ProcessEnv = process.env,
+  readFile: PemFileReader = (path) => readFileSync(path, "utf8"),
+): McpEgressLeaseSigningKey | undefined {
+  const privateKeyFile = environment.MCP_EGRESS_PROXY_LEASE_SIGNING_PRIVATE_KEY_FILE?.trim();
+  if (privateKeyFile) {
+    return { algorithm: "EdDSA", privateKey: readAbsolutePemFile(privateKeyFile, readFile) };
+  }
+  const secret = environment.MCP_EGRESS_PROXY_LEASE_SIGNING_SECRET?.trim();
+  return secret ? { algorithm: "HS256", secret } : undefined;
+}
+
+/** Proxy verification config. Legacy HS256 must be opted into explicitly. */
+export function readMcpEgressLeaseVerificationKey(
+  environment: NodeJS.ProcessEnv = process.env,
+  readFile: PemFileReader = (path) => readFileSync(path, "utf8"),
+): McpEgressLeaseVerificationKey | undefined {
+  const publicKeyFile = environment.MCP_EGRESS_PROXY_LEASE_VERIFY_PUBLIC_KEY_FILE?.trim();
+  if (publicKeyFile) {
+    return { algorithm: "EdDSA", publicKey: readAbsolutePemFile(publicKeyFile, readFile) };
+  }
+  const secret = environment.MCP_EGRESS_PROXY_LEASE_SECRET?.trim();
+  return secret && environment.MCP_EGRESS_PROXY_ALLOW_LEGACY_HMAC === "true"
+    ? { algorithm: "HS256", secret }
+    : undefined;
+}
+
 /** Reads the egress proxy admin token from the environment. */
 export function readMcpEgressProxyAdminToken(): string | undefined {
   return process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN?.trim();
@@ -262,12 +348,14 @@ export async function revokeMcpEgressPolicyRevisionAtProxy(policyRevisionId: str
   }
 }
 
-function readSigningSecretOrThrow(): string {
-  const secret = readMcpEgressLeaseSigningSecret();
-  if (!secret) {
-    throw new Error("MCP_EGRESS_PROXY_LEASE_SIGNING_SECRET is required to sign egress leases.");
+function readSigningKeyOrThrow(): McpEgressLeaseSigningKey {
+  const key = readMcpEgressLeaseSigningKey();
+  if (!key) {
+    throw new Error(
+      "MCP_EGRESS_PROXY_LEASE_SIGNING_PRIVATE_KEY_FILE is required (legacy: MCP_EGRESS_PROXY_LEASE_SIGNING_SECRET).",
+    );
   }
-  return secret;
+  return key;
 }
 
 export interface McpEgressPolicyInput {
@@ -312,6 +400,23 @@ export function buildMcpEgressPolicyRevision(input: McpEgressPolicyInput): McpEg
     createdAt: new Date().toISOString(),
   };
   return { ...base, manifestDigest: digestMcpEgressPolicyRevision(base) };
+}
+
+/** Builds the proxy snapshot; authentication material remains outside the immutable digest. */
+export function buildMcpEgressPolicySnapshot(
+  revision: McpEgressPolicyRevision,
+  secrets: Record<string, string>,
+  fetchedAt = new Date().toISOString(),
+): McpEgressPolicySnapshot {
+  const staticHeaders = revision.authMode === "static_header"
+    ? Object.fromEntries(Object.entries(secrets).filter(([, value]) => typeof value === "string" && value.length > 0))
+    : undefined;
+  return {
+    revision,
+    revoked: false,
+    fetchedAt,
+    ...(staticHeaders && Object.keys(staticHeaders).length > 0 ? { staticHeaders } : {}),
+  };
 }
 
 function normalizeOrigin(endpoint: string): string {
@@ -390,7 +495,7 @@ export function signMcpEgressLeaseForOperation(
 ): string {
   const policy = buildMcpEgressPolicyRevision(input);
   const claims = createLeaseClaims(policy, input.purpose, input.runtimeId, { operationId: input.operationId });
-  return signMcpEgressLease(claims, readSigningSecretOrThrow());
+  return signMcpEgressLease(claims, readSigningKeyOrThrow());
 }
 
 /** Signs a lease for a task-scoped MCP tool call. */
@@ -399,5 +504,5 @@ export function signMcpEgressLeaseForTaskCall(
 ): string {
   const policy = buildMcpEgressPolicyRevision(input);
   const claims = createLeaseClaims(policy, "task_call", input.runtimeId, { taskId: input.taskId, toolName: input.toolName });
-  return signMcpEgressLease(claims, readSigningSecretOrThrow());
+  return signMcpEgressLease(claims, readSigningKeyOrThrow());
 }

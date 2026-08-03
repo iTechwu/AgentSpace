@@ -1,5 +1,9 @@
 import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-agent/domain";
-import { digestMcpEgressPolicyRevision, verifyMcpEgressLease } from "@dofe-agent/services/mcp-center/egress";
+import {
+  digestMcpEgressPolicyRevision,
+  verifyMcpEgressLease,
+  type McpEgressLeaseVerificationKey,
+} from "@dofe-agent/services/mcp-center/egress";
 
 export interface LeaseVerificationResult {
   ok: true;
@@ -14,7 +18,9 @@ export interface LeaseVerificationFailure {
 }
 
 export interface LeaseVerifierDependencies {
-  leaseSecret: string;
+  leaseVerificationKey?: McpEgressLeaseVerificationKey;
+  /** Explicit compatibility input for tests and controlled HS256 migration. */
+  leaseSecret?: string;
   fetchPolicySnapshot: (policyRevisionId: string) => McpEgressPolicySnapshot | undefined | Promise<McpEgressPolicySnapshot | undefined>;
   isJtiRevoked?: (jti: string) => boolean | Promise<boolean>;
   bindJtiToSession: (jti: string, sessionId: string | undefined, exp: number) => boolean | Promise<boolean>;
@@ -33,7 +39,11 @@ export async function verifyLeaseForRequest(
     return { ok: false, code: "mcp_egress.lease_missing", message: "Request is missing a DofeEgressLease token." };
   }
 
-  const verified = verifyMcpEgressLease(token, deps.leaseSecret);
+  const verificationKey = deps.leaseVerificationKey ?? deps.leaseSecret;
+  if (!verificationKey) {
+    return { ok: false, code: "mcp_egress.lease_invalid", message: "Proxy lease verification key is not configured." };
+  }
+  const verified = verifyMcpEgressLease(token, verificationKey);
   if (!verified.ok) {
     return { ok: false, code: verified.code, message: verified.message };
   }

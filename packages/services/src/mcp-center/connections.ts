@@ -59,7 +59,8 @@ import {
 } from "./security.ts";
 import {
   buildMcpEgressPolicyRevision,
-  readMcpEgressLeaseSigningSecret,
+  buildMcpEgressPolicySnapshot,
+  readMcpEgressLeaseSigningKey,
   revokeMcpEgressPolicyRevisionAtProxy,
   signMcpEgressLeaseForOperation,
   signMcpEgressLeaseForTaskCall,
@@ -209,8 +210,8 @@ export function reverifyMcpConnectionSync(input: {
 }
 
 function revokeActiveMcpEgressPolicyForConnectionSync(connection: RuntimeMcpConnectionRecord): void {
-  const leaseSecret = readMcpEgressLeaseSigningSecret();
-  if (!leaseSecret) return;
+  const leaseSigningKey = readMcpEgressLeaseSigningKey();
+  if (!leaseSigningKey) return;
   const catalog = readMcpCatalogItemSync(connection.catalogItemId, connection.workspaceId);
   if (!catalog) return;
   const allowedHosts = parseJsonArray(catalog.allowedHostsJson);
@@ -927,7 +928,7 @@ export function resolveClaimedMcpOperationSync(input: {
   if (!secrets) {
     return null;
   }
-  const leaseSecret = readMcpEgressLeaseSigningSecret();
+  const leaseSigningKey = readMcpEgressLeaseSigningKey();
   const authMode = inferAuthMode(secrets);
   const policyInput = {
     workspaceId: input.operation.workspaceId,
@@ -938,7 +939,7 @@ export function resolveClaimedMcpOperationSync(input: {
     approvedTools,
     authMode,
   };
-  const policyRevision = leaseSecret ? buildMcpEgressPolicyRevision(policyInput) : undefined;
+  const policyRevision = leaseSigningKey ? buildMcpEgressPolicyRevision(policyInput) : undefined;
   const egressProxyLease = policyRevision
     ? signMcpEgressLeaseForOperation({
         ...policyInput,
@@ -948,7 +949,7 @@ export function resolveClaimedMcpOperationSync(input: {
       })
     : undefined;
   const egressProxyPolicySnapshot: McpEgressPolicySnapshot | undefined = policyRevision
-    ? { revision: policyRevision, revoked: false, fetchedAt: new Date().toISOString() }
+    ? buildMcpEgressPolicySnapshot(policyRevision, secrets)
     : undefined;
   return {
     id: input.operation.id,
@@ -972,8 +973,8 @@ export function resolveClaimedMcpOperationSync(input: {
 }
 
 function inferAuthMode(secrets: Record<string, string>): "none" | "static_header" | "oauth_proxy" {
-  if (secrets.Authorization) return "static_header";
   if (secrets["oauth-proxy"]) return "oauth_proxy";
+  if (Object.keys(secrets).length > 0) return "static_header";
   return "none";
 }
 
@@ -1100,7 +1101,7 @@ function resolveClaimedMcpTaskSessionResult(input: {
 }): ClaimMcpTaskSessionResponse {
   const connections = listMcpConnectionsSync({ workspaceId: input.workspaceId, runtimeId: input.runtimeId, status: "ready", limit: 500 });
   const result: McpTaskSessionConnection[] = [];
-  const leaseSecret = readMcpEgressLeaseSigningSecret();
+  const leaseSigningKey = readMcpEgressLeaseSigningKey();
   for (const connection of connections) {
     const resolved = resolveReadyMcpConnectionForTask({
       workspaceId: input.workspaceId,
@@ -1120,7 +1121,7 @@ function resolveClaimedMcpTaskSessionResult(input: {
       approvedTools: resolved.approved,
       authMode: inferAuthMode(secrets),
     };
-    const policyRevision = leaseSecret ? buildMcpEgressPolicyRevision(policyInput) : undefined;
+    const policyRevision = leaseSigningKey ? buildMcpEgressPolicyRevision(policyInput) : undefined;
     const egressProxyLeases: Record<string, string> | undefined = policyRevision
       ? Object.fromEntries(
           resolved.approved.map((toolName) => [
@@ -1135,7 +1136,7 @@ function resolveClaimedMcpTaskSessionResult(input: {
         )
       : undefined;
     const egressProxyPolicySnapshot: McpEgressPolicySnapshot | undefined = policyRevision
-      ? { revision: policyRevision, revoked: false, fetchedAt: new Date().toISOString() }
+      ? buildMcpEgressPolicySnapshot(policyRevision, secrets)
       : undefined;
     result.push({
       connectionId: resolved.connectionId,

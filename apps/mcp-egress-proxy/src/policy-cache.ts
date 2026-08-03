@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-agent/domain";
 
@@ -16,6 +16,7 @@ export class McpEgressPolicyCache {
     this.stateFile = options.stateFile;
     if (this.stateFile) {
       this.load();
+      this.persist();
     }
   }
 
@@ -52,7 +53,8 @@ export class McpEgressPolicyCache {
       for (const item of parsed) {
         const snapshot = item as Partial<McpEgressPolicySnapshot>;
         if (snapshot?.revision && typeof snapshot.revision.id === "string") {
-          this.revisions.set(snapshot.revision.id, snapshot as McpEgressPolicySnapshot);
+          const { staticHeaders: _legacyStaticHeaders, ...durableSnapshot } = snapshot as McpEgressPolicySnapshot;
+          this.revisions.set(snapshot.revision.id, durableSnapshot);
         }
       }
     } catch {
@@ -65,7 +67,10 @@ export class McpEgressPolicyCache {
       return;
     }
     mkdirSync(dirname(this.stateFile), { recursive: true });
-    writeFileSync(this.stateFile, JSON.stringify(this.list()), { encoding: "utf8", mode: 0o600 });
+    const durableSnapshots = this.list().map(({ staticHeaders: _staticHeaders, ...snapshot }) => snapshot);
+    const temporaryFile = `${this.stateFile}.tmp`;
+    writeFileSync(temporaryFile, JSON.stringify(durableSnapshots), { encoding: "utf8", mode: 0o600 });
+    renameSync(temporaryFile, this.stateFile);
   }
 }
 

@@ -81,6 +81,8 @@ export class McpEgressProxyServer {
       url: `http://${host}:${port}`,
       close: () =>
         new Promise((resolve) => {
+          server.closeIdleConnections();
+          server.closeAllConnections();
           server.close(() => resolve());
         }),
     };
@@ -96,6 +98,10 @@ export class McpEgressProxyServer {
     }
 
     if (method === "GET" && requestPath === "/metrics") {
+      if (!this.isAdminAuthorized(req)) {
+        sendJson(res, 401, { error: "mcp_egress.lease_invalid", message: "Invalid admin token." });
+        return;
+      }
       sendJson(res, 200, this.options.metrics?.snapshot() ?? { metrics: "disabled" });
       return;
     }
@@ -208,6 +214,12 @@ export class McpEgressProxyServer {
       sendJson(res, leaseErrorStatus(requestBody.code), { error: requestBody.code, message: requestBody.message });
       return;
     }
+    if (!isTaskToolCallAllowed(claims, method, requestBody.body)) {
+      this.options.metrics?.recordReject();
+      await this.recordRejection(requestPath, method, "mcp_egress.policy_denied", claims);
+      sendJson(res, 403, { error: "mcp_egress.policy_denied", message: "Tool call does not match the lease binding." });
+      return;
+    }
 
     let upstreamHeaders: Record<string, string>;
     try {
@@ -230,6 +242,7 @@ export class McpEgressProxyServer {
     const latencyMs = Date.now() - startedAt;
 
     if (!forwardResult.ok) {
+      this.options.metrics?.recordUpstreamError();
       await this.recordRejection(requestPath, method, forwardResult.code, claims);
       sendJson(res, leaseErrorStatus(forwardResult.code), { error: forwardResult.code, message: forwardResult.message });
       return;
@@ -302,10 +315,11 @@ export class McpEgressProxyServer {
 
     if (policy.authMode === "static_header") {
       const snapshot = await this.options.leaseVerifier.fetchPolicySnapshot(claims.policyRevisionId);
-      if (snapshot?.staticHeaders) {
-        for (const [name, value] of Object.entries(snapshot.staticHeaders)) {
-          setTrustedHeader(headers, name, value);
-        }
+      if (!snapshot?.staticHeaders || Object.keys(snapshot.staticHeaders).length === 0) {
+        throw new Error("Static authentication material is unavailable.");
+      }
+      for (const [name, value] of Object.entries(snapshot.staticHeaders)) {
+        setTrustedHeader(headers, name, value);
       }
     }
 
@@ -356,6 +370,17 @@ function extractProxySessionId(req: IncomingMessage): string | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim();
   return normalized && normalized.length <= 128 ? normalized : undefined;
+}
+
+function isTaskToolCallAllowed(claims: McpEgressLeaseClaims, method: string, body: Buffer): boolean {
+  if (claims.purpose !== "task_call" || method !== "POST" || body.length === 0) return true;
+  try {
+    const message = JSON.parse(body.toString("utf8")) as { method?: unknown; params?: { name?: unknown } };
+    if (message.method !== "tools/call") return true;
+    return typeof message.params?.name === "string" && message.params.name === claims.toolName;
+  } catch {
+    return true;
+  }
 }
 
 function sendJson(res: ServerResponse, statusCode: number, body: unknown): void {
