@@ -1,4 +1,5 @@
 import { lookup } from "node:dns/promises";
+import type { ClientRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { Readable } from "node:stream";
 import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision } from "@dofe-agent/domain";
@@ -216,24 +217,34 @@ function pinnedHttpsRequest(input: PinnedHttpsRequestInput): Promise<UpstreamRes
       });
     });
 
-    const connectTimer = setTimeout(() => request.destroy(new Error("Connection timeout.")), input.connectTimeoutMs);
-    const requestTimer = setTimeout(() => request.destroy(new Error("Request timeout.")), input.requestTimeoutMs);
-
     request.once("error", (error) => {
-      clearTimeout(connectTimer);
-      clearTimeout(requestTimer);
       reject(error);
     });
-
-    request.once("response", () => {
-      clearTimeout(connectTimer);
-      clearTimeout(requestTimer);
-      if (input.idleTimeoutMs > 0) {
-        request.setTimeout(input.idleTimeoutMs, () => request.destroy(new Error("Idle timeout.")));
-      }
-    });
+    armPinnedRequestTimeouts(request, input);
 
     writeRequestBody(request, input.body).catch((error) => request.destroy(error));
+  });
+}
+
+export function armPinnedRequestTimeouts(
+  request: ClientRequest,
+  input: Pick<PinnedHttpsRequestInput, "connectTimeoutMs" | "requestTimeoutMs" | "idleTimeoutMs">,
+): void {
+  const connectTimer = setTimeout(() => request.destroy(new Error("Connection timeout.")), input.connectTimeoutMs);
+  const requestTimer = setTimeout(() => request.destroy(new Error("Request timeout.")), input.requestTimeoutMs);
+  const clearTimers = () => {
+    clearTimeout(connectTimer);
+    clearTimeout(requestTimer);
+  };
+
+  request.once("error", clearTimers);
+  request.once("response", (response) => {
+    clearTimeout(connectTimer);
+    response.once("end", () => clearTimeout(requestTimer));
+    response.once("close", () => clearTimeout(requestTimer));
+    if (input.idleTimeoutMs > 0) {
+      request.setTimeout(input.idleTimeoutMs, () => request.destroy(new Error("Idle timeout.")));
+    }
   });
 }
 
