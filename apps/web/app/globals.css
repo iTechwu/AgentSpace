@@ -22986,6 +22986,13 @@ textarea:focus {
   min-height: 2.25rem;
 }
 
+.market-panel-header__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.65rem;
+}
+
 .market-workbench {
   display: grid;
   grid-template-columns: minmax(22rem, 0.82fr) minmax(28rem, 1.18fr);
@@ -23275,6 +23282,158 @@ textarea:focus {
   margin: 0;
 }
 
+.market-empty-state__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.35rem;
+  margin-top: 1rem;
+}
+
+.modal-card--mcp-catalog {
+  display: flex;
+  flex-direction: column;
+  width: min(920px, 100%);
+  max-height: min(880px, calc(100dvh - 3rem));
+  border: 1px solid var(--market-border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 24px 64px rgba(21, 31, 25, 0.2);
+}
+
+.modal-card--mcp-catalog .modal-card__header,
+.modal-card--mcp-catalog .modal-card__footer {
+  flex: 0 0 auto;
+  background: #fff;
+}
+
+.modal-card--mcp-catalog .modal-card__header h3 {
+  font-family: inherit;
+  font-size: 1.18rem;
+  letter-spacing: 0;
+}
+
+.modal-card--mcp-catalog .modal-card__body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.mcp-catalog-form-section {
+  padding-bottom: 1.15rem;
+  border-bottom: 1px solid var(--market-border);
+}
+
+.mcp-catalog-form-section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.mcp-catalog-form-section__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.8rem;
+}
+
+.mcp-catalog-form-section__heading h4,
+.mcp-catalog-form-section__heading p {
+  margin: 0;
+}
+
+.mcp-catalog-form-section__heading h4 {
+  color: var(--market-ink);
+  font-size: 0.92rem;
+}
+
+.mcp-catalog-form-section__heading p,
+.mcp-catalog-no-fields {
+  margin-top: 0.2rem;
+  color: var(--market-muted);
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.mcp-catalog-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.mcp-catalog-add-row {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.15rem;
+}
+
+.mcp-catalog-add-row svg,
+.mcp-catalog-remove-row svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.mcp-catalog-draft-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.mcp-catalog-tool-draft,
+.mcp-catalog-config-draft {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.8fr) minmax(12rem, 1.4fr) minmax(7rem, 0.55fr) auto auto;
+  align-items: end;
+  gap: 0.55rem;
+  padding: 0.65rem 0;
+  border-top: 1px solid #edf0ed;
+}
+
+.mcp-catalog-config-draft {
+  grid-template-columns: minmax(12rem, 1fr) minmax(8rem, 0.45fr) auto auto;
+}
+
+.mcp-catalog-default-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.55rem;
+  color: #556159;
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+
+.mcp-catalog-default-tool input {
+  accent-color: var(--market-accent);
+}
+
+.mcp-catalog-remove-row {
+  display: inline-grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border: 1px solid var(--market-border);
+  border-radius: 6px;
+  background: #fff;
+  color: #8b5149;
+}
+
+.mcp-catalog-remove-row:hover:not(:disabled) {
+  border-color: #d8aaa3;
+  background: #fff6f4;
+}
+
+.mcp-catalog-remove-row:disabled {
+  opacity: 0.35;
+}
+
+.mcp-catalog-no-fields {
+  margin: 0;
+  padding: 0.6rem 0;
+}
+
 .market-empty-state h3 {
   font-size: 0.98rem;
 }
@@ -23434,6 +23593,34 @@ textarea:focus {
   .market-panel-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .market-panel-header__actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .modal-backdrop:has(.modal-card--mcp-catalog) {
+    padding: 0.5rem;
+  }
+
+  .modal-card--mcp-catalog {
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .mcp-catalog-form-grid,
+  .mcp-catalog-tool-draft,
+  .mcp-catalog-config-draft {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mcp-catalog-form-section__heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mcp-catalog-add-row {
+    align-self: flex-start;
   }
 
   .market-app-row {

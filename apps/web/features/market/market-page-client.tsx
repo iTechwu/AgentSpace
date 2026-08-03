@@ -190,7 +190,7 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
           <AppIcon name="containers" />
           <span>
             <strong>{tx("MCP 服务", "MCP services")}</strong>
-            <small>{tx(`${data.mcpCatalog.length} 个已审核服务`, `${data.mcpCatalog.length} reviewed`)}</small>
+            <small>{tx(`${data.mcpCatalog.length} 个目录服务`, `${data.mcpCatalog.length} catalog services`)}</small>
           </span>
         </button>
       </div>

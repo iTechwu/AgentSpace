@@ -1,6 +1,6 @@
 "use server";
 
-import type { McpRisk, McpTransport } from "@dofe-agent/db";
+import type { McpCatalogCategory, McpRisk, McpTransport } from "@dofe-agent/db";
 import {
   createMcpCatalogItemSync,
   disableMcpConnectionSync,
@@ -27,6 +27,7 @@ export interface CreateMcpCatalogItemActionInput {
   displayName: string;
   description?: string;
   version?: string;
+  category?: McpCatalogCategory;
   transport: McpTransport;
   allowedHosts: string[];
   configurationSchema: Record<string, unknown>;

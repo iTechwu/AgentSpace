@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
+  createMcpCatalogItemAction,
   disableMcpConnectionAction,
   enableMcpConnectionAction,
   removeMcpConnectionAction,
@@ -11,6 +12,8 @@ import {
   requestMcpConnectionAction,
   reverifyMcpConnectionAction,
 } from "@/features/market/mcp-actions";
+import type { CreateMcpCatalogItemActionInput } from "@/features/market/mcp-actions";
+import { CreateMcpCatalogModal } from "@/features/market/create-mcp-catalog-modal";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-action";
@@ -40,6 +43,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [approvedTools, setApprovedTools] = useState<Set<string>>(new Set());
   const [confirmHighRisk, setConfirmHighRisk] = useState(false);
+  const [showCreateCatalog, setShowCreateCatalog] = useState(false);
   const [isPending, startTransition] = useTransition();
   // Dirty flags prevent silent overwrites when editing an existing connection.
   // Fields that were never touched by the user are sent as undefined, so the
@@ -123,6 +127,21 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
         pushToast,
         tx,
         fallbackError: { zh: "请求失败，请稍后重试。", en: "Request failed. Please try again." },
+      });
+    });
+  }
+
+  function createCatalogItem(input: CreateMcpCatalogItemActionInput): void {
+    startTransition(async () => {
+      await runToastAction({
+        action: () => createMcpCatalogItemAction(input),
+        onSuccess: async () => {
+          setShowCreateCatalog(false);
+          await refreshWorkspaceModule(onDataChanged, router);
+        },
+        pushToast,
+        tx,
+        fallbackError: { zh: "MCP 服务发布失败，请检查目录字段。", en: "Failed to publish the MCP service. Check the catalog fields." },
       });
     });
   }
@@ -226,18 +245,32 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
       <div className="market-panel-header">
         <div>
           <h2 id="mcp-market-heading">{tx("MCP 服务", "MCP services")}</h2>
-          <p>{tx("从已审核目录选择服务，配置工具权限并连接到兼容的 Runtime。", "Choose a reviewed service, configure tool access, and connect it to a compatible runtime.")}</p>
+          <p>{tx("从工作区目录选择服务，配置工具权限并连接到兼容的 Runtime。", "Choose a workspace catalog service, configure tool access, and connect it to a compatible runtime.")}</p>
         </div>
-        {needsAttention > 0 ? (
-          <span className="status-chip status-chip--danger">{tx(`需要处理 ${needsAttention} 项`, `${needsAttention} need attention`)}</span>
-        ) : null}
+        <div className="market-panel-header__actions">
+          {needsAttention > 0 ? (
+            <span className="status-chip status-chip--danger">{tx(`需要处理 ${needsAttention} 项`, `${needsAttention} need attention`)}</span>
+          ) : null}
+          {data.canManage ? (
+            <button className="action-button" disabled={isPending} onClick={() => setShowCreateCatalog(true)} type="button">
+              <AppIcon name="plus" />
+              <span>{tx("添加 MCP 服务", "Add MCP service")}</span>
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {data.mcpCatalog.length === 0 ? (
         <section className="market-empty-state">
           <span className="market-empty-icon"><AppIcon name="containers" /></span>
           <h3>{tx("MCP 服务目录为空", "The MCP catalog is empty")}</h3>
-          <p>{tx("当前工作区还没有已审核的 MCP 服务。服务发布后会显示在这里。", "This workspace has no reviewed MCP services yet. Published services will appear here.")}</p>
+          <p>{tx("当前工作区还没有 MCP 服务。发布工作区私有服务后会显示在这里。", "This workspace has no MCP services yet. Workspace-private releases will appear here.")}</p>
+          {data.canManage ? (
+            <button className="action-button market-empty-state__action" disabled={isPending} onClick={() => setShowCreateCatalog(true)} type="button">
+              <AppIcon name="plus" />
+              <span>{tx("添加第一个服务", "Add the first service")}</span>
+            </button>
+          ) : null}
         </section>
       ) : (
         <div className="market-workbench">
@@ -517,6 +550,13 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
           </ul>
         )}
       </section>
+      {showCreateCatalog ? (
+        <CreateMcpCatalogModal
+          onCancel={() => setShowCreateCatalog(false)}
+          onConfirm={createCatalogItem}
+          pending={isPending}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LanguageProvider } from "@/features/i18n/language-provider";
@@ -23,6 +23,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 const actionMocks = vi.hoisted(() => ({
+  createMcpCatalogItem: vi.fn(async () => ({ data: undefined })),
   refreshCatalog: vi.fn(async () => ({ data: undefined })),
   requestOperation: vi.fn(async () => ({ data: undefined })),
   requestMcpConnection: vi.fn(async () => ({ data: undefined })),
@@ -38,6 +39,7 @@ vi.mock("@/features/market/actions", () => ({
 }));
 
 vi.mock("@/features/market/mcp-actions", () => ({
+  createMcpCatalogItemAction: actionMocks.createMcpCatalogItem,
   disableMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
   enableMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
   removeMcpConnectionAction: vi.fn(async () => ({ data: undefined })),
@@ -120,6 +122,7 @@ describe("MarketPageClient", () => {
     navigationMocks.push.mockClear();
     navigationMocks.searchParams = new URLSearchParams();
     actionMocks.refreshCatalog.mockClear();
+    actionMocks.createMcpCatalogItem.mockClear();
     actionMocks.requestOperation.mockClear();
     actionMocks.requestMcpConnection.mockClear();
     actionMocks.rotateMcpSecret.mockClear();
@@ -139,7 +142,7 @@ describe("MarketPageClient", () => {
     expect(screen.getByRole("heading", { name: "应用与服务市场" })).toBeInTheDocument();
     expect(screen.getByLabelText("市场概览")).toHaveTextContent("可用能力2");
     expect(screen.getByRole("tab", { name: "CLI 市场" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "MCP 市场" })).toHaveTextContent("1 个已审核服务");
+    expect(screen.getByRole("tab", { name: "MCP 市场" })).toHaveTextContent("1 个目录服务");
   });
 
   it("uses one intentional empty state when the MCP catalog is unavailable", async () => {
@@ -157,6 +160,39 @@ describe("MarketPageClient", () => {
     expect(screen.getByRole("heading", { name: "MCP 服务目录为空" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "搜索 MCP 服务" })).not.toBeInTheDocument();
     expect(screen.queryByText("暂无 MCP 服务。")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加第一个服务" })).toBeInTheDocument();
+  });
+
+  it("publishes a workspace-private MCP release from the market", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "MCP 市场" }));
+    await user.click(screen.getByRole("button", { name: "添加 MCP 服务" }));
+    const dialog = screen.getByRole("dialog", { name: "添加 MCP 服务" });
+    const catalogForm = within(dialog);
+    await user.type(catalogForm.getByLabelText("服务名称", { selector: "input" }), "Internal Search");
+    await user.type(catalogForm.getByLabelText("Endpoint (HTTPS)"), "https://mcp.internal.example/mcp");
+    await user.type(catalogForm.getByLabelText("工具 1"), "search_records");
+    await user.type(catalogForm.getByLabelText("说明", { selector: "input" }), "Search internal records");
+    await user.click(catalogForm.getByRole("button", { name: "发布到目录" }));
+
+    await waitFor(() => expect(actionMocks.createMcpCatalogItem).toHaveBeenCalledTimes(1));
+    expect(actionMocks.createMcpCatalogItem).toHaveBeenCalledWith(expect.objectContaining({
+      slug: "internal-search",
+      displayName: "Internal Search",
+      transport: "streamable_http",
+      allowedHosts: ["mcp.internal.example"],
+      risk: "high",
+      declaredTools: [{ name: "search_records", description: "Search internal records", risk: "medium" }],
+    }));
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
   });
 
   it("only shows online runtimes in the target runtime selector", () => {
