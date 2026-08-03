@@ -10,13 +10,17 @@ import {
   listSkillServiceBindingsForServiceSync,
   listSkillServiceBindingsSync,
   readManagedSkillServiceSync,
+  readSkillArtifactByDigestSync,
   readSkillInstallationSync,
   upsertSkillServiceCatalogSync,
 } from "@dofe-agent/db";
 import {
+  approveSkillInstallSync,
   buildAndPersistSkillArtifactSync,
+  buildSkillInstallRiskItemsSync,
   completeManagedSkillServiceProvisionOperationSync,
   completeManagedSkillServiceRetireOperationSync,
+  computeSkillReleaseLockSync,
   createSkillInstallationPlanSync,
   queueManagedSkillServiceForInstallationSync,
   queueManagedSkillServiceRetireSync,
@@ -39,7 +43,21 @@ before(() => {
 beforeEach(() => {
   resetWorkspaceStateSync();
   testTosStorage.clear();
+  getDatabase().exec("DELETE FROM skill_install_approval");
 });
+
+function approvedPlan(runtimeId: string, artifactDigest: string) {
+  const artifact = readSkillArtifactByDigestSync(artifactDigest, "default");
+  const riskItems = buildSkillInstallRiskItemsSync({ artifactDigest });
+  const lock = computeSkillReleaseLockSync(artifact, "default");
+  const approvalId = approveSkillInstallSync({
+    artifactDigest,
+    releaseLockDigest: lock.lockDigest,
+    riskItems,
+    reason: "test approval",
+  }).approvalId;
+  return createSkillInstallationPlanSync({ runtimeId, artifactDigest, approvalId });
+}
 
 after(() => {
   testTosStorage.clear();
@@ -350,7 +368,7 @@ test("complete marks the service ready, creates the binding, and the installatio
     files: [{ path: "SKILL.md", bytes: encoder.encode("# Body\n") }],
     services: [{ catalogSlug: CATALOG_SLUG, templateVersion: "1.0.0", required: true }],
   });
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  const installation = approvedPlan(runtimeId, artifact.digest);
 
   const ops = listManagedSkillServiceOperationsSync({ workspaceId: "default", runtimeId });
   assert.equal(ops.length, 1, "plan must queue one provision operation");
@@ -421,7 +439,7 @@ test("retire marks the service retired and the dependent installation goes block
     files: [{ path: "SKILL.md", bytes: encoder.encode("# Retire\n") }],
     services: [{ catalogSlug: CATALOG_SLUG, templateVersion: "1.0.0", required: true }],
   });
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  const installation = approvedPlan(runtimeId, artifact.digest);
 
   // Provision to ready first (queues a provision op; complete binds it).
   const provisionClaimed = claimNextManagedSkillServiceOperationForRuntimeSync({ workspaceId: "default", runtimeId });
@@ -687,7 +705,7 @@ async function provisionGreenToReady(runtimeId: string, salt: string, slug = CAN
     files: [{ path: "SKILL.md", bytes: encoder.encode(`# ${salt}\n`) }],
     services: [{ catalogSlug: slug, templateVersion: "1.0.0", required: true }],
   });
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  const installation = approvedPlan(runtimeId, artifact.digest);
   const claimed = claimNextManagedSkillServiceOperationForRuntimeSync({ workspaceId: "default", runtimeId });
   assert.ok(claimed);
   assert.equal(claimed.operation, "provision");

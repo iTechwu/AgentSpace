@@ -1,4 +1,5 @@
 import {
+  consumeSkillInstallApprovalSync,
   createSkillInstallationSync,
   completeSkillInstallationOperationSync as completeSkillOperationDbSync,
   failSkillInstallationOperationSync as failSkillOperationDbSync,
@@ -6,6 +7,7 @@ import {
   readContentBlobSync,
   readSkillArtifactByDigestSync,
   readSkillArtifactFilesSync,
+  readSkillInstallApprovalSync,
   readSkillInstallationByLockSync,
   readSkillInstallationComponentsSync,
   readSkillInstallationOperationSync,
@@ -41,6 +43,11 @@ import type { WorkspaceSkill } from "@dofe-agent/domain/workspace";
 import { createSkillInstallationOperationSync } from "@dofe-agent/db";
 import { createAttachmentStorageClient, type AttachmentStorageReadInput } from "../attachments/storage.ts";
 import { evaluateSkillInstallationCapabilitiesSync, resolveSkillServiceComponentStatusSync } from "./capabilities.ts";
+import {
+  buildSkillInstallRiskItemsSync,
+  computeSkillInstallRiskDecisionDigestSync,
+  SKILL_INSTALL_POLICY_VERSION,
+} from "./install-approval.ts";
 import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
 import { computeSkillReleaseLockSync } from "./release.ts";
 import { queueManagedSkillServiceForInstallationSync } from "../skill-services/bindings.ts";
@@ -85,6 +92,13 @@ export function createSkillInstallationPlanSync(input: {
   runtimeId: string;
   artifactDigest: string;
   requestedByUserId?: string;
+  /**
+   * Immutable per-item risk approval (created via `approveSkillInstallSync`).
+   * REQUIRED when the artifact declares any script/network/high-risk-MCP/write
+   * capability; validated against the re-derived risk decision digest and
+   * consumed atomically inside the plan-creation transaction.
+   */
+  approvalId?: string;
 }): StoredSkillInstallationRecord {
   const artifact = readSkillArtifactByDigestSync(input.artifactDigest, input.workspaceId);
   if (!artifact) {
@@ -95,7 +109,59 @@ export function createSkillInstallationPlanSync(input: {
   const lock = computeSkillReleaseLockSync(artifact, input.workspaceId ?? "default");
   const resolvedLockJson = JSON.stringify(lock);
 
+  // First-install risk gate: an artifact with executable / network /
+  // high-risk-MCP / write capabilities requires a per-item approval bound to
+  // (artifactDigest, releaseLockDigest, policyVersion, riskDecisionDigest).
+  const riskItems = buildSkillInstallRiskItemsSync({
+    workspaceId: input.workspaceId,
+    artifactDigest: artifact.digest,
+  });
+  const riskDecisionDigest = riskItems.length > 0
+    ? computeSkillInstallRiskDecisionDigestSync({
+        artifactDigest: artifact.digest,
+        releaseLockDigest: lock.lockDigest,
+        riskItems,
+      })
+    : undefined;
+  if (riskItems.length > 0) {
+    const workspaceId = input.workspaceId ?? "default";
+    if (!input.approvalId) {
+      throw new Error(
+        `安装包含 ${riskItems.length} 项高风险能力（脚本/网络/高风险 MCP 工具/写能力），需要逐项审批后才能创建安装计划。`,
+      );
+    }
+    const approval = readSkillInstallApprovalSync(input.approvalId, workspaceId);
+    if (!approval) {
+      throw new Error(`审批 "${input.approvalId}" 不存在。`);
+    }
+    if (approval.decision !== "approved") {
+      throw new Error("审批决定不是 approved。");
+    }
+    if (
+      approval.artifactDigest !== artifact.digest
+      || approval.releaseLockDigest !== lock.lockDigest
+      || approval.riskDecisionDigest !== riskDecisionDigest
+      || approval.policyVersion !== SKILL_INSTALL_POLICY_VERSION
+    ) {
+      throw new Error("审批与当前 artifact/release lock/风险集合/策略版本不匹配，需要重新审批。");
+    }
+    if (approval.consumedAt) {
+      throw new Error("审批已被其他安装消费。");
+    }
+  }
+
   return withTransaction(getDatabase(), () => {
+    if (riskItems.length > 0 && input.approvalId) {
+      const consumed = consumeSkillInstallApprovalSync(
+        input.approvalId,
+        input.workspaceId ?? "default",
+        SKILL_INSTALL_POLICY_VERSION,
+      );
+      if (!consumed) {
+        throw new Error("审批已被并发消费，请重新审批。");
+      }
+    }
+
     const installation = createSkillInstallationSync({
       workspaceId: input.workspaceId,
       runtimeId: input.runtimeId,

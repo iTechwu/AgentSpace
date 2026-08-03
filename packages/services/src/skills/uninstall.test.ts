@@ -6,12 +6,16 @@ import {
   listManagedSkillServiceOperationsSync,
   listSkillServiceBindingsSync,
   readManagedSkillServiceSync,
+  readSkillArtifactByDigestSync,
   readSkillInstallationSync,
   upsertSkillServiceCatalogSync,
 } from "@dofe-agent/db";
 import {
+  approveSkillInstallSync,
   buildAndPersistSkillArtifactSync,
+  buildSkillInstallRiskItemsSync,
   completeManagedSkillServiceProvisionOperationSync,
+  computeSkillReleaseLockSync,
   createSkillInstallationPlanSync,
   resetWorkspaceStateSync,
   retireUnreferencedManagedSkillServicesSync,
@@ -34,7 +38,21 @@ before(() => {
 beforeEach(() => {
   resetWorkspaceStateSync();
   testTosStorage.clear();
+  getDatabase().exec("DELETE FROM skill_install_approval");
 });
+
+function approvedPlan(runtimeId: string, artifactDigest: string) {
+  const artifact = readSkillArtifactByDigestSync(artifactDigest, "default");
+  const riskItems = buildSkillInstallRiskItemsSync({ artifactDigest });
+  const lock = computeSkillReleaseLockSync(artifact, "default");
+  const approvalId = approveSkillInstallSync({
+    artifactDigest,
+    releaseLockDigest: lock.lockDigest,
+    riskItems,
+    reason: "test approval",
+  }).approvalId;
+  return createSkillInstallationPlanSync({ runtimeId, artifactDigest, approvalId });
+}
 
 after(() => {
   testTosStorage.clear();
@@ -71,7 +89,7 @@ function buildArtifactWithService(salt: string) {
 
 /** Plan → provision-complete → service ready + binding + installation ready. */
 async function provisionToReady(runtimeId: string, artifactDigest: string) {
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest });
+  const installation = approvedPlan(runtimeId, artifactDigest);
   const claimed = claimNextManagedSkillServiceOperationForRuntimeSync({ workspaceId: "default", runtimeId });
   assert.ok(claimed);
   const completed = completeManagedSkillServiceProvisionOperationSync({

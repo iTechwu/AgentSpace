@@ -925,6 +925,14 @@ export {
   type SkillInstallationComponentInput,
 } from "./skill-installations.ts";
 export {
+  createSkillInstallApprovalSync,
+  readSkillInstallApprovalSync,
+  readSkillInstallApprovalByLockSync,
+  listSkillInstallApprovalsSync,
+  consumeSkillInstallApprovalSync,
+  type CreateSkillInstallApprovalInput,
+} from "./skill-install-approvals.ts";
+export {
   createSkillUpgradeApprovalSync,
   readSkillUpgradeApprovalSync,
   readSkillUpgradeApprovalByLockSync,
@@ -937,6 +945,8 @@ export type {
   StoredSkillInstallationComponentRecord,
   StoredSkillInstallationOperationRecord,
   SkillUpgradeApprovalRecord,
+  SkillInstallApprovalRecord,
+  SkillInstallApprovalRiskItem,
 } from "./types.ts";
 export {
   upsertSkillServiceCatalogSync,

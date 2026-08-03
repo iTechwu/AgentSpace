@@ -1502,6 +1502,28 @@ export interface StoredSkillInstallationComponentRecord {
   updatedAt: string;
 }
 
+export interface SkillInstallApprovalRiskItem {
+  category: "script" | "network" | "mcp_tool" | "write";
+  key: string;
+  description: string;
+}
+
+export interface SkillInstallApprovalRecord {
+  id: string;
+  workspaceId: string;
+  skillId?: string;
+  artifactDigest: string;
+  releaseLockDigest: string;
+  policyVersion: string;
+  riskDecisionDigest: string;
+  decision: "approved" | "rejected";
+  riskItems: SkillInstallApprovalRiskItem[];
+  reason?: string;
+  actorUserId?: string;
+  createdAt: string;
+  consumedAt?: string;
+}
+
 export interface SkillUpgradeApprovalRecord {
   id: string;
   workspaceId: string;

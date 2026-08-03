@@ -15,16 +15,20 @@ import {
   readSkillInstallationSync,
   renewSkillInstallationOperationLeaseSync,
   requeueExpiredSkillInstallationOperationLeasesSync,
+  readSkillArtifactByDigestSync,
   startSkillInstallationOperationSync,
   updateSkillInstallationComponentStatusSync,
   upsertSkillServiceCatalogSync,
 } from "@dofe-agent/db";
 import {
+  approveSkillInstallSync,
   approveSkillUpgradeSync,
   assertSkillInstallationReadyForTaskSync,
   buildAndPersistSkillArtifactSync,
+  buildSkillInstallRiskItemsSync,
   buildSkillRunnerEntrypointsForSnapshotSync,
   completeSkillInstallationOperationSync,
+  computeSkillReleaseLockSync,
   computeSkillUpgradeDiffHashSync,
   createSkillInstallationPlanSync,
   createSkillUpgradePlanSync,
@@ -52,6 +56,7 @@ beforeEach(() => {
   resetWorkspaceStateSync();
   testTosStorage.clear();
   getDatabase().exec("DELETE FROM skill_upgrade_approval");
+  getDatabase().exec("DELETE FROM skill_install_approval");
 });
 
 after(() => {
@@ -94,11 +99,29 @@ function buildArtifact(skillId?: string) {
   });
 }
 
+/**
+ * Creates an install plan for a risk-bearing test artifact, first obtaining a
+ * fresh per-item risk approval bound to the artifact's release lock
+ * (first-install risk gate, P0-2).
+ */
+function approvedPlan(runtimeId: string, artifactDigest: string) {
+  const artifact = readSkillArtifactByDigestSync(artifactDigest, "default");
+  const riskItems = buildSkillInstallRiskItemsSync({ artifactDigest });
+  const lock = computeSkillReleaseLockSync(artifact, "default");
+  const approvalId = approveSkillInstallSync({
+    artifactDigest,
+    releaseLockDigest: lock.lockDigest,
+    riskItems,
+    reason: "test approval",
+  }).approvalId;
+  return createSkillInstallationPlanSync({ runtimeId, artifactDigest, approvalId });
+}
+
 test("createSkillInstallationPlanSync builds installation, components, and a queued operation", () => {
   const runtimeId = createTestRuntime();
   const { artifact, digest } = buildArtifact();
 
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  const installation = approvedPlan(runtimeId, digest);
 
   assert.equal(installation.artifactDigest, artifact.digest);
   assert.equal(installation.status, "preparing");
@@ -121,7 +144,7 @@ test("createSkillInstallationPlanSync builds installation, components, and a que
 test("buildSkillRunnerEntrypointsForSnapshotSync derives executable scripts from the frozen artifact", () => {
   const runtimeId = createTestRuntime();
   const { artifact, digest } = buildArtifact();
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  const installation = approvedPlan(runtimeId, digest);
   const entrypoints = buildSkillRunnerEntrypointsForSnapshotSync({
     workspaceId: "default",
     runtimeId,
@@ -155,7 +178,7 @@ test("buildSkillRunnerEntrypointsForSnapshotSync derives executable scripts from
 test("claim → resolve → complete drives the installation to ready", async () => {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  const installation = approvedPlan(runtimeId, digest);
 
   const claimed = claimNextSkillInstallationOperationForRuntimeSync({ workspaceId: "default", runtimeId });
   assert.ok(claimed);
@@ -192,7 +215,7 @@ test("claim → resolve → complete drives the installation to ready", async ()
 test("completion records the daemon's Runtime cache preparedPath + preparedDigest", () => {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  const installation = approvedPlan(runtimeId, digest);
 
   const claimed = claimNextSkillInstallationOperationForRuntimeSync({ workspaceId: "default", runtimeId });
   assert.ok(claimed);
@@ -223,7 +246,7 @@ test("completion records the daemon's Runtime cache preparedPath + preparedDiges
 test("a failed prepare blocks components and the installation never reaches ready", () => {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  const installation = approvedPlan(runtimeId, digest);
 
   const claimed = claimNextSkillInstallationOperationForRuntimeSync({ workspaceId: "default", runtimeId });
   assert.ok(claimed);
@@ -253,8 +276,8 @@ test("a failed prepare blocks components and the installation never reaches read
 test("installation plan creation is idempotent by release lock", () => {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();
-  const first = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
-  const second = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  const first = approvedPlan(runtimeId, digest);
+  const second = approvedPlan(runtimeId, digest);
   assert.equal(first.id, second.id);
 });
 
@@ -277,7 +300,7 @@ test("upgrade creates a candidate revision and rollback reactivates the previous
   const skill = createWorkspaceSkillSync({ name: "Rollback Test", description: "rollback" });
   const runtimeId = createTestRuntime();
   const first = buildArtifact(skill.id);
-  const v1 = createSkillInstallationPlanSync({ runtimeId, artifactDigest: first.digest });
+  const v1 = approvedPlan(runtimeId, first.digest);
   await completeAllComponents(v1.id, runtimeId);
 
   // New artifact content → different digest.
@@ -402,7 +425,7 @@ function setupClaimedPrepareOperation(): {
 } {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  const installation = approvedPlan(runtimeId, digest);
   const claimed = claimNextSkillInstallationOperationForRuntimeSync({ workspaceId: "default", runtimeId });
   assert.ok(claimed);
   return { runtimeId, digest, installationId: installation.id, claimed: claimed! };
@@ -630,7 +653,7 @@ function claimForTest(runtimeId: string, now: Date) {
 test("claim grants a lease and fences a second claim", () => {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();
-  createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  approvedPlan(runtimeId, digest);
 
   const claimed = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
   assert.ok(claimed);
@@ -647,7 +670,7 @@ test("claim grants a lease and fences a second claim", () => {
 test("start and complete require an unexpired lease", () => {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();
-  createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  approvedPlan(runtimeId, digest);
 
   // Claim with a lease that expires almost immediately.
   const claimed = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
@@ -684,7 +707,7 @@ test("start and complete require an unexpired lease", () => {
 test("heartbeat renews the operation lease", () => {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();
-  createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  approvedPlan(runtimeId, digest);
 
   const claimed = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
   assert.ok(claimed);
@@ -719,7 +742,7 @@ test("heartbeat renews the operation lease", () => {
 test("the reaper re-queues expired operations for crash recovery", () => {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();
-  createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  approvedPlan(runtimeId, digest);
 
   const claimed = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
   assert.ok(claimed);
@@ -747,7 +770,7 @@ test("the reaper re-queues expired operations for crash recovery", () => {
 test("a stale worker cannot mutate an operation after it is re-claimed", () => {
   const runtimeId = createTestRuntime();
   const { digest } = buildArtifact();
-  createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  approvedPlan(runtimeId, digest);
 
   const first = claimForTest(runtimeId, new Date("2026-01-01T00:00:00Z"));
   assert.ok(first?.claimGeneration);
@@ -807,7 +830,7 @@ test("a service component without a binding blocks the installation even if the 
   const runtimeId = createTestRuntime();
   seedRendererCatalog();
   const artifact = buildArtifactWithService("svc-a");
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  const installation = approvedPlan(runtimeId, artifact.digest);
   assert.equal(installation.status, "preparing", "catalog entry resolves the service, so the plan is not blocked");
 
   await completeAllComponents(installation.id, runtimeId);
@@ -825,7 +848,7 @@ test("a service component with a ready managed service + binding lets the instal
   const runtimeId = createTestRuntime();
   const catalogId = seedRendererCatalog();
   const artifact = buildArtifactWithService("svc-b");
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  const installation = approvedPlan(runtimeId, artifact.digest);
 
   const managed = createManagedSkillServiceSync({
     workspaceId: "default",

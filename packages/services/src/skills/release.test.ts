@@ -7,6 +7,7 @@ import {
   listManagedSkillServiceOperationsSync,
   randomLikeId,
   readActiveArtifactDigestForSkillSync,
+  readSkillArtifactByDigestSync,
   readStoredWorkspaceSkillSync,
   readSkillInstallationComponentsSync,
   setSkillInstallationStatusSync,
@@ -16,7 +17,9 @@ import {
   upsertSkillServiceCatalogSync,
 } from "@dofe-agent/db";
 import {
+  approveSkillInstallSync,
   buildAndPersistSkillArtifactSync,
+  buildSkillInstallRiskItemsSync,
   createSkillInstallationPlanSync,
   createWorkspaceSkillSync,
   resetWorkspaceStateSync,
@@ -310,7 +313,7 @@ function buildUpgradeArtifacts(skillId?: string | null) {
 }
 
 function readyInstall(runtimeId: string, digest: string): { id: string } {
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: digest });
+  const installation = approvedPlan(runtimeId, digest);
   setSkillInstallationStatusSync({
     installationId: installation.id,
     workspaceId: "default",
@@ -318,6 +321,20 @@ function readyInstall(runtimeId: string, digest: string): { id: string } {
     health: "healthy",
   });
   return installation;
+}
+
+/** Creates an install plan after obtaining a fresh per-item risk approval (P0-2 gate). */
+function approvedPlan(runtimeId: string, artifactDigest: string) {
+  const artifact = readSkillArtifactByDigestSync(artifactDigest, "default");
+  const riskItems = buildSkillInstallRiskItemsSync({ artifactDigest });
+  const lock = computeSkillReleaseLockSync(artifact, "default");
+  const approvalId = approveSkillInstallSync({
+    artifactDigest,
+    releaseLockDigest: lock.lockDigest,
+    riskItems,
+    reason: "test approval",
+  }).approvalId;
+  return createSkillInstallationPlanSync({ runtimeId, artifactDigest, approvalId });
 }
 
 function breakingDiffHash(first: { digest: string; artifact: { manifestJson: string } }, second: { digest: string; artifact: { manifestJson: string } }): string {
@@ -397,7 +414,7 @@ test("createSkillUpgradePlanSync rejects a non-ready previous installation", () 
   resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
   const { first, second } = buildUpgradeArtifacts();
-  const v1 = createSkillInstallationPlanSync({ runtimeId, artifactDigest: first.digest }); // still preparing
+  const v1 = approvedPlan(runtimeId, first.digest); // still preparing
   const diffHash = breakingDiffHash(first, second);
   const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
 
@@ -568,7 +585,7 @@ test("a required service without a catalog entry makes the lock unresolved and b
 
   // Fail-closed: the installation is blocked at plan time.
   const runtimeId = createTestRuntime();
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  const installation = approvedPlan(runtimeId, artifact.digest);
   assert.equal(installation.status, "blocked");
 });
 
@@ -583,7 +600,7 @@ test("an optional service without a catalog entry does not block the plan", () =
   const lock = computeSkillReleaseLockSync(artifact, "default");
   assert.deepEqual(lock.unresolvedRequired, []);
   const runtimeId = createTestRuntime();
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  const installation = approvedPlan(runtimeId, artifact.digest);
   assert.equal(installation.status, "preparing");
 });
 
@@ -603,7 +620,7 @@ test("verifySkillInstallationLockReconstructableSync proves reproducibility, and
     services: [{ catalogSlug: "document-renderer", templateVersion: "2.1.0", required: true }],
   });
   const runtimeId = createTestRuntime();
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  const installation = approvedPlan(runtimeId, artifact.digest);
   assert.equal(installation.status, "preparing", "required service is pinned, so not blocked");
   assert.equal(verifySkillInstallationLockReconstructableSync(installation.id, "default"), true);
 
@@ -638,10 +655,7 @@ test("MCP release locks remain reconstructable after a newer catalog release is 
     files: [{ path: "SKILL.md", bytes: ENCODER.encode("# Body\n") }],
     capabilities: [{ kind: "mcp", catalogSlug: "github-versioned", requiredTools: ["search_issues"] }],
   });
-  const installation = createSkillInstallationPlanSync({
-    runtimeId: createTestRuntime(),
-    artifactDigest: artifact.digest,
-  });
+  const installation = approvedPlan(createTestRuntime(), artifact.digest);
   const lock = readSkillInstallationLockSync(installation.id, "default");
   assert.deepEqual(lock?.mcpCatalogReleases["github-versioned"], {
     catalogItemId: firstRelease.id,

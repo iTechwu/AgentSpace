@@ -6,6 +6,7 @@ import {
   createMcpConnectionSync,
   getDatabase,
   randomLikeId,
+  readSkillArtifactByDigestSync,
   readSkillInstallationSync,
   readSkillInstallationComponentsSync,
   updateMcpConnectionStatusSync,
@@ -15,8 +16,11 @@ import {
 } from "@dofe-agent/db";
 import { resetWorkspaceStateSync } from "../index.ts";
 import {
+  approveSkillInstallSync,
   assertSkillInstallationReadyForTaskSync,
   buildAndPersistSkillArtifactSync,
+  buildSkillInstallRiskItemsSync,
+  computeSkillReleaseLockSync,
   createSkillInstallationPlanSync,
   disableMcpConnectionSync,
   evaluateSkillInstallationReadinessSync,
@@ -31,7 +35,21 @@ before(() => {
 
 beforeEach(() => {
   resetWorkspaceStateSync();
+  getDatabase().exec("DELETE FROM skill_install_approval");
 });
+
+function approvedPlan(runtimeId: string, artifactDigest: string) {
+  const artifact = readSkillArtifactByDigestSync(artifactDigest, "default");
+  const riskItems = buildSkillInstallRiskItemsSync({ artifactDigest });
+  const lock = computeSkillReleaseLockSync(artifact, "default");
+  const approvalId = approveSkillInstallSync({
+    artifactDigest,
+    releaseLockDigest: lock.lockDigest,
+    riskItems,
+    reason: "test approval",
+  }).approvalId;
+  return createSkillInstallationPlanSync({ runtimeId, artifactDigest, approvalId });
+}
 
 function createTestRuntime(): string {
   const id = `rt-${randomLikeId()}`;
@@ -137,7 +155,7 @@ test("legacy MCP fingerprints stay pinned to their historical catalog release", 
     files: [{ path: "SKILL.md", bytes: new TextEncoder().encode("# Legacy lock\n") }],
     capabilities: [{ kind: "mcp", catalogSlug: slug, requiredTools: ["search_issues"] }],
   });
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  const installation = approvedPlan(runtimeId, artifact.digest);
   const v1Fingerprint = createHash("sha256").update(JSON.stringify(v1Tools)).digest("hex");
   getDatabase().prepare(
     "UPDATE skill_installation SET resolved_lock_json = ? WHERE id = ?",
@@ -191,7 +209,7 @@ test("disabling an MCP connection immediately blocks dependent Skill installatio
     files: [{ path: "SKILL.md", bytes: new TextEncoder().encode("# MCP invalidation\n") }],
     capabilities: [{ kind: "mcp", catalogSlug, requiredTools: ["search_issues"] }],
   });
-  const installation = createSkillInstallationPlanSync({ runtimeId, artifactDigest: artifact.digest });
+  const installation = approvedPlan(runtimeId, artifact.digest);
   for (const component of readSkillInstallationComponentsSync(installation.id)) {
     updateSkillInstallationComponentStatusSync({
       installationId: installation.id,

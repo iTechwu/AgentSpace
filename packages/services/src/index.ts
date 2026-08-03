@@ -409,6 +409,12 @@ export {
   parseFailSkillInstallationOperationPayload,
 } from "./skills/installations-protocol.ts";
 export {
+  SKILL_INSTALL_POLICY_VERSION,
+  buildSkillInstallRiskItemsSync,
+  computeSkillInstallRiskDecisionDigestSync,
+  approveSkillInstallSync,
+} from "./skills/install-approval.ts";
+export {
   resolveSkillMcpCapabilitySync,
   resolveSkillCliCapabilitySync,
   evaluateSkillInstallationCapabilitiesSync,

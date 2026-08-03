@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "93";
+export const POSTGRES_SCHEMA_VERSION = "95";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -87,6 +87,7 @@ export const POSTGRES_TABLE_NAMES = [
   "skill_installation",
   "skill_installation_operation",
   "skill_upgrade_approval",
+  "skill_install_approval",
   "skill_installation_component",
   "skill_service_catalog",
   "managed_skill_service",
@@ -2635,6 +2636,37 @@ export function getPostgresSchemaStatements(): string[] {
     `,
     `ALTER TABLE skill_upgrade_approval DROP CONSTRAINT IF EXISTS skill_upgrade_approval_workspace_id_from_digest_to_digest_diff_hash_key`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_upgrade_approval_policy_lock ON skill_upgrade_approval(workspace_id, from_digest, to_digest, diff_hash, policy_version)`,
+    `
+      CREATE TABLE IF NOT EXISTS skill_install_approval (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        skill_id TEXT REFERENCES skill(id) ON DELETE SET NULL,
+        artifact_digest TEXT NOT NULL,
+        release_lock_digest TEXT NOT NULL,
+        policy_version TEXT NOT NULL DEFAULT 'v1',
+        risk_decision_digest TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        risk_items_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        reason TEXT,
+        actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        consumed_at TIMESTAMPTZ
+      )
+    `,
+    `DROP INDEX IF EXISTS idx_skill_install_approval_lock_decision`,
+    `DO $$
+      DECLARE c record;
+      BEGIN
+        FOR c IN SELECT conname FROM pg_constraint
+          WHERE conrelid = 'skill_install_approval'::regclass AND contype = 'u'
+        LOOP
+          EXECUTE format('ALTER TABLE skill_install_approval DROP CONSTRAINT %I', c.conname);
+        END LOOP;
+      END $$`,
+    `
+      CREATE INDEX IF NOT EXISTS idx_skill_install_approval_lock
+        ON skill_install_approval(workspace_id, artifact_digest, release_lock_digest, policy_version, risk_decision_digest)
+    `,
     `
       CREATE TABLE IF NOT EXISTS skill_installation (
         id TEXT PRIMARY KEY,
