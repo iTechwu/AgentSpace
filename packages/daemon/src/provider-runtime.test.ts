@@ -2206,6 +2206,7 @@ test("managed runtimes do not inherit host provider credentials", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-managed-env-"));
   const binPath = join(workDir, "codex");
   const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const originalMcpAdminToken = process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN;
   writeFileSync(
     binPath,
     [
@@ -2216,7 +2217,7 @@ test("managed runtimes do not inherit host provider credentials", async () => {
       "  if [ \"$previous_arg\" = '-o' ]; then output_path=\"$arg\"; fi",
       "  previous_arg=\"$arg\"",
       "done",
-      "printf '[%s]' \"${OPENAI_API_KEY-unset}\" > \"$output_path\"",
+      "printf '[%s|%s]' \"${OPENAI_API_KEY-unset}\" \"${MCP_EGRESS_PROXY_ADMIN_TOKEN-unset}\" > \"$output_path\"",
       "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"managed-session\"}'",
       "",
     ].join("\n"),
@@ -2224,6 +2225,7 @@ test("managed runtimes do not inherit host provider credentials", async () => {
   );
   chmodSync(binPath, 0o755);
   process.env.OPENAI_API_KEY = "host-only-key";
+  process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN = "must-not-reach-provider";
 
   const runtime: ProviderRuntimeRecord = {
     id: "runtime-managed-env",
@@ -2240,10 +2242,12 @@ test("managed runtimes do not inherit host provider credentials", async () => {
 
   try {
     const result = await runProviderTask(runtime, "verify isolation", workDir, { taskTimeoutMs: 5_000 });
-    assert.equal(result.output, "[]");
+    assert.equal(result.output, "[|unset]");
   } finally {
     if (originalOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = originalOpenAiKey;
+    if (originalMcpAdminToken === undefined) delete process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN;
+    else process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN = originalMcpAdminToken;
     rmSync(workDir, { recursive: true, force: true });
   }
 });

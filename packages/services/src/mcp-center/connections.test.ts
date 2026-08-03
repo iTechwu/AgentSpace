@@ -601,15 +601,79 @@ test("validateMcpConnectionForGateway rejects a disabled or reconfigured connect
   });
 
   assert.equal(
-    validateMcpConnectionForGatewaySync({ workspaceId: "default", connectionId: connection.id, toolName: "search_repos" }).ok,
+    validateMcpConnectionForGatewaySync({
+      workspaceId: "default",
+      runtimeId,
+      taskId: "task-validation",
+      connectionId: connection.id,
+      toolName: "search_repos",
+    }).ok,
     true,
   );
 
   disableMcpConnectionSync({ workspaceId: "default", connectionId: connection.id, actorUserId: ADMIN_USER_ID });
   assert.equal(
-    validateMcpConnectionForGatewaySync({ workspaceId: "default", connectionId: connection.id, toolName: "search_repos" }).ok,
+    validateMcpConnectionForGatewaySync({
+      workspaceId: "default",
+      runtimeId,
+      taskId: "task-validation",
+      connectionId: connection.id,
+      toolName: "search_repos",
+    }).ok,
     false,
   );
+});
+
+test("validateMcpConnectionForGateway issues a fresh task-call lease on every validation", () => {
+  const originalSigningSecret = process.env.MCP_EGRESS_PROXY_LEASE_SIGNING_SECRET;
+  process.env.MCP_EGRESS_PROXY_LEASE_SIGNING_SECRET = "test-signing-secret-that-is-at-least-32-bytes";
+  const runtimeId = createRuntime();
+  const catalogId = seedCatalog();
+  const { connection, operation } = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalogId,
+    endpoint: "https://github-mcp.example.com/mcp",
+    secrets: { api_key: "x" },
+    approvedTools: ["search_repos"],
+    confirmHighRisk: true,
+  });
+  claimNextMcpOperationForRuntimeSync({ workspaceId: "default", runtimeId });
+  startMcpOperationSync(operation.id, "default");
+  completeMcpOperationSync({
+    operationId: operation.id,
+    workspaceId: "default",
+    verification: {
+      status: "ready",
+      protocolVersion: "2025-06-18",
+      toolsMetadataJson: JSON.stringify([
+        { name: "search_repos", description: "Search repositories", inputSchema: { type: "object" }, inputSchemaDigest: "d1" },
+      ]),
+      toolsFingerprint: "fp",
+      latencyMs: 50,
+    },
+  });
+
+  try {
+    const input = {
+      workspaceId: "default",
+      runtimeId,
+      taskId: "task-fresh-lease",
+      connectionId: connection.id,
+      toolName: "search_repos",
+    };
+    const first = validateMcpConnectionForGatewaySync(input);
+    const second = validateMcpConnectionForGatewaySync(input);
+    assert.equal(first.ok, true);
+    assert.equal(second.ok, true);
+    assert.ok(first.ok && first.egressProxyLease);
+    assert.ok(second.ok && second.egressProxyLease);
+    assert.notEqual(first.ok && first.egressProxyLease, second.ok && second.egressProxyLease);
+  } finally {
+    if (originalSigningSecret === undefined) delete process.env.MCP_EGRESS_PROXY_LEASE_SIGNING_SECRET;
+    else process.env.MCP_EGRESS_PROXY_LEASE_SIGNING_SECRET = originalSigningSecret;
+  }
 });
 
 test("claimMcpTaskSession is one-time: second claim returns empty connections", () => {

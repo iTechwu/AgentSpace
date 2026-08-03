@@ -14,7 +14,7 @@ import {
   type AgentRouterEvent,
   type AgentRouterHarness,
 } from "./agent-router/index.ts";
-import { buildEnvValueRedactions, buildRedactions, redactText } from "./agent-router/utils.ts";
+import { buildEnvValueRedactions, buildRedactions, isDaemonOnlyProviderEnvironmentKey, redactText } from "./agent-router/utils.ts";
 import { clearTaskOutputArtifacts } from "./bundle.ts";
 import { buildOpenClawProviderHealthSnapshot, inspectOpenClawDaemonAuthHealth } from "./openclaw-health.ts";
 import { readCliHubReadiness, resolveRuntimeAppUserBinDir } from "./runtime-apps.ts";
@@ -2323,6 +2323,11 @@ function buildProviderEnv(runtime: ProviderRuntimeRecord, extra?: NodeJS.Process
         continue;
       }
       env[key] = key === "PATH" ? ensureProviderPath(value, runtime) : value;
+    }
+  }
+  for (const key of Object.keys(env)) {
+    if (isDaemonOnlyProviderEnvironmentKey(key)) {
+      delete env[key];
     }
   }
   return env;

@@ -1280,7 +1280,14 @@ async function getMcpGatewayForTask(client: HttpDaemonClient, auditOutbox: McpAu
           const response = await client.validateMcpConnectionForTask(input.taskId, input.connectionId, {
             toolName: input.toolName,
           });
-          return response.ok ? { ok: true, approvedTools: response.approvedTools ?? [] } : { ok: false };
+          return response.ok
+            ? {
+                ok: true,
+                approvedTools: response.approvedTools ?? [],
+                egressProxyLease: response.egressProxyLease,
+                egressProxyPolicySnapshot: response.egressProxyPolicySnapshot,
+              }
+            : { ok: false };
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           console.error(`MCP connection validation failed for task ${input.taskId}: ${detail}`);

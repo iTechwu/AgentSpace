@@ -1101,7 +1101,6 @@ function resolveClaimedMcpTaskSessionResult(input: {
 }): ClaimMcpTaskSessionResponse {
   const connections = listMcpConnectionsSync({ workspaceId: input.workspaceId, runtimeId: input.runtimeId, status: "ready", limit: 500 });
   const result: McpTaskSessionConnection[] = [];
-  const leaseSigningKey = readMcpEgressLeaseSigningKey();
   for (const connection of connections) {
     const resolved = resolveReadyMcpConnectionForTask({
       workspaceId: input.workspaceId,
@@ -1112,32 +1111,6 @@ function resolveClaimedMcpTaskSessionResult(input: {
     const secrets = resolveDaemonSecretBundle(readMcpConnectionSecretsSync(connection.id, input.workspaceId));
     if (secrets === null) continue;
     const allowedHosts = parseJsonArray(resolved.catalog.allowedHostsJson);
-    const policyInput = {
-      workspaceId: input.workspaceId,
-      connectionId: resolved.connectionId,
-      releaseId: resolved.catalog.version,
-      endpoint: resolved.fresh.endpoint,
-      allowedHosts,
-      approvedTools: resolved.approved,
-      authMode: inferAuthMode(secrets),
-    };
-    const policyRevision = leaseSigningKey ? buildMcpEgressPolicyRevision(policyInput) : undefined;
-    const egressProxyLeases: Record<string, string> | undefined = policyRevision
-      ? Object.fromEntries(
-          resolved.approved.map((toolName) => [
-            toolName,
-            signMcpEgressLeaseForTaskCall({
-              ...policyInput,
-              runtimeId: input.runtimeId,
-              taskId: input.taskId,
-              toolName,
-            }),
-          ]),
-        )
-      : undefined;
-    const egressProxyPolicySnapshot: McpEgressPolicySnapshot | undefined = policyRevision
-      ? buildMcpEgressPolicySnapshot(policyRevision, secrets)
-      : undefined;
     result.push({
       connectionId: resolved.connectionId,
       workspaceId: input.workspaceId,
@@ -1152,8 +1125,6 @@ function resolveClaimedMcpTaskSessionResult(input: {
       nonSecretParams: parseJsonObject(resolved.fresh.nonSecretParamsJson),
       secrets,
       tools: resolved.tools,
-      egressProxyLeases,
-      egressProxyPolicySnapshot,
     });
   }
   return { connections: result };
@@ -1171,27 +1142,56 @@ function resolveClaimedMcpTaskSessionResult(input: {
  */
 export function validateMcpConnectionForGatewaySync(input: {
   workspaceId: string;
+  runtimeId: string;
+  taskId: string;
   connectionId: string;
   toolName: string;
-}): { ok: true; approvedTools: string[] } | { ok: false } {
+}): {
+  ok: true;
+  approvedTools: string[];
+  egressProxyLease?: string;
+  egressProxyPolicySnapshot?: McpEgressPolicySnapshot;
+} | { ok: false } {
   const connection = readMcpConnectionSync(input.connectionId, input.workspaceId);
-  if (!connection || connection.status !== "ready") {
+  if (!connection || connection.runtimeId !== input.runtimeId || connection.status !== "ready") {
     return { ok: false };
   }
-  const approved = parseJsonArray(connection.approvedToolsJson);
-  if (!approved.includes(input.toolName)) {
+  const resolved = resolveReadyMcpConnectionForTask({
+    workspaceId: input.workspaceId,
+    connection,
+    markDegradedOnMissingTool: false,
+  });
+  if (!resolved || !resolved.approved.includes(input.toolName)) {
     return { ok: false };
   }
-  const snapshot = readLatestMcpDiscoverySnapshotSync(connection.id, input.workspaceId);
-  if (!snapshot) {
-    return { ok: false };
+
+  const leaseSigningKey = readMcpEgressLeaseSigningKey();
+  if (!leaseSigningKey) {
+    return { ok: true, approvedTools: resolved.approved };
   }
-  const discovered = parseDiscoveredTools(snapshot.toolsMetadataJson);
-  const discoveredNames = new Set(discovered.map((t) => t.name));
-  if (!discoveredNames.has(input.toolName)) {
-    return { ok: false };
-  }
-  return { ok: true, approvedTools: approved };
+  const secrets = resolveDaemonSecretBundle(readMcpConnectionSecretsSync(connection.id, input.workspaceId));
+  if (!secrets) return { ok: false };
+  const policyInput = {
+    workspaceId: input.workspaceId,
+    connectionId: connection.id,
+    releaseId: resolved.catalog.version,
+    endpoint: resolved.fresh.endpoint,
+    allowedHosts: parseJsonArray(resolved.catalog.allowedHostsJson),
+    approvedTools: resolved.approved,
+    authMode: inferAuthMode(secrets),
+  };
+  const policyRevision = buildMcpEgressPolicyRevision(policyInput);
+  return {
+    ok: true,
+    approvedTools: resolved.approved,
+    egressProxyLease: signMcpEgressLeaseForTaskCall({
+      ...policyInput,
+      runtimeId: input.runtimeId,
+      taskId: input.taskId,
+      toolName: input.toolName,
+    }),
+    egressProxyPolicySnapshot: buildMcpEgressPolicySnapshot(policyRevision, secrets),
+  };
 }
 
 /* ------------------------------------------------------------------ */

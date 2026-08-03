@@ -1,5 +1,6 @@
 x-mcp-egress-environment: &mcp-egress-environment
-  MCP_EGRESS_ENFORCE: "true"
+  # Keep canary/observe by default until daemon/Provider process isolation gates pass.
+  MCP_EGRESS_ENFORCE: ${MCP_EGRESS_ENFORCE:-false}
   MCP_EGRESS_PROXY_URL: http://mcp-egress-proxy:8080
   MCP_EGRESS_PROXY_ADMIN_TOKEN: ${MCP_EGRESS_PROXY_ADMIN_TOKEN:?Set the active MCP egress proxy admin token}
 

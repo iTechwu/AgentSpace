@@ -14,8 +14,8 @@ services:
       NODE_EXTRA_CA_CERTS: ${MANAGED_NODE_TLS_CA_PATH:+/run/dofe-agent-tls-ca.pem}
       # MCP egress enforcement. When true the entrypoint reconciles DOCKER-USER
       # rules before dropping privileges and starting the managed node daemon.
-      # Defaults to true so a missing override does not leave egress open.
-      MCP_EGRESS_ENFORCE: ${MCP_EGRESS_ENFORCE:-true}
+      # Defaults to canary until daemon/Provider process-isolation probes pass.
+      MCP_EGRESS_ENFORCE: ${MCP_EGRESS_ENFORCE:-false}
       MCP_EGRESS_PROXY_URL: ${MCP_EGRESS_PROXY_URL:?Set MCP_EGRESS_PROXY_URL to the proxy runtime-network IP}
       MCP_EGRESS_PROXY_ADMIN_TOKEN: ${MCP_EGRESS_PROXY_ADMIN_TOKEN:?Set the active MCP egress proxy admin token}
       RUNTIME_SUBNET: ${RUNTIME_SUBNET:-}

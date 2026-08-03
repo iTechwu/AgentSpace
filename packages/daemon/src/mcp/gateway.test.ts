@@ -112,6 +112,37 @@ test("gateway routes an approved tool call through the client and emits an audit
   }
 });
 
+test("gateway uses a freshly validated egress lease for every tool call", async () => {
+  const mock = buildMockClient();
+  let validationCount = 0;
+  const validator = async () => {
+    validationCount += 1;
+    return {
+      ok: true as const,
+      approvedTools: ["search_repos"],
+      egressProxyLease: `lease-${validationCount}`,
+    };
+  };
+  const g = new McpGateway(() => undefined, mock.client, validator);
+  await g.start();
+  const session = g.createTaskSession(buildTaskSession());
+  const client = new Client({ name: "test-client", version: "1" }, { capabilities: {} });
+  const transport = new StreamableHTTPClientTransport(new URL(session.url));
+  await client.connect(transport);
+  try {
+    const name = (await client.listTools()).tools[0]!.name;
+    await client.callTool({ name, arguments: { q: "first" } });
+    await client.callTool({ name, arguments: { q: "second" } });
+
+    assert.equal(validationCount, 2);
+    assert.deepEqual(mock.calls.map((call) => call.connection.egressProxyLease), ["lease-1", "lease-2"]);
+  } finally {
+    await client.close();
+    session.revoke();
+    await g.close();
+  }
+});
+
 test("gateway rejects an approved tool call when the per-call validator reports the connection is stale", async () => {
   const mock = buildMockClient();
   const validator = async () => ({ ok: false as const });

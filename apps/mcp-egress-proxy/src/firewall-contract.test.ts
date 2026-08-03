@@ -72,17 +72,18 @@ test("proxy compose uses public-key verification and durable single-replica stat
   assert.match(source, /ipv4_address:/);
 });
 
-test("runtime and managed-node compose enforce MCP proxy configuration", () => {
+test("runtime and managed-node compose keep canary default while wiring MCP proxy configuration", () => {
   const runtimes = readFileSync(runtimesCompose, "utf8");
-  assert.match(runtimes, /MCP_EGRESS_ENFORCE:\s*"true"/);
+  assert.match(runtimes, /MCP_EGRESS_ENFORCE:\s*\$\{MCP_EGRESS_ENFORCE:-false\}/);
   assert.match(runtimes, /MCP_EGRESS_PROXY_URL:\s*http:\/\/mcp-egress-proxy:8080/);
   assert.match(runtimes, /MCP_EGRESS_PROXY_ADMIN_TOKEN:/);
 
   const managedNode = readFileSync(managedNodeCompose, "utf8");
+  assert.match(managedNode, /MCP_EGRESS_ENFORCE:\s*\$\{MCP_EGRESS_ENFORCE:-false\}/);
   assert.match(managedNode, /MCP_EGRESS_PROXY_URL:/);
   assert.match(managedNode, /MCP_EGRESS_PROXY_ADMIN_TOKEN:/);
 
   const example = readFileSync(managedNodeEnvExample, "utf8");
   assert.match(example, /MANAGED_RUNTIME_DOCKER_NETWORK=dofe-runtime-restricted/);
-  assert.match(example, /MCP_EGRESS_ENFORCE=true/);
+  assert.match(example, /MCP_EGRESS_ENFORCE=false/);
 });

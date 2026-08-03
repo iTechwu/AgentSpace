@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server as HttpServer, type Ser
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { McpTaskSessionConnection, ResolvedMcpConnection } from "@dofe-agent/domain";
+import type { McpEgressPolicySnapshot, McpTaskSessionConnection, ResolvedMcpConnection } from "@dofe-agent/domain";
 import { redactMcpText } from "@dofe-agent/services";
 import { createRuntimeMcpClient } from "./client.ts";
 
@@ -42,6 +42,8 @@ interface McpSessionEntry {
 export interface McpGatewayValidateConnectionResult {
   ok: true;
   approvedTools: string[];
+  egressProxyLease?: string;
+  egressProxyPolicySnapshot?: McpEgressPolicySnapshot;
 }
 
 export type McpGatewayValidateConnection = (input: {
@@ -223,6 +225,8 @@ export class McpGateway {
       // Per-call re-validation: an administrator may have disabled or reconfigured
       // the connection while the task is still running. Stop the call if the
       // current DB state no longer allows this tool.
+      let validatedEgressLease: string | undefined;
+      let validatedPolicySnapshot: McpEgressPolicySnapshot | undefined;
       if (this.validateConnection) {
         const validation = await this.validateConnection({
           taskId: taskSession.taskId,
@@ -233,6 +237,8 @@ export class McpGateway {
         if (!validation.ok || !validation.approvedTools.includes(registered.toolName)) {
           return { content: [{ type: "text", text: "Connection is no longer available for this tool." }], isError: true };
         }
+        validatedEgressLease = validation.egressProxyLease;
+        validatedPolicySnapshot = validation.egressProxyPolicySnapshot;
       }
 
       const resolved: ResolvedMcpConnection = {
@@ -245,8 +251,8 @@ export class McpGateway {
         approvedTools: connection.approvedTools,
         secrets: connection.secrets,
         nonSecretParams: connection.nonSecretParams,
-        egressProxyLease: connection.egressProxyLeases?.[registered.toolName],
-        egressProxyPolicySnapshot: connection.egressProxyPolicySnapshot,
+        egressProxyLease: validatedEgressLease,
+        egressProxyPolicySnapshot: validatedPolicySnapshot,
       };
       const startedAt = Date.now();
       const result = await this.mcpClient.call({

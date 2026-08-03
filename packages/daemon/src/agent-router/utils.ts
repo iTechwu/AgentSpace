@@ -42,6 +42,11 @@ export async function resolveExecutablePath(command: string, executablePath?: st
   return findExecutableOnPath(candidate);
 }
 
+/** Daemon-only MCP egress controls must never cross into a Provider process. */
+export function isDaemonOnlyProviderEnvironmentKey(key: string): boolean {
+  return key.startsWith("MCP_EGRESS_");
+}
+
 export function buildBaseEnv(
   executablePath: string,
   extra?: Record<string, string>,
@@ -49,7 +54,7 @@ export function buildBaseEnv(
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (typeof value === "string") {
+    if (typeof value === "string" && !isDaemonOnlyProviderEnvironmentKey(key)) {
       env[key] = value;
     }
   }
@@ -58,6 +63,7 @@ export function buildBaseEnv(
   env.PATH = ensureExecutablePath(currentPath, executablePath, pathDirs);
   if (extra) {
     for (const [key, value] of Object.entries(extra)) {
+      if (isDaemonOnlyProviderEnvironmentKey(key)) continue;
       env[key] = key === "PATH" ? ensureExecutablePath(value, executablePath, pathDirs) : value;
     }
   }

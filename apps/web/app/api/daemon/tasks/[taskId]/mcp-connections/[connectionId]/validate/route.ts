@@ -26,6 +26,9 @@ export async function POST(
   if (task instanceof Response) {
     return task;
   }
+  if (task.status !== "running") {
+    return Response.json({ ok: false, reason: "Task is no longer running." }, { status: 409 });
+  }
 
   const connection = readMcpConnectionSync(connectionId, auth.workspaceId);
   if (!connection || connection.runtimeId !== task.runtimeId) {
@@ -40,6 +43,8 @@ export async function POST(
 
   const result = validateMcpConnectionForGatewaySync({
     workspaceId: auth.workspaceId,
+    runtimeId: task.runtimeId,
+    taskId: task.id,
     connectionId,
     toolName,
   });
