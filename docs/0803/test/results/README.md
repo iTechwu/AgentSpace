@@ -10,8 +10,8 @@
 | [2026-08-03-用例执行结果.md](./2026-08-03-用例执行结果.md) | 按 160 条测试矩阵统计直接关闭与阻塞范围 |
 | [2026-08-03-缺陷清单.md](./2026-08-03-缺陷清单.md) | 本轮发现的问题、等级、复现和证据 |
 | [playwright-results.json](./playwright-results.json) | Playwright 单 worker 结构化结果 |
-| [playwright-results-workers2.json](./playwright-results-workers2.json) | Playwright 两 worker 结构化结果 |
+| [playwright-results-workers2.json](./playwright-results-workers2.json) | 历史两 worker 竞争复现结果（仅供修复对照） |
 | [evidence](./evidence/) | 已脱敏的真实账号与页面截图 |
-| [playwright-artifacts](./playwright-artifacts/) | 单 worker 失败截图和 error context |
+| [playwright-artifacts](./playwright-artifacts/) | 最终运行状态；`.last-run.json` 为 `passed` |
 
-所有浏览器 trace 均已删除，因为 trace 可能包含表单值、Cookie 或其他会话元数据。结果目录只保留结构化结果、失败上下文和脱敏截图。
+所有浏览器 trace 均已删除，因为 trace 可能包含表单值、Cookie 或其他会话元数据。最终 Chrome E2E 16/16 通过，旧失败截图与 error context 已清理；目录仅保留结构化结果、运行状态和脱敏真实用户截图。

@@ -4,8 +4,8 @@
       "/Users/techwu/.local/opt/node-v24.9.0-darwin-arm64/bin/node",
       "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/node_modules/@playwright/test/cli.js",
       "test",
-      "--workers=1",
-      "--config=../../docs/0803/test/results/playwright.runtime.config.ts"
+      "--config=../../docs/0803/test/results/playwright.runtime.config.ts",
+      "--workers=1"
     ],
     "configFile": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright.runtime.config.ts",
     "rootDir": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e",
@@ -82,7 +82,7 @@
               "annotations": [
                 {
                   "type": "send-latency-ms",
-                  "description": "47"
+                  "description": "42"
                 }
               ],
               "expectedStatus": "passed",
@@ -93,16 +93,16 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 5459,
+                  "duration": 7081,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T14:58:13.132Z",
+                  "startTime": "2026-08-03T17:32:47.730Z",
                   "annotations": [
                     {
                       "type": "send-latency-ms",
-                      "description": "47"
+                      "description": "42"
                     }
                   ],
                   "attachments": []
@@ -126,7 +126,7 @@
       "specs": [
         {
           "title": "mobile workspace drill-down flows render and navigate",
-          "ok": false,
+          "ok": true,
           "tags": [],
           "tests": [
             {
@@ -137,60 +137,20 @@
               "projectName": "",
               "results": [
                 {
-                  "workerIndex": 6,
+                  "workerIndex": 1,
                   "parallelIndex": 0,
-                  "status": "failed",
-                  "duration": 14727,
-                  "error": {
-                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('textbox', { name: /编辑文件内容|Edit file content/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('textbox', { name: /编辑文件内容|Edit file content/i })\u001b[22m\n",
-                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('textbox', { name: /编辑文件内容|Edit file content/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('textbox', { name: /编辑文件内容|Edit file content/i })\u001b[22m\n\n    at /Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/mobile-smoke.spec.ts:27:82",
-                    "location": {
-                      "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/mobile-smoke.spec.ts",
-                      "column": 82,
-                      "line": 27
-                    },
-                    "snippet": "  25 |   await expect(page.getByRole(\"button\", { name: /返回技能列表|Back to skills/i })).toBeVisible();\n  26 |   await expect(page.getByRole(\"textbox\", { name: /Skill name/i })).toBeVisible();\n> 27 |   await expect(page.getByRole(\"textbox\", { name: /编辑文件内容|Edit file content/i })).toBeVisible();\n     |                                                                                  ^\n  28 |\n  29 |   await page.goto(\"/approvals\");\n  30 |   await expect(page.getByRole(\"button\", { name: /全部|All/i })).toBeVisible();"
-                  },
-                  "errors": [
-                    {
-                      "location": {
-                        "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/mobile-smoke.spec.ts",
-                        "column": 82,
-                        "line": 27
-                      },
-                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('textbox', { name: /编辑文件内容|Edit file content/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('textbox', { name: /编辑文件内容|Edit file content/i })\u001b[22m\n\n\n  25 |   await expect(page.getByRole(\"button\", { name: /返回技能列表|Back to skills/i })).toBeVisible();\n  26 |   await expect(page.getByRole(\"textbox\", { name: /Skill name/i })).toBeVisible();\n> 27 |   await expect(page.getByRole(\"textbox\", { name: /编辑文件内容|Edit file content/i })).toBeVisible();\n     |                                                                                  ^\n  28 |\n  29 |   await page.goto(\"/approvals\");\n  30 |   await expect(page.getByRole(\"button\", { name: /全部|All/i })).toBeVisible();\n    at /Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/mobile-smoke.spec.ts:27:82"
-                    }
-                  ],
+                  "status": "passed",
+                  "duration": 8706,
+                  "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T15:00:09.308Z",
+                  "startTime": "2026-08-03T17:33:32.033Z",
                   "annotations": [],
-                  "attachments": [
-                    {
-                      "name": "screenshot",
-                      "contentType": "image/png",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/mobile-smoke-mobile-worksp-52c90-n-flows-render-and-navigate/test-failed-1.png"
-                    },
-                    {
-                      "name": "error-context",
-                      "contentType": "text/markdown",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/mobile-smoke-mobile-worksp-52c90-n-flows-render-and-navigate/error-context.md"
-                    },
-                    {
-                      "name": "trace",
-                      "contentType": "application/zip",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/mobile-smoke-mobile-worksp-52c90-n-flows-render-and-navigate/trace.zip"
-                    }
-                  ],
-                  "errorLocation": {
-                    "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/mobile-smoke.spec.ts",
-                    "column": 82,
-                    "line": 27
-                  }
+                  "attachments": []
                 }
               ],
-              "status": "unexpected"
+              "status": "expected"
             }
           ],
           "id": "ea674203dc68a2d7f340-292b80d12d3d57337364",
@@ -222,12 +182,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 8614,
+                  "duration": 7644,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T14:58:19.050Z",
+                  "startTime": "2026-08-03T17:32:55.479Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -264,12 +224,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 3453,
+                  "duration": 1957,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T14:58:27.681Z",
+                  "startTime": "2026-08-03T17:33:03.140Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -298,12 +258,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 3634,
+                  "duration": 2457,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T14:58:31.142Z",
+                  "startTime": "2026-08-03T17:33:05.104Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -318,7 +278,7 @@
         },
         {
           "title": "keeps runtime management destination and active content through navigation and refresh",
-          "ok": false,
+          "ok": true,
           "tags": [],
           "tests": [
             {
@@ -331,58 +291,18 @@
                 {
                   "workerIndex": 0,
                   "parallelIndex": 0,
-                  "status": "failed",
-                  "duration": 6815,
-                  "error": {
-                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: /创建托管执行引擎|Create managed runtime/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: /创建托管执行引擎|Create managed runtime/i })\u001b[22m\n",
-                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: /创建托管执行引擎|Create managed runtime/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: /创建托管执行引擎|Create managed runtime/i })\u001b[22m\n\n    at /Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts:60:69",
-                    "location": {
-                      "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts",
-                      "column": 69,
-                      "line": 60
-                    },
-                    "snippet": "  58 |\n  59 |   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}${escapeRegExp(runtimePath)}$`));\n> 60 |   await expect(page.getByRole(\"heading\", { name: runtimeHeading })).toBeVisible();\n     |                                                                     ^\n  61 |\n  62 |   await page.getByRole(\"link\", { name: /员工管理|Agent Management/i }).click();\n  63 |   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/agents\\\\?mode=agent$`));"
-                  },
-                  "errors": [
-                    {
-                      "location": {
-                        "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts",
-                        "column": 69,
-                        "line": 60
-                      },
-                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: /创建托管执行引擎|Create managed runtime/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: /创建托管执行引擎|Create managed runtime/i })\u001b[22m\n\n\n  58 |\n  59 |   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}${escapeRegExp(runtimePath)}$`));\n> 60 |   await expect(page.getByRole(\"heading\", { name: runtimeHeading })).toBeVisible();\n     |                                                                     ^\n  61 |\n  62 |   await page.getByRole(\"link\", { name: /员工管理|Agent Management/i }).click();\n  63 |   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/agents\\\\?mode=agent$`));\n    at /Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts:60:69"
-                    }
-                  ],
+                  "status": "passed",
+                  "duration": 3298,
+                  "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T14:58:34.784Z",
+                  "startTime": "2026-08-03T17:33:07.569Z",
                   "annotations": [],
-                  "attachments": [
-                    {
-                      "name": "screenshot",
-                      "contentType": "image/png",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-keeps-47f59-ough-navigation-and-refresh/test-failed-1.png"
-                    },
-                    {
-                      "name": "error-context",
-                      "contentType": "text/markdown",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-keeps-47f59-ough-navigation-and-refresh/error-context.md"
-                    },
-                    {
-                      "name": "trace",
-                      "contentType": "application/zip",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-keeps-47f59-ough-navigation-and-refresh/trace.zip"
-                    }
-                  ],
-                  "errorLocation": {
-                    "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts",
-                    "column": 69,
-                    "line": 60
-                  }
+                  "attachments": []
                 }
               ],
-              "status": "unexpected"
+              "status": "expected"
             }
           ],
           "id": "62ee0100868f01d700c4-83c4f49a93d5036a9b24",
@@ -392,7 +312,7 @@
         },
         {
           "title": "opens the deployment-appropriate execution engine management experience",
-          "ok": false,
+          "ok": true,
           "tags": [],
           "tests": [
             {
@@ -403,60 +323,20 @@
               "projectName": "",
               "results": [
                 {
-                  "workerIndex": 1,
+                  "workerIndex": 0,
                   "parallelIndex": 0,
-                  "status": "failed",
-                  "duration": 10504,
-                  "error": {
-                    "message": "Error: Client errors: none\n\n\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: /创建托管执行引擎|Create managed runtime/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Client errors: none with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: /创建托管执行引擎|Create managed runtime/i })\u001b[22m\n",
-                    "stack": "Error: Client errors: none\n\n\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: /创建托管执行引擎|Create managed runtime/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Client errors: none with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: /创建托管执行引擎|Create managed runtime/i })\u001b[22m\n\n    at /Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts:93:7",
-                    "location": {
-                      "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts",
-                      "column": 7,
-                      "line": 93
-                    },
-                    "snippet": "  91 |       page.getByRole(\"heading\", { name: /创建托管执行引擎|Create managed runtime/i }),\n  92 |       `Client errors: ${clientErrors.join(\"\\n\") || \"none\"}`,\n> 93 |     ).toBeVisible();\n     |       ^\n  94 |     await expect(page.getByRole(\"button\", { name: /接入服务器|Connect server/i })).toHaveCount(0);\n  95 |   } else {\n  96 |     await page.locator(\"button.agents-pane__container-button\").click();"
-                  },
-                  "errors": [
-                    {
-                      "location": {
-                        "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts",
-                        "column": 7,
-                        "line": 93
-                      },
-                      "message": "Error: Client errors: none\n\n\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading', { name: /创建托管执行引擎|Create managed runtime/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Client errors: none with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: /创建托管执行引擎|Create managed runtime/i })\u001b[22m\n\n\n  91 |       page.getByRole(\"heading\", { name: /创建托管执行引擎|Create managed runtime/i }),\n  92 |       `Client errors: ${clientErrors.join(\"\\n\") || \"none\"}`,\n> 93 |     ).toBeVisible();\n     |       ^\n  94 |     await expect(page.getByRole(\"button\", { name: /接入服务器|Connect server/i })).toHaveCount(0);\n  95 |   } else {\n  96 |     await page.locator(\"button.agents-pane__container-button\").click();\n    at /Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts:93:7"
-                    }
-                  ],
+                  "status": "passed",
+                  "duration": 1860,
+                  "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T14:58:42.448Z",
+                  "startTime": "2026-08-03T17:33:10.876Z",
                   "annotations": [],
-                  "attachments": [
-                    {
-                      "name": "screenshot",
-                      "contentType": "image/png",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-opens-1abd5-ngine-management-experience/test-failed-1.png"
-                    },
-                    {
-                      "name": "error-context",
-                      "contentType": "text/markdown",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-opens-1abd5-ngine-management-experience/error-context.md"
-                    },
-                    {
-                      "name": "trace",
-                      "contentType": "application/zip",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-opens-1abd5-ngine-management-experience/trace.zip"
-                    }
-                  ],
-                  "errorLocation": {
-                    "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts",
-                    "column": 7,
-                    "line": 93
-                  }
+                  "attachments": []
                 }
               ],
-              "status": "unexpected"
+              "status": "expected"
             }
           ],
           "id": "62ee0100868f01d700c4-2f40ce302f4f944a007f",
@@ -477,15 +357,15 @@
               "projectName": "",
               "results": [
                 {
-                  "workerIndex": 2,
+                  "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 7033,
+                  "duration": 2602,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T14:58:54.078Z",
+                  "startTime": "2026-08-03T17:33:12.744Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -495,12 +375,12 @@
           ],
           "id": "62ee0100868f01d700c4-19b20484852c1db4837d",
           "file": "workspace-navigation.spec.ts",
-          "line": 104,
+          "line": 106,
           "column": 1
         },
         {
           "title": "keeps managed runtime settings reachable in a constrained viewport",
-          "ok": false,
+          "ok": true,
           "tags": [],
           "tests": [
             {
@@ -511,57 +391,25 @@
               "projectName": "",
               "results": [
                 {
-                  "workerIndex": 2,
+                  "workerIndex": 0,
                   "parallelIndex": 0,
-                  "status": "timedOut",
-                  "duration": 30220,
-                  "error": {
-                    "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
-                    "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                  },
-                  "errors": [
-                    {
-                      "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                    },
-                    {
-                      "location": {
-                        "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts",
-                        "column": 62,
-                        "line": 164
-                      },
-                      "message": "Error: locator.click: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.workspace-sidebar-overlay')\u001b[22m\n\u001b[2m    - locator resolved to <button type=\"button\" aria-label=\"关闭侧边导航\" class=\"workspace-sidebar-overlay\"></button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div class=\"runtime-detail__field\">…</div> from <main class=\"workspace-main\" data-testid=\"workspace-main\">…</main> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div class=\"runtime-detail__field\">…</div> from <main class=\"workspace-main\" data-testid=\"workspace-main\">…</main> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    52 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <div class=\"runtime-detail__field\">…</div> from <main class=\"workspace-main\" data-testid=\"workspace-main\">…</main> subtree intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\n\n  162 |   await page.setViewportSize({ width: 390, height: 720 });\n  163 |   const sidebarOverlay = page.locator(\".workspace-sidebar-overlay\");\n> 164 |   if (await sidebarOverlay.isVisible()) await sidebarOverlay.click();\n      |                                                              ^\n  165 |   const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);\n  166 |   expect(horizontalOverflow).toBeLessThanOrEqual(1);\n  167 |   await sharingHeading.scrollIntoViewIfNeeded();\n    at /Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts:164:62"
-                    }
-                  ],
+                  "status": "passed",
+                  "duration": 2577,
+                  "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T14:59:01.476Z",
+                  "startTime": "2026-08-03T17:33:15.352Z",
                   "annotations": [],
-                  "attachments": [
-                    {
-                      "name": "screenshot",
-                      "contentType": "image/png",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-keeps-b9a41-e-in-a-constrained-viewport/test-failed-1.png"
-                    },
-                    {
-                      "name": "error-context",
-                      "contentType": "text/markdown",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-keeps-b9a41-e-in-a-constrained-viewport/error-context.md"
-                    },
-                    {
-                      "name": "trace",
-                      "contentType": "application/zip",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-keeps-b9a41-e-in-a-constrained-viewport/trace.zip"
-                    }
-                  ]
+                  "attachments": []
                 }
               ],
-              "status": "unexpected"
+              "status": "expected"
             }
           ],
           "id": "62ee0100868f01d700c4-201f9504af08a4ce8a89",
           "file": "workspace-navigation.spec.ts",
-          "line": 124,
+          "line": 126,
           "column": 1
         },
         {
@@ -577,15 +425,15 @@
               "projectName": "",
               "results": [
                 {
-                  "workerIndex": 3,
+                  "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 5810,
+                  "duration": 2376,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T14:59:32.369Z",
+                  "startTime": "2026-08-03T17:33:17.936Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -595,7 +443,7 @@
           ],
           "id": "62ee0100868f01d700c4-a61546d6a39fe7da3e81",
           "file": "workspace-navigation.spec.ts",
-          "line": 171,
+          "line": 176,
           "column": 1
         },
         {
@@ -611,15 +459,15 @@
               "projectName": "",
               "results": [
                 {
-                  "workerIndex": 3,
+                  "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 1846,
+                  "duration": 1835,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T14:59:38.589Z",
+                  "startTime": "2026-08-03T17:33:20.320Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -629,7 +477,7 @@
           ],
           "id": "62ee0100868f01d700c4-22437815cdb9a1bb889c",
           "file": "workspace-navigation.spec.ts",
-          "line": 184,
+          "line": 189,
           "column": 1
         },
         {
@@ -645,15 +493,15 @@
               "projectName": "",
               "results": [
                 {
-                  "workerIndex": 3,
+                  "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 1785,
+                  "duration": 1765,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T14:59:40.441Z",
+                  "startTime": "2026-08-03T17:33:22.167Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -663,12 +511,12 @@
           ],
           "id": "62ee0100868f01d700c4-14127658f9a8a0dce3a4",
           "file": "workspace-navigation.spec.ts",
-          "line": 195,
+          "line": 200,
           "column": 1
         },
         {
           "title": "restores settings preferences after refresh",
-          "ok": false,
+          "ok": true,
           "tags": [],
           "tests": [
             {
@@ -679,70 +527,30 @@
               "projectName": "",
               "results": [
                 {
-                  "workerIndex": 3,
+                  "workerIndex": 0,
                   "parallelIndex": 0,
-                  "status": "failed",
-                  "duration": 6491,
-                  "error": {
-                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.settings-group__eyebrow').filter({ hasText: /偏好设置|Preferences/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.settings-group__eyebrow').filter({ hasText: /偏好设置|Preferences/i })\u001b[22m\n",
-                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.settings-group__eyebrow').filter({ hasText: /偏好设置|Preferences/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.settings-group__eyebrow').filter({ hasText: /偏好设置|Preferences/i })\u001b[22m\n\n    at /Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts:240:65",
-                    "location": {
-                      "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts",
-                      "column": 65,
-                      "line": 240
-                    },
-                    "snippet": "  238 |\n  239 |   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/preferences(?:\\\\?.*)?$`));\n> 240 |   await expect(settingsSectionLabel(page, /偏好设置|Preferences/i)).toBeVisible();\n      |                                                                 ^\n  241 |\n  242 |   await page.reload();\n  243 |   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/preferences(?:\\\\?.*)?$`));"
-                  },
-                  "errors": [
-                    {
-                      "location": {
-                        "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts",
-                        "column": 65,
-                        "line": 240
-                      },
-                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.settings-group__eyebrow').filter({ hasText: /偏好设置|Preferences/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.settings-group__eyebrow').filter({ hasText: /偏好设置|Preferences/i })\u001b[22m\n\n\n  238 |\n  239 |   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/preferences(?:\\\\?.*)?$`));\n> 240 |   await expect(settingsSectionLabel(page, /偏好设置|Preferences/i)).toBeVisible();\n      |                                                                 ^\n  241 |\n  242 |   await page.reload();\n  243 |   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/preferences(?:\\\\?.*)?$`));\n    at /Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts:240:65"
-                    }
-                  ],
+                  "status": "passed",
+                  "duration": 2928,
+                  "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T14:59:42.237Z",
+                  "startTime": "2026-08-03T17:33:23.940Z",
                   "annotations": [],
-                  "attachments": [
-                    {
-                      "name": "screenshot",
-                      "contentType": "image/png",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-resto-ccfe5-s-preferences-after-refresh/test-failed-1.png"
-                    },
-                    {
-                      "name": "error-context",
-                      "contentType": "text/markdown",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-resto-ccfe5-s-preferences-after-refresh/error-context.md"
-                    },
-                    {
-                      "name": "trace",
-                      "contentType": "application/zip",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-resto-ccfe5-s-preferences-after-refresh/trace.zip"
-                    }
-                  ],
-                  "errorLocation": {
-                    "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts",
-                    "column": 65,
-                    "line": 240
-                  }
+                  "attachments": []
                 }
               ],
-              "status": "unexpected"
+              "status": "expected"
             }
           ],
           "id": "62ee0100868f01d700c4-a6354f345519d47c00d7",
           "file": "workspace-navigation.spec.ts",
-          "line": 236,
+          "line": 241,
           "column": 1
         },
         {
           "title": "switches settings sections through the client workbench",
-          "ok": false,
+          "ok": true,
           "tags": [],
           "tests": [
             {
@@ -753,65 +561,25 @@
               "projectName": "",
               "results": [
                 {
-                  "workerIndex": 4,
+                  "workerIndex": 0,
                   "parallelIndex": 0,
-                  "status": "failed",
-                  "duration": 10168,
-                  "error": {
-                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.settings-group__eyebrow').filter({ hasText: /偏好设置|Preferences/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.settings-group__eyebrow').filter({ hasText: /偏好设置|Preferences/i })\u001b[22m\n",
-                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.settings-group__eyebrow').filter({ hasText: /偏好设置|Preferences/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.settings-group__eyebrow').filter({ hasText: /偏好设置|Preferences/i })\u001b[22m\n\n    at /Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts:280:65",
-                    "location": {
-                      "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts",
-                      "column": 65,
-                      "line": 280
-                    },
-                    "snippet": "  278 |\n  279 |   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/preferences(?:\\\\?.*)?$`));\n> 280 |   await expect(settingsSectionLabel(page, /偏好设置|Preferences/i)).toBeVisible();\n      |                                                                 ^\n  281 |   await expect(page.locator(\".settings-page[data-hydrated='true']\")).toBeVisible();\n  282 |\n  283 |   await page.getByRole(\"link\", { name: /安全与会话|Security/i }).click();"
-                  },
-                  "errors": [
-                    {
-                      "location": {
-                        "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts",
-                        "column": 65,
-                        "line": 280
-                      },
-                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.settings-group__eyebrow').filter({ hasText: /偏好设置|Preferences/i })\nExpected: visible\nTimeout: 5000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.settings-group__eyebrow').filter({ hasText: /偏好设置|Preferences/i })\u001b[22m\n\n\n  278 |\n  279 |   await expect(page).toHaveURL(new RegExp(`/w/${escapeRegExp(session.workspaceSlug)}/settings/preferences(?:\\\\?.*)?$`));\n> 280 |   await expect(settingsSectionLabel(page, /偏好设置|Preferences/i)).toBeVisible();\n      |                                                                 ^\n  281 |   await expect(page.locator(\".settings-page[data-hydrated='true']\")).toBeVisible();\n  282 |\n  283 |   await page.getByRole(\"link\", { name: /安全与会话|Security/i }).click();\n    at /Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts:280:65"
-                    }
-                  ],
+                  "status": "passed",
+                  "duration": 1470,
+                  "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T14:59:49.340Z",
+                  "startTime": "2026-08-03T17:33:26.877Z",
                   "annotations": [],
-                  "attachments": [
-                    {
-                      "name": "screenshot",
-                      "contentType": "image/png",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-switc-f9541-hrough-the-client-workbench/test-failed-1.png"
-                    },
-                    {
-                      "name": "error-context",
-                      "contentType": "text/markdown",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-switc-f9541-hrough-the-client-workbench/error-context.md"
-                    },
-                    {
-                      "name": "trace",
-                      "contentType": "application/zip",
-                      "path": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/docs/0803/test/results/playwright-artifacts/workspace-navigation-switc-f9541-hrough-the-client-workbench/trace.zip"
-                    }
-                  ],
-                  "errorLocation": {
-                    "file": "/Users/techwu/Documents/codes/dofe.ai/agentspace.dofe.ai/apps/web/e2e/workspace-navigation.spec.ts",
-                    "column": 65,
-                    "line": 280
-                  }
+                  "attachments": []
                 }
               ],
-              "status": "unexpected"
+              "status": "expected"
             }
           ],
           "id": "62ee0100868f01d700c4-b7a81a2d5eb36b477f1c",
           "file": "workspace-navigation.spec.ts",
-          "line": 247,
+          "line": 252,
           "column": 1
         },
         {
@@ -827,15 +595,15 @@
               "projectName": "",
               "results": [
                 {
-                  "workerIndex": 5,
+                  "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 5292,
+                  "duration": 1517,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T15:00:00.490Z",
+                  "startTime": "2026-08-03T17:33:28.355Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -845,7 +613,7 @@
           ],
           "id": "62ee0100868f01d700c4-3a5a49d5cf7bcb5dffc1",
           "file": "workspace-navigation.spec.ts",
-          "line": 289,
+          "line": 294,
           "column": 1
         },
         {
@@ -861,15 +629,15 @@
               "projectName": "",
               "results": [
                 {
-                  "workerIndex": 5,
+                  "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 2620,
+                  "duration": 1315,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-03T15:00:06.076Z",
+                  "startTime": "2026-08-03T17:33:29.877Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -879,7 +647,7 @@
           ],
           "id": "62ee0100868f01d700c4-c76ce4a8177c2374e787",
           "file": "workspace-navigation.spec.ts",
-          "line": 309,
+          "line": 314,
           "column": 1
         }
       ]
@@ -887,11 +655,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-08-03T14:58:12.272Z",
-    "duration": 132398.24000000002,
-    "expected": 10,
+    "startTime": "2026-08-03T17:32:46.052Z",
+    "duration": 55217.897000000004,
+    "expected": 16,
     "skipped": 0,
-    "unexpected": 6,
+    "unexpected": 0,
     "flaky": 0
   }
 }
