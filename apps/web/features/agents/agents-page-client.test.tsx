@@ -44,6 +44,10 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
+vi.mock("@/features/runtimes/runtime-model-picker", () => ({
+  RuntimeModelPicker: () => <select aria-label="默认模型" />,
+}));
+
 vi.mock("@/features/agents/actions", () => ({
   acceptAgentForkInvitationAction: vi.fn(async () => ({ data: undefined })),
   approveAgentAccessRequestAction: vi.fn(async () => ({ data: undefined })),

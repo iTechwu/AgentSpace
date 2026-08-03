@@ -359,7 +359,7 @@ describe("ChannelsPageClient", () => {
     expect(screen.getByRole("dialog", { name: "创建群组" })).toBeInTheDocument();
   });
 
-  it("keeps digital direct messages inside the Messages context", () => {
+  it("keeps digital direct messages inside the Messages context", async () => {
     searchParams.set("view", "direct");
 
     render(
@@ -372,6 +372,9 @@ describe("ChannelsPageClient", () => {
     expect(screen.getByRole("tab", { name: "数字联系人" })).toBeDisabled();
     expect(screen.getByPlaceholderText("发送到 Atlas")).toBeInTheDocument();
     expect(screen.queryByText("数字员工资料")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(document.querySelector(".chat-model-selector")).not.toHaveClass("chat-model-selector--pending");
+    });
   });
 
   it("renders the digital employee directory without a duplicate chat composer", async () => {
@@ -1284,7 +1287,7 @@ describe("ChannelsPageClient", () => {
     });
   });
 
-  it("shows an empty-thread message instead of the unselected state for direct chats with no messages", () => {
+  it("shows an empty-thread message instead of the unselected state for direct chats with no messages", async () => {
     searchParams.set("view", "direct");
 
     render(
@@ -1328,6 +1331,9 @@ describe("ChannelsPageClient", () => {
     expect(within(threadPane).getByText("还没有消息")).toBeInTheDocument();
     expect(within(threadPane).getByText("发一条消息开始对话。")).toBeInTheDocument();
     expect(screen.queryByText("未选择会话")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(document.querySelector(".chat-model-selector")).not.toHaveClass("chat-model-selector--pending");
+    });
   });
 
   it("keeps direct conversation focus updates inside the workspace slug path", async () => {
