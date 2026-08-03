@@ -1,5 +1,7 @@
 # MCP Extension 文档索引
 
+> 当前状态以 [0801/0803 整体实施差距审查](../../0803/0801-0803整体实施差距审查.md) 为准。本文后半部分保留历史发布边界；其中“daemon 尚未强制接入 proxy”“lease 仍为共享 HMAC”等旧结论已被 Ed25519、公私钥分离、逐调用 lease、强制代理与 Compose 旁路门禁实现取代。真实 Claude/Codex 任务、Linux 网络负向矩阵和 OAuth/managed stdio 仍是未关闭项。
+
 本目录定义 Docker Runtime 的 MCP 扩展方案。既有“应用市场”保留为唯一入口，页面内通过“CLI 市场”和“MCP 市场”两个 Tab 切换。
 
 | 文档 | 用途 |

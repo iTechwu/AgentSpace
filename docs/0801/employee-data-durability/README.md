@@ -1,5 +1,7 @@
 # AI 员工数据持久化与恢复设计
 
+> 当前状态以 [0801/0803 整体实施差距审查](../../0803/0801-0803整体实施差距审查.md) 为准。代码层的 legal hold 治理、pager 升级/恢复通知、SLO 面板和 reconciliation 故障注入已完成；尚不能关闭的是指定环境全控制面销毁恢复、PostgreSQL PITR/WAL、TOS versioning/provider undelete、一致恢复点及实测 RPO/RTO。
+
 状态：**Partially Implemented（2026-08-03 第六轮实施）**
 日期：2026-08-01
 范围：AgentSpace 中 AI 员工的工作数据、Skill 制品和运行时恢复。

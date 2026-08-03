@@ -10,12 +10,15 @@
 
 - `packages/domain` 已新增 `McpEgressPolicyRevision`、`McpEgressLeaseClaims`、`McpEgressPolicySnapshot` 等类型契约。
 - `packages/services/src/mcp-center/egress.ts` 已提供 lease 签名/验证、policy digest、审计哈希工具及 golden tests。
+- lease 已使用 Ed25519：控制面读取私钥签名，proxy 只挂载公钥验签；旧 HMAC 仅在显式兼容开关下可用，算法不匹配会拒绝而不是降级。
+- policy/revoke/replay state 已支持单实例重启恢复；该能力不等于多副本共享原子 JTI，多副本发布前仍需外部一致状态实现与演练。
 - `apps/mcp-egress-proxy` 已创建，提供 `/healthz`、lease 校验、policy cache、DNS/TLS pinning 转发骨架与单元测试。
 - `deploy/daemon/Dockerfile.mcp-egress-proxy` 与 `deploy/daemon/docker-compose.mcp-egress.yml` 已提供最小化独立镜像与双网 Compose service。
 - `deploy/daemon/reconcile-runtime-egress.sh` 已提供由 managed-node 调用的幂等 `DOCKER-USER` 规则脚本；`deploy/daemon/managed-node-entrypoint.sh` 已在启动 Runtime 前调用该脚本。
 - `deploy/daemon/docker-compose.runtimes.yml` 已将 Runtime 接入 `dofe-runtime-restricted` 网络，并清空 `HTTP_PROXY` 等环境变量。
 - `packages/daemon/src/mcp/egress-client.ts` 已实现：向 proxy 推送 policy snapshot、为每个 MCP 请求附加 `DofeEgressLease` 头部，并在 proxy 不可用时拒绝调用（无直连 fallback）。
 - `packages/daemon/src/mcp/client.ts` 与 `gateway.ts`、`verify-executor.ts` 已接入 egress proxy：当 `ResolvedMcpConnection` 携带 lease/policy 时，Runtime MCP 调用强制经 proxy。
+- Compose 已固定受限 Runtime 的默认出口、proxy 地址和公钥/state 挂载，并用契约测试阻止代理旁路配置回退；真实 Linux `DOCKER-USER`、IPv4/IPv6/DNS/DoH/metadata 负向矩阵仍待指定环境执行。
 
 | 文档 | 内容 |
 | --- | --- |
