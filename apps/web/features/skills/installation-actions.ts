@@ -8,11 +8,14 @@ import {
   listSkillRunnerInvocationsSync,
   listSkillInstallationOperationsSync,
   listSkillInstallationsSync,
+  listManagedSkillServicesSync,
+  listSkillServiceBindingsForServiceSync,
   readActiveArtifactDigestForSkillSync,
   readSkillArtifactByDigestSync,
   readSkillArtifactFilesSync,
   readSkillInstallationComponentsSync,
   readSkillInstallationSync,
+  readSkillServiceCatalogSync,
 } from "@dofe-agent/db";
 import {
   approveSkillInstallSync,
@@ -148,9 +151,52 @@ export async function listSkillInstallableRuntimesAction(): Promise<SkillInstall
   return listInstallableRuntimesForWorkspaceSync(workspaceContext.currentWorkspace.id);
 }
 
+export interface SkillServiceResolutionOption {
+  catalogSlug: string;
+  templateVersion: string;
+  required: boolean;
+  reusable: boolean;
+  status?: string;
+  health?: string;
+}
+
+export async function listSkillServiceResolutionOptionsAction(input: {
+  skillId: string;
+  runtimeId: string;
+}): Promise<SkillServiceResolutionOption[]> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  assertRequired(input.skillId, "skill id");
+  assertRequired(input.runtimeId, "runtime id");
+  const workspaceId = workspaceContext.currentWorkspace.id;
+  const digest = readActiveArtifactDigestForSkillSync(input.skillId.trim(), workspaceId);
+  const artifact = digest ? readSkillArtifactByDigestSync(digest, workspaceId) : null;
+  if (!artifact) return [];
+  const managedServices = listManagedSkillServicesSync(workspaceId);
+
+  return (parseInspectionManifest(artifact.manifestJson).services ?? []).map((service) => {
+    const catalog = readSkillServiceCatalogSync(service.catalogSlug, service.templateVersion, workspaceId);
+    const managed = catalog
+      ? managedServices.find((candidate) => candidate.runtimeId === input.runtimeId.trim() && candidate.catalogId === catalog.id)
+      : undefined;
+    const hasPrivateEndpoint = managed
+      ? listSkillServiceBindingsForServiceSync(managed.id).some((binding) => binding.endpointRef.startsWith("runtime-private://"))
+      : false;
+    return {
+      catalogSlug: service.catalogSlug,
+      templateVersion: service.templateVersion,
+      required: service.required,
+      reusable: managed?.status === "ready" && managed.lastHealth === "healthy" && hasPrivateEndpoint,
+      status: managed?.status,
+      health: managed?.lastHealth,
+    };
+  });
+}
+
 export async function createSkillInstallationAction(input: {
   skillId: string;
   runtimeId: string;
+  serviceResolutionMode?: "provision_or_reuse" | "require_existing";
   /**
    * Immutable per-item risk approval obtained via `approveSkillInstallAction`.
    * Required when the artifact declares any script/network/high-risk-MCP/write
@@ -174,6 +220,7 @@ export async function createSkillInstallationAction(input: {
     artifactDigest: digest,
     requestedByUserId: workspaceContext.currentUser.id,
     approvalId: input.approvalId?.trim() || undefined,
+    serviceResolutionMode: input.serviceResolutionMode,
   });
 
   tryRecordWorkspaceAuditEventSync({
@@ -188,6 +235,7 @@ export async function createSkillInstallationAction(input: {
       skillId: input.skillId.trim(),
       runtimeId: input.runtimeId.trim(),
       artifactDigest: digest,
+      serviceResolutionMode: input.serviceResolutionMode ?? "provision_or_reuse",
     },
   });
   revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);

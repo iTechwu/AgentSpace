@@ -5,7 +5,7 @@ import { LanguageProvider } from "@/features/i18n/language-provider";
 import { FeedbackToastProvider } from "@/shared/ui/feedback-toast-provider";
 import { InstallSkillModal } from "./install-skill-modal";
 
-const { approveSkill, createPlan, inspectSkill, listRuntimes } = vi.hoisted(() => ({
+const { approveSkill, createPlan, inspectSkill, listRuntimes, listServiceOptions } = vi.hoisted(() => ({
   approveSkill: vi.fn(async () => ({ approvalId: "approval-1" })),
   createPlan: vi.fn(async () => ({
     data: { installationId: "installation-1", status: "preparing" },
@@ -16,6 +16,14 @@ const { approveSkill, createPlan, inspectSkill, listRuntimes } = vi.hoisted(() =
     { id: "runtime-offline", name: "Offline", provider: "codex", status: "offline" },
     { id: "runtime-online", name: "Remote East", provider: "codex", status: "online" },
   ]),
+  listServiceOptions: vi.fn(async () => [{
+    catalogSlug: "renderer",
+    templateVersion: "2.0.0",
+    required: true,
+    reusable: true,
+    status: "ready",
+    health: "healthy",
+  }]),
 }));
 
 vi.mock("@/features/skills/installation-actions", () => ({
@@ -23,6 +31,7 @@ vi.mock("@/features/skills/installation-actions", () => ({
   createSkillInstallationAction: createPlan,
   inspectSkillInstallationAction: inspectSkill,
   listSkillInstallableRuntimesAction: listRuntimes,
+  listSkillServiceResolutionOptionsAction: listServiceOptions,
 }));
 
 const inspection = {
@@ -69,6 +78,7 @@ describe("InstallSkillModal", () => {
     inspectSkill.mockReset();
     inspectSkill.mockResolvedValue(inspection);
     listRuntimes.mockClear();
+    listServiceOptions.mockClear();
   });
 
   it("reviews the immutable package and creates a plan on the selected online runtime", async () => {
@@ -87,7 +97,7 @@ describe("InstallSkillModal", () => {
     await user.click(screen.getByRole("button", { name: "下一步" }));
     await user.click(screen.getByRole("button", { name: "创建安装计划" }));
 
-    await waitFor(() => expect(createPlan).toHaveBeenCalledWith({ skillId: "skill-1", runtimeId: "runtime-online", approvalId: undefined }));
+    await waitFor(() => expect(createPlan).toHaveBeenCalledWith({ skillId: "skill-1", runtimeId: "runtime-online", approvalId: undefined, serviceResolutionMode: "provision_or_reuse" }));
     await waitFor(() => expect(onInstalled).toHaveBeenCalled());
   });
 
@@ -138,8 +148,29 @@ describe("InstallSkillModal", () => {
       expect(approveSkill).toHaveBeenCalledWith({ skillId: "skill-1", reason: "团队已评审该渲染脚本" }),
     );
     await waitFor(() =>
-      expect(createPlan).toHaveBeenCalledWith({ skillId: "skill-1", runtimeId: "runtime-online", approvalId: "approval-1" }),
+      expect(createPlan).toHaveBeenCalledWith({ skillId: "skill-1", runtimeId: "runtime-online", approvalId: "approval-1", serviceResolutionMode: "provision_or_reuse" }),
     );
+  });
+
+  it("lets an admin require an existing healthy service binding", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    await screen.findByText("document-renderer · 2.3.4 · aaaaaaaaaaaa…");
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await waitFor(() => expect(listServiceOptions).toHaveBeenCalledWith({ skillId: "skill-1", runtimeId: "runtime-online" }));
+    await user.click(screen.getByRole("radio", { name: "仅绑定已有健康服务" }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    await user.click(screen.getByRole("button", { name: "创建安装计划" }));
+
+    await waitFor(() => expect(createPlan).toHaveBeenCalledWith({
+      skillId: "skill-1",
+      runtimeId: "runtime-online",
+      approvalId: undefined,
+      serviceResolutionMode: "require_existing",
+    }));
   });
 
   it("blocks plan creation when required release-lock entries are unresolved", async () => {

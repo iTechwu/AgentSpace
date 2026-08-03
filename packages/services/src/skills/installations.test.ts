@@ -8,6 +8,7 @@ import {
   completeSkillInstallationOperationSync as completeSkillOperationDbSync,
   createManagedSkillServiceSync,
   createSkillServiceBindingSync,
+  listManagedSkillServicesSync,
   listSkillInstallationOperationsSync,
   readActiveArtifactDigestForSkillSync,
   readSkillInstallationComponentsSync,
@@ -104,7 +105,11 @@ function buildArtifact(skillId?: string) {
  * fresh per-item risk approval bound to the artifact's release lock
  * (first-install risk gate, P0-2).
  */
-function approvedPlan(runtimeId: string, artifactDigest: string) {
+function approvedPlan(
+  runtimeId: string,
+  artifactDigest: string,
+  serviceResolutionMode?: "provision_or_reuse" | "require_existing",
+) {
   const artifact = readSkillArtifactByDigestSync(artifactDigest, "default");
   const riskItems = buildSkillInstallRiskItemsSync({ artifactDigest });
   const lock = computeSkillReleaseLockSync(artifact, "default");
@@ -114,7 +119,7 @@ function approvedPlan(runtimeId: string, artifactDigest: string) {
     riskItems,
     reason: "test approval",
   }).approvalId;
-  return createSkillInstallationPlanSync({ runtimeId, artifactDigest, approvalId });
+  return createSkillInstallationPlanSync({ runtimeId, artifactDigest, approvalId, serviceResolutionMode });
 }
 
 test("createSkillInstallationPlanSync builds installation, components, and a queued operation", () => {
@@ -872,4 +877,54 @@ test("a service component with a ready managed service + binding lets the instal
   const serviceComponent = readSkillInstallationComponentsSync(installation.id)
     .find((component) => component.kind === "service" && component.key === "service:renderer");
   assert.equal(serviceComponent?.status, "ready");
+});
+
+test("require_existing service mode rejects provisioning and reuses only a healthy private endpoint", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  seedRendererCatalog();
+  const firstArtifact = buildArtifactWithService("strict-first");
+
+  assert.throws(
+    () => approvedPlan(runtimeId, firstArtifact.digest, "require_existing"),
+    /no healthy reusable instance/,
+  );
+
+  const seedInstallation = approvedPlan(runtimeId, firstArtifact.digest);
+  const managed = listManagedSkillServicesSync("default")[0];
+  assert.ok(managed);
+  completeManagedSkillServiceProvisioningSync({ serviceId: managed.id, workspaceId: "default" });
+  createSkillServiceBindingSync({
+    installationId: seedInstallation.id,
+    serviceId: managed.id,
+    catalogTemplateVersion: "1.0.0",
+    serviceImageDigest: `sha256:${"a".repeat(64)}`,
+    endpointRef: "runtime-private://renderer-existing",
+    healthRevision: "3",
+  });
+
+  const secondArtifact = buildArtifactWithService("strict-second");
+  const strictInstallation = approvedPlan(runtimeId, secondArtifact.digest, "require_existing");
+  assert.equal(strictInstallation.status, "preparing");
+  const reusedBinding = getDatabase().prepare(
+    "SELECT service_id, endpoint_ref FROM skill_service_binding WHERE installation_id = ?",
+  ).get(strictInstallation.id) as { service_id: string; endpoint_ref: string };
+  assert.equal(reusedBinding.service_id, managed.id);
+  assert.equal(reusedBinding.endpoint_ref, "runtime-private://renderer-existing");
+});
+
+test("require_existing service mode skips an unavailable optional service without provisioning it", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  seedRendererCatalog();
+  const artifact = buildAndPersistSkillArtifactSync({
+    name: "Optional Service Skill",
+    files: [{ path: "SKILL.md", bytes: encoder.encode("# Optional service\n") }],
+    services: [{ catalogSlug: "renderer", templateVersion: "1.0.0", required: false }],
+  });
+
+  const installation = approvedPlan(runtimeId, artifact.digest, "require_existing");
+
+  assert.equal(installation.status, "preparing");
+  assert.equal(listManagedSkillServicesSync("default").length, 0);
 });

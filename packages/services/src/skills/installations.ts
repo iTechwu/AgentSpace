@@ -13,6 +13,8 @@ import {
   readSkillInstallationOperationSync,
   readSkillInstallationSync,
   readSkillServiceCatalogSync,
+  listManagedSkillServicesSync,
+  listSkillServiceBindingsForServiceSync,
   listSkillInstallationsSync,
   readStoredSkillActiveArtifactDigestSync,
   listStoredAgentSkillAssignmentsSync,
@@ -99,6 +101,7 @@ export function createSkillInstallationPlanSync(input: {
    * consumed atomically inside the plan-creation transaction.
    */
   approvalId?: string;
+  serviceResolutionMode?: "provision_or_reuse" | "require_existing";
 }): StoredSkillInstallationRecord {
   const artifact = readSkillArtifactByDigestSync(input.artifactDigest, input.workspaceId);
   if (!artifact) {
@@ -150,6 +153,14 @@ export function createSkillInstallationPlanSync(input: {
     }
   }
 
+  if (input.serviceResolutionMode === "require_existing") {
+    assertDeclaredServicesReusableSync({
+      workspaceId: input.workspaceId ?? "default",
+      runtimeId: input.runtimeId,
+      manifestJson: artifact.manifestJson,
+    });
+  }
+
   return withTransaction(getDatabase(), () => {
     if (riskItems.length > 0 && input.approvalId) {
       const consumed = consumeSkillInstallApprovalSync(
@@ -192,10 +203,34 @@ export function createSkillInstallationPlanSync(input: {
       runtimeId: input.runtimeId,
       installationId: installation.id,
       manifestJson: artifact.manifestJson,
+      serviceResolutionMode: input.serviceResolutionMode,
     });
 
     return installation;
   });
+}
+
+function assertDeclaredServicesReusableSync(input: {
+  workspaceId: string;
+  runtimeId: string;
+  manifestJson: string;
+}): void {
+  const managedServices = listManagedSkillServicesSync(input.workspaceId);
+  for (const service of readManifestServices(input.manifestJson)) {
+    if (!service.catalogSlug) continue;
+    const templateVersion = service.templateVersion ?? "1";
+    const catalog = readSkillServiceCatalogSync(service.catalogSlug, templateVersion, input.workspaceId);
+    const reusable = catalog && hasReusableManagedSkillService({
+      managedServices,
+      runtimeId: input.runtimeId,
+      catalogId: catalog.id,
+    });
+    if (service.required !== false && !reusable) {
+      throw new Error(
+        `Skill service "${service.catalogSlug}@${templateVersion}" has no healthy reusable instance on runtime "${input.runtimeId}".`,
+      );
+    }
+  }
 }
 
 export function readManifestServices(manifestJson: string): Array<{
@@ -218,16 +253,26 @@ export function queueDeclaredSkillServicesForInstallationSync(input: {
   runtimeId: string;
   installationId: string;
   manifestJson: string;
+  serviceResolutionMode?: "provision_or_reuse" | "require_existing";
 }): void {
   const workspaceId = input.workspaceId ?? "default";
+  const managedServices = input.serviceResolutionMode === "require_existing"
+    ? listManagedSkillServicesSync(workspaceId)
+    : [];
   for (const service of readManifestServices(input.manifestJson)) {
     if (!service.catalogSlug) {
       continue;
     }
     const templateVersion = service.templateVersion ?? "1";
-    if (!readSkillServiceCatalogSync(service.catalogSlug, templateVersion, workspaceId)) {
+    const catalog = readSkillServiceCatalogSync(service.catalogSlug, templateVersion, workspaceId);
+    if (!catalog) {
       continue;
     }
+    if (input.serviceResolutionMode === "require_existing" && !hasReusableManagedSkillService({
+      managedServices,
+      runtimeId: input.runtimeId,
+      catalogId: catalog.id,
+    })) continue;
     queueManagedSkillServiceForInstallationSync({
       workspaceId,
       runtimeId: input.runtimeId,
@@ -236,6 +281,20 @@ export function queueDeclaredSkillServicesForInstallationSync(input: {
       templateVersion,
     });
   }
+}
+
+function hasReusableManagedSkillService(input: {
+  managedServices: ReturnType<typeof listManagedSkillServicesSync>;
+  runtimeId: string;
+  catalogId: string;
+}): boolean {
+  return input.managedServices.some((managed) => (
+    managed.runtimeId === input.runtimeId
+    && managed.catalogId === input.catalogId
+    && managed.status === "ready"
+    && managed.lastHealth === "healthy"
+    && listSkillServiceBindingsForServiceSync(managed.id).some((binding) => binding.endpointRef.startsWith("runtime-private://"))
+  ));
 }
 
 function buildInstallationComponents(

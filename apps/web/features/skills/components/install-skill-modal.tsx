@@ -11,8 +11,10 @@ import {
   createSkillInstallationAction,
   inspectSkillInstallationAction,
   listSkillInstallableRuntimesAction,
+  listSkillServiceResolutionOptionsAction,
   type SkillInstallableRuntime,
   type SkillInstallationInspectionView,
+  type SkillServiceResolutionOption,
 } from "@/features/skills/installation-actions";
 
 interface InstallSkillModalProps {
@@ -35,6 +37,9 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
   const [pending, setPending] = useState(false);
   const [riskApprovals, setRiskApprovals] = useState<Record<string, boolean>>({});
   const [approvalReason, setApprovalReason] = useState("");
+  const [serviceResolutionMode, setServiceResolutionMode] = useState<"provision_or_reuse" | "require_existing">("provision_or_reuse");
+  const [serviceOptions, setServiceOptions] = useState<SkillServiceResolutionOption[]>([]);
+  const [serviceOptionsLoading, setServiceOptionsLoading] = useState(false);
 
   const load = useCallback(() => setLoadGeneration((value) => value + 1), []);
 
@@ -62,6 +67,27 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
     return () => { cancelled = true; };
   }, [loadGeneration, skillId, tx]);
 
+  useEffect(() => {
+    if (!selectedRuntimeId || (inspection?.services.length ?? 0) === 0) {
+      setServiceOptions([]);
+      setServiceOptionsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setServiceOptionsLoading(true);
+    void listSkillServiceResolutionOptionsAction({ skillId, runtimeId: selectedRuntimeId })
+      .then((options) => {
+        if (!cancelled) setServiceOptions(options);
+      })
+      .catch(() => {
+        if (!cancelled) setServiceOptions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setServiceOptionsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [inspection?.artifact.digest, inspection?.services.length, selectedRuntimeId, skillId]);
+
   const selectedRuntime = useMemo(
     () => runtimes.find((runtime) => runtime.id === selectedRuntimeId),
     [runtimes, selectedRuntimeId],
@@ -69,6 +95,15 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
   const blocked = (inspection?.unresolvedRequired.length ?? 0) > 0;
   const riskItems = inspection?.riskItems ?? [];
   const allRisksApproved = riskItems.length > 0 && riskItems.every((item) => riskApprovals[item.key]);
+  const allRequiredServicesReusable = (inspection?.services ?? [])
+    .filter((service) => service.required)
+    .every((service) => serviceOptions.some((option) => (
+      option.catalogSlug === service.catalogSlug
+      && option.templateVersion === service.templateVersion
+      && option.reusable
+    )));
+  const serviceModeBlocked = serviceResolutionMode === "require_existing"
+    && (serviceOptionsLoading || !allRequiredServicesReusable);
   const steps = [
     tx("包检查", "Package"),
     tx("Runtime", "Runtime"),
@@ -94,7 +129,12 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
         approvalId = approved.approvalId;
       }
       await runToastAction({
-        action: () => createSkillInstallationAction({ skillId, runtimeId: selectedRuntimeId, approvalId }),
+        action: () => createSkillInstallationAction({
+          skillId,
+          runtimeId: selectedRuntimeId,
+          approvalId,
+          serviceResolutionMode,
+        }),
         pushToast,
         tx,
         fallbackError: { zh: "创建安装计划失败。", en: "Failed to create the installation plan." },
@@ -197,6 +237,27 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
               <DeclarationGroup title={tx("依赖", "Dependencies")} empty={tx("无", "None")} rows={inspection.dependencies.map((item) => `${item.kind}:${item.name}@${item.version}${item.integrity ? " · integrity" : ""}`)} />
               <DeclarationGroup title={tx("CLI / MCP 能力", "CLI / MCP access")} empty={tx("无", "None")} rows={inspection.capabilities.map((item) => `${item.kind}:${item.catalogSlug}${item.requiredTools.length ? ` · ${item.requiredTools.join(", ")}` : ""}`)} />
               <DeclarationGroup title={tx("支撑服务", "Support services")} empty={tx("无", "None")} rows={inspection.services.map((item) => `${item.catalogSlug}@${item.templateVersion} · ${item.required ? tx("必需", "required") : tx("可选", "optional")}`)} />
+              {inspection.services.length > 0 ? (
+                <fieldset className="skill-install-risk-approvals">
+                  <legend>{tx("支撑服务处理", "Support service handling")}</legend>
+                  <label className="skill-install-risk-option">
+                    <input checked={serviceResolutionMode === "provision_or_reuse"} name="service-resolution" onChange={() => setServiceResolutionMode("provision_or_reuse")} type="radio" />
+                    <span>{tx("复用或创建受管服务", "Reuse or create managed services")}</span>
+                  </label>
+                  <label className="skill-install-risk-option">
+                    <input checked={serviceResolutionMode === "require_existing"} disabled={serviceOptionsLoading || !allRequiredServicesReusable} name="service-resolution" onChange={() => setServiceResolutionMode("require_existing")} type="radio" />
+                    <span>{tx("仅绑定已有健康服务", "Bind existing healthy services only")}</span>
+                  </label>
+                  <ul>
+                    {serviceOptions.map((option) => (
+                      <li key={`${option.catalogSlug}:${option.templateVersion}`}>
+                        <code>{option.catalogSlug}@{option.templateVersion}</code>
+                        <span>{option.reusable ? tx("可复用", "reusable") : tx("需要创建或修复", "create or repair required")}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </fieldset>
+              ) : null}
               <DeclarationGroup title={tx("脚本入口", "Script entrypoints")} empty={tx("无", "None")} rows={inspection.entrypoints.map((item) => `${item.runtime}:${item.path}`)} />
               {riskItems.length > 0 ? (
                 <fieldset className="skill-install-risk-approvals">
@@ -247,6 +308,7 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
                 <div><dt>Artifact</dt><dd><code>{inspection.artifact.digest}</code></dd></div>
                 <div><dt>Release lock</dt><dd><code>{inspection.releaseLockDigest}</code></dd></div>
                 <div><dt>{tx("验证组件", "Verification components")}</dt><dd>{inspection.components.length}</dd></div>
+                {inspection.services.length > 0 ? <div><dt>{tx("支撑服务", "Support services")}</dt><dd>{serviceResolutionMode === "require_existing" ? tx("仅绑定已有健康服务", "Existing healthy only") : tx("复用或创建", "Reuse or create")}</dd></div> : null}
               </dl>
               {blocked ? <p className="skill-install-alert skill-install-alert--danger">{tx("必需能力未解析，不能创建安装计划。", "Required capabilities are unresolved; the plan cannot be created.")}</p> : null}
               {riskItems.length > 0 ? (
@@ -282,7 +344,7 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
           <button className="modal-secondary-button" disabled={pending} onClick={step === 0 ? onCancel : () => setStep((value) => Math.max(0, value - 1))} type="button">
             {step > 0 ? <AppIcon name="arrowLeft" /> : null}{step === 0 ? tx("取消", "Cancel") : tx("上一步", "Back")}
           </button>
-          <button className="primary-button" disabled={pending || loading || Boolean(loadError) || (step >= 1 && !selectedRuntimeId) || (step === steps.length - 1 && (blocked || (riskItems.length > 0 && !allRisksApproved)))} type="submit">
+          <button className="primary-button" disabled={pending || loading || Boolean(loadError) || (step >= 1 && !selectedRuntimeId) || (step === steps.length - 1 && (blocked || serviceModeBlocked || (riskItems.length > 0 && !allRisksApproved)))} type="submit">
             {step === steps.length - 1 ? (pending ? tx("创建中…", "Creating…") : <><AppIcon name="checkCircle" />{tx("创建安装计划", "Create plan")}</>) : <>{tx("下一步", "Next")}<AppIcon name="arrowRight" /></>}
           </button>
         </div>
