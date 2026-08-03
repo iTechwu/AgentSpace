@@ -189,7 +189,8 @@ test("create args mount declared secrets as read-only files without plaintext ar
   assert.ok(args.some((arg) => arg.includes("dst=/run/secrets/RENDER_LICENSE,readonly")));
   assert.ok(!args.some((arg) => arg.includes("sk-secret") || arg.includes("ak-123")));
 
-  // No secrets → no --env flags.
+  // No secrets means no secret-file mounts/env. Runtime connectivity may still
+  // add unrelated env such as NODE_EXTRA_CA_CERTS from the repository .env.
   const noSecrets = buildManagedServiceContainerCreateArgs({
     containerName: "dofe-svc-svc-1",
     serviceId: "svc-1",
@@ -197,7 +198,9 @@ test("create args mount declared secrets as read-only files without plaintext ar
     imageDigest: "sha256:abc",
     network: NETWORK,
   });
-  assert.ok(!noSecrets.includes("--env"));
+  const envValues = noSecrets.flatMap((arg, index) => arg === "--env" ? [noSecrets[index + 1] ?? ""] : []);
+  assert.ok(!envValues.some((value) => /_FILE=\/run\/secrets\//.test(value)));
+  assert.ok(!noSecrets.some((value) => value.includes("dst=/run/secrets/")));
 });
 
 test("secret files are generation-scoped with restrictive permissions", async () => {
