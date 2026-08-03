@@ -236,6 +236,52 @@ describe("ConversationMessageBubble", () => {
     expect(screen.getByLabelText("正在生成")).toBeInTheDocument();
   });
 
+  it("distinguishes delayed queueing from model thinking", () => {
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <ConversationMessageBubble
+          message={{
+            id: "message-queued",
+            speaker: "Atlas",
+            role: "agent",
+            content: "Thinking",
+            timestamp: "10:00",
+            status: "pending",
+            data: {
+              task_queue_status: "queued",
+              task_queue_delayed: "true",
+            },
+          }}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByText("等待执行节点")).toBeInTheDocument();
+    expect(screen.getByText("执行节点响应较慢，任务仍在队列中")).toBeInTheDocument();
+    expect(screen.queryByText("思考中")).not.toBeInTheDocument();
+  });
+
+  it("shows environment preparation after the runtime claims a task", () => {
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <ConversationMessageBubble
+          message={{
+            id: "message-claimed",
+            speaker: "Atlas",
+            role: "agent",
+            content: "Thinking",
+            timestamp: "10:00",
+            status: "pending",
+            data: { task_queue_status: "claimed" },
+          }}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByText("准备中")).toBeInTheDocument();
+    expect(screen.getByText("执行节点已领取，正在准备环境")).toBeInTheDocument();
+  });
+
   it("shows an active execution milestone without revealing raw thought content", () => {
     render(
       <LanguageProvider initialLanguage="zh">

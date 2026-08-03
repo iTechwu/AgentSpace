@@ -500,6 +500,63 @@ describe("dashboard data", () => {
     expect(planner?.workAreas[0]?.sessionId).toBe("sess-travel-1");
   });
 
+  it("projects delayed queue state onto pending conversation replies", () => {
+    createEmployeeSync({ name: "Atlas", remarkName: "Atlas" });
+    createChannelSync({
+      name: "research-queue",
+      humanMemberNames: [],
+      employeeNames: ["Atlas"],
+      kind: "group",
+    });
+    const runtime = registerDaemonRuntimesSync({
+      daemonKey: "queue-state-box",
+      deviceName: "Queue State Box",
+      runtimes: [{ provider: "codex", name: "Remote Codex", version: "test" }],
+    }).runtimes[0];
+    expect(runtime?.id).toBeTruthy();
+    bindEmployeeRuntimeSync("Atlas", runtime!.id);
+
+    const queued = enqueueNativeTaskSync({
+      assignee: "Atlas",
+      title: "Research",
+      channel: "research-queue",
+      priority: "medium",
+      triggerType: "mention_chat",
+      metadata: { channelName: "research-queue" },
+    });
+    expect(queued?.id).toBeTruthy();
+    getDatabase().prepare(
+      "UPDATE agent_task_queue SET queued_at = ?, updated_at = ? WHERE id = ?",
+    ).run(
+      new Date(Date.now() - 30_000).toISOString(),
+      new Date(Date.now() - 30_000).toISOString(),
+      queued!.id,
+    );
+
+    const state = readWorkspaceStateSync();
+    state.messages.unshift({
+      id: "pending-research-reply",
+      channel: "research-queue",
+      speaker: "Atlas",
+      role: "agent",
+      time: new Date().toISOString(),
+      summary: "Thinking",
+      status: "pending",
+      data: { source_task_queue_id: queued!.id },
+    });
+    writeWorkspaceStateSync(state);
+
+    const page = getChannelsPageData("techwu");
+    const message = page.threads
+      .find((thread) => thread.channelName === "research-queue")
+      ?.messages.find((item) => item.id === "pending-research-reply");
+
+    expect(message?.data).toMatchObject({
+      task_queue_status: "queued",
+      task_queue_delayed: "true",
+    });
+  });
+
   it("does not project runtime approval cards after their task is cancelled", () => {
     createEmployeeSync({ name: "Atlas", remarkName: "Atlas" });
     createChannelSync({

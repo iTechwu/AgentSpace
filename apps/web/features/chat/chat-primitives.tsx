@@ -265,6 +265,8 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
     onReviewApproval &&
     !reviewingDecision,
   );
+  const pendingStageLabel = resolvePendingStageLabel(message, tx);
+  const pendingStageDetail = resolvePendingStageDetail(message, tx);
 
   if (isProcessMessage) {
     return (
@@ -352,13 +354,22 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
             ) : null}
             {message.pinned ? <span className="inbox-bubble__pin-badge">{tx("已置顶", "Pinned")}</span> : null}
           </strong>
-          <span>{isPendingMessage ? tx("思考中", "Thinking") : renderMessageTimestamp(message.timestamp)}</span>
+          <span>{isPendingMessage ? pendingStageLabel : renderMessageTimestamp(message.timestamp)}</span>
         </div>
         {isPendingMessage ? (
           hasStreamedPendingContent ? (
             <div className="inbox-bubble__streaming-content">
               <ChatMessageContent content={translateWorkspaceMessageSummary(message, tx)} mentions={message.mentions} tx={tx} />
               <span aria-label={tx("正在生成", "Generating")} className="contacts-pending-dots contacts-pending-dots--inline">
+                <span />
+                <span />
+                <span />
+              </span>
+            </div>
+          ) : pendingStageDetail ? (
+            <div className="inbox-bubble__streaming-content">
+              <span>{pendingStageDetail}</span>
+              <span aria-label={tx("正在等待", "Waiting")} className="contacts-pending-dots contacts-pending-dots--inline">
                 <span />
                 <span />
                 <span />
@@ -489,6 +500,36 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
   }
 
 });
+
+function resolvePendingStageLabel(
+  message: ConversationThreadMessage,
+  tx: (zh: string, en: string) => string,
+): string {
+  if (message.data?.task_queue_status === "queued") {
+    return message.data.task_queue_delayed === "true"
+      ? tx("等待执行节点", "Waiting for runtime")
+      : tx("排队中", "Queued");
+  }
+  if (message.data?.task_queue_status === "claimed") {
+    return tx("准备中", "Preparing");
+  }
+  return tx("思考中", "Thinking");
+}
+
+function resolvePendingStageDetail(
+  message: ConversationThreadMessage,
+  tx: (zh: string, en: string) => string,
+): string | undefined {
+  if (message.data?.task_queue_status === "queued") {
+    return message.data.task_queue_delayed === "true"
+      ? tx("执行节点响应较慢，任务仍在队列中", "The runtime is responding slowly; the task is still queued")
+      : tx("等待执行节点领取任务", "Waiting for the runtime to claim this task");
+  }
+  if (message.data?.task_queue_status === "claimed") {
+    return tx("执行节点已领取，正在准备环境", "The runtime claimed this task and is preparing the environment");
+  }
+  return undefined;
+}
 
 async function copyMessageContent(content: string): Promise<void> {
   if (navigator.clipboard?.writeText) {

@@ -1979,6 +1979,7 @@ function buildFeishuChannelSummaryByChannelName(input: {
 
 const CHANNEL_DOCUMENT_PRESENCE_TTL_MS = 90_000;
 const CHANNEL_DOCUMENT_SYNC_EVENT_TTL_MS = 10 * 60_000;
+const TASK_QUEUE_DELAY_THRESHOLD_MS = 10_000;
 
 export function getChannelsPageData(
   currentUserDisplayName?: string,
@@ -2158,10 +2159,35 @@ export function getChannelsPageData(
     })),
   ];
 
+  const queuedTaskById = new Map(queuedTasks.map((task) => [task.id, task]));
+  const threadsWithQueueState: ChannelThreadData[] = threads.map((thread) => ({
+    ...thread,
+    messages: thread.messages.map((message) => {
+      const taskId = message.data?.source_task_queue_id;
+      const task = taskId ? queuedTaskById.get(taskId) : undefined;
+      if (!task || message.status !== "pending" || !["queued", "claimed", "running"].includes(task.status)) {
+        return message;
+      }
+      const queuedAt = Date.parse(task.queuedAt);
+      const delayed = task.status === "queued"
+        && Number.isFinite(queuedAt)
+        && Date.now() - queuedAt >= TASK_QUEUE_DELAY_THRESHOLD_MS;
+      return {
+        ...message,
+        data: {
+          ...(message.data ?? {}),
+          task_queue_status: task.status,
+          task_queued_at: task.queuedAt,
+          task_queue_delayed: delayed ? "true" : "false",
+        },
+      };
+    }),
+  }));
+
   // Attach the structured execution stream (task_message rows) for the most recent
   // tasks referenced by each thread, so the chat UI can render the execution timeline.
   const MAX_THREAD_EXECUTION_TASKS = 10;
-  const threadExecutionTaskIds = threads.map((thread) => {
+  const threadExecutionTaskIds = threadsWithQueueState.map((thread) => {
     const taskIds: string[] = [];
     for (const message of thread.messages) {
       const taskId = message.data?.source_task_queue_id;
@@ -2175,7 +2201,7 @@ export function getChannelsPageData(
     return taskIds;
   });
   const taskMessagesByTaskId = listTaskMessagesForTasksSync([...new Set(threadExecutionTaskIds.flat())]);
-  const threadsWithExecutions: ChannelThreadData[] = threads.map((thread, index) => {
+  const threadsWithExecutions: ChannelThreadData[] = threadsWithQueueState.map((thread, index) => {
     const taskExecutions: Record<string, TaskMessageRecord[]> = {};
     for (const taskId of threadExecutionTaskIds[index]) {
       const taskMessages = taskMessagesByTaskId.get(taskId);
