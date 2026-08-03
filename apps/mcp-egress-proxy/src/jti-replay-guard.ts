@@ -1,10 +1,12 @@
+import { readJsonStateFile, writeJsonStateFile } from "./atomic-json-state.ts";
+
 interface JtiBinding {
   expiration: number;
   sessionId?: string;
 }
 
 /** Lease-to-session guard with optional single-replica file persistence. */
-export class InMemoryJtiReplayGuard {
+export class SingleReplicaJtiReplayGuard {
   private readonly bindings = new Map<string, JtiBinding>();
   private readonly stateFile?: string;
   private consumeCount = 0;
@@ -12,13 +14,12 @@ export class InMemoryJtiReplayGuard {
   constructor(options: { stateFile?: string } = {}) {
     this.stateFile = options.stateFile;
     if (!this.stateFile) return;
-    try {
-      const parsed = JSON.parse(readFileSync(this.stateFile, "utf8")) as Array<[string, JtiBinding]>;
-      for (const [jti, binding] of parsed) {
-        if (typeof jti === "string" && Number.isSafeInteger(binding?.expiration)) this.bindings.set(jti, binding);
-      }
-    } catch {
-      // First boot or an unreadable state file starts empty and fails closed for future bindings.
+    const parsed = readJsonStateFile(this.stateFile);
+    if (parsed === undefined) return;
+    if (!Array.isArray(parsed)) throw new Error("MCP egress JTI state must be an array.");
+    for (const item of parsed) {
+      if (!isJtiBindingEntry(item)) throw new Error("MCP egress JTI state contains an invalid binding.");
+      this.bindings.set(item[0], item[1]);
     }
   }
 
@@ -41,11 +42,13 @@ export class InMemoryJtiReplayGuard {
 
   private persist(): void {
     if (!this.stateFile) return;
-    mkdirSync(dirname(this.stateFile), { recursive: true });
-    const temporaryFile = `${this.stateFile}.tmp`;
-    writeFileSync(temporaryFile, JSON.stringify(Array.from(this.bindings.entries())), { encoding: "utf8", mode: 0o600 });
-    renameSync(temporaryFile, this.stateFile);
+    writeJsonStateFile(this.stateFile, Array.from(this.bindings.entries()));
   }
 }
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+
+function isJtiBindingEntry(value: unknown): value is [string, JtiBinding] {
+  if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== "string") return false;
+  const binding = value[1] as Partial<JtiBinding> | undefined;
+  return Boolean(binding && Number.isSafeInteger(binding.expiration)
+    && (binding.sessionId === undefined || typeof binding.sessionId === "string"));
+}

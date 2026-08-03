@@ -4,7 +4,7 @@ import type { McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-age
 import { digestMcpEgressPolicyRevision, digestMcpPrivateCa, signMcpEgressLease } from "@dofe-agent/services";
 import { McpEgressPolicyCache } from "./policy-cache.ts";
 import { McpEgressProxyServer } from "./server.ts";
-import { InMemoryJtiReplayGuard } from "./jti-replay-guard.ts";
+import { SingleReplicaJtiReplayGuard } from "./jti-replay-guard.ts";
 
 const SECRET = "a".repeat(32);
 let leaseSequence = 0;
@@ -42,7 +42,7 @@ function buildSnapshot(policy: McpEgressPolicyRevision): McpEgressPolicySnapshot
 }
 
 function buildLeaseVerifier(cache: McpEgressPolicyCache) {
-  const guard = new InMemoryJtiReplayGuard();
+  const guard = new SingleReplicaJtiReplayGuard();
   return {
     leaseSecret: SECRET,
     fetchPolicySnapshot: (id: string) => cache.get(id),

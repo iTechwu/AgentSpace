@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -100,4 +100,10 @@ test("an out-of-order revocation tombstone survives push and restart", () => {
   const restarted = new McpEgressPolicyCache({ stateFile });
   restarted.set(snapshot("pol-late", false));
   assert.equal(restarted.get("pol-late")?.revoked, true);
+});
+
+test("corrupt policy state fails proxy startup instead of discarding deny state", () => {
+  const stateFile = join(mkdtempSync(join(tmpdir(), "dofe-egress-policy-corrupt-")), "policy.json");
+  writeFileSync(stateFile, "{", "utf8");
+  assert.throws(() => new McpEgressPolicyCache({ stateFile }), /state file is unreadable/);
 });

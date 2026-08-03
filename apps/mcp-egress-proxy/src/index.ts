@@ -3,7 +3,7 @@ import { McpEgressPolicyCache } from "./policy-cache.ts";
 import { McpEgressMetrics } from "./metrics.ts";
 import { McpEgressProxyServer } from "./server.ts";
 import { ConsoleMcpEgressAuditSink } from "./audit.ts";
-import { InMemoryJtiReplayGuard } from "./jti-replay-guard.ts";
+import { SingleReplicaJtiReplayGuard } from "./jti-replay-guard.ts";
 
 async function main(): Promise<void> {
   const port = Number(process.env.MCP_EGRESS_PROXY_PORT ?? "8080");
@@ -22,7 +22,7 @@ async function main(): Promise<void> {
   const policyCache = new McpEgressPolicyCache(stateFile ? { stateFile } : {});
   const metrics = new McpEgressMetrics();
   const auditSink = new ConsoleMcpEgressAuditSink();
-  const replayGuard = new InMemoryJtiReplayGuard(replayStateFile ? { stateFile: replayStateFile } : {});
+  const replayGuard = new SingleReplicaJtiReplayGuard(replayStateFile ? { stateFile: replayStateFile } : {});
 
   // Admin token rotation: MCP_EGRESS_PROXY_ADMIN_TOKENS (comma-separated) may
   // carry the previous + next token during a rotation window.
