@@ -130,7 +130,7 @@ test("builds uninstall plans without post-uninstall availability checks", () => 
   assert.deepEqual(plan.verifyCommands, []);
 });
 
-test("bootstraps cli-hub before update and uninstall when readiness is missing", () => {
+test("installs, updates, and uninstalls public npm apps without fetching the CLI-Hub registry", () => {
   const baseItem = {
     source: "clihub_public" as const,
     name: "toolkit",
@@ -140,7 +140,7 @@ test("bootstraps cli-hub before update and uninstall when readiness is missing",
     category: "",
     entryPoint: "toolkit",
     installStrategy: "npm" as const,
-    registryJson: "{}",
+    registryJson: JSON.stringify({ npm_package: "@dofe/toolkit" }),
     syncedAt: "2026-05-08T00:00:00.000Z",
   };
   const updatePlan = buildRuntimeAppInstallPlan({
@@ -154,15 +154,53 @@ test("bootstraps cli-hub before update and uninstall when readiness is missing",
     item: baseItem,
   });
 
+  const installPlan = buildRuntimeAppInstallPlan({
+    operation: "install",
+    cliHubAvailable: false,
+    item: baseItem,
+  });
+
+  assert.equal(installPlan.strategy, "npm");
+  assert.deepEqual(installPlan.commands, [
+    { executable: "npm", args: ["install", "--global", "@dofe/toolkit"] },
+  ]);
+  assert.deepEqual(installPlan.verifyCommands, [
+    { executable: "npm", args: ["list", "--global", "--depth=0", "@dofe/toolkit"] },
+  ]);
   assert.deepEqual(updatePlan.commands, [
-    { executable: "python3", args: ["-m", "pip", "install", "--user", "cli-anything-hub"], env: { PIP_BREAK_SYSTEM_PACKAGES: "1" } },
-    { executable: "cli-hub", args: ["update", "toolkit"], env: { PIP_BREAK_SYSTEM_PACKAGES: "1" } },
+    { executable: "npm", args: ["install", "--global", "@dofe/toolkit"] },
   ]);
   assert.deepEqual(uninstallPlan.commands, [
-    { executable: "python3", args: ["-m", "pip", "install", "--user", "cli-anything-hub"], env: { PIP_BREAK_SYSTEM_PACKAGES: "1" } },
-    { executable: "cli-hub", args: ["uninstall", "toolkit"], env: { PIP_BREAK_SYSTEM_PACKAGES: "1" } },
+    { executable: "npm", args: ["uninstall", "--global", "@dofe/toolkit"] },
   ]);
   assert.deepEqual(uninstallPlan.verifyCommands, []);
+});
+
+test("rejects unsafe public npm package metadata and falls back to the controlled CLI-Hub plan", () => {
+  const plan = buildRuntimeAppInstallPlan({
+    operation: "install",
+    cliHubAvailable: true,
+    item: {
+      source: "clihub_public",
+      name: "toolkit",
+      displayName: "Toolkit",
+      description: "",
+      version: "",
+      category: "",
+      entryPoint: "toolkit",
+      installStrategy: "npm",
+      installCmd: "npm install -g toolkit",
+      registryJson: JSON.stringify({ npm_package: "toolkit; touch /tmp/unsafe" }),
+      syncedAt: "2026-05-08T00:00:00.000Z",
+    },
+  });
+
+  assert.equal(plan.strategy, "cli_hub");
+  assert.deepEqual(plan.commands[0], {
+    executable: "cli-hub",
+    args: ["install", "toolkit"],
+    env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
+  });
 });
 
 test("marks shell metacharacter registry commands high risk", () => {

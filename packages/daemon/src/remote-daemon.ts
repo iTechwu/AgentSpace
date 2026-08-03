@@ -918,17 +918,18 @@ async function executeRemoteRuntimeAppOperation(
       workspaceId: operation.workspaceId,
     });
     mkdirSync(depsRoot, { recursive: true });
+    const runtimeHomeDir = ensureManagedRuntimeHomeDir(config.stateDir, runtime.id);
     const executionPlan = config.managedNode
       ? buildManagedRuntimeAppPlan(plan, {
           image: `dofe/agent-runtime-${runtime.provider}:${process.env.MANAGED_RUNTIME_IMAGE_TAG?.trim() || "latest"}`,
-          runtimeHomeDir: ensureManagedRuntimeHomeDir(config.stateDir, runtime.id),
+          runtimeHomeDir,
           depsRoot,
           dockerNetwork: resolveManagedRuntimeDockerNetwork(),
           dockerConnectivityArgs: buildManagedRuntimeDockerConnectivityArgs(),
           user: `${process.getuid?.() ?? 10001}:${process.getgid?.() ?? 10001}`,
         })
       : plan;
-    const result = await executeRuntimeAppPlan(executionPlan, { cwd: depsRoot });
+    const result = await executeRuntimeAppPlan(executionPlan, { cwd: depsRoot, runtimeHomeDir });
     await client.completeRuntimeAppOperation(operation.id, {
       safeStdoutTail: result.safeStdoutTail,
       safeStderrTail: result.safeStderrTail,
@@ -937,9 +938,12 @@ async function executeRemoteRuntimeAppOperation(
         version: plan.app.version,
         entryPoint: plan.app.entryPoint,
         installStrategy: plan.strategy,
-        metadataJson: JSON.stringify({
-          verifiedAt: new Date().toISOString(),
-          strategy: plan.strategy,
+          metadataJson: JSON.stringify({
+            verifiedAt: new Date().toISOString(),
+            strategy: plan.strategy,
+            installScope: "runtime_private",
+            hostInstallRoot: join(runtimeHomeDir, ".local"),
+            runtimeInstallRoot: config.managedNode ? "/dofe-home/.local" : join(runtimeHomeDir, ".local"),
           // Reproducibility record (P1-4): the registry integrity lock and the
           // sha256 of the installed deps dir — both are audit-only, never secrets.
           ...(plan.integrityLock ? { integrityLock: plan.integrityLock } : {}),
@@ -1146,9 +1150,7 @@ async function executeRemoteTask(
           } : {}),
         },
         runtimeApps: bundle.metadata.runtimeApps?.apps ?? [],
-        runtimeAppBinDir: managedCredentialId
-          ? join(getManagedRuntimeHomeDir(config.stateDir, runtime.id), ".local", "bin")
-          : undefined,
+        runtimeAppBinDir: join(getManagedRuntimeHomeDir(config.stateDir, runtime.id), ".local", "bin"),
         runtimeToolCapabilities: [
           ...(bundle.metadata.runtimeToolCapabilities?.capabilities ?? []),
           ...skillRunner.capabilities,

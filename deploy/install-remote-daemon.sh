@@ -17,6 +17,11 @@ PROVIDER_CREDENTIAL_MAP_REF=""
 DEVICE_NAME="$(hostname -s 2>/dev/null || hostname || echo remote-daemon)"
 RUNTIME_NAME="Remote Agent"
 MANAGED_NODE="false"
+MANAGED_RUNTIME_DOCKER_NETWORK="${MANAGED_RUNTIME_DOCKER_NETWORK:-}"
+MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS="${MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS:-}"
+MANAGED_RUNTIME_TLS_CA_PATH="${MANAGED_RUNTIME_TLS_CA_PATH:-}"
+MANAGED_RUNTIME_IMAGE_TAG="${MANAGED_RUNTIME_IMAGE_TAG:-latest}"
+MCP_EGRESS_ENFORCE="${MCP_EGRESS_ENFORCE:-false}"
 BASE_DIR="${DOFE_AGENT_DAEMON_HOME:-$HOME/.dofe-agent-daemon}"
 STATE_DIR="${DOFE_AGENT_DAEMON_STATE_DIR:-$BASE_DIR}"
 INSTALL_ROOT="${DOFE_AGENT_DAEMON_INSTALL_ROOT:-$BASE_DIR/runtime}"
@@ -102,6 +107,8 @@ Optional:
 
 Notes:
   - Managed nodes require Docker access for the installing user.
+  - Managed nodes reuse MANAGED_RUNTIME_DOCKER_NETWORK when set; otherwise the installer creates dofe-managed-egress.
+  - MCP_EGRESS_ENFORCE=true requires an existing dofe-runtime-restricted network managed by the deployment stack.
   - Run this script as a user that has access to codex / claude / agy / gemini / opencode / openclaw / nanobot / hermes.
   - Root is supported for server installs, but Claude Code must be logged in for /root and task commands run with root privileges.
   - Feishu document and data operations are enabled through a bound Feishu Bot and resource bindings in the web application.
@@ -459,6 +466,29 @@ BWRAP_ERROR=""
 if [[ "$MANAGED_NODE" == "true" ]]; then
   log "Checking managed-node Docker readiness"
   docker version >/dev/null 2>&1 || fail "docker version failed; the installing user must be able to run managed Runtime containers"
+  if [[ -z "$MANAGED_RUNTIME_DOCKER_NETWORK" ]]; then
+    if [[ "$MCP_EGRESS_ENFORCE" == "true" ]]; then
+      MANAGED_RUNTIME_DOCKER_NETWORK="dofe-runtime-restricted"
+    else
+      MANAGED_RUNTIME_DOCKER_NETWORK="dofe-managed-egress"
+    fi
+  fi
+  if [[ ! "$MANAGED_RUNTIME_DOCKER_NETWORK" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]; then
+    fail "Invalid MANAGED_RUNTIME_DOCKER_NETWORK: $MANAGED_RUNTIME_DOCKER_NETWORK"
+  fi
+  NORMALIZED_MANAGED_NETWORK="$(printf '%s' "$MANAGED_RUNTIME_DOCKER_NETWORK" | tr '[:upper:]' '[:lower:]')"
+  case "$NORMALIZED_MANAGED_NETWORK" in
+    bridge|default|host|none)
+      fail "MANAGED_RUNTIME_DOCKER_NETWORK must be an isolated user-defined Docker network"
+      ;;
+  esac
+  if ! docker network inspect "$MANAGED_RUNTIME_DOCKER_NETWORK" >/dev/null 2>&1; then
+    if [[ "$MCP_EGRESS_ENFORCE" == "true" ]]; then
+      fail "Required restricted Docker network does not exist: $MANAGED_RUNTIME_DOCKER_NETWORK"
+    fi
+    log "Creating managed Runtime Docker network: $MANAGED_RUNTIME_DOCKER_NETWORK"
+    docker network create --driver bridge --label dofe.managed-egress=restricted "$MANAGED_RUNTIME_DOCKER_NETWORK" >/dev/null
+  fi
 else
   log "Checking runtime output readiness"
   verify_dofe_agent_output_cli
@@ -479,6 +509,11 @@ DOFE_AGENT_PROVIDER_CREDENTIAL_MAP_REF=$(printf '%q' "$PROVIDER_CREDENTIAL_MAP_R
 DOFE_AGENT_DEVICE_NAME=$(printf '%q' "$DEVICE_NAME")
 DOFE_AGENT_RUNTIME_NAME=$(printf '%q' "$RUNTIME_NAME")
 DOFE_AGENT_MANAGED_NODE=$(printf '%q' "$MANAGED_NODE")
+MANAGED_RUNTIME_DOCKER_NETWORK=$(printf '%q' "$MANAGED_RUNTIME_DOCKER_NETWORK")
+MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS=$(printf '%q' "$MANAGED_RUNTIME_DOCKER_EXTRA_HOSTS")
+MANAGED_RUNTIME_TLS_CA_PATH=$(printf '%q' "$MANAGED_RUNTIME_TLS_CA_PATH")
+MANAGED_RUNTIME_IMAGE_TAG=$(printf '%q' "$MANAGED_RUNTIME_IMAGE_TAG")
+MCP_EGRESS_ENFORCE=$(printf '%q' "$MCP_EGRESS_ENFORCE")
 DOFE_AGENT_DAEMON_STATE_DIR=$(printf '%q' "$STATE_DIR")
 DOFE_AGENT_DAEMON_INSTALL_ROOT=$(printf '%q' "$INSTALL_ROOT")
 DOFE_AGENT_DAEMON_BIN=$(printf '%q' "$BIN_PATH")
@@ -492,15 +527,21 @@ TMP_LAUNCHER="$(mktemp /tmp/dofe-agent-daemon-launcher.XXXXXX)"
 cat >"$TMP_LAUNCHER" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+set -a
 source "$ENV_FILE"
-export PATH
+set +a
+MANAGED_NODE_FLAG=""
+if [[ "\${DOFE_AGENT_MANAGED_NODE:-false}" == "true" || "\${DOFE_AGENT_MANAGED_NODE:-false}" == "1" ]]; then
+  MANAGED_NODE_FLAG="--managed-node"
+fi
 exec "\$DOFE_AGENT_DAEMON_BIN" start \\
   --state-dir "\$DOFE_AGENT_DAEMON_STATE_DIR" \\
   --server-url "\$DOFE_AGENT_SERVER_URL" \\
   --daemon-token "\$DOFE_AGENT_DAEMON_TOKEN" \\
   --daemon-id "\$DOFE_AGENT_DAEMON_ID" \\
   --device-name "\$DOFE_AGENT_DEVICE_NAME" \\
-  --runtime-name "\$DOFE_AGENT_RUNTIME_NAME"
+  --runtime-name "\$DOFE_AGENT_RUNTIME_NAME" \\
+  \$MANAGED_NODE_FLAG
 EOF
 install -m 700 "$TMP_LAUNCHER" "$LAUNCHER_PATH"
 rm -f "$TMP_LAUNCHER"

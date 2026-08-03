@@ -102,15 +102,47 @@ test("managed runtime app plans execute inside the target provider image", () =>
     "--mount", "type=bind,src=/state/managed-runtimes/runtime-codex/home,dst=/dofe-home",
     "--mount", "type=bind,src=/state/workspaces/ws/runtime-app-deps,dst=/runtime-app-deps",
     "--workdir", "/runtime-app-deps",
-    "--env", "HOME=/dofe-home",
-    "--env", "PATH=/dofe-home/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     "--env", "PIP_BREAK_SYSTEM_PACKAGES=1",
+    "--env", "HOME=/dofe-home",
+    "--env", "PYTHONUSERBASE=/dofe-home/.local",
+    "--env", "NPM_CONFIG_PREFIX=/dofe-home/.local",
+    "--env", "PATH=/dofe-home/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     "--entrypoint", "python3",
     "dofe/agent-runtime-codex:test",
     "-m", "pip", "install", "--user", "cli-anything-hub",
   ]);
   assert.equal(plan.verifyCommands[0]?.args.includes("--entrypoint"), true);
   assert.equal(plan.verifyCommands[0]?.args.includes("cli-anything-blender"), true);
+});
+
+test("runtime app execution installs into the selected runtime private home", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-runtime-app-home-"));
+  const runtimeHomeDir = join(root, "runtime-home");
+  mkdirSync(runtimeHomeDir, { recursive: true });
+
+  try {
+    const result = await executeRuntimeAppPlan({
+      app: { source: "clihub_public", name: "portable", version: "1.0.0", entryPoint: "portable" },
+      strategy: "npm",
+      commands: [{
+        executable: "/bin/sh",
+        args: ["-c", "printf '%s\\n%s\\n%s\\n%s\\n' \"$HOME\" \"$PYTHONUSERBASE\" \"$NPM_CONFIG_PREFIX\" \"$PATH\""],
+        env: { HOME: "/untrusted", NPM_CONFIG_PREFIX: "/untrusted" },
+      }],
+      verifyCommands: [],
+      risk: "low",
+      requiresApproval: true,
+      notes: [],
+    }, { runtimeHomeDir });
+
+    const runtimePrefix = join(runtimeHomeDir, ".local");
+    assert.match(result.safeStdoutTail, new RegExp(runtimeHomeDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(result.safeStdoutTail, new RegExp(runtimePrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(result.safeStdoutTail, new RegExp(join(runtimePrefix, "bin").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.doesNotMatch(result.safeStdoutTail, /untrusted/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("runtime app execution supports python fallback and platform-specific user scripts", async () => {

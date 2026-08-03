@@ -295,7 +295,7 @@ function buildDockerProviderLauncher(profileDir: string, runtimeId: string, prov
     `  --mount ${shellQuote(`type=bind,src=${runtimeHomeDir},dst=/dofe-home`)} \\`,
     "  --workdir /workspace \\",
     "  --env HOME=/dofe-home \\",
-    "  --env PATH=/workspace/.dofe-runtime/skill-runner-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \\",
+    "  --env PATH=/workspace/.dofe-runtime/skill-runner-bin:/dofe-home/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \\",
     "  --entrypoint node \\",
     environmentArgs.trimEnd(),
     `  ${shellQuote(image)} /dofe-profile/attribution-proxy.mjs ${shellQuote(PROVIDER_BASE_URL_KEYS[provider])} ${shellQuote(getManagedProviderCredentialEnvironmentKey(provider))} /dofe-profile/runtime-key ${shellQuote(PROVIDER_EXECUTABLES[provider])} \"$@\"`,

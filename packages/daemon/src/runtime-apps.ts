@@ -46,6 +46,7 @@ interface RuntimeAppExecutionEnvironment {
   path: string;
   pythonExecutable?: string;
   pythonUserBinDir?: string;
+  installEnv?: Record<string, string>;
 }
 
 const RUNTIME_APP_CONTAINER_HOME = "/dofe-home";
@@ -77,9 +78,11 @@ export function buildManagedRuntimeAppPlan(
       "--mount", `type=bind,src=${options.runtimeHomeDir},dst=${RUNTIME_APP_CONTAINER_HOME}`,
       "--mount", `type=bind,src=${options.depsRoot},dst=${RUNTIME_APP_CONTAINER_DEPS_ROOT}`,
       "--workdir", RUNTIME_APP_CONTAINER_DEPS_ROOT,
-      "--env", `HOME=${RUNTIME_APP_CONTAINER_HOME}`,
-      "--env", `PATH=${RUNTIME_APP_CONTAINER_PATH}`,
       ...Object.entries(command.env ?? {}).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
+      "--env", `HOME=${RUNTIME_APP_CONTAINER_HOME}`,
+      "--env", `PYTHONUSERBASE=${RUNTIME_APP_CONTAINER_HOME}/.local`,
+      "--env", `NPM_CONFIG_PREFIX=${RUNTIME_APP_CONTAINER_HOME}/.local`,
+      "--env", `PATH=${RUNTIME_APP_CONTAINER_PATH}`,
       "--entrypoint", command.executable,
       options.image,
       ...command.args,
@@ -130,11 +133,11 @@ export function computeDirectoryDigestSync(dirPath: string): string | undefined 
 
 export async function executeRuntimeAppPlan(
   plan: RuntimeAppInstallPlan,
-  options?: { cwd?: string },
+  options?: { cwd?: string; runtimeHomeDir?: string },
 ): Promise<RuntimeAppExecutionResult> {
   let stdout = "";
   let stderr = "";
-  const executionEnvironment = resolveRuntimeAppExecutionEnvironment();
+  const executionEnvironment = resolveRuntimeAppExecutionEnvironment(process.env, options?.runtimeHomeDir);
   for (const command of [...plan.commands, ...plan.verifyCommands]) {
     const result = await execCommand(command, {
       cwd: options?.cwd,
@@ -233,6 +236,7 @@ function execCommand(
       // into package-manager subprocesses.
       env: {
         ...(command.env ?? {}),
+        ...(options.executionEnvironment.installEnv ?? {}),
         PATH: commandPath,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -272,8 +276,20 @@ function execCommand(
 
 function resolveRuntimeAppExecutionEnvironment(
   environment: NodeJS.ProcessEnv = process.env,
+  runtimeHomeDir?: string,
 ): RuntimeAppExecutionEnvironment {
   const basePath = environment.PATH ?? "";
+  const runtimePrefix = runtimeHomeDir ? join(runtimeHomeDir, ".local") : undefined;
+  const runtimeBinDir = runtimePrefix
+    ? join(runtimePrefix, process.platform === "win32" ? "Scripts" : "bin")
+    : undefined;
+  const installEnv = runtimeHomeDir && runtimePrefix
+    ? {
+        HOME: runtimeHomeDir,
+        PYTHONUSERBASE: runtimePrefix,
+        NPM_CONFIG_PREFIX: runtimePrefix,
+      }
+    : undefined;
   for (const candidate of ["python3", "python"]) {
     const version = spawnSync(candidate, ["--version"], {
       env: environment,
@@ -288,16 +304,21 @@ function resolveRuntimeAppExecutionEnvironment(
       timeout: 5_000,
     });
     const pythonUserBase = userBase.status === 0 ? userBase.stdout.trim() : "";
-    const pythonUserBinDir = pythonUserBase
+    const pythonUserBinDir = runtimeBinDir ?? (pythonUserBase
       ? join(pythonUserBase, process.platform === "win32" ? "Scripts" : "bin")
-      : undefined;
+      : undefined);
     return {
       pythonExecutable: candidate,
       pythonUserBinDir,
       path: prependPath(basePath, pythonUserBinDir),
+      installEnv,
     };
   }
-  return { path: basePath };
+  return {
+    pythonUserBinDir: runtimeBinDir,
+    path: prependPath(basePath, runtimeBinDir),
+    installEnv,
+  };
 }
 
 function prependPath(pathValue: string, directory?: string): string {

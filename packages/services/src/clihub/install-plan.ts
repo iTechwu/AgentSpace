@@ -3,6 +3,7 @@ import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan, RuntimeAppOperat
 
 const UNSAFE_COMMAND_PATTERN = /(\||&&|;|`|\$\(|<\(|>\(|\bcurl\b|\bwget\b|\bsudo\b|\bsu\b|\bchmod\b|\bchown\b|\bsystemctl\b|\blaunchctl\b|\btee\s+-a\b|>>|~\/\.(?:bash|zsh|profile|config))/i;
 const CLI_HUB_PIP_ENV = { PIP_BREAK_SYSTEM_PACKAGES: "1" } as const;
+const NPM_PACKAGE_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/i;
 
 export function buildRuntimeAppInstallPlan(input: {
   item: RuntimeAppCatalogItemRecord;
@@ -11,16 +12,21 @@ export function buildRuntimeAppInstallPlan(input: {
 }): RuntimeAppInstallPlan {
   const cliHubAvailable = input.cliHubAvailable !== false;
   const risk = assessRuntimeAppRisk(input.item);
+  const npmPackage = readPublicNpmPackage(input.item);
   const strategy: RuntimeAppInstallStrategy =
     input.operation === "disable" || input.operation === "enable"
       ? "manual"
-      : cliHubAvailable
-        ? "cli_hub"
-        : input.operation === "install"
-          ? "pip"
-          : "cli_hub";
-  const commands = buildOperationCommands(input.item, input.operation, strategy, cliHubAvailable);
-  const verifyCommands = shouldVerifyAfterOperation(input.operation) ? buildVerifyCommands(input.item) : [];
+      : npmPackage
+        ? "npm"
+        : cliHubAvailable
+          ? "cli_hub"
+          : input.operation === "install"
+            ? "pip"
+            : "cli_hub";
+  const commands = buildOperationCommands(input.item, input.operation, strategy, cliHubAvailable, npmPackage);
+  const verifyCommands = shouldVerifyAfterOperation(input.operation)
+    ? buildVerifyCommands(input.item, strategy, npmPackage)
+    : [];
   const notes = buildPlanNotes(input.item, input.operation, strategy, risk, cliHubAvailable);
   return {
     app: {
@@ -58,6 +64,7 @@ function buildOperationCommands(
   operation: RuntimeAppOperationType,
   strategy: RuntimeAppInstallStrategy,
   cliHubAvailable: boolean,
+  npmPackage?: string,
 ): RuntimeAppCommandPlanItem[] {
   if (operation === "disable" || operation === "enable" || operation === "verify") {
     return [];
@@ -65,6 +72,14 @@ function buildOperationCommands(
   if (strategy === "cli_hub") {
     const operationCommand = buildCliHubCommand([operation, item.name]);
     return cliHubAvailable ? [operationCommand] : [buildCliHubBootstrapCommand(), operationCommand];
+  }
+  if (strategy === "npm" && npmPackage) {
+    if (operation === "uninstall") {
+      return [{ executable: "npm", args: ["uninstall", "--global", npmPackage] }];
+    }
+    if (operation === "install" || operation === "update") {
+      return [{ executable: "npm", args: ["install", "--global", npmPackage] }];
+    }
   }
   if (operation !== "install") {
     return cliHubAvailable ? [buildCliHubCommand([operation, item.name])] : [];
@@ -91,10 +106,20 @@ function shouldVerifyAfterOperation(operation: RuntimeAppOperationType): boolean
   return operation === "install" || operation === "update" || operation === "verify";
 }
 
-function buildVerifyCommands(item: RuntimeAppCatalogItemRecord): RuntimeAppCommandPlanItem[] {
-  const commands: RuntimeAppCommandPlanItem[] = [
-    buildCliHubCommand(["info", item.name]),
-  ];
+function buildVerifyCommands(
+  item: RuntimeAppCatalogItemRecord,
+  strategy: RuntimeAppInstallStrategy,
+  npmPackage?: string,
+): RuntimeAppCommandPlanItem[] {
+  if (strategy === "npm" && npmPackage) {
+    return [{
+      executable: "npm",
+      args: ["list", "--global", "--depth=0", npmPackage],
+    }];
+  }
+  const commands: RuntimeAppCommandPlanItem[] = strategy === "cli_hub"
+    ? [buildCliHubCommand(["info", item.name])]
+    : [];
   if (item.entryPoint.trim()) {
     commands.push({ executable: "which", args: [item.entryPoint.trim()] });
     commands.push({ executable: item.entryPoint.trim(), args: ["--help"] });
@@ -114,7 +139,7 @@ function buildPlanNotes(
     `Install strategy: ${strategy}`,
     "DofeAgent executes a controlled command plan with argument arrays; registry install_cmd is catalog metadata only.",
   ];
-  if (!cliHubAvailable && (operation === "install" || operation === "update" || operation === "uninstall")) {
+  if (strategy === "cli_hub" && !cliHubAvailable && (operation === "install" || operation === "update" || operation === "uninstall")) {
     notes.push("Target runtime did not report cli-hub readiness, so the plan bootstraps cli-anything-hub with python3 -m pip install --user before running cli-hub.");
   }
   if (item.requiresText?.trim()) {
@@ -124,4 +149,17 @@ function buildPlanNotes(
     notes.push("High risk catalog command detected; manual admin confirmation is required before execution.");
   }
   return notes;
+}
+
+function readPublicNpmPackage(item: RuntimeAppCatalogItemRecord): string | undefined {
+  if (item.source !== "clihub_public" || item.installStrategy !== "npm") {
+    return undefined;
+  }
+  try {
+    const registry = JSON.parse(item.registryJson) as Record<string, unknown>;
+    const candidate = typeof registry.npm_package === "string" ? registry.npm_package.trim() : item.name.trim();
+    return NPM_PACKAGE_PATTERN.test(candidate) ? candidate : undefined;
+  } catch {
+    return undefined;
+  }
 }

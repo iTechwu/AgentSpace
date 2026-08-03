@@ -228,9 +228,65 @@ test("managed-node install requires Docker but not a host provider CLI", () => {
     });
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(readFileSync(join(baseDir, "daemon.env"), "utf8"), /DOFE_AGENT_MANAGED_NODE=true/);
+    const generatedEnv = readFileSync(join(baseDir, "daemon.env"), "utf8");
+    const generatedLauncher = readFileSync(join(baseDir, "start-daemon.sh"), "utf8");
+    assert.match(generatedEnv, /DOFE_AGENT_MANAGED_NODE=true/);
+    assert.match(generatedEnv, /MANAGED_RUNTIME_DOCKER_NETWORK=dofe-managed-egress/);
+    assert.match(generatedEnv, /MANAGED_RUNTIME_IMAGE_TAG=latest/);
+    assert.match(generatedLauncher, /set -a\nsource /);
+    assert.match(generatedLauncher, /MANAGED_NODE_FLAG=""/);
+    assert.match(generatedLauncher, /MANAGED_NODE_FLAG="--managed-node"/);
     assert.match(result.stdout, /managed-node Docker readiness/i);
     assert.doesNotMatch(result.stderr, /dofe-agent CLI was not found/i);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("managed-node install preserves an operator-provided Docker network", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-install-managed-network-"));
+  const packagePath = join(tempRoot, "dofe-agent-daemon-test.tgz");
+  const toolDir = join(tempRoot, "tools");
+  const baseDir = join(tempRoot, "state");
+  try {
+    mkdirSync(toolDir, { recursive: true });
+    writeFileSync(packagePath, "not-a-real-tarball", "utf8");
+    writeExecutable(toolDir, "docker", "#!/bin/sh\nexit 0\n");
+    writeExecutable(toolDir, "pnpm", [
+      "#!/bin/sh",
+      "prefix=''",
+      "while [ $# -gt 0 ]; do",
+      "  if [ \"$1\" = \"--global-dir\" ]; then prefix=\"$2\"; shift 2; continue; fi",
+      "  shift",
+      "done",
+      "mkdir -p \"$prefix/bin\"",
+      "printf '#!/bin/sh\\nexit 0\\n' > \"$prefix/bin/dofe-agent-daemon\"",
+      "chmod +x \"$prefix/bin/dofe-agent-daemon\"",
+      "",
+    ].join("\n"));
+
+    const result = spawnSync("bash", [
+      installerPath,
+      "--managed-node",
+      "--no-start",
+      "--package", packagePath,
+      "--server-url", "https://dofe-agent.example",
+      "--daemon-token", "adt_test",
+      "--base-dir", baseDir,
+    ], {
+      env: {
+        ...process.env,
+        MANAGED_RUNTIME_DOCKER_NETWORK: "team-runtime-egress",
+        MANAGED_RUNTIME_IMAGE_TAG: "stable",
+        PATH: `${toolDir}:${process.env.PATH ?? ""}`,
+      },
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const generatedEnv = readFileSync(join(baseDir, "daemon.env"), "utf8");
+    assert.match(generatedEnv, /MANAGED_RUNTIME_DOCKER_NETWORK=team-runtime-egress/);
+    assert.match(generatedEnv, /MANAGED_RUNTIME_IMAGE_TAG=stable/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
