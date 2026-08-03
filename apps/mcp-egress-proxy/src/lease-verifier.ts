@@ -66,6 +66,7 @@ export async function verifyLeaseForRequest(
     snapshot.revision.workspaceId !== claims.workspaceId ||
     snapshot.revision.connectionId !== claims.connectionId ||
     snapshot.revision.releaseId !== claims.releaseId ||
+    snapshot.revision.releaseManifestDigest !== claims.releaseManifestDigest ||
     snapshot.revision.manifestDigest !== claims.policyDigest ||
     digestMcpEgressPolicyRevision(snapshot.revision) !== claims.policyDigest
   ) {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { McpEgressLeaseClaims, McpEgressPolicyRevision } from "@dofe-agent/domain";
 import {
+  buildMcpEgressPolicyRevision,
   canonicalizeMcpEgressPolicyRevision,
   buildMcpEgressPolicySnapshot,
   digestMcpEgressPolicyRevision,
@@ -18,6 +19,7 @@ function basePolicy(): McpEgressPolicyRevision {
     workspaceId: "ws-1",
     connectionId: "conn-1",
     releaseId: "rel-1",
+    releaseManifestDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
     manifestDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     upstream: {
       origin: "https://github-mcp.example.com",
@@ -33,6 +35,7 @@ function basePolicy(): McpEgressPolicyRevision {
     maxRequestBytes: 1_048_576,
     maxResponseBytes: 1_048_576,
     maxConcurrentStreams: 8,
+    maxRequestsPerSecond: 8,
     createdAt: "2026-08-03T00:00:00.000Z",
   };
 }
@@ -46,6 +49,7 @@ function baseClaims(exp: number): McpEgressLeaseClaims {
     runtimeId: "rt-1",
     connectionId: "conn-1",
     releaseId: "rel-1",
+    releaseManifestDigest: basePolicy().releaseManifestDigest,
     policyRevisionId: "pol-1",
     policyDigest: digestMcpEgressPolicyRevision(basePolicy()),
     purpose: "task_call",
@@ -102,6 +106,30 @@ test("buildMcpEgressPolicySnapshot carries static headers only for in-memory pro
 
   const unauthenticated = buildMcpEgressPolicySnapshot({ ...basePolicy(), authMode: "none" }, { Authorization: "ignored" });
   assert.equal(unauthenticated.staticHeaders, undefined);
+});
+
+test("private CA material is digest-bound, kept in memory, and excluded from static headers", () => {
+  const privateCaPem = "-----BEGIN CERTIFICATE-----\nprivate-ca\n-----END CERTIFICATE-----";
+  const policy = buildMcpEgressPolicyRevision({
+    workspaceId: "ws-1",
+    connectionId: "conn-1",
+    releaseId: "rel-1",
+    releaseManifestDigest: basePolicy().releaseManifestDigest,
+    endpoint: "https://github-mcp.example.com/mcp",
+    allowedHosts: ["github-mcp.example.com"],
+    approvedTools: ["some_tool"],
+    authMode: "static_header",
+    privateCaPem,
+  });
+  const snapshot = buildMcpEgressPolicySnapshot(policy, {
+    Authorization: "Bearer secret",
+    tls_ca_pem: privateCaPem,
+  });
+
+  assert.equal(policy.tlsMode, "verify_private_ca");
+  assert.match(policy.privateCaDigest ?? "", /^sha256:[a-f0-9]{64}$/);
+  assert.equal(snapshot.privateCaPem, privateCaPem);
+  assert.deepEqual(snapshot.staticHeaders, { Authorization: "Bearer secret" });
 });
 
 test("signMcpEgressLease produces a three-part token", () => {

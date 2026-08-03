@@ -13,6 +13,7 @@ function snapshot(id: string, revoked = false): McpEgressPolicySnapshot {
       workspaceId: "ws-1",
       connectionId: "conn-1",
       releaseId: "release-1",
+      releaseManifestDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
       manifestDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
       upstream: {
         origin: "https://upstream.example",
@@ -28,6 +29,7 @@ function snapshot(id: string, revoked = false): McpEgressPolicySnapshot {
       maxRequestBytes: 1024,
       maxResponseBytes: 4096,
       maxConcurrentStreams: 2,
+      maxRequestsPerSecond: 8,
       createdAt: "2026-08-03T00:00:00Z",
     };
   return {
@@ -58,11 +60,16 @@ test("policy cache never persists static authentication headers", () => {
   const dir = mkdtempSync(join(tmpdir(), "dofe-egress-secrets-"));
   const stateFile = join(dir, "policy.json");
   const cache = new McpEgressPolicyCache({ stateFile });
-  cache.set({ ...snapshot("pol-secret"), staticHeaders: { Authorization: "Bearer must-not-persist" } });
+  cache.set({
+    ...snapshot("pol-secret"),
+    staticHeaders: { Authorization: "Bearer must-not-persist" },
+    privateCaPem: "must-not-persist-private-ca",
+  });
 
   const stored = readFileSync(stateFile, "utf8");
-  assert.doesNotMatch(stored, /must-not-persist|Authorization/);
+  assert.doesNotMatch(stored, /must-not-persist|Authorization|privateCaPem/);
   assert.equal(new McpEgressPolicyCache({ stateFile }).get("pol-secret")?.staticHeaders, undefined);
+  assert.equal(new McpEgressPolicyCache({ stateFile }).get("pol-secret")?.privateCaPem, undefined);
   assert.equal(cache.get("pol-secret")?.staticHeaders?.Authorization, "Bearer must-not-persist");
 });
 

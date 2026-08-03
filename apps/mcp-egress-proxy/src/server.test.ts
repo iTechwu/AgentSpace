@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-agent/domain";
-import { digestMcpEgressPolicyRevision, signMcpEgressLease } from "@dofe-agent/services";
+import { digestMcpEgressPolicyRevision, digestMcpPrivateCa, signMcpEgressLease } from "@dofe-agent/services";
 import { McpEgressPolicyCache } from "./policy-cache.ts";
 import { McpEgressProxyServer } from "./server.ts";
 import { InMemoryJtiReplayGuard } from "./jti-replay-guard.ts";
@@ -15,6 +15,7 @@ function basePolicy(): McpEgressPolicyRevision {
     workspaceId: "ws-1",
     connectionId: "conn-1",
     releaseId: "rel-1",
+    releaseManifestDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
     manifestDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     upstream: {
       origin: "https://github-mcp.example.com",
@@ -30,6 +31,7 @@ function basePolicy(): McpEgressPolicyRevision {
     maxRequestBytes: 1_048_576,
     maxResponseBytes: 1_048_576,
     maxConcurrentStreams: 8,
+    maxRequestsPerSecond: 8,
     createdAt: "2026-08-03T00:00:00.000Z",
   };
   return { ...policy, manifestDigest: digestMcpEgressPolicyRevision(policy) };
@@ -48,7 +50,13 @@ function buildLeaseVerifier(cache: McpEgressPolicyCache) {
   };
 }
 
-function buildLeaseToken(overrides: Partial<{ exp: number; purpose: "verify" | "health_check" | "task_call"; toolName: string; policyDigest: `sha256:${string}` }> = {}): string {
+function buildLeaseToken(overrides: Partial<{
+  exp: number;
+  purpose: "verify" | "health_check" | "task_call";
+  toolName: string;
+  policyDigest: `sha256:${string}`;
+  releaseManifestDigest: `sha256:${string}`;
+}> = {}): string {
   const exp = overrides.exp ?? Math.floor(Date.now() / 1000) + 60;
   const purpose = overrides.purpose ?? "task_call";
   return signMcpEgressLease(
@@ -60,6 +68,7 @@ function buildLeaseToken(overrides: Partial<{ exp: number; purpose: "verify" | "
       runtimeId: "rt-1",
       connectionId: "conn-1",
       releaseId: "rel-1",
+      releaseManifestDigest: overrides.releaseManifestDigest ?? basePolicy().releaseManifestDigest,
       policyRevisionId: "pol-1",
       policyDigest: overrides.policyDigest ?? basePolicy().manifestDigest,
       purpose,
@@ -194,6 +203,87 @@ test("admin policy push rejects a snapshot whose canonical digest was tampered",
     });
     assert.equal(res.status, 400);
     assert.equal(cache.get(policy.id), undefined);
+  } finally {
+    await close();
+  }
+});
+
+test("admin policy push rejects private CA material that does not match the policy digest", async () => {
+  const cache = new McpEgressPolicyCache();
+  const base = {
+    ...basePolicy(),
+    tlsMode: "verify_private_ca" as const,
+    privateCaDigest: digestMcpPrivateCa("trusted-ca"),
+  };
+  const policy = { ...base, manifestDigest: digestMcpEgressPolicyRevision(base) };
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
+    auditSink: { record: () => undefined },
+    adminToken: "admin-secret",
+  });
+  const { url, close } = await server.start();
+  try {
+    const response = await fetch(`${url}/v1/admin/policies`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-dofe-admin-token": "admin-secret" },
+      body: JSON.stringify({ ...buildSnapshot(policy), privateCaPem: "other-ca" }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal(cache.get(policy.id), undefined);
+  } finally {
+    await close();
+  }
+});
+
+test("admin policy push rejects a self-consistent policy with an invalid rate limit", async () => {
+  const cache = new McpEgressPolicyCache();
+  const base = { ...basePolicy(), maxRequestsPerSecond: 0 };
+  const policy = { ...base, manifestDigest: digestMcpEgressPolicyRevision(base) };
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
+    auditSink: { record: () => undefined },
+    adminToken: "admin-secret",
+  });
+  const { url, close } = await server.start();
+  try {
+    const response = await fetch(`${url}/v1/admin/policies`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-dofe-admin-token": "admin-secret" },
+      body: JSON.stringify(buildSnapshot(policy)),
+    });
+    assert.equal(response.status, 400);
+  } finally {
+    await close();
+  }
+});
+
+test("lease release digest must match the immutable release bound into policy", async () => {
+  const cache = new McpEgressPolicyCache();
+  cache.set(buildSnapshot(basePolicy()));
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
+    auditSink: { record: () => undefined },
+  });
+  const { url, close } = await server.start();
+  try {
+    const response = await fetch(`${url}/mcp`, {
+      headers: {
+        authorization: `DofeEgressLease ${buildLeaseToken({
+          releaseManifestDigest: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        })}`,
+      },
+    });
+    assert.equal(response.status, 403);
+    assert.equal(((await response.json()) as { error: string }).error, "mcp_egress.policy_mismatch");
   } finally {
     await close();
   }
@@ -447,6 +537,36 @@ test("enforces the policy concurrent stream limit", async () => {
     assert.equal((await first).status, 200);
   } finally {
     releaseForward?.();
+    await close();
+  }
+});
+
+test("enforces the per-connection request rate limit", async () => {
+  const cache = new McpEgressPolicyCache();
+  const policyBase = { ...basePolicy(), maxRequestsPerSecond: 1 };
+  const policy = { ...policyBase, manifestDigest: digestMcpEgressPolicyRevision(policyBase) };
+  cache.set(buildSnapshot(policy));
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
+    auditSink: { record: () => undefined },
+    forwardToUpstream: async () => ({
+      ok: true,
+      upstreamHost: "github-mcp.example.com",
+      response: { statusCode: 200, statusMessage: "OK", headers: {}, body: null },
+    }),
+  });
+  const { url, close } = await server.start();
+  const headers = {
+    authorization: `DofeEgressLease ${buildLeaseToken({ policyDigest: policy.manifestDigest })}`,
+    "x-dofe-egress-session": "rate-session",
+  };
+  try {
+    assert.equal((await fetch(`${url}/mcp`, { headers })).status, 200);
+    assert.equal((await fetch(`${url}/mcp`, { headers })).status, 429);
+  } finally {
     await close();
   }
 });

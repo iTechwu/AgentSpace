@@ -24,6 +24,7 @@ function claims(): McpEgressLeaseClaims {
     runtimeId: "rt-1",
     connectionId: "conn-1",
     releaseId: "rel-1",
+    releaseManifestDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
     policyRevisionId: "pol-1",
     policyDigest: `sha256:${"a".repeat(64)}`,
     purpose: "task_call",

@@ -60,6 +60,9 @@ import {
 import {
   buildMcpEgressPolicyRevision,
   buildMcpEgressPolicySnapshot,
+  digestMcpCatalogRelease,
+  extractMcpPrivateCaPem,
+  isMcpPrivateCaSecretField,
   readMcpEgressLeaseSigningKey,
   revokeMcpEgressPolicyRevisionAtProxy,
   signMcpEgressLeaseForOperation,
@@ -221,11 +224,13 @@ function revokeActiveMcpEgressPolicyForConnectionSync(connection: RuntimeMcpConn
   const policyInput = {
     workspaceId: connection.workspaceId,
     connectionId: connection.id,
-    releaseId: catalog.version,
+    releaseId: catalog.id,
+    releaseManifestDigest: digestMcpCatalogRelease(catalog),
     endpoint: connection.endpoint,
     allowedHosts,
     approvedTools,
     authMode: inferAuthMode(secrets),
+    privateCaPem: extractMcpPrivateCaPem(secrets),
   };
   const policyRevision = buildMcpEgressPolicyRevision(policyInput);
   void revokeMcpEgressPolicyRevisionAtProxy(policyRevision.id).catch(() => undefined);
@@ -933,11 +938,13 @@ export function resolveClaimedMcpOperationSync(input: {
   const policyInput = {
     workspaceId: input.operation.workspaceId,
     connectionId: input.operation.connectionId,
-    releaseId: catalog.version,
+    releaseId: catalog.id,
+    releaseManifestDigest: digestMcpCatalogRelease(catalog),
     endpoint: connection.endpoint,
     allowedHosts,
     approvedTools,
     authMode,
+    privateCaPem: extractMcpPrivateCaPem(secrets),
   };
   const policyRevision = leaseSigningKey ? buildMcpEgressPolicyRevision(policyInput) : undefined;
   const egressProxyLease = policyRevision
@@ -974,7 +981,7 @@ export function resolveClaimedMcpOperationSync(input: {
 
 function inferAuthMode(secrets: Record<string, string>): "none" | "static_header" | "oauth_proxy" {
   if (secrets["oauth-proxy"]) return "oauth_proxy";
-  if (Object.keys(secrets).length > 0) return "static_header";
+  if (Object.keys(secrets).some((name) => !isMcpPrivateCaSecretField(name))) return "static_header";
   return "none";
 }
 
@@ -1174,11 +1181,13 @@ export function validateMcpConnectionForGatewaySync(input: {
   const policyInput = {
     workspaceId: input.workspaceId,
     connectionId: connection.id,
-    releaseId: resolved.catalog.version,
+    releaseId: resolved.catalog.id,
+    releaseManifestDigest: digestMcpCatalogRelease(resolved.catalog),
     endpoint: resolved.fresh.endpoint,
     allowedHosts: parseJsonArray(resolved.catalog.allowedHostsJson),
     approvedTools: resolved.approved,
     authMode: inferAuthMode(secrets),
+    privateCaPem: extractMcpPrivateCaPem(secrets),
   };
   const policyRevision = buildMcpEgressPolicyRevision(policyInput);
   return {

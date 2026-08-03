@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-agent/domain";
-import { digestMcpEgressPolicyRevision } from "@dofe-agent/services/mcp-center/egress";
+import { digestMcpEgressPolicyRevision, digestMcpPrivateCa } from "@dofe-agent/services/mcp-center/egress";
 import { buildRejectedAuditRecord, buildUpstreamAuditRecord, type McpEgressAuditSink } from "./audit.ts";
 import { verifyLeaseForRequest, type LeaseVerifierDependencies } from "./lease-verifier.ts";
 import { OAuthInjector } from "./oauth-injector.ts";
@@ -57,6 +57,7 @@ export class McpEgressProxyServer {
   private readonly options: McpEgressProxyOptions;
   private readonly oauthInjector: OAuthInjector;
   private readonly activeStreams = new Map<string, number>();
+  private readonly requestRateBuckets = new Map<string, { tokens: number; refilledAt: number }>();
 
   constructor(options: McpEgressProxyOptions) {
     this.options = options;
@@ -130,6 +131,13 @@ export class McpEgressProxyServer {
 
     const { claims, policy } = verification;
 
+    if (!this.acquireRequestRate(policy)) {
+      this.options.metrics?.recordReject();
+      await this.recordRejection(requestPath, method, "mcp_egress.policy_denied", claims);
+      sendJson(res, 429, { error: "mcp_egress.policy_denied", message: "Policy request rate limit reached." });
+      return;
+    }
+
     if (!this.acquireStream(policy)) {
       this.options.metrics?.recordReject();
       await this.recordRejection(requestPath, method, "mcp_egress.policy_denied", claims);
@@ -160,7 +168,9 @@ export class McpEgressProxyServer {
       if (
         !snapshot.revision?.id ||
         !snapshot.revision?.upstream?.origin ||
-        digestMcpEgressPolicyRevision(snapshot.revision) !== snapshot.revision.manifestDigest
+        !isPolicyLimitConfigurationValid(snapshot.revision) ||
+        digestMcpEgressPolicyRevision(snapshot.revision) !== snapshot.revision.manifestDigest ||
+        !isPrivateCaSnapshotValid(snapshot)
       ) {
         throw new Error("Invalid policy snapshot.");
       }
@@ -238,7 +248,10 @@ export class McpEgressProxyServer {
 
     const startedAt = Date.now();
     const forward = this.options.forwardToUpstream ?? forwardToUpstream;
-    const forwardResult = await forward(policy, claims, upstreamRequest, upstreamHeaders);
+    const snapshot = await this.options.leaseVerifier.fetchPolicySnapshot(claims.policyRevisionId);
+    const forwardResult = await forward(policy, claims, upstreamRequest, upstreamHeaders, {
+      privateCaPem: snapshot?.privateCaPem,
+    });
     const latencyMs = Date.now() - startedAt;
 
     if (!forwardResult.ok) {
@@ -340,6 +353,21 @@ export class McpEgressProxyServer {
     return true;
   }
 
+  private acquireRequestRate(policy: McpEgressPolicyRevision, now = Date.now()): boolean {
+    const capacity = policy.maxRequestsPerSecond;
+    const current = this.requestRateBuckets.get(policy.connectionId);
+    if (!current) {
+      this.requestRateBuckets.set(policy.connectionId, { tokens: capacity - 1, refilledAt: now });
+      return true;
+    }
+    const elapsedSeconds = Math.max(0, now - current.refilledAt) / 1_000;
+    current.tokens = Math.min(capacity, current.tokens + elapsedSeconds * capacity);
+    current.refilledAt = now;
+    if (current.tokens < 1) return false;
+    current.tokens -= 1;
+    return true;
+  }
+
   private releaseStream(policyRevisionId: string): void {
     const active = this.activeStreams.get(policyRevisionId) ?? 0;
     if (active <= 1) this.activeStreams.delete(policyRevisionId);
@@ -355,6 +383,25 @@ export class McpEgressProxyServer {
     const record = buildRejectedAuditRecord(claims, "unknown", method, code);
     await Promise.resolve(this.options.auditSink.record(record)).catch(() => undefined);
   }
+}
+
+function isPrivateCaSnapshotValid(snapshot: McpEgressPolicySnapshot): boolean {
+  if (snapshot.revision.tlsMode !== "verify_private_ca") {
+    return snapshot.revision.privateCaDigest === undefined && snapshot.privateCaPem === undefined;
+  }
+  return typeof snapshot.privateCaPem === "string"
+    && typeof snapshot.revision.privateCaDigest === "string"
+    && digestMcpPrivateCa(snapshot.privateCaPem) === snapshot.revision.privateCaDigest;
+}
+
+function isPolicyLimitConfigurationValid(policy: McpEgressPolicyRevision): boolean {
+  return [
+    policy.maxRequestBytes,
+    policy.maxResponseBytes,
+    policy.maxConcurrentStreams,
+    policy.maxRequestsPerSecond,
+  ].every((value) => Number.isSafeInteger(value) && value > 0)
+    && /^sha256:[a-f0-9]{64}$/.test(policy.releaseManifestDigest);
 }
 
 function extractLeaseToken(req: IncomingMessage): string | undefined {

@@ -39,6 +39,7 @@ import {
   validateMcpConnectionForGatewaySync,
 } from "./connections.ts";
 import { decryptMcpGrant, decryptMcpSecret, encryptMcpGrant } from "./security.ts";
+import { digestMcpCatalogRelease } from "./egress.ts";
 
 const originalCwd = process.cwd();
 const tempRoot = mkdtempSync(join(tmpdir(), "dofe-agent-mcp-connections-"));
@@ -122,6 +123,9 @@ test("requestMcpConnection creates a connection and queues a verify operation", 
 
 test("catalog publishing keeps releases immutable and exposes only the latest release", () => {
   const firstId = seedCatalog();
+  const firstRelease = readMcpCatalogItemBySlugSync("github", "default");
+  assert.ok(firstRelease);
+  const firstDigest = digestMcpCatalogRelease(firstRelease);
   assert.throws(
     () => createMcpCatalogItemSync({
       workspaceId: "default",
@@ -149,6 +153,7 @@ test("catalog publishing keeps releases immutable and exposes only the latest re
     declaredTools: [{ name: "search_repos", description: "Search repositories", risk: "low" }],
   });
   assert.notEqual(second.id, firstId);
+  assert.notEqual(digestMcpCatalogRelease(second), firstDigest);
   assert.equal(second.version, "1.1.0");
   assert.equal(second.category, "developer_tools");
   assert.equal(readMcpCatalogItemBySlugSync("github")?.id, second.id);

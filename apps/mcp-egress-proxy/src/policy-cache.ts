@@ -67,7 +67,11 @@ export class McpEgressPolicyCache {
       for (const item of legacySnapshots ?? state!.snapshots) {
         const snapshot = item as Partial<McpEgressPolicySnapshot>;
         if (snapshot?.revision && typeof snapshot.revision.id === "string") {
-          const { staticHeaders: _legacyStaticHeaders, ...durableSnapshot } = snapshot as McpEgressPolicySnapshot;
+          const {
+            staticHeaders: _legacyStaticHeaders,
+            privateCaPem: _legacyPrivateCaPem,
+            ...durableSnapshot
+          } = snapshot as McpEgressPolicySnapshot;
           if (durableSnapshot.revoked) this.revokedRevisionIds.add(snapshot.revision.id);
           this.revisions.set(
             snapshot.revision.id,
@@ -85,7 +89,11 @@ export class McpEgressPolicyCache {
       return;
     }
     mkdirSync(dirname(this.stateFile), { recursive: true });
-    const durableSnapshots = this.list().map(({ staticHeaders: _staticHeaders, ...snapshot }) => snapshot);
+    const durableSnapshots = this.list().map(({
+      staticHeaders: _staticHeaders,
+      privateCaPem: _privateCaPem,
+      ...snapshot
+    }) => snapshot);
     const state: PersistedPolicyState = {
       version: 1,
       snapshots: durableSnapshots,

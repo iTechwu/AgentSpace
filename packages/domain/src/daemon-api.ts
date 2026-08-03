@@ -807,6 +807,8 @@ export interface McpEgressPolicyRevision {
   workspaceId: string;
   connectionId: string;
   releaseId: string;
+  /** Digest of the immutable catalog release from which this policy was derived. */
+  releaseManifestDigest: `sha256:${string}`;
   manifestDigest: `sha256:${string}`;
   upstream: {
     origin: string;
@@ -818,10 +820,13 @@ export interface McpEgressPolicyRevision {
   redirectPolicy: "deny";
   denyPrivateNetworks: true;
   tlsMode: McpEgressTlsMode;
+  /** Required when tlsMode is verify_private_ca; binds short-lived CA material. */
+  privateCaDigest?: `sha256:${string}`;
   authMode: McpEgressAuthMode;
   maxRequestBytes: number;
   maxResponseBytes: number;
   maxConcurrentStreams: number;
+  maxRequestsPerSecond: number;
   createdAt: string;
 }
 
@@ -837,6 +842,7 @@ export interface McpEgressLeaseClaims {
   runtimeId: string;
   connectionId: string;
   releaseId: string;
+  releaseManifestDigest: `sha256:${string}`;
   policyRevisionId: string;
   /** Canonical digest of the exact immutable policy revision authorized by this lease. */
   policyDigest: `sha256:${string}`;
@@ -859,6 +865,8 @@ export interface McpEgressPolicySnapshot {
    * immutable policy digest; delivered separately through the policy sync path.
    */
   staticHeaders?: Record<string, string>;
+  /** Private CA material held only in proxy memory and never persisted. */
+  privateCaPem?: string;
 }
 
 export interface DaemonTaskOutputBundle {

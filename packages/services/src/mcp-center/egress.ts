@@ -10,9 +10,10 @@ import {
 } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
+import type { McpCatalogItemRecord } from "@dofe-agent/db";
 import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision, McpEgressPolicySnapshot, McpEgressPurpose } from "@dofe-agent/domain";
 
-const LEASE_VERSION = "deg1";
+const LEASE_VERSION = "deg2";
 const LEASE_MAX_TTL_SECONDS = {
   verify: 120,
   health_check: 60,
@@ -65,6 +66,7 @@ export function canonicalizeMcpEgressPolicyRevision(policy: McpEgressPolicyRevis
     workspaceId: policy.workspaceId,
     connectionId: policy.connectionId,
     releaseId: policy.releaseId,
+    releaseManifestDigest: policy.releaseManifestDigest,
     upstream: {
       origin: policy.upstream.origin,
       allowedHosts: [...policy.upstream.allowedHosts].sort(),
@@ -75,10 +77,12 @@ export function canonicalizeMcpEgressPolicyRevision(policy: McpEgressPolicyRevis
     redirectPolicy: policy.redirectPolicy,
     denyPrivateNetworks: policy.denyPrivateNetworks,
     tlsMode: policy.tlsMode,
+    privateCaDigest: policy.privateCaDigest,
     authMode: policy.authMode,
     maxRequestBytes: policy.maxRequestBytes,
     maxResponseBytes: policy.maxResponseBytes,
     maxConcurrentStreams: policy.maxConcurrentStreams,
+    maxRequestsPerSecond: policy.maxRequestsPerSecond,
   });
 }
 
@@ -219,6 +223,7 @@ export function verifyMcpEgressLease(
     "runtimeId",
     "connectionId",
     "releaseId",
+    "releaseManifestDigest",
     "policyRevisionId",
     "policyDigest",
   ] as const;
@@ -267,6 +272,8 @@ export function hashMcpEgressAuditValue(value: string): string {
 const DEFAULT_POLICY_MAX_REQUEST_BYTES = 1_048_576;
 const DEFAULT_POLICY_MAX_RESPONSE_BYTES = 1_048_576;
 const DEFAULT_POLICY_MAX_CONCURRENT_STREAMS = 8;
+const DEFAULT_POLICY_MAX_REQUESTS_PER_SECOND = 8;
+const PRIVATE_CA_SECRET_FIELDS = new Set(["tls_ca_pem", "ca_pem", "MCP_TLS_CA_PEM"]);
 
 /** Reads the control-plane lease signing secret from the environment. */
 export function readMcpEgressLeaseSigningSecret(): string | undefined {
@@ -362,6 +369,7 @@ export interface McpEgressPolicyInput {
   workspaceId: string;
   connectionId: string;
   releaseId: string;
+  releaseManifestDigest: `sha256:${string}`;
   endpoint: string;
   allowedHosts: string[];
   approvedTools: string[];
@@ -369,6 +377,8 @@ export interface McpEgressPolicyInput {
   maxRequestBytes?: number;
   maxResponseBytes?: number;
   maxConcurrentStreams?: number;
+  maxRequestsPerSecond?: number;
+  privateCaPem?: string;
 }
 
 /**
@@ -377,11 +387,13 @@ export interface McpEgressPolicyInput {
  */
 export function buildMcpEgressPolicyRevision(input: McpEgressPolicyInput): McpEgressPolicyRevision {
   const allowedPathPrefix = new URL(input.endpoint).pathname || "/";
+  const privateCaPem = input.privateCaPem?.trim();
   const base: McpEgressPolicyRevision = {
     id: derivePolicyRevisionId(input),
     workspaceId: input.workspaceId,
     connectionId: input.connectionId,
     releaseId: input.releaseId,
+    releaseManifestDigest: input.releaseManifestDigest,
     manifestDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     upstream: {
       origin: normalizeOrigin(input.endpoint),
@@ -392,11 +404,13 @@ export function buildMcpEgressPolicyRevision(input: McpEgressPolicyInput): McpEg
     transport: "streamable_http",
     redirectPolicy: "deny",
     denyPrivateNetworks: true,
-    tlsMode: "verify_system",
+    tlsMode: privateCaPem ? "verify_private_ca" : "verify_system",
+    ...(privateCaPem ? { privateCaDigest: digestMcpPrivateCa(privateCaPem) } : {}),
     authMode: input.authMode ?? "none",
     maxRequestBytes: input.maxRequestBytes ?? DEFAULT_POLICY_MAX_REQUEST_BYTES,
     maxResponseBytes: input.maxResponseBytes ?? DEFAULT_POLICY_MAX_RESPONSE_BYTES,
     maxConcurrentStreams: input.maxConcurrentStreams ?? DEFAULT_POLICY_MAX_CONCURRENT_STREAMS,
+    maxRequestsPerSecond: input.maxRequestsPerSecond ?? DEFAULT_POLICY_MAX_REQUESTS_PER_SECOND,
     createdAt: new Date().toISOString(),
   };
   return { ...base, manifestDigest: digestMcpEgressPolicyRevision(base) };
@@ -408,15 +422,56 @@ export function buildMcpEgressPolicySnapshot(
   secrets: Record<string, string>,
   fetchedAt = new Date().toISOString(),
 ): McpEgressPolicySnapshot {
+  const privateCaPem = extractMcpPrivateCaPem(secrets);
   const staticHeaders = revision.authMode === "static_header"
-    ? Object.fromEntries(Object.entries(secrets).filter(([, value]) => typeof value === "string" && value.length > 0))
+    ? Object.fromEntries(Object.entries(secrets).filter(([name, value]) => !PRIVATE_CA_SECRET_FIELDS.has(name) && typeof value === "string" && value.length > 0))
     : undefined;
   return {
     revision,
     revoked: false,
     fetchedAt,
     ...(staticHeaders && Object.keys(staticHeaders).length > 0 ? { staticHeaders } : {}),
+    ...(revision.tlsMode === "verify_private_ca" && privateCaPem ? { privateCaPem } : {}),
   };
+}
+
+export function extractMcpPrivateCaPem(secrets: Record<string, string>): string | undefined {
+  for (const field of PRIVATE_CA_SECRET_FIELDS) {
+    const value = secrets[field]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+export function isMcpPrivateCaSecretField(name: string): boolean {
+  return PRIVATE_CA_SECRET_FIELDS.has(name);
+}
+
+export function digestMcpPrivateCa(pem: string): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(pem.trim(), "utf8").digest("hex")}`;
+}
+
+/** Stable digest of the immutable, security-relevant MCP catalog release fields. */
+export function digestMcpCatalogRelease(release: McpCatalogItemRecord): `sha256:${string}` {
+  const canonical = JSON.stringify({
+    id: release.id,
+    workspaceId: release.workspaceId,
+    source: release.source,
+    slug: release.slug,
+    version: release.version,
+    category: release.category,
+    transport: release.transport,
+    allowedHostsJson: release.allowedHostsJson,
+    configurationSchemaJson: release.configurationSchemaJson,
+    declaredToolsJson: release.declaredToolsJson,
+    defaultApprovedToolsJson: release.defaultApprovedToolsJson,
+    secretFieldsJson: release.secretFieldsJson,
+    requiredRuntimeCapabilitiesJson: release.requiredRuntimeCapabilitiesJson,
+    dataDomainsJson: release.dataDomainsJson,
+    risk: release.risk,
+    endpointTemplate: release.endpointTemplate ?? null,
+  });
+  return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
 }
 
 function normalizeOrigin(endpoint: string): string {
@@ -433,6 +488,8 @@ function derivePolicyRevisionId(input: McpEgressPolicyInput): string {
     .update("|")
     .update(input.releaseId)
     .update("|")
+    .update(input.releaseManifestDigest)
+    .update("|")
     .update(normalizeOrigin(input.endpoint))
     .update("|")
     .update(allowedPathPrefix)
@@ -447,7 +504,9 @@ function derivePolicyRevisionId(input: McpEgressPolicyInput): string {
     .update("|")
     .update(String(true))
     .update("|")
-    .update("verify_system")
+    .update(input.privateCaPem?.trim() ? "verify_private_ca" : "verify_system")
+    .update("|")
+    .update(input.privateCaPem?.trim() ? digestMcpPrivateCa(input.privateCaPem) : "")
     .update("|")
     .update(input.authMode ?? "none")
     .update("|")
@@ -456,6 +515,8 @@ function derivePolicyRevisionId(input: McpEgressPolicyInput): string {
     .update(String(input.maxResponseBytes ?? DEFAULT_POLICY_MAX_RESPONSE_BYTES))
     .update("|")
     .update(String(input.maxConcurrentStreams ?? DEFAULT_POLICY_MAX_CONCURRENT_STREAMS))
+    .update("|")
+    .update(String(input.maxRequestsPerSecond ?? DEFAULT_POLICY_MAX_REQUESTS_PER_SECOND))
     .digest("hex");
   return `pol-${hash.slice(0, 32)}`;
 }
@@ -475,6 +536,7 @@ function createLeaseClaims(
     runtimeId,
     connectionId: policy.connectionId,
     releaseId: policy.releaseId,
+    releaseManifestDigest: policy.releaseManifestDigest,
     policyRevisionId: policy.id,
     policyDigest: policy.manifestDigest,
     purpose,

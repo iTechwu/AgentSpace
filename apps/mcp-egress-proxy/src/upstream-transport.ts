@@ -2,6 +2,7 @@ import { lookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { Readable } from "node:stream";
 import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision } from "@dofe-agent/domain";
+import { digestMcpPrivateCa } from "@dofe-agent/services/mcp-center/egress";
 import { validateMcpEndpoint, validateMcpResolvedAddresses } from "@dofe-agent/services/mcp-center/security";
 
 const ALLOWED_METHODS = new Set(["GET", "POST", "DELETE"]);
@@ -50,6 +51,7 @@ export interface UpstreamTransportOptions {
   requestTimeoutMs?: number;
   connectTimeoutMs?: number;
   idleTimeoutMs?: number;
+  privateCaPem?: string;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
@@ -102,6 +104,14 @@ export async function forwardToUpstream(
   const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const connectTimeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  const privateCaPem = options.privateCaPem?.trim();
+  if (policy.tlsMode === "verify_private_ca") {
+    if (!privateCaPem || !policy.privateCaDigest || digestMcpPrivateCa(privateCaPem) !== policy.privateCaDigest) {
+      return reject("mcp_egress.tls_failed", "Private CA material does not match the policy.");
+    }
+  } else if (policy.privateCaDigest || privateCaPem) {
+    return reject("mcp_egress.tls_failed", "Private CA material is not allowed by the policy.");
+  }
 
   try {
     const resolved = await lookup(upstreamHost, { all: true, verbatim: true });
@@ -125,6 +135,7 @@ export async function forwardToUpstream(
       connectTimeoutMs,
       requestTimeoutMs,
       idleTimeoutMs,
+      ca: privateCaPem,
     });
     if (response.statusCode >= 300 && response.statusCode < 400) {
       await response.body?.cancel("Redirects are forbidden by MCP egress policy.");
@@ -174,6 +185,7 @@ interface PinnedHttpsRequestInput {
   connectTimeoutMs: number;
   requestTimeoutMs: number;
   idleTimeoutMs: number;
+  ca?: string;
 }
 
 function pinnedHttpsRequest(input: PinnedHttpsRequestInput): Promise<UpstreamResponse> {
@@ -186,6 +198,7 @@ function pinnedHttpsRequest(input: PinnedHttpsRequestInput): Promise<UpstreamRes
       method: input.method,
       headers: input.headers,
       servername: input.upstreamHost,
+      ...(input.ca ? { ca: input.ca } : {}),
       lookup: (_hostname, _options, callback) => callback(null, input.pinnedAddress, isIPv4(input.pinnedAddress) ? 4 : 6),
     }, (response) => {
       const headers: Record<string, string | string[]> = {};
