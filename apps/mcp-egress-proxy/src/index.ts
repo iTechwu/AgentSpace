@@ -1,4 +1,5 @@
 import { McpEgressPolicyCache } from "./policy-cache.ts";
+import { McpEgressMetrics } from "./metrics.ts";
 import { McpEgressProxyServer } from "./server.ts";
 import { ConsoleMcpEgressAuditSink } from "./audit.ts";
 import { InMemoryJtiReplayGuard } from "./jti-replay-guard.ts";
@@ -16,9 +17,20 @@ async function main(): Promise<void> {
   const host = process.env.MCP_EGRESS_PROXY_HOST ?? "0.0.0.0";
   const leaseSecret = readEnv("MCP_EGRESS_PROXY_LEASE_SECRET");
 
-  const policyCache = new McpEgressPolicyCache();
+  // P1-1 持久重放: with a state file, a proxy restart replays the pushed
+  // policy/revoke feed instead of starting empty.
+  const stateFile = process.env.MCP_EGRESS_PROXY_STATE_FILE;
+  const policyCache = new McpEgressPolicyCache(stateFile ? { stateFile } : {});
+  const metrics = new McpEgressMetrics();
   const auditSink = new ConsoleMcpEgressAuditSink();
   const replayGuard = new InMemoryJtiReplayGuard();
+
+  // Admin token rotation: MCP_EGRESS_PROXY_ADMIN_TOKENS (comma-separated) may
+  // carry the previous + next token during a rotation window.
+  const rawTokens = process.env.MCP_EGRESS_PROXY_ADMIN_TOKENS?.trim();
+  const adminTokens = rawTokens
+    ? new Set(rawTokens.split(",").map((token) => token.trim()).filter(Boolean))
+    : undefined;
 
   const server = new McpEgressProxyServer({
     port,
@@ -30,7 +42,9 @@ async function main(): Promise<void> {
     },
     policyCache,
     auditSink,
+    metrics,
     adminToken: process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN,
+    ...(adminTokens && adminTokens.size > 0 ? { adminTokens } : {}),
   });
 
   const { url, close } = await server.start();

@@ -5,6 +5,7 @@ import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision,
 import { buildRejectedAuditRecord, buildUpstreamAuditRecord, type McpEgressAuditSink } from "./audit.ts";
 import { verifyLeaseForRequest, type LeaseVerifierDependencies } from "./lease-verifier.ts";
 import { OAuthInjector } from "./oauth-injector.ts";
+import { McpEgressMetrics } from "./metrics.ts";
 import { McpEgressPolicyCache } from "./policy-cache.ts";
 import { forwardToUpstream, type UpstreamRequest } from "./upstream-transport.ts";
 
@@ -19,8 +20,16 @@ export interface McpEgressProxyOptions {
   auditSink: McpEgressAuditSink;
   oauthInjector?: OAuthInjector;
   forwardToUpstream?: typeof forwardToUpstream;
-  /** Required to accept POST /v1/admin/policies pushes. */
+  /** Single admin push token (backward compatible). */
   adminToken?: string;
+  /**
+   * Accepted admin push tokens. A set supports rotation: the control plane may
+   * present the previous token alongside the next one during a rotation window
+   * (P1-1 token 轮换). Takes precedence over `adminToken` when both are set.
+   */
+  adminTokens?: ReadonlySet<string>;
+  /** Optional metrics collector exposed via GET /metrics. */
+  metrics?: McpEgressMetrics;
 }
 
 const FORWARDED_REQUEST_HEADERS = new Set([
@@ -84,6 +93,11 @@ export class McpEgressProxyServer {
       return;
     }
 
+    if (method === "GET" && requestPath === "/metrics") {
+      sendJson(res, 200, this.options.metrics?.snapshot() ?? { metrics: "disabled" });
+      return;
+    }
+
     if (method === "POST" && requestPath === "/v1/admin/policies") {
       await this.handlePolicyPush(req, res);
       return;
@@ -94,10 +108,13 @@ export class McpEgressProxyServer {
       return;
     }
 
+    const startedAt = Date.now();
+    this.options.metrics?.recordRequest();
     const leaseToken = extractLeaseToken(req);
 
     const verification = await verifyLeaseForRequest(leaseToken, this.options.leaseVerifier);
     if (!verification.ok) {
+      this.options.metrics?.recordReject();
       await this.recordRejection(requestPath, method, verification.code);
       sendJson(res, leaseErrorStatus(verification.code), { error: verification.code, message: verification.message });
       return;
@@ -106,6 +123,7 @@ export class McpEgressProxyServer {
     const { claims, policy } = verification;
 
     if (!this.acquireStream(policy)) {
+      this.options.metrics?.recordReject();
       await this.recordRejection(requestPath, method, "mcp_egress.policy_denied", claims);
       sendJson(res, 429, { error: "mcp_egress.policy_denied", message: "Policy concurrent stream limit reached." });
       return;
@@ -119,14 +137,7 @@ export class McpEgressProxyServer {
   }
 
   private async handlePolicyPush(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const adminToken = this.options.adminToken;
-    if (!adminToken) {
-      sendJson(res, 404, { error: "mcp_egress.not_found", message: "Admin policy push is not configured." });
-      return;
-    }
-    const supplied = req.headers[ADMIN_AUTH_HEADER];
-    const value = Array.isArray(supplied) ? supplied[0] : supplied;
-    if (value !== adminToken) {
+    if (!this.isAdminAuthorized(req)) {
       sendJson(res, 401, { error: "mcp_egress.lease_invalid", message: "Invalid admin token." });
       return;
     }
@@ -150,14 +161,7 @@ export class McpEgressProxyServer {
   }
 
   private async handlePolicyRevoke(req: IncomingMessage, res: ServerResponse, requestPath: string): Promise<void> {
-    const adminToken = this.options.adminToken;
-    if (!adminToken) {
-      sendJson(res, 404, { error: "mcp_egress.not_found", message: "Admin policy revoke is not configured." });
-      return;
-    }
-    const supplied = req.headers[ADMIN_AUTH_HEADER];
-    const value = Array.isArray(supplied) ? supplied[0] : supplied;
-    if (value !== adminToken) {
+    if (!this.isAdminAuthorized(req)) {
       sendJson(res, 401, { error: "mcp_egress.lease_invalid", message: "Invalid admin token." });
       return;
     }
@@ -169,7 +173,19 @@ export class McpEgressProxyServer {
       return;
     }
     this.options.policyCache.revoke(id);
+    this.options.metrics?.recordRevoke();
     sendJson(res, 200, { revoked: id });
+  }
+
+  private isAdminAuthorized(req: IncomingMessage): boolean {
+    const configured = this.options.adminTokens
+      ?? (this.options.adminToken ? new Set([this.options.adminToken]) : undefined);
+    if (!configured || configured.size === 0) {
+      return false;
+    }
+    const supplied = req.headers[ADMIN_AUTH_HEADER];
+    const value = Array.isArray(supplied) ? supplied[0] : supplied;
+    return typeof value === "string" && configured.has(value);
   }
 
   private async forwardVerifiedRequest(
@@ -257,6 +273,7 @@ export class McpEgressProxyServer {
       }
     }
     res.end();
+    this.options.metrics?.recordAccept(latencyMs);
 
     const record = buildUpstreamAuditRecord(claims, upstreamHost, method, response.statusCode, latencyMs, responseBytes, "succeeded");
     await Promise.resolve(this.options.auditSink.record(record)).catch(() => undefined);
