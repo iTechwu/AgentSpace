@@ -10,6 +10,7 @@ function makeSnapshot(id = "pol-test"): McpEgressPolicySnapshot {
       workspaceId: "ws-test",
       connectionId: "conn-test",
       releaseId: "rel-test",
+      releaseManifestDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
       manifestDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
       upstream: {
         origin: "https://mcp.example.test",
@@ -25,6 +26,7 @@ function makeSnapshot(id = "pol-test"): McpEgressPolicySnapshot {
       maxRequestBytes: 1_048_576,
       maxResponseBytes: 1_048_576,
       maxConcurrentStreams: 8,
+      maxRequestsPerSecond: 8,
       createdAt: new Date().toISOString(),
     },
     revoked: false,
