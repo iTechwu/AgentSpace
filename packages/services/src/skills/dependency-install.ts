@@ -198,6 +198,7 @@ export function buildSkillDependencyInstallPlan(
   // app-deps root (resolved to an absolute cwd by the daemon executor). Never
   // --global/--user (02-架构设计.md §4.1: 不能写 Provider HOME/全局 package path).
   const depsDir = dependency.manager === "npm" ? "deps/npm" : "deps/pip";
+  const planDepsDir = dependency.manager === "system" ? undefined : depsDir;
   const commands = dependency.manager === "npm"
     ? [{
       executable: "npm",
@@ -209,15 +210,21 @@ export function buildSkillDependencyInstallPlan(
         executable: "python",
         args: ["-m", "pip", "install", "--target", depsDir, "--no-deps", "--no-input", "--disable-pip-version-check", "--only-binary", ":all:", "--index-url", DEFAULT_PYPI_INDEX_URL, packageReference],
       }]
-      : [{
-        executable: "uv",
-        args: ["pip", "install", "--target", depsDir, "--no-deps", "--index-url", DEFAULT_PYPI_INDEX_URL, packageReference],
-      }];
+      : dependency.manager === "system"
+        // System packages are provided by the immutable runner image; the plan
+        // installs nothing and VERIFIES the cataloged binary exists (fail-closed).
+        ? []
+        : [{
+          executable: "uv",
+          args: ["pip", "install", "--target", depsDir, "--no-deps", "--index-url", DEFAULT_PYPI_INDEX_URL, packageReference],
+        }];
   const verifyCommands = dependency.manager === "npm"
     ? [{ executable: "npm", args: ["ls", "--prefix", depsDir, packageReference] }]
     : dependency.manager === "pip"
       ? [{ executable: "python", args: ["-m", "pip", "show", "--path", depsDir, dependency.name] }]
-      : [{ executable: "uv", args: ["pip", "show", "--path", depsDir, dependency.name] }];
+      : dependency.manager === "system"
+        ? [{ executable: "sh", args: ["-c", `command -v ${dependency.name} || exit 1`] }]
+        : [{ executable: "uv", args: ["pip", "show", "--path", depsDir, dependency.name] }];
 
   return {
     app: {
@@ -231,7 +238,7 @@ export function buildSkillDependencyInstallPlan(
     verifyCommands,
     risk: "medium",
     requiresApproval: true,
-    depsDir,
+    depsDir: planDepsDir,
     // The reproducibility lock: the manifest's declared integrity hash, when
     // present. `resolveDependencyIntegrityLock` can populate it from the registry
     // for skills that do not declare it.
@@ -241,11 +248,15 @@ export function buildSkillDependencyInstallPlan(
       `Exact ${dependency.manager} dependency: ${packageReference}.`,
       "The plan uses fixed argument arrays and does not execute repository scripts.",
       "Dependencies install into the runtime's isolated deps root (never --global/--user).",
-      `Registry is allow-listed (${dependency.manager === "npm" ? DEFAULT_NPM_REGISTRY : DEFAULT_PYPI_INDEX_URL}).`,
+      dependency.manager === "system"
+        ? "System package is provided by the immutable runner image; the plan verifies the binary exists."
+        : `Registry is allow-listed (${dependency.manager === "npm" ? DEFAULT_NPM_REGISTRY : DEFAULT_PYPI_INDEX_URL}).`,
       dependency.manager === "npm"
         ? "npm lifecycle scripts are disabled."
-        : "Python source distributions are not allowed for pip installs.",
-    ],
+        : dependency.manager === "system"
+          ? ""
+          : "Python source distributions are not allowed for pip installs.",
+    ].filter(Boolean),
   };
 }
 

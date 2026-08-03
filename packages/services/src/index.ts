@@ -144,7 +144,13 @@ export {
   resolveDependencyIntegrityLock,
   type SkillDependencyInstallStatus,
 } from "./skills/dependency-install.ts";
+export { parseSkillDependencyDeclaration } from "./skills/dependencies.ts";
 export type { SkillDependencyDeclaration } from "./skills/dependencies.ts";
+export {
+  resolveSystemDependencySync,
+  listSystemDependencyCatalogSync,
+  type SystemDependencyResolution,
+} from "./skills/system-dependency-catalog.ts";
 export {
   setWorkspaceGitCredentialSync,
   listWorkspaceGitCredentialsSync,

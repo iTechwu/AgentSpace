@@ -109,6 +109,10 @@ export function buildDependencyInstallCommand(
           `${dep.name}==${dep.version}`,
         ],
       };
+    case "system":
+      // System packages come from the immutable runner image; the daemon only
+      // verifies the cataloged binary is present (fail-closed if absent).
+      return { command: "sh", args: ["-c", `command -v ${dep.name} || exit 1`] };
   }
 }
 
