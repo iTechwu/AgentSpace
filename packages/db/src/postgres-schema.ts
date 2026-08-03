@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "96";
+export const POSTGRES_SCHEMA_VERSION = "97";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -90,6 +90,7 @@ export const POSTGRES_TABLE_NAMES = [
   "skill_install_approval",
   "skill_installation_component",
   "skill_runner_invocation",
+  "workspace_git_credential",
   "skill_service_catalog",
   "managed_skill_service",
   "skill_service_binding",
@@ -2701,6 +2702,24 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_skill_runner_invocation_installation
         ON skill_runner_invocation(workspace_id, installation_id, created_at DESC)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS workspace_git_credential (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        host TEXT NOT NULL,
+        credential_type TEXT NOT NULL,
+        reference_name TEXT NOT NULL,
+        encrypted_secret TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        rotated_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ,
+        UNIQUE(workspace_id, host)
+      )
     `,
     `
       CREATE TABLE IF NOT EXISTS skill_installation (

@@ -925,6 +925,14 @@ export {
   type SkillInstallationComponentInput,
 } from "./skill-installations.ts";
 export {
+  upsertWorkspaceGitCredentialSync,
+  readWorkspaceGitCredentialSync,
+  readWorkspaceGitCredentialByHostSync,
+  listWorkspaceGitCredentialsSync,
+  revokeWorkspaceGitCredentialSync,
+  type UpsertWorkspaceGitCredentialInput,
+} from "./workspace-git-credentials.ts";
+export {
   recordSkillRunnerInvocationSync,
   readSkillRunnerInvocationSync,
   readSkillRunnerInvocationByEventSync,
@@ -955,6 +963,7 @@ export type {
   SkillInstallApprovalRecord,
   SkillInstallApprovalRiskItem,
   SkillRunnerInvocationRecord,
+  WorkspaceGitCredentialRecord,
 } from "./types.ts";
 export {
   upsertSkillServiceCatalogSync,

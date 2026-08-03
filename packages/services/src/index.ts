@@ -145,6 +145,16 @@ export {
 } from "./skills/dependency-install.ts";
 export type { SkillDependencyDeclaration } from "./skills/dependencies.ts";
 export {
+  setWorkspaceGitCredentialSync,
+  listWorkspaceGitCredentialsSync,
+  resolveWorkspaceGitCredentialSecretSync,
+  revokeWorkspaceGitCredentialSync,
+  isGitCredentialConfiguredSync,
+  gitAuthHeadersSync,
+  type GitCredentialSafeView,
+  type GitCredentialType,
+} from "./skills/git-credentials.ts";
+export {
   buildSkillRequirementRuntimeContext,
   getSkillRequirementBlockers,
   normalizeSkillRequirementConfiguration,

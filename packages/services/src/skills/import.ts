@@ -29,6 +29,7 @@ import {
 import { parseSkillMetadata } from "./skill-metadata.ts";
 import { parseSkillDependencyDeclarations } from "./dependencies.ts";
 import { parseSkillRequirementDeclarations } from "./requirements.ts";
+import { gitAuthHeadersSync, resolveWorkspaceGitCredentialSecretSync } from "./git-credentials.ts";
 import {
   deleteWorkspaceAttachmentsSync,
   persistWorkspaceAttachmentFromBytesSync,
@@ -182,7 +183,16 @@ export async function importWorkspaceSkillFromUrl(input: {
   const hasRecordedStoredSource = listWorkspaceSkillsSync(workspaceId).some(
     (skill) => (skill.sourceType === "tos" || skill.sourceType === "local") && sameValue(skill.sourceUrl ?? "", sourceUrl),
   );
-  const imported = await importSkillDefinition(sourceUrl, { hasRecordedStoredSource });
+  // Private-repo import: record a single "Git credential used" audit event if a
+  // credential is configured for the host (the per-request fetch headers are silent).
+  if (workspaceId && (parsedSourceUrl?.hostname === "github.com" || parsedSourceUrl?.hostname === "gitlab.com")) {
+    resolveWorkspaceGitCredentialSecretSync({
+      workspaceId,
+      host: parsedSourceUrl.hostname,
+      actorDisplayName: "skill import",
+    });
+  }
+  const imported = await importSkillDefinition(sourceUrl, { hasRecordedStoredSource, workspaceId });
   return persistImportedSkillDefinition(imported, workspaceId, input.conflict);
 }
 
@@ -229,7 +239,7 @@ export async function inspectWorkspaceSkillSourceUpdate(input: {
     if (!pointer) {
       return { ...base, status: "not_checkable", currentResolvedRef, reason: "skill_source_url_invalid" };
     }
-    latestResolvedRef = await resolveGitHubRefToSha(pointer.owner, pointer.repo, pointer.ref);
+    latestResolvedRef = await resolveGitHubRefToSha(pointer.owner, pointer.repo, pointer.ref, workspaceId);
   } else {
     const pointer = parseGitLabDirectoryUrl(skill.sourceUrl);
     if (!pointer) {
@@ -239,6 +249,7 @@ export async function inspectWorkspaceSkillSourceUpdate(input: {
       pointer.projectPath,
       pointer.ref,
       { fileCount: 0, totalBytes: 0, requestCount: 0 },
+      workspaceId,
     );
   }
 
@@ -542,7 +553,7 @@ function prepareSkillArtifact(
 
 async function importSkillDefinition(
   sourceUrl: string,
-  options: { hasRecordedStoredSource: boolean } = { hasRecordedStoredSource: false },
+  options: { hasRecordedStoredSource: boolean; workspaceId?: string } = { hasRecordedStoredSource: false },
 ): Promise<ImportedSkillDefinition> {
   const parsed = parseUrl(sourceUrl);
   if (!parsed) {
@@ -550,10 +561,10 @@ async function importSkillDefinition(
   }
 
   if (parsed.hostname === "skills.sh") {
-    return importSkillsShSkillDefinition(sourceUrl, parsed);
+    return importSkillsShSkillDefinition(sourceUrl, parsed, options.workspaceId);
   }
   if (parsed.hostname === "gitlab.com") {
-    return importGitLabSkillDefinition(sourceUrl);
+    return importGitLabSkillDefinition(sourceUrl, options.workspaceId);
   }
   if (parsed.hostname === "clawhub.ai" || parsed.hostname.endsWith(".clawhub.ai")) {
     return importClawHubSkillDefinition(sourceUrl);
@@ -573,7 +584,7 @@ async function importSkillDefinition(
     }
     return importStoredSkillDefinitionFromPath(sourceUrl, parsed, "local");
   }
-  return importGitHubSkillDefinition(sourceUrl);
+  return importGitHubSkillDefinition(sourceUrl, options.workspaceId);
 }
 
 function importStoredSkillDefinitionFromPath(
@@ -683,23 +694,23 @@ async function importLocalSkillDefinition(sourcePath: string): Promise<ImportedS
   };
 }
 
-async function importGitHubSkillDefinition(sourceUrl: string): Promise<ImportedSkillDefinition> {
+async function importGitHubSkillDefinition(sourceUrl: string, workspaceId?: string): Promise<ImportedSkillDefinition> {
   const pointer = parseGitHubDirectoryUrl(sourceUrl);
   if (!pointer) {
     throw new Error("Only GitHub tree/blob/raw skill URLs are supported for now.");
   }
-  pointer.resolvedSha = await resolveGitHubRefToSha(pointer.owner, pointer.repo, pointer.ref);
-  return importGitHubSkillDefinitionFromPointer(pointer, sourceUrl, "github");
+  pointer.resolvedSha = await resolveGitHubRefToSha(pointer.owner, pointer.repo, pointer.ref, workspaceId);
+  return importGitHubSkillDefinitionFromPointer(pointer, sourceUrl, "github", workspaceId);
 }
 
-async function importGitLabSkillDefinition(sourceUrl: string): Promise<ImportedSkillDefinition> {
+async function importGitLabSkillDefinition(sourceUrl: string, workspaceId?: string): Promise<ImportedSkillDefinition> {
   const pointer = parseGitLabDirectoryUrl(sourceUrl);
   if (!pointer) {
     throw new Error("GitLab skill URL must use a gitlab.com /-/tree, /-/blob, or /-/raw path.");
   }
 
   const budget: SkillSourceBudget = { fileCount: 0, totalBytes: 0, requestCount: 0 };
-  pointer.resolvedSha = await resolveGitLabRefToSha(pointer.projectPath, pointer.ref, budget);
+  pointer.resolvedSha = await resolveGitLabRefToSha(pointer.projectPath, pointer.ref, budget, workspaceId);
   const resolvedRef = pointer.resolvedSha;
   const provenance = {
     provider: "gitlab",
@@ -713,11 +724,11 @@ async function importGitLabSkillDefinition(sourceUrl: string): Promise<ImportedS
   let files: ImportedSkillFile[];
   const warnings: string[] = [];
   if (pointer.path.endsWith("/SKILL.md") || sameValue(pointer.path, "SKILL.md")) {
-    const bytes = await fetchGitLabRawFile(pointer, budget);
+    const bytes = await fetchGitLabRawFile(pointer, budget, workspaceId);
     assertSkillSourceFileBudget(budget, "SKILL.md", bytes, "GitLab skill");
     files = [{ path: "SKILL.md", bytes }];
   } else {
-    files = await fetchGitLabDirectoryFiles(pointer, warnings, budget);
+    files = await fetchGitLabDirectoryFiles(pointer, warnings, budget, workspaceId);
   }
 
   const skillMd = readSkillMarkdown(files);
@@ -744,6 +755,7 @@ async function importGitHubSkillDefinitionFromPointer(
   pointer: GitHubDirectoryPointer,
   sourceUrl: string,
   sourceType: SkillImportSourceType,
+  workspaceId?: string,
 ): Promise<ImportedSkillDefinition> {
   const resolvedRef = pointer.resolvedSha;
   const provenance: Record<string, unknown> = {
@@ -759,7 +771,7 @@ async function importGitHubSkillDefinitionFromPointer(
   }
 
   if (pointer.path.endsWith("/SKILL.md") || sameValue(pointer.path, "SKILL.md")) {
-    const skillMd = await fetchGitHubRawFile(pointer);
+    const skillMd = await fetchGitHubRawFile(pointer, workspaceId);
     const skillBytes = encodeUtf8(skillMd);
     assertSkillSourceFileBudget(
       { fileCount: 0, totalBytes: 0, requestCount: 0 },
@@ -787,7 +799,7 @@ async function importGitHubSkillDefinitionFromPointer(
   }
 
   const warnings: string[] = [];
-  const files = await fetchGitHubDirectoryFiles(pointer, warnings);
+  const files = await fetchGitHubDirectoryFiles(pointer, warnings, workspaceId);
   const skillMd = readSkillMarkdown(files);
   const metadata = parseSkillMetadata(skillMd, deriveSkillNameFromPath(pointer.path));
 
@@ -809,7 +821,7 @@ async function importGitHubSkillDefinitionFromPointer(
   };
 }
 
-async function importSkillsShSkillDefinition(sourceUrl: string, parsedUrl: URL): Promise<ImportedSkillDefinition> {
+async function importSkillsShSkillDefinition(sourceUrl: string, parsedUrl: URL, workspaceId?: string): Promise<ImportedSkillDefinition> {
   const installPageResponse = await fetch(parsedUrl, {
     headers: {
       "User-Agent": "DofeAgent/0.1.0",
@@ -832,14 +844,15 @@ async function importSkillsShSkillDefinition(sourceUrl: string, parsedUrl: URL):
     throw new Error("Could not resolve the skills.sh source repository.");
   }
 
-  const ref = await fetchGitHubDefaultBranch(owner, repo);
+  const ref = await fetchGitHubDefaultBranch(owner, repo, workspaceId);
   const pointer = await resolveGitHubSkillPointerBySlug({
     owner,
     repo,
     ref,
     skillSlug,
+    workspaceId,
   });
-  return importGitHubSkillDefinitionFromPointer(pointer, sourceUrl, "skills.sh");
+  return importGitHubSkillDefinitionFromPointer(pointer, sourceUrl, "skills.sh", workspaceId);
 }
 
 async function importClawHubSkillDefinition(sourceUrl: string): Promise<ImportedSkillDefinition> {
@@ -1220,11 +1233,12 @@ function decodeHtmlEntities(value: string): string {
     .replace(/&amp;/g, "&");
 }
 
-async function fetchGitHubDefaultBranch(owner: string, repo: string): Promise<string> {
+async function fetchGitHubDefaultBranch(owner: string, repo: string, workspaceId?: string): Promise<string> {
   const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": "DofeAgent/0.1.0",
+      ...(workspaceId ? gitAuthHeadersSync(workspaceId, "github.com") : {}),
     },
   });
   if (!response.ok) {
@@ -1239,11 +1253,12 @@ async function fetchGitHubDefaultBranch(owner: string, repo: string): Promise<st
   return payload.default_branch?.trim() || "main";
 }
 
-async function resolveGitHubRefToSha(owner: string, repo: string, ref: string): Promise<string> {
+async function resolveGitHubRefToSha(owner: string, repo: string, ref: string, workspaceId?: string): Promise<string> {
   const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`, {
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": "DofeAgent/0.1.0",
+      ...(workspaceId ? gitAuthHeadersSync(workspaceId, "github.com") : {}),
     },
   });
   if (!response.ok) {
@@ -1265,11 +1280,17 @@ async function resolveGitLabRefToSha(
   projectPath: string,
   ref: string,
   budget: SkillSourceBudget,
+  workspaceId?: string,
 ): Promise<string> {
   assertSkillSourceRequestBudget(budget, "GitLab skill");
   const response = await fetch(
     `https://gitlab.com/api/v4/projects/${encodeURIComponent(projectPath)}/repository/commits/${encodeURIComponent(ref)}`,
-    { headers: { "User-Agent": "DofeAgent/0.1.0" } },
+    {
+      headers: {
+        "User-Agent": "DofeAgent/0.1.0",
+        ...(workspaceId ? gitAuthHeadersSync(workspaceId, "gitlab.com") : {}),
+      },
+    },
   );
   if (!response.ok) {
     throw new Error(`Failed to resolve GitLab ref "${ref}" to commit SHA: ${response.status}`);
@@ -1291,12 +1312,14 @@ async function resolveGitHubSkillPointerBySlug(input: {
   repo: string;
   ref: string;
   skillSlug: string;
+  workspaceId?: string;
 }): Promise<GitHubDirectoryPointer> {
-  const resolvedSha = await resolveGitHubRefToSha(input.owner, input.repo, input.ref);
+  const resolvedSha = await resolveGitHubRefToSha(input.owner, input.repo, input.ref, input.workspaceId);
   const response = await fetch(`https://api.github.com/repos/${input.owner}/${input.repo}/git/trees/${resolvedSha}?recursive=1`, {
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": "DofeAgent/0.1.0",
+      ...(input.workspaceId ? gitAuthHeadersSync(input.workspaceId, "github.com") : {}),
     },
   });
   if (!response.ok) {
@@ -1353,6 +1376,7 @@ async function fetchGitHubDirectoryFiles(
   relativePrefix = "",
   requireSkillFile = true,
   budget: SkillSourceBudget = { fileCount: 0, totalBytes: 0, requestCount: 0 },
+  workspaceId?: string,
 ): Promise<ImportedSkillFile[]> {
   assertSkillSourceRequestBudget(budget, "GitHub skill");
   const ref = pointer.resolvedSha ?? pointer.ref;
@@ -1361,6 +1385,7 @@ async function fetchGitHubDirectoryFiles(
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": "DofeAgent/0.1.0",
+      ...(workspaceId ? gitAuthHeadersSync(workspaceId, "github.com") : {}),
     },
   });
   if (!response.ok) {
@@ -1399,7 +1424,7 @@ async function fetchGitHubDirectoryFiles(
         ...pointer,
         path: entry.path,
       };
-      files.push(...await fetchGitHubDirectoryFiles(nestedPointer, warnings, relativePath, false, budget));
+      files.push(...await fetchGitHubDirectoryFiles(nestedPointer, warnings, relativePath, false, budget, workspaceId));
       continue;
     }
 
@@ -1413,6 +1438,7 @@ async function fetchGitHubDirectoryFiles(
       headers: {
         Accept: "application/vnd.github+json",
         "User-Agent": "DofeAgent/0.1.0",
+        ...(workspaceId ? gitAuthHeadersSync(workspaceId, "github.com") : {}),
       },
     });
     if (!fileResponse.ok) {
@@ -1450,6 +1476,7 @@ async function fetchGitLabDirectoryFiles(
   pointer: GitLabDirectoryPointer,
   warnings: string[],
   budget: SkillSourceBudget,
+  workspaceId?: string,
 ): Promise<ImportedSkillFile[]> {
   const ref = pointer.resolvedSha ?? pointer.ref;
   const entries: Array<{ type?: string; path?: string; mode?: string }> = [];
@@ -1466,7 +1493,12 @@ async function fetchGitLabDirectoryFiles(
     });
     const response = await fetch(
       `https://gitlab.com/api/v4/projects/${encodeURIComponent(pointer.projectPath)}/repository/tree?${query}`,
-      { headers: { "User-Agent": "DofeAgent/0.1.0" } },
+      {
+        headers: {
+          "User-Agent": "DofeAgent/0.1.0",
+          ...(workspaceId ? gitAuthHeadersSync(workspaceId, "gitlab.com") : {}),
+        },
+      },
     );
     if (!response.ok) {
       throw new Error(`Failed to fetch GitLab skill directory: ${response.status}`);
@@ -1509,7 +1541,7 @@ async function fetchGitLabDirectoryFiles(
     if (!pathResult.ok) {
       throw new Error(`GitLab skill contains unsafe path "${rawRelativePath}": ${pathResult.message}`);
     }
-    const bytes = await fetchGitLabRawFile({ ...pointer, path: entry.path }, budget);
+    const bytes = await fetchGitLabRawFile({ ...pointer, path: entry.path }, budget, workspaceId);
     assertSkillSourceFileBudget(budget, pathResult.normalized, bytes, "GitLab skill");
     files.push({
       path: pathResult.normalized,
@@ -1527,12 +1559,18 @@ async function fetchGitLabDirectoryFiles(
 async function fetchGitLabRawFile(
   pointer: GitLabDirectoryPointer,
   budget: SkillSourceBudget,
+  workspaceId?: string,
 ): Promise<Uint8Array> {
   assertSkillSourceRequestBudget(budget, "GitLab skill");
   const ref = pointer.resolvedSha ?? pointer.ref;
   const response = await fetch(
     `https://gitlab.com/api/v4/projects/${encodeURIComponent(pointer.projectPath)}/repository/files/${encodeURIComponent(pointer.path)}/raw?ref=${encodeURIComponent(ref)}`,
-    { headers: { "User-Agent": "DofeAgent/0.1.0" } },
+    {
+      headers: {
+        "User-Agent": "DofeAgent/0.1.0",
+        ...(workspaceId ? gitAuthHeadersSync(workspaceId, "gitlab.com") : {}),
+      },
+    },
   );
   if (!response.ok) {
     throw new Error(`Failed to fetch GitLab skill file "${pointer.path}": ${response.status}`);
@@ -1573,11 +1611,16 @@ function assertSkillSourceFileBudget(
   }
 }
 
-async function fetchGitHubRawFile(pointer: GitHubDirectoryPointer): Promise<string> {
+async function fetchGitHubRawFile(pointer: GitHubDirectoryPointer, workspaceId?: string): Promise<string> {
   const ref = pointer.resolvedSha ?? pointer.ref;
   const response = await fetch(
     `https://raw.githubusercontent.com/${pointer.owner}/${pointer.repo}/${ref}/${pointer.path}`,
-    { headers: { "User-Agent": "DofeAgent/0.1.0" } },
+    {
+      headers: {
+        "User-Agent": "DofeAgent/0.1.0",
+        ...(workspaceId ? gitAuthHeadersSync(workspaceId, "github.com") : {}),
+      },
+    },
   );
   if (!response.ok) {
     throw new Error(`Failed to fetch GitHub skill file: ${response.status}`);

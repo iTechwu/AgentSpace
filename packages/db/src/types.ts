@@ -1502,6 +1502,24 @@ export interface StoredSkillInstallationComponentRecord {
   updatedAt: string;
 }
 
+export interface WorkspaceGitCredentialRecord {
+  id: string;
+  workspaceId: string;
+  host: string;
+  credentialType: "token" | "ssh_key";
+  referenceName: string;
+  /** Encrypted at rest; never returned to the UI. */
+  encryptedSecret: string;
+  /** sha256 hex of the plaintext — rotation/leak detection, non-secret. */
+  fingerprint: string;
+  status: "active" | "revoked";
+  createdByUserId?: string;
+  createdAt: string;
+  updatedAt: string;
+  rotatedAt?: string;
+  revokedAt?: string;
+}
+
 export interface SkillRunnerInvocationRecord {
   id: string;
   workspaceId: string;
