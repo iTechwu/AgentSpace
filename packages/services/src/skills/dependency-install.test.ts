@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSkillDependencyInstallPlan } from "./dependency-install.ts";
+import { buildSkillDependencyInstallPlan, resolveDependencyIntegrityLock } from "./dependency-install.ts";
 
 test("buildSkillDependencyInstallPlan installs npm into an isolated deps dir with a pinned registry", () => {
   const plan = buildSkillDependencyInstallPlan("skill-123", {
@@ -11,6 +11,8 @@ test("buildSkillDependencyInstallPlan installs npm into an isolated deps dir wit
 
   assert.equal(plan.app.source, "skill_dependency");
   assert.equal(plan.requiresApproval, true);
+  assert.equal(plan.depsDir, "deps/npm");
+  assert.equal(plan.integrityLock, undefined, "no declared integrity → no lock");
   assert.deepEqual(plan.commands, [{
     executable: "npm",
     args: [
@@ -26,6 +28,65 @@ test("buildSkillDependencyInstallPlan installs npm into an isolated deps dir wit
   // The plan must never touch the Provider HOME / global package paths.
   assert.ok(!plan.commands[0]!.args.includes("--global"));
   assert.ok(plan.notes.some((note) => note.includes("isolated deps root")));
+});
+
+test("buildSkillDependencyInstallPlan carries the declared integrity lock", () => {
+  const plan = buildSkillDependencyInstallPlan("skill-123", {
+    manager: "pip",
+    name: "requests",
+    version: "2.32.3",
+    integrity: "sha256:abc123",
+  });
+  assert.equal(plan.integrityLock, "sha256:abc123");
+  assert.equal(plan.depsDir, "deps/pip");
+});
+
+test("resolveDependencyIntegrityLock resolves npm dist.integrity", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ dist: { integrity: "sha512-deadbeef" } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  try {
+    const lock = await resolveDependencyIntegrityLock({ manager: "npm", name: "left-pad", version: "1.3.0" });
+    assert.equal(lock, "sha512-deadbeef");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("resolveDependencyIntegrityLock resolves PyPI wheel sha256 with a sha256: prefix", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        urls: [
+          { packagetype: "sdist", digests: { sha256: "sdist-hash" } },
+          { packagetype: "bdist_wheel", digests: { sha256: "wheel-hash" } },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  try {
+    const lock = await resolveDependencyIntegrityLock({ manager: "pip", name: "requests", version: "2.32.3" });
+    assert.equal(lock, "sha256:wheel-hash", "prefers the wheel artifact");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("resolveDependencyIntegrityLock returns null on registry/network failure", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("network down");
+  };
+  try {
+    const lock = await resolveDependencyIntegrityLock({ manager: "npm", name: "left-pad", version: "1.3.0" });
+    assert.equal(lock, null, "a lock is an enrichment, never a hard blocker");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("buildSkillDependencyInstallPlan isolates pip/uv installs and pins the pypi index", () => {

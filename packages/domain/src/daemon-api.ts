@@ -433,6 +433,10 @@ export interface RuntimeAppInstallPlan {
   risk: RuntimeAppRiskLevel;
   requiresApproval: boolean;
   notes: string[];
+  /** Relative deps dir (under the executor cwd) the daemon hashes for the download digest. */
+  depsDir?: string;
+  /** Registry integrity hash (npm dist.integrity / PyPI sha256) — reproducibility lock. */
+  integrityLock?: string;
 }
 
 export interface ClaimedRuntimeAppOperation {

@@ -922,6 +922,10 @@ async function executeRemoteRuntimeAppOperation(
         metadataJson: JSON.stringify({
           verifiedAt: new Date().toISOString(),
           strategy: plan.strategy,
+          // Reproducibility record (P1-4): the registry integrity lock and the
+          // sha256 of the installed deps dir — both are audit-only, never secrets.
+          ...(plan.integrityLock ? { integrityLock: plan.integrityLock } : {}),
+          ...(result.downloadedDigest ? { downloadedDigest: result.downloadedDigest } : {}),
         }),
       },
     });

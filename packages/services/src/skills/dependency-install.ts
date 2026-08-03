@@ -231,6 +231,11 @@ export function buildSkillDependencyInstallPlan(
     verifyCommands,
     risk: "medium",
     requiresApproval: true,
+    depsDir,
+    // The reproducibility lock: the manifest's declared integrity hash, when
+    // present. `resolveDependencyIntegrityLock` can populate it from the registry
+    // for skills that do not declare it.
+    integrityLock: dependency.integrity?.trim() || undefined,
     notes: [
       `Declared by skill ${skillId}.`,
       `Exact ${dependency.manager} dependency: ${packageReference}.`,
@@ -246,6 +251,47 @@ export function buildSkillDependencyInstallPlan(
 
 const DEFAULT_NPM_REGISTRY = "https://registry.npmjs.org";
 const DEFAULT_PYPI_INDEX_URL = "https://pypi.org/simple";
+
+/**
+ * Resolves the registry integrity lock for an exact dependency version
+ * (npm `dist.integrity` / PyPI file `sha256`) — the reproducibility lock the
+ * daemon records after install. Best-effort: returns null on any network or
+ * metadata failure so a lock is an enrichment, never a hard blocker.
+ */
+export async function resolveDependencyIntegrityLock(
+  dependency: SkillDependencyDeclaration,
+): Promise<string | null> {
+  try {
+    if (dependency.manager === "npm") {
+      const response = await fetch(
+        `https://registry.npmjs.org/${encodeURIComponent(dependency.name)}/${encodeURIComponent(dependency.version)}`,
+        { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) },
+      );
+      if (!response.ok) {
+        return null;
+      }
+      const metadata = await response.json() as { dist?: { integrity?: unknown } };
+      return typeof metadata.dist?.integrity === "string" && metadata.dist.integrity.trim()
+        ? metadata.dist.integrity.trim()
+        : null;
+    }
+    const response = await fetch(
+      `https://pypi.org/pypi/${encodeURIComponent(dependency.name)}/${encodeURIComponent(dependency.version)}/json`,
+      { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) },
+    );
+    if (!response.ok) {
+      return null;
+    }
+    const metadata = await response.json() as { urls?: Array<{ packagetype?: unknown; digests?: { sha256?: unknown } }> };
+    const urls = Array.isArray(metadata.urls) ? metadata.urls : [];
+    const wheel = urls.find((url) => url.packagetype === "bdist_wheel") ?? urls[0];
+    return typeof wheel?.digests?.sha256 === "string" && wheel.digests.sha256.trim()
+      ? `sha256:${wheel.digests.sha256.trim()}`
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 function dependencyOperationName(skillId: string, dependency: SkillDependencyDeclaration): string {
   return `skill:${skillId}:${dependency.manager}:${dependency.name}@${dependency.version}`;

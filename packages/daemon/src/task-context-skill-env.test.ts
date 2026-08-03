@@ -6,6 +6,7 @@ import { randomBytes } from "node:crypto";
 import test, { after, before, beforeEach } from "node:test";
 import {
   getDatabase,
+  readSkillArtifactByDigestSync,
   readSkillInstallationComponentsSync,
   setSkillInstallationStatusSync,
   registerDaemonRuntimesSync,
@@ -15,8 +16,11 @@ import {
   updateSkillInstallationComponentStatusSync,
 } from "@dofe-agent/db";
 import {
+  approveSkillInstallSync,
   assertSkillInstallationReadyForTaskSync,
   buildAndPersistSkillArtifactSync,
+  buildSkillInstallRiskItemsSync,
+  computeSkillReleaseLockSync,
   createEmployeeSync,
   createSkillInstallationPlanSync,
   createSkillUpgradePlanSync,
@@ -327,6 +331,21 @@ function buildReadyInstallation(
   return { artifactDigest: artifact.digest, installationId: installation.id, installation };
 }
 
+/** Creates an install plan after obtaining a per-item risk approval (P0-2 gate). */
+function approvedPlan(runtimeId: string, artifactDigest: string) {
+  const artifact = readSkillArtifactByDigestSync(artifactDigest, WORKSPACE_ID);
+  const riskItems = buildSkillInstallRiskItemsSync({ workspaceId: WORKSPACE_ID, artifactDigest });
+  const lock = computeSkillReleaseLockSync(artifact!, WORKSPACE_ID);
+  const approvalId = approveSkillInstallSync({
+    workspaceId: WORKSPACE_ID,
+    artifactDigest,
+    releaseLockDigest: lock.lockDigest,
+    riskItems,
+    reason: "test approval",
+  }).approvalId;
+  return createSkillInstallationPlanSync({ workspaceId: WORKSPACE_ID, runtimeId, artifactDigest, approvalId });
+}
+
 function resolveSnapshotForTask(taskId: string, runtimeId: string, agentSkills: WorkspaceSkill[]) {
   return resolveOrLoadTaskSkillExecutionSnapshotSync(taskId, {
     workspaceId: WORKSPACE_ID,
@@ -502,11 +521,7 @@ test("task skill execution snapshot marks installations that require a daemon de
     }],
     dependencies: [{ manager: "npm", name: "left-pad", version: "1.3.0" }],
   });
-  const installation = createSkillInstallationPlanSync({
-    workspaceId: WORKSPACE_ID,
-    runtimeId,
-    artifactDigest: artifact.digest,
-  });
+  const installation = approvedPlan(runtimeId, artifact.digest);
   markInstallationReady(installation.id);
 
   const snapshot = resolveSnapshotForTask(taskId, runtimeId, [skill]);

@@ -140,6 +140,7 @@ export {
   queueSkillDependenciesForAgentSync,
   queueGitHubSkillDependenciesForAgentSync,
   readSkillDependencyInstallStatusSync,
+  resolveDependencyIntegrityLock,
   type SkillDependencyInstallStatus,
 } from "./skills/dependency-install.ts";
 export type { SkillDependencyDeclaration } from "./skills/dependencies.ts";

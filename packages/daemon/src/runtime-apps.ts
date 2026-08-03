@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan } from "@dofe-agent/domain";
 
 const MAX_TAIL_CHARS = 8_000;
@@ -26,6 +29,44 @@ export interface CliHubReadiness {
 export interface RuntimeAppExecutionResult {
   safeStdoutTail: string;
   safeStderrTail: string;
+  /** sha256 over the installed deps dir (download artifact digest, P1-4). */
+  downloadedDigest?: string;
+}
+
+/**
+ * Deterministic sha256 over a directory tree (relative path + file bytes, sorted).
+ * Returns undefined when the directory is missing or unreadable — the download
+ * digest is an audit enrichment, never a hard blocker.
+ */
+export function computeDirectoryDigestSync(dirPath: string): string | undefined {
+  const hash = createHash("sha256");
+  const walk = (relative: string): boolean => {
+    let entries;
+    try {
+      entries = readdirSync(join(dirPath, relative), { withFileTypes: true });
+    } catch {
+      return false;
+    }
+    for (const entry of [...entries].sort((left, right) => left.name.localeCompare(right.name, "en-US"))) {
+      const rel = relative ? join(relative, entry.name) : entry.name;
+      if (entry.isDirectory()) {
+        if (!walk(rel)) return false;
+      } else if (entry.isFile()) {
+        hash.update(rel);
+        hash.update("\0");
+        try {
+          hash.update(readFileSync(join(dirPath, rel)));
+        } catch {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+  if (!walk("")) {
+    return undefined;
+  }
+  return hash.digest("hex");
 }
 
 export async function executeRuntimeAppPlan(
@@ -42,6 +83,11 @@ export async function executeRuntimeAppPlan(
   return {
     safeStdoutTail: tailAndRedact(stdout),
     safeStderrTail: tailAndRedact(stderr),
+    // Download artifact digest over the isolated deps dir (P1-4). Best-effort:
+    // a missing dir (e.g. no-op plan) simply yields no digest.
+    downloadedDigest: plan.depsDir && options?.cwd
+      ? computeDirectoryDigestSync(join(options.cwd, plan.depsDir))
+      : undefined,
   };
 }
 
