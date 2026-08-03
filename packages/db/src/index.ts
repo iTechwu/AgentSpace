@@ -1048,7 +1048,9 @@ export {
   releaseEmployeeDataLegalHoldSync,
   readEmployeeDataLegalHoldSync,
   listEmployeeDataLegalHoldsSync,
+  exportEmployeeDataLegalHoldProofSync,
   type CreateEmployeeDataLegalHoldInput,
+  type EmployeeDataLegalHoldProof,
 } from "./employee-data-legal-holds.ts";
 export {
   createRecoveryOperationSync,

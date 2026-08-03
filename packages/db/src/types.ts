@@ -1759,6 +1759,8 @@ export interface EmployeeDataLegalHoldRecord {
   resourceType: EmployeeDataLegalHoldResourceType;
   resourceId: string;
   reason: string;
+  /** Legal case / ticket reference (e.g. "LEG-2026-0142") for the hold. */
+  caseReference?: string;
   createdByUserId?: string;
   createdByDisplayName?: string;
   createdAt: string;

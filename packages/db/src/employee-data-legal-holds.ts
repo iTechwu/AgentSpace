@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { DEFAULT_WORKSPACE_ID, getDatabase, randomLikeId } from "./database.ts";
 import { recordAuditLogSync } from "./audit-log.ts";
 import type {
@@ -11,6 +12,8 @@ export interface CreateEmployeeDataLegalHoldInput {
   resourceType: EmployeeDataLegalHoldResourceType;
   resourceId: string;
   reason: string;
+  /** Legal case / ticket reference (e.g. "LEG-2026-0142"). */
+  caseReference?: string;
   createdByUserId?: string;
   createdByDisplayName?: string;
   expiresAt?: string;
@@ -19,6 +22,7 @@ export interface CreateEmployeeDataLegalHoldInput {
 const HOLD_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, employee_id AS employeeId,
   resource_type AS resourceType, resource_id AS resourceId, reason,
+  case_reference AS caseReference,
   created_by_user_id AS createdByUserId, created_by_display_name AS createdByDisplayName,
   created_at AS createdAt, expires_at AS expiresAt, released_at AS releasedAt,
   released_by_user_id AS releasedByUserId, release_reason AS releaseReason`;
@@ -40,8 +44,8 @@ export function createEmployeeDataLegalHoldSync(
   getDatabase().prepare(
     `INSERT INTO employee_data_legal_hold (
        id, workspace_id, employee_id, resource_type, resource_id, reason,
-       created_by_user_id, created_by_display_name, created_at, expires_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       case_reference, created_by_user_id, created_by_display_name, created_at, expires_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     workspaceId,
@@ -49,6 +53,7 @@ export function createEmployeeDataLegalHoldSync(
     input.resourceType,
     resourceId,
     reason,
+    input.caseReference?.trim() || null,
     input.createdByUserId ?? null,
     input.createdByDisplayName ?? null,
     now,
@@ -164,6 +169,52 @@ function assertLegalHoldResourceExists(
   if (!exists) throw new Error(`Legal hold resource "${resourceId}" does not exist in this workspace.`);
 }
 
+export interface EmployeeDataLegalHoldProof {
+  workspaceId: string;
+  exportedAt: string;
+  /** The holds included in the proof (active retention obligations by default). */
+  holds: EmployeeDataLegalHoldRecord[];
+  /** sha256 over the exported hold identities — tamper-evident export fingerprint. */
+  proofDigest: string;
+}
+
+/**
+ * Produces a legal-export proof of the employee data legal holds in a workspace
+ * (P1-6 导出能力). The proofDigest binds the exported set, so a legal team can
+ * verify the export was not altered. Never includes raw resource contents.
+ */
+export function exportEmployeeDataLegalHoldProofSync(options: {
+  workspaceId?: string;
+  employeeId?: string;
+  activeOnly?: boolean;
+  limit?: number;
+} = {}): EmployeeDataLegalHoldProof {
+  const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const holds = listEmployeeDataLegalHoldsSync({
+    workspaceId,
+    employeeId: options.employeeId,
+    activeOnly: options.activeOnly ?? true,
+    limit: options.limit,
+  });
+  const proofDigest = createHash("sha256")
+    .update(
+      JSON.stringify(
+        holds.map((hold) => ({
+          id: hold.id,
+          resourceType: hold.resourceType,
+          resourceId: hold.resourceId,
+          employeeId: hold.employeeId,
+          reason: hold.reason,
+          caseReference: hold.caseReference,
+          createdAt: hold.createdAt,
+          releasedAt: hold.releasedAt,
+        })),
+      ),
+    )
+    .digest("hex");
+  return { workspaceId, exportedAt: new Date().toISOString(), holds, proofDigest };
+}
+
 function mapLegalHoldRecord(value: Record<string, unknown>): EmployeeDataLegalHoldRecord | null {
   if (
     typeof value.id !== "string" ||
@@ -180,6 +231,7 @@ function mapLegalHoldRecord(value: Record<string, unknown>): EmployeeDataLegalHo
     resourceType: value.resourceType as EmployeeDataLegalHoldResourceType,
     resourceId: value.resourceId,
     reason: value.reason,
+    caseReference: optionalString(value.caseReference),
     createdByUserId: optionalString(value.createdByUserId),
     createdByDisplayName: optionalString(value.createdByDisplayName),
     createdAt: value.createdAt,

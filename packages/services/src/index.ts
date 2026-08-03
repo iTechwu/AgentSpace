@@ -110,6 +110,7 @@ export {
   type BackupRestoreDrillResult,
   type DataProtectionHealthOptions,
 } from "./employees/data-protection-health.ts";
+export { exportLegalHoldProofSync } from "./employees/legal-holds.ts";
 export {
   advanceRecoverableOperationsSync,
   type AdvanceRecoveriesResult,

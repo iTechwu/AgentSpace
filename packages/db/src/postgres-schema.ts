@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "97";
+export const POSTGRES_SCHEMA_VERSION = "98";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -2977,6 +2977,7 @@ export function getPostgresSchemaStatements(): string[] {
         release_reason TEXT
       )
     `,
+    `ALTER TABLE employee_data_legal_hold ADD COLUMN IF NOT EXISTS case_reference TEXT`,
     `
       CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_data_legal_hold_active_resource
         ON employee_data_legal_hold(workspace_id, resource_type, resource_id)

@@ -451,6 +451,7 @@ const NORMALIZED_ROW_KEY_ALIASES = new Map([
   ["toolname", "toolName"],
   ["latencyms", "latencyMs"],
   ["safesummary", "safeSummary"],
+  ["casereference", "caseReference"],
   ["credentialtype", "credentialType"],
   ["durationms", "durationMs"],
   ["encryptedsecret", "encryptedSecret"],
