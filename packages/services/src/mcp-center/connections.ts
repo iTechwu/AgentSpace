@@ -57,7 +57,13 @@ import {
   validateMcpEndpoint,
   validateMcpRequestHeaders,
 } from "./security.ts";
-import { buildMcpEgressPolicyRevision, readMcpEgressLeaseSigningSecret, signMcpEgressLeaseForOperation, signMcpEgressLeaseForTaskCall } from "./egress.ts";
+import {
+  buildMcpEgressPolicyRevision,
+  readMcpEgressLeaseSigningSecret,
+  revokeMcpEgressPolicyRevisionAtProxy,
+  signMcpEgressLeaseForOperation,
+  signMcpEgressLeaseForTaskCall,
+} from "./egress.ts";
 import { resolveReadyMcpConnectionForTask } from "./readiness.ts";
 export { listReadyMcpConnectionsForTaskSync } from "./readiness.ts";
 
@@ -202,6 +208,28 @@ export function reverifyMcpConnectionSync(input: {
   return createConnectionOperationSync({ ...input, operation: "verify" });
 }
 
+function revokeActiveMcpEgressPolicyForConnectionSync(connection: RuntimeMcpConnectionRecord): void {
+  const leaseSecret = readMcpEgressLeaseSigningSecret();
+  if (!leaseSecret) return;
+  const catalog = readMcpCatalogItemSync(connection.catalogItemId, connection.workspaceId);
+  if (!catalog) return;
+  const allowedHosts = parseJsonArray(catalog.allowedHostsJson);
+  const approvedTools = parseJsonArray(connection.approvedToolsJson);
+  const secrets = resolveDaemonSecretBundle(readMcpConnectionSecretsSync(connection.id, connection.workspaceId));
+  if (!secrets) return;
+  const policyInput = {
+    workspaceId: connection.workspaceId,
+    connectionId: connection.id,
+    releaseId: catalog.version,
+    endpoint: connection.endpoint,
+    allowedHosts,
+    approvedTools,
+    authMode: inferAuthMode(secrets),
+  };
+  const policyRevision = buildMcpEgressPolicyRevision(policyInput);
+  void revokeMcpEgressPolicyRevisionAtProxy(policyRevision.id).catch(() => undefined);
+}
+
 export function disableMcpConnectionSync(input: {
   workspaceId: string;
   connectionId: string;
@@ -213,6 +241,7 @@ export function disableMcpConnectionSync(input: {
     return connection;
   }
   cancelUnfinishedMcpOperationsForConnectionSync({ connectionId: connection.id, workspaceId: input.workspaceId });
+  revokeActiveMcpEgressPolicyForConnectionSync(connection);
   const updated = updateMcpConnectionStatusSync({
     connectionId: connection.id,
     workspaceId: input.workspaceId,
@@ -270,6 +299,7 @@ function createConnectionOperationSync(input: {
     });
   } else {
     cancelUnfinishedMcpOperationsForConnectionSync({ connectionId: connection.id, workspaceId: input.workspaceId });
+    revokeActiveMcpEgressPolicyForConnectionSync(connection);
   }
   const operation = createMcpOperationSync({
     workspaceId: input.workspaceId,
@@ -1091,13 +1121,18 @@ function resolveClaimedMcpTaskSessionResult(input: {
       authMode: inferAuthMode(secrets),
     };
     const policyRevision = leaseSecret ? buildMcpEgressPolicyRevision(policyInput) : undefined;
-    const egressProxyLease = policyRevision
-      ? signMcpEgressLeaseForTaskCall({
-          ...policyInput,
-          runtimeId: input.runtimeId,
-          taskId: input.taskId,
-          toolName: "*",
-        })
+    const egressProxyLeases: Record<string, string> | undefined = policyRevision
+      ? Object.fromEntries(
+          resolved.approved.map((toolName) => [
+            toolName,
+            signMcpEgressLeaseForTaskCall({
+              ...policyInput,
+              runtimeId: input.runtimeId,
+              taskId: input.taskId,
+              toolName,
+            }),
+          ]),
+        )
       : undefined;
     const egressProxyPolicySnapshot: McpEgressPolicySnapshot | undefined = policyRevision
       ? { revision: policyRevision, revoked: false, fetchedAt: new Date().toISOString() }
@@ -1116,7 +1151,7 @@ function resolveClaimedMcpTaskSessionResult(input: {
       nonSecretParams: parseJsonObject(resolved.fresh.nonSecretParamsJson),
       secrets,
       tools: resolved.tools,
-      egressProxyLease,
+      egressProxyLeases,
       egressProxyPolicySnapshot,
     });
   }

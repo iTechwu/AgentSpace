@@ -691,8 +691,8 @@ export interface McpTaskSessionConnection {
   secrets: Record<string, string>;
   /** Approved ∩ discovered tools with their real input schemas. */
   tools: RuntimeMcpTool[];
-  /** Signed short-lived egress proxy lease for this task session. */
-  egressProxyLease?: string;
+  /** Signed short-lived egress proxy leases for this task session, keyed by approved tool name. */
+  egressProxyLeases?: Record<string, string>;
   /** Policy snapshot the daemon must push to the proxy before use. */
   egressProxyPolicySnapshot?: McpEgressPolicySnapshot;
 }

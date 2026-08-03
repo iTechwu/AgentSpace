@@ -226,6 +226,42 @@ export function readMcpEgressLeaseSigningSecret(): string | undefined {
   return process.env.MCP_EGRESS_PROXY_LEASE_SIGNING_SECRET?.trim();
 }
 
+/** Reads the egress proxy admin token from the environment. */
+export function readMcpEgressProxyAdminToken(): string | undefined {
+  return process.env.MCP_EGRESS_PROXY_ADMIN_TOKEN?.trim();
+}
+
+/** Reads the egress proxy base URL from the environment. */
+export function readMcpEgressProxyUrl(): string | undefined {
+  return process.env.MCP_EGRESS_PROXY_URL?.trim();
+}
+
+/**
+ * Revokes a policy revision at the egress proxy. Returns true when the proxy
+ * acknowledged the revocation. Failures are logged and swallowed: revocation is
+ * a best-effort defense-in-depth measure on top of short lease TTLs.
+ */
+export async function revokeMcpEgressPolicyRevisionAtProxy(policyRevisionId: string): Promise<boolean> {
+  const proxyUrl = readMcpEgressProxyUrl();
+  const adminToken = readMcpEgressProxyAdminToken();
+  if (!proxyUrl || !adminToken) {
+    return false;
+  }
+  try {
+    const url = new URL(`/v1/admin/policies/${encodeURIComponent(policyRevisionId)}/revoke`, proxyUrl);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "x-dofe-admin-token": adminToken,
+        "content-type": "application/json",
+      },
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 function readSigningSecretOrThrow(): string {
   const secret = readMcpEgressLeaseSigningSecret();
   if (!secret) {

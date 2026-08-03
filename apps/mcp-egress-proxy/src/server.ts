@@ -89,6 +89,11 @@ export class McpEgressProxyServer {
       return;
     }
 
+    if (method === "POST" && requestPath.startsWith("/v1/admin/policies/") && requestPath.endsWith("/revoke")) {
+      await this.handlePolicyRevoke(req, res, requestPath);
+      return;
+    }
+
     const leaseToken = extractLeaseToken(req);
 
     const verification = await verifyLeaseForRequest(leaseToken, this.options.leaseVerifier);
@@ -142,6 +147,29 @@ export class McpEgressProxyServer {
     }
     this.options.policyCache.set(snapshot);
     sendJson(res, 200, { accepted: snapshot.revision.id });
+  }
+
+  private async handlePolicyRevoke(req: IncomingMessage, res: ServerResponse, requestPath: string): Promise<void> {
+    const adminToken = this.options.adminToken;
+    if (!adminToken) {
+      sendJson(res, 404, { error: "mcp_egress.not_found", message: "Admin policy revoke is not configured." });
+      return;
+    }
+    const supplied = req.headers[ADMIN_AUTH_HEADER];
+    const value = Array.isArray(supplied) ? supplied[0] : supplied;
+    if (value !== adminToken) {
+      sendJson(res, 401, { error: "mcp_egress.lease_invalid", message: "Invalid admin token." });
+      return;
+    }
+    const prefix = "/v1/admin/policies/";
+    const suffix = "/revoke";
+    const id = requestPath.slice(prefix.length, requestPath.length - suffix.length);
+    if (!id) {
+      sendJson(res, 400, { error: "mcp_egress.policy_mismatch", message: "Policy revision id is required." });
+      return;
+    }
+    this.options.policyCache.revoke(id);
+    sendJson(res, 200, { revoked: id });
   }
 
   private async forwardVerifiedRequest(

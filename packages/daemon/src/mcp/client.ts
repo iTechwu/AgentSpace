@@ -89,6 +89,11 @@ async function callTool(input: {
 async function withClient<T>(connection: ResolvedMcpConnection, fn: (client: Client) => Promise<T>): Promise<T> {
   const endpointUrl = new URL(connection.endpoint);
   const useProxy = Boolean(connection.egressProxyLease && connection.egressProxyPolicySnapshot);
+  const enforceEgress = process.env.MCP_EGRESS_ENFORCE === "true";
+
+  if (enforceEgress && !useProxy) {
+    throw new Error("MCP egress is enforced but no proxy lease is available for this connection.");
+  }
 
   let transportUrl: URL;
   let customFetch: (input: string | URL, init?: RequestInit) => Promise<Response>;
