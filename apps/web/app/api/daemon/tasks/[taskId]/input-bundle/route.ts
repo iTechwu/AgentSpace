@@ -108,9 +108,18 @@ export async function GET(
       skipWorkspaceMaterialization: true,
     });
     if (prepared.skillReadinessBlockers.length > 0 || prepared.skillEnvConflicts.length > 0) {
+      const blockingReasons = [
+        ...prepared.skillReadinessBlockers,
+        ...prepared.skillEnvConflicts.map((key) => `environment variable conflict: ${key}`),
+      ];
+      const visibleReasons = blockingReasons.slice(0, 3).join("; ");
+      const remainingCount = blockingReasons.length - Math.min(blockingReasons.length, 3);
       return Response.json(
         {
-          error: "Task cannot start because skill requirements are not satisfied.",
+          error:
+            `Task cannot start because skill requirements are not satisfied: ${visibleReasons}`
+            + (remainingCount > 0 ? `; and ${remainingCount} more blocker(s).` : "."),
+          code: "skill_requirements_unsatisfied",
           skillReadinessBlockers: prepared.skillReadinessBlockers,
           skillEnvConflicts: prepared.skillEnvConflicts,
         },

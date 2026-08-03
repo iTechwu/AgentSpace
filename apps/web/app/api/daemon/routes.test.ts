@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -2177,7 +2177,7 @@ describe("daemon API routes", () => {
     bindEmployeeRuntimeSync("Atlas", runtimeId);
 
     const skill = createWorkspaceSkillSync({
-      name: "notion-sync",
+      name: `notion-sync-${randomUUID()}`,
       description: "Requires NOTION_DATABASE_ID",
       configJson: JSON.stringify({
         requirements: [{ kind: "config", value: "NOTION_DATABASE_ID" }],
@@ -2206,6 +2206,8 @@ describe("daemon API routes", () => {
     expect(response.status).toBe(409);
     const payload = await response.json();
     expect(payload.error).toMatch(/skill requirements are not satisfied/i);
+    expect(payload.error).toContain("NOTION_DATABASE_ID");
+    expect(payload.code).toBe("skill_requirements_unsatisfied");
     expect(payload.skillReadinessBlockers).toEqual(
       expect.arrayContaining([expect.stringContaining("NOTION_DATABASE_ID")]),
     );
