@@ -208,116 +208,162 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   }
 
   const needsAttention = data.mcpConnections.filter((c) => c.status === "failed" || c.status === "degraded").length;
+  const activeFilterCount = [sourceFilter, categoryFilter, transportFilter, riskFilter, connectionFilter, runtimeFilter]
+    .filter((filter) => filter !== "all").length;
+
+  function clearFilters(): void {
+    setQuery("");
+    setSourceFilter("all");
+    setCategoryFilter("all");
+    setTransportFilter("all");
+    setRiskFilter("all");
+    setConnectionFilter("all");
+    setRuntimeFilter("all");
+  }
 
   return (
-    <div className="market-tab-panel">
-      <div className="market-panel-actions">
-        <span className="mcp-subtitle">{tx("MCP 中心", "MCP Center")}</span>
-        <span className="mcp-subtitle-note">{tx("连接审核过的 MCP 服务到 Docker Runtime。", "Connect reviewed MCP services to a Docker Runtime.")}</span>
+    <div aria-labelledby="mcp-market-heading" className="market-tab-panel" id="mcp-market-panel" role="tabpanel">
+      <div className="market-panel-header">
+        <div>
+          <h2 id="mcp-market-heading">{tx("MCP 服务", "MCP services")}</h2>
+          <p>{tx("从已审核目录选择服务，配置工具权限并连接到兼容的 Runtime。", "Choose a reviewed service, configure tool access, and connect it to a compatible runtime.")}</p>
+        </div>
         {needsAttention > 0 ? (
           <span className="status-chip status-chip--danger">{tx(`需要处理 ${needsAttention} 项`, `${needsAttention} need attention`)}</span>
         ) : null}
       </div>
 
-      <div className="market-workbench">
-        <aside className="market-filter-panel" aria-label={tx("MCP 筛选", "MCP filters")}>
-          <label className="market-search">
-            <AppIcon name="search" />
-            <input
-              aria-label={tx("搜索 MCP 服务", "Search MCP services")}
-              onChange={(event) => setQuery(event.currentTarget.value)}
-              placeholder={tx("搜索服务、工具或数据域", "Search service, tool or data domain")}
-              value={query}
-            />
-          </label>
-          <label className="form-field">
-            <span>{tx("类别", "Category")}</span>
-            <select onChange={(event) => setCategoryFilter(event.currentTarget.value as "all" | CatalogEntry["category"])} value={categoryFilter}>
-              <option value="all">{tx("全部类别", "All categories")}</option>
-              {categories.map((category) => <option key={category} value={category}>{category}</option>)}
-            </select>
-          </label>
-          <label className="form-field">
-            <span>{tx("来源", "Source")}</span>
-            <select onChange={(event) => setSourceFilter(event.currentTarget.value as "all" | CatalogEntry["source"])} value={sourceFilter}>
-              <option value="all">{tx("全部来源", "All sources")}</option>
-              {sources.map((source) => <option key={source} value={source}>{source}</option>)}
-            </select>
-          </label>
-          <label className="form-field">
-            <span>{tx("传输", "Transport")}</span>
-            <select onChange={(event) => setTransportFilter(event.currentTarget.value as "all" | CatalogEntry["transport"])} value={transportFilter}>
-              <option value="all">{tx("全部传输", "All transports")}</option>
-              {/* Only streamable_http is implemented; the other transports are
-                  type/UI placeholders and must not be selectable yet. */}
-              <option value="streamable_http">streamable_http</option>
-            </select>
-          </label>
-          <label className="form-field">
-            <span>{tx("风险", "Risk")}</span>
-            <select onChange={(event) => setRiskFilter(event.currentTarget.value as "all" | CatalogEntry["risk"])} value={riskFilter}>
-              <option value="all">{tx("全部风险", "All risks")}</option>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-            </select>
-          </label>
-          <label className="form-field">
-            <span>{tx("连接状态", "Connection status")}</span>
-            <select onChange={(event) => setConnectionFilter(event.currentTarget.value as typeof connectionFilter)} value={connectionFilter}>
-              <option value="all">{tx("全部状态", "All statuses")}</option>
-              <option value="connected">{tx("已连接", "Connected")}</option>
-              <option value="not_connected">{tx("未连接", "Not connected")}</option>
-              <option value="needs_attention">{tx("需要处理", "Needs attention")}</option>
-            </select>
-          </label>
-          <label className="form-field">
-            <span>{tx("Runtime", "Runtime")}</span>
-            <select onChange={(event) => setRuntimeFilter(event.currentTarget.value)} value={runtimeFilter}>
-              <option value="all">{tx("全部 Runtime", "All runtimes")}</option>
-              {onlineRuntimes.map((runtime) => (
-                <option key={runtime.id} value={runtime.id}>{runtime.label}</option>
-              ))}
-            </select>
-          </label>
-          <section className="market-app-list" aria-label={tx("MCP 服务目录", "MCP service catalog")}>
-            {filteredCatalog.map((item) => {
-              const active = selected?.id === item.id;
-              const connectionState = catalogConnectionState.get(item.id) ?? "not_connected";
-              const connectedCount = catalogConnectedRuntimeCount.get(item.id) ?? 0;
-              return (
-                <button
-                  className={`market-app-row${active ? " market-app-row--active" : ""}`}
-                  key={item.id}
-                  onClick={() => setSelectedCatalogId(item.id)}
-                  type="button"
-                >
-                  <span className={`market-risk-dot market-risk-dot--${item.risk}`} />
-                  <strong>{item.displayName}</strong>
-                  <span>{transportLabel(item.transport, tx)}</span>
-                  <small>
-                    {tx(`已连接 ${connectedCount} 个 Runtime · `, `${connectedCount} runtime(s) · `)}
-                    {connectionState === "needs_attention" ? tx("需要处理", "Needs attention") : connectionState === "connected" ? tx("已连接", "Connected") : tx("未连接", "Not connected")}
-                  </small>
+      {data.mcpCatalog.length === 0 ? (
+        <section className="market-empty-state">
+          <span className="market-empty-icon"><AppIcon name="containers" /></span>
+          <h3>{tx("MCP 服务目录为空", "The MCP catalog is empty")}</h3>
+          <p>{tx("当前工作区还没有已审核的 MCP 服务。服务发布后会显示在这里。", "This workspace has no reviewed MCP services yet. Published services will appear here.")}</p>
+        </section>
+      ) : (
+        <div className="market-workbench">
+          <aside className="market-catalog-panel" aria-label={tx("MCP 筛选与目录", "MCP filters and catalog")}>
+            <div className="market-catalog-tools">
+              <label className="market-search">
+                <AppIcon name="search" />
+                <input
+                  aria-label={tx("搜索 MCP 服务", "Search MCP services")}
+                  onChange={(event) => setQuery(event.currentTarget.value)}
+                  placeholder={tx("搜索服务、工具或数据域", "Search services, tools, or data domains")}
+                  value={query}
+                />
+              </label>
+              <div className="mcp-filter-heading">
+                <strong>{tx("筛选", "Filters")}</strong>
+                <button disabled={activeFilterCount === 0 && !query} onClick={clearFilters} type="button">
+                  {tx("清除", "Clear")}{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
                 </button>
-              );
-            })}
-            {filteredCatalog.length === 0 ? (
-              <p className="market-empty">{tx("暂无 MCP 服务。", "No MCP services yet.")}</p>
-            ) : null}
-          </section>
-        </aside>
-
-        <aside className="market-detail-panel" aria-label={tx("MCP 详情", "MCP details")}>
-          {selected ? (
-            <>
-              <div className="market-detail-heading">
-                <div>
-                  <h2>{selected.displayName}</h2>
-                  <p>{selected.description || selected.slug}</p>
-                </div>
-                <span className={`status-chip status-chip--${riskTone(selected.risk)}`}>{selected.risk}</span>
               </div>
+              <div className="mcp-filter-grid">
+                <label className="form-field">
+                  <span>{tx("类别", "Category")}</span>
+                  <select onChange={(event) => setCategoryFilter(event.currentTarget.value as "all" | CatalogEntry["category"])} value={categoryFilter}>
+                    <option value="all">{tx("全部类别", "All categories")}</option>
+                    {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                  </select>
+                </label>
+                <label className="form-field">
+                  <span>{tx("来源", "Source")}</span>
+                  <select onChange={(event) => setSourceFilter(event.currentTarget.value as "all" | CatalogEntry["source"])} value={sourceFilter}>
+                    <option value="all">{tx("全部来源", "All sources")}</option>
+                    {sources.map((source) => <option key={source} value={source}>{source}</option>)}
+                  </select>
+                </label>
+                <label className="form-field">
+                  <span>{tx("传输", "Transport")}</span>
+                  <select onChange={(event) => setTransportFilter(event.currentTarget.value as "all" | CatalogEntry["transport"])} value={transportFilter}>
+                    <option value="all">{tx("全部传输", "All transports")}</option>
+                    {/* Only streamable_http is implemented; the other transports are
+                        type/UI placeholders and must not be selectable yet. */}
+                    <option value="streamable_http">streamable_http</option>
+                  </select>
+                </label>
+                <label className="form-field">
+                  <span>{tx("风险", "Risk")}</span>
+                  <select onChange={(event) => setRiskFilter(event.currentTarget.value as "all" | CatalogEntry["risk"])} value={riskFilter}>
+                    <option value="all">{tx("全部风险", "All risks")}</option>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                  </select>
+                </label>
+                <label className="form-field">
+                  <span>{tx("连接状态", "Connection status")}</span>
+                  <select onChange={(event) => setConnectionFilter(event.currentTarget.value as typeof connectionFilter)} value={connectionFilter}>
+                    <option value="all">{tx("全部状态", "All statuses")}</option>
+                    <option value="connected">{tx("已连接", "Connected")}</option>
+                    <option value="not_connected">{tx("未连接", "Not connected")}</option>
+                    <option value="needs_attention">{tx("需要处理", "Needs attention")}</option>
+                  </select>
+                </label>
+                <label className="form-field">
+                  <span>{tx("Runtime", "Runtime")}</span>
+                  <select onChange={(event) => setRuntimeFilter(event.currentTarget.value)} value={runtimeFilter}>
+                    <option value="all">{tx("全部 Runtime", "All runtimes")}</option>
+                    {onlineRuntimes.map((runtime) => (
+                      <option key={runtime.id} value={runtime.id}>{runtime.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div className="market-catalog-meta">
+              <strong>{tx("服务目录", "Service catalog")}</strong>
+              <span>{tx(`${filteredCatalog.length} 个结果`, `${filteredCatalog.length} results`)}</span>
+            </div>
+            <section className="market-app-list" aria-label={tx("MCP 服务目录", "MCP service catalog")}>
+              {filteredCatalog.map((item) => {
+                const active = selected?.id === item.id;
+                const connectionState = catalogConnectionState.get(item.id) ?? "not_connected";
+                const connectedCount = catalogConnectedRuntimeCount.get(item.id) ?? 0;
+                return (
+                  <button
+                    className={`market-app-row${active ? " market-app-row--active" : ""}`}
+                    key={item.id}
+                    onClick={() => setSelectedCatalogId(item.id)}
+                    type="button"
+                  >
+                    <span className={`market-risk-dot market-risk-dot--${item.risk}`} />
+                    <span className="market-app-identity">
+                      <strong>{item.displayName}</strong>
+                      <small>{item.description || item.slug}</small>
+                    </span>
+                    <span className="market-app-meta">
+                      <strong>{transportLabel(item.transport, tx)}</strong>
+                      <small>
+                        {connectionState === "needs_attention" ? tx("需要处理", "Needs attention") : connectionState === "connected" ? tx("已连接", "Connected") : tx("未连接", "Not connected")}
+                        {connectedCount > 0 ? tx(` · ${connectedCount} 个 Runtime`, ` · ${connectedCount} runtime(s)`) : ""}
+                      </small>
+                    </span>
+                  </button>
+                );
+              })}
+              {filteredCatalog.length === 0 ? (
+                <div className="market-filter-empty">
+                  <AppIcon name="search" />
+                  <strong>{tx("没有匹配的 MCP 服务", "No matching MCP services")}</strong>
+                  <button onClick={clearFilters} type="button">{tx("清除筛选", "Clear filters")}</button>
+                </div>
+              ) : null}
+            </section>
+          </aside>
+
+          <aside className="market-detail-panel" aria-label={tx("MCP 详情", "MCP details")}>
+            {selected ? (
+              <>
+                <div className="market-detail-heading">
+                  <div>
+                    <span className="market-detail-kicker">MCP · {selected.category}</span>
+                    <h2>{selected.displayName}</h2>
+                    <p>{selected.description || selected.slug}</p>
+                  </div>
+                  <span className={`status-chip status-chip--${riskTone(selected.risk)}`}>{selected.risk}</span>
+                </div>
 
               <div className="market-facts-grid">
                 <Fact label={tx("版本", "Release")} value={selected.version} />
@@ -437,15 +483,20 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
               {!supportsSelectedTransport ? (
                 <p className="panel-note">{tx("当前版本仅支持 Streamable HTTP MCP。", "This version supports Streamable HTTP MCP only.")}</p>
               ) : null}
-            </>
-          ) : (
-            <p className="market-empty">{tx("暂无 MCP 服务。", "No MCP services yet.")}</p>
-          )}
-        </aside>
-      </div>
+              </>
+            ) : null}
+          </aside>
+        </div>
+      )}
 
       <section className="mcp-connections-section" aria-label={tx("已连接 MCP 服务", "Connected MCP services")}>
-        <h3>{tx("已连接服务", "Connected services")} ({data.mcpConnections.length})</h3>
+        <div className="mcp-connections-heading">
+          <div>
+            <h3>{tx("已连接服务", "Connected services")}</h3>
+            <p>{tx("集中管理 Runtime 上已启用的 MCP 连接。", "Manage active MCP connections across runtimes.")}</p>
+          </div>
+          <span>{data.mcpConnections.length}</span>
+        </div>
         {data.mcpConnections.length === 0 ? (
           <p className="market-empty">{tx("尚未连接 MCP 服务。", "No MCP connections yet.")}</p>
         ) : (

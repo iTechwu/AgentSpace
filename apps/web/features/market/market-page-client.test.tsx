@@ -127,6 +127,38 @@ describe("MarketPageClient", () => {
     actionMocks.replaceMcpConnectionConfig.mockClear();
   });
 
+  it("presents CLI apps and MCP services as one capability market", () => {
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "应用与服务市场" })).toBeInTheDocument();
+    expect(screen.getByLabelText("市场概览")).toHaveTextContent("可用能力2");
+    expect(screen.getByRole("tab", { name: "CLI 市场" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "MCP 市场" })).toHaveTextContent("1 个已审核服务");
+  });
+
+  it("uses one intentional empty state when the MCP catalog is unavailable", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{ ...data, mcpCatalog: [] }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "MCP 市场" }));
+
+    expect(screen.getByRole("heading", { name: "MCP 服务目录为空" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "搜索 MCP 服务" })).not.toBeInTheDocument();
+    expect(screen.queryByText("暂无 MCP 服务。")).not.toBeInTheDocument();
+  });
+
   it("only shows online runtimes in the target runtime selector", () => {
     render(
       <LanguageProvider>
