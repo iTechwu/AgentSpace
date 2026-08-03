@@ -93,7 +93,7 @@ describe("InstallSkillModal", () => {
 
   it("requires per-item authorization of every high-risk capability before creating the plan", async () => {
     const riskItems = [
-      { category: "script" as const, key: "entrypoint:bin/render.py", description: "可执行脚本入口 bin/render.py（python）" },
+      { category: "script" as const, key: "script:bin/render.py", description: "可执行脚本入口 bin/render.py（python）" },
       { category: "network" as const, key: "dependency:pip:pillow@11.0.0", description: "运行时安装依赖 pip:pillow@11.0.0 会访问软件源" },
     ];
     inspectSkill.mockResolvedValue({ ...inspection, riskItems });
@@ -116,7 +116,7 @@ describe("InstallSkillModal", () => {
     // Go back to the Access step and authorize only the FIRST risk item.
     await user.click(screen.getByRole("button", { name: "上一步" }));
     await user.click(screen.getByRole("button", { name: "上一步" }));
-    await user.click(screen.getByRole("checkbox", { name: /entrypoint:bin\/render\.py/ }));
+    await user.click(screen.getByRole("checkbox", { name: /script:bin\/render\.py/ }));
 
     // Still not all authorized → confirm stays blocked (no single global switch).
     await user.click(screen.getByRole("button", { name: "下一步" }));

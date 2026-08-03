@@ -8,6 +8,7 @@ import {
   randomLikeId,
   readActiveArtifactDigestForSkillSync,
   readSkillArtifactByDigestSync,
+  readSkillInstallApprovalSync,
   readStoredWorkspaceSkillSync,
   readSkillInstallationComponentsSync,
   setSkillInstallationStatusSync,
@@ -356,6 +357,101 @@ test("createSkillUpgradePlanSync rejects a breaking upgrade without an approval"
   );
 });
 
+test("createSkillUpgradePlanSync rejects a candidate with NEW high-risk capabilities without a risk approval", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const salt = cryptoRandomBytes(4).toString("hex");
+  const skillId = createWorkspaceSkillSync({ name: `Upgrade Risk ${salt}` }).id;
+  const first = buildAndPersistSkillArtifactSync({
+    skillId,
+    name: "Risk Upgrade",
+    files: [{ path: "SKILL.md", bytes: ENCODER.encode(`# v1 ${salt}\n`) }],
+  });
+  // v2 adds a new 0755 executable — a NEW high-risk capability item vs v1.
+  const second = buildAndPersistSkillArtifactSync({
+    skillId,
+    activate: false,
+    name: "Risk Upgrade",
+    files: [
+      { path: "SKILL.md", bytes: ENCODER.encode(`# v2 ${salt}\n`) },
+      { path: "scripts/extra.sh", bytes: ENCODER.encode("#!/bin/sh\necho hi\n"), mode: "0755" },
+    ],
+  });
+  const v1 = readyInstall(runtimeId, first.digest);
+  // Satisfy the breaking gate, but omit the new-risk approval.
+  const diffHash = breakingDiffHash(first, second);
+  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+
+  assert.throws(
+    () => createSkillUpgradePlanSync({
+      runtimeId,
+      artifactDigest: second.digest,
+      previousReadyInstallationId: v1.id,
+      approvalId,
+    }),
+    /新的高风险能力/,
+  );
+});
+
+test("createSkillUpgradePlanSync consumes a risk approval for NEW high-risk capabilities", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const salt = cryptoRandomBytes(4).toString("hex");
+  const skillId = createWorkspaceSkillSync({ name: `Upgrade Risk ${salt}` }).id;
+  const first = buildAndPersistSkillArtifactSync({
+    skillId,
+    name: "Risk Upgrade",
+    files: [{ path: "SKILL.md", bytes: ENCODER.encode(`# v1 ${salt}\n`) }],
+  });
+  const second = buildAndPersistSkillArtifactSync({
+    skillId,
+    activate: false,
+    name: "Risk Upgrade",
+    files: [
+      { path: "SKILL.md", bytes: ENCODER.encode(`# v2 ${salt}\n`) },
+      { path: "scripts/extra.sh", bytes: ENCODER.encode("#!/bin/sh\necho hi\n"), mode: "0755" },
+    ],
+  });
+  const v1 = readyInstall(runtimeId, first.digest);
+  const diffHash = breakingDiffHash(first, second);
+  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+
+  // Approve the candidate's FULL risk set; the plan gate consumes it atomically.
+  const riskItems = buildSkillInstallRiskItemsSync({ artifactDigest: second.digest });
+  const lock = computeSkillReleaseLockSync(readSkillArtifactByDigestSync(second.digest, "default"), "default");
+  const { approvalId: installApprovalId } = approveSkillInstallSync({
+    artifactDigest: second.digest,
+    releaseLockDigest: lock.lockDigest,
+    riskItems,
+    reason: "new risk approval",
+  });
+
+  const v2 = createSkillUpgradePlanSync({
+    runtimeId,
+    artifactDigest: second.digest,
+    previousReadyInstallationId: v1.id,
+    approvalId,
+    installApprovalId,
+  });
+  assert.ok(v2.id);
+  const approval = readSkillInstallApprovalSync(installApprovalId, "default");
+  assert.ok(approval?.consumedAt, "the new-risk approval must be consumed by the upgrade plan");
+});
+
+test("createSkillUpgradePlanSync does not require a risk approval when the candidate adds no new risk items", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  // Both v1 and v2 expose the SAME risk profile (a 0755 script) → no new risk items.
+  const { first, second } = buildUpgradeArtifacts();
+  const v1 = readyInstall(runtimeId, first.digest);
+  const diffHash = breakingDiffHash(first, second);
+  const { approvalId } = approveSkillUpgradeSync({ fromDigest: first.digest, toDigest: second.digest, diffHash });
+
+  assert.doesNotThrow(() =>
+    createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
+  );
+});
+
 test("createSkillUpgradePlanSync consumes the approval exactly once", () => {
   resetWorkspaceStateSync("default");
   const runtimeId = createTestRuntime();
@@ -555,12 +651,22 @@ test("createSkillUpgradePlanSync queues services newly declared by the candidate
     toDigest: second.digest,
     diffHash,
   });
+  // The candidate declares a NEW service → a new network risk item → needs a risk approval.
+  const riskItems = buildSkillInstallRiskItemsSync({ artifactDigest: second.digest });
+  const riskLock = computeSkillReleaseLockSync(readSkillArtifactByDigestSync(second.digest, "default"), "default");
+  const { approvalId: installApprovalId } = approveSkillInstallSync({
+    artifactDigest: second.digest,
+    releaseLockDigest: riskLock.lockDigest,
+    riskItems,
+    reason: "new service risk approval",
+  });
 
   const v2 = createSkillUpgradePlanSync({
     runtimeId,
     artifactDigest: second.digest,
     previousReadyInstallationId: v1.id,
     approvalId,
+    installApprovalId,
   });
   const serviceOperations = listManagedSkillServiceOperationsSync({ workspaceId: "default", runtimeId });
   assert.equal(serviceOperations.length, 1);

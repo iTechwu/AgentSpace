@@ -264,6 +264,8 @@ export async function createSkillUpgradeAction(input: {
   previousInstallationId: string;
   candidateArtifactDigest?: string;
   approved?: boolean;
+  /** True when the admin authorizes high-risk capabilities newly introduced by the candidate. */
+  approvedRisks?: boolean;
 }): Promise<ActionToastResult<{ installationId: string; breaking: boolean; changeCount: number }>> {
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "admin");
@@ -290,6 +292,7 @@ export async function createSkillUpgradeAction(input: {
   let breaking = false;
   let changeCount = 0;
   let approvalId: string | undefined;
+  let installApprovalId: string | undefined;
   if (previous) {
     if (previous.artifactDigest !== activeDigest) {
       throw new Error("上一个安装版本与当前 active artifact 不一致，请刷新后重试。");
@@ -303,6 +306,35 @@ export async function createSkillUpgradeAction(input: {
       });
       breaking = diff.breaking;
       changeCount = diff.categories.reduce((count, category) => count + category.changes.length, 0);
+
+      // Risk re-review (P0-2 收尾): a candidate introducing high-risk capability
+      // items the previous version did not have requires a fresh per-item approval.
+      const previousRiskKeys = new Set(
+        buildSkillInstallRiskItemsSync({
+          workspaceId: workspaceContext.currentWorkspace.id,
+          artifactDigest: previousArtifact.digest,
+        }).map((item) => item.key),
+      );
+      const candidateRiskItems = buildSkillInstallRiskItemsSync({
+        workspaceId: workspaceContext.currentWorkspace.id,
+        artifactDigest: candidateDigest,
+      });
+      const newRiskItems = candidateRiskItems.filter((item) => !previousRiskKeys.has(item.key));
+      if (newRiskItems.length > 0) {
+        if (input.approvedRisks !== true) {
+          throw new Error(`升级引入了 ${newRiskItems.length} 项新的高风险能力，需要逐项授权后才能升级。`);
+        }
+        const candidateLock = computeSkillReleaseLockSync(nextArtifact, workspaceContext.currentWorkspace.id);
+        installApprovalId = approveSkillInstallSync({
+          workspaceId: workspaceContext.currentWorkspace.id,
+          skillId: input.skillId.trim(),
+          artifactDigest: candidateDigest,
+          releaseLockDigest: candidateLock.lockDigest,
+          riskItems: candidateRiskItems,
+          reason: `Admin authorized ${newRiskItems.length} new high-risk capability item(s) in the upgrade flow.`,
+          actorUserId: workspaceContext.currentUser.id,
+        }).approvalId;
+      }
     }
     if (breaking) {
       if (input.approved !== true) {
@@ -332,6 +364,7 @@ export async function createSkillUpgradeAction(input: {
     previousReadyInstallationId: input.previousInstallationId.trim(),
     requestedByUserId: workspaceContext.currentUser.id,
     ...(approvalId ? { approvalId } : {}),
+    ...(installApprovalId ? { installApprovalId } : {}),
   });
 
   tryRecordWorkspaceAuditEventSync({
@@ -442,6 +475,8 @@ export interface SkillInstallationRowView {
   candidateArtifactDigest?: string;
   candidateBreaking?: boolean;
   candidateChangeCount?: number;
+  /** High-risk capability items the candidate introduces that the active version lacks. */
+  candidateNewRiskItems?: Array<{ category: string; key: string; description: string }>;
   active: boolean;
   releaseLockDigest?: string;
   preparedDigest?: string;
@@ -520,6 +555,17 @@ export async function listSkillInstallationRowsForSkillAction(input: {
       toManifestJson: candidateArtifact.manifestJson,
     });
     const changeCount = diff.categories.reduce((count, category) => count + category.changes.length, 0);
+    const activeRiskKeys = new Set(
+      buildSkillInstallRiskItemsSync({
+        workspaceId: workspaceContext.currentWorkspace.id,
+        artifactDigest: activeArtifact.digest,
+      }).map((item) => item.key),
+    );
+    const candidateRiskItems = buildSkillInstallRiskItemsSync({
+      workspaceId: workspaceContext.currentWorkspace.id,
+      artifactDigest: candidateArtifact.digest,
+    });
+    const candidateNewRiskItems = candidateRiskItems.filter((item) => !activeRiskKeys.has(item.key));
     for (const row of rows) {
       const candidateAlreadyPlanned = rows.some((candidateRow) => (
         candidateRow.runtimeId === row.runtimeId
@@ -530,6 +576,7 @@ export async function listSkillInstallationRowsForSkillAction(input: {
         row.candidateArtifactDigest = candidateArtifact.digest;
         row.candidateBreaking = diff.breaking;
         row.candidateChangeCount = changeCount;
+        row.candidateNewRiskItems = candidateNewRiskItems.length > 0 ? candidateNewRiskItems : undefined;
       }
     }
   }

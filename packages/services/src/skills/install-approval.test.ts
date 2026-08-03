@@ -106,7 +106,7 @@ test("risk classifier surfaces script, network, high-risk MCP, and write risk it
   assert.ok(categories.has("mcp_tool"), "high-risk MCP tools must be flagged");
   assert.ok(categories.has("write"), "write-capable MCP tools must be flagged");
 
-  assert.ok(items.some((item) => item.key === "entrypoint:scripts/run.sh"));
+  assert.ok(items.some((item) => item.key === "script:scripts/run.sh"));
   assert.ok(items.some((item) => item.key === "dependency:npm:left-pad@1.3.0"));
   assert.ok(items.some((item) => item.key === "mcp:github"));
   assert.ok(items.some((item) => item.key === "mcp_tool:github:create_file"));

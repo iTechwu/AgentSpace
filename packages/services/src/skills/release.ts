@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   cancelUnfinishedSkillInstallationOperationsSync,
+  consumeSkillInstallApprovalSync,
   consumeSkillUpgradeApprovalSync,
   createSkillInstallationOperationSync,
   createSkillInstallationSync,
@@ -11,6 +12,7 @@ import {
   readMcpCatalogItemReleaseSync,
   readActiveArtifactDigestForSkillSync,
   readSkillArtifactByDigestSync,
+  readSkillInstallApprovalSync,
   readSkillInstallationSync,
   readSkillInstallationByLockSync,
   readSkillInstallationComponentsSync,
@@ -27,6 +29,11 @@ import {
   buildSkillInstallationComponentsSync,
   queueDeclaredSkillServicesForInstallationSync,
 } from "./installations.ts";
+import {
+  buildSkillInstallRiskItemsSync,
+  computeSkillInstallRiskDecisionDigestSync,
+  SKILL_INSTALL_POLICY_VERSION,
+} from "./install-approval.ts";
 import { evaluateSkillInstallationCapabilitiesSync } from "./capabilities.ts";
 import { readSkillArtifactTextProjectionSync, verifySkillArtifactIntegritySync } from "./skill-artifacts.ts";
 import { buildSkillOperationRequestSnapshotJson } from "./installations-protocol.ts";
@@ -567,6 +574,13 @@ export function createSkillUpgradePlanSync(input: {
    * atomically with the plan creation.
    */
   approvalId?: string;
+  /**
+   * A previously-recorded per-item risk approval (created via `approveSkillInstallSync`)
+   * for the CANDIDATE artifact. Required when the candidate introduces high-risk
+   * capability items (script/network/high-risk-MCP/write) that the previous ready
+   * artifact did not have; consumed atomically with the plan creation.
+   */
+  installApprovalId?: string;
 }): StoredSkillInstallationRecord {
   const workspaceId = input.workspaceId ?? "default";
   const previous = readSkillInstallationSync(input.previousReadyInstallationId, workspaceId);
@@ -622,10 +636,57 @@ export function createSkillUpgradePlanSync(input: {
     }
   }
 
+  // Risk re-review (P0-2 收尾): a candidate that introduces high-risk capability
+  // items the previous ready artifact did not have (new script / network /
+  // high-risk-MCP / write capability) requires a fresh per-item install approval
+  // bound to the candidate's (artifactDigest, releaseLockDigest, riskDecisionDigest).
+  const lock = computeSkillReleaseLockSync(artifact, workspaceId);
+  const candidateRiskItems = buildSkillInstallRiskItemsSync({
+    workspaceId,
+    artifactDigest: input.artifactDigest,
+  });
+  const previousRiskKeys = previousArtifact
+    ? new Set(
+        buildSkillInstallRiskItemsSync({ workspaceId, artifactDigest: previousArtifact.digest }).map((item) => item.key),
+      )
+    : new Set();
+  const newRiskItems = candidateRiskItems.filter((item) => !previousRiskKeys.has(item.key));
+  const candidateRiskDecisionDigest = newRiskItems.length > 0
+    ? computeSkillInstallRiskDecisionDigestSync({
+        artifactDigest: artifact.digest,
+        releaseLockDigest: lock.lockDigest,
+        riskItems: candidateRiskItems,
+      })
+    : undefined;
+  if (newRiskItems.length > 0) {
+    if (!input.installApprovalId) {
+      throw new Error(
+        `升级引入了 ${newRiskItems.length} 项新的高风险能力（脚本/网络/高风险 MCP 工具/写能力），需要逐项审批后才能升级。`,
+      );
+    }
+    const installApproval = readSkillInstallApprovalSync(input.installApprovalId, workspaceId);
+    if (!installApproval) {
+      throw new Error(`风险审批 "${input.installApprovalId}" 不存在。`);
+    }
+    if (installApproval.decision !== "approved") {
+      throw new Error("风险审批决定不是 approved。");
+    }
+    if (
+      installApproval.artifactDigest !== artifact.digest
+      || installApproval.releaseLockDigest !== lock.lockDigest
+      || installApproval.riskDecisionDigest !== candidateRiskDecisionDigest
+      || installApproval.policyVersion !== SKILL_INSTALL_POLICY_VERSION
+    ) {
+      throw new Error("风险审批与候选 artifact/release lock/风险集合/策略版本不匹配，需要重新审批。");
+    }
+    if (installApproval.consumedAt) {
+      throw new Error("风险审批已被其他升级消费。");
+    }
+  }
+
   const revision = nextRevision(previous.revision);
   const components = buildSkillInstallationComponentsSync({ workspaceId, artifactDigest: input.artifactDigest });
 
-  const lock = computeSkillReleaseLockSync(artifact, workspaceId);
   return withTransaction(getDatabase(), () => {
     if (diff.breaking && input.approvalId) {
       const consumed = consumeSkillUpgradeApprovalSync(
@@ -635,6 +696,16 @@ export function createSkillUpgradePlanSync(input: {
       );
       if (!consumed) {
         throw new Error("Approval was concurrently consumed; retry with a fresh approval.");
+      }
+    }
+    if (newRiskItems.length > 0 && input.installApprovalId) {
+      const consumed = consumeSkillInstallApprovalSync(
+        input.installApprovalId,
+        workspaceId,
+        SKILL_INSTALL_POLICY_VERSION,
+      );
+      if (!consumed) {
+        throw new Error("风险审批已被并发消费，请重新审批。");
       }
     }
 

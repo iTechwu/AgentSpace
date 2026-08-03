@@ -117,14 +117,21 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
 
   const prepareUpgrade = (row: SkillInstallationRowView) => {
     if (!row.candidateArtifactDigest) return;
+    const newRiskCount = row.candidateNewRiskItems?.length ?? 0;
+    const riskLine = newRiskCount > 0
+      ? tx(
+          `\n\n包含 ${newRiskCount} 项新的高风险能力（${row.candidateNewRiskItems!.map((item) => item.key).join("、")}）。确定已了解其影响并逐项授权？`,
+          `\n\nIt introduces ${newRiskCount} new high-risk capability item(s): ${row.candidateNewRiskItems!.map((item) => item.key).join(", ")}. Confirm you understand and authorize each?`,
+        )
+      : "";
     const message = row.candidateBreaking
       ? tx(
-          `该候选包含 ${row.candidateChangeCount ?? 0} 项变更，其中有 breaking 变更。批准并在此 Runtime 准备升级？`,
-          `This candidate has ${row.candidateChangeCount ?? 0} changes, including breaking changes. Approve and prepare it on this runtime?`,
+          `该候选包含 ${row.candidateChangeCount ?? 0} 项变更，其中有 breaking 变更。批准并在此 Runtime 准备升级？${riskLine}`,
+          `This candidate has ${row.candidateChangeCount ?? 0} changes, including breaking changes. Approve and prepare it on this runtime?${riskLine}`,
         )
       : tx(
-          `在此 Runtime 准备候选版本（${row.candidateChangeCount ?? 0} 项变更）？`,
-          `Prepare the candidate on this runtime (${row.candidateChangeCount ?? 0} changes)?`,
+          `在此 Runtime 准备候选版本（${row.candidateChangeCount ?? 0} 项变更）？${riskLine}`,
+          `Prepare the candidate on this runtime (${row.candidateChangeCount ?? 0} changes)?${riskLine}`,
         );
     if (!window.confirm(message)) return;
     setPendingUpgradeId(row.installationId);
@@ -135,6 +142,7 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
         previousInstallationId: row.installationId,
         candidateArtifactDigest: row.candidateArtifactDigest,
         approved: row.candidateBreaking === true,
+        approvedRisks: newRiskCount > 0,
       }),
       pushToast,
       tx,

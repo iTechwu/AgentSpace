@@ -54,21 +54,28 @@ export function buildSkillInstallRiskItemsSync(input: {
   );
 
   const items: SkillInstallApprovalRiskItem[] = [];
+  const seenScriptKeys = new Set<string>();
 
+  // A script file (declared entrypoint OR plain 0755 executable) is always a
+  // `script:<path>` risk item. The key does not depend on whether the path is
+  // declared as an entrypoint, so re-declaring an entrypoint does not create a
+  // spurious "new risk item" on upgrade.
   for (const entrypoint of manifest.entrypoints ?? []) {
-    if (entrypoint.path) {
+    if (entrypoint.path && !seenScriptKeys.has(entrypoint.path)) {
+      seenScriptKeys.add(entrypoint.path);
       items.push({
         category: "script",
-        key: `entrypoint:${entrypoint.path}`,
+        key: `script:${entrypoint.path}`,
         description: `可执行脚本入口 ${entrypoint.path}${entrypoint.runtime ? `（${entrypoint.runtime}）` : ""}`,
       });
     }
   }
   for (const path of executablePaths) {
-    if (!declaredEntrypointPaths.has(path)) {
+    if (!declaredEntrypointPaths.has(path) && !seenScriptKeys.has(path)) {
+      seenScriptKeys.add(path);
       items.push({
         category: "script",
-        key: `executable:${path}`,
+        key: `script:${path}`,
         description: `可执行文件 ${path}`,
       });
     }

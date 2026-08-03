@@ -67,6 +67,7 @@ describe("SkillInstallationPanel", () => {
       previousInstallationId: "installation-v1",
       candidateArtifactDigest: "c".repeat(64),
       approved: true,
+      approvedRisks: false,
     }));
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("breaking"));
   });
