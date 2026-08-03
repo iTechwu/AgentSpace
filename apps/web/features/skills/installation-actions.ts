@@ -15,6 +15,7 @@ import {
 } from "@dofe-agent/db";
 import {
   approveSkillInstallSync,
+  approveSkillUpgradeCandidateSync,
   approveSkillUpgradeSync,
   buildSkillInstallRiskItemsSync,
   buildSkillInstallationComponentsSync,
@@ -24,6 +25,7 @@ import {
   createSkillInstallationPlanSync,
   createSkillUpgradePlanSync,
   diffSkillArtifactsSync,
+  listSkillUpgradeReviewCandidatesSync,
   promoteSkillUpgradeSync,
   rollbackSkillInstallationSync,
   tryRecordWorkspaceAuditEventSync,
@@ -300,6 +302,81 @@ export async function listSkillRunnerInvocationsAction(limit = 20): Promise<Skil
       safeSummary: invocation.safeSummary,
       createdAt: invocation.createdAt,
     }),
+  );
+}
+
+export interface UpgradeReviewCandidateView {
+  skillId: string;
+  skillName: string;
+  runtimeId: string;
+  previousInstallationId: string;
+  previousArtifactDigest: string;
+  previousRevision: string;
+  candidateArtifactDigest: string;
+  breaking: boolean;
+  changeCount: number;
+  diffCategories: Array<{ category: string; breaking: boolean; changes: string[] }>;
+  newRiskItems: Array<{ category: string; key: string; description: string }>;
+}
+
+/** Workspace-wide upgrade approval inbox (P1-3). */
+export async function listUpgradeReviewCandidatesAction(): Promise<UpgradeReviewCandidateView[]> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  return listSkillUpgradeReviewCandidatesSync(workspaceContext.currentWorkspace.id).map((candidate) => ({
+    skillId: candidate.skillId,
+    skillName: candidate.skillName,
+    runtimeId: candidate.runtimeId,
+    previousInstallationId: candidate.previousInstallationId,
+    previousArtifactDigest: candidate.previousArtifactDigest,
+    previousRevision: candidate.previousRevision,
+    candidateArtifactDigest: candidate.candidateArtifactDigest,
+    breaking: candidate.breaking,
+    changeCount: candidate.changeCount,
+    diffCategories: candidate.diffCategories,
+    newRiskItems: candidate.newRiskItems,
+  }));
+}
+
+export async function reviewUpgradeCandidateAction(input: {
+  skillId: string;
+  runtimeId: string;
+  previousInstallationId: string;
+  decision: "approved" | "rejected";
+  reason: string;
+}): Promise<ActionToastResult<{ installationId?: string; breaking: boolean; newRiskCount: number }>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  const result = approveSkillUpgradeCandidateSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    skillId: input.skillId.trim(),
+    runtimeId: input.runtimeId.trim(),
+    previousInstallationId: input.previousInstallationId.trim(),
+    decision: input.decision,
+    reason: input.reason.trim(),
+    actorUserId: workspaceContext.currentUser.id,
+  });
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    title: input.decision === "approved" ? "Skill upgrade approved" : "Skill upgrade rejected",
+    note: `${input.decision === "approved" ? "Approved" : "Rejected"} upgrade for skill "${input.skillId}" by ${workspaceContext.currentUser.displayName} (breaking=${result.breaking}, new risks=${result.newRiskCount}).`,
+    code: input.decision === "approved" ? "skill_installation.upgrade_approved" : "skill_installation.upgrade_rejected",
+    data: {
+      actorType: "session_user",
+      resourceType: "skill_installation",
+      resourceId: result.installationId ?? "",
+      skillId: input.skillId.trim(),
+      runtimeId: input.runtimeId.trim(),
+      breaking: String(result.breaking),
+      newRiskCount: String(result.newRiskCount),
+    },
+  });
+  revalidateWorkspaceRoutes(workspaceContext.currentWorkspace.slug);
+  return actionToastResult(
+    result,
+    input.decision === "approved"
+      ? infoToast("升级候选已批准，计划已创建。", "Upgrade candidate approved; plan created.")
+      : infoToast("升级候选已驳回，已记录审批。", "Upgrade candidate rejected; approval recorded."),
   );
 }
 

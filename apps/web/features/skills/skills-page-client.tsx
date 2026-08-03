@@ -21,6 +21,7 @@ import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { SkillEditor } from "@/features/skills/components/skill-editor";
 import { InstallSkillModal } from "@/features/skills/components/install-skill-modal";
 import { SkillInstallationPanel } from "@/features/skills/components/skill-installation-panel";
+import { UpgradeReviewInbox } from "@/features/skills/components/upgrade-review-inbox";
 import { CreateSkillModal } from "@/features/skills/components/create-skill-modal";
 import { ImportSkillModal } from "@/features/skills/components/import-skill-modal";
 import type { SkillsPageData } from "@/features/dashboard/data";
@@ -396,6 +397,7 @@ export function SkillsPageClient({
 
         {showEditorPane ? (
           <section className="skills-studio__editor page-panel">
+            <UpgradeReviewInbox />
             {selectedSkill && selectedFile ? (
               <>
                 {isCompactLayout ? (

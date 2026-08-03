@@ -8,6 +8,7 @@ import {
   createSkillUpgradeApprovalSync,
   getDatabase,
   listSkillIdsForArtifactDigestSync,
+  listSkillInstallationsSync,
   readMcpCatalogItemBySlugSync,
   readMcpCatalogItemReleaseSync,
   readActiveArtifactDigestForSkillSync,
@@ -23,6 +24,7 @@ import {
   upsertSkillArtifactBindingSync,
   withTransaction,
   type SkillArtifactRecord,
+  type SkillInstallApprovalRiskItem,
   type StoredSkillInstallationRecord,
 } from "@dofe-agent/db";
 import {
@@ -30,6 +32,7 @@ import {
   queueDeclaredSkillServicesForInstallationSync,
 } from "./installations.ts";
 import {
+  approveSkillInstallSync,
   buildSkillInstallRiskItemsSync,
   computeSkillInstallRiskDecisionDigestSync,
   SKILL_INSTALL_POLICY_VERSION,
@@ -551,6 +554,214 @@ export function approveSkillUpgradeSync(input: {
     policyVersion: SKILL_UPGRADE_POLICY_VERSION,
   });
   return { approvalId: approval.id, created: !approval.consumedAt };
+}
+
+/* ------------------------------------------------------------------ */
+/* Upgrade approval inbox (P1-3)                                       */
+/* ------------------------------------------------------------------ */
+
+export interface SkillUpgradeReviewCandidate {
+  skillId: string;
+  skillName: string;
+  runtimeId: string;
+  previousInstallationId: string;
+  previousArtifactDigest: string;
+  previousRevision: string;
+  candidateArtifactDigest: string;
+  breaking: boolean;
+  changeCount: number;
+  diffCategories: Array<{
+    category: SkillDiffCategory;
+    breaking: boolean;
+    changes: string[];
+  }>;
+  /** High-risk capability items the candidate introduces vs the installed version. */
+  newRiskItems: SkillInstallApprovalRiskItem[];
+}
+
+/**
+ * Lists pending upgrade review candidates across the workspace: every READY
+ * installation whose skill's active artifact is newer than the installed digest.
+ * Each candidate carries the per-item semantic diff and the newly-introduced
+ * high-risk capability items, so an admin can review before approving.
+ */
+export function listSkillUpgradeReviewCandidatesSync(
+  workspaceId = "default",
+): SkillUpgradeReviewCandidate[] {
+  const candidates: SkillUpgradeReviewCandidate[] = [];
+  const seen = new Set<string>();
+  const readyInstallations = listSkillInstallationsSync({
+    workspaceId,
+    status: "ready",
+    limit: 200,
+  });
+  for (const installation of readyInstallations) {
+    for (const skillId of listSkillIdsForArtifactDigestSync(installation.artifactDigest, workspaceId)) {
+      const key = `${skillId}:${installation.runtimeId}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      const activeDigest = readActiveArtifactDigestForSkillSync(skillId, workspaceId);
+      if (!activeDigest || activeDigest === installation.artifactDigest) {
+        continue;
+      }
+      // A candidate already planned on this runtime (preparing/blocked/ready)
+      // is not a pending review.
+      const alreadyPlanned = listSkillInstallationsSync({
+        workspaceId,
+        runtimeId: installation.runtimeId,
+        artifactDigest: activeDigest,
+        limit: 10,
+      }).some((plan) => plan.status !== "retired");
+      if (alreadyPlanned) {
+        continue;
+      }
+      const skill = readWorkspaceSkillSync(skillId, workspaceId);
+      const installedArtifact = readSkillArtifactByDigestSync(installation.artifactDigest, workspaceId);
+      const candidateArtifact = readSkillArtifactByDigestSync(activeDigest, workspaceId);
+      if (!installedArtifact || !candidateArtifact) {
+        continue;
+      }
+      const diff = diffSkillArtifactsSync({
+        fromManifestJson: installedArtifact.manifestJson,
+        toManifestJson: candidateArtifact.manifestJson,
+      });
+      const installedRiskKeys = new Set(
+        buildSkillInstallRiskItemsSync({ workspaceId, artifactDigest: installation.artifactDigest }).map((item) => item.key),
+      );
+      const candidateRiskItems = buildSkillInstallRiskItemsSync({ workspaceId, artifactDigest: activeDigest });
+      const newRiskItems = candidateRiskItems.filter((item) => !installedRiskKeys.has(item.key));
+      candidates.push({
+        skillId,
+        skillName: skill?.name ?? skillId,
+        runtimeId: installation.runtimeId,
+        previousInstallationId: installation.id,
+        previousArtifactDigest: installation.artifactDigest,
+        previousRevision: installation.revision,
+        candidateArtifactDigest: activeDigest,
+        breaking: diff.breaking,
+        changeCount: diff.categories.reduce((count, category) => count + category.changes.length, 0),
+        diffCategories: diff.categories,
+        newRiskItems,
+      });
+    }
+  }
+  return candidates;
+}
+
+/**
+ * Approves or rejects a pending upgrade candidate from the inbox. Approving
+ * creates the upgrade plan (consuming fresh immutable upgrade + risk approvals
+ * atomically); rejecting records immutable rejected approvals for audit but
+ * creates no plan.
+ */
+export function approveSkillUpgradeCandidateSync(input: {
+  workspaceId?: string;
+  skillId: string;
+  runtimeId: string;
+  previousInstallationId: string;
+  decision: "approved" | "rejected";
+  reason?: string;
+  actorUserId?: string;
+}): { installationId?: string; breaking: boolean; newRiskCount: number } {
+  const workspaceId = input.workspaceId ?? "default";
+  const previous = readSkillInstallationSync(input.previousInstallationId, workspaceId);
+  if (!previous) {
+    throw new Error(`Previous ready installation "${input.previousInstallationId}" does not exist.`);
+  }
+  if (previous.status !== "ready") {
+    throw new Error(`Previous installation is "${previous.status}", not ready.`);
+  }
+  const activeDigest = readActiveArtifactDigestForSkillSync(input.skillId, workspaceId);
+  if (!activeDigest || activeDigest === previous.artifactDigest) {
+    throw new Error("该 Skill 没有待审批的升级候选。");
+  }
+  const previousArtifact = readSkillArtifactByDigestSync(previous.artifactDigest, workspaceId);
+  const candidateArtifact = readSkillArtifactByDigestSync(activeDigest, workspaceId);
+  if (!candidateArtifact) {
+    throw new Error("候选 artifact 不存在。");
+  }
+  const diff = diffSkillArtifactsSync({
+    fromManifestJson: previousArtifact?.manifestJson ?? "{}",
+    toManifestJson: candidateArtifact.manifestJson,
+  });
+  const previousRiskKeys = previousArtifact
+    ? new Set(
+        buildSkillInstallRiskItemsSync({ workspaceId, artifactDigest: previous.artifactDigest }).map((item) => item.key),
+      )
+    : new Set();
+  const candidateRiskItems = buildSkillInstallRiskItemsSync({ workspaceId, artifactDigest: activeDigest });
+  const newRiskItems = candidateRiskItems.filter((item) => !previousRiskKeys.has(item.key));
+  const diffHash = computeSkillUpgradeDiffHashSync({
+    fromManifestJson: previousArtifact?.manifestJson ?? "{}",
+    toManifestJson: candidateArtifact.manifestJson,
+  });
+  const candidateLock = computeSkillReleaseLockSync(candidateArtifact, workspaceId);
+
+  if (input.decision === "rejected") {
+    if (diff.breaking) {
+      approveSkillUpgradeSync({
+        workspaceId,
+        skillId: input.skillId,
+        fromDigest: previous.artifactDigest,
+        toDigest: activeDigest,
+        diffHash,
+        decision: "rejected",
+        reason: input.reason,
+        actorUserId: input.actorUserId,
+      });
+    }
+    if (newRiskItems.length > 0) {
+      approveSkillInstallSync({
+        workspaceId,
+        skillId: input.skillId,
+        artifactDigest: activeDigest,
+        releaseLockDigest: candidateLock.lockDigest,
+        riskItems: candidateRiskItems,
+        decision: "rejected",
+        reason: input.reason,
+        actorUserId: input.actorUserId,
+      });
+    }
+    return { breaking: diff.breaking, newRiskCount: newRiskItems.length };
+  }
+
+  const upgradeApprovalId = diff.breaking
+    ? approveSkillUpgradeSync({
+        workspaceId,
+        skillId: input.skillId,
+        fromDigest: previous.artifactDigest,
+        toDigest: activeDigest,
+        diffHash,
+        decision: "approved",
+        reason: input.reason,
+        actorUserId: input.actorUserId,
+      }).approvalId
+    : undefined;
+  const riskApprovalId = newRiskItems.length > 0
+    ? approveSkillInstallSync({
+        workspaceId,
+        skillId: input.skillId,
+        artifactDigest: activeDigest,
+        releaseLockDigest: candidateLock.lockDigest,
+        riskItems: candidateRiskItems,
+        decision: "approved",
+        reason: input.reason,
+        actorUserId: input.actorUserId,
+      }).approvalId
+    : undefined;
+
+  const installation = createSkillUpgradePlanSync({
+    workspaceId,
+    runtimeId: input.runtimeId,
+    artifactDigest: activeDigest,
+    previousReadyInstallationId: input.previousInstallationId,
+    requestedByUserId: input.actorUserId,
+    approvalId: upgradeApprovalId,
+    installApprovalId: riskApprovalId,
+  });
+  return { installationId: installation.id, breaking: diff.breaking, newRiskCount: newRiskItems.length };
 }
 
 /* ------------------------------------------------------------------ */

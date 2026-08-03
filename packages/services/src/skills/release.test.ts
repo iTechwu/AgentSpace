@@ -5,6 +5,7 @@ import {
   createSkillUpgradeApprovalSync,
   getDatabase,
   listManagedSkillServiceOperationsSync,
+  listSkillUpgradeApprovalsSync,
   randomLikeId,
   readActiveArtifactDigestForSkillSync,
   readSkillArtifactByDigestSync,
@@ -26,12 +27,14 @@ import {
   resetWorkspaceStateSync,
 } from "../index.ts";
 import {
+  approveSkillUpgradeCandidateSync,
   approveSkillUpgradeSync,
   computeSkillReleaseLockSync,
   computeSkillUpgradeDiffHashSync,
   createSkillUpgradePlanSync,
   diffSkillArtifactsSync,
   isSkillUpgradeApprovalRequiredSync,
+  listSkillUpgradeReviewCandidatesSync,
   readSkillInstallationLockSync,
   promoteSkillUpgradeSync,
   SKILL_PROVIDER_COMPATIBILITY_REVISION,
@@ -450,6 +453,82 @@ test("createSkillUpgradePlanSync does not require a risk approval when the candi
   assert.doesNotThrow(() =>
     createSkillUpgradePlanSync({ runtimeId, artifactDigest: second.digest, previousReadyInstallationId: v1.id, approvalId }),
   );
+});
+
+/** Builds a skill with an installed ready v1 and an active candidate v2. */
+function buildInboxCandidate(runtimeId: string) {
+  const salt = cryptoRandomBytes(4).toString("hex");
+  const skill = createWorkspaceSkillSync({ name: `Inbox Test ${salt}` });
+  const first = buildAndPersistSkillArtifactSync({
+    skillId: skill.id,
+    activate: true,
+    name: "Inbox",
+    files: [{ path: "SKILL.md", bytes: ENCODER.encode(`# v1 ${salt}\n`) }],
+  });
+  const second = buildAndPersistSkillArtifactSync({
+    skillId: skill.id,
+    activate: true,
+    name: "Inbox",
+    files: [
+      { path: "SKILL.md", bytes: ENCODER.encode(`# v2 ${salt}\n`) },
+      { path: "scripts/extra.sh", bytes: ENCODER.encode("#!/bin/sh\necho hi\n"), mode: "0755" },
+    ],
+  });
+  const v1 = readyInstall(runtimeId, first.digest);
+  return { skill, first, second, v1 };
+}
+
+test("listSkillUpgradeReviewCandidatesSync surfaces pending candidates with semantic diff", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const { skill, first, second } = buildInboxCandidate(runtimeId);
+
+  const candidates = listSkillUpgradeReviewCandidatesSync("default");
+  assert.equal(candidates.length, 1);
+  const candidate = candidates[0]!;
+  assert.equal(candidate.skillId, skill.id);
+  assert.equal(candidate.previousArtifactDigest, first.digest);
+  assert.equal(candidate.candidateArtifactDigest, second.digest);
+  assert.equal(candidate.breaking, true, "a new executable is breaking");
+  assert.ok(candidate.newRiskItems.some((item) => item.key === "script:scripts/extra.sh"));
+  assert.ok(candidate.diffCategories.some((category) => category.category === "execution" && category.changes.length > 0));
+});
+
+test("approveSkillUpgradeCandidateSync approves and creates the upgrade plan", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const { skill, second, v1 } = buildInboxCandidate(runtimeId);
+
+  const result = approveSkillUpgradeCandidateSync({
+    skillId: skill.id,
+    runtimeId,
+    previousInstallationId: v1.id,
+    decision: "approved",
+    reason: "team reviewed the diff",
+  });
+  assert.ok(result.installationId, "approval creates the upgrade plan");
+  assert.equal(result.breaking, true);
+  assert.ok(result.newRiskCount >= 1);
+});
+
+test("approveSkillUpgradeCandidateSync rejects and records immutable rejected approvals", () => {
+  resetWorkspaceStateSync("default");
+  const runtimeId = createTestRuntime();
+  const { skill, second, v1 } = buildInboxCandidate(runtimeId);
+
+  const result = approveSkillUpgradeCandidateSync({
+    skillId: skill.id,
+    runtimeId,
+    previousInstallationId: v1.id,
+    decision: "rejected",
+    reason: "not ready for the finance team",
+  });
+  assert.equal(result.installationId, undefined, "rejection creates no plan");
+  assert.equal(result.breaking, true);
+
+  const rejectedUpgrade = listSkillUpgradeApprovalsSync("default")
+    .find((approval) => approval.decision === "rejected" && approval.toDigest === second.digest);
+  assert.ok(rejectedUpgrade, "a rejected immutable upgrade approval is recorded");
 });
 
 test("createSkillUpgradePlanSync consumes the approval exactly once", () => {

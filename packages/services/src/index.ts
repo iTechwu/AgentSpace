@@ -454,10 +454,13 @@ export {
   verifySkillInstallationLockReconstructableSync,
   approveSkillUpgradeSync,
   computeSkillUpgradeDiffHashSync,
+  listSkillUpgradeReviewCandidatesSync,
+  approveSkillUpgradeCandidateSync,
   type ResolvedSkillReleaseLock,
   type SkillRollbackPreflightIssue,
   type SkillReleaseDiff,
   type SkillDiffCategory,
+  type SkillUpgradeReviewCandidate,
 } from "./skills/release.ts";
 export {
   resolveSystemAgentTemplateForWorkspaceSync,
