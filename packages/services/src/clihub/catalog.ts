@@ -14,6 +14,7 @@ export const CLIHUB_PUBLIC_REGISTRY_FALLBACK_URL = "https://raw.githubuserconten
 const PUBLIC_ENTRY_POINT_OVERRIDES: Readonly<Record<string, string>> = {
   "minimax-cli": "minimax",
 };
+const REGISTRY_FETCH_TIMEOUT_MS = 8_000;
 
 export interface CliHubCatalogSyncResult {
   status: "fresh" | "stale";
@@ -56,16 +57,21 @@ export async function syncCliHubCatalog(options?: {
   const errors: string[] = [];
   const items: UpsertRuntimeAppCatalogItemInput[] = [];
 
-  for (const target of [
+  const targets = [
     { source: "clihub_harness" as const, urls: [CLIHUB_HARNESS_REGISTRY_URL] },
     { source: "clihub_public" as const, urls: [CLIHUB_PUBLIC_REGISTRY_URL, CLIHUB_PUBLIC_REGISTRY_FALLBACK_URL] },
-  ]) {
+  ];
+  const results = await Promise.all(targets.map(async (target) => {
     try {
       const payload = await fetchFirstAvailableRegistryPayload(fetchImpl, target.urls);
-      items.push(...normalizeCliHubRegistryPayload(target.source, payload, syncedAt));
+      return { items: normalizeCliHubRegistryPayload(target.source, payload, syncedAt) };
     } catch (error) {
-      errors.push(`${target.source}: ${error instanceof Error ? error.message : String(error)}`);
+      return { error: `${target.source}: ${error instanceof Error ? error.message : String(error)}` };
     }
+  }));
+  for (const result of results) {
+    if (result.items) items.push(...result.items);
+    if (result.error) errors.push(result.error);
   }
 
   const syncedCount = upsertItemsSync(items);
@@ -97,8 +103,9 @@ export function readCliHubCatalogHealth(): ReturnType<typeof readRuntimeAppCatal
 async function fetchFirstAvailableRegistryPayload(fetchImpl: typeof fetch, urls: string[]): Promise<unknown> {
   const failures: string[] = [];
   for (const url of urls) {
+    const signal = AbortSignal.timeout(REGISTRY_FETCH_TIMEOUT_MS);
     try {
-      const response = await fetchImpl(url, { cache: "no-store" });
+      const response = await fetchImpl(url, { cache: "no-store", signal });
       if (!response.ok) {
         throw new Error(`${response.status} ${response.statusText}`);
       }
