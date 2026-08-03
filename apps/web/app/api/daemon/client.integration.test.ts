@@ -170,17 +170,18 @@ describe("remote daemon client integration", () => {
       await client.sendHeartbeat("integration-box");
       const claimed = await client.claimTask(runtimeId);
       assert.ok(claimed.task);
+      const claimedTask = claimed.task;
 
-      await client.startTask(claimed.task.id);
-      const inputBundle = await client.getInputBundle(claimed.task.id);
-      assert.equal(inputBundle.taskId, claimed.task.id);
+      await client.startTask(claimedTask.id);
+      const inputBundle = await client.getInputBundle(claimedTask.id);
+      assert.equal(inputBundle.taskId, claimedTask.id);
       assert.ok(inputBundle.files.some((file) => file.path === "prompt.txt"));
       assert.ok(inputBundle.files.some((file) => file.path === "task.json"));
       assert.ok(inputBundle.prompt.includes("当前共享会话"));
       assert.ok(inputBundle.prompt.includes("会话消息: 帮我整理大阪行程。"));
       assert.equal(inputBundle.prompt.includes("用户消息: 帮我整理大阪行程。"), false);
 
-      await client.reportMessages(claimed.task.id, {
+      await client.reportMessages(claimedTask.id, {
         messages: [
           {
             type: "thinking",
@@ -216,7 +217,7 @@ describe("remote daemon client integration", () => {
           message.channel === streamingDirectChannel?.name &&
           message.kind !== "process" &&
           message.status === "pending" &&
-          message.data?.source_task_queue_id === claimed.task.id,
+          message.data?.source_task_queue_id === claimedTask.id,
         )?.summary,
       ).toBe("正在整理大阪行程。");
       expect(
@@ -237,8 +238,8 @@ describe("remote daemon client integration", () => {
 
       const persistentPlan = Buffer.from("persistent plan", "utf8");
       const persistentPlanSha256 = createHash("sha256").update(persistentPlan).digest("hex");
-      await client.uploadWorkspaceBlob(claimed.task.id, persistentPlanSha256, persistentPlan);
-      await client.uploadOutputBundle(claimed.task.id, {
+      await client.uploadWorkspaceBlob(claimedTask.id, persistentPlanSha256, persistentPlan);
+      await client.uploadOutputBundle(claimedTask.id, {
         version: 1,
         format: "json-inline-v1",
         files: [
@@ -273,31 +274,31 @@ describe("remote daemon client integration", () => {
         ],
       });
 
-      await client.completeTask(claimed.task.id, {
+      await client.completeTask(claimedTask.id, {
         outputText: "我先给你一版大阪行程草案。",
         sessionId: "remote-session-1",
       });
 
-      const restoredBundle = await client.getInputBundle(claimed.task.id);
+      const restoredBundle = await client.getInputBundle(claimedTask.id);
       const workspaceFile = restoredBundle.workspace?.files.find((file) => file.path === "repository/plan.txt");
       assert.ok(workspaceFile);
-      assert.equal(Buffer.from(await client.getWorkspaceBlob(claimed.task.id, restoredBundle.workspace!.revisionId, workspaceFile.sha256)).toString("utf8"), "persistent plan");
+      assert.equal(Buffer.from(await client.getWorkspaceBlob(claimedTask.id, restoredBundle.workspace!.revisionId, workspaceFile.sha256)).toString("utf8"), "persistent plan");
       const rangeResponse = await workspaceBlobGET(
         new Request(
-          `http://daemon.test/api/daemon/tasks/${claimed.task.id}/workspace-blobs/${workspaceFile.sha256}?revisionId=${restoredBundle.workspace!.revisionId}`,
+          `http://daemon.test/api/daemon/tasks/${claimedTask.id}/workspace-blobs/${workspaceFile.sha256}?revisionId=${restoredBundle.workspace!.revisionId}`,
           { headers: { authorization: `Bearer ${daemonToken.token}`, range: "bytes=0-9" } },
         ),
-        { params: Promise.resolve({ taskId: claimed.task.id, sha256: workspaceFile.sha256 }) },
+        { params: Promise.resolve({ taskId: claimedTask.id, sha256: workspaceFile.sha256 }) },
       );
       assert.equal(rangeResponse.status, 206);
       assert.equal(rangeResponse.headers.get("content-range"), "bytes 0-9/15");
       assert.equal(await rangeResponse.text(), "persistent");
       await assert.rejects(
-        client.getWorkspaceBlob(claimed.task.id, restoredBundle.workspace!.revisionId, "0".repeat(64)),
+        client.getWorkspaceBlob(claimedTask.id, restoredBundle.workspace!.revisionId, "0".repeat(64)),
         /not referenced by the task employee's requested workspace revision/,
       );
 
-      const taskMessages = listTaskMessagesForTaskSync(claimed.task.id);
+      const taskMessages = listTaskMessagesForTaskSync(claimedTask.id);
       expect(
         taskMessages
           .filter((message) => message.type === "text" && ["正在整理大阪", "行程。"].includes(message.content ?? ""))

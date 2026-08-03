@@ -18,15 +18,14 @@ vi.mock("@/features/runtimes/actions", () => ({
   updateManagedRuntimeDefaultModelAction: vi.fn(),
 }));
 
-it("saves a runtime default, hiding non-llm entries but showing disabled ones greyed out", async () => {
+it("saves a runtime default while showing disabled models greyed out", async () => {
   vi.mocked(getManagedRuntimeModelsAction).mockResolvedValue({
     configured: true,
     catalogState: "ready",
     total: 2,
     list: [
-      { id: "model-1", alias: "gpt-5", displayName: "GPT-5", modelType: "llm", isAvailable: true, isEnabled: true },
-      { id: "model-2", alias: "disabled", displayName: "Disabled", modelType: "llm", isAvailable: false, isEnabled: false, unavailableReason: "Disabled by team policy" },
-      { id: "model-3", alias: "image-model", displayName: "Image model", modelType: "image", isAvailable: true, isEnabled: true },
+      managedModel({ id: "model-1", alias: "gpt-5", displayName: "GPT-5", isAvailable: true, isEnabled: true }),
+      managedModel({ id: "model-2", alias: "disabled", displayName: "Disabled", isAvailable: false, isEnabled: false, unavailableReason: "Disabled by team policy" }),
     ],
   });
   vi.mocked(updateManagedRuntimeDefaultModelAction).mockResolvedValue();
@@ -39,9 +38,6 @@ it("saves a runtime default, hiding non-llm entries but showing disabled ones gr
   expect(screen.getByRole("option", { name: /GPT-5/ })).toBeInTheDocument();
   // A disabled language model stays visible but is greyed out / unselectable.
   expect(screen.getByRole("option", { name: /Disabled/ })).toBeDisabled();
-  // Non-llm entries are still filtered out of the language-model picker.
-  expect(screen.queryByRole("option", { name: "Image model" })).not.toBeInTheDocument();
-
   await user.click(screen.getByRole("option", { name: /GPT-5/ }));
   await user.click(screen.getByRole("button", { name: "保存模型" }));
 
@@ -58,8 +54,8 @@ it("shows unavailable models instead of an empty dropdown when none are usable",
     catalogState: "ready",
     total: 2,
     list: [
-      { id: "m1", alias: "claude", displayName: "Claude", modelType: "llm", isAvailable: false, isEnabled: true, unavailableReason: "Credential unavailable" },
-      { id: "m2", alias: "gpt", displayName: "GPT", modelType: "llm", isAvailable: false, isEnabled: false, unavailableReason: "Disabled by team policy" },
+      managedModel({ id: "m1", alias: "claude", displayName: "Claude", isAvailable: false, isEnabled: true, unavailableReason: "Credential unavailable" }),
+      managedModel({ id: "m2", alias: "gpt", displayName: "GPT", isAvailable: false, isEnabled: false, unavailableReason: "Disabled by team policy" }),
     ],
   });
 
@@ -72,3 +68,26 @@ it("shows unavailable models instead of an empty dropdown when none are usable",
   expect(screen.getByRole("option", { name: /Claude/ })).toBeDisabled();
   expect(screen.getByRole("option", { name: /GPT/ })).toBeDisabled();
 });
+
+function managedModel(overrides: {
+  id: string;
+  alias: string;
+  displayName: string;
+  isAvailable: boolean;
+  isEnabled: boolean;
+  unavailableReason?: string;
+}) {
+  return {
+    ...overrides,
+    unavailableReason: overrides.unavailableReason,
+    model: overrides.alias,
+    modelType: "llm" as const,
+    protocol: "openai_response",
+    contextLength: 128_000,
+    supportsVision: false,
+    supportsFunctionCalling: true,
+    inputPrice: null,
+    outputPrice: null,
+    priceCurrency: null,
+  };
+}

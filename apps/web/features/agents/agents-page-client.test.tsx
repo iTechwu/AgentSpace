@@ -1841,16 +1841,19 @@ describe("AgentDetail", () => {
         [skill.id]: {
           skillId: skill.id,
           status: "ready" as const,
+          statusDetail: { code: "skill_ready" as const },
           requiredCount: 2,
           configuredCount: 2,
           blockers: [],
           environment: [
-            { key: "NOTION_DATABASE_ID", kind: "config" as const, configured: true },
-            { key: "NOTION_API_TOKEN", kind: "secret" as const, configured: true },
+            { key: "NOTION_DATABASE_ID", kind: "config" as const, sensitive: false, configured: true },
+            { key: "NOTION_API_TOKEN", kind: "secret" as const, sensitive: true, configured: true },
           ],
           configuration: {
             capabilities: [],
             values: { NOTION_DATABASE_ID: "db-123" },
+            sensitiveKeys: [],
+            extraKeys: [],
           },
         },
       },

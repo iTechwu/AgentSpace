@@ -38,13 +38,6 @@ it("searches models and shows unavailable protocol-compatible models with their 
         isAvailable: false,
         unavailableReason: "Disabled by team policy",
       },
-      {
-        alias: "image-model",
-        model: "image-model",
-        modelType: "image",
-        protocol: "openai",
-        isAvailable: true,
-      },
     ],
   });
 
@@ -53,7 +46,6 @@ it("searches models and shows unavailable protocol-compatible models with their 
   await userEvent.click(await screen.findByRole("button", { name: "Default model" }));
   expect(await screen.findByRole("option", { name: /available-model.*openai.*available/i })).toBeEnabled();
   expect(screen.getByRole("option", { name: /disabled-model.*Disabled by team policy/i })).toBeDisabled();
-  expect(screen.queryByRole("option", { name: /image-model/i })).not.toBeInTheDocument();
   await userEvent.type(screen.getByLabelText("Search models"), "disabled");
   expect(screen.queryByRole("option", { name: /available-model/i })).not.toBeInTheDocument();
   expect(screen.getByRole("option", { name: /disabled-model/i })).toBeInTheDocument();

@@ -17,7 +17,11 @@ it("disables a managed runtime while its credential is recovering", async () => 
           label: "Recovering Codex",
           provider: "codex",
           status: "offline",
-          providerHealth: { providerUsable: "unknown" },
+          providerHealth: {
+            runtimeStatus: "offline",
+            providerHealth: "unknown",
+            providerUsable: "unverified",
+          },
           serverName: "Managed",
           daemonKey: "",
           mode: "remote",

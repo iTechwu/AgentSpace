@@ -267,7 +267,12 @@ describe("dashboard data", () => {
           { key: "NOTION_DATABASE_ID", kind: "config", sensitive: false, configured: true },
           { key: "NOTION_API_TOKEN", kind: "secret", sensitive: true, configured: false },
         ],
-        configuration: { capabilities: [], values: { NOTION_DATABASE_ID: "db-123" }, sensitiveKeys: [] },
+        configuration: {
+          capabilities: [],
+          values: { NOTION_DATABASE_ID: "db-123" },
+          sensitiveKeys: [],
+          extraKeys: [],
+        },
         upgradeAddedKeys: ["NOTION_API_TOKEN"],
         invalidDeclarations: ["config:DOFE_AGENT_X"],
         requiredCapabilities: ["image_generation"],

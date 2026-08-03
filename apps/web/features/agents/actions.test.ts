@@ -44,7 +44,10 @@ const {
   mockSetAgentSkillAssignmentsWithRequirementsValidationSync: vi.fn(),
   mockReadAgentSkillRequirementConfigurationSync: vi.fn(() => ({ configuredSecretKeys: [] as string[] })),
   mockUpsertAgentSkillRequirementsSync: vi.fn(),
-  mockReadSkillRequirementDeclarations: vi.fn(() => []),
+  mockReadSkillRequirementDeclarations: vi.fn(() => [] as Array<{
+    kind: "provider" | "model" | "capability" | "project" | "config" | "secret";
+    value: string;
+  }>),
   mockReadWorkspaceSkillSync: vi.fn(() => null),
   mockDeleteAgentSkillRequirementKeySync: vi.fn(() => ({ kind: "config" as const, sensitive: false })),
   mockEnsureManagedRuntimeModelAllowedAsync: vi.fn(),
