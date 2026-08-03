@@ -45,3 +45,4 @@ scripts/record
 .DS_Store
 temp/
 tmp/
+test/
