@@ -6,7 +6,7 @@ import { readRuntimeForDaemon, requireDaemonAuth } from "../../../../../_lib/aut
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
+export async function POST(
   request: Request,
   context: { params: Promise<{ runtimeId: string }> },
 ): Promise<Response> {

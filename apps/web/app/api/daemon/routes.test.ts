@@ -81,7 +81,7 @@ import { POST as appOperationFailPOST } from "./runtime-app-operations/[operatio
 import { POST as provisioningStageCompletePOST } from "./provisioning-tasks/[taskId]/stages/[stage]/complete/route";
 import { POST as provisioningStageFailPOST } from "./provisioning-tasks/[taskId]/stages/[stage]/fail/route";
 import { POST as provisioningClaimPOST } from "./provisioning-tasks/claim/route";
-import { GET as skillServiceClaimGET } from "./runtimes/[runtimeId]/skill-services/operations/claim/route";
+import { POST as skillServiceClaimPOST } from "./runtimes/[runtimeId]/skill-services/operations/claim/route";
 import { POST as skillServiceStartPOST } from "./skill-service-operations/[operationId]/start/route";
 import { POST as skillServiceRenewLeasePOST } from "./skill-service-operations/[operationId]/renew-lease/route";
 import { POST as skillServiceCompletePOST } from "./skill-service-operations/[operationId]/complete/route";
@@ -2819,15 +2819,15 @@ describe("daemon API routes", () => {
       const daemonToken = createDaemonApiTokenSync({ label: "remote-daemon", createdBy: "techwu" });
       const { runtimeId, serviceId, operationId } = seedSkillServiceOperation(daemonToken.id, "build-box-svc-provision");
 
-      const claimResponse = await skillServiceClaimGET(
+      const claimResponse = await skillServiceClaimPOST(
         new Request(`http://localhost/api/daemon/runtimes/${runtimeId}/skill-services/operations/claim`, {
-          method: "GET",
+          method: "POST",
           headers: daemonHeaders(daemonToken.token),
         }),
         { params: Promise.resolve({ runtimeId }) },
       );
       const claimPayload = (await claimResponse.json()) as {
-        operation: { operationId: string; serviceId: string; catalog: { imageDigest: string } };
+        operation: { operationId: string; serviceId: string; claimGeneration: number; catalog: { imageDigest: string } };
       };
       expect(claimResponse.status).toBe(200);
       expect(claimPayload.operation.operationId).toBe(operationId);
@@ -2838,6 +2838,7 @@ describe("daemon API routes", () => {
         new Request(`http://localhost/api/daemon/skill-service-operations/${operationId}/start`, {
           method: "POST",
           headers: daemonHeaders(daemonToken.token),
+          body: JSON.stringify({ claimGeneration: claimPayload.operation.claimGeneration }),
         }),
         { params: Promise.resolve({ operationId }) },
       );
@@ -2847,6 +2848,7 @@ describe("daemon API routes", () => {
         new Request(`http://localhost/api/daemon/skill-service-operations/${operationId}/renew-lease`, {
           method: "POST",
           headers: daemonHeaders(daemonToken.token),
+          body: JSON.stringify({ claimGeneration: claimPayload.operation.claimGeneration }),
         }),
         { params: Promise.resolve({ operationId }) },
       );
@@ -2856,7 +2858,11 @@ describe("daemon API routes", () => {
         new Request(`http://localhost/api/daemon/skill-service-operations/${operationId}/complete`, {
           method: "POST",
           headers: daemonHeaders(daemonToken.token),
-          body: JSON.stringify({ endpointRef: "runtime-private://route-renderer", healthRevision: "3" }),
+          body: JSON.stringify({
+            claimGeneration: claimPayload.operation.claimGeneration,
+            endpointRef: "runtime-private://route-renderer",
+            healthRevision: "3",
+          }),
         }),
         { params: Promise.resolve({ operationId }) },
       );
@@ -2871,20 +2877,25 @@ describe("daemon API routes", () => {
       const daemonToken = createDaemonApiTokenSync({ label: "remote-daemon", createdBy: "techwu" });
       const { runtimeId, serviceId, operationId } = seedSkillServiceOperation(daemonToken.id, "build-box-svc-failure");
 
-      const claimResponse = await skillServiceClaimGET(
+      const claimResponse = await skillServiceClaimPOST(
         new Request(`http://localhost/api/daemon/runtimes/${runtimeId}/skill-services/operations/claim`, {
-          method: "GET",
+          method: "POST",
           headers: daemonHeaders(daemonToken.token),
         }),
         { params: Promise.resolve({ runtimeId }) },
       );
       expect(claimResponse.status).toBe(200);
+      const claimPayload = (await claimResponse.json()) as { operation: { claimGeneration: number } };
 
       const failResponse = await skillServiceFailPOST(
         new Request(`http://localhost/api/daemon/skill-service-operations/${operationId}/fail`, {
           method: "POST",
           headers: daemonHeaders(daemonToken.token),
-          body: JSON.stringify({ errorCode: "skill_service.image_pull_failed", errorMessage: "registry timeout" }),
+          body: JSON.stringify({
+            claimGeneration: claimPayload.operation.claimGeneration,
+            errorCode: "skill_service.image_pull_failed",
+            errorMessage: "registry timeout",
+          }),
         }),
         { params: Promise.resolve({ operationId }) },
       );
@@ -2903,20 +2914,21 @@ describe("daemon API routes", () => {
       const daemonToken = createDaemonApiTokenSync({ label: "remote-daemon", createdBy: "techwu" });
       const { runtimeId, serviceId, operationId } = seedSkillServiceOperation(daemonToken.id, "build-box-svc-retire", "retire");
 
-      const claimResponse = await skillServiceClaimGET(
+      const claimResponse = await skillServiceClaimPOST(
         new Request(`http://localhost/api/daemon/runtimes/${runtimeId}/skill-services/operations/claim`, {
-          method: "GET",
+          method: "POST",
           headers: daemonHeaders(daemonToken.token),
         }),
         { params: Promise.resolve({ runtimeId }) },
       );
       expect(claimResponse.status).toBe(200);
+      const claimPayload = (await claimResponse.json()) as { operation: { claimGeneration: number } };
 
       const completeResponse = await skillServiceCompletePOST(
         new Request(`http://localhost/api/daemon/skill-service-operations/${operationId}/complete`, {
           method: "POST",
           headers: daemonHeaders(daemonToken.token),
-          body: JSON.stringify({}),
+          body: JSON.stringify({ claimGeneration: claimPayload.operation.claimGeneration }),
         }),
         { params: Promise.resolve({ operationId }) },
       );
@@ -2966,17 +2978,18 @@ describe("daemon API routes", () => {
         operation: "provision",
       });
 
-      const claimResponse = await skillServiceClaimGET(
+      const claimResponse = await skillServiceClaimPOST(
         new Request(`http://localhost/api/daemon/runtimes/${runtimeId}/skill-services/operations/claim`, {
-          method: "GET",
+          method: "POST",
           headers: daemonHeaders(daemonToken.token),
         }),
         { params: Promise.resolve({ runtimeId }) },
       );
       expect(claimResponse.status).toBe(200);
+      const claimPayload = (await claimResponse.json()) as { operation: { claimGeneration: number } };
 
       const secretsResponse = await skillServiceSecretsGET(
-        new Request(`http://localhost/api/daemon/skill-service-operations/${operation.id}/secrets`, {
+        new Request(`http://localhost/api/daemon/skill-service-operations/${operation.id}/secrets?claimGeneration=${claimPayload.operation.claimGeneration}`, {
           method: "GET",
           headers: daemonHeaders(daemonToken.token),
         }),
