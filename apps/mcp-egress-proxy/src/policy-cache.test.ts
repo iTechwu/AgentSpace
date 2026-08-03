@@ -3,20 +3,35 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import type { McpEgressPolicySnapshot } from "@dofe-agent/domain";
+import { digestMcpEgressPolicyRevision } from "@dofe-agent/services/mcp-center/egress";
 import { McpEgressPolicyCache } from "./policy-cache.ts";
 
-function snapshot(id: string, revoked = false) {
-  return {
-    revision: {
+function snapshot(id: string, revoked = false): McpEgressPolicySnapshot {
+  const revision: McpEgressPolicySnapshot["revision"] = {
       id,
       workspaceId: "ws-1",
       connectionId: "conn-1",
       releaseId: "release-1",
-      manifestDigest: "sha256:abc" as const,
-      upstream: { origin: "https://upstream.example", allowedHosts: ["upstream.example"], authMode: "none" as const },
+      manifestDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      upstream: {
+        origin: "https://upstream.example",
+        allowedHosts: ["upstream.example"],
+        allowedPorts: [443],
+        allowedPathPrefix: "/mcp",
+      },
+      transport: "streamable_http",
+      redirectPolicy: "deny",
+      denyPrivateNetworks: true,
+      tlsMode: "verify_system",
+      authMode: "none",
       maxRequestBytes: 1024,
       maxResponseBytes: 4096,
-    },
+      maxConcurrentStreams: 2,
+      createdAt: "2026-08-03T00:00:00Z",
+    };
+  return {
+    revision: { ...revision, manifestDigest: digestMcpEgressPolicyRevision(revision) },
     revoked,
     fetchedAt: "2026-08-03T00:00:00Z",
   };

@@ -1,5 +1,5 @@
 import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-agent/domain";
-import { verifyMcpEgressLease } from "@dofe-agent/services/mcp-center/egress";
+import { digestMcpEgressPolicyRevision, verifyMcpEgressLease } from "@dofe-agent/services/mcp-center/egress";
 
 export interface LeaseVerificationResult {
   ok: true;
@@ -54,7 +54,9 @@ export async function verifyLeaseForRequest(
     snapshot.revision.id !== claims.policyRevisionId ||
     snapshot.revision.workspaceId !== claims.workspaceId ||
     snapshot.revision.connectionId !== claims.connectionId ||
-    snapshot.revision.releaseId !== claims.releaseId
+    snapshot.revision.releaseId !== claims.releaseId ||
+    snapshot.revision.manifestDigest !== claims.policyDigest ||
+    digestMcpEgressPolicyRevision(snapshot.revision) !== claims.policyDigest
   ) {
     return { ok: false, code: "mcp_egress.policy_mismatch", message: "Lease does not match the policy revision." };
   }

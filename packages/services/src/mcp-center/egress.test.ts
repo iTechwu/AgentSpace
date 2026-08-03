@@ -47,6 +47,7 @@ function baseClaims(exp: number): McpEgressLeaseClaims {
     connectionId: "conn-1",
     releaseId: "rel-1",
     policyRevisionId: "pol-1",
+    policyDigest: digestMcpEgressPolicyRevision(basePolicy()),
     purpose: "task_call",
     taskId: "task-1",
     toolName: "some_tool",
@@ -68,6 +69,13 @@ test("canonicalizeMcpEgressPolicyRevision excludes manifestDigest from the canon
   const a = basePolicy();
   const b = { ...a, manifestDigest: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" };
   assert.equal(canonicalizeMcpEgressPolicyRevision(a), canonicalizeMcpEgressPolicyRevision(b));
+});
+
+test("canonicalizeMcpEgressPolicyRevision excludes createdAt from immutable policy identity", () => {
+  const a = basePolicy();
+  const b = { ...a, createdAt: "2026-08-04T00:00:00.000Z" };
+  assert.equal(canonicalizeMcpEgressPolicyRevision(a), canonicalizeMcpEgressPolicyRevision(b));
+  assert.equal(digestMcpEgressPolicyRevision(a), digestMcpEgressPolicyRevision(b));
 });
 
 test("digestMcpEgressPolicyRevision returns a stable sha256 prefix independent of manifestDigest", () => {
@@ -138,6 +146,16 @@ test("verifyMcpEgressLease rejects signed tokens with incomplete binding claims"
   const now = Math.floor(Date.now() / 1000);
   const claims = { ...baseClaims(now + 60), workspaceId: "" };
   const token = signMcpEgressLease(claims, SECRET);
+  const result = verifyMcpEgressLease(token, SECRET, { nowSeconds: now });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "mcp_egress.lease_invalid");
+});
+
+test("verifyMcpEgressLease requires the signed policy digest binding", () => {
+  const now = Math.floor(Date.now() / 1000);
+  const claims = { ...baseClaims(now + 60), policyDigest: undefined };
+  const token = signMcpEgressLease(claims as McpEgressLeaseClaims, SECRET);
   const result = verifyMcpEgressLease(token, SECRET, { nowSeconds: now });
   assert.equal(result.ok, false);
   if (result.ok) return;

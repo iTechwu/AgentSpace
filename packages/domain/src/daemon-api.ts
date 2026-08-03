@@ -838,6 +838,8 @@ export interface McpEgressLeaseClaims {
   connectionId: string;
   releaseId: string;
   policyRevisionId: string;
+  /** Canonical digest of the exact immutable policy revision authorized by this lease. */
+  policyDigest: `sha256:${string}`;
   purpose: McpEgressPurpose;
   taskId?: string;
   operationId?: string;

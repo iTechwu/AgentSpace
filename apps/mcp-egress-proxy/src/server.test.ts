@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-agent/domain";
-import { signMcpEgressLease } from "@dofe-agent/services";
+import { digestMcpEgressPolicyRevision, signMcpEgressLease } from "@dofe-agent/services";
 import { McpEgressPolicyCache } from "./policy-cache.ts";
 import { McpEgressProxyServer } from "./server.ts";
 import { InMemoryJtiReplayGuard } from "./jti-replay-guard.ts";
@@ -10,7 +10,7 @@ const SECRET = "a".repeat(32);
 let leaseSequence = 0;
 
 function basePolicy(): McpEgressPolicyRevision {
-  return {
+  const policy: McpEgressPolicyRevision = {
     id: "pol-1",
     workspaceId: "ws-1",
     connectionId: "conn-1",
@@ -32,6 +32,7 @@ function basePolicy(): McpEgressPolicyRevision {
     maxConcurrentStreams: 8,
     createdAt: "2026-08-03T00:00:00.000Z",
   };
+  return { ...policy, manifestDigest: digestMcpEgressPolicyRevision(policy) };
 }
 
 function buildSnapshot(policy: McpEgressPolicyRevision): McpEgressPolicySnapshot {
@@ -60,6 +61,7 @@ function buildLeaseToken(overrides: Partial<{ exp: number; purpose: "verify" | "
       connectionId: "conn-1",
       releaseId: "rel-1",
       policyRevisionId: "pol-1",
+      policyDigest: basePolicy().manifestDigest,
       purpose,
       taskId: "task-1",
       toolName: "some_tool",
@@ -147,6 +149,32 @@ test("request with valid lease but unknown policy returns policy_mismatch", asyn
     assert.equal(res.status, 403);
     const body = (await res.json()) as { error: string };
     assert.equal(body.error, "mcp_egress.policy_mismatch");
+  } finally {
+    await close();
+  }
+});
+
+test("admin policy push rejects a snapshot whose canonical digest was tampered", async () => {
+  const cache = new McpEgressPolicyCache();
+  const server = new McpEgressProxyServer({
+    port: 0,
+    host: "127.0.0.1",
+    leaseVerifier: buildLeaseVerifier(cache),
+    policyCache: cache,
+    auditSink: { record: () => undefined },
+    adminToken: "admin-secret",
+  });
+  const { url, close } = await server.start();
+  try {
+    const policy = basePolicy();
+    const tampered = { ...buildSnapshot(policy), revision: { ...policy, upstream: { ...policy.upstream, origin: "https://evil.example.com" } } };
+    const res = await fetch(`${url}/v1/admin/policies`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-dofe-admin-token": "admin-secret" },
+      body: JSON.stringify(tampered),
+    });
+    assert.equal(res.status, 400);
+    assert.equal(cache.get(policy.id), undefined);
   } finally {
     await close();
   }

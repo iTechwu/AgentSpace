@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision, McpEgressPurpose } from "@dofe-agent/domain";
 
 const LEASE_VERSION = "deg1";
@@ -60,7 +60,6 @@ export function canonicalizeMcpEgressPolicyRevision(policy: McpEgressPolicyRevis
     maxRequestBytes: policy.maxRequestBytes,
     maxResponseBytes: policy.maxResponseBytes,
     maxConcurrentStreams: policy.maxConcurrentStreams,
-    createdAt: policy.createdAt,
   });
 }
 
@@ -174,6 +173,7 @@ export function verifyMcpEgressLease(
     "connectionId",
     "releaseId",
     "policyRevisionId",
+    "policyDigest",
   ] as const;
   for (const field of requiredStringClaims) {
     if (typeof parsed[field] !== "string" || parsed[field]!.trim().length === 0) {
@@ -371,6 +371,7 @@ function createLeaseClaims(
     connectionId: policy.connectionId,
     releaseId: policy.releaseId,
     policyRevisionId: policy.id,
+    policyDigest: policy.manifestDigest,
     purpose,
     taskId: overrides.taskId,
     operationId: overrides.operationId,
@@ -380,7 +381,7 @@ function createLeaseClaims(
 }
 
 function cryptoRandomHex(bytes: number): string {
-  return createHash("sha256").update(`${Date.now()}-${Math.random()}`).digest("hex").slice(0, bytes * 2);
+  return randomBytes(bytes).toString("hex");
 }
 
 /** Signs a lease for an MCP connection verify/health_check operation. */

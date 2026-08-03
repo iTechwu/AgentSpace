@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import type { McpEgressErrorCode, McpEgressLeaseClaims, McpEgressPolicyRevision, McpEgressPolicySnapshot } from "@dofe-agent/domain";
+import { digestMcpEgressPolicyRevision } from "@dofe-agent/services/mcp-center/egress";
 import { buildRejectedAuditRecord, buildUpstreamAuditRecord, type McpEgressAuditSink } from "./audit.ts";
 import { verifyLeaseForRequest, type LeaseVerifierDependencies } from "./lease-verifier.ts";
 import { OAuthInjector } from "./oauth-injector.ts";
@@ -149,7 +150,11 @@ export class McpEgressProxyServer {
     let snapshot: McpEgressPolicySnapshot;
     try {
       snapshot = JSON.parse(bodyResult.body.toString("utf8")) as McpEgressPolicySnapshot;
-      if (!snapshot.revision?.id || !snapshot.revision?.upstream?.origin) {
+      if (
+        !snapshot.revision?.id ||
+        !snapshot.revision?.upstream?.origin ||
+        digestMcpEgressPolicyRevision(snapshot.revision) !== snapshot.revision.manifestDigest
+      ) {
         throw new Error("Invalid policy snapshot.");
       }
     } catch {
