@@ -184,6 +184,9 @@ export function verifyMcpEgressLease(
     if (typeof parsed.taskId !== "string" || !parsed.taskId.trim()) {
       return { ok: false, code: "mcp_egress.lease_invalid", message: "Task-call lease must bind a task." };
     }
+    if (typeof parsed.toolName !== "string" || !parsed.toolName.trim()) {
+      return { ok: false, code: "mcp_egress.lease_invalid", message: "Task-call lease must bind a tool." };
+    }
   }
   if (!Number.isSafeInteger(parsed.exp) || parsed.exp! <= 0) {
     return { ok: false, code: "mcp_egress.lease_invalid", message: "Lease is missing a valid expiration." };

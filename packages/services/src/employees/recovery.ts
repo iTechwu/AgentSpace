@@ -564,6 +564,17 @@ function runPhase(
           throw new Error(`Provider/CLI recovery smoke failed: ${String(providerHealth?.reason ?? "unhealthy")}.`);
         }
 
+        // Managed service smoke: for managed runtimes, confirm the provisioning
+        // task reached the ready stage and the runtime is marked managed.
+        const managedServiceSmoke = runManagedRuntimeServiceSmokeSync({
+          runtimeId,
+          workspaceId,
+          recoveryOperationId: operation.id,
+        });
+        if (managedServiceSmoke.kind === "managed" && !managedServiceSmoke.ready) {
+          throw new Error(`Managed service recovery smoke failed: ${managedServiceSmoke.reason}.`);
+        }
+
         const mcpSmokeOperationIds = Array.isArray(ctx.mcpSmokeOperationIds)
           ? ctx.mcpSmokeOperationIds.filter((id): id is string => typeof id === "string")
           : undefined;
@@ -620,6 +631,9 @@ function runPhase(
             providerCliSmoke: "passed",
             providerVerificationKind,
             providerRequestSmoke: providerVerificationKind === "provider_request" ? "passed" : "not_applicable",
+            managedServiceSmoke: managedServiceSmoke.kind === "managed"
+              ? { ready: managedServiceSmoke.ready, reason: managedServiceSmoke.reason }
+              : { ready: true, reason: "not a managed runtime" },
             mcpSmoke: "passed",
             healthCheckedAt: new Date().toISOString(),
           }),
@@ -670,6 +684,44 @@ function runPhase(
     default:
       return operation;
   }
+}
+
+function runManagedRuntimeServiceSmokeSync(input: {
+  runtimeId: string;
+  workspaceId: string;
+  recoveryOperationId: string;
+}): { kind: "managed"; ready: boolean; reason: string } | { kind: "not_managed"; ready: true; reason: string } {
+  const runtime = readAgentRuntimeSync(input.runtimeId);
+  if (!runtime || runtime.workspaceId !== input.workspaceId) {
+    throw new Error(`Target runtime "${input.runtimeId}" does not exist in this workspace.`);
+  }
+  if (runtime.provisioningState !== "managed") {
+    return { kind: "not_managed", ready: true, reason: "Runtime is not managed; skipping managed-service smoke." };
+  }
+  if (!runtime.managedCredentialId) {
+    return { kind: "managed", ready: false, reason: "Managed runtime has no managedCredentialId." };
+  }
+  if (!runtime.provisioningTaskId) {
+    return { kind: "managed", ready: false, reason: "Managed runtime has no provisioningTaskId." };
+  }
+  const detail = getRuntimeProvisioningTaskDetailSync({
+    workspaceId: input.workspaceId,
+    taskId: runtime.provisioningTaskId,
+    actorUserId: "system:recovery",
+  });
+  const task = detail.task;
+  if (task.status !== "succeeded" || task.stage !== "ready") {
+    return {
+      kind: "managed",
+      ready: false,
+      reason: `Provisioning task status is "${task.status}" at stage "${task.stage}"; expected succeeded/ready.`,
+    };
+  }
+  return {
+    kind: "managed",
+    ready: true,
+    reason: `Managed runtime provisioning task "${task.id}" reached succeeded/ready.`,
+  };
 }
 
 function readExistingRuntimeId(employeeName: string, workspaceId: string): string | undefined {

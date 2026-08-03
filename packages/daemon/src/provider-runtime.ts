@@ -989,25 +989,27 @@ function inspectProviderCredentialRequest(
   checkedAt: string,
 ): ProviderHealthSnapshot | null {
   if (!environment) return null;
-  let request: ReturnType<typeof buildProviderCredentialProbe>;
-  try {
-    request = buildProviderCredentialProbe(provider, environment);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      status: "broken",
-      checkedAt,
-      verificationKind: "provider_auth",
-      reason: message,
-      error: {
-        code: "provider.runtime_generic_failure",
-        category: "configuration",
-        provider,
-        message,
-      },
-    };
+  const apiRequest = buildProviderCredentialProbe(provider, environment);
+  if (apiRequest) {
+    return executeProviderApiRequest(apiRequest, provider, environment, checkedAt);
   }
-  if (!request) return null;
+  const oauthProbe = buildOAuthCredentialProbe(provider, environment);
+  if (oauthProbe) {
+    return runOAuthCredentialProbe(oauthProbe, checkedAt);
+  }
+  const fileLoginProbe = buildFileLoginCredentialProbe(provider, environment);
+  if (fileLoginProbe) {
+    return runFileLoginCredentialProbe(fileLoginProbe, checkedAt);
+  }
+  return null;
+}
+
+function executeProviderApiRequest(
+  request: { url: string; headers: string[] },
+  provider: DaemonProvider,
+  environment: Record<string, string>,
+  checkedAt: string,
+): ProviderHealthSnapshot {
   const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
   const config = request.headers.map((header) => `header = "${escapeCurlConfigValue(header)}"`).join("\n");
   const result = spawnSync("curl", [
@@ -1053,12 +1055,216 @@ function inspectProviderCredentialRequest(
   };
 }
 
+interface OAuthCredentialProbe {
+  tokenUri?: string;
+  refreshToken?: string;
+  clientId?: string;
+  accessToken?: string;
+  sourceEnvKey: string | null;
+}
+
+function buildOAuthCredentialProbe(
+  provider: DaemonProvider,
+  environment: Record<string, string>,
+): OAuthCredentialProbe | null {
+  const sourceEnvKey = oauthCredentialEnvKey(provider);
+  const raw = sourceEnvKey ? environment[sourceEnvKey]?.trim() : undefined;
+  if (!raw) return null;
+  let parsed: Record<string, unknown> | undefined;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    // Not JSON; treat as opaque access token if it looks like a JWT.
+    return { accessToken: raw, sourceEnvKey };
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const tokenUri = typeof parsed.token_uri === "string" ? parsed.token_uri.trim()
+    : typeof parsed.tokenEndpoint === "string" ? parsed.tokenEndpoint.trim()
+    : undefined;
+  const refreshToken = typeof parsed.refresh_token === "string" ? parsed.refresh_token.trim()
+    : typeof parsed.refreshToken === "string" ? parsed.refreshToken.trim()
+    : undefined;
+  const clientId = typeof parsed.client_id === "string" ? parsed.client_id.trim()
+    : typeof parsed.clientId === "string" ? parsed.clientId.trim()
+    : undefined;
+  const accessToken = typeof parsed.access_token === "string" ? parsed.access_token.trim()
+    : typeof parsed.accessToken === "string" ? parsed.accessToken.trim()
+    : undefined;
+  if (!accessToken && !refreshToken) return null;
+  return { tokenUri, refreshToken, clientId, accessToken, sourceEnvKey };
+}
+
+function oauthCredentialEnvKey(provider: DaemonProvider): string | null {
+  switch (provider) {
+    case "claude":
+      return "ANTHROPIC_AUTH_TOKEN";
+    case "gemini":
+      return "GOOGLE_APPLICATION_CREDENTIALS_JSON";
+    case "opencode":
+      return "OPENCODE_OAUTH_CREDENTIALS";
+    default:
+      return null;
+  }
+}
+
+function runOAuthCredentialProbe(
+  probe: OAuthCredentialProbe,
+  checkedAt: string,
+): ProviderHealthSnapshot {
+  const accessToken = probe.accessToken;
+  if (accessToken) {
+    const expiry = tryParseJwtExpiry(accessToken);
+    if (expiry && expiry.getTime() < Date.now() + 60_000) {
+      const message = probe.refreshToken
+        ? "OAuth access token is expired or expires within 60 seconds; refresh available."
+        : "OAuth access token is expired or expires within 60 seconds and no refresh token is configured.";
+      return {
+        status: probe.refreshToken ? "degraded" : "broken",
+        checkedAt,
+        verificationKind: "oauth_probe",
+        reason: message,
+        error: probe.refreshToken
+          ? undefined
+          : {
+              code: "provider.auth_invalid",
+              category: "auth",
+              message,
+            },
+      };
+    }
+  }
+  if (!probe.accessToken && !probe.refreshToken) {
+    return {
+      status: "broken",
+      checkedAt,
+      verificationKind: "oauth_probe",
+      reason: "No OAuth access token or refresh token found.",
+      error: { code: "provider.auth_invalid", category: "auth", message: "No OAuth access token or refresh token found." },
+    };
+  }
+  const checks: string[] = [];
+  if (probe.clientId) checks.push("client_id present");
+  if (probe.tokenUri) checks.push("token_uri present");
+  if (probe.refreshToken) checks.push("refresh_token present");
+  if (accessToken) checks.push(accessToken.includes(".") ? "access_token is a JWT" : "access_token present");
+  return {
+    status: "healthy",
+    checkedAt,
+    verificationKind: "oauth_probe",
+    reason: `OAuth credential probe passed (${checks.join(", ")}).`,
+  };
+}
+
+function tryParseJwtExpiry(token: string): Date | undefined {
+  const parts = token.split(".");
+  if (parts.length !== 3) return undefined;
+  try {
+    const payloadJson = Buffer.from(parts[1], "base64url").toString("utf8");
+    const payload = JSON.parse(payloadJson) as Record<string, unknown>;
+    const exp = typeof payload.exp === "number" ? payload.exp : undefined;
+    if (!exp) return undefined;
+    return new Date(exp * 1000);
+  } catch {
+    return undefined;
+  }
+}
+
+interface FileLoginCredentialProbe {
+  filePath: string;
+  expectedFormat: "gcloud_adc" | "generic_json" | "unknown";
+}
+
+function buildFileLoginCredentialProbe(
+  provider: DaemonProvider,
+  environment: Record<string, string>,
+): FileLoginCredentialProbe | null {
+  const envKey = fileLoginCredentialEnvKey(provider);
+  const filePath = envKey ? environment[envKey]?.trim() : undefined;
+  if (!filePath) return null;
+  return {
+    filePath,
+    expectedFormat: provider === "gemini" ? "gcloud_adc" : "generic_json",
+  };
+}
+
+function fileLoginCredentialEnvKey(provider: DaemonProvider): string | null {
+  switch (provider) {
+    case "gemini":
+      return "GOOGLE_APPLICATION_CREDENTIALS";
+    default:
+      return null;
+  }
+}
+
+function runFileLoginCredentialProbe(
+  probe: FileLoginCredentialProbe,
+  checkedAt: string,
+): ProviderHealthSnapshot {
+  if (!existsSync(probe.filePath)) {
+    const message = `File-login credential file not found: ${probe.filePath}`;
+    return {
+      status: "broken",
+      checkedAt,
+      verificationKind: "file_login_probe",
+      reason: message,
+      error: { code: "provider.auth_invalid", category: "auth", message },
+    };
+  }
+  let content: string;
+  try {
+    content = readFileSync(probe.filePath, "utf8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : `Cannot read credential file ${probe.filePath}`;
+    return {
+      status: "broken",
+      checkedAt,
+      verificationKind: "file_login_probe",
+      reason: message,
+      error: { code: "provider.runtime_generic_failure", category: "runtime", message },
+    };
+  }
+  if (probe.expectedFormat === "gcloud_adc") {
+    try {
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      const hasClientEmail = typeof parsed.client_email === "string" && parsed.client_email.length > 0;
+      const hasTokenUri = typeof parsed.token_uri === "string" && parsed.token_uri.length > 0;
+      if (!hasClientEmail || !hasTokenUri) {
+        return {
+          status: "broken",
+          checkedAt,
+          verificationKind: "file_login_probe",
+          reason: "gcloud application-default credentials file is missing client_email or token_uri.",
+          error: {
+            code: "provider.auth_invalid",
+            category: "auth",
+            message: "gcloud application-default credentials file is missing client_email or token_uri.",
+          },
+        };
+      }
+    } catch {
+      return {
+        status: "broken",
+        checkedAt,
+        verificationKind: "file_login_probe",
+        reason: "gcloud application-default credentials file is not valid JSON.",
+        error: { code: "provider.auth_invalid", category: "auth", message: "gcloud application-default credentials file is not valid JSON." },
+      };
+    }
+  }
+  return {
+    status: "healthy",
+    checkedAt,
+    verificationKind: "file_login_probe",
+    reason: `File-login credential file is present and valid: ${probe.filePath}`,
+  };
+}
+
 function buildProviderCredentialProbe(
   provider: DaemonProvider,
   environment: Record<string, string>,
 ): { url: string; headers: string[] } | null {
   if (provider === "claude") {
-    const apiKey = environment.ANTHROPIC_API_KEY?.trim() || environment.ANTHROPIC_AUTH_TOKEN?.trim();
+    const apiKey = environment.ANTHROPIC_API_KEY?.trim();
     if (!apiKey) return null;
     assertSafeProviderCredential(apiKey);
     const baseUrl = normalizeProviderApiBase(environment.ANTHROPIC_BASE_URL, "https://api.anthropic.com/v1");

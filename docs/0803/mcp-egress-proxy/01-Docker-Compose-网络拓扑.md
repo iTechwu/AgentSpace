@@ -1,6 +1,6 @@
 # Docker Compose 网络拓扑与出口强制
 
-> 状态：Phase 0/1 已实施，Phase 2 `DOCKER-USER` 强制规则需 managed-node 集成验证
+> 状态：Phase 0/1/2 已实施，managed-node entrypoint 已在 Runtime 启动前调用 `reconcile-runtime-egress.sh`
 >
 > 目标：保证 Runtime 只能直连固定控制面目标和 proxy，不能绕过 proxy 访问任意 MCP/public proxy/raw IP。
 
