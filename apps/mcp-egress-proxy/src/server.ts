@@ -231,7 +231,7 @@ export class McpEgressProxyServer {
       sendJson(res, leaseErrorStatus(requestBody.code), { error: requestBody.code, message: requestBody.message });
       return;
     }
-    if (!isTaskToolCallAllowed(claims, method, requestBody.body)) {
+    if (!isTaskCallJsonRpcPayloadAllowed(claims, method, requestBody.body)) {
       this.options.metrics?.recordReject();
       await this.recordRejection(requestPath, method, "mcp_egress.policy_denied", claims);
       sendJson(res, 403, { error: "mcp_egress.policy_denied", message: "Tool call does not match the lease binding." });
@@ -426,7 +426,7 @@ function extractProxySessionId(req: IncomingMessage): string | undefined {
   return normalized && normalized.length <= 128 ? normalized : undefined;
 }
 
-function isTaskToolCallAllowed(claims: McpEgressLeaseClaims, method: string, body: Buffer): boolean {
+function isTaskCallJsonRpcPayloadAllowed(claims: McpEgressLeaseClaims, method: string, body: Buffer): boolean {
   if (claims.purpose !== "task_call" || method !== "POST" || body.length === 0) return true;
   try {
     const payload = JSON.parse(body.toString("utf8")) as unknown;
