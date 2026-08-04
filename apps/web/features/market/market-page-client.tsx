@@ -244,16 +244,12 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
         : "not_installed";
     return [`${item.source}:${item.name}`, state] as const;
   })), [data.catalog, data.installedApps]);
-  const cliInstallationGroups = useMemo(() => {
-    const groups = new Map<string, MarketPageData["installedApps"]>();
-    for (const installation of data.installedApps) {
-      const key = `${installation.source}:${installation.name}`;
-      const group = groups.get(key) ?? [];
-      group.push(installation);
-      groups.set(key, group);
-    }
-    return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right));
-  }, [data.installedApps]);
+  const cliInstallationGroups = useMemo(() => groupCliInstallations(
+    data.installedApps.filter((installation) => installation.status === "installed" && installation.enabled),
+  ), [data.installedApps]);
+  const failedCliInstallationGroups = useMemo(() => groupCliInstallations(
+    data.installedApps.filter((installation) => installation.status === "failed"),
+  ), [data.installedApps]);
   const filteredCatalog = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase("en-US");
     return data.catalog.filter((item) => {
@@ -587,67 +583,124 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
         </div>
       )}
 
-      <section className="mcp-connections-section" aria-label={tx("CLI 安装记录", "CLI installations")}>
-        <div className="mcp-connections-heading">
-          <div>
-            <h3>{tx("已安装应用", "Installed apps")}</h3>
-            <p>{tx("按应用查看每个 Runtime 的安装状态。", "Review each runtime installation, grouped by app.")}</p>
-          </div>
-          <div className="mcp-connections-summary" aria-label={tx(
-            `${cliInstallationGroups.length} 个应用，${data.installedApps.length} 条 Runtime 安装`,
-            `${cliInstallationGroups.length} apps, ${data.installedApps.length} runtime installations`,
-          )}>
-            <span><strong>{cliInstallationGroups.length}</strong>{tx("个应用", "apps")}</span>
-            <span><strong>{data.installedApps.length}</strong>{tx("条 Runtime 安装", "runtime installations")}</span>
-          </div>
-        </div>
-        {cliInstallationGroups.length === 0 ? (
-          <p className="market-empty">{tx("尚未安装 CLI 应用。", "No CLI apps installed yet.")}</p>
-        ) : (
-          <ul className="mcp-service-group-list">
-            {cliInstallationGroups.map(([key, installations]) => {
-              const catalog = data.catalog.find((item) => `${item.source}:${item.name}` === key);
-              const displayName = catalog?.displayName ?? installations[0]!.name;
-              return (
-                <li className="mcp-service-group" key={key}>
-                  <div className="mcp-service-group__heading">
-                    <span className="mcp-service-group__icon"><AppIcon name="terminal" /></span>
-                    <div>
-                      <strong>{displayName}</strong>
-                      <span>{installations[0]!.source} · {tx(`${installations.length} 个 Runtime`, `${installations.length} runtimes`)}</span>
-                    </div>
-                  </div>
-                  <ul className="mcp-runtime-connection-list">
-                    {installations.map((installation) => {
-                      const runtimeLabel = data.runtimes.find((runtime) => runtime.id === installation.runtimeId)?.label ?? installation.runtimeId;
-                      return (
-                        <li aria-label={`${displayName} · ${runtimeLabel}`} className="mcp-connection-row" key={`${key}:${installation.runtimeId}`}>
-                          <div className="mcp-connection-head">
-                            <span className="mcp-runtime-identity">
-                              <span className="mcp-runtime-identity__icon"><AppIcon name="containers" /></span>
-                              <span><small>Runtime</small><strong>{runtimeLabel}</strong></span>
-                            </span>
-                            <span className={`status-chip status-chip--${installation.status === "installed" && installation.enabled ? "positive" : installation.status === "failed" ? "danger" : "neutral"}`}>
-                              {installation.enabled ? installation.status : tx("已停用", "Disabled")}
-                            </span>
-                          </div>
-                          <div className="mcp-connection-meta">
-                            <span>{tx("版本", "Version")}: {installation.version || tx("未知", "Unknown")}</span>
-                            <span>{tx("入口", "Entry")}: {installation.entryPoint || installation.name}</span>
-                            {installation.updatedAt ? <span>{tx("更新于", "Updated")}: <time dateTime={installation.updatedAt}>{formatMarketTimestamp(installation.updatedAt)}</time></span> : null}
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+      <CliInstallationSection
+        data={data}
+        emptyText={tx("尚未安装 CLI 应用。", "No CLI apps installed yet.")}
+        groups={cliInstallationGroups}
+        title={tx("已安装应用", "Installed apps")}
+      />
+      {failedCliInstallationGroups.length > 0 ? (
+        <CliInstallationSection
+          data={data}
+          emptyText=""
+          groups={failedCliInstallationGroups}
+          isPending={isPending}
+          onRetry={(installation) => runAction(() => requestRuntimeAppOperationAction({
+            runtimeId: installation.runtimeId,
+            source: installation.source,
+            name: installation.name,
+            operation: "install",
+            confirmHighRisk: false,
+          }))}
+          title={tx("需要处理", "Needs attention")}
+          variant="attention"
+        />
+      ) : null}
     </div>
   );
+}
+
+type CliInstallationGroup = [string, MarketPageData["installedApps"]];
+
+function CliInstallationSection({
+  data,
+  emptyText,
+  groups,
+  isPending = false,
+  onRetry,
+  title,
+  variant = "installed",
+}: {
+  data: MarketPageData;
+  emptyText: string;
+  groups: CliInstallationGroup[];
+  isPending?: boolean;
+  onRetry?: (installation: MarketPageData["installedApps"][number]) => void;
+  title: string;
+  variant?: "installed" | "attention";
+}) {
+  const { tx } = useLanguage();
+  const installationCount = groups.reduce((total, [, installations]) => total + installations.length, 0);
+  return (
+    <section className={`mcp-connections-section${variant === "attention" ? " mcp-connections-section--attention" : ""}`} aria-label={title}>
+      <div className="mcp-connections-heading">
+        <div>
+          <h3>{title}</h3>
+          <p>{variant === "attention"
+            ? tx("失败记录不会作为可用能力；修复环境后可对在线 Runtime 直接重试。", "Failed records are not available capabilities. Retry online runtimes after fixing the environment.")
+            : tx("这里只展示安装成功且已启用的 Runtime 应用。", "Only successfully installed and enabled runtime apps are shown here.")}</p>
+        </div>
+        <div className="mcp-connections-summary" aria-label={tx(`${groups.length} 个应用，${installationCount} 条 Runtime 记录`, `${groups.length} apps, ${installationCount} runtime records`)}>
+          <span><strong>{groups.length}</strong>{tx("个应用", "apps")}</span>
+          <span><strong>{installationCount}</strong>{tx("条 Runtime 记录", "runtime records")}</span>
+        </div>
+      </div>
+      {groups.length === 0 ? <p className="market-empty">{emptyText}</p> : (
+        <ul className="mcp-service-group-list">
+          {groups.map(([key, installations]) => {
+            const catalog = data.catalog.find((item) => `${item.source}:${item.name}` === key);
+            const displayName = catalog?.displayName ?? installations[0]!.name;
+            return (
+              <li className="mcp-service-group" key={key}>
+                <div className="mcp-service-group__heading">
+                  <span className="mcp-service-group__icon"><AppIcon name="terminal" /></span>
+                  <div><strong>{displayName}</strong><span>{installations[0]!.source} · {tx(`${installations.length} 个 Runtime`, `${installations.length} runtimes`)}</span></div>
+                </div>
+                <ul className="mcp-runtime-connection-list">
+                  {installations.map((installation) => {
+                    const runtime = data.runtimes.find((candidate) => candidate.id === installation.runtimeId);
+                    const runtimeLabel = runtime?.label ?? installation.runtimeId;
+                    const operationActive = data.operations.some((operation) => operation.runtimeId === installation.runtimeId && operation.appSource === installation.source && operation.appName === installation.name && isActiveOperationStatus(operation.status));
+                    const retryAllowed = variant === "attention" && Boolean(runtime && runtime.status === "online" && catalog && catalog.risk !== "high" && data.canManage);
+                    return (
+                      <li aria-label={`${displayName} · ${runtimeLabel}`} className="mcp-connection-row" key={`${key}:${installation.runtimeId}`}>
+                        <div className="mcp-connection-head">
+                          <span className="mcp-runtime-identity"><span className="mcp-runtime-identity__icon"><AppIcon name="containers" /></span><span><small>Runtime</small><strong>{runtimeLabel}</strong></span></span>
+                          <span className={`status-chip status-chip--${variant === "attention" ? "danger" : "positive"}`}>{variant === "attention" ? tx("失败", "Failed") : tx("已安装", "Installed")}</span>
+                        </div>
+                        <div className="mcp-connection-meta">
+                          <span>{tx("版本", "Version")}: {installation.version || tx("未知", "Unknown")}</span>
+                          <span>{tx("入口", "Entry")}: {installation.entryPoint || installation.name}</span>
+                          {installation.updatedAt ? <span>{tx("更新于", "Updated")}: <time dateTime={installation.updatedAt}>{formatMarketTimestamp(installation.updatedAt)}</time></span> : null}
+                        </div>
+                        {variant === "attention" ? (
+                          <div className="cli-installation-failure">
+                            <p>{formatRuntimeAppError(installation.lastError ?? "runtime_app.command_failed", tx)}</p>
+                            {retryAllowed && onRetry ? <button className="modal-secondary-button" disabled={isPending || operationActive} onClick={() => onRetry(installation)} type="button"><AppIcon name="refresh" />{operationActive ? tx("重试中", "Retrying") : tx("重试安装", "Retry install")}</button> : <span>{catalog?.risk === "high" ? tx("请在目录中审核后重试", "Review in the catalog before retrying") : tx("Runtime 已离线或下线", "Runtime is offline or removed")}</span>}
+                          </div>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function groupCliInstallations(installations: MarketPageData["installedApps"]): CliInstallationGroup[] {
+  const groups = new Map<string, MarketPageData["installedApps"]>();
+  for (const installation of installations) {
+    const key = `${installation.source}:${installation.name}`;
+    const group = groups.get(key) ?? [];
+    group.push(installation);
+    groups.set(key, group);
+  }
+  return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right));
 }
 
 function MarketEmptyState({ title, description }: { title: string; description: string }) {
@@ -688,7 +741,25 @@ function formatRuntimeAppError(error: string, tx: (zh: string, en: string) => st
       );
     default: {
       const normalized = error.toLowerCase();
-      if (normalized.includes("docker run") || normalized.includes("traceback")) {
+      if (normalized.includes("hkuds.github.io") && (normalized.includes("ssl") || normalized.includes("connection"))) {
+        return tx(
+          "CLI-Hub 在线目录连接失败。系统已改用工作区同步的本地目录，请重试安装。",
+          "The CLI-Hub online registry connection failed. The system now uses the workspace-synchronized local registry; retry the installation.",
+        );
+      }
+      if (normalized.includes("github.com") && (normalized.includes("gnutls") || normalized.includes("tls") || normalized.includes("ssl") || normalized.includes("connection"))) {
+        return tx(
+          "Runtime 访问 GitHub 源码不稳定。系统已切换到归档下载或官方包安装，请重试。",
+          "The Runtime has an unstable GitHub source connection. The system now uses archive downloads or the official package; retry the installation.",
+        );
+      }
+      if ((normalized.includes("spawn git") && normalized.includes("enoent")) || normalized.includes("git: not found")) {
+        return tx(
+          "目标 Runtime 的安装镜像缺少 Git。请更新并重启托管节点后重试。",
+          "The target Runtime image is missing Git. Update and restart the managed node, then retry.",
+        );
+      }
+      if (normalized.includes("docker run") || normalized.includes("traceback") || normalized.includes("runtime application command failed") || normalized.includes("subprocess-exited-with-error")) {
         return tx(
           "Runtime 内的安装或验证命令执行失败。请检查应用依赖与网络策略后重试；完整诊断已保留在执行记录中。",
           "The install or verification command failed inside the Runtime. Check app dependencies and network policy, then retry; full diagnostics remain in the execution record.",

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -67,6 +67,39 @@ test("executeRuntimeAppPlan records the download digest over the plan's depsDir"
     Buffer.from("print('requests')\n"),
   );
   assert.equal(result.downloadedDigest, expected);
+});
+
+test("executeRuntimeAppPlan seeds synchronized CLI-Hub registry snapshots into Runtime HOME", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-cli-hub-cache-"));
+  const runtimeHomeDir = join(root, "runtime-home");
+  const runtimeBinDir = join(runtimeHomeDir, ".local", "bin");
+  mkdirSync(runtimeBinDir, { recursive: true });
+  const cliHubPath = join(runtimeBinDir, "cli-hub");
+  writeFileSync(cliHubPath, "#!/bin/sh\nexit 0\n", "utf8");
+  chmodSync(cliHubPath, 0o755);
+
+  try {
+    await executeRuntimeAppPlan({
+      app: { source: "clihub_harness", name: "hacker-feeds-cli", version: "1.0.0", entryPoint: "cli-anything-hacker-feeds-cli" },
+      strategy: "cli_hub",
+      commands: [{ executable: "cli-hub", args: ["install", "hacker-feeds-cli"] }],
+      verifyCommands: [],
+      risk: "low",
+      requiresApproval: true,
+      notes: [],
+      cliHubRegistrySnapshot: {
+        source: "clihub_harness",
+        registryJson: JSON.stringify({ name: "hacker-feeds-cli", install_cmd: "pip install hacker-feeds-cli" }),
+      },
+    }, { runtimeHomeDir });
+
+    const harnessCache = JSON.parse(readFileSync(join(runtimeHomeDir, ".cli-hub", "registry_cache.json"), "utf8"));
+    const publicCache = JSON.parse(readFileSync(join(runtimeHomeDir, ".cli-hub", "public_registry_cache.json"), "utf8"));
+    assert.equal(harnessCache.data.clis[0]?.name, "hacker-feeds-cli");
+    assert.deepEqual(publicCache.data.clis, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("managed runtime app plans execute inside the target provider image", () => {

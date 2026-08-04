@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, delimiter, join } from "node:path";
 import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan } from "@dofe-agent/domain";
 
 const MAX_TAIL_CHARS = 8_000;
+const MAX_CLI_HUB_REGISTRY_SNAPSHOT_CHARS = 256_000;
 const SECRET_PATTERNS = [
   /(api[_-]?key|token|secret|password|authorization)(["'\s:=]+)([^\s"',;]+)/gi,
   /(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi,
@@ -139,6 +140,9 @@ export async function executeRuntimeAppPlan(
 ): Promise<RuntimeAppExecutionResult> {
   let stdout = "";
   let stderr = "";
+  if (options?.runtimeHomeDir) {
+    seedCliHubRegistryCacheSync(plan, options.runtimeHomeDir);
+  }
   const executionEnvironment = resolveRuntimeAppExecutionEnvironment(process.env, options?.runtimeHomeDir);
   for (const command of [...plan.commands, ...plan.verifyCommands]) {
     const result = await execCommand(command, {
@@ -246,7 +250,75 @@ export function parseRuntimeAppInstallPlan(value: unknown): RuntimeAppInstallPla
   if (![...plan.commands, ...plan.verifyCommands].every(isCommandPlanItem)) {
     return null;
   }
+  if (plan.cliHubRegistrySnapshot && !isCliHubRegistrySnapshot(plan.cliHubRegistrySnapshot, plan.app.name)) {
+    return null;
+  }
   return plan;
+}
+
+export function seedCliHubRegistryCacheSync(plan: RuntimeAppInstallPlan, runtimeHomeDir: string): void {
+  const snapshot = plan.cliHubRegistrySnapshot;
+  if (!snapshot) return;
+  if (!isCliHubRegistrySnapshot(snapshot, plan.app.name)) {
+    throw new Error("runtime_app.cli_hub_registry_snapshot_invalid");
+  }
+  const entry = JSON.parse(snapshot.registryJson) as Record<string, unknown>;
+  const cacheDir = join(runtimeHomeDir, ".cli-hub");
+  mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+  const harnessCachePath = join(cacheDir, "registry_cache.json");
+  const publicCachePath = join(cacheDir, "public_registry_cache.json");
+  writeCliHubCacheSync(harnessCachePath, snapshot.source === "clihub_harness" ? entry : undefined);
+  writeCliHubCacheSync(publicCachePath, snapshot.source === "clihub_public" ? entry : undefined);
+}
+
+function writeCliHubCacheSync(cachePath: string, entry?: Record<string, unknown>): void {
+  const entries = readCliHubCacheEntries(cachePath);
+  if (entry && typeof entry.name === "string") {
+    const normalizedName = entry.name.trim().toLocaleLowerCase("en-US");
+    const existingIndex = entries.findIndex((candidate) =>
+      typeof candidate.name === "string" && candidate.name.trim().toLocaleLowerCase("en-US") === normalizedName,
+    );
+    if (existingIndex >= 0) entries[existingIndex] = entry;
+    else entries.push(entry);
+  }
+  const temporaryPath = `${cachePath}.tmp`;
+  writeFileSync(temporaryPath, JSON.stringify({
+    _cached_at: Math.floor(Date.now() / 1_000),
+    data: { clis: entries },
+  }), { encoding: "utf8", mode: 0o600 });
+  renameSync(temporaryPath, cachePath);
+}
+
+function readCliHubCacheEntries(cachePath: string): Array<Record<string, unknown>> {
+  try {
+    const parsed = JSON.parse(readFileSync(cachePath, "utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+    const data = (parsed as Record<string, unknown>).data;
+    if (!data || typeof data !== "object" || Array.isArray(data)) return [];
+    const clis = (data as Record<string, unknown>).clis;
+    return Array.isArray(clis)
+      ? clis.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function isCliHubRegistrySnapshot(value: unknown, appName: string): value is NonNullable<RuntimeAppInstallPlan["cliHubRegistrySnapshot"]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const snapshot = value as Record<string, unknown>;
+  if (snapshot.source !== "clihub_harness" && snapshot.source !== "clihub_public") return false;
+  if (typeof snapshot.registryJson !== "string" || snapshot.registryJson.length > MAX_CLI_HUB_REGISTRY_SNAPSHOT_CHARS) return false;
+  try {
+    const entry = JSON.parse(snapshot.registryJson) as unknown;
+    return Boolean(entry)
+      && typeof entry === "object"
+      && !Array.isArray(entry)
+      && typeof (entry as Record<string, unknown>).name === "string"
+      && (entry as Record<string, unknown>).name === appName;
+  } catch {
+    return false;
+  }
 }
 
 function checkCommand(

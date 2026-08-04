@@ -450,6 +450,11 @@ export interface RuntimeAppInstallPlan {
   depsDir?: string;
   /** Registry integrity hash (npm dist.integrity / PyPI sha256) — reproducibility lock. */
   integrityLock?: string;
+  /** Synchronized CLI-Hub entry used to seed the Runtime-private registry cache. */
+  cliHubRegistrySnapshot?: {
+    source: "clihub_harness" | "clihub_public";
+    registryJson: string;
+  };
 }
 
 export interface ClaimedRuntimeAppOperation {

@@ -48,6 +48,23 @@ test("corrects the known MiniMax npm binary name from the public registry", () =
   assert.equal(items[0]?.entryPoint, "minimax");
 });
 
+test("corrects the broken Hacker Feeds Python harness to its working npm package", () => {
+  const items = normalizeCliHubRegistryPayload(
+    "clihub_harness",
+    [{
+      name: "hacker-feeds-cli",
+      display_name: "Hacker Feeds CLI",
+      install_cmd: "pip install git+https://github.com/collectivewinca/hacker-feeds-cli.git",
+      entry_point: "cli-anything-hacker-feeds-cli",
+    }],
+    "2026-08-04T00:00:00.000Z",
+  );
+
+  assert.equal(items[0]?.installStrategy, "npm");
+  assert.equal(items[0]?.installCmd, "npm install -g hacker-feeds-cli");
+  assert.equal(items[0]?.entryPoint, "hf");
+});
+
 test("syncs public registry from fallback URL when the primary URL is unavailable", async () => {
   const requestedUrls: string[] = [];
   const result = await syncCliHubCatalog({
@@ -100,7 +117,7 @@ test("builds controlled cli-hub plans without executing registry shell strings",
       installCmd: "pip install git+https://example.invalid/repo.git#subdirectory=gimp",
       skillMd: "skills/gimp/SKILL.md",
       requiresText: "GIMP installed locally",
-      registryJson: "{}",
+      registryJson: JSON.stringify({ name: "gimp", install_cmd: "pip install git+https://example.invalid/repo.git#subdirectory=gimp" }),
       syncedAt: "2026-05-08T00:00:00.000Z",
     },
   });
@@ -111,8 +128,68 @@ test("builds controlled cli-hub plans without executing registry shell strings",
     args: ["install", "gimp"],
     env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
   }]);
+  assert.deepEqual(plan.cliHubRegistrySnapshot, {
+    source: "clihub_harness",
+    registryJson: JSON.stringify({ name: "gimp", install_cmd: "pip install git+https://example.invalid/repo.git#subdirectory=gimp" }),
+  });
   assert.equal(plan.verifyCommands.some((command) => command.executable === "cli-anything-gimp"), true);
   assert.equal(plan.risk, "medium");
+});
+
+test("rewrites exact GitHub pip VCS installs to codeload archives for unstable container egress", () => {
+  const plan = buildRuntimeAppInstallPlan({
+    operation: "install",
+    cliHubAvailable: true,
+    item: {
+      source: "clihub_harness",
+      name: "archive-backed-cli",
+      displayName: "Archive-backed CLI",
+      description: "Feeds",
+      version: "1.0.0",
+      category: "search",
+      entryPoint: "archive-backed-cli",
+      installStrategy: "cli_hub",
+      installCmd: "pip install git+https://github.com/example/archive-backed-cli.git",
+      registryJson: JSON.stringify({
+        name: "archive-backed-cli",
+        install_cmd: "pip install git+https://github.com/example/archive-backed-cli.git",
+      }),
+      syncedAt: "2026-08-04T00:00:00.000Z",
+    },
+  });
+
+  assert.deepEqual(JSON.parse(plan.cliHubRegistrySnapshot?.registryJson ?? "{}"), {
+    name: "archive-backed-cli",
+    install_cmd: "pip install https://codeload.github.com/example/archive-backed-cli/zip/HEAD",
+  });
+});
+
+test("installs the known Hacker Feeds compatibility package with its real entry point", () => {
+  const plan = buildRuntimeAppInstallPlan({
+    operation: "install",
+    cliHubAvailable: true,
+    item: {
+      source: "clihub_harness",
+      name: "hacker-feeds-cli",
+      displayName: "Hacker Feeds CLI",
+      description: "Feeds",
+      version: "1.0.0",
+      category: "search",
+      entryPoint: "cli-anything-hacker-feeds-cli",
+      installStrategy: "pip",
+      installCmd: "pip install git+https://github.com/collectivewinca/hacker-feeds-cli.git",
+      registryJson: JSON.stringify({ name: "hacker-feeds-cli" }),
+      syncedAt: "2026-08-04T00:00:00.000Z",
+    },
+  });
+
+  assert.equal(plan.strategy, "npm");
+  assert.equal(plan.app.entryPoint, "hf");
+  assert.deepEqual(plan.commands, [{ executable: "npm", args: ["install", "--global", "hacker-feeds-cli"] }]);
+  assert.deepEqual(plan.verifyCommands, [
+    { executable: "npm", args: ["list", "--global", "--depth=0", "hacker-feeds-cli"] },
+    { executable: "which", args: ["hf"] },
+  ]);
 });
 
 test("target Runtime CLI readiness takes precedence over daemon host readiness", () => {
@@ -200,6 +277,7 @@ test("installs, updates, and uninstalls public npm apps without fetching the CLI
   ]);
   assert.deepEqual(installPlan.verifyCommands, [
     { executable: "npm", args: ["list", "--global", "--depth=0", "@dofe/toolkit"] },
+    { executable: "which", args: ["toolkit"] },
   ]);
   assert.deepEqual(updatePlan.commands, [
     { executable: "npm", args: ["install", "--global", "@dofe/toolkit"] },

@@ -7,13 +7,11 @@ import {
   type RuntimeAppCatalogSource,
   type UpsertRuntimeAppCatalogItemInput,
 } from "@dofe-agent/db";
+import { applyCliHubCatalogCompatibility, readCliHubCatalogCompatibilityOverride } from "./catalog-compatibility.ts";
 
 export const CLIHUB_HARNESS_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/registry.json";
 export const CLIHUB_PUBLIC_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/public_registry.json";
 export const CLIHUB_PUBLIC_REGISTRY_FALLBACK_URL = "https://raw.githubusercontent.com/HKUDS/CLI-Anything/main/public_registry.json";
-const PUBLIC_ENTRY_POINT_OVERRIDES: Readonly<Record<string, string>> = {
-  "minimax-cli": "minimax",
-};
 const REGISTRY_FETCH_TIMEOUT_MS = 8_000;
 
 export interface CliHubCatalogSyncResult {
@@ -86,14 +84,15 @@ export async function syncCliHubCatalog(options?: {
 }
 
 export function listCliHubCatalogItems(options?: Parameters<typeof listRuntimeAppCatalogItemsSync>[0]): RuntimeAppCatalogItemRecord[] {
-  return listRuntimeAppCatalogItemsSync(options);
+  return listRuntimeAppCatalogItemsSync(options).map(applyCliHubCatalogCompatibility);
 }
 
 export function readCliHubCatalogItem(
   source: RuntimeAppCatalogSource,
   name: string,
 ): RuntimeAppCatalogItemRecord | null {
-  return readRuntimeAppCatalogItemSync(source, name);
+  const item = readRuntimeAppCatalogItemSync(source, name);
+  return item ? applyCliHubCatalogCompatibility(item) : null;
 }
 
 export function readCliHubCatalogHealth(): ReturnType<typeof readRuntimeAppCatalogHealthSync> {
@@ -156,10 +155,14 @@ function normalizeCliHubRegistryEntry(
   if (!name) {
     return null;
   }
-  const installCmd = readString(entry.install_cmd) ?? readString(entry.installCmd);
-  const entryPoint = source === "clihub_public"
-    ? PUBLIC_ENTRY_POINT_OVERRIDES[name] ?? readString(entry.entry_point) ?? readString(entry.entryPoint)
-    : readString(entry.entry_point) ?? readString(entry.entryPoint);
+  const compatibility = readCliHubCatalogCompatibilityOverride(source, name);
+  const installCmd = compatibility?.installCmd ?? readString(entry.install_cmd) ?? readString(entry.installCmd);
+  const entryPoint = compatibility?.entryPoint ?? readString(entry.entry_point) ?? readString(entry.entryPoint);
+  const runtimeEntry = {
+    ...entry,
+    ...(installCmd ? { install_cmd: installCmd } : {}),
+    ...(entryPoint ? { entry_point: entryPoint } : {}),
+  };
   return {
     source,
     name,
@@ -168,14 +171,14 @@ function normalizeCliHubRegistryEntry(
     version: readString(entry.version) ?? "",
     category: readString(entry.category) ?? "",
     entryPoint: entryPoint ?? "",
-    installStrategy: inferInstallStrategy(installCmd),
+    installStrategy: compatibility?.installStrategy ?? inferInstallStrategy(installCmd),
     installCmd,
     uninstallCmd: readString(entry.uninstall_cmd),
     updateCmd: readString(entry.update_cmd),
     skillMd: readString(entry.skill_md) ?? readString(entry.skillMd),
     requiresText: readString(entry.requires_text) ?? readString(entry.requires),
     homepage: readString(entry.homepage),
-    registryJson: JSON.stringify(entry),
+    registryJson: JSON.stringify(runtimeEntry),
     syncedAt,
   };
 }

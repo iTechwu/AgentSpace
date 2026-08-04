@@ -1,5 +1,6 @@
 import type { RuntimeAppCatalogItemRecord, RuntimeAppInstallStrategy, RuntimeAppRiskLevel } from "@dofe-agent/db";
 import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan, RuntimeAppOperationType } from "@dofe-agent/domain";
+import { applyCliHubCatalogCompatibility, readCliHubCatalogCompatibilityOverride } from "./catalog-compatibility.ts";
 
 const UNSAFE_COMMAND_PATTERN = /(\||&&|;|`|\$\(|<\(|>\(|\bcurl\b|\bwget\b|\bsudo\b|\bsu\b|\bchmod\b|\bchown\b|\bsystemctl\b|\blaunchctl\b|\btee\s+-a\b|>>|~\/\.(?:bash|zsh|profile|config))/i;
 const CLI_HUB_PIP_ENV = { PIP_BREAK_SYSTEM_PACKAGES: "1" } as const;
@@ -18,10 +19,13 @@ export function buildRuntimeAppInstallPlan(input: {
   operation: RuntimeAppOperationType;
   cliHubAvailable?: boolean;
 }): RuntimeAppInstallPlan {
+  const compatibility = readCliHubCatalogCompatibilityOverride(input.item.source, input.item.name);
+  const item = applyCliHubCatalogCompatibility(input.item);
   const cliHubAvailable = input.cliHubAvailable !== false;
-  const risk = assessRuntimeAppRisk(input.item);
-  const npmPackage = readPublicNpmPackage(input.item);
-  const pypiPackage = readPublicPypiPackage(input.item);
+  const risk = assessRuntimeAppRisk(item);
+  const npmPackage = compatibility?.npmPackage ?? readPublicNpmPackage(item);
+  const pypiPackage = readPublicPypiPackage(item);
+  const cliHubRegistrySnapshot = readCliHubRegistrySnapshot(item);
   const strategy: RuntimeAppInstallStrategy =
     input.operation === "disable" || input.operation === "enable"
       ? "manual"
@@ -34,17 +38,17 @@ export function buildRuntimeAppInstallPlan(input: {
             : input.operation === "install"
               ? "pip"
               : "cli_hub";
-  const commands = buildOperationCommands(input.item, input.operation, strategy, cliHubAvailable, npmPackage, pypiPackage);
+  const commands = buildOperationCommands(item, input.operation, strategy, cliHubAvailable, npmPackage, pypiPackage);
   const verifyCommands = shouldVerifyAfterOperation(input.operation)
-    ? buildVerifyCommands(input.item, strategy, npmPackage, pypiPackage)
+    ? buildVerifyCommands(item, strategy, npmPackage, pypiPackage)
     : [];
-  const notes = buildPlanNotes(input.item, input.operation, strategy, risk, cliHubAvailable);
+  const notes = buildPlanNotes(item, input.operation, strategy, risk, cliHubAvailable);
   return {
     app: {
-      source: input.item.source,
-      name: input.item.name,
-      version: input.item.version,
-      entryPoint: input.item.entryPoint,
+      source: item.source,
+      name: item.name,
+      version: item.version,
+      entryPoint: item.entryPoint,
     },
     strategy,
     commands,
@@ -52,6 +56,9 @@ export function buildRuntimeAppInstallPlan(input: {
     risk,
     requiresApproval: true,
     notes,
+    ...(strategy === "cli_hub" && cliHubRegistrySnapshot
+      ? { cliHubRegistrySnapshot }
+      : {}),
   };
 }
 
@@ -133,10 +140,10 @@ function buildVerifyCommands(
   pypiPackage?: PublicPypiPackage,
 ): RuntimeAppCommandPlanItem[] {
   if (strategy === "npm" && npmPackage) {
-    return [{
-      executable: "npm",
-      args: ["list", "--global", "--depth=0", npmPackage],
-    }];
+    return [
+      { executable: "npm", args: ["list", "--global", "--depth=0", npmPackage] },
+      ...(item.entryPoint.trim() ? [{ executable: "which", args: [item.entryPoint.trim()] }] : []),
+    ];
   }
   if (strategy === "pip" && pypiPackage) {
     return [
@@ -166,6 +173,9 @@ function buildPlanNotes(
     `Install strategy: ${strategy}`,
     "DofeAgent executes a controlled command plan with argument arrays; registry install_cmd is catalog metadata only.",
   ];
+  if (strategy === "cli_hub") {
+    notes.push("CLI-Hub uses the synchronized catalog snapshot in Runtime HOME instead of downloading the registry again.");
+  }
   if (strategy === "cli_hub" && !cliHubAvailable && (operation === "install" || operation === "update" || operation === "uninstall")) {
     notes.push("Target runtime did not report cli-hub readiness, so the plan bootstraps cli-anything-hub with python3 -m pip install --user before running cli-hub.");
   }
@@ -206,4 +216,27 @@ function readPublicPypiPackage(item: RuntimeAppCatalogItemRecord): PublicPypiPac
   } catch {
     return undefined;
   }
+}
+
+function readCliHubRegistrySnapshot(item: RuntimeAppCatalogItemRecord): RuntimeAppInstallPlan["cliHubRegistrySnapshot"] {
+  if (item.source !== "clihub_harness" && item.source !== "clihub_public") return undefined;
+  try {
+    const entry = JSON.parse(item.registryJson) as unknown;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return undefined;
+    if ((entry as Record<string, unknown>).name !== item.name) return undefined;
+    const runtimeEntry = { ...(entry as Record<string, unknown>) };
+    if (typeof runtimeEntry.install_cmd === "string") {
+      runtimeEntry.install_cmd = rewriteGitHubPipInstallToArchive(runtimeEntry.install_cmd) ?? runtimeEntry.install_cmd;
+    }
+    return { source: item.source, registryJson: JSON.stringify(runtimeEntry) };
+  } catch {
+    return undefined;
+  }
+}
+
+function rewriteGitHubPipInstallToArchive(command: string): string | undefined {
+  const match = /^pip install git\+https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\.git(?:@([A-Za-z0-9._/-]+))?(#subdirectory=[A-Za-z0-9._/-]+)?$/.exec(command.trim());
+  if (!match) return undefined;
+  const [, owner, repository, ref, fragment = ""] = match;
+  return `pip install https://codeload.github.com/${owner}/${repository}/zip/${ref || "HEAD"}${fragment}`;
 }

@@ -10,6 +10,10 @@ const dockerfile = readFileSync(
   new URL("../../../deploy/daemon/Dockerfile.managed-node", import.meta.url),
   "utf8",
 );
+const providerDockerfile = readFileSync(
+  new URL("../../../deploy/daemon/Dockerfile.provider-runtime", import.meta.url),
+  "utf8",
+);
 
 test("managed-node image installs a checksum-pinned multi-arch cosign binary", () => {
   assert.match(dockerfile, /ARG COSIGN_VERSION=v\d+\.\d+\.\d+/);
@@ -23,6 +27,10 @@ test("managed-node image installs a checksum-pinned multi-arch cosign binary", (
 
 test("managed-node image does not embed shared data-plane services", () => {
   assert.doesNotMatch(dockerfile, /FROM\s+(?:postgres|redis|rabbitmq)(?::|\s)/i);
+});
+
+test("provider runtime image includes Git for controlled VCS package installs", () => {
+  assert.match(providerDockerfile, /apt-get install --yes --no-install-recommends git/);
 });
 
 test("local managed-node recovery preserves required operational settings", () => {

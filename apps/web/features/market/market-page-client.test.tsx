@@ -489,6 +489,59 @@ describe("MarketPageClient", () => {
     expect(screen.getByRole("alert")).not.toHaveTextContent("Older installed app error");
   });
 
+  it("separates failed attempts from installed apps and retries an online Runtime", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient
+            data={{
+              ...data,
+              installedApps: [
+                {
+                  runtimeId: "runtime-offline",
+                  source: "clihub_harness",
+                  name: "mermaid",
+                  status: "installed",
+                  enabled: true,
+                  version: "1.0.0",
+                  entryPoint: "mmdc",
+                },
+                {
+                  runtimeId: "runtime-online",
+                  source: "clihub_harness",
+                  name: "mermaid",
+                  status: "failed",
+                  enabled: true,
+                  version: "1.0.0",
+                  entryPoint: "mmdc",
+                  lastError: "request to https://hkuds.github.io/CLI-Anything/registry.json failed with SSL error",
+                },
+              ],
+            }}
+          />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    const installedSection = screen.getByRole("region", { name: "已安装应用" });
+    const attentionSection = screen.getByRole("region", { name: "需要处理" });
+    expect(within(installedSection).getByText("Offline Runtime")).toBeInTheDocument();
+    expect(within(installedSection).queryByText("失败")).not.toBeInTheDocument();
+    expect(within(attentionSection).getByText("Online Runtime")).toBeInTheDocument();
+    expect(within(attentionSection).getByText(/系统已改用工作区同步的本地目录/)).toBeInTheDocument();
+
+    await user.click(within(attentionSection).getByRole("button", { name: "重试安装" }));
+
+    await waitFor(() => expect(actionMocks.requestOperation).toHaveBeenCalledWith({
+      runtimeId: "runtime-online",
+      source: "clihub_harness",
+      name: "mermaid",
+      operation: "install",
+      confirmHighRisk: false,
+    }));
+  });
+
   it("turns managed runtime network failures into an actionable operator message", () => {
     render(
       <LanguageProvider>
@@ -514,6 +567,33 @@ describe("MarketPageClient", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent("目标 Runtime 缺少隔离安装网络");
     expect(screen.getByRole("alert")).not.toHaveTextContent("managed_runtime.docker_network_required");
+  });
+
+  it("explains unstable GitHub source connections without exposing raw command output", () => {
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient
+            data={{
+              ...data,
+              operations: [{
+                id: "runtime-app-op-github-tls",
+                runtimeId: "runtime-online",
+                appSource: "clihub_harness",
+                appName: "mermaid",
+                operation: "install",
+                status: "failed",
+                createdAt: "2026-08-03T14:44:35.301Z",
+                errorMessage: "Runtime application command failed (docker, exit code 1). fatal: unable to access https://github.com/example/tool.git: GnuTLS recv error (-110)",
+              }],
+            }}
+          />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Runtime 访问 GitHub 源码不稳定");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("GnuTLS recv error");
   });
 
   it("does not expose Docker commands or stack traces in the market detail", () => {
