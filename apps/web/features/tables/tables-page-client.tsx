@@ -241,12 +241,10 @@ export function TablesPageClient({ data, onDataChanged }: { data: DataTablesPage
                               }
                             />
                           ) : (
-                            <input
-                              className="tables-grid__cell-input"
+                            <DataTableCellInput
+                              label={col.name}
+                              onCommit={(value) => handleCellChange(selected.id, row.id, col.id, value)}
                               value={String(row.cells[col.id] ?? "")}
-                              onChange={(e) =>
-                                handleCellChange(selected.id, row.id, col.id, e.target.value)
-                              }
                             />
                           )}
                         </td>
@@ -365,5 +363,42 @@ export function TablesPageClient({ data, onDataChanged }: { data: DataTablesPage
       ) : null}
       </div>
     </section>
+  );
+}
+
+function DataTableCellInput({
+  label,
+  onCommit,
+  value,
+}: {
+  label: string;
+  onCommit: (value: string) => void;
+  value: string;
+}) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  function commit(): void {
+    if (draft !== value) {
+      onCommit(draft);
+    }
+  }
+
+  return (
+    <input
+      aria-label={label}
+      className="tables-grid__cell-input"
+      onBlur={commit}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.currentTarget.blur();
+        }
+      }}
+      value={draft}
+    />
   );
 }

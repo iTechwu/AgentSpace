@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TablesPageClient } from "@/features/tables/tables-page-client";
+import { updateDataRowAction } from "@/features/tables/actions";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 import type { DataTablesPageData } from "@/features/dashboard/data";
 
@@ -94,5 +95,31 @@ describe("TablesPageClient", () => {
 
     expect(screen.getByRole("button", { name: /行程表/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "返回数据表列表" })).not.toBeInTheDocument();
+  });
+
+  it("keeps cell edits local until the input loses focus", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <LanguageProvider>
+        <TablesPageClient data={data} />
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /行程表/i }));
+    const cityCell = screen.getByRole("textbox", { name: "城市" });
+
+    await user.clear(cityCell);
+    await user.type(cityCell, "东京");
+
+    expect(cityCell).toHaveValue("东京");
+    expect(updateDataRowAction).not.toHaveBeenCalled();
+
+    await user.tab();
+
+    expect(updateDataRowAction).toHaveBeenCalledTimes(1);
+    expect(updateDataRowAction).toHaveBeenCalledWith("table-1", "row-1", {
+      "col-city": "东京",
+    });
   });
 });
