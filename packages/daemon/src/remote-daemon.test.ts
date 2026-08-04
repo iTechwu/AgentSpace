@@ -17,12 +17,41 @@ import {
   resolveRemoteTaskExecutionModel,
   resolveRemoteTaskProviderSessionId,
   runRemoteDaemonCommand,
+  watchRemoteTaskCancellation,
 } from "./remote-daemon.ts";
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError } from "./daemon-client.ts";
 import { isProcessRunning } from "./state.ts";
 
 test("isProcessRunning treats an inaccessible existing process as running", () => {
   assert.equal(isProcessRunning(1), true);
+});
+
+test("watchRemoteTaskCancellation aborts after the control plane cancels a task", async () => {
+  const controller = new AbortController();
+  let reads = 0;
+  const stop = watchRemoteTaskCancellation({
+    getTaskStatus: async () => ({
+      task: {
+        id: "task-1",
+        status: ++reads >= 2 ? "cancelled" : "running",
+        updatedAt: new Date().toISOString(),
+      },
+    }),
+  }, "task-1", controller, { pollIntervalMs: 10 });
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("cancellation watcher timed out")), 500);
+      controller.signal.addEventListener("abort", () => {
+        clearTimeout(timeout);
+        resolve();
+      }, { once: true });
+    });
+    assert.equal(controller.signal.aborted, true);
+    assert.equal(reads, 2);
+  } finally {
+    stop();
+  }
 });
 
 test("daemon status exits non-zero when no daemon is running", async () => {

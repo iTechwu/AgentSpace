@@ -74,6 +74,7 @@ import { POST as outputBundlePOST } from "./tasks/[taskId]/output-bundle/route";
 import { POST as runtimeApprovalPOST } from "./tasks/[taskId]/runtime-approvals/route";
 import { GET as runtimeApprovalGET } from "./tasks/[taskId]/runtime-approvals/[approvalId]/route";
 import { POST as startPOST } from "./tasks/[taskId]/start/route";
+import { GET as taskStatusGET } from "./tasks/[taskId]/status/route";
 import { POST as appOperationClaimPOST } from "./runtimes/[runtimeId]/apps/operations/claim/route";
 import { POST as appOperationStartPOST } from "./runtime-app-operations/[operationId]/start/route";
 import { POST as appOperationCompletePOST } from "./runtime-app-operations/[operationId]/complete/route";
@@ -187,6 +188,45 @@ async function startDaemonTaskForTest(token: string, taskId: string): Promise<vo
 }
 
 describe("daemon API routes", () => {
+  it("exposes cancelled task status to the authenticated claiming daemon", async () => {
+    const daemonToken = createDaemonApiTokenSync({ label: "status-daemon", createdBy: "techwu" });
+    const registerResponse = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          daemonKey: "status-daemon",
+          deviceName: "Status Daemon",
+          runtimes: [{ provider: "claude", name: "Status Runtime", version: "test" }],
+        }),
+      }),
+    );
+    const registerPayload = await registerResponse.json();
+    const runtimeId = registerPayload.runtimes[0].id as string;
+    createEmployeeSync({ name: "Status Agent", role: "Tester" });
+    bindEmployeeRuntimeSync("Status Agent", runtimeId);
+    const queued = enqueueNativeTaskSync({
+      assignee: "Status Agent",
+      title: "Cancellation status",
+      priority: "medium",
+      triggerType: "manual",
+      metadata: { title: "Cancellation status" },
+    });
+    cancelQueuedTaskSync({ taskId: queued!.id, errorText: "Stopped by user." });
+
+    const response = await taskStatusGET(
+      new Request(`http://localhost/api/daemon/tasks/${queued!.id}/status`, {
+        headers: daemonHeaders(daemonToken.token),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      task: { id: queued!.id, status: "cancelled" },
+    });
+  });
+
   it("keeps task completion successful when usage persistence needs reconciliation", () => {
     const errors: unknown[] = [];
     const retries: unknown[] = [];

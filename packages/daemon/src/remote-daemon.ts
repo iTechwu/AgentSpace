@@ -1037,6 +1037,8 @@ async function executeRemoteTask(
   // Provider's own MCP config only ever receives the gateway URL.
   let mcpSession: { url: string; revoke: () => void } | undefined;
   let skillRunner: SkillRunnerBroker | undefined;
+  const cancellationController = new AbortController();
+  const stopCancellationWatch = watchRemoteTaskCancellation(client, task.id, cancellationController);
 
   try {
     await client.startTask(task.id);
@@ -1213,6 +1215,7 @@ async function executeRemoteTask(
           reportTaskMessage(event);
         },
         onApprovalRequest: (request) => waitForRuntimeApproval(client, task.id, request),
+        signal: cancellationController.signal,
       },
     );
 
@@ -1256,6 +1259,9 @@ async function executeRemoteTask(
       usages: usages.length > 0 ? usages : undefined,
     });
   } catch (error) {
+    if (cancellationController.signal.aborted) {
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     const failureMetadata = readProviderTaskFailureMetadata(error);
     const providerError = failureMetadata?.providerError;
@@ -1270,6 +1276,7 @@ async function executeRemoteTask(
       workDir: failureMetadata?.workDir ?? workDir,
     });
   } finally {
+    stopCancellationWatch();
     // Revoke the MCP session. Tool audits are now flushed per-call by the
     // gateway's onAudit handler, so a daemon crash loses at most the in-flight
     // call rather than the entire task's audit trail.
@@ -1280,6 +1287,38 @@ async function executeRemoteTask(
       rmSync(workDir, { recursive: true, force: true });
     }
   }
+}
+
+export function watchRemoteTaskCancellation(
+  client: Pick<HttpDaemonClient, "getTaskStatus">,
+  taskId: string,
+  controller: AbortController,
+  options?: { pollIntervalMs?: number; onError?: (error: unknown) => void },
+): () => void {
+  const pollIntervalMs = Math.max(10, options?.pollIntervalMs ?? 2_000);
+  let stopped = false;
+  let timer: NodeJS.Timeout | undefined;
+
+  const poll = async (): Promise<void> => {
+    try {
+      const response = await client.getTaskStatus(taskId);
+      if (response.task.status === "cancelled") {
+        controller.abort(new Error("task_cancelled"));
+        return;
+      }
+    } catch (error) {
+      options?.onError?.(error);
+    }
+    if (!stopped && !controller.signal.aborted) {
+      timer = setTimeout(() => void poll(), pollIntervalMs);
+    }
+  };
+
+  void poll();
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
 }
 
 function ensureManagedRuntimeHomeDir(stateDir: string, runtimeId: string): string {

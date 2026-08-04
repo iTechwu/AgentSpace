@@ -29,6 +29,7 @@ import type {
   FailTaskRequest,
   FailWorkspaceMountOperationRequest,
   GetRuntimeApprovalResponse,
+  GetDaemonTaskStatusResponse,
   HeartbeatDaemonResponse,
   HeartbeatDaemonRequest,
   ManagedCredentialBundleDocument,
@@ -74,6 +75,7 @@ export type {
   FailTaskRequest,
   FailWorkspaceMountOperationRequest,
   GetRuntimeApprovalResponse,
+  GetDaemonTaskStatusResponse,
   HeartbeatDaemonResponse,
   HeartbeatDaemonRequest,
   ManagedCredentialBundleDocument,
@@ -366,6 +368,10 @@ export class HttpDaemonClient {
 
   async getInputBundle(taskId: string): Promise<DaemonTaskInputBundle> {
     return this.getJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/input-bundle`, { retryable: true });
+  }
+
+  async getTaskStatus(taskId: string): Promise<GetDaemonTaskStatusResponse> {
+    return this.getJson(`/api/daemon/tasks/${encodeURIComponent(taskId)}/status`, { retryable: true });
   }
 
   async getWorkspaceBlob(taskId: string, revisionId: string, sha256: string): Promise<Uint8Array> {

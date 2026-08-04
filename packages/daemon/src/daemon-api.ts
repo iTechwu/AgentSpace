@@ -42,6 +42,7 @@ export type {
   FailTaskRequest,
   FailWorkspaceMountOperationRequest,
   GetRuntimeApprovalResponse,
+  GetDaemonTaskStatusResponse,
   HeartbeatDaemonRequest,
   HeartbeatDaemonResponse,
   ManagedCredentialBundleDocument,

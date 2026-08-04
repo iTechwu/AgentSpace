@@ -46,6 +46,8 @@ export interface AgentRouterRunRequest {
    */
   codexMcpInjectionEnabled?: boolean;
   onApprovalRequest?: (request: AgentRouterApprovalRequest) => Promise<AgentRouterApprovalDecision>;
+  /** Process-local cancellation signal. This field is never serialized to a Provider. */
+  signal?: AbortSignal;
 }
 
 export interface AgentRouterRunResult {

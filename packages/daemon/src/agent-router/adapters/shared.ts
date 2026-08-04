@@ -61,6 +61,7 @@ export async function runNativeHarness(
       onReady: options.onReady ? (controller) => options.onReady?.(controller, teeObserver) : undefined,
       onStdout: options.onStdout ? (chunk) => options.onStdout?.(chunk, teeObserver) : undefined,
       onStderr: options.onStderr ? (chunk) => options.onStderr?.(chunk, teeObserver) : undefined,
+      signal: request.signal,
     });
   } catch (error) {
     const diagnostic = createDiagnostic("harness.unknown_failure", error instanceof Error ? error.message : String(error));
@@ -75,6 +76,18 @@ export async function runNativeHarness(
   }
 
   const stderrTail = tailText(processResult.stderr);
+  if (processResult.aborted) {
+    return {
+      status: "cancelled",
+      harness,
+      events,
+      diagnostics: [],
+      exitCode: processResult.exitCode,
+      signal: processResult.signal,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+    };
+  }
   if (processResult.timedOut) {
     return {
       status: "timeout",

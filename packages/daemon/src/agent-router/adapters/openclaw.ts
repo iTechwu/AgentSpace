@@ -123,7 +123,7 @@ async function runOpenClaw(
   }
 
   try {
-    const setupResult = await setupEphemeralAgent(plan, observer);
+    const setupResult = await setupEphemeralAgent(plan, observer, request.signal);
     if (setupResult) {
       return withPreflightDiagnostics(setupResult, preflightDiagnostics);
     }
@@ -234,6 +234,7 @@ function cleanupEphemeralAgent(plan: HarnessLaunchPlan, observer: AgentRouterObs
 async function setupEphemeralAgent(
   plan: HarnessLaunchPlan,
   observer: AgentRouterObserver,
+  signal?: AbortSignal,
 ): Promise<AgentRouterRunResult | undefined> {
   const agentName = plan.metadata?.openClawEphemeralAgentName;
   if (!agentName) {
@@ -246,7 +247,19 @@ async function setupEphemeralAgent(
     stdin: undefined,
     keepStdinOpen: false,
   };
-  const result = await runLaunchPlan("openclaw", setupPlan, { observer });
+  const result = await runLaunchPlan("openclaw", setupPlan, { observer, signal });
+  if (result.aborted) {
+    return {
+      status: "cancelled",
+      harness: "openclaw",
+      events: [],
+      diagnostics: [],
+      exitCode: result.exitCode,
+      signal: result.signal,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+    };
+  }
   if (result.timedOut) {
     return {
       status: "timeout",

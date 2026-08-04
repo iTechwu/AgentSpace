@@ -12,6 +12,7 @@ export interface SubprocessRunResult {
   exitCode: number | null;
   signal: string | null;
   timedOut: boolean;
+  aborted: boolean;
 }
 
 export interface SubprocessRunOptions {
@@ -19,6 +20,7 @@ export interface SubprocessRunOptions {
   onReady?: (controller: ExecController) => void;
   onStdout?: (chunk: string) => void;
   onStderr?: (chunk: string) => void;
+  signal?: AbortSignal;
 }
 
 export async function runLaunchPlan(
@@ -74,10 +76,27 @@ export async function runLaunchPlan(
   let stdout = "";
   let stderr = "";
   let timedOut = false;
+  let aborted = false;
   let timeout: NodeJS.Timeout | undefined;
   let killTimer: NodeJS.Timeout | undefined;
 
   return await new Promise<SubprocessRunResult>((resolve, reject) => {
+    const terminate = (): void => {
+      child.kill("SIGTERM");
+      killTimer ??= setTimeout(() => {
+        child.kill("SIGKILL");
+      }, KILL_GRACE_PERIOD_MS);
+    };
+    const abortHandler = (): void => {
+      aborted = true;
+      terminate();
+    };
+    if (options.signal?.aborted) {
+      abortHandler();
+    } else {
+      options.signal?.addEventListener("abort", abortHandler, { once: true });
+    }
+
     child.stdout?.on("data", (chunk) => {
       const value = redactText(String(chunk), plan.redactions);
       stdout += value;
@@ -93,22 +112,21 @@ export async function runLaunchPlan(
     if (plan.timeoutMs > 0) {
       timeout = setTimeout(() => {
         timedOut = true;
-        child.kill("SIGTERM");
-        killTimer = setTimeout(() => {
-          child.kill("SIGKILL");
-        }, KILL_GRACE_PERIOD_MS);
+        terminate();
       }, plan.timeoutMs);
     }
 
     child.on("error", (error) => {
       clearTimeout(timeout);
       clearTimeout(killTimer);
+      options.signal?.removeEventListener("abort", abortHandler);
       reject(error);
     });
 
     child.on("close", (exitCode, signal) => {
       clearTimeout(timeout);
       clearTimeout(killTimer);
+      options.signal?.removeEventListener("abort", abortHandler);
       const normalizedSignal = normalizeSignal(signal);
       options.observer?.emit({
         type: "harness_exited",
@@ -121,6 +139,7 @@ export async function runLaunchPlan(
         exitCode,
         signal: normalizedSignal,
         timedOut,
+        aborted,
       });
     });
   });

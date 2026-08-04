@@ -38,6 +38,26 @@ test("HttpDaemonClient retries retryable requests after transient server failure
   }
 });
 
+test("HttpDaemonClient reads the lightweight task status endpoint", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = (async (input) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({
+      task: { id: "task-1", status: "cancelled", updatedAt: "2026-08-04T00:00:00.000Z" },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    const client = new HttpDaemonClient("http://localhost:1455", "adt_test");
+    const result = await client.getTaskStatus("task-1");
+    assert.equal(result.task.status, "cancelled");
+    assert.equal(requestedUrl, "http://localhost:1455/api/daemon/tasks/task-1/status");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("HttpDaemonClient does not retry non-retryable task completion requests", async () => {
   const originalFetch = globalThis.fetch;
   let attempts = 0;

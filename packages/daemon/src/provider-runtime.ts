@@ -92,6 +92,8 @@ export interface ProviderTaskOptions {
   runtimeToolCapabilities?: RuntimeToolCapability[];
   /** Loopback MCP gateway URL for a task-scoped session; passed to the provider as a one-shot MCP config. */
   mcpGatewayUrl?: string;
+  /** Cancels the active Provider subprocess when the control plane stops the task. */
+  signal?: AbortSignal;
 }
 
 type ProviderTaskFailureCategory = ProviderErrorCategory | "auth" | "profile" | "model";
@@ -303,6 +305,7 @@ async function runAgentRouterProviderTask(
         contentPreview: request.contentPreview,
       }) ?? { decision: "approved" }
       : undefined,
+    signal: options.signal,
   }, {
     emit: (event) => {
       for (const mapped of mapAgentRouterEvent(event)) {

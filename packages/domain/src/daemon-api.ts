@@ -226,6 +226,14 @@ export interface ClaimTaskResponse {
   task: ClaimedDaemonTask | null;
 }
 
+export interface GetDaemonTaskStatusResponse {
+  task: {
+    id: string;
+    status: string;
+    updatedAt: string;
+  };
+}
+
 /** Daemon workspace-mount operation: materialize an employee's head revision onto a runtime. */
 export interface ClaimedWorkspaceMountOperation {
   operationId: string;
