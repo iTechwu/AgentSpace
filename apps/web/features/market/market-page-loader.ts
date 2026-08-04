@@ -31,6 +31,8 @@ export async function loadMarketPageData(input: {
   catalogHealth = readRuntimeAppCatalogHealthSync();
 
   const daemonSnapshots = listDaemonSnapshotsSync(input.workspaceId);
+  const mcpCatalogRecords = listMcpCatalogItemsForWorkspaceSync(input.workspaceId);
+  const mcpCatalogById = new Map(mcpCatalogRecords.map((item) => [item.id, item]));
   return {
     catalog: listRuntimeAppCatalogItemsSync({ limit: 1000 }).map((item) => ({
       source: item.source,
@@ -83,6 +85,7 @@ export async function loadMarketPageData(input: {
       version: app.version,
       entryPoint: app.entryPoint,
       lastError: app.lastError,
+      updatedAt: app.updatedAt,
     })),
     operations: listRuntimeAppOperationsSync({ workspaceId: input.workspaceId, limit: 200 }).map((operation) => ({
       id: operation.id,
@@ -94,7 +97,7 @@ export async function loadMarketPageData(input: {
       createdAt: operation.createdAt,
       errorMessage: operation.errorMessage,
     })),
-    mcpCatalog: listMcpCatalogItemsForWorkspaceSync(input.workspaceId).map((item) => ({
+    mcpCatalog: mcpCatalogRecords.map((item) => ({
       id: item.id,
       source: item.source,
       slug: item.slug,
@@ -115,7 +118,7 @@ export async function loadMarketPageData(input: {
       requiredRuntimeApp: resolveOfficialMcpRuntimeAppRequirement(item),
     })),
     mcpConnections: listMcpConnectionsSync({ workspaceId: input.workspaceId, limit: 500 }).map((connection) => {
-      const catalog = readMcpCatalogItemSync(connection.catalogItemId, input.workspaceId);
+      const catalog = mcpCatalogById.get(connection.catalogItemId) ?? readMcpCatalogItemSync(connection.catalogItemId, input.workspaceId);
       const declared = parseMcpDeclaredTools(catalog?.declaredToolsJson);
       return {
         id: connection.id,

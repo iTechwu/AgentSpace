@@ -80,7 +80,7 @@ export async function requestMcpConnectionAction(
     approvedTools: input.approvedTools,
     confirmHighRisk: input.confirmHighRisk,
   });
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents", "/runtimes"]);
   return actionToastResult(undefined, successToast("MCP 连接已创建，正在验证。", "MCP connection created; verifying."));
 }
 
@@ -106,7 +106,7 @@ export async function updateMcpConnectionConfigAction(
     approvedTools: input.approvedTools,
     confirmHighRisk: input.confirmHighRisk,
   });
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents", "/runtimes"]);
   return actionToastResult(undefined, successToast("配置已更新，需要重新验证。", "Configuration updated; re-verification required."));
 }
 
@@ -136,7 +136,7 @@ export async function replaceMcpConnectionConfigAction(
     secrets: input.secrets,
     confirmHighRisk: input.confirmHighRisk,
   });
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents", "/runtimes"]);
   return actionToastResult(undefined, successToast("配置与密钥已原子更新，需要重新验证。", "Configuration and secrets updated atomically; re-verification required."));
 }
 
@@ -154,7 +154,7 @@ export async function rotateMcpSecretAction(input: {
     fieldName: input.fieldName,
     value: input.value,
   });
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents", "/runtimes"]);
   return actionToastResult(undefined, successToast("密钥已轮换，需要重新验证。", "Secret rotated; re-verification required."));
 }
 
@@ -166,7 +166,7 @@ export async function reverifyMcpConnectionAction(input: { connectionId: string 
     actorUserId: workspaceContext.currentUser.id,
     connectionId: input.connectionId,
   });
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents", "/runtimes"]);
   return actionToastResult(undefined, successToast("已发起重新验证。", "Re-verification requested."));
 }
 
@@ -178,7 +178,7 @@ export async function disableMcpConnectionAction(input: { connectionId: string }
     actorUserId: workspaceContext.currentUser.id,
     connectionId: input.connectionId,
   });
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents", "/runtimes"]);
   return actionToastResult(undefined, successToast("连接已停用。", "Connection disabled."));
 }
 
@@ -190,7 +190,7 @@ export async function enableMcpConnectionAction(input: { connectionId: string })
     actorUserId: workspaceContext.currentUser.id,
     connectionId: input.connectionId,
   });
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents", "/runtimes"]);
   return actionToastResult(undefined, successToast("连接正在重新验证后启用。", "Connection re-verifying before enable."));
 }
 
@@ -202,6 +202,6 @@ export async function removeMcpConnectionAction(input: { connectionId: string })
     actorUserId: workspaceContext.currentUser.id,
     connectionId: input.connectionId,
   });
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/market/mcp-connections", "/agents", "/runtimes"]);
   return actionToastResult(undefined, successToast("连接移除已排队。", "Connection removal queued."));
 }

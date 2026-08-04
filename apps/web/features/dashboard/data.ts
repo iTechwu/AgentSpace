@@ -50,6 +50,8 @@ import {
   listQueuedTasksSync,
   listRuntimeAppOperationsSync,
   listRuntimeInstalledAppsSync,
+  listMcpConnectionsSync,
+  listMcpCatalogItemsSync,
   listRuntimeGrantsSync,
   listStoredSkillImportEventsSync,
   listAgentRouterProviderSessionsSync,
@@ -127,6 +129,8 @@ const listAgentRouterProviderSessionsCached = cache((workspaceId: string, router
 );
 const listRuntimeInstalledAppsCached = cache((workspaceId: string) => listRuntimeInstalledAppsSync({ workspaceId }));
 const listRuntimeAppOperationsCached = cache((workspaceId: string, limit: number) => listRuntimeAppOperationsSync({ workspaceId, limit }));
+const listMcpConnectionsCached = cache((workspaceId: string) => listMcpConnectionsSync({ workspaceId, limit: 500 }));
+const listMcpCatalogItemsCached = cache((workspaceId: string) => listMcpCatalogItemsSync({ workspaceId, limit: 500 }));
 const listTaskExecutionEventsCached = cache((workspaceId: string, taskId: string, limit: number) =>
   listTaskExecutionEventsSync({ workspaceId, taskId, limit, order: "asc" })
 );
@@ -744,6 +748,10 @@ export interface WorkspaceAgentRecord extends ManagementRecordBase {
   boundProvider?: string;
   boundProviderHealth?: RuntimeProviderHealth;
   boundAt?: string;
+  runtimeCapabilities?: {
+    cliApps: RuntimeInstalledAppView[];
+    mcpServices: RuntimeMcpConnectionView[];
+  };
   defaultModel?: string;
   executionPolicy?: import("@dofe-agent/domain/workspace").EmployeeExecutionPolicy;
   workAreas: AgentWorkAreaRecord[];
@@ -827,6 +835,7 @@ export interface ContainerRecord extends ManagementRecordBase {
   daemonPid?: string;
   cliHubReadiness?: CliHubReadinessRecord;
   installedApps: RuntimeInstalledAppView[];
+  mcpConnections?: RuntimeMcpConnectionView[];
   recentAppOperations: RuntimeAppOperationView[];
   grantedMembers: RuntimeGrantMember[];
   canManageGrants: boolean;
@@ -895,6 +904,17 @@ export interface RuntimeAppOperationView {
   status: string;
   createdAt: string;
   errorMessage?: string;
+}
+
+export interface RuntimeMcpConnectionView {
+  id: string;
+  catalogItemId: string;
+  catalogDisplayName: string;
+  transport: string;
+  status: string;
+  approvedToolCount: number;
+  lastVerifiedAt?: string;
+  updatedAt: string;
 }
 
 export interface RuntimeGrantMember {
@@ -2658,6 +2678,8 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
   const queuedTasks = listQueuedTasksCached(workspaceId);
   const installedApps = listRuntimeInstalledAppsCached(workspaceId);
   const runtimeAppOperations = listRuntimeAppOperationsCached(workspaceId, 200);
+  const mcpConnections = listMcpConnectionsCached(workspaceId);
+  const mcpCatalogItems = listMcpCatalogItemsCached(workspaceId);
   const runtimeDisplayNames = buildRuntimeDisplayNameIndex(workspaceId);
   const workspaceMembers = listWorkspaceMemberUsersCached(workspaceId).map(mapWorkspaceMemberForRuntimeGrant);
   const memberByUserId = new Map(workspaceMembers.map((member) => [member.userId, member]));
@@ -2694,7 +2716,17 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
     next.push(member);
     grantsByRuntimeId.set(grant.runtimeId, next);
   }
-  const allContainers = buildNativeRuntimeRecords(state, runtimeSnapshots, bindings, queuedTasks, runtimeDisplayNames, installedApps, runtimeAppOperations)
+  const allContainers = buildNativeRuntimeRecords(
+    state,
+    runtimeSnapshots,
+    bindings,
+    queuedTasks,
+    runtimeDisplayNames,
+    installedApps,
+    runtimeAppOperations,
+    mcpConnections,
+    mcpCatalogItems,
+  )
     .map((container) => ({
       ...container,
       grantedMembers: grantsByRuntimeId.get(container.runtimeId) ?? [],
@@ -3637,6 +3669,8 @@ function buildNativeRuntimeRecords(
   runtimeDisplayNames: Map<string, string>,
   installedApps: ReturnType<typeof listRuntimeInstalledAppsSync> = [],
   runtimeAppOperations: ReturnType<typeof listRuntimeAppOperationsSync> = [],
+  mcpConnections: ReturnType<typeof listMcpConnectionsSync> = [],
+  mcpCatalogItems: ReturnType<typeof listMcpCatalogItemsSync> = [],
 ): ContainerRecord[] {
   const boundEmployeesByRuntime = new Map<string, string[]>();
   for (const binding of bindings) {
@@ -3664,6 +3698,23 @@ function buildNativeRuntimeRecords(
     next.push(operation);
     appOperationsByRuntime.set(operation.runtimeId, next);
   }
+  const mcpCatalogById = new Map(mcpCatalogItems.map((item) => [item.id, item]));
+  const mcpConnectionsByRuntime = new Map<string, RuntimeMcpConnectionView[]>();
+  for (const connection of mcpConnections) {
+    const catalog = mcpCatalogById.get(connection.catalogItemId);
+    const next = mcpConnectionsByRuntime.get(connection.runtimeId) ?? [];
+    next.push({
+      id: connection.id,
+      catalogItemId: connection.catalogItemId,
+      catalogDisplayName: catalog?.displayName ?? connection.id,
+      transport: catalog?.transport ?? "streamable_http",
+      status: connection.status,
+      approvedToolCount: parseStringArray(connection.approvedToolsJson).length,
+      lastVerifiedAt: connection.lastVerifiedAt,
+      updatedAt: connection.updatedAt,
+    });
+    mcpConnectionsByRuntime.set(connection.runtimeId, next);
+  }
 
   return runtimeSnapshots.flatMap((snapshot) =>
     snapshot.runtimes.map((runtime) =>
@@ -3675,10 +3726,20 @@ function buildNativeRuntimeRecords(
         queuedTasksByRuntime.get(runtime.id) ?? [],
         installedAppsByRuntime.get(runtime.id) ?? [],
         appOperationsByRuntime.get(runtime.id) ?? [],
+        mcpConnectionsByRuntime.get(runtime.id) ?? [],
         workspaceTaskById,
       ),
     ),
   );
+}
+
+function parseStringArray(value: string | undefined): string[] {
+  try {
+    const parsed = JSON.parse(value ?? "[]") as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 function buildTaskInboxItems(
@@ -3962,7 +4023,7 @@ function buildWorkspaceAgentRecord(
     ? [
         "dofe-agent-output",
         ...runtime.installedApps
-          .filter((app) => app.enabled && app.entryPoint?.trim())
+          .filter((app) => app.status === "installed" && app.enabled && app.entryPoint?.trim())
           .map((app) => `clihub:${app.source}:${app.name}`),
       ]
     : undefined;
@@ -4083,6 +4144,10 @@ function buildWorkspaceAgentRecord(
     boundProvider: binding?.provider,
     boundProviderHealth: runtime?.providerHealth,
     boundAt: binding?.boundAt,
+    runtimeCapabilities: runtime ? {
+      cliApps: runtime.installedApps.filter((app) => app.status === "installed" && app.enabled),
+      mcpServices: (runtime.mcpConnections ?? []).filter((connection) => connection.status === "ready"),
+    } : undefined,
     defaultModel: employee.defaultModel,
     executionPolicy: employee.executionPolicy,
     workAreas,
@@ -4141,6 +4206,7 @@ function buildNativeRuntimeRecord(
   queuedTasks: ReturnType<typeof listQueuedTasksSync>,
   installedApps: ReturnType<typeof listRuntimeInstalledAppsSync>,
   runtimeAppOperations: ReturnType<typeof listRuntimeAppOperationsSync>,
+  mcpConnections: RuntimeMcpConnectionView[],
   workspaceTaskById: Map<string, TaskRecord>,
 ): ContainerRecord {
   const runtimeMetadata = safeParseJson(runtime.metadataJson);
@@ -4259,6 +4325,7 @@ function buildNativeRuntimeRecord(
     daemonPid: typeof daemonMetadata.pid === "string" ? daemonMetadata.pid : undefined,
     cliHubReadiness,
     installedApps: installedAppViews,
+    mcpConnections,
     recentAppOperations,
     grantedMembers: [],
     canManageGrants: false,

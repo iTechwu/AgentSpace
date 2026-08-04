@@ -265,6 +265,15 @@ const data: AgentsPageData = {
         completed: 2,
       },
       installedApps: [],
+      mcpConnections: [{
+        id: "mcp-connection-1",
+        catalogItemId: "mcp-search",
+        catalogDisplayName: "Search MCP",
+        transport: "streamable_http",
+        status: "ready",
+        approvedToolCount: 1,
+        updatedAt: "2026-04-10T09:00:00.000Z",
+      }],
       recentAppOperations: [],
       recentExecutions: [],
     },
@@ -302,6 +311,27 @@ const data: AgentsPageData = {
         providerUsable: "usable",
       },
       boundAt: "2026-04-10T08:00:00.000Z",
+      runtimeCapabilities: {
+        cliApps: [{
+          source: "clihub_public",
+          name: "mermaid",
+          displayName: "Mermaid CLI",
+          version: "1.0.0",
+          entryPoint: "mmdc",
+          status: "installed",
+          enabled: true,
+          updatedAt: "2026-04-10T09:00:00.000Z",
+        }],
+        mcpServices: [{
+          id: "mcp-connection-1",
+          catalogItemId: "mcp-search",
+          catalogDisplayName: "Search MCP",
+          transport: "streamable_http",
+          status: "ready",
+          approvedToolCount: 1,
+          updatedAt: "2026-04-10T09:00:00.000Z",
+        }],
+      },
       workAreas: [
         {
           id: "group:travel:planner",
@@ -992,6 +1022,19 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("Provider 状态")).toBeInTheDocument();
     expect(screen.getAllByText("不可用").length).toBeGreaterThan(0);
     expect(screen.getByText(/provider.auth_invalid/)).toBeInTheDocument();
+  });
+
+  it("shows CLI and MCP capabilities inherited from the bound runtime", async () => {
+    const user = userEvent.setup();
+    renderAgentsPage(data);
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+
+    const capabilities = screen.getByLabelText("AI 员工 Runtime 能力");
+    expect(capabilities).toHaveTextContent("Mermaid CLI");
+    expect(capabilities).toHaveTextContent("mmdc · 1.0.0");
+    expect(capabilities).toHaveTextContent("Search MCP");
+    expect(capabilities).toHaveTextContent("1 个已授权工具");
   });
 
   it("requests provider verification from the bound execution engine", async () => {

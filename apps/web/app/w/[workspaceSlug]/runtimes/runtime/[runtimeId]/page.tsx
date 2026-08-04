@@ -14,6 +14,8 @@ import { hasWorkspaceRole } from "@/features/auth/workspace-permissions";
 import { getWorkspacePageContext } from "../../../_lib/workspace-page-context";
 import { ManagedRuntimeSharingToggle } from "@/features/runtimes/managed-runtime-sharing-toggle";
 import { ManagedRuntimeModelSettings } from "@/features/runtimes/managed-runtime-model-settings";
+import { RuntimeCapabilitiesPanel } from "@/features/runtimes/runtime-capabilities-panel";
+import { loadMarketPageData } from "@/features/market/market-page-loader";
 import { AppIcon } from "@/shared/ui/app-icon";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +52,10 @@ export default async function ManagedRuntimeDetailPage({
     }
   }
   const authoritativeUsage = summarizeRuntimeBilling(billingReport);
+  const marketData = await loadMarketPageData({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    canManage: true,
+  });
 
   const presentation = presentRuntimeState(runtime.provisioningState, runtime.status);
 
@@ -132,6 +138,14 @@ export default async function ManagedRuntimeDetailPage({
           ) : null}
         </section>
       </div>
+
+      <RuntimeCapabilitiesPanel
+        data={marketData}
+        runtimeId={runtime.id}
+        runtimeName={runtime.name}
+        runtimeStatus={runtime.status}
+        workspaceSlug={workspaceContext.currentWorkspace.slug}
+      />
 
       <div className="runtime-detail__settings" aria-label="执行引擎设置">
         <section className="runtime-detail__section runtime-detail__section--model" aria-labelledby="runtime-model-title">

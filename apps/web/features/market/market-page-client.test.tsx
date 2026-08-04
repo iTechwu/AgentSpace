@@ -484,7 +484,7 @@ describe("MarketPageClient", () => {
       </LanguageProvider>,
     );
 
-    expect(screen.getByText("failed")).toBeInTheDocument();
+    expect(screen.getAllByText("failed").length).toBeGreaterThan(0);
     expect(screen.getByRole("alert")).toHaveTextContent("No matching distribution found for cli-anything-hub");
     expect(screen.getByRole("alert")).not.toHaveTextContent("Older installed app error");
   });

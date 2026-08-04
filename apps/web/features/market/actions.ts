@@ -19,7 +19,7 @@ export async function refreshRuntimeAppCatalogAction(): Promise<ActionToastResul
   const workspaceContext = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(workspaceContext, "admin");
   const result = await syncCliHubCatalog();
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents", "/runtimes"]);
   return actionToastResult(
     undefined,
     successToast(
@@ -51,7 +51,7 @@ export async function requestRuntimeAppOperationAction(input: {
     actorUserId: workspaceContext.currentUser.id,
     confirmHighRisk: input.confirmHighRisk,
   });
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents", "/runtimes"]);
   return actionToastResult(
     undefined,
     successToast("Runtime app 操作已排队。", "Runtime app operation queued."),
@@ -71,7 +71,7 @@ export async function syncRuntimeAppSkillAction(input: {
     source: input.source,
     name: input.name.trim(),
   });
-  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents", "/skills"]);
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents", "/runtimes", "/skills"]);
   return actionToastResult(
     undefined,
     successToast(
