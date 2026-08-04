@@ -288,7 +288,23 @@ describe("MarketPageClient", () => {
     render(
       <LanguageProvider>
         <FeedbackToastProvider>
-          <MarketPageClient data={{ ...data, mcpCatalog: [chromeCatalog] }} />
+          <MarketPageClient data={{
+            ...data,
+            catalog: [...data.catalog, {
+              source: "clihub_public",
+              productSource: "official",
+              name: "chrome-devtools-mcp",
+              displayName: "Chrome DevTools MCP",
+              description: "Managed Chrome DevTools server",
+              version: "1.6.0",
+              category: "developer_tools",
+              entryPoint: "chrome-devtools-mcp",
+              installStrategy: "npm",
+              risk: "low",
+              installability: { status: "installable", requiredTools: ["npm"] },
+            }],
+            mcpCatalog: [chromeCatalog],
+          }} />
         </FeedbackToastProvider>
       </LanguageProvider>,
     );
@@ -296,8 +312,13 @@ describe("MarketPageClient", () => {
     await user.click(screen.getByRole("tab", { name: "MCP 市场" }));
     expect(within(screen.getByRole("combobox", { name: "传输" })).getByRole("option", { name: "managed_stdio" })).toBeInTheDocument();
     expect(screen.getByText("chrome-devtools-mcp@1.6.0")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "配置并连接" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "安装 Runtime 组件" }));
+    const progress = screen.getByRole("list", { name: "MCP 连接进度" });
+    expect(progress).toBeInTheDocument();
+    expect(within(progress).getByText("安装依赖 CLI").closest("li")).toHaveAttribute("aria-current", "step");
+    expect(within(progress).getByText("配置参数").closest("li")).toHaveClass("mcp-setup-progress__step--pending");
+    expect(screen.queryByRole("button", { name: "配置并连接" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /继续：/ })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "继续：安装依赖 CLI" }));
 
     await waitFor(() => expect(actionMocks.requestOperation).toHaveBeenCalledWith({
       runtimeId: "runtime-online",
@@ -305,6 +326,48 @@ describe("MarketPageClient", () => {
       name: "chrome-devtools-mcp",
       operation: "install",
     }));
+  });
+
+  it("advances the same managed stdio action to verification when its dependency is ready", async () => {
+    const user = userEvent.setup();
+    const managedCatalog: MarketPageData["mcpCatalog"][number] = {
+      ...data.mcpCatalog[0]!,
+      id: "mcp-managed-ready",
+      source: "official",
+      slug: "managed-ready",
+      displayName: "Managed Ready MCP",
+      transport: "managed_stdio",
+      endpointTemplate: "stdio://managed-ready",
+      secretFields: [],
+      configurationFields: [],
+      requiredRuntimeApp: { source: "clihub_public", name: "managed-ready", version: "2.0.0" },
+    };
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{
+            ...data,
+            mcpCatalog: [managedCatalog],
+            installedApps: [{
+              runtimeId: "runtime-online",
+              source: "clihub_public",
+              name: "managed-ready",
+              displayName: "Managed Ready",
+              version: "2.0.0",
+              entryPoint: "managed-ready",
+              installStrategy: "npm",
+              status: "installed",
+              enabled: true,
+            }],
+          }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "MCP 市场" }));
+
+    expect(screen.queryByRole("button", { name: "继续：安装依赖 CLI" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "继续：验证并连接" })).toBeEnabled();
   });
 
   it("groups one MCP service connected to multiple runtimes without presenting duplicate services", async () => {
@@ -914,7 +977,7 @@ describe("MarketPageClient", () => {
     await user.click(screen.getByRole("button", { name: "管理 Online Runtime 的 Workspace Search 配置" }));
     expect(screen.getByText(/不会回显/)).toBeInTheDocument();
     await user.type(screen.getByLabelText("X-Workspace *"), "workspace-42");
-    await user.click(screen.getByRole("button", { name: "更新配置" }));
+    await user.click(screen.getByRole("button", { name: "更新并重新验证" }));
 
     await waitFor(() => expect(actionMocks.replaceMcpConnectionConfig).toHaveBeenCalledWith(expect.objectContaining({
       connectionId: "connection-1",
@@ -953,7 +1016,7 @@ describe("MarketPageClient", () => {
     await user.click(screen.getByRole("tab", { name: /MCP/ }));
     await user.click(screen.getByRole("button", { name: "管理 Online Runtime 的 Workspace Search 配置" }));
     // Do not re-type the required X-Workspace field.
-    await user.click(screen.getByRole("button", { name: "更新配置" }));
+    await user.click(screen.getByRole("button", { name: "更新并重新验证" }));
 
     await waitFor(() => expect(actionMocks.replaceMcpConnectionConfig).toHaveBeenCalledWith(expect.objectContaining({
       connectionId: "connection-1",
@@ -1003,7 +1066,7 @@ describe("MarketPageClient", () => {
     await user.click(screen.getByRole("button", { name: /Other Search/ }));
     // Then enter edit mode for a connection of the first catalog.
     await user.click(screen.getByRole("button", { name: "管理 Online Runtime 的 Workspace Search 配置" }));
-    await user.click(screen.getByRole("button", { name: "更新配置" }));
+    await user.click(screen.getByRole("button", { name: "更新并重新验证" }));
 
     await waitFor(() => expect(actionMocks.replaceMcpConnectionConfig).toHaveBeenCalledWith(expect.objectContaining({
       connectionId: "connection-1",

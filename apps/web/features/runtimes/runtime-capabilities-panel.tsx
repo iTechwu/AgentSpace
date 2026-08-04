@@ -17,6 +17,7 @@ import { useLanguage } from "@/features/i18n/language-provider";
 import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-action";
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
+import { ManagedMcpSetupProgress } from "@/features/market/managed-mcp-setup-progress";
 
 type CliCatalogEntry = MarketPageData["catalog"][number];
 type McpCatalogEntry = MarketPageData["mcpCatalog"][number];
@@ -130,7 +131,7 @@ export function RuntimeCapabilitiesPanel({
   }
 
   function submitMcpConnection(): void {
-    if (!selectedMcp) return;
+    if (!selectedMcp || !requiredRuntimeAppReady || !mcpFormValid) return;
     runAction(() => requestMcpConnectionAction({
       runtimeId,
       catalogItemId: selectedMcp.id,
@@ -146,6 +147,17 @@ export function RuntimeCapabilitiesPanel({
   const requiredRuntimeAppReady = !requiredRuntimeApp || installedApps.some((item) =>
     item.source === requiredRuntimeApp.source && item.name === requiredRuntimeApp.name && item.status === "installed" && item.enabled && item.version === requiredRuntimeApp.version,
   );
+  const requiredRuntimeCatalogApp = requiredRuntimeApp
+    ? data.catalog.find((item) => item.source === requiredRuntimeApp.source && item.name === requiredRuntimeApp.name)
+    : undefined;
+  const requiredRuntimeAppInstallability = requiredRuntimeCatalogApp && runtime
+    ? projectRuntimeAppInstallability(requiredRuntimeCatalogApp.installability, runtime.cliReadiness)
+    : undefined;
+  const requiredRuntimeAppOperationActive = Boolean(requiredRuntimeApp && cliOperations.some((operation) =>
+    operation.appSource === requiredRuntimeApp.source
+    && operation.appName === requiredRuntimeApp.name
+    && isActiveCapabilityOperationStatus(operation.status),
+  ));
   const supportsSelectedMcpTransport = selectedMcp?.transport === "managed_stdio" || selectedMcp?.transport === "streamable_http";
   const selectedMcpRequiresHighRiskConfirmation = Boolean(
     selectedMcp && (selectedMcp.risk === "high" || selectedMcp.declaredTools.some((tool) => tool.risk === "high" && approvedTools.has(tool.name))),
@@ -154,6 +166,19 @@ export function RuntimeCapabilitiesPanel({
     && Boolean(selectedMcp?.configurationFields.every((field) => !field.required || nonSecretParams[field.name]?.trim()))
     && Boolean(selectedMcp?.secretFields.every((field) => secrets[field]?.trim()))
     && (!selectedMcpRequiresHighRiskConfirmation || confirmHighRisk);
+
+  function continueMcpSetup(): void {
+    if (!requiredRuntimeAppReady && requiredRuntimeApp) {
+      runAction(() => requestRuntimeAppOperationAction({
+        runtimeId,
+        source: requiredRuntimeApp.source,
+        name: requiredRuntimeApp.name,
+        operation: "install",
+      }));
+      return;
+    }
+    submitMcpConnection();
+  }
 
   return (
     <section className="runtime-detail__section runtime-capabilities" aria-labelledby="runtime-capabilities-title">
@@ -290,7 +315,7 @@ export function RuntimeCapabilitiesPanel({
           </div>
 
           {selectedMcp ? (
-            <form className="runtime-mcp-config" onSubmit={(event) => { event.preventDefault(); submitMcpConnection(); }}>
+            <form className="runtime-mcp-config" onSubmit={(event) => { event.preventDefault(); continueMcpSetup(); }}>
               <div className="runtime-mcp-config__heading"><div><span>MCP</span><h3>{selectedMcp.displayName}</h3></div><button aria-label={tx("关闭 MCP 配置", "Close MCP configuration")} className="icon-button" onClick={() => setSelectedMcpId(null)} type="button"><AppIcon name="close" /></button></div>
               <div className="runtime-mcp-config__fields">
                 <label className="form-field"><span>{selectedMcp.transport === "managed_stdio" ? tx("受管 stdio 入口", "Managed stdio entrypoint") : "Endpoint (HTTPS)"}</span><input onChange={(event) => setEndpoint(event.currentTarget.value)} readOnly={selectedMcp.transport === "managed_stdio"} value={endpoint} /></label>
@@ -302,10 +327,11 @@ export function RuntimeCapabilitiesPanel({
                 <div className="mcp-tool-scope__list">{selectedMcp.declaredTools.map((tool) => <label className="mcp-tool-row" key={tool.name}><input checked={approvedTools.has(tool.name)} onChange={() => toggleTool(tool.name)} type="checkbox" /><span><strong>{tool.name}</strong><small>{tool.description}</small></span><span className={`status-chip status-chip--${tool.risk === "high" ? "danger" : tool.risk === "medium" ? "warning" : "positive"}`}>{tool.risk}</span></label>)}</div>
               </details>
               {selectedMcpRequiresHighRiskConfirmation ? <label className="market-confirm-risk"><input checked={confirmHighRisk} onChange={(event) => setConfirmHighRisk(event.currentTarget.checked)} type="checkbox" /><span>{tx("确认此 Runtime 将访问声明的数据域", "Confirm access to the declared data domains")}</span></label> : null}
+              {selectedMcp.transport === "managed_stdio" ? <ManagedMcpSetupProgress configurationReady={Boolean(endpoint.trim()) && selectedMcp.configurationFields.every((field) => !field.required || Boolean(nonSecretParams[field.name]?.trim())) && selectedMcp.secretFields.every((field) => Boolean(secrets[field]?.trim()))} dependencyReady={requiredRuntimeAppReady} dependencyRequired={Boolean(requiredRuntimeApp)} permissionsReady={!selectedMcpRequiresHighRiskConfirmation || confirmHighRisk} runtimeReady={Boolean(runtime)} tx={tx} /> : null}
               <div className="market-action-row">
-                {!requiredRuntimeAppReady && requiredRuntimeApp ? <button className="action-button" disabled={isPending || runtimeStatus !== "online"} onClick={() => runAction(() => requestRuntimeAppOperationAction({ runtimeId, source: requiredRuntimeApp.source, name: requiredRuntimeApp.name, operation: "install" }))} type="button"><AppIcon name="download" /><span>{tx("安装 Runtime 组件", "Install runtime component")}</span></button> : null}
-                <button className="primary-button" disabled={isPending || runtimeStatus !== "online" || !runtime?.mcpEligible || !requiredRuntimeAppReady || !mcpFormValid} type="submit"><AppIcon name="plus" /><span>{tx("连接 MCP", "Connect MCP")}</span></button>
+                <button className="primary-button" disabled={isPending || runtimeStatus !== "online" || !runtime?.mcpEligible || requiredRuntimeAppOperationActive || (requiredRuntimeAppReady ? !mcpFormValid : requiredRuntimeAppInstallability?.status !== "installable")} type="submit"><AppIcon name={requiredRuntimeAppReady ? "plus" : "download"} /><span>{requiredRuntimeAppOperationActive ? tx("正在安装依赖 CLI", "Installing dependency CLI") : requiredRuntimeAppReady ? tx("继续：验证并连接", "Continue: verify and connect") : tx("继续：安装依赖 CLI", "Continue: install dependency CLI")}</span></button>
               </div>
+              {requiredRuntimeApp && !requiredRuntimeAppReady && requiredRuntimeAppInstallability?.status !== "installable" ? <p className="panel-note panel-note--danger">{runtimeAppInstallabilityReason(requiredRuntimeAppInstallability?.code ?? "runtime_app.catalog_item_missing", tx)}</p> : null}
             </form>
           ) : null}
         </div>

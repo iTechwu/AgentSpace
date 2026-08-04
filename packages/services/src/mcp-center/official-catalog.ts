@@ -119,7 +119,7 @@ export function syncOfficialMcpCatalogForWorkspaceSync(workspaceId: string): Mcp
       entryPoint: MINIMAX_TOKEN_PLAN_MCP_PACKAGE,
       installStrategy: "pip",
       installCmd: `python3 -m pip install --user ${MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC}`,
-      requiresText: "Python 3.10+, a MiniMax Token Plan API key, and approved access to api.minimaxi.com.",
+      requiresText: "Python 3.10+ in the target Runtime image.",
       homepage: "https://platform.minimaxi.com/docs/guides/token-plan-mcp-guide",
       registryJson: JSON.stringify({
         pypi_package: MINIMAX_TOKEN_PLAN_MCP_PACKAGE,

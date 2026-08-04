@@ -21,7 +21,12 @@ import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-actio
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import type { MarketPageData } from "@/features/market/market-page-client";
-import { isActiveCapabilityOperationStatus } from "@/features/market/capability-presentation";
+import {
+  isActiveCapabilityOperationStatus,
+  projectRuntimeAppInstallability,
+  runtimeAppInstallabilityReason,
+} from "@/features/market/capability-presentation";
+import { ManagedMcpSetupProgress } from "@/features/market/managed-mcp-setup-progress";
 
 type CatalogEntry = MarketPageData["mcpCatalog"][number];
 type ConnectionEntry = MarketPageData["mcpConnections"][number];
@@ -111,11 +116,14 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     ? data.runtimes.filter((runtime) => runtime.id === editingConnection.runtimeId)
     : onlineRuntimes;
   const formRuntimeId = editingConnection?.runtimeId ?? selectedRuntime?.id ?? "";
+  const targetRuntime = editingConnection
+    ? data.runtimes.find((runtime) => runtime.id === editingConnection.runtimeId)
+    : selectedRuntime;
   const supportsSelectedTransport = selected?.transport === "streamable_http" || selected?.transport === "managed_stdio";
   const requiredRuntimeApp = selected?.requiredRuntimeApp;
-  const requiredRuntimeInstallation = requiredRuntimeApp && selectedRuntime
+  const requiredRuntimeInstallation = requiredRuntimeApp && targetRuntime
     ? data.installedApps.find((app) =>
-        app.runtimeId === selectedRuntime.id &&
+        app.runtimeId === targetRuntime.id &&
         app.source === requiredRuntimeApp.source &&
         app.name === requiredRuntimeApp.name,
       )
@@ -125,17 +133,27 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     requiredRuntimeInstallation.enabled &&
     requiredRuntimeInstallation.version === requiredRuntimeApp.version,
   );
-  const requiredRuntimeAppOperationActive = Boolean(requiredRuntimeApp && selectedRuntime && data.operations.some((operation) =>
-    operation.runtimeId === selectedRuntime.id &&
+  const requiredRuntimeAppOperationActive = Boolean(requiredRuntimeApp && targetRuntime && data.operations.some((operation) =>
+    operation.runtimeId === targetRuntime.id &&
     operation.appSource === requiredRuntimeApp.source &&
     operation.appName === requiredRuntimeApp.name &&
     isActiveCapabilityOperationStatus(operation.status),
   ));
+  const requiredRuntimeCatalogApp = requiredRuntimeApp
+    ? data.catalog.find((item) => item.source === requiredRuntimeApp.source && item.name === requiredRuntimeApp.name)
+    : undefined;
+  const requiredRuntimeAppInstallability = requiredRuntimeCatalogApp && targetRuntime
+    ? projectRuntimeAppInstallability(requiredRuntimeCatalogApp.installability, targetRuntime.cliReadiness)
+    : undefined;
   const requiresHighRiskConfirmation = Boolean(selected && (
     !editingConnection
       ? selected.risk === "high" || selected.declaredTools.some((tool) => tool.risk === "high" && approvedTools.has(tool.name))
       : selected.declaredTools.some((tool) => tool.risk === "high" && approvedTools.has(tool.name) && !editingConnection.approvedTools.includes(tool.name))
   ));
+  const connectionConfigurationReady = Boolean(selected && endpoint.trim().length > 0
+    && allConfigurationFieldsFilled(selected, nonSecretParams)
+    && (editingConnection || allSecretsFilled(selected, secrets)));
+  const toolPermissionsReady = !requiresHighRiskConfirmation || confirmHighRisk;
 
   // Reset per-catalog form state when the selection changes.
   // Skip while editing: manageConnection() already initialized the form and
@@ -251,9 +269,9 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   }
 
   function installRequiredRuntimeApp(): void {
-    if (!requiredRuntimeApp || !selectedRuntime) return;
+    if (!requiredRuntimeApp || !targetRuntime || targetRuntime.status !== "online") return;
     runAction(() => requestRuntimeAppOperationAction({
-      runtimeId: selectedRuntime.id,
+      runtimeId: targetRuntime.id,
       source: requiredRuntimeApp.source,
       name: requiredRuntimeApp.name,
       operation: "install",
@@ -557,26 +575,34 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                 </label>
               ) : null}
 
+              {selected.transport === "managed_stdio" ? (
+                <ManagedMcpSetupProgress
+                  configurationReady={connectionConfigurationReady}
+                  dependencyReady={requiredRuntimeAppReady}
+                  dependencyRequired={Boolean(requiredRuntimeApp)}
+                  permissionsReady={toolPermissionsReady}
+                  runtimeReady={Boolean(targetRuntime?.status === "online" && targetRuntime.mcpEligible)}
+                  tx={tx}
+                />
+              ) : null}
+
               <div className="market-action-row">
-                {requiredRuntimeApp && !requiredRuntimeAppReady ? (
-                  <button
-                    className="primary-button"
-                    disabled={isPending || !data.canManage || !selectedRuntime || requiredRuntimeAppOperationActive}
-                    onClick={installRequiredRuntimeApp}
-                    type="button"
-                  >
-                    <AppIcon name="download" />
-                    <span>{requiredRuntimeAppOperationActive ? tx("正在安装", "Installing") : tx("安装 Runtime 组件", "Install runtime component")}</span>
-                  </button>
-                ) : null}
                 <button
                   className="primary-button"
-                  disabled={isPending || !data.canManage || !supportsSelectedTransport || !selectedRuntime || !requiredRuntimeAppReady || !isSubmittable()}
-                  onClick={submitConnection}
+                  disabled={isPending || !data.canManage || !supportsSelectedTransport || !targetRuntime || targetRuntime.status !== "online" || !targetRuntime.mcpEligible || requiredRuntimeAppOperationActive || (requiredRuntimeAppReady ? !isSubmittable() : requiredRuntimeAppInstallability?.status !== "installable")}
+                  onClick={requiredRuntimeAppReady ? submitConnection : installRequiredRuntimeApp}
                   type="button"
                 >
-                  <AppIcon name="download" />
-                  <span>{editingConnection ? tx("更新配置", "Update configuration") : tx("配置并连接", "Configure and connect")}</span>
+                  <AppIcon name={requiredRuntimeAppReady ? "plus" : "download"} />
+                  <span>{requiredRuntimeAppOperationActive
+                    ? tx("正在安装依赖 CLI", "Installing dependency CLI")
+                    : !requiredRuntimeAppReady
+                      ? tx("继续：安装依赖 CLI", "Continue: install dependency CLI")
+                      : editingConnection
+                        ? tx("更新并重新验证", "Update and re-verify")
+                        : selected.transport === "managed_stdio"
+                          ? tx("继续：验证并连接", "Continue: verify and connect")
+                          : tx("配置并连接", "Configure and connect")}</span>
                 </button>
                 {editingConnection ? (
                   <button className="modal-secondary-button" disabled={isPending} onClick={cancelManagingConnection} type="button">
@@ -586,6 +612,9 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
               </div>
               {!supportsSelectedTransport ? (
                 <p className="panel-note">{tx("当前传输尚未开放连接。", "This transport is not connectable yet.")}</p>
+              ) : null}
+              {requiredRuntimeApp && !requiredRuntimeAppReady && requiredRuntimeAppInstallability?.status !== "installable" ? (
+                <p className="panel-note panel-note--danger">{runtimeAppInstallabilityReason(requiredRuntimeAppInstallability?.code ?? "runtime_app.catalog_item_missing", tx)}</p>
               ) : null}
               </>
             ) : null}

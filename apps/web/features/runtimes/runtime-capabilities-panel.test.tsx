@@ -101,7 +101,7 @@ describe("RuntimeCapabilitiesPanel", () => {
 
     await user.click(screen.getAllByRole("button", { name: "连接 MCP" }).at(-1)!);
     await user.click(screen.getByRole("button", { name: "配置并连接" }));
-    await user.click(screen.getAllByRole("button", { name: "连接 MCP" }).at(-1)!);
+    await user.click(screen.getByRole("button", { name: "继续：验证并连接" }));
 
     await waitFor(() => expect(actionMocks.requestMcp).toHaveBeenCalledWith({
       runtimeId: "runtime-1",
@@ -112,6 +112,48 @@ describe("RuntimeCapabilitiesPanel", () => {
       approvedTools: ["search"],
       confirmHighRisk: false,
     }));
+  });
+
+  it("uses one managed stdio action to install the required CLI from runtime details", async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      ...data,
+      catalog: [{
+        ...data.catalog[0]!,
+        source: "clihub_public",
+        productSource: "official",
+        name: "managed-search",
+        displayName: "Managed Search CLI",
+        version: "2.1.0",
+        entryPoint: "managed-search",
+        installStrategy: "npm",
+        installability: { status: "installable", requiredTools: ["npm"] },
+      }],
+      mcpCatalog: [{
+        ...data.mcpCatalog[0]!,
+        id: "mcp-managed-search",
+        slug: "managed-search",
+        displayName: "Managed Search MCP",
+        transport: "managed_stdio",
+        endpointTemplate: "stdio://managed-search",
+        requiredRuntimeApp: { source: "clihub_public", name: "managed-search", version: "2.1.0" },
+      }],
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "连接 MCP" }).at(-1)!);
+    await user.click(screen.getByRole("button", { name: "配置并连接" }));
+
+    expect(screen.getByRole("list", { name: "MCP 连接进度" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /继续：/ })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "继续：安装依赖 CLI" }));
+
+    await waitFor(() => expect(actionMocks.requestCli).toHaveBeenCalledWith({
+      runtimeId: "runtime-1",
+      source: "clihub_public",
+      name: "managed-search",
+      operation: "install",
+    }));
+    expect(actionMocks.requestMcp).not.toHaveBeenCalled();
   });
 
   it("requires explicit confirmation before installing a high-risk CLI", async () => {

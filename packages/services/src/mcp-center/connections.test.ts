@@ -23,7 +23,7 @@ import {
   startMcpOperationSync,
   startRuntimeAppOperationSync,
 } from "@dofe-agent/db";
-import { buildRuntimeAppInstallPlan } from "../clihub/install-plan.ts";
+import { assessRuntimeAppInstallability, buildRuntimeAppInstallPlan } from "../clihub/install-plan.ts";
 import { createMcpCatalogItemSync } from "./catalog.ts";
 import {
   CHROME_DEVTOOLS_MCP_PACKAGE_SPEC,
@@ -268,6 +268,7 @@ test("official MiniMax Token Plan MCP exposes two tools and a pinned secret-back
 
   const runtimeApp = readRuntimeAppCatalogItemSync("clihub_public", MINIMAX_TOKEN_PLAN_MCP_PACKAGE);
   assert.ok(runtimeApp);
+  assert.equal(assessRuntimeAppInstallability(runtimeApp).status, "installable");
   const plan = buildRuntimeAppInstallPlan({ item: runtimeApp, operation: "install", cliHubAvailable: true });
   assert.deepEqual(plan.commands, [{
     executable: "python3",

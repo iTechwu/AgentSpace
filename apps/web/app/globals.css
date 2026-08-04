@@ -22753,6 +22753,110 @@ textarea:focus {
   line-height: 1;
 }
 
+.mcp-setup-progress {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  margin: 0.9rem 0 0;
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  list-style: none;
+}
+
+.mcp-setup-progress__step {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.mcp-setup-progress__step::before {
+  position: absolute;
+  top: 11px;
+  right: 50%;
+  left: -50%;
+  height: 1px;
+  content: "";
+  background: var(--line-strong);
+}
+
+.mcp-setup-progress__step:first-child::before {
+  display: none;
+}
+
+.mcp-setup-progress__index {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  width: 23px;
+  height: 23px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--panel-strong);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.mcp-setup-progress__index svg {
+  width: 15px;
+  height: 15px;
+}
+
+.mcp-setup-progress__step--complete,
+.mcp-setup-progress__step--current {
+  color: var(--text);
+}
+
+.mcp-setup-progress__step--complete::before {
+  background: var(--success);
+}
+
+.mcp-setup-progress__step--complete .mcp-setup-progress__index {
+  border-color: var(--success);
+  background: var(--success);
+  color: #ffffff;
+}
+
+.mcp-setup-progress__step--current .mcp-setup-progress__index {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.panel-note--danger {
+  color: var(--danger);
+}
+
+@media (max-width: 620px) {
+  .mcp-setup-progress {
+    grid-template-columns: 1fr;
+    gap: 0.45rem;
+  }
+
+  .mcp-setup-progress__step {
+    grid-template-columns: 23px minmax(0, 1fr);
+    justify-items: start;
+    align-items: center;
+    text-align: left;
+  }
+
+  .mcp-setup-progress__step::before {
+    top: -0.45rem;
+    bottom: auto;
+    left: 11px;
+    width: 1px;
+    height: 0.45rem;
+  }
+}
+
 .market-command-preview {
   overflow: auto;
   max-height: 8rem;
