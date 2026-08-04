@@ -13,6 +13,7 @@ import {
   assessRuntimeAppRisk,
   listMcpCatalogItemsForWorkspaceSync,
   readCliHubReadinessForRuntimeSync,
+  listWorkspaceRuntimeAppCatalogItemsSync,
   resolveOfficialMcpRuntimeAppRequirement,
   syncOfficialMcpCatalogForWorkspaceSync,
   syncCliHubCatalog,
@@ -37,7 +38,10 @@ export async function loadMarketPageData(input: {
     const requirement = resolveOfficialMcpRuntimeAppRequirement(item);
     return requirement ? [`${requirement.source}:${requirement.name}`] : [];
   }));
-  const catalogRecords = listRuntimeAppCatalogItemsSync({ limit: 1000 });
+  const catalogRecords = [
+    ...listRuntimeAppCatalogItemsSync({ limit: 1000 }),
+    ...listWorkspaceRuntimeAppCatalogItemsSync(input.workspaceId),
+  ];
   catalogHealth = projectCliCatalogHealth(catalogRecords, officialRuntimeApps);
   return {
     catalog: catalogRecords.map((item) => {

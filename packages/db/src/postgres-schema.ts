@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "102";
+export const POSTGRES_SCHEMA_VERSION = "103";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -37,6 +37,8 @@ export const POSTGRES_TABLE_NAMES = [
   "workspace_notification",
   "employee_runtime_binding",
   "runtime_app_catalog_item",
+  "runtime_app_package",
+  "runtime_app_release",
   "runtime_installed_app",
   "runtime_app_operation",
   "skill",
@@ -853,6 +855,39 @@ export function getPostgresSchemaStatements(): string[] {
         registry_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         synced_at TIMESTAMPTZ NOT NULL,
         PRIMARY KEY (source, name)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS runtime_app_package (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        slug TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL DEFAULT '',
+        homepage TEXT,
+        created_by_user_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, slug)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS runtime_app_release (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        package_id TEXT NOT NULL REFERENCES runtime_app_package(id) ON DELETE CASCADE,
+        version TEXT NOT NULL,
+        artifact_kind TEXT NOT NULL,
+        artifact_name TEXT NOT NULL,
+        artifact_url TEXT NOT NULL,
+        artifact_integrity TEXT NOT NULL,
+        entry_point TEXT NOT NULL,
+        manifest_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        risk TEXT NOT NULL DEFAULT 'high',
+        created_by_user_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        yanked_at TIMESTAMPTZ,
+        UNIQUE(package_id, version)
       )
     `,
     `

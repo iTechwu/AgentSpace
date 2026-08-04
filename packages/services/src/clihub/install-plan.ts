@@ -133,7 +133,8 @@ export function assessRuntimeAppInstallability(
   return checkRuntimeTools(["cli_hub"], readiness);
 }
 
-export function assessRuntimeAppRisk(item: Pick<RuntimeAppCatalogItemRecord, "installCmd" | "requiresText" | "installStrategy">): RuntimeAppRiskLevel {
+export function assessRuntimeAppRisk(item: Pick<RuntimeAppCatalogItemRecord, "source" | "installCmd" | "requiresText" | "installStrategy">): RuntimeAppRiskLevel {
+  if (item.source === "workspace_private") return "high";
   const command = item.installCmd ?? "";
   const requiresText = item.requiresText ?? "";
   if (UNSAFE_COMMAND_PATTERN.test(command)) {
@@ -248,7 +249,7 @@ function buildPlanNotes(
 }
 
 function readPublicNpmPackage(item: RuntimeAppCatalogItemRecord): string | undefined {
-  if (item.source !== "clihub_public" || item.installStrategy !== "npm") {
+  if ((item.source !== "clihub_public" && item.source !== "workspace_private") || item.installStrategy !== "npm") {
     return undefined;
   }
   try {
@@ -263,7 +264,7 @@ function readPublicNpmPackage(item: RuntimeAppCatalogItemRecord): string | undef
 }
 
 function readPublicPypiPackage(item: RuntimeAppCatalogItemRecord): PublicPypiPackage | undefined {
-  if (item.source !== "clihub_public" || item.installStrategy !== "pip") {
+  if ((item.source !== "clihub_public" && item.source !== "workspace_private") || item.installStrategy !== "pip") {
     return undefined;
   }
   try {

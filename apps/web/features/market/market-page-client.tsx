@@ -3,7 +3,9 @@
 import type { McpCatalogCategory, McpCatalogSource, McpConnectionOperationStage, RuntimeAppCatalogSource, RuntimeAppOperationStage, RuntimeAppOperationType } from "@dofe-agent/db";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { requestRuntimeAppOperationAction, refreshRuntimeAppCatalogAction, syncRuntimeAppSkillAction } from "@/features/market/actions";
+import { createWorkspaceRuntimeAppReleaseAction, requestRuntimeAppOperationAction, refreshRuntimeAppCatalogAction, syncRuntimeAppSkillAction } from "@/features/market/actions";
+import type { CreateWorkspaceRuntimeAppReleaseActionInput } from "@/features/market/actions";
+import { CreateCliReleaseModal } from "@/features/market/create-cli-release-modal";
 import { McpMarketPanel } from "@/features/market/mcp-market-panel";
 import {
   isActiveCapabilityOperationStatus,
@@ -247,6 +249,7 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
   const [selectedRuntimeId, setSelectedRuntimeId] = useState(data.runtimes[0]?.id ?? "");
   const [confirmHighRisk, setConfirmHighRisk] = useState(false);
   const [visibleCatalogCount, setVisibleCatalogCount] = useState(CLI_CATALOG_BATCH_SIZE);
+  const [showCreateRelease, setShowCreateRelease] = useState(false);
   const [isPending, startTransition] = useTransition();
   const onlineRuntimes = useMemo(() => data.runtimes.filter((runtime) => runtime.status === "online"), [data.runtimes]);
 
@@ -345,11 +348,12 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
     setVisibleCatalogCount(CLI_CATALOG_BATCH_SIZE);
   }, [category, installFilter, query, riskFilter, sourceFilter]);
 
-  function runAction(work: () => Promise<ActionToastResult<void>>): void {
+  function runAction(work: () => Promise<ActionToastResult<void>>, onSuccess?: () => void): void {
     startTransition(async () => {
       await runToastAction({
         action: work,
         onSuccess: async () => {
+          onSuccess?.();
           refreshWorkspaceModule(onDataChanged, router);
         },
         pushToast,
@@ -371,6 +375,10 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
       operation,
       confirmHighRisk,
     }));
+  }
+
+  function createPrivateRelease(input: CreateWorkspaceRuntimeAppReleaseActionInput): void {
+    runAction(() => createWorkspaceRuntimeAppReleaseAction(input), () => setShowCreateRelease(false));
   }
 
   return (
@@ -396,6 +404,15 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
               </span>
             ) : <span>{tx("尚未成功同步", "Not yet synced")}</span>}
           </div>
+          <button
+            className="action-button"
+            disabled={isPending || !data.canManage}
+            onClick={() => setShowCreateRelease(true)}
+            type="button"
+          >
+            <AppIcon name="plus" />
+            <span>{tx("添加 CLI", "Add CLI")}</span>
+          </button>
           <button
             className="action-button"
             disabled={isPending || !data.canManage}
@@ -667,6 +684,7 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
           variant="attention"
         />
       ) : null}
+      {showCreateRelease ? <CreateCliReleaseModal onCancel={() => setShowCreateRelease(false)} onConfirm={createPrivateRelease} pending={isPending} /> : null}
     </div>
   );
 }

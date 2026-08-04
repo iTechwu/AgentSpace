@@ -15,6 +15,7 @@ import type { RuntimeAppContextEntry, RuntimeAppInstallPlan } from "@dofe-agent/
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
 import { assessRuntimeAppInstallability, buildRuntimeAppInstallPlan } from "./install-plan.ts";
+import { readWorkspaceRuntimeAppCatalogItemSync } from "./private-releases.ts";
 
 export interface RuntimeAppOperationRequestResult {
   operation: RuntimeAppOperationRecord;
@@ -50,7 +51,7 @@ export function requestRuntimeAppOperationSync(input: {
   if (runtime.status !== "online") {
     throw new Error("runtime.offline");
   }
-  const item = readRuntimeAppCatalogItemSync(input.source, input.name.trim());
+  const item = readCatalogItemForWorkspace(input.workspaceId, input.source, input.name.trim());
   if (!item) {
     throw new Error("runtime_app.catalog_item_not_found");
   }
@@ -129,7 +130,7 @@ export function listRuntimeAppContextEntriesForRuntimeSync(input: {
     runtimeId: input.runtimeId,
     enabledOnly: true,
   }).map((installedApp) => {
-    const catalogItem = readRuntimeAppCatalogItemSync(installedApp.source, installedApp.name);
+    const catalogItem = readCatalogItemForWorkspace(input.workspaceId, installedApp.source, installedApp.name);
     return {
       source: installedApp.source,
       name: installedApp.name,
@@ -141,6 +142,12 @@ export function listRuntimeAppContextEntriesForRuntimeSync(input: {
       category: catalogItem?.category,
     };
   });
+}
+
+function readCatalogItemForWorkspace(workspaceId: string, source: RuntimeAppCatalogSource, name: string) {
+  return source === "workspace_private"
+    ? readWorkspaceRuntimeAppCatalogItemSync(workspaceId, name)
+    : readRuntimeAppCatalogItemSync(source, name);
 }
 
 export function readRuntimeAppAvailabilityForSkillSync(input: {

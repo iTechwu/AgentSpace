@@ -23,6 +23,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 const actionMocks = vi.hoisted(() => ({
+  createWorkspaceRuntimeAppRelease: vi.fn(async () => ({ data: undefined })),
   createMcpCatalogItem: vi.fn(async () => ({ data: undefined })),
   refreshCatalog: vi.fn(async () => ({ data: undefined })),
   requestOperation: vi.fn(async () => ({ data: undefined })),
@@ -33,6 +34,7 @@ const actionMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/features/market/actions", () => ({
+  createWorkspaceRuntimeAppReleaseAction: actionMocks.createWorkspaceRuntimeAppRelease,
   refreshRuntimeAppCatalogAction: actionMocks.refreshCatalog,
   requestRuntimeAppOperationAction: actionMocks.requestOperation,
   syncRuntimeAppSkillAction: actionMocks.syncSkill,
@@ -461,6 +463,32 @@ describe("MarketPageClient", () => {
 
     await user.click(screen.getByRole("button", { name: /Skill CLI/ }));
     expect(screen.getByText("Skill 依赖", { selector: ".market-fact strong" })).toBeInTheDocument();
+  });
+
+  it("publishes a fixed-version workspace-private CLI without accepting commands", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "添加 CLI" }));
+    await user.type(screen.getByRole("textbox", { name: "显示名称" }), "Internal Search");
+    await user.type(screen.getByRole("textbox", { name: "npm package" }), "@example/internal-search");
+    await user.type(screen.getByRole("textbox", { name: "固定版本" }), "1.4.2");
+    await user.type(screen.getByRole("textbox", { name: "入口命令" }), "internal-search");
+    await user.click(screen.getByRole("button", { name: "校验并发布" }));
+
+    await waitFor(() => expect(actionMocks.createWorkspaceRuntimeAppRelease).toHaveBeenCalledWith(expect.objectContaining({
+      artifactKind: "npm",
+      artifactName: "@example/internal-search",
+      version: "1.4.2",
+      entryPoint: "internal-search",
+    })));
+    expect(screen.queryByRole("textbox", { name: /shell|command/i })).not.toBeInTheDocument();
   });
 
   it("localizes CLI facts, source labels, risk, and timestamps in English", () => {

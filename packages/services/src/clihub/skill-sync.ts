@@ -7,6 +7,7 @@ import {
 import { createWorkspaceSkillSync, listWorkspaceSkillsSync, upsertWorkspaceSkillFileSync } from "../skills/skills.ts";
 import { parseSkillMarkdown } from "../skills/package/skill-md.ts";
 import { formatFrontmatterDescription } from "../shared/skill-frontmatter.ts";
+import { readWorkspaceRuntimeAppCatalogItemSync } from "./private-releases.ts";
 
 const SKILL_MD_FETCH_TIMEOUT_MS = 8_000;
 
@@ -27,7 +28,9 @@ export async function syncRuntimeAppSkill(input: {
   if (!installed || installed.status !== "installed" || !installed.enabled) {
     return { status: "not_available", warning: "运行时应用未安装在所选运行时上。" };
   }
-  const catalog = readRuntimeAppCatalogItemSync(input.source, input.name);
+  const catalog = input.source === "workspace_private"
+    ? readWorkspaceRuntimeAppCatalogItemSync(input.workspaceId, input.name)
+    : readRuntimeAppCatalogItemSync(input.source, input.name);
   if (!catalog?.skillMd?.trim()) {
     return { status: "not_available", warning: "目录项未声明 SKILL.md。" };
   }

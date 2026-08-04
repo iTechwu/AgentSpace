@@ -1,7 +1,8 @@
 "use server";
 
-import type { RuntimeAppCatalogSource, RuntimeAppOperationType } from "@dofe-agent/db";
+import type { RuntimeAppArtifactKind, RuntimeAppCatalogSource, RuntimeAppOperationType } from "@dofe-agent/db";
 import {
+  createWorkspaceRuntimeAppRelease,
   requestRuntimeAppOperationSync,
   syncCliHubCatalog,
   syncRuntimeAppSkill,
@@ -31,6 +32,32 @@ export async function refreshRuntimeAppCatalogAction(): Promise<ActionToastResul
         : `Catalog refresh failed; showing ${result.itemCount} cached apps.`,
     ),
   );
+}
+
+export interface CreateWorkspaceRuntimeAppReleaseActionInput {
+  slug: string;
+  displayName: string;
+  description?: string;
+  category?: string;
+  homepage?: string;
+  artifactKind: RuntimeAppArtifactKind;
+  artifactName: string;
+  version: string;
+  entryPoint: string;
+}
+
+export async function createWorkspaceRuntimeAppReleaseAction(
+  input: CreateWorkspaceRuntimeAppReleaseActionInput,
+): Promise<ActionToastResult<void>> {
+  const workspaceContext = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(workspaceContext, "admin");
+  await createWorkspaceRuntimeAppRelease({
+    workspaceId: workspaceContext.currentWorkspace.id,
+    actorUserId: workspaceContext.currentUser.id,
+    ...input,
+  });
+  revalidateWorkspacePaths(workspaceContext.currentWorkspace.slug, ["/market", "/agents", "/runtimes"]);
+  return actionToastResult(undefined, successToast("工作区私有 CLI 已发布。", "Workspace-private CLI release published."));
 }
 
 export async function requestRuntimeAppOperationAction(input: {

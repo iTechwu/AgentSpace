@@ -301,6 +301,15 @@ export {
   syncRuntimeAppSkill,
   type RuntimeAppSkillSyncResult,
 } from "./clihub/skill-sync.ts";
+export {
+  createWorkspaceRuntimeAppRelease,
+  listWorkspaceRuntimeAppCatalogItemsSync,
+  projectPrivateCliRelease,
+  readWorkspaceRuntimeAppCatalogItemSync,
+  resolveRuntimeAppArtifactMetadata,
+  type CreateWorkspaceRuntimeAppReleaseInput,
+  type WorkspaceRuntimeAppReleaseResult,
+} from "./clihub/private-releases.ts";
 
 // MCP center
 export {

@@ -30,6 +30,8 @@ export function runtimeAppSourceLabel(
       return tx("社区目录", "Community catalog");
     case "skill_dependency":
       return tx("Skill 依赖", "Skill dependency");
+    case "workspace_private":
+      return tx("工作区私有", "Workspace private");
   }
 }
 

@@ -851,13 +851,48 @@ export interface StoredAgentForkSnapshotRecord {
   createdAt: string;
 }
 
-export type RuntimeAppCatalogSource = "clihub_harness" | "clihub_public" | "skill_dependency";
+export type RuntimeAppCatalogSource = "clihub_harness" | "clihub_public" | "skill_dependency" | "workspace_private";
 export type RuntimeAppInstallStrategy = "cli_hub" | "pip" | "npm" | "uv" | "system" | "bundled" | "manual";
 export type RuntimeInstalledAppStatus = "installed" | "installing" | "failed" | "disabled" | "missing";
 export type RuntimeAppOperationType = "install" | "update" | "uninstall" | "verify" | "disable" | "enable";
 export type RuntimeAppOperationStatus = "pending" | "claimed" | "running" | "succeeded" | "failed" | "cancelled";
 export type RuntimeAppOperationStage = "queued" | "installing" | "verifying" | "finalizing" | "completed";
 export type RuntimeAppRiskLevel = "low" | "medium" | "high";
+export type RuntimeAppArtifactKind = "npm" | "pypi";
+
+export interface WorkspaceRuntimeAppPackageRecord {
+  id: string;
+  workspaceId: string;
+  slug: string;
+  displayName: string;
+  description: string;
+  category: string;
+  homepage?: string;
+  createdByUserId?: string;
+  createdAt: string;
+}
+
+export interface WorkspaceRuntimeAppReleaseRecord {
+  id: string;
+  workspaceId: string;
+  packageId: string;
+  packageSlug: string;
+  displayName: string;
+  description: string;
+  category: string;
+  homepage?: string;
+  version: string;
+  artifactKind: RuntimeAppArtifactKind;
+  artifactName: string;
+  artifactUrl: string;
+  artifactIntegrity: string;
+  entryPoint: string;
+  manifestJson: string;
+  risk: RuntimeAppRiskLevel;
+  createdByUserId?: string;
+  createdAt: string;
+  yankedAt?: string;
+}
 
 export interface RuntimeAppCatalogItemRecord {
   source: RuntimeAppCatalogSource;

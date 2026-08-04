@@ -75,6 +75,7 @@ export type {
   StoredAgentForkSnapshotRecord,
   RuntimeAppCatalogItemRecord,
   RuntimeAppCatalogSource,
+  RuntimeAppArtifactKind,
   RuntimeAppInstallStrategy,
   RuntimeAppOperationRecord,
   RuntimeAppOperationStage,
@@ -83,6 +84,8 @@ export type {
   RuntimeAppRiskLevel,
   RuntimeAppSkillBindingRecord,
   RuntimeInstalledAppRecord,
+  WorkspaceRuntimeAppPackageRecord,
+  WorkspaceRuntimeAppReleaseRecord,
   RuntimeInstalledAppStatus,
   McpCatalogItemRecord,
   McpCatalogCategory,
@@ -582,6 +585,14 @@ export {
   type FailRuntimeAppOperationInput,
   type UpsertRuntimeAppCatalogItemInput,
 } from "./runtime-apps.ts";
+export {
+  insertWorkspaceRuntimeAppReleaseSync,
+  listWorkspaceRuntimeAppReleasesSync,
+  readWorkspaceRuntimeAppPackageBySlugSync,
+  readWorkspaceRuntimeAppReleaseByVersionSync,
+  readWorkspaceRuntimeAppReleaseSync,
+  type InsertWorkspaceRuntimeAppReleaseInput,
+} from "./runtime-app-releases.ts";
 
 // MCP center
 export {

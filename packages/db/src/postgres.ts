@@ -28,6 +28,7 @@ type JsonColumnName =
   | "request_json"
   | "result_json"
   | "registry_json"
+  | "manifest_json"
   | "command_plan_json"
   | "options_json"
   | "snapshot_json"
@@ -214,6 +215,8 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "workspace_notification", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "employee_runtime_binding", conflictColumns: ["workspace_id", "employee_id"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC" },
   { tableName: "runtime_app_catalog_item", conflictColumns: ["source", "name"], jsonColumns: ["registry_json"], orderBy: "synced_at ASC, source ASC, name ASC" },
+  { tableName: "runtime_app_package", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
+  { tableName: "runtime_app_release", conflictColumns: ["id"], jsonColumns: ["manifest_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "runtime_installed_app", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "updated_at ASC, id ASC" },
   { tableName: "runtime_app_operation", conflictColumns: ["id"], jsonColumns: ["command_plan_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "skill", conflictColumns: ["id"], jsonColumns: ["config_json"], orderBy: "created_at ASC, id ASC" },
