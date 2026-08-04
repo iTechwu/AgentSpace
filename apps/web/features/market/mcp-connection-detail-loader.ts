@@ -55,6 +55,8 @@ export function loadMcpConnectionDetailPageData(input: {
         operation: operation.operation,
         source: operation.source,
         status: operation.status,
+        stage: operation.stage,
+        failedStage: operation.failedStage,
         createdAt: operation.createdAt,
         completedAt: operation.completedAt,
         errorMessage: operation.errorMessage,

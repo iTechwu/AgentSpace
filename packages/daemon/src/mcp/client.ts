@@ -34,14 +34,19 @@ function enforceEgressError(connection: ResolvedMcpConnection): { code: McpError
  * The only component that talks to a remote MCP server. Lives inside the
  * Runtime container so egress is constrained by the container network policy.
  */
-export function createRuntimeMcpClient(): RuntimeMcpClient {
+export function createRuntimeMcpClient(options: {
+  onVerificationStage?: (stage: "negotiating" | "discovering_tools") => void | Promise<void>;
+} = {}): RuntimeMcpClient {
   return {
-    verify: (connection) => verifyConnection(connection),
+    verify: (connection) => verifyConnection(connection, options.onVerificationStage),
     call: (input) => callTool(input),
   };
 }
 
-async function verifyConnection(connection: ResolvedMcpConnection): Promise<McpVerificationResult> {
+async function verifyConnection(
+  connection: ResolvedMcpConnection,
+  onStage?: (stage: "negotiating" | "discovering_tools") => void | Promise<void>,
+): Promise<McpVerificationResult> {
   const guard = guardEndpoint(connection);
   if (!guard.ok) {
     return { status: "failed", error: { code: guard.code, safeMessage: guard.message } };
@@ -52,7 +57,9 @@ async function verifyConnection(connection: ResolvedMcpConnection): Promise<McpV
   }
   const startedAt = Date.now();
   try {
+    await onStage?.("negotiating");
     return await withClient(connection, async (client) => {
+      await onStage?.("discovering_tools");
       const toolsResult = await client.listTools();
       const discovered = normalizeDiscoveredTools(toolsResult.tools ?? []);
       if (!discovered.ok) {

@@ -15,6 +15,8 @@ import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-actio
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import type { AppIconName } from "@/shared/ui/app-icon";
+import type { McpConnectionOperationStage } from "@dofe-agent/db";
+import { mcpOperationStageLabel } from "@/features/market/capability-presentation";
 
 export interface McpConnectionDetailPageData {
   workspaceId: string;
@@ -47,6 +49,8 @@ export interface McpConnectionDetailPageData {
       operation: string;
       source: string;
       status: string;
+      stage?: McpConnectionOperationStage;
+      failedStage?: McpConnectionOperationStage;
       createdAt: string;
       completedAt?: string;
       errorMessage?: string;
@@ -310,7 +314,7 @@ function McpOperationActivityRow({
         {operationLabel(operation.operation, tx)}
         {" "}
         <span className={`status-chip status-chip--${operationStatusTone(operation.status)}`}>
-          {operationStatusLabel(operation.status, tx)}
+          {mcpOperationStageLabel(operation.status === "failed" ? operation.failedStage : operation.stage, tx) ?? operationStatusLabel(operation.status, tx)}
         </span>
       </span>
       {operation.source ? <span className="mcp-activity-meta">{operation.source}</span> : null}

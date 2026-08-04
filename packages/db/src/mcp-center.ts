@@ -5,6 +5,7 @@ import type {
   McpCatalogCategory,
   McpCatalogSource,
   McpConnectionOperationSource,
+  McpConnectionOperationStage,
   McpConnectionOperationStatus,
   McpConnectionOperationType,
   McpConnectionStatus,
@@ -823,14 +824,43 @@ export function startMcpOperationSync(operationId: string, workspaceId = DEFAULT
   const db = getDatabase();
   const now = new Date().toISOString();
   db.prepare(
-    `UPDATE runtime_mcp_operation SET status = 'running', started_at = COALESCE(started_at, ?)
+    `UPDATE runtime_mcp_operation
+     SET status = 'running', stage = 'connecting', stage_updated_at = ?, started_at = COALESCE(started_at, ?)
      WHERE id = ? AND workspace_id = ? AND status = 'claimed'`,
-  ).run(now, operationId, workspaceId);
+  ).run(now, now, operationId, workspaceId);
   const record = readMcpOperationSync(operationId, workspaceId);
   if (!record) {
     throw new Error(`MCP operation "${operationId}" does not exist.`);
   }
   return record;
+}
+
+export function updateMcpOperationStageSync(input: {
+  operationId: string;
+  workspaceId?: string;
+  stage: Exclude<McpConnectionOperationStage, "queued" | "completed">;
+}): RuntimeMcpOperationRecord {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = new Date().toISOString();
+  const allowedCurrentStages: Record<typeof input.stage, McpConnectionOperationStage[]> = {
+    connecting: ["connecting"],
+    negotiating: ["connecting", "negotiating"],
+    discovering_tools: ["negotiating", "discovering_tools"],
+    finalizing: ["connecting", "negotiating", "discovering_tools", "finalizing"],
+  };
+  const currentStages = allowedCurrentStages[input.stage];
+  const placeholders = currentStages.map(() => "?").join(", ");
+  const result = getDatabase().prepare(
+    `UPDATE runtime_mcp_operation
+     SET stage = ?, stage_updated_at = ?
+     WHERE id = ? AND workspace_id = ? AND status = 'running' AND stage IN (${placeholders})`,
+  ).run(input.stage, now, input.operationId, workspaceId, ...currentStages);
+  const operation = readMcpOperationSync(input.operationId, workspaceId);
+  if (!operation) throw new Error(`MCP operation "${input.operationId}" does not exist.`);
+  if (result.changes === 0 && operation.stage !== input.stage) {
+    throw new Error("mcp.stage_transition_invalid");
+  }
+  return operation;
 }
 
 export function completeMcpOperationSync(input: CompleteMcpOperationInput): RuntimeMcpOperationRecord {
@@ -841,9 +871,10 @@ export function completeMcpOperationSync(input: CompleteMcpOperationInput): Runt
   withTransaction(db, () => {
     const update = db.prepare(
       `UPDATE runtime_mcp_operation
-       SET status = 'succeeded', safe_stdout_tail = ?, safe_stderr_tail = ?, completed_at = ?
+       SET status = 'succeeded', stage = 'completed', failed_stage = NULL, stage_updated_at = ?,
+           safe_stdout_tail = ?, safe_stderr_tail = ?, completed_at = ?
        WHERE id = ? AND workspace_id = ? AND status = 'running'`,
-    ).run(input.safeStdoutTail ?? null, input.safeStderrTail ?? null, now, input.operationId, workspaceId);
+    ).run(now, input.safeStdoutTail ?? null, input.safeStderrTail ?? null, now, input.operationId, workspaceId);
     completed = readMcpOperationSync(input.operationId, workspaceId);
     if (!completed) {
       throw new Error(`MCP operation "${input.operationId}" does not exist.`);
@@ -906,9 +937,11 @@ export function failMcpOperationSync(input: FailMcpOperationInput): RuntimeMcpOp
   withTransaction(db, () => {
     const update = db.prepare(
       `UPDATE runtime_mcp_operation
-       SET status = 'failed', safe_stdout_tail = ?, safe_stderr_tail = ?, error_code = ?, error_message = ?, completed_at = ?
+       SET status = 'failed', failed_stage = stage, stage_updated_at = ?,
+           safe_stdout_tail = ?, safe_stderr_tail = ?, error_code = ?, error_message = ?, completed_at = ?
        WHERE id = ? AND workspace_id = ? AND status = 'running'`,
     ).run(
+      now,
       input.safeStdoutTail ?? null,
       input.safeStderrTail ?? null,
       input.errorCode ?? null,
@@ -1103,7 +1136,8 @@ const MCP_DISCOVERY_COLUMNS = `SELECT
 
 const MCP_OPERATION_COLUMNS = `SELECT
   id, workspace_id AS workspaceId, runtime_id AS runtimeId, connection_id AS connectionId,
-  operation, source, status, request_snapshot_json AS requestSnapshotJson,
+  operation, source, status, stage, failed_stage AS failedStage, stage_updated_at AS stageUpdatedAt,
+  request_snapshot_json AS requestSnapshotJson,
   safe_stdout_tail AS safeStdoutTail, safe_stderr_tail AS safeStderrTail,
   error_code AS errorCode, error_message AS errorMessage,
   requested_by_user_id AS requestedByUserId,
@@ -1284,6 +1318,9 @@ function mapRuntimeMcpOperationRecord(value: Record<string, unknown>): RuntimeMc
     operation: value.operation,
     source: value.source,
     status: value.status,
+    stage: isMcpConnectionOperationStage(value.stage) ? value.stage : "queued",
+    failedStage: isMcpConnectionOperationStage(value.failedStage) ? value.failedStage : undefined,
+    stageUpdatedAt: readOptionalString(value.stageUpdatedAt) ?? value.createdAt,
     requestSnapshotJson: value.requestSnapshotJson,
     safeStdoutTail: readOptionalString(value.safeStdoutTail),
     safeStderrTail: readOptionalString(value.safeStderrTail),
@@ -1349,6 +1386,9 @@ function isMcpConnectionOperationType(value: unknown): value is McpConnectionOpe
 }
 function isMcpConnectionOperationStatus(value: unknown): value is McpConnectionOperationStatus {
   return value === "pending" || value === "claimed" || value === "running" || value === "succeeded" || value === "failed" || value === "cancelled";
+}
+function isMcpConnectionOperationStage(value: unknown): value is McpConnectionOperationStage {
+  return value === "queued" || value === "connecting" || value === "negotiating" || value === "discovering_tools" || value === "finalizing" || value === "completed";
 }
 function isMcpConnectionOperationSource(value: unknown): value is McpConnectionOperationSource {
   return value === "user_verify" || value === "config_change" || value === "secret_rotation" || value === "health_check" || value === "enable" || value === "remove";

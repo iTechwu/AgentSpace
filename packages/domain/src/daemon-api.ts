@@ -698,6 +698,10 @@ export interface StartMcpConnectionOperationRequest {
   status?: "running";
 }
 
+export interface UpdateMcpConnectionOperationStageRequest {
+  stage: "connecting" | "negotiating" | "discovering_tools" | "finalizing";
+}
+
 export interface CompleteMcpConnectionOperationRequest {
   safeStdoutTail?: string;
   safeStderrTail?: string;

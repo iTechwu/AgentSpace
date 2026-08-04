@@ -1035,6 +1035,9 @@ export function getPostgresSchemaStatements(): string[] {
         operation TEXT NOT NULL,
         source TEXT NOT NULL DEFAULT 'user_verify',
         status TEXT NOT NULL,
+        stage TEXT NOT NULL DEFAULT 'queued',
+        failed_stage TEXT,
+        stage_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         request_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         safe_stdout_tail TEXT,
         safe_stderr_tail TEXT,
@@ -1046,6 +1049,9 @@ export function getPostgresSchemaStatements(): string[] {
         completed_at TIMESTAMPTZ
       )
     `,
+    `ALTER TABLE runtime_mcp_operation ADD COLUMN IF NOT EXISTS stage TEXT NOT NULL DEFAULT 'queued'`,
+    `ALTER TABLE runtime_mcp_operation ADD COLUMN IF NOT EXISTS failed_stage TEXT`,
+    `ALTER TABLE runtime_mcp_operation ADD COLUMN IF NOT EXISTS stage_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`,
     `
       CREATE TABLE IF NOT EXISTS runtime_mcp_tool_audit (
         id TEXT PRIMARY KEY,

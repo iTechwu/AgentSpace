@@ -942,6 +942,7 @@ export type McpConnectionStatus =
   | "disabled";
 export type McpConnectionOperationType = "verify" | "enable" | "disable" | "remove";
 export type McpConnectionOperationStatus = "pending" | "claimed" | "running" | "succeeded" | "failed" | "cancelled";
+export type McpConnectionOperationStage = "queued" | "connecting" | "negotiating" | "discovering_tools" | "finalizing" | "completed";
 export type McpConnectionOperationSource = "user_verify" | "config_change" | "secret_rotation" | "health_check" | "enable" | "remove";
 export type McpToolCallOutcome = "succeeded" | "failed";
 export type McpCatalogCategory =
@@ -1035,6 +1036,9 @@ export interface RuntimeMcpOperationRecord {
   operation: McpConnectionOperationType;
   source: McpConnectionOperationSource;
   status: McpConnectionOperationStatus;
+  stage: McpConnectionOperationStage;
+  failedStage?: McpConnectionOperationStage;
+  stageUpdatedAt: string;
   requestSnapshotJson: string;
   safeStdoutTail?: string;
   safeStderrTail?: string;

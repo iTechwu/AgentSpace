@@ -249,4 +249,24 @@ describe("RuntimeCapabilitiesPanel", () => {
     expect(screen.getByText("No records")).toBeInTheDocument();
     expect(screen.queryByText("暂无记录")).not.toBeInTheDocument();
   });
+
+  it("shows the persisted MCP verification stage in operation history", async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      ...data,
+      mcpOperations: [{
+        id: "mcp-operation-1",
+        runtimeId: "runtime-1",
+        connectionId: "connection-1",
+        operation: "verify",
+        status: "running",
+        stage: "discovering_tools",
+        createdAt: "2026-08-05T08:00:00.000Z",
+      }],
+    }, "en");
+
+    await user.click(screen.getByRole("tab", { name: /Installation history/ }));
+
+    expect(screen.getByText("Discovering tools")).toBeInTheDocument();
+  });
 });

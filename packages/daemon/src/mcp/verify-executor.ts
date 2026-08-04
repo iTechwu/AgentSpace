@@ -1,4 +1,4 @@
-import type { ClaimedMcpConnectionOperation, McpErrorCode, ResolvedMcpConnection } from "@dofe-agent/domain";
+import type { ClaimedMcpConnectionOperation, McpErrorCode, ResolvedMcpConnection, RuntimeMcpClient } from "@dofe-agent/domain";
 import { redactMcpText } from "@dofe-agent/services";
 import type { HttpDaemonClient } from "../daemon-client.ts";
 import { createRuntimeMcpClient } from "./client.ts";
@@ -11,12 +11,16 @@ import { createRuntimeMcpClient } from "./client.ts";
 export async function executeMcpConnectionOperation(
   client: HttpDaemonClient,
   operation: ClaimedMcpConnectionOperation,
-  options: { resolveConnection?: (connection: ResolvedMcpConnection) => ResolvedMcpConnection } = {},
+  options: {
+    resolveConnection?: (connection: ResolvedMcpConnection) => ResolvedMcpConnection;
+    createClient?: (onStage: (stage: "negotiating" | "discovering_tools") => void | Promise<void>) => RuntimeMcpClient;
+  } = {},
 ): Promise<void> {
   await client.startMcpConnectionOperation(operation.id);
 
   if (operation.operation === "remove") {
     // Nothing to verify server-side; the control plane cascades the delete on complete.
+    await client.updateMcpConnectionOperationStage(operation.id, { stage: "finalizing" });
     await client.completeMcpConnectionOperation(operation.id, {});
     return;
   }
@@ -24,7 +28,10 @@ export async function executeMcpConnectionOperation(
   const resolved = options.resolveConnection?.(resolveConnection(operation)) ?? resolveConnection(operation);
 
   try {
-    const result = await createRuntimeMcpClient().verify(resolved);
+    const onStage = (stage: "negotiating" | "discovering_tools") =>
+      client.updateMcpConnectionOperationStage(operation.id, { stage });
+    const runtimeClient = options.createClient?.(onStage) ?? createRuntimeMcpClient({ onVerificationStage: onStage });
+    const result = await runtimeClient.verify(resolved);
     if (result.status === "failed") {
       await client.failMcpConnectionOperation(operation.id, {
         errorCode: result.error?.code ?? "mcp.protocol_invalid",
@@ -33,6 +40,7 @@ export async function executeMcpConnectionOperation(
       });
       return;
     }
+    await client.updateMcpConnectionOperationStage(operation.id, { stage: "finalizing" });
     await client.completeMcpConnectionOperation(operation.id, {
       verification: {
         status: result.status,

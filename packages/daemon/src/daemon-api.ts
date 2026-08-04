@@ -78,6 +78,7 @@ export type {
   RuntimeToolCapability,
   SkillInstallationOperationKind,
   StartMcpConnectionOperationRequest,
+  UpdateMcpConnectionOperationStageRequest,
   StartRuntimeAppOperationRequest,
   UpdateRuntimeAppOperationStageRequest,
   StartSkillInstallationOperationRequest,

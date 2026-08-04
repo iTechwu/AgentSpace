@@ -1,6 +1,6 @@
 "use client";
 
-import type { McpCatalogCategory, McpCatalogSource, RuntimeAppCatalogSource, RuntimeAppOperationStage, RuntimeAppOperationType } from "@dofe-agent/db";
+import type { McpCatalogCategory, McpCatalogSource, McpConnectionOperationStage, RuntimeAppCatalogSource, RuntimeAppOperationStage, RuntimeAppOperationType } from "@dofe-agent/db";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { requestRuntimeAppOperationAction, refreshRuntimeAppCatalogAction, syncRuntimeAppSkillAction } from "@/features/market/actions";
@@ -129,6 +129,8 @@ export interface MarketPageData {
     connectionId: string;
     operation: "verify" | "enable" | "disable" | "remove";
     status: string;
+    stage?: McpConnectionOperationStage;
+    failedStage?: McpConnectionOperationStage;
     createdAt: string;
     errorMessage?: string;
   }>;

@@ -19,9 +19,11 @@ import {
   readMcpCatalogItemBySlugSync,
   readMcpConnectionSecretsSync,
   readMcpConnectionSync,
+  readMcpOperationSync,
   recordMcpToolAuditSync,
   registerDaemonRuntimesSync,
   startMcpOperationSync,
+  updateMcpOperationStageSync,
   updateMcpConnectionConfigSync,
   upsertMcpCatalogItemSync,
   upsertMcpSecretSync,
@@ -107,11 +109,16 @@ test("connection create + verify lifecycle reaches ready and writes a snapshot",
   assert.equal(connection.status, "queued_verification");
 
   const op = createMcpOperationSync({ runtimeId, connectionId: connection.id, operation: "verify" });
+  assert.equal(op.stage, "queued");
   const claimed = claimNextMcpOperationForRuntimeSync({ runtimeId });
   assert.equal(claimed?.id, op.id);
   assert.equal(readMcpConnectionSync(connection.id)?.status, "verifying");
 
-  startMcpOperationSync(op.id);
+  assert.equal(startMcpOperationSync(op.id).stage, "connecting");
+  assert.equal(updateMcpOperationStageSync({ operationId: op.id, stage: "negotiating" }).stage, "negotiating");
+  assert.equal(updateMcpOperationStageSync({ operationId: op.id, stage: "discovering_tools" }).stage, "discovering_tools");
+  assert.throws(() => updateMcpOperationStageSync({ operationId: op.id, stage: "connecting" }), /mcp\.stage_transition_invalid/);
+  updateMcpOperationStageSync({ operationId: op.id, stage: "finalizing" });
   completeMcpOperationSync({
     operationId: op.id,
     verification: {
@@ -132,6 +139,7 @@ test("connection create + verify lifecycle reaches ready and writes a snapshot",
   assert.equal(snap?.protocolVersion, "2025-06-18");
   assert.equal(snap?.toolsFingerprint, "fp-1");
   assert.deepEqual(listReadyMcpConnectionsForRuntimeSync({ runtimeId }).map((c) => c.id), [connection.id]);
+  assert.equal(readMcpOperationSync(op.id)?.stage, "completed");
 });
 
 test("failed verify marks connection failed and stores redacted error", () => {
@@ -140,11 +148,14 @@ test("failed verify marks connection failed and stores redacted error", () => {
   const connection = createMcpConnectionSync({ runtimeId, catalogItemId: catalog.id, endpoint: "https://flaky.example.com/mcp" });
   const op = createMcpOperationSync({ runtimeId, connectionId: connection.id, operation: "verify" });
   claimNextMcpOperationForRuntimeSync({ runtimeId });
-  failMcpOperationSync({ operationId: op.id, errorCode: "mcp.authentication_failed", errorMessage: "401 from upstream" });
+  startMcpOperationSync(op.id);
+  updateMcpOperationStageSync({ operationId: op.id, stage: "negotiating" });
+  const failedOperation = failMcpOperationSync({ operationId: op.id, errorCode: "mcp.authentication_failed", errorMessage: "401 from upstream" });
 
   const failed = readMcpConnectionSync(connection.id);
   assert.equal(failed?.status, "failed");
   assert.equal(failed?.lastErrorCode, "mcp.authentication_failed");
+  assert.equal(failedOperation.failedStage, "negotiating");
 });
 
 test("degraded verification preserves a safe missing-tool diagnostic and excludes the connection from ready reads", () => {
