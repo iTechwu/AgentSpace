@@ -450,6 +450,12 @@ export interface RuntimeAppInstallPlan {
   depsDir?: string;
   /** Registry integrity hash (npm dist.integrity / PyPI sha256) — reproducibility lock. */
   integrityLock?: string;
+  /** Immutable workspace-private artifact downloaded and verified by the daemon before installation. */
+  artifactLock?: {
+    url: string;
+    integrity: string;
+    localPath: string;
+  };
   /** Synchronized CLI-Hub entry used to seed the Runtime-private registry cache. */
   cliHubRegistrySnapshot?: {
     source: "clihub_harness" | "clihub_public";

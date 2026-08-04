@@ -990,7 +990,9 @@ async function executeRemoteRuntimeAppOperation(
     await client.failRuntimeAppOperation(operation.id, {
       safeStdoutTail: readErrorTail(error, "stdout"),
       safeStderrTail: readErrorTail(error, "stderr"),
-      errorCode: "runtime_app.command_failed",
+      errorCode: error instanceof Error && error.message.startsWith("runtime_app.")
+        ? error.message
+        : "runtime_app.command_failed",
       errorMessage: error instanceof Error ? error.message : String(error),
     });
   }

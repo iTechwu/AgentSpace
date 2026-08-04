@@ -1,12 +1,14 @@
 import { spawn } from "node:child_process";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { basename, delimiter, join } from "node:path";
+import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { basename, delimiter, dirname, join, resolve, sep } from "node:path";
 import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan } from "@dofe-agent/domain";
 
 const MAX_TAIL_CHARS = 8_000;
 const MAX_CLI_HUB_REGISTRY_SNAPSHOT_CHARS = 256_000;
+const MAX_RUNTIME_APP_ARTIFACT_BYTES = 512 * 1024 * 1024;
+const RUNTIME_APP_ARTIFACT_TIMEOUT_MS = 120_000;
 const SECRET_PATTERNS = [
   /(api[_-]?key|token|secret|password|authorization)(["'\s:=]+)([^\s"',;]+)/gi,
   /(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi,
@@ -140,6 +142,7 @@ export async function executeRuntimeAppPlan(
     cwd?: string;
     runtimeHomeDir?: string;
     onStage?: (stage: "installing" | "verifying") => void | Promise<void>;
+    fetchImpl?: typeof fetch;
   },
 ): Promise<RuntimeAppExecutionResult> {
   let stdout = "";
@@ -148,33 +151,48 @@ export async function executeRuntimeAppPlan(
     seedCliHubRegistryCacheSync(plan, options.runtimeHomeDir);
   }
   const executionEnvironment = resolveRuntimeAppExecutionEnvironment(process.env, options?.runtimeHomeDir);
-  if (plan.commands.length > 0) await options?.onStage?.("installing");
-  for (const command of plan.commands) {
-    const result = await execCommand(command, {
-      cwd: options?.cwd,
-      executionEnvironment,
-    });
-    stdout += `\n$ ${renderCommand(command)}\n${result.stdout}`;
-    stderr += result.stderr ? `\n$ ${renderCommand(command)}\n${result.stderr}` : "";
+  let verifiedArtifactPath: string | undefined;
+  try {
+    if (plan.commands.length > 0) await options?.onStage?.("installing");
+    if (plan.artifactLock) {
+      if (!options?.cwd) throw new Error("runtime_app.artifact_workdir_required");
+      verifiedArtifactPath = await downloadAndVerifyRuntimeAppArtifact(plan.artifactLock, options.cwd, options.fetchImpl ?? fetch);
+    }
+    for (const command of plan.commands) {
+      const result = await execCommand(command, {
+        cwd: options?.cwd,
+        executionEnvironment,
+      });
+      stdout += `\n$ ${renderCommand(command)}\n${result.stdout}`;
+      stderr += result.stderr ? `\n$ ${renderCommand(command)}\n${result.stderr}` : "";
+    }
+    if (plan.verifyCommands.length > 0) await options?.onStage?.("verifying");
+    for (const command of plan.verifyCommands) {
+      const result = await execCommand(command, {
+        cwd: options?.cwd,
+        executionEnvironment,
+      });
+      stdout += `\n$ ${renderCommand(command)}\n${result.stdout}`;
+      stderr += result.stderr ? `\n$ ${renderCommand(command)}\n${result.stderr}` : "";
+    }
+    return {
+      safeStdoutTail: tailAndRedact(stdout),
+      safeStderrTail: tailAndRedact(stderr),
+      // Download artifact digest over the isolated deps dir (P1-4). Best-effort:
+      // a missing dir (e.g. no-op plan) simply yields no digest.
+      downloadedDigest: plan.depsDir && options?.cwd
+        ? computeDirectoryDigestSync(join(options.cwd, plan.depsDir))
+        : undefined,
+    };
+  } finally {
+    if (verifiedArtifactPath) {
+      try {
+        unlinkSync(verifiedArtifactPath);
+      } catch {
+        // The verified artifact is disposable; installation state lives in Runtime HOME.
+      }
+    }
   }
-  if (plan.verifyCommands.length > 0) await options?.onStage?.("verifying");
-  for (const command of plan.verifyCommands) {
-    const result = await execCommand(command, {
-      cwd: options?.cwd,
-      executionEnvironment,
-    });
-    stdout += `\n$ ${renderCommand(command)}\n${result.stdout}`;
-    stderr += result.stderr ? `\n$ ${renderCommand(command)}\n${result.stderr}` : "";
-  }
-  return {
-    safeStdoutTail: tailAndRedact(stdout),
-    safeStderrTail: tailAndRedact(stderr),
-    // Download artifact digest over the isolated deps dir (P1-4). Best-effort:
-    // a missing dir (e.g. no-op plan) simply yields no digest.
-    downloadedDigest: plan.depsDir && options?.cwd
-      ? computeDirectoryDigestSync(join(options.cwd, plan.depsDir))
-      : undefined,
-  };
 }
 
 export function readCliHubReadiness(options: {
@@ -267,7 +285,110 @@ export function parseRuntimeAppInstallPlan(value: unknown): RuntimeAppInstallPla
   if (plan.cliHubRegistrySnapshot && !isCliHubRegistrySnapshot(plan.cliHubRegistrySnapshot, plan.app.name)) {
     return null;
   }
+  if (plan.artifactLock) {
+    if (
+      !isRuntimeAppArtifactLock(plan.artifactLock)
+      || plan.app.source !== "workspace_private"
+      || plan.integrityLock !== plan.artifactLock.integrity
+    ) return null;
+  }
   return plan;
+}
+
+async function downloadAndVerifyRuntimeAppArtifact(
+  artifact: NonNullable<RuntimeAppInstallPlan["artifactLock"]>,
+  cwd: string,
+  fetchImpl: typeof fetch,
+): Promise<string> {
+  if (!isRuntimeAppArtifactLock(artifact)) throw new Error("runtime_app.artifact_lock_invalid");
+  const cwdPath = resolve(cwd);
+  const targetPath = resolve(cwdPath, artifact.localPath);
+  if (!targetPath.startsWith(`${cwdPath}${sep}`)) throw new Error("runtime_app.artifact_path_invalid");
+  mkdirSync(dirname(targetPath), { recursive: true, mode: 0o700 });
+  const temporaryPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RUNTIME_APP_ARTIFACT_TIMEOUT_MS);
+  let handle: number | undefined;
+  try {
+    const response = await fetchImpl(artifact.url, { redirect: "error", signal: controller.signal });
+    if (!response.ok || !response.body) throw new Error("runtime_app.artifact_download_failed");
+    const declaredLength = Number(response.headers.get("content-length") ?? "0");
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_RUNTIME_APP_ARTIFACT_BYTES) {
+      throw new Error("runtime_app.artifact_too_large");
+    }
+    const parsedIntegrity = parseArtifactIntegrity(artifact.integrity);
+    if (!parsedIntegrity) throw new Error("runtime_app.artifact_lock_invalid");
+    const hash = createHash(parsedIntegrity.algorithm);
+    const reader = response.body.getReader();
+    handle = openSync(temporaryPath, "wx", 0o600);
+    let received = 0;
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      received += chunk.value.byteLength;
+      if (received > MAX_RUNTIME_APP_ARTIFACT_BYTES) {
+        await reader.cancel();
+        throw new Error("runtime_app.artifact_too_large");
+      }
+      hash.update(chunk.value);
+      writeSync(handle, chunk.value);
+    }
+    closeSync(handle);
+    handle = undefined;
+    const digest = hash.digest(parsedIntegrity.encoding);
+    if (!digestMatches(digest, parsedIntegrity.expected, parsedIntegrity.encoding)) {
+      throw new Error("runtime_app.artifact_integrity_mismatch");
+    }
+    renameSync(temporaryPath, targetPath);
+    return targetPath;
+  } catch (error) {
+    if (handle !== undefined) closeSync(handle);
+    try {
+      unlinkSync(temporaryPath);
+    } catch {
+      // No temporary artifact was created or it was already removed.
+    }
+    if (error instanceof Error && error.message.startsWith("runtime_app.")) throw error;
+    throw new Error("runtime_app.artifact_download_failed");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isRuntimeAppArtifactLock(value: unknown): value is NonNullable<RuntimeAppInstallPlan["artifactLock"]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const artifact = value as Record<string, unknown>;
+  if (typeof artifact.url !== "string" || typeof artifact.integrity !== "string" || typeof artifact.localPath !== "string") return false;
+  try {
+    const url = new URL(artifact.url);
+    return url.protocol === "https:"
+      && (url.hostname === "registry.npmjs.org" || url.hostname === "files.pythonhosted.org")
+      && !url.username && !url.password && !url.search && !url.hash
+      && Boolean(parseArtifactIntegrity(artifact.integrity))
+      && /^\.runtime-app-artifacts\/[A-Za-z0-9][A-Za-z0-9._-]{0,380}$/.test(artifact.localPath);
+  } catch {
+    return false;
+  }
+}
+
+function parseArtifactIntegrity(value: string): {
+  algorithm: "sha256" | "sha384" | "sha512";
+  encoding: "hex" | "base64";
+  expected: string;
+} | undefined {
+  const match = /^(sha(?:256|384|512))-([A-Za-z0-9+/=]+)$/.exec(value.trim());
+  if (!match?.[1] || !match[2]) return undefined;
+  const algorithm = match[1] as "sha256" | "sha384" | "sha512";
+  const expected = match[2];
+  const hexLength = algorithm === "sha256" ? 64 : algorithm === "sha384" ? 96 : 128;
+  const encoding = expected.length === hexLength && /^[a-f0-9]+$/i.test(expected) ? "hex" : "base64";
+  return { algorithm, encoding, expected };
+}
+
+function digestMatches(actual: string, expected: string, encoding: "hex" | "base64"): boolean {
+  const left = Buffer.from(encoding === "hex" ? actual.toLowerCase() : actual, "utf8");
+  const right = Buffer.from(encoding === "hex" ? expected.toLowerCase() : expected, "utf8");
+  return left.length === right.length && left.equals(right);
 }
 
 export function seedCliHubRegistryCacheSync(plan: RuntimeAppInstallPlan, runtimeHomeDir: string): void {

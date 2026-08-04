@@ -33,6 +33,12 @@ interface PublicPypiPackage {
   spec: string;
 }
 
+interface PrivateArtifactLock {
+  url: string;
+  integrity: string;
+  localPath: string;
+}
+
 export function buildRuntimeAppInstallPlan(input: {
   item: RuntimeAppCatalogItemRecord;
   operation: RuntimeAppOperationType;
@@ -51,6 +57,9 @@ export function buildRuntimeAppInstallPlan(input: {
   const npmPackage = compatibility?.npmPackage ?? readPublicNpmPackage(item);
   const pypiPackage = readPublicPypiPackage(item);
   const cliHubRegistrySnapshot = readCliHubRegistrySnapshot(item);
+  const privateArtifactLock = input.operation === "install" || input.operation === "update"
+    ? readPrivateArtifactLock(item)
+    : undefined;
   const strategy: RuntimeAppInstallStrategy =
     input.operation === "disable" || input.operation === "enable"
       ? "manual"
@@ -63,7 +72,7 @@ export function buildRuntimeAppInstallPlan(input: {
             : input.operation === "install"
               ? "pip"
               : "cli_hub";
-  const commands = buildOperationCommands(item, input.operation, strategy, cliHubAvailable, npmPackage, pypiPackage);
+  const commands = buildOperationCommands(item, input.operation, strategy, cliHubAvailable, npmPackage, pypiPackage, privateArtifactLock);
   const verifyCommands = shouldVerifyAfterOperation(input.operation)
     ? buildVerifyCommands(item, strategy, npmPackage, pypiPackage)
     : [];
@@ -81,6 +90,7 @@ export function buildRuntimeAppInstallPlan(input: {
     risk,
     requiresApproval: true,
     notes,
+    ...(privateArtifactLock ? { artifactLock: privateArtifactLock, integrityLock: privateArtifactLock.integrity } : {}),
     ...(strategy === "cli_hub" && cliHubRegistrySnapshot
       ? { cliHubRegistrySnapshot }
       : {}),
@@ -114,6 +124,9 @@ export function assessRuntimeAppInstallability(
   }
   if (item.installStrategy === "manual" || item.installStrategy === "system" || item.installStrategy === "bundled" || item.installStrategy === "uv") {
     return blocked("unsupported", "runtime_app.install_strategy_unsupported");
+  }
+  if (item.source === "workspace_private" && !readPrivateArtifactLock(item)) {
+    return blocked("unsupported", "runtime_app.artifact_integrity_missing");
   }
 
   const npmPackage = normalizeExactNpmPackageSpec(
@@ -156,6 +169,7 @@ function buildOperationCommands(
   cliHubAvailable: boolean,
   npmPackage?: string,
   pypiPackage?: PublicPypiPackage,
+  privateArtifactLock?: PrivateArtifactLock,
 ): RuntimeAppCommandPlanItem[] {
   if (operation === "disable" || operation === "enable" || operation === "verify") {
     return [];
@@ -172,7 +186,7 @@ function buildOperationCommands(
       return [{ executable: "npm", args: ["uninstall", "--global", npmPackageName(npmPackage)] }];
     }
     if (operation === "install" || operation === "update") {
-      return [{ executable: "npm", args: ["install", "--global", npmPackage] }];
+      return [{ executable: "npm", args: ["install", "--global", privateArtifactLock?.localPath ?? npmPackage] }];
     }
   }
   if (strategy === "pip" && pypiPackage) {
@@ -180,7 +194,7 @@ function buildOperationCommands(
       return [{ executable: "python3", args: ["-m", "pip", "uninstall", "--yes", pypiPackage.name], env: CLI_HUB_PIP_ENV }];
     }
     if (operation === "install" || operation === "update") {
-      return [{ executable: "python3", args: ["-m", "pip", "install", "--user", pypiPackage.spec], env: CLI_HUB_PIP_ENV }];
+      return [{ executable: "python3", args: ["-m", "pip", "install", "--user", privateArtifactLock?.localPath ?? pypiPackage.spec], env: CLI_HUB_PIP_ENV }];
     }
   }
   if (operation !== "install") {
@@ -273,6 +287,31 @@ function readPublicPypiPackage(item: RuntimeAppCatalogItemRecord): PublicPypiPac
     const match = PYPI_PACKAGE_SPEC_PATTERN.exec(spec);
     if (!match?.[1] || !PYPI_PACKAGE_PATTERN.test(match[1])) return undefined;
     return { name: match[1], spec };
+  } catch {
+    return undefined;
+  }
+}
+
+function readPrivateArtifactLock(item: RuntimeAppCatalogItemRecord): PrivateArtifactLock | undefined {
+  if (item.source !== "workspace_private" || (item.installStrategy !== "npm" && item.installStrategy !== "pip")) return undefined;
+  try {
+    const registry = JSON.parse(item.registryJson) as Record<string, unknown>;
+    const url = typeof registry.artifact_url === "string" ? registry.artifact_url.trim() : "";
+    const integrity = typeof registry.artifact_integrity === "string" ? registry.artifact_integrity.trim() : "";
+    const parsed = new URL(url);
+    const expectedHost = item.installStrategy === "npm" ? "registry.npmjs.org" : "files.pythonhosted.org";
+    const fileName = parsed.pathname.split("/").at(-1) ?? "";
+    if (
+      parsed.protocol !== "https:" || parsed.hostname !== expectedHost || parsed.username || parsed.password || parsed.search || parsed.hash
+      || !/^sha(?:256|384|512)-[A-Za-z0-9+/=]+$/.test(integrity)
+      || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,180}$/.test(fileName)
+      || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,180}$/.test(item.name)
+    ) return undefined;
+    return {
+      url: parsed.toString(),
+      integrity,
+      localPath: `.runtime-app-artifacts/${item.name}-${fileName}`,
+    };
   } catch {
     return undefined;
   }

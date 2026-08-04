@@ -814,6 +814,21 @@ function formatRuntimeAppError(error: string, tx: (zh: string, en: string) => st
         "目标 Runtime 的旧安装执行器缺少 Python。请更新并重启托管节点后重试。",
         "The target runtime uses an outdated installer without Python. Update and restart the managed node, then try again.",
       );
+    case "runtime_app.artifact_integrity_mismatch":
+      return tx(
+        "下载的 artifact 与发布时保存的完整性摘要不一致，安装已阻断。请检查上游 release 是否被替换后重新发布。",
+        "The downloaded artifact does not match the published integrity digest, so installation was blocked. Check whether the upstream release was replaced and publish it again.",
+      );
+    case "runtime_app.artifact_download_failed":
+      return tx(
+        "Runtime 无法从受信任 registry 下载固定 artifact。请检查受控出口网络后重试。",
+        "The Runtime could not download the pinned artifact from the trusted registry. Check controlled egress and try again.",
+      );
+    case "runtime_app.artifact_too_large":
+      return tx(
+        "Artifact 超过 512 MiB 的受控安装上限，安装已阻断。",
+        "The artifact exceeds the 512 MiB controlled-install limit, so installation was blocked.",
+      );
     default: {
       const normalized = error.toLowerCase();
       if (normalized.includes("hkuds.github.io") && (normalized.includes("ssl") || normalized.includes("connection"))) {

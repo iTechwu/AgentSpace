@@ -31,8 +31,14 @@ test("private CLI release projects to a controlled, high-risk npm plan", () => {
   assert.equal(plan.risk, "high");
   assert.deepEqual(plan.commands, [{
     executable: "npm",
-    args: ["install", "--global", "@example/internal-search@1.4.2"],
+    args: ["install", "--global", ".runtime-app-artifacts/release-1-internal-search-1.4.2.tgz"],
   }]);
+  assert.deepEqual(plan.artifactLock, {
+    url: release.artifactUrl,
+    integrity: release.artifactIntegrity,
+    localPath: ".runtime-app-artifacts/release-1-internal-search-1.4.2.tgz",
+  });
+  assert.equal(plan.integrityLock, release.artifactIntegrity);
 });
 
 test("npm metadata resolution requires integrity and a declared entrypoint", async () => {

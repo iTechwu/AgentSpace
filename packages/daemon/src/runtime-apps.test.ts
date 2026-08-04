@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
   computeDirectoryDigestSync,
   executeRuntimeAppPlan,
+  parseRuntimeAppInstallPlan,
   readCliHubReadiness,
   resolveRuntimeAppCommandTimeoutMs,
   resolveRuntimeAppRegistryEnvironment,
@@ -67,6 +68,98 @@ test("executeRuntimeAppPlan records the download digest over the plan's depsDir"
     Buffer.from("print('requests')\n"),
   );
   assert.equal(result.downloadedDigest, expected);
+});
+
+test("executeRuntimeAppPlan installs the exact verified private artifact and removes it afterward", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-runtime-artifact-"));
+  const artifactBytes = Buffer.from("verified runtime artifact");
+  const integrity = `sha256-${createHash("sha256").update(artifactBytes).digest("hex")}`;
+  const localPath = ".runtime-app-artifacts/release-1.tgz";
+  try {
+    const result = await executeRuntimeAppPlan({
+      app: { source: "workspace_private", name: "release-1", version: "1.0.0", entryPoint: "private-cli" },
+      strategy: "npm",
+      commands: [{
+        executable: process.execPath,
+        args: ["-e", "process.stdout.write(require('node:fs').readFileSync(process.argv[1]))", localPath],
+      }],
+      verifyCommands: [],
+      risk: "high",
+      requiresApproval: true,
+      notes: [],
+      integrityLock: integrity,
+      artifactLock: {
+        url: "https://registry.npmjs.org/@workspace/private-cli/-/private-cli-1.0.0.tgz",
+        integrity,
+        localPath,
+      },
+    }, {
+      cwd: root,
+      fetchImpl: async () => new Response(artifactBytes, { status: 200 }),
+    });
+
+    assert.match(result.safeStdoutTail, /verified runtime artifact/);
+    assert.equal(existsSync(join(root, localPath)), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("executeRuntimeAppPlan blocks an artifact integrity mismatch before running install commands", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-runtime-artifact-"));
+  const markerPath = join(root, "install-ran");
+  const localPath = ".runtime-app-artifacts/release-2.whl";
+  try {
+    await assert.rejects(executeRuntimeAppPlan({
+      app: { source: "workspace_private", name: "release-2", version: "1.0.0", entryPoint: "private-cli" },
+      strategy: "pip",
+      commands: [{ executable: process.execPath, args: ["-e", "require('node:fs').writeFileSync(process.argv[1], 'ran')", markerPath] }],
+      verifyCommands: [],
+      risk: "high",
+      requiresApproval: true,
+      notes: [],
+      artifactLock: {
+        url: "https://files.pythonhosted.org/packages/private_cli-1.0.0.whl",
+        integrity: `sha256-${"0".repeat(64)}`,
+        localPath,
+      },
+    }, {
+      cwd: root,
+      fetchImpl: async () => new Response("different bytes", { status: 200 }),
+    }), /runtime_app\.artifact_integrity_mismatch/);
+    assert.equal(existsSync(markerPath), false);
+    assert.equal(existsSync(join(root, localPath)), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("parseRuntimeAppInstallPlan rejects artifact locks outside private releases or with a different integrity lock", () => {
+  const artifactLock = {
+    url: "https://registry.npmjs.org/private-cli/-/private-cli-1.0.0.tgz",
+    integrity: `sha256-${"0".repeat(64)}`,
+    localPath: ".runtime-app-artifacts/release-3.tgz",
+  };
+  const basePlan = {
+    app: { source: "workspace_private" as const, name: "release-3", version: "1.0.0", entryPoint: "private-cli" },
+    strategy: "npm" as const,
+    commands: [],
+    verifyCommands: [],
+    risk: "high" as const,
+    requiresApproval: true,
+    notes: [],
+    integrityLock: artifactLock.integrity,
+    artifactLock,
+  };
+  assert.deepEqual(parseRuntimeAppInstallPlan(basePlan), basePlan);
+  assert.equal(parseRuntimeAppInstallPlan({
+    ...basePlan,
+    app: { ...basePlan.app, source: "clihub_public" },
+  }), null);
+  assert.equal(parseRuntimeAppInstallPlan({
+    ...basePlan,
+    integrityLock: `sha256-${"1".repeat(64)}`,
+  }), null);
 });
 
 test("executeRuntimeAppPlan seeds synchronized CLI-Hub registry snapshots into Runtime HOME", async () => {
