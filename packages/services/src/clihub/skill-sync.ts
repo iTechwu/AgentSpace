@@ -110,19 +110,31 @@ export async function resolveSkillMdContent(
 ): Promise<{ content: string; sourceUrl?: string; warning?: string }> {
   const trimmed = input.skillMd.trim();
   if (/^https?:\/\//i.test(trimmed)) {
-    const response = await input.fetchImpl(trimmed, { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(`获取 SKILL.md 失败: ${response.status} ${response.statusText}`);
+    try {
+      const response = await input.fetchImpl(trimmed, { cache: "no-store" });
+      if (response.ok) {
+        const remoteContent = await response.text();
+        if (parseSkillMarkdown(remoteContent).ok) {
+          return { content: remoteContent, sourceUrl: trimmed };
+        }
+        return {
+          content: createRuntimeAppFallbackSkill(input),
+          sourceUrl: trimmed,
+          warning: "目录 URL 未返回有效的 SKILL.md；已生成安全的运行时应用使用说明。",
+        };
+      }
+      return {
+        content: createRuntimeAppFallbackSkill(input),
+        sourceUrl: trimmed,
+        warning: `目录 SKILL.md 暂不可用（HTTP ${response.status}）；已生成安全的运行时应用使用说明。`,
+      };
+    } catch {
+      return {
+        content: createRuntimeAppFallbackSkill(input),
+        sourceUrl: trimmed,
+        warning: "目录 SKILL.md 暂不可用；已生成安全的运行时应用使用说明。",
+      };
     }
-    const remoteContent = await response.text();
-    if (parseSkillMarkdown(remoteContent).ok) {
-      return { content: remoteContent, sourceUrl: trimmed };
-    }
-    return {
-      content: createRuntimeAppFallbackSkill(input),
-      sourceUrl: trimmed,
-      warning: "目录 URL 未返回有效的 SKILL.md；已生成安全的运行时应用使用说明。",
-    };
   }
   return {
     content: createRuntimeAppFallbackSkill(input, trimmed),

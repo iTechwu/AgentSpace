@@ -34,3 +34,16 @@ test("resolveSkillMdContent replaces HTML with a valid minimal runtime app skill
   assert.doesNotMatch(result.content, /<!DOCTYPE html>/);
   assert.match(result.warning ?? "", /未返回有效/);
 });
+
+test("resolveSkillMdContent degrades safely when the remote source is unavailable", async () => {
+  const result = await resolveSkillMdContent({
+    ...baseInput,
+    fetchImpl: async () => {
+      throw new Error("network unavailable");
+    },
+  });
+
+  assert.equal(parseSkillMarkdown(result.content).ok, true);
+  assert.match(result.content, /`minimax --help`/);
+  assert.match(result.warning ?? "", /暂不可用/);
+});
