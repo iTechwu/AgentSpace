@@ -763,6 +763,12 @@ describe("ChannelsPageClient", () => {
     });
 
     expect(routerRefreshMock).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      vi.advanceTimersByTime(28_000);
+    });
+
+    expect(routerRefreshMock).toHaveBeenCalledTimes(2);
   });
 
   it("turns channel realtime events into targeted workspace invalidation hints", async () => {
