@@ -878,6 +878,7 @@ describe("MarketPageClient", () => {
     const catalogRegion = screen.getByRole("region", { name: "MCP 服务目录" });
     expect(within(catalogRegion).getByRole("button", { name: /Official Search/ })).toBeInTheDocument();
     expect(within(catalogRegion).queryByRole("button", { name: /Workspace Search/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Official Search" })).toBeInTheDocument();
   });
 
   it("shows connection verification diagnostics and safely enters configuration replacement mode", async () => {

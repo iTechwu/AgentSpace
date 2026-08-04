@@ -21,6 +21,7 @@ import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-actio
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import type { MarketPageData } from "@/features/market/market-page-client";
+import { isActiveCapabilityOperationStatus } from "@/features/market/capability-presentation";
 
 type CatalogEntry = MarketPageData["mcpCatalog"][number];
 type ConnectionEntry = MarketPageData["mcpConnections"][number];
@@ -98,9 +99,14 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     });
   }, [catalogConnectionState, categoryFilter, connectionFilter, data.mcpCatalog, data.mcpConnections, query, riskFilter, runtimeFilter, sourceFilter, transportFilter]);
 
-  const selected = data.mcpCatalog.find((item) => item.id === selectedCatalogId) ?? filteredCatalog[0] ?? data.mcpCatalog[0];
-  const selectedRuntime = onlineRuntimes.find((r) => r.id === selectedRuntimeId) ?? onlineRuntimes[0];
   const editingConnection = editingConnectionId ? data.mcpConnections.find((connection) => connection.id === editingConnectionId) : undefined;
+  const selectedCandidate = data.mcpCatalog.find((item) => item.id === selectedCatalogId);
+  const selected = editingConnection && selectedCandidate
+    ? selectedCandidate
+    : selectedCandidate && filteredCatalog.includes(selectedCandidate)
+      ? selectedCandidate
+      : filteredCatalog[0];
+  const selectedRuntime = onlineRuntimes.find((r) => r.id === selectedRuntimeId) ?? onlineRuntimes[0];
   const formRuntimes = editingConnection
     ? data.runtimes.filter((runtime) => runtime.id === editingConnection.runtimeId)
     : onlineRuntimes;
@@ -123,7 +129,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     operation.runtimeId === selectedRuntime.id &&
     operation.appSource === requiredRuntimeApp.source &&
     operation.appName === requiredRuntimeApp.name &&
-    isActiveStatus(operation.status),
+    isActiveCapabilityOperationStatus(operation.status),
   ));
   const requiresHighRiskConfirmation = Boolean(selected && (
     !editingConnection
@@ -148,7 +154,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   }, [selected, editingConnectionId]);
 
   useEffect(() => {
-    if (![...data.mcpOperations, ...data.operations].some((op) => isActiveStatus(op.status))) return;
+    if (![...data.mcpOperations, ...data.operations].some((op) => isActiveCapabilityOperationStatus(op.status))) return;
     const timeoutId = window.setTimeout(() => refreshWorkspaceModule(onDataChanged, router), 2_500);
     return () => window.clearTimeout(timeoutId);
   }, [data.mcpOperations, data.operations, onDataChanged, router]);
@@ -731,10 +737,6 @@ function Fact({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
-}
-
-function isActiveStatus(status: string): boolean {
-  return status === "pending" || status === "claimed" || status === "running";
 }
 
 function transportLabel(transport: string, tx: (zh: string, en: string) => string): string {

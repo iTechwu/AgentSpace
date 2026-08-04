@@ -6,6 +6,12 @@ import { useRouter } from "next/navigation";
 import { requestRuntimeAppOperationAction } from "@/features/market/actions";
 import { removeMcpConnectionAction, requestMcpConnectionAction, reverifyMcpConnectionAction } from "@/features/market/mcp-actions";
 import type { MarketPageData } from "@/features/market/market-page-client";
+import {
+  isActiveCapabilityOperationStatus,
+  projectRuntimeAppInstallability,
+  runtimeAppInstallabilityReason,
+  runtimeAppInstallabilityStatusLabel,
+} from "@/features/market/capability-presentation";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-action";
@@ -28,7 +34,7 @@ export function RuntimeCapabilitiesPanel({
   runtimeStatus: "online" | "offline";
   workspaceSlug: string;
 }) {
-  const { tx } = useLanguage();
+  const { language, tx } = useLanguage();
   const router = useRouter();
   const { pushToast } = useFeedbackToast();
   const [activeTab, setActiveTab] = useState<"cli" | "mcp">("cli");
@@ -69,7 +75,7 @@ export function RuntimeCapabilitiesPanel({
   const selectedMcp = selectedMcpId ? data.mcpCatalog.find((item) => item.id === selectedMcpId) : undefined;
 
   useEffect(() => {
-    if (![...cliOperations, ...mcpOperations].some((operation) => isActive(operation.status))) return;
+    if (![...cliOperations, ...mcpOperations].some((operation) => isActiveCapabilityOperationStatus(operation.status))) return;
     const timeoutId = window.setTimeout(() => router.refresh(), 2_500);
     return () => window.clearTimeout(timeoutId);
   }, [cliOperations, mcpOperations, router]);
@@ -196,8 +202,8 @@ export function RuntimeCapabilitiesPanel({
 
       {capabilityView === "history" ? (
         <div className="runtime-capabilities__history-view" role="tabpanel">
-          <OperationHistory open title={tx("CLI 安装记录", "CLI installation history")} rows={cliOperations.map((operation) => ({ id: operation.id, name: operation.appName, operation: operation.operation, status: operation.status, createdAt: operation.createdAt }))} />
-          <OperationHistory open title={tx("MCP 操作记录", "MCP operation history")} rows={mcpOperations.map((operation) => ({ id: operation.id, name: mcpConnections.find((connection) => connection.id === operation.connectionId)?.catalogDisplayName ?? operation.connectionId, operation: operation.operation, status: operation.status, createdAt: operation.createdAt }))} />
+          <OperationHistory language={language} open title={tx("CLI 安装记录", "CLI installation history")} rows={cliOperations.map((operation) => ({ id: operation.id, name: operation.appName, operation: operation.operation, status: operation.status, createdAt: operation.createdAt }))} tx={tx} />
+          <OperationHistory language={language} open title={tx("MCP 操作记录", "MCP operation history")} rows={mcpOperations.map((operation) => ({ id: operation.id, name: mcpConnections.find((connection) => connection.id === operation.connectionId)?.catalogDisplayName ?? operation.connectionId, operation: operation.operation, status: operation.status, createdAt: operation.createdAt }))} tx={tx} />
         </div>
       ) : activeTab === "cli" ? (
         <div className="runtime-capabilities__body" role="tabpanel">
@@ -205,23 +211,28 @@ export function RuntimeCapabilitiesPanel({
             {visibleCli.map((item) => {
               const key = `${item.source}:${item.name}`;
               const installation = installedApps.find((installed) => installed.source === item.source && installed.name === item.name);
-              const activeOperation = cliOperations.find((operation) => operation.appSource === item.source && operation.appName === item.name && isActive(operation.status));
+              const activeOperation = cliOperations.find((operation) => operation.appSource === item.source && operation.appName === item.name && isActiveCapabilityOperationStatus(operation.status));
               const installed = installation?.status === "installed" && installation.enabled;
+              const installability = runtime
+                ? projectRuntimeAppInstallability(item.installability, runtime.cliReadiness)
+                : { status: "unsupported" as const, code: "runtime.offline" };
+              const mutationBlocked = installability.status !== "installable";
               return (
                 <article className="runtime-capability-row" key={key}>
                   <span className="runtime-capability-row__icon"><AppIcon name="terminal" /></span>
                   <div className="runtime-capability-row__identity">
                     <strong>{item.displayName}</strong>
                     <span>{item.entryPoint || item.name} · {item.version || tx("版本未知", "unknown version")}</span>
+                    {mutationBlocked ? <span className="runtime-capability-row__reason">{runtimeAppInstallabilityReason(installability.code, tx)}</span> : null}
                   </div>
-                  <span className={`status-chip status-chip--${activeOperation ? "warning" : installed ? "positive" : installation?.status === "failed" ? "danger" : "neutral"}`}>
-                    {activeOperation?.status ?? (installed ? tx("已安装", "Installed") : installation?.status === "failed" ? tx("安装失败", "Failed") : tx("可安装", "Available"))}
+                  <span className={`status-chip status-chip--${activeOperation ? "warning" : installed ? "positive" : installation?.status === "failed" || installability.status === "unsupported" ? "danger" : installability.status === "needs_configuration" ? "warning" : "neutral"}`}>
+                    {activeOperation?.status ?? (installed ? tx("已安装", "Installed") : installation?.status === "failed" ? tx("安装失败", "Failed") : runtimeAppInstallabilityStatusLabel(installability.status, tx))}
                   </span>
                   <div className="runtime-capability-row__actions">
-                    {item.risk === "high" && !installed && cliRiskConfirmation === key ? (
+                    {item.risk === "high" && !installed && !mutationBlocked && cliRiskConfirmation === key ? (
                       <label className="runtime-capability-row__confirm"><input checked={cliRiskConfirmed} onChange={(event) => setCliRiskConfirmed(event.currentTarget.checked)} type="checkbox" /><span>{tx("确认高风险安装", "Confirm high-risk install")}</span></label>
                     ) : null}
-                    <button className={installed ? "modal-secondary-button" : "action-button"} disabled={isPending || runtimeStatus !== "online" || Boolean(activeOperation) || (!installed && item.risk === "high" && cliRiskConfirmation === key && !cliRiskConfirmed)} onClick={() => {
+                    <button className={installed ? "modal-secondary-button" : "action-button"} disabled={isPending || runtimeStatus !== "online" || mutationBlocked || Boolean(activeOperation) || (!installed && item.risk === "high" && cliRiskConfirmation === key && !cliRiskConfirmed)} onClick={() => {
                       if (!installed && item.risk === "high" && cliRiskConfirmation !== key) { setCliRiskConfirmation(key); setCliRiskConfirmed(false); return; }
                       requestCliOperation(item, installed ? "update" : "install", item.risk === "high" && cliRiskConfirmed);
                     }} type="button">
@@ -305,19 +316,55 @@ export function RuntimeCapabilitiesPanel({
   );
 }
 
-function OperationHistory({ open = false, title, rows }: { open?: boolean; title: string; rows: Array<{ id: string; name: string; operation: string; status: string; createdAt: string }> }) {
+function OperationHistory({
+  language,
+  open = false,
+  rows,
+  title,
+  tx,
+}: {
+  language: "zh" | "en";
+  open?: boolean;
+  rows: Array<{ id: string; name: string; operation: string; status: string; createdAt: string }>;
+  title: string;
+  tx: (zh: string, en: string) => string;
+}) {
   return (
     <details className="runtime-capability-history" open={open}>
       <summary><span>{title}</span><strong>{rows.length}</strong></summary>
-      {rows.length > 0 ? <ul>{rows.map((row) => <li key={row.id}><span><strong>{row.name}</strong><small>{row.operation} · <time dateTime={row.createdAt}>{formatTimestamp(row.createdAt)}</time></small></span><span className={`status-chip status-chip--${row.status === "succeeded" || row.status === "installed" ? "positive" : row.status === "failed" ? "danger" : isActive(row.status) ? "warning" : "neutral"}`}>{row.status}</span></li>)}</ul> : <p>暂无记录</p>}
+      {rows.length > 0 ? <ul>{rows.map((row) => <li key={row.id}><span><strong>{row.name}</strong><small>{operationLabel(row.operation, tx)} · <time dateTime={row.createdAt}>{formatTimestamp(row.createdAt, language)}</time></small></span><span className={`status-chip status-chip--${row.status === "succeeded" || row.status === "installed" ? "positive" : row.status === "failed" ? "danger" : isActiveCapabilityOperationStatus(row.status) ? "warning" : "neutral"}`}>{operationStatusLabel(row.status, tx)}</span></li>)}</ul> : <p>{tx("暂无记录", "No records")}</p>}
     </details>
   );
 }
 
-function isActive(status: string): boolean {
-  return status === "pending" || status === "claimed" || status === "running";
+function operationLabel(operation: string, tx: (zh: string, en: string) => string): string {
+  const labels: Record<string, [string, string]> = {
+    install: ["安装", "Install"],
+    update: ["更新", "Update"],
+    uninstall: ["卸载", "Uninstall"],
+    verify: ["验证", "Verify"],
+    enable: ["启用", "Enable"],
+    disable: ["停用", "Disable"],
+    remove: ["移除", "Remove"],
+  };
+  const label = labels[operation];
+  return label ? tx(label[0], label[1]) : operation;
 }
 
-function formatTimestamp(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+function operationStatusLabel(status: string, tx: (zh: string, en: string) => string): string {
+  const labels: Record<string, [string, string]> = {
+    pending: ["等待中", "Pending"],
+    claimed: ["已领取", "Claimed"],
+    running: ["进行中", "Running"],
+    succeeded: ["已成功", "Succeeded"],
+    failed: ["失败", "Failed"],
+    cancelled: ["已取消", "Cancelled"],
+    installed: ["已安装", "Installed"],
+  };
+  const label = labels[status];
+  return label ? tx(label[0], label[1]) : status;
+}
+
+function formatTimestamp(value: string, language: "zh" | "en"): string {
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }

@@ -25,6 +25,7 @@ vi.mock("@/features/market/mcp-actions", () => ({
 const data: MarketPageData = {
   catalog: [{
     source: "clihub_public",
+    productSource: "clihub_public",
     name: "mermaid",
     displayName: "Mermaid CLI",
     description: "Render diagrams",
@@ -33,9 +34,10 @@ const data: MarketPageData = {
     entryPoint: "mmdc",
     installStrategy: "cli_hub",
     risk: "low",
+    installability: { status: "installable", requiredTools: ["cli_hub"] },
   }],
   catalogHealth: { itemCount: 1, stale: false },
-  runtimes: [{ id: "runtime-1", label: "Managed codex", provider: "codex", status: "online", daemonKey: "daemon-1", cliHubReady: true, mcpEligible: true }],
+  runtimes: [{ id: "runtime-1", label: "Managed codex", provider: "codex", status: "online", daemonKey: "daemon-1", cliHubReady: true, cliReadiness: { npm: true, python: true, pip: true, cliHub: true }, mcpEligible: true }],
   installedApps: [],
   operations: [],
   mcpCatalog: [{
@@ -61,9 +63,9 @@ const data: MarketPageData = {
   canManage: true,
 };
 
-function renderPanel(panelData: MarketPageData = data) {
+function renderPanel(panelData: MarketPageData = data, language: "zh" | "en" = "zh") {
   return render(
-    <LanguageProvider>
+    <LanguageProvider initialLanguage={language}>
       <FeedbackToastProvider>
         <RuntimeCapabilitiesPanel data={panelData} runtimeId="runtime-1" runtimeName="Managed codex" runtimeStatus="online" workspaceSlug="k22" />
       </FeedbackToastProvider>
@@ -74,6 +76,7 @@ function renderPanel(panelData: MarketPageData = data) {
 describe("RuntimeCapabilitiesPanel", () => {
   beforeEach(() => {
     Object.values(actionMocks).forEach((mock) => mock.mockClear());
+    window.localStorage.removeItem("dofe-agent-language");
   });
 
   it("installs a CLI app directly from runtime details", async () => {
@@ -128,6 +131,24 @@ describe("RuntimeCapabilitiesPanel", () => {
     })));
   });
 
+  it("uses the same installability projection as the market", async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      ...data,
+      catalog: [{
+        ...data.catalog[0]!,
+        version: "latest",
+        installability: { status: "unsupported", code: "runtime_app.release_unpinned", requiredTools: [] },
+      }],
+    });
+
+    await user.click(screen.getByRole("button", { name: "安装 CLI" }));
+
+    expect(screen.getByText("不可安装", { selector: ".runtime-capability-row .status-chip" })).toBeInTheDocument();
+    expect(screen.getByText(/目录没有提供固定版本/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "安装" })).toBeDisabled();
+  });
+
   it("keeps current capabilities, catalog, and installation history as explicit views", async () => {
     const user = userEvent.setup();
     renderPanel({
@@ -159,7 +180,31 @@ describe("RuntimeCapabilitiesPanel", () => {
     await user.click(screen.getByRole("tab", { name: /安装记录/ }));
 
     expect(screen.getByText("CLI 安装记录")).toBeInTheDocument();
-    expect(screen.getByText(/install/)).toBeInTheDocument();
+    expect(screen.getByText("已成功")).toBeInTheDocument();
     expect(screen.getByText("MCP 操作记录")).toBeInTheDocument();
+  });
+
+  it("localizes empty history, operation status, and dates in English", async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      ...data,
+      operations: [{
+        id: "operation-en",
+        runtimeId: "runtime-1",
+        appSource: "clihub_public",
+        appName: "mermaid",
+        operation: "install",
+        status: "succeeded",
+        createdAt: "2026-08-04T08:00:00.000Z",
+      }],
+    }, "en");
+
+    await user.click(screen.getByRole("tab", { name: /Installation history/ }));
+
+    expect(screen.getByText((_, element) => element?.tagName === "SMALL" && element.textContent?.startsWith("Install ·") === true)).toBeInTheDocument();
+    expect(screen.getByText(/Aug 4, 2026/, { selector: "time" })).toBeInTheDocument();
+    expect(screen.getByText("Succeeded")).toBeInTheDocument();
+    expect(screen.getByText("No records")).toBeInTheDocument();
+    expect(screen.queryByText("暂无记录")).not.toBeInTheDocument();
   });
 });

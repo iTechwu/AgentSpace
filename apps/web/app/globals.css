@@ -31617,6 +31617,14 @@ button[aria-disabled="true"] svg {
   min-width: 0;
 }
 
+.runtime-capability-row__identity .runtime-capability-row__reason {
+  overflow: visible;
+  color: #9c332e;
+  line-height: 1.4;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .runtime-capability-row__identity strong {
   overflow-wrap: anywhere;
   color: var(--text);
