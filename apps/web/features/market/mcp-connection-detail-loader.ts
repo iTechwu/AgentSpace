@@ -5,6 +5,7 @@ import {
 } from "@dofe-agent/db";
 import { listMcpConnectionActivitySync } from "@dofe-agent/services";
 import type { McpConnectionDetailPageData } from "@/features/market/mcp-connection-detail-client";
+import { parseMcpDeclaredTools } from "@/features/market/mcp-declared-tools";
 
 export function loadMcpConnectionDetailPageData(input: {
   workspaceId: string;
@@ -17,7 +18,7 @@ export function loadMcpConnectionDetailPageData(input: {
   }
   const catalog = readMcpCatalogItemSync(connection.catalogItemId, input.workspaceId);
   const runtime = readAgentRuntimeSync(connection.runtimeId);
-  const declaredTools = safeDeclaredTools(catalog?.declaredToolsJson);
+  const declaredTools = parseMcpDeclaredTools(catalog?.declaredToolsJson);
   const approvedTools = safeJsonArray(connection.approvedToolsJson);
   return {
     workspaceId: input.workspaceId,
@@ -92,26 +93,4 @@ function safeJsonObject(value: string | undefined): Record<string, unknown> {
   } catch {
     return {};
   }
-}
-
-function safeDeclaredTools(value: string | undefined): Array<{ name: string; description: string; risk: "low" | "medium" | "high" }> {
-  try {
-    const parsed = JSON.parse(value ?? "[]") as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
-      .map((obj) => ({
-        name: typeof obj.name === "string" ? obj.name : "",
-        description: typeof obj.description === "string" ? obj.description : "",
-        risk: normalizeMcpRisk(obj.risk),
-      }))
-      .filter((tool) => tool.name);
-  } catch {
-    return [];
-  }
-}
-
-function normalizeMcpRisk(value: unknown): "low" | "medium" | "high" {
-  if (value === "low" || value === "medium" || value === "high") return value;
-  return "low";
 }

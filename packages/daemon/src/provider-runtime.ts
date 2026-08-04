@@ -87,6 +87,8 @@ export interface ProviderTaskOptions {
   runtimeApps?: RuntimeAppContextEntry[];
   /** Host path corresponding to the managed Runtime's mounted HOME/.local/bin. */
   runtimeAppBinDir?: string;
+  /** Whether CLI-Hub apps are reachable from the daemon process for preflight diagnostics. */
+  runtimeAppHostDiagnostics?: boolean;
   runtimeToolCapabilities?: RuntimeToolCapability[];
   /** Loopback MCP gateway URL for a task-scoped session; passed to the provider as a one-shot MCP config. */
   mcpGatewayUrl?: string;
@@ -409,7 +411,11 @@ function resolveClaudePermissionMode(): string {
 function buildRuntimeToolCapabilities(options: ProviderTaskOptions): RuntimeToolCapability[] {
   return dedupeRuntimeToolCapabilities([
     ...buildBuiltinRuntimeToolCapabilities(options.contextEnv),
-    ...buildCliHubRuntimeToolCapabilities(options.runtimeApps ?? [], options.runtimeAppBinDir),
+    ...buildCliHubRuntimeToolCapabilities(
+      options.runtimeApps ?? [],
+      options.runtimeAppBinDir,
+      options.runtimeAppHostDiagnostics ?? true,
+    ),
     ...(options.runtimeToolCapabilities ?? []),
   ]);
 }
@@ -454,6 +460,7 @@ function buildBuiltinRuntimeToolCapabilities(contextEnv?: Record<string, string>
 function buildCliHubRuntimeToolCapabilities(
   runtimeApps: RuntimeAppContextEntry[],
   runtimeAppBinDir?: string,
+  enableHostDiagnostics = true,
 ): RuntimeToolCapability[] {
   if (runtimeApps.length === 0) return [];
   const pythonUserBinDir = runtimeAppBinDir?.trim() || resolveRuntimeAppUserBinDir();
@@ -470,7 +477,7 @@ function buildCliHubRuntimeToolCapabilities(
         || resolveCommandDirFromCurrentEnv(command)
         || (pythonUserBinDir && existsSync(join(pythonUserBinDir, command)) ? pythonUserBinDir : undefined),
       allowedShellPatterns: [`${command} *`, `${command} --help`, `command -v ${command}`],
-      diagnosticCommands: [`command -v ${shellQuote(command)}`],
+      diagnosticCommands: enableHostDiagnostics ? [`command -v ${shellQuote(command)}`] : undefined,
       source: "cli-hub",
     }];
   });

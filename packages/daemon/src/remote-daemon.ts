@@ -1186,6 +1186,9 @@ async function executeRemoteTask(
         },
         runtimeApps: bundle.metadata.runtimeApps?.apps ?? [],
         runtimeAppBinDir: join(getManagedRuntimeHomeDir(config.stateDir, runtime.id), ".local", "bin"),
+        // Docker-out-of-Docker bind sources are visible to the provider child but
+        // not to this daemon container, so host command diagnostics are invalid.
+        runtimeAppHostDiagnostics: !config.managedNode,
         runtimeToolCapabilities: [
           ...(bundle.metadata.runtimeToolCapabilities?.capabilities ?? []),
           ...skillRunner.capabilities,

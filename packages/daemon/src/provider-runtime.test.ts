@@ -1085,6 +1085,60 @@ test("runProviderTask exposes CLI-Hub runtime app capabilities without adapter-s
   }
 });
 
+test("runProviderTask skips daemon-host CLI-Hub diagnostics for managed child runtimes", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-managed-clihub-capability-"));
+  const binPath = join(workDir, "claude");
+  const argsPath = join(workDir, "claude-args.txt");
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$CLAUDE_ARGS_PATH\"",
+      "IFS= read -r _prompt",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"managed app ok\",\"session_id\":\"managed-app-session\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(binPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-managed-clihub-capability-test",
+    workspaceId: "default",
+    provider: "claude",
+    name: "Claude",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    const result = await withProcessGetuid(0, () => runProviderTask(runtime, "use childctl", workDir, {
+      contextEnv: { CLAUDE_ARGS_PATH: argsPath },
+      runtimeApps: [{
+        source: "clihub_public",
+        name: "child",
+        displayName: "Child CLI",
+        entryPoint: "childctl",
+      }],
+      runtimeAppBinDir: join(workDir, "not-visible-in-daemon", "bin"),
+      runtimeAppHostDiagnostics: false,
+      taskTimeoutMs: 5_000,
+    }));
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+
+    assert.equal(result.output, "managed app ok");
+    assert.equal(result.sessionId, "managed-app-session");
+    assert.equal(args.includes("Bash(childctl *)"), true);
+    assert.equal(args.includes("Bash(childctl --help)"), true);
+    assert.equal(args.includes("Bash(command -v childctl)"), true);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("runProviderTask maps missing and unauthorized runtime tool capabilities to distinct provider errors", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "dofe-agent-runtime-tool-diagnostics-"));
   const binPath = join(workDir, "codex");

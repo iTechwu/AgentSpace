@@ -17,6 +17,7 @@ import {
   syncCliHubCatalog,
 } from "@dofe-agent/services";
 import type { MarketPageData } from "@/features/market/market-page-client";
+import { parseMcpDeclaredTools } from "@/features/market/mcp-declared-tools";
 
 export async function loadMarketPageData(input: {
   workspaceId: string;
@@ -105,7 +106,7 @@ export async function loadMarketPageData(input: {
       risk: item.risk,
       allowedHosts: safeJsonArray(item.allowedHostsJson),
       dataDomains: safeJsonArray(item.dataDomainsJson),
-      declaredTools: safeDeclaredTools(item.declaredToolsJson),
+      declaredTools: parseMcpDeclaredTools(item.declaredToolsJson),
       defaultApprovedTools: safeJsonArray(item.defaultApprovedToolsJson),
       secretFields: safeJsonArray(item.secretFieldsJson),
       configurationFields: safeConfigurationFields(item.configurationSchemaJson),
@@ -115,7 +116,7 @@ export async function loadMarketPageData(input: {
     })),
     mcpConnections: listMcpConnectionsSync({ workspaceId: input.workspaceId, limit: 500 }).map((connection) => {
       const catalog = readMcpCatalogItemSync(connection.catalogItemId, input.workspaceId);
-      const declared = safeJsonArray(catalog?.declaredToolsJson ?? "[]");
+      const declared = parseMcpDeclaredTools(catalog?.declaredToolsJson);
       return {
         id: connection.id,
         runtimeId: connection.runtimeId,
@@ -153,23 +154,6 @@ function safeJsonArray(value: string | undefined): string[] {
   }
 }
 
-function safeDeclaredTools(value: string | undefined): Array<{ name: string; description: string; risk: "low" | "medium" | "high" }> {
-  try {
-    const parsed = JSON.parse(value ?? "[]") as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
-      .map((obj) => ({
-        name: typeof obj.name === "string" ? obj.name : "",
-        description: typeof obj.description === "string" ? obj.description : "",
-        risk: normalizeMcpRisk(obj.risk),
-      }))
-      .filter((tool) => tool.name);
-  } catch {
-    return [];
-  }
-}
-
 function safeConfigurationFields(value: string | undefined): Array<{ name: string; required: boolean; maxLength?: number }> {
   try {
     const parsed = JSON.parse(value ?? "{}") as unknown;
@@ -200,8 +184,4 @@ function safeConfigurationFields(value: string | undefined): Array<{ name: strin
   } catch {
     return [];
   }
-}
-
-function normalizeMcpRisk(value: unknown): "low" | "medium" | "high" {
-  return value === "low" || value === "medium" || value === "high" ? value : "medium";
 }
