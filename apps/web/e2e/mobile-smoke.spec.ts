@@ -10,7 +10,9 @@ test("mobile workspace drill-down flows render and navigate", async ({ page }) =
 
   await page.goto("/skills");
   await expect(page.getByRole("button", { name: /打开导航|Open navigation/i })).toBeVisible();
+  await expect(page.getByTestId("workspace-sidebar")).toBeHidden();
   await page.getByRole("button", { name: /打开导航|Open navigation/i }).click();
+  await expect(page.getByTestId("workspace-sidebar")).toBeVisible();
   await expect(
     page.getByTestId("workspace-sidebar").getByRole("button", { name: /关闭侧边导航|Close sidebar/i }),
   ).toBeVisible();
