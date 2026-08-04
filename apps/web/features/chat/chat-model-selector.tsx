@@ -137,9 +137,9 @@ export function ChatModelSelector({
   const canPick = canManage && provider != null;
   const effectiveDisplayName = displayName ?? info?.agentName ?? "";
   const modelDisplay = info
-    ? formatModelDisplay(effectiveDisplayName, activeModel?.modelId, tx)
+    ? formatModelDisplay(effectiveDisplayName, activeModel?.modelId, Boolean(info.provider), tx)
     : initialModelId
-      ? formatModelDisplay(displayName ?? "", initialModelId, tx)
+      ? formatModelDisplay(displayName ?? "", initialModelId, false, tx)
       : displayName ?? "";
 
   return (
@@ -457,10 +457,14 @@ function formatContextLength(value: number): string {
 function formatModelDisplay(
   agentName: string,
   modelId: string | undefined,
+  inheritsRuntimeDefault: boolean,
   tx: (zh: string, en: string) => string,
 ): string {
-  return modelId
-    ? tx(`${agentName}（${modelId}）`, `${agentName} (${modelId})`)
+  if (modelId) {
+    return tx(`${agentName}（${modelId}）`, `${agentName} (${modelId})`);
+  }
+  return inheritsRuntimeDefault
+    ? tx(`${agentName}（Runtime 默认）`, `${agentName} (Runtime default)`)
     : tx(`${agentName}（未配置）`, `${agentName} (Not set)`);
 }
 

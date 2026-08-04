@@ -157,4 +157,21 @@ describe("ChatModelCommandDialog", () => {
     expect(await screen.findByText("模型加载失败")).toBeInTheDocument();
     expect(screen.queryByText("加载中…")).not.toBeInTheDocument();
   });
+
+  it("labels a bound runtime without an explicit model as inheriting the runtime default", async () => {
+    mocks.getChatModelOverrideAction.mockResolvedValueOnce({
+      routerSessionId: "router-session-1",
+      agentName: "Atlas",
+      provider: "codex",
+    });
+
+    render(
+      <LanguageProvider>
+        <ChatModelSelector canManage contactId="Atlas" displayName="Atlas" />
+      </LanguageProvider>,
+    );
+
+    expect(await screen.findByText("Atlas（Runtime 默认）")).toBeInTheDocument();
+    expect(screen.queryByText("Atlas（未配置）")).not.toBeInTheDocument();
+  });
 });
