@@ -299,6 +299,56 @@ describe("MarketPageClient", () => {
     }));
   });
 
+  it("groups one MCP service connected to multiple runtimes without presenting duplicate services", async () => {
+    const user = userEvent.setup();
+    const chromeCatalog: MarketPageData["mcpCatalog"][number] = {
+      ...data.mcpCatalog[0]!,
+      id: "mcp-chrome-devtools",
+      slug: "official-chrome-devtools",
+      displayName: "Chrome DevTools MCP",
+      transport: "managed_stdio",
+      endpointTemplate: "stdio://chrome-devtools-mcp",
+    };
+    const runtimes: MarketPageData["runtimes"] = [
+      { ...data.runtimes[0]!, id: "runtime-codex", label: "Managed codex", provider: "codex" },
+      { ...data.runtimes[0]!, id: "runtime-claude", label: "Managed claude", provider: "claude" },
+    ];
+    const connectionBase = {
+      catalogItemId: chromeCatalog.id,
+      catalogSlug: chromeCatalog.slug,
+      catalogDisplayName: chromeCatalog.displayName,
+      status: "ready",
+      transport: "managed_stdio" as const,
+      approvedTools: ["list_pages"],
+      declaredToolCount: 10,
+      lastVerifiedAt: "2026-08-04T03:49:00.000Z",
+    };
+
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{
+            ...data,
+            runtimes,
+            mcpCatalog: [chromeCatalog],
+            mcpConnections: [
+              { ...connectionBase, id: "connection-codex", runtimeId: "runtime-codex" },
+              { ...connectionBase, id: "connection-claude", runtimeId: "runtime-claude" },
+            ],
+          }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "MCP 市场" }));
+
+    const serviceGroup = screen.getByRole("listitem", { name: "Chrome DevTools MCP，2 个 Runtime 连接" });
+    expect(within(serviceGroup).getByText("Chrome DevTools MCP")).toBeInTheDocument();
+    expect(within(serviceGroup).getByRole("listitem", { name: "Chrome DevTools MCP · Managed codex" })).toBeInTheDocument();
+    expect(within(serviceGroup).getByRole("listitem", { name: "Chrome DevTools MCP · Managed claude" })).toBeInTheDocument();
+    expect(screen.getByLabelText("1 个服务，2 个 Runtime 连接")).toBeInTheDocument();
+  });
+
   it("only shows online runtimes in the target runtime selector", () => {
     render(
       <LanguageProvider>

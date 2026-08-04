@@ -22968,7 +22968,7 @@ textarea:focus {
 
 .market-tab-panel {
   display: flex;
-  flex: 1;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 0.85rem;
   min-height: 0;
@@ -23019,14 +23019,14 @@ textarea:focus {
   grid-template-columns: minmax(22rem, 0.82fr) minmax(28rem, 1.18fr);
   align-items: start;
   gap: 1rem;
-  height: clamp(31rem, calc(100dvh - 22rem), 44rem);
+  height: auto;
   min-height: 0;
 }
 
 .market-catalog-panel,
 .market-detail-panel {
   min-width: 0;
-  height: 100%;
+  height: auto;
   min-height: 0;
   border: 1px solid var(--market-border);
   border-radius: 8px;
@@ -23112,8 +23112,9 @@ textarea:focus {
 }
 
 .market-app-list {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
+  max-height: clamp(18rem, 45dvh, 31rem);
   overflow: auto;
   padding: 0.3rem 0.45rem 0.6rem;
 }
@@ -23193,7 +23194,47 @@ textarea:focus {
 
 .market-detail-panel {
   padding: 1rem;
-  overflow: auto;
+  overflow: visible;
+}
+
+.mcp-tool-scope {
+  display: block;
+  margin: 0.8rem 0 0;
+  border-top: 1px solid var(--market-border);
+  border-bottom: 1px solid var(--market-border);
+}
+
+.mcp-tool-scope__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.7rem;
+  cursor: pointer;
+  color: var(--market-muted);
+  font-size: 0.72rem;
+}
+
+.mcp-tool-scope__summary::marker {
+  color: var(--market-accent);
+}
+
+.mcp-tool-scope__summary .mcp-section-label {
+  display: inline;
+  margin: 0;
+  color: var(--market-ink);
+  font-size: 0.78rem;
+}
+
+.mcp-tool-scope__summary > span:last-child {
+  white-space: nowrap;
+}
+
+.mcp-tool-scope__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem 0.5rem;
+  padding: 0 0 0.75rem;
 }
 
 .market-detail-kicker {
@@ -23498,8 +23539,8 @@ textarea:focus {
 }
 
 .mcp-connections-section {
-  margin-top: 0.5rem;
-  padding-top: 1rem;
+  margin-top: 0.75rem;
+  padding-top: 1.15rem;
   border-top: 1px solid var(--market-border);
 }
 
@@ -23526,16 +23567,98 @@ textarea:focus {
   font-size: 0.74rem;
 }
 
-.mcp-connections-heading > span {
+.mcp-connections-summary {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 1rem;
+  color: var(--market-muted);
+  font-size: 0.72rem;
+}
+
+.mcp-connections-summary span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.mcp-connections-summary strong {
+  color: var(--market-ink);
+  font-size: 1rem;
+}
+
+.mcp-service-group-list,
+.mcp-runtime-connection-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mcp-service-group-list {
   display: grid;
+  gap: 1rem;
+}
+
+.mcp-service-group {
+  min-width: 0;
+}
+
+.mcp-service-group__heading {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.55rem;
+}
+
+.mcp-service-group__heading > div,
+.mcp-service-group__heading strong,
+.mcp-service-group__heading span {
+  min-width: 0;
+}
+
+.mcp-service-group__heading strong,
+.mcp-service-group__heading > div > span {
+  display: block;
+}
+
+.mcp-service-group__heading strong {
+  overflow-wrap: anywhere;
+  color: var(--market-ink);
+  font-size: 0.88rem;
+}
+
+.mcp-service-group__heading > div > span {
+  margin-top: 0.15rem;
+  color: var(--market-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.mcp-service-group__icon,
+.mcp-runtime-identity__icon {
+  display: grid;
+  flex: 0 0 auto;
   place-items: center;
-  min-width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 50%;
-  background: #e7ece8;
-  color: #536057;
-  font-size: 0.75rem;
-  font-weight: 700;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--market-border);
+  border-radius: 6px;
+  background: var(--market-accent-soft);
+  color: var(--market-accent);
+}
+
+.mcp-service-group__icon svg,
+.mcp-runtime-identity__icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.mcp-runtime-connection-list {
+  overflow: hidden;
+  border: 1px solid var(--market-border);
+  border-radius: 8px;
+  background: var(--market-surface);
 }
 
 .mcp-connections-section > .market-empty {
@@ -23545,8 +23668,70 @@ textarea:focus {
 }
 
 .mcp-connection-row {
-  border-color: var(--market-border);
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.4fr) minmax(18rem, 1fr);
+  align-items: start;
+  gap: 0.6rem 1rem;
+  padding: 0.9rem 1rem;
+  border: 0;
+  border-top: 1px solid var(--market-border);
+  border-radius: 0;
   background: var(--market-surface);
+}
+
+.mcp-connection-row:first-child {
+  border-top: 0;
+}
+
+.mcp-connection-head {
+  align-items: center;
+}
+
+.mcp-runtime-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.mcp-runtime-identity > span:last-child,
+.mcp-runtime-identity small,
+.mcp-runtime-identity strong {
+  display: block;
+  min-width: 0;
+}
+
+.mcp-runtime-identity small {
+  color: var(--market-muted);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+}
+
+.mcp-runtime-identity strong {
+  margin-top: 0.08rem;
+  overflow-wrap: anywhere;
+  color: var(--market-ink);
+  font-size: 0.82rem;
+}
+
+.mcp-runtime-identity__icon {
+  width: 1.85rem;
+  height: 1.85rem;
+  background: var(--market-surface-subtle);
+  color: #526159;
+}
+
+.mcp-connection-meta {
+  align-self: center;
+}
+
+.mcp-connection-tools,
+.mcp-connection-row > .market-action-row {
+  grid-column: 1 / -1;
+}
+
+.mcp-connection-row > .market-action-row {
+  margin-top: 0.1rem;
 }
 
 @media (max-width: 1100px) {
@@ -23575,10 +23760,6 @@ textarea:focus {
   .market-detail-panel {
     height: auto;
     min-height: 0;
-  }
-
-  .market-detail-panel {
-    max-height: 42rem;
   }
 
   .market-app-list {
@@ -23645,6 +23826,26 @@ textarea:focus {
     justify-content: space-between;
   }
 
+  .mcp-connections-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .mcp-connection-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mcp-connection-tools,
+  .mcp-connection-row > .market-action-row {
+    grid-column: auto;
+  }
+
+  .mcp-connection-row > .market-action-row > a,
+  .mcp-connection-row > .market-action-row > button {
+    width: 100%;
+    justify-content: center;
+  }
+
   .modal-backdrop:has(.modal-card--mcp-catalog) {
     padding: 0.5rem;
   }
@@ -23678,7 +23879,8 @@ textarea:focus {
   }
 
   .mcp-filter-grid,
-  .market-facts-grid {
+  .market-facts-grid,
+  .mcp-tool-scope__list {
     grid-template-columns: minmax(0, 1fr);
   }
 

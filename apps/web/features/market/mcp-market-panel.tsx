@@ -71,6 +71,17 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
     const runtimeIds = new Set(data.mcpConnections.filter((connection) => connection.catalogItemId === item.id).map((connection) => connection.runtimeId));
     return [item.id, runtimeIds.size] as const;
   })), [data.mcpCatalog, data.mcpConnections]);
+  const connectionGroups = useMemo(() => {
+    const groups = new Map<string, ConnectionEntry[]>();
+    for (const connection of data.mcpConnections) {
+      const group = groups.get(connection.catalogItemId) ?? [];
+      group.push(connection);
+      groups.set(connection.catalogItemId, group);
+    }
+    return Array.from(groups.values()).sort((left, right) =>
+      left[0]!.catalogDisplayName.localeCompare(right[0]!.catalogDisplayName),
+    );
+  }, [data.mcpConnections]);
   const filteredCatalog = useMemo(() => {
     const q = query.trim().toLocaleLowerCase("en-US");
     return data.mcpCatalog.filter((item) => {
@@ -444,23 +455,28 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                 ) : null}
               </div>
 
-              <div className="mcp-tool-scope">
-                <span className="mcp-section-label">{tx("工具范围", "Tool scope")}</span>
-                {selected.declaredTools.map((tool) => (
-                  <label key={tool.name} className="mcp-tool-row">
-                    <input
-                      checked={approvedTools.has(tool.name)}
-                      onChange={() => toggleTool(tool.name)}
-                      type="checkbox"
-                    />
-                    <span>
-                      <strong>{tool.name}</strong>
-                      <small>{tool.description}</small>
-                    </span>
-                    <span className={`status-chip status-chip--${riskTone(tool.risk)}`}>{tool.risk}</span>
-                  </label>
-                ))}
-              </div>
+              <details className="mcp-tool-scope" open={selected.declaredTools.length <= 6}>
+                <summary className="mcp-tool-scope__summary">
+                  <span className="mcp-section-label">{tx("工具范围", "Tool scope")}</span>
+                  <span>{tx(`${approvedTools.size}/${selected.declaredTools.length} 个工具已选择`, `${approvedTools.size}/${selected.declaredTools.length} tools selected`)}</span>
+                </summary>
+                <div className="mcp-tool-scope__list">
+                  {selected.declaredTools.map((tool) => (
+                    <label key={tool.name} className="mcp-tool-row">
+                      <input
+                        checked={approvedTools.has(tool.name)}
+                        onChange={() => toggleTool(tool.name)}
+                        type="checkbox"
+                      />
+                      <span>
+                        <strong>{tool.name}</strong>
+                        <small>{tool.description}</small>
+                      </span>
+                      <span className={`status-chip status-chip--${riskTone(tool.risk)}`}>{tool.risk}</span>
+                    </label>
+                  ))}
+                </div>
+              </details>
 
               <div className="market-runtime-box">
                 <label className="form-field">
@@ -575,28 +591,57 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
         <div className="mcp-connections-heading">
           <div>
             <h3>{tx("已连接服务", "Connected services")}</h3>
-            <p>{tx("集中管理 Runtime 上已启用的 MCP 连接。", "Manage active MCP connections across runtimes.")}</p>
+            <p>{tx("按服务集中管理每个 Runtime 的独立连接。", "Manage each runtime connection, grouped by service.")}</p>
           </div>
-          <span>{data.mcpConnections.length}</span>
+          <div className="mcp-connections-summary" aria-label={tx(
+            `${connectionGroups.length} 个服务，${data.mcpConnections.length} 个 Runtime 连接`,
+            `${connectionGroups.length} services, ${data.mcpConnections.length} runtime connections`,
+          )}>
+            <span><strong>{connectionGroups.length}</strong>{tx("个服务", "services")}</span>
+            <span><strong>{data.mcpConnections.length}</strong>{tx("个 Runtime 连接", "runtime connections")}</span>
+          </div>
         </div>
         {data.mcpConnections.length === 0 ? (
           <p className="market-empty">{tx("尚未连接 MCP 服务。", "No MCP connections yet.")}</p>
         ) : (
-          <ul className="mcp-connection-list">
-            {data.mcpConnections.map((connection) => (
-              <ConnectionRow
-                key={connection.id}
-                connection={connection}
-                runtimeLabel={data.runtimes.find((runtime) => runtime.id === connection.runtimeId)?.label ?? connection.runtimeId}
-                canManage={data.canManage}
-                disabled={isPending}
-                onReverify={() => runAction(() => reverifyMcpConnectionAction({ connectionId: connection.id }))}
-                onDisable={() => runAction(() => disableMcpConnectionAction({ connectionId: connection.id }))}
-                onEnable={() => runAction(() => enableMcpConnectionAction({ connectionId: connection.id }))}
-                onRemove={() => runAction(() => removeMcpConnectionAction({ connectionId: connection.id }))}
-                onManage={() => manageConnection(connection)}
-              />
-            ))}
+          <ul className="mcp-service-group-list">
+            {connectionGroups.map((connections) => {
+              const service = connections[0]!;
+              return (
+                <li
+                  aria-label={tx(
+                    `${service.catalogDisplayName}，${connections.length} 个 Runtime 连接`,
+                    `${service.catalogDisplayName}, ${connections.length} runtime connections`,
+                  )}
+                  className="mcp-service-group"
+                  key={service.catalogItemId}
+                >
+                  <div className="mcp-service-group__heading">
+                    <span className="mcp-service-group__icon"><AppIcon name="containers" /></span>
+                    <div>
+                      <strong>{service.catalogDisplayName}</strong>
+                      <span>{service.transport} · {tx(`${connections.length} 个 Runtime`, `${connections.length} runtimes`)}</span>
+                    </div>
+                  </div>
+                  <ul className="mcp-runtime-connection-list">
+                    {connections.map((connection) => (
+                      <ConnectionRow
+                        key={connection.id}
+                        connection={connection}
+                        runtimeLabel={data.runtimes.find((runtime) => runtime.id === connection.runtimeId)?.label ?? connection.runtimeId}
+                        canManage={data.canManage}
+                        disabled={isPending}
+                        onReverify={() => runAction(() => reverifyMcpConnectionAction({ connectionId: connection.id }))}
+                        onDisable={() => runAction(() => disableMcpConnectionAction({ connectionId: connection.id }))}
+                        onEnable={() => runAction(() => enableMcpConnectionAction({ connectionId: connection.id }))}
+                        onRemove={() => runAction(() => removeMcpConnectionAction({ connectionId: connection.id }))}
+                        onManage={() => manageConnection(connection)}
+                      />
+                    ))}
+                  </ul>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
@@ -630,12 +675,16 @@ function ConnectionRow(props: {
   return (
     <li aria-label={`${connection.catalogDisplayName} · ${runtimeLabel}`} className="mcp-connection-row">
       <div className="mcp-connection-head">
-        <strong>{connection.catalogDisplayName}</strong>
+        <span className="mcp-runtime-identity">
+          <span className="mcp-runtime-identity__icon"><AppIcon name="terminal" /></span>
+          <span>
+            <small>Runtime</small>
+            <strong>{runtimeLabel}</strong>
+          </span>
+        </span>
         <span className={`status-chip status-chip--${statusTone(connection.status)}`}>{statusLabel(connection.status, tx)}</span>
       </div>
       <div className="mcp-connection-meta">
-        <span>{tx("Runtime", "Runtime")}: <strong>{runtimeLabel}</strong></span>
-        <span>{connection.transport}</span>
         <span>{tx("已获准工具", "Approved tools")}: {connection.approvedTools.length}/{connection.declaredToolCount}</span>
         <span>{tx("上次验证", "Last verified")}: <time dateTime={connection.lastVerifiedAt}>{formatVerificationTime(connection.lastVerifiedAt, tx)}</time></span>
         {connection.lastErrorCode ? <span className="mcp-connection-error">{connection.lastErrorCode}{connection.lastErrorMessage ? `: ${connection.lastErrorMessage}` : ""}</span> : null}
