@@ -12,6 +12,7 @@ import {
   createRuntimeAppOperationSync,
   createUserSync,
   getDatabase,
+  insertWorkspaceRuntimeAppReleaseSync,
   listMcpOperationsSync,
   listMcpCatalogItemsSync,
   readMcpCatalogItemBySlugSync,
@@ -82,6 +83,8 @@ beforeEach(() => {
   db.exec("DELETE FROM runtime_app_operation");
   db.exec("DELETE FROM runtime_installed_app");
   db.exec("DELETE FROM runtime_app_catalog_item");
+  db.exec("DELETE FROM runtime_app_release");
+  db.exec("DELETE FROM runtime_app_package");
   db.exec("DELETE FROM agent_runtime");
   db.exec("DELETE FROM daemon_connection");
   db.exec("DELETE FROM users");
@@ -141,6 +144,7 @@ test("requestMcpConnection creates a connection and queues a verify operation", 
 
 test("managed stdio catalog connects an installed Runtime entrypoint without an egress lease", () => {
   const runtimeId = createRuntime();
+  const release = seedInstalledPrivateRuntimeApp(runtimeId, "internal-mcp");
   const catalog = createMcpCatalogItemSync({
     workspaceId: "default",
     actorUserId: ADMIN_USER_ID,
@@ -158,7 +162,24 @@ test("managed stdio catalog connects an installed Runtime entrypoint without an 
     declaredTools: [{ name: "search", description: "Search", risk: "low" }],
     defaultApprovedTools: ["search"],
     secretFields: ["API_TOKEN"],
+    requiredRuntimeApp: {
+      source: "workspace_private",
+      name: release.id,
+      version: release.version,
+    },
   });
+  assert.deepEqual(catalog.requiredRuntimeApp, {
+    source: "workspace_private",
+    name: release.id,
+    version: release.version,
+  });
+  assert.notEqual(
+    digestMcpCatalogRelease(catalog),
+    digestMcpCatalogRelease({
+      ...catalog,
+      requiredRuntimeApp: { ...catalog.requiredRuntimeApp!, name: "different-release" },
+    }),
+  );
   const { connection, operation } = requestMcpConnectionSync({
     workspaceId: "default",
     actorUserId: ADMIN_USER_ID,
@@ -180,7 +201,7 @@ test("managed stdio catalog connects an installed Runtime entrypoint without an 
   assert.throws(() => requestMcpConnectionSync({
     workspaceId: "default",
     actorUserId: ADMIN_USER_ID,
-    runtimeId: createRuntime(),
+    runtimeId,
     catalogItemId: catalog.id,
     endpoint: "stdio://different-installed-command",
     nonSecretParams: { TENANT_ID: "tenant-1" },
@@ -300,6 +321,41 @@ test("managed stdio catalog rejects untrusted commands and reserved environment 
     configurationSchema: { type: "object", properties: { PATH: { type: "string" } } },
     declaredTools: [{ name: "search", description: "Search", risk: "low" }],
   }), /invalid_managed_stdio_environment/);
+});
+
+test("managed stdio catalog requires an existing private CLI release with a matching entrypoint", () => {
+  const release = insertWorkspaceRuntimeAppReleaseSync({
+    workspaceId: "default",
+    slug: "bound-mcp-cli",
+    displayName: "Bound MCP CLI",
+    version: "2.0.0",
+    artifactKind: "npm",
+    artifactName: "@workspace/bound-mcp-cli",
+    artifactUrl: "https://registry.npmjs.org/@workspace/bound-mcp-cli/-/bound-mcp-cli-2.0.0.tgz",
+    artifactIntegrity: "sha512-test",
+    entryPoint: "bound-mcp",
+    manifestJson: "{}",
+  });
+  const base = {
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    displayName: "Bound MCP",
+    transport: "managed_stdio" as const,
+    allowedHosts: [],
+    configurationSchema: { type: "object" },
+    declaredTools: [{ name: "search", description: "Search", risk: "low" as const }],
+  };
+  assert.throws(() => createMcpCatalogItemSync({
+    ...base,
+    slug: "missing-release-binding",
+    endpointTemplate: "stdio://bound-mcp",
+  }), /required_runtime_app_required/);
+  assert.throws(() => createMcpCatalogItemSync({
+    ...base,
+    slug: "wrong-release-entrypoint",
+    endpointTemplate: "stdio://other-mcp",
+    requiredRuntimeApp: { source: "workspace_private", name: release.id, version: release.version },
+  }), /required_runtime_app_entrypoint_mismatch/);
 });
 
 test("catalog publishing keeps releases immutable and exposes only the latest release", () => {
@@ -1259,6 +1315,42 @@ test("rotateMcpEncryptionKeySync re-encrypts secrets and active grants atomicall
   assert.match(grant.encryptedBundleJson, /^mcpg2:/);
   assert.equal(decryptMcpGrant(grant.encryptedBundleJson), '{"connections":[]}');
 });
+
+function seedInstalledPrivateRuntimeApp(runtimeId: string, entryPoint: string) {
+  const release = insertWorkspaceRuntimeAppReleaseSync({
+    workspaceId: "default",
+    slug: `${entryPoint}-cli`,
+    displayName: `${entryPoint} CLI`,
+    version: "1.0.0",
+    artifactKind: "npm",
+    artifactName: `@workspace/${entryPoint}`,
+    artifactUrl: `https://registry.npmjs.org/@workspace/${entryPoint}/-/${entryPoint}-1.0.0.tgz`,
+    artifactIntegrity: "sha512-test",
+    entryPoint,
+    manifestJson: "{}",
+  });
+  const operation = createRuntimeAppOperationSync({
+    workspaceId: "default",
+    runtimeId,
+    appSource: "workspace_private",
+    appName: release.id,
+    operation: "install",
+    commandPlanJson: "{}",
+  });
+  assert.equal(claimNextRuntimeAppOperationForRuntimeSync({ workspaceId: "default", runtimeId })?.id, operation.id);
+  startRuntimeAppOperationSync(operation.id, "default");
+  completeRuntimeAppOperationSync({
+    workspaceId: "default",
+    operationId: operation.id,
+    installedApp: {
+      displayName: release.displayName,
+      version: release.version,
+      entryPoint: release.entryPoint,
+      installStrategy: "npm",
+    },
+  });
+  return release;
+}
 
 function createRuntime(): string {
   const snapshot = registerDaemonRuntimesSync({

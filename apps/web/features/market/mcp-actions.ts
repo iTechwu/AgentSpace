@@ -1,6 +1,6 @@
 "use server";
 
-import type { McpCatalogCategory, McpRisk, McpTransport } from "@dofe-agent/db";
+import type { McpCatalogCategory, McpRisk, McpTransport, RuntimeAppCatalogSource } from "@dofe-agent/db";
 import {
   createMcpCatalogItemSync,
   disableMcpConnectionSync,
@@ -38,6 +38,11 @@ export interface CreateMcpCatalogItemActionInput {
   risk?: McpRisk;
   endpointTemplate?: string;
   documentationUrl?: string;
+  requiredRuntimeApp?: {
+    source: RuntimeAppCatalogSource;
+    name: string;
+    version: string;
+  };
 }
 
 export async function createMcpCatalogItemAction(

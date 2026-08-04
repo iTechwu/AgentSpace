@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "103";
+export const POSTGRES_SCHEMA_VERSION = "104";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -995,6 +995,7 @@ export function getPostgresSchemaStatements(): string[] {
         risk TEXT NOT NULL DEFAULT 'high',
         endpoint_template TEXT,
         documentation_url TEXT,
+        required_runtime_app_json JSONB,
         synced_at TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL
@@ -1003,6 +1004,10 @@ export function getPostgresSchemaStatements(): string[] {
     `
       ALTER TABLE mcp_catalog_item
         ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'other'
+    `,
+    `
+      ALTER TABLE mcp_catalog_item
+        ADD COLUMN IF NOT EXISTS required_runtime_app_json JSONB
     `,
     `
       UPDATE mcp_catalog_item SET version = '1.0.0' WHERE version = ''

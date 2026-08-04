@@ -13,6 +13,7 @@ import type {
   McpRisk,
   McpToolCallOutcome,
   McpTransport,
+  RuntimeAppCatalogSource,
   RuntimeMcpConnectionRecord,
   RuntimeMcpDiscoverySnapshotRecord,
   RuntimeMcpOperationRecord,
@@ -44,6 +45,7 @@ export interface UpsertMcpCatalogItemInput {
   risk?: McpRisk;
   endpointTemplate?: string;
   documentationUrl?: string;
+  requiredRuntimeAppJson?: string;
 }
 
 export interface CreateMcpConnectionInput {
@@ -206,10 +208,11 @@ function writeMcpCatalogItemSync(input: UpsertMcpCatalogItemInput, allowOverwrit
         risk,
         endpoint_template,
         documentation_url,
+        required_runtime_app_json,
         synced_at,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ${allowOverwrite ? `ON CONFLICT (workspace_id, slug, version) DO UPDATE SET
         source = excluded.source,
         category = excluded.category,
@@ -226,6 +229,7 @@ function writeMcpCatalogItemSync(input: UpsertMcpCatalogItemInput, allowOverwrit
         risk = excluded.risk,
         endpoint_template = excluded.endpoint_template,
         documentation_url = excluded.documentation_url,
+        required_runtime_app_json = excluded.required_runtime_app_json,
         synced_at = excluded.synced_at,
         updated_at = excluded.updated_at` : ""}`,
     ).run(
@@ -248,6 +252,7 @@ function writeMcpCatalogItemSync(input: UpsertMcpCatalogItemInput, allowOverwrit
       input.risk ?? "high",
       input.endpointTemplate?.trim() || null,
       input.documentationUrl?.trim() || null,
+      input.requiredRuntimeAppJson ?? null,
       now,
       now,
       now,
@@ -1116,6 +1121,7 @@ const MCP_CATALOG_ITEM_FIELDS = `
   required_runtime_capabilities_json AS requiredRuntimeCapabilitiesJson,
   data_domains_json AS dataDomainsJson,
   risk, endpoint_template AS endpointTemplate, documentation_url AS documentationUrl,
+  required_runtime_app_json AS requiredRuntimeAppJson,
   synced_at AS syncedAt, created_at AS createdAt, updated_at AS updatedAt`;
 const MCP_CATALOG_ITEM_COLUMNS = `SELECT ${MCP_CATALOG_ITEM_FIELDS}`;
 
@@ -1197,6 +1203,7 @@ function mapMcpCatalogItemRecord(value: Record<string, unknown>): McpCatalogItem
     risk: value.risk,
     endpointTemplate: readOptionalString(value.endpointTemplate),
     documentationUrl: readOptionalString(value.documentationUrl),
+    requiredRuntimeApp: parseRequiredRuntimeApp(value.requiredRuntimeAppJson ?? value.requiredruntimeappjson),
     syncedAt: value.syncedAt,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
@@ -1369,6 +1376,26 @@ function isMcpRisk(value: unknown): value is McpRisk {
 }
 function isMcpCatalogSource(value: unknown): value is McpCatalogSource {
   return value === "official" || value === "verified_partner" || value === "workspace_private";
+}
+function parseRequiredRuntimeApp(value: unknown): McpCatalogItemRecord["requiredRuntimeApp"] {
+  if (value === null || value === undefined || value === "") return undefined;
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const item = parsed as Record<string, unknown>;
+  if (!isRuntimeAppCatalogSource(item.source) || typeof item.name !== "string" || !item.name.trim() || typeof item.version !== "string" || !item.version.trim()) {
+    return undefined;
+  }
+  return { source: item.source, name: item.name.trim(), version: item.version.trim() };
+}
+function isRuntimeAppCatalogSource(value: unknown): value is RuntimeAppCatalogSource {
+  return value === "clihub_harness" || value === "clihub_public" || value === "skill_dependency" || value === "workspace_private";
 }
 function isMcpConnectionStatus(value: unknown): value is McpConnectionStatus {
   return (

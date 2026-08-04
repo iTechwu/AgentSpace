@@ -72,7 +72,7 @@ import {
   signMcpEgressLeaseForOperation,
   signMcpEgressLeaseForTaskCall,
 } from "./egress.ts";
-import { resolveOfficialManagedStdioProfile, resolveOfficialMcpRuntimeAppRequirement } from "./official-catalog.ts";
+import { resolveMcpRuntimeAppRequirement, resolveOfficialManagedStdioProfile } from "./official-catalog.ts";
 import { resolveReadyMcpConnectionForTask } from "./readiness.ts";
 export { listReadyMcpConnectionsForTaskSync } from "./readiness.ts";
 
@@ -1344,7 +1344,7 @@ function isRequiredRuntimeAppReady(
   runtimeId: string,
   catalog: McpCatalogItemRecord,
 ): boolean {
-  const requirement = resolveOfficialMcpRuntimeAppRequirement(catalog);
+  const requirement = resolveMcpRuntimeAppRequirement(catalog);
   if (!requirement) return true;
   const installed = readRuntimeInstalledAppSync({ workspaceId, runtimeId, source: requirement.source, name: requirement.name });
   return Boolean(

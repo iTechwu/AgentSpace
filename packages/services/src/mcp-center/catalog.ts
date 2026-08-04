@@ -6,10 +6,12 @@ import {
   readMcpCatalogItemBySlugSync,
   readMcpCatalogItemReleaseSync,
   readMcpCatalogItemSync,
+  readWorkspaceRuntimeAppReleaseSync,
   type McpCatalogItemRecord,
   type McpCatalogCategory,
   type McpRisk,
   type McpTransport,
+  type RuntimeAppCatalogSource,
 } from "@dofe-agent/db";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
@@ -40,6 +42,11 @@ export interface CreateMcpCatalogItemInput {
   risk?: McpRisk;
   endpointTemplate?: string;
   documentationUrl?: string;
+  requiredRuntimeApp?: {
+    source: RuntimeAppCatalogSource;
+    name: string;
+    version: string;
+  };
 }
 
 export function assertCanManageMcpCenterSync(input: { workspaceId: string; actorUserId?: string }): void {
@@ -109,7 +116,8 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
   }
   const secretFields = (input.secretFields ?? []).map((s) => s.trim()).filter(Boolean);
   if (input.transport === "managed_stdio") {
-    if (!input.endpointTemplate || !validateManagedStdioEndpoint(input.endpointTemplate).ok) {
+    const endpointTemplate = input.endpointTemplate?.trim();
+    if (!endpointTemplate || !validateManagedStdioEndpoint(endpointTemplate).ok) {
       throw new Error("mcp_catalog.invalid_managed_stdio_endpoint");
     }
     const schemaProperties = configurationSchema.properties && typeof configurationSchema.properties === "object"
@@ -118,6 +126,19 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
     if ([...schemaProperties, ...secretFields].some((name) => !/^[A-Z][A-Z0-9_]{0,63}$/.test(name) || ["HOME", "PATH"].includes(name) || name.startsWith("DOFE_"))) {
       throw new Error("mcp_catalog.invalid_managed_stdio_environment");
     }
+    const requirement = input.requiredRuntimeApp;
+    if (!requirement || requirement.source !== "workspace_private") {
+      throw new Error("mcp_catalog.required_runtime_app_required");
+    }
+    const release = readWorkspaceRuntimeAppReleaseSync(requirement.name.trim(), input.workspaceId);
+    if (!release || release.yankedAt || release.version !== requirement.version.trim()) {
+      throw new Error("mcp_catalog.required_runtime_app_not_found");
+    }
+    if (endpointTemplate !== `stdio://${release.entryPoint}`) {
+      throw new Error("mcp_catalog.required_runtime_app_entrypoint_mismatch");
+    }
+  } else if (input.requiredRuntimeApp) {
+    throw new Error("mcp_catalog.required_runtime_app_not_supported");
   }
 
   // Workspace-created catalog entries have not passed platform review, so they
@@ -144,6 +165,7 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
       risk,
       endpointTemplate: input.endpointTemplate?.trim() || undefined,
       documentationUrl: input.documentationUrl?.trim() || undefined,
+      requiredRuntimeAppJson: input.requiredRuntimeApp ? JSON.stringify(input.requiredRuntimeApp) : undefined,
     });
   } catch (error) {
     if (isMcpCatalogSlugConflict(error)) {
@@ -164,6 +186,9 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
       resourceId: record.id,
       transport: record.transport,
       risk: record.risk,
+      requiredRuntimeAppSource: record.requiredRuntimeApp?.source,
+      requiredRuntimeAppName: record.requiredRuntimeApp?.name,
+      requiredRuntimeAppVersion: record.requiredRuntimeApp?.version,
     },
   });
 

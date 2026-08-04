@@ -473,6 +473,7 @@ export function digestMcpCatalogRelease(release: McpCatalogItemRecord): `sha256:
     dataDomainsJson: release.dataDomainsJson,
     risk: release.risk,
     endpointTemplate: release.endpointTemplate ?? null,
+    requiredRuntimeApp: release.requiredRuntimeApp ?? null,
   });
   return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
 }

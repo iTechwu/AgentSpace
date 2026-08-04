@@ -326,9 +326,11 @@ export {
   CHROME_DEVTOOLS_MCP_SLUG,
   CHROME_DEVTOOLS_MCP_VERSION,
   resolveOfficialManagedStdioProfile,
+  resolveMcpRuntimeAppRequirement,
   resolveOfficialMcpRuntimeAppRequirement,
   syncOfficialMcpCatalogForWorkspaceSync,
   type OfficialMcpRuntimeAppRequirement,
+  type McpRuntimeAppRequirement,
 } from "./mcp-center/official-catalog.ts";
 export {
   claimMcpTaskSessionSync,

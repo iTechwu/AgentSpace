@@ -685,6 +685,15 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
           onCancel={() => setShowCreateCatalog(false)}
           onConfirm={createCatalogItem}
           pending={isPending}
+          privateCliReleases={data.catalog
+            .filter((item): item is typeof item & { source: "workspace_private" } => item.source === "workspace_private")
+            .map((item) => ({
+              source: item.source,
+              name: item.name,
+              displayName: item.displayName,
+              version: item.version,
+              entryPoint: item.entryPoint,
+            }))}
         />
       ) : null}
     </div>

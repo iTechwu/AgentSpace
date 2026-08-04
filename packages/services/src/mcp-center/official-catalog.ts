@@ -3,6 +3,7 @@ import {
   upsertMcpCatalogItemSync,
   upsertRuntimeAppCatalogItemsSync,
   type McpCatalogItemRecord,
+  type RuntimeAppCatalogSource,
 } from "@dofe-agent/db";
 import type { McpManagedStdioProfile } from "@dofe-agent/domain";
 
@@ -16,6 +17,12 @@ export const MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC = `${MINIMAX_TOKEN_PLAN_MCP_PAC
 
 export interface OfficialMcpRuntimeAppRequirement {
   source: "clihub_public";
+  name: string;
+  version: string;
+}
+
+export interface McpRuntimeAppRequirement {
+  source: RuntimeAppCatalogSource;
   name: string;
   version: string;
 }
@@ -188,9 +195,12 @@ export function resolveOfficialManagedStdioProfile(
   return undefined;
 }
 
-export function resolveOfficialMcpRuntimeAppRequirement(
-  catalog: Pick<McpCatalogItemRecord, "source" | "slug" | "version" | "transport">,
-): OfficialMcpRuntimeAppRequirement | undefined {
+export function resolveMcpRuntimeAppRequirement(
+  catalog: Pick<McpCatalogItemRecord, "source" | "slug" | "version" | "transport"> & {
+    requiredRuntimeApp?: McpCatalogItemRecord["requiredRuntimeApp"];
+  },
+): McpRuntimeAppRequirement | undefined {
+  if (catalog.requiredRuntimeApp) return { ...catalog.requiredRuntimeApp };
   if (!resolveOfficialManagedStdioProfile(catalog)) return undefined;
   if (catalog.slug === CHROME_DEVTOOLS_MCP_SLUG) {
     return { source: "clihub_public", name: "chrome-devtools-mcp", version: CHROME_DEVTOOLS_MCP_VERSION };
@@ -200,6 +210,8 @@ export function resolveOfficialMcpRuntimeAppRequirement(
   }
   return undefined;
 }
+
+export const resolveOfficialMcpRuntimeAppRequirement = resolveMcpRuntimeAppRequirement;
 
 function readOfficialReleaseOrCreate(
   workspaceId: string,

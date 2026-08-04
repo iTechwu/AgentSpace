@@ -24,6 +24,13 @@ interface ConfigFieldDraft {
 
 export function CreateMcpCatalogModal(props: {
   pending: boolean;
+  privateCliReleases: Array<{
+    source: "workspace_private";
+    name: string;
+    displayName: string;
+    version: string;
+    entryPoint: string;
+  }>;
   onCancel: () => void;
   onConfirm: (input: CreateMcpCatalogItemActionInput) => void;
 }) {
@@ -34,6 +41,7 @@ export function CreateMcpCatalogModal(props: {
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
   const [transport, setTransport] = useState<McpTransport>("streamable_http");
+  const [requiredRuntimeReleaseId, setRequiredRuntimeReleaseId] = useState("");
   const [tools, setTools] = useState<ToolDraft[]>([
     { id: 1, name: "", description: "", risk: "medium", approvedByDefault: false },
   ]);
@@ -63,8 +71,11 @@ export function CreateMcpCatalogModal(props: {
         onSubmit={(event) => {
           event.preventDefault();
           const values = new FormData(event.currentTarget);
-          const endpointInput = String(values.get("endpoint") ?? "").trim();
-          const endpoint = transport === "managed_stdio" ? `stdio://${endpointInput}` : endpointInput;
+          const requiredRuntimeRelease = props.privateCliReleases.find((release) => release.name === requiredRuntimeReleaseId);
+          if (transport === "managed_stdio" && !requiredRuntimeRelease) return;
+          const endpoint = transport === "managed_stdio"
+            ? `stdio://${requiredRuntimeRelease!.entryPoint}`
+            : String(values.get("endpoint") ?? "").trim();
           const allowedHosts = transport === "streamable_http"
             ? uniqueTokens(String(values.get("allowedHosts") ?? ""))
             : [];
@@ -105,6 +116,11 @@ export function CreateMcpCatalogModal(props: {
             risk: "high",
             endpointTemplate: endpoint,
             documentationUrl: String(values.get("documentationUrl") ?? "").trim() || undefined,
+            requiredRuntimeApp: requiredRuntimeRelease ? {
+              source: requiredRuntimeRelease.source,
+              name: requiredRuntimeRelease.name,
+              version: requiredRuntimeRelease.version,
+            } : undefined,
           });
         }}
         ref={surfaceRef}
@@ -202,16 +218,42 @@ export function CreateMcpCatalogModal(props: {
               <span className="status-chip status-chip--neutral">{transport}</span>
             </div>
             <div className="mcp-catalog-form-grid">
-              <label className="form-field form-field--full">
-                <span>{transport === "managed_stdio" ? tx("已安装入口命令", "Installed entrypoint") : "Endpoint (HTTPS)"}</span>
-                <input
-                  name="endpoint"
-                  pattern={transport === "managed_stdio" ? "[a-z0-9][a-z0-9._-]{0,127}" : "https://.*"}
-                  placeholder={transport === "managed_stdio" ? "my-mcp-server" : "https://mcp.example.com/mcp"}
-                  required
-                  type={transport === "managed_stdio" ? "text" : "url"}
-                />
-              </label>
+              {transport === "managed_stdio" ? (
+                <>
+                  <label className="form-field form-field--full">
+                    <span>{tx("依赖 CLI release", "Required CLI release")}</span>
+                    <select
+                      onChange={(event) => setRequiredRuntimeReleaseId(event.currentTarget.value)}
+                      required
+                      value={requiredRuntimeReleaseId}
+                    >
+                      <option value="">{tx("选择当前工作区已发布的 CLI", "Select a CLI published in this workspace")}</option>
+                      {props.privateCliReleases.map((release) => (
+                        <option key={release.name} value={release.name}>
+                          {release.displayName} · {release.version} · {release.entryPoint}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="form-field form-field--full">
+                    <span>{tx("受管 stdio 入口", "Managed stdio entrypoint")}</span>
+                    <input
+                      readOnly
+                      value={requiredRuntimeReleaseId
+                        ? `stdio://${props.privateCliReleases.find((release) => release.name === requiredRuntimeReleaseId)?.entryPoint ?? ""}`
+                        : ""}
+                    />
+                  </label>
+                  {props.privateCliReleases.length === 0 ? (
+                    <p className="mcp-catalog-no-fields">{tx("请先在 CLI 市场发布一个工作区私有 CLI release。", "Publish a workspace-private CLI release before adding a managed stdio MCP service.")}</p>
+                  ) : null}
+                </>
+              ) : (
+                <label className="form-field form-field--full">
+                  <span>Endpoint (HTTPS)</span>
+                  <input name="endpoint" pattern="https://.*" placeholder="https://mcp.example.com/mcp" required type="url" />
+                </label>
+              )}
               {transport === "streamable_http" ? (
                 <label className="form-field form-field--full">
                   <span>{tx("额外允许域名", "Additional allowed hosts")}</span>

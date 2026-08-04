@@ -69,9 +69,26 @@ const data: MarketPageData = {
         requiredTools: ["cli_hub"],
       },
     },
+    {
+      source: "workspace_private",
+      productSource: "workspace_private",
+      name: "runtime-app-release-local-mcp",
+      displayName: "Local MCP CLI",
+      description: "Workspace managed stdio server",
+      version: "1.2.3",
+      category: "developer_tools",
+      entryPoint: "local-mcp",
+      installStrategy: "npm",
+      installCmd: "npm install --global @workspace/local-mcp@1.2.3",
+      risk: "high",
+      installability: {
+        status: "installable",
+        requiredTools: ["npm"],
+      },
+    },
   ],
   catalogHealth: {
-    itemCount: 1,
+    itemCount: 2,
     lastSyncedAt: "2026-05-08T00:00:00.000Z",
     stale: false,
   },
@@ -150,7 +167,7 @@ describe("MarketPageClient", () => {
     );
 
     expect(screen.getByRole("heading", { name: "应用与服务市场" })).toBeInTheDocument();
-    expect(screen.getByLabelText("市场概览")).toHaveTextContent("可用能力2");
+    expect(screen.getByLabelText("市场概览")).toHaveTextContent("可用能力3");
     expect(screen.getByRole("tab", { name: "CLI 市场" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "MCP 市场" })).toHaveTextContent("1 个目录服务");
   });
@@ -220,7 +237,8 @@ describe("MarketPageClient", () => {
     const catalogForm = within(screen.getByRole("dialog", { name: "添加 MCP 服务" }));
     await user.type(catalogForm.getByLabelText("服务名称", { selector: "input" }), "Local MCP");
     await user.selectOptions(catalogForm.getByLabelText("传输"), "managed_stdio");
-    await user.type(catalogForm.getByLabelText("已安装入口命令"), "local-mcp");
+    await user.selectOptions(catalogForm.getByLabelText("依赖 CLI release"), "runtime-app-release-local-mcp");
+    expect(catalogForm.getByLabelText("受管 stdio 入口")).toHaveValue("stdio://local-mcp");
     await user.type(catalogForm.getByLabelText("工具 1"), "lookup_record");
     await user.type(catalogForm.getByLabelText("说明", { selector: "input" }), "Look up a local record");
     await user.click(catalogForm.getByRole("button", { name: "发布到目录" }));
@@ -230,6 +248,11 @@ describe("MarketPageClient", () => {
       transport: "managed_stdio",
       endpointTemplate: "stdio://local-mcp",
       allowedHosts: [],
+      requiredRuntimeApp: {
+        source: "workspace_private",
+        name: "runtime-app-release-local-mcp",
+        version: "1.2.3",
+      },
     }));
   });
 
@@ -456,7 +479,7 @@ describe("MarketPageClient", () => {
     );
 
     expect(screen.getByLabelText("CLI 目录健康")).toHaveTextContent("目录正常");
-    expect(screen.getByLabelText("CLI 目录健康")).toHaveTextContent("1 个条目");
+    expect(screen.getByLabelText("CLI 目录健康")).toHaveTextContent("2 个条目");
     expect(screen.getByRole("option", { name: "平台官方" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Skill 依赖" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "skill_dependency" })).not.toBeInTheDocument();

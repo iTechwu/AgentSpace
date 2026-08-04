@@ -1017,6 +1017,11 @@ export interface McpCatalogItemRecord {
   risk: McpRisk;
   endpointTemplate?: string;
   documentationUrl?: string;
+  requiredRuntimeApp?: {
+    source: RuntimeAppCatalogSource;
+    name: string;
+    version: string;
+  };
   syncedAt: string;
   createdAt: string;
   updatedAt: string;
