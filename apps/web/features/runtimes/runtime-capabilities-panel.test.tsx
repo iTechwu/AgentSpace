@@ -80,7 +80,7 @@ describe("RuntimeCapabilitiesPanel", () => {
     const user = userEvent.setup();
     renderPanel();
 
-    await user.click(screen.getByRole("button", { name: "全部目录" }));
+    await user.click(screen.getByRole("button", { name: "安装 CLI" }));
     await user.click(screen.getByRole("button", { name: "安装" }));
 
     await waitFor(() => expect(actionMocks.requestCli).toHaveBeenCalledWith({
@@ -96,10 +96,9 @@ describe("RuntimeCapabilitiesPanel", () => {
     const user = userEvent.setup();
     renderPanel();
 
-    await user.click(screen.getByRole("tab", { name: /MCP/ }));
-    await user.click(screen.getByRole("button", { name: "全部目录" }));
+    await user.click(screen.getAllByRole("button", { name: "连接 MCP" }).at(-1)!);
     await user.click(screen.getByRole("button", { name: "配置并连接" }));
-    await user.click(screen.getByRole("button", { name: "连接 MCP" }));
+    await user.click(screen.getAllByRole("button", { name: "连接 MCP" }).at(-1)!);
 
     await waitFor(() => expect(actionMocks.requestMcp).toHaveBeenCalledWith({
       runtimeId: "runtime-1",
@@ -116,7 +115,7 @@ describe("RuntimeCapabilitiesPanel", () => {
     const user = userEvent.setup();
     renderPanel({ ...data, catalog: [{ ...data.catalog[0]!, risk: "high" }] });
 
-    await user.click(screen.getByRole("button", { name: "全部目录" }));
+    await user.click(screen.getByRole("button", { name: "安装 CLI" }));
     await user.click(screen.getByRole("button", { name: "审核安装" }));
 
     expect(screen.getByRole("button", { name: "安装" })).toBeDisabled();
@@ -127,5 +126,40 @@ describe("RuntimeCapabilitiesPanel", () => {
       name: "mermaid",
       confirmHighRisk: true,
     })));
+  });
+
+  it("keeps current capabilities, catalog, and installation history as explicit views", async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      ...data,
+      installedApps: [{
+        runtimeId: "runtime-1",
+        source: "clihub_public",
+        name: "mermaid",
+        version: "1.0.0",
+        entryPoint: "mmdc",
+        status: "installed",
+        enabled: true,
+        updatedAt: "2026-08-04T08:00:00.000Z",
+      }],
+      operations: [{
+        id: "operation-1",
+        runtimeId: "runtime-1",
+        appSource: "clihub_public",
+        appName: "mermaid",
+        operation: "install",
+        status: "succeeded",
+        createdAt: "2026-08-04T08:00:00.000Z",
+      }],
+    });
+
+    expect(screen.getByRole("tab", { name: "当前能力" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Mermaid CLI")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: /安装记录/ }));
+
+    expect(screen.getByText("CLI 安装记录")).toBeInTheDocument();
+    expect(screen.getByText(/install/)).toBeInTheDocument();
+    expect(screen.getByText("MCP 操作记录")).toBeInTheDocument();
   });
 });

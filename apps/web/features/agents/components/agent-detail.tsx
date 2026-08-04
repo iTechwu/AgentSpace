@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { formatDaemonProviderLabel } from "@dofe-agent/domain";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { EmptyState } from "@/shared/ui/empty-state";
@@ -30,6 +31,7 @@ interface AgentDetailProps {
   readonly pending: boolean;
   readonly providerVerificationPending?: boolean;
   readonly record: WorkspaceAgentRecord;
+  readonly runtimeManagementHref?: string;
   readonly workspaceMembers?: AgentsPageData["workspaceMembers"];
   readonly workspaceSkills: WorkspaceSkill[];
   readonly onBindContainer: (runtimeId: string) => void;
@@ -81,6 +83,7 @@ export function AgentDetail({
   pending,
   providerVerificationPending = false,
   record,
+  runtimeManagementHref,
   workspaceMembers = [],
   workspaceSkills,
   onBindContainer,
@@ -1140,7 +1143,11 @@ export function AgentDetail({
                 ) : null}
               </div>
               {record.boundContainerId ? (
-                <AgentRuntimeCapabilities capabilities={record.runtimeCapabilities} />
+                <AgentRuntimeCapabilities
+                  capabilities={record.runtimeCapabilities}
+                  runtimeManagementHref={runtimeManagementHref}
+                  runtimeName={record.boundContainerName ?? record.boundContainerId}
+                />
               ) : null}
               <div className="runtime-binding-control">
                 <div className="form-field form-field--full">
@@ -1262,7 +1269,15 @@ export function AgentDetail({
   );
 }
 
-function AgentRuntimeCapabilities({ capabilities }: { capabilities: WorkspaceAgentRecord["runtimeCapabilities"] }) {
+function AgentRuntimeCapabilities({
+  capabilities,
+  runtimeManagementHref,
+  runtimeName,
+}: {
+  capabilities: WorkspaceAgentRecord["runtimeCapabilities"];
+  runtimeManagementHref?: string;
+  runtimeName: string;
+}) {
   const { tx } = useLanguage();
   const cliApps = capabilities?.cliApps ?? [];
   const mcpServices = capabilities?.mcpServices ?? [];
@@ -1270,10 +1285,14 @@ function AgentRuntimeCapabilities({ capabilities }: { capabilities: WorkspaceAge
     <section className="agent-runtime-capabilities" aria-label={tx("AI 员工 Runtime 能力", "AI employee runtime capabilities")}>
       <div className="agent-runtime-capabilities__heading">
         <div>
-          <span>{tx("随执行引擎集成", "Inherited from runtime")}</span>
+          <span>{tx("随执行引擎实时继承", "Inherited live from runtime")}</span>
           <h4>{tx("可用 CLI 与 MCP", "Available CLI and MCP")}</h4>
+          <small>{runtimeName}</small>
         </div>
-        <span>{tx(`${cliApps.length} 个 CLI · ${mcpServices.length} 个 MCP`, `${cliApps.length} CLI · ${mcpServices.length} MCP`)}</span>
+        <div className="agent-runtime-capabilities__heading-meta">
+          <span>{tx(`${cliApps.length} 个 CLI · ${mcpServices.length} 个 MCP`, `${cliApps.length} CLI · ${mcpServices.length} MCP`)}</span>
+          {runtimeManagementHref ? <Link href={runtimeManagementHref}>{tx("管理 Runtime 能力", "Manage runtime capabilities")}</Link> : null}
+        </div>
       </div>
       <div className="agent-runtime-capabilities__columns">
         <section aria-labelledby="agent-runtime-cli-title">

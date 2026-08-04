@@ -32,7 +32,7 @@ export function RuntimeCapabilitiesPanel({
   const router = useRouter();
   const { pushToast } = useFeedbackToast();
   const [activeTab, setActiveTab] = useState<"cli" | "mcp">("cli");
-  const [capabilityScope, setCapabilityScope] = useState<"current" | "catalog">("current");
+  const [capabilityView, setCapabilityView] = useState<"current" | "catalog" | "history">("current");
   const [query, setQuery] = useState("");
   const [cliRiskConfirmation, setCliRiskConfirmation] = useState<string | null>(null);
   const [cliRiskConfirmed, setCliRiskConfirmed] = useState(false);
@@ -59,11 +59,11 @@ export function RuntimeCapabilitiesPanel({
   ), [mcpConnections]);
   const normalizedQuery = query.trim().toLocaleLowerCase("en-US");
   const visibleCli = data.catalog.filter((item) =>
-    (capabilityScope === "catalog" || installedAppKeys.has(`${item.source}:${item.name}`))
+    (capabilityView === "catalog" || installedAppKeys.has(`${item.source}:${item.name}`))
     && (!normalizedQuery || `${item.displayName} ${item.name} ${item.description} ${item.entryPoint}`.toLocaleLowerCase("en-US").includes(normalizedQuery)),
   );
   const visibleMcp = data.mcpCatalog.filter((item) =>
-    (capabilityScope === "catalog" || connectedMcpIds.has(item.id))
+    (capabilityView === "catalog" || connectedMcpIds.has(item.id))
     && (!normalizedQuery || `${item.displayName} ${item.slug} ${item.description}`.toLocaleLowerCase("en-US").includes(normalizedQuery)),
   );
   const selectedMcp = selectedMcpId ? data.mcpCatalog.find((item) => item.id === selectedMcpId) : undefined;
@@ -105,6 +105,13 @@ export function RuntimeCapabilitiesPanel({
     setSecrets(Object.fromEntries(item.secretFields.map((field) => [field, ""])));
     setApprovedTools(new Set(item.defaultApprovedTools));
     setConfirmHighRisk(false);
+  }
+
+  function openCatalog(type: "cli" | "mcp"): void {
+    setActiveTab(type);
+    setCapabilityView("catalog");
+    setQuery("");
+    if (type === "cli") setSelectedMcpId(null);
   }
 
   function toggleTool(toolName: string): void {
@@ -149,7 +156,13 @@ export function RuntimeCapabilitiesPanel({
           <span>{tx("能力资源", "Capabilities")}</span>
           <h2 id="runtime-capabilities-title">{tx("CLI 与 MCP", "CLI and MCP")}</h2>
         </div>
-        <p>{tx("查看当前能力、安装记录，并直接为此 Runtime 安装新能力。", "Review capabilities and installation history, and add capabilities to this runtime.")}</p>
+        <div className="runtime-capabilities__heading-actions">
+          <p>{tx("能力安装在 Runtime，并由绑定的 AI 员工实时继承。", "Capabilities are installed on the runtime and inherited live by bound AI employees.")}</p>
+          <div>
+            <button className="modal-secondary-button" onClick={() => openCatalog("cli")} type="button"><AppIcon name="download" /><span>{tx("安装 CLI", "Install CLI")}</span></button>
+            <button className="action-button" onClick={() => openCatalog("mcp")} type="button"><AppIcon name="plus" /><span>{tx("连接 MCP", "Connect MCP")}</span></button>
+          </div>
+        </div>
       </div>
 
       <div className="runtime-capabilities__summary" aria-label={tx("Runtime 能力概览", "Runtime capability overview")}>
@@ -158,27 +171,35 @@ export function RuntimeCapabilitiesPanel({
         <span><strong>{cliOperations.length + mcpOperations.length}</strong>{tx("条操作记录", "operation records")}</span>
       </div>
 
-      <div className="runtime-capabilities__tabs" role="tablist" aria-label={tx("能力类型", "Capability type")}>
-        <button aria-selected={activeTab === "cli"} className={activeTab === "cli" ? "runtime-capabilities__tab runtime-capabilities__tab--active" : "runtime-capabilities__tab"} onClick={() => { setActiveTab("cli"); setCapabilityScope("current"); setQuery(""); }} role="tab" type="button">
-          <AppIcon name="terminal" /><span><strong>CLI</strong><small>{installedApps.length}/{data.catalog.length}</small></span>
-        </button>
-        <button aria-selected={activeTab === "mcp"} className={activeTab === "mcp" ? "runtime-capabilities__tab runtime-capabilities__tab--active" : "runtime-capabilities__tab"} onClick={() => { setActiveTab("mcp"); setCapabilityScope("current"); setQuery(""); }} role="tab" type="button">
-          <AppIcon name="containers" /><span><strong>MCP</strong><small>{mcpConnections.length}/{data.mcpCatalog.length}</small></span>
-        </button>
+      <div className="runtime-capabilities__views" role="tablist" aria-label={tx("能力管理视图", "Capability management view")}>
+        <button aria-selected={capabilityView === "current"} onClick={() => { setCapabilityView("current"); setQuery(""); setSelectedMcpId(null); }} role="tab" type="button">{tx("当前能力", "Current capabilities")}</button>
+        <button aria-selected={capabilityView === "catalog"} onClick={() => setCapabilityView("catalog")} role="tab" type="button">{tx("能力目录", "Capability catalog")}</button>
+        <button aria-selected={capabilityView === "history"} onClick={() => { setCapabilityView("history"); setQuery(""); setSelectedMcpId(null); }} role="tab" type="button">{tx("安装记录", "Installation history")}<span>{cliOperations.length + mcpOperations.length}</span></button>
       </div>
 
-      <div className="runtime-capabilities__controls">
-        <div className="runtime-capabilities__scope" aria-label={tx("能力范围", "Capability scope")} role="group">
-          <button aria-pressed={capabilityScope === "current"} onClick={() => setCapabilityScope("current")} type="button">{tx("当前能力", "Current")}</button>
-          <button aria-pressed={capabilityScope === "catalog"} onClick={() => setCapabilityScope("catalog")} type="button">{tx("全部目录", "Full catalog")}</button>
-        </div>
+      {capabilityView !== "history" ? <div className="runtime-capabilities__tabs" role="tablist" aria-label={tx("能力类型", "Capability type")}>
+        <button aria-selected={activeTab === "cli"} className={activeTab === "cli" ? "runtime-capabilities__tab runtime-capabilities__tab--active" : "runtime-capabilities__tab"} onClick={() => { setActiveTab("cli"); setQuery(""); setSelectedMcpId(null); }} role="tab" type="button">
+          <AppIcon name="terminal" /><span><strong>CLI</strong><small>{installedApps.length}/{data.catalog.length}</small></span>
+        </button>
+        <button aria-selected={activeTab === "mcp"} className={activeTab === "mcp" ? "runtime-capabilities__tab runtime-capabilities__tab--active" : "runtime-capabilities__tab"} onClick={() => { setActiveTab("mcp"); setQuery(""); }} role="tab" type="button">
+          <AppIcon name="containers" /><span><strong>MCP</strong><small>{mcpConnections.length}/{data.mcpCatalog.length}</small></span>
+        </button>
+      </div> : null}
+
+      {capabilityView !== "history" ? <div className="runtime-capabilities__controls">
+        <p>{capabilityView === "current" ? tx("仅显示此 Runtime 当前可用的能力", "Showing capabilities currently available on this runtime") : tx("从目录为此 Runtime 安装或连接能力", "Install or connect capabilities from the catalog")}</p>
         <label className="market-search runtime-capabilities__search">
           <AppIcon name="search" />
           <input aria-label={activeTab === "cli" ? tx("搜索 CLI", "Search CLI") : tx("搜索 MCP", "Search MCP")} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={tx("搜索名称、命令或说明", "Search name, command, or description")} value={query} />
         </label>
-      </div>
+      </div> : null}
 
-      {activeTab === "cli" ? (
+      {capabilityView === "history" ? (
+        <div className="runtime-capabilities__history-view" role="tabpanel">
+          <OperationHistory open title={tx("CLI 安装记录", "CLI installation history")} rows={cliOperations.map((operation) => ({ id: operation.id, name: operation.appName, operation: operation.operation, status: operation.status, createdAt: operation.createdAt }))} />
+          <OperationHistory open title={tx("MCP 操作记录", "MCP operation history")} rows={mcpOperations.map((operation) => ({ id: operation.id, name: mcpConnections.find((connection) => connection.id === operation.connectionId)?.catalogDisplayName ?? operation.connectionId, operation: operation.operation, status: operation.status, createdAt: operation.createdAt }))} />
+        </div>
+      ) : activeTab === "cli" ? (
         <div className="runtime-capabilities__body" role="tabpanel">
           <div className="runtime-capability-list">
             {visibleCli.map((item) => {
@@ -211,9 +232,8 @@ export function RuntimeCapabilitiesPanel({
                 </article>
               );
             })}
-            {visibleCli.length === 0 ? <p className="runtime-capability-list__empty">{capabilityScope === "current" ? tx("当前 Runtime 尚未安装 CLI。", "No CLI is installed on this runtime.") : tx("没有匹配的 CLI。", "No matching CLI found.")}</p> : null}
+            {visibleCli.length === 0 ? <p className="runtime-capability-list__empty">{capabilityView === "current" ? tx("当前 Runtime 尚未安装 CLI。", "No CLI is installed on this runtime.") : tx("没有匹配的 CLI。", "No matching CLI found.")}</p> : null}
           </div>
-          <OperationHistory title={tx("CLI 安装记录", "CLI installation history")} rows={cliOperations.map((operation) => ({ id: operation.id, name: operation.appName, operation: operation.operation, status: operation.status, createdAt: operation.createdAt }))} />
         </div>
       ) : (
         <div className="runtime-capabilities__body" role="tabpanel">
@@ -255,7 +275,7 @@ export function RuntimeCapabilitiesPanel({
                 </article>
               );
             })}
-            {visibleMcp.length === 0 ? <p className="runtime-capability-list__empty">{capabilityScope === "current" ? tx("当前 Runtime 尚未连接 MCP 服务。", "No MCP service is connected to this runtime.") : tx("没有匹配的 MCP 服务。", "No matching MCP service found.")}</p> : null}
+            {visibleMcp.length === 0 ? <p className="runtime-capability-list__empty">{capabilityView === "current" ? tx("当前 Runtime 尚未连接 MCP 服务。", "No MCP service is connected to this runtime.") : tx("没有匹配的 MCP 服务。", "No matching MCP service found.")}</p> : null}
           </div>
 
           {selectedMcp ? (
@@ -277,7 +297,6 @@ export function RuntimeCapabilitiesPanel({
               </div>
             </form>
           ) : null}
-          <OperationHistory title={tx("MCP 操作记录", "MCP operation history")} rows={mcpOperations.map((operation) => ({ id: operation.id, name: mcpConnections.find((connection) => connection.id === operation.connectionId)?.catalogDisplayName ?? operation.connectionId, operation: operation.operation, status: operation.status, createdAt: operation.createdAt }))} />
         </div>
       )}
       {runtimeStatus !== "online" ? <p className="runtime-capabilities__notice" role="status">{tx(`${runtimeName} 当前离线，恢复在线后才可安装或变更能力。`, `${runtimeName} is offline. Bring it online before changing capabilities.`)}</p> : null}
@@ -286,9 +305,9 @@ export function RuntimeCapabilitiesPanel({
   );
 }
 
-function OperationHistory({ title, rows }: { title: string; rows: Array<{ id: string; name: string; operation: string; status: string; createdAt: string }> }) {
+function OperationHistory({ open = false, title, rows }: { open?: boolean; title: string; rows: Array<{ id: string; name: string; operation: string; status: string; createdAt: string }> }) {
   return (
-    <details className="runtime-capability-history">
+    <details className="runtime-capability-history" open={open}>
       <summary><span>{title}</span><strong>{rows.length}</strong></summary>
       {rows.length > 0 ? <ul>{rows.map((row) => <li key={row.id}><span><strong>{row.name}</strong><small>{row.operation} · <time dateTime={row.createdAt}>{formatTimestamp(row.createdAt)}</time></small></span><span className={`status-chip status-chip--${row.status === "succeeded" || row.status === "installed" ? "positive" : row.status === "failed" ? "danger" : isActive(row.status) ? "warning" : "neutral"}`}>{row.status}</span></li>)}</ul> : <p>暂无记录</p>}
     </details>

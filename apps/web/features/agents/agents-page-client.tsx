@@ -818,6 +818,7 @@ export function AgentsPageClient({
                     ),
                   )}
                   record={selectedAgent}
+                  runtimeManagementHref={selectedAgent.boundContainerId ? workspaceHref(`/runtimes/runtime/${selectedAgent.boundContainerId}`) : undefined}
                   workspaceMembers={data.workspaceMembers}
                   workspaceSkills={data.workspaceSkills}
                   onBindContainer={(runtimeId) =>

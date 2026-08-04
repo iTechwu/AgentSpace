@@ -1035,6 +1035,8 @@ describe("AgentsPageClient", () => {
     expect(capabilities).toHaveTextContent("mmdc · 1.0.0");
     expect(capabilities).toHaveTextContent("Search MCP");
     expect(capabilities).toHaveTextContent("1 个已授权工具");
+    expect(capabilities).toHaveTextContent("Local Runtime");
+    expect(screen.getByRole("link", { name: "管理 Runtime 能力" })).toHaveAttribute("href", expect.stringContaining("/runtimes/runtime/"));
   });
 
   it("requests provider verification from the bound execution engine", async () => {
