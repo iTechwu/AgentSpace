@@ -274,8 +274,54 @@ describe("MarketPageClient", () => {
     expect(screen.getByRole("textbox", { name: "搜索应用" })).toBeInTheDocument();
     const runtimeSelect = screen.getByRole("combobox", { name: "目标 runtime" });
     expect(runtimeSelect).toHaveValue("runtime-online");
-    expect(screen.getByRole("option", { name: /Online Runtime/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Online Runtime · online · CLI-Hub 已就绪" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /Offline Runtime/ })).not.toBeInTheDocument();
+  });
+
+  it("renders the CLI catalog in bounded batches", async () => {
+    const user = userEvent.setup();
+    const catalog = Array.from({ length: 30 }, (_, index) => ({
+      ...data.catalog[0]!,
+      name: `app-${index + 1}`,
+      displayName: `App ${index + 1}`,
+      entryPoint: `app-${index + 1}`,
+    }));
+
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{ ...data, catalog }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    const catalogRegion = screen.getByRole("region", { name: "CLI-Hub 应用目录" });
+    expect(catalogRegion.querySelectorAll(".market-app-row")).toHaveLength(24);
+    expect(screen.getByText("已显示 24/30")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "加载更多应用" }));
+    expect(catalogRegion.querySelectorAll(".market-app-row")).toHaveLength(30);
+  });
+
+  it("shows the first matching app details when the current selection is filtered out", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{
+            ...data,
+            catalog: [
+              data.catalog[0]!,
+              { ...data.catalog[0]!, name: "second-app", displayName: "Second App", entryPoint: "second-app" },
+            ],
+          }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.type(screen.getByRole("textbox", { name: "搜索应用" }), "Second App");
+    expect(screen.getByRole("heading", { name: "Second App" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Mermaid" })).not.toBeInTheDocument();
   });
 
   it("uses URL history for market tabs and follows browser navigation", async () => {
@@ -562,8 +608,9 @@ describe("MarketPageClient", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "风险" }), "high");
     await user.selectOptions(screen.getByRole("combobox", { name: "连接状态" }), "needs_attention");
 
-    expect(screen.getByRole("button", { name: /Official Search/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Workspace Search/ })).not.toBeInTheDocument();
+    const catalogRegion = screen.getByRole("region", { name: "MCP 服务目录" });
+    expect(within(catalogRegion).getByRole("button", { name: /Official Search/ })).toBeInTheDocument();
+    expect(within(catalogRegion).queryByRole("button", { name: /Workspace Search/ })).not.toBeInTheDocument();
   });
 
   it("shows connection verification diagnostics and safely enters configuration replacement mode", async () => {
@@ -592,10 +639,11 @@ describe("MarketPageClient", () => {
 
     await user.click(screen.getByRole("tab", { name: /MCP/ }));
     expect(screen.getByText(/上次验证/)).toBeInTheDocument();
+    expect(screen.getByRole("listitem", { name: "Workspace Search · Online Runtime" })).toBeInTheDocument();
     const toolSummary = screen.getByText("查看工具 (1)");
     await user.click(toolSummary);
     expect(toolSummary.closest("details")).toHaveAttribute("open");
-    await user.click(screen.getByRole("button", { name: "管理配置" }));
+    await user.click(screen.getByRole("button", { name: "管理 Online Runtime 的 Workspace Search 配置" }));
     expect(screen.getByText(/不会回显/)).toBeInTheDocument();
     await user.type(screen.getByLabelText("X-Workspace *"), "workspace-42");
     await user.click(screen.getByRole("button", { name: "更新配置" }));
@@ -635,7 +683,7 @@ describe("MarketPageClient", () => {
     );
 
     await user.click(screen.getByRole("tab", { name: /MCP/ }));
-    await user.click(screen.getByRole("button", { name: "管理配置" }));
+    await user.click(screen.getByRole("button", { name: "管理 Online Runtime 的 Workspace Search 配置" }));
     // Do not re-type the required X-Workspace field.
     await user.click(screen.getByRole("button", { name: "更新配置" }));
 
@@ -686,7 +734,7 @@ describe("MarketPageClient", () => {
     // First select the other catalog so the per-selection effect runs once.
     await user.click(screen.getByRole("button", { name: /Other Search/ }));
     // Then enter edit mode for a connection of the first catalog.
-    await user.click(screen.getByRole("button", { name: "管理配置" }));
+    await user.click(screen.getByRole("button", { name: "管理 Online Runtime 的 Workspace Search 配置" }));
     await user.click(screen.getByRole("button", { name: "更新配置" }));
 
     await waitFor(() => expect(actionMocks.replaceMcpConnectionConfig).toHaveBeenCalledWith(expect.objectContaining({

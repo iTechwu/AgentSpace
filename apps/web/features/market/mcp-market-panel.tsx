@@ -586,6 +586,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
               <ConnectionRow
                 key={connection.id}
                 connection={connection}
+                runtimeLabel={data.runtimes.find((runtime) => runtime.id === connection.runtimeId)?.label ?? connection.runtimeId}
                 canManage={data.canManage}
                 disabled={isPending}
                 onReverify={() => runAction(() => reverifyMcpConnectionAction({ connectionId: connection.id }))}
@@ -611,6 +612,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
 
 function ConnectionRow(props: {
   connection: ConnectionEntry;
+  runtimeLabel: string;
   canManage: boolean;
   disabled: boolean;
   onReverify: () => void;
@@ -620,17 +622,18 @@ function ConnectionRow(props: {
   onManage: () => void;
 }) {
   const { tx } = useLanguage();
-  const { connection, canManage, disabled } = props;
+  const { connection, runtimeLabel, canManage, disabled } = props;
   const params = useParams<{ workspaceSlug?: string }>();
   const workspaceSlug = params.workspaceSlug;
   const detailHref = workspaceSlug ? `/w/${workspaceSlug}/market/mcp-connections/${connection.id}` : undefined;
   return (
-    <li className="mcp-connection-row">
+    <li aria-label={`${connection.catalogDisplayName} · ${runtimeLabel}`} className="mcp-connection-row">
       <div className="mcp-connection-head">
         <strong>{connection.catalogDisplayName}</strong>
         <span className={`status-chip status-chip--${statusTone(connection.status)}`}>{statusLabel(connection.status, tx)}</span>
       </div>
       <div className="mcp-connection-meta">
+        <span>{tx("Runtime", "Runtime")}: <strong>{runtimeLabel}</strong></span>
         <span>{connection.transport}</span>
         <span>{tx("已获准工具", "Approved tools")}: {connection.approvedTools.length}/{connection.declaredToolCount}</span>
         <span>{tx("上次验证", "Last verified")}: <time dateTime={connection.lastVerifiedAt}>{formatVerificationTime(connection.lastVerifiedAt, tx)}</time></span>
@@ -644,26 +647,26 @@ function ConnectionRow(props: {
       ) : null}
       <div className="market-action-row">
         {detailHref ? (
-          <Link className="modal-secondary-button" href={detailHref}>
+          <Link aria-label={tx(`查看 ${runtimeLabel} 的 ${connection.catalogDisplayName} 详情`, `View ${connection.catalogDisplayName} details for ${runtimeLabel}`)} className="modal-secondary-button" href={detailHref}>
             {tx("详情", "Details")}
           </Link>
         ) : null}
-        <button className="modal-secondary-button" disabled={disabled || !canManage} onClick={props.onManage} type="button">
+        <button aria-label={tx(`管理 ${runtimeLabel} 的 ${connection.catalogDisplayName} 配置`, `Manage ${connection.catalogDisplayName} configuration for ${runtimeLabel}`)} className="modal-secondary-button" disabled={disabled || !canManage} onClick={props.onManage} type="button">
           {tx("管理配置", "Manage configuration")}
         </button>
-        <button className="modal-secondary-button" disabled={disabled || !canManage || connection.status === "disabled"} onClick={props.onReverify} type="button">
+        <button aria-label={tx(`重新验证 ${runtimeLabel} 的 ${connection.catalogDisplayName}`, `Re-verify ${connection.catalogDisplayName} for ${runtimeLabel}`)} className="modal-secondary-button" disabled={disabled || !canManage || connection.status === "disabled"} onClick={props.onReverify} type="button">
           {tx("重新验证", "Re-verify")}
         </button>
         {connection.status === "disabled" ? (
-          <button className="modal-secondary-button" disabled={disabled || !canManage} onClick={props.onEnable} type="button">
+          <button aria-label={tx(`启用 ${runtimeLabel} 的 ${connection.catalogDisplayName}`, `Enable ${connection.catalogDisplayName} for ${runtimeLabel}`)} className="modal-secondary-button" disabled={disabled || !canManage} onClick={props.onEnable} type="button">
             {tx("启用", "Enable")}
           </button>
         ) : (
-          <button className="modal-secondary-button" disabled={disabled || !canManage || connection.status === "disabled"} onClick={props.onDisable} type="button">
+          <button aria-label={tx(`停用 ${runtimeLabel} 的 ${connection.catalogDisplayName}`, `Disable ${connection.catalogDisplayName} for ${runtimeLabel}`)} className="modal-secondary-button" disabled={disabled || !canManage || connection.status === "disabled"} onClick={props.onDisable} type="button">
             {tx("停用", "Disable")}
           </button>
         )}
-        <button className="modal-secondary-button mcp-danger-button" disabled={disabled || !canManage} onClick={props.onRemove} type="button">
+        <button aria-label={tx(`移除 ${runtimeLabel} 的 ${connection.catalogDisplayName}`, `Remove ${connection.catalogDisplayName} from ${runtimeLabel}`)} className="modal-secondary-button mcp-danger-button" disabled={disabled || !canManage} onClick={props.onRemove} type="button">
           {tx("移除", "Remove")}
         </button>
       </div>

@@ -11,6 +11,8 @@ import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-actio
 import { useFeedbackToast } from "@/shared/ui/feedback-toast-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 
+const CLI_CATALOG_BATCH_SIZE = 24;
+
 export interface MarketPageData {
   catalog: Array<{
     source: RuntimeAppCatalogSource;
@@ -214,6 +216,7 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
   const [selectedKey, setSelectedKey] = useState(`${data.catalog[0]?.source ?? ""}:${data.catalog[0]?.name ?? ""}`);
   const [selectedRuntimeId, setSelectedRuntimeId] = useState(data.runtimes[0]?.id ?? "");
   const [confirmHighRisk, setConfirmHighRisk] = useState(false);
+  const [visibleCatalogCount, setVisibleCatalogCount] = useState(CLI_CATALOG_BATCH_SIZE);
   const [isPending, startTransition] = useTransition();
   const onlineRuntimes = useMemo(() => data.runtimes.filter((runtime) => runtime.status === "online"), [data.runtimes]);
 
@@ -231,7 +234,11 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
       return categoryMatch && queryMatch;
     });
   }, [category, data.catalog, query]);
-  const selected = data.catalog.find((item) => `${item.source}:${item.name}` === selectedKey) ?? filteredCatalog[0] ?? data.catalog[0];
+  const selectedCandidate = data.catalog.find((item) => `${item.source}:${item.name}` === selectedKey);
+  const selected = selectedCandidate && filteredCatalog.includes(selectedCandidate)
+    ? selectedCandidate
+    : filteredCatalog[0];
+  const visibleCatalog = filteredCatalog.slice(0, visibleCatalogCount);
   const selectedRuntime = onlineRuntimes.find((runtime) => runtime.id === selectedRuntimeId) ?? onlineRuntimes[0];
   const selectedOperations = selected && selectedRuntime
     ? data.operations.filter((operation) =>
@@ -270,6 +277,10 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
     }, 2_500);
     return () => window.clearTimeout(timeoutId);
   }, [data.operations, onDataChanged, router]);
+
+  useEffect(() => {
+    setVisibleCatalogCount(CLI_CATALOG_BATCH_SIZE);
+  }, [category, query]);
 
   function runAction(work: () => Promise<ActionToastResult<void>>): void {
     startTransition(async () => {
@@ -356,7 +367,7 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
               <span>{tx(`${filteredCatalog.length} 个结果`, `${filteredCatalog.length} results`)}</span>
             </div>
             <section className="market-app-list" aria-label={tx("CLI-Hub 应用目录", "CLI-Hub app catalog")}>
-              {filteredCatalog.map((item) => {
+              {visibleCatalog.map((item) => {
                 const active = selected && item.source === selected.source && item.name === selected.name;
                 return (
                   <button
@@ -386,6 +397,18 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
                   <strong>{tx("没有匹配的应用", "No matching apps")}</strong>
                   <button onClick={() => { setQuery(""); setCategory("all"); }} type="button">
                     {tx("清除筛选", "Clear filters")}
+                  </button>
+                </div>
+              ) : null}
+              {visibleCatalog.length < filteredCatalog.length ? (
+                <div className="market-catalog-load-more">
+                  <span>{tx(`已显示 ${visibleCatalog.length}/${filteredCatalog.length}`, `Showing ${visibleCatalog.length}/${filteredCatalog.length}`)}</span>
+                  <button
+                    className="modal-secondary-button"
+                    onClick={() => setVisibleCatalogCount((count) => count + CLI_CATALOG_BATCH_SIZE)}
+                    type="button"
+                  >
+                    {tx("加载更多应用", "Load more apps")}
                   </button>
                 </div>
               ) : null}
@@ -425,7 +448,7 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
                     >
                       {onlineRuntimes.map((runtime) => (
                         <option key={runtime.id} value={runtime.id}>
-                          {runtime.label} · {runtime.status} · {runtime.cliHubReady ? "cli-hub ready" : "bootstrap needed"}
+                          {runtime.label} · {runtime.status} · {runtimeAppReadinessLabel(runtime, selected, data.installedApps, tx)}
                         </option>
                       ))}
                     </select>
@@ -547,6 +570,24 @@ function formatRuntimeAppError(error: string, tx: (zh: string, en: string) => st
       return error;
     }
   }
+}
+
+function runtimeAppReadinessLabel(
+  runtime: MarketPageData["runtimes"][number],
+  app: MarketPageData["catalog"][number],
+  installedApps: MarketPageData["installedApps"],
+  tx: (zh: string, en: string) => string,
+): string {
+  const installed = installedApps.some((item) =>
+    item.runtimeId === runtime.id &&
+    item.source === app.source &&
+    item.name === app.name &&
+    item.status === "installed" &&
+    item.enabled,
+  );
+  if (installed) return tx("应用已安装", "App installed");
+  if (runtime.cliHubReady) return tx("CLI-Hub 已就绪", "CLI-Hub ready");
+  return tx("首次安装自动准备", "Bootstrap on first install");
 }
 
 function Fact({ label, value }: { label: string; value: string }) {

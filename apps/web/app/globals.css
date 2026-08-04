@@ -23105,6 +23105,18 @@ textarea:focus {
   padding: 0.3rem 0.45rem 0.6rem;
 }
 
+.market-catalog-load-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+  padding: 0.65rem;
+  border-top: 1px solid var(--market-border);
+  color: var(--market-muted);
+  font-size: 0.72rem;
+}
+
 .market-app-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) minmax(8.5rem, auto);
