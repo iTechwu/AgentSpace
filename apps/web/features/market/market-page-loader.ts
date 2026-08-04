@@ -111,6 +111,8 @@ export async function loadMarketPageData(input: {
       appName: operation.appName,
       operation: operation.operation,
       status: operation.status,
+      stage: operation.stage,
+      failedStage: operation.failedStage,
       createdAt: operation.createdAt,
       errorMessage: operation.errorMessage,
     })),

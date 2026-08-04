@@ -77,6 +77,7 @@ import { POST as startPOST } from "./tasks/[taskId]/start/route";
 import { GET as taskStatusGET } from "./tasks/[taskId]/status/route";
 import { POST as appOperationClaimPOST } from "./runtimes/[runtimeId]/apps/operations/claim/route";
 import { POST as appOperationStartPOST } from "./runtime-app-operations/[operationId]/start/route";
+import { POST as appOperationStagePOST } from "./runtime-app-operations/[operationId]/stage/route";
 import { POST as appOperationCompletePOST } from "./runtime-app-operations/[operationId]/complete/route";
 import { POST as appOperationFailPOST } from "./runtime-app-operations/[operationId]/fail/route";
 import { POST as provisioningStageCompletePOST } from "./provisioning-tasks/[taskId]/stages/[stage]/complete/route";
@@ -1393,6 +1394,17 @@ describe("daemon API routes", () => {
       { params: Promise.resolve({ operationId: operation.id }) },
     );
     expect(startResponse.status).toBe(200);
+
+    const stageResponse = await appOperationStagePOST(
+      new Request(`http://localhost/api/daemon/runtime-app-operations/${operation.id}/stage`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({ stage: "verifying" }),
+      }),
+      { params: Promise.resolve({ operationId: operation.id }) },
+    );
+    expect(stageResponse.status).toBe(200);
+    expect((await stageResponse.json()).operation.stage).toBe("verifying");
 
     const completeResponse = await appOperationCompletePOST(
       new Request(`http://localhost/api/daemon/runtime-app-operations/${operation.id}/complete`, {

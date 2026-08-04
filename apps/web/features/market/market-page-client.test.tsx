@@ -804,6 +804,7 @@ describe("MarketPageClient", () => {
                   appName: "mermaid",
                   operation: "install",
                   status: "running",
+                  stage: "verifying",
                   createdAt: "2026-05-08T12:51:08.058Z",
                 },
               ],
@@ -813,7 +814,7 @@ describe("MarketPageClient", () => {
       </LanguageProvider>,
     );
 
-    expect(screen.getByText("running")).toBeInTheDocument();
+    expect(screen.getByText("正在验证")).toBeInTheDocument();
     vi.advanceTimersByTime(2_500);
 
     expect(mockRefresh).toHaveBeenCalledTimes(1);

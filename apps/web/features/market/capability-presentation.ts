@@ -1,4 +1,4 @@
-import type { RuntimeAppCatalogSource } from "@dofe-agent/db";
+import type { RuntimeAppCatalogSource, RuntimeAppOperationStage } from "@dofe-agent/db";
 
 export type CapabilityTranslator = (zh: string, en: string) => string;
 
@@ -49,6 +49,20 @@ export function runtimeAppRiskLabel(
 
 export function isActiveCapabilityOperationStatus(status: string): boolean {
   return status === "pending" || status === "claimed" || status === "running";
+}
+
+export function runtimeAppOperationStageLabel(
+  stage: RuntimeAppOperationStage | undefined,
+  tx: CapabilityTranslator,
+): string | undefined {
+  switch (stage) {
+    case "queued": return tx("等待执行", "Queued");
+    case "installing": return tx("正在安装", "Installing");
+    case "verifying": return tx("正在验证", "Verifying");
+    case "finalizing": return tx("正在收尾", "Finalizing");
+    case "completed": return tx("已完成", "Completed");
+    default: return undefined;
+  }
 }
 
 export function projectRuntimeAppInstallability(

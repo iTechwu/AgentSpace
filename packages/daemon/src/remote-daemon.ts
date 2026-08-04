@@ -959,7 +959,12 @@ async function executeRemoteRuntimeAppOperation(
           user: `${process.getuid?.() ?? 10001}:${process.getgid?.() ?? 10001}`,
         })
       : plan;
-    const result = await executeRuntimeAppPlan(executionPlan, { cwd: depsRoot, runtimeHomeDir });
+    const result = await executeRuntimeAppPlan(executionPlan, {
+      cwd: depsRoot,
+      runtimeHomeDir,
+      onStage: (stage) => client.updateRuntimeAppOperationStage(operation.id, { stage }),
+    });
+    await client.updateRuntimeAppOperationStage(operation.id, { stage: "finalizing" });
     await client.completeRuntimeAppOperation(operation.id, {
       safeStdoutTail: result.safeStdoutTail,
       safeStderrTail: result.safeStderrTail,

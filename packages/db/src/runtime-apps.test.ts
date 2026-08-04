@@ -7,9 +7,12 @@ import {
   claimNextRuntimeAppOperationForRuntimeSync,
   completeRuntimeAppOperationSync,
   createRuntimeAppOperationSync,
+  failRuntimeAppOperationSync,
   listRuntimeInstalledAppsSync,
+  readRuntimeAppOperationSync,
   registerDaemonRuntimesSync,
   startRuntimeAppOperationSync,
+  updateRuntimeAppOperationStageSync,
   upsertRuntimeAppCatalogItemsSync,
 } from "./index.ts";
 import { getDatabase } from "./database.ts";
@@ -55,11 +58,18 @@ test("runtime app operation lifecycle updates installed app state", () => {
     operation: "install",
     commandPlanJson: JSON.stringify({ app: { source: "clihub_harness", name: "mermaid", version: "", entryPoint: "mmdc" }, strategy: "cli_hub", commands: [], verifyCommands: [], risk: "low", requiresApproval: true, notes: [] }),
   });
+  assert.equal(operation.stage, "queued");
 
   const claimed = claimNextRuntimeAppOperationForRuntimeSync({ runtimeId });
   assert.equal(claimed?.id, operation.id);
   const started = startRuntimeAppOperationSync(operation.id);
   assert.equal(started.status, "running");
+  assert.equal(started.stage, "installing");
+  assert.equal(updateRuntimeAppOperationStageSync({ operationId: operation.id, stage: "verifying" }).stage, "verifying");
+  assert.throws(
+    () => updateRuntimeAppOperationStageSync({ operationId: operation.id, stage: "installing" }),
+    /runtime_app\.stage_transition_invalid/,
+  );
   completeRuntimeAppOperationSync({
     operationId: operation.id,
     installedApp: {
@@ -75,6 +85,26 @@ test("runtime app operation lifecycle updates installed app state", () => {
   assert.equal(installedApps[0]?.status, "installed");
   assert.equal(installedApps[0]?.enabled, true);
   assert.equal(installedApps[0]?.entryPoint, "mmdc");
+  assert.equal(readRuntimeAppOperationSync(operation.id)?.stage, "completed");
+});
+
+test("runtime app operation preserves the stage that failed", () => {
+  const runtimeId = createRuntime();
+  const operation = createRuntimeAppOperationSync({
+    runtimeId,
+    appSource: "clihub_public",
+    appName: "broken-cli",
+    operation: "install",
+    commandPlanJson: "{}",
+  });
+  startRuntimeAppOperationSync(operation.id);
+  updateRuntimeAppOperationStageSync({ operationId: operation.id, stage: "verifying" });
+
+  const failed = failRuntimeAppOperationSync({ operationId: operation.id, errorMessage: "verification failed" });
+
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.stage, "verifying");
+  assert.equal(failed.failedStage, "verifying");
 });
 
 test.after(() => {

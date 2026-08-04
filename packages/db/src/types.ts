@@ -856,6 +856,7 @@ export type RuntimeAppInstallStrategy = "cli_hub" | "pip" | "npm" | "uv" | "syst
 export type RuntimeInstalledAppStatus = "installed" | "installing" | "failed" | "disabled" | "missing";
 export type RuntimeAppOperationType = "install" | "update" | "uninstall" | "verify" | "disable" | "enable";
 export type RuntimeAppOperationStatus = "pending" | "claimed" | "running" | "succeeded" | "failed" | "cancelled";
+export type RuntimeAppOperationStage = "queued" | "installing" | "verifying" | "finalizing" | "completed";
 export type RuntimeAppRiskLevel = "low" | "medium" | "high";
 
 export interface RuntimeAppCatalogItemRecord {
@@ -905,6 +906,9 @@ export interface RuntimeAppOperationRecord {
   appName: string;
   operation: RuntimeAppOperationType;
   status: RuntimeAppOperationStatus;
+  stage: RuntimeAppOperationStage;
+  failedStage?: RuntimeAppOperationStage;
+  stageUpdatedAt: string;
   requestedByUserId?: string;
   commandPlanJson: string;
   safeStdoutTail?: string;

@@ -42,6 +42,7 @@ import type {
   SkillRunnerInvocationReport,
   StartMcpConnectionOperationRequest,
   StartRuntimeAppOperationRequest,
+  UpdateRuntimeAppOperationStageRequest,
   StartSkillInstallationOperationRequest,
   ValidateMcpConnectionForTaskRequest,
   ValidateMcpConnectionForTaskResponse,
@@ -180,6 +181,10 @@ export class HttpDaemonClient {
 
   async startRuntimeAppOperation(operationId: string, body: StartRuntimeAppOperationRequest = {}): Promise<void> {
     await this.postJson(`/api/daemon/runtime-app-operations/${encodeURIComponent(operationId)}/start`, body);
+  }
+
+  async updateRuntimeAppOperationStage(operationId: string, body: UpdateRuntimeAppOperationStageRequest): Promise<void> {
+    await this.postJson(`/api/daemon/runtime-app-operations/${encodeURIComponent(operationId)}/stage`, body);
   }
 
   async completeRuntimeAppOperation(operationId: string, body: CompleteRuntimeAppOperationRequest): Promise<void> {

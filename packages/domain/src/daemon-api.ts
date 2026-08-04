@@ -523,6 +523,10 @@ export interface StartRuntimeAppOperationRequest {
   status?: "running";
 }
 
+export interface UpdateRuntimeAppOperationStageRequest {
+  stage: "installing" | "verifying" | "finalizing";
+}
+
 export interface CompleteRuntimeAppOperationRequest {
   safeStdoutTail?: string;
   safeStderrTail?: string;

@@ -9,6 +9,7 @@ import type { MarketPageData } from "@/features/market/market-page-client";
 import {
   isActiveCapabilityOperationStatus,
   projectRuntimeAppInstallability,
+  runtimeAppOperationStageLabel,
   runtimeAppInstallabilityReason,
   runtimeAppInstallabilityStatusLabel,
 } from "@/features/market/capability-presentation";
@@ -227,7 +228,7 @@ export function RuntimeCapabilitiesPanel({
 
       {capabilityView === "history" ? (
         <div className="runtime-capabilities__history-view" role="tabpanel">
-          <OperationHistory language={language} open title={tx("CLI 安装记录", "CLI installation history")} rows={cliOperations.map((operation) => ({ id: operation.id, name: operation.appName, operation: operation.operation, status: operation.status, createdAt: operation.createdAt }))} tx={tx} />
+          <OperationHistory language={language} open title={tx("CLI 安装记录", "CLI installation history")} rows={cliOperations.map((operation) => ({ id: operation.id, name: operation.appName, operation: operation.operation, status: operation.status, stage: operation.stage, failedStage: operation.failedStage, createdAt: operation.createdAt }))} tx={tx} />
           <OperationHistory language={language} open title={tx("MCP 操作记录", "MCP operation history")} rows={mcpOperations.map((operation) => ({ id: operation.id, name: mcpConnections.find((connection) => connection.id === operation.connectionId)?.catalogDisplayName ?? operation.connectionId, operation: operation.operation, status: operation.status, createdAt: operation.createdAt }))} tx={tx} />
         </div>
       ) : activeTab === "cli" ? (
@@ -351,14 +352,17 @@ function OperationHistory({
 }: {
   language: "zh" | "en";
   open?: boolean;
-  rows: Array<{ id: string; name: string; operation: string; status: string; createdAt: string }>;
+  rows: Array<{ id: string; name: string; operation: string; status: string; stage?: MarketPageData["operations"][number]["stage"]; failedStage?: MarketPageData["operations"][number]["failedStage"]; createdAt: string }>;
   title: string;
   tx: (zh: string, en: string) => string;
 }) {
   return (
     <details className="runtime-capability-history" open={open}>
       <summary><span>{title}</span><strong>{rows.length}</strong></summary>
-      {rows.length > 0 ? <ul>{rows.map((row) => <li key={row.id}><span><strong>{row.name}</strong><small>{operationLabel(row.operation, tx)} · <time dateTime={row.createdAt}>{formatTimestamp(row.createdAt, language)}</time></small></span><span className={`status-chip status-chip--${row.status === "succeeded" || row.status === "installed" ? "positive" : row.status === "failed" ? "danger" : isActiveCapabilityOperationStatus(row.status) ? "warning" : "neutral"}`}>{operationStatusLabel(row.status, tx)}</span></li>)}</ul> : <p>{tx("暂无记录", "No records")}</p>}
+      {rows.length > 0 ? <ul>{rows.map((row) => {
+        const stageLabel = runtimeAppOperationStageLabel(row.status === "failed" ? row.failedStage : row.stage, tx);
+        return <li key={row.id}><span><strong>{row.name}</strong><small>{operationLabel(row.operation, tx)} · <time dateTime={row.createdAt}>{formatTimestamp(row.createdAt, language)}</time></small></span><span className={`status-chip status-chip--${row.status === "succeeded" || row.status === "installed" ? "positive" : row.status === "failed" ? "danger" : isActiveCapabilityOperationStatus(row.status) ? "warning" : "neutral"}`}>{stageLabel ?? operationStatusLabel(row.status, tx)}</span></li>;
+      })}</ul> : <p>{tx("暂无记录", "No records")}</p>}
     </details>
   );
 }

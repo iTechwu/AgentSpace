@@ -1,6 +1,6 @@
 "use client";
 
-import type { McpCatalogCategory, McpCatalogSource, RuntimeAppCatalogSource, RuntimeAppOperationType } from "@dofe-agent/db";
+import type { McpCatalogCategory, McpCatalogSource, RuntimeAppCatalogSource, RuntimeAppOperationStage, RuntimeAppOperationType } from "@dofe-agent/db";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { requestRuntimeAppOperationAction, refreshRuntimeAppCatalogAction, syncRuntimeAppSkillAction } from "@/features/market/actions";
@@ -8,6 +8,7 @@ import { McpMarketPanel } from "@/features/market/mcp-market-panel";
 import {
   isActiveCapabilityOperationStatus,
   projectRuntimeAppInstallability,
+  runtimeAppOperationStageLabel,
   runtimeAppInstallabilityReason,
   runtimeAppInstallabilityStatusLabel,
   runtimeAppRiskLabel,
@@ -83,6 +84,8 @@ export interface MarketPageData {
     appName: string;
     operation: RuntimeAppOperationType;
     status: string;
+    stage?: RuntimeAppOperationStage;
+    failedStage?: RuntimeAppOperationStage;
     createdAt: string;
     errorMessage?: string;
   }>;
@@ -306,7 +309,12 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
       )
     : undefined;
   const selectedOperation = latestOperation && isActiveCapabilityOperationStatus(latestOperation.status) ? latestOperation : undefined;
-  const installStateLabel = selectedOperation?.status ?? selectedInstall?.status ?? latestOperation?.status ?? "not installed";
+  const operationStage = selectedOperation?.stage ?? (latestOperation?.status === "failed" ? latestOperation.failedStage : undefined);
+  const installStateLabel = runtimeAppOperationStageLabel(operationStage, tx)
+    ?? selectedOperation?.status
+    ?? selectedInstall?.status
+    ?? latestOperation?.status
+    ?? tx("未安装", "Not installed");
   const installStateTone = selectedOperation
     ? "warning"
     : selectedInstall?.status === "installed"

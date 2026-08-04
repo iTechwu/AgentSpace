@@ -136,7 +136,11 @@ export function computeDirectoryDigestSync(dirPath: string): string | undefined 
 
 export async function executeRuntimeAppPlan(
   plan: RuntimeAppInstallPlan,
-  options?: { cwd?: string; runtimeHomeDir?: string },
+  options?: {
+    cwd?: string;
+    runtimeHomeDir?: string;
+    onStage?: (stage: "installing" | "verifying") => void | Promise<void>;
+  },
 ): Promise<RuntimeAppExecutionResult> {
   let stdout = "";
   let stderr = "";
@@ -144,7 +148,17 @@ export async function executeRuntimeAppPlan(
     seedCliHubRegistryCacheSync(plan, options.runtimeHomeDir);
   }
   const executionEnvironment = resolveRuntimeAppExecutionEnvironment(process.env, options?.runtimeHomeDir);
-  for (const command of [...plan.commands, ...plan.verifyCommands]) {
+  if (plan.commands.length > 0) await options?.onStage?.("installing");
+  for (const command of plan.commands) {
+    const result = await execCommand(command, {
+      cwd: options?.cwd,
+      executionEnvironment,
+    });
+    stdout += `\n$ ${renderCommand(command)}\n${result.stdout}`;
+    stderr += result.stderr ? `\n$ ${renderCommand(command)}\n${result.stderr}` : "";
+  }
+  if (plan.verifyCommands.length > 0) await options?.onStage?.("verifying");
+  for (const command of plan.verifyCommands) {
     const result = await execCommand(command, {
       cwd: options?.cwd,
       executionEnvironment,

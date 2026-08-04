@@ -79,6 +79,7 @@ export type {
   SkillInstallationOperationKind,
   StartMcpConnectionOperationRequest,
   StartRuntimeAppOperationRequest,
+  UpdateRuntimeAppOperationStageRequest,
   StartSkillInstallationOperationRequest,
   ValidateMcpConnectionForTaskRequest,
   ValidateMcpConnectionForTaskResponse,

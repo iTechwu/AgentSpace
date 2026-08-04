@@ -3,6 +3,7 @@ import type {
   RuntimeAppCatalogItemRecord,
   RuntimeAppCatalogSource,
   RuntimeAppOperationRecord,
+  RuntimeAppOperationStage,
   RuntimeAppOperationStatus,
   RuntimeAppOperationType,
   RuntimeAppSkillBindingRecord,
@@ -360,6 +361,9 @@ export function readRuntimeAppOperationSync(
       app_name AS appName,
       operation,
       status,
+      stage,
+      failed_stage AS failedStage,
+      stage_updated_at AS stageUpdatedAt,
       requested_by_user_id AS requestedByUserId,
       command_plan_json AS commandPlanJson,
       safe_stdout_tail AS safeStdoutTail,
@@ -402,6 +406,9 @@ export function listRuntimeAppOperationsSync(options: {
       app_name AS appName,
       operation,
       status,
+      stage,
+      failed_stage AS failedStage,
+      stage_updated_at AS stageUpdatedAt,
       requested_by_user_id AS requestedByUserId,
       command_plan_json AS commandPlanJson,
       safe_stdout_tail AS safeStdoutTail,
@@ -466,12 +473,43 @@ export function startRuntimeAppOperationSync(operationId: string, workspaceId = 
   db.prepare(
     `UPDATE runtime_app_operation
      SET status = 'running',
+         stage = 'installing',
+         stage_updated_at = ?,
          started_at = COALESCE(started_at, ?)
      WHERE id = ? AND workspace_id = ? AND status IN ('pending', 'claimed')`,
-  ).run(now, operationId, workspaceId);
+  ).run(now, now, operationId, workspaceId);
   const operation = readRuntimeAppOperationSync(operationId, workspaceId);
   if (!operation) {
     throw new Error(`Runtime app operation "${operationId}" does not exist.`);
+  }
+  return operation;
+}
+
+export function updateRuntimeAppOperationStageSync(input: {
+  operationId: string;
+  workspaceId?: string;
+  stage: Exclude<RuntimeAppOperationStage, "queued" | "completed">;
+}): RuntimeAppOperationRecord {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const now = new Date().toISOString();
+  const allowedCurrentStages: Record<typeof input.stage, RuntimeAppOperationStage[]> = {
+    installing: ["installing"],
+    verifying: ["installing", "verifying"],
+    finalizing: ["installing", "verifying", "finalizing"],
+  };
+  const currentStages = allowedCurrentStages[input.stage];
+  const placeholders = currentStages.map(() => "?").join(", ");
+  const result = getDatabase().prepare(
+    `UPDATE runtime_app_operation
+     SET stage = ?, stage_updated_at = ?
+     WHERE id = ? AND workspace_id = ? AND status = 'running' AND stage IN (${placeholders})`,
+  ).run(input.stage, now, input.operationId, workspaceId, ...currentStages);
+  const operation = readRuntimeAppOperationSync(input.operationId, workspaceId);
+  if (!operation) {
+    throw new Error(`Runtime app operation "${input.operationId}" does not exist.`);
+  }
+  if (result.changes === 0 && operation.stage !== input.stage) {
+    throw new Error("runtime_app.stage_transition_invalid");
   }
   return operation;
 }
@@ -485,11 +523,15 @@ export function completeRuntimeAppOperationSync(input: CompleteRuntimeAppOperati
     db.prepare(
       `UPDATE runtime_app_operation
        SET status = 'succeeded',
+           stage = 'completed',
+           failed_stage = NULL,
+           stage_updated_at = ?,
            safe_stdout_tail = ?,
            safe_stderr_tail = ?,
            completed_at = ?
        WHERE id = ? AND workspace_id = ?`,
     ).run(
+      now,
       input.safeStdoutTail ?? null,
       input.safeStderrTail ?? null,
       now,
@@ -552,6 +594,8 @@ export function failRuntimeAppOperationSync(input: FailRuntimeAppOperationInput)
     db.prepare(
       `UPDATE runtime_app_operation
        SET status = 'failed',
+           failed_stage = stage,
+           stage_updated_at = ?,
            safe_stdout_tail = ?,
            safe_stderr_tail = ?,
            error_code = ?,
@@ -559,6 +603,7 @@ export function failRuntimeAppOperationSync(input: FailRuntimeAppOperationInput)
            completed_at = ?
        WHERE id = ? AND workspace_id = ?`,
     ).run(
+      now,
       input.safeStdoutTail ?? null,
       input.safeStderrTail ?? null,
       input.errorCode ?? null,
@@ -859,6 +904,9 @@ function mapRuntimeAppOperationRecord(value: Record<string, unknown>): RuntimeAp
     appName: value.appName,
     operation: value.operation,
     status: value.status,
+    stage: isRuntimeAppOperationStage(value.stage) ? value.stage : "queued",
+    failedStage: isRuntimeAppOperationStage(value.failedStage) ? value.failedStage : undefined,
+    stageUpdatedAt: readOptionalString(value.stageUpdatedAt) ?? value.createdAt,
     requestedByUserId: readOptionalString(value.requestedByUserId),
     commandPlanJson: value.commandPlanJson,
     safeStdoutTail: readOptionalString(value.safeStdoutTail),
@@ -914,6 +962,10 @@ function isRuntimeAppOperationType(value: unknown): value is RuntimeAppOperation
 
 function isRuntimeAppOperationStatus(value: unknown): value is RuntimeAppOperationRecord["status"] {
   return value === "pending" || value === "claimed" || value === "running" || value === "succeeded" || value === "failed" || value === "cancelled";
+}
+
+function isRuntimeAppOperationStage(value: unknown): value is RuntimeAppOperationStage {
+  return value === "queued" || value === "installing" || value === "verifying" || value === "finalizing" || value === "completed";
 }
 
 function normalizeOptionalText(value: string | undefined): string | null {

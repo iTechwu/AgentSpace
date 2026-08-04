@@ -257,6 +257,7 @@ test("runtime app execution supports python fallback and platform-specific user 
   chmodSync(join(pythonUserBin, "cli-hub"), 0o755);
 
   try {
+    const stages: string[] = [];
     process.env.PATH = binDir;
     process.env.FAKE_PYTHON_USER_BASE = pythonUserBase;
     const result = await executeRuntimeAppPlan({
@@ -267,13 +268,14 @@ test("runtime app execution supports python fallback and platform-specific user 
       risk: "low",
       requiresApproval: true,
       notes: [],
-    });
+    }, { onStage: (stage) => { stages.push(stage); } });
     const readiness = readCliHubReadiness();
 
     assert.match(result.safeStdoutTail, /Python 3\.12\.0/);
     assert.match(result.safeStdoutTail, /cli-hub 1\.0\.0/);
     assert.equal(readiness.python.available, true);
     assert.equal(readiness.cliHub.available, true);
+    assert.deepEqual(stages, ["installing", "verifying"]);
   } finally {
     if (originalPath === undefined) delete process.env.PATH;
     else process.env.PATH = originalPath;

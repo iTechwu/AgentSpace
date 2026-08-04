@@ -886,6 +886,9 @@ export function getPostgresSchemaStatements(): string[] {
         app_name TEXT NOT NULL,
         operation TEXT NOT NULL,
         status TEXT NOT NULL,
+        stage TEXT NOT NULL DEFAULT 'queued',
+        failed_stage TEXT,
+        stage_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         requested_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
         command_plan_json JSONB NOT NULL DEFAULT '{}'::jsonb,
         safe_stdout_tail TEXT,
@@ -897,6 +900,9 @@ export function getPostgresSchemaStatements(): string[] {
         completed_at TIMESTAMPTZ
       )
     `,
+    `ALTER TABLE runtime_app_operation ADD COLUMN IF NOT EXISTS stage TEXT NOT NULL DEFAULT 'queued'`,
+    `ALTER TABLE runtime_app_operation ADD COLUMN IF NOT EXISTS failed_stage TEXT`,
+    `ALTER TABLE runtime_app_operation ADD COLUMN IF NOT EXISTS stage_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`,
     `
       CREATE TABLE IF NOT EXISTS skill (
         id TEXT PRIMARY KEY,
