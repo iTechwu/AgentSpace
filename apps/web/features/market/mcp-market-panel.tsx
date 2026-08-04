@@ -55,6 +55,9 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
   const onlineRuntimes = useMemo(() => data.runtimes.filter((r) => r.status === "online" && r.mcpEligible), [data.runtimes]);
   const sources = useMemo(() => Array.from(new Set(data.mcpCatalog.map((item) => item.source))).sort(), [data.mcpCatalog]);
   const categories = useMemo(() => Array.from(new Set(data.mcpCatalog.map((item) => item.category))).sort(), [data.mcpCatalog]);
+  const transports = useMemo(() => Array.from(new Set(data.mcpCatalog
+    .map((item) => item.transport)
+    .filter((transport) => transport === "streamable_http" || transport === "managed_stdio"))).sort(), [data.mcpCatalog]);
   const catalogConnectionState = useMemo(() => new Map(data.mcpCatalog.map((item) => {
     const connections = data.mcpConnections.filter((connection) => connection.catalogItemId === item.id);
     const state = connections.length === 0
@@ -340,9 +343,7 @@ export function McpMarketPanel({ data, onDataChanged }: { data: MarketPageData; 
                   <span>{tx("传输", "Transport")}</span>
                   <select onChange={(event) => setTransportFilter(event.currentTarget.value as "all" | CatalogEntry["transport"])} value={transportFilter}>
                     <option value="all">{tx("全部传输", "All transports")}</option>
-                    {/* Only streamable_http is implemented; the other transports are
-                        type/UI placeholders and must not be selectable yet. */}
-                    <option value="streamable_http">streamable_http</option>
+                    {transports.map((transport) => <option key={transport} value={transport}>{transport}</option>)}
                   </select>
                 </label>
                 <label className="form-field">
@@ -723,7 +724,7 @@ function formatVerificationTime(value: string | undefined, tx: (zh: string, en: 
   if (!value) return tx("从未验证", "Never verified");
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return tx("时间未知", "Unknown time");
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+  return new Intl.DateTimeFormat(tx("zh-CN", "en-US"), { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 function allSecretsFilled(catalog: CatalogEntry, secrets: Record<string, string>): boolean {

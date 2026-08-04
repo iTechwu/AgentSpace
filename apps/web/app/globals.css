@@ -22548,6 +22548,19 @@ textarea:focus {
   font-size: 0.88rem;
 }
 
+.market-confirm-risk > input[type="checkbox"] {
+  flex: 0 0 1rem;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  padding: 0;
+}
+
+.market-confirm-risk > span {
+  min-width: 0;
+  line-height: 1.4;
+}
+
 .market-action-row {
   display: flex;
   flex-wrap: wrap;
@@ -23547,6 +23560,32 @@ textarea:focus {
   }
 }
 
+@media (max-width: 1280px) {
+  .market-tab-panel {
+    flex: 0 0 auto;
+  }
+
+  .market-workbench {
+    flex: 0 0 auto;
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  .market-catalog-panel,
+  .market-detail-panel {
+    height: auto;
+    min-height: 0;
+  }
+
+  .market-detail-panel {
+    max-height: 42rem;
+  }
+
+  .market-app-list {
+    max-height: 25rem;
+  }
+}
+
 @media (max-width: 900px) {
   .market-toolbar--hub {
     align-items: flex-start;
@@ -23567,20 +23606,6 @@ textarea:focus {
     border-left: 0;
   }
 
-  .market-workbench {
-    grid-template-columns: minmax(0, 1fr);
-    height: auto;
-  }
-
-  .market-catalog-panel,
-  .market-detail-panel {
-    height: auto;
-    min-height: 0;
-  }
-
-  .market-app-list {
-    max-height: 25rem;
-  }
 }
 
 @media (max-width: 620px) {

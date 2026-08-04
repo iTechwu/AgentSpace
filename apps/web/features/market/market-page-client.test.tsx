@@ -223,6 +223,42 @@ describe("MarketPageClient", () => {
     }));
   });
 
+  it("switches MCP details when another catalog service is selected", async () => {
+    const user = userEvent.setup();
+    const minimaxCatalog: MarketPageData["mcpCatalog"][number] = {
+      ...data.mcpCatalog[0]!,
+      id: "mcp-minimax-token-plan",
+      source: "official",
+      slug: "official-minimax-token-plan",
+      displayName: "MiniMax Token Plan MCP",
+      description: "One official MiniMax MCP service providing two tools.",
+      version: "0.0.4",
+      category: "productivity",
+      transport: "managed_stdio",
+      endpointTemplate: "stdio://minimax-coding-plan-mcp",
+      allowedHosts: ["api.minimaxi.com"],
+      secretFields: ["MINIMAX_API_KEY"],
+      declaredTools: [
+        { name: "web_search", description: "Search the web", risk: "medium" },
+        { name: "understand_image", description: "Understand an image", risk: "high" },
+      ],
+    };
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{ ...data, mcpCatalog: [...data.mcpCatalog, minimaxCatalog] }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "MCP 市场" }));
+    await user.click(screen.getByRole("button", { name: /^MiniMax Token Plan MCP/ }));
+
+    expect(screen.getByRole("heading", { name: "MiniMax Token Plan MCP" })).toBeInTheDocument();
+    expect(screen.getByText("api.minimaxi.com")).toBeInTheDocument();
+    expect(screen.getByLabelText("MINIMAX_API_KEY")).toHaveAttribute("type", "password");
+  });
+
   it("installs the pinned Chrome DevTools runtime component from the MCP page before connecting", async () => {
     const user = userEvent.setup();
     const chromeCatalog: MarketPageData["mcpCatalog"][number] = {
@@ -250,6 +286,7 @@ describe("MarketPageClient", () => {
     );
 
     await user.click(screen.getByRole("tab", { name: "MCP 市场" }));
+    expect(within(screen.getByRole("combobox", { name: "传输" })).getByRole("option", { name: "managed_stdio" })).toBeInTheDocument();
     expect(screen.getByText("chrome-devtools-mcp@1.6.0")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "配置并连接" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "安装 Runtime 组件" }));

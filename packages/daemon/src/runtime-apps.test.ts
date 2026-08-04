@@ -4,7 +4,13 @@ import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { computeDirectoryDigestSync, executeRuntimeAppPlan, readCliHubReadiness, resolveRuntimeAppRegistryEnvironment } from "./runtime-apps.ts";
+import {
+  computeDirectoryDigestSync,
+  executeRuntimeAppPlan,
+  readCliHubReadiness,
+  resolveRuntimeAppCommandTimeoutMs,
+  resolveRuntimeAppRegistryEnvironment,
+} from "./runtime-apps.ts";
 import * as runtimeApps from "./runtime-apps.ts";
 
 function sha256(...parts: Buffer[]): string {
@@ -136,6 +142,35 @@ test("runtime app registries are validated and required for enforced egress", ()
   assert.throws(() => resolveRuntimeAppRegistryEnvironment({
     DOFE_AGENT_NPM_REGISTRY: "http://npm.example.com",
   }), /npm_registry_invalid/);
+});
+
+test("runtime app command timeout has an operational default and bounded override", () => {
+  assert.equal(resolveRuntimeAppCommandTimeoutMs({}), 10 * 60 * 1000);
+  assert.equal(resolveRuntimeAppCommandTimeoutMs({ DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS: "" }), 10 * 60 * 1000);
+  assert.equal(resolveRuntimeAppCommandTimeoutMs({ DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS: "invalid" }), 10 * 60 * 1000);
+  assert.equal(resolveRuntimeAppCommandTimeoutMs({ DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS: "120000" }), 120_000);
+  assert.equal(resolveRuntimeAppCommandTimeoutMs({ DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS: "1" }), 30_000);
+  assert.equal(resolveRuntimeAppCommandTimeoutMs({ DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS: "99999999" }), 30 * 60 * 1000);
+});
+
+test("runtime app command failures do not expose the full command or host paths", async () => {
+  await assert.rejects(
+    executeRuntimeAppPlan({
+      app: { source: "clihub_public", name: "broken", version: "1.0.0", entryPoint: "broken" },
+      strategy: "pip",
+      commands: [{ executable: "/bin/sh", args: ["-c", "echo safe-detail >&2; exit 7", "/private/host/runtime-home"] }],
+      verifyCommands: [],
+      risk: "low",
+      requiresApproval: true,
+      notes: [],
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /Runtime application command failed \(sh, exit code 7\)\. safe-detail/);
+      assert.doesNotMatch(error.message, /private\/host|echo safe-detail|exit 7/);
+      return true;
+    },
+  );
 });
 
 test("runtime app execution installs into the selected runtime private home", async () => {

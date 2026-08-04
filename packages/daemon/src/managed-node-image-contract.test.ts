@@ -32,6 +32,7 @@ test("local managed-node recovery preserves required operational settings", () =
       "MCP_EGRESS_PROXY_ADMIN_TOKEN=existing-secret",
       "PROXY_RUNTIME_IP=172.31.240.2",
       "DOFE_SKILL_RUNNER_TIMEOUT_MS=45000",
+      "DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS=720000",
     ].join("\n"),
     {
       MCP_EGRESS_PROXY_URL: "http://127.0.0.1:8080",
@@ -44,7 +45,9 @@ test("local managed-node recovery preserves required operational settings", () =
   assert.equal(resolved.MCP_EGRESS_ENFORCE, "true");
   assert.equal(resolved.PROXY_RUNTIME_IP, "172.31.240.2");
   assert.equal(resolved.DOFE_SKILL_RUNNER_TIMEOUT_MS, "45000");
+  assert.equal(resolved.DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS, "720000");
   assert.ok(formatManagedNodeOperationalEnv(resolved).includes("MCP_EGRESS_PROXY_ADMIN_TOKEN=existing-secret"));
+  assert.ok(formatManagedNodeOperationalEnv(resolved).includes("DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS=720000"));
 });
 
 test("local managed-node recovery fails before rotation when proxy settings are incomplete", () => {

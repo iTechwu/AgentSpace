@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { basename, delimiter, join } from "node:path";
 import type { RuntimeAppCommandPlanItem, RuntimeAppInstallPlan } from "@dofe-agent/domain";
 
 const MAX_TAIL_CHARS = 8_000;
@@ -320,8 +320,20 @@ process.stdout.write(JSON.stringify({
 }));
 `;
 
-const RUNTIME_APP_COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_RUNTIME_APP_COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
+const MIN_RUNTIME_APP_COMMAND_TIMEOUT_MS = 30 * 1000;
+const MAX_RUNTIME_APP_COMMAND_TIMEOUT_MS = 30 * 60 * 1000;
 const KILL_GRACE_MS = 5_000;
+
+export function resolveRuntimeAppCommandTimeoutMs(
+  environment: NodeJS.ProcessEnv = process.env,
+): number {
+  const rawValue = environment.DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS?.trim();
+  if (!rawValue) return DEFAULT_RUNTIME_APP_COMMAND_TIMEOUT_MS;
+  const configured = Number(rawValue);
+  if (!Number.isFinite(configured)) return DEFAULT_RUNTIME_APP_COMMAND_TIMEOUT_MS;
+  return Math.min(MAX_RUNTIME_APP_COMMAND_TIMEOUT_MS, Math.max(MIN_RUNTIME_APP_COMMAND_TIMEOUT_MS, Math.floor(configured)));
+}
 
 function execCommand(
   command: RuntimeAppCommandPlanItem,
@@ -348,10 +360,13 @@ function execCommand(
     });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    const commandTimeoutMs = resolveRuntimeAppCommandTimeoutMs();
     const timer = setTimeout(() => {
+      timedOut = true;
       child.kill("SIGTERM");
       setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS).unref();
-    }, RUNTIME_APP_COMMAND_TIMEOUT_MS);
+    }, commandTimeoutMs);
     child.stdout.on("data", (chunk) => {
       stdout += String(chunk);
       stdout = stdout.slice(-MAX_TAIL_CHARS * 2);
@@ -370,7 +385,10 @@ function execCommand(
         resolve({ stdout, stderr });
         return;
       }
-      const error = new Error(`${renderCommand(command)} exited with code ${code}. ${tailAndRedact(stderr || stdout)}`);
+      const detail = tailAndRedact(stderr || stdout);
+      const error = new Error(timedOut
+        ? `Runtime application command timed out after ${Math.round(commandTimeoutMs / 1000)} seconds.${detail ? ` ${detail}` : ""}`
+        : `Runtime application command failed (${basename(command.executable)}, exit code ${code ?? "unknown"}).${detail ? ` ${detail}` : ""}`);
       reject(Object.assign(error, {
         stdout: tailAndRedact(stdout),
         stderr: tailAndRedact(stderr),
@@ -445,6 +463,7 @@ function isCommandPlanItem(value: unknown): value is RuntimeAppCommandPlanItem {
 }
 
 function renderCommand(command: RuntimeAppCommandPlanItem): string {
+  if (command.executable === "docker") return "docker run [managed Runtime application command]";
   return [command.executable, ...command.args].join(" ");
 }
 

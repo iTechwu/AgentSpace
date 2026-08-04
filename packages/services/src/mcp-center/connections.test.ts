@@ -27,6 +27,11 @@ import { buildRuntimeAppInstallPlan } from "../clihub/install-plan.ts";
 import { createMcpCatalogItemSync } from "./catalog.ts";
 import {
   CHROME_DEVTOOLS_MCP_PACKAGE_SPEC,
+  MINIMAX_TOKEN_PLAN_MCP_PACKAGE,
+  MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC,
+  MINIMAX_TOKEN_PLAN_MCP_SLUG,
+  resolveOfficialManagedStdioProfile,
+  resolveOfficialMcpRuntimeAppRequirement,
   syncOfficialMcpCatalogForWorkspaceSync,
 } from "./official-catalog.ts";
 import {
@@ -240,6 +245,35 @@ test("official Chrome DevTools MCP requires the pinned Runtime app and resolves 
   assert.deepEqual(claimed?.managedStdioProfile?.args, ["--headless", "--isolated", "--no-usage-statistics", "--no-performance-crux"]);
   assert.equal(claimed?.managedStdioProfile?.managedArgs?.includes("--executable-path=/usr/bin/chromium"), true);
   assert.equal(claimed?.managedStdioProfile?.env.CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS, "1");
+});
+
+test("official MiniMax Token Plan MCP exposes two tools and a pinned secret-backed Runtime app", () => {
+  syncOfficialMcpCatalogForWorkspaceSync("default");
+  const catalog = readMcpCatalogItemBySlugSync(MINIMAX_TOKEN_PLAN_MCP_SLUG, "default");
+  assert.ok(catalog);
+  assert.deepEqual(JSON.parse(catalog.allowedHostsJson), ["api.minimaxi.com"]);
+  assert.deepEqual(JSON.parse(catalog.secretFieldsJson), ["MINIMAX_API_KEY"]);
+  assert.deepEqual(
+    (JSON.parse(catalog.declaredToolsJson) as Array<{ name: string }>).map((tool) => tool.name),
+    ["web_search", "understand_image"],
+  );
+  assert.deepEqual(resolveOfficialMcpRuntimeAppRequirement(catalog), {
+    source: "clihub_public",
+    name: MINIMAX_TOKEN_PLAN_MCP_PACKAGE,
+    version: "0.0.4",
+  });
+  assert.deepEqual(resolveOfficialManagedStdioProfile(catalog)?.env, {
+    MINIMAX_API_HOST: "https://api.minimaxi.com",
+  });
+
+  const runtimeApp = readRuntimeAppCatalogItemSync("clihub_public", MINIMAX_TOKEN_PLAN_MCP_PACKAGE);
+  assert.ok(runtimeApp);
+  const plan = buildRuntimeAppInstallPlan({ item: runtimeApp, operation: "install", cliHubAvailable: true });
+  assert.deepEqual(plan.commands, [{
+    executable: "python3",
+    args: ["-m", "pip", "install", "--user", MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC],
+    env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
+  }]);
 });
 
 test("managed stdio catalog rejects untrusted commands and reserved environment names", () => {

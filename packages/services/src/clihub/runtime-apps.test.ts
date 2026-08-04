@@ -231,6 +231,41 @@ test("uses a validated exact npm package spec for platform-pinned applications",
   assert.deepEqual(plan.commands, [{ executable: "npm", args: ["install", "--global", "chrome-devtools-mcp@1.6.0"] }]);
 });
 
+test("uses a validated exact PyPI package spec without starting the MCP server during verification", () => {
+  const plan = buildRuntimeAppInstallPlan({
+    operation: "install",
+    cliHubAvailable: true,
+    item: {
+      source: "clihub_public",
+      name: "minimax-coding-plan-mcp",
+      displayName: "MiniMax Token Plan MCP",
+      description: "",
+      version: "0.0.4",
+      category: "search",
+      entryPoint: "minimax-coding-plan-mcp",
+      installStrategy: "pip",
+      installCmd: "python3 -m pip install --user minimax-coding-plan-mcp==0.0.4",
+      registryJson: JSON.stringify({ pypi_package_spec: "minimax-coding-plan-mcp==0.0.4" }),
+      syncedAt: "2026-08-04T00:00:00.000Z",
+    },
+  });
+
+  assert.equal(plan.strategy, "pip");
+  assert.deepEqual(plan.commands, [{
+    executable: "python3",
+    args: ["-m", "pip", "install", "--user", "minimax-coding-plan-mcp==0.0.4"],
+    env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
+  }]);
+  assert.deepEqual(plan.verifyCommands, [
+    {
+      executable: "python3",
+      args: ["-m", "pip", "show", "minimax-coding-plan-mcp"],
+      env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
+    },
+    { executable: "which", args: ["minimax-coding-plan-mcp"] },
+  ]);
+});
+
 test("rejects unsafe public npm package metadata and falls back to the controlled CLI-Hub plan", () => {
   const plan = buildRuntimeAppInstallPlan({
     operation: "install",

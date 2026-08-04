@@ -5,6 +5,13 @@ const UNSAFE_COMMAND_PATTERN = /(\||&&|;|`|\$\(|<\(|>\(|\bcurl\b|\bwget\b|\bsudo
 const CLI_HUB_PIP_ENV = { PIP_BREAK_SYSTEM_PACKAGES: "1" } as const;
 const NPM_PACKAGE_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/i;
 const NPM_PACKAGE_SPEC_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/i;
+const PYPI_PACKAGE_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
+const PYPI_PACKAGE_SPEC_PATTERN = /^([a-z0-9][a-z0-9._-]*)==(\d+\.\d+\.\d+(?:[a-z0-9.-]+)?)$/i;
+
+interface PublicPypiPackage {
+  name: string;
+  spec: string;
+}
 
 export function buildRuntimeAppInstallPlan(input: {
   item: RuntimeAppCatalogItemRecord;
@@ -14,19 +21,22 @@ export function buildRuntimeAppInstallPlan(input: {
   const cliHubAvailable = input.cliHubAvailable !== false;
   const risk = assessRuntimeAppRisk(input.item);
   const npmPackage = readPublicNpmPackage(input.item);
+  const pypiPackage = readPublicPypiPackage(input.item);
   const strategy: RuntimeAppInstallStrategy =
     input.operation === "disable" || input.operation === "enable"
       ? "manual"
       : npmPackage
         ? "npm"
-        : cliHubAvailable
-          ? "cli_hub"
-          : input.operation === "install"
-            ? "pip"
-            : "cli_hub";
-  const commands = buildOperationCommands(input.item, input.operation, strategy, cliHubAvailable, npmPackage);
+        : pypiPackage
+          ? "pip"
+          : cliHubAvailable
+            ? "cli_hub"
+            : input.operation === "install"
+              ? "pip"
+              : "cli_hub";
+  const commands = buildOperationCommands(input.item, input.operation, strategy, cliHubAvailable, npmPackage, pypiPackage);
   const verifyCommands = shouldVerifyAfterOperation(input.operation)
-    ? buildVerifyCommands(input.item, strategy, npmPackage)
+    ? buildVerifyCommands(input.item, strategy, npmPackage, pypiPackage)
     : [];
   const notes = buildPlanNotes(input.item, input.operation, strategy, risk, cliHubAvailable);
   return {
@@ -66,6 +76,7 @@ function buildOperationCommands(
   strategy: RuntimeAppInstallStrategy,
   cliHubAvailable: boolean,
   npmPackage?: string,
+  pypiPackage?: PublicPypiPackage,
 ): RuntimeAppCommandPlanItem[] {
   if (operation === "disable" || operation === "enable" || operation === "verify") {
     return [];
@@ -80,6 +91,14 @@ function buildOperationCommands(
     }
     if (operation === "install" || operation === "update") {
       return [{ executable: "npm", args: ["install", "--global", npmPackage] }];
+    }
+  }
+  if (strategy === "pip" && pypiPackage) {
+    if (operation === "uninstall") {
+      return [{ executable: "python3", args: ["-m", "pip", "uninstall", "--yes", pypiPackage.name], env: CLI_HUB_PIP_ENV }];
+    }
+    if (operation === "install" || operation === "update") {
+      return [{ executable: "python3", args: ["-m", "pip", "install", "--user", pypiPackage.spec], env: CLI_HUB_PIP_ENV }];
     }
   }
   if (operation !== "install") {
@@ -111,12 +130,19 @@ function buildVerifyCommands(
   item: RuntimeAppCatalogItemRecord,
   strategy: RuntimeAppInstallStrategy,
   npmPackage?: string,
+  pypiPackage?: PublicPypiPackage,
 ): RuntimeAppCommandPlanItem[] {
   if (strategy === "npm" && npmPackage) {
     return [{
       executable: "npm",
       args: ["list", "--global", "--depth=0", npmPackage],
     }];
+  }
+  if (strategy === "pip" && pypiPackage) {
+    return [
+      { executable: "python3", args: ["-m", "pip", "show", pypiPackage.name], env: CLI_HUB_PIP_ENV },
+      ...(item.entryPoint.trim() ? [{ executable: "which", args: [item.entryPoint.trim()] }] : []),
+    ];
   }
   const commands: RuntimeAppCommandPlanItem[] = strategy === "cli_hub"
     ? [buildCliHubCommand(["info", item.name])]
@@ -162,6 +188,21 @@ function readPublicNpmPackage(item: RuntimeAppCatalogItemRecord): string | undef
     if (NPM_PACKAGE_SPEC_PATTERN.test(exactSpec)) return exactSpec;
     const candidate = typeof registry.npm_package === "string" ? registry.npm_package.trim() : item.name.trim();
     return NPM_PACKAGE_PATTERN.test(candidate) ? candidate : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readPublicPypiPackage(item: RuntimeAppCatalogItemRecord): PublicPypiPackage | undefined {
+  if (item.source !== "clihub_public" || item.installStrategy !== "pip") {
+    return undefined;
+  }
+  try {
+    const registry = JSON.parse(item.registryJson) as Record<string, unknown>;
+    const spec = typeof registry.pypi_package_spec === "string" ? registry.pypi_package_spec.trim() : "";
+    const match = PYPI_PACKAGE_SPEC_PATTERN.exec(spec);
+    if (!match?.[1] || !PYPI_PACKAGE_PATTERN.test(match[1])) return undefined;
+    return { name: match[1], spec };
   } catch {
     return undefined;
   }
