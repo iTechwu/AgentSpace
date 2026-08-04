@@ -53,6 +53,7 @@ const data: MarketPageData = {
   catalog: [
     {
       source: "clihub_harness",
+      productSource: "clihub_harness",
       name: "mermaid",
       displayName: "Mermaid",
       description: "Render diagrams",
@@ -128,6 +129,7 @@ describe("MarketPageClient", () => {
     actionMocks.rotateMcpSecret.mockClear();
     actionMocks.syncSkill.mockClear();
     actionMocks.replaceMcpConnectionConfig.mockClear();
+    window.localStorage.removeItem("dofe-agent-language");
   });
 
   it("presents CLI apps and MCP services as one capability market", () => {
@@ -363,6 +365,49 @@ describe("MarketPageClient", () => {
     expect(runtimeSelect).toHaveValue("runtime-online");
     expect(screen.getByRole("option", { name: "Online Runtime · online · CLI-Hub 已就绪" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /Offline Runtime/ })).not.toBeInTheDocument();
+  });
+
+  it("shows catalog health and uses product source labels instead of storage keys", async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{
+            ...data,
+            catalog: [
+              data.catalog[0]!,
+              { ...data.catalog[0]!, name: "official-cli", displayName: "Official CLI", productSource: "official", source: "clihub_public" },
+              { ...data.catalog[0]!, name: "skill-cli", displayName: "Skill CLI", productSource: "skill_dependency", source: "skill_dependency" },
+            ],
+          }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByLabelText("CLI 目录健康")).toHaveTextContent("目录正常");
+    expect(screen.getByLabelText("CLI 目录健康")).toHaveTextContent("1 个条目");
+    expect(screen.getByRole("option", { name: "平台官方" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Skill 依赖" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "skill_dependency" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Skill CLI/ }));
+    expect(screen.getByText("Skill 依赖", { selector: ".market-fact strong" })).toBeInTheDocument();
+  });
+
+  it("localizes CLI facts, source labels, risk, and timestamps in English", () => {
+    window.localStorage.setItem("dofe-agent-language", "en");
+    render(
+      <LanguageProvider initialLanguage="en">
+        <FeedbackToastProvider>
+          <MarketPageClient data={data} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByLabelText("CLI catalog health")).toHaveTextContent("Catalog current");
+    expect(screen.getByText("CLI-Anything harness", { selector: ".market-fact strong" })).toBeInTheDocument();
+    expect(screen.getByText("Low risk", { selector: ".status-chip" })).toBeInTheDocument();
+    expect(screen.getByText("Source", { selector: ".market-fact span" })).toBeInTheDocument();
   });
 
   it("renders the CLI catalog in bounded batches", async () => {

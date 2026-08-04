@@ -101,6 +101,30 @@ test("syncs public registry from fallback URL when the primary URL is unavailabl
   assert.equal(requestedUrls.some((url) => url.includes("raw.githubusercontent.com")), true);
 });
 
+test("syncs harness registry from fallback URL when the primary URL is unavailable", async () => {
+  const requestedUrls: string[] = [];
+  const result = await syncCliHubCatalog({
+    now: new Date("2026-05-08T00:00:00.000Z"),
+    upsertItemsSync: (items) => items.length,
+    readHealthSync: () => ({ itemCount: 1, lastSyncedAt: "2026-05-08T00:00:00.000Z", stale: false }),
+    fetchImpl: async (url) => {
+      const requestedUrl = String(url);
+      requestedUrls.push(requestedUrl);
+      if (requestedUrl === "https://hkuds.github.io/CLI-Anything/registry.json") {
+        return new Response("unavailable", { status: 503, statusText: "Unavailable" });
+      }
+      if (requestedUrl.endsWith("/public_registry.json")) {
+        return jsonResponse({ clis: [] });
+      }
+      return jsonResponse({ clis: [{ name: "mermaid", version: "1.0.0", install_cmd: "pip install mermaid-cli" }] });
+    },
+  });
+
+  assert.equal(result.status, "fresh");
+  assert.equal(result.errors.length, 0);
+  assert.equal(requestedUrls.includes("https://raw.githubusercontent.com/HKUDS/CLI-Anything/main/registry.json"), true);
+});
+
 test("builds controlled cli-hub plans without executing registry shell strings", () => {
   const plan = buildRuntimeAppInstallPlan({
     operation: "install",

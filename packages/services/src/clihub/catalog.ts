@@ -10,6 +10,7 @@ import {
 import { applyCliHubCatalogCompatibility, readCliHubCatalogCompatibilityOverride } from "./catalog-compatibility.ts";
 
 export const CLIHUB_HARNESS_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/registry.json";
+export const CLIHUB_HARNESS_REGISTRY_FALLBACK_URL = "https://raw.githubusercontent.com/HKUDS/CLI-Anything/main/registry.json";
 export const CLIHUB_PUBLIC_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/public_registry.json";
 export const CLIHUB_PUBLIC_REGISTRY_FALLBACK_URL = "https://raw.githubusercontent.com/HKUDS/CLI-Anything/main/public_registry.json";
 const REGISTRY_FETCH_TIMEOUT_MS = 8_000;
@@ -56,7 +57,7 @@ export async function syncCliHubCatalog(options?: {
   const items: UpsertRuntimeAppCatalogItemInput[] = [];
 
   const targets = [
-    { source: "clihub_harness" as const, urls: [CLIHUB_HARNESS_REGISTRY_URL] },
+    { source: "clihub_harness" as const, urls: [CLIHUB_HARNESS_REGISTRY_URL, CLIHUB_HARNESS_REGISTRY_FALLBACK_URL] },
     { source: "clihub_public" as const, urls: [CLIHUB_PUBLIC_REGISTRY_URL, CLIHUB_PUBLIC_REGISTRY_FALLBACK_URL] },
   ];
   const results = await Promise.all(targets.map(async (target) => {

@@ -33,9 +33,14 @@ export async function loadMarketPageData(input: {
   const daemonSnapshots = listDaemonSnapshotsSync(input.workspaceId);
   const mcpCatalogRecords = listMcpCatalogItemsForWorkspaceSync(input.workspaceId);
   const mcpCatalogById = new Map(mcpCatalogRecords.map((item) => [item.id, item]));
+  const officialRuntimeApps = new Set(mcpCatalogRecords.flatMap((item) => {
+    const requirement = resolveOfficialMcpRuntimeAppRequirement(item);
+    return requirement ? [`${requirement.source}:${requirement.name}`] : [];
+  }));
   return {
     catalog: listRuntimeAppCatalogItemsSync({ limit: 1000 }).map((item) => ({
       source: item.source,
+      productSource: officialRuntimeApps.has(`${item.source}:${item.name}`) ? "official" : item.source,
       name: item.name,
       displayName: item.displayName,
       description: item.description,

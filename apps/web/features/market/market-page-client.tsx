@@ -5,6 +5,11 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { requestRuntimeAppOperationAction, refreshRuntimeAppCatalogAction, syncRuntimeAppSkillAction } from "@/features/market/actions";
 import { McpMarketPanel } from "@/features/market/mcp-market-panel";
+import {
+  runtimeAppRiskLabel,
+  runtimeAppSourceLabel,
+  type CliCatalogProductSource,
+} from "@/features/market/capability-presentation";
 import { refreshWorkspaceModule } from "@/features/dashboard/workspace-module-refresh";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { runToastAction, type ActionToastResult } from "@/shared/lib/toast-action";
@@ -16,6 +21,7 @@ const CLI_CATALOG_BATCH_SIZE = 24;
 export interface MarketPageData {
   catalog: Array<{
     source: RuntimeAppCatalogSource;
+    productSource: CliCatalogProductSource;
     name: string;
     displayName: string;
     description: string;
@@ -209,12 +215,12 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
 }
 
 function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChanged?: () => void }) {
-  const { tx } = useLanguage();
+  const { language, tx } = useLanguage();
   const router = useRouter();
   const { pushToast } = useFeedbackToast();
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
-  const [sourceFilter, setSourceFilter] = useState<"all" | RuntimeAppCatalogSource>("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | CliCatalogProductSource>("all");
   const [riskFilter, setRiskFilter] = useState<"all" | "low" | "medium" | "high">("all");
   const [installFilter, setInstallFilter] = useState<"all" | "installed" | "not_installed" | "needs_attention">("all");
   const [selectedKey, setSelectedKey] = useState(`${data.catalog[0]?.source ?? ""}:${data.catalog[0]?.name ?? ""}`);
@@ -228,7 +234,7 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
     "all",
     ...Array.from(new Set(data.catalog.map((item) => item.category || "uncategorized"))).sort((left, right) => left.localeCompare(right)),
   ], [data.catalog]);
-  const sources = useMemo(() => Array.from(new Set(data.catalog.map((item) => item.source))).sort(), [data.catalog]);
+  const sources = useMemo(() => Array.from(new Set(data.catalog.map((item) => item.productSource))).sort(), [data.catalog]);
   const installedRuntimeCount = useMemo(() => new Map(data.catalog.map((item) => {
     const runtimeIds = new Set(data.installedApps
       .filter((app) => app.source === item.source && app.name === item.name && app.status === "installed" && app.enabled)
@@ -254,7 +260,7 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
     const normalizedQuery = query.trim().toLocaleLowerCase("en-US");
     return data.catalog.filter((item) => {
       const categoryMatch = category === "all" || (item.category || "uncategorized") === category;
-      const sourceMatch = sourceFilter === "all" || item.source === sourceFilter;
+      const sourceMatch = sourceFilter === "all" || item.productSource === sourceFilter;
       const riskMatch = riskFilter === "all" || item.risk === riskFilter;
       const installMatch = installFilter === "all" || installationState.get(`${item.source}:${item.name}`) === installFilter;
       const queryMatch =
@@ -346,15 +352,32 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
           <h2 id="cli-market-heading">{tx("CLI 应用", "CLI apps")}</h2>
           <p>{tx("选择应用并安装到在线 Runtime，安装后可同步对应 Skill。", "Choose an app to install on an online runtime, then sync its skill when available.")}</p>
         </div>
-        <button
-          className="action-button"
-          disabled={isPending || !data.canManage}
-          onClick={() => runAction(refreshRuntimeAppCatalogAction)}
-          type="button"
-        >
-          <AppIcon name="refresh" />
-          <span>{tx("刷新目录", "Refresh catalog")}</span>
-        </button>
+        <div className="market-panel-header__actions">
+          <div
+            aria-label={tx("CLI 目录健康", "CLI catalog health")}
+            className="market-catalog-health"
+            role="status"
+          >
+            <span className={`status-chip status-chip--${data.catalogHealth.stale ? "warning" : "positive"}`}>
+              {data.catalogHealth.stale ? tx("目录可能过期", "Catalog may be stale") : tx("目录正常", "Catalog current")}
+            </span>
+            <span>{tx(`${data.catalogHealth.itemCount} 个条目`, `${data.catalogHealth.itemCount} items`)}</span>
+            {data.catalogHealth.lastSyncedAt ? (
+              <span>
+                {tx("同步于", "Synced")} <time dateTime={data.catalogHealth.lastSyncedAt}>{formatMarketTimestamp(data.catalogHealth.lastSyncedAt, language)}</time>
+              </span>
+            ) : <span>{tx("尚未成功同步", "Not yet synced")}</span>}
+          </div>
+          <button
+            className="action-button"
+            disabled={isPending || !data.canManage}
+            onClick={() => runAction(refreshRuntimeAppCatalogAction)}
+            type="button"
+          >
+            <AppIcon name="refresh" />
+            <span>{tx("刷新目录", "Refresh catalog")}</span>
+          </button>
+        </div>
       </div>
 
       {data.catalog.length === 0 ? (
@@ -396,7 +419,7 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
                   <span>{tx("来源", "Source")}</span>
                   <select onChange={(event) => setSourceFilter(event.currentTarget.value as typeof sourceFilter)} value={sourceFilter}>
                     <option value="all">{tx("全部来源", "All sources")}</option>
-                    {sources.map((source) => <option key={source} value={source}>{source}</option>)}
+                    {sources.map((source) => <option key={source} value={source}>{runtimeAppSourceLabel(source, tx)}</option>)}
                   </select>
                 </label>
                 <label className="form-field">
@@ -412,9 +435,9 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
                   <span>{tx("风险", "Risk")}</span>
                   <select onChange={(event) => setRiskFilter(event.currentTarget.value as typeof riskFilter)} value={riskFilter}>
                     <option value="all">{tx("全部风险", "All risks")}</option>
-                    <option value="low">low</option>
-                    <option value="medium">medium</option>
-                    <option value="high">high</option>
+                    <option value="low">{runtimeAppRiskLabel("low", tx)}</option>
+                    <option value="medium">{runtimeAppRiskLabel("medium", tx)}</option>
+                    <option value="high">{runtimeAppRiskLabel("high", tx)}</option>
                   </select>
                 </label>
               </div>
@@ -488,17 +511,17 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
                     <p>{selected.description || selected.name}</p>
                   </div>
                   <span className={`status-chip status-chip--${selected.risk === "high" ? "danger" : selected.risk === "medium" ? "warning" : "positive"}`}>
-                    {selected.risk}
+                    {runtimeAppRiskLabel(selected.risk, tx)}
                   </span>
                 </div>
 
                 <div className="market-facts-grid">
-                  <Fact label="Source" value={selected.source === "clihub_harness" ? "CLI-Anything harness" : "Public CLI"} />
-                  <Fact label="Version" value={selected.version || "unknown"} />
-                  <Fact label="Entry point" value={selected.entryPoint || "not declared"} />
-                  <Fact label="Strategy" value={selected.installStrategy || "cli_hub"} />
-                  <Fact label="Skill" value={selected.skillMd ? "SKILL.md declared" : "not declared"} />
-                  <Fact label="Requires" value={selected.requiresText || "none declared"} />
+                  <Fact label={tx("来源", "Source")} value={runtimeAppSourceLabel(selected.productSource, tx)} />
+                  <Fact label={tx("版本", "Version")} value={selected.version || tx("未知", "Unknown")} />
+                  <Fact label={tx("入口命令", "Entry point")} value={selected.entryPoint || tx("未声明", "Not declared")} />
+                  <Fact label={tx("安装策略", "Strategy")} value={selected.installStrategy || "cli_hub"} />
+                  <Fact label="Skill" value={selected.skillMd ? tx("已声明 SKILL.md", "SKILL.md declared") : tx("未声明", "Not declared")} />
+                  <Fact label={tx("前置条件", "Requires")} value={selected.requiresText || tx("未声明", "None declared")} />
                 </div>
 
                 <div className="market-runtime-box">
@@ -575,7 +598,11 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
                 </div>
 
                 {selected.installCmd ? (
-                  <pre className="market-command-preview">{selected.installCmd}</pre>
+                  <div className="market-command-declaration">
+                    <strong>{tx("上游安装声明", "Upstream install declaration")}</strong>
+                    <pre className="market-command-preview">{selected.installCmd}</pre>
+                    <span>{tx("实际安装由服务端转换为受控执行计划。", "The server converts this declaration into a controlled execution plan.")}</span>
+                  </div>
                 ) : null}
               </>
             ) : null}
@@ -629,7 +656,7 @@ function CliInstallationSection({
   title: string;
   variant?: "installed" | "attention";
 }) {
-  const { tx } = useLanguage();
+  const { language, tx } = useLanguage();
   const installationCount = groups.reduce((total, [, installations]) => total + installations.length, 0);
   return (
     <section className={`mcp-connections-section${variant === "attention" ? " mcp-connections-section--attention" : ""}`} aria-label={title}>
@@ -654,7 +681,7 @@ function CliInstallationSection({
               <li className="mcp-service-group" key={key}>
                 <div className="mcp-service-group__heading">
                   <span className="mcp-service-group__icon"><AppIcon name="terminal" /></span>
-                  <div><strong>{displayName}</strong><span>{installations[0]!.source} · {tx(`${installations.length} 个 Runtime`, `${installations.length} runtimes`)}</span></div>
+                  <div><strong>{displayName}</strong><span>{runtimeAppSourceLabel(catalog?.productSource ?? installations[0]!.source, tx)} · {tx(`${installations.length} 个 Runtime`, `${installations.length} runtimes`)}</span></div>
                 </div>
                 <ul className="mcp-runtime-connection-list">
                   {installations.map((installation) => {
@@ -671,7 +698,7 @@ function CliInstallationSection({
                         <div className="mcp-connection-meta">
                           <span>{tx("版本", "Version")}: {installation.version || tx("未知", "Unknown")}</span>
                           <span>{tx("入口", "Entry")}: {installation.entryPoint || installation.name}</span>
-                          {installation.updatedAt ? <span>{tx("更新于", "Updated")}: <time dateTime={installation.updatedAt}>{formatMarketTimestamp(installation.updatedAt)}</time></span> : null}
+                          {installation.updatedAt ? <span>{tx("更新于", "Updated")}: <time dateTime={installation.updatedAt}>{formatMarketTimestamp(installation.updatedAt, language)}</time></span> : null}
                         </div>
                         {variant === "attention" ? (
                           <div className="cli-installation-failure">
@@ -797,6 +824,6 @@ function Fact({ label, value }: { label: string; value: string }) {
   );
 }
 
-function formatMarketTimestamp(value: string): string {
-  return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+function formatMarketTimestamp(value: string, language: "zh" | "en"): string {
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }

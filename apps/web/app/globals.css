@@ -23156,6 +23156,20 @@ textarea:focus {
   gap: 0.65rem;
 }
 
+.market-catalog-health {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--market-muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.market-catalog-health > span:not(.status-chip) + span {
+  padding-left: 0.55rem;
+  border-left: 1px solid var(--market-border);
+}
+
 .market-workbench {
   display: grid;
   grid-template-columns: minmax(22rem, 0.82fr) minmax(28rem, 1.18fr);
@@ -23397,6 +23411,22 @@ textarea:focus {
   margin-top: 1rem;
   border-top: 1px solid var(--market-border);
   border-bottom: 1px solid var(--market-border);
+}
+
+.market-command-declaration {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 1rem;
+}
+
+.market-command-declaration > strong {
+  font-size: 0.78rem;
+}
+
+.market-command-declaration > span {
+  color: var(--market-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
 }
 
 .market-fact {
@@ -24001,6 +24031,16 @@ textarea:focus {
   .market-panel-header__actions {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .market-catalog-health {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .market-catalog-health > span:not(.status-chip) + span {
+    padding-left: 0;
+    border-left: 0;
   }
 
   .mcp-connections-heading {
