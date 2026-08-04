@@ -23,7 +23,7 @@
     "migrate:agent-templates:zh": "node --experimental-strip-types scripts/localize-legacy-agent-templates.ts",
     "smoke:feishu": "node --experimental-strip-types scripts/feishu/smoke.ts",
     "dev": "node scripts/free-port.mjs 1455 && NODE_OPTIONS=--use-system-ca NODE_USE_SYSTEM_CA=1 pnpm --dir apps/web exec next dev --hostname 0.0.0.0 --port 1455",
-    "dev:web": "NODE_OPTIONS=--use-system-ca NODE_USE_SYSTEM_CA=1 pnpm --filter @dofe-agent/web run dev -- --hostname 0.0.0.0 --port 1455",
+    "dev:web": "NODE_OPTIONS=--use-system-ca NODE_USE_SYSTEM_CA=1 pnpm --filter @dofe-agent/web run dev --hostname 0.0.0.0 --port 1455",
     "start:web": "NODE_OPTIONS=--use-system-ca NODE_USE_SYSTEM_CA=1 pnpm --filter @dofe-agent/web run start -- --hostname 0.0.0.0 --port 1455",
     "build": "pnpm --filter @dofe-agent/web run build",
     "typecheck": "pnpm run typecheck:deps && pnpm run typecheck:web:only && pnpm run typecheck:cli && pnpm run typecheck:daemon",
