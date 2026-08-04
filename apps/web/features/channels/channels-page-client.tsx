@@ -86,6 +86,7 @@ type ChannelDocumentsView = "list" | "workspace";
 type ChannelDocumentCreateMode = "markdown" | "nativeSheet" | "nativeDeck";
 
 const CHANNEL_REFRESH_POLL_MS = 2000;
+const CHANNEL_REFRESH_STALE_LOCK_MS = 120_000;
 const CHANNEL_REALTIME_REFRESH_DEBOUNCE_MS = 350;
 const IM_PERFORMANCE_MARK_PREFIX = "dofe-agent.im";
 
@@ -608,6 +609,7 @@ export function ChannelsPageClient({
   const refreshMeasurementPendingRef = useRef(false);
   const refreshResetTimerRef = useRef<number | null>(null);
   const transitionPendingRef = useRef(false);
+  const refreshDataRef = useRef(data);
   const documentDraftSourceRef = useRef<string | null>(null);
   const unavailableFeishuChannelNamesRef = useRef(new Set<string>());
   const markImChannelDetailCacheStale = useCallback((channelName?: string | null) => {
@@ -697,9 +699,13 @@ export function ChannelsPageClient({
   }, []);
   useEffect(() => {
     transitionPendingRef.current = isPending;
-    if (isPending) {
+  }, [isPending]);
+
+  useEffect(() => {
+    if (refreshDataRef.current === data) {
       return;
     }
+    refreshDataRef.current = data;
     refreshInFlightRef.current = false;
     if (refreshResetTimerRef.current !== null) {
       window.clearTimeout(refreshResetTimerRef.current);
@@ -709,7 +715,13 @@ export function ChannelsPageClient({
       refreshMeasurementPendingRef.current = false;
       measureInteraction("refresh");
     }
-  }, [isPending, measureInteraction]);
+  }, [data, measureInteraction]);
+
+  useEffect(() => () => {
+    if (refreshResetTimerRef.current !== null) {
+      window.clearTimeout(refreshResetTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isImPerformanceInstrumentationEnabled() || initialRenderMeasuredRef.current) {
@@ -890,7 +902,7 @@ export function ChannelsPageClient({
     refreshResetTimerRef.current = window.setTimeout(() => {
       refreshInFlightRef.current = false;
       refreshResetTimerRef.current = null;
-    }, CHANNEL_REFRESH_POLL_MS);
+    }, CHANNEL_REFRESH_STALE_LOCK_MS);
   }, [markInteraction, refreshChannelModule, selectedConversationChannelName]);
   const selectedChannelCanRename = selectedChannel
     ? canRenameChannelFromHeader(selectedChannel)

@@ -8,6 +8,8 @@ import { createWorkspaceSkillSync, listWorkspaceSkillsSync, upsertWorkspaceSkill
 import { parseSkillMarkdown } from "../skills/package/skill-md.ts";
 import { formatFrontmatterDescription } from "../shared/skill-frontmatter.ts";
 
+const SKILL_MD_FETCH_TIMEOUT_MS = 8_000;
+
 export interface RuntimeAppSkillSyncResult {
   status: "created" | "existing" | "not_available";
   skillId?: string;
@@ -111,7 +113,10 @@ export async function resolveSkillMdContent(
   const trimmed = input.skillMd.trim();
   if (/^https?:\/\//i.test(trimmed)) {
     try {
-      const response = await input.fetchImpl(trimmed, { cache: "no-store" });
+      const response = await input.fetchImpl(trimmed, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(SKILL_MD_FETCH_TIMEOUT_MS),
+      });
       if (response.ok) {
         const remoteContent = await response.text();
         if (parseSkillMarkdown(remoteContent).ok) {

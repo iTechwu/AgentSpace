@@ -36,13 +36,16 @@ test("resolveSkillMdContent replaces HTML with a valid minimal runtime app skill
 });
 
 test("resolveSkillMdContent degrades safely when the remote source is unavailable", async () => {
+  let requestSignal: AbortSignal | null | undefined;
   const result = await resolveSkillMdContent({
     ...baseInput,
-    fetchImpl: async () => {
+    fetchImpl: async (_input, init) => {
+      requestSignal = init?.signal;
       throw new Error("network unavailable");
     },
   });
 
+  assert.equal(requestSignal instanceof AbortSignal, true);
   assert.equal(parseSkillMarkdown(result.content).ok, true);
   assert.match(result.content, /`minimax --help`/);
   assert.match(result.warning ?? "", /暂不可用/);

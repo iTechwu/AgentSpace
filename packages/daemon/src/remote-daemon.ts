@@ -25,7 +25,6 @@ import {
   readWorkspaceBlobUploadBytes,
 } from "./bundle.ts";
 import { uploadBlobsWithConcurrency } from "./resumable-transfer.ts";
-import { readEmployeeHeadManifestSync } from "./workdir-capture.ts";
 import { DaemonAuthError, DaemonResourceGoneError, DaemonRuntimeUnavailableError, HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
 import { buildSkillDependencyTaskEnvironment } from "./skill-install/task-environment.ts";
@@ -1231,10 +1230,9 @@ async function executeRemoteTask(
       reportTaskMessage({ type: "status", content: warning });
     }
 
-    const preparedOutput = prepareRemoteOutputBundle(
-      workDir,
-      readEmployeeHeadManifestSync(task.workspaceId, task.agentId),
-    );
+    // Remote daemons must not read the control-plane database. The claim-time
+    // workspace manifest is already authenticated and included in the bundle.
+    const preparedOutput = prepareRemoteOutputBundle(workDir, bundle.workspace);
     if (preparedOutput.uploads.length > 0) {
       await uploadBlobsWithConcurrency({
         taskId: task.id,

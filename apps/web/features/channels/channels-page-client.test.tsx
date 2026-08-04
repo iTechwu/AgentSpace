@@ -740,6 +740,31 @@ describe("ChannelsPageClient", () => {
     expect(routerRefreshMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not overlap polling refreshes while server data is still pending", () => {
+    vi.useFakeTimers();
+
+    render(
+      <TestProviders>
+        <ChannelsPageClient
+          currentUserDisplayName="techwu"
+          data={{
+            ...data,
+            threads: [{
+              channelName: "tour visit",
+              messages: data.threads[0]!.messages.map((message) => ({ ...message, status: "pending" })),
+            }],
+          }}
+        />
+      </TestProviders>,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(6500);
+    });
+
+    expect(routerRefreshMock).toHaveBeenCalledTimes(1);
+  });
+
   it("turns channel realtime events into targeted workspace invalidation hints", async () => {
     const eventSources: MockEventSource[] = [];
     const onInvalidation = vi.fn();
