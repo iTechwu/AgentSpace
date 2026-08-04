@@ -22641,6 +22641,24 @@ textarea:focus {
   background: #f8faf5;
 }
 
+.market-installability {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.65rem;
+}
+
+.market-installability p {
+  margin: 0;
+  color: var(--market-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.market-installability--unsupported p {
+  color: #9c332e;
+}
+
 .market-install-state {
   display: grid;
   gap: 0.4rem;

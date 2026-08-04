@@ -34,6 +34,11 @@ export interface MarketPageData {
     requiresText?: string;
     homepage?: string;
     risk: "low" | "medium" | "high";
+    installability: {
+      status: "installable" | "needs_configuration" | "unsupported";
+      code?: string;
+      requiredTools: Array<"npm" | "python" | "pip" | "cli_hub">;
+    };
   }>;
   catalogHealth: {
     itemCount: number;
@@ -47,6 +52,12 @@ export interface MarketPageData {
     status: "online" | "offline";
     daemonKey: string;
     cliHubReady: boolean;
+    cliReadiness: {
+      npm: boolean;
+      python: boolean;
+      pip: boolean;
+      cliHub: boolean;
+    };
     /** Runtime can host the MCP gateway (provider has a validated one-shot MCP config path). */
     mcpEligible: boolean;
   }>;
@@ -184,7 +195,7 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
           <AppIcon name="terminal" />
           <span>
             <strong>{tx("CLI 应用", "CLI apps")}</strong>
-            <small>{tx(`${data.catalog.length} 个可安装应用`, `${data.catalog.length} available`)}</small>
+            <small>{tx(`${data.catalog.length} 个目录应用`, `${data.catalog.length} catalog apps`)}</small>
           </span>
         </button>
         <button
@@ -302,6 +313,9 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
   const operationError = latestOperation?.status === "failed" ? latestOperation.errorMessage : undefined;
   const installError = operationError || selectedInstall?.lastError;
   const installErrorMessage = installError ? formatRuntimeAppError(installError, tx) : undefined;
+  const selectedInstallability = selected && selectedRuntime
+    ? runtimeAppInstallability(selected, selectedRuntime)
+    : { status: "unsupported" as const, code: "runtime.offline" };
 
   useEffect(() => {
     if (!data.operations.some((operation) => isActiveOperationStatus(operation.status))) {
@@ -382,7 +396,7 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
 
       {data.catalog.length === 0 ? (
         <MarketEmptyState
-          description={tx("目录中还没有可安装的 CLI 应用，请刷新目录后重试。", "There are no installable CLI apps in the catalog yet. Refresh the catalog to try again.")}
+          description={tx("CLI 目录为空，请刷新目录后重试。", "The CLI catalog is empty. Refresh the catalog to try again.")}
           title={tx("CLI 应用目录为空", "The CLI catalog is empty")}
         />
       ) : (
@@ -539,6 +553,12 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
                       ))}
                     </select>
                   </label>
+                  <div className={`market-installability market-installability--${selectedInstallability.status}`} role="status">
+                    <span className={`status-chip status-chip--${selectedInstallability.status === "installable" ? "positive" : selectedInstallability.status === "needs_configuration" ? "warning" : "danger"}`}>
+                      {installabilityStatusLabel(selectedInstallability.status, tx)}
+                    </span>
+                    <p>{formatRuntimeAppInstallability(selectedInstallability.code, tx)}</p>
+                  </div>
                   <div className="market-install-state">
                     <span className={`status-chip status-chip--${installStateTone}`}>
                       {installStateLabel}
@@ -566,7 +586,7 @@ function CliHubPanel({ data, onDataChanged }: { data: MarketPageData; onDataChan
                 <div className="market-action-row">
                   <button
                     className="primary-button"
-                    disabled={isPending || !data.canManage || !selectedRuntime || Boolean(selectedOperation) || (selected.risk === "high" && !confirmHighRisk)}
+                    disabled={isPending || !data.canManage || !selectedRuntime || selectedInstallability.status !== "installable" || Boolean(selectedOperation) || (selected.risk === "high" && !confirmHighRisk)}
                     onClick={() => requestOperation(selectedInstall?.status === "installed" ? "update" : "install")}
                     type="button"
                   >
@@ -811,8 +831,69 @@ function runtimeAppReadinessLabel(
     item.enabled,
   );
   if (installed) return tx("应用已安装", "App installed");
-  if (runtime.cliHubReady) return tx("CLI-Hub 已就绪", "CLI-Hub ready");
-  return tx("首次安装自动准备", "Bootstrap on first install");
+  const installability = runtimeAppInstallability(app, runtime);
+  return installabilityStatusLabel(installability.status, tx);
+}
+
+function runtimeAppInstallability(
+  app: MarketPageData["catalog"][number],
+  runtime: MarketPageData["runtimes"][number],
+): { status: "installable" | "needs_configuration" | "unsupported"; code?: string } {
+  if (app.installability.status !== "installable") return app.installability;
+  for (const tool of app.installability.requiredTools) {
+    const key = tool === "cli_hub" ? "cliHub" : tool;
+    if (!runtime.cliReadiness[key]) {
+      return { status: "needs_configuration", code: `runtime_app.runtime_${tool}_unavailable` };
+    }
+  }
+  return { status: "installable" };
+}
+
+function installabilityStatusLabel(
+  status: "installable" | "needs_configuration" | "unsupported",
+  tx: (zh: string, en: string) => string,
+): string {
+  if (status === "installable") return tx("可安装", "Installable");
+  if (status === "needs_configuration") return tx("需要配置", "Needs configuration");
+  return tx("不可安装", "Not installable");
+}
+
+function formatRuntimeAppInstallability(
+  code: string | undefined,
+  tx: (zh: string, en: string) => string,
+): string {
+  switch (code) {
+    case undefined:
+      return tx("已通过目录与 Runtime 预检。", "Catalog and Runtime preflight checks passed.");
+    case "runtime_app.release_unpinned":
+      return tx("目录没有提供固定版本，需由维护者发布不可变 release。", "The catalog does not provide a fixed version. The maintainer must publish an immutable release.");
+    case "runtime_app.entrypoint_missing":
+      return tx("目录没有声明可验证的入口命令。", "The catalog does not declare a verifiable entry point.");
+    case "runtime_app.install_command_missing":
+      return tx("目录没有提供安装声明。", "The catalog does not provide an install declaration.");
+    case "runtime_app.install_command_unsafe":
+      return tx("上游安装声明包含 shell 控制或下载执行命令，平台已阻断。", "The upstream declaration contains shell control or download-and-execute commands and has been blocked.");
+    case "runtime_app.install_artifact_unpinned":
+      return tx("安装 artifact 未固定到精确包版本或 Git commit。", "The install artifact is not pinned to an exact package version or Git commit.");
+    case "runtime_app.runtime_dependency_unsupported":
+      return tx("该应用依赖桌面、本机服务或交互式安装，当前 Runtime 不支持。", "This app requires a desktop, local service, or interactive installation that the Runtime does not support.");
+    case "runtime_app.configuration_required":
+      return tx("安装前需要账号或凭据配置，当前目录尚无安全配置流程。", "Account or credential setup is required, but this catalog entry has no safe configuration flow yet.");
+    case "runtime_app.install_strategy_unsupported":
+      return tx("当前安装策略不受受控执行器支持。", "The controlled installer does not support this install strategy.");
+    case "runtime_app.runtime_npm_unavailable":
+      return tx("目标 Runtime 缺少 npm，请更换 Runtime 或更新运行镜像。", "The target Runtime does not have npm. Choose another Runtime or update its image.");
+    case "runtime_app.runtime_python_unavailable":
+      return tx("目标 Runtime 缺少 Python，请更换 Runtime 或更新运行镜像。", "The target Runtime does not have Python. Choose another Runtime or update its image.");
+    case "runtime_app.runtime_pip_unavailable":
+      return tx("目标 Runtime 缺少 pip，请更换 Runtime 或更新运行镜像。", "The target Runtime does not have pip. Choose another Runtime or update its image.");
+    case "runtime_app.runtime_cli_hub_unavailable":
+      return tx("目标 Runtime 未预装受管 CLI-Hub，平台不会临时安装可漂移版本。", "The target Runtime does not have managed CLI-Hub. The platform will not bootstrap a mutable version.");
+    case "runtime.offline":
+      return tx("没有可用的在线 Runtime。", "No online Runtime is available.");
+    default:
+      return tx("该条目未通过安装预检。", "This catalog entry did not pass installation preflight.");
+  }
 }
 
 function Fact({ label, value }: { label: string; value: string }) {

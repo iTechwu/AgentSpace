@@ -62,6 +62,10 @@ const data: MarketPageData = {
       entryPoint: "mmdc",
       installStrategy: "cli_hub",
       risk: "low",
+      installability: {
+        status: "installable",
+        requiredTools: ["cli_hub"],
+      },
     },
   ],
   catalogHealth: {
@@ -77,6 +81,7 @@ const data: MarketPageData = {
       status: "online",
       daemonKey: "daemon-online",
       cliHubReady: true,
+      cliReadiness: { npm: true, python: true, pip: true, cliHub: true },
       mcpEligible: true,
     },
     {
@@ -86,6 +91,7 @@ const data: MarketPageData = {
       status: "offline",
       daemonKey: "daemon-offline",
       cliHubReady: false,
+      cliReadiness: { npm: false, python: false, pip: false, cliHub: false },
       mcpEligible: false,
     },
   ],
@@ -363,7 +369,7 @@ describe("MarketPageClient", () => {
     expect(screen.getByRole("textbox", { name: "搜索应用" })).toBeInTheDocument();
     const runtimeSelect = screen.getByRole("combobox", { name: "目标 runtime" });
     expect(runtimeSelect).toHaveValue("runtime-online");
-    expect(screen.getByRole("option", { name: "Online Runtime · online · CLI-Hub 已就绪" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Online Runtime · online · 可安装" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /Offline Runtime/ })).not.toBeInTheDocument();
   });
 
@@ -408,6 +414,55 @@ describe("MarketPageClient", () => {
     expect(screen.getByText("CLI-Anything harness", { selector: ".market-fact strong" })).toBeInTheDocument();
     expect(screen.getByText("Low risk", { selector: ".status-chip" })).toBeInTheDocument();
     expect(screen.getByText("Source", { selector: ".market-fact span" })).toBeInTheDocument();
+  });
+
+  it("blocks mutable releases before an install operation can be requested", () => {
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{
+            ...data,
+            catalog: [{
+              ...data.catalog[0]!,
+              version: "latest",
+              installability: { status: "unsupported", code: "runtime_app.release_unpinned", requiredTools: [] },
+            }],
+          }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByText("不可安装", { selector: ".market-installability .status-chip" })).toBeInTheDocument();
+    expect(screen.getByText(/目录没有提供固定版本/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "安装" })).toBeDisabled();
+  });
+
+  it("keeps uninstall available when a catalog release no longer passes install preflight", () => {
+    render(
+      <LanguageProvider>
+        <FeedbackToastProvider>
+          <MarketPageClient data={{
+            ...data,
+            catalog: [{
+              ...data.catalog[0]!,
+              installability: { status: "unsupported", code: "runtime_app.install_artifact_unpinned", requiredTools: [] },
+            }],
+            installedApps: [{
+              runtimeId: "runtime-online",
+              source: "clihub_harness",
+              name: "mermaid",
+              status: "installed",
+              enabled: true,
+              version: "1.0.0",
+              entryPoint: "mmdc",
+            }],
+          }} />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "卸载" })).toBeEnabled();
   });
 
   it("renders the CLI catalog in bounded batches", async () => {

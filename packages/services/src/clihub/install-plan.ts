@@ -8,6 +8,25 @@ const NPM_PACKAGE_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*
 const NPM_PACKAGE_SPEC_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/i;
 const PYPI_PACKAGE_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
 const PYPI_PACKAGE_SPEC_PATTERN = /^([a-z0-9][a-z0-9._-]*)==(\d+\.\d+\.\d+(?:[a-z0-9.-]+)?)$/i;
+const MUTABLE_VERSION_PATTERN = /(?:^|[-_.])(latest|head|main|master|next|nightly|snapshot|dev)(?:$|[-_.])/i;
+const DESKTOP_OR_INTERACTIVE_REQUIREMENT_PATTERN = /\b(gui|desktop|installed locally|local app|server running|running locally|interactive install|interactive login)\b/i;
+const CONFIGURATION_REQUIREMENT_PATTERN = /\b(api key|token|credential|login|account)\b/i;
+
+export type RuntimeAppInstallabilityStatus = "installable" | "needs_configuration" | "unsupported";
+export type RuntimeAppRequiredTool = "npm" | "python" | "pip" | "cli_hub";
+
+export interface RuntimeAppInstallability {
+  status: RuntimeAppInstallabilityStatus;
+  code?: string;
+  requiredTools: RuntimeAppRequiredTool[];
+}
+
+interface RuntimeAppReadinessInput {
+  npm: { available: boolean };
+  python: { available: boolean };
+  pip: { available: boolean };
+  cliHub: { available: boolean };
+}
 
 interface PublicPypiPackage {
   name: string;
@@ -19,6 +38,12 @@ export function buildRuntimeAppInstallPlan(input: {
   operation: RuntimeAppOperationType;
   cliHubAvailable?: boolean;
 }): RuntimeAppInstallPlan {
+  if (input.operation === "install" || input.operation === "update") {
+    const installability = assessRuntimeAppInstallability(input.item);
+    if (installability.status !== "installable") {
+      throw new Error(installability.code ?? "runtime_app.not_installable");
+    }
+  }
   const compatibility = readCliHubCatalogCompatibilityOverride(input.item.source, input.item.name);
   const item = applyCliHubCatalogCompatibility(input.item);
   const cliHubAvailable = input.cliHubAvailable !== false;
@@ -42,7 +67,7 @@ export function buildRuntimeAppInstallPlan(input: {
   const verifyCommands = shouldVerifyAfterOperation(input.operation)
     ? buildVerifyCommands(item, strategy, npmPackage, pypiPackage)
     : [];
-  const notes = buildPlanNotes(item, input.operation, strategy, risk, cliHubAvailable);
+  const notes = buildPlanNotes(item, input.operation, strategy, risk);
   return {
     app: {
       source: item.source,
@@ -60,6 +85,52 @@ export function buildRuntimeAppInstallPlan(input: {
       ? { cliHubRegistrySnapshot }
       : {}),
   };
+}
+
+export function assessRuntimeAppInstallability(
+  inputItem: RuntimeAppCatalogItemRecord,
+  readiness?: RuntimeAppReadinessInput,
+): RuntimeAppInstallability {
+  const compatibility = readCliHubCatalogCompatibilityOverride(inputItem.source, inputItem.name);
+  const item = applyCliHubCatalogCompatibility(inputItem);
+  const version = item.version.trim();
+  if (!isImmutableVersion(version)) {
+    return blocked("unsupported", "runtime_app.release_unpinned");
+  }
+  if (!item.entryPoint.trim()) {
+    return blocked("unsupported", "runtime_app.entrypoint_missing");
+  }
+  if (!item.installCmd?.trim()) {
+    return blocked("unsupported", "runtime_app.install_command_missing");
+  }
+  if (UNSAFE_COMMAND_PATTERN.test(item.installCmd)) {
+    return blocked("unsupported", "runtime_app.install_command_unsafe");
+  }
+  if (DESKTOP_OR_INTERACTIVE_REQUIREMENT_PATTERN.test(item.requiresText ?? "")) {
+    return blocked("unsupported", "runtime_app.runtime_dependency_unsupported");
+  }
+  if (CONFIGURATION_REQUIREMENT_PATTERN.test(item.requiresText ?? "")) {
+    return blocked("needs_configuration", "runtime_app.configuration_required");
+  }
+  if (item.installStrategy === "manual" || item.installStrategy === "system" || item.installStrategy === "bundled" || item.installStrategy === "uv") {
+    return blocked("unsupported", "runtime_app.install_strategy_unsupported");
+  }
+
+  const npmPackage = normalizeExactNpmPackageSpec(
+    compatibility?.npmPackage ?? readPublicNpmPackage(item),
+    version,
+  );
+  if (npmPackage) {
+    return checkRuntimeTools(["npm"], readiness);
+  }
+  const pypiPackage = readPublicPypiPackage(item);
+  if (pypiPackage) {
+    return checkRuntimeTools(["python", "pip"], readiness);
+  }
+  if (!isPinnedCliHubInstallCommand(item.installCmd)) {
+    return blocked("unsupported", "runtime_app.install_artifact_unpinned");
+  }
+  return checkRuntimeTools(["cli_hub"], readiness);
 }
 
 export function assessRuntimeAppRisk(item: Pick<RuntimeAppCatalogItemRecord, "installCmd" | "requiresText" | "installStrategy">): RuntimeAppRiskLevel {
@@ -90,11 +161,14 @@ function buildOperationCommands(
   }
   if (strategy === "cli_hub") {
     const operationCommand = buildCliHubCommand([operation, item.name]);
-    return cliHubAvailable ? [operationCommand] : [buildCliHubBootstrapCommand(), operationCommand];
+    if (!cliHubAvailable) {
+      throw new Error("runtime_app.runtime_cli_hub_unavailable");
+    }
+    return [operationCommand];
   }
   if (strategy === "npm" && npmPackage) {
     if (operation === "uninstall") {
-      return [{ executable: "npm", args: ["uninstall", "--global", npmPackage] }];
+      return [{ executable: "npm", args: ["uninstall", "--global", npmPackageName(npmPackage)] }];
     }
     if (operation === "install" || operation === "update") {
       return [{ executable: "npm", args: ["install", "--global", npmPackage] }];
@@ -111,18 +185,7 @@ function buildOperationCommands(
   if (operation !== "install") {
     return cliHubAvailable ? [buildCliHubCommand([operation, item.name])] : [];
   }
-  return [
-    buildCliHubBootstrapCommand(),
-    buildCliHubCommand(["install", item.name]),
-  ];
-}
-
-function buildCliHubBootstrapCommand(): RuntimeAppCommandPlanItem {
-  return {
-    executable: "python3",
-    args: ["-m", "pip", "install", "--user", "cli-anything-hub"],
-    env: CLI_HUB_PIP_ENV,
-  };
+  throw new Error("runtime_app.install_strategy_unsupported");
 }
 
 function buildCliHubCommand(args: string[]): RuntimeAppCommandPlanItem {
@@ -166,7 +229,6 @@ function buildPlanNotes(
   operation: RuntimeAppOperationType,
   strategy: RuntimeAppInstallStrategy,
   risk: RuntimeAppRiskLevel,
-  cliHubAvailable: boolean,
 ): string[] {
   const notes = [
     `Operation: ${operation}`,
@@ -175,9 +237,6 @@ function buildPlanNotes(
   ];
   if (strategy === "cli_hub") {
     notes.push("CLI-Hub uses the synchronized catalog snapshot in Runtime HOME instead of downloading the registry again.");
-  }
-  if (strategy === "cli_hub" && !cliHubAvailable && (operation === "install" || operation === "update" || operation === "uninstall")) {
-    notes.push("Target runtime did not report cli-hub readiness, so the plan bootstraps cli-anything-hub with python3 -m pip install --user before running cli-hub.");
   }
   if (item.requiresText?.trim()) {
     notes.push(`Dependency warning: ${item.requiresText.trim()}`);
@@ -197,7 +256,7 @@ function readPublicNpmPackage(item: RuntimeAppCatalogItemRecord): string | undef
     const exactSpec = typeof registry.npm_package_spec === "string" ? registry.npm_package_spec.trim() : "";
     if (NPM_PACKAGE_SPEC_PATTERN.test(exactSpec)) return exactSpec;
     const candidate = typeof registry.npm_package === "string" ? registry.npm_package.trim() : item.name.trim();
-    return NPM_PACKAGE_PATTERN.test(candidate) ? candidate : undefined;
+    return NPM_PACKAGE_PATTERN.test(candidate) ? normalizeExactNpmPackageSpec(candidate, item.version) : undefined;
   } catch {
     return undefined;
   }
@@ -238,5 +297,56 @@ function rewriteGitHubPipInstallToArchive(command: string): string | undefined {
   const match = /^pip install git\+https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\.git(?:@([A-Za-z0-9._/-]+))?(#subdirectory=[A-Za-z0-9._/-]+)?$/.exec(command.trim());
   if (!match) return undefined;
   const [, owner, repository, ref, fragment = ""] = match;
-  return `pip install https://codeload.github.com/${owner}/${repository}/zip/${ref || "HEAD"}${fragment}`;
+  if (!ref || !/^[a-f0-9]{40}$/i.test(ref)) return undefined;
+  return `pip install https://codeload.github.com/${owner}/${repository}/zip/${ref}${fragment}`;
+}
+
+function normalizeExactNpmPackageSpec(candidate: string | undefined, version: string): string | undefined {
+  const value = candidate?.trim() ?? "";
+  if (NPM_PACKAGE_SPEC_PATTERN.test(value)) return value;
+  if (!NPM_PACKAGE_PATTERN.test(value) || !isImmutableVersion(version)) return undefined;
+  return `${value}@${version}`;
+}
+
+function npmPackageName(packageSpec: string): string {
+  const versionSeparator = packageSpec.lastIndexOf("@");
+  return versionSeparator > 0 ? packageSpec.slice(0, versionSeparator) : packageSpec;
+}
+
+function isImmutableVersion(version: string): boolean {
+  return Boolean(
+    version
+    && !MUTABLE_VERSION_PATTERN.test(version)
+    && !/[\s*^~<>=|]/.test(version)
+    && /^v?\d+(?:[.][0-9A-Za-z-]+)+(?:[+][0-9A-Za-z.-]+)?$/.test(version),
+  );
+}
+
+function isPinnedCliHubInstallCommand(command: string): boolean {
+  const normalized = command.trim();
+  if (/^pip3? install git\+https:\/\/[^\s]+[.]git@[a-f0-9]{40}(?:#\S+)?$/i.test(normalized)) return true;
+  if (/^pip3? install https:\/\/codeload[.]github[.]com\/[^\s]+\/(?:zip|tar[.]gz)\/[a-f0-9]{40}(?:#\S+)?$/i.test(normalized)) return true;
+  if (/^npm (?:install|i) (?:--global|-g) (?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/i.test(normalized)) return true;
+  return /^(?:(?:python3?|python) -m )?pip3? install(?: --user)? [a-z0-9][a-z0-9._-]*==\d+\.\d+\.\d+(?:[a-z0-9.-]+)?$/i.test(normalized);
+}
+
+function blocked(status: Exclude<RuntimeAppInstallabilityStatus, "installable">, code: string): RuntimeAppInstallability {
+  return { status, code, requiredTools: [] };
+}
+
+function checkRuntimeTools(
+  requiredTools: RuntimeAppRequiredTool[],
+  readiness?: RuntimeAppReadinessInput,
+): RuntimeAppInstallability {
+  if (!readiness) return { status: "installable", requiredTools };
+  for (const tool of requiredTools) {
+    if (!readiness[tool === "cli_hub" ? "cliHub" : tool].available) {
+      return {
+        status: "needs_configuration",
+        code: `runtime_app.runtime_${tool}_unavailable`,
+        requiredTools,
+      };
+    }
+  }
+  return { status: "installable", requiredTools };
 }

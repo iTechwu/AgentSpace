@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRuntimeAppInstallPlan } from "./install-plan.ts";
+import { assessRuntimeAppInstallability, buildRuntimeAppInstallPlan } from "./install-plan.ts";
 import { normalizeCliHubRegistryPayload, syncCliHubCatalog } from "./catalog.ts";
 import { selectCliHubReadiness } from "./runtime-apps.ts";
 
@@ -126,6 +126,7 @@ test("syncs harness registry from fallback URL when the primary URL is unavailab
 });
 
 test("builds controlled cli-hub plans without executing registry shell strings", () => {
+  const commit = "0123456789abcdef0123456789abcdef01234567";
   const plan = buildRuntimeAppInstallPlan({
     operation: "install",
     cliHubAvailable: true,
@@ -138,10 +139,10 @@ test("builds controlled cli-hub plans without executing registry shell strings",
       category: "image",
       entryPoint: "cli-anything-gimp",
       installStrategy: "pip",
-      installCmd: "pip install git+https://example.invalid/repo.git#subdirectory=gimp",
+      installCmd: `pip install git+https://github.com/example/repo.git@${commit}#subdirectory=gimp`,
       skillMd: "skills/gimp/SKILL.md",
-      requiresText: "GIMP installed locally",
-      registryJson: JSON.stringify({ name: "gimp", install_cmd: "pip install git+https://example.invalid/repo.git#subdirectory=gimp" }),
+      requiresText: "Python 3.10+",
+      registryJson: JSON.stringify({ name: "gimp", install_cmd: `pip install git+https://github.com/example/repo.git@${commit}#subdirectory=gimp` }),
       syncedAt: "2026-05-08T00:00:00.000Z",
     },
   });
@@ -154,13 +155,14 @@ test("builds controlled cli-hub plans without executing registry shell strings",
   }]);
   assert.deepEqual(plan.cliHubRegistrySnapshot, {
     source: "clihub_harness",
-    registryJson: JSON.stringify({ name: "gimp", install_cmd: "pip install git+https://example.invalid/repo.git#subdirectory=gimp" }),
+    registryJson: JSON.stringify({ name: "gimp", install_cmd: `pip install https://codeload.github.com/example/repo/zip/${commit}#subdirectory=gimp` }),
   });
   assert.equal(plan.verifyCommands.some((command) => command.executable === "cli-anything-gimp"), true);
-  assert.equal(plan.risk, "medium");
+  assert.equal(plan.risk, "low");
 });
 
 test("rewrites exact GitHub pip VCS installs to codeload archives for unstable container egress", () => {
+  const commit = "fedcba9876543210fedcba9876543210fedcba98";
   const plan = buildRuntimeAppInstallPlan({
     operation: "install",
     cliHubAvailable: true,
@@ -173,10 +175,10 @@ test("rewrites exact GitHub pip VCS installs to codeload archives for unstable c
       category: "search",
       entryPoint: "archive-backed-cli",
       installStrategy: "cli_hub",
-      installCmd: "pip install git+https://github.com/example/archive-backed-cli.git",
+      installCmd: `pip install git+https://github.com/example/archive-backed-cli.git@${commit}`,
       registryJson: JSON.stringify({
         name: "archive-backed-cli",
-        install_cmd: "pip install git+https://github.com/example/archive-backed-cli.git",
+        install_cmd: `pip install git+https://github.com/example/archive-backed-cli.git@${commit}`,
       }),
       syncedAt: "2026-08-04T00:00:00.000Z",
     },
@@ -184,7 +186,7 @@ test("rewrites exact GitHub pip VCS installs to codeload archives for unstable c
 
   assert.deepEqual(JSON.parse(plan.cliHubRegistrySnapshot?.registryJson ?? "{}"), {
     name: "archive-backed-cli",
-    install_cmd: "pip install https://codeload.github.com/example/archive-backed-cli/zip/HEAD",
+    install_cmd: `pip install https://codeload.github.com/example/archive-backed-cli/zip/${commit}`,
   });
 });
 
@@ -271,10 +273,11 @@ test("installs, updates, and uninstalls public npm apps without fetching the CLI
     name: "toolkit",
     displayName: "Toolkit",
     description: "",
-    version: "",
+    version: "2.3.4",
     category: "",
     entryPoint: "toolkit",
     installStrategy: "npm" as const,
+    installCmd: "npm install -g @dofe/toolkit@2.3.4",
     registryJson: JSON.stringify({ npm_package: "@dofe/toolkit" }),
     syncedAt: "2026-05-08T00:00:00.000Z",
   };
@@ -297,14 +300,14 @@ test("installs, updates, and uninstalls public npm apps without fetching the CLI
 
   assert.equal(installPlan.strategy, "npm");
   assert.deepEqual(installPlan.commands, [
-    { executable: "npm", args: ["install", "--global", "@dofe/toolkit"] },
+    { executable: "npm", args: ["install", "--global", "@dofe/toolkit@2.3.4"] },
   ]);
   assert.deepEqual(installPlan.verifyCommands, [
-    { executable: "npm", args: ["list", "--global", "--depth=0", "@dofe/toolkit"] },
+    { executable: "npm", args: ["list", "--global", "--depth=0", "@dofe/toolkit@2.3.4"] },
     { executable: "which", args: ["toolkit"] },
   ]);
   assert.deepEqual(updatePlan.commands, [
-    { executable: "npm", args: ["install", "--global", "@dofe/toolkit"] },
+    { executable: "npm", args: ["install", "--global", "@dofe/toolkit@2.3.4"] },
   ]);
   assert.deepEqual(uninstallPlan.commands, [
     { executable: "npm", args: ["uninstall", "--global", "@dofe/toolkit"] },
@@ -325,6 +328,7 @@ test("uses a validated exact npm package spec for platform-pinned applications",
       category: "developer_tools",
       entryPoint: "chrome-devtools-mcp",
       installStrategy: "npm",
+      installCmd: "npm install --global chrome-devtools-mcp@1.6.0",
       registryJson: JSON.stringify({ npm_package_spec: "chrome-devtools-mcp@1.6.0" }),
       syncedAt: "2026-08-04T00:00:00.000Z",
     },
@@ -368,8 +372,8 @@ test("uses a validated exact PyPI package spec without starting the MCP server d
   ]);
 });
 
-test("rejects unsafe public npm package metadata and falls back to the controlled CLI-Hub plan", () => {
-  const plan = buildRuntimeAppInstallPlan({
+test("rejects unsafe public npm package metadata when no pinned fallback exists", () => {
+  assert.throws(() => buildRuntimeAppInstallPlan({
     operation: "install",
     cliHubAvailable: true,
     item: {
@@ -377,7 +381,7 @@ test("rejects unsafe public npm package metadata and falls back to the controlle
       name: "toolkit",
       displayName: "Toolkit",
       description: "",
-      version: "",
+      version: "1.0.0",
       category: "",
       entryPoint: "toolkit",
       installStrategy: "npm",
@@ -385,18 +389,11 @@ test("rejects unsafe public npm package metadata and falls back to the controlle
       registryJson: JSON.stringify({ npm_package: "toolkit; touch /tmp/unsafe" }),
       syncedAt: "2026-05-08T00:00:00.000Z",
     },
-  });
-
-  assert.equal(plan.strategy, "cli_hub");
-  assert.deepEqual(plan.commands[0], {
-    executable: "cli-hub",
-    args: ["install", "toolkit"],
-    env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
-  });
+  }), /runtime_app[.]install_artifact_unpinned/);
 });
 
-test("marks shell metacharacter registry commands high risk", () => {
-  const plan = buildRuntimeAppInstallPlan({
+test("blocks shell metacharacter registry commands instead of allowing confirmation", () => {
+  assert.throws(() => buildRuntimeAppInstallPlan({
     operation: "install",
     cliHubAvailable: false,
     item: {
@@ -404,7 +401,7 @@ test("marks shell metacharacter registry commands high risk", () => {
       name: "unsafe",
       displayName: "Unsafe",
       description: "",
-      version: "",
+      version: "1.0.0",
       category: "",
       entryPoint: "unsafe",
       installStrategy: "manual",
@@ -412,13 +409,54 @@ test("marks shell metacharacter registry commands high risk", () => {
       registryJson: "{}",
       syncedAt: "2026-05-08T00:00:00.000Z",
     },
-  });
+  }), /runtime_app[.]install_command_unsafe/);
+});
 
-  assert.equal(plan.risk, "high");
-  assert.equal(plan.requiresApproval, true);
-  assert.deepEqual(plan.commands[0], {
-    executable: "python3",
-    args: ["-m", "pip", "install", "--user", "cli-anything-hub"],
-    env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
+test("reports stable preflight reasons for mutable and runtime-incompatible releases", () => {
+  const baseItem = {
+    source: "clihub_public" as const,
+    name: "toolkit",
+    displayName: "Toolkit",
+    description: "",
+    version: "latest",
+    category: "developer_tools",
+    entryPoint: "toolkit",
+    installStrategy: "npm" as const,
+    installCmd: "npm install -g toolkit",
+    registryJson: JSON.stringify({ npm_package: "toolkit" }),
+    syncedAt: "2026-08-05T00:00:00.000Z",
+  };
+
+  assert.deepEqual(assessRuntimeAppInstallability(baseItem), {
+    status: "unsupported",
+    code: "runtime_app.release_unpinned",
+    requiredTools: [],
   });
+  assert.equal(assessRuntimeAppInstallability({
+    ...baseItem,
+    version: "1.2.3",
+    installCmd: "npm install -g toolkit@1.2.3",
+    requiresText: "Desktop app installed locally",
+  }).code, "runtime_app.runtime_dependency_unsupported");
+  assert.deepEqual(assessRuntimeAppInstallability({
+    ...baseItem,
+    version: "1.2.3",
+    installCmd: "npm install -g toolkit@1.2.3",
+  }, {
+    npm: { available: false },
+    python: { available: true },
+    pip: { available: true },
+    cliHub: { available: true },
+  }), {
+    status: "needs_configuration",
+    code: "runtime_app.runtime_npm_unavailable",
+    requiredTools: ["npm"],
+  });
+  assert.equal(assessRuntimeAppInstallability({
+    ...baseItem,
+    version: "1.2.3",
+    source: "clihub_harness",
+    installStrategy: "cli_hub",
+    installCmd: "python exploit.py toolkit@1.2.3",
+  }).code, "runtime_app.install_artifact_unpinned");
 });

@@ -9,6 +9,7 @@ import {
   readMcpCatalogItemSync,
 } from "@dofe-agent/db";
 import {
+  assessRuntimeAppInstallability,
   assessRuntimeAppRisk,
   listMcpCatalogItemsForWorkspaceSync,
   readCliHubReadinessForRuntimeSync,
@@ -28,7 +29,6 @@ export async function loadMarketPageData(input: {
     await syncCliHubCatalog();
   }
   syncOfficialMcpCatalogForWorkspaceSync(input.workspaceId);
-  catalogHealth = readRuntimeAppCatalogHealthSync();
 
   const daemonSnapshots = listDaemonSnapshotsSync(input.workspaceId);
   const mcpCatalogRecords = listMcpCatalogItemsForWorkspaceSync(input.workspaceId);
@@ -37,23 +37,29 @@ export async function loadMarketPageData(input: {
     const requirement = resolveOfficialMcpRuntimeAppRequirement(item);
     return requirement ? [`${requirement.source}:${requirement.name}`] : [];
   }));
+  const catalogRecords = listRuntimeAppCatalogItemsSync({ limit: 1000 });
+  catalogHealth = projectCliCatalogHealth(catalogRecords, officialRuntimeApps);
   return {
-    catalog: listRuntimeAppCatalogItemsSync({ limit: 1000 }).map((item) => ({
-      source: item.source,
-      productSource: officialRuntimeApps.has(`${item.source}:${item.name}`) ? "official" : item.source,
-      name: item.name,
-      displayName: item.displayName,
-      description: item.description,
-      version: item.version,
-      category: item.category,
-      entryPoint: item.entryPoint,
-      installStrategy: item.installStrategy,
-      installCmd: item.installCmd,
-      skillMd: item.skillMd,
-      requiresText: item.requiresText,
-      homepage: item.homepage,
-      risk: assessRuntimeAppRisk(item),
-    })),
+    catalog: catalogRecords.map((item) => {
+      const installability = assessRuntimeAppInstallability(item);
+      return {
+        source: item.source,
+        productSource: officialRuntimeApps.has(`${item.source}:${item.name}`) ? "official" : item.source,
+        name: item.name,
+        displayName: item.displayName,
+        description: item.description,
+        version: item.version,
+        category: item.category,
+        entryPoint: item.entryPoint,
+        installStrategy: item.installStrategy,
+        installCmd: item.installCmd,
+        skillMd: item.skillMd,
+        requiresText: item.requiresText,
+        homepage: item.homepage,
+        risk: assessRuntimeAppRisk(item),
+        installability,
+      };
+    }),
     catalogHealth,
     runtimes: daemonSnapshots.flatMap((snapshot) =>
       snapshot.runtimes.filter((runtime) => runtime.status === "online").map((runtime) => {
@@ -69,6 +75,12 @@ export async function loadMarketPageData(input: {
           status: runtime.status,
           daemonKey: snapshot.daemon.daemonKey,
           cliHubReady: readiness.cliHub.available,
+          cliReadiness: {
+            npm: readiness.npm.available,
+            python: readiness.python.available,
+            pip: readiness.pip.available,
+            cliHub: readiness.cliHub.available,
+          },
           // MCP gateway eligibility: neither claude nor codex has passed real CLI
           // E2E (call, revoke, audit, lifecycle) in the designated CI env, so BOTH
           // are opt-in experimental flags, default OFF — "being able to build
@@ -150,6 +162,26 @@ export async function loadMarketPageData(input: {
       errorMessage: operation.errorMessage,
     })),
     canManage: input.canManage,
+  };
+}
+
+function projectCliCatalogHealth(
+  records: ReturnType<typeof listRuntimeAppCatalogItemsSync>,
+  officialRuntimeApps: Set<string>,
+): MarketPageData["catalogHealth"] {
+  const upstreamSyncTimes = records
+    .filter((item) => (
+      (item.source === "clihub_harness" || item.source === "clihub_public")
+      && !officialRuntimeApps.has(`${item.source}:${item.name}`)
+    ))
+    .map((item) => new Date(item.syncedAt).getTime())
+    .filter(Number.isFinite);
+  const lastSyncedTime = upstreamSyncTimes.length > 0 ? Math.max(...upstreamSyncTimes) : undefined;
+  const ageMs = lastSyncedTime === undefined ? Number.POSITIVE_INFINITY : Date.now() - lastSyncedTime;
+  return {
+    itemCount: records.length,
+    lastSyncedAt: lastSyncedTime === undefined ? undefined : new Date(lastSyncedTime).toISOString(),
+    stale: !Number.isFinite(ageMs) || ageMs > 24 * 60 * 60 * 1000,
   };
 }
 

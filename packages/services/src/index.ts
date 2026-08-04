@@ -277,8 +277,12 @@ export {
   type CliHubCatalogSyncResult,
 } from "./clihub/catalog.ts";
 export {
+  assessRuntimeAppInstallability,
   assessRuntimeAppRisk,
   buildRuntimeAppInstallPlan,
+  type RuntimeAppInstallability,
+  type RuntimeAppInstallabilityStatus,
+  type RuntimeAppRequiredTool,
 } from "./clihub/install-plan.ts";
 export {
   assertCanManageRuntimeAppsSync,

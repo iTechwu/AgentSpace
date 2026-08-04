@@ -14,8 +14,7 @@ import {
 import type { RuntimeAppContextEntry, RuntimeAppInstallPlan } from "@dofe-agent/domain";
 import { tryRecordWorkspaceAuditEventSync } from "../shared/audit.ts";
 import { isWorkspaceAdminOrOwnerSync } from "../runtime-access/runtime-access.ts";
-import { buildRuntimeAppInstallPlan } from "./install-plan.ts";
-import { syncCliHubCatalog } from "./catalog.ts";
+import { assessRuntimeAppInstallability, buildRuntimeAppInstallPlan } from "./install-plan.ts";
 
 export interface RuntimeAppOperationRequestResult {
   operation: RuntimeAppOperationRecord;
@@ -40,7 +39,6 @@ export function requestRuntimeAppOperationSync(input: {
   actorUserId?: string;
   confirmHighRisk?: boolean;
 }): RuntimeAppOperationRequestResult {
-  maybeRefreshCliHubCatalogBeforeMutation();
   assertCanManageRuntimeAppsSync({
     workspaceId: input.workspaceId,
     actorUserId: input.actorUserId,
@@ -61,6 +59,12 @@ export function requestRuntimeAppOperationSync(input: {
     runtimeId: runtime.id,
     runtimeMetadataJson: runtime.metadataJson,
   });
+  if (input.operation === "install" || input.operation === "update") {
+    const installability = assessRuntimeAppInstallability(item, readiness);
+    if (installability.status !== "installable") {
+      throw new Error(installability.code ?? "runtime_app.not_installable");
+    }
+  }
   const installPlan = buildRuntimeAppInstallPlan({
     item,
     operation: input.operation,
@@ -92,12 +96,6 @@ export function requestRuntimeAppOperationSync(input: {
     },
   });
   return { operation, installPlan };
-}
-
-function maybeRefreshCliHubCatalogBeforeMutation(): void {
-  void syncCliHubCatalog().catch(() => {
-    // Best-effort freshness check; stale catalog remains usable and visible.
-  });
 }
 
 export function listRuntimeAppsForRuntimeSync(input: {
