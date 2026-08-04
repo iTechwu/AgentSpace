@@ -14,12 +14,16 @@ const GATEWAY_URL = "http://127.0.0.1:39821/mcp?session=abc123def456";
 test("buildClaudeMcpGatewayArgs emits a strict --mcp-config JSON pointing at the gateway", () => {
   const { args } = buildClaudeMcpGatewayArgs(GATEWAY_URL);
   assert.deepEqual(args, ["--mcp-config", JSON.stringify({
-    [MCP_GATEWAY_SERVER_KEY]: { type: "http", url: GATEWAY_URL },
+    mcpServers: {
+      [MCP_GATEWAY_SERVER_KEY]: { type: "http", url: GATEWAY_URL },
+    },
   }), "--strict-mcp-config"]);
 
-  const config = JSON.parse(args[1]!) as Record<string, { type: string; url: string }>;
-  assert.equal(config[MCP_GATEWAY_SERVER_KEY]?.type, "http");
-  assert.equal(config[MCP_GATEWAY_SERVER_KEY]?.url, GATEWAY_URL);
+  const config = JSON.parse(args[1]!) as {
+    mcpServers: Record<string, { type: string; url: string }>;
+  };
+  assert.equal(config.mcpServers[MCP_GATEWAY_SERVER_KEY]?.type, "http");
+  assert.equal(config.mcpServers[MCP_GATEWAY_SERVER_KEY]?.url, GATEWAY_URL);
 });
 
 test("buildCodexMcpGatewayArgs replaces the whole mcp_servers key with only the gateway", () => {

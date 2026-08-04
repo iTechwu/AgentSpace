@@ -39,7 +39,9 @@ export function mcpGatewayUrlRedactions(url: string): HarnessLaunchPlan["redacti
  */
 export function buildClaudeMcpGatewayArgs(url: string): McpGatewayInjection {
   const mcpConfig = JSON.stringify({
-    [MCP_GATEWAY_SERVER_KEY]: { type: "http", url },
+    mcpServers: {
+      [MCP_GATEWAY_SERVER_KEY]: { type: "http", url },
+    },
   });
   return {
     args: ["--mcp-config", mcpConfig, "--strict-mcp-config"],
