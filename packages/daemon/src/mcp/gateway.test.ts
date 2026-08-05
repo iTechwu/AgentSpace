@@ -224,8 +224,8 @@ test("gateway injects stable trusted attribution and reports a submitted OpenMon
 
     assert.equal(reports.length, 2);
     assert.deepEqual(reports[0], { taskId: TASK_ID, connectionId: "mcp-openmontage-1", snapshot });
-    const first = JSON.parse(calls[0]!.nonSecretParams["X-Dofe-Job-Attribution"] as string);
-    const second = JSON.parse(calls[1]!.nonSecretParams["X-Dofe-Job-Attribution"] as string);
+    const first = decodeAttribution(calls[0]!.nonSecretParams["X-Dofe-Job-Attribution"] as string);
+    const second = decodeAttribution(calls[1]!.nonSecretParams["X-Dofe-Job-Attribution"] as string);
     assert.deepEqual(first, {
       workspaceId: "workspace-1",
       employeeId: "employee-1",
@@ -243,6 +243,10 @@ test("gateway injects stable trusted attribution and reports a submitted OpenMon
     await g.close();
   }
 });
+
+function decodeAttribution(value: string): Record<string, string> {
+  return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, string>;
+}
 
 test("gateway fails the submit tool when the created OpenMontage Job cannot be linked", async () => {
   const client: RuntimeMcpClient = {

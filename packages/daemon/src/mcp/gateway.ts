@@ -303,7 +303,7 @@ export class McpGateway {
         );
         nonSecretParams = {
           ...connection.nonSecretParams,
-          "X-Dofe-Job-Attribution": JSON.stringify({
+          "X-Dofe-Job-Attribution": Buffer.from(JSON.stringify({
             workspaceId: taskSession.workspaceId,
             employeeId: taskSession.employeeId,
             runtimeId: taskSession.runtimeId,
@@ -311,7 +311,7 @@ export class McpGateway {
             conversationId: taskSession.conversationId,
             sourceInvocationId,
             traceId: taskSession.taskId,
-          }),
+          }), "utf8").toString("base64url"),
         };
       }
 
