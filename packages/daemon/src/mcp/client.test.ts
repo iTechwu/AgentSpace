@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ResolvedMcpConnection } from "@dofe-agent/domain";
 import { createPinnedLookup, createRuntimeMcpClient, normalizeDiscoveredTools } from "./client.ts";
+import { McpGateway } from "./gateway.ts";
 
 test("normalizeDiscoveredTools accepts bounded unique tool definitions", () => {
   const result = normalizeDiscoveredTools([
@@ -73,5 +74,75 @@ test("call rejects when egress is enforced and no proxy lease is present", async
     }
   } finally {
     process.env.MCP_EGRESS_ENFORCE = original;
+  }
+});
+
+test("managed service transport completes MCP discovery and a tool call over its daemon-resolved endpoint", async () => {
+  let backendCalls = 0;
+  const backend = new McpGateway(
+    () => undefined,
+    {
+      verify: async () => ({ status: "ready", discoveredTools: [] }),
+      call: async () => {
+        backendCalls += 1;
+        return { ok: true, result: { ok: true } };
+      },
+    },
+  );
+  await backend.start();
+  const session = backend.createTaskSession({
+    taskId: "task-backend",
+    workspaceId: "ws-1",
+    runtimeId: "rt-1",
+    employeeId: "employee-1",
+    conversationId: "conversation-1",
+    connections: [{
+      connectionId: "backend-connection",
+      workspaceId: "ws-1",
+      catalogItemId: "catalog-1",
+      catalogItemSlug: "backend",
+      catalogItemVersion: "1.0.0",
+      displayName: "Backend",
+      transport: "streamable_http",
+      endpoint: "https://backend.example/mcp",
+      allowedHosts: ["backend.example"],
+      approvedTools: ["render"],
+      secrets: {},
+      nonSecretParams: {},
+      tools: [{
+        id: "mcp:backend-connection:render",
+        connectionId: "backend-connection",
+        name: "render",
+        description: "Render",
+        inputSchema: { type: "object" },
+      }],
+    }],
+  });
+  const connection: ResolvedMcpConnection = {
+    connectionId: "openmontage-connection",
+    runtimeId: "rt-1",
+    workspaceId: "ws-1",
+    transport: "managed_service",
+    endpoint: "managed-service://openmontage",
+    managedServiceEndpoint: session.url,
+    allowedHosts: [],
+    approvedTools: ["mcp_backend-connection_render"],
+    secrets: { Authorization: "Bearer service-token" },
+    nonSecretParams: {},
+  };
+
+  try {
+    const client = createRuntimeMcpClient();
+    const verification = await client.verify(connection);
+    assert.equal(verification.status, "ready");
+    const toolName = verification.discoveredTools?.[0]?.name;
+    assert.ok(toolName);
+    connection.approvedTools = [toolName];
+    const result = await client.call({ connection, toolName, arguments: {}, taskId: "task-1" });
+    assert.equal(result.ok, true);
+    assert.equal(backendCalls, 1);
+  } finally {
+    session.revoke();
+    await backend.close();
   }
 });

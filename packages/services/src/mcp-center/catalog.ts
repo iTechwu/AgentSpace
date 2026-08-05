@@ -77,6 +77,9 @@ export function createMcpCatalogItemSync(input: CreateMcpCatalogItemInput): McpC
   if (!input.displayName.trim()) {
     throw new Error("mcp_catalog.invalid_display_name");
   }
+  if (input.transport === "managed_service") {
+    throw new Error("mcp_catalog.managed_service_not_supported");
+  }
   if (input.transport !== "streamable_http" && input.transport !== "managed_stdio") {
     throw new Error("mcp_catalog.unsupported_transport");
   }

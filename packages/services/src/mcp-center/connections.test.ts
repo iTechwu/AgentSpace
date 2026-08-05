@@ -31,6 +31,7 @@ import {
   MINIMAX_TOKEN_PLAN_MCP_PACKAGE,
   MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC,
   MINIMAX_TOKEN_PLAN_MCP_SLUG,
+  OPENMONTAGE_MCP_VERSION,
   resolveOfficialManagedStdioProfile,
   resolveOfficialMcpRuntimeAppRequirement,
   syncOfficialMcpCatalogForWorkspaceSync,
@@ -296,6 +297,50 @@ test("official MiniMax Token Plan MCP exposes two tools and a pinned secret-back
     args: ["-m", "pip", "install", "--user", MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC],
     env: { PIP_BREAK_SYSTEM_PACKAGES: "1" },
   }]);
+});
+
+test("official OpenMontage MCP uses an opaque managed-service reference and needs no Runtime app", () => {
+  syncOfficialMcpCatalogForWorkspaceSync("default");
+  const catalog = readMcpCatalogItemBySlugSync("official-openmontage", "default");
+  assert.ok(catalog);
+  assert.equal(catalog.version, OPENMONTAGE_MCP_VERSION);
+  assert.equal(catalog.transport, "managed_service");
+  assert.equal(catalog.endpointTemplate, "managed-service://openmontage");
+  assert.deepEqual(JSON.parse(catalog.secretFieldsJson), []);
+  assert.deepEqual(
+    (JSON.parse(catalog.declaredToolsJson) as Array<{ name: string }>).map((tool) => tool.name),
+    ["openmontage_capabilities", "submit_video_job", "get_video_job", "cancel_video_job", "approve_video_stage", "list_video_job_events"],
+  );
+  assert.equal(resolveOfficialMcpRuntimeAppRequirement(catalog), undefined);
+
+  const runtimeId = createRuntime();
+  const requested = requestMcpConnectionSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    runtimeId,
+    catalogItemId: catalog.id,
+    endpoint: catalog.endpointTemplate,
+    approvedTools: ["submit_video_job", "get_video_job", "list_video_job_events"],
+    confirmHighRisk: true,
+  });
+  const claimed = resolveClaimedMcpOperationSync({ workspaceId: "default", operation: requested.operation });
+  assert.equal(claimed?.transport, "managed_service");
+  assert.equal(claimed?.endpoint, "managed-service://openmontage");
+  assert.equal(claimed?.egressProxyLease, undefined);
+});
+
+test("workspace catalog cannot claim the platform-managed service transport", () => {
+  assert.throws(() => createMcpCatalogItemSync({
+    workspaceId: "default",
+    actorUserId: ADMIN_USER_ID,
+    slug: "private-managed-service",
+    displayName: "Private managed service",
+    transport: "managed_service",
+    allowedHosts: [],
+    endpointTemplate: "managed-service://openmontage",
+    configurationSchema: { type: "object" },
+    declaredTools: [{ name: "submit_video_job", description: "Submit", risk: "high" }],
+  }), /managed_service_not_supported/);
 });
 
 test("managed stdio catalog rejects untrusted commands and reserved environment names", () => {

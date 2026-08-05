@@ -160,7 +160,9 @@ export function RuntimeCapabilitiesPanel({
     && operation.appName === requiredRuntimeApp.name
     && isActiveCapabilityOperationStatus(operation.status),
   ));
-  const supportsSelectedMcpTransport = selectedMcp?.transport === "managed_stdio" || selectedMcp?.transport === "streamable_http";
+  const supportsSelectedMcpTransport = selectedMcp?.transport === "managed_stdio"
+    || selectedMcp?.transport === "managed_service"
+    || selectedMcp?.transport === "streamable_http";
   const selectedMcpRequiresHighRiskConfirmation = Boolean(
     selectedMcp && (selectedMcp.risk === "high" || selectedMcp.declaredTools.some((tool) => tool.risk === "high" && approvedTools.has(tool.name))),
   );
@@ -278,7 +280,9 @@ export function RuntimeCapabilitiesPanel({
           <div className="runtime-capability-list">
             {visibleMcp.map((item) => {
               const connection = mcpConnections.find((candidate) => candidate.catalogItemId === item.id);
-              const supportsTransport = item.transport === "managed_stdio" || item.transport === "streamable_http";
+              const supportsTransport = item.transport === "managed_stdio"
+                || item.transport === "managed_service"
+                || item.transport === "streamable_http";
               return (
                 <article className="runtime-capability-row" key={item.id}>
                   <span className="runtime-capability-row__icon"><AppIcon name="containers" /></span>
@@ -320,7 +324,7 @@ export function RuntimeCapabilitiesPanel({
             <form className="runtime-mcp-config" onSubmit={(event) => { event.preventDefault(); continueMcpSetup(); }}>
               <div className="runtime-mcp-config__heading"><div><span>MCP</span><h3>{selectedMcp.displayName}</h3></div><button aria-label={tx("关闭 MCP 配置", "Close MCP configuration")} className="icon-button" onClick={() => setSelectedMcpId(null)} type="button"><AppIcon name="close" /></button></div>
               <div className="runtime-mcp-config__fields">
-                <label className="form-field"><span>{selectedMcp.transport === "managed_stdio" ? tx("受管 stdio 入口", "Managed stdio entrypoint") : "Endpoint (HTTPS)"}</span><input onChange={(event) => setEndpoint(event.currentTarget.value)} readOnly={selectedMcp.transport === "managed_stdio"} value={endpoint} /></label>
+                <label className="form-field"><span>{selectedMcp.transport === "managed_stdio" ? tx("受管 stdio 入口", "Managed stdio entrypoint") : selectedMcp.transport === "managed_service" ? tx("受管服务", "Managed service") : "Endpoint (HTTPS)"}</span><input onChange={(event) => setEndpoint(event.currentTarget.value)} readOnly={selectedMcp.transport === "managed_stdio" || selectedMcp.transport === "managed_service"} value={endpoint} /></label>
                 {selectedMcp.configurationFields.map((field) => <label className="form-field" key={field.name}><span>{field.name}{field.required ? " *" : ""}</span><input maxLength={field.maxLength} onChange={(event) => setNonSecretParams((current) => ({ ...current, [field.name]: event.currentTarget.value }))} value={nonSecretParams[field.name] ?? ""} /></label>)}
                 {selectedMcp.secretFields.map((field) => <label className="form-field" key={field}><span>{field} *</span><input autoComplete="off" onChange={(event) => setSecrets((current) => ({ ...current, [field]: event.currentTarget.value }))} placeholder={tx("保存后不会显示", "Hidden after save")} type="password" value={secrets[field] ?? ""} /></label>)}
               </div>

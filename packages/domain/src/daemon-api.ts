@@ -644,6 +644,8 @@ export interface ResolvedMcpConnection {
   managedStdioLaunch?: McpManagedStdioLaunch;
   /** Trusted launch profile resolved only from a platform-owned catalog release. */
   managedStdioProfile?: McpManagedStdioProfile;
+  /** Daemon-resolved private endpoint for a platform-owned managed service. */
+  managedServiceEndpoint?: string;
 }
 
 export interface McpManagedStdioProfile {
@@ -750,6 +752,8 @@ export interface McpTaskSessionConnection {
   managedStdioLaunch?: McpManagedStdioLaunch;
   /** Trusted platform profile consumed by the remote daemon. */
   managedStdioProfile?: McpManagedStdioProfile;
+  /** Daemon-resolved private endpoint; never delivered by the control plane. */
+  managedServiceEndpoint?: string;
 }
 
 export interface ClaimMcpTaskSessionResponse {
