@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import test from "node:test";
 import {
+  callOpenMontageJobActionAsync,
   OpenMontageEventAuthenticationError,
   reconcileOpenMontageJobAsync,
   reconcileSyncingOpenMontageJobsAsync,
@@ -190,4 +191,78 @@ test("scheduled reconciliation isolates one Job failure from the remaining batch
 
   assert.deepEqual(attempted, ["om_job_1", "om_job_2"]);
   assert.deepEqual(result, { attempted: 2, succeeded: 1, failed: 1 });
+});
+
+test("submits Job actions with trusted attribution, sequence fencing, and immediate reconciliation", async () => {
+  const calls: Array<{ url: string; method?: string; headers: Headers; body?: string }> = [];
+  const reconciled: string[] = [];
+  const link = {
+    jobId: "om_job_1",
+    workspaceId: "default",
+    employeeId: "employee-1",
+    runtimeId: "runtime-1",
+    rootTaskId: "task-1",
+    conversationId: "conversation-1",
+    sourceInvocationId: "invocation-1",
+    traceId: "trace-1",
+    workflowName: "animated-explainer",
+    workflowVersion: "2.0",
+    createdAt: "2026-08-05T10:00:00Z",
+  };
+
+  await callOpenMontageJobActionAsync({
+    workspaceId: "default",
+    jobId: "om_job_1",
+    action: "approve",
+    stage: "proposal",
+    expectedSequence: 4,
+  }, {
+    environment: {
+      OPENMONTAGE_BASE_URL: "http://openmontage.internal:8765/",
+      OPENMONTAGE_SERVICE_TOKEN: "service-token",
+    },
+    fetch: async (input, init) => {
+      calls.push({
+        url: String(input),
+        method: init?.method,
+        headers: new Headers(init?.headers),
+        body: String(init?.body),
+      });
+      return Response.json({ jobId: "om_job_1", lastSequence: 5 });
+    },
+    readLink: () => link,
+    readProjection: () => ({
+      lastAppliedSequence: 4,
+      status: "WAITING_APPROVAL",
+      currentStage: "proposal",
+    } as never),
+    reconcile: async (jobId) => {
+      reconciled.push(jobId);
+      return { received: 1, lastAppliedSequence: 5, remoteLastSequence: 5 };
+    },
+  });
+
+  assert.equal(calls[0]?.url, "http://openmontage.internal:8765/api/v1/jobs/om_job_1/approve");
+  assert.equal(calls[0]?.method, "POST");
+  assert.equal(calls[0]?.headers.get("authorization"), "Bearer service-token");
+  assert.equal(calls[0]?.headers.get("idempotency-key"), "openmontage:om_job_1:4:approve:proposal");
+  assert.deepEqual(JSON.parse(calls[0]?.body ?? "{}"), { stage: "proposal", approved: true });
+  assert.deepEqual(reconciled, ["om_job_1"]);
+
+  await assert.rejects(
+    () => callOpenMontageJobActionAsync({
+      workspaceId: "default",
+      jobId: "om_job_1",
+      action: "cancel",
+      expectedSequence: 3,
+    }, {
+      environment: {
+        OPENMONTAGE_BASE_URL: "http://openmontage.internal:8765/",
+        OPENMONTAGE_SERVICE_TOKEN: "service-token",
+      },
+      readLink: () => link,
+      readProjection: () => ({ lastAppliedSequence: 4 } as never),
+    }),
+    /changed since the action was requested/,
+  );
 });

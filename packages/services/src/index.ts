@@ -1362,6 +1362,7 @@ export {
   type ManagedRuntimeProviderTemplate,
 } from "./runtime-provisioning/provider-templates.ts";
 export {
+  callOpenMontageJobActionAsync,
   dispatchOpenMontageProjectionNotificationSync,
   ingestSignedOpenMontageEventSync,
   reconcileOpenMontageJobAsync,
@@ -1370,5 +1371,6 @@ export {
   verifyOpenMontageEventRequest,
   OpenMontageEventAuthenticationError,
   OpenMontageEventValidationError,
+  type OpenMontageJobActionInput,
   type VerifiedOpenMontageEventRequest,
 } from "./openmontage/events.ts";

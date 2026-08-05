@@ -23,6 +23,14 @@ export interface VerifiedOpenMontageEventRequest {
   timestamp: number;
 }
 
+export interface OpenMontageJobActionInput {
+  workspaceId: string;
+  jobId: string;
+  action: "approve" | "reject" | "cancel";
+  stage?: string;
+  expectedSequence: number;
+}
+
 export function verifyOpenMontageEventRequest(input: {
   body: Uint8Array;
   headers: Headers | Record<string, string | undefined>;
@@ -225,6 +233,85 @@ export async function reconcileSyncingOpenMontageJobsAsync(options: {
   return { attempted: jobIds.length, succeeded, failed };
 }
 
+export async function callOpenMontageJobActionAsync(
+  input: OpenMontageJobActionInput,
+  options: {
+    environment?: Record<string, string | undefined>;
+    fetch?: typeof globalThis.fetch;
+    readLink?: typeof readOpenMontageJobLinkSync;
+    readProjection?: typeof readOpenMontageJobProjectionSync;
+    reconcile?: typeof reconcileOpenMontageJobAsync;
+  } = {},
+): Promise<{ accepted: true }> {
+  const environment = options.environment ?? process.env;
+  const baseUrl = resolveOpenMontageBaseUrl(environment.OPENMONTAGE_BASE_URL);
+  const serviceToken = environment.OPENMONTAGE_SERVICE_TOKEN?.trim();
+  if (!serviceToken) {
+    throw new Error("OPENMONTAGE_SERVICE_TOKEN is required for Job actions.");
+  }
+  const link = (options.readLink ?? readOpenMontageJobLinkSync)(input.jobId);
+  if (!link || link.workspaceId !== input.workspaceId) {
+    throw new Error("OpenMontage Job has no trusted AgentSpace binding.");
+  }
+  const projection = (options.readProjection ?? readOpenMontageJobProjectionSync)(input.workspaceId, input.jobId);
+  if (!projection) {
+    throw new Error("OpenMontage Job projection is missing.");
+  }
+  if (projection.lastAppliedSequence !== input.expectedSequence) {
+    throw new Error("OpenMontage Job changed since the action was requested. Refresh and try again.");
+  }
+
+  const isApprovalAction = input.action === "approve" || input.action === "reject";
+  const stage = input.stage?.trim();
+  if (isApprovalAction) {
+    if (!stage || projection.status !== "WAITING_APPROVAL" || projection.currentStage !== stage) {
+      throw new Error("OpenMontage approval is no longer actionable.");
+    }
+  } else if (!(["QUEUED", "RUNNING"] as const).includes(projection.status as "QUEUED" | "RUNNING")) {
+    throw new Error("OpenMontage Job can no longer be cancelled.");
+  }
+
+  const actionPath = isApprovalAction ? "approve" : "cancel";
+  const endpoint = new URL(
+    `/api/v1/jobs/${encodeURIComponent(input.jobId)}/${actionPath}`,
+    baseUrl,
+  );
+  const idempotencyKey = [
+    "openmontage",
+    input.jobId,
+    input.expectedSequence,
+    input.action,
+    stage,
+  ].filter(Boolean).join(":");
+  const body = isApprovalAction
+    ? JSON.stringify({ stage, approved: input.action === "approve" })
+    : undefined;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${serviceToken}`,
+    "Idempotency-Key": idempotencyKey,
+    "X-Dofe-Job-Attribution": encodeTrustedAttribution(link),
+  };
+  if (body) {
+    headers["Content-Type"] = "application/json";
+  }
+  const response = await (options.fetch ?? globalThis.fetch)(endpoint, {
+    method: "POST",
+    headers,
+    body,
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) {
+    throw new Error(`OpenMontage Job action returned HTTP ${response.status}.`);
+  }
+
+  try {
+    await (options.reconcile ?? reconcileOpenMontageJobAsync)(input.jobId, { environment });
+  } catch {
+    // Signed callbacks and scheduled reconciliation remain recovery paths.
+  }
+  return { accepted: true };
+}
+
 export function sanitizeOpenMontageEventForStorage(
   event: OpenMontageJobEvent,
 ): OpenMontageJobEvent {
@@ -249,7 +336,7 @@ function requireHeader(
 
 function resolveOpenMontageBaseUrl(value: string | undefined): URL {
   if (!value?.trim()) {
-    throw new Error("OPENMONTAGE_BASE_URL is required for reconciliation.");
+    throw new Error("OPENMONTAGE_BASE_URL is required.");
   }
   const url = new URL(value);
   if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
