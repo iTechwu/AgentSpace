@@ -5,17 +5,13 @@ import { LanguageProvider } from "@/features/i18n/language-provider";
 import { FeedbackToastProvider } from "@/shared/ui/feedback-toast-provider";
 import { InstallSkillModal } from "./install-skill-modal";
 
-const { approveSkill, createPlan, inspectSkill, listRuntimes, listServiceOptions } = vi.hoisted(() => ({
+const { approveSkill, createPlan, loadWizard, listServiceOptions } = vi.hoisted(() => ({
   approveSkill: vi.fn(async () => ({ approvalId: "approval-1" })),
   createPlan: vi.fn(async () => ({
     data: { installationId: "installation-1", status: "preparing" },
     toast: { tone: "info" as const, zh: "安装计划已创建。", en: "Installation planned." },
   })),
-  inspectSkill: vi.fn(),
-  listRuntimes: vi.fn(async () => [
-    { id: "runtime-offline", name: "Offline", provider: "codex", status: "offline" },
-    { id: "runtime-online", name: "Remote East", provider: "codex", status: "online" },
-  ]),
+  loadWizard: vi.fn(),
   listServiceOptions: vi.fn(async () => [{
     catalogSlug: "renderer",
     templateVersion: "2.0.0",
@@ -29,8 +25,7 @@ const { approveSkill, createPlan, inspectSkill, listRuntimes, listServiceOptions
 vi.mock("@/features/skills/installation-actions", () => ({
   approveSkillInstallAction: approveSkill,
   createSkillInstallationAction: createPlan,
-  inspectSkillInstallationAction: inspectSkill,
-  listSkillInstallableRuntimesAction: listRuntimes,
+  loadSkillInstallationWizardAction: loadWizard,
   listSkillServiceResolutionOptionsAction: listServiceOptions,
 }));
 
@@ -75,9 +70,15 @@ function renderModal(onInstalled = vi.fn()) {
 describe("InstallSkillModal", () => {
   beforeEach(() => {
     createPlan.mockClear();
-    inspectSkill.mockReset();
-    inspectSkill.mockResolvedValue(inspection);
-    listRuntimes.mockClear();
+    loadWizard.mockReset();
+    loadWizard.mockResolvedValue({
+      ok: true,
+      inspection,
+      runtimes: [
+        { id: "runtime-offline", name: "Offline", provider: "codex", status: "offline" },
+        { id: "runtime-online", name: "Remote East", provider: "codex", status: "online" },
+      ],
+    });
     listServiceOptions.mockClear();
   });
 
@@ -106,7 +107,11 @@ describe("InstallSkillModal", () => {
       { category: "script" as const, key: "script:bin/render.py", description: "可执行脚本入口 bin/render.py（python）" },
       { category: "network" as const, key: "dependency:pip:pillow@11.0.0", description: "运行时安装依赖 pip:pillow@11.0.0 会访问软件源" },
     ];
-    inspectSkill.mockResolvedValue({ ...inspection, riskItems });
+    loadWizard.mockResolvedValue({
+      ok: true,
+      inspection: { ...inspection, riskItems },
+      runtimes: [{ id: "runtime-online", name: "Remote East", provider: "codex", status: "online" }],
+    });
     approveSkill.mockClear();
     const user = userEvent.setup();
     renderModal();
@@ -174,7 +179,11 @@ describe("InstallSkillModal", () => {
   });
 
   it("blocks plan creation when required release-lock entries are unresolved", async () => {
-    inspectSkill.mockResolvedValue({ ...inspection, unresolvedRequired: ["service:renderer"] });
+    loadWizard.mockResolvedValue({
+      ok: true,
+      inspection: { ...inspection, unresolvedRequired: ["service:renderer"] },
+      runtimes: [{ id: "runtime-online", name: "Remote East", provider: "codex", status: "online" }],
+    });
     const user = userEvent.setup();
     renderModal();
 
@@ -185,5 +194,14 @@ describe("InstallSkillModal", () => {
     expect(screen.getByRole("button", { name: "创建安装计划" })).toBeDisabled();
     expect(screen.getByText("必需能力未解析，不能创建安装计划。")).toBeInTheDocument();
     expect(createPlan).not.toHaveBeenCalled();
+  });
+
+  it("shows a recoverable state when the skill has no immutable artifact", async () => {
+    loadWizard.mockResolvedValue({ ok: false, code: "artifact_missing" });
+    renderModal();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("此 Skill 尚无不可变 artifact，请先重新导入以生成 artifact。");
+    expect(screen.getByRole("button", { name: "重试" })).toBeEnabled();
+    expect(screen.queryByText("正在检查 Skill…")).not.toBeInTheDocument();
   });
 });

@@ -144,6 +144,28 @@ export async function inspectSkillInstallationAction(input: {
   };
 }
 
+export type SkillInstallationWizardLoadResult =
+  | { ok: true; inspection: SkillInstallationInspectionView; runtimes: SkillInstallableRuntime[] }
+  | { ok: false; code: "artifact_missing" | "inspection_failed" };
+
+/** Loads wizard prerequisites together and represents expected preflight failures without a 500 response. */
+export async function loadSkillInstallationWizardAction(input: {
+  skillId: string;
+}): Promise<SkillInstallationWizardLoadResult> {
+  try {
+    const [inspection, runtimes] = await Promise.all([
+      inspectSkillInstallationAction(input),
+      listSkillInstallableRuntimesAction(),
+    ]);
+    return { ok: true, inspection, runtimes };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const artifactMissing = message.includes("尚无不可变 artifact")
+      || message.includes("artifact 不存在或不属于当前工作区");
+    return { ok: false, code: artifactMissing ? "artifact_missing" : "inspection_failed" };
+  }
+}
+
 /** Runtimes available for skill installation in the current workspace. */
 export async function listSkillInstallableRuntimesAction(): Promise<SkillInstallableRuntime[]> {
   const workspaceContext = await requireCurrentWorkspaceContext();

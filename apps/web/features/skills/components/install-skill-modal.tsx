@@ -9,8 +9,7 @@ import { AppIcon } from "@/shared/ui/app-icon";
 import {
   approveSkillInstallAction,
   createSkillInstallationAction,
-  inspectSkillInstallationAction,
-  listSkillInstallableRuntimesAction,
+  loadSkillInstallationWizardAction,
   listSkillServiceResolutionOptionsAction,
   type SkillInstallableRuntime,
   type SkillInstallationInspectionView,
@@ -47,11 +46,15 @@ export function InstallSkillModal({ skillId, onCancel, onInstalled }: InstallSki
     let cancelled = false;
     setLoading(true);
     setLoadError("");
-    void Promise.all([
-      inspectSkillInstallationAction({ skillId }),
-      listSkillInstallableRuntimesAction(),
-    ]).then(([nextInspection, rows]) => {
+    void loadSkillInstallationWizardAction({ skillId }).then((result) => {
       if (cancelled) return;
+      if (!result.ok) {
+        setLoadError(result.code === "artifact_missing"
+          ? tx("此 Skill 尚无不可变 artifact，请先重新导入以生成 artifact。", "This skill has no immutable artifact. Re-import it to generate one first.")
+          : tx("安装检查失败。", "Installation inspection failed."));
+        return;
+      }
+      const { inspection: nextInspection, runtimes: rows } = result;
       setInspection(nextInspection);
       setRuntimes(rows);
       const firstOnline = rows.find((runtime) => runtime.status === "online");
