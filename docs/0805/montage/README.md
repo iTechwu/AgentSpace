@@ -21,7 +21,7 @@
 - 每个 OpenMontage Job 使用短期、可撤销、带预算上限的 Runtime 委托凭证，消费继承原 AI 员工归因。
 - OpenMontage 本地渲染资源成本单独计量，不伪装成模型 Token，也不重复计算 models 账单。
 
-当前实现已经完成 OpenMontage Docker MCP 的受管连接、可信 Job 归因、签名事件回报、阶段卡片、审批和取消闭环，以及可恢复 Job Worker、外部 Agent executor 接口、checkpoint 状态对账、Artifact 输入下载、最终 MP4 自动上传、AI 员工产物登记和 `list_video_artifacts` 查询。批准的真实 Agent CLI 尚未烘焙并联调进 Docker Worker，Remotion/HyperFrames 真实渲染、最终视频聊天预览和模型委托计费仍是生产开放前的硬门禁，不能把当前状态解释为“完整视频生产已上线”。
+当前实现已经完成 OpenMontage Docker MCP 的受管连接、可信 Job 归因、签名事件回报、阶段卡片、审批和取消闭环，以及可恢复 Job Worker、任务级 Codex 0.146.0、Job/Stage 模型委托、checkpoint 状态对账、Artifact 输入下载、最终 MP4 自动上传和聊天内预览/下载。Remotion 与 HyperFrames 已在最终 Worker 镜像内分别完成真实 MP4 渲染。生产开放前仍需在部署环境完成付费模型、故障注入、双员工账单隔离和长视频大文件 E2E；本地验证不能替代这组线上依赖验收。
 
 ```mermaid
 flowchart LR
@@ -51,6 +51,7 @@ flowchart LR
 4. [实施路线与验收标准](./04-实施路线与验收标准.md)
 5. [AI 员工聊天阶段可视化方案](./05-AI员工聊天阶段可视化方案.md)
 6. [实施状态、部署与联调手册](./06-实施状态与部署联调.md)
+7. [委托计费与清理 E2E](./07-委托计费与清理E2E.md)
 
 ## 边界
 
