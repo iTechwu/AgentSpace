@@ -132,6 +132,8 @@ export function ConversationShell({
   shellClassName = "",
   customThreadHeader,
   customThreadContent,
+  threadAfterMessages,
+  threadHasSupplementaryContent = false,
   mentionCandidates = [],
   supplementaryPanel,
   supplementaryPanelTitle,
@@ -184,6 +186,8 @@ export function ConversationShell({
   shellClassName?: string;
   customThreadHeader?: (input: { backButton: React.ReactNode | null }) => React.ReactNode;
   customThreadContent?: React.ReactNode;
+  threadAfterMessages?: React.ReactNode;
+  threadHasSupplementaryContent?: boolean;
   mentionCandidates?: ConversationMentionCandidate[];
   supplementaryPanel?: React.ReactNode;
   supplementaryPanelTitle?: string;
@@ -1020,9 +1024,10 @@ export function ConversationShell({
                           onReviewApproval={onReviewApproval}
                         />
                       ))
-                    ) : (
+                    ) : !threadHasSupplementaryContent ? (
                       <ChatEmptyState body={emptyThreadBody} title={emptyThreadTitle} />
-                    )}
+                    ) : null}
+                    {threadAfterMessages}
                   </div>
 
                   <ChatComposer

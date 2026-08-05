@@ -2061,8 +2061,53 @@ textarea:focus {
   overflow-wrap: anywhere;
 }
 
+.openmontage-channel-jobs__error {
+  width: min(86%, 760px);
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+  border-radius: var(--radius-md, 6px);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 0.78rem;
+}
+
+.openmontage-channel-jobs__error > svg {
+  flex: none;
+}
+
+.openmontage-channel-jobs__error span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.openmontage-channel-jobs__error button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-md, 6px);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.openmontage-channel-jobs__error button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 @media (max-width: 680px) {
   .openmontage-job-card {
+    width: 100%;
+  }
+
+  .openmontage-channel-jobs__error {
     width: 100%;
   }
 
