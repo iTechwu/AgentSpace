@@ -1,4 +1,7 @@
-import { reconcileSyncingOpenMontageJobsAsync } from "@dofe-agent/services";
+import {
+  drainPendingOpenMontageJobDelegationsAsync,
+  reconcileSyncingOpenMontageJobsAsync,
+} from "@dofe-agent/services";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +16,12 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const result = await reconcileSyncingOpenMontageJobsAsync({ limit: 50 });
-  return Response.json(result, { status: result.failed > 0 ? 503 : 200 });
+  const [events, delegations] = await Promise.all([
+    reconcileSyncingOpenMontageJobsAsync({ limit: 50 }),
+    drainPendingOpenMontageJobDelegationsAsync({ limit: 50 }),
+  ]);
+  return Response.json(
+    { events, delegations },
+    { status: events.failed > 0 || delegations.failed > 0 ? 503 : 200 },
+  );
 }

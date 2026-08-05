@@ -1,21 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  mockCreateJobLink,
+  mockBindJobDelegation,
   mockReadAuthorization,
   mockReadTaskForDaemon,
   mockRequireDaemonAuth,
 } = vi.hoisted(() => ({
-  mockCreateJobLink: vi.fn(),
+  mockBindJobDelegation: vi.fn(),
   mockReadAuthorization: vi.fn(),
   mockReadTaskForDaemon: vi.fn(),
   mockRequireDaemonAuth: vi.fn(),
 }));
 
 vi.mock("@dofe-agent/db", () => ({
-  createOpenMontageJobLinkSync: mockCreateJobLink,
   OpenMontageJobBindingError: class OpenMontageJobBindingError extends Error {},
   readMcpTaskAuditAuthorizationSync: mockReadAuthorization,
+}));
+
+vi.mock("@dofe-agent/services", () => ({
+  bindOpenMontageJobDelegationAsync: mockBindJobDelegation,
+  OpenMontageDelegationConfigurationError: class OpenMontageDelegationConfigurationError extends Error {},
+  OpenMontageDelegationValidationError: class OpenMontageDelegationValidationError extends Error {},
 }));
 
 vi.mock("../../../../_lib/auth", () => ({
@@ -35,6 +40,7 @@ describe("daemon OpenMontage Job report route", () => {
       employeeId: "employee-1",
       agentId: "legacy-agent",
       runtimeId: "runtime-1",
+      runtimeCredentialId: "00000000-0000-4000-8000-000000000001",
       routerSessionId: "conversation-1",
       status: "running",
       inputJson: JSON.stringify({ channelName: "direct:employee-1" }),
@@ -49,9 +55,8 @@ describe("daemon OpenMontage Job report route", () => {
         }],
       }),
     });
-    mockCreateJobLink.mockImplementation((input) => ({
-      jobId: input.snapshot.jobId,
-      sourceInvocationId: input.sourceInvocationId,
+    mockBindJobDelegation.mockImplementation((input) => Promise.resolve({
+      link: { jobId: input.snapshot.jobId, sourceInvocationId: input.sourceInvocationId },
     }));
   });
 
@@ -60,15 +65,18 @@ describe("daemon OpenMontage Job report route", () => {
 
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual({ jobId: "om_job_1" });
-    expect(mockCreateJobLink).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockBindJobDelegation).toHaveBeenCalledWith(expect.objectContaining({
       workspaceId: "ws-1",
       employeeId: "employee-1",
       runtimeId: "runtime-1",
+      runtimeCredentialId: "00000000-0000-4000-8000-000000000001",
       rootTaskId: "task-1",
       conversationId: "conversation-1",
       sourceInvocationId: "invocation-1",
       traceId: "task-1",
       channelName: "direct:employee-1",
+      connectionId: "connection-1",
+      budget: { maxAmount: "20.00", currency: "CNY" },
     }));
   });
 
@@ -79,7 +87,7 @@ describe("daemon OpenMontage Job report route", () => {
     const response = await post(snapshot);
 
     expect(response.status).toBe(422);
-    expect(mockCreateJobLink).not.toHaveBeenCalled();
+    expect(mockBindJobDelegation).not.toHaveBeenCalled();
   });
 
   it("rejects reports from connections not authorized for the official submit tool", async () => {
@@ -97,7 +105,25 @@ describe("daemon OpenMontage Job report route", () => {
     const response = await post(submittedJob());
 
     expect(response.status).toBe(422);
-    expect(mockCreateJobLink).not.toHaveBeenCalled();
+    expect(mockBindJobDelegation).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Job when the task did not snapshot its Runtime credential", async () => {
+    mockReadTaskForDaemon.mockReturnValue({
+      id: "task-1",
+      workspaceId: "ws-1",
+      employeeId: "employee-1",
+      agentId: "legacy-agent",
+      runtimeId: "runtime-1",
+      routerSessionId: "conversation-1",
+      status: "running",
+      inputJson: JSON.stringify({ channelName: "direct:employee-1" }),
+    });
+
+    const response = await post(submittedJob());
+
+    expect(response.status).toBe(409);
+    expect(mockBindJobDelegation).not.toHaveBeenCalled();
   });
 });
 
@@ -138,7 +164,7 @@ function submittedJob() {
       input: {},
       brief: {},
       output: {},
-      budget: {},
+      budget: { maxAmount: "20.00", currency: "CNY" },
     },
     stages: [{
       code: "research",

@@ -28,6 +28,7 @@ const ATTRIBUTION = {
 const LINK = {
   jobId: "om_job_1",
   ...ATTRIBUTION,
+  runtimeCredentialId: "runtime-credential-1",
   workflowName: "animated-explainer",
   workflowVersion: "2.0",
   createdAt: "2026-08-05T10:00:00Z",

@@ -31,6 +31,7 @@ function clearOpenMontageTables(): void {
     DELETE FROM openmontage_chat_binding;
     DELETE FROM openmontage_job_event;
     DELETE FROM openmontage_job_projection;
+    DELETE FROM openmontage_model_delegation;
     DELETE FROM openmontage_job_link;
   `);
 }
@@ -122,6 +123,7 @@ function createLink(overrides: Record<string, unknown> = {}) {
     workspaceId: "default",
     employeeId: "employee-1",
     runtimeId: "runtime-1",
+    runtimeCredentialId: "00000000-0000-4000-8000-000000000001",
     rootTaskId: "task-1",
     conversationId: "conversation-1",
     sourceInvocationId: "invocation-1",
@@ -129,6 +131,18 @@ function createLink(overrides: Record<string, unknown> = {}) {
     channelName: "direct:employee-1",
     conversationMessageId: "message-1",
     snapshot: snapshot(),
+    delegation: {
+      delegationId: "00000000-0000-4000-8000-000000000002",
+      runtimeCredentialId: "00000000-0000-4000-8000-000000000001",
+      modelsTenantId: "00000000-0000-4000-8000-000000000003",
+      modelsTeamId: "00000000-0000-4000-8000-000000000004",
+      mcpConnectionId: "connection-1",
+      secretRef: "vault://runtime-credential/delegation-1",
+      spendLimit: "20.00",
+      currency: "CNY",
+      status: "active",
+      expiresAt: "2026-08-06T09:00:00.000Z",
+    },
     ...overrides,
   });
 }
@@ -162,6 +176,7 @@ test("Job Link stores immutable attribution, initial projection, and chat bindin
   const binding = readOpenMontageChatBindingSync("default", "om_job_1");
 
   assert.equal(link.employeeId, "employee-1");
+  assert.equal(link.runtimeCredentialId, "00000000-0000-4000-8000-000000000001");
   assert.equal(link.workflowVersion, "2.0");
   assert.equal(projection?.lastAppliedSequence, 1);
   assert.equal(projection?.stages[1]?.approvalRequired, true);
@@ -181,6 +196,10 @@ test("Job Link stores immutable attribution, initial projection, and chat bindin
 
   assert.throws(
     () => createLink({ employeeId: "employee-2" }),
+    /immutable attribution/,
+  );
+  assert.throws(
+    () => createLink({ runtimeCredentialId: "00000000-0000-4000-8000-000000000099" }),
     /immutable attribution/,
   );
   assert.throws(

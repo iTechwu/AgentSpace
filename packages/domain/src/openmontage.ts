@@ -135,6 +135,10 @@ export interface OpenMontageJobAttribution {
 export interface OpenMontageSubmittedJob {
   attribution: OpenMontageJobAttribution;
   clientRequestId: string;
+  budget: {
+    maxAmount: string;
+    currency: string;
+  };
   snapshot: OpenMontageJobSnapshotSeed;
 }
 
@@ -205,6 +209,12 @@ export function parseOpenMontageSubmittedJob(value: unknown): OpenMontageSubmitt
   for (const field of ["input", "brief", "output", "budget"] as const) {
     requireObject(request[field], `request.${field}`);
   }
+  const budgetSource = request.budget as Record<string, unknown>;
+  assertExactKeys(budgetSource, ["maxAmount", "currency"]);
+  const budget = {
+    maxAmount: requireAmount(budgetSource.maxAmount, "request.budget.maxAmount"),
+    currency: requireCurrency(budgetSource.currency, "request.budget.currency"),
+  };
 
   if (!Array.isArray(source.stages) || source.stages.length === 0) {
     throw new Error("stages must be a non-empty array.");
@@ -233,7 +243,21 @@ export function parseOpenMontageSubmittedJob(value: unknown): OpenMontageSubmitt
     throw new Error("request.workflow must match workflow.name.");
   }
   createOpenMontageJobProjection(snapshot);
-  return { attribution, clientRequestId, snapshot };
+  return { attribution, clientRequestId, budget, snapshot };
+}
+
+function requireAmount(value: unknown, field: string): string {
+  if (typeof value !== "string" || !/^\d{1,10}(?:\.\d{1,8})?$/.test(value) || Number(value) <= 0) {
+    throw new Error(`${field} must be a positive decimal string.`);
+  }
+  return value;
+}
+
+function requireCurrency(value: unknown, field: string): string {
+  if (typeof value !== "string" || !/^[A-Z]{3,10}$/.test(value)) {
+    throw new Error(`${field} must be an uppercase currency code.`);
+  }
+  return value;
 }
 
 export function parseOpenMontageJobEvent(value: unknown): OpenMontageJobEvent {

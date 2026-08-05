@@ -1233,6 +1233,7 @@ export function getPostgresSchemaStatements(): string[] {
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         agent_id TEXT NOT NULL,
         runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
+        runtime_credential_id TEXT,
         router_session_id TEXT,
         issue_id TEXT,
         trigger_type TEXT NOT NULL DEFAULT 'manual',
@@ -1262,6 +1263,9 @@ export function getPostgresSchemaStatements(): string[] {
       ALTER TABLE agent_task_queue ADD COLUMN IF NOT EXISTS binding_generation INTEGER
     `,
     `
+      ALTER TABLE agent_task_queue ADD COLUMN IF NOT EXISTS runtime_credential_id TEXT
+    `,
+    `
       ALTER TABLE agent_task_queue ADD COLUMN IF NOT EXISTS employee_id TEXT
     `,
     `
@@ -1286,6 +1290,7 @@ export function getPostgresSchemaStatements(): string[] {
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         employee_id TEXT NOT NULL,
         runtime_id TEXT NOT NULL,
+        runtime_credential_id TEXT NOT NULL,
         root_task_id TEXT NOT NULL,
         conversation_id TEXT NOT NULL,
         source_invocation_id TEXT NOT NULL,
@@ -1295,6 +1300,28 @@ export function getPostgresSchemaStatements(): string[] {
         created_at TIMESTAMPTZ NOT NULL,
         UNIQUE(workspace_id, source_invocation_id)
       )
+    `,
+    `ALTER TABLE openmontage_job_link ADD COLUMN IF NOT EXISTS runtime_credential_id TEXT`,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_model_delegation (
+        job_id TEXT PRIMARY KEY REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        delegation_id TEXT NOT NULL UNIQUE,
+        runtime_credential_id TEXT NOT NULL,
+        models_tenant_id TEXT NOT NULL,
+        models_team_id TEXT NOT NULL,
+        mcp_connection_id TEXT NOT NULL,
+        secret_ref TEXT NOT NULL,
+        spend_limit TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        status TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_model_delegation_credential
+        ON openmontage_model_delegation(runtime_credential_id, created_at DESC)
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_openmontage_job_link_workspace_conversation

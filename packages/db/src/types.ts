@@ -1275,6 +1275,8 @@ export interface QueuedTaskRecord {
   /** @deprecated Legacy display-name field. Use employeeId for identity. */
   agentId: string;
   runtimeId: string;
+  /** Runtime credential captured when the task is claimed; immutable for billing attribution. */
+  runtimeCredentialId?: string;
   routerSessionId?: string;
   issueId?: string;
   triggerType: string;

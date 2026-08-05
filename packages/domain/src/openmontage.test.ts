@@ -37,7 +37,7 @@ function submittedJob() {
       input: {},
       brief: {},
       output: {},
-      budget: {},
+      budget: { maxAmount: "20.00", currency: "CNY" },
     },
     stages: [
       {
@@ -68,6 +68,7 @@ test("submitted Job parsing validates the full OpenMontage response and produces
 
   assert.equal(parsed.attribution.employeeId, "employee-1");
   assert.equal(parsed.clientRequestId, "client-request-1");
+  assert.deepEqual(parsed.budget, { maxAmount: "20.00", currency: "CNY" });
   assert.equal(parsed.snapshot.currentStage, null);
   assert.equal(parsed.snapshot.stages[1]?.approvalStatus, "REQUIRED");
 });

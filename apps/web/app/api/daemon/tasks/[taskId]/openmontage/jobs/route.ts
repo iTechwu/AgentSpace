@@ -1,8 +1,12 @@
 import {
-  createOpenMontageJobLinkSync,
   OpenMontageJobBindingError,
   readMcpTaskAuditAuthorizationSync,
 } from "@dofe-agent/db";
+import {
+  bindOpenMontageJobDelegationAsync,
+  OpenMontageDelegationConfigurationError,
+  OpenMontageDelegationValidationError,
+} from "@dofe-agent/services";
 import {
   OPENMONTAGE_MCP_CATALOG_SLUG,
   parseOpenMontageSubmittedJob,
@@ -26,6 +30,12 @@ export async function POST(
   if (task instanceof Response) return task;
   if (task.status !== "running") {
     return Response.json({ error: "Task is no longer running." }, { status: 409 });
+  }
+  if (!task.runtimeCredentialId) {
+    return Response.json(
+      { error: "Task has no immutable Runtime credential attribution." },
+      { status: 409 },
+    );
   }
 
   let body: { connectionId?: unknown; snapshot?: unknown };
@@ -84,15 +94,24 @@ export async function POST(
   }
 
   try {
-    const link = createOpenMontageJobLinkSync({
+    const result = await bindOpenMontageJobDelegationAsync({
       ...expectedAttribution,
+      runtimeCredentialId: task.runtimeCredentialId,
+      connectionId,
       channelName,
+      budget: submitted.budget,
       snapshot: submitted.snapshot,
     });
-    return Response.json({ jobId: link.jobId }, { status: 201 });
+    return Response.json({ jobId: result.link.jobId }, { status: 201 });
   } catch (error) {
     if (error instanceof OpenMontageJobBindingError) {
       return Response.json({ error: error.message }, { status: 409 });
+    }
+    if (error instanceof OpenMontageDelegationValidationError) {
+      return Response.json({ error: error.message }, { status: 422 });
+    }
+    if (error instanceof OpenMontageDelegationConfigurationError) {
+      return Response.json({ error: error.message }, { status: 503 });
     }
     throw error;
   }

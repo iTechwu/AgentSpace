@@ -171,7 +171,13 @@ test("task claims allow local legacy runtimes but block incomplete managed provi
     priority: "high",
   });
   assert.ok(legacyTask);
-  assert.equal(claimNextQueuedTaskForRuntimeSync(runtimeId)?.id, legacyTask.id);
+  const claimedLegacyTask = claimNextQueuedTaskForRuntimeSync(runtimeId);
+  assert.equal(claimedLegacyTask?.id, legacyTask.id);
+  assert.equal(
+    claimedLegacyTask?.runtimeCredentialId,
+    "legacy-local-credential",
+    "billing attribution snapshots the credential at claim time",
+  );
 
   updateAgentRuntimeManagedFieldsSync({
     runtimeId,

@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockReconcile = vi.hoisted(() => vi.fn());
+const { mockReconcile, mockDrain } = vi.hoisted(() => ({
+  mockReconcile: vi.fn(),
+  mockDrain: vi.fn(),
+}));
 
 vi.mock("@dofe-agent/services", () => ({
   reconcileSyncingOpenMontageJobsAsync: mockReconcile,
+  drainPendingOpenMontageJobDelegationsAsync: mockDrain,
 }));
 
 import { GET } from "./route";
@@ -15,6 +19,8 @@ describe("OpenMontage reconciliation cron route", () => {
     process.env.CRON_SECRET = "cron-secret";
     mockReconcile.mockReset();
     mockReconcile.mockResolvedValue({ attempted: 1, succeeded: 1, failed: 0 });
+    mockDrain.mockReset();
+    mockDrain.mockResolvedValue({ attempted: 1, succeeded: 1, failed: 0 });
   });
 
   afterEach(() => {
@@ -37,8 +43,12 @@ describe("OpenMontage reconciliation cron route", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ attempted: 1, succeeded: 1, failed: 0 });
+    expect(await response.json()).toEqual({
+      events: { attempted: 1, succeeded: 1, failed: 0 },
+      delegations: { attempted: 1, succeeded: 1, failed: 0 },
+    });
     expect(mockReconcile).toHaveBeenCalledWith({ limit: 50 });
+    expect(mockDrain).toHaveBeenCalledWith({ limit: 50 });
   });
 
   it("returns a retryable status when any Job remains unreconciled", async () => {

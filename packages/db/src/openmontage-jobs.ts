@@ -14,6 +14,7 @@ export interface OpenMontageJobLinkRecord {
   workspaceId: string;
   employeeId: string;
   runtimeId: string;
+  runtimeCredentialId: string;
   rootTaskId: string;
   conversationId: string;
   sourceInvocationId: string;
@@ -21,6 +22,22 @@ export interface OpenMontageJobLinkRecord {
   workflowName: string;
   workflowVersion: string;
   createdAt: string;
+}
+
+export interface OpenMontageModelDelegationRecord {
+  jobId: string;
+  delegationId: string;
+  runtimeCredentialId: string;
+  modelsTenantId: string;
+  modelsTeamId: string;
+  mcpConnectionId: string;
+  secretRef: string;
+  spendLimit: string;
+  currency: string;
+  status: string;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface OpenMontageChatBindingRecord {
@@ -52,11 +69,13 @@ export interface CreateOpenMontageJobLinkInput {
   workspaceId: string;
   employeeId: string;
   runtimeId: string;
+  runtimeCredentialId: string;
   rootTaskId: string;
   conversationId: string;
   sourceInvocationId: string;
   traceId: string;
   snapshot: OpenMontageJobSnapshotSeed;
+  delegation: Omit<OpenMontageModelDelegationRecord, "jobId" | "createdAt" | "updatedAt">;
   channelName?: string;
   conversationMessageId?: string;
   createdAt?: string;
@@ -77,6 +96,13 @@ export function createOpenMontageJobLinkSync(
     const existing = readOpenMontageJobLinkWithDatabase(db, input.snapshot.jobId);
     if (existing) {
       assertImmutableLink(existing, input);
+      const existingDelegationRow = db.prepare(
+        `${modelDelegationSelect()} WHERE job_id = ?`,
+      ).get(input.snapshot.jobId) as Record<string, unknown> | undefined;
+      if (!existingDelegationRow) {
+        throw new OpenMontageJobBindingError("OpenMontage Job model delegation is missing.");
+      }
+      assertImmutableDelegation(mapModelDelegation(existingDelegationRow), input.delegation);
       if (input.channelName) {
         bindOpenMontageChatWithDatabase(db, {
           workspaceId: input.workspaceId,
@@ -102,15 +128,16 @@ export function createOpenMontageJobLinkSync(
 
     db.prepare(
       `INSERT INTO openmontage_job_link (
-        job_id, workspace_id, employee_id, runtime_id, root_task_id,
+        job_id, workspace_id, employee_id, runtime_id, runtime_credential_id, root_task_id,
         conversation_id, source_invocation_id, trace_id,
         workflow_name, workflow_version, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       input.snapshot.jobId,
       input.workspaceId,
       input.employeeId,
       input.runtimeId,
+      input.runtimeCredentialId,
       input.rootTaskId,
       input.conversationId,
       input.sourceInvocationId,
@@ -119,6 +146,7 @@ export function createOpenMontageJobLinkSync(
       input.snapshot.workflow.version,
       now,
     );
+    insertOpenMontageModelDelegation(db, input.snapshot.jobId, input.delegation, now);
     db.prepare(
       `INSERT INTO openmontage_job_projection (
         job_id, workspace_id, status, current_stage, snapshot_json,
@@ -152,8 +180,69 @@ export function createOpenMontageJobLinkSync(
   });
 }
 
+function assertImmutableDelegation(
+  existing: OpenMontageModelDelegationRecord,
+  expected: CreateOpenMontageJobLinkInput["delegation"],
+): void {
+  const existingValues = [
+    existing.delegationId,
+    existing.runtimeCredentialId,
+    existing.modelsTenantId,
+    existing.modelsTeamId,
+    existing.mcpConnectionId,
+    existing.secretRef,
+    existing.spendLimit,
+    existing.currency,
+    existing.expiresAt,
+  ];
+  const expectedValues = [
+    expected.delegationId,
+    expected.runtimeCredentialId,
+    expected.modelsTenantId,
+    expected.modelsTeamId,
+    expected.mcpConnectionId,
+    expected.secretRef,
+    expected.spendLimit,
+    expected.currency,
+    expected.expiresAt,
+  ];
+  if (stableJson(existingValues) !== stableJson(expectedValues)) {
+    throw new OpenMontageJobBindingError("OpenMontage Job immutable delegation does not match.");
+  }
+}
+
 export function readOpenMontageJobLinkSync(jobId: string): OpenMontageJobLinkRecord | null {
   return readOpenMontageJobLinkWithDatabase(getDatabase(), jobId);
+}
+
+export function readOpenMontageModelDelegationSync(jobId: string): OpenMontageModelDelegationRecord | null {
+  const row = getDatabase().prepare(
+    `${modelDelegationSelect()} WHERE job_id = ?`,
+  ).get(jobId) as Record<string, unknown> | undefined;
+  return row ? mapModelDelegation(row) : null;
+}
+
+export function updateOpenMontageModelDelegationStatusSync(jobId: string, status: string): void {
+  const result = getDatabase().prepare(
+    `UPDATE openmontage_model_delegation SET status = ?, updated_at = ? WHERE job_id = ?`,
+  ).run(status, new Date().toISOString(), jobId);
+  if (result.changes === 0) {
+    throw new OpenMontageJobBindingError("OpenMontage model delegation is missing.");
+  }
+}
+
+export function listOpenMontageDelegationDrainPendingJobIdsSync(
+  options: { limit?: number } = {},
+): string[] {
+  const limit = Math.min(500, Math.max(1, Math.floor(options.limit ?? 100)));
+  const rows = getDatabase().prepare(
+    `SELECT job_id AS "jobId"
+       FROM openmontage_model_delegation
+      WHERE status = 'drain_pending'
+      ORDER BY updated_at ASC, job_id ASC
+      LIMIT ?`,
+  ).all(limit) as Array<{ jobId?: unknown }>;
+  return rows.flatMap((row) => typeof row.jobId === "string" ? [row.jobId] : []);
 }
 
 export function readOpenMontageJobProjectionSync(
@@ -541,6 +630,7 @@ function assertImmutableLink(
     input.workspaceId,
     input.employeeId,
     input.runtimeId,
+    input.runtimeCredentialId,
     input.rootTaskId,
     input.conversationId,
     input.sourceInvocationId,
@@ -552,6 +642,7 @@ function assertImmutableLink(
     existing.workspaceId,
     existing.employeeId,
     existing.runtimeId,
+    existing.runtimeCredentialId,
     existing.rootTaskId,
     existing.conversationId,
     existing.sourceInvocationId,
@@ -585,10 +676,20 @@ function jobLinkSelect(): string {
   return `SELECT
     job_id AS "jobId", workspace_id AS "workspaceId", employee_id AS "employeeId",
     runtime_id AS "runtimeId", root_task_id AS "rootTaskId",
+    runtime_credential_id AS "runtimeCredentialId",
     conversation_id AS "conversationId", source_invocation_id AS "sourceInvocationId",
     trace_id AS "traceId", workflow_name AS "workflowName",
     workflow_version AS "workflowVersion", created_at AS "createdAt"
     FROM openmontage_job_link`;
+}
+
+function modelDelegationSelect(): string {
+  return `SELECT job_id AS "jobId", delegation_id AS "delegationId",
+    runtime_credential_id AS "runtimeCredentialId", models_tenant_id AS "modelsTenantId",
+    models_team_id AS "modelsTeamId", mcp_connection_id AS "mcpConnectionId",
+    secret_ref AS "secretRef", spend_limit AS "spendLimit", currency, status,
+    expires_at AS "expiresAt", created_at AS "createdAt", updated_at AS "updatedAt"
+    FROM openmontage_model_delegation`;
 }
 
 function chatBindingSelect(): string {
@@ -613,6 +714,7 @@ function mapJobLink(row: Record<string, unknown>): OpenMontageJobLinkRecord {
     workspaceId: String(row.workspaceId),
     employeeId: String(row.employeeId),
     runtimeId: String(row.runtimeId),
+    runtimeCredentialId: String(row.runtimeCredentialId),
     rootTaskId: String(row.rootTaskId),
     conversationId: String(row.conversationId),
     sourceInvocationId: String(row.sourceInvocationId),
@@ -621,6 +723,52 @@ function mapJobLink(row: Record<string, unknown>): OpenMontageJobLinkRecord {
     workflowVersion: String(row.workflowVersion),
     createdAt: String(row.createdAt),
   };
+}
+
+function mapModelDelegation(row: Record<string, unknown>): OpenMontageModelDelegationRecord {
+  return {
+    jobId: String(row.jobId),
+    delegationId: String(row.delegationId),
+    runtimeCredentialId: String(row.runtimeCredentialId),
+    modelsTenantId: String(row.modelsTenantId),
+    modelsTeamId: String(row.modelsTeamId),
+    mcpConnectionId: String(row.mcpConnectionId),
+    secretRef: String(row.secretRef),
+    spendLimit: String(row.spendLimit),
+    currency: String(row.currency),
+    status: String(row.status),
+    expiresAt: String(row.expiresAt),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+function insertOpenMontageModelDelegation(
+  db: ReturnType<typeof getDatabase>,
+  jobId: string,
+  delegation: CreateOpenMontageJobLinkInput["delegation"],
+  now: string,
+): void {
+  db.prepare(
+    `INSERT INTO openmontage_model_delegation (
+      job_id, delegation_id, runtime_credential_id, models_tenant_id, models_team_id,
+      mcp_connection_id, secret_ref, spend_limit, currency, status, expires_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    jobId,
+    delegation.delegationId,
+    delegation.runtimeCredentialId,
+    delegation.modelsTenantId,
+    delegation.modelsTeamId,
+    delegation.mcpConnectionId,
+    delegation.secretRef,
+    delegation.spendLimit,
+    delegation.currency,
+    delegation.status,
+    delegation.expiresAt,
+    now,
+    now,
+  );
 }
 
 function mapChatBinding(row: Record<string, unknown>): OpenMontageChatBindingRecord {

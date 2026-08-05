@@ -1342,6 +1342,7 @@ export {
 } from "@dofe-agent/db";
 export {
   createRuntimeCredentialVaultFromEnvironment,
+  buildRuntimeCredentialSecretRef,
   EncryptedFileRuntimeCredentialVault,
   getRuntimeCredentialVault,
   resetRuntimeCredentialVaultForTests,
@@ -1388,3 +1389,14 @@ export {
   type OpenMontageOutputArtifactMetadata,
   type OpenMontagePublishedArtifactDocument,
 } from "./openmontage/artifacts.ts";
+export {
+  bindOpenMontageJobDelegationAsync,
+  drainPendingOpenMontageJobDelegationsAsync,
+  drainOpenMontageJobDelegationAsync,
+  issueOpenMontageModelCredential,
+  OpenMontageDelegationAuthenticationError,
+  OpenMontageDelegationConfigurationError,
+  OpenMontageDelegationValidationError,
+  type BindOpenMontageJobDelegationInput,
+  type OpenMontageModelCredentialDocument,
+} from "./openmontage/delegations.ts";

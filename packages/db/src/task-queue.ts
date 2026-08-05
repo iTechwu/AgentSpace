@@ -150,6 +150,7 @@ export function listQueuedTasksSync(options?: {
         COALESCE(employee_name, agent_id) AS employeeName,
         agent_id AS agentId,
         runtime_id AS runtimeId,
+        runtime_credential_id AS "runtimeCredentialId",
         router_session_id AS routerSessionId,
         issue_id AS issueId,
         trigger_type AS triggerType,
@@ -233,6 +234,7 @@ export function readQueuedTaskSync(taskId: string): QueuedTaskRecord | null {
         COALESCE(employee_name, agent_id) AS employeeName,
         agent_id AS agentId,
         runtime_id AS runtimeId,
+        runtime_credential_id AS "runtimeCredentialId",
         router_session_id AS routerSessionId,
         issue_id AS issueId,
         trigger_type AS triggerType,
@@ -332,9 +334,18 @@ export function claimNextQueuedTaskForRuntimeSync(runtimeId: string, workspaceId
          SET status = 'claimed',
              claimed_at = ?,
              binding_generation = ?,
+             runtime_credential_id = COALESCE(
+               runtime_credential_id,
+               (SELECT managed_credential_id FROM agent_runtime WHERE id = agent_task_queue.runtime_id)
+             ),
              updated_at = ?
          WHERE id = ? AND status = 'queued'`,
-      ).run(now, bindingGeneration ?? null, now, row.id);
+      ).run(
+        now,
+        bindingGeneration ?? null,
+        now,
+        row.id,
+      );
       claimedId = row.id;
     }
     db.exec("COMMIT");
@@ -1018,7 +1029,8 @@ function selectQueuedTaskForRuntime(
   return db
     .prepare(
       `SELECT queue.id, COALESCE(queue.employee_id, queue.agent_id) AS employeeId,
-              queue.agent_id AS agentId, queue.workspace_id AS workspaceId
+              queue.agent_id AS agentId, queue.workspace_id AS workspaceId,
+              runtime.managed_credential_id AS "runtimeCredentialId"
        FROM agent_task_queue queue
        JOIN agent_runtime runtime ON runtime.id = queue.runtime_id
        JOIN employee_runtime_binding binding
@@ -1256,6 +1268,7 @@ function mapQueuedTaskRecord(value: Record<string, unknown>): QueuedTaskRecord |
     employeeName: value.employeeName,
     agentId: value.agentId,
     runtimeId: value.runtimeId,
+    runtimeCredentialId: typeof value.runtimeCredentialId === "string" ? value.runtimeCredentialId : undefined,
     routerSessionId: typeof value.routerSessionId === "string" ? value.routerSessionId : undefined,
     issueId: typeof value.issueId === "string" ? value.issueId : undefined,
     triggerType: value.triggerType,

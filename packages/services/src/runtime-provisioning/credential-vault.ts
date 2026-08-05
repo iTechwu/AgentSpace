@@ -164,7 +164,7 @@ export function createRuntimeCredentialVaultFromEnvironment(
   return new EncryptedFileRuntimeCredentialVault(resolve(directory), Buffer.from(encodedKey, "base64"));
 }
 
-function buildRuntimeCredentialSecretRef(credentialId: string, scope?: RuntimeCredentialScope): string {
+export function buildRuntimeCredentialSecretRef(credentialId: string, scope?: RuntimeCredentialScope): string {
   if (!scope) return `vault://runtime-credential/${credentialId}`;
   return [
     "vault://runtime-credential",

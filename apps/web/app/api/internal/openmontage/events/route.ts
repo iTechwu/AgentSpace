@@ -1,5 +1,6 @@
 import {
   dispatchOpenMontageProjectionNotificationSync,
+  drainOpenMontageJobDelegationAsync,
   ingestSignedOpenMontageEventSync,
   OpenMontageEventAuthenticationError,
   OpenMontageEventValidationError,
@@ -34,6 +35,13 @@ export async function POST(request: Request): Promise<Response> {
         dispatchOpenMontageProjectionNotificationSync(result.notification);
       } catch {
         // The durable notification outbox remains pending for a later drain.
+      }
+    }
+    if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(result.projection.status)) {
+      try {
+        await drainOpenMontageJobDelegationAsync(result.projection.jobId);
+      } catch {
+        // The delegation remains drain_pending and reconciliation can retry safely.
       }
     }
     let lastAppliedSequence = result.projection.lastAppliedSequence;

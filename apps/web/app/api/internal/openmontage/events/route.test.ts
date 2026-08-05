@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockDispatch,
+  mockDrain,
   mockIngest,
   mockReconcile,
   AuthenticationError,
@@ -11,6 +12,7 @@ const {
   ValidationError,
 } = vi.hoisted(() => ({
   mockDispatch: vi.fn(),
+  mockDrain: vi.fn(),
   mockIngest: vi.fn(),
   mockReconcile: vi.fn(),
   AuthenticationError: class extends Error {},
@@ -22,6 +24,7 @@ const {
 
 vi.mock("@dofe-agent/services", () => ({
   dispatchOpenMontageProjectionNotificationSync: mockDispatch,
+  drainOpenMontageJobDelegationAsync: mockDrain,
   ingestSignedOpenMontageEventSync: mockIngest,
   reconcileOpenMontageJobAsync: mockReconcile,
   OpenMontageEventAuthenticationError: AuthenticationError,
@@ -40,9 +43,26 @@ describe("OpenMontage event ingress", () => {
   beforeEach(() => {
     process.env.OPENMONTAGE_EVENT_SIGNING_SECRET = "test-secret";
     mockDispatch.mockReset();
+    mockDrain.mockReset();
+    mockDrain.mockResolvedValue(undefined);
     mockIngest.mockReset();
     mockReconcile.mockReset();
     mockReconcile.mockResolvedValue({ lastAppliedSequence: 3 });
+  });
+
+  it("moves the models delegation to draining after a terminal Job event", async () => {
+    mockIngest.mockReturnValue({
+      outcome: "applied",
+      projection: { jobId: "om_job_1", status: "SUCCEEDED", lastAppliedSequence: 8 },
+    });
+
+    const response = await POST(new Request("http://localhost/events", {
+      method: "POST",
+      body: "signed-body",
+    }));
+
+    expect(response.status).toBe(202);
+    expect(mockDrain).toHaveBeenCalledWith("om_job_1");
   });
 
   afterEach(() => {
