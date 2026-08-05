@@ -5,7 +5,7 @@ import { LanguageProvider } from "@/features/i18n/language-provider";
 import { FeedbackToastProvider } from "@/shared/ui/feedback-toast-provider";
 import { SkillInstallationPanel } from "./skill-installation-panel";
 
-const { createUpgrade, downloadDiagnostics, listRows } = vi.hoisted(() => ({
+const { createUpgrade, downloadDiagnostics, listApprovals, listRows } = vi.hoisted(() => ({
   createUpgrade: vi.fn(async () => ({
     data: { installationId: "candidate-installation", breaking: true, changeCount: 3 },
     toast: { tone: "info" as const, zh: "升级计划已创建。", en: "Upgrade planned." },
@@ -14,13 +14,14 @@ const { createUpgrade, downloadDiagnostics, listRows } = vi.hoisted(() => ({
     data: { fileName: "skill-diagnostics.json", contentBase64: "e30=", sha256: "a".repeat(64) },
     toast: { tone: "success" as const, zh: "脱敏诊断包已生成。", en: "Redacted diagnostics generated." },
   })),
+  listApprovals: vi.fn(),
   listRows: vi.fn(),
 }));
 
 vi.mock("@/features/skills/installation-actions", () => ({
   createSkillUpgradeAction: createUpgrade,
   downloadSkillInstallationDiagnosticsAction: downloadDiagnostics,
-  listSkillInstallApprovalsAction: vi.fn(async () => []),
+  listSkillInstallApprovalsAction: listApprovals,
   listSkillInstallationRowsForSkillAction: listRows,
   listSkillRunnerInvocationsAction: vi.fn(async () => []),
   promoteSkillUpgradeAction: vi.fn(),
@@ -50,6 +51,8 @@ describe("SkillInstallationPanel", () => {
   beforeEach(() => {
     createUpgrade.mockClear();
     downloadDiagnostics.mockClear();
+    listApprovals.mockReset();
+    listApprovals.mockResolvedValue([]);
     listRows.mockReset();
     listRows.mockResolvedValue([activeRow]);
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -98,5 +101,37 @@ describe("SkillInstallationPanel", () => {
     expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
     expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledTimes(1);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:diagnostics");
+  });
+
+  it("renders duplicate risk item keys without a React key warning", async () => {
+    listApprovals.mockResolvedValue([{
+      id: "approval-1",
+      skillId: "skill-1",
+      artifactDigest: "d".repeat(64),
+      releaseLockDigest: "e".repeat(64),
+      policyVersion: "v1",
+      riskDecisionDigest: "f".repeat(64),
+      decision: "approved",
+      riskItems: [
+        { category: "script", key: "skill_artifact_verification_failure", description: "Script verification failed." },
+        { category: "network", key: "skill_artifact_verification_failure", description: "Network verification failed." },
+      ],
+      reason: "QA approval",
+      createdAt: "2026-08-05T00:00:00.000Z",
+    }]);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(
+      <LanguageProvider initialLanguage="zh">
+        <FeedbackToastProvider>
+          <SkillInstallationPanel skillId="skill-1" />
+        </FeedbackToastProvider>
+      </LanguageProvider>,
+    );
+
+    expect(await screen.findByText("审批记录（1）")).toBeInTheDocument();
+    expect(screen.getAllByText("skill_artifact_verification_failure")).toHaveLength(2);
+    expect(consoleError.mock.calls.flat().join(" ")).not.toContain("same key");
+    consoleError.mockRestore();
   });
 });

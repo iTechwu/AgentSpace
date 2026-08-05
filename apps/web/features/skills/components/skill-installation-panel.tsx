@@ -390,8 +390,8 @@ function SkillInstallApprovalsAudit({
               {approval.reason ? <span className="skill-install-approvals-audit__reason">{approval.reason}</span> : null}
             </div>
             <ul>
-              {approval.riskItems.map((item) => (
-                <li key={item.key}><code>{item.key}</code></li>
+              {approval.riskItems.map((item, index) => (
+                <li key={`${item.category}:${item.key}:${index}`}><code>{item.key}</code></li>
               ))}
             </ul>
           </li>
