@@ -74,8 +74,8 @@ export function DataProtectionSloPanel() {
       </div>
       {view.alerts.length > 0 ? (
         <ul className="data-protection-slo__alerts">
-          {view.alerts.map((alert) => (
-            <li className={`data-protection-slo__alert data-protection-slo__alert--${alert.severity}`} key={alert.code}>
+          {view.alerts.map((alert, index) => (
+            <li className={`data-protection-slo__alert data-protection-slo__alert--${alert.severity}`} key={`${alert.code}:${alert.employeeName ?? "workspace"}:${index}`}>
               <code>{alert.code}</code>
               <span>{alert.message}</span>
             </li>
