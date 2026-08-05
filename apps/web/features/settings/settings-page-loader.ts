@@ -77,15 +77,16 @@ export async function loadSettingsPageData(input: {
 }): Promise<SettingsPageData> {
   const requestedSection = input.section ?? DEFAULT_SETTINGS_SECTION;
   const workspaceId = input.currentWorkspace.id;
-
-  const identity = readAuthIdentityForUserSync(input.currentUser.id, "sso");
-  if (!identity) {
-    throw new Error("auth.sso_user_lookup_failed");
-  }
-  const ssoDirectory = await loadSsoWorkspaceDirectory({
-    subject: identity.providerSubject,
-    workspaceId,
-  });
+  const requiresCurrentWorkspaceRole = requestedSection === "permissions" || requestedSection === "integrations";
+  const ssoDirectory = requiresCurrentWorkspaceRole
+    ? await loadCurrentSsoWorkspaceDirectory({
+      currentUserId: input.currentUser.id,
+      workspaceId,
+    })
+    : {
+      role: input.role,
+      workspaceName: input.currentWorkspace.name,
+    };
   if (!canAccessSettingsSection(ssoDirectory.role, requestedSection)) {
     throw new SettingsSectionForbiddenError(requestedSection);
   }
@@ -137,6 +138,20 @@ export async function loadSettingsPageData(input: {
       : undefined,
     sessions: shouldLoadSessions ? listSessionsForUserSync(input.currentUser.id) : [],
   };
+}
+
+async function loadCurrentSsoWorkspaceDirectory(input: {
+  currentUserId: string;
+  workspaceId: string;
+}) {
+  const identity = readAuthIdentityForUserSync(input.currentUserId, "sso");
+  if (!identity) {
+    throw new Error("auth.sso_user_lookup_failed");
+  }
+  return await loadSsoWorkspaceDirectory({
+    subject: identity.providerSubject,
+    workspaceId: input.workspaceId,
+  });
 }
 
 export class SettingsSectionForbiddenError extends Error {

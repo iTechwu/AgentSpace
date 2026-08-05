@@ -215,6 +215,7 @@ describe("workspace settings route", () => {
     expect(data.feishuAvailableUsers).toEqual([]);
     expect(data.feishuIntegrations).toEqual([]);
     expect(mockListSessionsForUserSync).toHaveBeenCalledWith("user-1");
+    expect(mockLoadSsoWorkspaceDirectory).not.toHaveBeenCalled();
   });
 
   it("seeds the workspace module cache with settings initial data", async () => {
@@ -227,6 +228,7 @@ describe("workspace settings route", () => {
     expect(page.props.moduleData.moduleId).toBe("settings");
     expect(page.props.moduleData.data.initialSection).toBe("preferences");
     expect(page.props.workspaceId).toBe("workspace-mars");
+    expect(mockLoadSsoWorkspaceDirectory).not.toHaveBeenCalled();
   });
 
   it("loads only Feishu integration data for the integrations section", async () => {
