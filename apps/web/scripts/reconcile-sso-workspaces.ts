@@ -1,6 +1,7 @@
 import { createSsoInternalClient } from "@dofe/sso-node";
 import {
   applySsoWorkspaceMaintenanceSync,
+  assertExpectedSsoWorkspaceScopeCount,
   assertSsoWorkspaceScopeConfirmation,
   createSsoWorkspaceScopeDigest,
   planSsoWorkspaceMaintenanceSync,
@@ -24,6 +25,10 @@ const scopes = buildSsoAdminWorkspaceScopes({ teams, tenants });
 const activeWorkspaceIds = new Set(scopes.map((scope) => scope.id));
 const authoritativeScopeDigest = createSsoWorkspaceScopeDigest(activeWorkspaceIds);
 if (apply) {
+  assertExpectedSsoWorkspaceScopeCount(
+    activeWorkspaceIds,
+    readArgument("--expected-scope-count="),
+  );
   assertSsoWorkspaceScopeConfirmation(
     activeWorkspaceIds,
     readArgument("--confirm-scope-digest="),

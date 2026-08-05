@@ -13,6 +13,7 @@ import {
 } from "@dofe-agent/db";
 import {
   applySsoWorkspaceMaintenanceSync,
+  assertExpectedSsoWorkspaceScopeCount,
   assertSsoWorkspaceScopeConfirmation,
   assertUniqueWorkspaceSsoBindings,
   createSsoWorkspaceScopeDigest,
@@ -56,6 +57,18 @@ describe("SSO workspace maintenance", () => {
       /confirm-scope-digest/,
     );
     expect(() => assertSsoWorkspaceScopeConfirmation(activeWorkspaceIds, digest)).not.toThrow();
+  });
+
+  it("requires the independently expected authoritative scope count", () => {
+    const activeWorkspaceIds = new Set(["sso-team-a", "sso-team-b"]);
+
+    expect(() => assertExpectedSsoWorkspaceScopeCount(activeWorkspaceIds, undefined)).toThrow(
+      /expected-scope-count/,
+    );
+    expect(() => assertExpectedSsoWorkspaceScopeCount(activeWorkspaceIds, "3")).toThrow(
+      /expected 3.*received 2/,
+    );
+    expect(() => assertExpectedSsoWorkspaceScopeCount(activeWorkspaceIds, "2")).not.toThrow();
   });
 
   it("rejects duplicate team and tenant-only bindings", () => {

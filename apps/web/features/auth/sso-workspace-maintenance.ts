@@ -31,6 +31,21 @@ export function createSsoWorkspaceScopeDigest(
     .digest("hex");
 }
 
+export function assertExpectedSsoWorkspaceScopeCount(
+  activeWorkspaceIds: ReadonlySet<string>,
+  expectedCountInput: string | undefined,
+): void {
+  if (!expectedCountInput || !/^[1-9][0-9]*$/.test(expectedCountInput)) {
+    throw new Error("SSO workspace apply requires --expected-scope-count=<positive integer>.");
+  }
+  const expectedCount = Number(expectedCountInput);
+  if (activeWorkspaceIds.size !== expectedCount) {
+    throw new Error(
+      `SSO workspace scope count mismatch: expected ${expectedCount}, received ${activeWorkspaceIds.size}.`,
+    );
+  }
+}
+
 export function assertSsoWorkspaceScopeConfirmation(
   activeWorkspaceIds: ReadonlySet<string>,
   confirmation: string | undefined,
