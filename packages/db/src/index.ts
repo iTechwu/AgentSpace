@@ -193,6 +193,7 @@ export {
 
 // Managed-runtime SSO tenant/team bindings + provisioning tasks + audit log (Phase 2)
 export {
+  listWorkspaceSsoBindingsSync,
   readWorkspaceSsoBindingSync,
   upsertWorkspaceSsoBindingSync,
   type UpsertWorkspaceSsoBindingInput,
@@ -830,8 +831,10 @@ export {
 export {
   createWorkspaceSync,
   hardDeleteWorkspaceSync,
+  listActiveSsoWorkspacesSync,
   readWorkspaceSync,
   listWorkspacesSync,
+  restoreWorkspaceSync,
   updateWorkspaceSync,
   archiveWorkspaceSync,
   type HardDeleteWorkspaceResult,
