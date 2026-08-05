@@ -62,6 +62,8 @@ export type {
   RegisterDaemonRequest,
   RegisterDaemonResponse,
   ReportMcpToolAuditsResponse,
+  ReportOpenMontageJobRequest,
+  ReportOpenMontageJobResponse,
   ReportSkillRunnerInvocationsResponse,
   ReportTaskMessagesRequest,
   SkillRunnerInvocationReport,

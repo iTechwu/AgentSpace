@@ -791,6 +791,15 @@ export interface ReportMcpToolAuditsResponse {
   acceptedEventIds: string[];
 }
 
+export interface ReportOpenMontageJobRequest {
+  connectionId: string;
+  snapshot: unknown;
+}
+
+export interface ReportOpenMontageJobResponse {
+  jobId: string;
+}
+
 /* ------------------------------------------------------------------ */
 /* Skill Runner invocation audit                                       */
 /* ------------------------------------------------------------------ */

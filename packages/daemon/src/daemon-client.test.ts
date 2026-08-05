@@ -58,6 +58,36 @@ test("HttpDaemonClient reads the lightweight task status endpoint", async () => 
   }
 });
 
+test("HttpDaemonClient reports a created OpenMontage Job through the daemon task endpoint", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  let requestedBody: unknown;
+  globalThis.fetch = (async (input, init) => {
+    requestedUrl = String(input);
+    requestedBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ jobId: "om_job_1" }), {
+      status: 201,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const client = new HttpDaemonClient("http://localhost:1455", "adt_test");
+    const response = await client.reportOpenMontageJob("task/1", {
+      connectionId: "connection-1",
+      snapshot: { jobId: "om_job_1" },
+    });
+    assert.equal(response.jobId, "om_job_1");
+    assert.equal(requestedUrl, "http://localhost:1455/api/daemon/tasks/task%2F1/openmontage/jobs");
+    assert.deepEqual(requestedBody, {
+      connectionId: "connection-1",
+      snapshot: { jobId: "om_job_1" },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("HttpDaemonClient does not retry non-retryable task completion requests", async () => {
   const originalFetch = globalThis.fetch;
   let attempts = 0;

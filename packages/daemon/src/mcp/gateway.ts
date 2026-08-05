@@ -1,9 +1,14 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { McpEgressPolicySnapshot, McpTaskSessionConnection, ResolvedMcpConnection } from "@dofe-agent/domain";
+import {
+  OPENMONTAGE_MCP_CATALOG_SLUG,
+  type McpEgressPolicySnapshot,
+  type McpTaskSessionConnection,
+  type ResolvedMcpConnection,
+} from "@dofe-agent/domain";
 import { redactMcpText } from "@dofe-agent/services";
 import { createRuntimeMcpClient } from "./client.ts";
 
@@ -22,8 +27,18 @@ export interface McpGatewayTaskSession {
   taskId: string;
   runtimeId: string;
   workspaceId: string;
+  employeeId: string;
+  conversationId: string;
   connections: McpTaskSessionConnection[];
 }
+
+export interface OpenMontageJobCreatedReport {
+  taskId: string;
+  connectionId: string;
+  snapshot: unknown;
+}
+
+export type OpenMontageJobCreatedReporter = (report: OpenMontageJobCreatedReport) => void | Promise<void>;
 
 interface RegisteredTool {
   connectionId: string;
@@ -97,6 +112,7 @@ export class McpGateway {
   private readonly onAudit: (audit: McpToolAuditRecord) => void | Promise<void>;
   private readonly mcpClient: ReturnType<typeof createRuntimeMcpClient>;
   private readonly validateConnection?: McpGatewayValidateConnection;
+  private readonly reportOpenMontageJob?: OpenMontageJobCreatedReporter;
   private readonly listenHost: string;
   private readonly advertisedHost: string;
 
@@ -105,10 +121,12 @@ export class McpGateway {
     mcpClient?: ReturnType<typeof createRuntimeMcpClient>,
     validateConnection?: McpGatewayValidateConnection,
     network?: McpGatewayNetworkOptions,
+    reportOpenMontageJob?: OpenMontageJobCreatedReporter,
   ) {
     this.onAudit = onAudit;
     this.mcpClient = mcpClient ?? createRuntimeMcpClient();
     this.validateConnection = validateConnection;
+    this.reportOpenMontageJob = reportOpenMontageJob;
     this.listenHost = network?.listenHost?.trim() || "127.0.0.1";
     this.advertisedHost = network?.advertisedHost?.trim() || this.listenHost;
   }
@@ -270,6 +288,33 @@ export class McpGateway {
         validatedPolicySnapshot = validation.egressProxyPolicySnapshot;
       }
 
+      const isOpenMontage = connection.catalogItemSlug === OPENMONTAGE_MCP_CATALOG_SLUG;
+      let nonSecretParams = connection.nonSecretParams;
+      if (isOpenMontage) {
+        const clientRequestId = readOpenMontageClientRequestId(request.params.arguments);
+        if (registered.toolName === "submit_video_job" && !clientRequestId) {
+          const message = "OpenMontage submit_video_job requires request.clientRequestId.";
+          await this.emitAudit(taskSession, registered.connectionId, registered.toolName, "failed", 0, message);
+          return { content: [{ type: "text", text: message }], isError: true };
+        }
+        const sourceInvocationId = createOpenMontageSourceInvocationId(
+          taskSession.taskId,
+          clientRequestId ?? `${registered.toolName}:${stableJson(request.params.arguments)}`,
+        );
+        nonSecretParams = {
+          ...connection.nonSecretParams,
+          "X-Dofe-Job-Attribution": JSON.stringify({
+            workspaceId: taskSession.workspaceId,
+            employeeId: taskSession.employeeId,
+            runtimeId: taskSession.runtimeId,
+            rootTaskId: taskSession.taskId,
+            conversationId: taskSession.conversationId,
+            sourceInvocationId,
+            traceId: taskSession.taskId,
+          }),
+        };
+      }
+
       const resolved: ResolvedMcpConnection = {
         connectionId: connection.connectionId,
         runtimeId: taskSession.runtimeId,
@@ -279,7 +324,7 @@ export class McpGateway {
         allowedHosts: connection.allowedHosts,
         approvedTools: connection.approvedTools,
         secrets: connection.secrets,
-        nonSecretParams: connection.nonSecretParams,
+        nonSecretParams,
         egressProxyLease: validatedEgressLease,
         egressProxyPolicySnapshot: validatedPolicySnapshot,
         managedStdioLaunch: connection.managedStdioLaunch,
@@ -295,6 +340,21 @@ export class McpGateway {
       if (!result.ok) {
         await this.emitAudit(taskSession, registered.connectionId, registered.toolName, "failed", latencyMs, result.error.safeMessage);
         return { content: [{ type: "text", text: result.error.safeMessage }], isError: true };
+      }
+      if (isOpenMontage && registered.toolName === "submit_video_job") {
+        try {
+          const snapshot = extractOpenMontageSnapshot(result.result);
+          if (!this.reportOpenMontageJob) throw new Error("OpenMontage Job reporter is unavailable.");
+          await this.reportOpenMontageJob({
+            taskId: taskSession.taskId,
+            connectionId: registered.connectionId,
+            snapshot,
+          });
+        } catch {
+          const message = "OpenMontage Job was created but could not be linked to this conversation.";
+          await this.emitAudit(taskSession, registered.connectionId, registered.toolName, "failed", latencyMs, message);
+          return { content: [{ type: "text", text: message }], isError: true };
+        }
       }
       await this.emitAudit(taskSession, registered.connectionId, registered.toolName, "succeeded", latencyMs, undefined);
       const text = typeof result.result === "string" ? result.result : JSON.stringify(result.result ?? "");
@@ -326,6 +386,47 @@ export class McpGateway {
       // Audit reporting must never break the tool call.
     }
   }
+}
+
+function readOpenMontageClientRequestId(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const request = (value as Record<string, unknown>).request;
+  if (!request || typeof request !== "object" || Array.isArray(request)) return undefined;
+  const clientRequestId = (request as Record<string, unknown>).clientRequestId;
+  return typeof clientRequestId === "string" && clientRequestId.trim()
+    ? clientRequestId.trim()
+    : undefined;
+}
+
+function createOpenMontageSourceInvocationId(taskId: string, operationKey: string): string {
+  const digest = createHash("sha256").update(taskId).update("\0").update(operationKey).digest("hex");
+  return `om_inv_${digest.slice(0, 40)}`;
+}
+
+function stableJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function extractOpenMontageSnapshot(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const content = item as Record<string, unknown>;
+      if (content.type !== "text" || typeof content.text !== "string") continue;
+      try {
+        const parsed = JSON.parse(content.text) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+      } catch {
+        continue;
+      }
+    }
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  throw new Error("OpenMontage submit result did not contain a Job snapshot.");
 }
 
 function sanitizeToolName(id: string): string {

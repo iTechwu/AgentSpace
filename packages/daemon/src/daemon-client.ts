@@ -37,6 +37,8 @@ import type {
   RegisterDaemonRequest,
   RegisterDaemonResponse,
   ReportMcpToolAuditsResponse,
+  ReportOpenMontageJobRequest,
+  ReportOpenMontageJobResponse,
   ReportSkillRunnerInvocationsResponse,
   ReportTaskMessagesRequest,
   SkillRunnerInvocationReport,
@@ -85,6 +87,8 @@ export type {
   RegisterDaemonRequest,
   RegisterDaemonResponse,
   ReportMcpToolAuditsResponse,
+  ReportOpenMontageJobRequest,
+  ReportOpenMontageJobResponse,
   ReportSkillRunnerInvocationsResponse,
   ReportTaskMessagesRequest,
   SkillRunnerInvocationReport,
@@ -355,6 +359,17 @@ export class HttpDaemonClient {
         throw new Error(`MCP audit server did not acknowledge ${audit.eventId}.`);
       }
     }
+  }
+
+  async reportOpenMontageJob(
+    taskId: string,
+    body: ReportOpenMontageJobRequest,
+  ): Promise<ReportOpenMontageJobResponse> {
+    return this.postJson(
+      `/api/daemon/tasks/${encodeURIComponent(taskId)}/openmontage/jobs`,
+      body,
+      { retryable: true },
+    );
   }
 
   async reportSkillRunnerInvocations(taskId: string, invocations: SkillRunnerInvocationReport[]): Promise<void> {

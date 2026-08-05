@@ -14,6 +14,8 @@ function buildTaskSession(): McpGatewayTaskSession {
     taskId: TASK_ID,
     runtimeId: "runtime-1",
     workspaceId: "workspace-1",
+    employeeId: "employee-1",
+    conversationId: "conversation-1",
     connections: [
       {
         connectionId: CONNECTION_ID,
@@ -33,6 +35,38 @@ function buildTaskSession(): McpGatewayTaskSession {
         ],
       },
     ],
+  };
+}
+
+function buildOpenMontageTaskSession(): McpGatewayTaskSession {
+  const connectionId = "mcp-openmontage-1";
+  return {
+    taskId: TASK_ID,
+    runtimeId: "runtime-1",
+    workspaceId: "workspace-1",
+    employeeId: "employee-1",
+    conversationId: "conversation-1",
+    connections: [{
+      connectionId,
+      workspaceId: "workspace-1",
+      catalogItemId: "catalog-openmontage-1",
+      catalogItemSlug: "official-openmontage",
+      catalogItemVersion: "1.0.0",
+      displayName: "OpenMontage",
+      transport: "managed_service",
+      endpoint: "managed-service://openmontage",
+      allowedHosts: [],
+      approvedTools: ["submit_video_job"],
+      nonSecretParams: {},
+      secrets: { Authorization: "Bearer service-token" },
+      tools: [{
+        id: `mcp:${connectionId}:submit_video_job`,
+        connectionId,
+        name: "submit_video_job",
+        description: "Submit a video Job",
+        inputSchema: { type: "object", properties: { request: { type: "object" } } },
+      }],
+    }],
   };
 }
 
@@ -155,6 +189,85 @@ test("gateway routes an approved tool call through the client and emits an audit
     assert.equal(audit?.toolName, "search_repos");
   } finally {
     await client.close();
+    session.revoke();
+    await g.close();
+  }
+});
+
+test("gateway injects stable trusted attribution and reports a submitted OpenMontage Job", async () => {
+  const calls: Array<ResolvedMcpConnection> = [];
+  const reports: Array<{ taskId: string; connectionId: string; snapshot: unknown }> = [];
+  const snapshot = { jobId: "om_job_1", status: "QUEUED" };
+  const client: RuntimeMcpClient = {
+    verify: async () => ({ status: "ready", discoveredTools: [] }),
+    call: async (input) => {
+      calls.push(input.connection);
+      return { ok: true, result: [{ type: "text", text: JSON.stringify(snapshot) }] };
+    },
+  };
+  const g = new McpGateway(
+    () => undefined,
+    client,
+    undefined,
+    undefined,
+    async (report) => { reports.push(report); },
+  );
+  await g.start();
+  const session = g.createTaskSession(buildOpenMontageTaskSession());
+  const provider = new Client({ name: "test-client", version: "1" }, { capabilities: {} });
+  await provider.connect(new StreamableHTTPClientTransport(new URL(session.url)));
+  try {
+    const name = (await provider.listTools()).tools[0]!.name;
+    const argumentsValue = { request: { clientRequestId: "request-1" } };
+    await provider.callTool({ name, arguments: argumentsValue });
+    await provider.callTool({ name, arguments: argumentsValue });
+
+    assert.equal(reports.length, 2);
+    assert.deepEqual(reports[0], { taskId: TASK_ID, connectionId: "mcp-openmontage-1", snapshot });
+    const first = JSON.parse(calls[0]!.nonSecretParams["X-Dofe-Job-Attribution"] as string);
+    const second = JSON.parse(calls[1]!.nonSecretParams["X-Dofe-Job-Attribution"] as string);
+    assert.deepEqual(first, {
+      workspaceId: "workspace-1",
+      employeeId: "employee-1",
+      runtimeId: "runtime-1",
+      rootTaskId: TASK_ID,
+      conversationId: "conversation-1",
+      sourceInvocationId: first.sourceInvocationId,
+      traceId: TASK_ID,
+    });
+    assert.equal(first.sourceInvocationId, second.sourceInvocationId);
+    assert.equal(calls[0]!.secrets.Authorization, "Bearer service-token");
+  } finally {
+    await provider.close();
+    session.revoke();
+    await g.close();
+  }
+});
+
+test("gateway fails the submit tool when the created OpenMontage Job cannot be linked", async () => {
+  const client: RuntimeMcpClient = {
+    verify: async () => ({ status: "ready", discoveredTools: [] }),
+    call: async () => ({ ok: true, result: [{ type: "text", text: JSON.stringify({ jobId: "om_job_1" }) }] }),
+  };
+  const g = new McpGateway(
+    () => undefined,
+    client,
+    undefined,
+    undefined,
+    async () => { throw new Error("private control-plane detail"); },
+  );
+  await g.start();
+  const session = g.createTaskSession(buildOpenMontageTaskSession());
+  const provider = new Client({ name: "test-client", version: "1" }, { capabilities: {} });
+  await provider.connect(new StreamableHTTPClientTransport(new URL(session.url)));
+  try {
+    const name = (await provider.listTools()).tools[0]!.name;
+    const result = await provider.callTool({ name, arguments: { request: { clientRequestId: "request-1" } } });
+    assert.equal(result.isError, true);
+    assert.match(JSON.stringify(result.content), /could not be linked/i);
+    assert.doesNotMatch(JSON.stringify(result.content), /private control-plane detail/);
+  } finally {
+    await provider.close();
     session.revoke();
     await g.close();
   }

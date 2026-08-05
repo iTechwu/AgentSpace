@@ -1112,6 +1112,10 @@ async function executeRemoteTask(
         taskId: task.id,
         runtimeId: runtime.id,
         workspaceId: task.workspaceId,
+        employeeId: task.employeeId?.trim() || task.agentId,
+        conversationId: task.routerSessionId?.trim()
+          || resolveConversationThreadId({ triggerType: task.triggerType, payload: parseTaskInputJson(task.inputJson) })
+          || task.id,
         connections: claimed.connections.map((connection) => attachTaskManagedStdioLaunch(connection, config, runtime)),
       });
     }
@@ -1476,6 +1480,10 @@ async function getMcpGatewayForTask(
         }
       },
       { listenHost: gatewayHost, advertisedHost: gatewayHost },
+      (report) => client.reportOpenMontageJob(report.taskId, {
+        connectionId: report.connectionId,
+        snapshot: report.snapshot,
+      }).then(() => undefined),
     );
     await gateway.start();
     return gateway;
