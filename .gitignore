@@ -27,6 +27,8 @@ data/
 runtime-output/
 agent-output.json
 artifacts/
+!apps/web/app/api/**/artifacts/
+!apps/web/app/api/**/artifacts/**
 administrator/
 Design/
 example/
