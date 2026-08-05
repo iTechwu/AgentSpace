@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "106";
+export const POSTGRES_SCHEMA_VERSION = "107";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -1873,8 +1873,13 @@ export function getPostgresSchemaStatements(): string[] {
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         job_id TEXT NOT NULL REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
-        attachment_id TEXT NOT NULL,
-        operation TEXT NOT NULL CHECK (operation = 'READ'),
+        attachment_id TEXT,
+        operation TEXT NOT NULL,
+        artifact_role TEXT,
+        file_name TEXT,
+        media_type TEXT,
+        size_bytes BIGINT,
+        sha256 TEXT,
         token_hash TEXT NOT NULL,
         expires_at TIMESTAMPTZ NOT NULL,
         consumed_at TIMESTAMPTZ,
@@ -1882,6 +1887,50 @@ export function getPostgresSchemaStatements(): string[] {
         FOREIGN KEY (workspace_id, attachment_id)
           REFERENCES attachment(workspace_id, id) ON DELETE CASCADE
       )
+    `,
+    `ALTER TABLE openmontage_artifact_grant ADD COLUMN IF NOT EXISTS artifact_role TEXT`,
+    `ALTER TABLE openmontage_artifact_grant ADD COLUMN IF NOT EXISTS file_name TEXT`,
+    `ALTER TABLE openmontage_artifact_grant ADD COLUMN IF NOT EXISTS media_type TEXT`,
+    `ALTER TABLE openmontage_artifact_grant ADD COLUMN IF NOT EXISTS size_bytes BIGINT`,
+    `ALTER TABLE openmontage_artifact_grant ADD COLUMN IF NOT EXISTS sha256 TEXT`,
+    `ALTER TABLE openmontage_artifact_grant ALTER COLUMN attachment_id DROP NOT NULL`,
+    `
+      ALTER TABLE openmontage_artifact_grant
+        DROP CONSTRAINT IF EXISTS openmontage_artifact_grant_operation_check
+    `,
+    `
+      ALTER TABLE openmontage_artifact_grant
+        DROP CONSTRAINT IF EXISTS openmontage_artifact_grant_shape_check
+    `,
+    `
+      ALTER TABLE openmontage_artifact_grant
+        ADD CONSTRAINT openmontage_artifact_grant_operation_check
+        CHECK (operation IN ('READ', 'WRITE'))
+    `,
+    `
+      ALTER TABLE openmontage_artifact_grant
+        ADD CONSTRAINT openmontage_artifact_grant_shape_check
+        CHECK (
+          (
+            operation = 'READ'
+            AND attachment_id IS NOT NULL
+            AND artifact_role IS NULL
+            AND file_name IS NULL
+            AND media_type IS NULL
+            AND size_bytes IS NULL
+            AND sha256 IS NULL
+          )
+          OR
+          (
+            operation = 'WRITE'
+            AND attachment_id IS NULL
+            AND artifact_role IS NOT NULL
+            AND file_name IS NOT NULL
+            AND media_type IS NOT NULL
+            AND size_bytes > 0
+            AND sha256 IS NOT NULL
+          )
+        )
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_openmontage_artifact_grant_expiry

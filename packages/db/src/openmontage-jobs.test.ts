@@ -12,7 +12,9 @@ import {
 } from "./openmontage-jobs.ts";
 import {
   consumeOpenMontageArtifactReadGrantSync,
+  consumeOpenMontageArtifactWriteGrantSync,
   issueOpenMontageArtifactReadGrantSync,
+  issueOpenMontageArtifactWriteGrantSync,
 } from "./openmontage-artifacts.ts";
 import { getDatabase } from "./database.ts";
 import { parseOpenMontageJobEvent, type OpenMontageJobEvent } from "@dofe-agent/domain";
@@ -260,6 +262,69 @@ test("artifact read grant rejects wrong tokens, expiry, and cross-channel attach
       now: "2026-08-05T10:00:00Z",
     }),
     /same channel/,
+  );
+});
+
+test("artifact write grant binds immutable output metadata and can be consumed once", () => {
+  createLink();
+
+  const issued = issueOpenMontageArtifactWriteGrantSync({
+    workspaceId: "default",
+    jobId: "om_job_1",
+    role: "final_video",
+    fileName: "final.mp4",
+    mediaType: "video/mp4",
+    sizeBytes: 1024,
+    sha256: "b".repeat(64),
+    now: "2026-08-05T10:00:00Z",
+    ttlSeconds: 300,
+  });
+  const consumed = consumeOpenMontageArtifactWriteGrantSync({
+    grantId: issued.grant.id,
+    token: issued.token,
+    now: "2026-08-05T10:00:01Z",
+  });
+
+  assert.deepEqual(consumed, {
+    ...issued.grant,
+    consumedAt: "2026-08-05T10:00:01.000Z",
+  });
+  assert.equal(consumed.operation, "WRITE");
+  assert.equal(consumed.role, "final_video");
+  assert.equal(consumed.sha256, "b".repeat(64));
+  assert.throws(
+    () => consumeOpenMontageArtifactWriteGrantSync({
+      grantId: issued.grant.id,
+      token: issued.token,
+      now: "2026-08-05T10:00:02Z",
+    }),
+    /already consumed/,
+  );
+});
+
+test("artifact write grant rejects unsafe output metadata before persistence", () => {
+  createLink();
+  const baseline = {
+    workspaceId: "default",
+    jobId: "om_job_1",
+    role: "final_video",
+    fileName: "final.mp4",
+    mediaType: "video/mp4",
+    sizeBytes: 1024,
+    sha256: "b".repeat(64),
+  };
+
+  assert.throws(
+    () => issueOpenMontageArtifactWriteGrantSync({ ...baseline, fileName: "../final.mp4" }),
+    /fileName/,
+  );
+  assert.throws(
+    () => issueOpenMontageArtifactWriteGrantSync({ ...baseline, mediaType: "text/html" }),
+    /mediaType/,
+  );
+  assert.throws(
+    () => issueOpenMontageArtifactWriteGrantSync({ ...baseline, sha256: "invalid" }),
+    /sha256/,
   );
 });
 

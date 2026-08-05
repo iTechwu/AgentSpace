@@ -676,9 +676,12 @@ export {
 
 export {
   consumeOpenMontageArtifactReadGrantSync,
+  consumeOpenMontageArtifactWriteGrantSync,
   issueOpenMontageArtifactReadGrantSync,
+  issueOpenMontageArtifactWriteGrantSync,
   OpenMontageArtifactGrantError,
   type OpenMontageArtifactReadGrantRecord,
+  type OpenMontageArtifactWriteGrantRecord,
 } from "./openmontage-artifacts.ts";
 
 // Skills
