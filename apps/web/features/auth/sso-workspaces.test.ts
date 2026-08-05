@@ -2,7 +2,15 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { getDatabase, listUserWorkspacesSync, readWorkspaceSync, updateWorkspaceSync } from "@dofe-agent/db";
+import {
+  archiveWorkspaceSync,
+  createWorkspaceSync,
+  getDatabase,
+  listUserWorkspacesSync,
+  readWorkspaceSync,
+  updateWorkspaceSync,
+  upsertWorkspaceSsoBindingSync,
+} from "@dofe-agent/db";
 import {
   buildSsoWorkspaceScopes,
   buildSsoWorkspaceScopesForUser,
@@ -21,6 +29,7 @@ beforeAll(() => {
 beforeEach(() => {
   const db = getDatabase();
   db.exec("DELETE FROM workspace_membership");
+  db.exec("DELETE FROM workspace_sso_binding");
   db.exec("DELETE FROM workspace");
   db.exec("DELETE FROM workspace_snapshot");
   db.exec("DELETE FROM users");
@@ -157,6 +166,59 @@ describe("SSO workspace synchronization", () => {
     expect(listUserWorkspacesSync("user-1")).toEqual([]);
   });
 
+  it("archives bound workspaces missing from an authoritative admin directory", () => {
+    seedBoundWorkspace("sso-team-stale", "team-stale");
+
+    syncSsoWorkspacesForUserSync({
+      displayName: "Admin",
+      materializeMemberships: false,
+      reconcileDirectory: true,
+      scopes: [],
+      userId: "user-1",
+    });
+
+    expect(readWorkspaceSync("sso-team-stale")?.archivedAt).toBeTruthy();
+  });
+
+  it("restores an archived workspace when its SSO scope becomes active again", () => {
+    const scopes = buildSsoWorkspaceScopes({
+      teams: [{
+        teamId: "team-active",
+        teamSlug: "active",
+        teamName: "Active",
+        tenantId: "tenant-active",
+        tenantSlug: "tenant",
+        tenantName: "Tenant",
+        role: "ADMIN",
+      }],
+      tenants: [],
+    });
+    seedBoundWorkspace(scopes[0]!.id, "team-active");
+    archiveWorkspaceSync(scopes[0]!.id);
+
+    syncSsoWorkspacesForUserSync({
+      displayName: "Admin",
+      materializeMemberships: false,
+      reconcileDirectory: true,
+      scopes,
+      userId: "user-1",
+    });
+
+    expect(readWorkspaceSync(scopes[0]!.id)?.archivedAt).toBeUndefined();
+  });
+
+  it("does not archive unrelated bound workspaces during a regular user login", () => {
+    seedBoundWorkspace("sso-team-other", "team-other");
+
+    syncSsoWorkspacesForUserSync({
+      displayName: "Mina",
+      scopes: [],
+      userId: "user-1",
+    });
+
+    expect(readWorkspaceSync("sso-team-other")?.archivedAt).toBeUndefined();
+  });
+
   it("uses tenant and team names for a non-ASCII SSO workspace URL", () => {
     const scopes = buildSsoWorkspaceScopes({
       teams: [{
@@ -175,3 +237,20 @@ describe("SSO workspace synchronization", () => {
     expect(readWorkspaceSync(scopes[0]!.id)?.slug).toMatch(/^全体-产品-/);
   });
 });
+
+function seedBoundWorkspace(workspaceId: string, teamId: string): void {
+  createWorkspaceSync({
+    id: workspaceId,
+    slug: workspaceId,
+    name: `Workspace ${teamId}`,
+    createdBy: "system",
+  });
+  upsertWorkspaceSsoBindingSync({
+    workspaceId,
+    tenantId: `tenant-${teamId}`,
+    tenantName: `Tenant ${teamId}`,
+    teamId,
+    teamName: `Team ${teamId}`,
+    source: "team",
+  });
+}

@@ -101,6 +101,7 @@ export async function createSessionForSsoLogin(input: {
   const ssoWorkspaces = syncSsoWorkspacesForUserSync({
     displayName: updatedUser.displayName,
     materializeMemberships: updatedUser.isAdmin !== true,
+    reconcileDirectory: updatedUser.isAdmin === true,
     scopes: input.workspaceScopes,
     userId: updatedUser.id,
   });
