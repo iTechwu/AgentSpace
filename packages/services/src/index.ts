@@ -1374,3 +1374,12 @@ export {
   type OpenMontageJobActionInput,
   type VerifiedOpenMontageEventRequest,
 } from "./openmontage/events.ts";
+export {
+  issueOpenMontageArtifactReadGrant,
+  resolveOpenMontageArtifactReadDownload,
+  OpenMontageArtifactAuthenticationError,
+  OpenMontageArtifactConfigurationError,
+  OpenMontageArtifactValidationError,
+  type OpenMontageArtifactReadDownload,
+  type OpenMontageArtifactReadGrantDocument,
+} from "./openmontage/artifacts.ts";
