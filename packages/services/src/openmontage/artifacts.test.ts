@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import test from "node:test";
-import type { AttachmentStorageClient } from "../attachments/storage.ts";
+import {
+  ContentAddressedBlobIntegrityError,
+  type AttachmentStorageClient,
+} from "../attachments/storage.ts";
 import {
   issueOpenMontageArtifactReadGrant,
   issueOpenMontageArtifactWriteGrant,
   OpenMontageArtifactAuthenticationError,
+  OpenMontageArtifactValidationError,
   publishOpenMontageArtifactUpload,
   resolveOpenMontageArtifactReadDownload,
 } from "./artifacts.ts";
@@ -310,6 +314,40 @@ test("streams a consumed upload into content storage and publishes it for the bo
     sha256: ATTACHMENT.sha256,
     publishedAt: "2026-08-05T10:00:02Z",
   });
+});
+
+test("maps stream digest failures to the Artifact Bridge integrity contract", async () => {
+  await assert.rejects(
+    publishOpenMontageArtifactUpload({
+      grantId: "om_ag_write_1",
+      headers: new Headers({ Authorization: "Bearer write-token" }),
+      content: Readable.from([Buffer.from("tampered")]),
+    }, {
+      consumeGrant: () => ({
+        id: "om_ag_write_1",
+        workspaceId: "ws-1",
+        jobId: "om_job_1",
+        operation: "WRITE",
+        role: "final_video",
+        fileName: "final.mp4",
+        mediaType: "video/mp4",
+        sizeBytes: 5,
+        sha256: ATTACHMENT.sha256,
+        expiresAt: "2026-08-05T10:05:00Z",
+        consumedAt: "2026-08-05T10:00:01Z",
+        createdAt: "2026-08-05T10:00:00Z",
+      }),
+      readLink: () => LINK,
+      readEmployee: () => ({ id: "employee-1", name: "Video Producer" }) as never,
+      storage: {
+        ...storageWith({}),
+        putContentAddressedBlobStream: async () => {
+          throw new ContentAddressedBlobIntegrityError("digest mismatch");
+        },
+      },
+    }),
+    OpenMontageArtifactValidationError,
+  );
 });
 
 function storageWith(input: { readUrl?: string; bytes?: Uint8Array }): AttachmentStorageClient {

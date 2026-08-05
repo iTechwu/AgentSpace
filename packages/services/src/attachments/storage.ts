@@ -21,6 +21,8 @@ import {
 
 const TOS_SIGNED_URL_TTL_SECONDS = 300;
 
+export class ContentAddressedBlobIntegrityError extends Error {}
+
 export interface StoredAttachmentObject {
   provider: "tos" | "local";
   bucket?: string;
@@ -633,7 +635,9 @@ class LocalAttachmentStorageClient implements AttachmentStorageClient {
 
 function createIntegrityValidator(expectedSizeBytes: number, expectedSha256: string): Transform {
   if (!Number.isSafeInteger(expectedSizeBytes) || expectedSizeBytes < 1) {
-    throw new Error("Content-addressed stream size must be a positive safe integer.");
+    throw new ContentAddressedBlobIntegrityError(
+      "Content-addressed stream size must be a positive safe integer.",
+    );
   }
   const hash = createHash("sha256");
   let receivedSizeBytes = 0;
@@ -642,7 +646,9 @@ function createIntegrityValidator(expectedSizeBytes: number, expectedSha256: str
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding);
       receivedSizeBytes += bytes.byteLength;
       if (receivedSizeBytes > expectedSizeBytes) {
-        callback(new Error("Content-addressed stream integrity verification failed: size exceeded."));
+        callback(new ContentAddressedBlobIntegrityError(
+          "Content-addressed stream integrity verification failed: size exceeded.",
+        ));
         return;
       }
       hash.update(bytes);
@@ -651,7 +657,9 @@ function createIntegrityValidator(expectedSizeBytes: number, expectedSha256: str
     flush(callback) {
       const actualSha256 = hash.digest("hex");
       if (receivedSizeBytes !== expectedSizeBytes || actualSha256 !== expectedSha256) {
-        callback(new Error("Content-addressed stream integrity verification failed."));
+        callback(new ContentAddressedBlobIntegrityError(
+          "Content-addressed stream integrity verification failed.",
+        ));
         return;
       }
       callback();
@@ -662,7 +670,9 @@ function createIntegrityValidator(expectedSizeBytes: number, expectedSha256: str
 function normalizeExpectedDigest(value: string): string {
   const sha256 = value.trim().toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(sha256)) {
-    throw new Error("Content-addressed stream requires a valid SHA-256 digest.");
+    throw new ContentAddressedBlobIntegrityError(
+      "Content-addressed stream requires a valid SHA-256 digest.",
+    );
   }
   return sha256;
 }

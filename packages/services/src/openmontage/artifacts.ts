@@ -15,9 +15,11 @@ import {
 } from "@dofe-agent/db";
 import type { OpenMontageJobAttribution } from "@dofe-agent/domain";
 import {
+  ContentAddressedBlobIntegrityError,
   createAttachmentStorageClient,
   sha256Hex,
   type AttachmentStorageClient,
+  type ContentAddressedBlobRef,
 } from "../attachments/storage.ts";
 
 const ATTRIBUTION_KEYS = [
@@ -286,13 +288,23 @@ export async function publishOpenMontageArtifactUpload(
       "Attachment storage does not support streaming Artifact Bridge uploads",
     );
   }
-  const ref = await storage.putContentAddressedBlobStream({
-    workspaceId: grant.workspaceId,
-    sha256: grant.sha256,
-    content: input.content,
-    sizeBytes: grant.sizeBytes,
-    mediaType: grant.mediaType,
-  });
+  let ref: ContentAddressedBlobRef;
+  try {
+    ref = await storage.putContentAddressedBlobStream({
+      workspaceId: grant.workspaceId,
+      sha256: grant.sha256,
+      content: input.content,
+      sizeBytes: grant.sizeBytes,
+      mediaType: grant.mediaType,
+    });
+  } catch (error) {
+    if (error instanceof ContentAddressedBlobIntegrityError) {
+      throw new OpenMontageArtifactValidationError(
+        "OpenMontage output artifact integrity verification failed",
+      );
+    }
+    throw error;
+  }
   (options.upsertBlob ?? upsertContentBlobSync)({
     workspaceId: grant.workspaceId,
     sha256: grant.sha256,

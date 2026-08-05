@@ -6,6 +6,7 @@ import { Readable } from "node:stream";
 import test from "node:test";
 import {
   buildAttachmentStorageKey,
+  ContentAddressedBlobIntegrityError,
   createAttachmentStorageClient,
   sha256Hex,
 } from "./storage.ts";
@@ -94,7 +95,7 @@ test("local content-addressed streaming upload verifies size and digest before p
         sizeBytes: Buffer.byteLength("expected bytes"),
         mediaType: "video/mp4",
       }),
-      /integrity verification failed/,
+      ContentAddressedBlobIntegrityError,
     );
     assert.equal(
       storage.contentAddressedBlobExistsSync({
