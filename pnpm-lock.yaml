@@ -52,6 +52,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@dofe-agent/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@dofe-agent/domain':
         specifier: workspace:*
         version: link:../../packages/domain

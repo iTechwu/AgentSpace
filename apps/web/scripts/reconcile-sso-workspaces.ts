@@ -1,4 +1,4 @@
-import { getSsoInternalClient } from "../features/auth/sso-internal-client.ts";
+import { createSsoInternalClient } from "@dofe/sso-node";
 import {
   applySsoWorkspaceMaintenanceSync,
   planSsoWorkspaceMaintenanceSync,
@@ -6,7 +6,11 @@ import {
 import { buildSsoAdminWorkspaceScopes } from "../features/auth/sso-workspaces.ts";
 
 const apply = process.argv.includes("--apply");
-const client = getSsoInternalClient();
+const client = createSsoInternalClient({
+  baseUrl: readRequiredEnv("SSO_INTERNAL_API_URL"),
+  internalSecret: readRequiredEnv("INTERNAL_API_SECRET"),
+  serviceName: readRequiredEnv("SSO_SERVICE_NAME"),
+});
 const [teams, tenants] = await Promise.all([
   listAllDirectoryItems((query) => client.teams.list(query)),
   listAllDirectoryItems((query) => client.tenants.list(query)),
@@ -23,6 +27,12 @@ console.log(JSON.stringify({
   plan,
   result,
 }, null, 2));
+
+function readRequiredEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`Missing required environment variable: ${name}`);
+  return value;
+}
 
 async function listAllDirectoryItems<TItem>(
   loadPage: (query: { limit: number; page: number; status: string }) => Promise<{

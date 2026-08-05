@@ -19,6 +19,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@dofe-agent/db": "workspace:*",
     "@dofe-agent/domain": "workspace:*",
     "@dofe-agent/services": "workspace:*",
     "@dofe/sso-node": "^0.1.75",
