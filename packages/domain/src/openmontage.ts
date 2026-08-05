@@ -13,6 +13,8 @@ export const OPENMONTAGE_JOB_EVENT_TYPES = [
   "openmontage.job.cancelled",
 ] as const;
 
+export const OPENMONTAGE_MCP_CATALOG_SLUG = "official-openmontage";
+
 export type OpenMontageJobEventType = (typeof OPENMONTAGE_JOB_EVENT_TYPES)[number];
 export type OpenMontageJobStatus =
   | "QUEUED"
