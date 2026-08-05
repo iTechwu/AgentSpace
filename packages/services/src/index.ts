@@ -1376,10 +1376,15 @@ export {
 } from "./openmontage/events.ts";
 export {
   issueOpenMontageArtifactReadGrant,
+  issueOpenMontageArtifactWriteGrant,
+  publishOpenMontageArtifactUpload,
   resolveOpenMontageArtifactReadDownload,
   OpenMontageArtifactAuthenticationError,
   OpenMontageArtifactConfigurationError,
   OpenMontageArtifactValidationError,
   type OpenMontageArtifactReadDownload,
   type OpenMontageArtifactReadGrantDocument,
+  type OpenMontageArtifactWriteGrantDocument,
+  type OpenMontageOutputArtifactMetadata,
+  type OpenMontagePublishedArtifactDocument,
 } from "./openmontage/artifacts.ts";

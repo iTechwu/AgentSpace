@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockIssue, AuthenticationError, ConfigurationError, ValidationError } = vi.hoisted(() => ({
+const { mockIssue, mockIssueWrite, AuthenticationError, ConfigurationError, ValidationError } = vi.hoisted(() => ({
   mockIssue: vi.fn(),
+  mockIssueWrite: vi.fn(),
   AuthenticationError: class extends Error {},
   ConfigurationError: class extends Error {},
   ValidationError: class extends Error {},
@@ -9,6 +10,7 @@ const { mockIssue, AuthenticationError, ConfigurationError, ValidationError } = 
 
 vi.mock("@dofe-agent/services", () => ({
   issueOpenMontageArtifactReadGrant: mockIssue,
+  issueOpenMontageArtifactWriteGrant: mockIssueWrite,
   OpenMontageArtifactAuthenticationError: AuthenticationError,
   OpenMontageArtifactConfigurationError: ConfigurationError,
   OpenMontageArtifactValidationError: ValidationError,
@@ -58,6 +60,53 @@ describe("OpenMontage artifact grant issue route", () => {
       attachmentId: "att-video-1",
       headers: request.headers,
       baseUrl: "http://agentspace.internal",
+    }));
+  });
+
+  it("issues a Job-bound write grant with immutable output metadata", async () => {
+    mockIssueWrite.mockReturnValue({
+      schemaVersion: 1,
+      grantId: "om_ag_write_1",
+      operation: "WRITE",
+      uploadUrl: "http://agentspace.internal/api/internal/openmontage/artifact-grants/om_ag_write_1",
+      token: "write-token",
+      expiresAt: "2026-08-05T10:05:00Z",
+      artifact: {
+        role: "final_video",
+        fileName: "final.mp4",
+        mediaType: "video/mp4",
+        sizeBytes: 5,
+        sha256: "a".repeat(64),
+      },
+    });
+    const request = new Request("http://agentspace.internal/api/internal/openmontage/jobs/om_job_1/artifact-grants", {
+      method: "POST",
+      headers: { Authorization: "Bearer service-token", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        operation: "WRITE",
+        artifact: {
+          role: "final_video",
+          fileName: "final.mp4",
+          mediaType: "video/mp4",
+          sizeBytes: 5,
+          sha256: "a".repeat(64),
+        },
+      }),
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ jobId: "om_job_1" }) });
+
+    expect(response.status).toBe(201);
+    expect(mockIssueWrite).toHaveBeenCalledWith(expect.objectContaining({
+      jobId: "om_job_1",
+      headers: request.headers,
+      artifact: {
+        role: "final_video",
+        fileName: "final.mp4",
+        mediaType: "video/mp4",
+        sizeBytes: 5,
+        sha256: "a".repeat(64),
+      },
     }));
   });
 

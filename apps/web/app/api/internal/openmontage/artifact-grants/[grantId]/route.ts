@@ -1,8 +1,11 @@
 import { basename } from "node:path";
+import { Readable } from "node:stream";
 import { OpenMontageArtifactGrantError } from "@dofe-agent/db";
 import {
   OpenMontageArtifactAuthenticationError,
+  OpenMontageArtifactConfigurationError,
   OpenMontageArtifactValidationError,
+  publishOpenMontageArtifactUpload,
   resolveOpenMontageArtifactReadDownload,
 } from "@dofe-agent/services";
 
@@ -34,6 +37,50 @@ export async function GET(
       return Response.json(
         { error: { code: "OPENMONTAGE_ARTIFACT_GRANT_INVALID" } },
         { status: 401, headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
+    if (error instanceof OpenMontageArtifactValidationError) {
+      return Response.json(
+        { error: { code: "OPENMONTAGE_ARTIFACT_INTEGRITY_FAILED" } },
+        { status: 409, headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
+    throw error;
+  }
+}
+
+export async function PUT(
+  request: Request,
+  context: { params: Promise<{ grantId: string }> },
+): Promise<Response> {
+  try {
+    if (!request.body) {
+      throw new OpenMontageArtifactValidationError("OpenMontage artifact upload body is required");
+    }
+    const { grantId } = await context.params;
+    const artifact = await publishOpenMontageArtifactUpload({
+      grantId: requireGrantId(grantId),
+      headers: request.headers,
+      content: Readable.fromWeb(request.body as never),
+    });
+    return Response.json(artifact, {
+      status: 201,
+      headers: { "Cache-Control": "private, no-store" },
+    });
+  } catch (error) {
+    if (
+      error instanceof OpenMontageArtifactAuthenticationError
+      || error instanceof OpenMontageArtifactGrantError
+    ) {
+      return Response.json(
+        { error: { code: "OPENMONTAGE_ARTIFACT_GRANT_INVALID" } },
+        { status: 401, headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
+    if (error instanceof OpenMontageArtifactConfigurationError) {
+      return Response.json(
+        { error: { code: "OPENMONTAGE_ARTIFACT_BRIDGE_NOT_CONFIGURED" } },
+        { status: 503, headers: { "Cache-Control": "private, no-store" } },
       );
     }
     if (error instanceof OpenMontageArtifactValidationError) {

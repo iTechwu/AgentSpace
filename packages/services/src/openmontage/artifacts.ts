@@ -1,9 +1,15 @@
 import { timingSafeEqual } from "node:crypto";
+import type { Readable } from "node:stream";
 import {
   consumeOpenMontageArtifactReadGrantSync,
+  consumeOpenMontageArtifactWriteGrantSync,
   issueOpenMontageArtifactReadGrantSync,
+  issueOpenMontageArtifactWriteGrantSync,
+  publishEmployeeArtifactSync,
   readOpenMontageJobLinkSync,
+  readStoredEmployeeByIdSync,
   readStoredAttachmentSync,
+  upsertContentBlobSync,
   type OpenMontageJobLinkRecord,
   type StoredAttachmentRecord,
 } from "@dofe-agent/db";
@@ -38,6 +44,32 @@ export interface OpenMontageArtifactReadGrantDocument {
     sizeBytes: number;
     sha256: string;
   };
+}
+
+export interface OpenMontageArtifactWriteGrantDocument {
+  schemaVersion: 1;
+  grantId: string;
+  operation: "WRITE";
+  uploadUrl: string;
+  token: string;
+  expiresAt: string;
+  artifact: OpenMontageOutputArtifactMetadata;
+}
+
+export interface OpenMontageOutputArtifactMetadata {
+  role: string;
+  fileName: string;
+  mediaType: string;
+  sizeBytes: number;
+  sha256: string;
+}
+
+export interface OpenMontagePublishedArtifactDocument extends OpenMontageOutputArtifactMetadata {
+  schemaVersion: 1;
+  jobId: string;
+  employeeArtifactId: string;
+  employeeId: string;
+  publishedAt: string;
 }
 
 export type OpenMontageArtifactReadDownload =
@@ -156,6 +188,143 @@ export async function resolveOpenMontageArtifactReadDownload(
     );
   }
   return { kind: "bytes", bytes, attachment };
+}
+
+export function issueOpenMontageArtifactWriteGrant(
+  input: {
+    jobId: string;
+    headers: Headers;
+    baseUrl: string;
+    artifact: OpenMontageOutputArtifactMetadata;
+    environment?: Record<string, string | undefined>;
+    now?: string;
+  },
+  options: {
+    readLink?: typeof readOpenMontageJobLinkSync;
+    issueGrant?: typeof issueOpenMontageArtifactWriteGrantSync;
+  } = {},
+): OpenMontageArtifactWriteGrantDocument {
+  const environment = input.environment ?? process.env;
+  const attribution = authenticateServiceRequest(
+    input.headers,
+    environment.OPENMONTAGE_SERVICE_TOKEN,
+  );
+  const link = (options.readLink ?? readOpenMontageJobLinkSync)(input.jobId);
+  if (!link || !matchesAttribution(link, attribution)) {
+    throw new OpenMontageArtifactAuthenticationError(
+      "OpenMontage Job attribution does not match its trusted binding",
+    );
+  }
+  const issued = (options.issueGrant ?? issueOpenMontageArtifactWriteGrantSync)({
+    workspaceId: link.workspaceId,
+    jobId: link.jobId,
+    ...input.artifact,
+    now: input.now,
+  });
+  const baseUrl = parseServiceBaseUrl(input.baseUrl);
+  const uploadUrl = new URL(
+    `/api/internal/openmontage/artifact-grants/${encodeURIComponent(issued.grant.id)}`,
+    baseUrl,
+  ).toString();
+  return {
+    schemaVersion: 1,
+    grantId: issued.grant.id,
+    operation: "WRITE",
+    uploadUrl,
+    token: issued.token,
+    expiresAt: issued.grant.expiresAt,
+    artifact: {
+      role: issued.grant.role,
+      fileName: issued.grant.fileName,
+      mediaType: issued.grant.mediaType,
+      sizeBytes: issued.grant.sizeBytes,
+      sha256: issued.grant.sha256,
+    },
+  };
+}
+
+export async function publishOpenMontageArtifactUpload(
+  input: {
+    grantId: string;
+    headers: Headers;
+    content: Readable;
+    now?: string;
+  },
+  options: {
+    consumeGrant?: typeof consumeOpenMontageArtifactWriteGrantSync;
+    readLink?: typeof readOpenMontageJobLinkSync;
+    readEmployee?: typeof readStoredEmployeeByIdSync;
+    storage?: AttachmentStorageClient;
+    upsertBlob?: typeof upsertContentBlobSync;
+    publishArtifact?: typeof publishEmployeeArtifactSync;
+  } = {},
+): Promise<OpenMontagePublishedArtifactDocument> {
+  const token = readBearerToken(input.headers);
+  const grant = (options.consumeGrant ?? consumeOpenMontageArtifactWriteGrantSync)({
+    grantId: input.grantId,
+    token,
+    now: input.now,
+  });
+  const link = (options.readLink ?? readOpenMontageJobLinkSync)(grant.jobId);
+  if (!link || link.workspaceId !== grant.workspaceId) {
+    throw new OpenMontageArtifactValidationError(
+      "OpenMontage output grant no longer has a valid Job binding",
+    );
+  }
+  const employee = (options.readEmployee ?? readStoredEmployeeByIdSync)(
+    link.employeeId,
+    link.workspaceId,
+  );
+  if (!employee || employee.id !== link.employeeId) {
+    throw new OpenMontageArtifactValidationError(
+      "OpenMontage output grant no longer has a valid employee binding",
+    );
+  }
+  const storage = options.storage ?? createAttachmentStorageClient();
+  if (!storage.putContentAddressedBlobStream) {
+    throw new OpenMontageArtifactConfigurationError(
+      "Attachment storage does not support streaming Artifact Bridge uploads",
+    );
+  }
+  const ref = await storage.putContentAddressedBlobStream({
+    workspaceId: grant.workspaceId,
+    sha256: grant.sha256,
+    content: input.content,
+    sizeBytes: grant.sizeBytes,
+    mediaType: grant.mediaType,
+  });
+  (options.upsertBlob ?? upsertContentBlobSync)({
+    workspaceId: grant.workspaceId,
+    sha256: grant.sha256,
+    storageProvider: ref.storageProvider,
+    storageBucket: ref.storageBucket,
+    storageRegion: ref.storageRegion,
+    storageEndpoint: ref.storageEndpoint,
+    storageKey: ref.storageKey,
+    sizeBytes: grant.sizeBytes,
+    mediaType: grant.mediaType,
+  });
+  const artifact = (options.publishArtifact ?? publishEmployeeArtifactSync)({
+    workspaceId: grant.workspaceId,
+    employeeName: employee.name,
+    contentDigest: grant.sha256,
+    mediaType: grant.mediaType,
+    fileName: grant.fileName,
+    sizeBytes: grant.sizeBytes,
+    sourceTaskId: link.rootTaskId,
+  });
+  return {
+    schemaVersion: 1,
+    jobId: grant.jobId,
+    employeeArtifactId: artifact.id,
+    employeeId: link.employeeId,
+    role: grant.role,
+    fileName: grant.fileName,
+    mediaType: grant.mediaType,
+    sizeBytes: grant.sizeBytes,
+    sha256: grant.sha256,
+    publishedAt: artifact.publishedAt,
+  };
 }
 
 function authenticateServiceRequest(

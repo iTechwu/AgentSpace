@@ -1,6 +1,7 @@
 import { OpenMontageArtifactGrantError } from "@dofe-agent/db";
 import {
   issueOpenMontageArtifactReadGrant,
+  issueOpenMontageArtifactWriteGrant,
   OpenMontageArtifactAuthenticationError,
   OpenMontageArtifactConfigurationError,
   OpenMontageArtifactValidationError,
@@ -17,15 +18,22 @@ export async function POST(
 ): Promise<Response> {
   try {
     const body = await readJsonObject(request);
-    const attachmentId = requireIdentifier(body.attachmentId, "attachmentId");
     const { jobId } = await context.params;
     const baseUrl = process.env.DOFE_AGENT_INTERNAL_URL?.trim() || new URL(request.url).origin;
-    const grant = issueOpenMontageArtifactReadGrant({
-      jobId: requireIdentifier(jobId, "jobId"),
-      attachmentId,
-      headers: request.headers,
-      baseUrl,
-    });
+    const normalizedJobId = requireIdentifier(jobId, "jobId");
+    const grant = body.operation === "WRITE"
+      ? issueOpenMontageArtifactWriteGrant({
+          jobId: normalizedJobId,
+          artifact: readWriteArtifact(body),
+          headers: request.headers,
+          baseUrl,
+        })
+      : issueOpenMontageArtifactReadGrant({
+          jobId: normalizedJobId,
+          attachmentId: readAttachmentId(body),
+          headers: request.headers,
+          baseUrl,
+        });
     return Response.json(grant, {
       status: 201,
       headers: { "Cache-Control": "private, no-store" },
@@ -67,10 +75,46 @@ async function readJsonObject(request: Request): Promise<Record<string, unknown>
     throw new OpenMontageArtifactValidationError("Artifact grant request must be an object");
   }
   const source = value as Record<string, unknown>;
-  if (Object.keys(source).some((key) => key !== "attachmentId")) {
-    throw new OpenMontageArtifactValidationError("Artifact grant request has unsupported fields");
-  }
   return source;
+}
+
+function readAttachmentId(body: Record<string, unknown>): string {
+  const allowed = new Set(["operation", "attachmentId"]);
+  if (
+    (body.operation !== undefined && body.operation !== "READ")
+    || Object.keys(body).some((key) => !allowed.has(key))
+  ) {
+    throw new OpenMontageArtifactValidationError("Artifact read grant request has unsupported fields");
+  }
+  return requireIdentifier(body.attachmentId, "attachmentId");
+}
+
+function readWriteArtifact(body: Record<string, unknown>) {
+  if (
+    Object.keys(body).length !== 2
+    || !Object.hasOwn(body, "artifact")
+    || !body.artifact
+    || typeof body.artifact !== "object"
+    || Array.isArray(body.artifact)
+  ) {
+    throw new OpenMontageArtifactValidationError("Artifact write grant request is invalid");
+  }
+  const artifact = body.artifact as Record<string, unknown>;
+  const expectedKeys = ["fileName", "mediaType", "role", "sha256", "sizeBytes"];
+  const actualKeys = Object.keys(artifact).sort();
+  if (actualKeys.length !== expectedKeys.length || actualKeys.some((key, index) => key !== expectedKeys[index])) {
+    throw new OpenMontageArtifactValidationError("Artifact write metadata has invalid fields");
+  }
+  if (typeof artifact.sizeBytes !== "number" || !Number.isSafeInteger(artifact.sizeBytes)) {
+    throw new OpenMontageArtifactValidationError("Artifact sizeBytes is invalid");
+  }
+  return {
+    role: requireIdentifier(artifact.role, "role"),
+    fileName: requireIdentifier(artifact.fileName, "fileName"),
+    mediaType: requireIdentifier(artifact.mediaType, "mediaType"),
+    sizeBytes: artifact.sizeBytes,
+    sha256: requireIdentifier(artifact.sha256, "sha256"),
+  };
 }
 
 function requireIdentifier(value: unknown, name: string): string {
