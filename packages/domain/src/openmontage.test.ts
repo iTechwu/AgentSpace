@@ -4,8 +4,83 @@ import {
   applyOpenMontageJobEvent,
   createOpenMontageJobProjection,
   parseOpenMontageJobEvent,
+  parseOpenMontageSubmittedJob,
   type OpenMontageJobEvent,
 } from "./openmontage.ts";
+
+function submittedJob() {
+  return {
+    schemaVersion: 1,
+    jobId: "om_job_1",
+    status: "QUEUED",
+    workflow: {
+      name: "animated-explainer",
+      version: "2.0",
+      stages: [
+        { code: "research", labelCode: "openmontage.stage.research", approvalRequired: false },
+        { code: "proposal", labelCode: "openmontage.stage.proposal", approvalRequired: true },
+      ],
+    },
+    attribution: {
+      workspaceId: "ws-1",
+      employeeId: "employee-1",
+      runtimeId: "runtime-1",
+      rootTaskId: "task-1",
+      conversationId: "conversation-1",
+      sourceInvocationId: "invocation-1",
+      traceId: "trace-1",
+    },
+    request: {
+      schemaVersion: 1,
+      clientRequestId: "client-request-1",
+      workflow: "animated-explainer",
+      input: {},
+      brief: {},
+      output: {},
+      budget: {},
+    },
+    stages: [
+      {
+        code: "research",
+        labelCode: "openmontage.stage.research",
+        approvalRequired: false,
+        approvalStatus: "NOT_REQUIRED",
+        status: "PENDING",
+        attempt: 0,
+      },
+      {
+        code: "proposal",
+        labelCode: "openmontage.stage.proposal",
+        approvalRequired: true,
+        approvalStatus: "REQUIRED",
+        status: "PENDING",
+        attempt: 0,
+      },
+    ],
+    lastSequence: 1,
+    createdAt: "2026-08-05T10:00:01Z",
+    updatedAt: "2026-08-05T10:00:01Z",
+  };
+}
+
+test("submitted Job parsing validates the full OpenMontage response and produces a projection seed", () => {
+  const parsed = parseOpenMontageSubmittedJob(submittedJob());
+
+  assert.equal(parsed.attribution.employeeId, "employee-1");
+  assert.equal(parsed.clientRequestId, "client-request-1");
+  assert.equal(parsed.snapshot.currentStage, null);
+  assert.equal(parsed.snapshot.stages[1]?.approvalStatus, "REQUIRED");
+});
+
+test("submitted Job parsing rejects forged attribution and inconsistent workflow stages", () => {
+  const forged = submittedJob();
+  forged.attribution = { ...forged.attribution, employeeId: "" };
+  assert.throws(() => parseOpenMontageSubmittedJob(forged), /employeeId/);
+
+  const inconsistent = submittedJob();
+  inconsistent.stages = inconsistent.stages.slice(0, 1);
+  assert.throws(() => parseOpenMontageSubmittedJob(inconsistent), /stages must match/);
+});
 
 function event(
   sequence: number,

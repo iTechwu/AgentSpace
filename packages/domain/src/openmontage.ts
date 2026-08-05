@@ -120,11 +120,119 @@ export interface OpenMontageJobSnapshotSeed {
   updatedAt: string;
 }
 
+export interface OpenMontageJobAttribution {
+  workspaceId: string;
+  employeeId: string;
+  runtimeId: string;
+  rootTaskId: string;
+  conversationId: string;
+  sourceInvocationId: string;
+  traceId: string;
+}
+
+export interface OpenMontageSubmittedJob {
+  attribution: OpenMontageJobAttribution;
+  clientRequestId: string;
+  snapshot: OpenMontageJobSnapshotSeed;
+}
+
 export type ApplyOpenMontageJobEventOutcome =
   | "applied"
   | "duplicate"
   | "gap"
   | "ignored_terminal";
+
+export function parseOpenMontageSubmittedJob(value: unknown): OpenMontageSubmittedJob {
+  const source = requireObject(value, "OpenMontage submitted Job");
+  assertKeys(source, [
+    "schemaVersion",
+    "jobId",
+    "status",
+    "workflow",
+    "attribution",
+    "request",
+    "stages",
+    "lastSequence",
+    "createdAt",
+    "updatedAt",
+  ], ["currentStage"]);
+  if (source.schemaVersion !== 1) {
+    throw new Error("OpenMontage snapshot schemaVersion must be 1.");
+  }
+
+  const workflow = requireObject(source.workflow, "workflow");
+  assertExactKeys(workflow, ["name", "version", "stages"]);
+  if (!Array.isArray(workflow.stages) || workflow.stages.length === 0) {
+    throw new Error("workflow.stages must be a non-empty array.");
+  }
+  const workflowStages = workflow.stages.map((value, index) => {
+    const stage = requireObject(value, `workflow.stages[${index}]`);
+    assertExactKeys(stage, ["code", "labelCode", "approvalRequired"]);
+    return {
+      code: requireIdentifier(stage.code, `workflow.stages[${index}].code`),
+      labelCode: requireIdentifier(stage.labelCode, `workflow.stages[${index}].labelCode`),
+      approvalRequired: requireBoolean(stage.approvalRequired, `workflow.stages[${index}].approvalRequired`),
+    };
+  });
+
+  const attributionSource = requireObject(source.attribution, "attribution");
+  assertExactKeys(attributionSource, [
+    "workspaceId",
+    "employeeId",
+    "runtimeId",
+    "rootTaskId",
+    "conversationId",
+    "sourceInvocationId",
+    "traceId",
+  ]);
+  const attribution: OpenMontageJobAttribution = {
+    workspaceId: requireIdentifier(attributionSource.workspaceId, "attribution.workspaceId"),
+    employeeId: requireIdentifier(attributionSource.employeeId, "attribution.employeeId"),
+    runtimeId: requireIdentifier(attributionSource.runtimeId, "attribution.runtimeId"),
+    rootTaskId: requireIdentifier(attributionSource.rootTaskId, "attribution.rootTaskId"),
+    conversationId: requireIdentifier(attributionSource.conversationId, "attribution.conversationId"),
+    sourceInvocationId: requireIdentifier(attributionSource.sourceInvocationId, "attribution.sourceInvocationId"),
+    traceId: requireIdentifier(attributionSource.traceId, "attribution.traceId"),
+  };
+
+  const request = requireObject(source.request, "request");
+  assertExactKeys(request, ["schemaVersion", "clientRequestId", "workflow", "input", "brief", "output", "budget"]);
+  if (request.schemaVersion !== 1) throw new Error("request.schemaVersion must be 1.");
+  const clientRequestId = requireIdentifier(request.clientRequestId, "request.clientRequestId");
+  const requestedWorkflow = requireIdentifier(request.workflow, "request.workflow");
+  for (const field of ["input", "brief", "output", "budget"] as const) {
+    requireObject(request[field], `request.${field}`);
+  }
+
+  if (!Array.isArray(source.stages) || source.stages.length === 0) {
+    throw new Error("stages must be a non-empty array.");
+  }
+  const stages = source.stages.map((value, index) => parseSubmittedStage(value, index));
+  const status = requireJobStatus(source.status, "status");
+  const currentStage = source.currentStage === undefined || source.currentStage === null
+    ? null
+    : requireIdentifier(source.currentStage, "currentStage");
+  const snapshot: OpenMontageJobSnapshotSeed = {
+    schemaVersion: 1,
+    jobId: requireIdentifier(source.jobId, "jobId"),
+    status,
+    workflow: {
+      name: requireIdentifier(workflow.name, "workflow.name"),
+      version: requireIdentifier(workflow.version, "workflow.version"),
+      stages: workflowStages,
+    },
+    stages,
+    currentStage,
+    lastSequence: requireNonNegativeInteger(source.lastSequence, "lastSequence"),
+    createdAt: requireTimestamp(source.createdAt, "createdAt"),
+    updatedAt: requireTimestamp(source.updatedAt, "updatedAt"),
+  };
+  if (requestedWorkflow !== snapshot.workflow.name) {
+    throw new Error("request.workflow must match workflow.name.");
+  }
+  createOpenMontageJobProjection(snapshot);
+  return { attribution, clientRequestId, snapshot };
+}
 
 export function parseOpenMontageJobEvent(value: unknown): OpenMontageJobEvent {
   const source = requireObject(value, "OpenMontage event");
@@ -359,6 +467,34 @@ function validatePayload(eventType: OpenMontageJobEventType, payload: Record<str
   }
 }
 
+function parseSubmittedStage(value: unknown, index: number): OpenMontageJobSnapshotSeed["stages"][number] {
+  const stage = requireObject(value, `stages[${index}]`);
+  assertKeys(stage, ["code", "labelCode", "approvalRequired", "approvalStatus", "status", "attempt"], ["progress", "startedAt", "completedAt"]);
+  const parsed: OpenMontageJobSnapshotSeed["stages"][number] = {
+    code: requireIdentifier(stage.code, `stages[${index}].code`),
+    labelCode: requireIdentifier(stage.labelCode, `stages[${index}].labelCode`),
+    approvalRequired: requireBoolean(stage.approvalRequired, `stages[${index}].approvalRequired`),
+    approvalStatus: requireApprovalStatus(stage.approvalStatus, `stages[${index}].approvalStatus`),
+    status: requireStageStatus(stage.status, `stages[${index}].status`),
+    attempt: requireNonNegativeInteger(stage.attempt, `stages[${index}].attempt`),
+  };
+  if (stage.progress !== undefined) {
+    const progress = requireObject(stage.progress, `stages[${index}].progress`);
+    assertExactKeys(progress, ["completedUnits", "totalUnits", "labelCode"]);
+    const completedUnits = requireNonNegativeInteger(progress.completedUnits, `stages[${index}].progress.completedUnits`);
+    const totalUnits = requirePositiveInteger(progress.totalUnits, `stages[${index}].progress.totalUnits`);
+    if (completedUnits > totalUnits) throw new Error(`stages[${index}].progress.completedUnits cannot exceed totalUnits.`);
+    parsed.progress = {
+      completedUnits,
+      totalUnits,
+      labelCode: requireIdentifier(progress.labelCode, `stages[${index}].progress.labelCode`),
+    };
+  }
+  if (stage.startedAt !== undefined) parsed.startedAt = requireTimestamp(stage.startedAt, `stages[${index}].startedAt`);
+  if (stage.completedAt !== undefined) parsed.completedAt = requireTimestamp(stage.completedAt, `stages[${index}].completedAt`);
+  return parsed;
+}
+
 function requireProjectedStage(
   projection: OpenMontageJobProjection,
   code: unknown,
@@ -403,6 +539,35 @@ function assertExactKeys(source: Record<string, unknown>, allowed: readonly stri
   if (missing) {
     throw new Error(`OpenMontage contract is missing field "${missing}".`);
   }
+}
+
+function assertKeys(source: Record<string, unknown>, required: readonly string[], optional: readonly string[]): void {
+  const allowed = new Set([...required, ...optional]);
+  const unexpected = Object.keys(source).find((key) => !allowed.has(key));
+  if (unexpected) throw new Error(`OpenMontage contract contains unexpected field "${unexpected}".`);
+  const missing = required.find((key) => !(key in source));
+  if (missing) throw new Error(`OpenMontage contract is missing field "${missing}".`);
+}
+
+function requireJobStatus(value: unknown, field: string): OpenMontageJobStatus {
+  if (typeof value !== "string" || !(["QUEUED", "RUNNING", "WAITING_APPROVAL", "SUCCEEDED", "FAILED", "CANCEL_REQUESTED", "CANCELLED"] as const).includes(value as OpenMontageJobStatus)) {
+    throw new Error(`${field} is not a supported Job status.`);
+  }
+  return value as OpenMontageJobStatus;
+}
+
+function requireStageStatus(value: unknown, field: string): OpenMontageStageStatus {
+  if (typeof value !== "string" || !(["PENDING", "RUNNING", "WAITING_APPROVAL", "SUCCEEDED", "FAILED", "CANCELLED", "SKIPPED"] as const).includes(value as OpenMontageStageStatus)) {
+    throw new Error(`${field} is not a supported stage status.`);
+  }
+  return value as OpenMontageStageStatus;
+}
+
+function requireApprovalStatus(value: unknown, field: string): OpenMontageApprovalStatus {
+  if (typeof value !== "string" || !(["NOT_REQUIRED", "REQUIRED", "PENDING", "APPROVED", "REJECTED"] as const).includes(value as OpenMontageApprovalStatus)) {
+    throw new Error(`${field} is not a supported approval status.`);
+  }
+  return value as OpenMontageApprovalStatus;
 }
 
 function requireIdentifier(value: unknown, field: string): string {
