@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 import { DataProtectionSloPanel } from "./data-protection-slo-panel";
@@ -35,6 +36,7 @@ describe("DataProtectionSloPanel", () => {
   });
 
   it("renders repeated alert codes without a React key warning", async () => {
+    const user = userEvent.setup();
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     render(
@@ -42,6 +44,9 @@ describe("DataProtectionSloPanel", () => {
         <DataProtectionSloPanel />
       </LanguageProvider>,
     );
+
+    expect(readDashboard).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "加载数据保护 SLO" }));
 
     expect(await screen.findByText("Artifact A failed.")).toBeInTheDocument();
     expect(screen.getByText("Artifact B failed.")).toBeInTheDocument();

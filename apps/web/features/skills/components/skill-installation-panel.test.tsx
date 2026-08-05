@@ -5,7 +5,7 @@ import { LanguageProvider } from "@/features/i18n/language-provider";
 import { FeedbackToastProvider } from "@/shared/ui/feedback-toast-provider";
 import { SkillInstallationPanel } from "./skill-installation-panel";
 
-const { createUpgrade, downloadDiagnostics, listApprovals, listRows } = vi.hoisted(() => ({
+const { createUpgrade, downloadDiagnostics, loadPanel } = vi.hoisted(() => ({
   createUpgrade: vi.fn(async () => ({
     data: { installationId: "candidate-installation", breaking: true, changeCount: 3 },
     toast: { tone: "info" as const, zh: "升级计划已创建。", en: "Upgrade planned." },
@@ -14,16 +14,13 @@ const { createUpgrade, downloadDiagnostics, listApprovals, listRows } = vi.hoist
     data: { fileName: "skill-diagnostics.json", contentBase64: "e30=", sha256: "a".repeat(64) },
     toast: { tone: "success" as const, zh: "脱敏诊断包已生成。", en: "Redacted diagnostics generated." },
   })),
-  listApprovals: vi.fn(),
-  listRows: vi.fn(),
+  loadPanel: vi.fn(),
 }));
 
 vi.mock("@/features/skills/installation-actions", () => ({
   createSkillUpgradeAction: createUpgrade,
   downloadSkillInstallationDiagnosticsAction: downloadDiagnostics,
-  listSkillInstallApprovalsAction: listApprovals,
-  listSkillInstallationRowsForSkillAction: listRows,
-  listSkillRunnerInvocationsAction: vi.fn(async () => []),
+  loadSkillInstallationPanelAction: loadPanel,
   promoteSkillUpgradeAction: vi.fn(),
   rollbackSkillInstallationAction: vi.fn(),
   uninstallSkillInstallationAction: vi.fn(),
@@ -51,10 +48,8 @@ describe("SkillInstallationPanel", () => {
   beforeEach(() => {
     createUpgrade.mockClear();
     downloadDiagnostics.mockClear();
-    listApprovals.mockReset();
-    listApprovals.mockResolvedValue([]);
-    listRows.mockReset();
-    listRows.mockResolvedValue([activeRow]);
+    loadPanel.mockReset();
+    loadPanel.mockResolvedValue({ rows: [activeRow], approvals: [], invocations: [] });
     vi.spyOn(window, "confirm").mockReturnValue(true);
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:diagnostics") });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
@@ -104,21 +99,25 @@ describe("SkillInstallationPanel", () => {
   });
 
   it("renders duplicate risk item keys without a React key warning", async () => {
-    listApprovals.mockResolvedValue([{
-      id: "approval-1",
-      skillId: "skill-1",
-      artifactDigest: "d".repeat(64),
-      releaseLockDigest: "e".repeat(64),
-      policyVersion: "v1",
-      riskDecisionDigest: "f".repeat(64),
-      decision: "approved",
-      riskItems: [
-        { category: "script", key: "skill_artifact_verification_failure", description: "Script verification failed." },
-        { category: "network", key: "skill_artifact_verification_failure", description: "Network verification failed." },
-      ],
-      reason: "QA approval",
-      createdAt: "2026-08-05T00:00:00.000Z",
-    }]);
+    loadPanel.mockResolvedValue({
+      rows: [activeRow],
+      approvals: [{
+        id: "approval-1",
+        skillId: "skill-1",
+        artifactDigest: "d".repeat(64),
+        releaseLockDigest: "e".repeat(64),
+        policyVersion: "v1",
+        riskDecisionDigest: "f".repeat(64),
+        decision: "approved",
+        riskItems: [
+          { category: "script", key: "skill_artifact_verification_failure", description: "Script verification failed." },
+          { category: "network", key: "skill_artifact_verification_failure", description: "Network verification failed." },
+        ],
+        reason: "QA approval",
+        createdAt: "2026-08-05T00:00:00.000Z",
+      }],
+      invocations: [],
+    });
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     render(

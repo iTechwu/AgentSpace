@@ -8,9 +8,7 @@ import { AppIcon } from "@/shared/ui/app-icon";
 import {
   createSkillUpgradeAction,
   downloadSkillInstallationDiagnosticsAction,
-  listSkillInstallApprovalsAction,
-  listSkillInstallationRowsForSkillAction,
-  listSkillRunnerInvocationsAction,
+  loadSkillInstallationPanelAction,
   promoteSkillUpgradeAction,
   rollbackSkillInstallationAction,
   uninstallSkillInstallationAction,
@@ -63,15 +61,10 @@ export function SkillInstallationPanel({ skillId }: SkillInstallationPanelProps)
   const reload = useCallback(() => {
     setLoading(true);
     setLoadFailed(false);
-    void Promise.all([
-      listSkillInstallationRowsForSkillAction({ skillId }),
-      listSkillInstallApprovalsAction(),
-      listSkillRunnerInvocationsAction(),
-    ]).then(([nextRows, nextApprovals, nextInvocations]) => {
-      setRows(nextRows);
-      setApprovals(nextApprovals.filter((approval) => approval.skillId === skillId));
-      const installationIds = new Set(nextRows.map((row) => row.installationId));
-      setInvocations(nextInvocations.filter((invocation) => invocation.installationId && installationIds.has(invocation.installationId)));
+    void loadSkillInstallationPanelAction({ skillId }).then((nextView) => {
+      setRows(nextView.rows);
+      setApprovals(nextView.approvals);
+      setInvocations(nextView.invocations);
     }).catch(() => setLoadFailed(true)).finally(() => setLoading(false));
   }, [skillId]);
 

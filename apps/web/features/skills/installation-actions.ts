@@ -756,6 +756,34 @@ export async function listSkillInstallationRowsForSkillAction(input: {
   return rows;
 }
 
+export interface SkillInstallationPanelView {
+  rows: SkillInstallationRowView[];
+  approvals: SkillInstallApprovalAuditView[];
+  invocations: SkillRunnerInvocationAuditView[];
+}
+
+/** Loads the installation panel in one server-action round trip. */
+export async function loadSkillInstallationPanelAction(input: {
+  skillId: string;
+}): Promise<SkillInstallationPanelView> {
+  assertRequired(input.skillId, "skill id");
+  const skillId = input.skillId.trim();
+  const [rows, approvals, invocations] = await Promise.all([
+    listSkillInstallationRowsForSkillAction({ skillId }),
+    listSkillInstallApprovalsAction(),
+    listSkillRunnerInvocationsAction(),
+  ]);
+  const installationIds = new Set(rows.map((row) => row.installationId));
+
+  return {
+    rows,
+    approvals: approvals.filter((approval) => approval.skillId === skillId),
+    invocations: invocations.filter((invocation) => (
+      invocation.installationId !== undefined && installationIds.has(invocation.installationId)
+    )),
+  };
+}
+
 export async function downloadSkillInstallationDiagnosticsAction(input: {
   skillId: string;
 }): Promise<ActionToastResult<{ fileName: string; contentBase64: string; sha256: string }>> {

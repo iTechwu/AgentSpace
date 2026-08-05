@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { AppIcon } from "@/shared/ui/app-icon";
 import { readDataProtectionSloDashboardAction, type DataProtectionSloView } from "@/features/skills/slo-actions";
@@ -22,7 +22,7 @@ function formatBytes(bytes: number): string {
 export function DataProtectionSloPanel() {
   const { tx } = useLanguage();
   const [view, setView] = useState<DataProtectionSloView>();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -32,15 +32,26 @@ export function DataProtectionSloPanel() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  const actionLabel = view
+    ? tx("刷新数据保护 SLO", "Refresh data protection SLO")
+    : tx("加载数据保护 SLO", "Load data protection SLO");
+  const header = (
+    <header className="data-protection-slo__header">
+      <AppIcon name="approvals" />
+      <h3>{tx("数据保护 SLO 看板", "Data protection SLO dashboard")}</h3>
+      <button aria-label={actionLabel} className="action-button action-button--compact action-button--icon" disabled={loading} onClick={reload} title={actionLabel} type="button">
+        <AppIcon className={loading ? "spin" : undefined} name={loading ? "loader" : "refresh"} />
+      </button>
+    </header>
+  );
 
-  if (loading) {
-    return <p className="form-field__hint">{tx("正在加载 SLO…", "Loading SLO…")}</p>;
-  }
-  if (!view) {
-    return null;
+  if (loading || !view) {
+    return (
+      <section className="data-protection-slo">
+        {header}
+        {loading ? <p className="form-field__hint">{tx("正在加载 SLO…", "Loading SLO…")}</p> : null}
+      </section>
+    );
   }
   const { metrics } = view;
   const headAgeOk = metrics.workspaceHeadAgeSeconds <= view.sloTargets.headAgeSeconds;
@@ -59,11 +70,7 @@ export function DataProtectionSloPanel() {
 
   return (
     <section className="data-protection-slo">
-      <header className="data-protection-slo__header">
-        <AppIcon name="approvals" />
-        <h3>{tx("数据保护 SLO 看板", "Data protection SLO dashboard")}</h3>
-        <button aria-label={tx("刷新", "Refresh")} className="action-button action-button--compact action-button--icon" onClick={reload} type="button"><AppIcon name="refresh" /></button>
-      </header>
+      {header}
       <div className="data-protection-slo__grid">
         {stats.map((stat) => (
           <div className="data-protection-slo__stat" key={stat.label}>
