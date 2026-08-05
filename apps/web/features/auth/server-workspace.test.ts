@@ -3,11 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  archiveWorkspaceSync,
   createChannelParticipantSync,
   createWorkspaceMembershipSync,
   createWorkspaceSync,
   getDatabase,
   listUserWorkspacesSync,
+  upsertWorkspaceSsoBindingSync,
 } from "@dofe-agent/db";
 import type { AuthUser } from "./server-auth";
 import {
@@ -27,6 +29,7 @@ beforeAll(() => {
 beforeEach(() => {
   const db = getDatabase();
   db.exec("DELETE FROM workspace_membership");
+  db.exec("DELETE FROM workspace_sso_binding");
   db.exec("DELETE FROM workspace");
   db.exec("DELETE FROM users");
 });
@@ -264,7 +267,7 @@ describe("server workspace context", () => {
     }
   });
 
-  it("grants a platform administrator workspace access without a stored membership", () => {
+  it("grants a platform administrator access only to active SSO-bound workspaces", () => {
     const user: AuthUser = {
       id: "platform-admin-1",
       organizationName: "",
@@ -280,6 +283,35 @@ describe("server workspace context", () => {
       name: "Platform Target",
       createdBy: "workspace-owner",
     });
+    upsertWorkspaceSsoBindingSync({
+      workspaceId: "sso-team-platform-target",
+      tenantId: "tenant-platform",
+      tenantName: "Platform",
+      teamId: "team-platform-target",
+      teamName: "Platform Target",
+      source: "team",
+    });
+    createWorkspaceSync({
+      id: "sso-team-e2e-unbound",
+      slug: "sso-team-e2e-unbound",
+      name: "E2E Workspace unbound",
+      createdBy: "workspace-owner",
+    });
+    createWorkspaceSync({
+      id: "sso-team-archived-target",
+      slug: "archived-target",
+      name: "Archived Target",
+      createdBy: "workspace-owner",
+    });
+    upsertWorkspaceSsoBindingSync({
+      workspaceId: "sso-team-archived-target",
+      tenantId: "tenant-archived",
+      tenantName: "Archived",
+      teamId: "team-archived-target",
+      teamName: "Archived Target",
+      source: "team",
+    });
+    archiveWorkspaceSync("sso-team-archived-target");
 
     const resolution = resolveWorkspaceAccessForIdentifierSync(user, "platform-target");
 
@@ -288,6 +320,11 @@ describe("server workspace context", () => {
       expect(resolution.context.currentMembership.role).toBe("admin");
       expect(resolution.context.currentMembership.id).toContain("platform-admin-scope");
     }
+    expect(resolveWorkspaceAccessForIdentifierSync(user, "sso-team-e2e-unbound").status).toBe("forbidden");
+    expect(resolveWorkspaceAccessForIdentifierSync(user, "archived-target").status).toBe("forbidden");
+    expect(resolveCurrentWorkspaceContextForUserSync(user).workspaces.map((item) => item.id)).toEqual([
+      "sso-team-platform-target",
+    ]);
     expect(listUserWorkspacesSync(user.id)).toEqual([]);
   });
 });

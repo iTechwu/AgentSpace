@@ -1,7 +1,7 @@
 import {
+  listActiveSsoWorkspacesSync,
   listChannelParticipantsForUserSync,
   listUserWorkspacesSync,
-  listWorkspacesSync,
   readWorkspaceSync,
   type StoredWorkspaceMembershipRecord,
   type StoredWorkspaceRecord,
@@ -221,8 +221,7 @@ function sortWorkspacesByPreferredIdentifiers(
 
 function ensureWorkspaceMembershipsSync(currentUser: AuthUser): StoredWorkspaceMembershipRecord[] {
   if (currentUser.isPlatformAdmin) {
-    return listWorkspacesSync()
-      .filter((workspace) => workspace.id.startsWith("sso-"))
+    return listActiveSsoWorkspacesSync()
       .map((workspace) => ({
         id: `platform-admin-scope-${workspace.id}-${currentUser.id}`,
         workspaceId: workspace.id,
