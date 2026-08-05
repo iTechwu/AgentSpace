@@ -43,7 +43,7 @@ export function SkillDraftControls({
 
   useEffect(() => {
     reload();
-  }, [reload, files]);
+  }, [reload]);
 
   const saveDraft = () => {
     setPending(true);
