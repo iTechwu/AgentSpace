@@ -13,6 +13,7 @@
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
     "typecheck:deps": "pnpm --dir ../.. run typecheck:deps",
     "lint": "eslint . --max-warnings=0",
+    "reconcile:sso-workspaces": "node --env-file-if-exists=../../.env --experimental-strip-types scripts/reconcile-sso-workspaces.ts",
     "test": "NODE_OPTIONS=--no-experimental-webstorage vitest run",
     "test:watch": "NODE_OPTIONS=--no-experimental-webstorage vitest",
     "test:e2e": "playwright test"
