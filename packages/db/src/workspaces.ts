@@ -100,11 +100,18 @@ export function readWorkspaceSync(idOrSlug: string): StoredWorkspaceRecord | nul
 }
 
 export function listWorkspacesSync(): StoredWorkspaceRecord[] {
-  const db = getDatabase();
-  const rows = db.prepare(
+  return listWorkspaceRecordsSync(false);
+}
+
+export function listAllWorkspacesSync(): StoredWorkspaceRecord[] {
+  return listWorkspaceRecordsSync(true);
+}
+
+function listWorkspaceRecordsSync(includeArchived: boolean): StoredWorkspaceRecord[] {
+  const rows = getDatabase().prepare(
     `SELECT id, slug, name, created_by, created_at, updated_at, archived_at
      FROM workspace
-     WHERE archived_at IS NULL
+     ${includeArchived ? "" : "WHERE archived_at IS NULL"}
      ORDER BY created_at DESC`,
   ).all() as WorkspaceRow[];
 

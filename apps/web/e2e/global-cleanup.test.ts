@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  archiveWorkspaceSync,
   createWorkspaceSync,
   getDatabase,
   readWorkspaceSync,
@@ -42,6 +43,8 @@ describe("Playwright global workspace cleanup", () => {
 
   it("hard-deletes only strictly matched unbound E2E workspaces", () => {
     seedE2eWorkspace("sso-team-e2e-abc123-def456", "E2E Workspace abc123-def456");
+    seedE2eWorkspace("sso-team-e2e-old123-run456", "E2E Workspace old123-run456");
+    archiveWorkspaceSync("sso-team-e2e-old123-run456");
     seedE2eWorkspace("sso-team-e2e-customer", "Customer Workspace");
     seedE2eWorkspace("sso-team-e2e-bound1-bound2", "E2E Workspace bound1-bound2");
     upsertWorkspaceSsoBindingSync({
@@ -55,8 +58,10 @@ describe("Playwright global workspace cleanup", () => {
 
     expect(cleanupE2eWorkspacesSync({ DOFE_AGENT_E2E: "1" })).toEqual([
       "sso-team-e2e-abc123-def456",
+      "sso-team-e2e-old123-run456",
     ]);
     expect(readWorkspaceSync("sso-team-e2e-abc123-def456")).toBeNull();
+    expect(readWorkspaceSync("sso-team-e2e-old123-run456")).toBeNull();
     expect(readWorkspaceSync("sso-team-e2e-customer")).not.toBeNull();
     expect(readWorkspaceSync("sso-team-e2e-bound1-bound2")).not.toBeNull();
   });

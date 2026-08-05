@@ -1,7 +1,7 @@
 import {
   hardDeleteWorkspaceSync,
+  listAllWorkspacesSync,
   listWorkspaceSsoBindingsSync,
-  listWorkspacesSync,
 } from "../../../packages/db/src/index.ts";
 import { isDisposableTestWorkspace } from "../features/auth/sso-workspace-maintenance";
 
@@ -13,7 +13,7 @@ export function cleanupE2eWorkspacesSync(
   const bindingWorkspaceIds = new Set(
     listWorkspaceSsoBindingsSync().map((binding) => binding.workspaceId),
   );
-  const workspaceIds = listWorkspacesSync()
+  const workspaceIds = listAllWorkspacesSync()
     .filter((workspace) => (
       isDisposableTestWorkspace(workspace, bindingWorkspaceIds.has(workspace.id))
     ))

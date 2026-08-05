@@ -832,6 +832,7 @@ export {
   createWorkspaceSync,
   hardDeleteWorkspaceSync,
   listActiveSsoWorkspacesSync,
+  listAllWorkspacesSync,
   readWorkspaceSync,
   listWorkspacesSync,
   restoreWorkspaceSync,

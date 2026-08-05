@@ -10,6 +10,7 @@ import {
   getDatabase,
   hardDeleteWorkspaceSync,
   listActiveSsoWorkspacesSync,
+  listAllWorkspacesSync,
   listWorkspacesSync,
   readWorkspaceSync,
   restoreWorkspaceSync,
@@ -74,6 +75,27 @@ test("restoreWorkspaceSync makes an archived workspace active again", () => {
   restoreWorkspaceSync(workspace.id);
 
   assert.equal(listWorkspacesSync().some((item) => item.id === workspace.id), true);
+});
+
+test("listAllWorkspacesSync includes active and archived workspaces", () => {
+  createWorkspaceSync({
+    id: "workspace-active",
+    slug: "workspace-active",
+    name: "Active",
+    createdBy: "system",
+  });
+  createWorkspaceSync({
+    id: "workspace-archived",
+    slug: "workspace-archived",
+    name: "Archived",
+    createdBy: "system",
+  });
+  archiveWorkspaceSync("workspace-archived");
+
+  assert.deepEqual(
+    new Set(listAllWorkspacesSync().map((workspace) => workspace.id)),
+    new Set(["workspace-active", "workspace-archived"]),
+  );
 });
 
 test("listActiveSsoWorkspacesSync excludes unbound and archived workspaces", () => {
