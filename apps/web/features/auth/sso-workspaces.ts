@@ -268,7 +268,7 @@ function workspaceRoleLabel(role: WorkspaceRole): string {
   return role === "owner" ? "Owner" : role === "admin" ? "Admin" : "Member";
 }
 
-async function listAllSsoDirectoryItems<TItem>(
+export async function listAllSsoDirectoryItems<TItem>(
   loadPage: (query: { limit: number; page: number; status: string }) => Promise<{
     list: TItem[];
     total: number;
@@ -279,7 +279,12 @@ async function listAllSsoDirectoryItems<TItem>(
   for (let page = 1; ; page += 1) {
     const result = await loadPage({ limit, page, status: "ACTIVE" });
     items.push(...result.list);
-    if (result.list.length === 0 || items.length >= result.total) {
+    if (result.list.length === 0 && items.length < result.total) {
+      throw new Error(
+        `SSO directory pagination ended early after ${items.length} of ${result.total} items.`,
+      );
+    }
+    if (items.length >= result.total) {
       return items;
     }
   }

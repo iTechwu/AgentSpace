@@ -14,6 +14,7 @@ import {
 import {
   buildSsoWorkspaceScopes,
   buildSsoWorkspaceScopesForUser,
+  listAllSsoDirectoryItems,
   syncSsoWorkspacesForUserSync,
 } from "./sso-workspaces";
 
@@ -45,6 +46,14 @@ afterAll(() => {
 });
 
 describe("SSO workspace synchronization", () => {
+  it("fails closed when an SSO directory pagination ends before its reported total", async () => {
+    const loadPage = vi.fn()
+      .mockResolvedValueOnce({ list: ["tenant-1"], total: 2 })
+      .mockResolvedValueOnce({ list: [], total: 2 });
+
+    await expect(listAllSsoDirectoryItems(loadPage)).rejects.toThrow(/ended early.*1 of 2/);
+  });
+
   it("expands a global SSO admin to every active tenant team as a workspace admin", async () => {
     const listTeams = vi.fn().mockResolvedValue({
       list: [

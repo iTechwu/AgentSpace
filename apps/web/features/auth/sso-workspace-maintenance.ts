@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   archiveWorkspaceSync,
   getDatabase,
@@ -20,6 +21,26 @@ export interface SsoWorkspaceMaintenancePlan {
 export interface SsoWorkspaceMaintenanceResult {
   archivedIds: string[];
   restoredIds: string[];
+}
+
+export function createSsoWorkspaceScopeDigest(
+  activeWorkspaceIds: ReadonlySet<string>,
+): string {
+  return createHash("sha256")
+    .update(sorted(activeWorkspaceIds).join("\n"))
+    .digest("hex");
+}
+
+export function assertSsoWorkspaceScopeConfirmation(
+  activeWorkspaceIds: ReadonlySet<string>,
+  confirmation: string | undefined,
+): void {
+  const expectedDigest = createSsoWorkspaceScopeDigest(activeWorkspaceIds);
+  if (confirmation?.trim() !== expectedDigest) {
+    throw new Error(
+      `SSO workspace apply requires --confirm-scope-digest=${expectedDigest} from a fresh dry-run.`,
+    );
+  }
 }
 
 export function isDisposableTestWorkspace(

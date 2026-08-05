@@ -13,7 +13,9 @@ import {
 } from "@dofe-agent/db";
 import {
   applySsoWorkspaceMaintenanceSync,
+  assertSsoWorkspaceScopeConfirmation,
   assertUniqueWorkspaceSsoBindings,
+  createSsoWorkspaceScopeDigest,
   isDisposableTestWorkspace,
   planSsoWorkspaceMaintenanceSync,
 } from "./sso-workspace-maintenance";
@@ -41,6 +43,21 @@ afterAll(() => {
 });
 
 describe("SSO workspace maintenance", () => {
+  it("requires apply confirmation for the exact authoritative scope set", () => {
+    const activeWorkspaceIds = new Set(["sso-team-b", "sso-team-a"]);
+    const digest = createSsoWorkspaceScopeDigest(activeWorkspaceIds);
+
+    expect(digest).toMatch(/^[a-f0-9]{64}$/);
+    expect(createSsoWorkspaceScopeDigest(new Set(["sso-team-a", "sso-team-b"]))).toBe(digest);
+    expect(() => assertSsoWorkspaceScopeConfirmation(activeWorkspaceIds, undefined)).toThrow(
+      /confirm-scope-digest/,
+    );
+    expect(() => assertSsoWorkspaceScopeConfirmation(activeWorkspaceIds, "wrong")).toThrow(
+      /confirm-scope-digest/,
+    );
+    expect(() => assertSsoWorkspaceScopeConfirmation(activeWorkspaceIds, digest)).not.toThrow();
+  });
+
   it("rejects duplicate team and tenant-only bindings", () => {
     expect(() => assertUniqueWorkspaceSsoBindings([
       bindingRecord({ workspaceId: "workspace-a", teamId: "team-duplicate" }),
