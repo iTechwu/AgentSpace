@@ -19,9 +19,11 @@ export type OpenMontageJobAction = {
 export function OpenMontageJobCard({
   job,
   onAction,
+  workspaceId,
 }: {
   job: OpenMontageJobProjection;
   onAction?: (action: OpenMontageJobAction) => Promise<void>;
+  workspaceId: string;
 }) {
   const { language, tx } = useLanguage();
   const [pendingAction, setPendingAction] = useState<OpenMontageJobAction["action"] | null>(null);
@@ -169,10 +171,27 @@ export function OpenMontageJobCard({
             {job.artifacts.length > 0 ? (
               <ul>
                 {job.artifacts.map((artifact, index) => (
-                  <li key={readText(artifact.artifactId) ?? `${job.jobId}-artifact-${index}`}>
-                    <AppIcon name="fileText" />
-                    <span>{readText(artifact.name) ?? readText(artifact.label) ?? tx("视频产物", "Video artifact")}</span>
-                    <em>{artifactStatusLabel(readText(artifact.status), tx)}</em>
+                  <li className="openmontage-job-card__artifact" key={readText(artifact.artifactId) ?? `${job.jobId}-artifact-${index}`}>
+                    <div className="openmontage-job-card__artifact-heading">
+                      <AppIcon name="fileText" />
+                      <span>{readText(artifact.fileName) ?? readText(artifact.name) ?? readText(artifact.label) ?? tx("视频产物", "Video artifact")}</span>
+                      <em>{artifactStatusLabel(readText(artifact.status), tx)}</em>
+                    </div>
+                    {isPlayableArtifact(artifact) ? (
+                      <div className="openmontage-job-card__artifact-media">
+                        <video
+                          aria-label={tx("最终视频预览", "Final video preview")}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          src={artifactUrl(workspaceId, job.jobId, readText(artifact.artifactId)!)}
+                        />
+                        <a download href={`${artifactUrl(workspaceId, job.jobId, readText(artifact.artifactId)!)}?download=1`}>
+                          <AppIcon name="download" />
+                          {tx("下载视频", "Download video")}
+                        </a>
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -191,6 +210,16 @@ export function OpenMontageJobCard({
       </details>
     </article>
   );
+}
+
+function isPlayableArtifact(artifact: Record<string, unknown>): boolean {
+  const artifactId = readText(artifact.artifactId);
+  const mediaType = readText(artifact.mediaType);
+  return Boolean(artifactId && (mediaType === "video/mp4" || mediaType === "video/webm"));
+}
+
+function artifactUrl(workspaceId: string, jobId: string, artifactId: string): string {
+  return `/api/workspaces/${encodeURIComponent(workspaceId)}/openmontage/jobs/${encodeURIComponent(jobId)}/artifacts/${encodeURIComponent(artifactId)}`;
 }
 
 function jobStatusPresentation(

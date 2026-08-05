@@ -80,7 +80,7 @@ export function OpenMontageChannelJobs({
   return (
     <>
       {jobs.map((job) => (
-        <OpenMontageJobCard job={job} key={job.jobId} onAction={submitAction} />
+        <OpenMontageJobCard job={job} key={job.jobId} onAction={submitAction} workspaceId={workspaceId} />
       ))}
       {loadError ? (
         <div className="openmontage-channel-jobs__error" role="alert">

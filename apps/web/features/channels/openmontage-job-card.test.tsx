@@ -21,6 +21,11 @@ describe("OpenMontageJobCard", () => {
     expect(within(card).getByText("模型实际消费")).toBeInTheDocument();
     expect(within(card).getByText("¥6.20")).toBeInTheDocument();
     expect(within(card).getByText("final.mp4")).toBeInTheDocument();
+    expect(within(card).getByLabelText("最终视频预览")).toHaveAttribute(
+      "src",
+      "/api/workspaces/workspace-1/openmontage/jobs/om_job_1/artifacts/artifact-1",
+    );
+    expect(within(card).getByRole("link", { name: "下载视频" })).toHaveAttribute("download");
   });
 
   it("makes approval actions explicit and reports action failures without changing projection state", async () => {
@@ -61,7 +66,7 @@ function renderCard(
 ) {
   return render(
     <LanguageProvider initialLanguage="zh">
-      <OpenMontageJobCard job={job} onAction={onAction} />
+      <OpenMontageJobCard job={job} onAction={onAction} workspaceId="workspace-1" />
     </LanguageProvider>,
   );
 }
@@ -96,7 +101,7 @@ function projection(overrides: Partial<OpenMontageJobProjection> = {}): OpenMont
     ],
     currentStage: "proposal",
     usageSummary: { actualAmount: 6.2, currency: "CNY", reconciliationStatus: "RECONCILED" },
-    artifacts: [{ artifactId: "artifact-1", name: "final.mp4", kind: "final_video", status: "READY" }],
+    artifacts: [{ artifactId: "artifact-1", fileName: "final.mp4", mediaType: "video/mp4", role: "final_video", status: "READY" }],
     lastAppliedSequence: 4,
     syncStatus: "CURRENT",
     nextExpectedSequence: 5,
