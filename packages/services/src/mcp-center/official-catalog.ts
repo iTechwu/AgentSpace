@@ -15,7 +15,7 @@ export const MINIMAX_TOKEN_PLAN_MCP_VERSION = "0.0.4";
 export const MINIMAX_TOKEN_PLAN_MCP_PACKAGE = "minimax-coding-plan-mcp";
 export const MINIMAX_TOKEN_PLAN_MCP_PACKAGE_SPEC = `${MINIMAX_TOKEN_PLAN_MCP_PACKAGE}==${MINIMAX_TOKEN_PLAN_MCP_VERSION}`;
 export const OPENMONTAGE_MCP_SLUG = OPENMONTAGE_MCP_CATALOG_SLUG;
-export const OPENMONTAGE_MCP_VERSION = "0.2.0";
+export const OPENMONTAGE_MCP_VERSION = "0.3.0";
 
 export interface OfficialMcpRuntimeAppRequirement {
   source: "clihub_public";
@@ -77,6 +77,7 @@ const OPENMONTAGE_TOOLS = [
   { name: "cancel_video_job", description: "Request cancellation of a running video production Job.", risk: "high" as const },
   { name: "approve_video_stage", description: "Approve or reject a pending video production stage.", risk: "high" as const },
   { name: "list_video_job_events", description: "Replay ordered events for a video production Job.", risk: "low" as const },
+  { name: "list_video_artifacts", description: "List durable outputs published for a video production Job.", risk: "low" as const },
 ] as const;
 
 const CHROME_DEVTOOLS_STDIO_PROFILE: McpManagedStdioProfile = {
@@ -202,7 +203,7 @@ export function syncOfficialMcpCatalogForWorkspaceSync(workspaceId: string): Mcp
     allowedHostsJson: "[]",
     configurationSchemaJson: JSON.stringify({ type: "object", properties: {}, required: [], additionalProperties: false }),
     declaredToolsJson: JSON.stringify(OPENMONTAGE_TOOLS),
-    defaultApprovedToolsJson: JSON.stringify(["openmontage_capabilities", "get_video_job", "list_video_job_events"]),
+    defaultApprovedToolsJson: JSON.stringify(["openmontage_capabilities", "get_video_job", "list_video_job_events", "list_video_artifacts"]),
     secretFieldsJson: "[]",
     requiredRuntimeCapabilitiesJson: "[]",
     dataDomainsJson: JSON.stringify(["video_inputs", "video_artifacts", "model_usage"]),

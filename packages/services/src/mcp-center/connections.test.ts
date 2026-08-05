@@ -309,7 +309,7 @@ test("official OpenMontage MCP uses an opaque managed-service reference and need
   assert.deepEqual(JSON.parse(catalog.secretFieldsJson), []);
   assert.deepEqual(
     (JSON.parse(catalog.declaredToolsJson) as Array<{ name: string }>).map((tool) => tool.name),
-    ["openmontage_capabilities", "submit_video_job", "get_video_job", "cancel_video_job", "approve_video_stage", "list_video_job_events"],
+    ["openmontage_capabilities", "submit_video_job", "get_video_job", "cancel_video_job", "approve_video_stage", "list_video_job_events", "list_video_artifacts"],
   );
   assert.equal(resolveOfficialMcpRuntimeAppRequirement(catalog), undefined);
 
@@ -320,7 +320,7 @@ test("official OpenMontage MCP uses an opaque managed-service reference and need
     runtimeId,
     catalogItemId: catalog.id,
     endpoint: catalog.endpointTemplate,
-    approvedTools: ["submit_video_job", "get_video_job", "list_video_job_events"],
+    approvedTools: ["submit_video_job", "get_video_job", "list_video_job_events", "list_video_artifacts"],
     confirmHighRisk: true,
   });
   const claimed = resolveClaimedMcpOperationSync({ workspaceId: "default", operation: requested.operation });
