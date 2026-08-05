@@ -126,7 +126,7 @@ export function McpConnectionDetailPageClient({
   const disabled = isPending || !data.canManage;
 
   return (
-    <main className="market-page-shell">
+    <div className="market-page-shell">
       <section className="market-toolbar">
         <div>
           <Link className="market-back-link" href={`/w/${workspaceSlug}/market?tab=mcp`}>
@@ -291,7 +291,7 @@ export function McpConnectionDetailPageClient({
           ) : null}
         </section>
       ) : null}
-    </main>
+    </div>
   );
 }
 

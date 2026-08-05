@@ -157,6 +157,20 @@ describe("MarketPageClient", () => {
     window.localStorage.removeItem("dofe-agent-language");
   });
 
+  it("does not add a nested main landmark inside the workspace shell", () => {
+    render(
+      <main>
+        <LanguageProvider>
+          <FeedbackToastProvider>
+            <MarketPageClient data={data} />
+          </FeedbackToastProvider>
+        </LanguageProvider>
+      </main>,
+    );
+
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
   it("presents CLI apps and MCP services as one capability market", () => {
     render(
       <LanguageProvider>

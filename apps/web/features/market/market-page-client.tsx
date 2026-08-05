@@ -166,7 +166,7 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
   const onlineRuntimeCount = data.runtimes.filter((runtime) => runtime.status === "online").length;
 
   return (
-    <main className="market-page-shell">
+    <div className="market-page-shell">
       <section className="market-toolbar market-toolbar--hub">
         <div className="market-title-block">
           <span className="market-eyebrow">
@@ -232,7 +232,7 @@ export function MarketPageClient({ data, onDataChanged }: { data: MarketPageData
       ) : (
         <McpMarketPanel data={data} onDataChanged={onDataChanged} />
       )}
-    </main>
+    </div>
   );
 }
 
