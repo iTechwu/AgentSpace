@@ -161,6 +161,32 @@ test("OpenMontage v1 event parsing rejects unknown versions and envelope fields"
   );
 });
 
+test("artifact published events require a complete immutable manifest", () => {
+  const payload = {
+    artifactId: "eart-1",
+    employeeId: "employee-1",
+    role: "final_video",
+    fileName: "final.mp4",
+    mediaType: "video/mp4",
+    sizeBytes: 5,
+    sha256: "a".repeat(64),
+    publishedAt: "2026-08-05T10:00:02Z",
+  };
+  const published = event(2, "openmontage.artifact.published", payload);
+  assert.deepEqual(
+    applyOpenMontageJobEvent(projection(), published).projection.artifacts,
+    [payload],
+  );
+  assert.throws(
+    () => event(2, "openmontage.artifact.published", { ...payload, sha256: "invalid" }),
+    /sha256/,
+  );
+  assert.throws(
+    () => event(2, "openmontage.artifact.published", { ...payload, unexpected: true }),
+    /unexpected/,
+  );
+});
+
 test("projection applies factual stage progress in sequence", () => {
   const started = applyOpenMontageJobEvent(projection(), event(2, "openmontage.stage.started", {
     stage: "research",

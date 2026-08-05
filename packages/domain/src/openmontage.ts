@@ -264,6 +264,12 @@ export function parseOpenMontageJobEvent(value: unknown): OpenMontageJobEvent {
   const sequence = requirePositiveInteger(source.sequence, "sequence");
   const payload = requireObject(source.payload, "payload");
   validatePayload(source.eventType, payload);
+  if (
+    source.eventType === "openmontage.artifact.published"
+    && payload.employeeId !== source.employeeId
+  ) {
+    throw new Error("payload.employeeId must match the trusted event employeeId.");
+  }
   return {
     schemaVersion: 1,
     eventId: requireIdentifier(source.eventId, "eventId"),
@@ -466,6 +472,27 @@ function validatePayload(eventType: OpenMontageJobEventType, payload: Record<str
     requireIdentifier(error.code, "payload.error.code");
     requireShortText(error.message, "payload.error.message", 500);
     requireBoolean(error.retryable, "payload.error.retryable");
+    return;
+  }
+  if (eventType === "openmontage.artifact.published") {
+    assertExactKeys(payload, [
+      "artifactId",
+      "employeeId",
+      "role",
+      "fileName",
+      "mediaType",
+      "sizeBytes",
+      "sha256",
+      "publishedAt",
+    ]);
+    requireIdentifier(payload.artifactId, "payload.artifactId");
+    requireIdentifier(payload.employeeId, "payload.employeeId");
+    requireIdentifier(payload.role, "payload.role");
+    requireSafeFileName(payload.fileName, "payload.fileName");
+    requireShortText(payload.mediaType, "payload.mediaType", 255);
+    requirePositiveInteger(payload.sizeBytes, "payload.sizeBytes");
+    requireSha256(payload.sha256, "payload.sha256");
+    requireTimestamp(payload.publishedAt, "payload.publishedAt");
   }
 }
 
@@ -582,6 +609,27 @@ function requireIdentifier(value: unknown, field: string): string {
 function requireShortText(value: unknown, field: string, maxLength: number): string {
   if (typeof value !== "string" || !value.trim() || value.length > maxLength) {
     throw new Error(`${field} must be a non-empty string of at most ${maxLength} characters.`);
+  }
+  return value;
+}
+
+function requireSafeFileName(value: unknown, field: string): string {
+  const fileName = requireShortText(value, field, 255);
+  if (
+    fileName === "."
+    || fileName === ".."
+    || fileName.includes("/")
+    || fileName.includes("\\")
+    || /[\u0000-\u001f\u007f]/.test(fileName)
+  ) {
+    throw new Error(`${field} must be a safe base name.`);
+  }
+  return fileName;
+}
+
+function requireSha256(value: unknown, field: string): string {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error(`${field} must be a lowercase SHA-256 digest.`);
   }
   return value;
 }
