@@ -1336,7 +1336,10 @@ export {
   readRuntimeProvisioningTaskSync,
   requestManagedRuntimeCleanupSync,
 } from "@dofe-agent/db";
-export { listOpenMontageChannelProjectionVersionsSync } from "@dofe-agent/db";
+export {
+  listOpenMontageChannelProjectionVersionsSync,
+  listOpenMontageSyncingJobIdsSync,
+} from "@dofe-agent/db";
 export {
   createRuntimeCredentialVaultFromEnvironment,
   EncryptedFileRuntimeCredentialVault,
@@ -1361,6 +1364,9 @@ export {
 export {
   dispatchOpenMontageProjectionNotificationSync,
   ingestSignedOpenMontageEventSync,
+  reconcileOpenMontageJobAsync,
+  reconcileSyncingOpenMontageJobsAsync,
+  sanitizeOpenMontageEventForStorage,
   verifyOpenMontageEventRequest,
   OpenMontageEventAuthenticationError,
   OpenMontageEventValidationError,

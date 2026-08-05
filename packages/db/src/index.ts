@@ -269,6 +269,7 @@ export {
   ingestOpenMontageJobEventSync,
   listOpenMontageChannelProjectionVersionsSync,
   listOpenMontageNotificationOutboxSync,
+  listOpenMontageSyncingJobIdsSync,
   markOpenMontageNotificationDeliveredSync,
   readOpenMontageChatBindingSync,
   readOpenMontageJobLinkSync,

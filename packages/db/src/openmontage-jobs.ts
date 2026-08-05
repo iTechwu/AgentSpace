@@ -195,6 +195,18 @@ export function listOpenMontageChannelProjectionVersionsSync(
   }));
 }
 
+export function listOpenMontageSyncingJobIdsSync(options: { limit?: number } = {}): string[] {
+  const limit = Math.min(500, Math.max(1, Math.floor(options.limit ?? 100)));
+  const rows = getDatabase().prepare(
+    `SELECT job_id AS "jobId"
+     FROM openmontage_job_projection
+     WHERE sync_status = 'SYNCING'
+     ORDER BY updated_at ASC, job_id ASC
+     LIMIT ?`,
+  ).all(limit) as Array<Record<string, unknown>>;
+  return rows.map((row) => String(row.jobId));
+}
+
 export function ingestOpenMontageJobEventSync(
   event: OpenMontageJobEvent,
   input: { nonce: string; receivedAt?: string; nonceExpiresAt?: string },

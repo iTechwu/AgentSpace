@@ -3,6 +3,7 @@ import {
   ingestSignedOpenMontageEventSync,
   OpenMontageEventAuthenticationError,
   OpenMontageEventValidationError,
+  reconcileOpenMontageJobAsync,
 } from "@dofe-agent/services";
 import {
   OpenMontageEventConflictError,
@@ -35,11 +36,20 @@ export async function POST(request: Request): Promise<Response> {
         // The durable notification outbox remains pending for a later drain.
       }
     }
+    let lastAppliedSequence = result.projection.lastAppliedSequence;
+    if (result.outcome === "gap") {
+      try {
+        const reconciled = await reconcileOpenMontageJobAsync(result.projection.jobId);
+        lastAppliedSequence = reconciled.lastAppliedSequence;
+      } catch {
+        // Keep SYNCING visible; the scheduled reconciler will try again.
+      }
+    }
     return Response.json(
       {
         accepted: true,
         outcome: result.outcome,
-        lastAppliedSequence: result.projection.lastAppliedSequence,
+        lastAppliedSequence,
       },
       { status: result.outcome === "duplicate" ? 200 : 202 },
     );

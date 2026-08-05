@@ -5,6 +5,7 @@ import {
   ingestOpenMontageJobEventSync,
   listOpenMontageChannelProjectionVersionsSync,
   listOpenMontageNotificationOutboxSync,
+  listOpenMontageSyncingJobIdsSync,
   readOpenMontageChatBindingSync,
   readOpenMontageJobProjectionSync,
 } from "./openmontage-jobs.ts";
@@ -177,12 +178,14 @@ test("out-of-order events remain pending until the missing sequence arrives", ()
   assert.equal(gap.outcome, "gap");
   assert.equal(gap.projection.syncStatus, "SYNCING");
   assert.equal(gap.projection.lastAppliedSequence, 1);
+  assert.deepEqual(listOpenMontageSyncingJobIdsSync({ limit: 10 }), ["om_job_1"]);
 
   const reconciled = ingestOpenMontageJobEventSync(started, { nonce: "nonce-start" });
   assert.equal(reconciled.outcome, "applied");
   assert.equal(reconciled.projection.syncStatus, "CURRENT");
   assert.equal(reconciled.projection.lastAppliedSequence, 3);
   assert.equal(reconciled.projection.stages[0]?.status, "SUCCEEDED");
+  assert.deepEqual(listOpenMontageSyncingJobIdsSync({ limit: 10 }), []);
   assert.equal(listOpenMontageNotificationOutboxSync({ status: "pending" }).at(-1)?.eventSequence, 3);
 });
 

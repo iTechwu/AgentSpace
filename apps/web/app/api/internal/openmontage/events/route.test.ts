@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockDispatch,
   mockIngest,
+  mockReconcile,
   AuthenticationError,
   BindingError,
   ConflictError,
@@ -11,6 +12,7 @@ const {
 } = vi.hoisted(() => ({
   mockDispatch: vi.fn(),
   mockIngest: vi.fn(),
+  mockReconcile: vi.fn(),
   AuthenticationError: class extends Error {},
   BindingError: class extends Error {},
   ConflictError: class extends Error {},
@@ -21,6 +23,7 @@ const {
 vi.mock("@dofe-agent/services", () => ({
   dispatchOpenMontageProjectionNotificationSync: mockDispatch,
   ingestSignedOpenMontageEventSync: mockIngest,
+  reconcileOpenMontageJobAsync: mockReconcile,
   OpenMontageEventAuthenticationError: AuthenticationError,
   OpenMontageEventValidationError: ValidationError,
 }));
@@ -38,6 +41,8 @@ describe("OpenMontage event ingress", () => {
     process.env.OPENMONTAGE_EVENT_SIGNING_SECRET = "test-secret";
     mockDispatch.mockReset();
     mockIngest.mockReset();
+    mockReconcile.mockReset();
+    mockReconcile.mockResolvedValue({ lastAppliedSequence: 3 });
   });
 
   afterEach(() => {
@@ -70,7 +75,7 @@ describe("OpenMontage event ingress", () => {
   it("does not fail durable ingestion when realtime dispatch is unavailable", async () => {
     mockIngest.mockReturnValue({
       outcome: "gap",
-      projection: { lastAppliedSequence: 2 },
+      projection: { jobId: "om_job_1", lastAppliedSequence: 2 },
       notification: { id: "notify-2" },
     });
     mockDispatch.mockImplementation(() => {
@@ -83,6 +88,8 @@ describe("OpenMontage event ingress", () => {
     }));
 
     expect(response.status).toBe(202);
+    expect(mockReconcile).toHaveBeenCalledWith("om_job_1");
+    expect((await response.json()).lastAppliedSequence).toBe(3);
   });
 
   it("maps authentication failures without exposing verification details", async () => {

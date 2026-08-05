@@ -3,6 +3,8 @@ import { createHmac } from "node:crypto";
 import test from "node:test";
 import {
   OpenMontageEventAuthenticationError,
+  reconcileOpenMontageJobAsync,
+  reconcileSyncingOpenMontageJobsAsync,
   verifyOpenMontageEventRequest,
 } from "./events.ts";
 
@@ -103,4 +105,89 @@ test("rejects oversized bodies before JSON parsing", () => {
     () => verifyOpenMontageEventRequest({ ...request, secret: SECRET, now: NOW }),
     /too large/,
   );
+});
+
+test("reconciles missing events with trusted Job attribution and dispatches the durable notification", async () => {
+  const calls: Array<{ url: string; headers: Headers }> = [];
+  const ingested: string[] = [];
+  const dispatched: string[] = [];
+  let lastAppliedSequence = 1;
+  const missingEvent = {
+    ...event(),
+    eventId: "om_evt_2",
+    eventType: "openmontage.stage.started",
+    payload: {
+      stage: "research",
+      stageAttempt: 1,
+      status: "RUNNING",
+      approvalStatus: "NOT_REQUIRED",
+    },
+  };
+
+  const result = await reconcileOpenMontageJobAsync("om_job_1", {
+    environment: {
+      OPENMONTAGE_BASE_URL: "http://openmontage.internal:8765/",
+      OPENMONTAGE_SERVICE_TOKEN: "service-token",
+    },
+    fetch: async (input, init) => {
+      calls.push({ url: String(input), headers: new Headers(init?.headers) });
+      return Response.json({ events: [missingEvent], lastSequence: 2 });
+    },
+    readLink: () => ({
+      jobId: "om_job_1",
+      workspaceId: "default",
+      employeeId: "employee-1",
+      runtimeId: "runtime-1",
+      rootTaskId: "task-1",
+      conversationId: "conversation-1",
+      sourceInvocationId: "invocation-1",
+      traceId: "trace-1",
+      workflowName: "animated-explainer",
+      workflowVersion: "2.0",
+      createdAt: "2026-08-05T10:00:00Z",
+    }),
+    readProjection: () => ({
+      jobId: "om_job_1",
+      lastAppliedSequence,
+    } as never),
+    ingest: (nextEvent) => {
+      ingested.push(nextEvent.eventId);
+      lastAppliedSequence = nextEvent.sequence;
+      return {
+        outcome: "applied" as const,
+        projection: { lastAppliedSequence } as never,
+        notification: { id: `notify-${nextEvent.sequence}` } as never,
+      };
+    },
+    dispatch: (notification) => dispatched.push(notification.id),
+  });
+
+  assert.deepEqual(result, { received: 1, lastAppliedSequence: 2, remoteLastSequence: 2 });
+  assert.equal(calls[0]?.url, "http://openmontage.internal:8765/api/v1/jobs/om_job_1/events?afterSequence=1");
+  assert.equal(calls[0]?.headers.get("authorization"), "Bearer service-token");
+  const attribution = JSON.parse(Buffer.from(
+    calls[0]?.headers.get("x-dofe-job-attribution") ?? "",
+    "base64url",
+  ).toString("utf8"));
+  assert.equal(attribution.employeeId, "employee-1");
+  assert.deepEqual(ingested, ["om_evt_2"]);
+  assert.deepEqual(dispatched, ["notify-2"]);
+});
+
+test("scheduled reconciliation isolates one Job failure from the remaining batch", async () => {
+  const attempted: string[] = [];
+  const result = await reconcileSyncingOpenMontageJobsAsync({
+    limit: 10,
+    listJobIds: () => ["om_job_1", "om_job_2"],
+    reconcile: async (jobId) => {
+      attempted.push(jobId);
+      if (jobId === "om_job_1") {
+        throw new Error("temporarily unavailable");
+      }
+      return { received: 1, lastAppliedSequence: 3, remoteLastSequence: 3 };
+    },
+  });
+
+  assert.deepEqual(attempted, ["om_job_1", "om_job_2"]);
+  assert.deepEqual(result, { attempted: 2, succeeded: 1, failed: 1 });
 });

@@ -1,8 +1,12 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { parseOpenMontageJobEvent, type OpenMontageJobEvent } from "@dofe-agent/domain";
 import {
   ingestOpenMontageJobEventSync,
+  listOpenMontageSyncingJobIdsSync,
   markOpenMontageNotificationDeliveredSync,
+  readOpenMontageJobLinkSync,
+  readOpenMontageJobProjectionSync,
+  type OpenMontageJobLinkRecord,
   type OpenMontageNotificationOutboxRecord,
 } from "@dofe-agent/db";
 import { publishOpenMontageJobChangedEvent } from "../realtime/events.ts";
@@ -125,6 +129,111 @@ export function dispatchOpenMontageProjectionNotificationSync(
   markOpenMontageNotificationDeliveredSync(notification.id);
 }
 
+export async function reconcileOpenMontageJobAsync(
+  jobId: string,
+  options: {
+    environment?: Record<string, string | undefined>;
+    fetch?: typeof globalThis.fetch;
+    readLink?: typeof readOpenMontageJobLinkSync;
+    readProjection?: typeof readOpenMontageJobProjectionSync;
+    ingest?: typeof ingestOpenMontageJobEventSync;
+    dispatch?: typeof dispatchOpenMontageProjectionNotificationSync;
+  } = {},
+): Promise<{ received: number; lastAppliedSequence: number; remoteLastSequence: number }> {
+  const environment = options.environment ?? process.env;
+  const baseUrl = resolveOpenMontageBaseUrl(environment.OPENMONTAGE_BASE_URL);
+  const serviceToken = environment.OPENMONTAGE_SERVICE_TOKEN?.trim();
+  if (!serviceToken) {
+    throw new Error("OPENMONTAGE_SERVICE_TOKEN is required for reconciliation.");
+  }
+  const readLink = options.readLink ?? readOpenMontageJobLinkSync;
+  const readProjection = options.readProjection ?? readOpenMontageJobProjectionSync;
+  const ingest = options.ingest ?? ingestOpenMontageJobEventSync;
+  const dispatch = options.dispatch ?? dispatchOpenMontageProjectionNotificationSync;
+  const link = readLink(jobId);
+  if (!link) {
+    throw new Error("OpenMontage Job has no trusted AgentSpace binding.");
+  }
+  const projection = readProjection(link.workspaceId, jobId);
+  if (!projection) {
+    throw new Error("OpenMontage Job projection is missing.");
+  }
+  const attribution = encodeTrustedAttribution(link);
+  const endpoint = new URL(
+    `/api/v1/jobs/${encodeURIComponent(jobId)}/events`,
+    baseUrl,
+  );
+  endpoint.searchParams.set("afterSequence", String(projection.lastAppliedSequence));
+  const response = await (options.fetch ?? globalThis.fetch)(endpoint, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${serviceToken}`,
+      "X-Dofe-Job-Attribution": attribution,
+    },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) {
+    throw new Error(`OpenMontage reconciliation returned HTTP ${response.status}.`);
+  }
+  const body = await response.json() as unknown;
+  const replay = parseReplayResponse(body);
+  let lastAppliedSequence = projection.lastAppliedSequence;
+  for (const candidate of replay.events) {
+    const event = sanitizeOpenMontageEventForStorage(parseOpenMontageJobEvent(candidate));
+    const result = ingest(event, {
+      nonce: `reconcile-${event.eventId}-${randomUUID()}`,
+    });
+    lastAppliedSequence = result.projection.lastAppliedSequence;
+    if (result.notification) {
+      try {
+        dispatch(result.notification);
+      } catch {
+        // Persisted polling and the notification outbox remain recovery paths.
+      }
+    }
+  }
+  if (lastAppliedSequence < replay.lastSequence) {
+    throw new Error(
+      `OpenMontage reconciliation remained incomplete at sequence ${lastAppliedSequence} of ${replay.lastSequence}.`,
+    );
+  }
+  return {
+    received: replay.events.length,
+    lastAppliedSequence,
+    remoteLastSequence: replay.lastSequence,
+  };
+}
+
+export async function reconcileSyncingOpenMontageJobsAsync(options: {
+  limit?: number;
+  listJobIds?: typeof listOpenMontageSyncingJobIdsSync;
+  reconcile?: typeof reconcileOpenMontageJobAsync;
+} = {}): Promise<{ attempted: number; succeeded: number; failed: number }> {
+  const jobIds = (options.listJobIds ?? listOpenMontageSyncingJobIdsSync)({
+    limit: options.limit ?? 50,
+  });
+  let succeeded = 0;
+  let failed = 0;
+  for (const jobId of jobIds) {
+    try {
+      await (options.reconcile ?? reconcileOpenMontageJobAsync)(jobId);
+      succeeded += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { attempted: jobIds.length, succeeded, failed };
+}
+
+export function sanitizeOpenMontageEventForStorage(
+  event: OpenMontageJobEvent,
+): OpenMontageJobEvent {
+  return {
+    ...event,
+    payload: sanitizePayload(event.payload),
+  };
+}
+
 function requireHeader(
   headers: Headers | Record<string, string | undefined>,
   name: string,
@@ -136,6 +245,47 @@ function requireHeader(
     throw new OpenMontageEventAuthenticationError(`Missing OpenMontage event header ${name}.`);
   }
   return value;
+}
+
+function resolveOpenMontageBaseUrl(value: string | undefined): URL {
+  if (!value?.trim()) {
+    throw new Error("OPENMONTAGE_BASE_URL is required for reconciliation.");
+  }
+  const url = new URL(value);
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) {
+    throw new Error("OPENMONTAGE_BASE_URL must be an HTTP(S) service URL without credentials.");
+  }
+  return url;
+}
+
+function encodeTrustedAttribution(link: OpenMontageJobLinkRecord): string {
+  return Buffer.from(JSON.stringify({
+    workspaceId: link.workspaceId,
+    employeeId: link.employeeId,
+    runtimeId: link.runtimeId,
+    rootTaskId: link.rootTaskId,
+    conversationId: link.conversationId,
+    sourceInvocationId: link.sourceInvocationId,
+    traceId: link.traceId,
+  }), "utf8").toString("base64url");
+}
+
+function parseReplayResponse(value: unknown): { events: unknown[]; lastSequence: number } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("OpenMontage reconciliation response is invalid.");
+  }
+  const source = value as Record<string, unknown>;
+  if (!Array.isArray(source.events)) {
+    throw new Error("OpenMontage reconciliation response events are invalid.");
+  }
+  if (
+    typeof source.lastSequence !== "number"
+    || !Number.isInteger(source.lastSequence)
+    || source.lastSequence < 0
+  ) {
+    throw new Error("OpenMontage reconciliation response sequence is invalid.");
+  }
+  return { events: source.events, lastSequence: source.lastSequence };
 }
 
 function sanitizePayload(payload: Record<string, unknown>): Record<string, unknown> {
