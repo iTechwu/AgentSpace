@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "105";
+export const POSTGRES_SCHEMA_VERSION = "106";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -65,6 +65,7 @@ export const POSTGRES_TABLE_NAMES = [
   "openmontage_chat_binding",
   "openmontage_event_nonce",
   "openmontage_notification_outbox",
+  "openmontage_artifact_grant",
   "model_pricing",
   "token_usage",
   "token_usage_billing_event",
@@ -1866,6 +1867,26 @@ export function getPostgresSchemaStatements(): string[] {
       ALTER TABLE attachment
         ALTER COLUMN storage_provider SET DEFAULT 'tos',
         ALTER COLUMN storage_key SET NOT NULL
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_artifact_grant (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        job_id TEXT NOT NULL REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        attachment_id TEXT NOT NULL,
+        operation TEXT NOT NULL CHECK (operation = 'READ'),
+        token_hash TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        consumed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL,
+        FOREIGN KEY (workspace_id, attachment_id)
+          REFERENCES attachment(workspace_id, id) ON DELETE CASCADE
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_artifact_grant_expiry
+        ON openmontage_artifact_grant(expires_at)
+        WHERE consumed_at IS NULL
     `,
     `
       DO $$

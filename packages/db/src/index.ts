@@ -674,6 +674,13 @@ export {
   type WriteMcpTaskSessionGrantInput,
 } from "./mcp-session-grant.ts";
 
+export {
+  consumeOpenMontageArtifactReadGrantSync,
+  issueOpenMontageArtifactReadGrantSync,
+  OpenMontageArtifactGrantError,
+  type OpenMontageArtifactReadGrantRecord,
+} from "./openmontage-artifacts.ts";
+
 // Skills
 export {
   listStoredWorkspaceSkillsSync,

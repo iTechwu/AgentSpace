@@ -10,6 +10,10 @@ import {
   readOpenMontageChatBindingSync,
   readOpenMontageJobProjectionSync,
 } from "./openmontage-jobs.ts";
+import {
+  consumeOpenMontageArtifactReadGrantSync,
+  issueOpenMontageArtifactReadGrantSync,
+} from "./openmontage-artifacts.ts";
 import { getDatabase } from "./database.ts";
 import { parseOpenMontageJobEvent, type OpenMontageJobEvent } from "@dofe-agent/domain";
 
@@ -19,6 +23,7 @@ before(() => {
 
 function clearOpenMontageTables(): void {
   getDatabase().exec(`
+    DELETE FROM openmontage_artifact_grant;
     DELETE FROM openmontage_notification_outbox;
     DELETE FROM openmontage_event_nonce;
     DELETE FROM openmontage_chat_binding;
@@ -26,6 +31,42 @@ function clearOpenMontageTables(): void {
     DELETE FROM openmontage_job_projection;
     DELETE FROM openmontage_job_link;
   `);
+}
+
+function insertAttachment(input: {
+  id?: string;
+  channelName?: string;
+  sha256?: string;
+} = {}): void {
+  const now = "2026-08-05T10:00:00Z";
+  getDatabase().prepare(
+    `INSERT INTO attachment (
+      workspace_id, id, message_id, channel_name, speaker, role,
+      file_name, media_type, kind, size_bytes, stored_path,
+      storage_provider, storage_key, sha256, source_message_index, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (workspace_id, id) DO UPDATE SET
+      channel_name = EXCLUDED.channel_name,
+      storage_key = EXCLUDED.storage_key,
+      sha256 = EXCLUDED.sha256`,
+  ).run(
+    "default",
+    input.id ?? "att-video-1",
+    "message-input",
+    input.channelName ?? "direct:employee-1",
+    "User",
+    "human",
+    "reference.mp4",
+    "video/mp4",
+    "file",
+    128,
+    "tos://test/attachments/reference.mp4",
+    "tos",
+    "workspaces/default/attachments/reference.mp4",
+    input.sha256 ?? "a".repeat(64),
+    0,
+    now,
+  );
 }
 
 beforeEach(() => {
@@ -143,6 +184,82 @@ test("Job Link stores immutable attribution, initial projection, and chat bindin
   assert.throws(
     () => createLink({ channelName: "direct:employee-2" }),
     /chat binding/,
+  );
+});
+
+test("artifact read grant stores only a token hash and can be consumed once", () => {
+  createLink();
+  insertAttachment();
+
+  const issued = issueOpenMontageArtifactReadGrantSync({
+    workspaceId: "default",
+    jobId: "om_job_1",
+    attachmentId: "att-video-1",
+    now: "2026-08-05T10:00:00Z",
+    ttlSeconds: 300,
+  });
+  const persisted = getDatabase().prepare(
+    `SELECT token_hash AS "tokenHash" FROM openmontage_artifact_grant WHERE id = ?`,
+  ).get(issued.grant.id) as { tokenHash?: string } | undefined;
+
+  assert.ok(issued.token.length >= 32);
+  assert.notEqual(persisted?.tokenHash, issued.token);
+  assert.doesNotMatch(JSON.stringify(persisted), new RegExp(issued.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+
+  const consumed = consumeOpenMontageArtifactReadGrantSync({
+    grantId: issued.grant.id,
+    token: issued.token,
+    now: "2026-08-05T10:00:01Z",
+  });
+  assert.equal(consumed.attachment.id, "att-video-1");
+  assert.equal(consumed.attachment.sha256, "a".repeat(64));
+
+  assert.throws(
+    () => consumeOpenMontageArtifactReadGrantSync({
+      grantId: issued.grant.id,
+      token: issued.token,
+      now: "2026-08-05T10:00:02Z",
+    }),
+    /already consumed/,
+  );
+});
+
+test("artifact read grant rejects wrong tokens, expiry, and cross-channel attachments", () => {
+  createLink();
+  insertAttachment();
+  insertAttachment({ id: "att-other-channel", channelName: "team:private" });
+  const issued = issueOpenMontageArtifactReadGrantSync({
+    workspaceId: "default",
+    jobId: "om_job_1",
+    attachmentId: "att-video-1",
+    now: "2026-08-05T10:00:00Z",
+    ttlSeconds: 1,
+  });
+
+  assert.throws(
+    () => consumeOpenMontageArtifactReadGrantSync({
+      grantId: issued.grant.id,
+      token: "wrong-token-with-sufficient-length-1234567890",
+      now: "2026-08-05T10:00:00Z",
+    }),
+    /invalid/,
+  );
+  assert.throws(
+    () => consumeOpenMontageArtifactReadGrantSync({
+      grantId: issued.grant.id,
+      token: issued.token,
+      now: "2026-08-05T10:00:02Z",
+    }),
+    /expired/,
+  );
+  assert.throws(
+    () => issueOpenMontageArtifactReadGrantSync({
+      workspaceId: "default",
+      jobId: "om_job_1",
+      attachmentId: "att-other-channel",
+      now: "2026-08-05T10:00:00Z",
+    }),
+    /same channel/,
   );
 });
 
