@@ -2253,8 +2253,14 @@ export function getPostgresSchemaStatements(): string[] {
         ON agent_runtime(workspace_id, managed_credential_id)
     `,
     `
-      CREATE INDEX IF NOT EXISTS idx_workspace_sso_binding_team
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_sso_binding_team_unique
         ON workspace_sso_binding(team_id)
+        WHERE team_id IS NOT NULL
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_sso_binding_tenant_unique
+        ON workspace_sso_binding(tenant_id)
+        WHERE source = 'tenant'
     `,
     `
       CREATE INDEX IF NOT EXISTS idx_runtime_provisioning_task_workspace_status
