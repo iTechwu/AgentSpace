@@ -34,6 +34,7 @@ function isDefaultOwned(file) {
     file.startsWith("packages/services/src/skills/")
     || file.startsWith("packages/services/src/mcp-center/")
     || file.startsWith("packages/services/src/skill-services/")
+    || file.startsWith("packages/services/src/openmontage/")
   ) return true;
 
   if (file.startsWith("packages/daemon/src/skill-install/") || file.startsWith("packages/daemon/src/skill-service/")) {

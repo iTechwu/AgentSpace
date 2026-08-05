@@ -3,6 +3,7 @@ import test, { after, before, beforeEach } from "node:test";
 import {
   createOpenMontageJobLinkSync,
   ingestOpenMontageJobEventSync,
+  listOpenMontageChannelProjectionVersionsSync,
   listOpenMontageNotificationOutboxSync,
   readOpenMontageChatBindingSync,
   readOpenMontageJobProjectionSync,
@@ -120,6 +121,10 @@ test("Job Link stores immutable attribution, initial projection, and chat bindin
   assert.equal(projection?.lastAppliedSequence, 1);
   assert.equal(projection?.stages[1]?.approvalRequired, true);
   assert.equal(binding?.channelName, "direct:employee-1");
+  assert.deepEqual(
+    listOpenMontageChannelProjectionVersionsSync("default", "direct:employee-1"),
+    [{ jobId: "om_job_1", lastAppliedSequence: 1, changedAt: "2026-08-05T10:00:01.000Z" }],
+  );
 
   assert.throws(
     () => createLink({ employeeId: "employee-2" }),

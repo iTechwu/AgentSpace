@@ -267,6 +267,7 @@ export {
 export {
   createOpenMontageJobLinkSync,
   ingestOpenMontageJobEventSync,
+  listOpenMontageChannelProjectionVersionsSync,
   listOpenMontageNotificationOutboxSync,
   markOpenMontageNotificationDeliveredSync,
   readOpenMontageChatBindingSync,

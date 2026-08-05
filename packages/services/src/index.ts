@@ -608,6 +608,7 @@ export {
 export {
   publishChannelMessageCreatedEvent,
   publishChannelThreadChangedEvent,
+  publishOpenMontageJobChangedEvent,
   subscribeWorkspaceRealtimeEvents,
   type WorkspaceRealtimeEvent,
   type WorkspaceRealtimeListener,
@@ -1335,6 +1336,7 @@ export {
   readRuntimeProvisioningTaskSync,
   requestManagedRuntimeCleanupSync,
 } from "@dofe-agent/db";
+export { listOpenMontageChannelProjectionVersionsSync } from "@dofe-agent/db";
 export {
   createRuntimeCredentialVaultFromEnvironment,
   EncryptedFileRuntimeCredentialVault,
@@ -1356,3 +1358,11 @@ export {
   type ManagedProvisioningCommandContext,
   type ManagedRuntimeProviderTemplate,
 } from "./runtime-provisioning/provider-templates.ts";
+export {
+  dispatchOpenMontageProjectionNotificationSync,
+  ingestSignedOpenMontageEventSync,
+  verifyOpenMontageEventRequest,
+  OpenMontageEventAuthenticationError,
+  OpenMontageEventValidationError,
+  type VerifiedOpenMontageEventRequest,
+} from "./openmontage/events.ts";

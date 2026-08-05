@@ -173,6 +173,28 @@ export function readOpenMontageChatBindingSync(
   return row ? mapChatBinding(row) : null;
 }
 
+export function listOpenMontageChannelProjectionVersionsSync(
+  workspaceId: string,
+  channelName: string,
+): Array<{ jobId: string; lastAppliedSequence: number; changedAt: string }> {
+  const rows = getDatabase().prepare(
+    `SELECT projection.job_id AS "jobId",
+            projection.last_applied_sequence AS "lastAppliedSequence",
+            projection.updated_at AS "changedAt"
+       FROM openmontage_job_projection projection
+       JOIN openmontage_chat_binding binding ON binding.job_id = projection.job_id
+      WHERE projection.workspace_id = ?
+        AND binding.workspace_id = ?
+        AND binding.channel_name = ?
+      ORDER BY projection.job_id ASC`,
+  ).all(workspaceId, workspaceId, channelName) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    jobId: String(row.jobId),
+    lastAppliedSequence: Number(row.lastAppliedSequence),
+    changedAt: String(row.changedAt),
+  }));
+}
+
 export function ingestOpenMontageJobEventSync(
   event: OpenMontageJobEvent,
   input: { nonce: string; receivedAt?: string; nonceExpiresAt?: string },
