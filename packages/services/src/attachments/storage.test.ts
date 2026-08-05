@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import test from "node:test";
 import {
   buildAttachmentStorageKey,
@@ -58,6 +59,50 @@ test("explicit local fallback persists an attachment below its configured root",
 
     storage.deleteObjectSync({ storedPath: stored.storedPath, storageKey: stored.key });
     assert.equal(await storage.headObject({ storedPath: stored.storedPath, storageKey: stored.key }), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("local content-addressed streaming upload verifies size and digest before publish", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dofe-agent-local-streaming-blobs-"));
+  try {
+    const storage = createAttachmentStorageClient({ provider: "local", local: { root } });
+    const bytes = Buffer.from("verified OpenMontage output", "utf8");
+    const sha256 = sha256Hex(bytes);
+    const stored = await storage.putContentAddressedBlobStream!({
+      workspaceId: "workspace-mars",
+      sha256,
+      content: Readable.from([bytes.subarray(0, 9), bytes.subarray(9)]),
+      sizeBytes: bytes.byteLength,
+      mediaType: "video/mp4",
+    });
+
+    assert.equal(stored.sha256, sha256);
+    assert.equal(stored.sizeBytes, bytes.byteLength);
+    assert.deepEqual(
+      storage.getContentAddressedBlobSync({ workspaceId: "workspace-mars", sha256 }),
+      new Uint8Array(bytes),
+    );
+
+    const tamperedDigest = sha256Hex(Buffer.from("expected bytes", "utf8"));
+    await assert.rejects(
+      storage.putContentAddressedBlobStream!({
+        workspaceId: "workspace-mars",
+        sha256: tamperedDigest,
+        content: Readable.from([Buffer.from("tampered bytes", "utf8")]),
+        sizeBytes: Buffer.byteLength("expected bytes"),
+        mediaType: "video/mp4",
+      }),
+      /integrity verification failed/,
+    );
+    assert.equal(
+      storage.contentAddressedBlobExistsSync({
+        workspaceId: "workspace-mars",
+        sha256: tamperedDigest,
+      }),
+      false,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

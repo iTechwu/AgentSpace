@@ -1,8 +1,18 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
-import type { Readable } from "node:stream";
+import { Transform, type Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { TosClient } from "@volcengine/tos-sdk";
 import {
   type AttachmentRuntimeConfig,
@@ -62,6 +72,7 @@ export interface AttachmentStorageClient {
   deleteObject(input: AttachmentStorageReadInput): Promise<void>;
   deleteObjectSync(input: AttachmentStorageReadInput): void;
   createReadUrl(input: AttachmentStorageReadInput): Promise<string | null>;
+  putContentAddressedBlobStream?(input: ContentAddressedBlobStreamPutInput): Promise<ContentAddressedBlobRef>;
   putContentAddressedBlobSync(input: ContentAddressedBlobPutInput): ContentAddressedBlobRef;
   getContentAddressedBlobSync(input: ContentAddressedBlobReadInput): Uint8Array;
   contentAddressedBlobExistsSync(input: ContentAddressedBlobReadInput): boolean;
@@ -72,6 +83,14 @@ export interface ContentAddressedBlobPutInput {
   workspaceId: string;
   sha256: string;
   contentBytes: Uint8Array;
+  mediaType?: string;
+}
+
+export interface ContentAddressedBlobStreamPutInput {
+  workspaceId: string;
+  sha256: string;
+  content: Readable;
+  sizeBytes: number;
   mediaType?: string;
 }
 
@@ -340,6 +359,42 @@ class TosAttachmentStorageClient implements AttachmentStorageClient {
     return this.createPresignedUrl(key, "GET");
   }
 
+  async putContentAddressedBlobStream(
+    input: ContentAddressedBlobStreamPutInput,
+  ): Promise<ContentAddressedBlobRef> {
+    const sha256 = normalizeExpectedDigest(input.sha256);
+    const key = buildContentAddressedBlobKey(input.workspaceId, sha256);
+    const body = createIntegrityValidator(input.sizeBytes, sha256);
+    const validation = pipeline(input.content, body);
+    try {
+      await Promise.all([
+        this.client.putObject({
+          bucket: this.config.bucket,
+          key,
+          body,
+          contentType: input.mediaType,
+        }),
+        validation,
+      ]);
+    } catch (error) {
+      input.content.destroy();
+      body.destroy();
+      await Promise.allSettled([validation]);
+      throw error;
+    }
+    return {
+      workspaceId: input.workspaceId,
+      sha256,
+      storageProvider: "tos",
+      storageBucket: this.config.bucket,
+      storageRegion: this.config.region,
+      storageEndpoint: this.config.endpoint,
+      storageKey: key,
+      storedPath: `tos://${this.config.bucket}/${key}`,
+      sizeBytes: input.sizeBytes,
+    };
+  }
+
   putContentAddressedBlobSync(input: ContentAddressedBlobPutInput): ContentAddressedBlobRef {
     const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
     const body = Buffer.from(input.contentBytes);
@@ -478,6 +533,28 @@ class LocalAttachmentStorageClient implements AttachmentStorageClient {
     return null;
   }
 
+  async putContentAddressedBlobStream(
+    input: ContentAddressedBlobStreamPutInput,
+  ): Promise<ContentAddressedBlobRef> {
+    const sha256 = normalizeExpectedDigest(input.sha256);
+    const key = buildContentAddressedBlobKey(input.workspaceId, sha256);
+    const targetPath = this.resolveObjectPath(key);
+    const temporaryPath = `${targetPath}.${randomBytes(8).toString("hex")}.upload`;
+    mkdirSync(dirname(targetPath), { recursive: true });
+    try {
+      await pipeline(
+        input.content,
+        createIntegrityValidator(input.sizeBytes, sha256),
+        createWriteStream(temporaryPath, { flags: "wx" }),
+      );
+      renameSync(temporaryPath, targetPath);
+    } catch (error) {
+      rmSync(temporaryPath, { force: true });
+      throw error;
+    }
+    return this.toContentAddressedRef(input.workspaceId, sha256, key, input.sizeBytes);
+  }
+
   putContentAddressedBlobSync(input: ContentAddressedBlobPutInput): ContentAddressedBlobRef {
     const key = buildContentAddressedBlobKey(input.workspaceId, input.sha256);
     const targetPath = this.resolveObjectPath(key);
@@ -552,6 +629,42 @@ class LocalAttachmentStorageClient implements AttachmentStorageClient {
     }
     return targetPath;
   }
+}
+
+function createIntegrityValidator(expectedSizeBytes: number, expectedSha256: string): Transform {
+  if (!Number.isSafeInteger(expectedSizeBytes) || expectedSizeBytes < 1) {
+    throw new Error("Content-addressed stream size must be a positive safe integer.");
+  }
+  const hash = createHash("sha256");
+  let receivedSizeBytes = 0;
+  return new Transform({
+    transform(chunk, encoding, callback) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding);
+      receivedSizeBytes += bytes.byteLength;
+      if (receivedSizeBytes > expectedSizeBytes) {
+        callback(new Error("Content-addressed stream integrity verification failed: size exceeded."));
+        return;
+      }
+      hash.update(bytes);
+      callback(null, bytes);
+    },
+    flush(callback) {
+      const actualSha256 = hash.digest("hex");
+      if (receivedSizeBytes !== expectedSizeBytes || actualSha256 !== expectedSha256) {
+        callback(new Error("Content-addressed stream integrity verification failed."));
+        return;
+      }
+      callback();
+    },
+  });
+}
+
+function normalizeExpectedDigest(value: string): string {
+  const sha256 = value.trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(sha256)) {
+    throw new Error("Content-addressed stream requires a valid SHA-256 digest.");
+  }
+  return sha256;
 }
 
 function parseContentLength(value: string | null): number | undefined {
