@@ -35,6 +35,7 @@ const ATTRIBUTION_KEYS = [
   "workspaceId",
 ] as const;
 const DELEGATION_TTL_MS = 23 * 60 * 60 * 1000;
+const OPENMONTAGE_MODEL_CAPABILITIES = ["image", "video", "tts", "music", "stt"] as const;
 
 export class OpenMontageDelegationAuthenticationError extends Error {}
 export class OpenMontageDelegationConfigurationError extends Error {}
@@ -85,7 +86,7 @@ interface CreateDelegationRequest {
   sourceService: "openmontage";
   sourceInvocationId: string;
   externalJobId: string;
-  allowedCapabilities: ["video.render"];
+  allowedCapabilities: [...typeof OPENMONTAGE_MODEL_CAPABILITIES];
   allowedModels: string[];
   spendLimit: string;
   currency: string;
@@ -115,7 +116,7 @@ export async function bindOpenMontageJobDelegationAsync(
     sourceService: "openmontage",
     sourceInvocationId: input.sourceInvocationId,
     externalJobId: input.snapshot.jobId,
-    allowedCapabilities: ["video.render"],
+    allowedCapabilities: [...OPENMONTAGE_MODEL_CAPABILITIES],
     allowedModels: [],
     spendLimit: input.budget.maxAmount,
     currency: input.budget.currency,
@@ -328,8 +329,10 @@ function assertProvisionMatchesRequest(provision: ModelsDelegationProvision, req
     && delegation.currency === request.currency
     && new Date(delegation.expiresAt).toISOString() === request.expiresAt
     && delegation.status === "active"
-    && delegation.allowedCapabilities.length === 1
-    && delegation.allowedCapabilities[0] === "video.render"
+    && delegation.allowedCapabilities.length === OPENMONTAGE_MODEL_CAPABILITIES.length
+    && delegation.allowedCapabilities.every(
+      (capability, index) => capability === OPENMONTAGE_MODEL_CAPABILITIES[index],
+    )
     && delegation.allowedModels.length === 0
     && typeof delegation.id === "string"
     && delegation.id.length > 0;

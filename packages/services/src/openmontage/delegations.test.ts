@@ -61,6 +61,7 @@ test("binds a models delegation to the immutable Job and escrows only its one-ti
   assert.equal(modelsBody?.externalJobId, "om_job_1");
   assert.equal(modelsBody?.spendLimit, "20.00");
   assert.equal(modelsBody?.expiresAt, "2026-08-06T09:00:01.000Z");
+  assert.deepEqual(modelsBody?.allowedCapabilities, ["image", "video", "tts", "music", "stt"]);
   assert.equal(storedSecret, "delegated-api-key");
   assert.equal((persisted?.delegation as Record<string, unknown>).secretRef, "vault://delegation/1");
   assert.doesNotMatch(JSON.stringify(persisted), /delegated-api-key/);
@@ -142,7 +143,7 @@ function provisionResponse() {
       sourceService: "openmontage",
       sourceInvocationId: "invocation-1",
       externalJobId: "om_job_1",
-      allowedCapabilities: ["video.render"],
+      allowedCapabilities: ["image", "video", "tts", "music", "stt"],
       allowedModels: [],
       spendLimit: "20.00",
       currency: "CNY",
