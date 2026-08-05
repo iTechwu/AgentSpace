@@ -195,6 +195,22 @@ export function listOpenMontageChannelProjectionVersionsSync(
   }));
 }
 
+export function listOpenMontageChannelProjectionsSync(
+  workspaceId: string,
+  channelName: string,
+): OpenMontageJobProjection[] {
+  const rows = getDatabase().prepare(
+    `SELECT projection.snapshot_json AS "snapshotJson"
+       FROM openmontage_job_projection projection
+       JOIN openmontage_chat_binding binding ON binding.job_id = projection.job_id
+      WHERE projection.workspace_id = ?
+        AND binding.workspace_id = ?
+        AND binding.channel_name = ?
+      ORDER BY projection.created_at ASC, projection.job_id ASC`,
+  ).all(workspaceId, workspaceId, channelName) as Array<{ snapshotJson?: unknown }>;
+  return rows.map((row) => parseJson(row.snapshotJson) as OpenMontageJobProjection);
+}
+
 export function listOpenMontageSyncingJobIdsSync(options: { limit?: number } = {}): string[] {
   const limit = Math.min(500, Math.max(1, Math.floor(options.limit ?? 100)));
   const rows = getDatabase().prepare(
