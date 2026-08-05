@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "104";
+export const POSTGRES_SCHEMA_VERSION = "105";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -59,6 +59,12 @@ export const POSTGRES_TABLE_NAMES = [
   "agent_router_context_snapshot",
   "task_execution_event",
   "task_message",
+  "openmontage_job_link",
+  "openmontage_job_event",
+  "openmontage_job_projection",
+  "openmontage_chat_binding",
+  "openmontage_event_nonce",
+  "openmontage_notification_outbox",
   "model_pricing",
   "token_usage",
   "token_usage_billing_event",
@@ -1272,6 +1278,114 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_agent_task_queue_employee
         ON agent_task_queue(workspace_id, employee_id, created_at DESC)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_job_link (
+        job_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        employee_id TEXT NOT NULL,
+        runtime_id TEXT NOT NULL,
+        root_task_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        source_invocation_id TEXT NOT NULL,
+        trace_id TEXT NOT NULL,
+        workflow_name TEXT NOT NULL,
+        workflow_version TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        UNIQUE(workspace_id, source_invocation_id)
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_job_link_workspace_conversation
+        ON openmontage_job_link(workspace_id, conversation_id, created_at DESC)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_job_projection (
+        job_id TEXT PRIMARY KEY REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        status TEXT NOT NULL,
+        current_stage TEXT,
+        snapshot_json JSONB NOT NULL,
+        last_applied_sequence INTEGER NOT NULL DEFAULT 0 CHECK (last_applied_sequence >= 0),
+        sync_status TEXT NOT NULL DEFAULT 'CURRENT' CHECK (sync_status IN ('CURRENT', 'SYNCING')),
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_job_projection_workspace_updated
+        ON openmontage_job_projection(workspace_id, updated_at DESC)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_job_event (
+        event_id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        sequence INTEGER NOT NULL CHECK (sequence > 0),
+        schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+        event_type TEXT NOT NULL,
+        event_json JSONB NOT NULL,
+        application_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (application_status IN ('pending', 'applied', 'ignored_terminal')),
+        received_at TIMESTAMPTZ NOT NULL,
+        applied_at TIMESTAMPTZ,
+        failure_reason TEXT,
+        UNIQUE(job_id, sequence)
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_job_event_pending
+        ON openmontage_job_event(job_id, sequence)
+        WHERE application_status = 'pending'
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_chat_binding (
+        job_id TEXT PRIMARY KEY REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        channel_name TEXT NOT NULL,
+        conversation_message_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_chat_binding_workspace_channel
+        ON openmontage_chat_binding(workspace_id, channel_name, created_at DESC)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_event_nonce (
+        nonce TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL,
+        received_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_event_nonce_expiry
+        ON openmontage_event_nonce(expires_at)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_notification_outbox (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL REFERENCES openmontage_job_link(job_id) ON DELETE CASCADE,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        channel_name TEXT NOT NULL,
+        event_sequence INTEGER NOT NULL CHECK (event_sequence > 0),
+        event_type TEXT NOT NULL DEFAULT 'openmontage.job.changed',
+        payload_json JSONB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'delivered', 'failed')),
+        delivery_attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TIMESTAMPTZ,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        delivered_at TIMESTAMPTZ,
+        UNIQUE(job_id, event_sequence, event_type)
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_notification_outbox_due
+        ON openmontage_notification_outbox(status, next_attempt_at, created_at)
+        WHERE status IN ('pending', 'failed')
     `,
     `
       CREATE TABLE IF NOT EXISTS external_thread_binding (

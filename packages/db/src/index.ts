@@ -265,6 +265,22 @@ export {
   getDatabaseConnectionLabel,
 } from "./database.ts";
 export {
+  createOpenMontageJobLinkSync,
+  ingestOpenMontageJobEventSync,
+  listOpenMontageNotificationOutboxSync,
+  markOpenMontageNotificationDeliveredSync,
+  readOpenMontageChatBindingSync,
+  readOpenMontageJobLinkSync,
+  readOpenMontageJobProjectionSync,
+  OpenMontageEventConflictError,
+  OpenMontageEventNonceReplayError,
+  OpenMontageJobBindingError,
+  type CreateOpenMontageJobLinkInput,
+  type OpenMontageChatBindingRecord,
+  type OpenMontageJobLinkRecord,
+  type OpenMontageNotificationOutboxRecord,
+} from "./openmontage-jobs.ts";
+export {
   findRepositoryRoot,
   loadRepositoryEnvIntoProcess,
   parseDotEnv,

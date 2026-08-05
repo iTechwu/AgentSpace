@@ -50,7 +50,7 @@ test("postgres schema includes the expected core and derived tables", () => {
 test("postgres schema enforces SSO-only identities", () => {
   const statements = getPostgresSchemaStatements().join("\n");
 
-  assert.equal(POSTGRES_SCHEMA_VERSION, "102");
+  assert.equal(POSTGRES_SCHEMA_VERSION, "105");
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_token TEXT/);
   assert.match(statements, /ADD COLUMN IF NOT EXISTS worker_lease_expires_at TIMESTAMPTZ/);
   assert.match(statements, /runtime_workspace_mount_operation\s+ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ/);
