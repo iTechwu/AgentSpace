@@ -121,6 +121,20 @@ describe("ApprovalsPageClient", () => {
     vi.mocked(reviewApprovalQueueItemAction).mockClear();
   });
 
+  it("does not introduce a nested main landmark inside the workspace shell", () => {
+    const view = render(
+      <main>
+        <LanguageProvider initialLanguage="zh">
+          <FeedbackToastProvider>
+            <ApprovalsPageClient data={data} />
+          </FeedbackToastProvider>
+        </LanguageProvider>
+      </main>,
+    );
+
+    expect(view.container.querySelectorAll("main")).toHaveLength(1);
+  });
+
   it("switches between approvals list and detail on compact layouts", async () => {
     mockMatchMedia(true);
     const user = userEvent.setup();

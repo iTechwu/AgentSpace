@@ -246,7 +246,7 @@ export function ApprovalsPageClient({
         ) : null}
 
         {showDetailPane ? (
-          <main className="approvals-detail-pane">
+          <div className="approvals-detail-pane">
           {selected ? (
             <div className="approvals-detail">
               <div className="approvals-detail__header">
@@ -349,7 +349,7 @@ export function ApprovalsPageClient({
               title={tx("等待选择审批项", "Choose an approval")}
             />
           )}
-          </main>
+          </div>
         ) : null}
       </div>
     </section>
