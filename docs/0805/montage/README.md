@@ -1,6 +1,6 @@
 # OpenMontage Runtime 接入与统一计费方案
 
-> 状态：实施中（核心 Job 控制面、受管 MCP、Artifact Bridge 和聊天投影已落地）
+> 状态：实施中（核心 Job 控制面、可恢复 Worker、受管 MCP、Artifact Bridge 和聊天投影已落地）
 >
 > 日期：2026-08-05
 
@@ -21,13 +21,15 @@
 - 每个 OpenMontage Job 使用短期、可撤销、带预算上限的 Runtime 委托凭证，消费继承原 AI 员工归因。
 - OpenMontage 本地渲染资源成本单独计量，不伪装成模型 Token，也不重复计算 models 账单。
 
-当前实现已经完成 OpenMontage Docker MCP 的受管连接、可信 Job 归因、签名事件回报、阶段卡片、审批和取消闭环，以及 Artifact Bridge 的输入下载、输出流式上传、完整性校验、AI 员工产物登记和 `list_video_artifacts` 查询。真实 Pipeline 自动执行、Job Worker 自动调用 Artifact Bridge、最终视频聊天预览和模型委托计费仍是生产开放前的硬门禁，不能把当前状态解释为“完整视频生产已上线”。
+当前实现已经完成 OpenMontage Docker MCP 的受管连接、可信 Job 归因、签名事件回报、阶段卡片、审批和取消闭环，以及可恢复 Job Worker、外部 Agent executor 接口、checkpoint 状态对账、Artifact 输入下载、最终 MP4 自动上传、AI 员工产物登记和 `list_video_artifacts` 查询。批准的真实 Agent CLI 尚未烘焙并联调进 Docker Worker，Remotion/HyperFrames 真实渲染、最终视频聊天预览和模型委托计费仍是生产开放前的硬门禁，不能把当前状态解释为“完整视频生产已上线”。
 
 ```mermaid
 flowchart LR
     Runtime["AgentSpace Runtime / AI 员工"] --> Gateway["Task-scoped MCP Gateway"]
     Gateway --> Montage["OpenMontage Managed Service"]
     Montage --> Job["Video Job Service"]
+    Job --> Worker["Lease-fenced Job Worker"]
+    Worker --> Agent["External Agent executor"]
     Job --> Outbox["Durable Job Event Outbox"]
     Outbox --> Projector["AgentSpace Job Event Bridge"]
     Projector --> Chat["AI 员工聊天阶段卡片"]
