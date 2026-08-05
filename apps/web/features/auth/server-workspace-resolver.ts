@@ -34,13 +34,20 @@ export function resolveCurrentWorkspaceContextForUserSync(
   const preferredWorkspace =
     preferredWorkspaceIdentifiers
     .map((workspaceIdentifier) => readWorkspaceSync(workspaceIdentifier))
-    .find((workspace) => workspace && memberships.some((membership) => membership.workspaceId === workspace.id))
+    .find((workspace) => (
+      workspace
+      && !workspace.archivedAt
+      && memberships.some((membership) => membership.workspaceId === workspace.id)
+    ))
     ?? null;
   if (!preferredWorkspace) {
     const channelWorkspace = preferredWorkspaceIdentifiers
       .map((workspaceIdentifier) => readWorkspaceSync(workspaceIdentifier))
       .find((workspace): workspace is StoredWorkspaceRecord => {
         if (!workspace) {
+          return false;
+        }
+        if (workspace.archivedAt) {
           return false;
         }
         return listChannelParticipantsForUserSync(workspace.id, currentUser.id, { statuses: ["active"] }).length > 0;
@@ -99,7 +106,15 @@ export function resolveWorkspaceAccessForIdentifierSync(
   const currentMembership = memberships.find((membership) => membership.workspaceId === workspace.id);
   const workspaces = memberships
     .map((membership) => readWorkspaceSync(membership.workspaceId))
-    .filter((item): item is StoredWorkspaceRecord => item !== null);
+    .filter((item): item is StoredWorkspaceRecord => item !== null && !item.archivedAt);
+
+  if (workspace.archivedAt) {
+    return {
+      status: "forbidden",
+      currentUser,
+      workspaces,
+    };
+  }
 
   if (!currentMembership) {
     const channelParticipants = listChannelParticipantsForUserSync(workspace.id, currentUser.id, { statuses: ["active"] });
@@ -139,7 +154,9 @@ function buildChannelScopedWorkspaceContext(
   const channelParticipants = listChannelParticipantsForUserSync(workspace.id, currentUser.id, { statuses: ["active"] });
   const memberWorkspaces = memberships
     .map((membership) => readWorkspaceSync(membership.workspaceId))
-    .filter((item): item is StoredWorkspaceRecord => item !== null && item.id !== workspace.id);
+    .filter((item): item is StoredWorkspaceRecord => (
+      item !== null && !item.archivedAt && item.id !== workspace.id
+    ));
 
   return {
     currentUser,
@@ -232,6 +249,9 @@ function ensureWorkspaceMembershipsSync(currentUser: AuthUser): StoredWorkspaceM
       }));
   }
   const memberships = listUserWorkspacesSync(currentUser.id)
-    .filter((membership) => membership.workspaceId.startsWith("sso-"));
+    .filter((membership) => (
+      membership.workspaceId.startsWith("sso-")
+      && !readWorkspaceSync(membership.workspaceId)?.archivedAt
+    ));
   return memberships;
 }

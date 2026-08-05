@@ -219,6 +219,33 @@ describe("SSO workspace synchronization", () => {
     expect(readWorkspaceSync("sso-team-other")?.archivedAt).toBeUndefined();
   });
 
+  it("does not let a regular user restore an authoritatively archived scope", () => {
+    const scopes = buildSsoWorkspaceScopes({
+      teams: [{
+        teamId: "team-archived-user",
+        teamSlug: "archived-user",
+        teamName: "Archived User",
+        tenantId: "tenant-archived-user",
+        tenantSlug: "archived",
+        tenantName: "Archived",
+        role: "MEMBER",
+      }],
+      tenants: [],
+    });
+    seedBoundWorkspace(scopes[0]!.id, "team-archived-user");
+    archiveWorkspaceSync(scopes[0]!.id);
+
+    const synchronizedScopes = syncSsoWorkspacesForUserSync({
+      displayName: "Mina",
+      scopes,
+      userId: "user-1",
+    });
+
+    expect(synchronizedScopes).toEqual([]);
+    expect(readWorkspaceSync(scopes[0]!.id)?.archivedAt).toBeTruthy();
+    expect(listUserWorkspacesSync("user-1")).toEqual([]);
+  });
+
   it("uses tenant and team names for a non-ASCII SSO workspace URL", () => {
     const scopes = buildSsoWorkspaceScopes({
       teams: [{

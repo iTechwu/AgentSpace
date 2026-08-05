@@ -143,7 +143,11 @@ export function syncSsoWorkspacesForUserSync(input: {
 }): SsoWorkspaceScope[] {
   return withTransaction(getDatabase(), () => {
     const materializeMemberships = input.materializeMemberships !== false;
-    const activeScopeIds = new Set(input.scopes.map((scope) => scope.id));
+    const synchronizedScopes = input.scopes.filter((scope) => {
+      if (input.reconcileDirectory === true) return true;
+      return !readWorkspaceSync(scope.id)?.archivedAt;
+    });
+    const activeScopeIds = new Set(synchronizedScopes.map((scope) => scope.id));
     for (const membership of listUserWorkspacesSync(input.userId)) {
       if (
         membership.workspaceId.startsWith("sso-") &&
@@ -153,7 +157,7 @@ export function syncSsoWorkspacesForUserSync(input: {
       }
     }
 
-    for (const scope of input.scopes) {
+    for (const scope of synchronizedScopes) {
       const existingWorkspace = readWorkspaceSync(scope.id);
       if (!existingWorkspace) {
         createWorkspaceSync({
@@ -215,7 +219,7 @@ export function syncSsoWorkspacesForUserSync(input: {
       }
     }
 
-    return [...input.scopes];
+    return synchronizedScopes;
   });
 }
 

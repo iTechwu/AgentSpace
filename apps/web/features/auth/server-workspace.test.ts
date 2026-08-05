@@ -267,6 +267,55 @@ describe("server workspace context", () => {
     }
   });
 
+  it("rejects archived workspaces even when stored member or channel access remains", () => {
+    const user: AuthUser = {
+      id: "user-archived-access",
+      organizationName: "",
+      displayName: "Archived user",
+      role: "member",
+      email: "archived@example.com",
+      isPlatformAdmin: false,
+    };
+    seedUser(user);
+    const memberWorkspace = createWorkspaceSync({
+      id: "sso-team-archived-member",
+      slug: "archived-member",
+      name: "Archived Member",
+      createdBy: user.id,
+    });
+    createWorkspaceMembershipSync({
+      workspaceId: memberWorkspace.id,
+      userId: user.id,
+      role: "member",
+    });
+    archiveWorkspaceSync(memberWorkspace.id);
+
+    const channelWorkspace = createWorkspaceSync({
+      id: "sso-team-archived-channel",
+      slug: "archived-channel",
+      name: "Archived Channel",
+      createdBy: "workspace-owner",
+    });
+    const now = new Date().toISOString();
+    getDatabase().prepare(
+      `INSERT INTO workspace_channel (
+        id, workspace_id, name, kind, human_member_names_json,
+        human_member_count, employee_names_json, version, created_at, updated_at
+      ) VALUES (?, ?, ?, 'group', '[]', 0, '[]', 1, ?, ?)`,
+    ).run("archived-channel-general", channelWorkspace.id, "general", now, now);
+    createChannelParticipantSync({
+      workspaceId: channelWorkspace.id,
+      channelName: "general",
+      userId: user.id,
+      addedBy: "workspace-owner",
+    });
+    archiveWorkspaceSync(channelWorkspace.id);
+
+    expect(resolveWorkspaceAccessForIdentifierSync(user, memberWorkspace.slug).status).toBe("forbidden");
+    expect(resolveWorkspaceAccessForIdentifierSync(user, channelWorkspace.slug).status).toBe("forbidden");
+    expect(() => resolveCurrentWorkspaceContextForUserSync(user)).toThrow("auth.sso_no_workspace");
+  });
+
   it("grants a platform administrator access only to active SSO-bound workspaces", () => {
     const user: AuthUser = {
       id: "platform-admin-1",
