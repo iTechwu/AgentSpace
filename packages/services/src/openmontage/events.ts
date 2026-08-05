@@ -284,16 +284,14 @@ export async function callOpenMontageJobActionAsync(
     stage,
   ].filter(Boolean).join(":");
   const body = isApprovalAction
-    ? JSON.stringify({ stage, approved: input.action === "approve" })
-    : undefined;
+    ? JSON.stringify({ stage, approved: input.action === "approve", expectedSequence: input.expectedSequence })
+    : JSON.stringify({ expectedSequence: input.expectedSequence });
   const headers: Record<string, string> = {
     Authorization: `Bearer ${serviceToken}`,
     "Idempotency-Key": idempotencyKey,
     "X-Dofe-Job-Attribution": encodeTrustedAttribution(link),
   };
-  if (body) {
-    headers["Content-Type"] = "application/json";
-  }
+  headers["Content-Type"] = "application/json";
   const response = await (options.fetch ?? globalThis.fetch)(endpoint, {
     method: "POST",
     headers,

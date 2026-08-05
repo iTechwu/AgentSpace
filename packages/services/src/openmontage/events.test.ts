@@ -246,7 +246,11 @@ test("submits Job actions with trusted attribution, sequence fencing, and immedi
   assert.equal(calls[0]?.method, "POST");
   assert.equal(calls[0]?.headers.get("authorization"), "Bearer service-token");
   assert.equal(calls[0]?.headers.get("idempotency-key"), "openmontage:om_job_1:4:approve:proposal");
-  assert.deepEqual(JSON.parse(calls[0]?.body ?? "{}"), { stage: "proposal", approved: true });
+  assert.deepEqual(JSON.parse(calls[0]?.body ?? "{}"), {
+    stage: "proposal",
+    approved: true,
+    expectedSequence: 4,
+  });
   assert.deepEqual(reconciled, ["om_job_1"]);
 
   await assert.rejects(
