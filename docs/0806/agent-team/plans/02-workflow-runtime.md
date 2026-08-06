@@ -212,7 +212,7 @@ export interface WorkflowTaskMetadata {
 workflow?: WorkflowTaskMetadata;
 ```
 
-`enqueueNativeTaskSync` 把 metadata 放入 `input_json.workflow`，不新增一组可漂移的 queue 列。Dispatcher 先用条件更新 `ready → queued` 并写 task_queue_id；若 queue 创建失败则原子恢复为 `ready` 并增加 outbox attempt。
+`enqueueNativeTaskSync` 把 metadata 放入 `input_json.workflow`，不新增一组可漂移的 queue 列。Dispatcher 在同一数据库事务内完成 `ready → queued` claim、原生队列任务创建和 `task_queue_id` 关联，避免可执行孤儿任务；若队列创建返回空值则进入带退避时间的 `retry_wait`，由恢复扫描重新唤醒。
 
 - [ ] **Step 4: 运行相关测试**
 
@@ -399,11 +399,11 @@ export function createWorkflowApprovalSync(input: CreateWorkflowApprovalInput): 
 export function continueWorkflowAfterApprovalSync(input: { workspaceId: string; approvalId: string; decision: "approved" | "rejected"; actorUserId: string }): WorkflowRunRecord;
 ```
 
-重试使用指数退避但上限明确；取消 best-effort 调用现有 queue cancel，已完成节点不回退。审批 action 完成现有 `reviewApprovalSync` 后调用桥接；批准使节点 succeeded 并推进，拒绝使节点/Run failed。
+重试使用指数退避但上限明确；人工重试可显式扩展被选节点的尝试上限，部分成功分支重算时为真实重放的员工后代递增 attempt，且不隐式重试另一个失败员工。取消在同一事务内调用现有 queue cancel、取消非终态节点并作废 pending 审批，已完成节点不回退。Workflow 审批由统一服务在同一事务内完成 `reviewApprovalSync` 与节点推进；批准使节点 succeeded 并推进，拒绝立即使节点/Run failed 并取消其余活动分支。
 
 - [ ] **Step 4: 实现 stale lease 恢复并运行测试**
 
-`recoverStaleWorkflowWorkSync({ now, workerId, limit })` 恢复过期 Trigger/outbox lease、将无活动 task 且 lease 过期的 queued Node 回到 ready，超过恢复次数标记 failed 并通知负责人。
+`recoverStaleWorkflowWorkSync({ now, workerId, limit })` 恢复到期的 `retry_wait`，并检查长时间 queued 但已无活动任务的节点：先落稳定失败事件，仍有自动尝试次数则原子安排重试，耗尽后传播失败并归并 Run 终态。
 
 Run: `node --env-file-if-exists=.env --experimental-strip-types --test --test-concurrency=1 packages/services/src/workflows/control.test.ts`
 

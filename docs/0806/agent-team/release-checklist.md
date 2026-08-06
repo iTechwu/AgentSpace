@@ -2,7 +2,7 @@
 
 更新时间：2026-08-06  
 目标分支：`codex/agent-team-workflow`  
-代码基线：`67482af`
+代码基线：`62af28f`（本轮文档提交前的已验证代码基线）
 发布策略：按 workspace 从 `legacy_only` 逐步切换到 `dual_read`、`workflow_engine`、`legacy_archived`
 
 ## 放行结论
@@ -13,7 +13,7 @@
 
 | 检查项 | 当前状态 | 证据 / 放行条件 |
 | --- | --- | --- |
-| 目标提交 | 代码基线 `67482af`；最终发布 SHA 待环境固化 | 发布只能使用已提交 SHA，不得使用未提交工作树 |
+| 目标提交 | 已验证代码基线 `62af28f`；最终文档提交 SHA 待环境固化 | 发布只能使用已提交 SHA，不得使用未提交工作树 |
 | PostgreSQL schema 版本 | 代码为 `109`，环境待核对 | `packages/db/src/postgres-schema.ts`；测试库 `app_metadata.schema_version` 必须等于 `109` |
 | Workflow 表与唯一约束 | 静态测试已覆盖 | 7 张 workspace-scoped 表；`workspace_id + trigger_key`、`run_id + node_id`、`run_id + sequence` 唯一 |
 | Legacy 迁移 dry-run | 测试夹具通过，真实统计待填 | 填写 ScheduledTask 总数、自动化规则总数、可迁移、禁用草稿、adapter、冲突和失败数 |
@@ -76,8 +76,8 @@ reviewer: PENDING
 
 ```text
 Domain Workflow: 9 passed
-Service Workflow: 46 passed
-Web Workflow/API/双入口: 38 passed
+Service Workflow: 55 passed
+Web Workflow/API/审批入口: 42 passed
 Workflow Worker: 2 passed
 Services/Web/Worker TypeScript: passed
 Web test TypeScript + ESLint: passed
