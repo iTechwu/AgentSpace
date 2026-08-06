@@ -1,5 +1,6 @@
 import {
   appendWorkflowRunEventSync,
+  cancelQueuedTaskSync,
   getDatabase,
   listWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,
@@ -215,6 +216,42 @@ export function completeWorkflowApprovalNodeSync(input: {
       dataJson: JSON.stringify({ approvalId: input.approvalId }),
       now,
     });
+    if (!input.approved) {
+      for (const candidate of listWorkflowNodeRunsSync(input.workspaceId, run.id)) {
+        if (candidate.id === updated.id || ["succeeded", "failed", "skipped", "cancelled"].includes(candidate.status)) continue;
+        if (candidate.taskQueueId) {
+          cancelQueuedTaskSync({ taskId: candidate.taskQueueId, errorText: "workflow_approval_rejected" });
+        }
+        transitionWorkflowNodeRunSync({
+          workspaceId: input.workspaceId,
+          nodeRunId: candidate.id,
+          from: [candidate.status],
+          to: "cancelled",
+          errorCode: "workflow_approval_rejected",
+          finishedAt: now,
+          now,
+        });
+      }
+      const failedRun = transitionWorkflowRunSync({
+        workspaceId: input.workspaceId,
+        runId: run.id,
+        from: ["created", "queued", "running", "waiting_approval", "paused"],
+        to: "failed",
+        finishedAt: now,
+        now,
+      });
+      if (!failedRun) throw new Error("workflow_run_control_conflict");
+      appendWorkflowRunEventSync({
+        workspaceId: input.workspaceId,
+        runId: run.id,
+        type: "run.failed",
+        actorType: "coordinator",
+        severity: "error",
+        dataJson: JSON.stringify({ code: "workflow_approval_rejected" }),
+        now,
+      });
+      return failedRun;
+    }
     const hasOtherWaitingApproval = listWorkflowNodeRunsSync(input.workspaceId, run.id)
       .some((node) => node.id !== updated.id && node.status === "waiting_approval");
     if (!hasOtherWaitingApproval) {

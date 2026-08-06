@@ -89,7 +89,15 @@ export function reviewWorkflowApprovalSync(input: {
     const approval = listApprovalsSync(input.workspaceId).find((item) => item.id === input.approvalId);
     if (!approval || approval.metadata?.kind !== "workflow_node") throw new Error("workflow_approval_not_linked");
     reviewApprovalSync(input.approvalId, input.decision, input.comment, input.workspaceId);
-    return continueWorkflowAfterApprovalSync(input);
+    const run = continueWorkflowAfterApprovalSync(input);
+    if (input.decision === "rejected") {
+      cancelPendingWorkflowApprovalsSync({
+        workspaceId: input.workspaceId,
+        runId: run.id,
+        reason: "workflow_approval_rejected",
+      });
+    }
+    return run;
   });
 }
 
