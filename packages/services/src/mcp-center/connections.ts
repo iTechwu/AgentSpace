@@ -1134,6 +1134,7 @@ export function claimMcpTaskSessionSync(input: {
     auditAuthorizationJson: JSON.stringify({
       connections: result.connections.map((connection) => ({
         connectionId: connection.connectionId,
+        catalogItemSlug: connection.catalogItemSlug,
         approvedTools: connection.approvedTools,
       })),
     }),

@@ -1085,6 +1085,8 @@ test("claimMcpTaskSession replays the first result for an HTTP retry of the same
   const auditAuthorization = readMcpTaskAuditAuthorizationSync("task-retry", "default");
   assert.ok(auditAuthorization);
   assert.match(auditAuthorization.authorizationJson, /search_repos/);
+  const auditBundle = JSON.parse(auditAuthorization.authorizationJson);
+  assert.equal(auditBundle.connections[0]?.catalogItemSlug, "github");
   assert.doesNotMatch(auditAuthorization.authorizationJson, /"api_key"|"secrets"|github-mcp\.example\.com/);
   const retry = claimMcpTaskSessionSync({ workspaceId: "default", runtimeId, taskId: "task-retry", attemptId: attempt });
   assert.equal(retry.connections.length, 1);
