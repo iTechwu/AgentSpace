@@ -38,6 +38,10 @@ export interface WorkflowDependencyInventory {
   channels: Map<string, { employeeNames: string[] }>;
 }
 
+export interface WorkflowRuntimeBindingInventory {
+  status: string;
+}
+
 export function canonicalizeWorkflowGraph(graph: WorkflowGraphDefinition): string {
   return stableStringify(graph);
 }
@@ -89,7 +93,7 @@ export function validateWorkflowForPublishSync(
   }
   for (const node of input.graph.nodes) {
     if (node.type === "employee_task") {
-      const blocker = employeeReadinessBlocker(node, employees, bindings);
+    const blocker = validateWorkflowEmployeeReadiness(node, employees, bindings);
       if (blocker) {
         blockers.push(blocker);
         continue;
@@ -109,6 +113,30 @@ export function validateWorkflowForPublishSync(
     }
   }
   return { blockers, warnings };
+}
+
+export function validateWorkflowNodeForDispatchSync(
+  workspaceId: string,
+  node: WorkflowNodeDefinition,
+): WorkflowPublishBlocker | undefined {
+  const employees = new Map(
+    listStoredEmployeesSync(workspaceId).map((employee) => [employee.id, employee]),
+  );
+  const bindings = new Map(
+    listEmployeeRuntimeBindingsSync(workspaceId).map((binding) => [binding.employeeId, binding]),
+  );
+  const readiness = validateWorkflowEmployeeReadiness(node, employees, bindings);
+  if (readiness) return readiness;
+  return validateWorkflowNodeDependencies(node, {
+    employees,
+    assignedSkills: new Set(
+      listStoredAgentSkillAssignmentsSync(workspaceId)
+        .map((assignment) => dependencyKey(assignment.employeeId, assignment.skillId)),
+    ),
+    channels: new Map(
+      listStoredChannelsSync(workspaceId).map((channel) => [channel.name, channel]),
+    ),
+  })[0];
 }
 
 export function validateWorkflowNodeDependencies(
@@ -189,11 +217,12 @@ function validateApprovalDependencies(
   return [];
 }
 
-function employeeReadinessBlocker(
+export function validateWorkflowEmployeeReadiness(
   node: WorkflowNodeDefinition,
   employees: Map<string, { id: string }>,
-  bindings: Map<string, { status: string }>,
+  bindings: Map<string, WorkflowRuntimeBindingInventory>,
 ): WorkflowPublishBlocker | undefined {
+  if (node.type !== "employee_task") return undefined;
   const employeeId = node.employeeId;
   if (typeof employeeId !== "string" || !employees.has(employeeId)) {
     return { code: "workflow_employee_not_ready", nodeId: node.id, employeeId, detail: "employee_not_found" };

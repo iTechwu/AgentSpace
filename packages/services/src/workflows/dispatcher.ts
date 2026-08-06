@@ -1,11 +1,15 @@
 import {
   enqueueNativeTaskSync,
+  appendWorkflowRunEventSync,
+  readStoredEmployeeByIdSync,
   readWorkflowNodeRunSync,
   readWorkflowRunSync,
   readWorkflowVersionSync,
   transitionWorkflowNodeRunSync,
   type WorkflowTaskMetadata,
 } from "@dofe-agent/db";
+import type { WorkflowNodeDefinition } from "@dofe-agent/domain";
+import { validateWorkflowNodeForDispatchSync } from "./validation.ts";
 
 export interface DispatchWorkflowNodeInput {
   workspaceId: string;
@@ -34,11 +38,47 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
     return { nodeRunId: nodeRun.id, taskQueueId: nodeRun.taskQueueId, status: nodeRun.status };
   }
   const now = input.now ?? new Date().toISOString();
+  const config = parseConfig(nodeRun.inputJson);
+  const blocker = validateWorkflowNodeForDispatchSync(input.workspaceId, {
+    id: nodeRun.nodeId,
+    type: "employee_task",
+    employeeId: nodeRun.employeeId,
+    config,
+  } satisfies WorkflowNodeDefinition);
+  if (blocker) {
+    const availableAt = new Date(Date.parse(now) + 60_000).toISOString();
+    const waiting = transitionWorkflowNodeRunSync({
+      workspaceId: input.workspaceId,
+      nodeRunId: nodeRun.id,
+      from: ["ready"],
+      to: "retry_wait",
+      availableAt,
+      errorCode: blocker.code,
+      errorMessage: blocker.detail,
+      now,
+    });
+    if (waiting) {
+      appendWorkflowRunEventSync({
+        workspaceId: input.workspaceId,
+        runId: run.id,
+        nodeRunId: nodeRun.id,
+        type: "node.dependency_blocked",
+        actorType: "system",
+        severity: "warning",
+        dataJson: JSON.stringify({ code: blocker.code, availableAt }),
+        now,
+      });
+      return { nodeRunId: waiting.id, status: waiting.status };
+    }
+    const current = readWorkflowNodeRunSync(nodeRun.id, input.workspaceId)!;
+    return { nodeRunId: current.id, taskQueueId: current.taskQueueId, status: current.status };
+  }
   const queued = transitionWorkflowNodeRunSync({
     workspaceId: input.workspaceId,
     nodeRunId: nodeRun.id,
     from: ["ready"],
     to: "queued",
+    clearError: true,
     now,
   });
   if (!queued) {
@@ -46,8 +86,9 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
     return { nodeRunId: current.id, taskQueueId: current.taskQueueId, status: current.status };
   }
   const version = readWorkflowVersionSync(run.versionId, input.workspaceId);
-  const config = parseConfig(nodeRun.inputJson);
-  const employee = nodeRun.employeeNameSnapshot ?? nodeRun.employeeId;
+  const employee = nodeRun.employeeId
+    ? readStoredEmployeeByIdSync(nodeRun.employeeId, input.workspaceId)?.name
+    : undefined;
   if (!employee) {
     rollbackReady(input, now);
     throw new Error("workflow_employee_not_ready");

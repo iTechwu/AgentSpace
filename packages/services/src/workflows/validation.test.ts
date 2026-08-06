@@ -4,6 +4,7 @@ import {
   canonicalizeJson,
   canonicalizeWorkflowGraph,
   hashWorkflowGraph,
+  validateWorkflowEmployeeReadiness,
   validateWorkflowNodeDependencies,
   validateWorkflowForPublishSync,
 } from "./validation.ts";
@@ -98,4 +99,19 @@ test("approval preflight requires a known employee and a joined channel", () => 
     type: "approval",
     config: { employeeId: "emp-1", channelName: "项目审批群" },
   }, inventory), []);
+});
+
+test("dispatch readiness detects deleted and offline employees", () => {
+  const node = { id: "research", type: "employee_task" as const, employeeId: "emp-1", config: {} };
+  assert.equal(validateWorkflowEmployeeReadiness(node, new Map(), new Map())?.detail, "employee_not_found");
+  assert.equal(validateWorkflowEmployeeReadiness(
+    node,
+    new Map([["emp-1", { id: "emp-1" }]]),
+    new Map([["emp-1", { status: "offline" }]]),
+  )?.detail, "runtime_binding_offline");
+  assert.equal(validateWorkflowEmployeeReadiness(
+    node,
+    new Map([["emp-1", { id: "emp-1" }]]),
+    new Map([["emp-1", { status: "online" }]]),
+  ), undefined);
 });

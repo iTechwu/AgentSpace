@@ -151,10 +151,13 @@ export {
   canonicalizeJson,
   hashWorkflowGraph,
   validateWorkflowForPublishSync,
+  validateWorkflowEmployeeReadiness,
+  validateWorkflowNodeForDispatchSync,
   type ValidateWorkflowForPublishInput,
   type WorkflowActorRole,
   type WorkflowPublishBlocker,
   type WorkflowPublishValidation,
+  type WorkflowRuntimeBindingInventory,
 } from "./workflows/validation.ts";
 export {
   publishWorkflowSync,

@@ -61,6 +61,7 @@ export interface TransitionWorkflowNodeRunInput {
   artifactManifestJson?: string;
   errorCode?: string;
   errorMessage?: string;
+  clearError?: boolean;
   allowTerminalRetry?: boolean;
 }
 
@@ -201,7 +202,8 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
             attempt_count = COALESCE(?, attempt_count), started_at = COALESCE(?, started_at),
             finished_at = COALESCE(?, finished_at), input_json = COALESCE(?, input_json), output_json = COALESCE(?, output_json),
             artifact_manifest_json = COALESCE(?, artifact_manifest_json),
-            error_code = COALESCE(?, error_code), error_message = COALESCE(?, error_message), updated_at = ?
+            error_code = CASE WHEN ? THEN NULL ELSE COALESCE(?, error_code) END,
+            error_message = CASE WHEN ? THEN NULL ELSE COALESCE(?, error_message) END, updated_at = ?
       WHERE id = ? AND workspace_id = ? AND status IN (${placeholders})
       RETURNING ${NODE_RUN_COLUMNS}`,
   ).get(
@@ -216,7 +218,9 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
     input.inputJson ?? null,
     input.outputJson ?? null,
     input.artifactManifestJson ?? null,
+    input.clearError === true,
     input.errorCode ?? null,
+    input.clearError === true,
     input.errorMessage ?? null,
     now,
     input.nodeRunId,
