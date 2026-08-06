@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { collectWorkflowDescendantNodeIds, completeWorkflowNodeSync } from "./coordinator.ts";
+import { collectWorkflowDescendantNodeIds, completeWorkflowNodeSync, decideWorkflowDownstreamTransition } from "./coordinator.ts";
 
 test("failed joins identify every downstream node that must be skipped", () => {
   assert.deepEqual(collectWorkflowDescendantNodeIds({
@@ -12,6 +12,48 @@ test("failed joins identify every downstream node that must be skipped", () => {
     ],
     edges: [{ source: "join", target: "summary" }, { source: "summary", target: "notify" }],
   }, "join"), ["summary", "notify"]);
+});
+
+test("downstream waits until every predecessor reaches a terminal state", () => {
+  assert.equal(decideWorkflowDownstreamTransition({
+    nodeType: "employee_task",
+    policy: "all_success",
+    predecessorStatuses: ["succeeded", "running"],
+  }), "wait");
+});
+
+test("ordinary downstream becomes ready only when every predecessor succeeds", () => {
+  assert.equal(decideWorkflowDownstreamTransition({
+    nodeType: "employee_task",
+    policy: "all_success",
+    predecessorStatuses: ["succeeded", "succeeded"],
+  }), "ready");
+  assert.equal(decideWorkflowDownstreamTransition({
+    nodeType: "employee_task",
+    policy: "all_success",
+    predecessorStatuses: ["succeeded", "failed"],
+  }), "fail");
+});
+
+test("all-success join fails when any predecessor does not succeed", () => {
+  assert.equal(decideWorkflowDownstreamTransition({
+    nodeType: "join",
+    policy: "all_success",
+    predecessorStatuses: ["succeeded", "failed"],
+  }), "fail");
+});
+
+test("partial join succeeds with one result and fails when all branches fail", () => {
+  assert.equal(decideWorkflowDownstreamTransition({
+    nodeType: "join",
+    policy: "allow_partial",
+    predecessorStatuses: ["succeeded", "failed"],
+  }), "succeed_join");
+  assert.equal(decideWorkflowDownstreamTransition({
+    nodeType: "join",
+    policy: "allow_partial",
+    predecessorStatuses: ["failed", "skipped"],
+  }), "fail");
 });
 
 test("completion rejects an unknown node run before changing any state", () => {
