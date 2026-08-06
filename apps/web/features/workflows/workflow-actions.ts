@@ -4,6 +4,7 @@ import {
   createWorkflowDefinitionSync,
   readWorkflowDefinitionSync,
   readWorkflowRunSync,
+  readWorkflowTriggerForWorkflowSync,
   updateWorkflowDraftSync,
   upsertWorkflowTriggerSync,
 } from "@dofe-agent/db";
@@ -78,7 +79,7 @@ export interface ControlWorkflowRunActionInput {
 
 export async function createWorkflowDraftAction(
   input: CreateWorkflowDraftInput,
-): Promise<WorkflowActionResult<{ workflowId: string; draftVersion: number }>> {
+): Promise<WorkflowActionResult<{ workflowId: string; draftVersion: number; graph: WorkflowGraphDefinition }>> {
   const context = await requireCurrentWorkspaceContext();
   assertWorkspaceRoleForContext(context, "member");
   try {
@@ -91,7 +92,11 @@ export async function createWorkflowDraftAction(
       draftGraphJson: JSON.stringify(input.graph ?? emptyWorkflowGraph()),
     });
     revalidateWorkflowPages(context.currentWorkspace.slug);
-    return success(context.currentWorkspace.id, { workflowId: definition.id, draftVersion: definition.draftVersion });
+    return success(context.currentWorkspace.id, {
+      workflowId: definition.id,
+      draftVersion: definition.draftVersion,
+      graph: parseWorkflowGraph(definition.draftGraphJson),
+    });
   } catch (error) {
     return failure(error);
   }
@@ -157,7 +162,9 @@ export async function publishWorkflowAction(
       actor: actorFromContext(context),
     });
     if (input.trigger) {
+      const currentTrigger = readWorkflowTriggerForWorkflowSync(definition.id, context.currentWorkspace.id);
       upsertWorkflowTriggerSync({
+        id: currentTrigger?.id,
         workspaceId: context.currentWorkspace.id,
         workflowId: definition.id,
         type: input.trigger.type,

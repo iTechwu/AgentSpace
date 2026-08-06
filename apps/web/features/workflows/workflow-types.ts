@@ -1,5 +1,6 @@
 import type {
   WorkflowDefinitionStatus,
+  WorkflowGraphDefinition,
   WorkflowRunStatus,
 } from "@dofe-agent/domain";
 
@@ -30,4 +31,35 @@ export interface WorkflowCenterPageData {
     paused: number;
     blocked: number;
   };
+}
+
+export type WorkflowBuilderEntry = "automations" | "calendar" | "task-board";
+
+export interface WorkflowBuilderEmployee {
+  id: string;
+  name: string;
+  status: string;
+}
+
+export interface WorkflowBuilderInitialValue {
+  id: string;
+  name: string;
+  description: string;
+  status: WorkflowDefinitionStatus;
+  graph: WorkflowGraphDefinition;
+  draftVersion: number;
+  trigger: {
+    type: "manual" | "schedule" | "event";
+    config: Record<string, unknown>;
+    timezone?: string;
+  };
+  governance: {
+    maxConcurrency: number;
+    failurePolicy: "stop" | "continue";
+  };
+}
+
+export interface WorkflowBuilderPageData {
+  employees: WorkflowBuilderEmployee[];
+  workflow?: WorkflowBuilderInitialValue;
 }

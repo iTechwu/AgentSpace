@@ -295,6 +295,19 @@ export function readWorkflowTriggerSync(id: string, workspaceId: string): Workfl
   return readWorkflowTriggerWithDatabase(getDatabase(), id, workspaceId);
 }
 
+export function readWorkflowTriggerForWorkflowSync(
+  workflowId: string,
+  workspaceId: string,
+): WorkflowTriggerRecord | null {
+  const row = getDatabase().prepare(
+    `${TRIGGER_SELECT}
+     WHERE workflow_id = ? AND workspace_id = ?
+     ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, updated_at DESC, id ASC
+     LIMIT 1`,
+  ).get(workflowId, workspaceId) as Record<string, unknown> | undefined;
+  return row ? mapTrigger(row) : null;
+}
+
 export function claimDueWorkflowTriggersSync(input: {
   workerId: string;
   now: string;

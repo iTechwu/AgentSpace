@@ -1,11 +1,20 @@
 import {
   getDatabase,
+  listEmployeeRuntimeBindingsSync,
+  listStoredEmployeesSync,
   listWorkflowDefinitionsSync,
   listWorkflowRunsSync,
   listWorkspaceMemberUsersSync,
+  readWorkflowDefinitionSync,
+  readWorkflowTriggerForWorkflowSync,
+  readWorkflowVersionSync,
 } from "@dofe-agent/db";
-import type { WorkflowRunStatus } from "@dofe-agent/domain";
-import type { WorkflowCenterPageData, WorkflowListItem } from "./workflow-types";
+import type { WorkflowGraphDefinition, WorkflowRunStatus } from "@dofe-agent/domain";
+import type {
+  WorkflowBuilderPageData,
+  WorkflowCenterPageData,
+  WorkflowListItem,
+} from "./workflow-types";
 
 const WORKFLOW_RUN_STATUSES = new Set<WorkflowRunStatus>([
   "created",
@@ -81,6 +90,50 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
   };
 }
 
+export function getWorkflowBuilderPageData(
+  workspaceId: string,
+  workflowId?: string,
+): WorkflowBuilderPageData | null {
+  const bindings = new Map(
+    listEmployeeRuntimeBindingsSync(workspaceId).map((binding) => [binding.employeeId, binding.status]),
+  );
+  const employees = listStoredEmployeesSync(workspaceId).map((employee) => ({
+    id: employee.id,
+    name: employee.remarkName?.trim() || employee.name,
+    status: bindings.get(employee.id) ?? "unbound",
+  }));
+  if (!workflowId) return { employees };
+
+  const workflow = readWorkflowDefinitionSync(workflowId, workspaceId);
+  if (!workflow) return null;
+  const trigger = readWorkflowTriggerForWorkflowSync(workflow.id, workspaceId);
+  const activeVersion = workflow.activeVersionId
+    ? readWorkflowVersionSync(workflow.activeVersionId, workspaceId)
+    : null;
+  const triggerConfig = parseRecord(trigger?.configJson);
+  const governance = parseRecord(activeVersion?.governanceJson);
+  return {
+    employees,
+    workflow: {
+      id: workflow.id,
+      name: workflow.name,
+      description: workflow.description ?? "",
+      status: workflow.status,
+      graph: parseWorkflowGraph(workflow.draftGraphJson),
+      draftVersion: workflow.draftVersion,
+      trigger: {
+        type: trigger?.type ?? "manual",
+        config: triggerConfig,
+        ...(trigger?.timezone ? { timezone: trigger.timezone } : {}),
+      },
+      governance: {
+        maxConcurrency: numberInRange(governance.maxConcurrency, 1, 20, 4),
+        failurePolicy: governance.failurePolicy === "continue" ? "continue" : "stop",
+      },
+    },
+  };
+}
+
 function listWorkflowTriggerSummaries(workspaceId: string): WorkflowTriggerSummary[] {
   const rows = getDatabase().prepare(
     `SELECT workflow_id AS "workflowId", type, next_fire_at AS "nextFireAt"
@@ -129,4 +182,32 @@ function isWorkflowRunStatus(value: string): value is WorkflowRunStatus {
 
 function isWorkflowTriggerType(value: unknown): value is WorkflowTriggerSummary["type"] {
   return value === "manual" || value === "schedule" || value === "event";
+}
+
+function parseWorkflowGraph(value: string): WorkflowGraphDefinition {
+  try {
+    const graph = JSON.parse(value) as WorkflowGraphDefinition;
+    if (graph?.schemaVersion === 1 && Array.isArray(graph.nodes) && Array.isArray(graph.edges)) return graph;
+  } catch {
+    // Corrupt drafts remain editable as an empty graph; publish preflight is authoritative.
+  }
+  return { schemaVersion: 1, nodes: [], edges: [] };
+}
+
+function parseRecord(value: string | undefined): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function numberInRange(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(min, Math.min(max, value))
+    : fallback;
 }

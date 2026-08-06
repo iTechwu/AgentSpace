@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   updateDraft: vi.fn(),
   manualRun: vi.fn(),
   publish: vi.fn(),
+  readTrigger: vi.fn(),
+  upsertTrigger: vi.fn(),
   revalidate: vi.fn(),
 }));
 
@@ -15,8 +17,9 @@ vi.mock("@dofe-agent/db", () => ({
   createWorkflowDefinitionSync: vi.fn(),
   readWorkflowDefinitionSync: mocks.readDefinition,
   readWorkflowRunSync: vi.fn(),
+  readWorkflowTriggerForWorkflowSync: mocks.readTrigger,
   updateWorkflowDraftSync: mocks.updateDraft,
-  upsertWorkflowTriggerSync: vi.fn(),
+  upsertWorkflowTriggerSync: mocks.upsertTrigger,
 }));
 vi.mock("@dofe-agent/services", () => ({
   cancelWorkflowRunSync: vi.fn(),
@@ -55,6 +58,8 @@ describe("workflow actions", () => {
       draftGraphJson: JSON.stringify(graph),
     });
     mocks.manualRun.mockReturnValue({ runId: "run-1", created: true });
+    mocks.readTrigger.mockReturnValue(null);
+    mocks.publish.mockReturnValue({ version: { id: "version-1" } });
   });
 
   it("requires admin to publish but lets members run published workflows", async () => {
@@ -73,5 +78,23 @@ describe("workflow actions", () => {
       patch: { name: "Changed" },
     });
     expect(result).toMatchObject({ ok: false, error: { code: "workflow_version_conflict" } });
+  });
+
+  it("reuses the current trigger when republishing", async () => {
+    mockContext("admin");
+    mocks.readTrigger.mockReturnValue({ id: "trigger-1" });
+
+    const result = await publishWorkflowAction({
+      workflowId: "wf-1",
+      expectedDraftVersion: 2,
+      trigger: { type: "schedule", config: { cron: "0 9 * * 1-5" }, timezone: "Asia/Shanghai" },
+    });
+
+    expect(result).toMatchObject({ ok: true, data: { versionId: "version-1" } });
+    expect(mocks.upsertTrigger).toHaveBeenCalledWith(expect.objectContaining({
+      id: "trigger-1",
+      workflowId: "wf-1",
+      type: "schedule",
+    }));
   });
 });

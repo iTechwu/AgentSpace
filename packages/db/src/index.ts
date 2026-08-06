@@ -188,6 +188,7 @@ export {
   listWorkflowVersionsSync,
   upsertWorkflowTriggerSync,
   readWorkflowTriggerSync,
+  readWorkflowTriggerForWorkflowSync,
   claimDueWorkflowTriggersSync,
   advanceWorkflowTriggerSync,
   type CreateWorkflowDefinitionInput,

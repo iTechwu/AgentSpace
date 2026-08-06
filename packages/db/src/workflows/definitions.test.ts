@@ -5,6 +5,7 @@ import {
   createWorkflowDefinitionSync,
   publishWorkflowVersionSync,
   readWorkflowDefinitionSync,
+  readWorkflowTriggerForWorkflowSync,
   readWorkflowVersionSync,
   updateWorkflowDraftSync,
   upsertWorkflowTriggerSync,
@@ -111,6 +112,7 @@ test("trigger upsert cannot overwrite a trigger from another workspace", () => {
     type: "manual",
     configJson: "{}",
   });
+  assert.equal(readWorkflowTriggerForWorkflowSync(local.id, WORKSPACE_ID)?.id, trigger.id);
 
   assert.throws(
     () => upsertWorkflowTriggerSync({
