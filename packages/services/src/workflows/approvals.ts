@@ -42,7 +42,15 @@ export function createWorkflowApprovalSync(input: CreateWorkflowApprovalInput): 
       metadata: { kind: "workflow_node", workflowRunId: run.id, workflowNodeRunId: node.id, workflowNodeId: node.nodeId },
     }, input.workspaceId).approvals[0];
   if (!approval) throw new Error("workflow_approval_create_failed");
-  const updated = transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: node.id, from: ["pending", "ready"], to: "waiting_approval", approvalId: approval.id, now: input.now });
+  const updated = transitionWorkflowNodeRunSync({
+    workspaceId: input.workspaceId,
+    nodeRunId: node.id,
+    from: ["pending", "ready"],
+    to: "waiting_approval",
+    approvalId: approval.id,
+    clearError: true,
+    now: input.now,
+  });
   if (!updated) throw new Error("workflow_approval_node_conflict");
   transitionWorkflowRunSync({ workspaceId: input.workspaceId, runId: run.id, from: ["created", "queued", "running"], to: "waiting_approval", now: input.now });
   appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, nodeRunId: node.id, type: "approval.requested", actorType: "system", dataJson: JSON.stringify({ approvalId: approval.id }), now: input.now });
