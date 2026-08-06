@@ -563,6 +563,7 @@ server.listen(0, "127.0.0.1", () => {
       "-c", "model_providers.dofe-managed.name=\\\"Dofe managed gateway\\\"",
       "-c", "model_providers.dofe-managed.base_url=" + JSON.stringify(localBaseUrl),
       "-c", "model_providers.dofe-managed.wire_api=\\\"responses\\\"",
+      "-c", "model_providers.dofe-managed.supports_websockets=false",
       "-c", "model_providers.dofe-managed.requires_openai_auth=true",
       ...args,
     ]
