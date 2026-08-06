@@ -21,6 +21,9 @@ export interface WorkflowListItem {
     parallelGroupCount: number;
     hasApproval: boolean;
   };
+  sourceKind?: "workflow" | "legacy";
+  migrationStatus?: "migrated" | "needs_migration";
+  legacySourceId?: string;
 }
 
 export interface WorkflowCenterPageData {

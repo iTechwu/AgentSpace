@@ -220,6 +220,8 @@ export {
   type LegacyMigrationInput,
   type LegacyMigrationPlan,
   type MigrationReport,
+  projectLegacySchedulesForCutover,
+  type CalendarWorkflowProjectionItem,
 } from "./workflows/migration.ts";
 export {
   resolveTriggerOwner,

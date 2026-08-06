@@ -5,11 +5,15 @@ const {
   mockListWorkflowDefinitionsSync,
   mockListWorkflowRunsSync,
   mockListWorkspaceMemberUsersSync,
+  mockReadCutoverMode,
+  mockReadWorkspaceState,
 } = vi.hoisted(() => ({
   mockGetDatabase: vi.fn(),
   mockListWorkflowDefinitionsSync: vi.fn(),
   mockListWorkflowRunsSync: vi.fn(),
   mockListWorkspaceMemberUsersSync: vi.fn(),
+  mockReadCutoverMode: vi.fn(),
+  mockReadWorkspaceState: vi.fn(),
 }));
 
 vi.mock("@dofe-agent/db", () => ({
@@ -17,6 +21,11 @@ vi.mock("@dofe-agent/db", () => ({
   listWorkflowDefinitionsSync: mockListWorkflowDefinitionsSync,
   listWorkflowRunsSync: mockListWorkflowRunsSync,
   listWorkspaceMemberUsersSync: mockListWorkspaceMemberUsersSync,
+}));
+vi.mock("@dofe-agent/services", () => ({
+  readWorkflowCutoverModeSync: mockReadCutoverMode,
+  readWorkspaceStateSnapshotSync: mockReadWorkspaceState,
+  shouldReadLegacyWorkflowSources: (mode: string) => mode === "legacy_only" || mode === "dual_read",
 }));
 
 import { getWorkflowCenterPageData } from "./workflow-data";
@@ -27,6 +36,10 @@ describe("getWorkflowCenterPageData", () => {
     mockListWorkflowRunsSync.mockReset();
     mockListWorkspaceMemberUsersSync.mockReset();
     mockGetDatabase.mockReset();
+    mockReadCutoverMode.mockReset();
+    mockReadWorkspaceState.mockReset();
+    mockReadCutoverMode.mockReturnValue("legacy_archived");
+    mockReadWorkspaceState.mockReturnValue({ automationRules: [] });
     mockGetDatabase.mockReturnValue({
       prepare: vi.fn(() => ({ all: vi.fn(() => []) })),
     });
@@ -109,6 +122,7 @@ describe("getWorkflowCenterPageData", () => {
           parallelGroupCount: 1,
           hasApproval: true,
         },
+        sourceKind: "workflow",
         latestRun: {
           id: "run-daily",
           status: "succeeded",
@@ -118,5 +132,29 @@ describe("getWorkflowCenterPageData", () => {
     ]);
     expect(JSON.stringify(data)).not.toContain("draftGraphJson");
     expect(JSON.stringify(data)).not.toContain("never-returned");
+  });
+
+  it("adds one sanitized migration row for an unmapped legacy automation in dual-read mode", () => {
+    mockReadCutoverMode.mockReturnValue("dual_read");
+    mockReadWorkspaceState.mockReturnValue({
+      automationRules: [{
+        id: "legacy-rule-1",
+        name: "Legacy webhook",
+        enabled: true,
+        trigger: { type: "message_received", config: { token: "never-returned" } },
+        actions: [{ type: "webhook", config: { secret: "never-returned" } }],
+        createdBy: "owner-1",
+      }],
+    });
+
+    const data = getWorkflowCenterPageData("default");
+    const legacy = data.workflows.find((item) => item.legacySourceId === "legacy-rule-1");
+    expect(legacy).toMatchObject({
+      name: "Legacy webhook",
+      sourceKind: "legacy",
+      migrationStatus: "needs_migration",
+      triggerLabelCode: "event",
+    });
+    expect(JSON.stringify(legacy)).not.toContain("never-returned");
   });
 });

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { buildWorkspacePath } from "@/features/auth/workspace-paths";
 import type { CalendarPageData } from "@/features/dashboard/data";
-import type { ScheduledTask, ScheduledTaskRepeat } from "@dofe-agent/domain/workspace";
+import type { ScheduledTaskRepeat } from "@dofe-agent/domain/workspace";
 import { useLanguage } from "@/features/i18n/language-provider";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
@@ -61,7 +61,13 @@ export function CalendarPageClient({ data, workspaceSlug }: { data: CalendarPage
                 {tasks.map((task) => (
                   <div className="calendar-task-card" key={task.id}>
                     <div className="calendar-task-card__header">
-                      <span className="calendar-task-card__repeat">{tx("旧版计划", "Legacy schedule")}</span>
+                      <span className="calendar-task-card__repeat">
+                        {task.sourceKind === "workflow"
+                          ? tx("工作流计划", "Workflow schedule")
+                          : task.migrationStatus === "needs_migration"
+                            ? tx("需迁移", "Migration needed")
+                            : tx("旧版计划", "Legacy schedule")}
+                      </span>
                       <span className={`calendar-task-card__status calendar-task-card__status--${task.status}`}>
                         {task.status}
                       </span>
@@ -93,8 +99,10 @@ export function CalendarPageClient({ data, workspaceSlug }: { data: CalendarPage
   );
 }
 
-function groupByDate(tasks: ScheduledTask[]): Array<{ date: string; tasks: ScheduledTask[] }> {
-  const groups = new Map<string, ScheduledTask[]>();
+type CalendarTask = CalendarPageData["scheduledTasks"][number];
+
+function groupByDate(tasks: CalendarTask[]): Array<{ date: string; tasks: CalendarTask[] }> {
+  const groups = new Map<string, CalendarTask[]>();
   const sorted = [...tasks].sort(
     (a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime(),
   );

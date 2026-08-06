@@ -134,6 +134,9 @@ export function WorkflowListClient({
 
 function WorkflowPlanRow({ workflow, workspaceSlug }: { workflow: WorkflowListItem; workspaceSlug: string }) {
   const { tx } = useLanguage();
+  const href = workflow.sourceKind === "legacy"
+    ? `/w/${workspaceSlug}/automations/new?entry=automations&legacySourceId=${encodeURIComponent(workflow.legacySourceId ?? "")}`
+    : `/w/${workspaceSlug}/automations/${workflow.id}`;
   const topology = [
     tx(`${workflow.topology.employeeNodeCount} 位员工`, `${workflow.topology.employeeNodeCount} employees`),
     ...(workflow.topology.parallelGroupCount > 0 ? [tx(`${workflow.topology.parallelGroupCount} 组并行`, `${workflow.topology.parallelGroupCount} parallel groups`)] : []),
@@ -141,10 +144,13 @@ function WorkflowPlanRow({ workflow, workspaceSlug }: { workflow: WorkflowListIt
   ].join(" · ");
   return (
     <div role="listitem">
-      <Link className="workflow-center__row" href={`/w/${workspaceSlug}/automations/${workflow.id}`}>
+      <Link className="workflow-center__row" href={href}>
         <span className="workflow-center__identity">
           <strong title={workflow.name}>{workflow.name}</strong>
-          <small>{triggerLabel(workflow.triggerLabelCode, tx)} · {topology}</small>
+          <small>
+            {workflow.migrationStatus === "needs_migration" ? `${tx("需迁移", "Migration needed")} · ` : ""}
+            {triggerLabel(workflow.triggerLabelCode, tx)} · {topology}
+          </small>
         </span>
         <span>{workflow.nextFireAt ? formatCompactTimestamp(workflow.nextFireAt) : tx("按需运行", "On demand")}</span>
         <span>{workflow.latestRun ? runStatusLabel(workflow.latestRun.status, tx) : tx("尚未运行", "Never run")}</span>

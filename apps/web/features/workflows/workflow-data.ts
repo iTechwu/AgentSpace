@@ -12,6 +12,11 @@ import {
   readWorkflowTriggerForWorkflowSync,
   readWorkflowVersionSync,
 } from "@dofe-agent/db";
+import {
+  readWorkflowCutoverModeSync,
+  readWorkspaceStateSnapshotSync,
+  shouldReadLegacyWorkflowSources,
+} from "@dofe-agent/services";
 import type { WorkflowGraphDefinition, WorkflowRunStatus } from "@dofe-agent/domain";
 import type {
   WorkflowBuilderPageData,
@@ -81,8 +86,36 @@ export function getWorkflowCenterPageData(workspaceId: string): WorkflowCenterPa
       ...(trigger?.nextFireAt ? { nextFireAt: trigger.nextFireAt } : {}),
       ...(latestRuns.has(definition.id) ? { latestRun: latestRuns.get(definition.id)! } : {}),
       topology: summarizeWorkflowTopology(definition.draftGraphJson),
+      sourceKind: "workflow",
+      ...(definition.legacySourceId ? { legacySourceId: definition.legacySourceId, migrationStatus: "migrated" as const } : {}),
     };
   });
+  const mode = readWorkflowCutoverModeSync(workspaceId);
+  if (shouldReadLegacyWorkflowSources(mode)) {
+    const migratedLegacyIds = new Set(
+      definitions
+        .filter((definition) => definition.legacySourceType === "automation_rule")
+        .flatMap((definition) => definition.legacySourceId ? [definition.legacySourceId] : []),
+    );
+    for (const rule of readWorkspaceStateSnapshotSync(workspaceId).automationRules ?? []) {
+      if (migratedLegacyIds.has(rule.id)) continue;
+      workflows.push({
+        id: `legacy-automation-${rule.id}`,
+        name: rule.name,
+        status: rule.enabled ? "published" : "paused",
+        ownerLabel: rule.createdBy || "legacy",
+        triggerLabelCode: rule.trigger.type === "schedule" ? "schedule" : "event",
+        topology: {
+          employeeNodeCount: rule.actions.filter((action) => action.type === "mention_agent").length,
+          parallelGroupCount: 0,
+          hasApproval: false,
+        },
+        sourceKind: "legacy",
+        migrationStatus: "needs_migration",
+        legacySourceId: rule.id,
+      });
+    }
+  }
 
   return {
     workflows,

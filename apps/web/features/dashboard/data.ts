@@ -29,6 +29,8 @@ import {
   listManagedRuntimesForWorkspaceSync,
   resolveAgentRuntimeMode,
   readWorkspaceAttachmentBytesSync,
+  projectLegacySchedulesForCutover,
+  readWorkflowCutoverModeSync,
 } from "@dofe-agent/services";
 import type {
   AgentAccessRequestRecord,
@@ -62,6 +64,8 @@ import {
   listTaskExecutionEventsSync,
   listWorkspaceRuntimeDisplayNamesSync,
   listWorkspaceMemberUsersSync,
+  listWorkflowDefinitionsSync,
+  readWorkflowTriggerForWorkflowSync,
 } from "@dofe-agent/db";
 import type { BudgetAction, BudgetPeriod, BudgetScope, TaskExecutionEventRecord, TaskExecutionEventType, TaskMessageRecord, WorkspaceMemberUserRecord, WorkspaceRole } from "@dofe-agent/db";
 import type {
@@ -5524,7 +5528,12 @@ export function getAutomationsPageData(workspaceId = DEFAULT_WORKSPACE_ID): Auto
 // ── Calendar / Schedules (#28) ──
 
 export interface CalendarPageData {
-  scheduledTasks: ScheduledTask[];
+  scheduledTasks: Array<ScheduledTask & {
+    sourceKind?: "legacy" | "workflow";
+    migrationStatus?: "legacy" | "needs_migration" | "migrated";
+    legacySourceId?: string;
+    workflowId?: string;
+  }>;
   totalCount: number;
   activeCount: number;
   channels: Array<{ name: string }>;
@@ -5533,7 +5542,18 @@ export interface CalendarPageData {
 
 export function getCalendarPageData(workspaceId = DEFAULT_WORKSPACE_ID): CalendarPageData {
   const state = readWorkspaceStateCached(workspaceId);
-  const scheduledTasks = state.scheduledTasks ?? [];
+  const mode = readWorkflowCutoverModeSync(workspaceId);
+  const workflows = mode === "legacy_only" ? [] : listWorkflowDefinitionsSync(workspaceId);
+  const scheduledWorkflows = workflows.filter((workflow) => workflow.legacySourceType === "scheduled_task");
+  const scheduledTasks = projectLegacySchedulesForCutover({
+    mode,
+    legacyTasks: state.scheduledTasks ?? [],
+    workflows: scheduledWorkflows,
+    triggers: scheduledWorkflows.flatMap((workflow) => {
+      const trigger = readWorkflowTriggerForWorkflowSync(workflow.id, workspaceId);
+      return trigger ? [trigger] : [];
+    }),
+  });
 
   return {
     scheduledTasks,

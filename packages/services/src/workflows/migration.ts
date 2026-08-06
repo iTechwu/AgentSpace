@@ -3,10 +3,12 @@ import {
   listWorkflowDefinitionsSync,
   upsertWorkflowTriggerSync,
 } from "@dofe-agent/db";
+import type { WorkflowDefinitionRecord, WorkflowTriggerRecord } from "@dofe-agent/db";
 import type { ActiveEmployee, AutomationRule, ScheduledTask } from "@dofe-agent/domain/workspace";
 import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
 import { publishWorkflowSync } from "./publishing.ts";
 import { assertTriggerWriteOwnerSync } from "./feature-flags.ts";
+import type { WorkflowCutoverMode } from "./feature-flags.ts";
 
 export interface LegacyMigrationInput {
   workspaceId: string;
@@ -48,6 +50,48 @@ export interface MigrationReport {
   counts: LegacyMigrationPlan["counts"] & { skipped_existing: number; failed: number };
   createdWorkflowIds: string[];
   failures: Array<{ sourceId: string; reasonCode: string }>;
+}
+
+export type CalendarWorkflowProjectionItem = ScheduledTask & {
+  sourceKind: "legacy" | "workflow";
+  migrationStatus: "legacy" | "needs_migration" | "migrated";
+  legacySourceId?: string;
+  workflowId?: string;
+};
+
+export function projectLegacySchedulesForCutover(input: {
+  mode: WorkflowCutoverMode;
+  legacyTasks: ScheduledTask[];
+  workflows: WorkflowDefinitionRecord[];
+  triggers: WorkflowTriggerRecord[];
+}): CalendarWorkflowProjectionItem[] {
+  const migratedWorkflows = input.workflows.filter((workflow) => workflow.legacySourceType === "scheduled_task");
+  if (input.mode === "legacy_only") {
+    return input.legacyTasks.map((task) => ({ ...task, sourceKind: "legacy", migrationStatus: "legacy" }));
+  }
+
+  const legacyById = new Map(input.legacyTasks.map((task) => [task.id, task]));
+  const workflowByLegacyId = new Map(
+    migratedWorkflows.flatMap((workflow) => workflow.legacySourceId ? [[workflow.legacySourceId, workflow] as const] : []),
+  );
+  const triggerByWorkflowId = new Map(input.triggers.map((trigger) => [trigger.workflowId, trigger]));
+  const projected = migratedWorkflows.map((workflow) => workflowScheduleProjection(
+    workflow,
+    triggerByWorkflowId.get(workflow.id),
+    workflow.legacySourceId ? legacyById.get(workflow.legacySourceId) : undefined,
+  ));
+
+  if (input.mode !== "dual_read") return projected;
+  for (const task of input.legacyTasks) {
+    if (workflowByLegacyId.has(task.id)) continue;
+    projected.push({
+      ...task,
+      sourceKind: "legacy",
+      migrationStatus: "needs_migration",
+      legacySourceId: task.id,
+    });
+  }
+  return projected.sort((left, right) => Date.parse(left.scheduledAt) - Date.parse(right.scheduledAt));
 }
 
 export function planLegacyMigration(input: LegacyMigrationInput): LegacyMigrationPlan {
@@ -178,6 +222,57 @@ function graphForAction(action: LegacyMigrationAction): WorkflowGraphDefinition 
     }],
     edges: [],
   };
+}
+
+function workflowScheduleProjection(
+  workflow: WorkflowDefinitionRecord,
+  trigger: WorkflowTriggerRecord | undefined,
+  legacy: ScheduledTask | undefined,
+): CalendarWorkflowProjectionItem {
+  const config = parseRecord(trigger?.configJson);
+  const graph = parseRecord(workflow.draftGraphJson);
+  const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+  const employeeNode = nodes.find((node) => {
+    const value = node as Record<string, unknown>;
+    return value.type === "employee_task" && typeof value.employeeId === "string";
+  }) as Record<string, unknown> | undefined;
+  return {
+    id: workflow.id,
+    workflowId: workflow.id,
+    ...(workflow.legacySourceId ? { legacySourceId: workflow.legacySourceId } : {}),
+    sourceKind: "workflow",
+    migrationStatus: "migrated",
+    title: workflow.name,
+    description: workflow.description ?? legacy?.description ?? "",
+    assignee: legacy?.assignee ?? (typeof employeeNode?.employeeId === "string" ? employeeNode.employeeId : undefined),
+    channelName: workflow.channelName ?? legacy?.channelName,
+    repeat: projectedRepeat(config, legacy?.repeat),
+    ...(typeof config.cronExpression === "string" ? { cronExpression: config.cronExpression } : {}),
+    scheduledAt: trigger?.nextFireAt ?? legacy?.scheduledAt ?? workflow.createdAt,
+    ...(trigger?.nextFireAt ? { nextRunAt: trigger.nextFireAt } : {}),
+    status: workflow.status === "published" && trigger?.status === "active" ? "active" : "paused",
+    createdBy: workflow.createdBy,
+    createdAt: workflow.createdAt,
+    updatedAt: workflow.updatedAt,
+  };
+}
+
+function projectedRepeat(config: Record<string, unknown>, fallback: ScheduledTask["repeat"] | undefined): ScheduledTask["repeat"] {
+  if (typeof config.cronExpression === "string") return "cron";
+  if (typeof config.dailyAt === "string") return "daily";
+  if (config.repeatSeconds === 7 * 24 * 60 * 60) return "weekly";
+  if (config.legacyRepeat === "monthly") return "monthly";
+  return fallback ?? "once";
+}
+
+function parseRecord(value: string | undefined): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
 }
 
 function buildEmployeeIndex(employees: LegacyMigrationInput["employees"]): Map<string, string> {
