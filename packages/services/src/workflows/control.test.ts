@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   cancelWorkflowRunSync,
+  collectWorkflowRetryResetNodeRunIds,
   computeWorkflowRetryAvailableAt,
   resolveWorkflowResumeStatus,
 } from "./retries.ts";
@@ -34,4 +35,27 @@ test("resume preserves an outstanding approval wait", () => {
   assert.equal(resolveWorkflowResumeStatus([
     { nodeId: "a", nodeType: "employee_task", status: "succeeded", inputJson: "{}" },
   ], graph), "succeeded");
+});
+
+test("manual branch replay stops at a separate failed executable node", () => {
+  const graph = {
+    schemaVersion: 1 as const,
+    nodes: [
+      { id: "retry", type: "employee_task" as const, employeeId: "employee-a", config: {} },
+      { id: "join", type: "join" as const, config: { policy: "allow_partial" } },
+      { id: "failed-summary", type: "employee_task" as const, employeeId: "employee-b", config: {} },
+      { id: "skipped-notify", type: "employee_task" as const, employeeId: "employee-c", config: {} },
+    ],
+    edges: [
+      { source: "retry", target: "join" },
+      { source: "join", target: "failed-summary" },
+      { source: "failed-summary", target: "skipped-notify" },
+    ],
+  };
+  assert.deepEqual(collectWorkflowRetryResetNodeRunIds(graph, "retry", [
+    { id: "run-retry", nodeId: "retry", nodeType: "employee_task", status: "failed" },
+    { id: "run-join", nodeId: "join", nodeType: "join", status: "succeeded" },
+    { id: "run-summary", nodeId: "failed-summary", nodeType: "employee_task", status: "failed" },
+    { id: "run-notify", nodeId: "skipped-notify", nodeType: "employee_task", status: "skipped" },
+  ]), ["run-join"]);
 });

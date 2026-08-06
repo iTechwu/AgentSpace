@@ -16,7 +16,7 @@ import {
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
 import { cancelPendingWorkflowApprovalsSync } from "./approvals.ts";
-import { collectWorkflowDescendantNodeIds, resolveWorkflowRunTerminalStatus } from "./coordinator.ts";
+import { resolveWorkflowRunTerminalStatus } from "./coordinator.ts";
 
 export interface RetryWorkflowNodeInput {
   workspaceId: string;
@@ -55,10 +55,11 @@ export function retryWorkflowNodeSync(input: RetryWorkflowNodeInput): WorkflowNo
       const version = readWorkflowVersionSync(run.versionId, input.workspaceId);
       if (!version) throw new Error("workflow_version_not_found");
       const graph = JSON.parse(version.graphJson) as WorkflowGraphDefinition;
-      const descendantNodeIds = new Set(collectWorkflowDescendantNodeIds(graph, node.nodeId));
-      const descendantRunIds = listWorkflowNodeRunsSync(input.workspaceId, input.runId)
-        .filter((candidate) => descendantNodeIds.has(candidate.nodeId))
-        .map((candidate) => candidate.id);
+      const descendantRunIds = collectWorkflowRetryResetNodeRunIds(
+        graph,
+        node.nodeId,
+        listWorkflowNodeRunsSync(input.workspaceId, input.runId),
+      );
       resetWorkflowDescendantNodeRunsForRetrySync({
         workspaceId: input.workspaceId,
         runId: run.id,
@@ -167,6 +168,30 @@ export function resolveWorkflowResumeStatus(
   if (nodes.some((node) => node.status === "waiting_approval")) return "waiting_approval";
   if (nodes.some((node) => ["pending", "ready", "queued", "running", "retry_wait"].includes(node.status))) return "running";
   return resolveWorkflowRunTerminalStatus(nodes, graph);
+}
+
+export function collectWorkflowRetryResetNodeRunIds(
+  graph: WorkflowGraphDefinition,
+  retriedNodeId: string,
+  nodeRuns: Array<Pick<WorkflowNodeRunRecord, "id" | "nodeId" | "nodeType" | "status">>,
+): string[] {
+  const byNodeId = new Map(nodeRuns.map((nodeRun) => [nodeRun.nodeId, nodeRun]));
+  const resetIds: string[] = [];
+  const visited = new Set<string>([retriedNodeId]);
+  const pending = graph.edges.filter((edge) => edge.source === retriedNodeId).map((edge) => edge.target);
+  while (pending.length > 0) {
+    const nodeId = pending.shift();
+    if (!nodeId || visited.has(nodeId)) continue;
+    visited.add(nodeId);
+    const nodeRun = byNodeId.get(nodeId);
+    if (!nodeRun) continue;
+    const blocksReplay = nodeRun.nodeType !== "join"
+      && (nodeRun.status === "failed" || nodeRun.status === "cancelled");
+    if (blocksReplay) continue;
+    resetIds.push(nodeRun.id);
+    pending.push(...graph.edges.filter((edge) => edge.source === nodeId).map((edge) => edge.target));
+  }
+  return resetIds;
 }
 
 function controlRun(input: ControlWorkflowRunInput, from: string[], to: string, eventType: string): WorkflowRunRecord {
