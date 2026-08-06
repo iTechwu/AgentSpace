@@ -5,6 +5,7 @@ import {
   getDatabase,
   listWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,
+  readQueuedTaskSync,
   readWorkflowRunSync,
   readWorkflowVersionSync,
   resetWorkflowDescendantNodeRunsForRetrySync,
@@ -153,7 +154,9 @@ export function cancelWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowR
     });
     for (const node of listWorkflowNodeRunsSync(input.workspaceId, input.runId)) {
       if (["succeeded", "failed", "skipped", "cancelled"].includes(node.status)) continue;
-      if (node.taskQueueId) cancelQueuedTaskSync({ taskId: node.taskQueueId, errorText: input.reason });
+      if (node.taskQueueId && readQueuedTaskSync(node.taskQueueId)) {
+        cancelQueuedTaskSync({ taskId: node.taskQueueId, errorText: input.reason });
+      }
       transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: node.id, from: [node.status], to: "cancelled", finishedAt: now, now });
     }
     appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, type: "run.cancelled", actorType: "human", actorId: input.actorUserId, dataJson: JSON.stringify({ reason: input.reason }), now });

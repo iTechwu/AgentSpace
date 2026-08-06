@@ -4,6 +4,7 @@ import {
   getDatabase,
   listWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,
+  readQueuedTaskSync,
   readWorkflowNodeRunByApprovalIdSync,
   readWorkflowRunSync,
   readWorkflowVersionSync,
@@ -219,7 +220,7 @@ export function completeWorkflowApprovalNodeSync(input: {
     if (!input.approved) {
       for (const candidate of listWorkflowNodeRunsSync(input.workspaceId, run.id)) {
         if (candidate.id === updated.id || ["succeeded", "failed", "skipped", "cancelled"].includes(candidate.status)) continue;
-        if (candidate.taskQueueId) {
+        if (candidate.taskQueueId && readQueuedTaskSync(candidate.taskQueueId)) {
           cancelQueuedTaskSync({ taskId: candidate.taskQueueId, errorText: "workflow_approval_rejected" });
         }
         transitionWorkflowNodeRunSync({
