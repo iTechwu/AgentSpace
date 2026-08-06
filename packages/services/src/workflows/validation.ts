@@ -55,6 +55,21 @@ export function hashWorkflowGraph(graph: WorkflowGraphDefinition): string {
   return `sha256:${createHash("sha256").update(canonicalizeWorkflowGraph(graph), "utf8").digest("hex")}`;
 }
 
+export function hashWorkflowVersionContent(input: {
+  graph: WorkflowGraphDefinition;
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  governance?: Record<string, unknown>;
+}): string {
+  const content = canonicalizeJson({
+    graph: input.graph,
+    governance: input.governance ?? {},
+    inputSchema: input.inputSchema ?? {},
+    outputSchema: input.outputSchema ?? {},
+  });
+  return `sha256:${createHash("sha256").update(content, "utf8").digest("hex")}`;
+}
+
 export function validateWorkflowForPublishSync(
   input: ValidateWorkflowForPublishInput,
 ): WorkflowPublishValidation {

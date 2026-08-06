@@ -7,7 +7,7 @@ import {
 import {
   canonicalizeWorkflowGraph,
   canonicalizeJson,
-  hashWorkflowGraph,
+  hashWorkflowVersionContent,
   validateWorkflowForPublishSync,
   type ValidateWorkflowForPublishInput,
   type WorkflowPublishValidation,
@@ -43,7 +43,7 @@ export function publishWorkflowSync(input: PublishWorkflowInput): PublishWorkflo
     inputSchemaJson: canonicalizeJson(input.inputSchema ?? {}),
     outputSchemaJson: canonicalizeJson(input.outputSchema ?? {}),
     governanceJson: canonicalizeJson(input.governance ?? {}),
-    contentHash: hashWorkflowGraph(input.graph),
+    contentHash: hashWorkflowVersionContent(input),
     publishedBy: input.actor.userId,
     versionNumber: input.versionNumber,
     trigger: input.trigger ? normalizeWorkflowTriggerForPublish(input.trigger) : undefined,
