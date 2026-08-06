@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { collectWorkflowDescendantNodeIds, completeWorkflowNodeSync, decideWorkflowDownstreamTransition } from "./coordinator.ts";
+import {
+  collectWorkflowDescendantNodeIds,
+  completeWorkflowNodeSync,
+  decideWorkflowDownstreamTransition,
+  resolveWorkflowRunTerminalStatus,
+} from "./coordinator.ts";
 
 test("failed joins identify every downstream node that must be skipped", () => {
   assert.deepEqual(collectWorkflowDescendantNodeIds({
@@ -54,6 +59,22 @@ test("partial join succeeds with one result and fails when all branches fail", (
     policy: "allow_partial",
     predecessorStatuses: ["failed", "skipped"],
   }), "fail");
+});
+
+test("only an explicit successful partial join produces a partially-succeeded run", () => {
+  assert.equal(resolveWorkflowRunTerminalStatus([
+    { nodeType: "employee_task", status: "failed", inputJson: "{}" },
+    { nodeType: "employee_task", status: "skipped", inputJson: "{}" },
+  ]), "failed");
+  assert.equal(resolveWorkflowRunTerminalStatus([
+    { nodeType: "employee_task", status: "succeeded", inputJson: "{}" },
+    { nodeType: "employee_task", status: "failed", inputJson: "{}" },
+    { nodeType: "join", status: "succeeded", inputJson: JSON.stringify({ policy: "allow_partial" }) },
+  ]), "partially_succeeded");
+  assert.equal(resolveWorkflowRunTerminalStatus([
+    { nodeType: "employee_task", status: "succeeded", inputJson: "{}" },
+    { nodeType: "join", status: "succeeded", inputJson: JSON.stringify({ policy: "allow_partial" }) },
+  ]), "succeeded");
 });
 
 test("completion rejects an unknown node run before changing any state", () => {

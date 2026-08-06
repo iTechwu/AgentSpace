@@ -308,10 +308,22 @@ function finalizeRunIfTerminal(workspaceId: string, run: WorkflowRunRecord, now:
     transitionWorkflowRunSync({ workspaceId, runId: run.id, from: ["created", "queued"], to: "running", now });
     return readWorkflowRunSync(run.id, workspaceId)!;
   }
-  const failed = nodes.some((node) => node.status === "failed" || node.status === "cancelled");
-  const partial = nodes.some((node) => node.status === "skipped");
-  transitionWorkflowRunSync({ workspaceId, runId: run.id, from: ["created", "queued", "running", "waiting_approval"], to: failed ? (partial ? "partially_succeeded" : "failed") : "succeeded", finishedAt: now, now });
+  const terminalStatus = resolveWorkflowRunTerminalStatus(nodes);
+  transitionWorkflowRunSync({ workspaceId, runId: run.id, from: ["created", "queued", "running", "waiting_approval"], to: terminalStatus, finishedAt: now, now });
   return readWorkflowRunSync(run.id, workspaceId)!;
+}
+
+export function resolveWorkflowRunTerminalStatus(
+  nodes: Array<Pick<WorkflowNodeRunRecord, "nodeType" | "status" | "inputJson">>,
+): "succeeded" | "partially_succeeded" | "failed" {
+  const hasFailure = nodes.some((node) => node.status === "failed" || node.status === "cancelled");
+  if (!hasFailure) return "succeeded";
+  const hasAcceptedPartialJoin = nodes.some((node) => (
+    node.nodeType === "join"
+    && node.status === "succeeded"
+    && parseConfig(node.inputJson).policy === "allow_partial"
+  ));
+  return hasAcceptedPartialJoin ? "partially_succeeded" : "failed";
 }
 
 function parseConfig(value: string): Record<string, unknown> {
