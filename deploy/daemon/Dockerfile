@@ -20,7 +20,8 @@ RUN --mount=type=cache,id=dofe-local-runtime-pnpm,target=/pnpm/store \
 FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim
 
 ENV PNPM_HOME=/pnpm \
-    PATH=/pnpm:$PATH
+    PATH=/pnpm:$PATH \
+    npm_config_registry=https://registry.npmmirror.com
 
 ARG PROVIDER_INSTALL_COMMAND
 
@@ -33,7 +34,8 @@ RUN groupadd --gid 10001 dofe-agent \
 
 COPY --from=daemon-build /opt/daemon-package/dofe-agent-daemon-*.tgz /tmp/
 
-RUN mkdir -p /opt/dofe-agent-daemon \
+RUN --mount=type=cache,id=dofe-local-runtime-provider-cli,target=/pnpm/store \
+  mkdir -p /opt/dofe-agent-daemon \
   && tar -xzf /tmp/dofe-agent-daemon-*.tgz -C /opt/dofe-agent-daemon --strip-components=1 \
   && rm /tmp/dofe-agent-daemon-*.tgz \
   && ln -s /opt/dofe-agent-daemon/bin/agent-router.js /usr/local/bin/agent-router \

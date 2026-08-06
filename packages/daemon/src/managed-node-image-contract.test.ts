@@ -51,6 +51,11 @@ test("local runtime builds include provider probe tools and a pinned Codex CLI",
   assert.match(localRuntimeDockerfile, /apt-get install --yes --no-install-recommends ca-certificates curl/);
   assert.match(localRuntimeDockerfile, /npm install --global pnpm@10\.26\.2/);
   assert.match(localRuntimeDockerfile, /--mount=type=cache,id=dofe-local-runtime-pnpm,target=\/pnpm\/store/);
+  assert.match(localRuntimeDockerfile, /--mount=type=cache,id=dofe-local-runtime-provider-cli,target=\/pnpm\/store/);
+  assert.equal(
+    localRuntimeDockerfile.match(/npm_config_registry=https:\/\/registry\.npmmirror\.com/g)?.length,
+    2,
+  );
   assert.match(runtimeBuildScript, /@openai\/codex@0\.145\.0/);
   assert.doesNotMatch(runtimeBuildScript, /codex\).*@openai\/codex@latest/);
 });
