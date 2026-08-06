@@ -3,7 +3,9 @@ FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS daemon-build
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
     PNPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
-    PNPM_CONFIG_REPLACE_REGISTRY_HOST=always
+    PNPM_CONFIG_REPLACE_REGISTRY_HOST=always \
+    npm_config_registry=https://registry.npmmirror.com \
+    npm_config_replace_registry_host=always
 
 WORKDIR /workspace
 
@@ -11,7 +13,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/cli ./apps/cli
 COPY packages ./packages
 
-RUN npm install --global pnpm@10.26.2 \
+RUN --mount=type=cache,id=dofe-managed-node-pnpm,target=/pnpm/store \
+  npm install --global pnpm@10.26.2 \
   && pnpm install --frozen-lockfile --ignore-scripts \
   && pnpm --filter dofe-agent-daemon run build \
   && mkdir -p /opt/daemon-package \
@@ -42,7 +45,7 @@ ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH
 
 RUN apt-get update \
-  && apt-get install --yes --no-install-recommends docker.io iptables \
+  && apt-get install --yes --no-install-recommends ca-certificates curl docker.io iptables \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --gid 10001 dofe-agent \
   && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/dofe-agent --shell /usr/sbin/nologin dofe-agent

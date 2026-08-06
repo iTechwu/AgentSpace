@@ -33,6 +33,15 @@ test("managed-node image installs a checksum-pinned multi-arch cosign binary", (
   assert.match(dockerfile, /COPY --from=cosign-download \/usr\/local\/bin\/cosign \/usr\/local\/bin\/cosign/);
 });
 
+test("managed-node runtime stage includes provider probe tools and cached package installs", () => {
+  assert.match(
+    dockerfile,
+    /apt-get install --yes --no-install-recommends ca-certificates curl docker\.io iptables/,
+  );
+  assert.match(dockerfile, /npm_config_registry=https:\/\/registry\.npmmirror\.com/);
+  assert.match(dockerfile, /--mount=type=cache,id=dofe-managed-node-pnpm,target=\/pnpm\/store/);
+});
+
 test("managed-node image does not embed shared data-plane services", () => {
   assert.doesNotMatch(dockerfile, /FROM\s+(?:postgres|redis|rabbitmq)(?::|\s)/i);
 });
