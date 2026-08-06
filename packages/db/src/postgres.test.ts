@@ -39,6 +39,10 @@ test("postgres schema includes the expected core and derived tables", () => {
   assert.match(statements, /ALTER TABLE external_thread_binding\s+ADD COLUMN IF NOT EXISTS dofe_agent_message_id TEXT/);
   assert.equal((statements.match(/table_schema = current_schema\(\)/g) ?? []).length, 3);
   assert.doesNotMatch(statements, /table_schema = 'public'/);
+  assert.ok(
+    POSTGRES_TABLE_NAMES.indexOf("attachment") < POSTGRES_TABLE_NAMES.indexOf("openmontage_artifact_grant"),
+    "attachment must migrate before artifact grants that reference it",
+  );
   const agentSkillTable = getPostgresSchemaStatements().find((statement) =>
     statement.startsWith("CREATE TABLE IF NOT EXISTS agent_skill ("),
   );
@@ -809,6 +813,11 @@ test("collectSqliteMigrationSnapshotSync extracts relational rows and derived at
     assert.equal(forkInvitationRows.length, 1);
     assert.equal(forkSnapshotRows.length, 1);
     assert.equal(attachmentRows.length, 1);
+    assert.ok(
+      snapshot.tables.findIndex((table) => table.tableName === "attachment")
+        < snapshot.tables.findIndex((table) => table.tableName === "openmontage_artifact_grant"),
+      "derived attachments must be inserted before artifact grants",
+    );
     assert.equal(auditLogRows.length, 1);
     assert.equal((attachmentRows[0] as { workspace_id?: string }).workspace_id, "default");
     assert.equal((auditLogRows[0] as { code?: string }).code, "workspace.cross_workspace_access_denied");

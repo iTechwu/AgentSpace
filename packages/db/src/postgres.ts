@@ -491,7 +491,8 @@ export function collectSqliteMigrationSnapshotSync(
     ? extractAuditLogRowsFromLegacyWorkspaces(workspaceSnapshots, warnings, fallbackTimestamp)
     : [];
 
-  tables.push({
+  const artifactGrantIndex = tables.findIndex((table) => table.tableName === "openmontage_artifact_grant");
+  tables.splice(artifactGrantIndex >= 0 ? artifactGrantIndex : tables.length, 0, {
     tableName: "attachment",
     conflictColumns: ["workspace_id", "id"],
     jsonColumns: [],
