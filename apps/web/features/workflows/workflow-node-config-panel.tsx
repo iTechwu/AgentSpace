@@ -74,6 +74,35 @@ export function WorkflowNodeConfigPanel({
           </select>
         </label>
       ) : null}
+      {node.type === "approval" ? (
+        <>
+          <label>
+            <span>提交审批的 AI 员工</span>
+            <select
+              onChange={(event) => onEvent({ type: "updateNode", nodeId: node.id, patch: { config: { ...node.config, employeeId: event.target.value } } })}
+              value={typeof node.config.employeeId === "string" ? node.config.employeeId : ""}
+            >
+              <option value="">选择员工</option>
+              {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>审批频道</span>
+            <input
+              onChange={(event) => onEvent({ type: "updateNode", nodeId: node.id, patch: { config: { ...node.config, channelName: event.target.value } } })}
+              value={typeof node.config.channelName === "string" ? node.config.channelName : ""}
+            />
+          </label>
+          <label>
+            <span>审批说明</span>
+            <textarea
+              onChange={(event) => onEvent({ type: "updateNode", nodeId: node.id, patch: { config: { ...node.config, instruction: event.target.value } } })}
+              rows={4}
+              value={typeof node.config.instruction === "string" ? node.config.instruction : ""}
+            />
+          </label>
+        </>
+      ) : null}
       <label>
         <span>连接到</span>
         <select

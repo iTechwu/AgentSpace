@@ -205,6 +205,7 @@ export {
 export {
   createWorkflowApprovalSync,
   continueWorkflowAfterApprovalSync,
+  workflowApprovalInputFromNodeConfig,
   type CreateWorkflowApprovalInput,
 } from "./workflows/approvals.ts";
 export {

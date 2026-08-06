@@ -18135,6 +18135,13 @@ textarea:focus {
   gap: 12px;
 }
 
+.workflow-builder-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .workflow-segmented {
   display: inline-flex;
   border: 1px solid var(--line);

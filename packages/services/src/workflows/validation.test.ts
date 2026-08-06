@@ -76,3 +76,26 @@ test("dependency preflight accepts assigned skills and employee display names", 
 
   assert.deepEqual(blockers, []);
 });
+
+test("approval preflight requires a known employee and a joined channel", () => {
+  const inventory = {
+    employees: new Map([["emp-1", { id: "emp-1", name: "Researcher", remarkName: "研究员" }]]),
+    assignedSkills: new Set<string>(),
+    channels: new Map([["项目审批群", { employeeNames: ["研究员"] }]]),
+  };
+  assert.deepEqual(validateWorkflowNodeDependencies({
+    id: "approval",
+    type: "approval",
+    config: { employeeId: "missing", channelName: "项目审批群" },
+  }, inventory).map((blocker) => blocker.code), ["workflow_approval_employee_not_ready"]);
+  assert.deepEqual(validateWorkflowNodeDependencies({
+    id: "approval",
+    type: "approval",
+    config: { employeeId: "emp-1", channelName: "missing" },
+  }, inventory).map((blocker) => blocker.code), ["workflow_approval_channel_not_ready"]);
+  assert.deepEqual(validateWorkflowNodeDependencies({
+    id: "approval",
+    type: "approval",
+    config: { employeeId: "emp-1", channelName: "项目审批群" },
+  }, inventory), []);
+});

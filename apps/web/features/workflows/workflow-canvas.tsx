@@ -72,6 +72,12 @@ export function WorkflowCanvas({
     setIsAdding(false);
   }
 
+  function addApprovalNode(): void {
+    const nodeId = nextApprovalNodeId(graph);
+    onEvent({ type: "addApprovalNode", nodeId, employeeId: "", channelName: "" });
+    onSelectNode(nodeId);
+  }
+
   function handleNodesChange(changes: NodeChange<Node>[]): void {
     setNodes((current) => applyNodeChanges(changes, current));
   }
@@ -88,7 +94,10 @@ export function WorkflowCanvas({
           <button aria-controls="workflow-structure-view" aria-selected={view === "canvas"} id="workflow-view-canvas" onClick={() => setView("canvas")} role="tab" type="button">画布</button>
           <button aria-controls="workflow-structure-view" aria-selected={view === "list"} id="workflow-view-list" onClick={() => setView("list")} role="tab" type="button">列表</button>
         </div>
-        <button className="knowledge-btn knowledge-btn--primary" onClick={() => setIsAdding((current) => !current)} type="button">添加 AI 员工步骤</button>
+        <div className="workflow-builder-toolbar__actions">
+          <button className="knowledge-btn" onClick={addApprovalNode} type="button">添加审批步骤</button>
+          <button className="knowledge-btn knowledge-btn--primary" onClick={() => setIsAdding((current) => !current)} type="button">添加 AI 员工步骤</button>
+        </div>
       </div>
 
       {isAdding ? (
@@ -202,4 +211,10 @@ function nextNodeId(graph: WorkflowGraphDefinition): string {
   let index = graph.nodes.length + 1;
   while (graph.nodes.some((node) => node.id === `employee-${index}`)) index += 1;
   return `employee-${index}`;
+}
+
+function nextApprovalNodeId(graph: WorkflowGraphDefinition): string {
+  let index = graph.nodes.filter((node) => node.type === "approval").length + 1;
+  while (graph.nodes.some((node) => node.id === `approval-${index}`)) index += 1;
+  return `approval-${index}`;
 }

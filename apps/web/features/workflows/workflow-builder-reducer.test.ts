@@ -38,4 +38,23 @@ describe("workflowDraftReducer", () => {
     }
     expect(state.past).toHaveLength(50);
   });
+
+  test("adds a configurable approval node to the same graph history", () => {
+    let state = createEmptyWorkflowDraft();
+    state = workflowDraftReducer(state, { type: "addEmployeeNode", nodeId: "draft", employeeId: "emp-a" });
+    state = workflowDraftReducer(state, {
+      type: "addApprovalNode",
+      nodeId: "approve",
+      employeeId: "emp-a",
+      channelName: "项目审批群",
+    });
+    state = workflowDraftReducer(state, { type: "connect", source: "draft", target: "approve" });
+
+    expect(state.nodes[1]).toEqual({
+      id: "approve",
+      type: "approval",
+      config: { employeeId: "emp-a", channelName: "项目审批群", instruction: "请审批上游步骤的交付结果。" },
+    });
+    expect(validateWorkflowDraft(state).errors).toEqual([]);
+  });
 });

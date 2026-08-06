@@ -124,6 +124,11 @@ export function completeWorkflowApprovalNodeSync(input: {
       dataJson: JSON.stringify({ approvalId: input.approvalId }),
       now,
     });
+    const hasOtherWaitingApproval = listWorkflowNodeRunsSync(input.workspaceId, run.id)
+      .some((node) => node.id !== updated.id && node.status === "waiting_approval");
+    if (!hasOtherWaitingApproval) {
+      transitionWorkflowRunSync({ workspaceId: input.workspaceId, runId: run.id, from: ["waiting_approval"], to: "running", now });
+    }
     if (input.approved) advanceDownstream({ workspaceId: input.workspaceId, run, completed: updated, now });
     return finalizeRunIfTerminal(input.workspaceId, run, now);
   });
@@ -227,7 +232,7 @@ function finalizeRunIfTerminal(workspaceId: string, run: WorkflowRunRecord, now:
   }
   const failed = nodes.some((node) => node.status === "failed" || node.status === "cancelled");
   const partial = nodes.some((node) => node.status === "skipped");
-  transitionWorkflowRunSync({ workspaceId, runId: run.id, from: ["created", "queued", "running"], to: failed ? (partial ? "partially_succeeded" : "failed") : "succeeded", finishedAt: now, now });
+  transitionWorkflowRunSync({ workspaceId, runId: run.id, from: ["created", "queued", "running", "waiting_approval"], to: failed ? (partial ? "partially_succeeded" : "failed") : "succeeded", finishedAt: now, now });
   return readWorkflowRunSync(run.id, workspaceId)!;
 }
 

@@ -16,6 +16,7 @@ export interface WorkflowDraftState extends WorkflowGraphDefinition {
 
 export type WorkflowDraftEvent =
   | { type: "addEmployeeNode"; nodeId: string; employeeId: string }
+  | { type: "addApprovalNode"; nodeId: string; employeeId: string; channelName: string }
   | {
       type: "addParallelGroup";
       sourceNodeId: string;
@@ -86,6 +87,21 @@ function reduceGraph(
     return {
       ...graph,
       nodes: [...graph.nodes, employeeNode(event.nodeId, event.employeeId)],
+    };
+  }
+  if (event.type === "addApprovalNode") {
+    if (hasNode(graph, event.nodeId)) return graph;
+    return {
+      ...graph,
+      nodes: [...graph.nodes, {
+        id: event.nodeId,
+        type: "approval",
+        config: {
+          employeeId: event.employeeId,
+          channelName: event.channelName,
+          instruction: "请审批上游步骤的交付结果。",
+        },
+      }],
     };
   }
   if (event.type === "addParallelGroup") {

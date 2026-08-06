@@ -88,14 +88,15 @@ export function validateWorkflowForPublishSync(
     blockers.push({ code: "workflow_budget_invalid", detail: "workflow_budget_must_be_positive" });
   }
   for (const node of input.graph.nodes) {
-    if (node.type !== "employee_task") continue;
-    const blocker = employeeReadinessBlocker(node, employees, bindings);
-    if (blocker) {
-      blockers.push(blocker);
-      continue;
+    if (node.type === "employee_task") {
+      const blocker = employeeReadinessBlocker(node, employees, bindings);
+      if (blocker) {
+        blockers.push(blocker);
+        continue;
+      }
     }
     blockers.push(...validateWorkflowNodeDependencies(node, inventory));
-    if (workflowBudget !== undefined) {
+    if (node.type === "employee_task" && workflowBudget !== undefined) {
       const estimate = optionalFiniteNumber(node.config.estimatedCostUsd);
       if (estimate !== undefined && estimate > workflowBudget) {
         blockers.push({
@@ -114,6 +115,7 @@ export function validateWorkflowNodeDependencies(
   node: WorkflowNodeDefinition,
   inventory: WorkflowDependencyInventory,
 ): WorkflowPublishBlocker[] {
+  if (node.type === "approval") return validateApprovalDependencies(node, inventory);
   if (node.type !== "employee_task" || !node.employeeId) return [];
   const blockers: WorkflowPublishBlocker[] = [];
   const requiredSkillIds = Array.isArray(node.config.requiredSkillIds)
@@ -167,6 +169,24 @@ export function validateWorkflowNodeDependencies(
     }
   }
   return blockers;
+}
+
+function validateApprovalDependencies(
+  node: WorkflowNodeDefinition,
+  inventory: WorkflowDependencyInventory,
+): WorkflowPublishBlocker[] {
+  const employeeId = typeof node.config.employeeId === "string" ? node.config.employeeId.trim() : "";
+  const employee = inventory.employees.get(employeeId);
+  if (!employee) {
+    return [{ code: "workflow_approval_employee_not_ready", nodeId: node.id, employeeId, detail: "employee_not_found" }];
+  }
+  const channelName = typeof node.config.channelName === "string" ? node.config.channelName.trim() : "";
+  const channel = inventory.channels.get(channelName);
+  const acceptedNames = new Set([employee.name, employee.remarkName].filter((value): value is string => Boolean(value)));
+  if (!channel || !channel.employeeNames.some((name) => acceptedNames.has(name))) {
+    return [{ code: "workflow_approval_channel_not_ready", nodeId: node.id, employeeId, detail: channelName || "channel_missing" }];
+  }
+  return [];
 }
 
 function employeeReadinessBlocker(
