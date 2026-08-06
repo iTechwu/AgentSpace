@@ -138,20 +138,14 @@ export function cancelWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowR
     const current = readWorkflowRunSync(input.runId, input.workspaceId);
     if (!current) throw new Error("workflow_run_not_found");
     if (current.status === "cancelled") return current;
-    const run = transitionWorkflowRunSync({
-      workspaceId: input.workspaceId,
-      runId: input.runId,
-      from: ["created", "queued", "running", "waiting_approval", "paused"],
-      to: "cancelled",
-      finishedAt: now,
-      now,
-    });
-    if (!run) throw new Error("workflow_run_control_conflict");
+    const cancellableStatuses = ["created", "queued", "running", "waiting_approval", "paused"];
+    if (!cancellableStatuses.includes(current.status)) throw new Error("workflow_run_control_conflict");
     cancelPendingWorkflowApprovalsSync({
       workspaceId: input.workspaceId,
       runId: input.runId,
       reason: input.reason,
     });
+    // Match daemon completion's queue -> node -> run lock order to avoid cancellation deadlocks.
     for (const node of listWorkflowNodeRunsSync(input.workspaceId, input.runId)) {
       if (["succeeded", "failed", "skipped", "cancelled"].includes(node.status)) continue;
       if (node.taskQueueId && readQueuedTaskSync(node.taskQueueId)) {
@@ -159,6 +153,15 @@ export function cancelWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowR
       }
       transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: node.id, from: [node.status], to: "cancelled", finishedAt: now, now });
     }
+    const run = transitionWorkflowRunSync({
+      workspaceId: input.workspaceId,
+      runId: input.runId,
+      from: [current.status],
+      to: "cancelled",
+      finishedAt: now,
+      now,
+    });
+    if (!run) throw new Error("workflow_run_control_conflict");
     appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, type: "run.cancelled", actorType: "human", actorId: input.actorUserId, dataJson: JSON.stringify({ reason: input.reason }), now });
     return readWorkflowRunSync(run.id, input.workspaceId)!;
   });
