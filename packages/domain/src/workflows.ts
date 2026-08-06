@@ -104,7 +104,7 @@ export function validateWorkflowGraph(graph: WorkflowGraphDefinition): WorkflowG
 
   for (const node of nodes) {
     if (!node || typeof node.id !== "string" || !nodeIndex.has(node.id)) continue;
-    if (node.type === "employee_task" && !node.employeeId) {
+    if (node.type === "employee_task" && (!node.employeeId || node.employeeId.trim().length === 0)) {
       errors.push({ code: "workflow_employee_task_requires_employee_id", nodeIds: [node.id] });
     }
     if (node.type === "join" && new Set(incoming.get(node.id) ?? []).size < 2) {
@@ -116,6 +116,17 @@ export function validateWorkflowGraph(graph: WorkflowGraphDefinition): WorkflowG
   }
 
   const roots = [...nodeIndex.keys()].filter((id) => (incoming.get(id) ?? []).length === 0);
+  const terminals = [...nodeIndex.keys()].filter((id) => (outgoing.get(id) ?? []).length === 0);
+  if (!nodes.some((node) => node?.type === "employee_task")) {
+    errors.push({ code: "workflow_graph_requires_employee_task", nodeIds: [...nodeIndex.keys()] });
+  }
+  if (roots.length !== 1) {
+    errors.push({ code: "workflow_graph_requires_single_entry_node", nodeIds: roots });
+  }
+  if (terminals.length !== 1) {
+    errors.push({ code: "workflow_graph_requires_single_terminal_node", nodeIds: terminals });
+  }
+
   const reachable = new Set<string>();
   const pending = roots.length > 0 ? [roots[0]!] : [];
   while (pending.length > 0) {
@@ -129,7 +140,7 @@ export function validateWorkflowGraph(graph: WorkflowGraphDefinition): WorkflowG
     const hasOutgoing = (outgoing.get(id) ?? []).length > 0;
     if (!reachable.has(id)) {
       errors.push({
-        code: hasIncoming || hasOutgoing ? "workflow_graph_unreachable_node" : "workflow_graph_isolated_node",
+        code: hasIncoming || hasOutgoing ? "workflow_node_unreachable" : "workflow_graph_isolated_node",
         nodeIds: [id],
       });
     } else if (!hasIncoming && !hasOutgoing) {

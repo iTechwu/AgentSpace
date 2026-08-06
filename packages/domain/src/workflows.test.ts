@@ -90,9 +90,71 @@ test("rejects an acyclic component disconnected from the main workflow entry", (
 
   const result = validateWorkflowGraph(graph);
 
-  assert.ok(result.errors.some((error) => error.code === "workflow_graph_unreachable_node"));
+  assert.ok(result.errors.some((error) => error.code === "workflow_node_unreachable"));
   assert.deepEqual(
-    result.errors.find((error) => error.code === "workflow_graph_unreachable_node")?.nodeIds,
+    result.errors.find((error) => error.code === "workflow_node_unreachable")?.nodeIds,
     ["c"],
   );
+});
+
+test("requires at least one employee task", () => {
+  for (const graph of [
+    { schemaVersion: 1, nodes: [], edges: [] },
+    { schemaVersion: 1, nodes: [node("approval", "approval")], edges: [] },
+  ] satisfies WorkflowGraphDefinition[]) {
+    const result = validateWorkflowGraph(graph);
+
+    assert.ok(result.errors.some((error) => error.code === "workflow_graph_requires_employee_task"));
+  }
+});
+
+test("requires exactly one workflow entry and terminal node", () => {
+  const multipleEntries: WorkflowGraphDefinition = {
+    schemaVersion: 1,
+    nodes: [
+      node("A", "employee_task", "employee-a"),
+      node("B", "employee_task", "employee-b"),
+      node("C", "employee_task", "employee-c"),
+    ],
+    edges: [
+      { source: "A", target: "C" },
+      { source: "B", target: "C" },
+    ],
+  };
+  const multipleTerminals: WorkflowGraphDefinition = {
+    schemaVersion: 1,
+    nodes: [
+      node("A", "employee_task", "employee-a"),
+      node("B", "employee_task", "employee-b"),
+      node("C", "employee_task", "employee-c"),
+    ],
+    edges: [
+      { source: "A", target: "B" },
+      { source: "A", target: "C" },
+    ],
+  };
+
+  assert.ok(
+    validateWorkflowGraph(multipleEntries).errors.some(
+      (error) => error.code === "workflow_graph_requires_single_entry_node",
+    ),
+  );
+  const result = validateWorkflowGraph(multipleTerminals);
+  assert.ok(result.errors.some((error) => error.code === "workflow_graph_requires_single_terminal_node"));
+  assert.deepEqual(
+    result.errors.find((error) => error.code === "workflow_graph_requires_single_terminal_node")?.nodeIds,
+    ["B", "C"],
+  );
+});
+
+test("requires employee task IDs to be non-empty after trimming", () => {
+  const graph: WorkflowGraphDefinition = {
+    schemaVersion: 1,
+    nodes: [node("start", "approval"), node("employee", "employee_task", "  ")],
+    edges: [{ source: "start", target: "employee" }],
+  };
+
+  const result = validateWorkflowGraph(graph);
+
+  assert.ok(result.errors.some((error) => error.code === "workflow_employee_task_requires_employee_id"));
 });
