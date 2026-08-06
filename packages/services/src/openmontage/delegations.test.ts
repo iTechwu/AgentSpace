@@ -257,6 +257,7 @@ test("orphan reconciliation preserves a delegation when its immutable Job Link a
       updatedAt: "2026-08-05T10:00:00Z",
     }],
     readLink: () => link(),
+    readDelegation: () => ({ ...delegation(), modelsTeamId: IDS.modelsTeam }),
     drainDelegation: async () => {
       drains += 1;
       return provisionResponse().delegation;
@@ -266,6 +267,59 @@ test("orphan reconciliation preserves a delegation when its immutable Job Link a
 
   assert.equal(drains, 0);
   assert.deepEqual(transitions, ["bound"]);
+  assert.deepEqual(result, { attempted: 1, succeeded: 1, failed: 0 });
+});
+
+test("orphan reconciliation drains an intent when the Job is bound to another delegation", async () => {
+  const transitions: string[] = [];
+  let drainedDelegationId = "";
+  const request = {
+    runtimeCredentialId: IDS.credential,
+    tenantId: IDS.tenant,
+    teamId: IDS.modelsTeam,
+    idempotencyKey: "openmontage:ws-1:invocation-1",
+    employeeId: "employee-1",
+    conversationId: "conversation-1",
+    rootTaskId: "task-1",
+    sourceService: "openmontage" as const,
+    sourceInvocationId: "invocation-1",
+    externalJobId: "om_job_1",
+    spendLimit: "20.00",
+    currency: "CNY",
+    expiresAt: "2026-08-06T09:00:01.000Z",
+  };
+  const result = await drainOrphanedOpenMontageDelegationsAsync({
+    listIntents: () => [{
+      idempotencyKey: request.idempotencyKey,
+      workspaceId: "ws-1",
+      runtimeId: "runtime-1",
+      mcpConnectionId: "connection-1",
+      runtimeCredentialId: IDS.credential,
+      modelsTenantId: IDS.tenant,
+      modelsTeamId: IDS.modelsTeam,
+      externalJobId: "om_job_1",
+      request,
+      delegationId: IDS.delegation,
+      status: "provisioned",
+      attemptCount: 0,
+      createdAt: "2026-08-05T10:00:00Z",
+      updatedAt: "2026-08-05T10:00:00Z",
+    }],
+    readLink: () => link(),
+    readDelegation: () => ({
+      ...delegation(),
+      delegationId: "00000000-0000-4000-8000-000000000099",
+      modelsTeamId: IDS.modelsTeam,
+    }),
+    drainDelegation: async (value) => {
+      drainedDelegationId = value.delegationId;
+      return { ...provisionResponse(IDS.modelsTeam).delegation, status: "draining" };
+    },
+    intentStore: noOpIntentStore(transitions),
+  });
+
+  assert.equal(drainedDelegationId, IDS.delegation);
+  assert.deepEqual(transitions, ["drained"]);
   assert.deepEqual(result, { attempted: 1, succeeded: 1, failed: 0 });
 });
 

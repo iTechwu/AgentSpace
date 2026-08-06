@@ -432,6 +432,7 @@ export async function drainOrphanedOpenMontageDelegationsAsync(
     intentStore?: OpenMontageDelegationIntentStore;
     vault?: RuntimeCredentialVault;
     readLink?: typeof readOpenMontageJobLinkSync;
+    readDelegation?: typeof readOpenMontageModelDelegationSync;
   } = {},
 ): Promise<{ attempted: number; succeeded: number; failed: number }> {
   const intents = (options.listIntents ?? listDueOpenMontageDelegationIntentsSync)({ limit: options.limit });
@@ -443,15 +444,15 @@ export async function drainOrphanedOpenMontageDelegationsAsync(
       const request = intent.request as unknown as CreateDelegationRequest;
       assertIntentRequestMatchesRecord(intent, request);
       const linkedJob = (options.readLink ?? readOpenMontageJobLinkSync)(intent.externalJobId);
-      if (linkedJob) {
-        if (
-          linkedJob.workspaceId !== intent.workspaceId
-          || linkedJob.runtimeId !== intent.runtimeId
-          || linkedJob.runtimeCredentialId !== intent.runtimeCredentialId
-          || linkedJob.sourceInvocationId !== request.sourceInvocationId
-        ) {
-          throw new Error("openmontage.delegation_intent_link_conflict");
-        }
+      const linkedDelegation = linkedJob
+        ? (options.readDelegation ?? readOpenMontageModelDelegationSync)(intent.externalJobId)
+        : null;
+      if (linkedJob && linkedDelegation && intentMatchesBoundJob(
+        intent,
+        request,
+        linkedJob,
+        linkedDelegation,
+      )) {
         intentStore.markBound(intent.idempotencyKey);
         succeeded += 1;
         continue;
@@ -500,6 +501,24 @@ export async function drainOrphanedOpenMontageDelegationsAsync(
     }
   }
   return { attempted: intents.length, succeeded, failed };
+}
+
+function intentMatchesBoundJob(
+  intent: OpenMontageDelegationIntentRecord,
+  request: CreateDelegationRequest,
+  link: OpenMontageJobLinkRecord,
+  delegation: OpenMontageModelDelegationRecord,
+): boolean {
+  return link.workspaceId === intent.workspaceId
+    && link.runtimeId === intent.runtimeId
+    && link.runtimeCredentialId === intent.runtimeCredentialId
+    && link.sourceInvocationId === request.sourceInvocationId
+    && delegation.jobId === intent.externalJobId
+    && delegation.runtimeCredentialId === intent.runtimeCredentialId
+    && delegation.modelsTenantId === intent.modelsTenantId
+    && delegation.modelsTeamId === intent.modelsTeamId
+    && delegation.mcpConnectionId === intent.mcpConnectionId
+    && (!intent.delegationId || delegation.delegationId === intent.delegationId);
 }
 
 async function createModelsDelegationAsync(input: CreateDelegationRequest): Promise<ModelsDelegationProvision> {
