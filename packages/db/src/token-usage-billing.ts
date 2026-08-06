@@ -102,6 +102,6 @@ export function getWorkspaceBillingSummarySync(since?: string, workspaceId = DEF
 }
 
 function normalizeBillingStatus(value: string | null): TokenUsageBillingStatus {
-  if (value === "pending_reconciliation" || value === "reconciled" || value === "unallocated") return value;
+  if (value === "pending_reconciliation" || value === "reconciled" || value === "unallocated" || value === "voided") return value;
   return "estimated";
 }

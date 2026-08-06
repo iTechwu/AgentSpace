@@ -54,6 +54,7 @@ import {
   createTaskSync,
   deleteEmployeeSync,
   ensureManagedRuntimeModelAllowedAsync,
+  deleteManagedRuntimeAsync,
   grantRuntimeUseToUserForActorSync,
   getManagedRuntimeCredentialEnvKey,
   isWorkspaceAdminOrOwnerSync,
@@ -1270,12 +1271,16 @@ export async function deleteWorkspaceRuntimeAction(runtimeIdInput: string): Prom
     throw new Error("runtime.not_found");
   }
 
-  const deleted = deleteAgentRuntimeSync({
-    workspaceId,
-    runtimeId,
-  });
-  if (!deleted) {
-    throw new Error("runtime.not_found");
+  if (runtime.provisioningState === "managed") {
+    await deleteManagedRuntimeAsync({
+      workspaceId,
+      runtimeId,
+      actorUserId: workspaceContext.currentUser.id,
+      reason: "ui_delete",
+    });
+  } else {
+    const deleted = deleteAgentRuntimeSync({ workspaceId, runtimeId });
+    if (!deleted) throw new Error("runtime.not_found");
   }
 
   tryRecordWorkspaceAuditEventSync({

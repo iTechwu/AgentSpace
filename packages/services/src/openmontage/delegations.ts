@@ -111,6 +111,7 @@ export async function bindOpenMontageJobDelegationAsync(
     createDelegation?: (input: CreateDelegationRequest) => Promise<ModelsDelegationProvision>;
     vault?: RuntimeCredentialVault;
     createLink?: typeof createOpenMontageJobLinkSync;
+    drainDelegation?: (delegation: OpenMontageModelDelegationRecord) => Promise<ModelsDelegation>;
   } = {},
 ): Promise<{ link: OpenMontageJobLinkRecord; delegation: OpenMontageModelDelegationRecord }> {
   const scope = (options.resolveScope ?? resolveManagedRuntimeScopeSync)(input.workspaceId);
@@ -181,10 +182,39 @@ export async function bindOpenMontageJobDelegationAsync(
     status: provision.delegation.status,
     expiresAt,
   };
-  const link = (options.createLink ?? createOpenMontageJobLinkSync)({
-    ...input,
-    delegation: delegationInput,
-  });
+  let link: OpenMontageJobLinkRecord;
+  try {
+    link = (options.createLink ?? createOpenMontageJobLinkSync)({
+      ...input,
+      delegation: delegationInput,
+    });
+  } catch (error) {
+    // Models and its reserved budget are remote state. If the local immutable
+    // Job Link cannot be committed, immediately drain the remote delegation
+    // and remove the escrowed secret so no un-attributed spend survives.
+    try {
+      await (options.drainDelegation ?? drainModelsDelegationAsync)({
+        jobId: input.snapshot.jobId,
+        delegationId: delegationInput.delegationId,
+        runtimeCredentialId: delegationInput.runtimeCredentialId,
+        modelsTenantId: delegationInput.modelsTenantId,
+        modelsTeamId: delegationInput.modelsTeamId,
+        mcpConnectionId: delegationInput.mcpConnectionId,
+        secretRef,
+        spendLimit: delegationInput.spendLimit,
+        currency: delegationInput.currency,
+        status: delegationInput.status,
+        expiresAt: delegationInput.expiresAt,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch {
+      // Preserve the original local binding error. The orphan reconciler will
+      // retry the idempotent drain using the delegation id.
+    }
+    vault.forget(secretRef, vaultScope);
+    throw error;
+  }
   return {
     link,
     delegation: { jobId: link.jobId, ...delegationInput, createdAt: link.createdAt, updatedAt: link.createdAt },

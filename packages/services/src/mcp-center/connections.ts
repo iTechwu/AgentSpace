@@ -79,6 +79,7 @@ import { resolveReadyMcpConnectionForTask } from "./readiness.ts";
 import { callOpenMontageJobActionAsync } from "../openmontage/events.ts";
 import {
   assertOpenMontageMcpPurgeableAsync,
+  assertOpenMontageMcpPurgeableSync,
   OpenMontagePurgeBlockedError,
 } from "../openmontage/purge-guard.ts";
 export { listReadyMcpConnectionsForTaskSync } from "./readiness.ts";
@@ -284,6 +285,13 @@ export function removeMcpConnectionSync(input: {
   connectionId: string;
   actorUserId?: string;
 }): RuntimeMcpOperationRecord {
+  // The synchronous compatibility API cannot perform the remote models
+  // reconciliation check, but it must still refuse a local hard-delete while
+  // OpenMontage has in-flight or unreconciled financial facts.
+  assertOpenMontageMcpPurgeableSync({
+    workspaceId: input.workspaceId,
+    connectionId: input.connectionId,
+  });
   return createConnectionOperationSync({ ...input, operation: "remove" });
 }
 
@@ -326,7 +334,10 @@ export async function removeMcpConnectionAsync(input: {
     });
   } catch (error) {
     if (error instanceof OpenMontagePurgeBlockedError) {
-      return { status: "waiting", cancelledJobIds };
+      // Persist the user's intent. The remove operation is retried by the
+      // normal daemon operation loop after terminal events clear the guard.
+      const operation = createConnectionOperationSync({ ...input, operation: "remove" });
+      return { status: "waiting", operation, cancelledJobIds };
     }
     throw error;
   }

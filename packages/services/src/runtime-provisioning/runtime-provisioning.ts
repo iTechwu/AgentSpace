@@ -1421,6 +1421,13 @@ export async function deleteManagedRuntimeAsync(input: StopManagedRuntimeInput):
   if (runtime.provisioningState !== "managed") {
     throw new Error("managed_runtime.not_a_managed_runtime");
   }
+  // A managed runtime can own OpenMontage jobs and model reservations. Keep
+  // the billing/attribution ledger intact before revoking its credential or
+  // scheduling daemon cleanup.
+  await assertOpenMontageRuntimePurgeableAsync({
+    workspaceId: input.workspaceId,
+    runtimeId: runtime.id,
+  });
   const scope = resolveManagedRuntimeScopeSync(input.workspaceId);
   if (runtime.managedCredentialId) {
     await safeRevokeCredential({

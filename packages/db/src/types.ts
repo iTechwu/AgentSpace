@@ -1377,7 +1377,7 @@ export interface ModelPricingRecord {
   updatedAt: string;
 }
 
-export type TokenUsageBillingStatus = "estimated" | "pending_reconciliation" | "reconciled" | "unallocated";
+export type TokenUsageBillingStatus = "estimated" | "pending_reconciliation" | "reconciled" | "unallocated" | "voided";
 
 export interface TokenUsageRecord {
   id: string;

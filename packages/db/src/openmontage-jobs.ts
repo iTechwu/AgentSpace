@@ -8,6 +8,7 @@ import {
   type OpenMontageJobSnapshotSeed,
 } from "@dofe-agent/domain";
 import { getDatabase, randomLikeId, withTransaction } from "./database.ts";
+import { voidOpenMontagePendingTokenUsageSync } from "./token-usage.ts";
 
 export interface OpenMontageJobLinkRecord {
   jobId: string;
@@ -459,6 +460,9 @@ export function ingestOpenMontageJobEventSync(
         );
       }
       const projection = requireProjection(db, event.workspaceId, event.jobId);
+      if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(projection.status)) {
+        voidOpenMontagePendingTokenUsageSync({ workspaceId: event.workspaceId, jobId: event.jobId });
+      }
       return { outcome: "duplicate", projection };
     }
 
@@ -520,6 +524,9 @@ export function ingestOpenMontageJobEventSync(
     }
 
     saveProjection(db, event.workspaceId, projection);
+    if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(projection.status)) {
+      voidOpenMontagePendingTokenUsageSync({ workspaceId: event.workspaceId, jobId: event.jobId });
+    }
     const notification = queueProjectionNotification(
       db,
       projection,

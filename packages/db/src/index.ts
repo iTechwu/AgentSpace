@@ -774,6 +774,7 @@ export {
   recordTokenUsageSync,
   listTokenUsageSync,
   recordOpenMontagePendingTokenUsageSync,
+  voidOpenMontagePendingTokenUsageSync,
   getAgentCostSummarySync,
   getWorkspaceCostSummarySync,
   getRuntimeCostSummarySync,

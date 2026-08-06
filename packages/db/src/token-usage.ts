@@ -434,7 +434,7 @@ export function listTokenUsageSync(filters?: {
 }
 
 function reconcileStatus(value: string | null): TokenUsageRecord["billingStatus"] {
-  if (value === "pending_reconciliation" || value === "reconciled" || value === "unallocated") return value;
+  if (value === "pending_reconciliation" || value === "reconciled" || value === "unallocated" || value === "voided") return value;
   return "estimated";
 }
 
@@ -832,11 +832,39 @@ export function findPendingOpenMontageTokenUsageSync(
     `SELECT * FROM token_usage
       WHERE workspace_id = ? AND job_id = ? AND pipeline_stage = ?
         AND model_id = 'openmontage.pending'
-        AND billing_status = 'pending_reconciliation'
+        AND billing_status IN ('pending_reconciliation', 'voided')
       ORDER BY created_at ASC
       LIMIT 1`,
   ).get(workspaceId, jobId, pipelineStage) as Record<string, unknown> | undefined;
   return row ? mapTokenUsageRow(row) : null;
+}
+
+/**
+ * Marks an admission-only OpenMontage usage row as void when a Job reaches a
+ * terminal state without a reconciled provider usage. The stable
+ * modelInvocationId is retained so a late models reconciliation can still
+ * update this same row instead of creating a second financial fact.
+ */
+export function voidOpenMontagePendingTokenUsageSync(input: {
+  workspaceId: string;
+  jobId: string;
+  reason?: string;
+}): number {
+  const now = new Date().toISOString();
+  const result = getDatabase().prepare(
+    `UPDATE token_usage
+        SET billing_status = 'voided',
+            actual_cost_usd = 0,
+            cost_usd = 0,
+            request_ended_at = COALESCE(request_ended_at, ?),
+            source_updated_at = ?,
+            reconciled_at = COALESCE(reconciled_at, ?)
+      WHERE workspace_id = ?
+        AND job_id = ?
+        AND model_id = 'openmontage.pending'
+        AND billing_status = 'pending_reconciliation'`,
+  ).run(now, now, now, input.workspaceId, input.jobId);
+  return result.changes;
 }
 
 export function markTokenUsageReconciledSync(
@@ -854,7 +882,7 @@ export function markTokenUsageReconciledSync(
     requestStartedAt?: string;
     requestEndedAt?: string;
     sourceUpdatedAt?: string;
-    billingStatus?: "pending_reconciliation" | "reconciled" | "unallocated";
+    billingStatus?: "pending_reconciliation" | "reconciled" | "unallocated" | "voided";
     delegationId?: string;
     employeeId?: string;
     runtimeId?: string;
@@ -949,7 +977,7 @@ interface InsertRemoteTokenUsageInput {
   requestStartedAt?: string;
   requestEndedAt?: string;
   sourceUpdatedAt?: string;
-  billingStatus?: "pending_reconciliation" | "reconciled" | "unallocated";
+  billingStatus?: "pending_reconciliation" | "reconciled" | "unallocated" | "voided";
 }
 
 export function insertRemoteTokenUsageIfAbsentSync(
@@ -959,6 +987,40 @@ export function insertRemoteTokenUsageIfAbsentSync(
   assertDelegatedSnapshot(input);
   const id = randomLikeId();
   const now = input.createdAt ?? new Date().toISOString();
+  const existingStable = input.delegationId && input.modelInvocationId
+    ? db.prepare(
+      `SELECT * FROM token_usage
+        WHERE workspace_id = ? AND delegation_id = ? AND model_invocation_id = ?
+        LIMIT 1`,
+    ).get(input.workspaceId, input.delegationId, input.modelInvocationId) as Record<string, unknown> | undefined
+    : undefined;
+  if (existingStable) {
+    if (existingStable.billing_status === "voided" && input.actualCostUsd !== undefined) {
+      const lateUsage = markTokenUsageReconciledSync(String(existingStable.id), {
+        actualCostUsd: input.actualCostUsd,
+        currency: input.currency,
+        gatewayRequestId: input.gatewayRequestId,
+        gatewayUsageId: input.gatewayUsageId,
+        protocol: input.protocol,
+        modelId: input.modelId,
+        inputTokens: input.inputTokens ?? 0,
+        outputTokens: input.outputTokens ?? 0,
+        cacheTokens: input.cacheTokens,
+        requestStartedAt: input.requestStartedAt,
+        requestEndedAt: input.requestEndedAt,
+        sourceUpdatedAt: input.sourceUpdatedAt,
+        delegationId: input.delegationId,
+        employeeId: input.employeeId,
+        runtimeId: input.runtimeId,
+        jobId: input.jobId,
+        pipelineStage: input.pipelineStage,
+        sourceInvocationId: input.sourceInvocationId,
+        modelInvocationId: input.modelInvocationId,
+      });
+      if (lateUsage) return { record: lateUsage, inserted: false };
+    }
+    return { record: mapTokenUsageRow(existingStable), inserted: false };
+  }
   const insertResult = db.prepare(
     `INSERT INTO token_usage (
       id, workspace_id, task_queue_id, agent_id, model_id,
@@ -1000,9 +1062,47 @@ export function insertRemoteTokenUsageIfAbsentSync(
   );
   const row = insertResult.changes > 0
     ? db.prepare("SELECT * FROM token_usage WHERE id = ?").get(id) as Record<string, unknown>
-    : db.prepare("SELECT * FROM token_usage WHERE workspace_id = ? AND gateway_request_id = ?")
-        .get(input.workspaceId, input.gatewayRequestId) as Record<string, unknown>;
-  const record = mapTokenUsageRow(row);
+    : input.gatewayRequestId
+      ? db.prepare("SELECT * FROM token_usage WHERE workspace_id = ? AND gateway_request_id = ?")
+          .get(input.workspaceId, input.gatewayRequestId) as Record<string, unknown> | undefined
+      : undefined;
+  const stableRow = row ?? (
+    input.delegationId && input.modelInvocationId
+      ? db.prepare(
+        `SELECT * FROM token_usage
+          WHERE workspace_id = ? AND delegation_id = ? AND model_invocation_id = ?
+          LIMIT 1`,
+      ).get(input.workspaceId, input.delegationId, input.modelInvocationId) as Record<string, unknown> | undefined
+      : undefined
+  );
+  if (!stableRow) {
+    throw new Error("token_usage.idempotency_conflict_without_existing_row");
+  }
+  if (!insertResult.changes && stableRow.billing_status === "voided" && input.actualCostUsd !== undefined) {
+    const lateUsage = markTokenUsageReconciledSync(String(stableRow.id), {
+      actualCostUsd: input.actualCostUsd,
+      currency: input.currency,
+      gatewayRequestId: input.gatewayRequestId,
+      gatewayUsageId: input.gatewayUsageId,
+      protocol: input.protocol,
+      modelId: input.modelId,
+      inputTokens: input.inputTokens ?? 0,
+      outputTokens: input.outputTokens ?? 0,
+      cacheTokens: input.cacheTokens,
+      requestStartedAt: input.requestStartedAt,
+      requestEndedAt: input.requestEndedAt,
+      sourceUpdatedAt: input.sourceUpdatedAt,
+      delegationId: input.delegationId,
+      employeeId: input.employeeId,
+      runtimeId: input.runtimeId,
+      jobId: input.jobId,
+      pipelineStage: input.pipelineStage,
+      sourceInvocationId: input.sourceInvocationId,
+      modelInvocationId: input.modelInvocationId,
+    });
+    if (lateUsage) return { record: lateUsage, inserted: false };
+  }
+  const record = mapTokenUsageRow(stableRow);
   if (
     !insertResult.changes && record.runtimeCredentialId
     && record.runtimeCredentialId !== input.runtimeCredentialId
