@@ -220,6 +220,11 @@ export {
   type ControlWorkflowRunInput,
 } from "./workflows/retries.ts";
 export {
+  pauseWorkflowDefinitionSync,
+  resumeWorkflowDefinitionSync,
+  type ControlWorkflowDefinitionInput,
+} from "./workflows/definition-control.ts";
+export {
   createWorkflowApprovalSync,
   cancelPendingWorkflowApprovalsSync,
   continueWorkflowAfterApprovalSync,

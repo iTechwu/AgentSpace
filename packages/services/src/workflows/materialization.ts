@@ -6,8 +6,8 @@ import {
   getDatabase,
   listStoredEmployeesSync,
   listWorkflowNodeRunsSync,
+  lockWorkflowDefinitionForUpdateSync,
   materializeWorkflowNodeRunsSync,
-  readWorkflowDefinitionSync,
   readWorkflowVersionSync,
   transitionWorkflowNodeRunSync,
   transitionWorkflowRunSync,
@@ -39,26 +39,28 @@ export function materializeManualWorkflowRunSync(input: MaterializeManualWorkflo
   runId: string;
   created: boolean;
 } {
-  const now = input.now ?? new Date().toISOString();
-  const definition = readWorkflowDefinitionSync(input.workflowId, input.workspaceId);
-  if (!definition) throw new Error("workflow_definition_not_found");
-  if (definition.status !== "published") throw new Error("workflow_definition_not_published");
-  const trigger = upsertWorkflowTriggerSync({
-    id: `workflow-trigger-manual-${input.workflowId}`,
-    workspaceId: input.workspaceId,
-    workflowId: input.workflowId,
-    type: "manual",
-    configJson: "{}",
-    status: "active",
-    now,
-  });
-  return materializeWorkflowRunSync({
-    workspaceId: input.workspaceId,
-    trigger,
-    scheduledAt: input.idempotencyKey,
-    createdBy: input.createdBy,
-    inputJson: input.inputJson,
-    now,
+  return withTransaction(getDatabase(), () => {
+    const now = input.now ?? new Date().toISOString();
+    const definition = lockWorkflowDefinitionForUpdateSync(input.workflowId, input.workspaceId);
+    if (!definition) throw new Error("workflow_definition_not_found");
+    if (definition.status !== "published") throw new Error("workflow_definition_not_published");
+    const trigger = upsertWorkflowTriggerSync({
+      id: `workflow-trigger-manual-${input.workflowId}`,
+      workspaceId: input.workspaceId,
+      workflowId: input.workflowId,
+      type: "manual",
+      configJson: "{}",
+      status: "active",
+      now,
+    });
+    return materializeWorkflowRunSync({
+      workspaceId: input.workspaceId,
+      trigger,
+      scheduledAt: input.idempotencyKey,
+      createdBy: input.createdBy,
+      inputJson: input.inputJson,
+      now,
+    });
   });
 }
 
@@ -67,8 +69,10 @@ export function materializeWorkflowRunSync(input: MaterializeWorkflowRunInput): 
   created: boolean;
 } {
   return withTransaction(getDatabase(), () => {
-    const definition = readWorkflowDefinitionSync(input.trigger.workflowId, input.workspaceId);
-    const versionId = definition?.activeVersionId;
+    const definition = lockWorkflowDefinitionForUpdateSync(input.trigger.workflowId, input.workspaceId);
+    if (!definition) throw new Error("workflow_definition_not_found");
+    if (definition.status !== "published") throw new Error("workflow_definition_not_published");
+    const versionId = definition.activeVersionId;
     const version = versionId ? readWorkflowVersionSync(versionId, input.workspaceId) : null;
     if (!definition || !version) throw new Error("workflow_active_version_missing");
     const graph = JSON.parse(version.graphJson) as WorkflowGraphDefinition;

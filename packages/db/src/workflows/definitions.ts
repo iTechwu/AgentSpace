@@ -31,6 +31,14 @@ export interface UpdateWorkflowDraftInput {
   updatedAt?: string;
 }
 
+export interface TransitionWorkflowDefinitionStatusInput {
+  id: string;
+  workspaceId: string;
+  from: Array<WorkflowDefinitionRecord["status"]>;
+  to: WorkflowDefinitionRecord["status"];
+  now?: string;
+}
+
 export interface PublishWorkflowVersionInput {
   workspaceId: string;
   workflowId: string;
@@ -132,10 +140,45 @@ export function readWorkflowDefinitionSync(
   return row ? mapDefinition(row) : null;
 }
 
+export function lockWorkflowDefinitionForUpdateSync(
+  id: string,
+  workspaceId: string,
+): WorkflowDefinitionRecord | null {
+  const row = getDatabase().prepare(`${DEFINITION_SELECT} WHERE id = ? AND workspace_id = ? FOR UPDATE`)
+    .get(id, workspaceId) as Record<string, unknown> | undefined;
+  return row ? mapDefinition(row) : null;
+}
+
 export function listWorkflowDefinitionsSync(workspaceId: string): WorkflowDefinitionRecord[] {
   return (getDatabase().prepare(
     `${DEFINITION_SELECT} WHERE workspace_id = ? ORDER BY updated_at DESC, id ASC`,
   ).all(workspaceId) as Array<Record<string, unknown>>).map(mapDefinition);
+}
+
+export function transitionWorkflowDefinitionStatusSync(
+  input: TransitionWorkflowDefinitionStatusInput,
+): WorkflowDefinitionRecord | null {
+  if (input.from.length === 0) return null;
+  const placeholders = input.from.map(() => "?").join(", ");
+  const now = input.now ?? new Date().toISOString();
+  const result = getDatabase().prepare(
+    `UPDATE workflow_definition SET status = ?, updated_at = ?
+      WHERE id = ? AND workspace_id = ? AND status IN (${placeholders})`,
+  ).run(input.to, now, input.id, input.workspaceId, ...input.from);
+  return result.changes === 1 ? readWorkflowDefinitionSync(input.id, input.workspaceId) : null;
+}
+
+export function pauseWorkflowTriggersForDefinitionSync(input: {
+  workflowId: string;
+  workspaceId: string;
+  now?: string;
+}): number {
+  const result = getDatabase().prepare(
+    `UPDATE workflow_trigger
+        SET status = 'suspended', updated_at = ?
+      WHERE workflow_id = ? AND workspace_id = ? AND status = 'active'`,
+  ).run(input.now ?? new Date().toISOString(), input.workflowId, input.workspaceId);
+  return result.changes;
 }
 
 export function publishWorkflowVersionSync(
@@ -360,16 +403,38 @@ export function readWorkflowTriggerForWorkflowSync(
   const row = getDatabase().prepare(
     `${TRIGGER_SELECT}
      WHERE workflow_id = ? AND workspace_id = ?
-     ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, updated_at DESC, id ASC
+     ORDER BY CASE
+       WHEN type <> 'manual' AND status = 'active' THEN 0
+       WHEN type <> 'manual' AND status = 'suspended' THEN 1
+       WHEN type <> 'manual' THEN 2
+       WHEN status = 'active' THEN 3
+       WHEN status = 'suspended' THEN 4
+       ELSE 5
+     END, updated_at DESC, id ASC
      LIMIT 1`,
   ).get(workflowId, workspaceId) as Record<string, unknown> | undefined;
   return row ? mapTrigger(row) : null;
+}
+
+export function listWorkflowTriggersForWorkflowSync(
+  workflowId: string,
+  workspaceId: string,
+): WorkflowTriggerRecord[] {
+  return (getDatabase().prepare(
+    `${TRIGGER_SELECT} WHERE workflow_id = ? AND workspace_id = ? ORDER BY created_at ASC, id ASC`,
+  ).all(workflowId, workspaceId) as Array<Record<string, unknown>>).map(mapTrigger);
 }
 
 export function listActiveWorkflowEventTriggersSync(workspaceId: string): WorkflowTriggerRecord[] {
   return (getDatabase().prepare(
     `${TRIGGER_SELECT}
      WHERE workspace_id = ? AND type = 'event' AND status = 'active'
+       AND EXISTS (
+         SELECT 1 FROM workflow_definition
+          WHERE workflow_definition.id = workflow_trigger.workflow_id
+            AND workflow_definition.workspace_id = workflow_trigger.workspace_id
+            AND workflow_definition.status = 'published'
+       )
      ORDER BY workflow_id ASC, id ASC`,
   ).all(workspaceId) as Array<Record<string, unknown>>).map(mapTrigger);
 }
@@ -389,6 +454,12 @@ export function claimDueWorkflowTriggersSync(input: {
     `SELECT id, workspace_id AS "workspaceId" FROM workflow_trigger
      WHERE status = 'active' AND next_fire_at IS NOT NULL AND next_fire_at <= ?
        AND (lease_expires_at IS NULL OR lease_expires_at < ?) ${workspaceClause}
+       AND EXISTS (
+         SELECT 1 FROM workflow_definition
+          WHERE workflow_definition.id = workflow_trigger.workflow_id
+            AND workflow_definition.workspace_id = workflow_trigger.workspace_id
+            AND workflow_definition.status = 'published'
+       )
      ORDER BY next_fire_at ASC, id ASC LIMIT ?`,
   ).all(...params) as Array<{ id?: string; workspaceId?: string }>;
   const leaseExpiresAt = new Date(Date.parse(input.now) + Math.max(1, input.leaseSeconds) * 1000).toISOString();
@@ -400,6 +471,12 @@ export function claimDueWorkflowTriggersSync(input: {
        WHERE id = ? AND workspace_id = ? AND status = 'active'
          AND next_fire_at IS NOT NULL AND next_fire_at <= ?
          AND (lease_expires_at IS NULL OR lease_expires_at < ?)
+         AND EXISTS (
+           SELECT 1 FROM workflow_definition
+            WHERE workflow_definition.id = workflow_trigger.workflow_id
+              AND workflow_definition.workspace_id = workflow_trigger.workspace_id
+              AND workflow_definition.status = 'published'
+         )
        RETURNING id`,
     ).get(input.workerId, leaseExpiresAt, input.now, row.id, row.workspaceId, input.now, input.now) as { id?: string } | undefined;
     if (result?.id) {

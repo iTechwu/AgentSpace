@@ -12,8 +12,10 @@ import {
   assertTriggerWriteOwnerSync,
   cancelWorkflowRunSync,
   materializeManualWorkflowRunSync,
+  pauseWorkflowDefinitionSync,
   pauseWorkflowRunSync,
   publishWorkflowSync,
+  resumeWorkflowDefinitionSync,
   resumeWorkflowRunSync,
   retryWorkflowNodeSync,
   validateWorkflowForPublishSync,
@@ -75,6 +77,12 @@ export interface ControlWorkflowRunActionInput {
   runId: string;
   action: "pause" | "resume" | "cancel" | "retry_node";
   nodeId?: string;
+  reason?: string;
+}
+
+export interface ControlWorkflowDefinitionActionInput {
+  workflowId: string;
+  action: "pause" | "resume";
   reason?: string;
 }
 
@@ -204,6 +212,30 @@ export async function runWorkflowAction(
   }
 }
 
+export async function controlWorkflowDefinitionAction(
+  input: ControlWorkflowDefinitionActionInput,
+): Promise<WorkflowActionResult<{ workflowId: string; status: string }>> {
+  const context = await requireCurrentWorkspaceContext();
+  assertWorkspaceRoleForContext(context, "member");
+  try {
+    const definition = requireDefinition(input.workflowId, context.currentWorkspace.id);
+    assertWorkflowManager(context, definition.ownerUserId);
+    const control = {
+      workspaceId: context.currentWorkspace.id,
+      workflowId: input.workflowId,
+      actorUserId: context.currentUser.id,
+      reason: input.reason?.trim() || "workflow_definition_controlled",
+    };
+    const updated = input.action === "pause"
+      ? pauseWorkflowDefinitionSync(control)
+      : resumeWorkflowDefinitionSync(control);
+    revalidateWorkflowPages(context.currentWorkspace.slug);
+    return success(context.currentWorkspace.id, { workflowId: updated.id, status: updated.status });
+  } catch (error) {
+    return failure(error);
+  }
+}
+
 export async function controlWorkflowRunAction(
   input: ControlWorkflowRunActionInput,
 ): Promise<WorkflowActionResult<{ runId: string; status: string }>> {
@@ -261,6 +293,7 @@ function failure(error: unknown): WorkflowActionResult<never> {
 
 const STABLE_ERROR_CODES = new Set([
   "workflow_definition_not_found", "workflow_definition_archived", "workflow_definition_not_published",
+  "workflow_definition_control_conflict",
   "workflow_actor_forbidden", "workflow_employee_not_ready", "workflow_run_not_found", "workflow_run_control_conflict",
   "workflow_node_run_not_found", "workflow_node_not_retryable", "workflow_node_retry_exhausted", "workflow_node_retry_conflict",
   "workflow_trigger_cross_workspace_conflict", "workflow_trigger_duplicate", "workflow_active_version_missing",
@@ -284,6 +317,7 @@ function workflowErrorMessage(code: string): string {
     workflow_definition_not_found: "未找到工作流。",
     workflow_definition_archived: "已归档的工作流不能编辑。",
     workflow_definition_not_published: "请先发布工作流。",
+    workflow_definition_control_conflict: "工作流状态已变化，请刷新后重试。",
     workflow_employee_not_ready: "工作流中的 AI 员工尚未就绪。",
     workflow_approval_employee_not_ready: "请选择提交审批的 AI 员工。",
     workflow_approval_channel_not_ready: "提交审批的 AI 员工尚未加入审批频道。",

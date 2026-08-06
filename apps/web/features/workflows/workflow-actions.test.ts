@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   updateDraft: vi.fn(),
   manualRun: vi.fn(),
   publish: vi.fn(),
+  pauseDefinition: vi.fn(),
+  resumeDefinition: vi.fn(),
   readTrigger: vi.fn(),
   retryNode: vi.fn(),
   revalidate: vi.fn(),
@@ -26,13 +28,15 @@ vi.mock("@dofe-agent/services", () => ({
   cancelWorkflowRunSync: vi.fn(),
   materializeManualWorkflowRunSync: mocks.manualRun,
   pauseWorkflowRunSync: vi.fn(),
+  pauseWorkflowDefinitionSync: mocks.pauseDefinition,
   publishWorkflowSync: mocks.publish,
   resumeWorkflowRunSync: vi.fn(),
+  resumeWorkflowDefinitionSync: mocks.resumeDefinition,
   retryWorkflowNodeSync: mocks.retryNode,
   validateWorkflowForPublishSync: vi.fn(),
 }));
 
-import { controlWorkflowRunAction, publishWorkflowAction, runWorkflowAction, updateWorkflowDraftAction } from "./workflow-actions";
+import { controlWorkflowDefinitionAction, controlWorkflowRunAction, publishWorkflowAction, runWorkflowAction, updateWorkflowDraftAction } from "./workflow-actions";
 
 const graph = {
   schemaVersion: 1 as const,
@@ -63,6 +67,8 @@ describe("workflow actions", () => {
     mocks.readRun.mockReturnValue({ id: "run-1", workflowId: "wf-1", status: "running" });
     mocks.readTrigger.mockReturnValue(null);
     mocks.publish.mockReturnValue({ version: { id: "version-1" } });
+    mocks.pauseDefinition.mockReturnValue({ id: "wf-1", status: "paused" });
+    mocks.resumeDefinition.mockReturnValue({ id: "wf-1", status: "published" });
   });
 
   it("requires admin to publish but lets members run published workflows", async () => {
@@ -148,5 +154,17 @@ describe("workflow actions", () => {
       nodeId: "audit",
       manualOverride: true,
     }));
+  });
+
+  it("lets the workflow manager pause and resume future triggers", async () => {
+    mockContext("member");
+
+    const paused = await controlWorkflowDefinitionAction({ workflowId: "wf-1", action: "pause" });
+    const resumed = await controlWorkflowDefinitionAction({ workflowId: "wf-1", action: "resume" });
+
+    expect(paused).toMatchObject({ ok: true, data: { status: "paused" } });
+    expect(resumed).toMatchObject({ ok: true, data: { status: "published" } });
+    expect(mocks.pauseDefinition).toHaveBeenCalledWith(expect.objectContaining({ workflowId: "wf-1", actorUserId: "user-1" }));
+    expect(mocks.resumeDefinition).toHaveBeenCalledWith(expect.objectContaining({ workflowId: "wf-1", actorUserId: "user-1" }));
   });
 });

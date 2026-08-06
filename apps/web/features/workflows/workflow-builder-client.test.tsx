@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   updateDraft: vi.fn(),
   validate: vi.fn(),
   publish: vi.fn(),
+  controlDefinition: vi.fn(),
   replace: vi.fn(),
   refresh: vi.fn(),
 }));
@@ -17,6 +18,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("./workflow-actions", () => ({
   createWorkflowDraftAction: mocks.createDraft,
+  controlWorkflowDefinitionAction: mocks.controlDefinition,
   updateWorkflowDraftAction: mocks.updateDraft,
   validateWorkflowAction: mocks.validate,
   publishWorkflowAction: mocks.publish,
@@ -55,7 +57,7 @@ const employees = ["a", "b", "c", "d"].map((suffix) => ({
   status: "online",
 }));
 
-function renderBuilder(entry: "automations" | "calendar" | "task-board" = "automations") {
+function renderBuilder(entry: "automations" | "calendar" | "task-board" = "automations", status: "draft" | "published" | "paused" = "draft") {
   return render(
     <WorkflowBuilderClient
       employees={employees}
@@ -64,7 +66,7 @@ function renderBuilder(entry: "automations" | "calendar" | "task-board" = "autom
         id: "wf-1",
         name: "并行审计",
         description: "",
-        status: "draft",
+        status,
         graph,
         draftVersion: 1,
         trigger: { type: "manual", config: {}, misfirePolicy: "skip" },
@@ -86,6 +88,11 @@ describe("workflow builder", () => {
     mocks.publish.mockResolvedValue({
       ok: true,
       data: { versionId: "version-1" },
+      invalidation: { workspaceId: "workspace-1", modules: ["automations"] },
+    });
+    mocks.controlDefinition.mockResolvedValue({
+      ok: true,
+      data: { workflowId: "wf-1", status: "paused" },
       invalidation: { workspaceId: "workspace-1", modules: ["automations"] },
     });
   });
@@ -154,5 +161,15 @@ describe("workflow builder", () => {
     await waitFor(() => expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({
       trigger: expect.objectContaining({ type: "schedule", misfirePolicy: "fire_once" }),
     })));
+  });
+
+  it("pauses a published workflow from the builder header", async () => {
+    const user = userEvent.setup();
+    renderBuilder("automations", "published");
+
+    await user.click(screen.getByRole("button", { name: "暂停" }));
+
+    await waitFor(() => expect(mocks.controlDefinition).toHaveBeenCalledWith({ workflowId: "wf-1", action: "pause" }));
+    expect(await screen.findByRole("button", { name: "恢复" })).toBeVisible();
   });
 });

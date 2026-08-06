@@ -7,6 +7,7 @@ import type { WorkflowPublishValidation } from "@dofe-agent/services";
 import { translateWorkflowErrorCode } from "@/features/i18n/presentation";
 import {
   createWorkflowDraftAction,
+  controlWorkflowDefinitionAction,
   publishWorkflowAction,
   updateWorkflowDraftAction,
   validateWorkflowAction,
@@ -44,6 +45,7 @@ export function WorkflowBuilderClient({
 }) {
   const router = useRouter();
   const [workflowId, setWorkflowId] = useState(initial?.id);
+  const [definitionStatus, setDefinitionStatus] = useState(initial?.status ?? "draft");
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [savedMetadata, setSavedMetadata] = useState({ name: initial?.name ?? "", description: initial?.description ?? "" });
@@ -66,7 +68,7 @@ export function WorkflowBuilderClient({
   const [budgetUsd, setBudgetUsd] = useState(initial?.governance.budgetUsd ? String(initial.governance.budgetUsd) : "");
   const [configurationDirty, setConfigurationDirty] = useState(false);
   const [validation, setValidation] = useState<WorkflowPublishValidation | null>(null);
-  const [pendingAction, setPendingAction] = useState<"save" | "preflight" | "publish" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"save" | "preflight" | "publish" | "pause" | "resume" | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const [parallelSource, setParallelSource] = useState("");
   const [parallelEmployeeA, setParallelEmployeeA] = useState("");
@@ -195,7 +197,22 @@ export function WorkflowBuilderClient({
       return;
     }
     setNotice({ tone: "success", message: "工作流已发布。" });
+    setDefinitionStatus("published");
     setConfigurationDirty(false);
+    router.refresh();
+  }
+
+  async function controlDefinition(action: "pause" | "resume"): Promise<void> {
+    if (!workflowId) return;
+    setPendingAction(action);
+    const result = await controlWorkflowDefinitionAction({ workflowId, action });
+    setPendingAction(null);
+    if (!result.ok) {
+      setNotice({ tone: "error", message: translateWorkflowErrorCode(result.error.code) });
+      return;
+    }
+    setDefinitionStatus(result.data.status === "paused" ? "paused" : "published");
+    setNotice({ tone: "success", message: action === "pause" ? "工作流已暂停。" : "工作流已恢复。" });
     router.refresh();
   }
 
@@ -230,6 +247,8 @@ export function WorkflowBuilderClient({
         </div>
         <div className="workflow-wizard__header-actions">
           <span className="workflow-wizard__save-state">{draftDirty ? "有未保存修改" : configurationDirty ? "有待发布配置" : "草稿已同步"}</span>
+          {definitionStatus === "published" ? <button className="knowledge-btn" disabled={pendingAction !== null} onClick={() => void controlDefinition("pause")} title="暂停新触发" type="button">{pendingAction === "pause" ? "暂停中" : "暂停"}</button> : null}
+          {definitionStatus === "paused" ? <button className="knowledge-btn" disabled={pendingAction !== null} onClick={() => void controlDefinition("resume")} title="恢复未来触发" type="button">{pendingAction === "resume" ? "恢复中" : "恢复"}</button> : null}
           <button className="knowledge-btn" disabled={pendingAction !== null || !draftDirty} onClick={() => void saveDraft()} type="button">
             {pendingAction === "save" ? "保存中" : "保存草稿"}
           </button>
