@@ -62,19 +62,38 @@ test("partial join succeeds with one result and fails when all branches fail", (
 });
 
 test("only an explicit successful partial join produces a partially-succeeded run", () => {
+  const graph = {
+    schemaVersion: 1 as const,
+    nodes: [
+      { id: "a", type: "employee_task" as const, employeeId: "employee-a", config: {} },
+      { id: "b", type: "employee_task" as const, employeeId: "employee-b", config: {} },
+      { id: "join", type: "join" as const, config: { policy: "allow_partial" } },
+      { id: "summary", type: "employee_task" as const, employeeId: "employee-summary", config: {} },
+    ],
+    edges: [
+      { source: "a", target: "join" },
+      { source: "b", target: "join" },
+      { source: "join", target: "summary" },
+    ],
+  };
   assert.equal(resolveWorkflowRunTerminalStatus([
-    { nodeType: "employee_task", status: "failed", inputJson: "{}" },
-    { nodeType: "employee_task", status: "skipped", inputJson: "{}" },
-  ]), "failed");
+    { nodeId: "a", nodeType: "employee_task", status: "succeeded", inputJson: "{}" },
+    { nodeId: "b", nodeType: "employee_task", status: "failed", inputJson: "{}" },
+    { nodeId: "join", nodeType: "join", status: "succeeded", inputJson: JSON.stringify({ policy: "allow_partial" }) },
+    { nodeId: "summary", nodeType: "employee_task", status: "succeeded", inputJson: "{}" },
+  ], graph), "partially_succeeded");
   assert.equal(resolveWorkflowRunTerminalStatus([
-    { nodeType: "employee_task", status: "succeeded", inputJson: "{}" },
-    { nodeType: "employee_task", status: "failed", inputJson: "{}" },
-    { nodeType: "join", status: "succeeded", inputJson: JSON.stringify({ policy: "allow_partial" }) },
-  ]), "partially_succeeded");
+    { nodeId: "a", nodeType: "employee_task", status: "succeeded", inputJson: "{}" },
+    { nodeId: "b", nodeType: "employee_task", status: "succeeded", inputJson: "{}" },
+    { nodeId: "join", nodeType: "join", status: "succeeded", inputJson: JSON.stringify({ policy: "allow_partial" }) },
+    { nodeId: "summary", nodeType: "employee_task", status: "failed", inputJson: "{}" },
+  ], graph), "failed");
   assert.equal(resolveWorkflowRunTerminalStatus([
-    { nodeType: "employee_task", status: "succeeded", inputJson: "{}" },
-    { nodeType: "join", status: "succeeded", inputJson: JSON.stringify({ policy: "allow_partial" }) },
-  ]), "succeeded");
+    { nodeId: "a", nodeType: "employee_task", status: "succeeded", inputJson: "{}" },
+    { nodeId: "b", nodeType: "employee_task", status: "succeeded", inputJson: "{}" },
+    { nodeId: "join", nodeType: "join", status: "succeeded", inputJson: JSON.stringify({ policy: "allow_partial" }) },
+    { nodeId: "summary", nodeType: "employee_task", status: "succeeded", inputJson: "{}" },
+  ], graph), "succeeded");
 });
 
 test("completion rejects an unknown node run before changing any state", () => {

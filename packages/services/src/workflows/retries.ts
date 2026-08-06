@@ -16,7 +16,7 @@ import {
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
 import { cancelPendingWorkflowApprovalsSync } from "./approvals.ts";
-import { collectWorkflowDescendantNodeIds } from "./coordinator.ts";
+import { collectWorkflowDescendantNodeIds, resolveWorkflowRunTerminalStatus } from "./coordinator.ts";
 
 export interface RetryWorkflowNodeInput {
   workspaceId: string;
@@ -113,9 +113,19 @@ export function pauseWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowRu
 
 export function resumeWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowRunRecord {
   return withTransaction(getDatabase(), () => {
-    const targetStatus = resolveWorkflowResumeStatus(listWorkflowNodeRunsSync(input.workspaceId, input.runId));
+    const current = readWorkflowRunSync(input.runId, input.workspaceId);
+    if (!current) throw new Error("workflow_run_not_found");
+    const nodes = listWorkflowNodeRunsSync(input.workspaceId, input.runId);
+    const version = readWorkflowVersionSync(current.versionId, input.workspaceId);
+    if (!version) throw new Error("workflow_version_not_found");
+    const targetStatus = resolveWorkflowResumeStatus(
+      nodes,
+      JSON.parse(version.graphJson) as WorkflowGraphDefinition,
+    );
     const run = controlRun(input, ["paused"], targetStatus, "run.resumed");
-    enqueueWorkflowOutboxSync({ workspaceId: input.workspaceId, aggregateType: "workflow_run", aggregateId: run.id, eventType: "workflow.run.resumed", payloadJson: JSON.stringify({ runId: run.id }), now: input.now });
+    if (targetStatus === "running" || targetStatus === "waiting_approval") {
+      enqueueWorkflowOutboxSync({ workspaceId: input.workspaceId, aggregateType: "workflow_run", aggregateId: run.id, eventType: "workflow.run.resumed", payloadJson: JSON.stringify({ runId: run.id }), now: input.now });
+    }
     return run;
   });
 }
@@ -151,14 +161,24 @@ export function cancelWorkflowRunSync(input: ControlWorkflowRunInput): WorkflowR
 }
 
 export function resolveWorkflowResumeStatus(
-  nodes: Array<Pick<WorkflowNodeRunRecord, "status">>,
-): "running" | "waiting_approval" {
-  return nodes.some((node) => node.status === "waiting_approval") ? "waiting_approval" : "running";
+  nodes: Array<Pick<WorkflowNodeRunRecord, "nodeId" | "nodeType" | "status" | "inputJson">>,
+  graph: WorkflowGraphDefinition,
+): "running" | "waiting_approval" | "succeeded" | "partially_succeeded" | "failed" {
+  if (nodes.some((node) => node.status === "waiting_approval")) return "waiting_approval";
+  if (nodes.some((node) => ["pending", "ready", "queued", "running", "retry_wait"].includes(node.status))) return "running";
+  return resolveWorkflowRunTerminalStatus(nodes, graph);
 }
 
 function controlRun(input: ControlWorkflowRunInput, from: string[], to: string, eventType: string): WorkflowRunRecord {
   const now = input.now ?? new Date().toISOString();
-  const run = transitionWorkflowRunSync({ workspaceId: input.workspaceId, runId: input.runId, from, to, now });
+  const run = transitionWorkflowRunSync({
+    workspaceId: input.workspaceId,
+    runId: input.runId,
+    from,
+    to,
+    finishedAt: ["succeeded", "partially_succeeded", "failed"].includes(to) ? now : undefined,
+    now,
+  });
   if (!run) throw new Error("workflow_run_control_conflict");
   appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: input.runId, type: eventType, actorType: "human", actorId: input.actorUserId, dataJson: JSON.stringify({ reason: input.reason }), now });
   return run;

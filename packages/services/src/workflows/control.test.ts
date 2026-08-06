@@ -20,6 +20,18 @@ test("control rejects an unknown run without mutating queues", () => {
 });
 
 test("resume preserves an outstanding approval wait", () => {
-  assert.equal(resolveWorkflowResumeStatus([{ status: "waiting_approval" }, { status: "ready" }]), "waiting_approval");
-  assert.equal(resolveWorkflowResumeStatus([{ status: "succeeded" }, { status: "ready" }]), "running");
+  const graph = {
+    schemaVersion: 1 as const,
+    nodes: [{ id: "a", type: "employee_task" as const, employeeId: "employee-a", config: {} }],
+    edges: [],
+  };
+  assert.equal(resolveWorkflowResumeStatus([
+    { nodeId: "a", nodeType: "approval", status: "waiting_approval", inputJson: "{}" },
+  ], graph), "waiting_approval");
+  assert.equal(resolveWorkflowResumeStatus([
+    { nodeId: "a", nodeType: "employee_task", status: "ready", inputJson: "{}" },
+  ], graph), "running");
+  assert.equal(resolveWorkflowResumeStatus([
+    { nodeId: "a", nodeType: "employee_task", status: "succeeded", inputJson: "{}" },
+  ], graph), "succeeded");
 });

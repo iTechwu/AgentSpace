@@ -379,22 +379,41 @@ function finalizeRunIfTerminal(workspaceId: string, run: WorkflowRunRecord, now:
     transitionWorkflowRunSync({ workspaceId, runId: run.id, from: ["created", "queued"], to: "running", now });
     return readWorkflowRunSync(run.id, workspaceId)!;
   }
-  const terminalStatus = resolveWorkflowRunTerminalStatus(nodes);
+  const version = readWorkflowVersionSync(run.versionId, workspaceId);
+  if (!version) throw new Error("workflow_version_not_found");
+  const terminalStatus = resolveWorkflowRunTerminalStatus(
+    nodes,
+    JSON.parse(version.graphJson) as WorkflowGraphDefinition,
+  );
   transitionWorkflowRunSync({ workspaceId, runId: run.id, from: ["created", "queued", "running", "waiting_approval"], to: terminalStatus, finishedAt: now, now });
   return readWorkflowRunSync(run.id, workspaceId)!;
 }
 
 export function resolveWorkflowRunTerminalStatus(
-  nodes: Array<Pick<WorkflowNodeRunRecord, "nodeType" | "status" | "inputJson">>,
+  nodes: Array<Pick<WorkflowNodeRunRecord, "nodeId" | "nodeType" | "status" | "inputJson">>,
+  graph: WorkflowGraphDefinition,
 ): "succeeded" | "partially_succeeded" | "failed" {
-  const hasFailure = nodes.some((node) => node.status === "failed" || node.status === "cancelled");
-  if (!hasFailure) return "succeeded";
-  const hasAcceptedPartialJoin = nodes.some((node) => (
-    node.nodeType === "join"
-    && node.status === "succeeded"
-    && parseConfig(node.inputJson).policy === "allow_partial"
+  const failures = nodes.filter((node) => node.status === "failed" || node.status === "cancelled");
+  if (failures.length === 0) return "succeeded";
+  const byNodeId = new Map(nodes.map((node) => [node.nodeId, node]));
+  const acceptingPartialJoinIds = new Set(
+    graph.nodes
+      .filter((definition) => definition.type === "join" && definition.config.policy === "allow_partial")
+      .filter((definition) => byNodeId.get(definition.id)?.status === "succeeded")
+      .filter((definition) => {
+        const predecessorStatuses = graph.edges
+          .filter((edge) => edge.target === definition.id)
+          .map((edge) => byNodeId.get(edge.source)?.status);
+        return predecessorStatuses.some((status) => status !== "succeeded");
+      })
+      .map((definition) => definition.id),
+  );
+  if (acceptingPartialJoinIds.size === 0) return "failed";
+  const everyFailureWasAccepted = failures.every((failure) => (
+    collectWorkflowDescendantNodeIds(graph, failure.nodeId)
+      .some((nodeId) => acceptingPartialJoinIds.has(nodeId))
   ));
-  return hasAcceptedPartialJoin ? "partially_succeeded" : "failed";
+  return everyFailureWasAccepted ? "partially_succeeded" : "failed";
 }
 
 function parseConfig(value: string): Record<string, unknown> {
