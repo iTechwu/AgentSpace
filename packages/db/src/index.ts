@@ -786,6 +786,7 @@ export {
   findTokenUsageByGatewayUsageIdSync,
   findPendingOpenMontageTokenUsageSync,
   markTokenUsageReconciledSync,
+  insertRemoteTokenUsageIfAbsentSync,
   insertUnallocatedTokenUsageSync,
   insertUnallocatedTokenUsageIfAbsentSync,
   type RecordTokenUsageInput,

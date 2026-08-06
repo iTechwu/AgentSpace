@@ -25,6 +25,7 @@ import {
   readRuntimeProvisioningTaskSync,
   markManagedRuntimeCleanupRequestRunningSync,
   registerDaemonRuntimesSync,
+  recordOpenMontagePendingTokenUsageSync,
   recordTokenUsageSync,
   readOldestPendingTokenUsageTimestampForRuntimeCredentialSync,
   readRuntimeMaintenanceRunSync,
@@ -904,6 +905,57 @@ test("usage reconciliation keeps provisional billing pending until models finali
     findTokenUsageByGatewayRequestIdSync("gateway-unmatched-pending", TEAM_WS)?.billingStatus,
     "reconciled",
   );
+});
+
+test("usage reconciliation directly attributes every terminal OpenMontage model invocation", () => {
+  recordOpenMontagePendingTokenUsageSync({
+    workspaceId: TEAM_WS,
+    employeeId: "atlas",
+    runtimeId: "runtime-openmontage",
+    runtimeCredentialId: "rtc-openmontage",
+    delegationId: "delegation-openmontage",
+    jobId: "job-openmontage",
+    pipelineStage: "render",
+    sourceInvocationId: "source-openmontage",
+    modelInvocationId: "om-pending:job-openmontage:render:1",
+  });
+  const result = {
+    reconciledCount: 0,
+    unallocatedCount: 0,
+    skippedCount: 0,
+    totalRemoteCount: 2,
+    pendingCount: 0,
+  };
+
+  for (const invocation of ["model-invocation-1", "model-invocation-2"]) {
+    reconcileRuntimeCredentialUsageEntrySync(TEAM_WS, "rtc-openmontage", {
+      id: `usage-${invocation}`,
+      requestId: `request-${invocation}`,
+      model: "seedance-2.0",
+      billingStatus: "reconciled",
+      totalSalePrice: 0.25,
+      currency: "USD",
+      timestamp: "2026-08-06T01:00:00.000Z",
+      runtimeCredentialDelegationId: "delegation-openmontage",
+      employeeId: "atlas",
+      runtimeId: "runtime-openmontage",
+      externalJobId: "job-openmontage",
+      pipelineStage: "render",
+      sourceInvocationId: "source-openmontage",
+      modelInvocationId: invocation,
+    } as never, result);
+  }
+
+  const first = findTokenUsageByGatewayRequestIdSync("request-model-invocation-1", TEAM_WS);
+  const second = findTokenUsageByGatewayRequestIdSync("request-model-invocation-2", TEAM_WS);
+  assert.equal(first?.billingStatus, "reconciled");
+  assert.equal(first?.modelInvocationId, "model-invocation-1");
+  assert.equal(second?.billingStatus, "reconciled");
+  assert.equal(second?.jobId, "job-openmontage");
+  assert.equal(second?.pipelineStage, "render");
+  assert.equal(second?.modelInvocationId, "model-invocation-2");
+  assert.equal(result.reconciledCount, 2);
+  assert.equal(result.unallocatedCount, 0);
 });
 
 test("billing summary keeps currencies separate and retains the oldest pending reconciliation timestamp", () => {

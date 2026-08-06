@@ -872,7 +872,10 @@ export function markTokenUsageReconciledSync(
      SET billing_status = ?,
          actual_cost_usd = ?,
          currency = ?,
-         gateway_request_id = COALESCE(gateway_request_id, ?),
+         gateway_request_id = CASE
+           WHEN model_id = 'openmontage.pending' OR gateway_request_id IS NULL THEN ?
+           ELSE gateway_request_id
+         END,
          gateway_usage_id = COALESCE(?, gateway_usage_id),
          protocol = COALESCE(?, protocol),
          model_id = ?,
@@ -921,7 +924,7 @@ export function markTokenUsageReconciledSync(
   return row ? mapTokenUsageRow(row) : null;
 }
 
-interface InsertUnallocatedTokenUsageInput {
+interface InsertRemoteTokenUsageInput {
   workspaceId: string;
   agentId: string;
   modelId: string;
@@ -946,11 +949,11 @@ interface InsertUnallocatedTokenUsageInput {
   requestStartedAt?: string;
   requestEndedAt?: string;
   sourceUpdatedAt?: string;
-  billingStatus?: "pending_reconciliation" | "unallocated";
+  billingStatus?: "pending_reconciliation" | "reconciled" | "unallocated";
 }
 
-export function insertUnallocatedTokenUsageIfAbsentSync(
-  input: InsertUnallocatedTokenUsageInput,
+export function insertRemoteTokenUsageIfAbsentSync(
+  input: InsertRemoteTokenUsageInput,
 ): { record: TokenUsageRecord; inserted: boolean } {
   const db = getDatabase();
   assertDelegatedSnapshot(input);
@@ -1007,6 +1010,16 @@ export function insertUnallocatedTokenUsageIfAbsentSync(
     throw new Error("token_usage.gateway_request_runtime_credential_mismatch");
   }
   return { record, inserted: insertResult.changes > 0 };
+}
+
+type InsertUnallocatedTokenUsageInput = Omit<InsertRemoteTokenUsageInput, "billingStatus"> & {
+  billingStatus?: "pending_reconciliation" | "unallocated";
+};
+
+export function insertUnallocatedTokenUsageIfAbsentSync(
+  input: InsertUnallocatedTokenUsageInput,
+): { record: TokenUsageRecord; inserted: boolean } {
+  return insertRemoteTokenUsageIfAbsentSync(input);
 }
 
 export function insertUnallocatedTokenUsageSync(input: InsertUnallocatedTokenUsageInput): TokenUsageRecord {
