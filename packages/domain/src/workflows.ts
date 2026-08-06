@@ -117,7 +117,7 @@ export function validateWorkflowGraph(graph: WorkflowGraphDefinition): WorkflowG
 
   const roots = [...nodeIndex.keys()].filter((id) => (incoming.get(id) ?? []).length === 0);
   const reachable = new Set<string>();
-  const pending = [...roots];
+  const pending = roots.length > 0 ? [roots[0]!] : [];
   while (pending.length > 0) {
     const current = pending.shift();
     if (!current || reachable.has(current)) continue;

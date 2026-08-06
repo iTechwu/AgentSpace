@@ -72,3 +72,27 @@ test("returns all local graph structure errors", () => {
   assert.ok(codes.includes("workflow_join_requires_downstream"));
   assert.ok(codes.includes("workflow_graph_isolated_node"));
 });
+
+test("rejects an acyclic component disconnected from the main workflow entry", () => {
+  const graph: WorkflowGraphDefinition = {
+    schemaVersion: 1,
+    nodes: [
+      node("a", "employee_task", "employee-a"),
+      node("b", "employee_task", "employee-b"),
+      node("c", "employee_task", "employee-c"),
+      node("d", "employee_task", "employee-d"),
+    ],
+    edges: [
+      { source: "a", target: "b" },
+      { source: "c", target: "d" },
+    ],
+  };
+
+  const result = validateWorkflowGraph(graph);
+
+  assert.ok(result.errors.some((error) => error.code === "workflow_graph_unreachable_node"));
+  assert.deepEqual(
+    result.errors.find((error) => error.code === "workflow_graph_unreachable_node")?.nodeIds,
+    ["c"],
+  );
+});
