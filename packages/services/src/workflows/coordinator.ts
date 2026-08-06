@@ -88,7 +88,52 @@ export function failWorkflowNodeSync(input: {
         advanceDownstream({ workspaceId: input.workspaceId, run, completed: updated, now });
       }
     }
+    if (updated && updated.attemptCount < updated.maxAttempts) {
+      return readWorkflowRunSync(run.id, input.workspaceId)!;
+    }
     return finalizeRunIfTerminal(input.workspaceId, run, now);
+  });
+}
+
+export function failStaleWorkflowNodeSync(input: {
+  workspaceId: string;
+  nodeRunId: string;
+  actorId: string;
+  now: string;
+}): WorkflowNodeRunRecord {
+  return withTransaction(getDatabase(), () => {
+    const nodeRun = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
+    if (!nodeRun) throw new Error("workflow_node_run_not_found");
+    const run = readWorkflowRunSync(nodeRun.runId, input.workspaceId);
+    if (!run) throw new Error("workflow_run_not_found");
+    const failed = transitionWorkflowNodeRunSync({
+      workspaceId: input.workspaceId,
+      nodeRunId: nodeRun.id,
+      from: ["queued"],
+      to: "failed",
+      clearTaskQueueId: true,
+      errorCode: "workflow_stale_queue_recovered",
+      errorMessage: "queued task disappeared before completion",
+      finishedAt: input.now,
+      now: input.now,
+    });
+    if (!failed) throw new Error("workflow_node_recovery_conflict");
+    appendWorkflowRunEventSync({
+      workspaceId: input.workspaceId,
+      runId: run.id,
+      nodeRunId: failed.id,
+      type: "node.failed",
+      actorType: "system",
+      actorId: input.actorId,
+      severity: "error",
+      dataJson: JSON.stringify({ code: "workflow_stale_queue_recovered" }),
+      now: input.now,
+    });
+    if (failed.attemptCount >= failed.maxAttempts) {
+      advanceDownstream({ workspaceId: input.workspaceId, run, completed: failed, now: input.now });
+      finalizeRunIfTerminal(input.workspaceId, run, input.now);
+    }
+    return failed;
   });
 }
 

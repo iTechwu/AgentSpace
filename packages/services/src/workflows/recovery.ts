@@ -4,7 +4,9 @@ import {
   readQueuedTaskSync,
   readWorkflowNodeRunSync,
   transitionWorkflowNodeRunSync,
+  withTransaction,
 } from "@dofe-agent/db";
+import { failStaleWorkflowNodeSync } from "./coordinator.ts";
 import { retryWorkflowNodeSync } from "./retries.ts";
 
 export interface WorkflowRecoveryResult {
@@ -42,14 +44,15 @@ export function recoverStaleWorkflowWorkSync(input: {
     const node = readWorkflowNodeRunSync(row.id, row.workspaceId);
     const task = node?.taskQueueId ? readQueuedTaskSync(node.taskQueueId) : null;
     if (!node || (task && ["queued", "claimed", "running", "preparing_commit", "committed"].includes(task.status))) continue;
-    const failed = transitionWorkflowNodeRunSync({ workspaceId: row.workspaceId, nodeRunId: row.id, from: ["queued"], to: "failed", clearTaskQueueId: true, errorCode: "workflow_stale_queue_recovered", now: input.now });
-    if (!failed) continue;
-    if (failed.attemptCount < failed.maxAttempts) {
-      retryWorkflowNodeSync({ workspaceId: row.workspaceId, runId: failed.runId, nodeId: failed.nodeId, actorUserId: input.workerId, reason: "stale queue recovery", now: input.now });
-      result.retriedNodeRunIds.push(row.id);
-    } else {
-      result.failedNodeRunIds.push(row.id);
-    }
+    withTransaction(db, () => {
+      const failed = failStaleWorkflowNodeSync({ workspaceId: row.workspaceId!, nodeRunId: row.id!, actorId: input.workerId, now: input.now });
+      if (failed.attemptCount < failed.maxAttempts) {
+        retryWorkflowNodeSync({ workspaceId: row.workspaceId!, runId: failed.runId, nodeId: failed.nodeId, actorUserId: input.workerId, reason: "stale queue recovery", now: input.now });
+        result.retriedNodeRunIds.push(row.id!);
+      } else {
+        result.failedNodeRunIds.push(row.id!);
+      }
+    });
   }
   return result;
 }
