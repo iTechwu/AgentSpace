@@ -1,13 +1,17 @@
 import {
+  appendWorkflowRunEventSync,
   claimWorkflowOutboxBatchSync,
   readWorkflowNodeRunSync,
   listWorkflowNodeRunsSync,
   markWorkflowOutboxFailedSync,
   markWorkflowOutboxPublishedSync,
   readWorkflowRunSync,
+  transitionWorkflowNodeRunSync,
 } from "@dofe-agent/db";
+import type { WorkflowNodeDefinition } from "@dofe-agent/domain";
 import { dispatchReadyWorkflowNodeSync, isWorkflowRunDispatchBlocked } from "./dispatcher.ts";
 import { createWorkflowApprovalSync, workflowApprovalInputFromNodeConfig } from "./approvals.ts";
+import { validateWorkflowNodeForDispatchSync } from "./validation.ts";
 
 export interface WorkflowOutboxDispatchResult {
   claimedOutboxIds: string[];
@@ -81,7 +85,39 @@ function dispatchReadyWorkflowNodeByTypeSync(input: { workspaceId: string; nodeR
   if (isWorkflowRunDispatchBlocked(run.status)) return {};
   if (node.nodeType === "approval") {
     if (node.status !== "ready") return {};
-    const approvalInput = workflowApprovalInputFromNodeConfig(parsePayload(node.inputJson));
+    const config = parsePayload(node.inputJson);
+    const blocker = validateWorkflowNodeForDispatchSync(input.workspaceId, {
+      id: node.nodeId,
+      type: "approval",
+      config,
+    } satisfies WorkflowNodeDefinition);
+    if (blocker) {
+      const availableAt = new Date(Date.parse(input.now) + 60_000).toISOString();
+      const waiting = transitionWorkflowNodeRunSync({
+        workspaceId: input.workspaceId,
+        nodeRunId: node.id,
+        from: ["ready"],
+        to: "retry_wait",
+        availableAt,
+        errorCode: blocker.code,
+        errorMessage: blocker.detail,
+        now: input.now,
+      });
+      if (waiting) {
+        appendWorkflowRunEventSync({
+          workspaceId: input.workspaceId,
+          runId: run.id,
+          nodeRunId: node.id,
+          type: "node.dependency_blocked",
+          actorType: "system",
+          severity: "warning",
+          dataJson: JSON.stringify({ code: blocker.code, availableAt }),
+          now: input.now,
+        });
+      }
+      return {};
+    }
+    const approvalInput = workflowApprovalInputFromNodeConfig(config);
     createWorkflowApprovalSync({
       workspaceId: input.workspaceId,
       runId: node.runId,
