@@ -146,7 +146,7 @@ export function validateWorkflowGraph(graph: WorkflowGraphDefinition): WorkflowG
         code: hasIncoming || hasOutgoing ? "workflow_node_unreachable" : "workflow_graph_isolated_node",
         nodeIds: [id],
       });
-    } else if (!hasIncoming && !hasOutgoing) {
+    } else if (nodeIndex.size > 1 && !hasIncoming && !hasOutgoing) {
       errors.push({ code: "workflow_graph_isolated_node", nodeIds: [id] });
     }
   }

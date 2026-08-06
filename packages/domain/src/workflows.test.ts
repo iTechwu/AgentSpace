@@ -159,6 +159,17 @@ test("requires employee task IDs to be non-empty after trimming", () => {
   assert.ok(result.errors.some((error) => error.code === "workflow_employee_task_requires_employee_id"));
 });
 
+test("accepts a single employee task as both entry and terminal", () => {
+  const result = validateWorkflowGraph({
+    schemaVersion: 1,
+    nodes: [node("solo", "employee_task", "employee-solo")],
+    edges: [],
+  });
+
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.topologicalOrder, ["solo"]);
+});
+
 test("reports non-string employee task IDs without throwing", () => {
   const graph: WorkflowGraphDefinition = {
     schemaVersion: 1,
