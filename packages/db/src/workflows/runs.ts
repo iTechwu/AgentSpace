@@ -54,6 +54,7 @@ export interface TransitionWorkflowNodeRunInput {
   startedAt?: string;
   finishedAt?: string;
   outputJson?: string;
+  inputJson?: string;
   errorCode?: string;
   errorMessage?: string;
 }
@@ -169,7 +170,7 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
     `UPDATE workflow_node_run
         SET status = ?, task_queue_id = COALESCE(?, task_queue_id), available_at = COALESCE(?, available_at),
             attempt_count = COALESCE(?, attempt_count), started_at = COALESCE(?, started_at),
-            finished_at = COALESCE(?, finished_at), output_json = COALESCE(?, output_json),
+            finished_at = COALESCE(?, finished_at), input_json = COALESCE(?, input_json), output_json = COALESCE(?, output_json),
             error_code = COALESCE(?, error_code), error_message = COALESCE(?, error_message), updated_at = ?
       WHERE id = ? AND workspace_id = ? AND status IN (${placeholders})
       RETURNING ${NODE_RUN_COLUMNS}`,
@@ -180,6 +181,7 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
     input.attemptCount ?? null,
     input.startedAt ?? null,
     input.finishedAt ?? null,
+    input.inputJson ?? null,
     input.outputJson ?? null,
     input.errorCode ?? null,
     input.errorMessage ?? null,
