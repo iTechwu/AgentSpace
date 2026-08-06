@@ -191,6 +191,34 @@ export {
   type PublishWorkflowVersionInput,
   type UpsertWorkflowTriggerInput,
 } from "./workflows/definitions.ts";
+export {
+  createWorkflowRunSync,
+  readWorkflowRunSync,
+  readWorkflowRunSyncByTriggerKey,
+  listWorkflowRunsSync,
+  materializeWorkflowNodeRunsSync,
+  readWorkflowNodeRunSync,
+  listWorkflowNodeRunsSync,
+  transitionWorkflowRunSync,
+  transitionWorkflowNodeRunSync,
+  type CreateWorkflowRunInput,
+  type MaterializeNodeRunsInput,
+  type TransitionWorkflowRunInput,
+  type TransitionWorkflowNodeRunInput,
+  type WorkflowNodeSeed,
+} from "./workflows/runs.ts";
+export {
+  appendWorkflowRunEventSync,
+  listWorkflowRunEventsSync,
+  type AppendWorkflowRunEventInput,
+} from "./workflows/events.ts";
+export {
+  enqueueWorkflowOutboxSync,
+  readWorkflowOutboxSync,
+  claimWorkflowOutboxBatchSync,
+  markWorkflowOutboxPublishedSync,
+  type EnqueueWorkflowOutboxInput,
+} from "./workflows/outbox.ts";
 
 export {
   appendTokenUsageBillingEventSync,
