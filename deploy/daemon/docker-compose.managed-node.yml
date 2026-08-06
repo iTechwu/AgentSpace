@@ -13,6 +13,7 @@ services:
       DOFE_AGENT_MANAGED_NODE: "true"
       DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS: ${DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS:-600000}
       NODE_EXTRA_CA_CERTS: ${MANAGED_NODE_TLS_CA_PATH:+/run/dofe-agent-tls-ca.pem}
+      CURL_CA_BUNDLE: ${MANAGED_NODE_TLS_CA_PATH:+/run/dofe-agent-tls-ca.pem}
       # MCP egress enforcement. When true the entrypoint reconciles DOCKER-USER
       # rules before dropping privileges and starting the managed node daemon.
       # Defaults to canary until daemon/Provider process-isolation probes pass.

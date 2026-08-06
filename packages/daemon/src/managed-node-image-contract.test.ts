@@ -48,6 +48,10 @@ test("managed-node runtime stage includes provider probe tools and cached packag
     managedNodeCompose,
     /\$\{MANAGED_NODE_MODELS_GATEWAY_HOST:-model\.local\.dofe\.ai\}:host-gateway/,
   );
+  assert.match(
+    managedNodeCompose,
+    /CURL_CA_BUNDLE: \$\{MANAGED_NODE_TLS_CA_PATH:\+\/run\/dofe-agent-tls-ca\.pem\}/,
+  );
 });
 
 test("managed-node image does not embed shared data-plane services", () => {
