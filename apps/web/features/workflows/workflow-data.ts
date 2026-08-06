@@ -166,7 +166,6 @@ export function getWorkflowBuilderPageData(
       },
       governance: {
         maxConcurrency: numberInRange(governance.maxConcurrency, 1, 20, 4),
-        failurePolicy: governance.failurePolicy === "continue" ? "continue" : "stop",
         ...(positiveNumber(governance.budgetUsd) ? { budgetUsd: positiveNumber(governance.budgetUsd) } : {}),
       },
     },

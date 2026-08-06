@@ -68,7 +68,7 @@ function renderBuilder(entry: "automations" | "calendar" | "task-board" = "autom
         graph,
         draftVersion: 1,
         trigger: { type: "manual", config: {} },
-        governance: { maxConcurrency: 4, failurePolicy: "stop" },
+        governance: { maxConcurrency: 4 },
       }}
       workspaceSlug="default"
     />,
@@ -138,7 +138,7 @@ describe("workflow builder", () => {
     await user.click(await screen.findByRole("button", { name: "发布" }));
 
     await waitFor(() => expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({
-      governance: { maxConcurrency: 2, failurePolicy: "stop", budgetUsd: 12.5 },
+      governance: { maxConcurrency: 2, budgetUsd: 12.5 },
     })));
   });
 });
