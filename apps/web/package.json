@@ -11,6 +11,7 @@
     "start": "next start",
     "typecheck": "pnpm run typecheck:deps && tsc -p tsconfig.typecheck.json --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
+    "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "typecheck:deps": "pnpm --dir ../.. run typecheck:deps",
     "lint": "eslint . --max-warnings=0",
     "reconcile:sso-workspaces": "node --env-file-if-exists=../../.env --experimental-strip-types scripts/reconcile-sso-workspaces.ts",

@@ -28,6 +28,8 @@
 | [04-前端设计文档.md](./04-前端设计文档.md) | Next.js 模块、路由、状态、组件、契约和测试 |
 | [05-后端设计文档.md](./05-后端设计文档.md) | 数据模型、服务边界、API、调度算法、幂等和错误处理 |
 | [06-实施路线与验收.md](./06-实施路线与验收.md) | 分期、工程任务、测试、试点和发布门禁 |
+| [runbooks/workflow-operations.md](./runbooks/workflow-operations.md) | Worker、Outbox、Runtime、回滚和留存故障处置 |
+| [release-checklist.md](./release-checklist.md) | 首期发布证据、未完成门禁与签字清单 |
 
 ## 与现有 AgentSpace 的关系
 

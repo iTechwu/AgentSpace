@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.typecheck.json",
+  "compilerOptions": {
+    "incremental": false,
+    "types": ["node", "@playwright/test"]
+  },
+  "include": ["next-env.d.ts", "e2e/workflows-migration.spec.ts"],
+  "exclude": ["node_modules", ".next"]
+}
