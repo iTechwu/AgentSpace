@@ -35,6 +35,8 @@ test("provider runtime image includes operational tools required by provider che
     /apt-get install --yes --no-install-recommends ca-certificates chromium curl python3 python3-pip/,
   );
   assert.match(providerDockerfile, /apt-get install --yes --no-install-recommends git/);
+  assert.match(providerDockerfile, /npm_config_registry=https:\/\/registry\.npmmirror\.com/);
+  assert.match(providerDockerfile, /--mount=type=cache,id=dofe-provider-runtime-pnpm,target=\/pnpm\/store/);
 });
 
 test("local managed-node recovery preserves required operational settings", () => {

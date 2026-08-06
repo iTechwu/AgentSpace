@@ -10,7 +10,9 @@ FROM uhub.service.ucloud.cn/techwu/node:25.9-bookworm-slim AS daemon-build
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
     PNPM_CONFIG_REGISTRY=https://registry.npmmirror.com \
-    PNPM_CONFIG_REPLACE_REGISTRY_HOST=always
+    PNPM_CONFIG_REPLACE_REGISTRY_HOST=always \
+    npm_config_registry=https://registry.npmmirror.com \
+    npm_config_replace_registry_host=always
 
 WORKDIR /workspace
 
@@ -18,7 +20,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/cli ./apps/cli
 COPY packages ./packages
 
-RUN npm install --global pnpm@10.26.2 \
+RUN --mount=type=cache,id=dofe-provider-runtime-pnpm,target=/pnpm/store \
+  npm install --global pnpm@10.26.2 \
   && pnpm install --frozen-lockfile --ignore-scripts \
   && pnpm --filter dofe-agent-daemon run build \
   && mkdir -p /opt/daemon-package \
