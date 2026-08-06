@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "109";
+export const POSTGRES_SCHEMA_VERSION = "110";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -59,6 +59,7 @@ export const POSTGRES_TABLE_NAMES = [
   "agent_router_context_snapshot",
   "task_execution_event",
   "task_message",
+  "openmontage_delegation_intent",
   "openmontage_job_link",
   "openmontage_model_delegation",
   "openmontage_job_event",
@@ -1284,6 +1285,39 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_agent_task_queue_employee
         ON agent_task_queue(workspace_id, employee_id, created_at DESC)
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS openmontage_delegation_intent (
+        idempotency_key TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE RESTRICT,
+        runtime_id TEXT NOT NULL,
+        mcp_connection_id TEXT NOT NULL,
+        runtime_credential_id TEXT NOT NULL,
+        models_tenant_id TEXT NOT NULL,
+        models_team_id TEXT NOT NULL,
+        external_job_id TEXT NOT NULL,
+        request_json JSONB NOT NULL,
+        delegation_id TEXT,
+        secret_ref TEXT,
+        status TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TIMESTAMPTZ,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        CONSTRAINT openmontage_delegation_intent_status_check
+          CHECK (status IN ('creating', 'provisioned', 'drain_pending', 'drained', 'bound'))
+      )
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_openmontage_delegation_intent_recovery
+        ON openmontage_delegation_intent(status, next_attempt_at)
+        WHERE status IN ('creating', 'provisioned', 'drain_pending')
+    `,
+    `
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_openmontage_delegation_intent_remote_unique
+        ON openmontage_delegation_intent(delegation_id)
+        WHERE delegation_id IS NOT NULL
     `,
     `
       CREATE TABLE IF NOT EXISTS openmontage_job_link (

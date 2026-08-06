@@ -237,6 +237,7 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "agent_router_context_snapshot", conflictColumns: ["id"], jsonColumns: ["source_event_ids_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "task_execution_event", conflictColumns: ["id"], jsonColumns: ["data_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "task_message", conflictColumns: ["id"], jsonColumns: ["input_json"], orderBy: "created_at ASC, task_id ASC, seq ASC" },
+  { tableName: "openmontage_delegation_intent", conflictColumns: ["idempotency_key"], jsonColumns: ["request_json"], optionalWhenMissing: true, orderBy: "created_at ASC, idempotency_key ASC" },
   { tableName: "openmontage_job_link", conflictColumns: ["job_id"], optionalWhenMissing: true, orderBy: "created_at ASC, job_id ASC" },
   { tableName: "openmontage_model_delegation", conflictColumns: ["job_id"], optionalWhenMissing: true, orderBy: "created_at ASC, job_id ASC" },
   { tableName: "openmontage_job_event", conflictColumns: ["event_id"], jsonColumns: ["event_json"], optionalWhenMissing: true, orderBy: "received_at ASC, event_id ASC" },

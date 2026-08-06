@@ -1,4 +1,5 @@
 import {
+  drainOrphanedOpenMontageDelegationsAsync,
   drainPendingOpenMontageJobDelegationsAsync,
   reconcileSyncingOpenMontageJobsAsync,
 } from "@dofe-agent/services";
@@ -16,12 +17,13 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const [events, delegations] = await Promise.all([
+  const [events, delegations, orphanedDelegations] = await Promise.all([
     reconcileSyncingOpenMontageJobsAsync({ limit: 50 }),
     drainPendingOpenMontageJobDelegationsAsync({ limit: 50 }),
+    drainOrphanedOpenMontageDelegationsAsync({ limit: 50 }),
   ]);
   return Response.json(
-    { events, delegations },
-    { status: events.failed > 0 || delegations.failed > 0 ? 503 : 200 },
+    { events, delegations, orphanedDelegations },
+    { status: events.failed > 0 || delegations.failed > 0 || orphanedDelegations.failed > 0 ? 503 : 200 },
   );
 }

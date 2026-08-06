@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test, { after, before, beforeEach } from "node:test";
 import {
+  createOpenMontageDelegationIntentSync,
+  markOpenMontageDelegationIntentDrainedSync,
+  markOpenMontageDelegationIntentProvisionedSync,
+  readOpenMontageDelegationIntentSync,
+} from "./openmontage-delegation-intents.ts";
+import {
   createOpenMontageJobLinkSync,
   ingestOpenMontageJobEventSync,
   listOpenMontageChannelProjectionsSync,
@@ -35,6 +41,7 @@ function clearOpenMontageTables(): void {
     DELETE FROM openmontage_job_projection;
     DELETE FROM openmontage_model_delegation;
     DELETE FROM openmontage_job_link;
+    DELETE FROM openmontage_delegation_intent;
   `);
 }
 
@@ -148,6 +155,72 @@ function createLink(overrides: Record<string, unknown> = {}) {
     ...overrides,
   });
 }
+
+test("unresolved delegation intents block runtime and MCP purge until drained", () => {
+  const intentInput = {
+    idempotencyKey: "openmontage:default:invocation-orphan",
+    workspaceId: "default",
+    runtimeId: "runtime-orphan",
+    mcpConnectionId: "connection-orphan",
+    runtimeCredentialId: "00000000-0000-4000-8000-000000000081",
+    modelsTenantId: "00000000-0000-4000-8000-000000000082",
+    modelsTeamId: "00000000-0000-4000-8000-000000000083",
+    externalJobId: "om_job_orphan",
+    request: {
+      idempotencyKey: "openmontage:default:invocation-orphan",
+      runtimeCredentialId: "00000000-0000-4000-8000-000000000081",
+      tenantId: "00000000-0000-4000-8000-000000000082",
+      teamId: "00000000-0000-4000-8000-000000000083",
+      externalJobId: "om_job_orphan",
+      sourceService: "openmontage",
+      sourceInvocationId: "invocation-orphan",
+      metadata: { traceId: "trace-orphan", runtimeId: "runtime-orphan" },
+    },
+    now: "2026-08-07T00:00:00Z",
+  };
+  createOpenMontageDelegationIntentSync(intentInput);
+  createOpenMontageDelegationIntentSync({
+    ...intentInput,
+    request: {
+      metadata: { runtimeId: "runtime-orphan", traceId: "trace-orphan" },
+      sourceInvocationId: "invocation-orphan",
+      sourceService: "openmontage",
+      externalJobId: "om_job_orphan",
+      teamId: "00000000-0000-4000-8000-000000000083",
+      tenantId: "00000000-0000-4000-8000-000000000082",
+      runtimeCredentialId: "00000000-0000-4000-8000-000000000081",
+      idempotencyKey: "openmontage:default:invocation-orphan",
+    },
+  });
+  assert.throws(
+    () => createOpenMontageDelegationIntentSync({
+      ...intentInput,
+      idempotencyKey: "openmontage:default:invocation-secret",
+      request: {
+        ...intentInput.request,
+        idempotencyKey: "openmontage:default:invocation-secret",
+        apiKey: "must-not-be-persisted",
+      },
+    }),
+    /delegation_intent_contains_secret/,
+  );
+
+  assert.equal(readOpenMontageRuntimePurgeGuardSync("default", "runtime-orphan").purgeable, false);
+  assert.equal(readOpenMontageMcpPurgeGuardSync("default", "connection-orphan").purgeable, false);
+
+  markOpenMontageDelegationIntentDrainedSync(
+    "openmontage:default:invocation-orphan",
+    "2026-08-07T00:01:00Z",
+  );
+  markOpenMontageDelegationIntentProvisionedSync({
+    idempotencyKey: intentInput.idempotencyKey,
+    delegationId: "00000000-0000-4000-8000-000000000084",
+    now: "2026-08-07T00:02:00Z",
+  });
+  assert.equal(readOpenMontageDelegationIntentSync(intentInput.idempotencyKey)?.status, "drained");
+  assert.equal(readOpenMontageRuntimePurgeGuardSync("default", "runtime-orphan").purgeable, true);
+  assert.equal(readOpenMontageMcpPurgeGuardSync("default", "connection-orphan").purgeable, true);
+});
 
 function event(
   sequence: number,

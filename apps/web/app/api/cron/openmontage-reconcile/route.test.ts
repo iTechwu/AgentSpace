@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockReconcile, mockDrain } = vi.hoisted(() => ({
+const { mockReconcile, mockDrain, mockDrainOrphans } = vi.hoisted(() => ({
   mockReconcile: vi.fn(),
   mockDrain: vi.fn(),
+  mockDrainOrphans: vi.fn(),
 }));
 
 vi.mock("@dofe-agent/services", () => ({
   reconcileSyncingOpenMontageJobsAsync: mockReconcile,
   drainPendingOpenMontageJobDelegationsAsync: mockDrain,
+  drainOrphanedOpenMontageDelegationsAsync: mockDrainOrphans,
 }));
 
 import { GET } from "./route";
@@ -21,6 +23,8 @@ describe("OpenMontage reconciliation cron route", () => {
     mockReconcile.mockResolvedValue({ attempted: 1, succeeded: 1, failed: 0 });
     mockDrain.mockReset();
     mockDrain.mockResolvedValue({ attempted: 1, succeeded: 1, failed: 0 });
+    mockDrainOrphans.mockReset();
+    mockDrainOrphans.mockResolvedValue({ attempted: 1, succeeded: 1, failed: 0 });
   });
 
   afterEach(() => {
@@ -46,9 +50,11 @@ describe("OpenMontage reconciliation cron route", () => {
     expect(await response.json()).toEqual({
       events: { attempted: 1, succeeded: 1, failed: 0 },
       delegations: { attempted: 1, succeeded: 1, failed: 0 },
+      orphanedDelegations: { attempted: 1, succeeded: 1, failed: 0 },
     });
     expect(mockReconcile).toHaveBeenCalledWith({ limit: 50 });
     expect(mockDrain).toHaveBeenCalledWith({ limit: 50 });
+    expect(mockDrainOrphans).toHaveBeenCalledWith({ limit: 50 });
   });
 
   it("returns a retryable status when any Job remains unreconciled", async () => {

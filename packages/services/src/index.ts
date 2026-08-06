@@ -1393,6 +1393,7 @@ export {
 } from "./openmontage/artifacts.ts";
 export {
   bindOpenMontageJobDelegationAsync,
+  drainOrphanedOpenMontageDelegationsAsync,
   drainPendingOpenMontageJobDelegationsAsync,
   drainOpenMontageJobDelegationAsync,
   issueOpenMontageModelCredential,
@@ -1400,6 +1401,8 @@ export {
   OpenMontageDelegationConfigurationError,
   OpenMontageDelegationValidationError,
   type BindOpenMontageJobDelegationInput,
+  type CreateDelegationRequest,
+  type OpenMontageDelegationIntentStore,
   type OpenMontageModelCredentialDocument,
 } from "./openmontage/delegations.ts";
 export {

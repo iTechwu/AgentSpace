@@ -3,6 +3,7 @@ import test from "node:test";
 import type { OpenMontageJobProjection } from "@dofe-agent/domain";
 import {
   bindOpenMontageJobDelegationAsync,
+  drainOrphanedOpenMontageDelegationsAsync,
   drainPendingOpenMontageJobDelegationsAsync,
   issueOpenMontageModelCredential,
   OpenMontageDelegationAuthenticationError,
@@ -44,6 +45,7 @@ test("binds a models delegation to the immutable Job and escrows only its one-ti
       modelsBody = input;
       return provisionResponse(IDS.modelsTeam);
     },
+    intentStore: noOpIntentStore(),
     vault: {
       store: (_id, secret) => {
         storedSecret = secret;
@@ -70,6 +72,43 @@ test("binds a models delegation to the immutable Job and escrows only its one-ti
   assert.equal((persisted?.delegation as Record<string, unknown>).modelsTeamId, IDS.modelsTeam);
   assert.doesNotMatch(JSON.stringify(persisted), /delegated-api-key/);
   assert.equal(result.delegation.delegationId, IDS.delegation);
+});
+
+test("binding failure preserves a durable drain retry when models is unavailable", async () => {
+  const transitions: string[] = [];
+  let forgotSecret = false;
+  await assert.rejects(
+    bindOpenMontageJobDelegationAsync({
+      ...ATTRIBUTION,
+      runtimeCredentialId: IDS.credential,
+      connectionId: "connection-1",
+      channelName: "direct:employee-1",
+      budget: { maxAmount: "20.00", currency: "CNY" },
+      snapshot: snapshot(),
+    }, {
+      resolveScope: () => ({ tenantId: IDS.tenant, teamId: IDS.team }),
+      resolveModelsTeamId: async () => IDS.modelsTeam,
+      createDelegation: async () => provisionResponse(IDS.modelsTeam),
+      intentStore: noOpIntentStore(transitions),
+      vault: {
+        store: () => ({ secretRef: "vault://delegation/1" }),
+        retrieve: () => undefined,
+        forget: () => { forgotSecret = true; },
+      },
+      createLink: () => { throw new Error("postgres unavailable"); },
+      drainDelegation: async () => { throw new Error("models unavailable"); },
+    }),
+    /postgres unavailable/,
+  );
+
+  assert.equal(forgotSecret, true);
+  assert.deepEqual(transitions, [
+    "created",
+    "provisioned",
+    "provisioned",
+    "drain_pending",
+    "drain_failed",
+  ]);
 });
 
 test("returns the escrowed key only to the authenticated matching Job and declared stage", () => {
@@ -129,6 +168,107 @@ test("drain retry isolates one models failure from other terminal Jobs", async (
   assert.deepEqual(result, { attempted: 2, succeeded: 1, failed: 1 });
 });
 
+test("orphan reconciliation replays the stable creation request and drains exactly that delegation", async () => {
+  const transitions: string[] = [];
+  let replayedRequest: Record<string, unknown> | undefined;
+  let drainedDelegationId = "";
+  const intentStore = noOpIntentStore(transitions);
+  const request = {
+    runtimeCredentialId: IDS.credential,
+    tenantId: IDS.tenant,
+    teamId: IDS.modelsTeam,
+    idempotencyKey: "openmontage:ws-1:invocation-1",
+    employeeId: "employee-1",
+    conversationId: "conversation-1",
+    rootTaskId: "task-1",
+    sourceService: "openmontage" as const,
+    sourceInvocationId: "invocation-1",
+    externalJobId: "om_job_1",
+    allowedCapabilities: ["image", "video", "tts", "music", "stt"] as const,
+    allowedModels: [],
+    spendLimit: "20.00",
+    currency: "CNY",
+    expiresAt: "2026-08-06T09:00:01.000Z",
+    metadata: { runtimeId: "runtime-1", traceId: "task-1" },
+  };
+  const result = await drainOrphanedOpenMontageDelegationsAsync({
+    listIntents: () => [{
+      idempotencyKey: request.idempotencyKey,
+      workspaceId: "ws-1",
+      runtimeId: "runtime-1",
+      mcpConnectionId: "connection-1",
+      runtimeCredentialId: IDS.credential,
+      modelsTenantId: IDS.tenant,
+      modelsTeamId: IDS.modelsTeam,
+      externalJobId: "om_job_1",
+      request,
+      status: "creating",
+      attemptCount: 0,
+      createdAt: "2026-08-05T10:00:00Z",
+      updatedAt: "2026-08-05T10:00:00Z",
+    }],
+    readLink: () => null,
+    createDelegation: async (input) => {
+      replayedRequest = input;
+      return provisionResponse(IDS.modelsTeam);
+    },
+    drainDelegation: async (delegation) => {
+      drainedDelegationId = delegation.delegationId;
+      return { ...provisionResponse(IDS.modelsTeam).delegation, status: "draining" };
+    },
+    intentStore,
+  });
+
+  assert.equal(replayedRequest?.idempotencyKey, request.idempotencyKey);
+  assert.equal(drainedDelegationId, IDS.delegation);
+  assert.deepEqual(transitions, ["provisioned", "drained"]);
+  assert.deepEqual(result, { attempted: 1, succeeded: 1, failed: 0 });
+});
+
+test("orphan reconciliation preserves a delegation when its immutable Job Link already exists", async () => {
+  const transitions: string[] = [];
+  let drains = 0;
+  const result = await drainOrphanedOpenMontageDelegationsAsync({
+    listIntents: () => [{
+      idempotencyKey: "openmontage:ws-1:invocation-1",
+      workspaceId: "ws-1",
+      runtimeId: "runtime-1",
+      mcpConnectionId: "connection-1",
+      runtimeCredentialId: IDS.credential,
+      modelsTenantId: IDS.tenant,
+      modelsTeamId: IDS.modelsTeam,
+      externalJobId: "om_job_1",
+      request: {
+        runtimeCredentialId: IDS.credential,
+        tenantId: IDS.tenant,
+        teamId: IDS.modelsTeam,
+        idempotencyKey: "openmontage:ws-1:invocation-1",
+        employeeId: "employee-1",
+        conversationId: "conversation-1",
+        rootTaskId: "task-1",
+        sourceService: "openmontage",
+        sourceInvocationId: "invocation-1",
+        externalJobId: "om_job_1",
+      },
+      delegationId: IDS.delegation,
+      status: "provisioned",
+      attemptCount: 0,
+      createdAt: "2026-08-05T10:00:00Z",
+      updatedAt: "2026-08-05T10:00:00Z",
+    }],
+    readLink: () => link(),
+    drainDelegation: async () => {
+      drains += 1;
+      return provisionResponse().delegation;
+    },
+    intentStore: noOpIntentStore(transitions),
+  });
+
+  assert.equal(drains, 0);
+  assert.deepEqual(transitions, ["bound"]);
+  assert.deepEqual(result, { attempted: 1, succeeded: 1, failed: 0 });
+});
+
 function snapshot() {
   return {
     schemaVersion: 1 as const,
@@ -185,4 +325,33 @@ function serviceHeaders(): Headers {
     Authorization: "Bearer service-token",
     "X-Dofe-Job-Attribution": Buffer.from(JSON.stringify(ATTRIBUTION), "utf8").toString("base64url"),
   });
+}
+
+function noOpIntentStore(transitions: string[] = []) {
+  return {
+    create: () => {
+      transitions.push("created");
+      return {} as never;
+    },
+    markProvisioned: () => {
+      transitions.push("provisioned");
+      return {} as never;
+    },
+    markBound: () => {
+      transitions.push("bound");
+      return {} as never;
+    },
+    markDrainPending: () => {
+      transitions.push("drain_pending");
+      return {} as never;
+    },
+    markDrainFailed: () => {
+      transitions.push("drain_failed");
+      return {} as never;
+    },
+    markDrained: () => {
+      transitions.push("drained");
+      return {} as never;
+    },
+  };
 }

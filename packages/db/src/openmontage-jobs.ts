@@ -8,6 +8,7 @@ import {
   type OpenMontageJobSnapshotSeed,
 } from "@dofe-agent/domain";
 import { getDatabase, randomLikeId, withTransaction } from "./database.ts";
+import { listUnresolvedOpenMontageDelegationIntentIdsSync } from "./openmontage-delegation-intents.ts";
 import { voidOpenMontagePendingTokenUsageSync } from "./token-usage.ts";
 
 export interface OpenMontageJobLinkRecord {
@@ -281,7 +282,7 @@ export function readOpenMontageRuntimePurgeGuardSync(
   workspaceId: string,
   runtimeId: string,
 ): OpenMontagePurgeGuardSnapshot {
-  return readOpenMontagePurgeGuardSync("link.runtime_id = ?", workspaceId, runtimeId);
+  return readOpenMontagePurgeGuardSync("runtime", "link.runtime_id = ?", workspaceId, runtimeId);
 }
 
 export function readOpenMontageMcpPurgeGuardSync(
@@ -289,6 +290,7 @@ export function readOpenMontageMcpPurgeGuardSync(
   connectionId: string,
 ): OpenMontagePurgeGuardSnapshot {
   return readOpenMontagePurgeGuardSync(
+    "mcp_connection",
     "delegation.mcp_connection_id = ?",
     workspaceId,
     connectionId,
@@ -296,6 +298,7 @@ export function readOpenMontageMcpPurgeGuardSync(
 }
 
 function readOpenMontagePurgeGuardSync(
+  targetType: "runtime" | "mcp_connection",
   targetPredicate: string,
   workspaceId: string,
   targetId: string,
@@ -322,6 +325,11 @@ function readOpenMontagePurgeGuardSync(
       ? [String(row.delegationId)]
       : [],
   );
+  unresolvedDelegationIds.push(...listUnresolvedOpenMontageDelegationIntentIdsSync({
+    workspaceId,
+    targetType,
+    targetId,
+  }));
   const credentialIds = [...new Set(rows.map((row) => String(row.runtimeCredentialId)))];
   let unreconciledUsageCount = 0;
   if (credentialIds.length > 0) {

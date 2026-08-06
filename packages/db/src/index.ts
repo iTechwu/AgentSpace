@@ -266,6 +266,20 @@ export {
   getDatabaseConnectionLabel,
 } from "./database.ts";
 export {
+  createOpenMontageDelegationIntentSync,
+  listDueOpenMontageDelegationIntentsSync,
+  listUnresolvedOpenMontageDelegationIntentIdsSync,
+  markOpenMontageDelegationIntentBoundSync,
+  markOpenMontageDelegationIntentDrainedSync,
+  markOpenMontageDelegationIntentDrainFailedSync,
+  markOpenMontageDelegationIntentDrainPendingSync,
+  markOpenMontageDelegationIntentProvisionedSync,
+  readOpenMontageDelegationIntentSync,
+  type CreateOpenMontageDelegationIntentInput,
+  type OpenMontageDelegationIntentRecord,
+  type OpenMontageDelegationIntentStatus,
+} from "./openmontage-delegation-intents.ts";
+export {
   createOpenMontageJobLinkSync,
   ingestOpenMontageJobEventSync,
   listOpenMontageChannelProjectionsSync,
