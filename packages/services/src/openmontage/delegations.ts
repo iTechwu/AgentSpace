@@ -18,7 +18,11 @@ import type {
 } from "@dofe-agent/domain";
 import { unwrapModelsInternalResponse } from "@dofe/models-sdk/response";
 import { resolveModelsBaseUrl } from "../config/deployment.ts";
-import { buildModelsInternalAuthorization, resolveModelsInternalConfig } from "../models/client.ts";
+import {
+  buildModelsInternalAuthorization,
+  getModelsInternalClient,
+  resolveModelsInternalConfig,
+} from "../models/client.ts";
 import { resolveManagedRuntimeScopeSync } from "../runtime-provisioning/runtime-provisioning.ts";
 import {
   buildRuntimeCredentialSecretRef,
@@ -105,11 +109,24 @@ export async function bindOpenMontageJobDelegationAsync(
   } = {},
 ): Promise<{ link: OpenMontageJobLinkRecord; delegation: OpenMontageModelDelegationRecord }> {
   const scope = (options.resolveScope ?? resolveManagedRuntimeScopeSync)(input.workspaceId);
+  // SSO team IDs are external identifiers. models.dofe.ai resolves them to
+  // its internal Team primary key on RuntimeCredential reads; use that
+  // canonical key for delegation scope, vault namespaces, and later billing
+  // credential requests. Tests can inject a fake creator without a network
+  // lookup and retain their synthetic scope IDs.
+  const modelsTeamId = options.createDelegation
+    ? scope.teamId
+    : (
+      await getModelsInternalClient().runtimeCredentials.get({
+        params: { id: input.runtimeCredentialId },
+        query: { tenantId: scope.tenantId, teamId: scope.teamId },
+      })
+    ).teamId;
   const expiresAt = new Date(new Date(input.snapshot.createdAt).getTime() + DELEGATION_TTL_MS).toISOString();
   const request: CreateDelegationRequest = {
     runtimeCredentialId: input.runtimeCredentialId,
     tenantId: scope.tenantId,
-    teamId: scope.teamId,
+    teamId: modelsTeamId,
     idempotencyKey: `openmontage:${input.workspaceId}:${input.sourceInvocationId}`,
     employeeId: input.employeeId,
     conversationId: input.conversationId,
@@ -128,7 +145,7 @@ export async function bindOpenMontageJobDelegationAsync(
   assertProvisionMatchesRequest(provision, request);
 
   const vault = options.vault ?? getRuntimeCredentialVault();
-  const vaultScope = { tenantId: scope.tenantId, teamId: scope.teamId, runtimeId: input.runtimeId };
+  const vaultScope = { tenantId: scope.tenantId, teamId: modelsTeamId, runtimeId: input.runtimeId };
   let secretRef: string;
   if (provision.secretIssued && provision.secret?.apiKey) {
     secretRef = vault.store(provision.delegation.id, provision.secret.apiKey, vaultScope).secretRef;
@@ -145,7 +162,7 @@ export async function bindOpenMontageJobDelegationAsync(
     delegationId: provision.delegation.id,
     runtimeCredentialId: input.runtimeCredentialId,
     modelsTenantId: scope.tenantId,
-    modelsTeamId: scope.teamId,
+    modelsTeamId,
     mcpConnectionId: input.connectionId,
     secretRef,
     spendLimit: input.budget.maxAmount,
@@ -336,29 +353,38 @@ async function requestModelsInternal<T>(path: string, body: unknown): Promise<T>
 
 function assertProvisionMatchesRequest(provision: ModelsDelegationProvision, request: CreateDelegationRequest): void {
   const delegation = provision?.delegation;
-  const matches = delegation
-    && delegation.runtimeCredentialId === request.runtimeCredentialId
-    && delegation.tenantId === request.tenantId
-    && delegation.teamId === request.teamId
-    && delegation.employeeId === request.employeeId
-    && delegation.conversationId === request.conversationId
-    && delegation.rootTaskId === request.rootTaskId
-    && delegation.sourceService === request.sourceService
-    && delegation.sourceInvocationId === request.sourceInvocationId
-    && delegation.externalJobId === request.externalJobId
-    && canonicalDecimal(delegation.spendLimit) === canonicalDecimal(request.spendLimit)
-    && delegation.currency === request.currency
-    && new Date(delegation.expiresAt).toISOString() === request.expiresAt
-    && delegation.status === "active"
-    && delegation.allowedCapabilities.length === OPENMONTAGE_MODEL_CAPABILITIES.length
-    && delegation.allowedCapabilities.every(
-      (capability, index) => capability === OPENMONTAGE_MODEL_CAPABILITIES[index],
+  const mismatches: string[] = [];
+  if (!delegation) mismatches.push("delegation");
+  if (delegation?.runtimeCredentialId !== request.runtimeCredentialId) mismatches.push("runtimeCredentialId");
+  if (delegation?.tenantId !== request.tenantId) mismatches.push("tenantId");
+  if (delegation?.teamId !== request.teamId) mismatches.push("teamId");
+  if (delegation?.employeeId !== request.employeeId) mismatches.push("employeeId");
+  if (delegation?.conversationId !== request.conversationId) mismatches.push("conversationId");
+  if (delegation?.rootTaskId !== request.rootTaskId) mismatches.push("rootTaskId");
+  if (delegation?.sourceService !== request.sourceService) mismatches.push("sourceService");
+  if (delegation?.sourceInvocationId !== request.sourceInvocationId) mismatches.push("sourceInvocationId");
+  if (delegation?.externalJobId !== request.externalJobId) mismatches.push("externalJobId");
+  if (canonicalDecimal(delegation?.spendLimit ?? "") !== canonicalDecimal(request.spendLimit)) {
+    mismatches.push("spendLimit");
+  }
+  if (delegation?.currency !== request.currency) mismatches.push("currency");
+  if (new Date(delegation?.expiresAt ?? 0).toISOString() !== request.expiresAt) mismatches.push("expiresAt");
+  if (delegation?.status !== "active") mismatches.push("status");
+  if (
+    delegation?.allowedCapabilities.length !== OPENMONTAGE_MODEL_CAPABILITIES.length
+    || delegation.allowedCapabilities.some(
+      (capability, index) => capability !== OPENMONTAGE_MODEL_CAPABILITIES[index],
     )
-    && delegation.allowedModels.length === 0
-    && typeof delegation.id === "string"
-    && delegation.id.length > 0;
-  if (!matches || (provision.secretIssued && !provision.secret?.apiKey)) {
-    throw new OpenMontageDelegationValidationError("models returned a delegation outside the requested Job scope.");
+  ) {
+    mismatches.push("allowedCapabilities");
+  }
+  if (delegation?.allowedModels.length !== 0) mismatches.push("allowedModels");
+  if (typeof delegation?.id !== "string" || delegation.id.length === 0) mismatches.push("id");
+  if (provision.secretIssued && !provision.secret?.apiKey) mismatches.push("secret");
+  if (mismatches.length > 0) {
+    throw new OpenMontageDelegationValidationError(
+      `models returned a delegation outside the requested Job scope (${mismatches.join(",")}).`,
+    );
   }
 }
 
