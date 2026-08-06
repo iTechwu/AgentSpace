@@ -1,5 +1,5 @@
 import { useReducer, useState } from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { WorkflowCanvas } from "./workflow-canvas";
@@ -79,5 +79,26 @@ describe("WorkflowCanvas", () => {
     render(<WorkflowCanvasHarness />);
     await user.click(screen.getByRole("tab", { name: "列表" }));
     expect(screen.getByTestId("node-summary")).toBeVisible();
+  });
+
+  it("edits execution dependencies and validates JSON input mappings", async () => {
+    const user = userEvent.setup();
+    render(<WorkflowCanvasHarness />);
+    await user.click(screen.getByRole("button", { name: "添加 AI 员工步骤" }));
+    await user.selectOptions(screen.getByLabelText("AI 员工"), "emp-a");
+    await user.click(screen.getByRole("button", { name: "添加" }));
+
+    await user.type(screen.getByLabelText("协作频道"), "项目群");
+    await user.type(screen.getByLabelText("所需技能 ID"), "analysis, web-search");
+    expect(screen.getByLabelText("协作频道")).toHaveValue("项目群");
+    expect(screen.getByLabelText("所需技能 ID")).toHaveValue("analysis, web-search");
+
+    const mapping = screen.getByLabelText("输入映射（JSON）");
+    fireEvent.change(mapping, { target: { value: "{invalid" } });
+    fireEvent.blur(mapping);
+    expect(await screen.findByRole("alert")).toHaveTextContent("请输入有效的 JSON 对象");
+    fireEvent.change(mapping, { target: { value: JSON.stringify({ topic: "${run.input.topic}" }) } });
+    fireEvent.blur(mapping);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

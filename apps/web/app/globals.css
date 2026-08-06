@@ -18194,6 +18194,9 @@ textarea:focus {
   padding: 6px 9px;
 }
 
+.workflow-node-config__numbers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.workflow-node-config__error { color: var(--danger); line-height: 1.4; }
+
 .workflow-builder-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;

@@ -59,6 +59,7 @@ export interface WorkflowBuilderInitialValue {
   governance: {
     maxConcurrency: number;
     failurePolicy: "stop" | "continue";
+    budgetUsd?: number;
   };
 }
 

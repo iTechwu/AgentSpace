@@ -125,4 +125,20 @@ describe("workflow builder", () => {
     expect(screen.getByTestId("node-audit")).toHaveAttribute("data-error", "true");
     expect(screen.getByRole("heading", { name: "流程" })).toBeVisible();
   });
+
+  it("submits workflow concurrency and budget governance", async () => {
+    const user = userEvent.setup();
+    renderBuilder();
+    await user.click(screen.getByRole("button", { name: /4.*治理/ }));
+    await user.clear(screen.getByLabelText("最大并发数"));
+    await user.type(screen.getByLabelText("最大并发数"), "2");
+    await user.type(screen.getByLabelText("流程预算上限（USD）"), "12.5");
+    await user.click(screen.getByRole("button", { name: /5.*预览/ }));
+    await user.click(screen.getByRole("button", { name: "运行预检" }));
+    await user.click(await screen.findByRole("button", { name: "发布" }));
+
+    await waitFor(() => expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({
+      governance: { maxConcurrency: 2, failurePolicy: "stop", budgetUsd: 12.5 },
+    })));
+  });
 });

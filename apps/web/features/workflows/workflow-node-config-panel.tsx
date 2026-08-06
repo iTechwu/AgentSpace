@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { WorkflowGraphDefinition, WorkflowNodeDefinition } from "@dofe-agent/domain";
 import type { WorkflowDraftEvent } from "./workflow-builder-reducer";
 import { workflowNodeLabel, type WorkflowEmployeeOption } from "./workflow-node-list-view";
@@ -46,6 +47,19 @@ export function WorkflowNodeConfigPanel({
               value={typeof node.config.instruction === "string" ? node.config.instruction : ""}
             />
           </label>
+          <label>
+            <span>协作频道</span>
+            <input
+              onChange={(event) => onEvent({ type: "updateNode", nodeId: node.id, patch: { config: { ...node.config, channelName: event.target.value } } })}
+              value={typeof node.config.channelName === "string" ? node.config.channelName : ""}
+            />
+          </label>
+          <CommaSeparatedField key={`${node.id}:skills`} node={node} onEvent={onEvent} />
+          <WorkflowInputEditor key={node.id} node={node} onEvent={onEvent} />
+          <div className="workflow-node-config__numbers">
+            <OptionalNumberField label="单步预算上限（USD）" node={node} onEvent={onEvent} property="budgetUsd" />
+            <OptionalNumberField label="预计成本（USD）" node={node} onEvent={onEvent} property="estimatedCostUsd" />
+          </div>
           <label>
             <span>最大尝试次数</span>
             <input
@@ -119,4 +133,107 @@ export function WorkflowNodeConfigPanel({
       </label>
     </aside>
   );
+}
+
+function WorkflowInputEditor({
+  node,
+  onEvent,
+}: {
+  node: WorkflowNodeDefinition;
+  onEvent: (event: WorkflowDraftEvent) => void;
+}) {
+  const serialized = JSON.stringify(isRecord(node.config.input) ? node.config.input : {}, null, 2);
+  const [value, setValue] = useState(serialized);
+  const [error, setError] = useState("");
+  useEffect(() => setValue(serialized), [serialized]);
+
+  function applyValue(): void {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (!isRecord(parsed)) throw new Error("input_must_be_object");
+      setError("");
+      onEvent({ type: "updateNode", nodeId: node.id, patch: { config: { ...node.config, input: parsed } } });
+    } catch {
+      setError("请输入有效的 JSON 对象。");
+    }
+  }
+
+  return (
+    <label>
+      <span>输入映射（JSON）</span>
+      <textarea
+        aria-invalid={Boolean(error)}
+        onBlur={applyValue}
+        onChange={(event) => setValue(event.target.value)}
+        rows={6}
+        value={value}
+      />
+      {error ? <small className="workflow-node-config__error" role="alert">{error}</small> : null}
+    </label>
+  );
+}
+
+function OptionalNumberField({
+  label,
+  node,
+  onEvent,
+  property,
+}: {
+  label: string;
+  node: WorkflowNodeDefinition;
+  onEvent: (event: WorkflowDraftEvent) => void;
+  property: "budgetUsd" | "estimatedCostUsd";
+}) {
+  return (
+    <label>
+      <span>{label}</span>
+      <input
+        min="0.01"
+        onChange={(event) => {
+          const config = { ...node.config };
+          if (event.target.value) config[property] = Number(event.target.value);
+          else delete config[property];
+          onEvent({ type: "updateNode", nodeId: node.id, patch: { config } });
+        }}
+        step="0.01"
+        type="number"
+        value={typeof node.config[property] === "number" ? node.config[property] : ""}
+      />
+    </label>
+  );
+}
+
+function CommaSeparatedField({
+  node,
+  onEvent,
+}: {
+  node: WorkflowNodeDefinition;
+  onEvent: (event: WorkflowDraftEvent) => void;
+}) {
+  const serialized = Array.isArray(node.config.requiredSkillIds) ? node.config.requiredSkillIds.join(", ") : "";
+  const [value, setValue] = useState(serialized);
+  useEffect(() => setValue(serialized), [serialized]);
+  return (
+    <label>
+      <span>所需技能 ID</span>
+      <input
+        onBlur={() => onEvent({
+          type: "updateNode",
+          nodeId: node.id,
+          patch: { config: { ...node.config, requiredSkillIds: commaSeparatedValues(value) } },
+        })}
+        onChange={(event) => setValue(event.target.value)}
+        placeholder="web-search, analysis"
+        value={value}
+      />
+    </label>
+  );
+}
+
+function commaSeparatedValues(value: string): string[] {
+  return [...new Set(value.split(",").map((entry) => entry.trim()).filter(Boolean))];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

@@ -61,6 +61,7 @@ export function WorkflowBuilderClient({
   const [eventName, setEventName] = useState(stringConfig(initial?.trigger.config.eventName, ""));
   const [timezone, setTimezone] = useState(initial?.trigger.timezone ?? "Asia/Shanghai");
   const [maxConcurrency, setMaxConcurrency] = useState(initial?.governance.maxConcurrency ?? 4);
+  const [budgetUsd, setBudgetUsd] = useState(initial?.governance.budgetUsd ? String(initial.governance.budgetUsd) : "");
   const [failurePolicy, setFailurePolicy] = useState<"stop" | "continue">(initial?.governance.failurePolicy ?? "stop");
   const [configurationDirty, setConfigurationDirty] = useState(false);
   const [validation, setValidation] = useState<WorkflowPublishValidation | null>(null);
@@ -159,7 +160,7 @@ export function WorkflowBuilderClient({
     const result = await validateWorkflowAction({
       workflowId: saved.workflowId,
       graph: saved.graph,
-      governance: { maxConcurrency, failurePolicy },
+      governance: governancePayload(maxConcurrency, failurePolicy, budgetUsd),
     });
     setPendingAction(null);
     if (!result.ok) {
@@ -183,7 +184,7 @@ export function WorkflowBuilderClient({
       workflowId,
       expectedDraftVersion: draft.draftVersion,
       graph,
-      governance: { maxConcurrency, failurePolicy },
+      governance: governancePayload(maxConcurrency, failurePolicy, budgetUsd),
       trigger: triggerPayload(triggerType, scheduleMode, schedule, onceAt, dailyAt, eventName, timezone),
     });
     setPendingAction(null);
@@ -295,6 +296,7 @@ export function WorkflowBuilderClient({
         {activeStep === 3 ? (
           <div className="workflow-wizard__form">
             <label><span>最大并发数</span><input max={20} min={1} onChange={(event) => updateConfiguration(() => setMaxConcurrency(Number(event.target.value)))} type="number" value={maxConcurrency} /></label>
+            <label><span>流程预算上限（USD）</span><input min="0.01" onChange={(event) => updateConfiguration(() => setBudgetUsd(event.target.value))} placeholder="不限制" step="0.01" type="number" value={budgetUsd} /></label>
             <fieldset><legend>失败策略</legend><div className="workflow-wizard__choice-grid"><label><input checked={failurePolicy === "stop"} name="failure-policy" onChange={() => updateConfiguration(() => setFailurePolicy("stop"))} type="radio" />停止后续步骤</label><label><input checked={failurePolicy === "continue"} name="failure-policy" onChange={() => updateConfiguration(() => setFailurePolicy("continue"))} type="radio" />允许部分结果</label></div></fieldset>
           </div>
         ) : null}
@@ -316,6 +318,18 @@ export function WorkflowBuilderClient({
       </footer>
     </main>
   );
+}
+
+function governancePayload(
+  maxConcurrency: number,
+  failurePolicy: "stop" | "continue",
+  budgetUsd: string,
+): Record<string, unknown> {
+  return {
+    maxConcurrency,
+    failurePolicy,
+    ...(budgetUsd ? { budgetUsd: Number(budgetUsd) } : {}),
+  };
 }
 
 function EmployeeOptions({ employees }: { employees: WorkflowBuilderEmployee[] }) {

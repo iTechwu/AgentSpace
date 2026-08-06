@@ -121,7 +121,11 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
     workspaceId: input.workspaceId,
     taskId: nodeRun.id,
     assignee: employee,
-    title: typeof config.title === "string" ? config.title : `Workflow node ${nodeRun.nodeId}`,
+    title: typeof config.title === "string"
+      ? config.title
+      : typeof config.instruction === "string" && config.instruction.trim()
+        ? config.instruction.trim()
+        : `Workflow node ${nodeRun.nodeId}`,
     channel: typeof config.channelName === "string" ? config.channelName : undefined,
     priority: config.priority === "low" || config.priority === "high" ? config.priority : "medium",
     triggerType: "workflow",

@@ -167,6 +167,7 @@ export function getWorkflowBuilderPageData(
       governance: {
         maxConcurrency: numberInRange(governance.maxConcurrency, 1, 20, 4),
         failurePolicy: governance.failurePolicy === "continue" ? "continue" : "stop",
+        ...(positiveNumber(governance.budgetUsd) ? { budgetUsd: positiveNumber(governance.budgetUsd) } : {}),
       },
     },
   };
@@ -304,6 +305,10 @@ function numberInRange(value: unknown, min: number, max: number, fallback: numbe
   return typeof value === "number" && Number.isFinite(value)
     ? Math.max(min, Math.min(max, value))
     : fallback;
+}
+
+function positiveNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 function artifactCount(value: string | undefined): number {
