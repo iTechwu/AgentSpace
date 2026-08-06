@@ -190,6 +190,7 @@ test("manual retry reopens partial runs and resets only descendants", () => {
       { nodeId: "successful-sibling", nodeType: "employee_task" },
       { nodeId: "partial-join", nodeType: "join" },
       { nodeId: "summary", nodeType: "employee_task" },
+      { nodeId: "other-failed-downstream", nodeType: "employee_task" },
     ],
   });
   for (const node of nodes) {
@@ -197,8 +198,8 @@ test("manual retry reopens partial runs and resets only descendants", () => {
       workspaceId: WORKSPACE_ID,
       nodeRunId: node.id,
       from: ["pending"],
-      to: node.nodeId === "failed-branch" ? "failed" : "succeeded",
-      allowTerminalRetry: node.nodeId === "failed-branch",
+      to: node.nodeId === "failed-branch" || node.nodeId === "other-failed-downstream" ? "failed" : "succeeded",
+      allowTerminalRetry: node.nodeId === "failed-branch" || node.nodeId === "other-failed-downstream",
     });
   }
   transitionWorkflowRunSync({
@@ -208,7 +209,9 @@ test("manual retry reopens partial runs and resets only descendants", () => {
     to: "partially_succeeded",
   });
 
-  const descendants = nodes.filter((node) => node.nodeId === "partial-join" || node.nodeId === "summary");
+  const descendants = nodes.filter((node) => (
+    node.nodeId === "partial-join" || node.nodeId === "summary" || node.nodeId === "other-failed-downstream"
+  ));
   resetWorkflowDescendantNodeRunsForRetrySync({
     workspaceId: WORKSPACE_ID,
     runId: run.id,
@@ -222,10 +225,13 @@ test("manual retry reopens partial runs and resets only descendants", () => {
     allowTerminalRetry: true,
   }));
 
-  const current = new Map(listWorkflowNodeRunsSync(WORKSPACE_ID, run.id).map((node) => [node.nodeId, node.status]));
-  assert.equal(current.get("successful-sibling"), "succeeded");
-  assert.equal(current.get("partial-join"), "pending");
-  assert.equal(current.get("summary"), "pending");
+  const current = new Map(listWorkflowNodeRunsSync(WORKSPACE_ID, run.id).map((node) => [node.nodeId, node]));
+  assert.equal(current.get("successful-sibling")?.status, "succeeded");
+  assert.equal(current.get("partial-join")?.status, "pending");
+  assert.equal(current.get("summary")?.status, "pending");
+  assert.equal(current.get("summary")?.attemptCount, 2);
+  assert.equal(current.get("summary")?.maxAttempts, 2);
+  assert.equal(current.get("other-failed-downstream")?.status, "failed");
 });
 
 test("event sequence and outbox lease are monotonic and owned", () => {

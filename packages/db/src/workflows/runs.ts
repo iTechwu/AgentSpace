@@ -311,9 +311,18 @@ export function resetWorkflowDescendantNodeRunsForRetrySync(input: {
     `UPDATE workflow_node_run
         SET status = 'pending', task_queue_id = NULL, approval_id = NULL, available_at = NULL,
             started_at = NULL, finished_at = NULL, output_json = NULL, artifact_manifest_json = NULL,
+            attempt_count = CASE
+              WHEN node_type = 'employee_task' AND status = 'succeeded' THEN attempt_count + 1
+              ELSE attempt_count
+            END,
+            max_attempts = CASE
+              WHEN node_type = 'employee_task' AND status = 'succeeded' THEN GREATEST(max_attempts, attempt_count + 1)
+              ELSE max_attempts
+            END,
             error_code = NULL, error_message = NULL, updated_at = ?
       WHERE workspace_id = ? AND run_id = ? AND id IN (${placeholders})
-        AND status IN ('succeeded', 'failed', 'skipped', 'cancelled')
+        AND (node_type = 'join' OR status = 'succeeded'
+          OR (status = 'skipped' AND error_code = 'workflow_upstream_failed'))
       RETURNING ${NODE_RUN_COLUMNS}`,
   ).all(input.now ?? new Date().toISOString(), input.workspaceId, input.runId, ...input.nodeIds) as Array<Record<string, unknown>>;
   return rows.map(mapNodeRun);
