@@ -156,8 +156,29 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
     } satisfies WorkflowTaskMetadata,
   });
   if (!task) {
-    rollbackReady(input, now);
-    return { nodeRunId: nodeRun.id, status: "ready" };
+    const availableAt = computeWorkflowQueueRetryAt(now);
+    const waiting = transitionWorkflowNodeRunSync({
+      workspaceId: input.workspaceId,
+      nodeRunId: nodeRun.id,
+      from: ["queued"],
+      to: "retry_wait",
+      availableAt,
+      clearTaskQueueId: true,
+      errorCode: "workflow_task_queue_unavailable",
+      now,
+    });
+    if (!waiting) throw new Error("workflow_node_queue_retry_conflict");
+    appendWorkflowRunEventSync({
+      workspaceId: input.workspaceId,
+      runId: run.id,
+      nodeRunId: waiting.id,
+      type: "node.queue_blocked",
+      actorType: "dispatcher",
+      severity: "warning",
+      dataJson: JSON.stringify({ code: "workflow_task_queue_unavailable", availableAt }),
+      now,
+    });
+    return { nodeRunId: waiting.id, status: waiting.status };
   }
   const updated = transitionWorkflowNodeRunSync({
     workspaceId: input.workspaceId,
@@ -174,6 +195,10 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
 
 export function resolveWorkflowMaxConcurrency(value: unknown): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 20 ? value : 4;
+}
+
+export function computeWorkflowQueueRetryAt(now: string): string {
+  return new Date(Date.parse(now) + 60_000).toISOString();
 }
 
 function rollbackReady(input: DispatchWorkflowNodeInput, now: string): void {
