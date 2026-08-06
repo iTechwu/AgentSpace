@@ -14,7 +14,7 @@ import {
   type WorkflowRunRecord,
 } from "@dofe-agent/db";
 import type { WorkflowGraphDefinition } from "@dofe-agent/domain";
-import { resolveWorkflowNodeInput } from "./inputs.ts";
+import { buildWorkflowNodeRuntimeContext, mergeWorkflowArtifactManifests } from "./inputs.ts";
 
 export interface CompleteWorkflowNodeInput {
   workspaceId: string;
@@ -155,14 +155,14 @@ function advanceDownstream(input: { workspaceId: string; run: WorkflowRunRecord;
         skipWorkflowDescendants(input, graph, byId, target.nodeId);
       } else if (success.length > 0) {
         const outputs = Object.fromEntries(success.map((node) => [node.nodeId, parseJson(node.outputJson)]));
-        transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: target.id, from: ["pending"], to: "succeeded", outputJson: JSON.stringify({ outputs }), finishedAt: input.now, now: input.now });
+        const artifacts = mergeWorkflowArtifactManifests(success.map((node) => node.artifactManifestJson));
+        transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: target.id, from: ["pending"], to: "succeeded", outputJson: JSON.stringify({ outputs }), artifactManifestJson: JSON.stringify(artifacts), finishedAt: input.now, now: input.now });
         appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: input.run.id, nodeRunId: target.id, type: "join.succeeded", actorType: "coordinator", dataJson: JSON.stringify({ policy }), now: input.now });
         activateSuccessors(input, graph, byId, target.nodeId);
       }
     } else if (success.length === predecessors.length) {
-      const predecessorOutputs = Object.fromEntries(predecessors.map((node) => [node.nodeId, parseRecord(node.outputJson)]));
-      const resolved = resolveWorkflowNodeInput({ runInput: parseRecord(input.run.inputJson), nodeConfig: targetConfig, predecessorOutputs });
-      transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: target.id, from: ["pending"], to: "ready", availableAt: input.now, inputJson: JSON.stringify(resolved), now: input.now });
+      const runtimeContext = buildWorkflowNodeRuntimeContext({ graph, nodeId: target.nodeId, runInput: parseRecord(input.run.inputJson), nodeRuns: allRuns });
+      transitionWorkflowNodeRunSync({ workspaceId: input.workspaceId, nodeRunId: target.id, from: ["pending"], to: "ready", availableAt: input.now, inputJson: JSON.stringify({ ...targetConfig, input: runtimeContext.resolvedInput }), now: input.now });
       enqueueWorkflowOutboxSync({ workspaceId: input.workspaceId, aggregateType: "workflow_node_run", aggregateId: target.id, eventType: "workflow.node.ready", payloadJson: JSON.stringify({ nodeRunId: target.id }), now: input.now });
     }
   }

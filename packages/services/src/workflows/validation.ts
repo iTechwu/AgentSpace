@@ -10,6 +10,7 @@ import {
   type WorkflowGraphDefinition,
   type WorkflowNodeDefinition,
 } from "@dofe-agent/domain";
+import { validateWorkflowInputReferences } from "./inputs.ts";
 
 export type WorkflowActorRole = "owner" | "admin" | "editor" | "viewer";
 
@@ -70,6 +71,8 @@ export function validateWorkflowForPublishSync(
     }
   }
   if (graphResult.errors.length > 0) return { blockers, warnings };
+  blockers.push(...validateWorkflowInputReferences(input.graph));
+  if (blockers.length > 0) return { blockers, warnings };
 
   const employees = new Map(
     listStoredEmployeesSync(input.workspaceId).map((employee) => [employee.id, employee]),

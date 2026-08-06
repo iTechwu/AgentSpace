@@ -1,6 +1,7 @@
 import {
   enqueueNativeTaskSync,
   appendWorkflowRunEventSync,
+  listWorkflowNodeRunsSync,
   readStoredEmployeeByIdSync,
   readWorkflowNodeRunSync,
   readWorkflowRunSync,
@@ -8,7 +9,8 @@ import {
   transitionWorkflowNodeRunSync,
   type WorkflowTaskMetadata,
 } from "@dofe-agent/db";
-import type { WorkflowNodeDefinition } from "@dofe-agent/domain";
+import type { WorkflowGraphDefinition, WorkflowNodeDefinition } from "@dofe-agent/domain";
+import { buildWorkflowNodeRuntimeContext } from "./inputs.ts";
 import { validateWorkflowNodeForDispatchSync } from "./validation.ts";
 
 export interface DispatchWorkflowNodeInput {
@@ -38,7 +40,16 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
     return { nodeRunId: nodeRun.id, taskQueueId: nodeRun.taskQueueId, status: nodeRun.status };
   }
   const now = input.now ?? new Date().toISOString();
-  const config = parseConfig(nodeRun.inputJson);
+  const version = readWorkflowVersionSync(run.versionId, input.workspaceId);
+  if (!version) throw new Error("workflow_version_not_found");
+  const graph = JSON.parse(version.graphJson) as WorkflowGraphDefinition;
+  const runtimeContext = buildWorkflowNodeRuntimeContext({
+    graph,
+    nodeId: nodeRun.nodeId,
+    runInput: parseConfig(run.inputJson),
+    nodeRuns: listWorkflowNodeRunsSync(input.workspaceId, run.id),
+  });
+  const config = runtimeContext.nodeConfig;
   const blocker = validateWorkflowNodeForDispatchSync(input.workspaceId, {
     id: nodeRun.nodeId,
     type: "employee_task",
@@ -85,7 +96,6 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
     const current = readWorkflowNodeRunSync(nodeRun.id, input.workspaceId)!;
     return { nodeRunId: current.id, taskQueueId: current.taskQueueId, status: current.status };
   }
-  const version = readWorkflowVersionSync(run.versionId, input.workspaceId);
   const employee = nodeRun.employeeId
     ? readStoredEmployeeByIdSync(nodeRun.employeeId, input.workspaceId)?.name
     : undefined;
@@ -101,7 +111,7 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
     channel: typeof config.channelName === "string" ? config.channelName : undefined,
     priority: config.priority === "low" || config.priority === "high" ? config.priority : "medium",
     triggerType: "workflow",
-    metadata: { workflowNodeInput: config.input ?? {} },
+    metadata: { workflowNodeInput: runtimeContext.resolvedInput },
     workflow: {
       workflowId: run.workflowId,
       workflowVersionId: run.versionId,
@@ -109,7 +119,7 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
       workflowNodeId: nodeRun.nodeId,
       workflowNodeRunId: nodeRun.id,
       attempt: Math.max(1, nodeRun.attemptCount),
-      artifactRefs: [],
+      artifactRefs: runtimeContext.artifactRefs,
       outputSchema: version ? parseConfig(version.outputSchemaJson) : undefined,
     } satisfies WorkflowTaskMetadata,
   });

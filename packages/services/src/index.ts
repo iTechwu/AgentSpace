@@ -191,7 +191,11 @@ export {
   type DispatchWorkflowNodeResult,
 } from "./workflows/dispatcher.ts";
 export {
+  buildWorkflowNodeRuntimeContext,
+  collectWorkflowArtifactRefs,
+  mergeWorkflowArtifactManifests,
   resolveWorkflowNodeInput,
+  validateWorkflowInputReferences,
 } from "./workflows/inputs.ts";
 export {
   completeWorkflowNodeSync,
