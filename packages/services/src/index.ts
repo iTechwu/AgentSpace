@@ -181,12 +181,31 @@ export {
 export {
   completeWorkflowNodeSync,
   failWorkflowNodeSync,
+  completeWorkflowApprovalNodeSync,
   type CompleteWorkflowNodeInput,
 } from "./workflows/coordinator.ts";
 export {
   completeWorkflowTaskIfLinkedSync,
   failWorkflowTaskIfLinkedSync,
 } from "./workflows/completion.ts";
+export {
+  retryWorkflowNodeSync,
+  pauseWorkflowRunSync,
+  resumeWorkflowRunSync,
+  cancelWorkflowRunSync,
+  computeWorkflowRetryAvailableAt,
+  type RetryWorkflowNodeInput,
+  type ControlWorkflowRunInput,
+} from "./workflows/retries.ts";
+export {
+  createWorkflowApprovalSync,
+  continueWorkflowAfterApprovalSync,
+  type CreateWorkflowApprovalInput,
+} from "./workflows/approvals.ts";
+export {
+  recoverStaleWorkflowWorkSync,
+  type WorkflowRecoveryResult,
+} from "./workflows/recovery.ts";
 export {
   resolveSystemDependencySync,
   listSystemDependencyCatalogSync,

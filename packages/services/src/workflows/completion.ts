@@ -1,5 +1,6 @@
 import { readWorkflowNodeRunByTaskQueueIdSync } from "@dofe-agent/db";
 import { completeWorkflowNodeSync, failWorkflowNodeSync } from "./coordinator.ts";
+import { retryWorkflowNodeSync } from "./retries.ts";
 
 export function completeWorkflowTaskIfLinkedSync(input: {
   workspaceId: string;
@@ -34,5 +35,17 @@ export function failWorkflowTaskIfLinkedSync(input: {
     errorCode: input.errorCode,
     errorMessage: input.errorText,
   });
-  return { linked: true, retryScheduled: false, runId: run.id };
+  const failed = readWorkflowNodeRunByTaskQueueIdSync(input.taskQueueId, input.workspaceId);
+  let retryScheduled = false;
+  if (failed?.status === "failed" && failed.attemptCount < failed.maxAttempts) {
+    retryWorkflowNodeSync({
+      workspaceId: input.workspaceId,
+      runId: failed.runId,
+      nodeId: failed.nodeId,
+      actorUserId: "workflow-retry-policy",
+      reason: input.errorText,
+    });
+    retryScheduled = true;
+  }
+  return { linked: true, retryScheduled, runId: run.id };
 }

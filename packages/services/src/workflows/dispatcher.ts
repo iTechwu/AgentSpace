@@ -22,6 +22,11 @@ export interface DispatchWorkflowNodeResult {
 export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput): DispatchWorkflowNodeResult {
   const nodeRun = readWorkflowNodeRunSync(input.nodeRunId, input.workspaceId);
   if (!nodeRun) throw new Error("workflow_node_run_not_found");
+  const run = readWorkflowRunSync(nodeRun.runId, input.workspaceId);
+  if (!run) throw new Error("workflow_run_not_found");
+  if (["paused", "cancelled", "failed", "succeeded", "partially_succeeded"].includes(run.status)) {
+    return { nodeRunId: nodeRun.id, taskQueueId: nodeRun.taskQueueId, status: nodeRun.status };
+  }
   if (nodeRun.status === "queued" && nodeRun.taskQueueId) {
     return { nodeRunId: nodeRun.id, taskQueueId: nodeRun.taskQueueId, status: nodeRun.status };
   }
@@ -40,8 +45,6 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
     const current = readWorkflowNodeRunSync(nodeRun.id, input.workspaceId)!;
     return { nodeRunId: current.id, taskQueueId: current.taskQueueId, status: current.status };
   }
-  const run = readWorkflowRunSync(nodeRun.runId, input.workspaceId);
-  if (!run) throw new Error("workflow_run_not_found");
   const version = readWorkflowVersionSync(run.versionId, input.workspaceId);
   const config = parseConfig(nodeRun.inputJson);
   const employee = nodeRun.employeeNameSnapshot ?? nodeRun.employeeId;
@@ -64,7 +67,7 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
       workflowRunId: run.id,
       workflowNodeId: nodeRun.nodeId,
       workflowNodeRunId: nodeRun.id,
-      attempt: Math.max(1, nodeRun.attemptCount + 1),
+      attempt: Math.max(1, nodeRun.attemptCount),
       artifactRefs: [],
       outputSchema: version ? parseConfig(version.outputSchemaJson) : undefined,
     } satisfies WorkflowTaskMetadata,
@@ -79,7 +82,7 @@ export function dispatchReadyWorkflowNodeSync(input: DispatchWorkflowNodeInput):
     from: ["queued"],
     to: "queued",
     taskQueueId: task.id,
-    attemptCount: Math.max(1, nodeRun.attemptCount + 1),
+    attemptCount: Math.max(1, nodeRun.attemptCount),
     now,
   });
   if (!updated) throw new Error("workflow_node_queue_link_conflict");

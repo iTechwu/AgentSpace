@@ -5,4 +5,5 @@ export const WORKFLOW_TEST_FILES = [
   "src/workflows/dispatcher.test.ts",
   "src/workflows/inputs.test.ts",
   "src/workflows/coordinator.test.ts",
+  "src/workflows/control.test.ts",
 ] as const;

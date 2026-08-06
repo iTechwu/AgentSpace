@@ -203,6 +203,7 @@ export {
   materializeWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,
   readWorkflowNodeRunByTaskQueueIdSync,
+  readWorkflowNodeRunByApprovalIdSync,
   listWorkflowNodeRunsSync,
   transitionWorkflowRunSync,
   transitionWorkflowNodeRunSync,

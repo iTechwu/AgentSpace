@@ -49,6 +49,8 @@ export interface TransitionWorkflowNodeRunInput {
   to: string;
   now?: string;
   taskQueueId?: string | null;
+  clearTaskQueueId?: boolean;
+  approvalId?: string;
   availableAt?: string | null;
   attemptCount?: number;
   startedAt?: string;
@@ -150,6 +152,12 @@ export function readWorkflowNodeRunByTaskQueueIdSync(taskQueueId: string, worksp
   return row ? mapNodeRun(row) : null;
 }
 
+export function readWorkflowNodeRunByApprovalIdSync(approvalId: string, workspaceId: string): WorkflowNodeRunRecord | null {
+  const row = getDatabase().prepare(`${NODE_RUN_SELECT} WHERE approval_id = ? AND workspace_id = ?`)
+    .get(approvalId, workspaceId) as Record<string, unknown> | undefined;
+  return row ? mapNodeRun(row) : null;
+}
+
 export function listWorkflowNodeRunsSync(workspaceId: string, runId: string): WorkflowNodeRunRecord[] {
   return (getDatabase().prepare(
     `${NODE_RUN_SELECT} WHERE workspace_id = ? AND run_id = ? ORDER BY created_at ASC, id ASC`,
@@ -175,7 +183,8 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
   const placeholders = from.map(() => "?").join(", ");
   const row = getDatabase().prepare(
     `UPDATE workflow_node_run
-        SET status = ?, task_queue_id = COALESCE(?, task_queue_id), available_at = COALESCE(?, available_at),
+        SET status = ?, task_queue_id = CASE WHEN ? THEN NULL ELSE COALESCE(?, task_queue_id) END,
+            approval_id = COALESCE(?, approval_id), available_at = COALESCE(?, available_at),
             attempt_count = COALESCE(?, attempt_count), started_at = COALESCE(?, started_at),
             finished_at = COALESCE(?, finished_at), input_json = COALESCE(?, input_json), output_json = COALESCE(?, output_json),
             artifact_manifest_json = COALESCE(?, artifact_manifest_json),
@@ -184,7 +193,9 @@ export function transitionWorkflowNodeRunSync(input: TransitionWorkflowNodeRunIn
       RETURNING ${NODE_RUN_COLUMNS}`,
   ).get(
     input.to,
+    input.clearTaskQueueId === true,
     input.taskQueueId ?? null,
+    input.approvalId ?? null,
     input.availableAt ?? null,
     input.attemptCount ?? null,
     input.startedAt ?? null,

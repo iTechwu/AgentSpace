@@ -3,6 +3,7 @@ import {
   getDatabase,
   listWorkflowNodeRunsSync,
   readWorkflowNodeRunSync,
+  readWorkflowNodeRunByApprovalIdSync,
   readWorkflowRunSync,
   readWorkflowVersionSync,
   enqueueWorkflowOutboxSync,
@@ -82,6 +83,48 @@ export function failWorkflowNodeSync(input: {
       now,
     });
     if (updated) appendWorkflowRunEventSync({ workspaceId: input.workspaceId, runId: run.id, nodeRunId: nodeRun.id, type: "node.failed", actorType: "daemon", severity: "error", dataJson: JSON.stringify({ code: input.errorCode }), now });
+    return finalizeRunIfTerminal(input.workspaceId, run, now);
+  });
+}
+
+export function completeWorkflowApprovalNodeSync(input: {
+  workspaceId: string;
+  approvalId: string;
+  actorUserId: string;
+  approved: boolean;
+  now?: string;
+}): WorkflowRunRecord {
+  const db = getDatabase();
+  const now = input.now ?? new Date().toISOString();
+  return withTransaction(db, () => {
+    const nodeRun = readWorkflowNodeRunByApprovalIdSync(input.approvalId, input.workspaceId);
+    if (!nodeRun) throw new Error("workflow_approval_not_linked");
+    const run = readWorkflowRunSync(nodeRun.runId, input.workspaceId);
+    if (!run) throw new Error("workflow_run_not_found");
+    if (nodeRun.status !== "waiting_approval") return run;
+    const updated = transitionWorkflowNodeRunSync({
+      workspaceId: input.workspaceId,
+      nodeRunId: nodeRun.id,
+      from: ["waiting_approval"],
+      to: input.approved ? "succeeded" : "failed",
+      outputJson: input.approved ? JSON.stringify({ approved: true, actorUserId: input.actorUserId }) : undefined,
+      errorCode: input.approved ? undefined : "workflow_approval_rejected",
+      finishedAt: now,
+      now,
+    });
+    if (!updated) return readWorkflowRunSync(run.id, input.workspaceId)!;
+    appendWorkflowRunEventSync({
+      workspaceId: input.workspaceId,
+      runId: run.id,
+      nodeRunId: nodeRun.id,
+      type: input.approved ? "approval.approved" : "approval.rejected",
+      actorType: "human",
+      actorId: input.actorUserId,
+      severity: input.approved ? "info" : "error",
+      dataJson: JSON.stringify({ approvalId: input.approvalId }),
+      now,
+    });
+    if (input.approved) advanceDownstream({ workspaceId: input.workspaceId, run, completed: updated, now });
     return finalizeRunIfTerminal(input.workspaceId, run, now);
   });
 }
