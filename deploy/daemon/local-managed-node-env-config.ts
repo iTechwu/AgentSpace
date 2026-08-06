@@ -1,4 +1,6 @@
 export const MANAGED_NODE_OPERATIONAL_ENV_KEYS = [
+  "OPENMONTAGE_MCP_URL",
+  "OPENMONTAGE_SERVICE_TOKEN",
   "MCP_EGRESS_ENFORCE",
   "MCP_EGRESS_PROXY_URL",
   "MCP_EGRESS_PROXY_ADMIN_TOKEN",
@@ -25,6 +27,8 @@ export function resolveManagedNodeOperationalEnv(
     readEnvValue(environment, key) || readEnvFileValue(previousSource, key) || fallback;
 
   const resolved: ManagedNodeOperationalEnv = {
+    OPENMONTAGE_MCP_URL: value("OPENMONTAGE_MCP_URL"),
+    OPENMONTAGE_SERVICE_TOKEN: value("OPENMONTAGE_SERVICE_TOKEN"),
     MCP_EGRESS_ENFORCE: value("MCP_EGRESS_ENFORCE", "false"),
     MCP_EGRESS_PROXY_URL: value("MCP_EGRESS_PROXY_URL"),
     MCP_EGRESS_PROXY_ADMIN_TOKEN: value("MCP_EGRESS_PROXY_ADMIN_TOKEN"),
@@ -49,6 +53,27 @@ export function resolveManagedNodeOperationalEnv(
     throw new Error(
       "MCP_EGRESS_PROXY_ADMIN_TOKEN is required. Export it or keep it in the existing .env.managed-node file.",
     );
+  }
+
+  if (Boolean(resolved.OPENMONTAGE_MCP_URL) !== Boolean(resolved.OPENMONTAGE_SERVICE_TOKEN)) {
+    throw new Error(
+      "OPENMONTAGE_MCP_URL and OPENMONTAGE_SERVICE_TOKEN must be configured together.",
+    );
+  }
+  if (resolved.OPENMONTAGE_MCP_URL) {
+    const openMontageUrl = new URL(resolved.OPENMONTAGE_MCP_URL);
+    if (
+      !/^https?:$/.test(openMontageUrl.protocol) ||
+      openMontageUrl.pathname !== "/mcp" ||
+      openMontageUrl.search ||
+      openMontageUrl.hash ||
+      openMontageUrl.username ||
+      openMontageUrl.password
+    ) {
+      throw new Error(
+        "OPENMONTAGE_MCP_URL must be a credential-free HTTP(S) URL ending in /mcp.",
+      );
+    }
   }
 
   const proxyUrl = new URL(resolved.MCP_EGRESS_PROXY_URL);

@@ -58,6 +58,37 @@ test("local managed-node recovery preserves required operational settings", () =
   assert.ok(formatManagedNodeOperationalEnv(resolved).includes("DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS=720000"));
 });
 
+test("local managed-node recovery preserves paired OpenMontage service settings", () => {
+  const resolved = resolveManagedNodeOperationalEnv(
+    [
+      "MCP_EGRESS_PROXY_URL=http://172.31.240.2:8080",
+      "MCP_EGRESS_PROXY_ADMIN_TOKEN=existing-secret",
+      "OPENMONTAGE_MCP_URL=http://host.docker.internal:8765/mcp",
+      "OPENMONTAGE_SERVICE_TOKEN=openmontage-secret",
+    ].join("\n"),
+  );
+
+  assert.equal(resolved.OPENMONTAGE_MCP_URL, "http://host.docker.internal:8765/mcp");
+  assert.equal(resolved.OPENMONTAGE_SERVICE_TOKEN, "openmontage-secret");
+});
+
+test("local managed-node recovery fails closed for partial or unsafe OpenMontage settings", () => {
+  assert.throws(
+    () =>
+      resolveManagedNodeOperationalEnv(
+        "MCP_EGRESS_PROXY_URL=http://127.0.0.1:8080\nMCP_EGRESS_PROXY_ADMIN_TOKEN=secret\nOPENMONTAGE_MCP_URL=http://openmontage:8765/mcp",
+      ),
+    /must be configured together/,
+  );
+  assert.throws(
+    () =>
+      resolveManagedNodeOperationalEnv(
+        "MCP_EGRESS_PROXY_URL=http://127.0.0.1:8080\nMCP_EGRESS_PROXY_ADMIN_TOKEN=secret\nOPENMONTAGE_MCP_URL=http://user:pass@openmontage:8765/mcp\nOPENMONTAGE_SERVICE_TOKEN=secret",
+      ),
+    /credential-free HTTP\(S\) URL/,
+  );
+});
+
 test("local managed-node recovery fails before rotation when proxy settings are incomplete", () => {
   assert.throws(
     () => resolveManagedNodeOperationalEnv("", {}),
