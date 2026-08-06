@@ -24,6 +24,7 @@
     "@dofe-agent/services": "workspace:*",
     "@dofe/sso-node": "^0.1.75",
     "@uiw/react-md-editor": "^4.1.1",
+    "@xyflow/react": "^12.11.2",
     "dofe-agent-daemon": "workspace:*",
     "next": "^16.1.6",
     "pg": "^8.20.0",
