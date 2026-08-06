@@ -214,6 +214,14 @@ export {
   type WorkflowOutboxDispatchResult,
 } from "./workflows/outbox-dispatcher.ts";
 export {
+  planLegacyMigration,
+  applyLegacyMigrationSync,
+  type LegacyMigrationAction,
+  type LegacyMigrationInput,
+  type LegacyMigrationPlan,
+  type MigrationReport,
+} from "./workflows/migration.ts";
+export {
   resolveSystemDependencySync,
   listSystemDependencyCatalogSync,
   type SystemDependencyResolution,
