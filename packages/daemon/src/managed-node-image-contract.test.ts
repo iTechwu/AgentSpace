@@ -50,7 +50,11 @@ test("managed-node runtime stage includes provider probe tools and cached packag
   );
   assert.match(
     managedNodeCompose,
-    /CURL_CA_BUNDLE: \$\{MANAGED_NODE_TLS_CA_PATH:\+\/run\/dofe-agent-tls-ca\.pem\}/,
+    /CURL_CA_BUNDLE: \$\{MANAGED_RUNTIME_TLS_CA_PATH:\+\/run\/dofe-agent-runtime-ca\.pem\}/,
+  );
+  assert.match(
+    managedNodeCompose,
+    /\$\{MANAGED_RUNTIME_TLS_CA_PATH:-\/dev\/null\}:\/run\/dofe-agent-runtime-ca\.pem:ro/,
   );
 });
 

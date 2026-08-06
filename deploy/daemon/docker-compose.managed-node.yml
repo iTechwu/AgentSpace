@@ -13,7 +13,7 @@ services:
       DOFE_AGENT_MANAGED_NODE: "true"
       DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS: ${DOFE_AGENT_RUNTIME_APP_COMMAND_TIMEOUT_MS:-600000}
       NODE_EXTRA_CA_CERTS: ${MANAGED_NODE_TLS_CA_PATH:+/run/dofe-agent-tls-ca.pem}
-      CURL_CA_BUNDLE: ${MANAGED_NODE_TLS_CA_PATH:+/run/dofe-agent-tls-ca.pem}
+      CURL_CA_BUNDLE: ${MANAGED_RUNTIME_TLS_CA_PATH:+/run/dofe-agent-runtime-ca.pem}
       # MCP egress enforcement. When true the entrypoint reconciles DOCKER-USER
       # rules before dropping privileges and starting the managed node daemon.
       # Defaults to canary until daemon/Provider process-isolation probes pass.
@@ -36,6 +36,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}:${MANAGED_NODE_STATE_DIR:?Set MANAGED_NODE_STATE_DIR to an absolute host path}
       - ${MANAGED_NODE_TLS_CA_PATH:-/dev/null}:/run/dofe-agent-tls-ca.pem:ro
+      - ${MANAGED_RUNTIME_TLS_CA_PATH:-/dev/null}:/run/dofe-agent-runtime-ca.pem:ro
     user: ${MANAGED_NODE_USER:-0:0}
     read_only: true
     tmpfs:
