@@ -207,6 +207,10 @@ export {
   type WorkflowRecoveryResult,
 } from "./workflows/recovery.ts";
 export {
+  dispatchWorkflowOutboxBatchSync,
+  type WorkflowOutboxDispatchResult,
+} from "./workflows/outbox-dispatcher.ts";
+export {
   resolveSystemDependencySync,
   listSystemDependencyCatalogSync,
   type SystemDependencyResolution,
